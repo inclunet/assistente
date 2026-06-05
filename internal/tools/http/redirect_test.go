@@ -87,4 +87,17 @@ func TestRedirectGuardStripsCredentialsOnHostChange(t *testing.T) {
 	if same.Header.Get("X-Api-Key") != "chave-secreta" {
 		t.Error("no mesmo host as credenciais deveriam ser preservadas")
 	}
+
+	// Mudança apenas de porta também é mudança de host: outro serviço na mesma
+	// máquina não deve receber as credenciais.
+	otherPort := mustReq(t, "https://api.exemplo.com:8443/x")
+	otherPort.Header = http.Header{}
+	otherPort.Header.Set("X-Api-Key", "chave-secreta")
+	otherPort = otherPort.WithContext(context.WithValue(context.Background(), appliedAuthHeadersKey{}, []string{"X-Api-Key"}))
+	if err := guard(otherPort, []*http.Request{orig}); err != nil {
+		t.Fatalf("mudança de porta para host público não deveria ser bloqueada: %v", err)
+	}
+	if otherPort.Header.Get("X-Api-Key") != "" {
+		t.Error("credencial deveria ser removida ao mudar a porta (host:port diferente)")
+	}
 }

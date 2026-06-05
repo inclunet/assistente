@@ -50,8 +50,11 @@ func stripCredentialsOnHostChange(req *http.Request, via []*http.Request) {
 	if len(via) == 0 || via[0] == nil || via[0].URL == nil || req.URL == nil {
 		return
 	}
-	origHost := via[0].URL.Hostname()
-	if strings.EqualFold(req.URL.Hostname(), origHost) {
+	// Compara Host (host:port), não só Hostname(): um redirect que muda apenas a
+	// porta (ex.: example.com -> example.com:8443) alcança outro serviço na mesma
+	// máquina e também deve descartar as credenciais. Over-strip num caso raro
+	// (porta default explícita) é aceitável — segurança acima de conveniência.
+	if strings.EqualFold(req.URL.Host, via[0].URL.Host) {
 		return
 	}
 	for _, h := range []string{"Authorization", "Proxy-Authorization", "Cookie", "Cookie2", "Www-Authenticate"} {
