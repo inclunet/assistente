@@ -42,8 +42,10 @@ func NewFeedRead(credMgr *credentials.Manager) *FeedRead {
 	// tool, então é seguro configurar o CheckRedirect do baseClient aqui.
 	if bc := client.GetBaseClient(); bc != nil {
 		bc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			if len(via) >= feedMaxRedirects {
-				return fmt.Errorf("excesso de redirects (%d)", len(via))
+			// via contém as requisições já feitas; permitimos até feedMaxRedirects
+			// saltos e só barramos a partir do seguinte.
+			if len(via) > feedMaxRedirects {
+				return fmt.Errorf("excesso de redirects (limite %d)", feedMaxRedirects)
 			}
 			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
 				return fmt.Errorf("redirect para scheme não suportado: %q", req.URL.Scheme)

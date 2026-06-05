@@ -177,6 +177,11 @@ func parseFeed(r io.Reader, opts parseOptions) (CanonicalFeed, error) {
 				Type:   enc.Type,
 				Length: enc.Length,
 			})
+			// Podcast RSS "simples" pode não ter namespace iTunes; um enclosure de
+			// áudio também sinaliza que é um podcast.
+			if strings.HasPrefix(strings.ToLower(enc.Type), "audio/") {
+				out.IsPodcast = true
+			}
 		}
 		if it.ITunesExt != nil {
 			out.IsPodcast = true

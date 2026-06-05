@@ -3,8 +3,10 @@ package feed
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -216,6 +218,30 @@ func TestParseFeedJSON_ExcludeContent(t *testing.T) {
 	}
 	if feed.Items[0].Content != "" {
 		t.Errorf("content should be empty when not included, got %q", feed.Items[0].Content)
+	}
+}
+
+const audioEnclosureFixture = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Simple audio feed</title>
+    <link>https://example.com</link>
+    <description>no itunes namespace</description>
+    <item>
+      <title>Episode sem iTunes</title>
+      <link>https://example.com/ep1</link>
+      <enclosure url="https://example.com/ep1.mp3" length="123" type="audio/mpeg"/>
+    </item>
+  </channel>
+</rss>`
+
+func TestParseFeedPodcastViaAudioEnclosure(t *testing.T) {
+	feed, err := parseFeed(strings.NewReader(audioEnclosureFixture), parseOptions{MaxItems: 20, StripHTML: true})
+	if err != nil {
+		t.Fatalf("parseFeed: %v", err)
+	}
+	if !feed.IsPodcast {
+		t.Error("esperado is_podcast=true para feed com enclosure de áudio mesmo sem namespace iTunes")
 	}
 }
 
@@ -485,6 +511,45 @@ func TestFeedReadExecuteRedirectNoLocation(t *testing.T) {
 	}
 	if !res.IsError {
 		t.Error("esperado IsError para resposta 3xx não seguida")
+	}
+}
+
+func TestFeedReadExecuteRedirectLimit(t *testing.T) {
+	var base string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := r.URL.Query().Get("n")
+		if n == "" || n == "0" {
+			w.Header().Set("Content-Type", "application/rss+xml")
+			_, _ = w.Write([]byte(rssFixture))
+			return
+		}
+		k, _ := strconv.Atoi(n)
+		http.Redirect(w, r, base+"/?n="+strconv.Itoa(k-1), http.StatusFound)
+	}))
+	defer srv.Close()
+	base = srv.URL
+
+	tool := NewFeedRead(nil)
+	tool.allowPrivateHosts = true
+
+	// Cadeia que precisa de exatamente feedMaxRedirects saltos deve passar.
+	args, _ := json.Marshal(map[string]any{"url": fmt.Sprintf("%s/?n=%d", srv.URL, feedMaxRedirects)})
+	res, err := tool.Execute(context.Background(), args)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.IsError {
+		t.Errorf("cadeia de %d redirects deveria ser permitida, got erro: %s", feedMaxRedirects, res.Content)
+	}
+
+	// Um salto acima do limite deve falhar.
+	args2, _ := json.Marshal(map[string]any{"url": fmt.Sprintf("%s/?n=%d", srv.URL, feedMaxRedirects+1)})
+	res2, err := tool.Execute(context.Background(), args2)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res2.IsError {
+		t.Error("cadeia acima do limite de redirects deveria falhar")
 	}
 }
 
