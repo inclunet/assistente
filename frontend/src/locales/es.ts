@@ -1585,6 +1585,8 @@ const es = {
       errorLoading: 'Error al cargar subagentes',
       retry: 'Intentar de nuevo',
       openError: 'Error al abrir la subconversación',
+      toolbarLabel: 'Acciones de subagentes',
+      gridLabel: 'Lista de subagentes',
       untitled: 'Subagente sin título',
       background: 'En segundo plano',
       colTitle: 'Título',

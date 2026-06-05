@@ -1560,6 +1560,8 @@ const ptBR = {
       errorLoading: 'Erro ao carregar sub-agentes',
       retry: 'Tentar novamente',
       openError: 'Erro ao abrir a sub-conversa',
+      toolbarLabel: 'Ações de sub-agentes',
+      gridLabel: 'Lista de sub-agentes',
       untitled: 'Sub-agente sem título',
       background: 'Em segundo plano',
       colTitle: 'Título',

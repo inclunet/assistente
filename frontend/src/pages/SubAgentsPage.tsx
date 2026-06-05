@@ -168,6 +168,7 @@ export default function SubAgentsPage() {
   return (
     <div className="subagents-page">
       <Toolbar
+        ariaLabel={t('subagents.toolbarLabel')}
         left={<h1 className="page-toolbar__title">{t('subagents.pageTitle')}</h1>}
         searchPlaceholder={t('subagents.search')}
         searchValue={searchTerm}
@@ -197,6 +198,7 @@ export default function SubAgentsPage() {
         <DataGrid
           items={displayItems}
           columns={columns}
+          label={t('subagents.gridLabel')}
           getItemId={(item) => item.conversationId}
           onActivate={(item: SubAgent) => handleOpen(item.conversationId, item.title)}
           onGridReady={handleGridReady}

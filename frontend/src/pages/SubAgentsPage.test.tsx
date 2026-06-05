@@ -63,9 +63,9 @@ vi.mock('../lib/deepLinks', () => ({
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
-  Toolbar: ({ left, actions }: { left?: ReactNode; actions?: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> }) => {
+  Toolbar: ({ left, actions, ariaLabel }: { left?: ReactNode; ariaLabel?: string; actions?: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> }) => {
     return (
-      <div>
+      <div role="toolbar" aria-label={ariaLabel}>
         {left}
         {actions?.map((action) => (
           <button key={action.key} onClick={action.onClick} disabled={action.disabled}>
@@ -80,14 +80,16 @@ vi.mock('../components/ui/Toolbar', () => ({
 vi.mock('../components/ui/DataGrid', () => ({
   DataGrid: ({
     items,
+    label,
     onFocusChange,
     onActivate,
   }: {
     items?: SubAgentItem[];
+    label?: string;
     onFocusChange?: (item: SubAgentItem | null) => void;
     onActivate?: (item: SubAgentItem) => void;
   }) => (
-    <div>
+    <div role="grid" aria-label={label}>
       <button type="button" onClick={() => onFocusChange?.(items?.[0] ?? null)}>focus-first</button>
       {items?.map((item) => (
         <div key={item.conversationId}>
@@ -158,6 +160,15 @@ describe('SubAgentsPage', { timeout: 60_000 }, () => {
         expect.objectContaining({ navigate: expect.any(Function) }),
       );
     });
+  });
+
+  it('rotula a toolbar e o grid com chaves i18n localizadas', async () => {
+    mockGetSubAgentConversations.mockResolvedValue(subAgents);
+    render(<SubAgentsPage />);
+
+    await screen.findByText('Pesquisa de mercado');
+    expect(screen.getByRole('toolbar', { name: 'subagents.toolbarLabel' })).toBeInTheDocument();
+    expect(screen.getByRole('grid', { name: 'subagents.gridLabel' })).toBeInTheDocument();
   });
 
   it('exibe estado vazio quando não há sub-agentes', async () => {

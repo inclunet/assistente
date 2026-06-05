@@ -1586,6 +1586,8 @@ const en = {
       errorLoading: 'Failed to load sub-agents',
       retry: 'Try again',
       openError: 'Failed to open sub-conversation',
+      toolbarLabel: 'Sub-agent actions',
+      gridLabel: 'Sub-agents list',
       untitled: 'Untitled sub-agent',
       background: 'Background',
       colTitle: 'Title',
