@@ -73,7 +73,7 @@ func (t *FeedRead) Parameters() json.RawMessage {
 			},
 			"since": {
 				"type": "string",
-				"description": "RFC3339 timestamp; only items published after this instant are returned (items without a parseable date are kept)."
+				"description": "RFC3339 timestamp; only items published at or after this instant are returned (inclusive; items without a parseable date are kept)."
 			}
 		},
 		"required": ["url"],
