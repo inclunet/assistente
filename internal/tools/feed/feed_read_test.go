@@ -417,19 +417,11 @@ func TestFeedReadExecute(t *testing.T) {
 	}
 }
 
-func TestFeedReadExecuteOversizePayload(t *testing.T) {
-	// Monta um RSS grande o suficiente para o JSON serializado estourar o limite
-	// do executor; o resultado deve ser um erro explícito, nunca JSON truncado.
-	var sb strings.Builder
-	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Big</title><link>https://example.com</link><description>d</description>`)
-	body := strings.Repeat("conteudo ", 2000) // ~18KB por item
-	for i := 0; i < 50; i++ {
-		sb.WriteString("<item><title>Item</title><link>https://example.com/x</link><description>")
-		sb.WriteString(body)
-		sb.WriteString("</description></item>")
-	}
-	sb.WriteString(`</channel></rss>`)
-	feedXML := sb.String()
+func TestFeedReadExecuteMarksStructured(t *testing.T) {
+	// O contrato JSON canônico declara Structured=true; a aplicação do limite de
+	// tamanho (erro explícito em vez de truncar) é responsabilidade centralizada
+	// do executor e é testada em internal/tools/executor_test.go.
+	feedXML := `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Big</title><link>https://example.com</link><description>d</description><item><title>Item</title><link>https://example.com/x</link><description>c</description></item></channel></rss>`
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rss+xml")
@@ -439,16 +431,16 @@ func TestFeedReadExecuteOversizePayload(t *testing.T) {
 
 	tool := NewFeedRead(nil)
 	tool.allowPrivateHosts = true
-	args, _ := json.Marshal(map[string]any{"url": srv.URL, "max_items": 50, "include_content": true})
+	args, _ := json.Marshal(map[string]any{"url": srv.URL})
 	res, err := tool.Execute(context.Background(), args)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !res.IsError {
-		t.Fatalf("esperado IsError para payload acima do limite, got content de %d bytes", len(res.Content))
+	if res.IsError {
+		t.Fatalf("não esperava erro, got %q", res.Content)
 	}
-	if !strings.Contains(res.Content, "max_items") {
-		t.Errorf("mensagem deveria orientar a reduzir max_items, got %q", res.Content)
+	if !res.Structured {
+		t.Error("saída JSON canônica deveria ter Structured=true")
 	}
 }
 

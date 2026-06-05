@@ -177,32 +177,53 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			return
 		}
 
-		// Trunca resultado se necessário (UTF-8 safe).
-		// Reserva bytes para o aviso de truncamento, garantindo que
-		// result.Content final ≤ MaxResultSize.
+		// Aplica o limite de tamanho. Política canônica (centralizada aqui, antes
+		// duplicada em cada tool): saídas estruturadas (JSON canônico) não podem ser
+		// truncadas — truncar corromperia o JSON e quebraria consumidores. Nesse
+		// caso falhamos de forma explícita; caso contrário, truncamos (UTF-8 safe).
+		var execErr error
+		execKind := ErrorKindNone
 		if len(result.Content) > e.config.MaxResultSize {
-			origSize := len(result.Content)
-			warning := fmt.Sprintf(
-				"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
-				origSize, e.config.MaxResultSize,
-			)
-			contentBudget := e.config.MaxResultSize - len(warning)
-			if contentBudget >= 1 {
-				result.Content = truncateUTF8(result.Content, contentBudget) + warning
+			if result.Structured {
+				// Falha classificada do executor (AEP-0039): preenche Error/ErrorKind
+				// para que agent/service.go emita tool_failure e persista o error_kind.
+				origSize := len(result.Content)
+				result = ToolResult{
+					Content: fmt.Sprintf(
+						"Resultado estruturado tem %d bytes, acima do limite de %d. Reduza o escopo da chamada (ex.: max_results/max_items) para obter um payload menor.",
+						origSize, e.config.MaxResultSize,
+					),
+					IsError: true,
+				}
+				execErr = fmt.Errorf("saída estruturada de '%s' tem %d bytes, acima do limite de %d", toolName, origSize, e.config.MaxResultSize)
+				execKind = ErrorKindUnknown
 			} else {
-				// Warning não cabe — trunca sem aviso para respeitar o limite.
-				result.Content = truncateUTF8(result.Content, e.config.MaxResultSize)
+				origSize := len(result.Content)
+				// Reserva bytes para o aviso, garantindo Content final ≤ MaxResultSize.
+				warning := fmt.Sprintf(
+					"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
+					origSize, e.config.MaxResultSize,
+				)
+				contentBudget := e.config.MaxResultSize - len(warning)
+				if contentBudget >= 1 {
+					result.Content = truncateUTF8(result.Content, contentBudget) + warning
+				} else {
+					// Warning não cabe — trunca sem aviso para respeitar o limite.
+					result.Content = truncateUTF8(result.Content, e.config.MaxResultSize)
+				}
+				if result.Metadata == nil {
+					result.Metadata = make(map[string]any)
+				}
+				result.Metadata["truncated"] = true
 			}
-			if result.Metadata == nil {
-				result.Metadata = make(map[string]any)
-			}
-			result.Metadata["truncated"] = true
 		}
 
 		resultCh <- ToolExecutionResult{
 			CallID:     call.ID,
 			ToolName:   toolName,
 			Result:     result,
+			Error:      execErr,
+			ErrorKind:  execKind,
 			DurationMs: time.Since(start).Milliseconds(),
 		}
 	}()
