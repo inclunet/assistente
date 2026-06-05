@@ -69,7 +69,7 @@ func (pts *persistingTokenSource) Token() (*oauth2.Token, error) {
 
 	if token.AccessToken != pts.lastToken {
 		pts.lastToken = token.AccessToken
-		pts.rt.persistTokens(pts.rt.authCtx(), token)
+		pts.rt.persistTokens(token)
 		log.Printf("[MCP:%s] Token renovado e persistido automaticamente", pts.rt.serverSlug)
 	}
 
@@ -126,7 +126,7 @@ func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context) error {
 	}
 
 	rt.tokenSource = rt.wrapWithPersistence(rt.oauthCfg.TokenSource(rt.longLivedCtx(), newToken))
-	rt.persistTokens(ctx, newToken)
+	rt.persistTokens(newToken)
 
 	rotated := newToken.RefreshToken != "" && newToken.RefreshToken != refreshToken
 	log.Printf("[MCP:%s] Token renovado silenciosamente via refresh_token (rotacionado=%v)", rt.serverSlug, rotated)
@@ -632,7 +632,7 @@ func (rt *pkceRoundTripper) resolveClientID(ctx context.Context) error {
 
 	rt.resolvedClientID = dcrResult.ClientID
 	rt.resolvedClientSecret = dcrResult.ClientSecret
-	rt.persistClientCreds(ctx, dcrResult.ClientID, dcrResult.ClientSecret)
+	rt.persistClientCreds(dcrResult.ClientID, dcrResult.ClientSecret)
 
 	rt.cfg.OAuth2ClientID = dcrResult.ClientID
 	if rt.cfg.OAuth2CallbackPort == 0 {
@@ -668,7 +668,7 @@ func (rt *pkceRoundTripper) reRegisterClient(ctx context.Context) error {
 	rt.resolvedClientID = dcrResult.ClientID
 	rt.resolvedClientSecret = dcrResult.ClientSecret
 	rt.cfg.OAuth2ClientID = dcrResult.ClientID
-	rt.persistClientCreds(ctx, dcrResult.ClientID, dcrResult.ClientSecret)
+	rt.persistClientCreds(dcrResult.ClientID, dcrResult.ClientSecret)
 
 	if rt.cfg.OAuth2CallbackPort == 0 {
 		rt.cfg.OAuth2CallbackPort = port
@@ -828,7 +828,7 @@ func (rt *pkceRoundTripper) authorizeDeviceFlow(parentCtx context.Context) error
 			}
 			rt.oauthCfg = oauthCfg
 			rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(rt.longLivedCtx(), token))
-			rt.persistTokens(ctx, token)
+			rt.persistTokens(token)
 			if tokenResp.RefreshToken == "" {
 				log.Printf("[MCP:%s] AVISO: device flow não retornou refresh_token — reauth será necessária na expiração (verifique offline_access)", rt.serverSlug)
 			}
@@ -982,7 +982,7 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 
 		rt.oauthCfg = oauthCfg
 		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(rt.longLivedCtx(), token))
-		rt.persistTokens(ctx, token)
+		rt.persistTokens(token)
 
 		log.Printf("[MCP:%s] Autorização OAuth2 PKCE concluída com sucesso", rt.serverSlug)
 		return nil
@@ -1072,11 +1072,13 @@ func userTokensPattern(slug string) string { return "mcp-tokens:" + slug }
 
 // persistClientCreds salva dados de registro do app (client_id + client_secret) no credential manager.
 //
-// Recebe `ctx` user-scoped para que a credencial seja gravada com
-// `user_id` correto. A versão antiga usava `context.Background()` e
-// gravava como instance-scoped por engano — qualquer leitura
-// subsequente via ctx user-scoped não achava nada.
-func (rt *pkceRoundTripper) persistClientCreds(ctx context.Context, clientID, clientSecret string) {
+// Usa SEMPRE rt.authCtx() (user-scoped) internamente para gravar com o
+// `user_id` correto. Os call sites NÃO devem passar o ctx da operação
+// (request-scoped ou derivado de context.Background() nos flows device/PKCE),
+// pois esses contextos podem não carregar o `user_id` e gravariam a credencial
+// como instance-scoped por engano — qualquer leitura subsequente via ctx
+// user-scoped não acharia nada (classe de bug AEP-0061).
+func (rt *pkceRoundTripper) persistClientCreds(clientID, clientSecret string) {
 	if rt.credMgr == nil {
 		return
 	}
@@ -1085,19 +1087,22 @@ func (rt *pkceRoundTripper) persistClientCreds(ctx context.Context, clientID, cl
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 	}
-	if err := rt.credMgr.RegisterPatternWithContext(ctx, clientCredPattern(rt.serverSlug), auth); err != nil {
+	if err := rt.credMgr.RegisterPatternWithContext(rt.authCtx(), clientCredPattern(rt.serverSlug), auth); err != nil {
 		log.Printf("[MCP:%s] Erro ao salvar credenciais do cliente: %v", rt.serverSlug, err)
 	}
 }
 
 // persistTokens salva tokens da sessão do usuário (access_token + refresh_token) no credential manager.
 //
-// Recebe `ctx` user-scoped pelo mesmo motivo de persistClientCreds: a
-// credencial só é útil para o user que executou o flow.
-func (rt *pkceRoundTripper) persistTokens(ctx context.Context, token *oauth2.Token) {
+// Usa SEMPRE rt.authCtx() (user-scoped) internamente pelo mesmo motivo de
+// persistClientCreds: a credencial só é útil para o user que executou o flow,
+// e o ctx da operação pode não carregar o `user_id` (ex.: device flow deriva de
+// context.Background()).
+func (rt *pkceRoundTripper) persistTokens(token *oauth2.Token) {
 	if rt.credMgr == nil || token == nil {
 		return
 	}
+	ctx := rt.authCtx()
 	refresh := token.RefreshToken
 	if refresh == "" {
 		// Refresh non-rotativo: o provedor pode não reenviar o refresh_token numa
@@ -1230,7 +1235,7 @@ func buildPKCEHTTPClient(cfg ServerConfig, credMgr *credentials.Manager, emitEve
 	clientID, clientSecret := loadClientCreds(bootstrapCtx, credMgr, slug)
 	if clientID == "" && cfg.OAuth2ClientID != "" {
 		clientID = cfg.OAuth2ClientID
-		rt.persistClientCreds(bootstrapCtx, clientID, "")
+		rt.persistClientCreds(clientID, "")
 		log.Printf("[MCP:%s] client_id importado do config para credential manager", slug)
 	}
 	rt.resolvedClientID = clientID

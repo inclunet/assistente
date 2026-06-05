@@ -337,7 +337,7 @@ func TestPersistAndLoadClientCreds(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	rt.persistClientCreds(ctx, "my-client-id", "my-client-secret")
+	rt.persistClientCreds("my-client-id", "my-client-secret")
 
 	cid, csec := loadClientCreds(ctx, credMgr, "test-server")
 	if cid != "my-client-id" {
@@ -376,7 +376,7 @@ func TestBuildPKCEHTTPClient_DoesNotOverwriteExistingCreds(t *testing.T) {
 	ctx := context.Background()
 
 	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "test"}
-	rt.persistClientCreds(ctx, "existing-id", "existing-secret")
+	rt.persistClientCreds("existing-id", "existing-secret")
 
 	cfg := ServerConfig{
 		URL:            "https://example.com/mcp",
@@ -408,7 +408,7 @@ func TestPersistAndLoadUserTokens(t *testing.T) {
 		RefreshToken: "refresh-456",
 	}
 	ctx := context.Background()
-	rt.persistTokens(ctx, toOAuth2Token(token))
+	rt.persistTokens(toOAuth2Token(token))
 
 	loaded := loadUserTokens(ctx, credMgr, "test-server")
 	if loaded == nil {
@@ -1269,9 +1269,9 @@ func TestPersistTokens_PreservesRefreshTokenWhenEmpty(t *testing.T) {
 	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
 	ctx := context.Background()
 
-	rt.persistTokens(ctx, &oauth2.Token{AccessToken: "a1", RefreshToken: "r1"})
+	rt.persistTokens(&oauth2.Token{AccessToken: "a1", RefreshToken: "r1"})
 	// Refresh non-rotativo: novo access_token, refresh_token ausente na resposta.
-	rt.persistTokens(ctx, &oauth2.Token{AccessToken: "a2"})
+	rt.persistTokens(&oauth2.Token{AccessToken: "a2"})
 
 	loaded := loadUserTokens(ctx, credMgr, "srv")
 	if loaded == nil {
@@ -1291,7 +1291,7 @@ func TestPersistTokens_PersistsExpiry(t *testing.T) {
 	ctx := context.Background()
 
 	exp := time.Now().Add(2 * time.Hour).Truncate(time.Second)
-	rt.persistTokens(ctx, &oauth2.Token{AccessToken: "a", RefreshToken: "r", Expiry: exp})
+	rt.persistTokens(&oauth2.Token{AccessToken: "a", RefreshToken: "r", Expiry: exp})
 
 	loaded := loadUserTokens(ctx, credMgr, "srv")
 	if loaded == nil {
@@ -1323,7 +1323,7 @@ func TestTrySilentRefresh_UsesStoreRefreshTokenWhenMemoryLacksIt(t *testing.T) {
 	credMgr := newTestCredMgr()
 	ctx := context.Background()
 	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
-	rt.persistTokens(ctx, &oauth2.Token{AccessToken: "old-access", RefreshToken: "stored-refresh"})
+	rt.persistTokens(&oauth2.Token{AccessToken: "old-access", RefreshToken: "stored-refresh"})
 
 	rt.oauthCfg = &oauth2.Config{
 		ClientID: "c",
@@ -1371,7 +1371,7 @@ func TestStoredTokenSourceSurvivesOperationCtxCancel(t *testing.T) {
 
 	credMgr := newTestCredMgr()
 	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
-	rt.persistTokens(context.Background(), &oauth2.Token{AccessToken: "seed", RefreshToken: "seed-ref"})
+	rt.persistTokens(&oauth2.Token{AccessToken: "seed", RefreshToken: "seed-ref"})
 	rt.oauthCfg = &oauth2.Config{ClientID: "c", Endpoint: oauth2.Endpoint{TokenURL: srv.URL + "/token"}}
 	rt.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "seed"})
 
