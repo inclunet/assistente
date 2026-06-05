@@ -27,11 +27,12 @@ func RedirectGuard(maxRedirects int, allowPrivate func() bool) func(req *http.Re
 		if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
 			return fmt.Errorf("redirect para scheme não suportado: %q", req.URL.Scheme)
 		}
-		// Remove credenciais quando o redirect sai do host original ou faz downgrade
-		// https->http: o net/http copia os headers para o destino e só remove
-		// Authorization/Cookie em mudança de host — headers de credencial custom
-		// (ex.: X-Api-Key) vazariam para outro domínio (ou em texto puro) sem isto.
-		stripCredentialsOnUntrustedRedirect(req, via)
+		// Remove headers sensíveis quando o redirect cruza um limite de confiança:
+		// o net/http copia os headers para o destino e só remove Authorization/Cookie
+		// em mudança de host — qualquer outro header (credencial injetada pelo
+		// credmanager OU custom passado pelo chamador, ex.: X-Api-Key) vazaria para
+		// outro domínio (ou em texto puro) sem isto.
+		stripUnsafeHeadersOnUntrustedRedirect(req, via)
 		if allowPrivate != nil && allowPrivate() {
 			return nil
 		}
@@ -42,16 +43,28 @@ func RedirectGuard(maxRedirects int, allowPrivate func() bool) func(req *http.Re
 	}
 }
 
-// stripCredentialsOnUntrustedRedirect remove headers sensíveis do próximo request
-// quando o redirect cruza um limite de confiança, evitando vazamento de credenciais
-// (domain-scoped). Cobre os headers padrão (defense-in-depth) e os headers de
-// credencial custom injetados pelo cliente, propagados via context.
+// redirectSafeHeaders é a allowlist de headers que podem atravessar um redirect que
+// cruza um limite de confiança. Política deny-by-default: qualquer header fora desta
+// lista é removido nesse caso, fechando o vazamento independentemente da origem do
+// header (credencial do credmanager, header custom do chamador, etc.).
+var redirectSafeHeaders = map[string]bool{
+	"User-Agent":      true,
+	"Accept":          true,
+	"Accept-Language": true,
+	"Accept-Encoding": true,
+	"Content-Type":    true,
+	"Content-Length":  true,
+}
+
+// stripUnsafeHeadersOnUntrustedRedirect remove, quando o redirect cruza um limite de
+// confiança, todos os headers que não estão na allowlist — evitando vazamento de
+// credenciais (injetadas ou passadas pelo chamador) para outro destino.
 //
 // Considera "não confiável":
 //   - mudança de host:port (não só Hostname): example.com -> example.com:8443
 //     alcança outro serviço na mesma máquina;
 //   - downgrade https->http no mesmo host: exporia as credenciais em texto puro.
-func stripCredentialsOnUntrustedRedirect(req *http.Request, via []*http.Request) {
+func stripUnsafeHeadersOnUntrustedRedirect(req *http.Request, via []*http.Request) {
 	if len(via) == 0 || via[0] == nil || via[0].URL == nil || req.URL == nil {
 		return
 	}
@@ -63,14 +76,9 @@ func stripCredentialsOnUntrustedRedirect(req *http.Request, via []*http.Request)
 	if sameHost && !downgrade {
 		return
 	}
-	// Apenas headers de request: Www-Authenticate é header de resposta e não se
-	// aplica aqui.
-	for _, h := range []string{"Authorization", "Proxy-Authorization", "Cookie", "Cookie2"} {
-		req.Header.Del(h)
-	}
-	if applied, ok := req.Context().Value(appliedAuthHeadersKey{}).([]string); ok {
-		for _, h := range applied {
-			req.Header.Del(h)
+	for name := range req.Header {
+		if !redirectSafeHeaders[name] {
+			req.Header.Del(name)
 		}
 	}
 }
