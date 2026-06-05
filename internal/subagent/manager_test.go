@@ -613,6 +613,65 @@ func TestManagerResumeTrimsConversationID(t *testing.T) {
 	}
 }
 
+// TestAppendChainDoesNotMutateInput garante (thread :308) que appendChain nunca
+// muta o slice recebido (vindo de eventctx no ctx — imutável): faz cópia
+// defensiva antes de anexar.
+func TestAppendChainDoesNotMutateInput(t *testing.T) {
+	// Capacidade > len: um append in-place sobrescreveria o backing array.
+	orig := make([]string, 2, 4)
+	orig[0], orig[1] = "a", "b"
+
+	out := appendChain(orig, "c")
+	if len(out) != 3 || out[2] != "c" {
+		t.Fatalf("appendChain deveria anexar 'c'; veio %#v", out)
+	}
+	if len(orig) != 2 || orig[0] != "a" || orig[1] != "b" {
+		t.Fatalf("slice original não deveria ser mutado; veio %#v", orig)
+	}
+	// Backing arrays distintos: mutar o resultado não afeta o original.
+	out[0] = "X"
+	if orig[0] != "a" {
+		t.Fatal("appendChain deveria copiar: mutação no resultado vazou para o original")
+	}
+	// id vazio é no-op (history inalterado).
+	if got := appendChain(orig, ""); len(got) != 2 {
+		t.Fatalf("id vazio deveria retornar history inalterado; veio %#v", got)
+	}
+}
+
+// TestManagerRunDoesNotMutateCtxChainHistory garante, ponta a ponta, que um Run
+// que anexa seu run.ID à cadeia NÃO muta o ChainHistory de proveniência guardado
+// no ctx (context values são imutáveis — thread :308). Usa uma sentinela no
+// backing array (capacidade > len) para detectar um append in-place.
+func TestManagerRunDoesNotMutateCtxChainHistory(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		go notifier.Notify(p.ConversationID, "ok", "m")
+		return p.ConversationID, nil
+	}})
+
+	// ChainHistory len 1, cap 4: um append in-place escreveria no índice 1 do
+	// backing array. Plantamos uma sentinela nesse índice para detectar a mutação.
+	hist := make([]string, 1, 4)
+	hist[0] = "chain-root"
+	backing := hist[:2]
+	backing[1] = "SENTINELA"
+
+	provCtx := eventctx.With(ctx, eventctx.Provenance{Source: "user", ChainID: "chain-1", ChainHistory: hist})
+	if _, err := mgr.Run(provCtx, RunParams{ParentConversationID: "parent-conv", Prompt: "x"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if backing[1] != "SENTINELA" {
+		t.Fatalf("Run mutou o backing array do ChainHistory do ctx (append in-place); índice 1 = %q", backing[1])
+	}
+	if len(hist) != 1 || hist[0] != "chain-root" {
+		t.Fatalf("ChainHistory do ctx alterado: %#v", hist)
+	}
+}
+
 func TestManagerResumeRejectsNonSubagentConversation(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()
