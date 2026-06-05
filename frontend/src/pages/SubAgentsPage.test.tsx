@@ -63,10 +63,15 @@ vi.mock('../lib/deepLinks', () => ({
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
-  Toolbar: ({ left, actions, ariaLabel }: { left?: ReactNode; ariaLabel?: string; actions?: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> }) => {
+  Toolbar: ({ left, actions, ariaLabel, searchValue, onSearchChange, searchPlaceholder }: { left?: ReactNode; ariaLabel?: string; searchValue?: string; onSearchChange?: (v: string) => void; searchPlaceholder?: string; actions?: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> }) => {
     return (
       <div role="toolbar" aria-label={ariaLabel}>
         {left}
+        <input
+          aria-label={searchPlaceholder ?? 'search'}
+          value={searchValue ?? ''}
+          onChange={(e) => onSearchChange?.(e.target.value)}
+        />
         {actions?.map((action) => (
           <button key={action.key} onClick={action.onClick} disabled={action.disabled}>
             {action.label}
@@ -169,6 +174,27 @@ describe('SubAgentsPage', { timeout: 60_000 }, () => {
     await screen.findByText('Pesquisa de mercado');
     expect(screen.getByRole('toolbar', { name: 'subagents.toolbarLabel' })).toBeInTheDocument();
     expect(screen.getByRole('grid', { name: 'subagents.gridLabel' })).toBeInTheDocument();
+  });
+
+  it('desabilita "Abrir" e não abre item oculto quando o filtro o remove', async () => {
+    const user = userEvent.setup();
+    mockGetSubAgentConversations.mockResolvedValue(subAgents);
+    render(<SubAgentsPage />);
+
+    await screen.findByText('Pesquisa de mercado');
+
+    // Foca o primeiro item; "Abrir" deve habilitar.
+    await user.click(screen.getByText('focus-first'));
+    const openBtn = screen.getByRole('button', { name: 'subagents.open' });
+    expect(openBtn).toBeEnabled();
+
+    // Filtra de modo que o item focado (Pesquisa de mercado) saia da lista.
+    await user.type(screen.getByLabelText('subagents.search'), 'Resumo');
+
+    // "Abrir" fica desabilitado e clicar não dispara deep link no item oculto.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'subagents.open' })).toBeDisabled());
+    await user.click(screen.getByRole('button', { name: 'subagents.open' }));
+    expect(mockExecuteDeepLink).not.toHaveBeenCalled();
   });
 
   it('exibe estado vazio quando não há sub-agentes', async () => {

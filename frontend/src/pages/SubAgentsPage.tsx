@@ -88,6 +88,26 @@ export default function SubAgentsPage() {
     setFocusedRow(item);
   }, []);
 
+  // Item focado VÁLIDO: só conta se ainda estiver na lista filtrada. Ao mudar o
+  // termo de busca, o item antes focado pode não estar mais em displayItems — o
+  // DataGrid não zera o foco nesse caso, então a ação "Abrir" não pode operar
+  // sobre um item oculto.
+  const focusedItem = useMemo(
+    () =>
+      focusedRow && displayItems.some((s) => s.conversationId === focusedRow.conversationId)
+        ? focusedRow
+        : null,
+    [focusedRow, displayItems],
+  );
+
+  // Reconcilia o estado: se o item focado saiu da lista filtrada, limpa o foco
+  // (mantém o estado consistente além da guarda derivada acima).
+  useEffect(() => {
+    if (focusedRow && !displayItems.some((s) => s.conversationId === focusedRow.conversationId)) {
+      setFocusedRow(null);
+    }
+  }, [displayItems, focusedRow]);
+
   const columns: DataGridColumn<SubAgent>[] = [
     {
       key: 'title',
@@ -185,8 +205,8 @@ export default function SubAgentsPage() {
             key: 'open',
             label: t('subagents.open'),
             icon: <FolderOpenOutlined />,
-            onClick: () => focusedRow && handleOpen(focusedRow.conversationId, focusedRow.title),
-            disabled: !focusedRow,
+            onClick: () => focusedItem && handleOpen(focusedItem.conversationId, focusedItem.title),
+            disabled: !focusedItem,
             variant: 'primary',
           },
         ]}
