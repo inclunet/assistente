@@ -575,6 +575,44 @@ func TestManagerResumeReusesConversationAndIncrementsTurn(t *testing.T) {
 	}
 }
 
+// TestManagerResumeTrimsConversationID garante (thread :389) que um
+// conversation_id com espaços ao redor é normalizado e tratado como o id real:
+// faz RESUME da sub-conversa existente, não "não encontrada" nem criação de nova.
+func TestManagerResumeTrimsConversationID(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{Repo: repo, Notifier: notifier, Send: func(_ context.Context, p SendParams) (string, error) {
+		go notifier.Notify(p.ConversationID, "ok", "m")
+		return p.ConversationID, nil
+	}})
+
+	first, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", Prompt: "passo 1"})
+	if err != nil {
+		t.Fatalf("Run 1: %v", err)
+	}
+
+	// Resume com o MESMO id, porém cercado de espaços.
+	padded := "  " + first.ConversationID + "  "
+	second, err := mgr.Run(ctx, RunParams{ParentConversationID: "parent-conv", ConversationID: padded, Prompt: "passo 2"})
+	if err != nil {
+		t.Fatalf("Run 2 (resume com id com espaços): %v", err)
+	}
+	if second.ConversationID != first.ConversationID {
+		t.Fatalf("id com espaços deveria reusar a sub-conversa: %q != %q", second.ConversationID, first.ConversationID)
+	}
+	if second.RunID == first.RunID {
+		t.Fatal("resume deveria criar um novo run (não uma sub-conversa nova)")
+	}
+	run2, err := repo.Get(ctx, second.RunID)
+	if err != nil {
+		t.Fatalf("buscar run 2: %v", err)
+	}
+	if run2.TurnIndex != 1 {
+		t.Fatalf("turn_index esperado 1 (resume), veio %d", run2.TurnIndex)
+	}
+}
+
 func TestManagerResumeRejectsNonSubagentConversation(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()

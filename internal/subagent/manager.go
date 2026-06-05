@@ -393,7 +393,11 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 // Clear=true falha no fail-fast ANTES de limpar qualquer coisa, e uma falha de
 // Create nunca deixa histórico apagado sem run (evita efeito destrutivo órfão).
 func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (childConvID string, isNew bool, err error) {
-	if strings.TrimSpace(p.ConversationID) == "" {
+	// Normaliza UMA vez e usa o valor em todo o fluxo (decisão do modo, lookup e
+	// mensagens de erro): evita o estado inconsistente em que um id com espaços
+	// passa no teste de "não-vazio" mas falha como "não encontrada" no lookup.
+	convID := strings.TrimSpace(p.ConversationID)
+	if convID == "" {
 		// Defense-in-depth (consistente com a tool e o contrato do AEP-0068):
 		// clear é um reset de sub-conversa EXISTENTE; sem conversation_id não há o
 		// que resetar. Falhar explícito evita criar uma sub-conversa nova ignorando
@@ -414,12 +418,12 @@ func (m *Manager) resolveChildConversation(ctx context.Context, p RunParams) (ch
 
 	// Resume: a sub-conversa precisa existir, pertencer ao usuário (escopo
 	// AEP-0052, garantido por GetConversationInfoWithContext) e ser de sub-agente.
-	conv, gerr := database.GetConversationInfoWithContext(ctx, p.ConversationID)
+	conv, gerr := database.GetConversationInfoWithContext(ctx, convID)
 	if gerr != nil {
 		return "", false, fmt.Errorf("sub-conversa não encontrada ou sem acesso: %w", gerr)
 	}
 	if conv.Kind != database.ConversationKindSubagent {
-		return "", false, fmt.Errorf("conversa %s não é uma sub-conversa de sub-agente", p.ConversationID)
+		return "", false, fmt.Errorf("conversa %s não é uma sub-conversa de sub-agente", convID)
 	}
 	return conv.ID, false, nil
 }
