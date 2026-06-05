@@ -785,6 +785,49 @@ func TestManagerConcurrencyLimitPerUser(t *testing.T) {
 	}
 }
 
+// TestReleaseSlotNoMapLeak garante (thread :451) que releaseSlot remove a chave
+// do activeByUser ao zerar (sem vazar chaves por userID em processo long-lived),
+// é idempotente (release a mais não recria a chave nem vai negativo) e que o
+// teto de concorrência continua funcionando após acquire→release→acquire.
+func TestReleaseSlotNoMapLeak(t *testing.T) {
+	mgr := NewManager(ManagerConfig{MaxConcurrentPerUser: 1})
+	const u = "user-x"
+
+	if err := mgr.acquireSlot(u); err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	if got := mgr.activeByUser[u]; got != 1 {
+		t.Fatalf("após acquire esperava 1, veio %d", got)
+	}
+
+	mgr.releaseSlot(u)
+	if _, ok := mgr.activeByUser[u]; ok {
+		t.Fatalf("após release a chave deveria ser removida (sem leak), mas permanece: %d", mgr.activeByUser[u])
+	}
+
+	// Idempotência: release a mais não recria a chave nem vai negativo.
+	mgr.releaseSlot(u)
+	if v, ok := mgr.activeByUser[u]; ok {
+		t.Fatalf("release idempotente não deveria recriar a chave; veio %d", v)
+	}
+	// Leitura de ausente = 0 (não negativo).
+	if got := mgr.activeByUser[u]; got != 0 {
+		t.Fatalf("chave ausente deveria ler 0, veio %d", got)
+	}
+
+	// Teto continua funcionando após acquire→release→acquire.
+	if err := mgr.acquireSlot(u); err != nil {
+		t.Fatalf("acquire pós-release: %v", err)
+	}
+	if err := mgr.acquireSlot(u); err == nil {
+		t.Fatal("esperava barrar o 2º acquire pelo teto de concorrência")
+	}
+	mgr.releaseSlot(u)
+	if _, ok := mgr.activeByUser[u]; ok {
+		t.Fatal("após liberar a única vaga a chave deveria sumir novamente")
+	}
+}
+
 func TestManagerListSubConversations(t *testing.T) {
 	repo, ctx := setupManagerTest(t)
 	notifier := messaging.NewResponseNotifier()

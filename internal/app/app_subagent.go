@@ -71,8 +71,12 @@ func (a *App) GetSubAgentConversations() ([]subagent.SubConversationSummary, err
 	if err != nil {
 		return nil, err
 	}
+	// Falha explicitamente quando o manager não está configurado, em vez de
+	// retornar lista vazia: mascarar o wiring quebrado faria a UI exibir
+	// "nenhum sub-agente" em vez de um erro real. Consistente com
+	// Manager.ListSubConversations e demais bindings.
 	if a.subagentMgr == nil {
-		return []subagent.SubConversationSummary{}, nil
+		return nil, fmt.Errorf("subagent manager não configurado: não é possível listar sub-conversas")
 	}
 	return a.subagentMgr.ListSubConversations(ctx)
 }

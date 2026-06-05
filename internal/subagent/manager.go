@@ -445,8 +445,13 @@ func (m *Manager) acquireSlot(userID string) error {
 func (m *Manager) releaseSlot(userID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.activeByUser[userID] > 0 {
-		m.activeByUser[userID]--
+	// Remove a entrada ao zerar para não vazar chaves no map em processos
+	// long-lived com muitos userIDs distintos. Idempotente: chave ausente lê 0,
+	// então release a mais não recria a chave nem vai negativo.
+	if n := m.activeByUser[userID]; n > 1 {
+		m.activeByUser[userID] = n - 1
+	} else {
+		delete(m.activeByUser, userID)
 	}
 }
 
