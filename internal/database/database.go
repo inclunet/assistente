@@ -566,14 +566,31 @@ func deleteChatToolInvocationsForConversation(ctx context.Context, conversationI
 	if _, err := GetConversationInfoWithContext(ctx, conversationID); err != nil {
 		return err
 	}
-	if !db.Migrator().HasTable(&ToolInvocation{}) {
+	return deleteChatToolInvocationsForConversationTx(ctx, db, conversationID)
+}
+
+// deleteChatToolInvocationsForConversationTx remove as tool invocations de chat
+// associadas ao histórico da conversa usando o executor `exec` fornecido (pode
+// ser o `db` global OU uma transação `tx`). Recebe o executor explicitamente para
+// poder participar de uma transação atômica — ver ClearConversationContentWithContext.
+// O chamador é responsável por validar posse/escopo (RequireUserID +
+// GetConversationInfoWithContext) ANTES; aqui só coletamos os ids e deletamos.
+//
+// IMPORTANTE: deve rodar ANTES do delete das mensagens (coleta os ids a partir
+// das mensagens que ainda existem).
+func deleteChatToolInvocationsForConversationTx(ctx context.Context, exec *gorm.DB, conversationID string) error {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil
+	}
+	if !exec.Migrator().HasTable(&ToolInvocation{}) {
 		return nil
 	}
 	userID, _ := UserIDFromContext(ctx)
 
 	// turn_id aponta para a user message; origin_id usa turn_id.
 	var turnIDs []string
-	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+	if err := scopedMessageQuery(ctx, exec.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id IS NOT NULL AND chat_messages.turn_id <> ''", conversationID).
 		Distinct().
 		Pluck("chat_messages.turn_id", &turnIDs).Error; err != nil {
@@ -581,7 +598,7 @@ func deleteChatToolInvocationsForConversation(ctx context.Context, conversationI
 	}
 	// Algumas mensagens podem ter origin_id igual ao próprio message id.
 	var msgIDs []string
-	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+	if err := scopedMessageQuery(ctx, exec.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ?", conversationID).
 		Pluck("chat_messages.id", &msgIDs).Error; err != nil {
 		return err
@@ -601,7 +618,7 @@ func deleteChatToolInvocationsForConversation(ctx context.Context, conversationI
 		if end > len(ids) {
 			end = len(ids)
 		}
-		if err := db.WithContext(ctx).
+		if err := exec.WithContext(ctx).
 			Where("user_id = ? AND origin_type = ? AND origin_id IN ?", userID, "chat", ids[start:end]).
 			Delete(&ToolInvocation{}).Error; err != nil {
 			return err
@@ -1201,16 +1218,17 @@ func DeleteAllMessagesWithContext(ctx context.Context, conversationID string) er
 	return db.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error
 }
 
-// ClearConversationContentWithContext apaga o histórico (mensagens) e zera o
-// resumo de uma conversa do usuário do contexto de forma ATÔMICA: as duas
-// escritas destrutivas (delete de mensagens + limpeza de summary) rodam na MESMA
-// transação GORM, então um erro no meio faz rollback total. Isso elimina o estado
-// parcialmente limpo — ex.: summary antigo apontando para mensagens já apagadas —
-// que confundiria UI/sumarização. Usado pelo clear de sub-agente (AEP-0068).
+// ClearConversationContentWithContext apaga, de forma ATÔMICA, TODO o conteúdo
+// destrutivo de uma conversa do usuário do contexto: tool invocations de chat,
+// mensagens (histórico) e o resumo (summary). As três operações rodam na MESMA
+// transação GORM, então qualquer erro no meio faz rollback TOTAL — nunca fica um
+// estado parcialmente limpo (ex.: tool invocations apagadas mas mensagens/summary
+// preservados, ou summary antigo apontando para mensagens já apagadas), que
+// confundiria UI/sumarização. Usado pelo clear de sub-agente (AEP-0068).
 //
-// A limpeza das tool invocations associadas roda ANTES da transação: é operação
-// auxiliar e idempotente (re-executar simplesmente não encontra mais nada) e não
-// participa do estado parcial crítico mensagens↔summary que motivou a atomicidade.
+// Ordem dentro da transação: tool invocations PRIMEIRO (seus ids são coletados a
+// partir das mensagens, que ainda precisam existir), depois mensagens, depois
+// summary.
 //
 // SECURITY: fail-closed (AEP-0052). Sem userID no ctx retorna ErrUserScopeRequired.
 func ClearConversationContentWithContext(ctx context.Context, conversationID string) error {
@@ -1225,17 +1243,20 @@ func ClearConversationContentWithContext(ctx context.Context, conversationID str
 	if _, err := GetConversationInfoWithContext(ctx, conversationID); err != nil {
 		return err
 	}
-	// Tool invocations do histórico (auxiliar, idempotente) — fora da transação.
-	if err := deleteChatToolInvocationsForConversation(ctx, conversationID); err != nil {
-		return err
-	}
 	return db.Transaction(func(tx *gorm.DB) error {
+		// 1) Tool invocations de chat (coletadas a partir das mensagens que ainda
+		//    existem) — dentro do mesmo tx para que um rollback as preserve.
+		if err := deleteChatToolInvocationsForConversationTx(ctx, tx, conversationID); err != nil {
+			return fmt.Errorf("erro ao limpar tool invocations da sub-conversa: %w", err)
+		}
+		// 2) Mensagens (histórico).
 		messageIDs := scopedMessageQuery(ctx, tx.Model(&ChatMessage{}).
 			Select("chat_messages.id").
 			Where("chat_messages.conversation_id = ?", conversationID))
 		if err := tx.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error; err != nil {
 			return fmt.Errorf("erro ao limpar histórico da sub-conversa: %w", err)
 		}
+		// 3) Resumo (summary).
 		if err := ScopeByUser(ctx, tx.WithContext(ctx).Model(&Conversation{}), "user_id").
 			Where("id = ?", conversationID).
 			Updates(map[string]interface{}{
