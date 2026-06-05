@@ -785,6 +785,78 @@ func TestManagerConcurrencyLimitPerUser(t *testing.T) {
 	}
 }
 
+// blockingDelivery sinaliza quando deliver começa (entered) e bloqueia até
+// release ser fechado — usado para provar que a vaga de concorrência é liberada
+// ANTES de deliver().
+type blockingDelivery struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (d *blockingDelivery) Deliver(_ context.Context, _ ParentNotice) error {
+	close(d.entered)
+	<-d.release
+	return nil
+}
+
+// TestReleaseSlotBeforeDeliverBackground garante que, num run em background, a
+// vaga de concorrência do usuário é liberada IMEDIATAMENTE após o estado terminal
+// e ANTES de deliver() (que pode bloquear): com o deliver travado, um novo
+// acquireSlot já deve ser possível. Também verifica que não há double-release
+// (a chave do usuário é limpa exatamente uma vez ao final).
+func TestReleaseSlotBeforeDeliverBackground(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	delivery := &blockingDelivery{entered: make(chan struct{}), release: make(chan struct{})}
+	mgr := NewManager(ManagerConfig{
+		Repo:                 repo,
+		Notifier:             notifier,
+		Delivery:             delivery,
+		MaxConcurrentPerUser: 1,
+		CancelStream:         func(string) {},
+		Send: func(_ context.Context, p SendParams) (string, error) {
+			go notifier.Notify(p.ConversationID, "ok", "m1")
+			return p.ConversationID, nil
+		},
+	})
+
+	if _, err := mgr.Run(ctx, RunParams{Prompt: "bg", Background: true, ParentConversationID: "p"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// Espera o deliver começar (e, portanto, bloquear no <-release).
+	select {
+	case <-delivery.entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("deliver não foi chamado a tempo")
+	}
+
+	// Com deliver BLOQUEADO, a vaga já deve estar livre: o release acontece antes
+	// do deliver. Um novo acquireSlot precisa ser possível imediatamente.
+	if err := mgr.acquireSlot("user-a"); err != nil {
+		t.Fatalf("a vaga deveria estar livre antes de deliver desbloquear (release antes de deliver): %v", err)
+	}
+	mgr.releaseSlot("user-a")
+
+	// Libera o deliver e confirma que, ao final, a chave do usuário some exatamente
+	// uma vez (sem double-release: contador não foi a negativo nem ficou preso).
+	close(delivery.release)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		mgr.mu.Lock()
+		_, present := mgr.activeByUser["user-a"]
+		mgr.mu.Unlock()
+		if !present {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("a vaga do usuário não foi liberada/limpa após o término")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // TestReleaseSlotNoMapLeak garante que releaseSlot remove a entrada do
 // activeByUser ao zerar (sem vazar chaves por userID em processo long-lived),
 // é idempotente (release a mais não recria a chave nem vai negativo) e que o

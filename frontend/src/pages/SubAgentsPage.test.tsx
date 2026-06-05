@@ -37,7 +37,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
-  useTranslation: () => ({ t: stableT }),
+  useTranslation: () => ({ t: stableT, i18n: { language: 'en' } }),
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({

@@ -231,7 +231,6 @@ type Repository interface {
 	Create(ctx context.Context, run *database.SubAgentRun) error
 	Get(ctx context.Context, id string) (*database.SubAgentRun, error)
 	GetLatestByChildConversation(ctx context.Context, childConversationID string) (*database.SubAgentRun, error)
-	ListByUser(ctx context.Context) ([]database.SubAgentRun, error)
 	// AggregateByChildConversation retorna, por child_conversation_id, a contagem
 	// de runs e o status/erro/background do run mais recente, escopado ao usuário
 	// do contexto (AEP-0052). Substitui o carregamento de todos os runs + agregação

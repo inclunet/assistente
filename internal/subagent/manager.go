@@ -338,10 +338,13 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		log.Printf("[Subagent] erro ao marcar run %s (conversa %s) como running: %v", run.ID, childConvID, err)
 		o := outcome{status: database.SubAgentRunStatusFailed, errMsg: fmt.Sprintf("erro ao persistir estado running: %v", err)}
 		finished := m.finalize(ctx, run, &result, o)
+		// Libera a vaga IMEDIATAMENTE após o estado terminal e ANTES de deliver():
+		// o deliver (auto-wake ao pai) pode bloquear (lock por conversa-pai / IO de
+		// DB) e não deve segurar o teto de concorrência com o run já finalizado.
+		m.releaseSlot(userID)
 		if p.Background {
 			m.deliver(ctx, run)
 		}
-		m.releaseSlot(userID)
 		return finished, nil
 	}
 
@@ -390,10 +393,12 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		status, errMsg := classifySendError(ctx, err)
 		o := outcome{status: status, errMsg: errMsg}
 		finished := m.finalize(ctx, run, &result, o)
+		// Libera a vaga ANTES de deliver() (que pode bloquear): o run já está em
+		// estado terminal, não deve reter o teto de concorrência do usuário.
+		m.releaseSlot(userID)
 		if p.Background {
 			m.deliver(ctx, run)
 		}
-		m.releaseSlot(userID)
 		return finished, nil
 	}
 
@@ -414,8 +419,11 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 			defer cancelSend()
 			o := m.wait(bgCtx, childConvID, done, ar, bgTimeout, true)
 			m.finalize(bgCtx, run, &bgResult, o)
-			m.deliver(bgCtx, run)
+			// Libera a vaga ANTES de deliver(): o deliver (auto-wake ao pai) pode
+			// bloquear (lock por conversa-pai / IO) e não pode segurar o teto de
+			// concorrência com o run já em estado terminal.
 			m.releaseSlot(userID)
+			m.deliver(bgCtx, run)
 		}()
 		return result, nil
 	}
@@ -770,9 +778,10 @@ func (m *Manager) ListSubConversations(ctx context.Context) ([]SubConversationSu
 	if err != nil {
 		return nil, err
 	}
-	// Sem sub-conversas: evita um SELECT potencialmente grande em repo.ListByUser
-	// que não teria com o que casar. Retorna slice vazio não-nil, idêntico ao
-	// contrato do caminho normal (out = make([]SubConversationSummary, 0, ...)).
+	// Sem sub-conversas: evita a query de agregação de runs no banco
+	// (AggregateByChildConversation) que não teria com o que casar. Retorna slice
+	// vazio não-nil, idêntico ao contrato do caminho normal
+	// (out = make([]SubConversationSummary, 0, ...)).
 	if len(metas) == 0 {
 		return []SubConversationSummary{}, nil
 	}

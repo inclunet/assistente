@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { formatRelativeTime, formatDate, formatDateTime } from './dateUtils';
+import { formatRelativeTime, formatRelativeTimeLocalized, formatDate, formatDateTime } from './dateUtils';
 
 describe('dateUtils', () => {
   it('formata tempo relativo', () => {
@@ -11,6 +11,25 @@ describe('dateUtils', () => {
 
     const fiveMinutes = new Date('2024-01-01T11:55:00.000Z').getTime();
     expect(formatRelativeTime(fiveMinutes)).toBe('há 5 min');
+
+    vi.useRealTimers();
+  });
+
+  it('formata tempo relativo conforme o idioma (Intl)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-01-01T12:00:00.000Z'));
+    const fiveMinutesAgo = new Date('2024-01-01T11:55:00.000Z').getTime();
+
+    const pt = formatRelativeTimeLocalized(fiveMinutesAgo, 'pt-BR');
+    const en = formatRelativeTimeLocalized(fiveMinutesAgo, 'en');
+    const es = formatRelativeTimeLocalized(fiveMinutesAgo, 'es');
+
+    // Cada idioma usa seu próprio formato; en/es não devem conter texto pt-BR fixo.
+    expect(en.toLowerCase()).toContain('ago');
+    expect(en.toLowerCase()).not.toContain('há');
+    expect(es.toLowerCase()).toContain('hace');
+    expect(pt.toLowerCase()).toContain('há');
+    expect(pt).not.toBe(en);
 
     vi.useRealTimers();
   });

@@ -13,7 +13,7 @@ import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { executeDeepLink } from '../lib/deepLinks';
-import { formatRelativeTime } from '../lib/dateUtils';
+import { formatRelativeTimeLocalized } from '../lib/dateUtils';
 import './SubAgentsPage.css';
 
 type SubAgent = subagent.SubConversationSummary;
@@ -33,7 +33,7 @@ function statusLabel(status: string, t: TFunction): string {
 }
 
 export default function SubAgentsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
   const navigate = useNavigate();
   const { handleGridReady } = useGridFocus();
@@ -139,7 +139,7 @@ export default function SubAgentsPage() {
           ? value
           : undefined;
         const timestamp = dateValue ? new Date(dateValue).getTime() : 0;
-        return formatRelativeTime(timestamp);
+        return formatRelativeTimeLocalized(timestamp, i18n.language);
       },
     },
   ];

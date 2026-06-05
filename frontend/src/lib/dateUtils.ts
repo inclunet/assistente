@@ -36,6 +36,32 @@ export function formatRelativeTime(timestamp: number): string {
 }
 
 /**
+ * Formata timestamp como tempo relativo LOCALIZADO conforme o idioma atual,
+ * usando Intl.RelativeTimeFormat (ex.: "há 5 min" / "5 min ago" / "hace 5 min",
+ * "ontem" / "yesterday" / "ayer"). Diferente de formatRelativeTime (strings
+ * fixas em pt-BR), respeita o locale — use em UIs multi-idioma.
+ *
+ * `locale` aceita um tag BCP-47 (ex.: i18n.language: 'pt-BR' | 'en' | 'es').
+ */
+export function formatRelativeTimeLocalized(timestamp: number, locale: string): string {
+  const diffMs = timestamp - Date.now(); // negativo = passado
+  const sign = diffMs <= 0 ? -1 : 1;
+  const absSeconds = Math.abs(Math.floor(diffMs / 1000));
+  const minutes = Math.floor(absSeconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  if (absSeconds < 60) return rtf.format(sign * absSeconds, 'second');
+  if (minutes < 60) return rtf.format(sign * minutes, 'minute');
+  if (hours < 24) return rtf.format(sign * hours, 'hour');
+  if (days < 7) return rtf.format(sign * days, 'day');
+  if (days < 30) return rtf.format(sign * Math.floor(days / 7), 'week');
+  if (days < 365) return rtf.format(sign * Math.floor(days / 30), 'month');
+  return rtf.format(sign * Math.floor(days / 365), 'year');
+}
+
+/**
  * Formata data como string legível
  */
 export function formatDate(date: Date | string | number): string {
