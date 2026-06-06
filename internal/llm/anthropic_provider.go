@@ -254,12 +254,17 @@ func (p *AnthropicProvider) streamChatWithMCP(
 			return
 		}
 		if result.nativeMCPUnsupported {
-			// Modelo/endpoint rejeitou MCP nativo: degrada nativo→adapter no mesmo
-			// turno (dropa os servers nativos) e dispara o auto-ajuste persistido do
-			// perfil. As bridges voltam no próximo turno (perfil já em adapter).
+			// Modelo/endpoint rejeitou MCP nativo: dispara o auto-ajuste persistido do
+			// perfil (nil→false) e degrada nativo→adapter.
 			log.Printf("[MCP-DEGRADE] attempt=%d provider=anthropic action=native_to_adapter reason=model_rejects_native_mcp servers=%d", attempt, len(currentServers))
 			if params.OnNativeMCPUnsupported != nil {
 				params.OnNativeMCPUnsupported()
+			}
+			if params.NativeMCPFallback != nil {
+				// O caller (loop agêntico) re-tenta o MESMO turno em modo adapter, com
+				// as bridge tools presentes. Aborta sem emitir done/erro.
+				params.NativeMCPFallback.Trigger()
+				return
 			}
 			currentServers = nil
 			continue

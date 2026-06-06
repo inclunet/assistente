@@ -1832,6 +1832,51 @@ func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedFallsBackToAdapt
 	}
 }
 
+// TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedAbortsWhenFallbackSet
+// cobre o caminho preferencial: quando há NativeMCPFallback configurado (o loop
+// agêntico re-tenta em adapter com bridges), o provider apenas dispara o
+// Trigger/hook e ABORTA — sem fazer o retry "pelado" interno (sem 2ª tentativa).
+func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedAbortsWhenFallbackSet(t *testing.T) {
+	attempts := 0
+	hookCalls := 0
+
+	provider := &OpenAIProvider{
+		provider:     &ProviderConfig{ID: "o", Name: "Proxy", BaseURL: "http://proxy.local/v1"},
+		useResponses: true,
+		mcpServers: []MCPServerConfig{
+			{Name: "Atlassian", Slug: "atlassian", URL: "https://mcp.atlassian.com/v1/sse"},
+		},
+	}
+	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, _ StreamHandler, _ []MCPServerConfig) mcpStreamAttemptResult {
+		attempts++
+		return mcpStreamAttemptResult{nativeMCPUnsupported: true}
+	}
+
+	fb := &NativeMCPAdapterFallback{}
+	handler := &providerRetryHandler{}
+	params := ChatParams{
+		OnNativeMCPUnsupported: func() { hookCalls++ },
+		NativeMCPFallback:      fb,
+	}
+	provider.streamChatResponses(context.Background(), "deepseek-v4-flash", []Message{{Role: "user", Content: "oi"}}, params, handler)
+
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1 (abort sem retry pelado)", attempts)
+	}
+	if hookCalls != 1 {
+		t.Fatalf("OnNativeMCPUnsupported chamado %d vezes, want 1", hookCalls)
+	}
+	if !fb.Consume() {
+		t.Fatal("NativeMCPFallback deveria ter sido disparado (Trigger)")
+	}
+	if len(handler.errors) != 0 {
+		t.Fatalf("não deveria emitir erro (caller re-tenta): %v", handler.errors)
+	}
+	if handler.done != 0 {
+		t.Fatalf("não deveria emitir done (abortou para retry upstream): %d", handler.done)
+	}
+}
+
 func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.T) {
 	recovered := make(chan struct{}, 1)
 	seen := make([][]string, 0, 2)

@@ -1,6 +1,6 @@
 # MCP Modo Nativo
 
-## Status: Revisado (v6)
+## Status: Revisado (v7)
 
 > **Historico:** A versao original desta AEP descrevia um conceito aspiracional de modo nativo com `mcp_mode` (adapter/native/auto) no perfil. A infraestrutura foi parcialmente criada (`GetNativeServerInfo`, `TestMCPNativeSupport`, `ShouldUseMCPNative`) mas **nunca foi consumida no chat loop**. O sistema sempre operou em modo adapter.
 >
@@ -12,7 +12,9 @@
 >
 > A v5 eliminou qualquer heuristica por URL/endpoint (acoplamento a `api.openai.com` + fragilidade do `strings.Contains`) e removeu `SupportsNativeMCP()` do contrato. Porem fez o **default (auto) = adapter**, o que "nivela todo mundo por baixo": assume que nenhum endpoint suporta `type:"mcp"`, desligando MCP nativo ate para quem suporta.
 >
-> **Esta v6** torna o **default (auto) OTIMISTA com auto-degradacao e memoria**: tenta MCP nativo quando o provider e fisicamente capaz; se o modelo/endpoint rejeitar `type:"mcp"` (ex.: 400 `unknown variant "mcp", expected "function"`), o pipeline **degrada para adapter no mesmo turno** (dropando os servers nativos e re-tentando sem 400) e **auto-ajusta + PERSISTE** o perfil (`Profile.Chat.NativeMCP` nil→false). A "memoria" e o **proprio campo do perfil persistido** — NAO um cache em runtime: o perfil ja fixa o modelo (granularidade correta), sobrevive a restart e fica visivel/editavel na UI. Continua valendo: sem heuristica por URL; a unica dimensao estatica de provider e a **capacidade fisica** (`NativeMCPCapable()` — Responses/Anthropic). Override explicito do usuario (`true`/`false`) nunca e sobrescrito.
+> A v6 tornou o **default (auto) OTIMISTA com auto-degradacao e memoria persistida no perfil**, mas o fallback do mesmo turno dropava os MCP servers e re-tentava "pelado" — as tools MCP sumiam naquele turno e so voltavam (via adapter) no proximo.
+>
+> **Esta v7** elimina essa limitacao: no fallback, o turno e **re-tentado em modo ADAPTER com as bridge tools presentes** (MCP como function/bridge), preservando as tools ja naquele turno. Tudo o mais da v6 permanece: default auto otimista; auto-ajuste **persistido** do perfil (`Profile.Chat.NativeMCP` nil→false) como memoria (nao cache em runtime); sem heuristica por URL; unica dimensao estatica de provider = **capacidade fisica** (`NativeMCPCapable()` — Responses/Anthropic); override explicito (`true`/`false`) nunca sobrescrito.
 
 ---
 
@@ -90,12 +92,15 @@ O override vale igualmente para **chat normal e sub-agentes**, pois ambos resolv
 
 Quando o modo resolvido e nativo e a request falha com o erro caracteristico de nao-suporte a `type:"mcp"` (classificado por `looksLikeNativeMCPUnsupported` em `mcp_degradation.go` — ex.: 400 `unknown variant "mcp", expected "function"`), o pipeline reage assim:
 
-1. **Degrade no MESMO turno (provider layer):** o loop de streaming (`streamChatResponses` / `doStreamBeta`) detecta o erro, **dropa os MCP servers nativos** (`currentServers = nil`) e **re-tenta a request sem eles** — a chamada conclui sem 400, de forma transparente ao usuario. *Limitacao conhecida:* as bridge tools dos servers ja tinham sido removidas do `tools[]` na montagem nativa (camada de chat), entao **neste turno** as tools MCP ficam ausentes; o efeito pleno (MCP via adapter/bridge) vem no **proximo turno**, quando o perfil ja estara em `false`.
-2. **Memoria = auto-ajuste persistido do perfil (use case layer):** o provider dispara o hook opcional `ChatParams.OnNativeMCPUnsupported` (sem conhecer a camada de perfis — separacao de camadas). O `SendMessageUseCase` liga esse hook a `chat.Interactor.HandleNativeMCPUnsupported(profileSlug, model, override)`, que:
+1. **Sinalizacao (provider layer):** o loop de streaming (`streamChatResponses` / `doStreamBeta`) detecta o erro (antes de emitir qualquer chunk), dispara o hook de persistencia (item 3) e:
+   - se houver `ChatParams.NativeMCPFallback` (caller capaz de re-tentar em adapter), chama `NativeMCPFallback.Trigger()` e **aborta sem emitir** done/erro — deixando o caller re-montar as tools em adapter;
+   - senao (fallback de seguranca, ex.: caminho simples sem tools), **dropa os MCP servers** e re-tenta "pelado".
+2. **Retry no MESMO turno COM bridge tools (agent layer):** o `SendMessageUseCase` captura, ANTES de `ApplyNativeMCP`, as alternativas em adapter — o provider BASE (sem `WithMCPServers`) e os tool defs COM as bridges — e as injeta em `ChatParams.NativeMCPFallback` (incluindo um `ResolveToolDefs` adapter para as iteracoes seguintes). O `RunAgenticLoop`, ao ver `NativeMCPFallback.Consume()` apos a chamada abortada, **troca streamer + toolDefs + resolveToolDefs para o modo adapter e re-tenta a iteracao** (sem consumir uma tentativa de recovery; `Consume()` garante troca unica). Resultado: o turno conclui SEM 400 **e** com as tools MCP disponiveis ao modelo via bridge/function — ja neste turno. A troca vale para as iteracoes seguintes do mesmo turno.
+3. **Memoria = auto-ajuste persistido do perfil (use case layer):** o provider dispara o hook opcional `ChatParams.OnNativeMCPUnsupported` (sem conhecer a camada de perfis — separacao de camadas). O `SendMessageUseCase` liga esse hook a `chat.Interactor.HandleNativeMCPUnsupported(profileSlug, model, override)`, que:
    - **override == nil (auto):** rele o perfil do disco pelo slug e, **somente na transicao `nil`→`false`**, grava `NativeMCP=false` via `profiles.Manager.Update` e loga `[MCP] perfil X (modelo Y) ajustado para adapter automaticamente...`. Idempotente e **thread-safe** (mutex serializa o read-modify-write; runs concorrentes do mesmo perfil nao gravam em corrida — o segundo encontra o disco ja em `false` e nao regrava).
    - **override == true (forcar nativo):** NAO persiste; apenas loga `[MCP] modelo Y do perfil X nao suporta MCP nativo; usando adapter neste turno (perfil em 'forcar nativo')`.
    - **override == false:** nada a fazer.
-3. **Proximos turnos:** com o perfil em `false`, `ResolveNativeMCPEnabled` resolve adapter naturalmente — os MCP servers voltam como function/bridge tools e o 400 nao se repete (era exatamente a poluicao de log que motivou esta AEP).
+4. **Proximos turnos:** com o perfil em `false`, `ResolveNativeMCPEnabled` resolve adapter naturalmente — os MCP servers ja entram como function/bridge tools desde o inicio e o 400 nem chega a ocorrer (era exatamente a poluicao de log que motivou esta AEP).
 
 > **Persistencia vs cache:** a decisao deliberada e usar o **campo persistido do perfil** como memoria, e nao um cache em memoria por endpoint+modelo. O perfil ja amarra o modelo, sobrevive a restart e e auditavel/editavel pelo usuario. (Um cache em runtime foi considerado e descartado.)
 

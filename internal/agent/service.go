@@ -222,6 +222,13 @@ func (s *Service) RunAgenticLoop(
 		lastUsage          llm.Usage
 	)
 
+	// Estado ativo de streamer/tools: pode ser trocado em runtime pelo fallback
+	// nativo→adapter (AEP-0021). Quando o modelo rejeita MCP nativo, re-tentamos o
+	// MESMO turno com as bridge tools (modo adapter), preservando as tools.
+	activeStreamer := streamer
+	activeToolDefs := toolDefs
+	activeResolve := resolveToolDefs
+
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Verifica cancelamento
 		if ctx.Err() != nil {
@@ -251,7 +258,23 @@ func (s *Service) RunAgenticLoop(
 				setInitialContent = prefillSetter.SetInitialContent
 			}
 			messages = s.applyContinuationPrefill(ctx, messages, params, assistantMessageID, setInitialContent)
-			streamer.StreamChat(ctx, messages, params, handler, toolDefs...)
+			activeStreamer.StreamChat(ctx, messages, params, handler, activeToolDefs...)
+			// Fallback nativo→adapter no MESMO turno: se o provider sinalizou que o
+			// modelo não suporta MCP nativo, troca para o streamer/tools em modo
+			// adapter (bridges presentes) e re-tenta esta iteração SEM consumir uma
+			// tentativa de recovery. Consume() garante que isso ocorre só uma vez.
+			if fb := params.NativeMCPFallback; fb != nil && fb.Consume() {
+				log.Printf("[Agent] MCP nativo não suportado (iteração %d): re-tentando o mesmo turno em modo adapter com bridge tools", iteration)
+				if fb.Streamer != nil {
+					activeStreamer = fb.Streamer
+				}
+				activeToolDefs = fb.ToolDefs
+				if fb.ResolveToolDefs != nil {
+					activeResolve = fb.ResolveToolDefs
+				}
+				attempt--
+				continue
+			}
 			result = handler.Result()
 			if ctx.Err() != nil {
 				if partialHandler, ok := handler.(interface{ Finalize() (string, string) }); ok {
@@ -519,7 +542,7 @@ func (s *Service) RunAgenticLoop(
 			totalToolCallCount++
 			toolsUsedSet[logicalName] = struct{}{}
 		}
-		toolDefs = expandToolDefsFromCatalogResults(toolDefs, execResults, resolveToolDefs)
+		activeToolDefs = expandToolDefsFromCatalogResults(activeToolDefs, execResults, activeResolve)
 
 		// 5f-ii. AEP-0039 Fase 4: pre-check de context window — trunca resultados se necessário.
 		// Usa cópia para truncamento; o conteúdo original é preservado para persistência no DB.

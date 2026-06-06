@@ -662,14 +662,20 @@ func (p *OpenAIProvider) streamChatResponses(
 			return
 		}
 		if result.nativeMCPUnsupported {
-			// O modelo/endpoint rejeitou type:"mcp". Degrada nativo→adapter no MESMO
-			// turno: dropa os MCP servers nativos e re-tenta sem eles (sem 400). As
-			// tools MCP (bridges) só voltam no PRÓXIMO turno, quando o perfil já
-			// estará em adapter via o auto-ajuste persistido disparado abaixo.
+			// O modelo/endpoint rejeitou type:"mcp". Dispara o auto-ajuste persistido
+			// do perfil (nil→false) e degrada nativo→adapter.
 			log.Printf("[MCP-DEGRADE] attempt=%d provider=openai action=native_to_adapter reason=model_rejects_type_mcp servers=%d", attempt, len(currentServers))
 			if params.OnNativeMCPUnsupported != nil {
 				params.OnNativeMCPUnsupported()
 			}
+			if params.NativeMCPFallback != nil {
+				// O caller (loop agêntico) re-tenta o MESMO turno em modo adapter, com
+				// as bridge tools presentes. Aborta sem emitir done/erro.
+				params.NativeMCPFallback.Trigger()
+				return
+			}
+			// Sem fallback configurado (ex.: caminho simples sem tools): degrada
+			// dropando os servers nativos e re-tenta "pelado" (sem type:"mcp").
 			currentServers = nil
 			continue
 		}

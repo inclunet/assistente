@@ -290,23 +290,51 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// já que ambos resolvem o mesmo activeProfile neste pipeline. Aqui activeProfile
 	// já é não-nil (validado acima, onde LLMProvider vazio/nil retorna erro).
 	nativeMCPOverride := activeProfile.Chat.NativeMCP
+
+	// Alternativas em modo ADAPTER, capturadas ANTES de ApplyNativeMCP (que, no
+	// caminho nativo, anexa MCP servers ao streamer e remove as bridge tools):
+	//   - adapterStreamer: provider BASE, sem MCP servers nativos.
+	//   - adapterToolDefs: tools COM as bridges MCP (não removidas).
+	// Usadas pelo fallback nativo→adapter no MESMO turno (ver NativeMCPFallback).
+	adapterStreamer := requestStreamer
+	adapterToolDefs := llmToolDefs
+
 	requestStreamer, llmToolDefs = chat.ApplyNativeMCP(requestStreamer, llmToolDefs, uc.mcpMgr, profileEnabledTools, disableTools, nativeMCPOverride)
 
 	// Auto-degradação otimista (AEP-0021): no modo AUTO tentamos MCP nativo; se o
-	// modelo/endpoint rejeitar type:"mcp", o provider degrada para adapter no mesmo
-	// turno e dispara este hook, que auto-ajusta e PERSISTE o perfil (nil→false) para
-	// os próximos turnos. Override explícito (true/false) não é sobrescrito.
+	// modelo/endpoint rejeitar type:"mcp", o provider dispara este hook (auto-ajusta e
+	// PERSISTE o perfil nil→false para os próximos turnos) e, quando há
+	// NativeMCPFallback, o loop agêntico re-tenta o MESMO turno em modo adapter com as
+	// bridge tools presentes. Override explícito (true/false) não é sobrescrito.
 	resolvedProfileSlug := params.ProfileSlug
 	resolvedModel := params.Model
 	params.OnNativeMCPUnsupported = func() {
 		uc.chatInteractor.HandleNativeMCPUnsupported(resolvedProfileSlug, resolvedModel, nativeMCPOverride)
 	}
 
+	// Só há o que degradar quando ApplyNativeMCP de fato anexou MCP servers nativos
+	// (requestStreamer trocado). Prepara o fallback adapter para o mesmo turno.
+	if requestStreamer != adapterStreamer {
+		adapterFalse := false
+		params.NativeMCPFallback = &llm.NativeMCPAdapterFallback{
+			Streamer: adapterStreamer,
+			ToolDefs: adapterToolDefs,
+			ResolveToolDefs: func(names []string) []llm.ToolDefinition {
+				names = filterExpandedToolNames(uc.toolRegistry, names, profileEnabledTools, disableTools)
+				names = chat.FilterToolNamesForNativeMCP(adapterStreamer, uc.mcpMgr, names, disableTools, &adapterFalse)
+				return chat.BuildLLMToolDefsByNames(uc.toolRegistry, names, disableTools)
+			},
+		}
+	}
+
 	// Cria contexto cancelável por conversa — permite barge-in cancelar o LLM em andamento.
 	convCtx, convCancel := context.WithCancel(ctx)
 	uc.streamMgr.Register(req.ConversationID, convCancel)
 
-	if len(llmToolDefs) > 0 {
+	// Roteia para o loop agêntico sempre que houver tools em modo adapter (inclui o
+	// caso em que o caminho nativo removeu todas as bridges): assim o fallback
+	// nativo→adapter consegue restaurar as tools no mesmo turno.
+	if len(llmToolDefs) > 0 || len(adapterToolDefs) > 0 {
 		recoveryEnabled, recoveryMaxAttempts := resolveStreamingRecoverySettings(activeProfile)
 		agentCtx := convCtx
 		if invokedSkillSlug != "" {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // ==================== Message Types ====================
@@ -235,6 +236,58 @@ type ChatParams struct {
 	// PERSISTIR o perfil para adapter (Profile.Chat.NativeMCP nil→false), sem que o
 	// provider conheça a camada de perfis (AEP-0021). Não é serializado.
 	OnNativeMCPUnsupported func() `json:"-"`
+
+	// NativeMCPFallback, quando presente, indica que o caller (loop agêntico) é capaz
+	// de re-tentar o MESMO turno em modo adapter (MCP como bridge/function tools).
+	// Ao detectar o erro de não-suporte a MCP nativo, o provider apenas marca o
+	// fallback (Trigger) e aborta sem emitir, deixando o caller re-montar as tools no
+	// modo adapter e re-tentar — assim as tools MCP continuam disponíveis já neste
+	// turno. Não é serializado. Ver AEP-0021.
+	NativeMCPFallback *NativeMCPAdapterFallback `json:"-"`
+}
+
+// NativeMCPAdapterFallback carrega as alternativas em modo ADAPTER (provider sem
+// MCP servers nativos + tools com bridges) para que o loop agêntico re-tente o
+// mesmo turno quando o modelo/endpoint rejeitar MCP nativo. É preenchido pela camada
+// de chat (que conhece o registro de tools); o provider apenas sinaliza via Trigger.
+type NativeMCPAdapterFallback struct {
+	// Streamer é o provider em modo adapter (BASE, sem WithMCPServers nativo).
+	Streamer Streamer
+	// ToolDefs são as tools iniciais COM as bridge tools MCP (não removidas).
+	ToolDefs []ToolDefinition
+	// ResolveToolDefs reconstrói as tools por nome em modo adapter (mantém bridges),
+	// usado nas iterações seguintes do loop agêntico após expansão de catálogo.
+	ResolveToolDefs func([]string) []ToolDefinition
+
+	mu        sync.Mutex
+	triggered bool
+	consumed  bool
+}
+
+// Trigger marca que o fallback nativo→adapter deve ocorrer. Idempotente e thread-safe.
+func (f *NativeMCPAdapterFallback) Trigger() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	f.triggered = true
+	f.mu.Unlock()
+}
+
+// Consume retorna true UMA única vez, quando o fallback foi disparado e ainda não
+// foi consumido. O caller usa isso para trocar streamer/tools e re-tentar o turno
+// exatamente uma vez (evita loop infinito).
+func (f *NativeMCPAdapterFallback) Consume() bool {
+	if f == nil {
+		return false
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.triggered && !f.consumed {
+		f.consumed = true
+		return true
+	}
+	return false
 }
 
 // ==================== Helper Functions ====================
