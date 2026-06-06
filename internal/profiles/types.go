@@ -61,8 +61,12 @@ type ChatConfig struct {
 	// na Responses API / mcp_servers na Anthropic) para os runs deste perfil
 	// (chat normal E sub-agentes que rodam com este profile). Ponteiro para
 	// preservar compatibilidade com perfis antigos (AEP-0021):
-	//   - nil   → auto: usa o default do provider/endpoint (heurística por URL,
-	//             ex.: apenas api.openai.com manda type:"mcp").
+	//   - nil   → auto OTIMISTA: tenta MCP nativo sempre que o provider for
+	//             FISICAMENTE capaz (NativeMCPCapable), SEM heurística por
+	//             URL/endpoint. Se o modelo/endpoint rejeitar type:"mcp" (ex.: 400
+	//             "unknown variant `mcp`"), o turno degrada para adapter e o perfil
+	//             é auto-ajustado para false e persistido (nil→false), evitando
+	//             repetir o 400 nos próximos turnos.
 	//   - true  → força MCP nativo (envia type:"mcp"), desde que o provider seja
 	//             fisicamente capaz (Responses API / Anthropic). Útil para proxies
 	//             (LiteLLM/Azure) cujo MODELO selecionado suporta type:"mcp".

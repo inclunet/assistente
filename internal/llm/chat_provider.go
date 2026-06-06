@@ -56,11 +56,13 @@ type ChatProvider interface {
 	// Quando o provider não é capaz, retorna o provider inalterado (no-op) e os servers
 	// devem usar adapter/bridge.
 	//
-	// O gate aqui é apenas de capacidade de TRANSPORTE. A POLÍTICA de usar nativo vs
-	// adapter NÃO é decidida pelo provider: é resolvida na camada de chat por
-	// ResolveNativeMCPEnabled, que combina NativeMCPCapable() + o override de perfil
-	// (Profile.Chat.NativeMCP). O default (auto) é adapter — MCP nativo é opt-in por
-	// perfil. A camada de chat só chama WithMCPServers quando a política resolve nativo.
+	// O gate aqui é apenas de capacidade de TRANSPORTE (NativeMCPCapable()). A
+	// POLÍTICA de usar nativo vs adapter NÃO é decidida pelo provider: é resolvida
+	// na camada de chat por ResolveNativeMCPEnabled, que combina NativeMCPCapable()
+	// + o override de perfil (Profile.Chat.NativeMCP). O default (auto, override nil)
+	// é OTIMISTA: tenta nativo sempre que o provider for fisicamente capaz, degradando
+	// para adapter (e persistindo no perfil) apenas quando o modelo rejeita type:"mcp".
+	// A camada de chat só chama WithMCPServers quando a política resolve nativo.
 	WithMCPServers(servers []MCPServerConfig) ChatProvider
 }
 

@@ -35,9 +35,11 @@ import (
 //     Para OpenAI real (api.openai.com) e proxies que falam Responses (ex.: LiteLLM).
 //     Habilita reasoning summaries (via Reasoning param), tool_choice, e features modernas.
 //     É FISICAMENTE CAPAZ de emitir tools type:"mcp" — NativeMCPCapable() retorna true
-//     (inclusive em proxies). Não há heurística por URL: o default (auto) é adapter e
-//     MCP nativo é opt-in por perfil. A POLÍTICA final (usar nativo vs adapter) NÃO é
-//     decidida aqui: é resolvida na camada de chat por ResolveNativeMCPEnabled, que
+//     (inclusive em proxies). Não há heurística por URL: o default (auto, override nil)
+//     tenta MCP nativo sempre que NativeMCPCapable()==true, degradando para adapter
+//     (e persistindo no perfil) apenas quando o modelo rejeita type:"mcp". A POLÍTICA
+//     final (usar nativo vs adapter) NÃO é decidida aqui: é resolvida na camada de
+//     chat por ResolveNativeMCPEnabled, que
 //     combina NativeMCPCapable() + override por perfil (Profile.Chat.NativeMCP).
 //     WithMCPServers() apenas incorpora os MCP servers na request e gateia por
 //     CAPACIDADE FÍSICA (NativeMCPCapable()).
