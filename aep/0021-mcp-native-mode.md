@@ -8,7 +8,7 @@
 >
 > A v3 refletiu a separacao real entre `openai` (Chat Completions only) e `openai_responses` (Responses API first), e tratou o suporte como puramente capability-driven, sem participacao do perfil.
 >
-> **Esta v4** corrige a decisao: o suporte a MCP nativo passa a ser **configuravel POR PERFIL** (`Profile.Chat.NativeMCP`, tri-state), com a heuristica por endpoint servindo apenas como **default (auto)**. Motivo: um mesmo endpoint OpenAI-compatible que fala a Responses API (ex.: proxy LiteLLM) pode rotear para varios modelos — alguns que aceitam `type:"mcp"` e outros que NAO (ex.: `deepseek-v4-flash`, que devolvia `400 unknown variant `mcp`, expected `function`` a cada turno). Gatear apenas por provider/URL e grosseiro demais; o perfil ja amarra modelo + comportamento, entao e o lugar correto para essa capability.
+> **Esta v4** corrige a decisao: o suporte a MCP nativo passa a ser **configuravel POR PERFIL** (`Profile.Chat.NativeMCP`, tri-state), com a heuristica por endpoint servindo apenas como **default (auto)**. Motivo: um mesmo endpoint OpenAI-compatible que fala a Responses API (ex.: proxy LiteLLM) pode rotear para varios modelos — alguns que aceitam `type:"mcp"` e outros que NAO (ex.: `deepseek-v4-flash`, que devolvia `400 unknown variant "mcp", expected "function"` a cada turno). Gatear apenas por provider/URL e grosseiro demais; o perfil ja amarra modelo + comportamento, entao e o lugar correto para essa capability.
 
 ---
 
