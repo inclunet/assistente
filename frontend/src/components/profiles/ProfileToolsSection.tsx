@@ -381,7 +381,7 @@ export function ProfileToolsSection({
               <option value="off">{t('profiles.nativeMcpOff', 'Forçar adapter (function)')}</option>
             </select>
             <span className="profiles-field__hint">
-              {t('profiles.nativeMcpHint', 'Como os servidores MCP são oferecidos ao modelo. Automático: o endpoint decide (só OpenAI real usa type:mcp). Force adapter quando o modelo do endpoint (ex.: deepseek via proxy) não aceitar type:mcp.')}
+              {t('profiles.nativeMcpHint', "Como os servidores MCP são oferecidos ao modelo. Automático: o endpoint decide (só OpenAI real usa type:mcp). Use 'Forçar adapter' quando o modelo do endpoint (ex.: deepseek via proxy) não aceitar type:mcp.")}
             </span>
           </div>
         </>

@@ -952,7 +952,7 @@ const ptBR = {
         nativeMcpAuto: 'Automático (recomendado)',
         nativeMcpOn: 'Forçar nativo (type:mcp)',
         nativeMcpOff: 'Forçar adapter (function)',
-        nativeMcpHint: 'Como os servidores MCP são oferecidos ao modelo. Automático: o endpoint decide (só OpenAI real usa type:mcp). Force adapter quando o modelo do endpoint (ex.: deepseek via proxy) não aceitar type:mcp.',
+        nativeMcpHint: "Como os servidores MCP são oferecidos ao modelo. Automático: o endpoint decide (só OpenAI real usa type:mcp). Use 'Forçar adapter' quando o modelo do endpoint (ex.: deepseek via proxy) não aceitar type:mcp.",
 
         streamingRecoveryEnabled: 'Tentar recuperar respostas interrompidas automaticamente',
         streamingRecoveryEnabledHint: 'Quando uma resposta falha ou é interrompida, tenta retomar automaticamente antes de marcar como falha.',

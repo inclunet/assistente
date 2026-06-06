@@ -951,7 +951,7 @@ const es = {
         nativeMcpAuto: 'Automático (recomendado)',
         nativeMcpOn: 'Forzar nativo (type:mcp)',
         nativeMcpOff: 'Forzar adaptador (function)',
-        nativeMcpHint: 'Cómo se ofrecen los servidores MCP al modelo. Automático: el endpoint decide (solo OpenAI real usa type:mcp). Fuerza adaptador cuando el modelo del endpoint (p. ej. deepseek vía proxy) no acepta type:mcp.',
+        nativeMcpHint: "Cómo se ofrecen los servidores MCP al modelo. Automático: el endpoint decide (solo OpenAI real usa type:mcp). Usa 'Forzar adaptador' cuando el modelo del endpoint (p. ej. deepseek vía proxy) no acepta type:mcp.",
 
         streamingRecoveryEnabled: 'Intentar recuperar respuestas interrumpidas automáticamente',
         streamingRecoveryEnabledHint: 'Cuando una respuesta falla o se interrumpe, intenta recuperarla automáticamente antes de marcarla como fallida.',

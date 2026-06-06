@@ -54,10 +54,17 @@ type ChatProvider interface {
 	// provider é capaz — evita remover bridge tools sem ter como enviar type:"mcp".
 	NativeMCPCapable() bool
 
-	// WithMCPServers retorna uma cópia do provider configurada com MCP servers HTTP remotos.
-	// Quando SupportsNativeMCP() é true, os servers são incorporados na request ao LLM
-	// (ex: Anthropic mcp_servers, OpenAI Responses type:mcp).
-	// Quando false, retorna o provider inalterado (os servers devem usar adapter/bridge).
+	// WithMCPServers retorna uma cópia do provider configurada com MCP servers HTTP remotos,
+	// incorporando-os na request ao LLM quando o provider é FISICAMENTE capaz
+	// (NativeMCPCapable() == true): Anthropic mcp_servers, OpenAI Responses type:mcp.
+	// Quando o provider não é capaz, retorna o provider inalterado (no-op) e os servers
+	// devem usar adapter/bridge.
+	//
+	// O gate aqui é apenas de capacidade de TRANSPORTE. A POLÍTICA de usar nativo vs
+	// adapter NÃO é decidida pelo provider: é resolvida na camada de chat por
+	// ResolveNativeMCPEnabled, que combina NativeMCPCapable() + override do perfil
+	// (Profile.Chat.NativeMCP) + o default por endpoint (SupportsNativeMCP()). A camada
+	// de chat só chama WithMCPServers quando essa política resolve para nativo.
 	WithMCPServers(servers []MCPServerConfig) ChatProvider
 }
 

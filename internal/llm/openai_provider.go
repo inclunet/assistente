@@ -27,18 +27,22 @@ import (
 //   - useResponses=false (APIFormatOpenAI / APIFormatOpenAICompatible):
 //     Chat Completions API only (/v1/chat/completions).
 //     Para provedores OpenAI-compatible: OpenRouter, Ollama, Groq, Together, etc.
-//     Não suporta MCP nativo. SupportsNativeMCP() retorna false.
-//     WithMCPServers() é no-op (retorna o provider inalterado).
+//     Não é fisicamente capaz de MCP nativo: NativeMCPCapable() e SupportsNativeMCP()
+//     retornam false. WithMCPServers() é no-op (retorna o provider inalterado).
 //
 //   - useResponses=true (APIFormatOpenAIResponses):
 //     Responses API first (/v1/responses).
 //     Para OpenAI real (api.openai.com) e proxies que falam Responses (ex.: LiteLLM).
 //     Habilita reasoning summaries (via Reasoning param), tool_choice, e features modernas.
-//     SupportsNativeMCP() retorna true SOMENTE quanto a BaseURL é a OpenAI real
-//     (api.openai.com); proxies OpenAI-compatible não suportam tools type:"mcp" e
-//     caem no modo adapter (MCP via function/bridge tools). Ver SupportsNativeMCP().
-//     WithMCPServers() cria uma cópia com MCP servers configurados apenas quando
-//     SupportsNativeMCP() é true.
+//     É FISICAMENTE CAPAZ de emitir tools type:"mcp" — NativeMCPCapable() retorna true
+//     (inclusive em proxies). SupportsNativeMCP() é apenas o DEFAULT (auto) e retorna
+//     true SOMENTE quando a BaseURL é a OpenAI real (api.openai.com); proxies
+//     OpenAI-compatible caem em adapter por default, pois podem rotear para modelos
+//     que rejeitam type:"mcp" (ex.: deepseek). A POLÍTICA final (usar nativo vs adapter)
+//     NÃO é decidida aqui: é resolvida na camada de chat por ResolveNativeMCPEnabled,
+//     que combina NativeMCPCapable() + override por perfil (Profile.Chat.NativeMCP) +
+//     este default. WithMCPServers() apenas incorpora os MCP servers na request e
+//     gateia por CAPACIDADE FÍSICA (NativeMCPCapable()), não pelo default.
 //
 // Limitações conhecidas do path Responses vs Chat Completions:
 //   - Multimodalidade: imagens em user messages são convertidas como texto.
