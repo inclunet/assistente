@@ -42,13 +42,9 @@ type ChatProvider interface {
 	// SimpleChat é um atalho para enviar system+user e obter a resposta (sem tools).
 	SimpleChat(ctx context.Context, model, systemPrompt, userMessage string) (string, error)
 
-	// SupportsNativeMCP indica o DEFAULT (auto) de MCP nativo deste provider quando
-	// o perfil não força nada. É a heurística segura por endpoint (ex.: OpenAI real
-	// por api.openai.com). Um perfil pode sobrescrever esse default (ver AEP-0021).
-	SupportsNativeMCP() bool
-
 	// NativeMCPCapable indica se o provider/transport é FISICAMENTE capaz de emitir
-	// MCP nativo (independentemente da heurística de URL ou de política de perfil).
+	// MCP nativo, independentemente de qualquer política. É a ÚNICA dimensão de
+	// provider que influencia MCP nativo (não há heurística por URL/endpoint).
 	// Ex.: OpenAI via Responses API e Anthropic são capazes; Chat Completions e
 	// Google não. Um override de perfil "true" só habilita MCP nativo quando o
 	// provider é capaz — evita remover bridge tools sem ter como enviar type:"mcp".
@@ -62,9 +58,9 @@ type ChatProvider interface {
 	//
 	// O gate aqui é apenas de capacidade de TRANSPORTE. A POLÍTICA de usar nativo vs
 	// adapter NÃO é decidida pelo provider: é resolvida na camada de chat por
-	// ResolveNativeMCPEnabled, que combina NativeMCPCapable() + override do perfil
-	// (Profile.Chat.NativeMCP) + o default por endpoint (SupportsNativeMCP()). A camada
-	// de chat só chama WithMCPServers quando essa política resolve para nativo.
+	// ResolveNativeMCPEnabled, que combina NativeMCPCapable() + o override de perfil
+	// (Profile.Chat.NativeMCP). O default (auto) é adapter — MCP nativo é opt-in por
+	// perfil. A camada de chat só chama WithMCPServers quando a política resolve nativo.
 	WithMCPServers(servers []MCPServerConfig) ChatProvider
 }
 

@@ -27,22 +27,20 @@ import (
 //   - useResponses=false (APIFormatOpenAI / APIFormatOpenAICompatible):
 //     Chat Completions API only (/v1/chat/completions).
 //     Para provedores OpenAI-compatible: OpenRouter, Ollama, Groq, Together, etc.
-//     Não é fisicamente capaz de MCP nativo: NativeMCPCapable() e SupportsNativeMCP()
-//     retornam false. WithMCPServers() é no-op (retorna o provider inalterado).
+//     Não é fisicamente capaz de MCP nativo: NativeMCPCapable() retorna false.
+//     WithMCPServers() é no-op (retorna o provider inalterado).
 //
 //   - useResponses=true (APIFormatOpenAIResponses):
 //     Responses API first (/v1/responses).
 //     Para OpenAI real (api.openai.com) e proxies que falam Responses (ex.: LiteLLM).
 //     Habilita reasoning summaries (via Reasoning param), tool_choice, e features modernas.
 //     É FISICAMENTE CAPAZ de emitir tools type:"mcp" — NativeMCPCapable() retorna true
-//     (inclusive em proxies). SupportsNativeMCP() é apenas o DEFAULT (auto) e retorna
-//     true SOMENTE quando a BaseURL é a OpenAI real (api.openai.com); proxies
-//     OpenAI-compatible caem em adapter por default, pois podem rotear para modelos
-//     que rejeitam type:"mcp" (ex.: deepseek). A POLÍTICA final (usar nativo vs adapter)
-//     NÃO é decidida aqui: é resolvida na camada de chat por ResolveNativeMCPEnabled,
-//     que combina NativeMCPCapable() + override por perfil (Profile.Chat.NativeMCP) +
-//     este default. WithMCPServers() apenas incorpora os MCP servers na request e
-//     gateia por CAPACIDADE FÍSICA (NativeMCPCapable()), não pelo default.
+//     (inclusive em proxies). Não há heurística por URL: o default (auto) é adapter e
+//     MCP nativo é opt-in por perfil. A POLÍTICA final (usar nativo vs adapter) NÃO é
+//     decidida aqui: é resolvida na camada de chat por ResolveNativeMCPEnabled, que
+//     combina NativeMCPCapable() + override por perfil (Profile.Chat.NativeMCP).
+//     WithMCPServers() apenas incorpora os MCP servers na request e gateia por
+//     CAPACIDADE FÍSICA (NativeMCPCapable()).
 //
 // Limitações conhecidas do path Responses vs Chat Completions:
 //   - Multimodalidade: imagens em user messages são convertidas como texto.
@@ -103,28 +101,18 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 	}
 }
 
-// SupportsNativeMCP é o DEFAULT (auto) de MCP nativo quando o perfil não força
-// nada: só é verdadeiro para a plataforma OpenAI real (api.openai.com) operando
-// via Responses API. Esse default existe porque proxies OpenAI-compatible que
-// também falam a Responses API (ex.: LiteLLM) podem rotear para modelos que NÃO
-// suportam o tipo "mcp" (ex.: deepseek-v4-flash) — apenas type:"function" —, o
-// que produziria um 400 a cada turno. A decisão final, porém, é por PERFIL: um
-// perfil pode forçar nativo (true) ou adapter (false) sobre este default
-// (ver internal/chat.ResolveNativeMCPEnabled e AEP-0021).
-func (p *OpenAIProvider) SupportsNativeMCP() bool {
-	return p.useResponses && p.provider != nil && isOpenAIRealURL(p.provider.BaseURL)
-}
-
 // NativeMCPCapable: a OpenAI só emite tools type:"mcp" pelo caminho da Responses
-// API (useResponses=true). Chat Completions não carrega MCP nativo no wire.
+// API (useResponses=true), independentemente da URL/endpoint. Chat Completions não
+// carrega MCP nativo no wire. Esta é a única dimensão de provider que influencia
+// MCP nativo; a decisão de USAR nativo é por perfil (ResolveNativeMCPEnabled).
 func (p *OpenAIProvider) NativeMCPCapable() bool {
 	return p.useResponses
 }
 
 func (p *OpenAIProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider {
-	// Gate físico (não a heurística/política): armazena os servers sempre que o
-	// transporte for capaz de emitir type:"mcp". A decisão de POLÍTICA (default
-	// por URL + override do perfil) é feita por internal/chat antes de chamar aqui.
+	// Gate físico (não a política): armazena os servers sempre que o transporte for
+	// capaz de emitir type:"mcp". A decisão de POLÍTICA (override do perfil; default
+	// auto = adapter) é feita por internal/chat antes de chamar aqui.
 	if !p.NativeMCPCapable() || len(servers) == 0 {
 		return p
 	}

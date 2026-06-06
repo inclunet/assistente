@@ -50,10 +50,6 @@ func NewAnthropicProvider(provider *ProviderConfig, credMgr *credentials.Manager
 	}
 }
 
-func (p *AnthropicProvider) SupportsNativeMCP() bool {
-	return true
-}
-
 // NativeMCPCapable: a Anthropic suporta MCP nativo via Beta Messages API.
 func (p *AnthropicProvider) NativeMCPCapable() bool {
 	return true

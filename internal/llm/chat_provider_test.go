@@ -133,12 +133,12 @@ func TestOpenAIProvider_ChatCompletions_NoNativeMCP(t *testing.T) {
 		BaseURL: "https://api.openai.com/v1",
 	}
 	provider := NewOpenAIProvider(p, credMgr)
-	if provider.SupportsNativeMCP() {
-		t.Error("Chat Completions provider should NOT support native MCP")
+	if provider.NativeMCPCapable() {
+		t.Error("Chat Completions provider should NOT be native MCP capable")
 	}
 }
 
-func TestOpenAIResponsesProvider_SupportsNativeMCP(t *testing.T) {
+func TestOpenAIResponsesProvider_NativeMCPCapable(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 	p := &ProviderConfig{
 		ID:      "test",
@@ -146,8 +146,8 @@ func TestOpenAIResponsesProvider_SupportsNativeMCP(t *testing.T) {
 		BaseURL: "https://api.openai.com/v1",
 	}
 	provider := NewOpenAIResponsesProvider(p, credMgr)
-	if !provider.SupportsNativeMCP() {
-		t.Error("Responses provider should support native MCP")
+	if !provider.NativeMCPCapable() {
+		t.Error("Responses provider should be native MCP capable")
 	}
 }
 
@@ -439,7 +439,7 @@ func TestCredentialTransport_NilCredMgr(t *testing.T) {
 	}
 }
 
-func TestAnthropicProvider_SupportsNativeMCP(t *testing.T) {
+func TestAnthropicProvider_NativeMCPCapable(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 	p := &ProviderConfig{
 		ID:      "test",
@@ -447,8 +447,8 @@ func TestAnthropicProvider_SupportsNativeMCP(t *testing.T) {
 		BaseURL: "https://api.anthropic.com",
 	}
 	provider := NewAnthropicProvider(p, credMgr)
-	if !provider.SupportsNativeMCP() {
-		t.Error("AnthropicProvider.SupportsNativeMCP() = false, want true")
+	if !provider.NativeMCPCapable() {
+		t.Error("AnthropicProvider.NativeMCPCapable() = false, want true")
 	}
 }
 
@@ -580,13 +580,13 @@ func TestAPIFormatConstants(t *testing.T) {
 
 // --- GoogleProvider tests ---
 
-func TestGoogleProvider_SupportsNativeMCP_False(t *testing.T) {
+func TestGoogleProvider_NativeMCPCapable_False(t *testing.T) {
 	p := NewGoogleProvider(&ProviderConfig{
 		ID:   "gp",
 		Name: "Google",
 	}, nil)
-	if p.SupportsNativeMCP() {
-		t.Error("GoogleProvider should NOT support native MCP (not implemented)")
+	if p.NativeMCPCapable() {
+		t.Error("GoogleProvider should NOT be native MCP capable (not implemented)")
 	}
 }
 
@@ -782,7 +782,7 @@ func TestAnthropicProvider_WithMCPServers_EmptyReturnsOriginal(t *testing.T) {
 	}
 }
 
-func TestSupportsNativeMCP_ReflectsRealImplementation(t *testing.T) {
+func TestNativeMCPCapable_ReflectsRealImplementation(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 
 	openaiCompat := NewOpenAIProvider(&ProviderConfig{ID: "oc", Name: "OC", BaseURL: "https://api.openrouter.ai/v1"}, credMgr)
@@ -790,27 +790,26 @@ func TestSupportsNativeMCP_ReflectsRealImplementation(t *testing.T) {
 	anthropic := NewAnthropicProvider(&ProviderConfig{ID: "a", Name: "A", BaseURL: "https://api.anthropic.com"}, credMgr)
 	google := NewGoogleProvider(&ProviderConfig{ID: "g", Name: "G"}, credMgr)
 
-	if openaiCompat.SupportsNativeMCP() {
-		t.Error("OpenAI-compatible should NOT support native MCP (Chat Completions only)")
+	if openaiCompat.NativeMCPCapable() {
+		t.Error("OpenAI-compatible (Chat Completions) should NOT be native MCP capable")
 	}
-	if !openaiReal.SupportsNativeMCP() {
-		t.Error("OpenAI Responses should support native MCP")
+	if !openaiReal.NativeMCPCapable() {
+		t.Error("OpenAI Responses should be native MCP capable")
 	}
-	if !anthropic.SupportsNativeMCP() {
-		t.Error("Anthropic should support native MCP (Beta Messages API)")
+	if !anthropic.NativeMCPCapable() {
+		t.Error("Anthropic should be native MCP capable (Beta Messages API)")
 	}
-	if google.SupportsNativeMCP() {
-		t.Error("Google should NOT support native MCP (not implemented)")
+	if google.NativeMCPCapable() {
+		t.Error("Google should NOT be native MCP capable (not implemented)")
 	}
 }
 
-// TestOpenAIResponsesProvider_LiteLLMProxy_DefaultAndCapability cobre o caso do
-// proxy OpenAI-compatible (ex.: LiteLLM) com api_format=openai_responses: ele
-// fala a Responses API e é fisicamente CAPAZ de emitir type:"mcp"
-// (NativeMCPCapable=true), mas o DEFAULT (auto, sem override de perfil) é NÃO
-// usar nativo, pois pode rotear para modelos que rejeitam type:"mcp"
-// (deepseek/v4-flash → 400). A decisão final é por perfil (ver internal/chat).
-func TestOpenAIResponsesProvider_LiteLLMProxy_DefaultAndCapability(t *testing.T) {
+// TestOpenAIResponsesProvider_Proxy_CapableRegardlessOfURL cobre o caso do proxy
+// OpenAI-compatible (ex.: LiteLLM) com api_format=openai_responses: ele fala a
+// Responses API e é fisicamente CAPAZ de emitir type:"mcp" (NativeMCPCapable=true)
+// independentemente da URL. Não há mais heurística por endpoint; o DEFAULT (auto)
+// é adapter e MCP nativo é opt-in por perfil (ver internal/chat.ResolveNativeMCPEnabled).
+func TestOpenAIResponsesProvider_Proxy_CapableRegardlessOfURL(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 	p := &ProviderConfig{
 		ID:        "litellm",
@@ -823,9 +822,6 @@ func TestOpenAIResponsesProvider_LiteLLMProxy_DefaultAndCapability(t *testing.T)
 
 	if !provider.useResponses {
 		t.Fatal("proxy deve continuar usando a Responses API (useResponses=true)")
-	}
-	if provider.SupportsNativeMCP() {
-		t.Error("default (auto) do proxy deve ser NÃO-nativo (heurística por URL)")
 	}
 	if !provider.NativeMCPCapable() {
 		t.Error("proxy via Responses API é fisicamente capaz de emitir type:mcp")
@@ -988,8 +984,8 @@ func TestOpenAIResponsesProvider_UsesResponsesWithoutMCP(t *testing.T) {
 	if len(provider.mcpServers) != 0 {
 		t.Error("Fresh provider should have no MCP servers")
 	}
-	if !provider.SupportsNativeMCP() {
-		t.Error("Responses provider should support native MCP")
+	if !provider.NativeMCPCapable() {
+		t.Error("Responses provider should be native MCP capable")
 	}
 }
 
@@ -1005,8 +1001,8 @@ func TestOpenAICompatProvider_UsesChatCompletions(t *testing.T) {
 	if provider.useResponses {
 		t.Error("Compatible provider should NOT use Responses API")
 	}
-	if provider.SupportsNativeMCP() {
-		t.Error("Compatible provider should NOT support native MCP")
+	if provider.NativeMCPCapable() {
+		t.Error("Compatible provider should NOT be native MCP capable")
 	}
 }
 

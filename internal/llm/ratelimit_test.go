@@ -409,8 +409,6 @@ func (f *fakeChatProvider) SimpleChat(ctx context.Context, model, systemPrompt, 
 	return "ok", nil
 }
 
-func (f *fakeChatProvider) SupportsNativeMCP() bool { return false }
-
 func (f *fakeChatProvider) NativeMCPCapable() bool { return false }
 
 func (f *fakeChatProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider { return f }

@@ -45,10 +45,9 @@ func registryWith(names ...string) *tools.Registry {
 
 // mockChatProvider implements llm.ChatProvider for tests.
 type mockChatProvider struct {
-	supportsNative bool
-	// nativeCapable força o retorno de NativeMCPCapable(). Quando nil, assume o
-	// invariante real "capaz ⊇ default" e retorna supportsNative.
-	nativeCapable *bool
+	// nativeCapable controla NativeMCPCapable() — a única dimensão de provider que
+	// influencia MCP nativo. Não há mais default por URL/endpoint.
+	nativeCapable bool
 	calledWith    []llm.MCPServerConfig
 }
 
@@ -61,15 +60,9 @@ func (m *mockChatProvider) GetModels(_ context.Context) ([]string, error) { retu
 func (m *mockChatProvider) SimpleChat(_ context.Context, _, _, _ string) (string, error) {
 	return "", nil
 }
-func (m *mockChatProvider) SupportsNativeMCP() bool { return m.supportsNative }
-func (m *mockChatProvider) NativeMCPCapable() bool {
-	if m.nativeCapable != nil {
-		return *m.nativeCapable
-	}
-	return m.supportsNative
-}
+func (m *mockChatProvider) NativeMCPCapable() bool { return m.nativeCapable }
 func (m *mockChatProvider) WithMCPServers(servers []llm.MCPServerConfig) llm.ChatProvider {
-	clone := &mockChatProvider{supportsNative: m.supportsNative, nativeCapable: m.nativeCapable, calledWith: servers}
+	clone := &mockChatProvider{nativeCapable: m.nativeCapable, calledWith: servers}
 	return clone
 }
 
@@ -304,12 +297,12 @@ func TestFilterToolNamesByEnabledToolsDisabledReturnsNil(t *testing.T) {
 }
 
 func TestFilterToolNamesForNativeMCPRemovesNativeBridgeNames(t *testing.T) {
-	p := &mockChatProvider{supportsNative: true}
+	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do", "mcp_srv__list"}},
 	}}
 
-	got := FilterToolNamesForNativeMCP(p, mgr, []string{"read_file", "mcp_srv__do", "mcp_other__do", "mcp_srv__list"}, false, nil)
+	got := FilterToolNamesForNativeMCP(p, mgr, []string{"read_file", "mcp_srv__do", "mcp_other__do", "mcp_srv__list"}, false, boolPtr(true))
 	want := []string{"read_file", "mcp_other__do"}
 	if len(got) != len(want) {
 		t.Fatalf("got %#v, want %#v", got, want)
@@ -322,24 +315,24 @@ func TestFilterToolNamesForNativeMCPRemovesNativeBridgeNames(t *testing.T) {
 }
 
 func TestFilterToolNamesForNativeMCPDisabledReturnsNil(t *testing.T) {
-	p := &mockChatProvider{supportsNative: true}
+	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
 	}}
 
-	if got := FilterToolNamesForNativeMCP(p, mgr, []string{"read_file", "mcp_srv__do"}, true, nil); got != nil {
+	if got := FilterToolNamesForNativeMCP(p, mgr, []string{"read_file", "mcp_srv__do"}, true, boolPtr(true)); got != nil {
 		t.Fatalf("got %#v, want nil", got)
 	}
 }
 
 func TestFilterToolNamesForNativeMCPPreservesNamesWhenProviderIsNotNative(t *testing.T) {
-	p := &mockChatProvider{supportsNative: false}
+	p := &mockChatProvider{nativeCapable: false}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
 	}}
 	names := []string{"mcp_srv__do"}
 
-	got := FilterToolNamesForNativeMCP(p, mgr, names, false, nil)
+	got := FilterToolNamesForNativeMCP(p, mgr, names, false, boolPtr(true))
 	if len(got) != 1 || got[0] != "mcp_srv__do" {
 		t.Fatalf("got %#v, want %#v", got, names)
 	}
@@ -350,10 +343,10 @@ func TestFilterToolNamesForNativeMCPPreservesNamesWhenProviderIsNotNative(t *tes
 // ---------------------------------------------------------------------------
 
 func TestApplyNativeMCP_DisableTools(t *testing.T) {
-	p := &mockChatProvider{supportsNative: true}
+	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}
 	defs := makeToolDefs("mcp_s1__tool1")
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, true, nil)
+	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, true, boolPtr(true))
 	if outP != p {
 		t.Error("deveria retornar o mesmo provider quando disableTools=true")
 	}
@@ -363,9 +356,9 @@ func TestApplyNativeMCP_DisableTools(t *testing.T) {
 }
 
 func TestApplyNativeMCP_NilMgr(t *testing.T) {
-	p := &mockChatProvider{supportsNative: true}
+	p := &mockChatProvider{nativeCapable: true}
 	defs := makeToolDefs("toolA")
-	outP, outDefs := ApplyNativeMCP(p, defs, nil, nil, false, nil)
+	outP, outDefs := ApplyNativeMCP(p, defs, nil, nil, false, boolPtr(true))
 	if outP != p {
 		t.Error("deveria retornar o mesmo provider quando mcpMgr=nil")
 	}
@@ -375,12 +368,12 @@ func TestApplyNativeMCP_NilMgr(t *testing.T) {
 }
 
 func TestApplyNativeMCP_TypedNilManagerDoesNotPanic(t *testing.T) {
-	p := &mockChatProvider{supportsNative: true}
+	p := &mockChatProvider{nativeCapable: true}
 	defs := makeToolDefs("toolA")
 	var mgr *mockNativeMCPMgr
 	var nativeMgr NativeMCPManager = mgr
 
-	outP, outDefs := ApplyNativeMCP(p, defs, nativeMgr, nil, false, nil)
+	outP, outDefs := ApplyNativeMCP(p, defs, nativeMgr, nil, false, boolPtr(true))
 	if outP != p {
 		t.Error("deveria retornar o mesmo provider quando mcpMgr é typed-nil")
 	}
@@ -389,13 +382,13 @@ func TestApplyNativeMCP_TypedNilManagerDoesNotPanic(t *testing.T) {
 	}
 }
 
-// Regression: typed-nil ChatProvider must not reach SupportsNativeMCP() (method on nil receiver panics).
+// Regression: typed-nil ChatProvider must not reach NativeMCPCapable() (method on nil receiver panics).
 func TestApplyNativeMCP_TypedNilProviderDoesNotPanic(t *testing.T) {
 	var p *mockChatProvider
 	var streamer llm.ChatProvider = p
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}
 	defs := makeToolDefs("toolA")
-	outP, outDefs := ApplyNativeMCP(streamer, defs, mgr, nil, false, nil)
+	outP, outDefs := ApplyNativeMCP(streamer, defs, mgr, nil, false, boolPtr(true))
 	if outP != streamer {
 		t.Error("deveria retornar o mesmo typed-nil streamer sem chamar métodos")
 	}
@@ -405,23 +398,23 @@ func TestApplyNativeMCP_TypedNilProviderDoesNotPanic(t *testing.T) {
 }
 
 func TestApplyNativeMCP_ProviderNotNative(t *testing.T) {
-	p := &mockChatProvider{supportsNative: false}
+	p := &mockChatProvider{nativeCapable: false}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}
 	defs := makeToolDefs("toolA")
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, nil)
+	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
 	if outP != p {
-		t.Error("deveria retornar o mesmo provider quando SupportsNativeMCP=false")
+		t.Error("deveria retornar o mesmo provider quando NativeMCPCapable=false")
 	}
 	if len(outDefs) != 1 {
-		t.Error("deveria preservar toolDefs quando provider nao suporta native MCP")
+		t.Error("deveria preservar toolDefs quando provider nao e capaz de native MCP")
 	}
 }
 
 func TestApplyNativeMCP_NoServers(t *testing.T) {
-	p := &mockChatProvider{supportsNative: true}
+	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: nil}
 	defs := makeToolDefs("toolA")
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, nil)
+	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
 	if outP != p {
 		t.Error("deveria retornar o mesmo provider quando nao ha servidores")
 	}
@@ -431,12 +424,12 @@ func TestApplyNativeMCP_NoServers(t *testing.T) {
 }
 
 func TestApplyNativeMCP_RemovesBridgeTools(t *testing.T) {
-	p := &mockChatProvider{supportsNative: true}
+	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Name: "MyServer", URL: "https://mcp.example.io", ToolNames: []string{"mcp_myserver__list", "mcp_myserver__create"}},
 	}}
 	defs := makeToolDefs("mcp_myserver__list", "mcp_myserver__create", "local_tool")
-	_, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, nil)
+	_, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
 	if len(outDefs) != 1 {
 		t.Fatalf("esperava 1 def restante (local_tool), obteve %d: %v", len(outDefs), outDefs)
 	}
@@ -446,12 +439,12 @@ func TestApplyNativeMCP_RemovesBridgeTools(t *testing.T) {
 }
 
 func TestApplyNativeMCP_CallsWithMCPServers(t *testing.T) {
-	p := &mockChatProvider{supportsNative: true}
+	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Slug: "srv", Name: "Srv", URL: "https://srv.io", AuthToken: "tok", ToolNames: []string{"mcp_srv__do"}},
 	}}
 	defs := makeToolDefs("mcp_srv__do")
-	outP, _ := ApplyNativeMCP(p, defs, mgr, nil, false, nil)
+	outP, _ := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
 	result, ok := outP.(*mockChatProvider)
 	if !ok {
 		t.Fatal("esperava *mockChatProvider de retorno")
@@ -475,13 +468,13 @@ func TestApplyNativeMCP_CallsWithMCPServers(t *testing.T) {
 }
 
 func TestApplyNativeMCP_NilEnabledToolsKeepsDynamicCatalogSeparateFromWhitelist(t *testing.T) {
-	p := &mockChatProvider{supportsNative: true}
+	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
 	}}
 	defs := makeToolDefs(tools.ToolCatalogName)
 
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, nil)
+	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
 	result, ok := outP.(*mockChatProvider)
 	if !ok {
 		t.Fatal("esperava *mockChatProvider de retorno")
@@ -495,12 +488,12 @@ func TestApplyNativeMCP_NilEnabledToolsKeepsDynamicCatalogSeparateFromWhitelist(
 }
 
 func TestApplyNativeMCP_EnabledSetFiltersServer(t *testing.T) {
-	p := &mockChatProvider{supportsNative: true}
+	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Name: "S", URL: "https://s.io", ToolNames: []string{"mcp_s__alpha", "mcp_s__beta"}},
 	}}
 	defs := makeToolDefs("mcp_s__alpha", "mcp_s__beta", "local")
-	_, outDefs := ApplyNativeMCP(p, defs, mgr, []string{"mcp_s__alpha"}, false, nil)
+	_, outDefs := ApplyNativeMCP(p, defs, mgr, []string{"mcp_s__alpha"}, false, boolPtr(true))
 	names := map[string]bool{}
 	for _, d := range outDefs {
 		names[d.Function.Name] = true
@@ -517,26 +510,27 @@ func TestApplyNativeMCP_EnabledSetFiltersServer(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ResolveNativeMCPEnabled — override por perfil (tri-state) sobre o default
+// ResolveNativeMCPEnabled — opt-in por perfil (tri-state); auto = adapter
 // ---------------------------------------------------------------------------
 
-func TestResolveNativeMCPEnabled_AutoUsesProviderDefault(t *testing.T) {
-	// nil override → cai no default do provider (SupportsNativeMCP, heurística).
-	realLike := &mockChatProvider{supportsNative: true, nativeCapable: boolPtr(true)}
-	proxyLike := &mockChatProvider{supportsNative: false, nativeCapable: boolPtr(true)} // Responses capaz, mas URL não-real
+func TestResolveNativeMCPEnabled_AutoIsAdapter(t *testing.T) {
+	// nil override (auto) → adapter (default seguro, provider-agnostic), mesmo que
+	// o provider seja fisicamente capaz. Não há heurística por URL/endpoint.
+	capable := &mockChatProvider{nativeCapable: true}
+	incapable := &mockChatProvider{nativeCapable: false}
 
-	if !ResolveNativeMCPEnabled(realLike, nil) {
-		t.Error("auto: OpenAI-real-like deveria usar nativo por default")
+	if ResolveNativeMCPEnabled(capable, nil) {
+		t.Error("auto: provider capaz deveria cair em adapter por default (sem heurística)")
 	}
-	if ResolveNativeMCPEnabled(proxyLike, nil) {
-		t.Error("auto: proxy deveria cair em adapter por default (heurística)")
+	if ResolveNativeMCPEnabled(incapable, nil) {
+		t.Error("auto: provider incapaz deveria cair em adapter por default")
 	}
 }
 
-func TestResolveNativeMCPEnabled_ForceTrueOnCapableProxy(t *testing.T) {
-	// Perfil força true num proxy fisicamente capaz (Responses) cujo default é false.
-	proxyCapable := &mockChatProvider{supportsNative: false, nativeCapable: boolPtr(true)}
-	if !ResolveNativeMCPEnabled(proxyCapable, boolPtr(true)) {
+func TestResolveNativeMCPEnabled_ForceTrueOnCapableProvider(t *testing.T) {
+	// Perfil força true num provider fisicamente capaz (Responses/Anthropic).
+	capable := &mockChatProvider{nativeCapable: true}
+	if !ResolveNativeMCPEnabled(capable, boolPtr(true)) {
 		t.Error("override true deveria habilitar nativo em provider fisicamente capaz")
 	}
 }
@@ -544,26 +538,26 @@ func TestResolveNativeMCPEnabled_ForceTrueOnCapableProxy(t *testing.T) {
 func TestResolveNativeMCPEnabled_ForceTrueOnIncapableProviderStaysAdapter(t *testing.T) {
 	// Perfil força true, mas o provider não é capaz (ex.: Chat Completions, Google).
 	// Não deve habilitar nativo (evita remover bridge tools sem enviar type:mcp).
-	incapable := &mockChatProvider{supportsNative: false, nativeCapable: boolPtr(false)}
+	incapable := &mockChatProvider{nativeCapable: false}
 	if ResolveNativeMCPEnabled(incapable, boolPtr(true)) {
 		t.Error("override true NÃO deveria habilitar nativo em provider incapaz")
 	}
 }
 
-func TestResolveNativeMCPEnabled_ForceFalseOverridesRealDefault(t *testing.T) {
-	// Perfil força false mesmo num provider cujo default é nativo (OpenAI real).
-	realLike := &mockChatProvider{supportsNative: true, nativeCapable: boolPtr(true)}
-	if ResolveNativeMCPEnabled(realLike, boolPtr(false)) {
-		t.Error("override false deveria forçar adapter mesmo com default nativo")
+func TestResolveNativeMCPEnabled_ForceFalseStaysAdapter(t *testing.T) {
+	// Perfil força false: sempre adapter, mesmo num provider capaz.
+	capable := &mockChatProvider{nativeCapable: true}
+	if ResolveNativeMCPEnabled(capable, boolPtr(false)) {
+		t.Error("override false deveria forçar adapter mesmo em provider capaz")
 	}
 }
 
-// TestApplyNativeMCP_ProfileOverride cobre os 3 caminhos end-to-end na montagem
-// de tools: força true num proxy capaz → configura servers nativos e remove
-// bridges; força false num provider real → mantém bridges (adapter); auto → default.
-func TestApplyNativeMCP_ProfileOverrideForceTrueProxyConfiguresNative(t *testing.T) {
-	// Proxy: default (SupportsNativeMCP) false, mas capaz e perfil força true.
-	p := &mockChatProvider{supportsNative: false, nativeCapable: boolPtr(true)}
+// TestApplyNativeMCP_ProfileOverride cobre os caminhos end-to-end na montagem de
+// tools: força true num provider capaz → configura servers nativos e remove
+// bridges; força false (ou auto) → mantém bridges (adapter).
+func TestApplyNativeMCP_ProfileOverrideForceTrueCapableConfiguresNative(t *testing.T) {
+	// Provider fisicamente capaz e perfil força true.
+	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", ToolNames: []string{"mcp_github__list"}},
 	}}
@@ -578,9 +572,25 @@ func TestApplyNativeMCP_ProfileOverrideForceTrueProxyConfiguresNative(t *testing
 	}
 }
 
-func TestApplyNativeMCP_ProfileOverrideForceFalseRealKeepsBridges(t *testing.T) {
-	// Provider real (default nativo), mas perfil força adapter (false).
-	p := &mockChatProvider{supportsNative: true, nativeCapable: boolPtr(true)}
+func TestApplyNativeMCP_AutoKeepsBridges(t *testing.T) {
+	// Provider capaz, mas auto (nil override) → adapter: bridges permanecem.
+	p := &mockChatProvider{nativeCapable: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", ToolNames: []string{"mcp_github__list"}},
+	}}
+	defs := makeToolDefs("mcp_github__list", "local")
+	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, nil)
+	if outP != p {
+		t.Error("auto: WithMCPServers não deveria ser chamado (adapter)")
+	}
+	if len(outDefs) != 2 {
+		t.Errorf("auto: bridge tools deveriam permanecer, got %#v", outDefs)
+	}
+}
+
+func TestApplyNativeMCP_ProfileOverrideForceFalseCapableKeepsBridges(t *testing.T) {
+	// Provider capaz, mas perfil força adapter (false).
+	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", ToolNames: []string{"mcp_github__list"}},
 	}}
@@ -595,9 +605,9 @@ func TestApplyNativeMCP_ProfileOverrideForceFalseRealKeepsBridges(t *testing.T) 
 }
 
 func TestFilterToolNamesForNativeMCP_ForceFalseKeepsBridgeNames(t *testing.T) {
-	// Mesmo num provider cujo default é nativo, override false mantém os nomes
-	// das bridges (elas continuam sendo function tools no loop agentic).
-	p := &mockChatProvider{supportsNative: true, nativeCapable: boolPtr(true)}
+	// Mesmo num provider capaz, override false mantém os nomes das bridges
+	// (elas continuam sendo function tools no loop agentic).
+	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
 	}}
@@ -608,12 +618,12 @@ func TestFilterToolNamesForNativeMCP_ForceFalseKeepsBridgeNames(t *testing.T) {
 }
 
 func TestApplyNativeMCP_ServerExcludedWhenNoEnabledTools(t *testing.T) {
-	p := &mockChatProvider{supportsNative: true}
+	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Name: "S", URL: "https://s.io", ToolNames: []string{"mcp_s__tool1"}},
 	}}
 	defs := makeToolDefs("mcp_s__tool1", "local")
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, []string{"other_tool"}, false, nil)
+	outP, outDefs := ApplyNativeMCP(p, defs, mgr, []string{"other_tool"}, false, boolPtr(true))
 	if outP != p {
 		t.Error("esperava provider original (WithMCPServers nao deveria ter sido chamado)")
 	}

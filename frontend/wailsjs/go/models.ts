@@ -3376,7 +3376,7 @@ export namespace profiles {
 	    disable_skills?: boolean;
 	    disable_on_demand_skills?: boolean;
 	    command_allowlist?: string;
-	    native_mcp?: boolean;
+	    native_mcp?: boolean | null;
 	    max_agentic_iterations?: number;
 	    streaming_recovery_enabled?: boolean;
 	    streaming_recovery_max_attempts?: number;

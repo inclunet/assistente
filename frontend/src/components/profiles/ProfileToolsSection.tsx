@@ -363,7 +363,7 @@ export function ProfileToolsSection({
 
           <div className="profiles-field">
             <label htmlFor="pf-native-mcp" className="profiles-field__label">
-              {t('profiles.nativeMcpLabel', 'MCP nativo (type:mcp)')}
+              {t('profiles.nativeMcpLabel', 'MCP nativo (Responses/Anthropic)')}
             </label>
             <select
               id="pf-native-mcp"
@@ -376,12 +376,12 @@ export function ProfileToolsSection({
               disabled={disabled}
               data-testid="native-mcp-select"
             >
-              <option value="auto">{t('profiles.nativeMcpAuto', 'Automático (recomendado)')}</option>
-              <option value="on">{t('profiles.nativeMcpOn', 'Forçar nativo (type:mcp)')}</option>
+              <option value="auto">{t('profiles.nativeMcpAuto', 'Automático (adapter)')}</option>
+              <option value="on">{t('profiles.nativeMcpOn', 'Forçar nativo')}</option>
               <option value="off">{t('profiles.nativeMcpOff', 'Forçar adapter (function)')}</option>
             </select>
             <span className="profiles-field__hint">
-              {t('profiles.nativeMcpHint', "Como os servidores MCP são oferecidos ao modelo. Automático: o endpoint decide (só OpenAI real usa type:mcp). Use 'Forçar adapter' quando o modelo do endpoint (ex.: deepseek via proxy) não aceitar type:mcp.")}
+              {t('profiles.nativeMcpHint', "Como os servidores MCP são entregues ao provider. O modo nativo usa o formato do provider (OpenAI Responses → type:mcp; Anthropic → mcp_servers). Automático = modo adapter (function) por padrão, compatível com qualquer modelo. 'Forçar nativo' só tem efeito em providers fisicamente capazes (Responses/Anthropic).")}
             </span>
           </div>
         </>

@@ -79,10 +79,6 @@ func (p *rateLimitedProvider) GetModels(ctx context.Context) ([]string, error) {
 	return p.inner.GetModels(ctx)
 }
 
-func (p *rateLimitedProvider) SupportsNativeMCP() bool {
-	return p.inner.SupportsNativeMCP()
-}
-
 func (p *rateLimitedProvider) NativeMCPCapable() bool {
 	return p.inner.NativeMCPCapable()
 }

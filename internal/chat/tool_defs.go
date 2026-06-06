@@ -12,7 +12,7 @@ import (
 )
 
 // ChatProviderIsNil reports whether c is nil or holds a nil concrete pointer (typed nil).
-// Calling methods on a typed-nil ChatProvider panics (e.g. (*OpenAIProvider)(nil).SupportsNativeMCP()).
+// Calling methods on a typed-nil ChatProvider panics (e.g. (*OpenAIProvider)(nil).NativeMCPCapable()).
 func ChatProviderIsNil(c llm.ChatProvider) bool {
 	if c == nil {
 		return true
@@ -138,11 +138,13 @@ func FilterToolNamesByEnabledTools(names []string, enabledTools []string, disabl
 	return filtered
 }
 
-// ResolveNativeMCPEnabled aplica o override de MCP nativo do PERFIL ativo sobre
-// o default do provider/endpoint (AEP-0021). Semântica tri-state do override:
+// ResolveNativeMCPEnabled resolve a POLÍTICA de MCP nativo a partir do override do
+// PERFIL ativo (AEP-0021). MCP nativo é opt-in por perfil; não há heurística por
+// URL/endpoint nem default por provider — a única dimensão de provider é a
+// capacidade física de transporte (NativeMCPCapable). Semântica tri-state:
 //
-//   - nil   → auto: usa o default do provider (streamer.SupportsNativeMCP(),
-//     hoje a heurística por URL — ex.: apenas OpenAI real manda type:"mcp").
+//   - nil   → auto: modo ADAPTER (default seguro, provider-agnostic). NÃO liga MCP
+//     nativo automaticamente; os MCP servers vão como function/bridge tools.
 //   - true  → força MCP nativo, mas só se o provider for FISICAMENTE capaz
 //     (NativeMCPCapable). Caso contrário (ex.: Chat Completions, Google) cai
 //     em adapter, evitando remover bridge tools sem ter como enviar type:"mcp".
@@ -151,13 +153,10 @@ func ResolveNativeMCPEnabled(streamer llm.ChatProvider, override *bool) bool {
 	if ChatProviderIsNil(streamer) {
 		return false
 	}
-	if override != nil {
-		if *override {
-			return streamer.NativeMCPCapable()
-		}
-		return false
+	if override != nil && *override {
+		return streamer.NativeMCPCapable()
 	}
-	return streamer.SupportsNativeMCP()
+	return false
 }
 
 func FilterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, disableTools bool, nativeMCPOverride *bool) []string {
