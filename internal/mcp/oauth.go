@@ -69,7 +69,7 @@ func (pts *persistingTokenSource) Token() (*oauth2.Token, error) {
 
 	if token.AccessToken != pts.lastToken {
 		pts.lastToken = token.AccessToken
-		pts.rt.persistTokens(pts.rt.authCtx(), token)
+		pts.rt.persistTokens(token)
 		log.Printf("[MCP:%s] Token renovado e persistido automaticamente", pts.rt.serverSlug)
 	}
 
@@ -90,13 +90,28 @@ func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context) error {
 		return fmt.Errorf("no oauth config or token source")
 	}
 
-	token, err := rt.tokenSource.Token()
-	if err != nil || token == nil || token.RefreshToken == "" {
+	// Reload-before-refresh: prefere o refresh_token mais recente do store e cai para
+	// o token em memória. Duas razões (issue #193):
+	//   - outro caminho (reconexão, tool concorrente) pode ter rotacionado e
+	//     persistido um novo refresh_token; reusar um já consumido (rotativo de uso
+	//     único, ex.: Atlassian) falha e dispara reauth;
+	//   - em refresh non-rotativo, o token em memória pode não reter o refresh_token,
+	//     mas o store ainda o tem — não exigimos refresh_token em memória aqui.
+	refreshToken := ""
+	if stored := loadUserTokens(rt.authCtx(), rt.credMgr, rt.serverSlug); stored != nil {
+		refreshToken = stored.RefreshToken
+	}
+	if refreshToken == "" {
+		if token, err := rt.tokenSource.Token(); err == nil && token != nil {
+			refreshToken = token.RefreshToken
+		}
+	}
+	if refreshToken == "" {
 		return fmt.Errorf("no refresh token available")
 	}
 
 	expiredToken := &oauth2.Token{
-		RefreshToken: token.RefreshToken,
+		RefreshToken: refreshToken,
 		Expiry:       time.Now().Add(-1 * time.Hour),
 	}
 
@@ -106,13 +121,15 @@ func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context) error {
 	newSource := rt.oauthCfg.TokenSource(refreshCtx, expiredToken)
 	newToken, err := newSource.Token()
 	if err != nil {
+		log.Printf("[MCP:%s] Silent refresh falhou: %v", rt.serverSlug, err)
 		return fmt.Errorf("silent refresh failed: %w", err)
 	}
 
-	rt.tokenSource = rt.wrapWithPersistence(rt.oauthCfg.TokenSource(ctx, newToken))
-	rt.persistTokens(ctx, newToken)
+	rt.tokenSource = rt.wrapWithPersistence(rt.oauthCfg.TokenSource(rt.longLivedCtx(), newToken))
+	rt.persistTokens(newToken)
 
-	log.Printf("[MCP:%s] Token renovado silenciosamente via refresh_token", rt.serverSlug)
+	rotated := newToken.RefreshToken != "" && newToken.RefreshToken != refreshToken
+	log.Printf("[MCP:%s] Token renovado silenciosamente via refresh_token (rotacionado=%v)", rt.serverSlug, rotated)
 	return nil
 }
 
@@ -138,6 +155,11 @@ type OAuthDiscovery struct {
 	RegistrationEndpoint        string
 	DeviceAuthorizationEndpoint string
 	GrantTypesSupported         []string
+	// ScopesSupported lista os scopes anunciados pelo auth server (e/ou recurso).
+	// Usado para decidir, com segurança, se devemos pedir "offline_access" — só o
+	// fazemos quando o servidor o anuncia, evitando erro invalid_scope em servidores
+	// que não o suportam.
+	ScopesSupported []string
 }
 
 // discoverOAuthEndpoints uses the existing discovery infrastructure from
@@ -168,6 +190,11 @@ func discoverOAuthEndpoints(mcpURL string) (*OAuthDiscovery, error) {
 		return nil, fmt.Errorf("auth server metadata unavailable: %w", err)
 	}
 
+	// scopes_supported pode vir do recurso protegido (RFC 9728) e/ou do auth server
+	// (RFC 8414). Une os dois para a decisão de offline_access.
+	scopes := append([]string(nil), prm.ScopesSupported...)
+	scopes = append(scopes, asm.ScopesSupported...)
+
 	return &OAuthDiscovery{
 		Resource:                    resource,
 		AuthorizationEndpoint:       asm.AuthorizationEndpoint,
@@ -175,6 +202,7 @@ func discoverOAuthEndpoints(mcpURL string) (*OAuthDiscovery, error) {
 		RegistrationEndpoint:        asm.RegistrationEndpoint,
 		DeviceAuthorizationEndpoint: asm.DeviceAuthorizationEndpoint,
 		GrantTypesSupported:         asm.GrantTypesSupported,
+		ScopesSupported:             scopes,
 	}, nil
 }
 
@@ -291,6 +319,28 @@ func (rt *pkceRoundTripper) authCtx() context.Context {
 	return rt.authCtxProvider()
 }
 
+// refreshHTTPClient limita a duração das chamadas HTTP de refresh feitas pelo
+// TokenSource long-lived. Necessário porque longLivedCtx remove o cancelamento
+// do contexto: sem um Timeout no client, um token endpoint lento/travado poderia
+// bloquear indefinidamente o RoundTrip (o refresh roda no caminho crítico) já que
+// nenhum timeout do request seria herdado.
+var refreshHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
+// longLivedCtx devolve um contexto não-cancelável para o oauth2.TokenSource
+// ARMAZENADO em rt.tokenSource. Esse token source faz refreshes muito depois da
+// operação que o criou; se capturasse o ctx request-scoped (ou o ctx com timeout
+// do device/PKCE flow), todo refresh futuro falharia ao ser cancelado, forçando
+// reauth interativa (issue #193). Preserva os valores do authCtx (ex.: user_id)
+// removendo apenas o cancelamento.
+//
+// Como o cancelamento é removido, injetamos um *http.Client com Timeout via
+// oauth2.HTTPClient para preservar a proteção operacional contra um token endpoint
+// lento — caso contrário o oauth2 usaria o http.DefaultClient (sem timeout).
+func (rt *pkceRoundTripper) longLivedCtx() context.Context {
+	ctx := context.WithoutCancel(rt.authCtx())
+	return context.WithValue(ctx, oauth2.HTTPClient, refreshHTTPClient)
+}
+
 func (rt *pkceRoundTripper) effectiveClientID() string {
 	if rt.cfg.OAuth2ClientID != "" {
 		return rt.cfg.OAuth2ClientID
@@ -300,6 +350,52 @@ func (rt *pkceRoundTripper) effectiveClientID() string {
 
 func (rt *pkceRoundTripper) effectiveClientSecret() string {
 	return rt.resolvedClientSecret
+}
+
+// effectiveScopes devolve os scopes a pedir na autorização. Acrescenta
+// "offline_access" quando o auth server o anuncia em scopes_supported e ele ainda
+// não está configurado — sem isso, provedores como o Atlassian NÃO emitem
+// refresh_token e o usuário precisa reautenticar a cada expiração (issue #193).
+//
+// Só adicionamos quando o servidor declara suporte para evitar invalid_scope em
+// servidores que não conhecem o scope (ex.: alguns que usam access_type=offline).
+func (rt *pkceRoundTripper) effectiveScopes() []string {
+	scopes := append([]string(nil), rt.cfg.OAuth2Scopes...)
+	if containsFold(scopes, "offline_access") {
+		return scopes
+	}
+	if rt.discovery != nil && containsFold(rt.discovery.ScopesSupported, "offline_access") {
+		scopes = append(scopes, "offline_access")
+		log.Printf("[MCP:%s] offline_access adicionado aos scopes (anunciado pelo auth server)", rt.serverSlug)
+	}
+	return scopes
+}
+
+// cachedAccessToken devolve o access_token atual do token source (string vazia se
+// não houver). Usado para fotografar o token rejeitado antes de esperar no arbiter
+// e, depois, detectar se outro flow o substituiu. Adquire rt.mu internamente, logo
+// NÃO deve ser chamado com rt.mu já retido.
+func (rt *pkceRoundTripper) cachedAccessToken() string {
+	rt.mu.Lock()
+	ts := rt.tokenSource
+	rt.mu.Unlock()
+	if ts == nil {
+		return ""
+	}
+	tok, err := ts.Token()
+	if err != nil || tok == nil {
+		return ""
+	}
+	return tok.AccessToken
+}
+
+func containsFold(list []string, target string) bool {
+	for _, s := range list {
+		if strings.EqualFold(s, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -405,6 +501,11 @@ func isSessionExpiredStatus(statusCode int) bool {
 }
 
 func (rt *pkceRoundTripper) authorize(ctx context.Context) error {
+	// authorize() só é chamado após um 401/403, ou seja, o token atual ACABOU de ser
+	// rejeitado. Capturamos o access_token rejeitado ANTES de esperar no arbiter para
+	// detectar, depois, se OUTRO flow o substituiu enquanto aguardávamos.
+	rejected := rt.cachedAccessToken()
+
 	// Serializa entre servidores: enquanto outro MCP estiver fazendo
 	// flow OAuth interativo, este espera. rt.mu (logo abaixo) protege
 	// dentro DE UM servidor — não substitui o arbiter global.
@@ -413,6 +514,18 @@ func (rt *pkceRoundTripper) authorize(ctx context.Context) error {
 
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+
+	// Single-flight por servidor: pula a janela SOMENTE se outro flow concorrente
+	// instalou um token NOVO e válido (diferente do que foi rejeitado) enquanto
+	// esperávamos no arbiter (issue #194). Não basta o token estar "não expirado":
+	// ele pode ter sido revogado e rejeitado com 401 — nesse caso o usuário precisa
+	// mesmo reautenticar, então seguimos o flow.
+	if rt.tokenSource != nil {
+		if tok, err := rt.tokenSource.Token(); err == nil && tok != nil && tok.Valid() && tok.AccessToken != rejected {
+			log.Printf("[MCP:%s] Token renovado por outro flow enquanto aguardávamos o arbiter — pulando nova janela de autorização", rt.serverSlug)
+			return nil
+		}
+	}
 
 	// 1. Discovery automático de endpoints OAuth (se URL MCP disponível)
 	if rt.discovery == nil && rt.cfg.URL != "" {
@@ -524,14 +637,14 @@ func (rt *pkceRoundTripper) resolveClientID(ctx context.Context) error {
 	}
 	redirectURL := fmt.Sprintf("http://%s:%d/callback", callbackHost, port)
 
-	dcrResult, err := registerDynamicClient(rt.cfg, redirectURL)
+	dcrResult, err := registerDynamicClient(rt.cfg, redirectURL, rt.effectiveScopes())
 	if err != nil {
 		return fmt.Errorf("dynamic client registration failed: %w", err)
 	}
 
 	rt.resolvedClientID = dcrResult.ClientID
 	rt.resolvedClientSecret = dcrResult.ClientSecret
-	rt.persistClientCreds(ctx, dcrResult.ClientID, dcrResult.ClientSecret)
+	rt.persistClientCreds(dcrResult.ClientID, dcrResult.ClientSecret)
 
 	rt.cfg.OAuth2ClientID = dcrResult.ClientID
 	if rt.cfg.OAuth2CallbackPort == 0 {
@@ -559,7 +672,7 @@ func (rt *pkceRoundTripper) reRegisterClient(ctx context.Context) error {
 	}
 	redirectURL := fmt.Sprintf("http://%s:%d/callback", callbackHost, port)
 
-	dcrResult, err := registerDynamicClient(rt.cfg, redirectURL)
+	dcrResult, err := registerDynamicClient(rt.cfg, redirectURL, rt.effectiveScopes())
 	if err != nil {
 		return fmt.Errorf("re-registration failed: %w", err)
 	}
@@ -567,7 +680,7 @@ func (rt *pkceRoundTripper) reRegisterClient(ctx context.Context) error {
 	rt.resolvedClientID = dcrResult.ClientID
 	rt.resolvedClientSecret = dcrResult.ClientSecret
 	rt.cfg.OAuth2ClientID = dcrResult.ClientID
-	rt.persistClientCreds(ctx, dcrResult.ClientID, dcrResult.ClientSecret)
+	rt.persistClientCreds(dcrResult.ClientID, dcrResult.ClientSecret)
 
 	if rt.cfg.OAuth2CallbackPort == 0 {
 		rt.cfg.OAuth2CallbackPort = port
@@ -613,15 +726,10 @@ func (rt *pkceRoundTripper) authorizeDeviceFlow(parentCtx context.Context) error
 	if rt.resourceURL != "" {
 		form.Set("resource", rt.resourceURL)
 	}
-	if len(rt.cfg.OAuth2Scopes) > 0 {
-		scope := ""
-		for i, s := range rt.cfg.OAuth2Scopes {
-			if i > 0 {
-				scope += " "
-			}
-			scope += s
-		}
-		form.Set("scope", scope)
+	deviceScopes := rt.effectiveScopes()
+	if len(deviceScopes) > 0 {
+		form.Set("scope", strings.Join(deviceScopes, " "))
+		log.Printf("[MCP:%s] Device flow: scopes=%v (offline_access=%v)", rt.serverSlug, deviceScopes, containsFold(deviceScopes, "offline_access"))
 	}
 
 	resp, err := discoveryHTTPClient.PostForm(rt.cfg.OAuth2DeviceAuthURL, form)
@@ -728,11 +836,14 @@ func (rt *pkceRoundTripper) authorizeDeviceFlow(parentCtx context.Context) error
 					AuthURL:  rt.cfg.OAuth2AuthURL,
 					TokenURL: rt.cfg.OAuth2TokenURL,
 				},
-				Scopes: rt.cfg.OAuth2Scopes,
+				Scopes: deviceScopes,
 			}
 			rt.oauthCfg = oauthCfg
-			rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(ctx, token))
-			rt.persistTokens(ctx, token)
+			rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(rt.longLivedCtx(), token))
+			rt.persistTokens(token)
+			if tokenResp.RefreshToken == "" {
+				log.Printf("[MCP:%s] AVISO: device flow não retornou refresh_token — reauth será necessária na expiração (verifique offline_access)", rt.serverSlug)
+			}
 
 			log.Printf("[MCP:%s] Device Authorization Flow concluído com sucesso", rt.serverSlug)
 			return nil
@@ -797,6 +908,9 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 	clientID := rt.effectiveClientID()
 	clientSecret := rt.effectiveClientSecret()
 
+	scopes := rt.effectiveScopes()
+	log.Printf("[MCP:%s] PKCE authorize: scopes=%v (offline_access=%v)", rt.serverSlug, scopes, containsFold(scopes, "offline_access"))
+
 	oauthCfg := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
@@ -805,7 +919,7 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 			TokenURL: rt.cfg.OAuth2TokenURL,
 		},
 		RedirectURL: redirectURL,
-		Scopes:      rt.cfg.OAuth2Scopes,
+		Scopes:      scopes,
 	}
 
 	codeVerifier := oauth2.GenerateVerifier()
@@ -879,8 +993,8 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 		}
 
 		rt.oauthCfg = oauthCfg
-		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(ctx, token))
-		rt.persistTokens(ctx, token)
+		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(rt.longLivedCtx(), token))
+		rt.persistTokens(token)
 
 		log.Printf("[MCP:%s] Autorização OAuth2 PKCE concluída com sucesso", rt.serverSlug)
 		return nil
@@ -911,14 +1025,8 @@ type dcrResponse struct {
 
 var dcrHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
-func registerDynamicClient(cfg ServerConfig, redirectURL string) (*dcrResponse, error) {
-	scope := ""
-	for i, s := range cfg.OAuth2Scopes {
-		if i > 0 {
-			scope += " "
-		}
-		scope += s
-	}
+func registerDynamicClient(cfg ServerConfig, redirectURL string, scopes []string) (*dcrResponse, error) {
+	scope := strings.Join(scopes, " ")
 
 	reqBody := dcrRequest{
 		RedirectURIs:            []string{redirectURL},
@@ -976,11 +1084,13 @@ func userTokensPattern(slug string) string { return "mcp-tokens:" + slug }
 
 // persistClientCreds salva dados de registro do app (client_id + client_secret) no credential manager.
 //
-// Recebe `ctx` user-scoped para que a credencial seja gravada com
-// `user_id` correto. A versão antiga usava `context.Background()` e
-// gravava como instance-scoped por engano — qualquer leitura
-// subsequente via ctx user-scoped não achava nada.
-func (rt *pkceRoundTripper) persistClientCreds(ctx context.Context, clientID, clientSecret string) {
+// Usa SEMPRE rt.authCtx() (user-scoped) internamente para gravar com o
+// `user_id` correto. Os call sites NÃO devem passar o ctx da operação
+// (request-scoped ou derivado de context.Background() nos flows device/PKCE),
+// pois esses contextos podem não carregar o `user_id` e gravariam a credencial
+// como instance-scoped por engano — qualquer leitura subsequente via ctx
+// user-scoped não acharia nada (classe de bug AEP-0061).
+func (rt *pkceRoundTripper) persistClientCreds(clientID, clientSecret string) {
 	if rt.credMgr == nil {
 		return
 	}
@@ -989,25 +1099,40 @@ func (rt *pkceRoundTripper) persistClientCreds(ctx context.Context, clientID, cl
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 	}
-	if err := rt.credMgr.RegisterPatternWithContext(ctx, clientCredPattern(rt.serverSlug), auth); err != nil {
+	if err := rt.credMgr.RegisterPatternWithContext(rt.authCtx(), clientCredPattern(rt.serverSlug), auth); err != nil {
 		log.Printf("[MCP:%s] Erro ao salvar credenciais do cliente: %v", rt.serverSlug, err)
 	}
 }
 
 // persistTokens salva tokens da sessão do usuário (access_token + refresh_token) no credential manager.
 //
-// Recebe `ctx` user-scoped pelo mesmo motivo de persistClientCreds: a
-// credencial só é útil para o user que executou o flow.
-func (rt *pkceRoundTripper) persistTokens(ctx context.Context, token *oauth2.Token) {
+// Usa SEMPRE rt.authCtx() (user-scoped) internamente pelo mesmo motivo de
+// persistClientCreds: a credencial só é útil para o user que executou o flow,
+// e o ctx da operação pode não carregar o `user_id` (ex.: device flow deriva de
+// context.Background()).
+func (rt *pkceRoundTripper) persistTokens(token *oauth2.Token) {
 	if rt.credMgr == nil || token == nil {
 		return
+	}
+	ctx := rt.authCtx()
+	refresh := token.RefreshToken
+	if refresh == "" {
+		// Refresh non-rotativo: o provedor pode não reenviar o refresh_token numa
+		// renovação. Preserva o já armazenado para não perdê-lo — perder o
+		// refresh_token força reautenticação interativa (issue #193).
+		if existing := loadUserTokens(ctx, rt.credMgr, rt.serverSlug); existing != nil && existing.RefreshToken != "" {
+			refresh = existing.RefreshToken
+		}
 	}
 	auth := &credentials.AuthConfig{
 		Type:       "oauth2",
 		Token:      token.AccessToken,
-		RefreshURL: token.RefreshToken,
+		RefreshURL: refresh,
 	}
-	if token.Expiry.After(time.Now()) {
+	// Persiste a expiração sempre que conhecida (inclusive no passado): expiry zero
+	// faz o oauth2 tratar o token como "nunca expira" e nunca renovar proativamente,
+	// levando a 401 + refresh reativo a cada request.
+	if !token.Expiry.IsZero() {
 		auth.ExpiresAt = token.Expiry.Unix()
 	}
 	if err := rt.credMgr.RegisterPatternWithContext(ctx, userTokensPattern(rt.serverSlug), auth); err != nil {
@@ -1122,7 +1247,7 @@ func buildPKCEHTTPClient(cfg ServerConfig, credMgr *credentials.Manager, emitEve
 	clientID, clientSecret := loadClientCreds(bootstrapCtx, credMgr, slug)
 	if clientID == "" && cfg.OAuth2ClientID != "" {
 		clientID = cfg.OAuth2ClientID
-		rt.persistClientCreds(bootstrapCtx, clientID, "")
+		rt.persistClientCreds(clientID, "")
 		log.Printf("[MCP:%s] client_id importado do config para credential manager", slug)
 	}
 	rt.resolvedClientID = clientID
@@ -1141,7 +1266,8 @@ func buildPKCEHTTPClient(cfg ServerConfig, credMgr *credentials.Manager, emitEve
 			Scopes: cfg.OAuth2Scopes,
 		}
 		rt.oauthCfg = oauthCfg
-		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(bootstrapCtx, token))
+		// Token source persistido: ctx long-lived para não morrer com o bootstrap.
+		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(rt.longLivedCtx(), token))
 	}
 
 	return &http.Client{Transport: rt}

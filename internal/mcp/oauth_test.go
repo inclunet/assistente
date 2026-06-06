@@ -337,7 +337,7 @@ func TestPersistAndLoadClientCreds(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	rt.persistClientCreds(ctx, "my-client-id", "my-client-secret")
+	rt.persistClientCreds("my-client-id", "my-client-secret")
 
 	cid, csec := loadClientCreds(ctx, credMgr, "test-server")
 	if cid != "my-client-id" {
@@ -376,7 +376,7 @@ func TestBuildPKCEHTTPClient_DoesNotOverwriteExistingCreds(t *testing.T) {
 	ctx := context.Background()
 
 	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "test"}
-	rt.persistClientCreds(ctx, "existing-id", "existing-secret")
+	rt.persistClientCreds("existing-id", "existing-secret")
 
 	cfg := ServerConfig{
 		URL:            "https://example.com/mcp",
@@ -408,7 +408,7 @@ func TestPersistAndLoadUserTokens(t *testing.T) {
 		RefreshToken: "refresh-456",
 	}
 	ctx := context.Background()
-	rt.persistTokens(ctx, toOAuth2Token(token))
+	rt.persistTokens(toOAuth2Token(token))
 
 	loaded := loadUserTokens(ctx, credMgr, "test-server")
 	if loaded == nil {
@@ -618,11 +618,11 @@ func TestDiscoverOAuthEndpoints_Fallback(t *testing.T) {
 
 func TestBuildPRMCandidates(t *testing.T) {
 	tests := []struct {
-		name       string
-		mcpURL     string
-		wantCount  int
-		wantFirst  string
-		wantLast   string
+		name      string
+		mcpURL    string
+		wantCount int
+		wantFirst string
+		wantLast  string
 	}{
 		{
 			name:      "URL with path tries resource first, then origin",
@@ -723,12 +723,12 @@ func TestDiscoverOAuth_AuthServerWithPath_FallbackToOriginRoot(t *testing.T) {
 			})
 		case "/.well-known/oauth-authorization-server":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"issuer":                          srvURL + "/oauth",
-				"authorization_endpoint":          srvURL + "/oauth/authorize",
-				"token_endpoint":                  srvURL + "/oauth/token",
-				"registration_endpoint":           srvURL + "/oauth/register",
+				"issuer":                           srvURL + "/oauth",
+				"authorization_endpoint":           srvURL + "/oauth/authorize",
+				"token_endpoint":                   srvURL + "/oauth/token",
+				"registration_endpoint":            srvURL + "/oauth/register",
 				"code_challenge_methods_supported": []string{"S256"},
-				"grant_types_supported":           []string{"authorization_code", "refresh_token"},
+				"grant_types_supported":            []string{"authorization_code", "refresh_token"},
 			})
 		default:
 			http.NotFound(w, r)
@@ -763,8 +763,8 @@ func TestDiscoverOAuth_PRMOnlyAtOrigin(t *testing.T) {
 	asSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/oauth-authorization-server" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"authorization_endpoint":          "https://auth.test.com/authorize",
-				"token_endpoint":                  "https://auth.test.com/token",
+				"authorization_endpoint":           "https://auth.test.com/authorize",
+				"token_endpoint":                   "https://auth.test.com/token",
 				"code_challenge_methods_supported": []string{"S256"},
 			})
 			return
@@ -929,12 +929,12 @@ func TestAuthorizeDeviceFlow_Success(t *testing.T) {
 		switch r.URL.Path {
 		case "/device/authorize":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"device_code":                "DEV-CODE-123",
-				"user_code":                  "ABCD-1234",
-				"verification_uri":           "https://auth.example.com/verify",
-				"verification_uri_complete":  "https://auth.example.com/verify?user_code=ABCD-1234",
-				"expires_in":                 300,
-				"interval":                   1,
+				"device_code":               "DEV-CODE-123",
+				"user_code":                 "ABCD-1234",
+				"verification_uri":          "https://auth.example.com/verify",
+				"verification_uri_complete": "https://auth.example.com/verify?user_code=ABCD-1234",
+				"expires_in":                300,
+				"interval":                  1,
 			})
 		case "/token":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -983,11 +983,11 @@ func TestAuthorizeDeviceFlow_SlowDown(t *testing.T) {
 		switch r.URL.Path {
 		case "/device/authorize":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"device_code":     "DEV-CODE",
-				"user_code":       "SLOW-1234",
+				"device_code":      "DEV-CODE",
+				"user_code":        "SLOW-1234",
 				"verification_uri": "https://example.com/verify",
-				"expires_in":      300,
-				"interval":        1,
+				"expires_in":       300,
+				"interval":         1,
 			})
 		case "/token":
 			pollCount++
@@ -996,9 +996,9 @@ func TestAuthorizeDeviceFlow_SlowDown(t *testing.T) {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"access_token":  "slow-token",
-				"token_type":    "Bearer",
-				"expires_in":    3600,
+				"access_token": "slow-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
 			})
 		}
 	}))
@@ -1033,11 +1033,11 @@ func TestAuthorizeDeviceFlow_Timeout(t *testing.T) {
 		switch r.URL.Path {
 		case "/device/authorize":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"device_code":     "DEV-TIMEOUT",
-				"user_code":       "TIMEOUT-1",
+				"device_code":      "DEV-TIMEOUT",
+				"user_code":        "TIMEOUT-1",
 				"verification_uri": "https://example.com/verify",
-				"expires_in":      2,
-				"interval":        1,
+				"expires_in":       2,
+				"interval":         1,
 			})
 		case "/token":
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
@@ -1089,7 +1089,7 @@ func TestDCRIncludesDeviceCodeGrant(t *testing.T) {
 	cfg := ServerConfig{
 		OAuth2RegistrationURL: srv.URL + "/register",
 	}
-	_, err := registerDynamicClient(cfg, "http://localhost:9999/callback")
+	_, err := registerDynamicClient(cfg, "http://localhost:9999/callback", nil)
 	if err != nil {
 		t.Fatalf("registerDynamicClient failed: %v", err)
 	}
@@ -1145,7 +1145,7 @@ func TestResourceParamInAuthURL(t *testing.T) {
 
 func TestMergeDiscovery_FillsEmpty(t *testing.T) {
 	rt := &pkceRoundTripper{
-		cfg:       ServerConfig{},
+		cfg: ServerConfig{},
 		discovery: &OAuthDiscovery{
 			Resource:                    "https://mcp.example.com/mcp",
 			AuthorizationEndpoint:       "https://auth.example.com/authorize",
@@ -1212,5 +1212,255 @@ func TestMergeDiscovery_NilDiscovery(t *testing.T) {
 
 	if rt.cfg.OAuth2AuthURL != "https://existing.example.com/authorize" {
 		t.Errorf("config should be unchanged when discovery is nil: got %q", rt.cfg.OAuth2AuthURL)
+	}
+}
+
+// ============ offline_access / scopes (#193) ============
+
+func TestEffectiveScopes_AddsOfflineAccessWhenSupported(t *testing.T) {
+	rt := &pkceRoundTripper{
+		serverSlug: "atlassian",
+		cfg:        ServerConfig{OAuth2Scopes: []string{"read:jira-work"}},
+		discovery:  &OAuthDiscovery{ScopesSupported: []string{"read:jira-work", "offline_access"}},
+	}
+	got := rt.effectiveScopes()
+	if !containsFold(got, "offline_access") {
+		t.Errorf("esperava offline_access nos scopes, got %v", got)
+	}
+}
+
+func TestEffectiveScopes_NotAddedWhenUnsupported(t *testing.T) {
+	rt := &pkceRoundTripper{
+		cfg:       ServerConfig{OAuth2Scopes: []string{"read"}},
+		discovery: &OAuthDiscovery{ScopesSupported: []string{"read", "write"}},
+	}
+	if containsFold(rt.effectiveScopes(), "offline_access") {
+		t.Error("não deveria adicionar offline_access quando o servidor não o anuncia")
+	}
+}
+
+func TestEffectiveScopes_NoDiscoveryDoesNotAdd(t *testing.T) {
+	rt := &pkceRoundTripper{cfg: ServerConfig{OAuth2Scopes: []string{"read"}}}
+	if containsFold(rt.effectiveScopes(), "offline_access") {
+		t.Error("sem discovery (config manual) não deve adicionar offline_access")
+	}
+}
+
+func TestEffectiveScopes_NoDuplicateWhenAlreadyConfigured(t *testing.T) {
+	rt := &pkceRoundTripper{
+		cfg:       ServerConfig{OAuth2Scopes: []string{"offline_access", "read"}},
+		discovery: &OAuthDiscovery{ScopesSupported: []string{"offline_access"}},
+	}
+	count := 0
+	for _, s := range rt.effectiveScopes() {
+		if strings.EqualFold(s, "offline_access") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("offline_access não deveria duplicar, got %v", rt.effectiveScopes())
+	}
+}
+
+// ============ persistTokens robustez (#193) ============
+
+func TestPersistTokens_PreservesRefreshTokenWhenEmpty(t *testing.T) {
+	credMgr := newTestCredMgr()
+	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
+	ctx := context.Background()
+
+	rt.persistTokens(&oauth2.Token{AccessToken: "a1", RefreshToken: "r1"})
+	// Refresh non-rotativo: novo access_token, refresh_token ausente na resposta.
+	rt.persistTokens(&oauth2.Token{AccessToken: "a2"})
+
+	loaded := loadUserTokens(ctx, credMgr, "srv")
+	if loaded == nil {
+		t.Fatal("loadUserTokens retornou nil")
+	}
+	if loaded.RefreshToken != "r1" {
+		t.Errorf("refresh_token deveria ser preservado: got %q want r1", loaded.RefreshToken)
+	}
+	if loaded.AccessToken != "a2" {
+		t.Errorf("access_token deveria atualizar: got %q want a2", loaded.AccessToken)
+	}
+}
+
+func TestPersistTokens_PersistsExpiry(t *testing.T) {
+	credMgr := newTestCredMgr()
+	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
+	ctx := context.Background()
+
+	exp := time.Now().Add(2 * time.Hour).Truncate(time.Second)
+	rt.persistTokens(&oauth2.Token{AccessToken: "a", RefreshToken: "r", Expiry: exp})
+
+	loaded := loadUserTokens(ctx, credMgr, "srv")
+	if loaded == nil {
+		t.Fatal("loadUserTokens retornou nil")
+	}
+	if loaded.Expiry.Unix() != exp.Unix() {
+		t.Errorf("expiry deveria ser persistida: got %v want %v", loaded.Expiry, exp)
+	}
+}
+
+func TestTrySilentRefresh_UsesStoreRefreshTokenWhenMemoryLacksIt(t *testing.T) {
+	// Refresh non-rotativo: o token em memória não tem refresh_token, mas o store
+	// tem. O reload-before-refresh deve recarregar do store em vez de falhar com
+	// "no refresh token available" (issue #193).
+	var gotRefresh string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotRefresh = r.Form.Get("refresh_token")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "new-access",
+			"token_type":    "Bearer",
+			"refresh_token": "rotated-refresh",
+			"expires_in":    3600,
+		})
+	}))
+	defer srv.Close()
+
+	credMgr := newTestCredMgr()
+	ctx := context.Background()
+	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
+	rt.persistTokens(&oauth2.Token{AccessToken: "old-access", RefreshToken: "stored-refresh"})
+
+	rt.oauthCfg = &oauth2.Config{
+		ClientID: "c",
+		Endpoint: oauth2.Endpoint{TokenURL: srv.URL + "/token"},
+	}
+	// Token em memória SEM refresh_token (caminho que antes retornava cedo).
+	rt.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "old-access"})
+
+	if err := rt.trySilentRefresh(ctx); err != nil {
+		t.Fatalf("trySilentRefresh deveria suceder usando o refresh do store: %v", err)
+	}
+	if gotRefresh != "stored-refresh" {
+		t.Errorf("deveria usar o refresh_token do store, got %q", gotRefresh)
+	}
+	loaded := loadUserTokens(ctx, credMgr, "srv")
+	if loaded == nil || loaded.AccessToken != "new-access" {
+		t.Errorf("novo access_token deveria ser persistido, got %+v", loaded)
+	}
+	if loaded.RefreshToken != "rotated-refresh" {
+		t.Errorf("refresh rotacionado deveria persistir, got %q", loaded.RefreshToken)
+	}
+}
+
+func TestStoredTokenSourceSurvivesOperationCtxCancel(t *testing.T) {
+	// O token source ARMAZENADO deve renovar mesmo depois que o ctx da operação que
+	// o criou é cancelado — senão refreshes futuros falham e forçam reauth (#193).
+	var mu sync.Mutex
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		// expires_in baixo: com o expiryDelta do oauth2, o token é tratado como
+		// expirado, forçando refresh a cada Token().
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  fmt.Sprintf("acc-%d", n),
+			"token_type":    "Bearer",
+			"refresh_token": fmt.Sprintf("ref-%d", n),
+			"expires_in":    1,
+		})
+	}))
+	defer srv.Close()
+
+	credMgr := newTestCredMgr()
+	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
+	rt.persistTokens(&oauth2.Token{AccessToken: "seed", RefreshToken: "seed-ref"})
+	rt.oauthCfg = &oauth2.Config{ClientID: "c", Endpoint: oauth2.Endpoint{TokenURL: srv.URL + "/token"}}
+	rt.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "seed"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := rt.trySilentRefresh(ctx); err != nil {
+		t.Fatalf("trySilentRefresh: %v", err)
+	}
+	// Cancela o ctx da operação: o token source armazenado NÃO deve depender dele.
+	cancel()
+
+	tok, err := rt.tokenSource.Token()
+	if err != nil {
+		t.Fatalf("refresh futuro falhou após cancelamento do ctx da operação: %v", err)
+	}
+	if tok == nil || tok.AccessToken == "" {
+		t.Fatal("esperava access_token renovado")
+	}
+	mu.Lock()
+	gotCalls := calls
+	mu.Unlock()
+	if gotCalls < 2 {
+		t.Errorf("esperava ao menos 2 chamadas ao token endpoint (refresh inicial + futuro), got %d", gotCalls)
+	}
+}
+
+func TestLongLivedCtx_InjectsHTTPClientWithTimeout(t *testing.T) {
+	// longLivedCtx remove o cancelamento do ctx; precisa injetar um *http.Client
+	// com Timeout para o refresh do oauth2 não bloquear indefinidamente o RoundTrip.
+	rt := &pkceRoundTripper{serverSlug: "srv"}
+	ctx := rt.longLivedCtx()
+
+	if ctx.Done() != nil {
+		t.Error("longLivedCtx deveria ser não-cancelável (Done() == nil)")
+	}
+	v := ctx.Value(oauth2.HTTPClient)
+	client, ok := v.(*http.Client)
+	if !ok || client == nil {
+		t.Fatalf("esperava *http.Client em oauth2.HTTPClient, got %T", v)
+	}
+	if client.Timeout <= 0 {
+		t.Errorf("o http.Client do refresh deveria ter Timeout > 0, got %v", client.Timeout)
+	}
+}
+
+// ============ single-flight por servidor (#194) ============
+
+// seqTokenSource devolve tokens em sequência: simula que, entre a captura do token
+// rejeitado e a reverificação pós-arbiter, OUTRO flow trocou o token.
+type seqTokenSource struct {
+	mu     sync.Mutex
+	tokens []*oauth2.Token
+	i      int
+}
+
+func (s *seqTokenSource) Token() (*oauth2.Token, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tok := s.tokens[s.i]
+	if s.i < len(s.tokens)-1 {
+		s.i++
+	}
+	return tok, nil
+}
+
+func TestAuthorizeSkipsWhenAnotherFlowRenewedToken(t *testing.T) {
+	// Caso #194: ao adquirir o arbiter, o token foi substituído por OUTRO flow
+	// (access_token diferente do rejeitado) — authorize pula a nova janela.
+	rt := &pkceRoundTripper{
+		serverSlug: "srv",
+		tokenSource: &seqTokenSource{tokens: []*oauth2.Token{
+			{AccessToken: "old-rejected", Expiry: time.Now().Add(time.Hour)},
+			{AccessToken: "new-from-other-flow", Expiry: time.Now().Add(time.Hour)},
+		}},
+	}
+	if err := rt.authorize(context.Background()); err != nil {
+		t.Fatalf("authorize deveria pular e retornar nil quando outro flow renovou, got %v", err)
+	}
+}
+
+func TestAuthorizeProceedsWhenTokenUnchanged(t *testing.T) {
+	// Token rejeitado continua o mesmo (ex.: revogado, não-expirado): NÃO pode pular
+	// — o usuário precisa reautenticar. Sem config válida, authorize deve falhar ao
+	// tentar de fato o flow (prova que não tomou o atalho do single-flight).
+	rt := &pkceRoundTripper{
+		serverSlug:  "srv",
+		tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "still-rejected", Expiry: time.Now().Add(time.Hour)}),
+	}
+	err := rt.authorize(context.Background())
+	if err == nil {
+		t.Fatal("authorize não deveria pular quando o token rejeitado permanece; deveria prosseguir e falhar sem config")
 	}
 }
