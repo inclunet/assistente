@@ -319,14 +319,26 @@ func (rt *pkceRoundTripper) authCtx() context.Context {
 	return rt.authCtxProvider()
 }
 
+// refreshHTTPClient limita a duração das chamadas HTTP de refresh feitas pelo
+// TokenSource long-lived. Necessário porque longLivedCtx remove o cancelamento
+// do contexto: sem um Timeout no client, um token endpoint lento/travado poderia
+// bloquear indefinidamente o RoundTrip (o refresh roda no caminho crítico) já que
+// nenhum timeout do request seria herdado.
+var refreshHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
 // longLivedCtx devolve um contexto não-cancelável para o oauth2.TokenSource
 // ARMAZENADO em rt.tokenSource. Esse token source faz refreshes muito depois da
 // operação que o criou; se capturasse o ctx request-scoped (ou o ctx com timeout
 // do device/PKCE flow), todo refresh futuro falharia ao ser cancelado, forçando
 // reauth interativa (issue #193). Preserva os valores do authCtx (ex.: user_id)
 // removendo apenas o cancelamento.
+//
+// Como o cancelamento é removido, injetamos um *http.Client com Timeout via
+// oauth2.HTTPClient para preservar a proteção operacional contra um token endpoint
+// lento — caso contrário o oauth2 usaria o http.DefaultClient (sem timeout).
 func (rt *pkceRoundTripper) longLivedCtx() context.Context {
-	return context.WithoutCancel(rt.authCtx())
+	ctx := context.WithoutCancel(rt.authCtx())
+	return context.WithValue(ctx, oauth2.HTTPClient, refreshHTTPClient)
 }
 
 func (rt *pkceRoundTripper) effectiveClientID() string {

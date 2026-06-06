@@ -1397,6 +1397,25 @@ func TestStoredTokenSourceSurvivesOperationCtxCancel(t *testing.T) {
 	}
 }
 
+func TestLongLivedCtx_InjectsHTTPClientWithTimeout(t *testing.T) {
+	// longLivedCtx remove o cancelamento do ctx; precisa injetar um *http.Client
+	// com Timeout para o refresh do oauth2 não bloquear indefinidamente o RoundTrip.
+	rt := &pkceRoundTripper{serverSlug: "srv"}
+	ctx := rt.longLivedCtx()
+
+	if ctx.Done() != nil {
+		t.Error("longLivedCtx deveria ser não-cancelável (Done() == nil)")
+	}
+	v := ctx.Value(oauth2.HTTPClient)
+	client, ok := v.(*http.Client)
+	if !ok || client == nil {
+		t.Fatalf("esperava *http.Client em oauth2.HTTPClient, got %T", v)
+	}
+	if client.Timeout <= 0 {
+		t.Errorf("o http.Client do refresh deveria ter Timeout > 0, got %v", client.Timeout)
+	}
+}
+
 // ============ single-flight por servidor (#194) ============
 
 // seqTokenSource devolve tokens em sequência: simula que, entre a captura do token
