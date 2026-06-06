@@ -376,12 +376,12 @@ export function ProfileToolsSection({
               disabled={disabled}
               data-testid="native-mcp-select"
             >
-              <option value="auto">{t('profiles.nativeMcpAuto', 'Automático (adapter)')}</option>
+              <option value="auto">{t('profiles.nativeMcpAuto', 'Automático')}</option>
               <option value="on">{t('profiles.nativeMcpOn', 'Forçar nativo')}</option>
               <option value="off">{t('profiles.nativeMcpOff', 'Forçar adapter (function)')}</option>
             </select>
             <span className="profiles-field__hint">
-              {t('profiles.nativeMcpHint', "Como os servidores MCP são entregues ao provider. O modo nativo usa o formato do provider (OpenAI Responses → type:mcp; Anthropic → mcp_servers). Automático = modo adapter (function) por padrão, compatível com qualquer modelo. 'Forçar nativo' só tem efeito em providers fisicamente capazes (Responses/Anthropic).")}
+              {t('profiles.nativeMcpHint', "Como os servidores MCP são entregues ao provider. O modo nativo usa o formato do provider (OpenAI Responses → type:mcp; Anthropic → mcp_servers). Automático = tenta MCP nativo e, se o modelo não suportar, o app ajusta este perfil para adapter automaticamente. 'Forçar nativo' só tem efeito em providers fisicamente capazes (Responses/Anthropic).")}
             </span>
           </div>
         </>

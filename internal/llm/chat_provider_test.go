@@ -1780,6 +1780,58 @@ func TestOpenAIProvider_StreamChatResponses_DegradesFailedMCPServer(t *testing.T
 	}
 }
 
+// TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedFallsBackToAdapter
+// cobre o auto-fallback nativo→adapter no MESMO turno: a 1ª tentativa (com MCP
+// nativo) retorna nativeMCPUnsupported; o loop dropa os servers, dispara o hook
+// OnNativeMCPUnsupported e re-tenta sem servers, concluindo sem erro.
+func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedFallsBackToAdapter(t *testing.T) {
+	seen := make([][]string, 0, 2)
+	attempts := 0
+	hookCalls := 0
+
+	provider := &OpenAIProvider{
+		provider:     &ProviderConfig{ID: "o", Name: "Proxy", BaseURL: "http://proxy.local/v1"},
+		useResponses: true,
+		mcpServers: []MCPServerConfig{
+			{Name: "Atlassian", Slug: "atlassian", URL: "https://mcp.atlassian.com/v1/sse"},
+		},
+	}
+	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, handler StreamHandler, servers []MCPServerConfig) mcpStreamAttemptResult {
+		attempts++
+		slugs := make([]string, 0, len(servers))
+		for _, srv := range servers {
+			slugs = append(slugs, srv.Slug)
+		}
+		seen = append(seen, slugs)
+		if attempts == 1 {
+			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
+		}
+		handler.OnChunk("ok")
+		handler.OnDone("ok", Usage{}, "deepseek-v4-flash")
+		return mcpStreamAttemptResult{done: true}
+	}
+
+	handler := &providerRetryHandler{}
+	params := ChatParams{OnNativeMCPUnsupported: func() { hookCalls++ }}
+	provider.streamChatResponses(context.Background(), "deepseek-v4-flash", []Message{{Role: "user", Content: "oi"}}, params, handler)
+
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if len(seen) != 2 || len(seen[0]) != 1 || len(seen[1]) != 0 {
+		t.Fatalf("servers por tentativa = %#v (esperava [1 server] depois [0 servers])", seen)
+	}
+	if hookCalls != 1 {
+		t.Fatalf("OnNativeMCPUnsupported chamado %d vezes, want 1", hookCalls)
+	}
+	if len(handler.errors) != 0 {
+		t.Fatalf("não deveria emitir erro ao usuário (fallback transparente): %v", handler.errors)
+	}
+	if handler.done != 1 {
+		t.Fatalf("OnDone = %d, want 1", handler.done)
+	}
+}
+
 func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.T) {
 	recovered := make(chan struct{}, 1)
 	seen := make([][]string, 0, 2)

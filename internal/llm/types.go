@@ -228,6 +228,13 @@ type ChatParams struct {
 	SurfaceID             string `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
 	SurfaceType           string `json:"surfaceType,omitempty"`          // page | embedded | modal | external
 	SurfaceTabID          string `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
+
+	// OnNativeMCPUnsupported é um hook opcional, definido pelo backend (use case),
+	// chamado quando uma request com MCP nativo falha com erro de não-suporte
+	// (ex.: 400 unknown variant "mcp"). Permite à camada superior auto-ajustar e
+	// PERSISTIR o perfil para adapter (Profile.Chat.NativeMCP nil→false), sem que o
+	// provider conheça a camada de perfis (AEP-0021). Não é serializado.
+	OnNativeMCPUnsupported func() `json:"-"`
 }
 
 // ==================== Helper Functions ====================

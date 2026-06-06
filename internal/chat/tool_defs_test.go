@@ -510,20 +510,20 @@ func TestApplyNativeMCP_EnabledSetFiltersServer(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ResolveNativeMCPEnabled — opt-in por perfil (tri-state); auto = adapter
+// ResolveNativeMCPEnabled — tri-state; auto = nativo otimista (se capaz)
 // ---------------------------------------------------------------------------
 
-func TestResolveNativeMCPEnabled_AutoIsAdapter(t *testing.T) {
-	// nil override (auto) → adapter (default seguro, provider-agnostic), mesmo que
-	// o provider seja fisicamente capaz. Não há heurística por URL/endpoint.
+func TestResolveNativeMCPEnabled_AutoIsOptimisticNativeWhenCapable(t *testing.T) {
+	// nil override (auto) → nativo SE o provider for fisicamente capaz (otimista),
+	// adapter caso contrário. Não há heurística por URL/endpoint.
 	capable := &mockChatProvider{nativeCapable: true}
 	incapable := &mockChatProvider{nativeCapable: false}
 
-	if ResolveNativeMCPEnabled(capable, nil) {
-		t.Error("auto: provider capaz deveria cair em adapter por default (sem heurística)")
+	if !ResolveNativeMCPEnabled(capable, nil) {
+		t.Error("auto: provider capaz deveria tentar nativo por default (otimista)")
 	}
 	if ResolveNativeMCPEnabled(incapable, nil) {
-		t.Error("auto: provider incapaz deveria cair em adapter por default")
+		t.Error("auto: provider incapaz deveria cair em adapter")
 	}
 }
 
@@ -572,19 +572,37 @@ func TestApplyNativeMCP_ProfileOverrideForceTrueCapableConfiguresNative(t *testi
 	}
 }
 
-func TestApplyNativeMCP_AutoKeepsBridges(t *testing.T) {
-	// Provider capaz, mas auto (nil override) → adapter: bridges permanecem.
+func TestApplyNativeMCP_AutoConfiguresNativeWhenCapable(t *testing.T) {
+	// Provider capaz + auto (nil override) → nativo otimista: configura servers
+	// nativos e remove as bridges (só voltam se o perfil for ajustado p/ adapter).
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", ToolNames: []string{"mcp_github__list"}},
 	}}
 	defs := makeToolDefs("mcp_github__list", "local")
 	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, nil)
+	result, ok := outP.(*mockChatProvider)
+	if !ok || len(result.calledWith) != 1 {
+		t.Fatalf("auto+capaz deveria configurar 1 server nativo, got %#v", outP)
+	}
+	if len(outDefs) != 1 || outDefs[0].Function.Name != "local" {
+		t.Fatalf("auto+capaz deveria remover a bridge nativa, got %#v", outDefs)
+	}
+}
+
+func TestApplyNativeMCP_AutoIncapableKeepsBridges(t *testing.T) {
+	// Provider incapaz + auto (nil) → adapter: bridges permanecem.
+	p := &mockChatProvider{nativeCapable: false}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", ToolNames: []string{"mcp_github__list"}},
+	}}
+	defs := makeToolDefs("mcp_github__list", "local")
+	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, nil)
 	if outP != p {
-		t.Error("auto: WithMCPServers não deveria ser chamado (adapter)")
+		t.Error("auto+incapaz: WithMCPServers não deveria ser chamado (adapter)")
 	}
 	if len(outDefs) != 2 {
-		t.Errorf("auto: bridge tools deveriam permanecer, got %#v", outDefs)
+		t.Errorf("auto+incapaz: bridge tools deveriam permanecer, got %#v", outDefs)
 	}
 }
 

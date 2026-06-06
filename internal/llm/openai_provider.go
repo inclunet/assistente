@@ -661,6 +661,18 @@ func (p *OpenAIProvider) streamChatResponses(
 		if result.done {
 			return
 		}
+		if result.nativeMCPUnsupported {
+			// O modelo/endpoint rejeitou type:"mcp". Degrada nativo→adapter no MESMO
+			// turno: dropa os MCP servers nativos e re-tenta sem eles (sem 400). As
+			// tools MCP (bridges) só voltam no PRÓXIMO turno, quando o perfil já
+			// estará em adapter via o auto-ajuste persistido disparado abaixo.
+			log.Printf("[MCP-DEGRADE] attempt=%d provider=openai action=native_to_adapter reason=model_rejects_type_mcp servers=%d", attempt, len(currentServers))
+			if params.OnNativeMCPUnsupported != nil {
+				params.OnNativeMCPUnsupported()
+			}
+			currentServers = nil
+			continue
+		}
 		if result.mcpFailure != nil {
 			if degradeRetries < maxDegradeRetries {
 				if remaining, ok := planMCPDegradationRetry(ctx, "openai", attempt, currentServers, result.mcpFailure); ok {
@@ -994,6 +1006,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				errMsg = ev.Response.Error.Message
 			}
 			log.Printf("[OpenAIProvider] Response FAILED: %s", errMsg)
+			if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errMsg) {
+				return mcpStreamAttemptResult{nativeMCPUnsupported: true}
+			}
 			if failure := inferMCPFailure(MCPFailureStageHandshake, errMsg, ev.RawJSON(), "", mcpServers); failure != nil && !emittedAnything {
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
@@ -1008,6 +1023,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		log.Printf("[OpenAIProvider] Responses stream error: %s", errStr)
+		if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errStr) {
+			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
+		}
 		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedAnything {
 			return mcpStreamAttemptResult{mcpFailure: failure}
 		}

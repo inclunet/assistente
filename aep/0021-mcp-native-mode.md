@@ -1,6 +1,6 @@
 # MCP Modo Nativo
 
-## Status: Revisado (v5)
+## Status: Revisado (v6)
 
 > **Historico:** A versao original desta AEP descrevia um conceito aspiracional de modo nativo com `mcp_mode` (adapter/native/auto) no perfil. A infraestrutura foi parcialmente criada (`GetNativeServerInfo`, `TestMCPNativeSupport`, `ShouldUseMCPNative`) mas **nunca foi consumida no chat loop**. O sistema sempre operou em modo adapter.
 >
@@ -10,7 +10,9 @@
 >
 > A v4 tornou o suporte **configuravel POR PERFIL** (`Profile.Chat.NativeMCP`, tri-state), mas ainda usava uma **heuristica por endpoint** (`SupportsNativeMCP()` baseado em `api.openai.com`) como default do modo auto.
 >
-> **Esta v5** elimina qualquer heuristica por URL/endpoint da decisao de MCP nativo. Motivos: (a) prender a funcionalidade a um provider especifico (`api.openai.com`) e acoplamento indevido; (b) `strings.Contains(BaseURL, "api.openai.com")` e fragil (falsos positivos em path/subdominio). A nova semantica e: **MCP nativo e opt-in POR PERFIL**; o **default (auto) e o modo adapter** (provider-agnostic, compativel com qualquer modelo, sem `type:"mcp"`); a **unica** dimensao de provider que influencia MCP nativo e a **capacidade fisica de transporte** (`NativeMCPCapable()` — Responses/Anthropic). Assim o `400 unknown variant "mcp", expected "function"` some por default em qualquer endpoint, sem acoplar a provedor; quem quer MCP nativo liga conscientemente no perfil (e so tem efeito em providers capazes). O metodo `SupportsNativeMCP()` foi removido do contrato `ChatProvider`.
+> A v5 eliminou qualquer heuristica por URL/endpoint (acoplamento a `api.openai.com` + fragilidade do `strings.Contains`) e removeu `SupportsNativeMCP()` do contrato. Porem fez o **default (auto) = adapter**, o que "nivela todo mundo por baixo": assume que nenhum endpoint suporta `type:"mcp"`, desligando MCP nativo ate para quem suporta.
+>
+> **Esta v6** torna o **default (auto) OTIMISTA com auto-degradacao e memoria**: tenta MCP nativo quando o provider e fisicamente capaz; se o modelo/endpoint rejeitar `type:"mcp"` (ex.: 400 `unknown variant "mcp", expected "function"`), o pipeline **degrada para adapter no mesmo turno** (dropando os servers nativos e re-tentando sem 400) e **auto-ajusta + PERSISTE** o perfil (`Profile.Chat.NativeMCP` nil→false). A "memoria" e o **proprio campo do perfil persistido** — NAO um cache em runtime: o perfil ja fixa o modelo (granularidade correta), sobrevive a restart e fica visivel/editavel na UI. Continua valendo: sem heuristica por URL; a unica dimensao estatica de provider e a **capacidade fisica** (`NativeMCPCapable()` — Responses/Anthropic). Override explicito do usuario (`true`/`false`) nunca e sobrescrito.
 
 ---
 
@@ -35,17 +37,17 @@ Usuario → LLM+Provider API → MCP Server (direto, server-side)
 
 ## Suporte por Provider (marco 2026)
 
-A unica dimensao de provider que influencia MCP nativo e a **capacidade fisica de transporte** (`NativeMCPCapable()` — o transporte consegue emitir `type:"mcp"`?). **Nao ha heuristica por URL/endpoint.** O **default (auto)** e sempre o **modo adapter**, independentemente do provider; MCP nativo e opt-in por perfil e so tem efeito quando o provider e fisicamente capaz.
+A unica dimensao ESTATICA de provider que influencia MCP nativo e a **capacidade fisica de transporte** (`NativeMCPCapable()` — o transporte consegue emitir `type:"mcp"`?). **Nao ha heuristica por URL/endpoint.** O **default (auto)** e **otimista**: tenta nativo quando o provider e capaz; a dimensao DINAMICA "este modelo/endpoint nao suporta" e descoberta em runtime (erro) e memorizada como `native_mcp=false` no perfil.
 
-| Provider | api_format | API | Capaz (fisico) | Default (auto) | Formato (quando nativo, via opt-in) |
+| Provider | api_format | API | Capaz (fisico) | Default (auto) | Formato (quando nativo) |
 |----------|------------|-----|----------------|----------------|---------|
-| OpenAI (real) | `openai_responses` | Responses API (`/v1/responses`) | **Sim** | Adapter | `type: "mcp"` tool com `server_url` |
-| OpenAI-compatible via Responses | `openai_responses` | Responses API (proxy: LiteLLM/Azure) | **Sim** | Adapter | `type: "mcp"` |
-| Anthropic | `anthropic` | Messages API (`/v1/messages`) | **Sim** | Adapter | `mcp_servers[]` + `mcp_toolset` + beta header |
+| OpenAI (real) | `openai_responses` | Responses API (`/v1/responses`) | **Sim** | Nativo (otimista) | `type: "mcp"` tool com `server_url` |
+| OpenAI-compatible via Responses | `openai_responses` | Responses API (proxy: LiteLLM/Azure) | **Sim** | Nativo (otimista) | `type: "mcp"` |
+| Anthropic | `anthropic` | Messages API (`/v1/messages`) | **Sim** | Nativo (otimista) | `mcp_servers[]` + `mcp_toolset` + beta header |
 | Google (Gemini) | `google` | Gemini API | **Nao** | Adapter | Nao implementado |
 | OpenAI-compatible | `openai` | Chat Completions (`/v1/chat/completions`) | **Nao** | Adapter | N/A |
 
-> **Nota:** `api_format: "openai"` (Chat Completions) e Google **nao sao fisicamente capazes** de MCP nativo — nenhum override de perfil os habilita (ver `NativeMCPCapable()`). `openai_responses` e `anthropic` sao capazes, mas o **default permanece adapter**: para usar `type:"mcp"`/`mcp_servers` e preciso ligar explicitamente `native_mcp: true` no perfil. Nao ha mais distincao por URL (ex.: `api.openai.com` vs. proxy): a capacidade fisica e a mesma e a decisao e do perfil.
+> **Nota:** `api_format: "openai"` (Chat Completions) e Google **nao sao fisicamente capazes** de MCP nativo — nenhum override de perfil os habilita (ver `NativeMCPCapable()`). `openai_responses` e `anthropic` sao capazes, entao o **default (auto) tenta nativo**. Se o modelo por tras do endpoint rejeitar `type:"mcp"` (comum em proxies tipo LiteLLM roteando para deepseek etc.), o turno degrada para adapter e o perfil e auto-ajustado para `false` — os proximos turnos ja usam adapter direto, sem repetir o 400. Nao ha distincao por URL (ex.: `api.openai.com` vs. proxy): a capacidade fisica e a mesma; a (in)compatibilidade do modelo e aprendida em runtime, nao chutada pela URL.
 
 ### Limitacoes comuns
 
@@ -59,30 +61,43 @@ A unica dimensao de provider que influencia MCP nativo e a **capacidade fisica d
 
 ### Duas dimensoes de decisao
 
-A decisao final de usar MCP nativo combina **capacidade fisica** (do provider) com **politica** (do perfil). Nao ha mais uma terceira camada de "default por endpoint":
+A decisao de usar MCP nativo combina **capacidade fisica** (do provider) com **politica** (do perfil):
 
 1. **Capacidade fisica do provider** — `ChatProvider.NativeMCPCapable() bool`. O transporte consegue emitir `type:"mcp"`? (`openai_responses` e `anthropic` = sim; `openai`/Chat Completions e `google` = nao). Se `false`, **nenhum override habilita** — evita remover bridge tools sem ter como enviar `type:"mcp"`.
-2. **Override do perfil** — `Profile.Chat.NativeMCP *bool` (tri-state). E a politica. O default (auto, `nil`) e **adapter** — provider-agnostic, sem heuristica.
+2. **Override do perfil** — `Profile.Chat.NativeMCP *bool` (tri-state). E a politica. O default (auto, `nil`) e **otimista**: tenta nativo se o provider for capaz.
 
 A resolucao vive em `internal/chat.ResolveNativeMCPEnabled(streamer, override)`:
 
 ```
 ResolveNativeMCPEnabled(streamer, override):
   se streamer == nil: false
-  se override != nil && *override == true:
-     return streamer.NativeMCPCapable()   // forca nativo (so se capaz)
-  return false                            // auto (nil) ou false → adapter
+  se override != nil && *override == false:
+     return false                          // forca adapter
+  return streamer.NativeMCPCapable()       // auto (nil) ou true → nativo se capaz
 ```
 
 ### Capability tri-state por perfil: `Profile.Chat.NativeMCP`
 
 Campo `*bool` (ponteiro = compativel com perfis antigos), serializado como `native_mcp` no JSON do perfil:
 
-- `nil` / ausente → **auto = adapter** (default seguro, provider-agnostic). NAO liga MCP nativo automaticamente nem usa URL; os MCP servers vao como function/bridge tools, compativel com qualquer modelo. Elimina o `400` por default em qualquer endpoint.
-- `true` → **forca nativo** (`type:"mcp"`/`mcp_servers`), desde que o provider seja fisicamente capaz (`NativeMCPCapable()`). Opt-in consciente. Util para OpenAI real ou proxies (LiteLLM/Azure) cujo modelo selecionado aceita `type:"mcp"`.
-- `false` → **forca adapter** (MCP como function/bridge tools). Identico ao auto na pratica, mas explicito.
+- `nil` / ausente → **auto OTIMISTA**: tenta nativo se o provider for capaz. Se o modelo/endpoint rejeitar `type:"mcp"`, o turno degrada para adapter e o perfil e **auto-ajustado para `false` e persistido** (ver fluxo abaixo).
+- `true` → **forca nativo** (`type:"mcp"`/`mcp_servers`), desde que o provider seja fisicamente capaz (`NativeMCPCapable()`). Escolha explicita: **nunca** e auto-sobrescrita. Se o modelo rejeitar, degrada so naquele turno e loga aviso.
+- `false` → **forca adapter** (MCP como function/bridge tools). E o estado para o qual o auto-ajuste converge.
 
-O override vale igualmente para **chat normal e sub-agentes**, pois ambos resolvem o mesmo `activeProfile` no pipeline unico de envio (`SendMessageUseCase`); o sub-agente apenas carrega um `ProfileSlug` diferente. A UI expoe um seletor tri-state (Automatico / Forcar nativo / Forcar adapter) na aba **Ferramentas** do editor de perfis.
+O override vale igualmente para **chat normal e sub-agentes**, pois ambos resolvem o mesmo `activeProfile` no pipeline unico de envio (`SendMessageUseCase`); o sub-agente apenas carrega um `ProfileSlug` diferente — o auto-ajuste recai sobre o profile efetivamente usado no run. A UI expoe um seletor tri-state (Automatico / Forcar nativo / Forcar adapter) na aba **Ferramentas** do editor de perfis.
+
+### Auto-degradacao + memoria persistida no perfil
+
+Quando o modo resolvido e nativo e a request falha com o erro caracteristico de nao-suporte a `type:"mcp"` (classificado por `looksLikeNativeMCPUnsupported` em `mcp_degradation.go` — ex.: 400 `unknown variant "mcp", expected "function"`), o pipeline reage assim:
+
+1. **Degrade no MESMO turno (provider layer):** o loop de streaming (`streamChatResponses` / `doStreamBeta`) detecta o erro, **dropa os MCP servers nativos** (`currentServers = nil`) e **re-tenta a request sem eles** — a chamada conclui sem 400, de forma transparente ao usuario. *Limitacao conhecida:* as bridge tools dos servers ja tinham sido removidas do `tools[]` na montagem nativa (camada de chat), entao **neste turno** as tools MCP ficam ausentes; o efeito pleno (MCP via adapter/bridge) vem no **proximo turno**, quando o perfil ja estara em `false`.
+2. **Memoria = auto-ajuste persistido do perfil (use case layer):** o provider dispara o hook opcional `ChatParams.OnNativeMCPUnsupported` (sem conhecer a camada de perfis — separacao de camadas). O `SendMessageUseCase` liga esse hook a `chat.Interactor.HandleNativeMCPUnsupported(profileSlug, model, override)`, que:
+   - **override == nil (auto):** rele o perfil do disco pelo slug e, **somente na transicao `nil`→`false`**, grava `NativeMCP=false` via `profiles.Manager.Update` e loga `[MCP] perfil X (modelo Y) ajustado para adapter automaticamente...`. Idempotente e **thread-safe** (mutex serializa o read-modify-write; runs concorrentes do mesmo perfil nao gravam em corrida — o segundo encontra o disco ja em `false` e nao regrava).
+   - **override == true (forcar nativo):** NAO persiste; apenas loga `[MCP] modelo Y do perfil X nao suporta MCP nativo; usando adapter neste turno (perfil em 'forcar nativo')`.
+   - **override == false:** nada a fazer.
+3. **Proximos turnos:** com o perfil em `false`, `ResolveNativeMCPEnabled` resolve adapter naturalmente — os MCP servers voltam como function/bridge tools e o 400 nao se repete (era exatamente a poluicao de log que motivou esta AEP).
+
+> **Persistencia vs cache:** a decisao deliberada e usar o **campo persistido do perfil** como memoria, e nao um cache em memoria por endpoint+modelo. O perfil ja amarra o modelo, sobrevive a restart e e auditavel/editavel pelo usuario. (Um cache em runtime foi considerado e descartado.)
 
 ### Aplicacao na montagem de tools
 

@@ -139,12 +139,15 @@ func FilterToolNamesByEnabledTools(names []string, enabledTools []string, disabl
 }
 
 // ResolveNativeMCPEnabled resolve a POLÍTICA de MCP nativo a partir do override do
-// PERFIL ativo (AEP-0021). MCP nativo é opt-in por perfil; não há heurística por
-// URL/endpoint nem default por provider — a única dimensão de provider é a
-// capacidade física de transporte (NativeMCPCapable). Semântica tri-state:
+// PERFIL ativo (AEP-0021). Não há heurística por URL/endpoint — a única dimensão
+// de provider é a capacidade física de transporte (NativeMCPCapable). O default
+// (auto) é OTIMISTA: tenta nativo quando o provider é capaz, e o erro de
+// não-suporte (detectado no streaming) auto-ajusta o perfil para adapter (nil→false),
+// persistindo a decisão para os próximos turnos. Semântica tri-state:
 //
-//   - nil   → auto: modo ADAPTER (default seguro, provider-agnostic). NÃO liga MCP
-//     nativo automaticamente; os MCP servers vão como function/bridge tools.
+//   - nil   → auto OTIMISTA: nativo SE o provider for FISICAMENTE capaz
+//     (NativeMCPCapable). Se o modelo/endpoint rejeitar type:"mcp", o pipeline
+//     degrada para adapter no mesmo turno e persiste Profile.Chat.NativeMCP=false.
 //   - true  → força MCP nativo, mas só se o provider for FISICAMENTE capaz
 //     (NativeMCPCapable). Caso contrário (ex.: Chat Completions, Google) cai
 //     em adapter, evitando remover bridge tools sem ter como enviar type:"mcp".
@@ -153,10 +156,11 @@ func ResolveNativeMCPEnabled(streamer llm.ChatProvider, override *bool) bool {
 	if ChatProviderIsNil(streamer) {
 		return false
 	}
-	if override != nil && *override {
-		return streamer.NativeMCPCapable()
+	if override != nil && !*override {
+		return false
 	}
-	return false
+	// nil (auto otimista) ou true → nativo se o provider for fisicamente capaz.
+	return streamer.NativeMCPCapable()
 }
 
 func FilterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, disableTools bool, nativeMCPOverride *bool) []string {

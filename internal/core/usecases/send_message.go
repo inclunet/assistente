@@ -292,6 +292,16 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	nativeMCPOverride := activeProfile.Chat.NativeMCP
 	requestStreamer, llmToolDefs = chat.ApplyNativeMCP(requestStreamer, llmToolDefs, uc.mcpMgr, profileEnabledTools, disableTools, nativeMCPOverride)
 
+	// Auto-degradação otimista (AEP-0021): no modo AUTO tentamos MCP nativo; se o
+	// modelo/endpoint rejeitar type:"mcp", o provider degrada para adapter no mesmo
+	// turno e dispara este hook, que auto-ajusta e PERSISTE o perfil (nil→false) para
+	// os próximos turnos. Override explícito (true/false) não é sobrescrito.
+	resolvedProfileSlug := params.ProfileSlug
+	resolvedModel := params.Model
+	params.OnNativeMCPUnsupported = func() {
+		uc.chatInteractor.HandleNativeMCPUnsupported(resolvedProfileSlug, resolvedModel, nativeMCPOverride)
+	}
+
 	// Cria contexto cancelável por conversa — permite barge-in cancelar o LLM em andamento.
 	convCtx, convCancel := context.WithCancel(ctx)
 	uc.streamMgr.Register(req.ConversationID, convCancel)
