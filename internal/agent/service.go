@@ -49,7 +49,11 @@ type ServiceConfig struct {
 	ToolInvocations  *toolinvocations.Service
 	ResponseNotifier *messaging.ResponseNotifier
 	GetTokenStats    func(string) (*chat.TokenStats, error)
-	TriggerSummarize func(context.Context, string)
+	// TriggerSummarize dispara a verificação/sumarização da conversa. Recebe o
+	// conversationID e o profileSlug DA CONVERSA (o mesmo resolvido no envio),
+	// para que o resumo use o provider/modelo do perfil da conversa e não o do
+	// perfil ativo global (Issue #203).
+	TriggerSummarize func(context.Context, string, string)
 	// OnSpeechRequest é chamado após chat:done e chat:segment_done para disparar TTS proativo.
 	// Parâmetros: conversationID, messageID, role, text, origin, profileSlug, interrupt.
 	OnSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
@@ -63,7 +67,7 @@ type Service struct {
 	toolInvocations  *toolinvocations.Service
 	responseNotifier *messaging.ResponseNotifier
 	getTokenStats    func(string) (*chat.TokenStats, error)
-	triggerSummarize func(context.Context, string)
+	triggerSummarize func(context.Context, string, string)
 	onSpeechRequest  func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 }
 
@@ -631,6 +635,7 @@ func (s *Service) RunAgenticLoop(
 					PromptTokens:                stats.PromptTokens,
 					CompletionTokens:            stats.CompletionTokens,
 					TotalTokens:                 stats.TotalTokens,
+					ContextTokens:               stats.ContextTokens,
 					ContextUsage:                stats.ContextUsage,
 					ContextLimit:                stats.ContextLimit,
 					IsNearLimit:                 stats.IsNearLimit,
@@ -689,7 +694,7 @@ func (s *Service) RunAgenticLoop(
 	if s.triggerSummarize != nil {
 		go func() {
 			defer s.recoverFromPanic(conversationID, "triggerSummarize")
-			s.triggerSummarize(ctx, conversationID)
+			s.triggerSummarize(ctx, conversationID, params.ProfileSlug)
 		}()
 	}
 }
@@ -811,7 +816,7 @@ func (s *Service) SaveAndFinish(
 	if s.triggerSummarize != nil {
 		go func() {
 			defer s.recoverFromPanic(conversationID, "triggerSummarize")
-			s.triggerSummarize(ctx, conversationID)
+			s.triggerSummarize(ctx, conversationID, profileSlug)
 		}()
 	}
 
@@ -831,6 +836,7 @@ func (s *Service) emitTokenStats(conversationID string) {
 	s.emitter.Emit("chat:token_stats", ports.TokenStatsEvent{
 		ConversationID:   conversationID,
 		TotalTokens:      stats.TotalTokens,
+		ContextTokens:    stats.ContextTokens,
 		ContextLimit:     stats.ContextLimit,
 		ContextUsage:     stats.ContextUsage,
 		IsNearLimit:      stats.IsNearLimit,
