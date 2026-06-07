@@ -357,8 +357,13 @@ func joinPrefix(parts []string) string {
 }
 
 // catalogFirstActive informa se o gating por catálogo está ativo, ou seja, se o
-// tool calling está habilitado e "tool_catalog" faz parte das tools iniciais
-// expostas ao modelo. Nesse caso, o protocolo catalog-first deve ser instruído.
+// tool calling está habilitado e "tool_catalog" é a ÚNICA tool inicial exposta ao
+// modelo. Só nesse caso o protocolo catalog-first deve ser instruído: o texto de
+// CatalogFirstToolPrompt afirma que a única tool disponível inicialmente é a
+// "tool_catalog". Quando o perfil fixa EnabledTools com tool_catalog + outras
+// tools, essas outras já ficam disponíveis de imediato (ResolveInitialEnabledTools
+// devolve a lista intacta), então o gating não restringe ao catálogo e o protocolo
+// não deve ser injetado para não enganar o modelo.
 func catalogFirstActive(tplData any) bool {
 	var data chat.TemplateData
 	switch d := tplData.(type) {
@@ -375,12 +380,17 @@ func catalogFirstActive(tplData any) bool {
 	if !data.ToolCallingEnabled {
 		return false
 	}
+	hasCatalog := false
 	for _, name := range data.EnabledTools {
 		if name == tools.ToolCatalogName {
-			return true
+			hasCatalog = true
+			continue
 		}
+		// Qualquer outra tool inicial significa que o gating não restringe o
+		// modelo a apenas o catálogo — o protocolo catalog-first seria enganoso.
+		return false
 	}
-	return false
+	return hasCatalog
 }
 
 func templateToolCallingDisabled(tplData any) bool {

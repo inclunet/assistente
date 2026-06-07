@@ -239,6 +239,26 @@ func TestBuild_CatalogFirst_NotActiveWhenToolCatalogAbsent(t *testing.T) {
 	}
 }
 
+func TestBuild_CatalogFirst_NotActiveWhenCatalogPlusOtherTools(t *testing.T) {
+	b := &prompt.Builder{}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	// Perfil fixa EnabledTools com tool_catalog + outras tools: como as demais já
+	// ficam disponíveis de imediato, o gating não restringe ao catálogo e o
+	// protocolo catalog-first (que afirma "ONLY tool_catalog") NÃO deve ser injetado.
+	tplData := chat.TemplateData{
+		ToolCallingEnabled: true,
+		EnabledTools:       []string{tools.ToolCatalogName, "read_file", "web_search"},
+	}
+	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	if len(result) == 1 && result[0].Role == "user" {
+		return // nenhum system prompt criado, esperado
+	}
+	sys, _ := result[0].Content.(string)
+	if strings.Contains(sys, "<tool_selection_protocol>") {
+		t.Error("Should not include catalog-first protocol when tool_catalog coexists with other initial tools")
+	}
+}
+
 func TestBuild_CatalogFirst_NotActiveWhenToolCallingDisabled(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
