@@ -12,7 +12,7 @@ import (
 )
 
 // ChatProviderIsNil reports whether c is nil or holds a nil concrete pointer (typed nil).
-// Calling methods on a typed-nil ChatProvider panics (e.g. (*OpenAIProvider)(nil).SupportsNativeMCP()).
+// Calling methods on a typed-nil ChatProvider panics (e.g. (*OpenAIProvider)(nil).NativeMCPCapable()).
 func ChatProviderIsNil(c llm.ChatProvider) bool {
 	if c == nil {
 		return true
@@ -138,14 +138,39 @@ func FilterToolNamesByEnabledTools(names []string, enabledTools []string, disabl
 	return filtered
 }
 
-func FilterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, disableTools bool) []string {
+// ResolveNativeMCPEnabled resolve a POLÍTICA de MCP nativo a partir do override do
+// PERFIL ativo (AEP-0021). Não há heurística por URL/endpoint — a única dimensão
+// de provider é a capacidade física de transporte (NativeMCPCapable). O default
+// (auto) é OTIMISTA: tenta nativo quando o provider é capaz, e o erro de
+// não-suporte (detectado no streaming) auto-ajusta o perfil para adapter (nil→false),
+// persistindo a decisão para os próximos turnos. Semântica tri-state:
+//
+//   - nil   → auto OTIMISTA: nativo SE o provider for FISICAMENTE capaz
+//     (NativeMCPCapable). Se o modelo/endpoint rejeitar type:"mcp", o pipeline
+//     degrada para adapter no mesmo turno e persiste Profile.Chat.NativeMCP=false.
+//   - true  → força MCP nativo, mas só se o provider for FISICAMENTE capaz
+//     (NativeMCPCapable). Caso contrário (ex.: Chat Completions, Google) cai
+//     em adapter, evitando remover bridge tools sem ter como enviar type:"mcp".
+//   - false → força modo adapter (MCP como function/bridge tools).
+func ResolveNativeMCPEnabled(streamer llm.ChatProvider, override *bool) bool {
+	if ChatProviderIsNil(streamer) {
+		return false
+	}
+	if override != nil && !*override {
+		return false
+	}
+	// nil (auto otimista) ou true → nativo se o provider for fisicamente capaz.
+	return streamer.NativeMCPCapable()
+}
+
+func FilterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, disableTools bool, nativeMCPOverride *bool) []string {
 	if disableTools {
 		return nil
 	}
 	if len(names) == 0 || NativeMCPManagerIsNil(mcpMgr) || ChatProviderIsNil(streamer) {
 		return names
 	}
-	if !streamer.SupportsNativeMCP() {
+	if !ResolveNativeMCPEnabled(streamer, nativeMCPOverride) {
 		return names
 	}
 	nativeServers := mcpMgr.GetEligibleNativeMCPServers()
@@ -179,11 +204,12 @@ func ApplyNativeMCP(
 	mcpMgr NativeMCPManager,
 	enabledTools []string,
 	disableTools bool,
+	nativeMCPOverride *bool,
 ) (llm.ChatProvider, []llm.ToolDefinition) {
 	if disableTools || NativeMCPManagerIsNil(mcpMgr) || ChatProviderIsNil(streamer) {
 		return streamer, toolDefs
 	}
-	if !streamer.SupportsNativeMCP() {
+	if !ResolveNativeMCPEnabled(streamer, nativeMCPOverride) {
 		return streamer, toolDefs
 	}
 

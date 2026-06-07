@@ -27,15 +27,22 @@ import (
 //   - useResponses=false (APIFormatOpenAI / APIFormatOpenAICompatible):
 //     Chat Completions API only (/v1/chat/completions).
 //     Para provedores OpenAI-compatible: OpenRouter, Ollama, Groq, Together, etc.
-//     Não suporta MCP nativo. SupportsNativeMCP() retorna false.
+//     Não é fisicamente capaz de MCP nativo: NativeMCPCapable() retorna false.
 //     WithMCPServers() é no-op (retorna o provider inalterado).
 //
 //   - useResponses=true (APIFormatOpenAIResponses):
 //     Responses API first (/v1/responses).
-//     Para OpenAI real (api.openai.com). Suporta MCP nativo (type:mcp),
-//     reasoning summaries (via Reasoning param), tool_choice, e features modernas.
-//     SupportsNativeMCP() retorna true.
-//     WithMCPServers() cria uma cópia com MCP servers configurados.
+//     Para OpenAI real (api.openai.com) e proxies que falam Responses (ex.: LiteLLM).
+//     Habilita reasoning summaries (via Reasoning param), tool_choice, e features modernas.
+//     É FISICAMENTE CAPAZ de emitir tools type:"mcp" — NativeMCPCapable() retorna true
+//     (inclusive em proxies). Não há heurística por URL: o default (auto, override nil)
+//     tenta MCP nativo sempre que NativeMCPCapable()==true, degradando para adapter
+//     (e persistindo no perfil) apenas quando o modelo rejeita type:"mcp". A POLÍTICA
+//     final (usar nativo vs adapter) NÃO é decidida aqui: é resolvida na camada de
+//     chat por ResolveNativeMCPEnabled, que
+//     combina NativeMCPCapable() + override por perfil (Profile.Chat.NativeMCP).
+//     WithMCPServers() apenas incorpora os MCP servers na request e gateia por
+//     CAPACIDADE FÍSICA (NativeMCPCapable()).
 //
 // Limitações conhecidas do path Responses vs Chat Completions:
 //   - Multimodalidade: imagens em user messages são convertidas como texto.
@@ -96,12 +103,19 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 	}
 }
 
-func (p *OpenAIProvider) SupportsNativeMCP() bool {
+// NativeMCPCapable: a OpenAI só emite tools type:"mcp" pelo caminho da Responses
+// API (useResponses=true), independentemente da URL/endpoint. Chat Completions não
+// carrega MCP nativo no wire. Esta é a única dimensão de provider que influencia
+// MCP nativo; a decisão de USAR nativo é por perfil (ResolveNativeMCPEnabled).
+func (p *OpenAIProvider) NativeMCPCapable() bool {
 	return p.useResponses
 }
 
 func (p *OpenAIProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider {
-	if !p.useResponses || len(servers) == 0 {
+	// Gate físico (não a política): armazena os servers sempre que o transporte for
+	// capaz de emitir type:"mcp". A decisão de POLÍTICA (override do perfil; default
+	// auto = adapter) é feita por internal/chat antes de chamar aqui.
+	if !p.NativeMCPCapable() || len(servers) == 0 {
 		return p
 	}
 	return &OpenAIProvider{
@@ -649,6 +663,24 @@ func (p *OpenAIProvider) streamChatResponses(
 		if result.done {
 			return
 		}
+		if result.nativeMCPUnsupported {
+			// O modelo/endpoint rejeitou type:"mcp". Dispara o auto-ajuste persistido
+			// do perfil (nil→false) e degrada nativo→adapter.
+			log.Printf("[MCP-DEGRADE] attempt=%d provider=openai action=native_to_adapter reason=model_rejects_type_mcp servers=%d", attempt, len(currentServers))
+			if params.OnNativeMCPUnsupported != nil {
+				params.OnNativeMCPUnsupported()
+			}
+			if params.NativeMCPFallback != nil {
+				// O caller (loop agêntico) re-tenta o MESMO turno em modo adapter, com
+				// as bridge tools presentes. Aborta sem emitir done/erro.
+				params.NativeMCPFallback.Trigger()
+				return
+			}
+			// Sem fallback configurado (ex.: caminho simples sem tools): degrada
+			// dropando os servers nativos e re-tenta "pelado" (sem type:"mcp").
+			currentServers = nil
+			continue
+		}
 		if result.mcpFailure != nil {
 			if degradeRetries < maxDegradeRetries {
 				if remaining, ok := planMCPDegradationRetry(ctx, "openai", attempt, currentServers, result.mcpFailure); ok {
@@ -982,6 +1014,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				errMsg = ev.Response.Error.Message
 			}
 			log.Printf("[OpenAIProvider] Response FAILED: %s", errMsg)
+			if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errMsg) {
+				return mcpStreamAttemptResult{nativeMCPUnsupported: true}
+			}
 			if failure := inferMCPFailure(MCPFailureStageHandshake, errMsg, ev.RawJSON(), "", mcpServers); failure != nil && !emittedAnything {
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
@@ -996,6 +1031,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		log.Printf("[OpenAIProvider] Responses stream error: %s", errStr)
+		if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errStr) {
+			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
+		}
 		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedAnything {
 			return mcpStreamAttemptResult{mcpFailure: failure}
 		}

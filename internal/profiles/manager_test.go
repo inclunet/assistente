@@ -59,6 +59,47 @@ func TestManagerGetActiveSlug(t *testing.T) {
 	}
 }
 
+// TestManagerNativeMCPPersistsTriState garante que o override tri-state de MCP
+// nativo (Chat.NativeMCP) sobrevive ao Create/Get (persistência JSON). Cobre o
+// caminho de sub-agentes também: eles carregam o mesmo Profile por slug, então
+// o override precisa persistir para ser aplicado no run do sub-agente.
+func TestManagerNativeMCPPersistsTriState(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+
+	cases := []struct {
+		name string
+		val  *bool
+	}{
+		{"auto-nil", nil},
+		{"forca-true", boolPtr(true)},
+		{"forca-false", boolPtr(false)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := DefaultProfile()
+			p.Name = "Perfil " + tc.name
+			p.Active = false
+			p.Chat.NativeMCP = tc.val
+			slug, err := manager.Create(p)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+			got, err := manager.Get(slug)
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			switch {
+			case tc.val == nil && got.Chat.NativeMCP != nil:
+				t.Errorf("esperava NativeMCP nil (auto), obteve %v", *got.Chat.NativeMCP)
+			case tc.val != nil && got.Chat.NativeMCP == nil:
+				t.Errorf("esperava NativeMCP=%v, obteve nil", *tc.val)
+			case tc.val != nil && *got.Chat.NativeMCP != *tc.val:
+				t.Errorf("esperava NativeMCP=%v, obteve %v", *tc.val, *got.Chat.NativeMCP)
+			}
+		})
+	}
+}
+
 func TestManagerGetActiveSlugFallback(t *testing.T) {
 	manager := setupProfileTestEnv(t)
 

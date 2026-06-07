@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
 	"assistente/internal/core/ports"
 	"assistente/internal/events"
@@ -63,6 +64,11 @@ type Interactor struct {
 	workspace     WorkspaceProvider
 	skillMgr      skills.InvokerManager
 	promptBuilder SystemPromptBuilder
+
+	// nativeMCPAdjustMu serializa o read-modify-write do auto-ajuste de MCP nativo
+	// do perfil (nil→false), garantindo idempotência sob concorrência (vários runs
+	// do mesmo perfil falhando ao mesmo tempo). Ver HandleNativeMCPUnsupported.
+	nativeMCPAdjustMu sync.Mutex
 }
 
 // NewInteractor creates an Interactor with its required dependencies.
@@ -245,6 +251,72 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		Params:        params,
 		UserContent:   req.UserContent,
 	}, nil
+}
+
+// HandleNativeMCPUnsupported é o hook chamado pelo pipeline de streaming quando uma
+// request com MCP nativo falha porque o modelo/endpoint rejeita type:"mcp" (AEP-0021).
+//
+// Semântica de "memória" = auto-ajuste PERSISTIDO do perfil (não cache em runtime):
+//   - override == nil (AUTO otimista): grava Profile.Chat.NativeMCP=false e persiste,
+//     para que os próximos turnos usem adapter diretamente, sem repetir o 400. O
+//     perfil já fixa o modelo, então é a granularidade certa e fica visível/editável
+//     na UI. Idempotente: relê do disco e só grava na transição nil→false.
+//   - override == true (Forçar nativo): NÃO sobrescreve a escolha explícita do
+//     usuário; apenas loga o aviso (a request já degradou para adapter neste turno).
+//   - override == false: nada a fazer (já é adapter).
+//
+// profileSlug é o slug resolvido para o turno (params.ProfileSlug); quando vazio,
+// recai sobre o perfil ativo global. Funciona igual para chat e sub-agentes, pois
+// ambos carregam o slug efetivo do run.
+func (i *Interactor) HandleNativeMCPUnsupported(profileSlug, model string, override *bool) {
+	if override != nil {
+		if *override {
+			// Resolve o slug efetivo (trim + fallback para o perfil ativo) também aqui,
+			// senão o log imprimiria perfil "" no caso comum do chat normal — justamente
+			// o cenário em que esse aviso de incompatibilidade de MCP nativo é útil.
+			slug := strings.TrimSpace(profileSlug)
+			if slug == "" && i.profileMgr != nil {
+				slug = i.profileMgr.GetActiveSlug()
+			}
+			log.Printf("[MCP] modelo %s do perfil %q não suporta MCP nativo; usando adapter neste turno (perfil em 'forçar nativo')", model, slug)
+		}
+		return
+	}
+	if i.profileMgr == nil {
+		return
+	}
+
+	slug := strings.TrimSpace(profileSlug)
+	if slug == "" {
+		slug = i.profileMgr.GetActiveSlug()
+	}
+	if slug == "" {
+		return
+	}
+
+	// Serializa o read-modify-write: dois runs simultâneos do mesmo perfil não
+	// gravam em corrida e o segundo encontra o disco já em false (idempotente).
+	i.nativeMCPAdjustMu.Lock()
+	defer i.nativeMCPAdjustMu.Unlock()
+
+	profile, err := i.profileMgr.Get(slug)
+	if err != nil {
+		log.Printf("[MCP] auto-ajuste abortado: erro ao ler perfil %q: %v", slug, err)
+		return
+	}
+	if profile.Chat.NativeMCP != nil {
+		// Já ajustado (false) ou explicitamente definido entre o início do turno e
+		// agora — não regrava (transição nil→false já ocorreu ou não se aplica).
+		return
+	}
+
+	adapter := false
+	profile.Chat.NativeMCP = &adapter
+	if err := i.profileMgr.Update(slug, profile); err != nil {
+		log.Printf("[MCP] auto-ajuste abortado: erro ao persistir perfil %q: %v", slug, err)
+		return
+	}
+	log.Printf("[MCP] perfil %q (modelo %s) ajustado para adapter automaticamente após erro de MCP nativo não suportado", slug, model)
 }
 
 // RecordUserMessageRequest contém a entrada do usuário já processada (incluindo STT) pronta para ser persistida.

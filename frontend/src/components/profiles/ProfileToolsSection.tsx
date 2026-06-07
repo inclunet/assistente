@@ -20,8 +20,10 @@ export interface ProfileToolsSectionProps {
   availableAllowlists: allowlist.AllowlistInfo[];
   maxAgenticIterations?: number;
   responseTimeout?: number;
+  /** Override tri-state de MCP nativo: true=força nativo, false=força adapter, null/undefined=auto. */
+  nativeMcp?: boolean | null;
   onChange: (
-    field: 'enabled_tools' | 'command_allowlist' | 'disable_tools' | 'max_agentic_iterations' | 'response_timeout',
+    field: 'enabled_tools' | 'command_allowlist' | 'disable_tools' | 'max_agentic_iterations' | 'response_timeout' | 'native_mcp',
     value: string[] | string | boolean | number | null
   ) => void;
   disabled?: boolean;
@@ -44,6 +46,7 @@ export function ProfileToolsSection({
   availableAllowlists = [],
   maxAgenticIterations = 0,
   responseTimeout = 180,
+  nativeMcp = null,
   onChange,
   disabled = false,
 }: ProfileToolsSectionProps) {
@@ -355,6 +358,30 @@ export function ProfileToolsSection({
             </select>
             <span className="profiles-field__hint">
               {t('profiles.allowlistHint', 'Define quais comandos shell são executados automaticamente, bloqueados ou pedem confirmação.')}
+            </span>
+          </div>
+
+          <div className="profiles-field">
+            <label htmlFor="pf-native-mcp" className="profiles-field__label">
+              {t('profiles.nativeMcpLabel', 'MCP nativo (Responses/Anthropic)')}
+            </label>
+            <select
+              id="pf-native-mcp"
+              className="profiles-field__select"
+              value={nativeMcp === true ? 'on' : nativeMcp === false ? 'off' : 'auto'}
+              onChange={(e) => {
+                const v = e.target.value;
+                onChange('native_mcp', v === 'on' ? true : v === 'off' ? false : null);
+              }}
+              disabled={disabled}
+              data-testid="native-mcp-select"
+            >
+              <option value="auto">{t('profiles.nativeMcpAuto', 'Automático')}</option>
+              <option value="on">{t('profiles.nativeMcpOn', 'Forçar nativo')}</option>
+              <option value="off">{t('profiles.nativeMcpOff', 'Forçar adapter (function)')}</option>
+            </select>
+            <span className="profiles-field__hint">
+              {t('profiles.nativeMcpHint', "Como os servidores MCP são entregues ao provider. O modo nativo usa o formato do provider (OpenAI Responses → type:mcp; Anthropic → mcp_servers). Automático = tenta MCP nativo e, se o modelo não suportar, o app ajusta este perfil para adapter automaticamente. 'Forçar nativo' só tem efeito em providers fisicamente capazes (Responses/Anthropic).")}
             </span>
           </div>
         </>

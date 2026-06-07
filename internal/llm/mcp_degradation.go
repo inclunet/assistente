@@ -31,6 +31,10 @@ type mcpStreamAttemptResult struct {
 	done       bool
 	retry      bool
 	mcpFailure *MCPAttemptFailure
+	// nativeMCPUnsupported indica que a request falhou porque o modelo/endpoint
+	// rejeita tools type:"mcp" (ver looksLikeNativeMCPUnsupported). Dispara a
+	// degradação nativo→adapter no mesmo turno + auto-ajuste persistido do perfil.
+	nativeMCPUnsupported bool
 }
 
 func maxMCPDegradationRetries(serverCount int) int {
@@ -250,6 +254,35 @@ func hostnameFromURL(rawURL string) string {
 		return ""
 	}
 	return parsed.Hostname()
+}
+
+// looksLikeNativeMCPUnsupported detecta o erro característico de um modelo/endpoint
+// que NÃO aceita tools type:"mcp" (MCP nativo). O caso canônico é um proxy
+// OpenAI-compatible (ex.: LiteLLM) falando a Responses API mas roteando para um
+// modelo que só aceita type:"function" (ex.: deepseek), produzindo um 400 do tipo
+// `unknown variant "mcp", expected "function"`. É distinto de uma falha pontual de
+// um servidor MCP específico (ver inferMCPFailure): aqui o transporte inteiro
+// rejeita a variante "mcp", então a degradação correta é nativo→adapter (preservando
+// as tools como function/bridge), não dropar um servidor.
+func looksLikeNativeMCPUnsupported(text string) bool {
+	lower := strings.ToLower(text)
+	if !strings.Contains(lower, "mcp") {
+		return false
+	}
+	// Assinatura forte do serde (Rust/LiteLLM): "unknown variant `mcp`".
+	if strings.Contains(lower, "unknown variant") {
+		return true
+	}
+	// Variante genérica: o servidor diz que esperava "function" e cita mcp.
+	if strings.Contains(lower, "expected") && strings.Contains(lower, "function") {
+		return true
+	}
+	// Mensagens explícitas de não-suporte ao tipo de tool mcp.
+	if (strings.Contains(lower, "not supported") || strings.Contains(lower, "unsupported") || strings.Contains(lower, "invalid")) &&
+		(strings.Contains(lower, `type "mcp"`) || strings.Contains(lower, "type 'mcp'") || strings.Contains(lower, "type=mcp") || strings.Contains(lower, "tool type")) {
+		return true
+	}
+	return false
 }
 
 func looksLikeMCPFailure(text string) bool {

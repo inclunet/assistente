@@ -50,7 +50,8 @@ func NewAnthropicProvider(provider *ProviderConfig, credMgr *credentials.Manager
 	}
 }
 
-func (p *AnthropicProvider) SupportsNativeMCP() bool {
+// NativeMCPCapable: a Anthropic suporta MCP nativo via Beta Messages API.
+func (p *AnthropicProvider) NativeMCPCapable() bool {
 	return true
 }
 
@@ -251,6 +252,22 @@ func (p *AnthropicProvider) streamChatWithMCP(
 		result := attemptFn(ctx, betaParams, handler, currentServers)
 		if result.done {
 			return
+		}
+		if result.nativeMCPUnsupported {
+			// Modelo/endpoint rejeitou MCP nativo: dispara o auto-ajuste persistido do
+			// perfil (nil→false) e degrada nativo→adapter.
+			log.Printf("[MCP-DEGRADE] attempt=%d provider=anthropic action=native_to_adapter reason=model_rejects_native_mcp servers=%d", attempt, len(currentServers))
+			if params.OnNativeMCPUnsupported != nil {
+				params.OnNativeMCPUnsupported()
+			}
+			if params.NativeMCPFallback != nil {
+				// O caller (loop agêntico) re-tenta o MESMO turno em modo adapter, com
+				// as bridge tools presentes. Aborta sem emitir done/erro.
+				params.NativeMCPFallback.Trigger()
+				return
+			}
+			currentServers = nil
+			continue
 		}
 		if result.mcpFailure != nil {
 			if degradeRetries < maxDegradeRetries {
@@ -520,6 +537,9 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		log.Printf("[AnthropicProvider] Beta stream error: %s", errStr)
+		if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errStr) {
+			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
+		}
 		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedAnything {
 			return mcpStreamAttemptResult{mcpFailure: failure}
 		}

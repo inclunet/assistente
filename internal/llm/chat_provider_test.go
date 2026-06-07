@@ -133,12 +133,12 @@ func TestOpenAIProvider_ChatCompletions_NoNativeMCP(t *testing.T) {
 		BaseURL: "https://api.openai.com/v1",
 	}
 	provider := NewOpenAIProvider(p, credMgr)
-	if provider.SupportsNativeMCP() {
-		t.Error("Chat Completions provider should NOT support native MCP")
+	if provider.NativeMCPCapable() {
+		t.Error("Chat Completions provider should NOT be native MCP capable")
 	}
 }
 
-func TestOpenAIResponsesProvider_SupportsNativeMCP(t *testing.T) {
+func TestOpenAIResponsesProvider_NativeMCPCapable(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 	p := &ProviderConfig{
 		ID:      "test",
@@ -146,8 +146,8 @@ func TestOpenAIResponsesProvider_SupportsNativeMCP(t *testing.T) {
 		BaseURL: "https://api.openai.com/v1",
 	}
 	provider := NewOpenAIResponsesProvider(p, credMgr)
-	if !provider.SupportsNativeMCP() {
-		t.Error("Responses provider should support native MCP")
+	if !provider.NativeMCPCapable() {
+		t.Error("Responses provider should be native MCP capable")
 	}
 }
 
@@ -439,7 +439,7 @@ func TestCredentialTransport_NilCredMgr(t *testing.T) {
 	}
 }
 
-func TestAnthropicProvider_SupportsNativeMCP(t *testing.T) {
+func TestAnthropicProvider_NativeMCPCapable(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 	p := &ProviderConfig{
 		ID:      "test",
@@ -447,8 +447,8 @@ func TestAnthropicProvider_SupportsNativeMCP(t *testing.T) {
 		BaseURL: "https://api.anthropic.com",
 	}
 	provider := NewAnthropicProvider(p, credMgr)
-	if !provider.SupportsNativeMCP() {
-		t.Error("AnthropicProvider.SupportsNativeMCP() = false, want true")
+	if !provider.NativeMCPCapable() {
+		t.Error("AnthropicProvider.NativeMCPCapable() = false, want true")
 	}
 }
 
@@ -580,13 +580,13 @@ func TestAPIFormatConstants(t *testing.T) {
 
 // --- GoogleProvider tests ---
 
-func TestGoogleProvider_SupportsNativeMCP_False(t *testing.T) {
+func TestGoogleProvider_NativeMCPCapable_False(t *testing.T) {
 	p := NewGoogleProvider(&ProviderConfig{
 		ID:   "gp",
 		Name: "Google",
 	}, nil)
-	if p.SupportsNativeMCP() {
-		t.Error("GoogleProvider should NOT support native MCP (not implemented)")
+	if p.NativeMCPCapable() {
+		t.Error("GoogleProvider should NOT be native MCP capable (not implemented)")
 	}
 }
 
@@ -782,7 +782,7 @@ func TestAnthropicProvider_WithMCPServers_EmptyReturnsOriginal(t *testing.T) {
 	}
 }
 
-func TestSupportsNativeMCP_ReflectsRealImplementation(t *testing.T) {
+func TestNativeMCPCapable_ReflectsRealImplementation(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 
 	openaiCompat := NewOpenAIProvider(&ProviderConfig{ID: "oc", Name: "OC", BaseURL: "https://api.openrouter.ai/v1"}, credMgr)
@@ -790,18 +790,95 @@ func TestSupportsNativeMCP_ReflectsRealImplementation(t *testing.T) {
 	anthropic := NewAnthropicProvider(&ProviderConfig{ID: "a", Name: "A", BaseURL: "https://api.anthropic.com"}, credMgr)
 	google := NewGoogleProvider(&ProviderConfig{ID: "g", Name: "G"}, credMgr)
 
-	if openaiCompat.SupportsNativeMCP() {
-		t.Error("OpenAI-compatible should NOT support native MCP (Chat Completions only)")
+	if openaiCompat.NativeMCPCapable() {
+		t.Error("OpenAI-compatible (Chat Completions) should NOT be native MCP capable")
 	}
-	if !openaiReal.SupportsNativeMCP() {
-		t.Error("OpenAI Responses should support native MCP")
+	if !openaiReal.NativeMCPCapable() {
+		t.Error("OpenAI Responses should be native MCP capable")
 	}
-	if !anthropic.SupportsNativeMCP() {
-		t.Error("Anthropic should support native MCP (Beta Messages API)")
+	if !anthropic.NativeMCPCapable() {
+		t.Error("Anthropic should be native MCP capable (Beta Messages API)")
 	}
-	if google.SupportsNativeMCP() {
-		t.Error("Google should NOT support native MCP (not implemented)")
+	if google.NativeMCPCapable() {
+		t.Error("Google should NOT be native MCP capable (not implemented)")
 	}
+}
+
+// TestOpenAIResponsesProvider_Proxy_CapableRegardlessOfURL cobre o caso do proxy
+// OpenAI-compatible (ex.: LiteLLM) com api_format=openai_responses: ele fala a
+// Responses API e é fisicamente CAPAZ de emitir type:"mcp" (NativeMCPCapable=true)
+// independentemente da URL. Não há mais heurística por endpoint; o DEFAULT (auto)
+// é adapter e MCP nativo é opt-in por perfil (ver internal/chat.ResolveNativeMCPEnabled).
+func TestOpenAIResponsesProvider_Proxy_CapableRegardlessOfURL(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := &ProviderConfig{
+		ID:        "litellm",
+		Name:      "LiteLLM",
+		Type:      ProviderCustom,
+		APIFormat: APIFormatOpenAIResponses,
+		BaseURL:   "http://llm.inclunet.com.br/v1",
+	}
+	provider := NewOpenAIResponsesProvider(p, credMgr)
+
+	if !provider.useResponses {
+		t.Fatal("proxy deve continuar usando a Responses API (useResponses=true)")
+	}
+	if !provider.NativeMCPCapable() {
+		t.Error("proxy via Responses API é fisicamente capaz de emitir type:mcp")
+	}
+}
+
+// TestOpenAICompatible_NativeMCPCapable_False garante que Chat Completions não é
+// fisicamente capaz de MCP nativo (um override de perfil "true" não o habilita).
+func TestOpenAICompatible_NativeMCPCapable_False(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := NewOpenAIProvider(&ProviderConfig{ID: "oc", Name: "OC", BaseURL: "https://openrouter.ai/api/v1"}, credMgr)
+	if p.NativeMCPCapable() {
+		t.Error("Chat Completions NÃO é capaz de emitir type:mcp")
+	}
+}
+
+// TestBuildResponsesParams_EmitsMCPToolWhenServersPresent garante, no nível da
+// request/wire, que type:"mcp" é emitido sempre que há MCP servers anexados ao
+// provider e ausente quando não há. A POLÍTICA de anexar (default por URL +
+// override de perfil) é decidida em internal/chat antes de WithMCPServers.
+func TestBuildResponsesParams_EmitsMCPToolWhenServersPresent(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	ctx := context.Background()
+	msgs := []Message{{Role: "user", Content: "oi"}}
+	servers := []MCPServerConfig{
+		{Name: "GitHub", Slug: "github", URL: "https://api.githubcopilot.com/mcp/", AuthToken: "tok"},
+	}
+
+	// Proxy via Responses (capaz): quando o perfil força nativo, o chat layer
+	// chama WithMCPServers e a request passa a conter type:"mcp".
+	proxy := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "l", Name: "LiteLLM", Type: ProviderCustom,
+		APIFormat: APIFormatOpenAIResponses, BaseURL: "http://llm.inclunet.com.br/v1",
+	}, credMgr)
+	withServers, ok := proxy.WithMCPServers(servers).(*OpenAIProvider)
+	if !ok {
+		t.Fatal("WithMCPServers deveria retornar *OpenAIProvider (proxy é capaz)")
+	}
+	withParams := withServers.buildResponsesParams(ctx, "deepseek-v4-flash", msgs, ChatParams{}, withServers.mcpServers)
+	if !hasMCPTool(withParams.Tools) {
+		t.Error("com servers anexados, a request deveria conter tool type:mcp")
+	}
+
+	// Sem servers anexados (caso adapter): nenhuma tool type:"mcp".
+	noParams := proxy.buildResponsesParams(ctx, "deepseek-v4-flash", msgs, ChatParams{}, proxy.mcpServers)
+	if hasMCPTool(noParams.Tools) {
+		t.Error("sem servers anexados, a request NÃO deve conter tool type:mcp")
+	}
+}
+
+func hasMCPTool(tools []responses.ToolUnionParam) bool {
+	for i := range tools {
+		if tools[i].OfMcp != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func TestWithMCPServers_ImmutableOriginal(t *testing.T) {
@@ -907,8 +984,8 @@ func TestOpenAIResponsesProvider_UsesResponsesWithoutMCP(t *testing.T) {
 	if len(provider.mcpServers) != 0 {
 		t.Error("Fresh provider should have no MCP servers")
 	}
-	if !provider.SupportsNativeMCP() {
-		t.Error("Responses provider should support native MCP")
+	if !provider.NativeMCPCapable() {
+		t.Error("Responses provider should be native MCP capable")
 	}
 }
 
@@ -924,8 +1001,8 @@ func TestOpenAICompatProvider_UsesChatCompletions(t *testing.T) {
 	if provider.useResponses {
 		t.Error("Compatible provider should NOT use Responses API")
 	}
-	if provider.SupportsNativeMCP() {
-		t.Error("Compatible provider should NOT support native MCP")
+	if provider.NativeMCPCapable() {
+		t.Error("Compatible provider should NOT be native MCP capable")
 	}
 }
 
@@ -1700,6 +1777,103 @@ func TestOpenAIProvider_StreamChatResponses_DegradesFailedMCPServer(t *testing.T
 	}
 	if handler.done != 1 {
 		t.Fatalf("OnDone = %d, want 1", handler.done)
+	}
+}
+
+// TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedFallsBackToAdapter
+// cobre o auto-fallback nativo→adapter no MESMO turno: a 1ª tentativa (com MCP
+// nativo) retorna nativeMCPUnsupported; o loop dropa os servers, dispara o hook
+// OnNativeMCPUnsupported e re-tenta sem servers, concluindo sem erro.
+func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedFallsBackToAdapter(t *testing.T) {
+	seen := make([][]string, 0, 2)
+	attempts := 0
+	hookCalls := 0
+
+	provider := &OpenAIProvider{
+		provider:     &ProviderConfig{ID: "o", Name: "Proxy", BaseURL: "http://proxy.local/v1"},
+		useResponses: true,
+		mcpServers: []MCPServerConfig{
+			{Name: "Atlassian", Slug: "atlassian", URL: "https://mcp.atlassian.com/v1/sse"},
+		},
+	}
+	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, handler StreamHandler, servers []MCPServerConfig) mcpStreamAttemptResult {
+		attempts++
+		slugs := make([]string, 0, len(servers))
+		for _, srv := range servers {
+			slugs = append(slugs, srv.Slug)
+		}
+		seen = append(seen, slugs)
+		if attempts == 1 {
+			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
+		}
+		handler.OnChunk("ok")
+		handler.OnDone("ok", Usage{}, "deepseek-v4-flash")
+		return mcpStreamAttemptResult{done: true}
+	}
+
+	handler := &providerRetryHandler{}
+	params := ChatParams{OnNativeMCPUnsupported: func() { hookCalls++ }}
+	provider.streamChatResponses(context.Background(), "deepseek-v4-flash", []Message{{Role: "user", Content: "oi"}}, params, handler)
+
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if len(seen) != 2 || len(seen[0]) != 1 || len(seen[1]) != 0 {
+		t.Fatalf("servers por tentativa = %#v (esperava [1 server] depois [0 servers])", seen)
+	}
+	if hookCalls != 1 {
+		t.Fatalf("OnNativeMCPUnsupported chamado %d vezes, want 1", hookCalls)
+	}
+	if len(handler.errors) != 0 {
+		t.Fatalf("não deveria emitir erro ao usuário (fallback transparente): %v", handler.errors)
+	}
+	if handler.done != 1 {
+		t.Fatalf("OnDone = %d, want 1", handler.done)
+	}
+}
+
+// TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedAbortsWhenFallbackSet
+// cobre o caminho preferencial: quando há NativeMCPFallback configurado (o loop
+// agêntico re-tenta em adapter com bridges), o provider apenas dispara o
+// Trigger/hook e ABORTA — sem fazer o retry "pelado" interno (sem 2ª tentativa).
+func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedAbortsWhenFallbackSet(t *testing.T) {
+	attempts := 0
+	hookCalls := 0
+
+	provider := &OpenAIProvider{
+		provider:     &ProviderConfig{ID: "o", Name: "Proxy", BaseURL: "http://proxy.local/v1"},
+		useResponses: true,
+		mcpServers: []MCPServerConfig{
+			{Name: "Atlassian", Slug: "atlassian", URL: "https://mcp.atlassian.com/v1/sse"},
+		},
+	}
+	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, _ StreamHandler, _ []MCPServerConfig) mcpStreamAttemptResult {
+		attempts++
+		return mcpStreamAttemptResult{nativeMCPUnsupported: true}
+	}
+
+	fb := &NativeMCPAdapterFallback{}
+	handler := &providerRetryHandler{}
+	params := ChatParams{
+		OnNativeMCPUnsupported: func() { hookCalls++ },
+		NativeMCPFallback:      fb,
+	}
+	provider.streamChatResponses(context.Background(), "deepseek-v4-flash", []Message{{Role: "user", Content: "oi"}}, params, handler)
+
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1 (abort sem retry pelado)", attempts)
+	}
+	if hookCalls != 1 {
+		t.Fatalf("OnNativeMCPUnsupported chamado %d vezes, want 1", hookCalls)
+	}
+	if !fb.Consume() {
+		t.Fatal("NativeMCPFallback deveria ter sido disparado (Trigger)")
+	}
+	if len(handler.errors) != 0 {
+		t.Fatalf("não deveria emitir erro (caller re-tenta): %v", handler.errors)
+	}
+	if handler.done != 0 {
+		t.Fatalf("não deveria emitir done (abortou para retry upstream): %d", handler.done)
 	}
 }
 

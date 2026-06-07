@@ -170,6 +170,7 @@ export function ProfileEditorTabs({
             availableAllowlists={availableAllowlists}
             maxAgenticIterations={editingProfile.chat?.max_agentic_iterations ?? 0}
             responseTimeout={editingProfile.chat?.response_timeout ?? 180}
+            nativeMcp={editingProfile.chat?.native_mcp ?? null}
             onChange={(field, value) => updateField(`chat.${field}`, value)}
           />
         </TabPanel>

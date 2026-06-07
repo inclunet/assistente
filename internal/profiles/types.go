@@ -57,6 +57,25 @@ type ChatConfig struct {
 	DisableOnDemandSkills bool     `json:"disable_on_demand_skills,omitempty"` // Desabilita skills sob demanda (apenas autoload)
 	CommandAllowlist      string   `json:"command_allowlist,omitempty"`        // Slug da allowlist de comandos
 
+	// NativeMCP é o override tri-state de suporte a MCP nativo (tools type:"mcp"
+	// na Responses API / mcp_servers na Anthropic) para os runs deste perfil
+	// (chat normal E sub-agentes que rodam com este profile). Ponteiro para
+	// preservar compatibilidade com perfis antigos (AEP-0021):
+	//   - nil   → auto OTIMISTA: tenta MCP nativo sempre que o provider for
+	//             FISICAMENTE capaz (NativeMCPCapable), SEM heurística por
+	//             URL/endpoint. Se o modelo/endpoint rejeitar type:"mcp" (ex.: 400
+	//             "unknown variant `mcp`"), o turno degrada para adapter e o perfil
+	//             é auto-ajustado para false e persistido (nil→false), evitando
+	//             repetir o 400 nos próximos turnos.
+	//   - true  → força MCP nativo (envia type:"mcp"), desde que o provider seja
+	//             fisicamente capaz (Responses API / Anthropic). Útil para proxies
+	//             (LiteLLM/Azure) cujo MODELO selecionado suporta type:"mcp".
+	//   - false → força modo adapter (MCP como function/bridge tools, sem type:"mcp").
+	//             Útil quando o mesmo endpoint serve um modelo que NÃO suporta
+	//             type:"mcp" (ex.: deepseek-v4-flash via LiteLLM), evitando o 400
+	//             "unknown variant `mcp`, expected `function`" a cada turno.
+	NativeMCP *bool `json:"native_mcp,omitempty"`
+
 	// MaxAgenticIterations define o limite máximo de iterações do loop de agentes
 	// Cada tool call conta como uma iteração
 	// 0 = usar padrão (25 iterações)
