@@ -537,9 +537,12 @@ function ChatSessionViewContent({
       input.focus();
     };
 
-    const listenerOptions = { capture: true } as const;
-    window.addEventListener('keydown', onKeyDown, listenerOptions);
-    return () => window.removeEventListener('keydown', onKeyDown, listenerOptions);
+    // Registrado na fase de borbulhamento (sem captura) para que handlers locais
+    // de Escape (ex.: colapso/navegação em MessageNode) rodem primeiro e possam
+    // chamar preventDefault()/stopPropagation(). Aqui só agimos quando o Escape
+    // não foi tratado localmente (event.defaultPrevented evita interferência).
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, [hideMenu, isInteractiveSurface, isLoading, menuVisible]);
 
   useChatKeyboardNav({
