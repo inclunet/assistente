@@ -271,7 +271,14 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 func (i *Interactor) HandleNativeMCPUnsupported(profileSlug, model string, override *bool) {
 	if override != nil {
 		if *override {
-			log.Printf("[MCP] modelo %s do perfil %q não suporta MCP nativo; usando adapter neste turno (perfil em 'forçar nativo')", model, profileSlug)
+			// Resolve o slug efetivo (trim + fallback para o perfil ativo) também aqui,
+			// senão o log imprimiria perfil "" no caso comum do chat normal — justamente
+			// o cenário em que esse aviso de incompatibilidade de MCP nativo é útil.
+			slug := strings.TrimSpace(profileSlug)
+			if slug == "" && i.profileMgr != nil {
+				slug = i.profileMgr.GetActiveSlug()
+			}
+			log.Printf("[MCP] modelo %s do perfil %q não suporta MCP nativo; usando adapter neste turno (perfil em 'forçar nativo')", model, slug)
 		}
 		return
 	}
