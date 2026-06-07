@@ -24,6 +24,7 @@ const activeConversation: { id: string; title: string; threadedMessages: MockThr
 };
 
 const modalState = vi.hoisted(() => ({ open: false }));
+const contextMenuState = vi.hoisted(() => ({ visible: true }));
 
 vi.mock('../ui/Modal', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../ui/Modal')>();
@@ -49,6 +50,7 @@ vi.mock('../../services/tts', () => ({
 }));
 
 const chatStoreState = {
+  cancelStreaming: vi.fn(),
   retryMessageToConversation: vi.fn(),
   ensureConversationSurfaceSession: vi.fn(),
   removeConversationSurfaceSession: vi.fn(),
@@ -106,7 +108,7 @@ vi.mock('../../hooks/useChatKeyboardNav', () => ({
 
 vi.mock('../../hooks/useContextMenu', () => ({
   useContextMenu: () => ({
-    menuVisible: true,
+    menuVisible: contextMenuState.visible,
     menuPosition: { x: 1, y: 2 },
     menuItems: [{ id: 'copy', label: 'Copiar' }],
     showMenu: showMenuMock,
@@ -284,8 +286,10 @@ describe('ChatSessionView', () => {
     chatStoreState.sessionsByConversationId[conversationId].isLoadingOlderMessages = false;
     (activeConversation.threadedMessages as unknown[]) = [];
     (announce as ReturnType<typeof vi.fn>).mockReset();
+    chatStoreState.cancelStreaming.mockReset();
     chatStoreState.surfaceSessionsByKey = {};
     modalState.open = false;
+    contextMenuState.visible = true;
     useShortcutsHelpStore.setState({ isOpen: false });
   });
 
@@ -312,6 +316,77 @@ describe('ChatSessionView', () => {
 
     expect(event.defaultPrevented).toBe(false);
     expect(useShortcutsHelpStore.getState().isOpen).toBe(false);
+  });
+
+  // O listener global de Escape só é registrado enquanto há streaming
+  // (isLoading), que no modelo de sessão vem do surfaceSession da superfície.
+  const enableStreamingSurface = () => {
+    const escSurface = surface({ surfaceType: 'embedded' });
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[escSurface.sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, escSurface.sessionKey),
+      isLoading: true,
+    };
+    return escSurface;
+  };
+
+  it('Escape fora do campo de edição (streaming ativo) foca o input e NÃO cancela a geração', () => {
+    contextMenuState.visible = false;
+    const escSurface = enableStreamingSurface();
+    renderWithPanel(
+      <ChatSessionView variant="embedded" surface={escSurface} onSend={vi.fn()} showShortcutsHelp={false} />,
+    );
+
+    const input = screen.getByRole('button', { name: 'send' });
+    const outside = screen.getByTestId('message-list');
+    fireEvent.keyDown(outside, { key: 'Escape' });
+
+    expect(document.activeElement).toBe(input);
+    expect(chatStoreState.cancelStreaming).not.toHaveBeenCalled();
+  });
+
+  it('Escape com foco já no campo de edição não é interceptado pelo listener global (deixa o ChatInput cancelar)', () => {
+    contextMenuState.visible = false;
+    const escSurface = enableStreamingSurface();
+    renderWithPanel(
+      <ChatSessionView variant="embedded" surface={escSurface} onSend={vi.fn()} showShortcutsHelp={false} />,
+    );
+
+    const input = screen.getByRole('button', { name: 'send' });
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    input.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(chatStoreState.cancelStreaming).not.toHaveBeenCalled();
+  });
+
+  it('Escape com modal aberto não cancela a geração nem mexe na UI de fundo', () => {
+    contextMenuState.visible = false;
+    const escSurface = enableStreamingSurface();
+    modalState.open = true;
+    renderWithPanel(
+      <ChatSessionView variant="embedded" surface={escSurface} onSend={vi.fn()} showShortcutsHelp={false} />,
+    );
+
+    const input = screen.getByRole('button', { name: 'send' });
+    const outside = screen.getByTestId('message-list');
+    fireEvent.keyDown(outside, { key: 'Escape' });
+
+    expect(chatStoreState.cancelStreaming).not.toHaveBeenCalled();
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it('Escape com menu de contexto aberto fecha o menu e não cancela a geração', () => {
+    contextMenuState.visible = true;
+    const escSurface = enableStreamingSurface();
+    renderWithPanel(
+      <ChatSessionView variant="embedded" surface={escSurface} onSend={vi.fn()} showShortcutsHelp={false} />,
+    );
+
+    const outside = screen.getByTestId('message-list');
+    fireEvent.keyDown(outside, { key: 'Escape' });
+
+    expect(hideMenuMock).toHaveBeenCalled();
+    expect(chatStoreState.cancelStreaming).not.toHaveBeenCalled();
   });
 
   it('embedded: aciona menu de contexto via MessageList', async () => {

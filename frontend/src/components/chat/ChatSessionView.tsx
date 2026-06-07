@@ -518,22 +518,29 @@ function ChatSessionViewContent({
       // modal — não cancelar o streaming nem o menu na UI de fundo.
       if (isModalOpen()) return;
 
-      if (event.key === 'Escape' && menuVisible) {
+      if (event.key !== 'Escape') return;
+
+      if (menuVisible) {
         event.preventDefault();
         hideMenu();
         return;
       }
 
-      if (event.key !== 'Escape') return;
+      // O cancelamento por Escape é escopado ao campo de edição (tratado pelo
+      // próprio ChatInput). Aqui apenas devolvemos o foco ao input quando o
+      // Escape vem de qualquer outro elemento do painel — sem cancelar.
+      const input = inputRef.current;
+      if (event.target === input) return;
+      if (!input) return;
 
       event.preventDefault();
-      void handleCancelStreaming();
+      input.focus();
     };
 
     const listenerOptions = { capture: true } as const;
     window.addEventListener('keydown', onKeyDown, listenerOptions);
     return () => window.removeEventListener('keydown', onKeyDown, listenerOptions);
-  }, [handleCancelStreaming, hideMenu, isInteractiveSurface, isLoading, menuVisible]);
+  }, [hideMenu, isInteractiveSurface, isLoading, menuVisible]);
 
   useChatKeyboardNav({
     enabled: isInteractiveSurface,
