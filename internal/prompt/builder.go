@@ -151,6 +151,13 @@ func (b *Builder) Build(
 		parts = append(parts, chat.DefaultSystemPrompt)
 	}
 
+	// 1b. Protocolo catalog-first (AEP-0049, D16): incluído SEMPRE que o gating por
+	// catálogo está ativo (tool_catalog é a única tool inicial), independentemente de
+	// haver skills ou slash skill, para forçar a ordem "consultar catálogo → usar tools".
+	if catalogFirstActive(tplData) {
+		parts = append(parts, joinPrefix(parts)+chat.CatalogFirstToolPrompt)
+	}
+
 	// 2. Seção de skills (auto_load + disponíveis)
 	skillsSection := b.BuildSkillsSection(enabledSkills, disableOnDemand, tplData)
 	if skillsSection != "" {
@@ -338,6 +345,42 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 	}
 
 	return sb.String()
+}
+
+// joinPrefix retorna o separador adequado para anexar uma nova seção: vazio quando
+// ainda não há partes (a seção será a primeira) e "\n\n" caso contrário.
+func joinPrefix(parts []string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	return "\n\n"
+}
+
+// catalogFirstActive informa se o gating por catálogo está ativo, ou seja, se o
+// tool calling está habilitado e "tool_catalog" faz parte das tools iniciais
+// expostas ao modelo. Nesse caso, o protocolo catalog-first deve ser instruído.
+func catalogFirstActive(tplData any) bool {
+	var data chat.TemplateData
+	switch d := tplData.(type) {
+	case chat.TemplateData:
+		data = d
+	case *chat.TemplateData:
+		if d == nil {
+			return false
+		}
+		data = *d
+	default:
+		return false
+	}
+	if !data.ToolCallingEnabled {
+		return false
+	}
+	for _, name := range data.EnabledTools {
+		if name == tools.ToolCatalogName {
+			return true
+		}
+	}
+	return false
 }
 
 func templateToolCallingDisabled(tplData any) bool {
