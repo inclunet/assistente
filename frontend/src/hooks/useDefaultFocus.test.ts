@@ -1,9 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
-import {
-  registerDefaultFocus,
-  unregisterDefaultFocus,
-  restoreDefaultFocus,
-} from './useDefaultFocus';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 /**
  * Cobertura da regressão da issue #205: o registro de "default focus area" é
@@ -12,10 +7,24 @@ import {
  * registrante anterior (WorkspaceLayout / Content Area inteligente) em vez de
  * virar nulo — garantindo que a troca de painel leve o foco ao input do chat.
  *
- * Cada teste desregistra o que registra, mantendo a pilha (estado de módulo)
- * vazia entre os casos.
+ * A pilha é estado de módulo. Para isolar cada caso, recarregamos o módulo em
+ * um `beforeEach` com `vi.resetModules()` + `await import(...)` — mesmo padrão
+ * de `frontend/src/services/audioFeedback.test.ts` — evitando que uma falha no
+ * meio de um teste suje a pilha e cause falhas em cascata nos seguintes.
  */
+let registerDefaultFocus: typeof import('./useDefaultFocus').registerDefaultFocus;
+let unregisterDefaultFocus: typeof import('./useDefaultFocus').unregisterDefaultFocus;
+let restoreDefaultFocus: typeof import('./useDefaultFocus').restoreDefaultFocus;
+
 describe('useDefaultFocus (pilha)', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    const mod = await import('./useDefaultFocus');
+    registerDefaultFocus = mod.registerDefaultFocus;
+    unregisterDefaultFocus = mod.unregisterDefaultFocus;
+    restoreDefaultFocus = mod.restoreDefaultFocus;
+  });
+
   it('restoreDefaultFocus retorna false com a pilha vazia', () => {
     expect(restoreDefaultFocus()).toBe(false);
   });
@@ -31,9 +40,6 @@ describe('useDefaultFocus (pilha)', () => {
 
     expect(tasklistDefault).toHaveBeenCalledTimes(1);
     expect(workspaceDefault).not.toHaveBeenCalled();
-
-    unregisterDefaultFocus(tasklistDefault);
-    unregisterDefaultFocus(workspaceDefault);
   });
 
   it('#205: ao desativar o painel da tasklist, o default volta para o WorkspaceLayout', () => {
@@ -55,8 +61,6 @@ describe('useDefaultFocus (pilha)', () => {
 
     expect(restored).toBe(true);
     expect(workspaceDefault).toHaveBeenCalledTimes(1);
-
-    unregisterDefaultFocus(workspaceDefault);
   });
 
   it('re-registrar a mesma função não cria entradas duplicadas', () => {
@@ -78,7 +82,5 @@ describe('useDefaultFocus (pilha)', () => {
     restoreDefaultFocus();
     expect(b).toHaveBeenCalledTimes(1);
     expect(a).not.toHaveBeenCalled();
-
-    unregisterDefaultFocus(b);
   });
 });
