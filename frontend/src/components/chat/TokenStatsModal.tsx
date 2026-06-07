@@ -18,6 +18,7 @@ interface ToolBreakdownEntry {
 
 interface TokenStats {
   totalTokens: number;
+  contextTokens: number;
   promptTokens: number;
   completionTokens: number;
   contextLimit: number;
@@ -136,7 +137,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                 <div className="token-stats-context">
                   <div className="token-stats-context__numbers">
                     <span className="token-stats-context__current">
-                      {formatNumber(stats.totalTokens)}
+                      {formatNumber(stats.contextTokens)}
                     </span>
                     <span className="token-stats-context__separator">/</span>
                     <span className="token-stats-context__limit">
@@ -146,6 +147,9 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                       ({stats.contextUsage.toFixed(1)}%)
                     </span>
                   </div>
+                  <p className="token-stats-cost__note">
+                    {t('tokenStats.currentContextNote')}
+                  </p>
                   <div className="token-stats-progress">
                     <div
                       className={`token-stats-progress__bar token-stats-progress__bar--${getProgressBarColor(stats.contextUsage)}`}
@@ -170,6 +174,9 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
 
               <section className="token-stats-section">
                 <h3>{t('tokenStats.breakdown')}</h3>
+                <p className="token-stats-cost__note">
+                  {t('tokenStats.cumulativeNote')}
+                </p>
                 <table className="token-stats-table">
                   <thead>
                     <tr>

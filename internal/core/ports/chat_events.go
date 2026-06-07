@@ -141,6 +141,7 @@ type SegmentDoneEvent struct {
 type TokenStatsEvent struct {
 	ConversationID   string  `json:"conversationId"`
 	TotalTokens      int     `json:"totalTokens"`
+	ContextTokens    int     `json:"contextTokens"`
 	ContextLimit     int     `json:"contextLimit"`
 	ContextUsage     float64 `json:"contextUsage"`
 	IsNearLimit      bool    `json:"isNearLimit"`
@@ -156,6 +157,7 @@ type TokenStatsUpdateEvent struct {
 	PromptTokens                int     `json:"promptTokens"`
 	CompletionTokens            int     `json:"completionTokens"`
 	TotalTokens                 int     `json:"totalTokens"`
+	ContextTokens               int     `json:"contextTokens"`
 	ContextUsage                float64 `json:"contextUsage"`
 	ContextLimit                int     `json:"contextLimit"`
 	IsNearLimit                 bool    `json:"isNearLimit"`

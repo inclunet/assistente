@@ -631,6 +631,7 @@ func (s *Service) RunAgenticLoop(
 					PromptTokens:                stats.PromptTokens,
 					CompletionTokens:            stats.CompletionTokens,
 					TotalTokens:                 stats.TotalTokens,
+					ContextTokens:               stats.ContextTokens,
 					ContextUsage:                stats.ContextUsage,
 					ContextLimit:                stats.ContextLimit,
 					IsNearLimit:                 stats.IsNearLimit,
@@ -831,6 +832,7 @@ func (s *Service) emitTokenStats(conversationID string) {
 	s.emitter.Emit("chat:token_stats", ports.TokenStatsEvent{
 		ConversationID:   conversationID,
 		TotalTokens:      stats.TotalTokens,
+		ContextTokens:    stats.ContextTokens,
 		ContextLimit:     stats.ContextLimit,
 		ContextUsage:     stats.ContextUsage,
 		IsNearLimit:      stats.IsNearLimit,

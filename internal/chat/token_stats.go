@@ -10,6 +10,7 @@ type TokenStats struct {
 	MessageCount     int     `json:"messageCount"`
 	Model            string  `json:"model"`
 	MostUsedModel    string  `json:"mostUsedModel"`
+	ContextTokens    int     `json:"contextTokens"` // Ocupação ATUAL da janela (usage do último turno), base do percentual
 	ContextUsage     float64 `json:"contextUsage"` // Percentual de uso da janela de contexto (0-100)
 	ContextLimit     int     `json:"contextLimit"` // Limite de tokens do modelo
 	IsNearLimit      bool    `json:"isNearLimit"`  // true se >= 80%

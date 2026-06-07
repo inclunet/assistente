@@ -11,6 +11,7 @@ interface TokenStats {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  contextTokens: number;
   messageCount: number;
   mostUsedModel: string;
   contextUsage: number;
@@ -53,6 +54,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
             promptTokens: 0,
             completionTokens: 0,
             totalTokens: 0,
+            contextTokens: 0,
             messageCount: 0,
             mostUsedModel: '',
             contextUsage: 0,
@@ -146,11 +148,12 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
     return <BarChartOutlined />;
   };
 
-  // Se não houver limite de contexto configurado, mostra apenas o total
+  // Mostra a ocupação ATUAL da janela de contexto (usage do último turno),
+  // não a soma acumulada de todos os turnos (issue #197).
   const hasContextLimit = stats.contextLimit > 0;
   const ariaLabel = hasContextLimit
-    ? `${formatNumber(stats.totalTokens)} de ${formatNumber(stats.contextLimit)} tokens`
-    : `${formatNumber(stats.totalTokens)} tokens`;
+    ? `${formatNumber(stats.contextTokens)} de ${formatNumber(stats.contextLimit)} tokens`
+    : `${formatNumber(stats.contextTokens)} tokens`;
 
   return (
     <button
@@ -162,7 +165,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
         {getStatusIcon()}
       </span>
       <span className="token-stats-button__text">
-        {formatNumber(stats.totalTokens)}
+        {formatNumber(stats.contextTokens)}
         {hasContextLimit && (
           <>
             <span className="token-stats-button__separator">/</span>

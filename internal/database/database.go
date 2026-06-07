@@ -2050,6 +2050,14 @@ type DetailedTokenStats struct {
 	MessageCount     int    `json:"message_count"`
 	Model            string `json:"model,omitempty"`
 
+	// ContextTokens é a ocupação ATUAL da janela de contexto, derivada do
+	// usage reportado pelo provedor no último turno do assistente
+	// (prompt_tokens + completion_tokens da resposta mais recente). Diferente
+	// de TotalTokens (que é o acumulado de todas as requisições e serve para
+	// estimar custo/billing), este valor reflete quanto da janela está em uso
+	// agora — sem somar repetidamente o histórico reenviado a cada turno.
+	ContextTokens int `json:"context_tokens"`
+
 	// Breakdown de contexto (sistema + resumo + mensagens)
 	SystemPromptEstimatedTokens int `json:"system_prompt_estimated_tokens"`
 	SummaryTokens               int `json:"summary_tokens"`
@@ -2210,12 +2218,17 @@ func GetDetailedTokenStatsWithContext(ctx context.Context, conversationID string
 	// O DefaultSystemPrompt tem ~500 caracteres, então ~125 tokens
 	systemPromptEstimatedTokens := 125
 
+	// Ocupação atual da janela de contexto a partir do usage oficial do
+	// provedor (último turno do assistente). Não soma o histórico reenviado.
+	contextTokens, _ := getLatestReportedContextTokens(ctx, conversationID)
+
 	return &DetailedTokenStats{
 		PromptTokens:                basicStats.PromptTokens,
 		CompletionTokens:            basicStats.CompletionTokens,
 		TotalTokens:                 basicStats.TotalTokens,
 		MessageCount:                basicStats.MessageCount,
 		Model:                       basicStats.Model,
+		ContextTokens:               contextTokens,
 		SystemPromptEstimatedTokens: systemPromptEstimatedTokens,
 		SummaryTokens:               summaryTokens,
 		MessagesInContextCount:      messagesInContextCount,
@@ -2291,15 +2304,50 @@ func GetContextWindowUsageWithContext(ctx context.Context, conversationID string
 	if _, err := RequireUserID(ctx); err != nil {
 		return 0, 0, err
 	}
-	stats, err := GetConversationDetailedTokenStatsWithContext(ctx, conversationID)
+	// A ocupação da janela de contexto deve refletir o tamanho ATUAL do
+	// contexto — não a soma acumulada de todos os turnos. Somar
+	// prompt_tokens de cada mensagem conta o histórico reenviado a cada
+	// requisição repetidamente, inflando o percentual muito além de 100% e
+	// disparando alertas críticos falsos (issue #197). Usamos o usage oficial
+	// do provedor no último turno do assistente como base.
+	contextTokens, err := getLatestReportedContextTokens(ctx, conversationID)
 	if err != nil {
 		return 0, 0, err
 	}
 	if contextLimit <= 0 {
-		return 0, stats.TotalTokens, nil
+		return 0, contextTokens, nil
 	}
-	percentage := (float64(stats.TotalTokens) / float64(contextLimit)) * 100
-	return percentage, stats.TotalTokens, nil
+	percentage := (float64(contextTokens) / float64(contextLimit)) * 100
+	return percentage, contextTokens, nil
+}
+
+// getLatestReportedContextTokens retorna a ocupação atual da janela de contexto
+// derivada do usage reportado pelo provedor no turno mais recente do assistente
+// (prompt_tokens + completion_tokens da última mensagem do assistente com
+// total_tokens > 0). Esse valor representa o que o provedor efetivamente contou
+// como prompt da última requisição mais a resposta — i.e. quanto da janela está
+// ocupado agora —, ao contrário da soma acumulada usada para custo/billing.
+//
+// Retorna 0 quando ainda não há usage reportado (ex.: conversa nova ou provedor
+// que não devolve usage). Respeita o escopo de usuário do contexto (AEP-0052).
+func getLatestReportedContextTokens(ctx context.Context, conversationID string) (int, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return 0, err
+	}
+	var latest struct {
+		PromptTokens     int
+		CompletionTokens int
+	}
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.conversation_id = ? AND chat_messages.role = ? AND chat_messages.total_tokens > 0", conversationID, "assistant").
+		Order("chat_messages.created_at DESC, chat_messages.id DESC").
+		Limit(1).
+		Select("chat_messages.prompt_tokens, chat_messages.completion_tokens").
+		Scan(&latest).Error
+	if err != nil {
+		return 0, err
+	}
+	return latest.PromptTokens + latest.CompletionTokens, nil
 }
 
 // GetRecentMessagesTokenCountWithContext retorna o total de tokens das N

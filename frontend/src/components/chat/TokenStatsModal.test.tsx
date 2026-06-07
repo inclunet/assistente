@@ -23,6 +23,7 @@ describe('TokenStatsModal', () => {
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
+      contextTokens: 18,
       messageCount: 1,
       mostUsedModel: 'x',
       contextUsage: 10,
