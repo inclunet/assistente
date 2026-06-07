@@ -2220,7 +2220,12 @@ func GetDetailedTokenStatsWithContext(ctx context.Context, conversationID string
 
 	// Ocupação atual da janela de contexto a partir do usage oficial do
 	// provedor (último turno do assistente). Não soma o histórico reenviado.
-	contextTokens, _ := getLatestReportedContextTokens(ctx, conversationID)
+	// Um erro aqui (DB/escopo) não é fatal — mantém contextTokens=0 —, mas é
+	// logado para não mascarar inconsistências no payload (vs. demais campos).
+	contextTokens, ctxErr := getLatestReportedContextTokens(ctx, conversationID)
+	if ctxErr != nil {
+		log.Printf("[DB] aviso: falha ao obter contextTokens da conversa %s: %v", conversationID, ctxErr)
+	}
 
 	return &DetailedTokenStats{
 		PromptTokens:                basicStats.PromptTokens,

@@ -87,7 +87,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   }, [conversationId, isOpen, t]);
 
   const formatNumber = (num: number): string => {
-    return num.toLocaleString('pt-BR');
+    return (Number.isFinite(num) ? num : 0).toLocaleString('pt-BR');
   };
 
   const calculatePercentage = (value: number, total: number): number => {

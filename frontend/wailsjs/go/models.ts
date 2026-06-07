@@ -913,10 +913,10 @@ export namespace chat {
 	        this.completionTokens = source["completionTokens"];
 	        this.totalTokens = source["totalTokens"];
 	        this.messageCount = source["messageCount"];
-        this.model = source["model"];
-        this.mostUsedModel = source["mostUsedModel"];
-        this.contextTokens = source["contextTokens"];
-        this.contextUsage = source["contextUsage"];
+	        this.model = source["model"];
+	        this.mostUsedModel = source["mostUsedModel"];
+	        this.contextTokens = source["contextTokens"];
+	        this.contextUsage = source["contextUsage"];
 	        this.contextLimit = source["contextLimit"];
 	        this.isNearLimit = source["isNearLimit"];
 	        this.isCritical = source["isCritical"];
