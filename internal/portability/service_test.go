@@ -762,6 +762,7 @@ func setupPortabilityTestDB(t *testing.T) {
 		&database.TaskNote{},
 		&database.CredentialEntry{},
 		&database.MCPServer{},
+		&database.SubAgentRun{},
 	); err != nil {
 		t.Fatalf("falha ao migrar tabelas: %v", err)
 	}
