@@ -2,6 +2,7 @@ import { logger } from '../utils/logger';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  ApartmentOutlined,
   CheckOutlined,
   CodeOutlined,
   DeleteOutlined,
@@ -39,7 +40,15 @@ interface Conversation {
   updatedAt: string;
   message_count: number;
   snippet?: string;
+  // Sub-conversas de sub-agentes (AEP-0068) são mescladas nesta listagem como
+  // conversas comuns; isSubAgent só controla o badge/indicador de status na UI.
+  isSubAgent?: boolean;
+  subAgentStatus?: string;
 }
+
+// Status de run de sub-agente considerados "ativos" — só nesses casos exibimos o
+// indicador de status ao lado do título (AEP-0068 Fase 5).
+const ACTIVE_SUBAGENT_STATUSES = new Set(['queued', 'running']);
 
 type RichExportFormat = 'html' | 'pdf' | 'md';
 
@@ -74,6 +83,7 @@ export default function HistoryPage() {
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
+  const [showSubAgents, setShowSubAgents] = useState(true);
   const [exportRequest, setExportRequest] = useState<ActiveRichExport | null>(null);
   const [exportOptions, setExportOptions] = useState<ContentExportOptions>(DEFAULT_EXPORT_OPTIONS);
   const { handleGridReady } = useGridFocus();
@@ -85,15 +95,20 @@ export default function HistoryPage() {
   const loadConversations = useCallback(async () => {
     setLoading(true);
     try {
+      // Listagem unificada (AEP-0068): GetConversations retorna conversas comuns
+      // E sub-conversas de sub-agentes (kind=subagent), já ordenadas por recência,
+      // com latestStatus preenchido para sub-agentes. Uma única chamada.
       const result = await GetConversations();
-      const mapped = (result || []).map((c: Conversation) => ({
+      const mapped: Conversation[] = (result || []).map((c) => ({
         id: c.id,
         title: c.title || t('history.untitled', 'Sem título'),
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-        message_count: c.message_count || 0
+        createdAt: String(c.createdAt ?? ''),
+        updatedAt: String(c.updatedAt ?? ''),
+        message_count: c.message_count || 0,
+        isSubAgent: c.kind === 'subagent',
+        subAgentStatus: c.latestStatus || undefined,
       }));
-      setConversations(mapped || []);
+      setConversations(mapped);
     } catch (error) {
       logger.error('Erro ao carregar conversas:', error);
     } finally {
@@ -173,6 +188,18 @@ export default function HistoryPage() {
   const handleNewConversation = () => {
     navigate('/');
   };
+
+  const handleToggleSubAgents = useCallback(() => {
+    setShowSubAgents((prev) => {
+      const next = !prev;
+      announce(
+        next
+          ? t('history.subAgentsShown', 'Sub-agentes exibidos')
+          : t('history.subAgentsHidden', 'Sub-agentes ocultos'),
+      );
+      return next;
+    });
+  }, [announce, t]);
 
   const handleDeleteConversation = useCallback(async (conversationId: string) => {
     const conv = conversations.find((c) => c.id === conversationId);
@@ -307,9 +334,30 @@ export default function HistoryPage() {
   }, [focusedRow, handleDeleteConversation, handleDeleteSelected, selectedIds]);
 
   const displayItems = useMemo(() => {
-    if (searchResultIds === null) return conversations;
-    return conversations.filter(c => searchResultIds.has(c.id));
-  }, [conversations, searchResultIds]);
+    const base = showSubAgents ? conversations : conversations.filter((c) => !c.isSubAgent);
+    if (searchResultIds === null) return base;
+    // A busca FTS (SearchConversationHistory) já cobre TODAS as conversas do
+    // usuário — o índice de mensagens não filtra por kind, então sub-conversas
+    // de sub-agentes entram nos resultados como qualquer outra. Busca uniforme:
+    // o mesmo conjunto de ids vale para conversas comuns e sub-agentes.
+    return base.filter((c) => searchResultIds.has(c.id));
+  }, [conversations, searchResultIds, showSubAgents]);
+
+  // Reconcilia foco e seleção com o que está visível: ao ocultar sub-agentes
+  // (toggle) ou aplicar busca, itens saem de displayItems. Sem isso, as ações
+  // da toolbar (Abrir/Excluir/Exportar) continuariam habilitadas e operariam
+  // sobre conversas fora da lista (risco de exclusão/export indevidos).
+  useEffect(() => {
+    const visibleIds = new Set(displayItems.map((c) => c.id));
+    if (focusedRow && !visibleIds.has(focusedRow.id)) {
+      setFocusedRow(null);
+    }
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set([...prev].filter((id) => visibleIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [displayItems, focusedRow]);
 
   const handleFocusChange = useCallback((item: Conversation | null) => {
     setFocusedRow(item);
@@ -431,15 +479,31 @@ export default function HistoryPage() {
       editable: true,
       format: (_value, item) => {
         const snippet = snippetsMap.get(item.id);
+        const titleMain = (
+          <span className="history-page__title-main">
+            <span className="history-page__title-text">{item.title}</span>
+            {item.isSubAgent && (
+              <span className="history-page__subagent-badge">
+                {t('history.subAgent', 'Sub-agente')}
+              </span>
+            )}
+            {item.isSubAgent && item.subAgentStatus && ACTIVE_SUBAGENT_STATUSES.has(item.subAgentStatus) && (
+              <span className={`history-page__status history-page__status--${item.subAgentStatus}`}>
+                <span className="history-page__status-dot" aria-hidden="true" />
+                {t(`history.subAgentStatus.${item.subAgentStatus}`)}
+              </span>
+            )}
+          </span>
+        );
         if (snippet) {
           return (
             <span className="history-page__title-cell">
-              <span className="history-page__title-text">{item.title}</span>
+              {titleMain}
               <span className="history-page__title-snippet">{snippet}</span>
             </span>
           );
         }
-        return item.title;
+        return titleMain;
       },
     },
     {
@@ -532,6 +596,16 @@ export default function HistoryPage() {
             icon: <FolderOpenOutlined />,
             onClick: () => focusedRow && handleOpenConversation(focusedRow.id, focusedRow.title),
             disabled: !focusedRow,
+          },
+          {
+            key: 'toggle-subagents',
+            label: showSubAgents
+              ? t('history.hideSubAgents', 'Ocultar sub-agentes')
+              : t('history.showSubAgents', 'Mostrar sub-agentes'),
+            icon: <ApartmentOutlined />,
+            onClick: handleToggleSubAgents,
+            variant: 'secondary',
+            'aria-pressed': showSubAgents,
           },
           {
             key: 'delete',

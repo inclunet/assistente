@@ -19,7 +19,6 @@ import {config} from '../models';
 import {chat} from '../models';
 import {llm} from '../models';
 import {skills} from '../models';
-import {subagent} from '../models';
 import {credentials} from '../models';
 import {ports} from '../models';
 
@@ -318,8 +317,6 @@ export function GetSkillSearchPaths():Promise<Array<string>>;
 export function GetSkills():Promise<Array<skills.SkillInfo>>;
 
 export function GetSpeechProviders():Promise<Array<llm.ProviderConfig>>;
-
-export function GetSubAgentConversations():Promise<Array<subagent.SubConversationSummary>>;
 
 export function GetSubtasks(arg1:string):Promise<Array<database.Task>>;
 

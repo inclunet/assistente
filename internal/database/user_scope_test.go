@@ -16,7 +16,7 @@ func setupUserScopeTestDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&User{}, &Conversation{}, &ChatMessage{}, &LLMProvider{}, &TaskListWorkflow{}, &TaskList{}, &Task{}, &TaskNote{}); err != nil {
+	if err := db.AutoMigrate(&User{}, &Conversation{}, &ChatMessage{}, &LLMProvider{}, &TaskListWorkflow{}, &TaskList{}, &Task{}, &TaskNote{}, &SubAgentRun{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	t.Cleanup(func() {

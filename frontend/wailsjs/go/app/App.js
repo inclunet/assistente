@@ -594,10 +594,6 @@ export function GetSpeechProviders() {
   return window['go']['app']['App']['GetSpeechProviders']();
 }
 
-export function GetSubAgentConversations() {
-  return window['go']['app']['App']['GetSubAgentConversations']();
-}
-
 export function GetSubtasks(arg1) {
   return window['go']['app']['App']['GetSubtasks'](arg1);
 }
