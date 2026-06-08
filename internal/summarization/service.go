@@ -246,13 +246,19 @@ func NewService(cfg ServiceConfig) *Service {
 
 // CheckAndTriggerSummarization verifica se a conversa precisa de sumarização e dispara em background.
 // Deve ser chamado APÓS a resposta do LLM ser salva.
-func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversationID string) {
+//
+// profileSlug é o slug do perfil DA CONVERSA (o mesmo resolvido no envio de
+// mensagem, via tab/workspace — `params.ProfileSlug`). O resumo deve usar o
+// provider/modelo desse perfil, não o do perfil ativo global (Issue #203). Só
+// recai sobre o perfil ativo global quando o slug está vazio ou não pode ser
+// resolvido — mesmo padrão de fallback de `chat.Interactor.PrepareContext`.
+func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversationID string, profileSlug string) {
 	if conversationID == "" {
 		return
 	}
 
-	profile, err := s.cfg.ProfileManager.GetActive()
-	if err != nil || profile == nil {
+	profile := s.resolveConversationProfile(profileSlug)
+	if profile == nil {
 		return
 	}
 	if profile.Chat.ContextWindow <= 0 {
@@ -293,6 +299,33 @@ func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversation
 	if shouldTriggerSummarizationWithHydratedToolResults(profile, contextMessages, existingSummary, invocationResults, fallbackResults) {
 		s.TriggerSummarizationInBackground(ctx, conversationID, profile, allRootMessages)
 	}
+}
+
+// resolveConversationProfile resolve o perfil da conversa a partir do slug
+// propagado pelo pipeline de envio. Replica o fallback de
+// `chat.Interactor.PrepareContext`: usa `ProfileManager.Get(slug)` quando o slug
+// está presente e só recai sobre `GetActive()` (perfil ativo global) quando o
+// slug está vazio ou a leitura falha. Isso garante que o resumo use o mesmo
+// provider/modelo do perfil em que a conversa efetivamente roda (Issue #203).
+func (s *Service) resolveConversationProfile(profileSlug string) *profiles.Profile {
+	if s.cfg.ProfileManager == nil {
+		return nil
+	}
+
+	slug := strings.TrimSpace(profileSlug)
+	if slug != "" {
+		profile, err := s.cfg.ProfileManager.Get(slug)
+		if err == nil && profile != nil {
+			return profile
+		}
+		log.Printf("[Summary] Não foi possível obter perfil da conversa %q (%v) — usando perfil ativo global", slug, err)
+	}
+
+	profile, err := s.cfg.ProfileManager.GetActive()
+	if err != nil || profile == nil {
+		return nil
+	}
+	return profile
 }
 
 // TriggerSummarizationInBackground lança uma goroutine para sumarizar mensagens antigas.
