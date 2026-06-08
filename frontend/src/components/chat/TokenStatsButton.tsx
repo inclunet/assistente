@@ -11,6 +11,7 @@ interface TokenStats {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  contextTokens: number;
   messageCount: number;
   mostUsedModel: string;
   contextUsage: number;
@@ -53,6 +54,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
             promptTokens: 0,
             completionTokens: 0,
             totalTokens: 0,
+            contextTokens: 0,
             messageCount: 0,
             mostUsedModel: '',
             contextUsage: 0,
@@ -125,13 +127,14 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
   }
 
   const formatNumber = (num: number): string => {
-    if (num >= 1000000) {
-      return `${(num / 1000000).toFixed(1)}M`;
+    const value = Number.isFinite(num) ? num : 0;
+    if (value >= 1000000) {
+      return `${(value / 1000000).toFixed(1)}M`;
     }
-    if (num >= 1000) {
-      return `${(num / 1000).toFixed(1)}K`;
+    if (value >= 1000) {
+      return `${(value / 1000).toFixed(1)}K`;
     }
-    return num.toString();
+    return value.toString();
   };
 
   const getStatusColor = (): string => {
@@ -146,23 +149,33 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
     return <BarChartOutlined />;
   };
 
-  // Se não houver limite de contexto configurado, mostra apenas o total
+  // Mostra a ocupação ATUAL da janela de contexto (usage do último turno),
+  // não a soma acumulada de todos os turnos (issue #197).
   const hasContextLimit = stats.contextLimit > 0;
   const ariaLabel = hasContextLimit
-    ? `${formatNumber(stats.totalTokens)} de ${formatNumber(stats.contextLimit)} tokens`
-    : `${formatNumber(stats.totalTokens)} tokens`;
+    ? t('chat.tokenStatsAriaWithLimit', {
+        used: formatNumber(stats.contextTokens),
+        limit: formatNumber(stats.contextLimit),
+      })
+    : t('chat.tokenStatsAriaNoLimit', {
+        used: formatNumber(stats.contextTokens),
+      });
 
   return (
     <button
       className={`token-stats-button token-stats-button--${getStatusColor()}`}
       onClick={onOpenModal}
-      aria-label={`${ariaLabel}. Consumo de contexto: ${stats.contextUsage.toFixed(1)}% ${t('chat.tokenDetailsShortcut')}`}
+      aria-label={t('chat.tokenStatsButtonLabel', {
+        summary: ariaLabel,
+        percent: stats.contextUsage.toFixed(1),
+        shortcut: t('chat.tokenDetailsShortcut'),
+      })}
     >
       <span className="token-stats-button__icon" aria-hidden="true">
         {getStatusIcon()}
       </span>
       <span className="token-stats-button__text">
-        {formatNumber(stats.totalTokens)}
+        {formatNumber(stats.contextTokens)}
         {hasContextLimit && (
           <>
             <span className="token-stats-button__separator">/</span>
@@ -171,7 +184,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
         )}
       </span>
       {hasContextLimit && (
-        <span className="token-stats-button__context-badge" aria-label={`${stats.contextUsage.toFixed(1)}% do contexto consumido`}>
+        <span className="token-stats-button__context-badge" aria-label={t('chat.tokenStatsContextConsumed', { percent: stats.contextUsage.toFixed(1) })}>
           {stats.contextUsage.toFixed(1)}%
         </span>
       )}

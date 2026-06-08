@@ -168,6 +168,10 @@ const en = {
       stopReadingLabel: 'Stop text reading',
       loadingTokenStats: 'Loading token statistics',
       tokens: 'tokens',
+      tokenStatsAriaWithLimit: '{{used}} of {{limit}} tokens',
+      tokenStatsAriaNoLimit: '{{used}} tokens',
+      tokenStatsButtonLabel: '{{summary}}. Context usage: {{percent}}% {{shortcut}}',
+      tokenStatsContextConsumed: '{{percent}}% of context consumed',
       tokenDetailsShortcut: 'Ctrl+T for details',
       tokenDetailsLabel: 'View detailed token statistics (Ctrl+T)',
       executing: 'Executing',
@@ -261,9 +265,11 @@ const en = {
 
       // Overview tab (existing)
       contextUsage: 'Context Usage',
+      currentContextNote: 'Current context-window occupancy, based on the usage (tokens) reported by the provider on the latest turn.',
+      cumulativeNote: 'Cumulative totals across all turns of the conversation (used to estimate cost/billing), not the current context size.',
       contextCritical: 'Context critical! Consider compacting history.',
       contextWarning: 'Context near limit.',
-      breakdown: 'Breakdown',
+      breakdown: 'Breakdown (cumulative)',
       category: 'Category',
       quantity: 'Quantity',
       percentage: 'Percentage',
