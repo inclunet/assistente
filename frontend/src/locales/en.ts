@@ -1081,7 +1081,7 @@ const en = {
       pageTitle: 'Credentials',
       buttons: { new: 'New', delete: 'Delete', create: 'Create', view: 'View', edit: 'Edit' },
       aria: { toolbar: 'Credentials toolbar', suggestions: 'Reference suggestions' },
-      labels: { pattern: 'Pattern', type: 'Type', value: 'Value', username: 'Username', password: 'Password', header: 'Header', origin: 'Origin' },
+      labels: { pattern: 'Pattern', type: 'Type', value: 'Value', username: 'Username', password: 'Password', header: 'Header', origin: 'Origin', token: 'Token' },
       origin: { system: 'System', manual: 'Manual' },
       modal: { newTitle: 'New credential', editTitle: 'Edit credential', viewTitle: 'System credential' },
       placeholders: { pattern: 'e.g. *.github.com or channel:slack:bot_token', token: 'Enter the token', token_ref: 'Token, keyring://service/user or env://VAR' },

@@ -1,4 +1,4 @@
-import type { ChangeEvent, ReactNode } from 'react';
+import type { ChangeEvent, ReactNode, KeyboardEventHandler, FocusEventHandler } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import type { MockInstance } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event';
 const mockList = vi.fn();
 const mockUpsert = vi.fn();
 const mockDelete = vi.fn();
+const mockListExternalSources = vi.fn();
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -25,6 +26,7 @@ vi.mock('react-i18next', () => ({
         'credentials.labels.username': 'Usuário',
         'credentials.labels.password': 'Senha',
         'credentials.labels.header': 'Header',
+        'credentials.labels.token': 'Token',
         'credentials.modal.newTitle': 'Nova credencial',
         'credentials.modal.editTitle': 'Editar credencial',
         'credentials.placeholders.pattern': 'ex: *.github.com ou channel:slack:bot_token',
@@ -56,7 +58,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   ListCredentials: () => mockList(),
   UpsertCredential: (payload: unknown) => mockUpsert(payload),
   DeleteCredential: (pattern: string) => mockDelete(pattern),
-  ListExternalSources: () => Promise.resolve([]),
+  ListExternalSources: (prefix: string) => mockListExternalSources(prefix),
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
@@ -128,10 +130,10 @@ vi.mock('../components/ui/EditorPanel', () => ({
 
 vi.mock('../components', () => ({
   Button: ({ children, onClick }: { children?: ReactNode; onClick?: () => void }) => <button onClick={onClick}>{children}</button>,
-  Input: ({ label, value, onChange, type }: { label: string; value: string; onChange: (event: ChangeEvent<HTMLInputElement>) => void; type?: string }) => (
+  Input: ({ label, value, onChange, type, onKeyDown, onBlur, ...rest }: { label: string; value: string; onChange: (event: ChangeEvent<HTMLInputElement>) => void; type?: string; onKeyDown?: KeyboardEventHandler<HTMLInputElement>; onBlur?: FocusEventHandler<HTMLInputElement>; [key: string]: unknown }) => (
     <label>
       {label}
-      <input aria-label={label} value={value} onChange={onChange} type={type} />
+      <input aria-label={label} value={value} onChange={onChange} type={type} onKeyDown={onKeyDown} onBlur={onBlur} role={rest.role as string} aria-expanded={rest['aria-expanded'] as boolean} aria-controls={rest['aria-controls'] as string} aria-activedescendant={rest['aria-activedescendant'] as string} aria-autocomplete={rest['aria-autocomplete'] as 'list' | 'none' | 'inline' | 'both' | undefined} />
     </label>
   ),
   Select: ({ label, value, options, onChange }: { label: string; value: string; options: Array<{ value: string; label: string }>; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => (
@@ -157,6 +159,7 @@ describe('CredentialsPage', () => {
     ]);
     mockUpsert.mockResolvedValue(undefined);
     mockDelete.mockResolvedValue(undefined);
+    mockListExternalSources.mockResolvedValue([]);
     confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
@@ -240,5 +243,89 @@ describe('CredentialsPage', () => {
 
     expect(screen.getByText('Gerenciada pelo sistema')).toBeInTheDocument();
     expect(screen.getByText('Fechar')).toBeInTheDocument();
+  });
+
+  describe('autocomplete de referências externas', () => {
+    const keyringResults = [
+      { value: 'keyring://github-token', label: 'github-token' },
+      { value: 'keyring://aws-secret', label: 'aws-secret' },
+    ];
+
+    beforeEach(() => {
+      mockListExternalSources.mockImplementation((prefix: string) => {
+        if (prefix === 'keyring://') return Promise.resolve(keyringResults);
+        if (prefix === 'env://') return Promise.resolve([{ value: 'env://HOME', label: 'HOME' }]);
+        return Promise.resolve([]);
+      });
+    });
+
+    it('mostra sugestões ao digitar keyring://', async () => {
+      render(<CredentialsPage />);
+      await userEvent.click(screen.getByText('Nova'));
+
+      const tokenInput = screen.getByLabelText('Token');
+      await userEvent.clear(tokenInput);
+      await userEvent.type(tokenInput, 'keyring://');
+
+      await waitFor(() => {
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+      });
+
+      expect(screen.getByText('github-token')).toBeInTheDocument();
+      expect(screen.getByText('aws-secret')).toBeInTheDocument();
+    });
+
+    it('seleciona sugestão com Enter após navegar com seta', async () => {
+      render(<CredentialsPage />);
+      await userEvent.click(screen.getByText('Nova'));
+
+      const tokenInput = screen.getByLabelText('Token');
+      await userEvent.clear(tokenInput);
+      await userEvent.type(tokenInput, 'keyring://');
+
+      await waitFor(() => {
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+      });
+
+      await userEvent.keyboard('{ArrowDown}');
+      await userEvent.keyboard('{Enter}');
+
+      expect((tokenInput as HTMLInputElement).value).toBe('keyring://github-token');
+    });
+
+    it('fecha sugestões com Escape', async () => {
+      render(<CredentialsPage />);
+      await userEvent.click(screen.getByText('Nova'));
+
+      const tokenInput = screen.getByLabelText('Token');
+      await userEvent.clear(tokenInput);
+      await userEvent.type(tokenInput, 'keyring://');
+
+      await waitFor(() => {
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+      });
+
+      await userEvent.keyboard('{Escape}');
+
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
+
+    it('seleciona sugestão com mouse', async () => {
+      render(<CredentialsPage />);
+      await userEvent.click(screen.getByText('Nova'));
+
+      const tokenInput = screen.getByLabelText('Token');
+      await userEvent.clear(tokenInput);
+      await userEvent.type(tokenInput, 'keyring://');
+
+      await waitFor(() => {
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByText('aws-secret'));
+
+      expect((tokenInput as HTMLInputElement).value).toBe('keyring://aws-secret');
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
   });
 });

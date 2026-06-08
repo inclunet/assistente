@@ -38,6 +38,7 @@ export default function CredentialsPage() {
   const [activeIndex, setActiveIndex] = useState(-1);
   const allSuggestionsRef = useRef<Array<{value: string; label: string}>>([]);
   const listboxRef = useRef<HTMLUListElement>(null);
+  const latestTokenRef = useRef<string>('');
 
   const typeOptions = [
     { value: 'bearer', label: t('credentials.types.bearer') },
@@ -189,6 +190,7 @@ export default function CredentialsPage() {
   const handleTokenChange = async (value: string) => {
     crud.updateField('token', value);
     setActiveIndex(-1);
+    latestTokenRef.current = value;
 
     if (value.startsWith('keyring://') || value.startsWith('env://')) {
       const prefix = value.startsWith('keyring://') ? 'keyring://' : 'env://';
@@ -197,9 +199,11 @@ export default function CredentialsPage() {
       if (allSuggestionsRef.current.length === 0 || !allSuggestionsRef.current[0]?.value.startsWith(prefix)) {
         try {
           const results = await ListExternalSources(prefix);
+          if (latestTokenRef.current !== value) return;
           const items = (results || []).map(r => ({ value: r.value, label: r.label }));
           allSuggestionsRef.current = items;
         } catch {
+          if (latestTokenRef.current !== value) return;
           allSuggestionsRef.current = [];
         }
       }
@@ -411,18 +415,18 @@ export default function CredentialsPage() {
             {(crud.editingItem.type === 'bearer' || crud.editingItem.type === 'oauth2' || crud.editingItem.type === 'secret') && (
               <div className="credentials-page__token-field">
                 <Input
-                  label="Token"
+                  label={t('credentials.labels.token')}
                   type={isRefValue(crud.editingItem.token) ? 'text' : 'password'}
                   value={crud.editingItem.token || ''}
                   onChange={(e) => handleTokenChange(e.target.value)}
                   onKeyDown={handleTokenKeyDown}
-                  onBlur={() => setTimeout(() => { setShowSuggestions(false); setActiveIndex(-1); }, 150)}
-                  placeholder={t('credentials.placeholders.token_ref', 'Token, keyring://service/user ou env://VAR')}
+                  onBlur={() => { setShowSuggestions(false); setActiveIndex(-1); }}
+                  placeholder={t('credentials.placeholders.token_ref')}
                   fullWidth
                   autoComplete="off"
                   role="combobox"
                   aria-expanded={showSuggestions && suggestions.length > 0}
-                  aria-controls="token-suggestions"
+                  aria-controls={showSuggestions && suggestions.length > 0 ? 'token-suggestions' : undefined}
                   aria-activedescendant={activeIndex >= 0 ? `token-suggestion-${activeIndex}` : undefined}
                   aria-autocomplete="list"
                 />
@@ -432,7 +436,7 @@ export default function CredentialsPage() {
                     ref={listboxRef}
                     className="credentials-page__suggestions"
                     role="listbox"
-                    aria-label={t('credentials.aria.suggestions', 'Sugestões de referência')}
+                    aria-label={t('credentials.aria.suggestions')}
                   >
                     {suggestions.map((s, index) => (
                       <li

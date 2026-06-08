@@ -1080,7 +1080,7 @@ const es = {
       pageTitle: 'Credenciales',
       buttons: { new: 'Nueva', delete: 'Eliminar', create: 'Crear', view: 'Ver', edit: 'Editar' },
       aria: { toolbar: 'Barra de herramientas de credenciales', suggestions: 'Sugerencias de referencia' },
-      labels: { pattern: 'Pattern', type: 'Tipo', value: 'Valor', username: 'Usuario', password: 'Contraseña', header: 'Header', origin: 'Origen' },
+      labels: { pattern: 'Pattern', type: 'Tipo', value: 'Valor', username: 'Usuario', password: 'Contraseña', header: 'Header', origin: 'Origen', token: 'Token' },
       origin: { system: 'Sistema', manual: 'Manual' },
       modal: { newTitle: 'Nueva credencial', editTitle: 'Editar credencial', viewTitle: 'Credencial del sistema' },
       placeholders: { pattern: 'ej: *.github.com o channel:slack:bot_token', token: 'Ingresa el token', token_ref: 'Token, keyring://servicio/usuario o env://VAR' },

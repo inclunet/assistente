@@ -1081,7 +1081,7 @@ const ptBR = {
       pageTitle: 'Credenciais',
       buttons: { new: 'Nova', delete: 'Excluir', create: 'Criar', view: 'Visualizar', edit: 'Editar' },
       aria: { toolbar: 'Barra de ferramentas de credenciais', suggestions: 'Sugestões de referência' },
-      labels: { pattern: 'Pattern', type: 'Tipo', value: 'Valor', username: 'Usuário', password: 'Senha', header: 'Header', origin: 'Origem' },
+      labels: { pattern: 'Pattern', type: 'Tipo', value: 'Valor', username: 'Usuário', password: 'Senha', header: 'Header', origin: 'Origem', token: 'Token' },
       origin: { system: 'Sistema', manual: 'Manual' },
       modal: { newTitle: 'Nova credencial', editTitle: 'Editar credencial', viewTitle: 'Credencial do sistema' },
       placeholders: { pattern: 'ex: *.github.com ou channel:slack:bot_token', token: 'Informe o token', token_ref: 'Token, keyring://service/user ou env://VAR' },
