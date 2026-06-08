@@ -343,13 +343,20 @@ export default function HistoryPage() {
     return base.filter((c) => searchResultIds.has(c.id));
   }, [conversations, searchResultIds, showSubAgents]);
 
-  // Se o item focado deixou de estar visível (toggle de sub-agentes ou busca),
-  // limpa o foco: caso contrário as ações da toolbar (Abrir/Excluir/Exportar)
-  // continuariam habilitadas e operariam sobre uma conversa fora da lista.
+  // Reconcilia foco e seleção com o que está visível: ao ocultar sub-agentes
+  // (toggle) ou aplicar busca, itens saem de displayItems. Sem isso, as ações
+  // da toolbar (Abrir/Excluir/Exportar) continuariam habilitadas e operariam
+  // sobre conversas fora da lista (risco de exclusão/export indevidos).
   useEffect(() => {
-    if (focusedRow && !displayItems.some((c) => c.id === focusedRow.id)) {
+    const visibleIds = new Set(displayItems.map((c) => c.id));
+    if (focusedRow && !visibleIds.has(focusedRow.id)) {
       setFocusedRow(null);
     }
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set([...prev].filter((id) => visibleIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
   }, [displayItems, focusedRow]);
 
   const handleFocusChange = useCallback((item: Conversation | null) => {
