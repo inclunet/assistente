@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { ListCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/app/App';
+import { ListCredentials, UpsertCredential, DeleteCredential, ListExternalSources } from '@wailsjs/go/app/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
@@ -33,6 +33,11 @@ export default function CredentialsPage() {
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'credentials-page' });
   const [focusedRow, setFocusedRow] = useState<CredentialRow | null>(null);
+  const [suggestions, setSuggestions] = useState<Array<{value: string; label: string}>>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const allSuggestionsRef = useRef<Array<{value: string; label: string}>>([]);
+  const listboxRef = useRef<HTMLUListElement>(null);
 
   const typeOptions = [
     { value: 'bearer', label: t('credentials.types.bearer') },
@@ -178,6 +183,88 @@ export default function CredentialsPage() {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [crud]);
 
+  const isRefValue = (value?: string): boolean =>
+    Boolean(value && (value.startsWith('keyring://') || value.startsWith('env://')));
+
+  const handleTokenChange = async (value: string) => {
+    crud.updateField('token', value);
+    setActiveIndex(-1);
+
+    if (value === 'keyring://' || value === 'env://') {
+      try {
+        const results = await ListExternalSources(value);
+        const items = (results || []).map(r => ({ value: r.value, label: r.label }));
+        allSuggestionsRef.current = items;
+        setSuggestions(items);
+        setShowSuggestions(items.length > 0);
+      } catch {
+        allSuggestionsRef.current = [];
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }
+    } else if (value.startsWith('keyring://') || value.startsWith('env://')) {
+      const prefix = value.startsWith('keyring://') ? 'keyring://' : 'env://';
+      const search = value.slice(prefix.length).toLowerCase();
+      const filtered = allSuggestionsRef.current.filter(s =>
+        s.label.toLowerCase().includes(search)
+      );
+      setSuggestions(filtered);
+      setShowSuggestions(filtered.length > 0);
+    } else {
+      setShowSuggestions(false);
+      setSuggestions([]);
+      allSuggestionsRef.current = [];
+    }
+  };
+
+  const handleTokenKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!showSuggestions || suggestions.length === 0) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setActiveIndex(prev => {
+          const next = prev < suggestions.length - 1 ? prev + 1 : 0;
+          requestAnimationFrame(() => {
+            listboxRef.current?.querySelector(`#token-suggestion-${next}`)
+              ?.scrollIntoView({ block: 'nearest' });
+          });
+          return next;
+        });
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setActiveIndex(prev => {
+          const next = prev > 0 ? prev - 1 : suggestions.length - 1;
+          requestAnimationFrame(() => {
+            listboxRef.current?.querySelector(`#token-suggestion-${next}`)
+              ?.scrollIntoView({ block: 'nearest' });
+          });
+          return next;
+        });
+        break;
+      case 'Enter':
+        if (activeIndex >= 0 && activeIndex < suggestions.length) {
+          e.preventDefault();
+          crud.updateField('token', suggestions[activeIndex].value);
+          setShowSuggestions(false);
+          setActiveIndex(-1);
+        }
+        break;
+      case 'Escape':
+        setShowSuggestions(false);
+        setActiveIndex(-1);
+        break;
+    }
+  }, [showSuggestions, suggestions, activeIndex, crud]);
+
+  const resetSuggestions = useCallback(() => {
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setActiveIndex(-1);
+    allSuggestionsRef.current = [];
+  }, []);
+
   const [viewingManaged, setViewingManaged] = useState<CredentialRow | null>(null);
 
   const getRowId = useCallback((row: CredentialRow) => row.id, []);
@@ -295,7 +382,7 @@ export default function CredentialsPage() {
 
       <Modal
         isOpen={Boolean(crud.editingItem)}
-        onClose={crud.closeEditor}
+        onClose={() => { resetSuggestions(); crud.closeEditor(); }}
         title={crud.isNew ? t('credentials.modal.newTitle') : t('credentials.modal.editTitle')}
         size="md"
       >
@@ -318,14 +405,51 @@ export default function CredentialsPage() {
             />
 
             {(crud.editingItem.type === 'bearer' || crud.editingItem.type === 'oauth2' || crud.editingItem.type === 'secret') && (
-              <Input
-                label="Token"
-                type="password"
-                value={crud.editingItem.token || ''}
-                onChange={(e) => crud.updateField('token', e.target.value)}
-                placeholder={t('credentials.placeholders.token')}
-                fullWidth
-              />
+              <div className="credentials-page__token-field">
+                <Input
+                  label="Token"
+                  type={isRefValue(crud.editingItem.token) ? 'text' : 'password'}
+                  value={crud.editingItem.token || ''}
+                  onChange={(e) => handleTokenChange(e.target.value)}
+                  onKeyDown={handleTokenKeyDown}
+                  onBlur={() => setTimeout(() => { setShowSuggestions(false); setActiveIndex(-1); }, 150)}
+                  placeholder={t('credentials.placeholders.token_ref', 'Token, keyring://service/user ou env://VAR')}
+                  fullWidth
+                  autoComplete="off"
+                  role="combobox"
+                  aria-expanded={showSuggestions && suggestions.length > 0}
+                  aria-controls="token-suggestions"
+                  aria-activedescendant={activeIndex >= 0 ? `token-suggestion-${activeIndex}` : undefined}
+                  aria-autocomplete="list"
+                />
+                {showSuggestions && suggestions.length > 0 && (
+                  <ul
+                    id="token-suggestions"
+                    ref={listboxRef}
+                    className="credentials-page__suggestions"
+                    role="listbox"
+                    aria-label={t('credentials.aria.suggestions', 'Sugestões de referência')}
+                  >
+                    {suggestions.map((s, index) => (
+                      <li
+                        key={s.value}
+                        id={`token-suggestion-${index}`}
+                        role="option"
+                        aria-selected={index === activeIndex}
+                        className={`credentials-page__suggestion${index === activeIndex ? ' credentials-page__suggestion--active' : ''}`}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          crud.updateField('token', s.value);
+                          setShowSuggestions(false);
+                          setActiveIndex(-1);
+                        }}
+                      >
+                        {s.label}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
 
             {crud.editingItem.type === 'basic' && (
@@ -382,7 +506,7 @@ export default function CredentialsPage() {
               {t('credentials.buttons.delete')}
             </Button>
           )}
-          <Button variant="ghost" onClick={crud.closeEditor}>
+          <Button variant="ghost" onClick={() => { resetSuggestions(); crud.closeEditor(); }}>
             {t('common.cancel')}
           </Button>
           <Button onClick={crud.save} loading={crud.saving}>

@@ -446,10 +446,6 @@ export function GetConversations() {
   return window['go']['app']['App']['GetConversations']();
 }
 
-export function GetSubAgentConversations() {
-  return window['go']['app']['App']['GetSubAgentConversations']();
-}
-
 export function GetEffectiveModel() {
   return window['go']['app']['App']['GetEffectiveModel']();
 }
@@ -596,6 +592,10 @@ export function GetSkills() {
 
 export function GetSpeechProviders() {
   return window['go']['app']['App']['GetSpeechProviders']();
+}
+
+export function GetSubAgentConversations() {
+  return window['go']['app']['App']['GetSubAgentConversations']();
 }
 
 export function GetSubtasks(arg1) {
