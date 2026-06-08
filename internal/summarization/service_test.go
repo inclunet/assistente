@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/profiles"
 )
@@ -225,6 +226,84 @@ func TestShouldTriggerSummarization(t *testing.T) {
 		msgs := makeMsgs(40, 5)
 		if ShouldTriggerSummarization(p, msgs, "") {
 			t.Error("expected false, small messages under budget")
+		}
+	})
+}
+
+// setupProfileTestEnv isola perfis em um HOME temporário, reaproveitando o
+// padrão usado em internal/chat/interactor_test.go.
+func setupProfileTestEnv(t *testing.T) *profiles.Manager {
+	t.Helper()
+
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	return profiles.NewManager()
+}
+
+// TestResolveConversationProfile cobre a Issue #203: a sumarização deve resolver
+// o modelo/provider a partir do perfil DA CONVERSA (slug propagado pelo envio),
+// recaindo no perfil ativo global apenas quando o slug está vazio ou não resolve.
+func TestResolveConversationProfile(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+
+	active := profiles.DefaultProfile()
+	active.Name = "Padrão Global"
+	active.Active = true
+	active.Chat.LLMProvider = "openai-provider"
+	active.Chat.Model = "gpt-4o-mini"
+	activeSlug, err := profileMgr.Create(active)
+	if err != nil {
+		t.Fatalf("create active profile: %v", err)
+	}
+	if err := profileMgr.SetActive(activeSlug); err != nil {
+		t.Fatalf("set active profile: %v", err)
+	}
+
+	conv := profiles.DefaultProfile()
+	conv.Name = "Perfil da Conversa"
+	conv.Active = false
+	conv.Chat.LLMProvider = "localai-provider"
+	conv.Chat.Model = "qwen2.5"
+	convSlug, err := profileMgr.Create(conv)
+	if err != nil {
+		t.Fatalf("create conversation profile: %v", err)
+	}
+
+	svc := NewService(ServiceConfig{ProfileManager: profileMgr})
+
+	t.Run("usa o perfil da conversa quando o slug é fornecido", func(t *testing.T) {
+		got := svc.resolveConversationProfile(convSlug)
+		if got == nil {
+			t.Fatal("expected profile, got nil")
+		}
+		if got.Chat.Model != "qwen2.5" || got.Chat.LLMProvider != "localai-provider" {
+			t.Fatalf("resolveu perfil errado: provider=%q model=%q (esperado localai-provider/qwen2.5)",
+				got.Chat.LLMProvider, got.Chat.Model)
+		}
+	})
+
+	t.Run("recai no perfil ativo global quando o slug é vazio", func(t *testing.T) {
+		got := svc.resolveConversationProfile("")
+		if got == nil {
+			t.Fatal("expected profile, got nil")
+		}
+		if got.Chat.Model != "gpt-4o-mini" || got.Chat.LLMProvider != "openai-provider" {
+			t.Fatalf("fallback errado: provider=%q model=%q (esperado openai-provider/gpt-4o-mini)",
+				got.Chat.LLMProvider, got.Chat.Model)
+		}
+	})
+
+	t.Run("recai no perfil ativo global quando o slug não resolve", func(t *testing.T) {
+		got := svc.resolveConversationProfile("inexistente")
+		if got == nil {
+			t.Fatal("expected profile, got nil")
+		}
+		if got.Chat.Model != "gpt-4o-mini" {
+			t.Fatalf("fallback errado para slug inexistente: model=%q (esperado gpt-4o-mini)", got.Chat.Model)
 		}
 	})
 }
