@@ -269,6 +269,7 @@ export default function CredentialsPage() {
   }, [showSuggestions, suggestions, activeIndex, crud]);
 
   const resetSuggestions = useCallback(() => {
+    latestTokenRef.current = '';
     setSuggestions([]);
     setShowSuggestions(false);
     setActiveIndex(-1);
@@ -414,11 +415,14 @@ export default function CredentialsPage() {
               fullWidth
             />
 
-            {(crud.editingItem.type === 'bearer' || crud.editingItem.type === 'oauth2' || crud.editingItem.type === 'secret') && (
+            {(crud.editingItem.type === 'bearer' || crud.editingItem.type === 'oauth2' || crud.editingItem.type === 'secret') && (() => {
+              const tokenIsRef = isRefValue(crud.editingItem.token);
+              const hasSuggestions = showSuggestions && suggestions.length > 0;
+              return (
               <div className="credentials-page__token-field">
                 <Input
                   label={t('credentials.labels.token')}
-                  type={isRefValue(crud.editingItem.token) ? 'text' : 'password'}
+                  type={tokenIsRef ? 'text' : 'password'}
                   value={crud.editingItem.token || ''}
                   onChange={(e) => handleTokenChange(e.target.value)}
                   onKeyDown={handleTokenKeyDown}
@@ -426,11 +430,11 @@ export default function CredentialsPage() {
                   placeholder={t('credentials.placeholders.token_ref')}
                   fullWidth
                   autoComplete="off"
-                  role="combobox"
-                  aria-expanded={showSuggestions && suggestions.length > 0}
-                  aria-controls={showSuggestions && suggestions.length > 0 ? 'token-suggestions' : undefined}
-                  aria-activedescendant={activeIndex >= 0 ? `token-suggestion-${activeIndex}` : undefined}
-                  aria-autocomplete="list"
+                  role={tokenIsRef ? 'combobox' : undefined}
+                  aria-expanded={tokenIsRef ? hasSuggestions : undefined}
+                  aria-controls={tokenIsRef && hasSuggestions ? 'token-suggestions' : undefined}
+                  aria-activedescendant={tokenIsRef && activeIndex >= 0 ? `token-suggestion-${activeIndex}` : undefined}
+                  aria-autocomplete={tokenIsRef ? 'list' : undefined}
                 />
                 {showSuggestions && suggestions.length > 0 && (
                   <ul
@@ -460,7 +464,8 @@ export default function CredentialsPage() {
                   </ul>
                 )}
               </div>
-            )}
+              );
+            })()}
 
             {crud.editingItem.type === 'basic' && (
               <div className="credentials-page__row">
