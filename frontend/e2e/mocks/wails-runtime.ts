@@ -192,6 +192,7 @@ export function buildWailsMockScript(): string {
       promptTokens: 0,
       completionTokens: 0,
       totalTokens: 0,
+      contextTokens: 0,
       messageCount: 0,
       mostUsedModel: 'gpt-4',
       contextUsage: 0,

@@ -167,6 +167,10 @@ const es = {
       stopReadingLabel: 'Detener lectura de texto',
       loadingTokenStats: 'Cargando estadísticas de tokens',
       tokens: 'tokens',
+      tokenStatsAriaWithLimit: '{{used}} de {{limit}} tokens',
+      tokenStatsAriaNoLimit: '{{used}} tokens',
+      tokenStatsButtonLabel: '{{summary}}. Uso del contexto: {{percent}}% {{shortcut}}',
+      tokenStatsContextConsumed: '{{percent}}% del contexto consumido',
       tokenDetailsShortcut: 'Ctrl+T para ver detalles',
       tokenDetailsLabel: 'Ver estadísticas detalladas de tokens (Ctrl+T)',
       executing: 'Ejecutando',
@@ -260,9 +264,11 @@ const es = {
 
       // Overview tab (existing)
       contextUsage: 'Uso del contexto',
+      currentContextNote: 'Ocupación actual de la ventana de contexto, según el uso (tokens) informado por el proveedor en el último turno.',
+      cumulativeNote: 'Totales acumulados de todos los turnos de la conversación (base para estimar costo/billing), no el tamaño actual del contexto.',
       contextCritical: '¡Contexto crítico! Considera compactar el historial.',
       contextWarning: 'Contexto cerca del límite.',
-      breakdown: 'Desglose',
+      breakdown: 'Desglose (acumulado)',
       category: 'Categoría',
       quantity: 'Cantidad',
       percentage: 'Porcentaje',

@@ -50,6 +50,7 @@ func (s *TokenService) GetConversationStats(ctx context.Context, conversationID 
 		MessageCount:                detailedStats.MessageCount,
 		Model:                       detailedStats.Model,
 		MostUsedModel:               detailedStats.Model,
+		ContextTokens:               detailedStats.ContextTokens,
 		SystemPromptEstimatedTokens: detailedStats.SystemPromptEstimatedTokens,
 		SummaryTokens:               detailedStats.SummaryTokens,
 		MessagesInContextCount:      detailedStats.MessagesInContextCount,

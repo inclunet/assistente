@@ -5,7 +5,7 @@ import { TokenStatsModal } from './TokenStatsModal';
 const getStatsSpy = vi.fn();
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'pt-BR' } }),
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
@@ -23,6 +23,7 @@ describe('TokenStatsModal', () => {
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
+      contextTokens: 18,
       messageCount: 1,
       mostUsedModel: 'x',
       contextUsage: 10,
