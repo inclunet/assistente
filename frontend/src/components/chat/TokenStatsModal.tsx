@@ -48,7 +48,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [stats, setStats] = useState<TokenStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +87,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   }, [conversationId, isOpen, t]);
 
   const formatNumber = (num: number): string => {
-    return (Number.isFinite(num) ? num : 0).toLocaleString('pt-BR');
+    return (Number.isFinite(num) ? num : 0).toLocaleString(i18n.language);
   };
 
   const calculatePercentage = (value: number, total: number): number => {

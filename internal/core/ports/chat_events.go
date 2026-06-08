@@ -172,12 +172,14 @@ type TokenStatsUpdateEvent struct {
 }
 
 // ContextWarningEvent is the payload for chat:context_warning.
+// ContextTokens reflete a ocupação ATUAL da janela de contexto (usage do
+// último turno), não o acumulado de billing (issue #197 / AEP-0012).
 type ContextWarningEvent struct {
 	ConversationID string  `json:"conversationId"`
 	Level          string  `json:"level"` // "warning" | "critical"
 	Message        string  `json:"message"`
 	Percentage     float64 `json:"percentage"`
-	TotalTokens    int     `json:"totalTokens"`
+	ContextTokens  int     `json:"contextTokens"`
 	ContextLimit   int     `json:"contextLimit"`
 }
 

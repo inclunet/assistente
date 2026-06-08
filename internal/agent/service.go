@@ -853,9 +853,9 @@ func (s *Service) emitTokenStats(conversationID string) {
 			Level:          "critical",
 			Message: fmt.Sprintf("Atenção: Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa ou resumir o histórico.",
 				stats.ContextUsage, stats.ContextTokens, stats.ContextLimit),
-			Percentage:   stats.ContextUsage,
-			TotalTokens:  stats.ContextTokens,
-			ContextLimit: stats.ContextLimit,
+			Percentage:    stats.ContextUsage,
+			ContextTokens: stats.ContextTokens,
+			ContextLimit:  stats.ContextLimit,
 		})
 	} else if stats.IsNearLimit {
 		log.Printf("[Context] conversa %s próxima do limite: %0.1f%% (%d/%d tokens)",
@@ -865,9 +865,9 @@ func (s *Service) emitTokenStats(conversationID string) {
 			Level:          "warning",
 			Message: fmt.Sprintf("Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa em breve.",
 				stats.ContextUsage, stats.ContextTokens, stats.ContextLimit),
-			Percentage:   stats.ContextUsage,
-			TotalTokens:  stats.ContextTokens,
-			ContextLimit: stats.ContextLimit,
+			Percentage:    stats.ContextUsage,
+			ContextTokens: stats.ContextTokens,
+			ContextLimit:  stats.ContextLimit,
 		})
 	}
 }

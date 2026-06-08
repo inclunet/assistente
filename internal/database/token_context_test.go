@@ -1,6 +1,7 @@
 package database
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -72,7 +73,7 @@ func TestGetContextWindowUsage_UsesLatestTurnNotCumulativeSum(t *testing.T) {
 	if contextTokens == 3000 {
 		t.Errorf("contextTokens não pode ser a soma acumulada (3000)")
 	}
-	if want := 18.0; percentage != want {
+	if want := 18.0; math.Abs(percentage-want) > 1e-9 {
 		t.Errorf("percentual: esperado %.1f%%, obtido %.1f%%", want, percentage)
 	}
 }
