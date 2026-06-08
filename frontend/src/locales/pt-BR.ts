@@ -168,6 +168,10 @@ const ptBR = {
       stopReadingLabel: 'Parar leitura de texto',
       loadingTokenStats: 'Carregando estatísticas de tokens',
       tokens: 'tokens',
+      tokenStatsAriaWithLimit: '{{used}} de {{limit}} tokens',
+      tokenStatsAriaNoLimit: '{{used}} tokens',
+      tokenStatsButtonLabel: '{{summary}}. Consumo de contexto: {{percent}}% {{shortcut}}',
+      tokenStatsContextConsumed: '{{percent}}% do contexto consumido',
       tokenDetailsShortcut: 'Ctrl+T para ver detalhes',
       tokenDetailsLabel: 'Ver estatísticas detalhadas de tokens (Ctrl+T)',
       executing: 'Executando',
@@ -261,9 +265,11 @@ const ptBR = {
 
       // Overview tab (existing)
       contextUsage: 'Uso do Contexto',
+      currentContextNote: 'Ocupação atual da janela de contexto, com base no uso (tokens) informado pelo provedor no último turno.',
+      cumulativeNote: 'Totais acumulados de todos os turnos da conversa (base para estimar custo/billing), não o tamanho atual do contexto.',
       contextCritical: 'Contexto crítico! Considere compactar o histórico.',
       contextWarning: 'Contexto próximo do limite.',
-      breakdown: 'Detalhamento',
+      breakdown: 'Detalhamento (acumulado)',
       category: 'Categoria',
       quantity: 'Quantidade',
       percentage: 'Porcentagem',
