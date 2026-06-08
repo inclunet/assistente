@@ -2,9 +2,12 @@ package app
 
 import (
 	"log"
+	"time"
 
 	"assistente/controllers"
+	"assistente/internal/database"
 	mcpmgr "assistente/internal/mcp"
+	toolpkg "assistente/internal/tools"
 )
 
 // ============================================================================
@@ -57,6 +60,10 @@ func (a *App) DiscoverMCPServerAuth(serverURL string) mcpmgr.OAuthDiscoveryResul
 	return a.mcpCtrl.DiscoverMCPServerAuth(serverURL)
 }
 
+func (a *App) GetMCPServerLogs(slug string, limit int) ([]mcpmgr.MCPServerLog, error) {
+	return a.mcpCtrl.GetMCPServerLogs(slug, limit)
+}
+
 // LLMSettings é alias de controllers.LLMSettings para compatibilidade com o frontend Wails.
 type LLMSettings = controllers.LLMSettings
 
@@ -78,14 +85,27 @@ func (a *App) initMCP() {
 	}
 
 	a.mcpMgr = mcpmgr.NewManager(a.toolRegistry, a.credMgr, emitEvent)
-
-	// Carrega configs e auto-conecta servidores habilitados
-	if err := a.mcpMgr.LoadConfigs(); err != nil {
-		log.Printf("[MCP] Erro ao carregar configurações: %v", err)
+	// MCP Manager precisa existir tanto pré quanto pós-login. O contexto
+	// propaga o userID quando existe e devolve ctx puro durante o boot.
+	// Escritores reais dentro do MCP manager seguem usando RequireUserID.
+	a.mcpMgr.SetAuthContextProvider(a.internalBootstrapCtx)
+	if database.DB() != nil {
+		repo := mcpmgr.NewDBRepository(database.DB())
+		a.mcpMgr.SetRepository(repo)
+		if a.toolRegistry != nil && !a.toolRegistry.Has(toolpkg.ToolCatalogName) {
+			a.toolRegistry.MustRegister(toolpkg.NewCatalogTool(repo))
+		}
+		a.mcpMgr.StartLogRetention(24*time.Hour, 30*24*time.Hour)
+		if err := a.mcpMgr.SyncBuiltinTools(database.WithBootstrap(a.internalBootstrapCtx())); err != nil {
+			log.Printf("[MCP] Erro ao sincronizar catálogo de builtin tools: %v", err)
+		}
+		// Carrega configs somente do DB (NÃO importa filesystem e NÃO conecta).
+		// Importações legadas e auto-connect rodam no reloadUserScopedRuntime
+		// pós-login, quando as credenciais user-scoped já estão em memória.
+		if err := a.mcpMgr.LoadConfigs(); err != nil {
+			log.Printf("[MCP] Erro ao carregar configurações: %v", err)
+		}
 	}
-
-	// Observa mudanças externas nos arquivos de config
-	go a.mcpMgr.WatchConfigs()
 
 	log.Printf("[MCP] Manager inicializado")
 }

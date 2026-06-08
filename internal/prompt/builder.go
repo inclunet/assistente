@@ -50,6 +50,11 @@ type Builder struct {
 	Skills    SkillReader
 	Workspace WorkspaceReader
 	Tools     *tools.Registry
+
+	// OpenEditorPaths retorna os caminhos absolutos de arquivos abertos em abas de editor.
+	// Se definido e não-vazio, o Build() adiciona uma seção ao system prompt
+	// informando ao modelo que esses arquivos podem ser lidos/editados via tools.
+	OpenEditorPaths func() []string
 }
 
 // TemplateData é um alias para chat.TemplateData — a definição canônica vive em internal/chat
@@ -60,7 +65,7 @@ type TemplateData = chat.TemplateData
 type TabInfo = chat.TabInfo
 
 // BuildTemplateData monta o TemplateData a partir do perfil ativo e do workspace.
-func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID uint) TemplateData {
+func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData {
 	enabledToolNames := b.ComputeEnabledToolNames(activeProfile)
 	data := TemplateData{
 		Profile:            activeProfile,
@@ -146,6 +151,13 @@ func (b *Builder) Build(
 		parts = append(parts, chat.DefaultSystemPrompt)
 	}
 
+	// 1b. Protocolo catalog-first (AEP-0049, D16): incluído SEMPRE que o gating por
+	// catálogo está ativo (tool_catalog é a única tool inicial), independentemente de
+	// haver skills ou slash skill, para forçar a ordem "consultar catálogo → usar tools".
+	if catalogFirstActive(tplData) {
+		parts = append(parts, joinPrefix(parts)+chat.CatalogFirstToolPrompt)
+	}
+
 	// 2. Seção de skills (auto_load + disponíveis)
 	skillsSection := b.BuildSkillsSection(enabledSkills, disableOnDemand, tplData)
 	if skillsSection != "" {
@@ -160,6 +172,38 @@ func (b *Builder) Build(
 	// 4. Resumo da conversa (rolling context)
 	if conversationSummary != "" {
 		parts = append(parts, "\n\n<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n"+conversationSummary+"\n</conversation_summary>")
+	}
+
+	// 5. Arquivos abertos em abas de editor (acessíveis via filesystem tools)
+	if b.OpenEditorPaths != nil {
+		if paths := b.OpenEditorPaths(); len(paths) > 0 {
+			var sb strings.Builder
+			sb.WriteString("\n\n<open_editor_files>\n")
+			sb.WriteString("The following files are currently open in the user's editor tabs. ")
+			sb.WriteString("You MAY use read_file, write_file, edit_file, and grep_search on ONLY these exact file paths, ")
+			sb.WriteString("even if one of the listed files is outside the working directory. ")
+			sb.WriteString("This exception applies ONLY to the exact full paths listed below — not to their parent directories, sibling files, or any other related paths. ")
+			sb.WriteString("Structural operations (move_file, copy_file, delete_file, list_directory) are NOT allowed on these files outside the workspace. ")
+			sb.WriteString("Normal tool policies still apply: denylisted or sensitive files (e.g. .env) may still be blocked even if listed here. ")
+			sb.WriteString("If the active skill restricts filesystem access, those restrictions still apply on top of this exception. ")
+			sb.WriteString("Any other path remains subject to the normal workspace roots and filesystem access policies:\n")
+			for _, p := range paths {
+				// Sanitize to prevent prompt injection via filenames while keeping
+				// the path usable by filesystem tools (which need the real path).
+				// Strip chars that could break XML-like prompt structure or confuse
+				// LLM markdown parsing; do NOT use html.EscapeString which corrupts
+				// chars like & and " making the path unusable for tool calls.
+				safe := strings.NewReplacer(
+					"<", "", ">", "", "`", "",
+					"\n", "_", "\r", "_",
+				).Replace(p)
+				sb.WriteString("- ")
+				sb.WriteString(safe)
+				sb.WriteString("\n")
+			}
+			sb.WriteString("</open_editor_files>")
+			parts = append(parts, sb.String())
+		}
 	}
 
 	return chat.InjectSystemPrompt(messages, strings.Join(parts, ""))
@@ -203,6 +247,11 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 				log.Printf("[prompt] Erro ao carregar available skills: %v", err)
 			}
 		}
+	}
+
+	if templateToolCallingDisabled(tplData) {
+		autoSkills = filterSkillsWithoutToolDependencies(autoSkills)
+		availableSkills = nil
 	}
 
 	if len(autoSkills) == 0 && len(availableSkills) == 0 {
@@ -298,6 +347,96 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 	return sb.String()
 }
 
+// joinPrefix retorna o separador adequado para anexar uma nova seção: vazio quando
+// ainda não há partes (a seção será a primeira) e "\n\n" caso contrário.
+func joinPrefix(parts []string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	return "\n\n"
+}
+
+// catalogFirstActive informa se o gating por catálogo está ativo, ou seja, se o
+// tool calling está habilitado e "tool_catalog" é a ÚNICA tool inicial exposta ao
+// modelo. Só nesse caso o protocolo catalog-first deve ser instruído: o texto de
+// CatalogFirstToolPrompt afirma que a única tool disponível inicialmente é a
+// "tool_catalog". Quando o perfil fixa EnabledTools com tool_catalog + outras
+// tools, essas outras já ficam disponíveis de imediato (ResolveInitialEnabledTools
+// devolve a lista intacta), então o gating não restringe ao catálogo e o protocolo
+// não deve ser injetado para não enganar o modelo.
+func catalogFirstActive(tplData any) bool {
+	var data chat.TemplateData
+	switch d := tplData.(type) {
+	case chat.TemplateData:
+		data = d
+	case *chat.TemplateData:
+		if d == nil {
+			return false
+		}
+		data = *d
+	default:
+		return false
+	}
+	if !data.ToolCallingEnabled {
+		return false
+	}
+	hasCatalog := false
+	for _, name := range data.EnabledTools {
+		if name == tools.ToolCatalogName {
+			hasCatalog = true
+			continue
+		}
+		// Qualquer outra tool inicial significa que o gating não restringe o
+		// modelo a apenas o catálogo — o protocolo catalog-first seria enganoso.
+		return false
+	}
+	return hasCatalog
+}
+
+func templateToolCallingDisabled(tplData any) bool {
+	switch data := tplData.(type) {
+	case chat.TemplateData:
+		return !data.ToolCallingEnabled
+	case *chat.TemplateData:
+		return data != nil && !data.ToolCallingEnabled
+	default:
+		return false
+	}
+}
+
+func filterSkillsWithoutToolDependencies(input []skills.Skill) []skills.Skill {
+	if len(input) == 0 {
+		return input
+	}
+	filtered := make([]skills.Skill, 0, len(input))
+	for _, s := range input {
+		if skillDependsOnTools(s) {
+			continue
+		}
+		filtered = append(filtered, s)
+	}
+	return filtered
+}
+
+func skillDependsOnTools(s skills.Skill) bool {
+	if s.Tools != nil {
+		if len(s.Tools.Allowed) > 0 || len(s.Tools.Denied) > 0 || s.Tools.BashCommands != nil {
+			return true
+		}
+	}
+	if s.Filesystem != nil {
+		if len(s.Filesystem.Read) > 0 || len(s.Filesystem.Write) > 0 || len(s.Filesystem.Deny) > 0 {
+			return true
+		}
+	}
+	if s.Network != nil {
+		if len(s.Network.AllowedHosts) > 0 || len(s.Network.DeniedHosts) > 0 {
+			return true
+		}
+	}
+	return s.MCP != nil
+}
+
 // ComputeEnabledToolNames retorna a lista de nomes de tools habilitadas pelo perfil.
 func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []string {
 	if activeProfile != nil && activeProfile.Chat.DisableTools {
@@ -308,8 +447,13 @@ func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []str
 	}
 
 	var defs []tools.ToolDefinition
-	if activeProfile != nil && activeProfile.Chat.EnabledTools != nil {
-		defs = b.Tools.FilterByNames(activeProfile.Chat.EnabledTools)
+	if activeProfile != nil {
+		initialEnabledTools := chat.ResolveInitialEnabledTools(b.Tools, activeProfile.Chat.EnabledTools, activeProfile.Chat.DisableTools)
+		if initialEnabledTools != nil {
+			defs = b.Tools.FilterByNames(initialEnabledTools)
+		} else {
+			defs = b.Tools.ToDefinitions()
+		}
 	} else {
 		defs = b.Tools.ToDefinitions()
 	}

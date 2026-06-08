@@ -62,8 +62,8 @@ function TaskListField({ value, onChange }: { value: unknown; onChange: (val: un
       if (!lists) return;
       setItems(lists.map((tl) => ({
         value: tl.id.toString(),
-        label: tl.title || t('tasklist.noTitle', 'Sem título'),
-        sublabel: `${tl.tasks?.length ?? 0} ${t('tasklist.totalTasks', 'tarefas')}`,
+        label: tl.title || t('tasklist.noTitle'),
+        sublabel: `${tl.tasks?.length ?? 0} ${t('tasklist.kanban.tasks')}`,
       })));
     } catch { /* ignore */ }
   }, [t]);
@@ -78,7 +78,7 @@ function TaskListField({ value, onChange }: { value: unknown; onChange: (val: un
       items={items}
       selected={selected}
       onSelect={(v) => onChange(parseInt(v, 10))}
-      placeholder={t('jobs.builder.selectTaskList', 'Buscar task list...')}
+      placeholder={t('jobs.builder.selectTaskList')}
       maxWidth="100%"
       onOpen={load}
     />

@@ -1,4 +1,6 @@
+import { logger } from '../utils/logger';
 import { create } from 'zustand';
+import { useShallow } from 'zustand/shallow';
 import {
   GetActiveWorkspace,
   ListWorkspaces,
@@ -26,7 +28,7 @@ import { waitForWailsBridge } from '../lib/waitForWailsBridge';
 export type TabType = 'chat' | 'editor' | 'terminal' | 'tasklist';
 
 // Registry: handlers called when user renames a tab via F2 (tab → content)
-// The id passed to the handler is type-specific: conversationId (chat), tasklistId (tasklist), sessionId (terminal)
+// The id passed to the handler is type-specific: conversationId (chat), tabId (editor), tasklistId (tasklist), sessionId (terminal)
 const tabRenameHandlers = new Map<TabType, (id: string, newTitle: string) => void>();
 
 export function registerTabRenameHandler(
@@ -40,7 +42,7 @@ export function registerTabRenameHandler(
 export interface WorkspaceTab {
   id: string;
   type: TabType;
-  conversationId?: number;
+  conversationId?: string;
   title: string;
   position: number;
   profileOverride?: Record<string, unknown>;
@@ -82,7 +84,7 @@ function frontendTabToBackend(tab: WorkspaceTab): workspace.Tab {
   return new workspace.Tab({
     id: tab.id,
     type: tab.type,
-    conversation_id: tab.conversationId || 0,
+    conversation_id: tab.conversationId || '',
     title: tab.title,
     position: tab.position,
     profile_override: tab.profileOverride,
@@ -110,7 +112,7 @@ interface WorkspaceStore {
   // Tab management
   addTab: (type: TabType, title: string, initialState?: Record<string, unknown>) => Promise<string>;
   removeTab: (tabId: string) => Promise<void>;
-  setActiveTab: (tabId: string) => Promise<void>;
+  setActiveTab: (tabId: string) => void;
   updateTab: (tabId: string, updates: Record<string, unknown>) => Promise<void>;
   reorderTabs: (orderedIds: string[]) => Promise<void>;
   moveTabToWorkspace: (tabId: string, targetWorkspaceId: string) => Promise<void>;
@@ -134,6 +136,7 @@ function generateTabId(): string {
 
 let initializingPromise: Promise<void> | null = null;
 let initializeRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let activationSeqId = 0;
 const WAILS_BRIDGE_INIT_TIMEOUT_MS = 10000;
 const WAILS_BRIDGE_RETRY_DELAY_MS = 1000;
 
@@ -146,6 +149,18 @@ function clearInitializeRetryTimer() {
     clearTimeout(initializeRetryTimer);
     initializeRetryTimer = null;
   }
+}
+
+/**
+ * Faz merge de `patch` no state existente de uma aba.
+ * Isso garante que chaves como `filePath` não sejam perdidas quando
+ * callers passam apenas um subset do state (ex: { scrollTop: 240 }).
+ */
+function mergeTabState(
+  existing: Record<string, unknown> | undefined,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  return { ...(existing ?? {}), ...patch };
 }
 
 export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
@@ -197,7 +212,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
         }
       } catch (error) {
         if (isWailsBridgeTimeoutError(error)) {
-          console.warn('[Workspace] Wails bridge timeout during initialize; retrying...', error);
+          logger.warn('[Workspace] Wails bridge timeout during initialize; retrying...', error);
           if (initializeRetryTimer === null) {
             initializeRetryTimer = setTimeout(() => {
               initializeRetryTimer = null;
@@ -206,7 +221,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
           }
           return;
         }
-        console.error('[Workspace] Error initializing:', error);
+        logger.error('[Workspace] Error initializing:', error);
         set({ isInitialized: true });
       } finally {
         initializingPromise = null;
@@ -246,6 +261,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     }));
 
     unsubs.push(EventsOn('workspace:tab_activated', (tabId: string) => {
+      if (get().workspace?.activeTabId === tabId) return;
       set(state => ({
         workspace: state.workspace
           ? { ...state.workspace, activeTabId: tabId }
@@ -255,16 +271,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
 
     // Content rename events → update matching tab title
     unsubs.push(EventsOn('conversation:renamed', (data: unknown) => {
-      const ev = data as { conversation_id?: number; new_title?: string };
-      if (ev.conversation_id && ev.new_title) {
-        get().handleContentRenamed('chat', String(ev.conversation_id), ev.new_title);
+      const ev = data as { conversationId?: string; newTitle?: string };
+      if (ev.conversationId && ev.newTitle) {
+        get().handleContentRenamed('chat', ev.conversationId, ev.newTitle);
       }
     }));
 
     unsubs.push(EventsOn('taskList:updated', (data: unknown) => {
-      const ev = data as { id?: number; title?: string };
+      const ev = data as { id?: string; title?: string };
       if (ev.id && ev.title) {
-        get().handleContentRenamed('tasklist', String(ev.id), ev.title);
+        get().handleContentRenamed('tasklist', ev.id, ev.title);
       }
     }));
 
@@ -311,7 +327,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       const list = await ListWorkspaces();
       set({ workspaces: list || [] });
     } catch (error) {
-      console.error('[Workspace] Error refreshing list:', error);
+      logger.error('[Workspace] Error refreshing list:', error);
     }
   },
 
@@ -320,12 +336,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     const ws = get().workspace;
     const position = ws ? ws.tabs.length : 0;
 
+    // Extract conversationId from initialState if present
+    let conversationId: string | undefined;
+    let state: Record<string, unknown> | undefined;
+    if (initialState) {
+      const { conversationId: cid, ...rest } = initialState;
+      conversationId = cid as string | undefined;
+      state = Object.keys(rest).length > 0 ? rest : undefined;
+    }
+
     const tab: WorkspaceTab = {
       id: tabId,
       type,
       title,
       position,
-      state: initialState,
+      conversationId,
+      state,
     };
 
     const backendTab = frontendTabToBackend(tab);
@@ -360,7 +386,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     announce('Aba fechada');
   },
 
-  setActiveTab: async (tabId) => {
+  setActiveTab: (tabId) => {
     if (get().workspace?.activeTabId === tabId) {
       return;
     }
@@ -368,12 +394,34 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       announce(i18next.t('workspace.closeDialogBeforeChangingTabs'));
       return;
     }
-    await SetActiveWorkspaceTab(tabId);
+    // Optimistic update: atualiza UI imediatamente, persiste em background
+    const previousTabId = get().workspace?.activeTabId ?? null;
+    const currentWorkspaceId = get().workspace?.id ?? null;
+    const mySeq = ++activationSeqId;
     set(state => ({
       workspace: state.workspace
         ? { ...state.workspace, activeTabId: tabId }
         : null,
     }));
+    // Fire-and-forget: UI já atualizada; rollback em caso de falha.
+    // A persistência no backend é assíncrona e não bloqueia callers.
+    void SetActiveWorkspaceTab(tabId).catch((err: unknown) => {
+      logger.warn('[workspaceStore] SetActiveWorkspaceTab failed:', err);
+      // Só faz rollback se nenhuma ativação mais recente ocorreu desde esta
+      // e o workspace não mudou (evita alterar activeTabId de outro workspace).
+      if (activationSeqId === mySeq && get().workspace?.id === currentWorkspaceId) {
+        const tabs = get().workspace?.tabs ?? [];
+        const rollbackId = tabs.some(t => t.id === previousTabId)
+          ? previousTabId
+          : (tabs[0]?.id ?? null);
+        set(state => ({
+          workspace: state.workspace
+            ? { ...state.workspace, activeTabId: rollbackId }
+            : null,
+        }));
+        announce(i18next.t('workspace.tabSwitchFailed'));
+      }
+    });
   },
 
   updateTab: async (tabId, updates) => {
@@ -388,8 +436,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
               ? {
                   ...t,
                   ...(updates.title !== undefined ? { title: updates.title as string } : {}),
-                  ...(updates.conversation_id !== undefined ? { conversationId: updates.conversation_id as number } : {}),
-                  ...(updates.state !== undefined ? { state: updates.state as Record<string, unknown> } : {}),
+                  ...(updates.conversation_id !== undefined ? { conversationId: updates.conversation_id as string } : {}),
+                  ...(updates.state !== undefined ? { state: mergeTabState(t.state, updates.state as Record<string, unknown>) } : {}),
                   ...(updates.profile_override !== undefined ? { profileOverride: updates.profile_override as Record<string, unknown> } : {}),
                 }
               : t
@@ -443,7 +491,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       if (tab.type !== type || tab.title === newTitle) continue;
       let matches = false;
       if (type === 'chat') {
-        matches = tab.conversationId === Number(contentId);
+        matches = tab.conversationId === contentId;
+      } else if (type === 'editor') {
+        matches = tab.id === contentId;
       } else if (type === 'tasklist') {
         matches = tab.state?.tasklistId === contentId;
       } else if (type === 'terminal') {
@@ -460,7 +510,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     if (!tab) return;
     let ref: string | undefined;
     if (tab.type === 'chat' && tab.conversationId) {
-      ref = String(tab.conversationId);
+      ref = tab.conversationId;
+    } else if (tab.type === 'editor') {
+      ref = tab.id;
     } else if (tab.type === 'tasklist') {
       ref = tab.state?.tasklistId as string | undefined;
     } else if (tab.type === 'terminal') {
@@ -483,6 +535,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     return ws.tabs.filter(t => t.type === type);
   },
 }));
+
+/**
+ * Hook estável para obter a aba ativa sem causar re-render desnecessário.
+ * Usa useShallow para evitar re-renders quando o conteúdo da aba não mudou.
+ */
+export function useActiveTab(): WorkspaceTab | undefined {
+  return useWorkspaceStore(
+    useShallow((s) => {
+      const ws = s.workspace;
+      if (!ws || !ws.activeTabId) return undefined;
+      return ws.tabs.find(t => t.id === ws.activeTabId);
+    })
+  );
+}
 
 // HMR: reseta estado do módulo para que o workspace reinicialize após hot reload
 if (import.meta.hot) {

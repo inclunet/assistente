@@ -11,6 +11,7 @@ vi.mock('react-i18next', () => ({
         'profiles.chatSection.groupProvider': 'Provedor e Modelo',
         'profiles.chatSection.groupGeneration': 'Parâmetros de Geração',
         'profiles.chatSection.groupContext': 'Contexto e Limites',
+        'profiles.chatSection.groupRecovery': 'Recuperação de Streaming',
         'profiles.chatSection.provider': 'Provedor LLM',
         'profiles.chatSection.model': 'Modelo',
         'profiles.chatSection.temperature': 'Temperatura',
@@ -36,6 +37,12 @@ vi.mock('react-i18next', () => ({
         'profiles.chatSection.reasoningHigh': 'Alto (high)',
         'profiles.chatSection.reasoningMax': 'Máximo (max)',
         'profiles.chatSection.reasoningHint': 'Define como o modelo usa tokens de raciocínio interno.',
+        'profiles.chatSection.streamingRecoveryEnabled': 'Tentar recuperar respostas interrompidas automaticamente',
+        'profiles.chatSection.streamingRecoveryEnabledHint': 'Quando uma resposta falha ou é interrompida, tenta retomar automaticamente antes de marcar como falha.',
+        'profiles.chatSection.streamingRecoveryMaxAttempts': 'Máximo de tentativas de recuperação',
+        'profiles.chatSection.streamingRecoveryMaxAttemptsHint': 'Número máximo de tentativas automáticas antes de exigir uma ação manual.',
+        'profiles.chatSection.streamingRecoveryShowContinue': 'Mostrar ação “Continuar resposta” quando falhar',
+        'profiles.chatSection.streamingRecoveryShowContinueHint': 'Exibe a opção manual de continuação quando houver conteúdo parcial e o modelo suportar.',
       };
       return translations[key] ?? key;
     },
@@ -77,6 +84,9 @@ describe('ProfileChatSection', () => {
     topP: 1.0,
     responseTimeout: 180,
     reasoningEffort: '',
+    streamingRecoveryEnabled: true,
+    streamingRecoveryMaxAttempts: 3,
+    streamingRecoveryShowContinue: true,
     onChange: vi.fn(),
   };
 
@@ -196,6 +206,36 @@ describe('ProfileChatSection', () => {
     await user.selectOptions(select, 'medium');
     
     expect(handleChange).toHaveBeenCalledWith('reasoning_effort', 'medium');
+  });
+
+  it('chama onChange ao alternar auto-recuperação de streaming', () => {
+    const handleChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={handleChange} />);
+
+    const checkbox = screen.getByLabelText('Tentar recuperar respostas interrompidas automaticamente');
+    fireEvent.click(checkbox);
+
+    expect(handleChange).toHaveBeenCalledWith('streaming_recovery_enabled', false);
+  });
+
+  it('chama onChange ao alterar máximo de tentativas de recuperação', () => {
+    const handleChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={handleChange} />);
+
+    const input = screen.getByLabelText('Máximo de tentativas de recuperação');
+    fireEvent.change(input, { target: { value: '5' } });
+
+    expect(handleChange).toHaveBeenCalledWith('streaming_recovery_max_attempts', 5);
+  });
+
+  it('chama onChange ao alternar ação continuar resposta', () => {
+    const handleChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={handleChange} />);
+
+    const checkbox = screen.getByLabelText('Mostrar ação “Continuar resposta” quando falhar');
+    fireEvent.click(checkbox);
+
+    expect(handleChange).toHaveBeenCalledWith('streaming_recovery_show_continue', false);
   });
 
   it('envia string vazia quando reasoning for off', async () => {

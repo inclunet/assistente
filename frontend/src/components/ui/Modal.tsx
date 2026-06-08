@@ -1,4 +1,13 @@
-import { ReactNode, useEffect, useRef, useCallback, useId } from 'react';
+import {
+  ReactNode,
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  useId,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { CloseOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -68,6 +77,28 @@ export function ensureModalCleanup() {
   }
 }
 
+/**
+ * Contexto que expõe, para os descendentes de um Modal, se aquele Modal é o
+ * que está no topo da stack. Reutiliza o mesmo critério usado pelo Modal para
+ * tratar ESC/Tab, garantindo que handlers de teclado de conteúdos internos
+ * (ex.: setas/zoom do ImageViewerModal) só ajam quando o modal estiver ativo.
+ */
+const ModalTopmostContext = createContext<(() => boolean) | null>(null);
+
+// Fallback estável por referência para uso fora de um Modal: sem stack
+// concorrente, considera-se sempre o topo. Constante de módulo para não
+// criar uma nova função a cada render (evita reexecução de useEffect/deps).
+const ALWAYS_TOPMOST = () => true;
+
+/**
+ * Retorna uma função que indica se o Modal mais próximo (ancestral) é o do
+ * topo da stack. Fora de um Modal, assume `true` (sem stack concorrente).
+ */
+export function useModalIsTopmost(): () => boolean {
+  const ctx = useContext(ModalTopmostContext);
+  return ctx ?? ALWAYS_TOPMOST;
+}
+
 // Seletor para elementos focáveis
 const FOCUSABLE_SELECTOR = 
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
@@ -91,6 +122,15 @@ export interface ModalProps {
   returnFocusOnClose?: boolean;
   /** Se false, desabilita fechamento (ESC, clique fora e botão X). Default: true */
   allowClose?: boolean;
+  /**
+   * Modais de leitura (ex.: detalhes de mensagem, estatísticas de tokens) recebem
+   * `role="document"` no corpo, o que faz o NVDA alternar para modo de navegação
+   * e permitir leitura linear do conteúdo. Modais de configuração/formulário NÃO
+   * devem habilitar esta opção: eles permanecem com `role="application"` (modo
+   * de foco do NVDA) para que setas e teclas sejam entregues aos controles.
+   * Default: false
+   */
+  readingMode?: boolean;
 }
 
 export function Modal({
@@ -103,6 +143,7 @@ export function Modal({
   ariaDescribedBy,
   returnFocusOnClose = true,
   allowClose = true,
+  readingMode = false,
 }: ModalProps) {
   const { t } = useTranslation();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -122,6 +163,9 @@ export function Modal({
     const id = modalInstanceIdRef.current;
     return OPEN_MODAL_STACK.length > 0 && OPEN_MODAL_STACK[OPEN_MODAL_STACK.length - 1] === id;
   }, []);
+
+  // Valor estável exposto via contexto para descendentes do Modal.
+  const topmostValue = useMemo(() => isTopMost, [isTopMost]);
 
   // Mantém o stack em sync com abertura/fechamento.
   useEffect(() => {
@@ -240,30 +284,36 @@ export function Modal({
   if (!isOpen) return null;
 
   return createPortal(
-    <div
-      className="modal-overlay"
-      role="dialog"
-      aria-labelledby={titleId}
-      aria-describedby={ariaDescribedBy}
-    >
-      <div ref={modalRef} className={`modal-content ${size}${className ? ` ${className}` : ''}`}>
-        <div className="modal-header">
-          {allowClose && (
-            <button 
-              className="modal-close"
-              onClick={onClose}
-              aria-label={t('ui.modal.close')}
-            >
-              <CloseOutlined aria-hidden="true" />
-            </button>
-          )}
-          <h1 id={titleId} className="modal-title">{title}</h1>
-        </div>
-        <div className="modal-body">
-          {children}
+    <ModalTopmostContext.Provider value={topmostValue}>
+      <div
+        className="modal-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={ariaDescribedBy}
+      >
+        <div ref={modalRef} className={`modal-content ${size}${className ? ` ${className}` : ''}`}>
+          <div className="modal-header">
+            {allowClose && (
+              <button 
+                className="modal-close"
+                onClick={onClose}
+                aria-label={t('ui.modal.close')}
+              >
+                <CloseOutlined aria-hidden="true" />
+              </button>
+            )}
+            <h1 id={titleId} className="modal-title">{title}</h1>
+          </div>
+          <div
+            className="modal-body"
+            role={readingMode ? 'document' : 'application'}
+          >
+            {children}
+          </div>
         </div>
       </div>
-    </div>,
+    </ModalTopmostContext.Provider>,
     document.body
   );
 }

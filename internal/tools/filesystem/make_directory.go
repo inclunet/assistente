@@ -60,7 +60,7 @@ func (t *MakeDirectory) Execute(ctx context.Context, args json.RawMessage) (tool
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
-	if err := validatePathWithPolicy(ctx, fullPath, t.workDir, ToolPolicy(), "write"); err != nil {
+	if err := validatePathWithPolicy(ctx, fullPath, t.workDir, ToolPolicy(), "mkdir"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 

@@ -17,12 +17,14 @@ type Streamer interface {
 // MCPServerConfig descreve um MCP server HTTP remoto para resolução nativa server-side.
 // Usado por ChatProvider.WithMCPServers() para passar servidores ao LLM provider.
 type MCPServerConfig struct {
-	Name         string            `json:"name"`
-	URL          string            `json:"url"`
-	AuthToken    string            `json:"auth_token,omitempty"`
-	Headers      map[string]string `json:"headers,omitempty"`
-	ToolNames    []string          `json:"tool_names,omitempty"`    // todas as tools do server (namespaced, para dedup bridge)
-	AllowedTools []string          `json:"allowed_tools,omitempty"` // tools permitidas pelo perfil (nomes originais do MCP server); vazio = todas
+	Slug         string                      `json:"slug,omitempty"`
+	Name         string                      `json:"name"`
+	URL          string                      `json:"url"`
+	AuthToken    string                      `json:"auth_token,omitempty"`
+	Headers      map[string]string           `json:"headers,omitempty"`
+	ToolNames    []string                    `json:"tool_names,omitempty"`    // todas as tools do server (namespaced, para dedup bridge)
+	AllowedTools []string                    `json:"allowed_tools,omitempty"` // tools permitidas pelo perfil (nomes originais do MCP server); vazio = todas
+	Recover      func(context.Context) error `json:"-"`
 }
 
 // ChatProvider abstrai a comunicação com LLMs via SDKs oficiais.
@@ -40,14 +42,27 @@ type ChatProvider interface {
 	// SimpleChat é um atalho para enviar system+user e obter a resposta (sem tools).
 	SimpleChat(ctx context.Context, model, systemPrompt, userMessage string) (string, error)
 
-	// SupportsNativeMCP indica se este provider implementa MCP connector nativo real.
-	// Retorna true somente se WithMCPServers produz efeito operacional (altera a request ao LLM).
-	SupportsNativeMCP() bool
+	// NativeMCPCapable indica se o provider/transport é FISICAMENTE capaz de emitir
+	// MCP nativo, independentemente de qualquer política. É a ÚNICA dimensão de
+	// provider que influencia MCP nativo (não há heurística por URL/endpoint).
+	// Ex.: OpenAI via Responses API e Anthropic são capazes; Chat Completions e
+	// Google não. Um override de perfil "true" só habilita MCP nativo quando o
+	// provider é capaz — evita remover bridge tools sem ter como enviar type:"mcp".
+	NativeMCPCapable() bool
 
-	// WithMCPServers retorna uma cópia do provider configurada com MCP servers HTTP remotos.
-	// Quando SupportsNativeMCP() é true, os servers são incorporados na request ao LLM
-	// (ex: Anthropic mcp_servers, OpenAI Responses type:mcp).
-	// Quando false, retorna o provider inalterado (os servers devem usar adapter/bridge).
+	// WithMCPServers retorna uma cópia do provider configurada com MCP servers HTTP remotos,
+	// incorporando-os na request ao LLM quando o provider é FISICAMENTE capaz
+	// (NativeMCPCapable() == true): Anthropic mcp_servers, OpenAI Responses type:mcp.
+	// Quando o provider não é capaz, retorna o provider inalterado (no-op) e os servers
+	// devem usar adapter/bridge.
+	//
+	// O gate aqui é apenas de capacidade de TRANSPORTE (NativeMCPCapable()). A
+	// POLÍTICA de usar nativo vs adapter NÃO é decidida pelo provider: é resolvida
+	// na camada de chat por ResolveNativeMCPEnabled, que combina NativeMCPCapable()
+	// + o override de perfil (Profile.Chat.NativeMCP). O default (auto, override nil)
+	// é OTIMISTA: tenta nativo sempre que o provider for fisicamente capaz, degradando
+	// para adapter (e persistindo no perfil) apenas quando o modelo rejeita type:"mcp".
+	// A camada de chat só chama WithMCPServers quando a política resolve nativo.
 	WithMCPServers(servers []MCPServerConfig) ChatProvider
 }
 

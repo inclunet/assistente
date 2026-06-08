@@ -14,6 +14,10 @@ describe('parseToolSource', () => {
     expect(parseToolSource('mcp_nu-mcp__get_issues')).toEqual({ type: 'mcp', serverSlug: 'nu-mcp' });
   });
 
+  it('identifica MCP quando nome da tool contém separador', () => {
+    expect(parseToolSource('mcp_jira__issue__delete')).toEqual({ type: 'mcp', serverSlug: 'jira' });
+  });
+
   it('retorna local se prefixo mcp_ sem separador __', () => {
     expect(parseToolSource('mcp_broken')).toEqual({ type: 'local' });
   });

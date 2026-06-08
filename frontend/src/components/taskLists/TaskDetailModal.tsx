@@ -8,7 +8,8 @@ import { useTaskListStore } from '../../store/taskListStore';
 import { useConfirm } from '../../hooks/useConfirm';
 import { openTaskLink } from '../../lib/deepLinks';
 import { TASK_NOTE_TYPES } from '../../types/tasklist';
-import type { Task, TaskNote, TaskNoteType, TaskListWorkflowStatus } from '../../types/tasklist';
+import type { Task, TaskNote, TaskNoteType, TaskListWorkflowStatus, CustomActionView } from '../../types/tasklist';
+import { useCustomActions } from './useCustomActions';
 import './TaskDetailModal.css';
 
 interface TaskDetailModalProps {
@@ -47,35 +48,45 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const { t } = useTranslation();
   const navigate = useNavigate();
   const requestConfirm = useConfirm();
-  const { loadTaskNotes, createTaskNote, updateTaskNote, deleteTaskNote } = useTaskListStore();
+  const { loadTaskNotes, createTaskNote, updateTaskNote, deleteTaskNote, listCardCustomActions } = useTaskListStore();
+  const { runCustomAction } = useCustomActions();
 
   const [notes, setNotes] = useState<TaskNote[]>([]);
+  const [customActions, setCustomActions] = useState<CustomActionView[]>([]);
   const [isLoadingNotes, setIsLoadingNotes] = useState(false);
   const [showNoteForm, setShowNoteForm] = useState(false);
-  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
 
   // Note form state
   const [noteType, setNoteType] = useState<TaskNoteType>(TASK_NOTE_TYPES.INTERNAL);
   const [noteContent, setNoteContent] = useState('');
   const [noteAuthor, setNoteAuthor] = useState('');
 
-  const loadNotes = useCallback(async () => {
-    if (!task) return;
-    setIsLoadingNotes(true);
-    const loaded = await loadTaskNotes(task.id);
-    setNotes(loaded);
-    setIsLoadingNotes(false);
-  }, [task, loadTaskNotes]);
-
   useEffect(() => {
     if (isOpen && task) {
-      loadNotes();
-    } else {
-      setNotes([]);
-      setShowNoteForm(false);
-      setEditingNoteId(null);
+      // Stale guard único para os dois loads assíncronos (notes + custom actions):
+      // se o modal fechar/trocar de task antes das Promises resolverem, não
+      // sobrescrevemos estado com dados do card anterior.
+      let cancelled = false;
+      setIsLoadingNotes(true);
+      loadTaskNotes(task.id)
+        .then((loaded) => { if (!cancelled) { setNotes(loaded); setIsLoadingNotes(false); } })
+        .catch(() => { if (!cancelled) { setNotes([]); setIsLoadingNotes(false); } });
+      listCardCustomActions(task.id, 'card_detail')
+        .then((res) => { if (!cancelled) setCustomActions(res); })
+        .catch(() => { if (!cancelled) setCustomActions([]); });
+      return () => { cancelled = true; };
     }
-  }, [isOpen, task, loadNotes]);
+    setNotes([]);
+    setCustomActions([]);
+    // Reseta o loading também: se o modal fechou com loadTaskNotes ainda pendente,
+    // o stale guard impede o setIsLoadingNotes(false) na Promise, e sem isto o
+    // estado ficaria preso em "carregando" até o próximo open.
+    setIsLoadingNotes(false);
+    setShowNoteForm(false);
+    setEditingNoteId(null);
+    return undefined;
+  }, [isOpen, task, loadTaskNotes, listCardCustomActions]);
 
   const resetForm = useCallback(() => {
     setNoteType(TASK_NOTE_TYPES.INTERNAL);
@@ -110,7 +121,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     setNoteContent('');
   }, [editingNoteId, noteContent, updateTaskNote]);
 
-  const handleDeleteNote = useCallback(async (noteId: number) => {
+  const handleDeleteNote = useCallback(async (noteId: string) => {
     const confirmed = await requestConfirm({
       title: t('tasklist.deleteNote'),
       message: t('tasklist.deleteNoteConfirm'),
@@ -197,6 +208,22 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
           </span>
         )}
       </div>
+
+      {/* Custom actions (AEP-0067): when avaliado server-side */}
+      {customActions.length > 0 && (
+        <div className="task-detail__custom-actions">
+          {customActions.map((ca) => (
+            <button
+              key={ca.id}
+              type="button"
+              className={`task-detail__custom-action${ca.danger ? ' task-detail__custom-action--danger' : ''}`}
+              onClick={() => { void runCustomAction(ca, task.taskListId, task.id); }}
+            >
+              {ca.icon ? `${ca.icon} ${ca.label}` : ca.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Description */}
       <div className="task-detail__section">

@@ -6,12 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
+	"strings"
+	"unicode/utf8"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
+	"assistente/internal/mcp"
 	"assistente/internal/messaging"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
@@ -40,12 +46,17 @@ type ServiceConfig struct {
 	Emitter          events.Emitter
 	MsgRepo          chat.MessageRepository
 	ToolExecutor     *tools.Executor
+	ToolInvocations  *toolinvocations.Service
 	ResponseNotifier *messaging.ResponseNotifier
-	GetTokenStats    func(uint) (*chat.TokenStats, error)
-	TriggerSummarize func(uint)
+	GetTokenStats    func(string) (*chat.TokenStats, error)
+	// TriggerSummarize dispara a verificação/sumarização da conversa. Recebe o
+	// conversationID e o profileSlug DA CONVERSA (o mesmo resolvido no envio),
+	// para que o resumo use o provider/modelo do perfil da conversa e não o do
+	// perfil ativo global (Issue #203).
+	TriggerSummarize func(context.Context, string, string)
 	// OnSpeechRequest é chamado após chat:done e chat:segment_done para disparar TTS proativo.
 	// Parâmetros: conversationID, messageID, role, text, origin, profileSlug, interrupt.
-	OnSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
+	OnSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 }
 
 // Service encapsula a lógica do agentic loop sem dependências do Wails.
@@ -53,10 +64,76 @@ type Service struct {
 	emitter          events.Emitter
 	msgRepo          chat.MessageRepository
 	toolExecutor     *tools.Executor
+	toolInvocations  *toolinvocations.Service
 	responseNotifier *messaging.ResponseNotifier
-	getTokenStats    func(uint) (*chat.TokenStats, error)
-	triggerSummarize func(uint)
-	onSpeechRequest  func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
+	getTokenStats    func(string) (*chat.TokenStats, error)
+	triggerSummarize func(context.Context, string, string)
+	onSpeechRequest  func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+}
+
+// StreamSimpleWithRecovery executa um streaming simples (sem tool calling) com auto-retry opcional.
+// Em tentativas intermediárias, suprime o erro terminal para não finalizar o streaming no frontend.
+// Se o contexto for cancelado, emite chat:done como evento terminal canônico.
+func (s *Service) StreamSimpleWithRecovery(
+	ctx context.Context,
+	streamer llm.Streamer,
+	messages []llm.Message,
+	params llm.ChatParams,
+	conversationID string,
+	turnID string,
+	profileSlug string,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+	streamingRecoveryEnabled bool,
+	streamingRecoveryMaxAttempts int,
+) {
+	if streamer == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	maxAttempts := streamingRecoveryMaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	attempts := 1
+	if streamingRecoveryEnabled {
+		attempts = maxAttempts
+	}
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if ctx.Err() != nil {
+			s.emitSimpleContextDone(ctx, conversationID, turnID, "", surfaceOrigin)
+			return
+		}
+		h, err := s.NewSimpleStreamHandler(ctx, conversationID, turnID, profileSlug, surfaceOrigin)
+		if errors.Is(err, chat.ErrConversationGone) {
+			return
+		}
+		messages = s.applyContinuationPrefill(ctx, messages, params, h.AssistantMessageID, h.SetInitialContent)
+		// Só a última tentativa deve finalizar o streaming com erro.
+		h.SuppressTerminalError(attempt < attempts)
+		streamer.StreamChat(ctx, messages, params, h)
+		if ctx.Err() != nil {
+			partialContent, partialReasoning := h.Finalize()
+			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
+			s.emitSimpleContextDone(ctx, conversationID, turnID, h.AssistantMessageID, surfaceOrigin)
+			return
+		}
+		if h.LastError() == "" {
+			return
+		}
+		if attempt == attempts {
+			partialContent, partialReasoning := h.Finalize()
+			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
+		}
+		if attempt < attempts {
+			log.Printf("[Chat] streaming interrompido (conversa %s, tentativa %d/%d): %s", conversationID, attempt, attempts, h.LastError())
+		}
+	}
 }
 
 // NewService cria um novo Service com as dependências injetadas.
@@ -65,6 +142,7 @@ func NewService(cfg ServiceConfig) *Service {
 		emitter:          cfg.Emitter,
 		msgRepo:          cfg.MsgRepo,
 		toolExecutor:     cfg.ToolExecutor,
+		toolInvocations:  cfg.ToolInvocations,
 		responseNotifier: cfg.ResponseNotifier,
 		getTokenStats:    cfg.GetTokenStats,
 		triggerSummarize: cfg.TriggerSummarize,
@@ -81,22 +159,37 @@ func (s *Service) RunAgenticLoop(
 	ctx context.Context,
 	messages []llm.Message,
 	params llm.ChatParams,
-	conversationID uint,
-	turnID uint,
+	conversationID string,
+	turnID string,
 	toolDefs []llm.ToolDefinition,
 	streamer llm.Streamer,
-	newHandler func(conversationID uint, iteration int) IterationHandler,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+	newHandler func(conversationID string, iteration int) IterationHandler,
+	resolveToolDefs func([]string) []llm.ToolDefinition,
+	streamingRecoveryEnabled bool,
+	streamingRecoveryMaxAttempts int,
 ) {
 	if streamer == nil {
 		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
-		log.Printf("🔴 [AGENT] streamer nil na conversa %d", conversationID)
-		s.emitter.Emit("chat:stream", events.StreamEvent{
-			Content:        "",
-			Done:           true,
-			Error:          errMsg,
-			ConversationId: conversationID,
+		log.Printf("🔴 [AGENT] streamer nil na conversa %s", conversationID)
+		s.emitter.Emit("chat:done", ports.DoneEvent{
+			ConversationID: conversationID,
+			TurnID:         turnID,
+			SurfaceOrigin:  surfaceOrigin,
+			Reason:         "error",
+			ErrorMessage:   errMsg,
 		})
 		return
+	}
+
+	assistantMessageID, err := chat.EnsureAssistantPlaceholder(ctx, s.msgRepo, conversationID, turnID)
+	if errors.Is(err, chat.ErrConversationGone) {
+		return
+	}
+	if err != nil {
+		// Best-effort: segue sem placeholder (streaming funciona, mas sem messageId estável).
+		log.Printf("[Agent] aviso: falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
+		assistantMessageID = ""
 	}
 
 	// Resolver maxIterations usando valor do perfil (params) ou fallback ao config do executor
@@ -105,95 +198,214 @@ func (s *Service) RunAgenticLoop(
 		maxIterations = s.toolExecutor.Config().MaxIterations
 	}
 
-	// Propaga contexto de invocação (tab type + arquivo ativo) para as tools
-	if params.TabType != "" || params.ActiveFilePath != "" || params.SurfaceStateJSON != "" || params.SurfaceContextJSON != "" {
-		ctx = invocationctx.With(ctx, invocationctx.InvocationContext{
-			TabType:        params.TabType,
-			ActiveFilePath: params.ActiveFilePath,
-			SurfaceState:   chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[agent] surface state payload"),
-			SurfaceContext: chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[agent] surface context payload"),
-		})
+	maxRecoveryAttempts := streamingRecoveryMaxAttempts
+	if maxRecoveryAttempts <= 0 {
+		maxRecoveryAttempts = 3
 	}
+	if maxRecoveryAttempts < 1 {
+		maxRecoveryAttempts = 1
+	}
+
+	// Propaga contexto de invocação para as tools. Sempre carrega a identidade
+	// da conversa/turno/profile (AEP-0068, usado pela tool `subagent`); os
+	// campos de superfície (tab/arquivo) só quando presentes.
+	ctx = invocationctx.With(ctx, invocationctx.InvocationContext{
+		TabType:        params.TabType,
+		ActiveFilePath: params.ActiveFilePath,
+		SurfaceState:   chat.DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[agent] surface state payload"),
+		SurfaceContext: chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[agent] surface context payload"),
+		ConversationID: conversationID,
+		TurnID:         turnID,
+		ProfileSlug:    params.ProfileSlug,
+	})
+
+	// AEP-0039 Fase 2: acumula estatísticas de tool calling ao longo do loop
+	var (
+		totalToolCallCount int
+		toolsUsedSet       = map[string]struct{}{}
+		lastUsage          llm.Usage
+	)
+
+	// Estado ativo de streamer/tools: pode ser trocado em runtime pelo fallback
+	// nativo→adapter (AEP-0021). Quando o modelo rejeita MCP nativo, re-tentamos o
+	// MESMO turno com as bridge tools (modo adapter), preservando as tools.
+	activeStreamer := streamer
+	activeToolDefs := toolDefs
+	activeResolve := resolveToolDefs
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Verifica cancelamento
 		if ctx.Err() != nil {
 			log.Printf("[Agent] loop cancelado na iteração %d", iteration)
-			s.emitter.Emit("chat:stream", events.StreamEvent{
-				Content:        "",
-				Done:           true,
-				Error:          "Operação cancelada",
-				ConversationId: conversationID,
-			})
+			s.emitAgenticContextDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin, iteration-1, totalToolCallCount, toolsUsedSet)
 			return
 		}
 
-		// 1. Cria handler para esta iteração e chama o LLM (bloqueante)
-		handler := newHandler(conversationID, iteration)
-		streamer.StreamChat(ctx, messages, params, handler, toolDefs...)
+		// 1. Cria handler para esta iteração e chama o LLM (bloqueante), com auto-retry opcional.
+		var result AgenticResult
+		var lastStreamErr string
+		attempts := 1
+		if streamingRecoveryEnabled {
+			attempts = maxRecoveryAttempts
+		}
+		for attempt := 1; attempt <= attempts; attempt++ {
+			if ctx.Err() != nil {
+				s.emitAgenticContextDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin, iteration-1, totalToolCallCount, toolsUsedSet)
+				return
+			}
+			handler := newHandler(conversationID, iteration)
+			if setter, ok := handler.(interface{ SetAssistantMessageID(string) }); ok {
+				setter.SetAssistantMessageID(assistantMessageID)
+			}
+			var setInitialContent func(string)
+			if prefillSetter, ok := handler.(interface{ SetInitialContent(string) }); ok {
+				setInitialContent = prefillSetter.SetInitialContent
+			}
+			messages = s.applyContinuationPrefill(ctx, messages, params, assistantMessageID, setInitialContent)
+			activeStreamer.StreamChat(ctx, messages, params, handler, activeToolDefs...)
+			// Fallback nativo→adapter no MESMO turno: se o provider sinalizou que o
+			// modelo não suporta MCP nativo, troca para o streamer/tools em modo
+			// adapter (bridges presentes) e re-tenta esta iteração SEM consumir uma
+			// tentativa de recovery. Consume() garante que isso ocorre só uma vez.
+			if fb := params.NativeMCPFallback; fb != nil && fb.Consume() {
+				log.Printf("[Agent] MCP nativo não suportado (iteração %d): re-tentando o mesmo turno em modo adapter com bridge tools", iteration)
+				if fb.Streamer != nil {
+					activeStreamer = fb.Streamer
+				}
+				activeToolDefs = fb.ToolDefs
+				if fb.ResolveToolDefs != nil {
+					activeResolve = fb.ResolveToolDefs
+				}
+				attempt--
+				continue
+			}
+			result = handler.Result()
+			if ctx.Err() != nil {
+				if partialHandler, ok := handler.(interface{ Finalize() (string, string) }); ok {
+					partialContent, partialReasoning := partialHandler.Finalize()
+					s.persistAssistantPartialBestEffort(ctx, assistantMessageID, partialContent, partialReasoning)
+				}
+				s.emitAgenticContextDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin, iteration, totalToolCallCount, toolsUsedSet)
+				return
+			}
+			if result.Error == "" {
+				lastStreamErr = ""
+				break
+			}
+			lastStreamErr = result.Error
+			if attempt == attempts {
+				if partialHandler, ok := handler.(interface{ Finalize() (string, string) }); ok {
+					partialContent, partialReasoning := partialHandler.Finalize()
+					s.persistAssistantPartialBestEffort(ctx, assistantMessageID, partialContent, partialReasoning)
+				}
+			}
+			if attempt < attempts {
+				log.Printf("[Agent] streaming interrompido (iteração %d, tentativa %d/%d): %s", iteration, attempt, attempts, result.Error)
+				continue
+			}
+		}
 
-		result := handler.Result()
+		// Acumula usage da última iteração (AEP-0039)
+		if result.Usage.PromptTokens > 0 || result.Usage.CompletionTokens > 0 {
+			lastUsage = result.Usage
+		}
 
 		// 2. Erro?
-		if result.Error != "" {
+		if lastStreamErr != "" {
 			log.Printf("[Agent] erro na iteração %d: %s", iteration, result.Error)
-			s.emitter.Emit("chat:stream", events.StreamEvent{
-				Content:        result.FullResponse,
-				Done:           true,
-				Error:          result.Error,
-				ConversationId: conversationID,
+			// chat:done é o evento terminal canônico — inclui ErrorMessage para que
+			// adapters (CLI, frontend) exibam o erro sem depender de chat:stream terminal.
+			errToolsUsed := make([]string, 0, len(toolsUsedSet))
+			for name := range toolsUsedSet {
+				errToolsUsed = append(errToolsUsed, name)
+			}
+			sort.Strings(errToolsUsed)
+			s.emitter.Emit("chat:done", ports.DoneEvent{
+				ConversationID:     conversationID,
+				TurnID:             turnID,
+				AssistantMessageID: assistantMessageID,
+				SurfaceOrigin:      surfaceOrigin,
+				HadToolCalls:       totalToolCallCount > 0,
+				Reason:             "error",
+				ErrorMessage:       lastStreamErr,
+				IterationCount:     iteration + 1,
+				ToolCallCount:      totalToolCallCount,
+				ToolsUsed:          errToolsUsed,
+				PromptTokens:       lastUsage.PromptTokens,
+				CompletionTokens:   lastUsage.CompletionTokens,
 			})
 			return
 		}
 
 		// 3. Emite segment_done para verbalização e acumulação de segmentos no frontend
-		if result.FullResponse != "" || !result.IsDone {
-			s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
-				ConversationID: conversationID,
-				Content:        result.FullResponse,
-				Iteration:      iteration,
-				HasMore:        !result.IsDone,
-			})
-
-			// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior).
-			// Apenas para iterações intermediárias (!IsDone); na última iteração,
-			// SaveAndFinish emite chat:speak com origin=assistant_message e messageId real.
-			if s.onSpeechRequest != nil && result.FullResponse != "" && !result.IsDone {
-				s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
-			}
-		}
-
-		// 4. finish_reason="stop" → resposta final
+		//    Para iterações finais (IsDone), emite imediatamente.
+		//    Para iterações com tool calls, emite após execução com ToolsInIteration (AEP-0039).
 		if result.IsDone {
-			s.SaveAndFinish(conversationID, turnID, result, params.ProfileSlug)
+			// MCP nativo pode aparecer em uma resposta final (finish_reason="stop").
+			// A persistência ocorre em SaveAndFinish; aqui só atualizamos stats.
+			if len(result.NativeMCPEvents) > 0 {
+				for _, ev := range result.NativeMCPEvents {
+					if !ev.IsCompleted {
+						continue
+					}
+					totalToolCallCount++
+					toolsUsedSet[ev.Name] = struct{}{}
+				}
+			}
+
+			if result.FullResponse != "" {
+				s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
+					ConversationID: conversationID,
+					TurnID:         turnID,
+					Content:        result.FullResponse,
+					Iteration:      iteration,
+					HasMore:        false,
+					SurfaceOrigin:  surfaceOrigin,
+				})
+			}
+
+			// 4. finish_reason="stop" → resposta final
+			s.SaveAndFinish(ctx, conversationID, turnID, assistantMessageID, result, params.ProfileSlug, &LoopStats{
+				IterationCount: iteration + 1,
+				ToolCallCount:  totalToolCallCount,
+				ToolsUsed:      toolsUsedSet,
+				LastUsage:      lastUsage,
+			}, surfaceOrigin)
 			return
 		}
 
+		// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior).
+		if s.onSpeechRequest != nil && result.FullResponse != "" {
+			s.onSpeechRequest(conversationID, "", "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
+		}
+
 		// 5. finish_reason="tool_calls" → executar ferramentas
+		var iterationNativeTools []ports.ToolSummary
+
 		// 5a. Persiste MCP calls nativas desta iteração antes das bridge calls
 		if len(result.NativeMCPEvents) > 0 {
-			s.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents)
-		}
-
-		// 5b. Salva mensagem do assistant com bridge tool_calls no banco
-		toolCallsJSON, _ := json.Marshal(result.ToolCalls)
-		_, err := s.msgRepo.AddAssistantToolMessage(
-			conversationID,
-			turnID,
-			result.FullResponse,
-			string(toolCallsJSON),
-			result.Reasoning,
-			result.Model,
-		)
-		if err != nil {
-			if errors.Is(err, chat.ErrConversationDeleted) {
-				log.Printf("[Agent] conversa %d deletada — abortando", conversationID)
-				return
+			s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, iteration)
+			// AEP-0039: contabiliza MCP native tools
+			for _, ev := range result.NativeMCPEvents {
+				if ev.IsCompleted {
+					status := "ok"
+					if ev.Error != "" {
+						status = "error"
+					}
+					iterationNativeTools = append(iterationNativeTools, ports.ToolSummary{
+						Name:        ev.Name,
+						Status:      status,
+						Origin:      OriginMCPNative,
+						ServerLabel: ev.ServerLabel,
+					})
+					totalToolCallCount++
+					toolsUsedSet[ev.Name] = struct{}{}
+				}
 			}
-			log.Printf("[Agent] erro ao salvar assistant com tool_calls: %v", err)
 		}
 
-		// 5c. Adiciona mensagem do assistant ao histórico para próxima iteração
+		// 5b. Adiciona mensagem do assistant ao histórico para próxima iteração
+		// (Persistência no DB movida para após execução — AEP-0039 Fase 5)
 		messages = append(messages, llm.Message{
 			Role:      "assistant",
 			Content:   result.FullResponse,
@@ -202,45 +414,220 @@ func (s *Service) RunAgenticLoop(
 
 		// 5d. Executa ferramentas em paralelo
 		toolCalls := convertToolCalls(result.ToolCalls)
-		s.emitToolStarts(conversationID, result.ToolCalls)
-		execResults := s.toolExecutor.ExecuteAll(ctx, toolCalls)
+		// Defesa (repo-driven): evita iniciar execução/persistência de tools se o
+		// turno já não existe (ou pertence a outra conversa). Não acessa o DB global
+		// diretamente para permitir repos alternativos/mocks.
+		if s.msgRepo != nil {
+			if turnMsg, err := s.msgRepo.GetMessage(ctx, turnID); err != nil {
+				log.Printf("[Agent] turn message %s não existe mais antes de executar tools: %v", turnID, err)
+				return
+			} else {
+				turnConv := strings.TrimSpace(turnMsg.ConversationID)
+				conv := strings.TrimSpace(conversationID)
+				// Se o repo não popula ConversationID, não temos como validar; segue o fluxo.
+				if turnConv != "" && conv != "" && turnConv != conv {
+					log.Printf("[Agent] turn message %s pertence a outra conversa (%s); abortando execução de tools", turnID, turnMsg.ConversationID)
+					return
+				}
+			}
+		}
+		s.emitToolStarts(conversationID, turnID, result.ToolCalls, surfaceOrigin)
+		execBatch := s.executeToolCalls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID})
+		execResults := execBatch.Executions
 
-		// 5e. Salva resultados e adiciona ao histórico
+		// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
+		retriedCallIDs := make(map[string]struct{})
+		for i, execResult := range execResults {
+			if execResult.Result.IsError && execResult.Retryable && iteration < maxIterations-1 {
+				retriedCallIDs[execResult.CallID] = struct{}{}
+				retryOrigin, retryServerLabel := detectToolOrigin(execResult.ToolName)
+				retryName := extractLogicalToolName(execResult.ToolName)
+				// Emite tool_end para a tentativa que falhou (attempt=0)
+				EmitToolEnd(s.emitter, ports.ToolEndEvent{
+					ConversationID: conversationID,
+					TurnID:         turnID,
+					Name:           retryName,
+					CallID:         execResult.CallID,
+					Status:         "error",
+					Summary:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
+					Origin:         retryOrigin,
+					ServerLabel:    retryServerLabel,
+					DurationMs:     execResult.DurationMs,
+					Attempt:        0,
+					SurfaceOrigin:  surfaceOrigin,
+				})
+				// Emite tool_failure com willRetry=true
+				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
+					ConversationID: conversationID,
+					TurnID:         turnID,
+					Name:           retryName,
+					CallID:         execResult.CallID,
+					ErrorKind:      string(execResult.ErrorKind),
+					Retryable:      true,
+					Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
+					DurationMs:     execResult.DurationMs,
+					Origin:         retryOrigin,
+					WillRetry:      true,
+					Attempt:        0,
+					SurfaceOrigin:  surfaceOrigin,
+				})
+				log.Printf("[Agent] tool %s falhou (kind=%s), tentando retry...", retryName, execResult.ErrorKind)
+				// Emite tool_start para a nova tentativa (attempt=1)
+				EmitToolStart(s.emitter, ports.ToolStartEvent{
+					ConversationID: conversationID,
+					TurnID:         turnID,
+					Name:           retryName,
+					CallID:         execResult.CallID,
+					Args:           toolCalls[i].Function.Arguments,
+					Origin:         retryOrigin,
+					ServerLabel:    retryServerLabel,
+					Attempt:        1,
+					SurfaceOrigin:  surfaceOrigin,
+				})
+				retried, retriedPersisted := s.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID})
+				execResults[i] = retried
+				execBatch.PersistedByCallID[retried.CallID] = retriedPersisted
+			}
+		}
+
+		// 5f. Emit tool_end/failure events e acumula stats
+		var iterationTools []ports.ToolSummary
 		for _, execResult := range execResults {
+			origin, serverLabel := detectToolOrigin(execResult.ToolName)
+			logicalName := extractLogicalToolName(execResult.ToolName)
 			status := "ok"
 			if execResult.Result.IsError {
 				status = "error"
 			}
-			s.emitter.Emit("chat:tool_end", ports.ToolEndEvent{
+			attempt := 0
+			if _, wasRetried := retriedCallIDs[execResult.CallID]; wasRetried {
+				attempt = 1
+			}
+			EmitToolEnd(s.emitter, ports.ToolEndEvent{
 				ConversationID: conversationID,
-				Name:           execResult.ToolName,
+				TurnID:         turnID,
+				Name:           logicalName,
 				CallID:         execResult.CallID,
 				Status:         status,
-				Summary:        truncateString(execResult.Result.Content, 200),
+				Summary:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
+				Origin:         origin,
+				ServerLabel:    serverLabel,
+				DurationMs:     execResult.DurationMs,
+				Attempt:        attempt,
+				SurfaceOrigin:  surfaceOrigin,
 			})
 
-			_, err := s.msgRepo.AddToolResultMessage(
-				conversationID,
-				turnID,
-				execResult.Result.Content,
-				execResult.CallID,
-			)
-			if err != nil {
-				if errors.Is(err, chat.ErrConversationDeleted) {
-					log.Printf("[Agent] conversa %d deletada — abortando", conversationID)
-					return
-				}
-				log.Printf("[Agent] erro ao salvar resultado de tool %s: %v", execResult.ToolName, err)
+			// AEP-0039 Fase 3: emite tool_failure para erros classificados (sem retry)
+			if execResult.Result.IsError && execResult.ErrorKind != "" {
+				EmitToolFailure(s.emitter, ports.ToolFailureEvent{
+					ConversationID: conversationID,
+					TurnID:         turnID,
+					Name:           logicalName,
+					CallID:         execResult.CallID,
+					ErrorKind:      string(execResult.ErrorKind),
+					Retryable:      execResult.Retryable,
+					Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
+					DurationMs:     execResult.DurationMs,
+					Origin:         origin,
+					Attempt:        attempt,
+					SurfaceOrigin:  surfaceOrigin,
+				})
 			}
 
+			// AEP-0039: acumula stats
+			iterationTools = append(iterationTools, ports.ToolSummary{
+				Name:        logicalName,
+				Status:      status,
+				ErrorKind:   string(execResult.ErrorKind),
+				DurationMs:  execResult.DurationMs,
+				Origin:      origin,
+				ServerLabel: serverLabel,
+			})
+			totalToolCallCount++
+			toolsUsedSet[logicalName] = struct{}{}
+		}
+		activeToolDefs = expandToolDefsFromCatalogResults(activeToolDefs, execResults, activeResolve)
+
+		// 5f-ii. AEP-0039 Fase 4: pre-check de context window — trunca resultados se necessário.
+		// Usa cópia para truncamento; o conteúdo original é preservado para persistência no DB.
+		toolContents := make([]string, len(execResults))
+		for i, r := range execResults {
+			toolContents[i] = r.Result.Content
+		}
+		preCheck := PreCheckContextWindow(params.ContextWindow, params.MaxTokens, messages, toolContents)
+
+		// 5f-iii. AEP-0039 Fase 5: persiste assistant tool_calls com metadata enriquecida
+		enrichedCalls := make([]llm.EnrichedToolCall, len(result.ToolCalls))
+		// AEP-0063 (D2): não persistir tool results como parte das mensagens.
+		// O resultado é efêmero em tool_invocations e hidratado sob demanda.
+		for i, tc := range result.ToolCalls {
+			tcOrigin, tcServerLabel := detectToolOrigin(tc.Function.Name)
+			enrichedCalls[i] = llm.EnrichedToolCall{
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: llm.FunctionCall{
+					Name:      extractLogicalToolName(tc.Function.Name),
+					Arguments: tc.Function.Arguments,
+				},
+				Origin:      tcOrigin,
+				ServerLabel: tcServerLabel,
+				Iteration:   iteration,
+			}
+			if i < len(execResults) {
+				enrichedCalls[i].DurationMs = execResults[i].DurationMs
+			}
+		}
+		toolCallsJSON, _ := json.Marshal(enrichedCalls)
+		_, err := s.msgRepo.AddAssistantToolMessage(
+			ctx,
+			conversationID,
+			turnID,
+			result.FullResponse,
+			string(toolCallsJSON),
+			result.Reasoning,
+			result.Model,
+		)
+		assistantToolCallsSaved := err == nil
+		if err != nil {
+			if errors.Is(err, chat.ErrConversationDeleted) {
+				log.Printf("[Agent] conversa %s deletada — abortando", conversationID)
+				return
+			}
+			log.Printf("[Agent] erro ao salvar assistant com tool_calls: %v", err)
+		}
+
+		// 5f-iv. Persiste resultados técnicos em tool_invocations e adiciona
+		// conteúdo (possivelmente truncado) apenas ao histórico enviado ao LLM.
+		// Fallback: se tool_invocations não estiver configurado, persiste como
+		// mensagens role=tool para manter o histórico completo.
+		for i, execResult := range execResults {
+			// Para o histórico LLM, usa versão truncada se pre-check aplicou truncamento
+			content := execResult.Result.Content
+			if preCheck.Truncated {
+				content = toolContents[i]
+			}
+			// PersistedByCallID indica que a linha técnica foi escrita. Porém, a UI/export/sumarização
+			// descobrem esses resultados a partir de mensagens de chat; se a mensagem assistant tool_calls
+			// falhou, precisamos cair no fallback role=tool para não orfanar o output.
+			persisted := execBatch.PersistedByCallID[execResult.CallID] && assistantToolCallsSaved
+			if !persisted {
+				persistedContent := execResult.Result.Content
+				if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, persistedContent, execResult.CallID); err != nil {
+					if errors.Is(err, chat.ErrConversationDeleted) {
+						log.Printf("[Agent] conversa %s deletada durante tool execution — abortando", conversationID)
+						return
+					}
+					log.Printf("[Agent] erro ao salvar tool result message (fallback): %v", err)
+				}
+			}
 			messages = append(messages, llm.Message{
 				Role:       "tool",
-				Content:    execResult.Result.Content,
+				Content:    content,
 				ToolCallID: execResult.CallID,
 			})
 		}
 
-		// 5f. Emite token stats atualizadas em tempo real
+		// 5g. Emite token stats atualizadas em tempo real
 		if s.getTokenStats != nil {
 			if stats, err := s.getTokenStats(conversationID); err == nil && stats != nil {
 				s.emitter.Emit("chat:token_stats_update", ports.TokenStatsUpdateEvent{
@@ -248,6 +635,7 @@ func (s *Service) RunAgenticLoop(
 					PromptTokens:                stats.PromptTokens,
 					CompletionTokens:            stats.CompletionTokens,
 					TotalTokens:                 stats.TotalTokens,
+					ContextTokens:               stats.ContextTokens,
 					ContextUsage:                stats.ContextUsage,
 					ContextLimit:                stats.ContextLimit,
 					IsNearLimit:                 stats.IsNearLimit,
@@ -262,35 +650,84 @@ func (s *Service) RunAgenticLoop(
 				})
 			}
 		}
+
+		// 5g. Emite segment_done com resumo de tools da iteração (AEP-0039)
+		allIterTools := append(iterationNativeTools, iterationTools...)
+		s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
+			ConversationID:   conversationID,
+			TurnID:           turnID,
+			Content:          result.FullResponse,
+			Iteration:        iteration,
+			HasMore:          true,
+			ToolsInIteration: allIterTools,
+			SurfaceOrigin:    surfaceOrigin,
+		})
 	}
 
 	// Atingiu limite de iterações
-	log.Printf("[Agent] limite de %d iterações atingido para conversa %d", maxIterations, conversationID)
+	log.Printf("[Agent] limite de %d iterações atingido para conversa %s", maxIterations, conversationID)
 	s.emitter.Emit("chat:stream", events.StreamEvent{
 		Content:        "Limite de iterações do agente atingido. A resposta pode estar incompleta.",
 		Done:           true,
 		ConversationId: conversationID,
+		TurnID:         turnID,
+		SurfaceOrigin:  surfaceOrigin,
 	})
+	toolsUsedList := make([]string, 0, len(toolsUsedSet))
+	for name := range toolsUsedSet {
+		toolsUsedList = append(toolsUsedList, name)
+	}
+	sort.Strings(toolsUsedList)
 	s.emitter.Emit("chat:done", ports.DoneEvent{
-		ConversationID: conversationID,
+		ConversationID:   conversationID,
+		TurnID:           turnID,
+		HadToolCalls:     totalToolCallCount > 0,
+		Reason:           "limit_reached",
+		IterationCount:   maxIterations,
+		ToolCallCount:    totalToolCallCount,
+		ToolsUsed:        toolsUsedList,
+		PromptTokens:     lastUsage.PromptTokens,
+		CompletionTokens: lastUsage.CompletionTokens,
+		SurfaceOrigin:    surfaceOrigin,
 	})
 
 	if s.triggerSummarize != nil {
 		go func() {
 			defer s.recoverFromPanic(conversationID, "triggerSummarize")
-			s.triggerSummarize(conversationID)
+			s.triggerSummarize(ctx, conversationID, params.ProfileSlug)
 		}()
 	}
 }
 
+// LoopStats acumula estatísticas do agentic loop para inclusão no chat:done (AEP-0039 Fase 2).
+type LoopStats struct {
+	IterationCount int
+	ToolCallCount  int
+	ToolsUsed      map[string]struct{}
+	LastUsage      llm.Usage
+}
+
 // SaveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
 // Se houve MCP tool calls nativas, persiste no banco antes da mensagem final.
-func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResult, profileSlug string) {
-	var savedMsgID uint
-	if conversationID > 0 && result.FullResponse != "" {
-		if len(result.NativeMCPEvents) > 0 && turnID > 0 {
-			s.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents)
+// loopStats é opcional — se nil, apenas os campos enriquecidos derivados das estatísticas do loop ficam vazios.
+func (s *Service) SaveAndFinish(
+	ctx context.Context,
+	conversationID, turnID string,
+	assistantMessageID string,
+	result AgenticResult,
+	profileSlug string,
+	loopStats *LoopStats,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+) {
+	var savedMsgID string
+	if conversationID != "" && turnID != "" && len(result.NativeMCPEvents) > 0 {
+		finalIteration := 0
+		if loopStats != nil && loopStats.IterationCount > 0 {
+			finalIteration = loopStats.IterationCount - 1
 		}
+		s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, finalIteration)
+	}
+	if conversationID != "" && result.FullResponse != "" {
 
 		opts := chat.MessageOptions{
 			ConversationID:   conversationID,
@@ -302,18 +739,21 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 			TotalTokens:      result.Usage.TotalTokens,
 			Model:            result.Model,
 		}
-		if turnID > 0 {
+		if turnID != "" {
 			opts.TurnID = &turnID
 		}
 
 		var err error
-		savedMsgID, err = chat.SaveAssistantMessage(s.msgRepo, opts)
+		savedMsgID, err = chat.FinalizeAssistantMessage(ctx, s.msgRepo, assistantMessageID, opts)
 		if errors.Is(err, chat.ErrConversationGone) {
 			return
 		}
 		if err != nil {
 			log.Printf("[Agent] erro ao salvar resposta final: %v", err)
 		}
+	}
+	if savedMsgID == "" {
+		savedMsgID = assistantMessageID
 	}
 
 	if s.responseNotifier != nil {
@@ -325,7 +765,9 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 		Content:        result.FullResponse,
 		Done:           true,
 		ConversationId: conversationID,
+		TurnID:         turnID,
 		FullResponse:   result.FullResponse,
+		SurfaceOrigin:  surfaceOrigin,
 	})
 
 	// TTS proativo: dispara ANTES de chat:done pois chat:done causa cleanup dos listeners no frontend
@@ -333,16 +775,48 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 		s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", profileSlug, true)
 	}
 
-	s.emitter.Emit("chat:done", ports.DoneEvent{
+	hadTools := false
+	if loopStats != nil {
+		hadTools = loopStats.ToolCallCount > 0 || len(result.NativeMCPEvents) > 0
+	}
+	doneEvent := ports.DoneEvent{
 		ConversationID:     conversationID,
+		TurnID:             turnID,
 		AssistantMessageID: savedMsgID,
-		HadToolCalls:       turnID > 0,
-	})
+		HadToolCalls:       hadTools,
+		Reason:             "completed",
+		SurfaceOrigin:      surfaceOrigin,
+	}
+	if loopStats != nil {
+		doneEvent.IterationCount = loopStats.IterationCount
+		doneEvent.ToolCallCount = loopStats.ToolCallCount
+		if len(loopStats.ToolsUsed) > 0 {
+			list := make([]string, 0, len(loopStats.ToolsUsed))
+			for name := range loopStats.ToolsUsed {
+				list = append(list, name)
+			}
+			sort.Strings(list)
+			doneEvent.ToolsUsed = list
+		}
+		if loopStats.LastUsage.PromptTokens > 0 {
+			doneEvent.PromptTokens = loopStats.LastUsage.PromptTokens
+		}
+		if loopStats.LastUsage.CompletionTokens > 0 {
+			doneEvent.CompletionTokens = loopStats.LastUsage.CompletionTokens
+		}
+	}
+	if doneEvent.PromptTokens == 0 && result.Usage.PromptTokens > 0 {
+		doneEvent.PromptTokens = result.Usage.PromptTokens
+	}
+	if doneEvent.CompletionTokens == 0 && result.Usage.CompletionTokens > 0 {
+		doneEvent.CompletionTokens = result.Usage.CompletionTokens
+	}
+	s.emitter.Emit("chat:done", doneEvent)
 
 	if s.triggerSummarize != nil {
 		go func() {
 			defer s.recoverFromPanic(conversationID, "triggerSummarize")
-			s.triggerSummarize(conversationID)
+			s.triggerSummarize(ctx, conversationID, profileSlug)
 		}()
 	}
 
@@ -351,8 +825,8 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 
 // emitTokenStats queries token usage for a conversation and emits chat:token_stats
 // plus a chat:context_warning if the context window is near or at capacity.
-func (s *Service) emitTokenStats(conversationID uint) {
-	if conversationID == 0 || s.getTokenStats == nil {
+func (s *Service) emitTokenStats(conversationID string) {
+	if conversationID == "" || s.getTokenStats == nil {
 		return
 	}
 	stats, err := s.getTokenStats(conversationID)
@@ -362,6 +836,7 @@ func (s *Service) emitTokenStats(conversationID uint) {
 	s.emitter.Emit("chat:token_stats", ports.TokenStatsEvent{
 		ConversationID:   conversationID,
 		TotalTokens:      stats.TotalTokens,
+		ContextTokens:    stats.ContextTokens,
 		ContextLimit:     stats.ContextLimit,
 		ContextUsage:     stats.ContextUsage,
 		IsNearLimit:      stats.IsNearLimit,
@@ -371,98 +846,330 @@ func (s *Service) emitTokenStats(conversationID uint) {
 		MessageCount:     stats.MessageCount,
 	})
 	if stats.IsCritical {
-		log.Printf("[Context] conversa %d em CRÍTICO: %0.1f%% (%d/%d tokens)",
-			conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
+		log.Printf("[Context] conversa %s em CRÍTICO: %0.1f%% (%d/%d tokens)",
+			conversationID, stats.ContextUsage, stats.ContextTokens, stats.ContextLimit)
 		s.emitter.Emit("chat:context_warning", ports.ContextWarningEvent{
 			ConversationID: conversationID,
 			Level:          "critical",
 			Message: fmt.Sprintf("Atenção: Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa ou resumir o histórico.",
-				stats.ContextUsage, stats.TotalTokens, stats.ContextLimit),
-			Percentage:   stats.ContextUsage,
-			TotalTokens:  stats.TotalTokens,
-			ContextLimit: stats.ContextLimit,
+				stats.ContextUsage, stats.ContextTokens, stats.ContextLimit),
+			Percentage:    stats.ContextUsage,
+			ContextTokens: stats.ContextTokens,
+			ContextLimit:  stats.ContextLimit,
 		})
 	} else if stats.IsNearLimit {
-		log.Printf("[Context] conversa %d próxima do limite: %0.1f%% (%d/%d tokens)",
-			conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
+		log.Printf("[Context] conversa %s próxima do limite: %0.1f%% (%d/%d tokens)",
+			conversationID, stats.ContextUsage, stats.ContextTokens, stats.ContextLimit)
 		s.emitter.Emit("chat:context_warning", ports.ContextWarningEvent{
 			ConversationID: conversationID,
 			Level:          "warning",
 			Message: fmt.Sprintf("Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa em breve.",
-				stats.ContextUsage, stats.TotalTokens, stats.ContextLimit),
-			Percentage:   stats.ContextUsage,
-			TotalTokens:  stats.TotalTokens,
-			ContextLimit: stats.ContextLimit,
+				stats.ContextUsage, stats.ContextTokens, stats.ContextLimit),
+			Percentage:    stats.ContextUsage,
+			ContextTokens: stats.ContextTokens,
+			ContextLimit:  stats.ContextLimit,
 		})
 	}
 }
 
-func (s *Service) emitToolStarts(conversationID uint, calls []llm.ToolCall) {
+func (s *Service) emitToolStarts(conversationID string, turnID string, calls []llm.ToolCall, surfaceOrigin *ports.ChatSurfaceOrigin) {
 	for _, call := range calls {
-		s.emitter.Emit("chat:tool_start", ports.ToolStartEvent{
+		origin, serverLabel := detectToolOrigin(call.Function.Name)
+		name := extractLogicalToolName(call.Function.Name)
+		EmitToolStart(s.emitter, ports.ToolStartEvent{
 			ConversationID: conversationID,
-			Name:           call.Function.Name,
+			TurnID:         turnID,
+			Name:           name,
 			CallID:         call.ID,
 			Args:           call.Function.Arguments,
+			Origin:         origin,
+			ServerLabel:    serverLabel,
+			SurfaceOrigin:  surfaceOrigin,
 		})
 	}
+}
+
+// detectToolOrigin determina origin e serverLabel a partir do nome da tool.
+// Tools MCP bridge seguem o formato "mcp_{serverSlug}__{toolName}".
+func detectToolOrigin(toolName string) (origin, serverLabel string) {
+	if strings.HasPrefix(toolName, "mcp_") {
+		if idx := strings.Index(toolName, "__"); idx > 4 {
+			return OriginMCPBridge, toolName[4:idx]
+		}
+	}
+	return OriginBuiltin, ""
+}
+
+// extractLogicalToolName retorna o nome lógico da tool, sem prefixo MCP bridge.
+// Para "mcp_github__search_code" retorna "search_code".
+// Para tools builtin/native retorna o nome inalterado.
+func extractLogicalToolName(toolName string) string {
+	if strings.HasPrefix(toolName, "mcp_") {
+		if idx := strings.Index(toolName, "__"); idx > 4 {
+			return toolName[idx+2:]
+		}
+	}
+	return toolName
 }
 
 // persistNativeMCPCalls salva MCP tool calls nativas no banco no mesmo formato que bridge calls:
-// uma mensagem assistant com tool_calls JSON + mensagens tool separadas com resultados.
-func (s *Service) persistNativeMCPCalls(conversationID, turnID uint, mcpEvents []llm.MCPToolEvent) {
-	var toolCalls []llm.ToolCall
+// uma mensagem assistant com tool_calls JSON e os resultados técnicos em tool_invocations.
+// AEP-0039 Fase 5: serializa com EnrichedToolCall para incluir origin, server_label, iteration.
+// Persistência: salva tool calls no assistant message (sem criar mensagens role=tool)
+// e registra os resultados técnicos em tool_invocations.
+func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, turnID string, mcpEvents []llm.MCPToolEvent, iteration int) {
+	if len(mcpEvents) == 0 {
+		return
+	}
+	// Defesa (repo-driven): se o turno foi deletado enquanto o provider streamava,
+	// não registrar tool_invocations para evitar registros órfãos.
+	if s.msgRepo != nil {
+		if turnMsg, err := s.msgRepo.GetMessage(ctx, turnID); err != nil {
+			log.Printf("[MCP Native] turn message %s não existe mais; ignorando persistência de MCP events: %v", turnID, err)
+			return
+		} else {
+			turnConv := strings.TrimSpace(turnMsg.ConversationID)
+			conv := strings.TrimSpace(conversationID)
+			if turnConv != "" && conv != "" && turnConv != conv {
+				log.Printf("[MCP Native] turn message %s pertence a outra conversa (%s); ignorando persistência de MCP events", turnID, turnMsg.ConversationID)
+				return
+			}
+		}
+	}
+
+	argsByID := map[string]string{}
+	for _, ev := range mcpEvents {
+		if strings.TrimSpace(ev.ID) == "" {
+			continue
+		}
+		if strings.TrimSpace(ev.Arguments) == "" {
+			continue
+		}
+		if _, ok := argsByID[ev.ID]; ok {
+			continue
+		}
+		argsByID[ev.ID] = ev.Arguments
+	}
+
+	// Persistência do output: AEP-0063 (D2) evita armazenar tool results como mensagens.
+	// O output completo fica efêmero em tool_invocations; se a persistência estiver
+	// indisponível, o fallback role=tool é usado para manter histórico/export legível.
+	// IMPORTANTE: grava os fallbacks APÓS a mensagem assistant tool_calls para manter
+	// a ordem tool-call -> tool-result no histórico/export.
+	formatFallbackContent := func(output, errMsg string) string {
+		if strings.TrimSpace(errMsg) == "" {
+			return output
+		}
+		// Mantém um marcador explícito para consumidores de histórico/export.
+		// Evita duplicar se o backend já prefixou.
+		trimmed := strings.TrimSpace(errMsg)
+		if strings.HasPrefix(trimmed, "Error:") || strings.HasPrefix(trimmed, "ERROR:") {
+			return trimmed
+		}
+		return "Error: " + trimmed
+	}
+	type fallbackToolResult struct {
+		CallID  string
+		Content string
+	}
+	persistable := s.toolInvocations != nil && s.toolInvocations.CanPersist()
+	fallbackResults := make([]fallbackToolResult, 0)
+	if !persistable {
+		for _, ev := range mcpEvents {
+			if !ev.IsCompleted {
+				continue
+			}
+			content := formatFallbackContent(ev.Output, ev.Error)
+			fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content})
+		}
+	}
+
+	if persistable {
+		// Resultados técnicos: persistir em tool_invocations quando disponível.
+		// Não criar novas mensagens role=tool em caso de sucesso (export/import lê tool_calls enriquecido).
+		slugCache := map[string]string{}
+		for _, ev := range mcpEvents {
+			if !ev.IsCompleted {
+				continue
+			}
+			label := strings.TrimSpace(ev.ServerLabel)
+			slug := strings.TrimSpace(slugCache[label])
+			if slug == "" {
+				resolved, ok := resolveMCPServerSlug(ctx, label)
+				if ok {
+					slug = resolved
+					slugCache[label] = resolved
+				}
+			}
+			if strings.TrimSpace(slug) == "" {
+				log.Printf("[MCP Native] não foi possível resolver server slug para %q; usando fallback role=tool (id=%s)", ev.ServerLabel, ev.ID)
+				content := formatFallbackContent(ev.Output, ev.Error)
+				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content})
+				continue
+			}
+			fullName := mcp.BuildToolName(slug, ev.Name)
+			args := ev.Arguments
+			if strings.TrimSpace(args) == "" {
+				args = argsByID[ev.ID]
+			}
+			result := tools.ToolResult{Content: ev.Output}
+			errKind := tools.ErrorKindNone
+			errMsg := ""
+			if ev.Error != "" {
+				result = tools.ToolResult{Content: ev.Error, IsError: true}
+				errKind = tools.ErrorKindUnknown
+				errMsg = ev.Error
+			}
+			_, recErr := s.toolInvocations.Record(ctx, toolinvocations.RecordRequest{
+				Call: tools.ToolCall{
+					ID:   ev.ID,
+					Type: "function",
+					Function: tools.FunctionCall{
+						Name:      fullName,
+						Arguments: args,
+					},
+				},
+				Origin: toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID},
+				DryRun: false,
+				Result: result,
+				// Sem sinalização de timeout/cancel no contrato do MCP event hoje.
+				ErrorKind:    errKind,
+				ErrorMessage: errMsg,
+				Retryable:    false,
+				DurationMs:   0,
+			})
+			if recErr != nil {
+				log.Printf("[MCP Native] Erro ao registrar tool invocation (id=%s): %v", ev.ID, recErr)
+				// Fallback: garante que exista ao menos um resultado persistido
+				// para o tool_call_id no histórico da conversa.
+				content := formatFallbackContent(ev.Output, ev.Error)
+				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content})
+				continue
+			}
+		}
+	}
+
+	var toolCalls []llm.EnrichedToolCall
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted {
 			continue
 		}
-		name := ev.Name
-		if ev.ServerLabel != "" {
-			name = ev.ServerLabel + "/" + ev.Name
+		args := ev.Arguments
+		if strings.TrimSpace(args) == "" {
+			args = argsByID[ev.ID]
 		}
-		toolCalls = append(toolCalls, llm.ToolCall{
+		call := llm.EnrichedToolCall{
 			ID:   ev.ID,
 			Type: "function",
 			Function: llm.FunctionCall{
-				Name:      name,
-				Arguments: ev.Arguments,
+				Name:      ev.Name,
+				Arguments: args,
 			},
-		})
+			Origin:      OriginMCPNative,
+			ServerLabel: ev.ServerLabel,
+			Iteration:   iteration,
+		}
+		toolCalls = append(toolCalls, call)
 	}
 	if len(toolCalls) == 0 {
 		return
 	}
-
 	toolCallsJSON, err := json.Marshal(toolCalls)
 	if err != nil {
 		log.Printf("[MCP Native] Erro ao serializar tool calls: %v", err)
 		return
 	}
-
-	_, err = s.msgRepo.AddAssistantToolMessage(conversationID, turnID, "", string(toolCallsJSON), "", "")
-	if err != nil {
+	if _, err := s.msgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, "", string(toolCallsJSON), "", ""); err != nil {
 		log.Printf("[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
+		// Ainda assim, tenta persistir resultados como role=tool (melhor que perder output).
+		// Inclui também eventos que foram registrados em tool_invocations, pois sem a mensagem assistant
+		// não há como hidratar esses resultados a partir do histórico.
+		for _, ev := range mcpEvents {
+			if !ev.IsCompleted {
+				continue
+			}
+			callID := strings.TrimSpace(ev.ID)
+			if callID == "" {
+				continue
+			}
+			content := strings.TrimSpace(formatFallbackContent(ev.Output, ev.Error))
+			if content == "" {
+				continue
+			}
+			if _, err2 := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, callID); err2 != nil {
+				log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", callID, err2)
+			}
+		}
 		return
 	}
-
-	for _, ev := range mcpEvents {
-		if !ev.IsCompleted {
+	for _, fb := range fallbackResults {
+		if strings.TrimSpace(fb.CallID) == "" {
 			continue
 		}
-		content := ev.Output
-		if ev.Error != "" {
-			content = "ERROR: " + ev.Error
-		}
-		_, err := s.msgRepo.AddToolResultMessage(conversationID, turnID, content, ev.ID)
-		if err != nil {
-			log.Printf("[MCP Native] Erro ao salvar tool result (id=%s): %v", ev.ID, err)
+		if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, fb.Content, fb.CallID); err != nil {
+			log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", fb.CallID, err)
 		}
 	}
 }
 
+func resolveMCPServerSlug(ctx context.Context, serverLabel string) (string, bool) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return "", false
+	}
+	label := strings.TrimSpace(serverLabel)
+	if label == "" {
+		return "", false
+	}
+	normalized := strings.ToLower(label)
+	var server database.MCPServer
+
+	// Caminho rápido: slug é único e indexado.
+	err = database.DB().WithContext(ctx).
+		Where("user_id = ? AND slug = ?", userID, normalized).
+		First(&server).Error
+	if err == nil {
+		return server.Slug, true
+	}
+
+	// Segundo caminho: match exato por name, mas com desambiguação (name não é único).
+	var servers []database.MCPServer
+	err = database.DB().WithContext(ctx).
+		Where("user_id = ? AND name = ?", userID, label).
+		Limit(2).
+		Find(&servers).Error
+	if err == nil {
+		if len(servers) == 1 {
+			return servers[0].Slug, true
+		}
+		if len(servers) > 1 {
+			log.Printf("[MCP Native] server label %q é ambíguo (name duplicado); não persistindo por slug", serverLabel)
+			return "", false
+		}
+	}
+
+	// Terceiro caminho: busca case-insensitive por name, também exige unicidade.
+	servers = nil
+	err = database.DB().WithContext(ctx).
+		Where("user_id = ? AND LOWER(name) = ?", userID, normalized).
+		Limit(2).
+		Find(&servers).Error
+	if err != nil {
+		return "", false
+	}
+	if len(servers) == 1 {
+		return servers[0].Slug, true
+	}
+	if len(servers) > 1 {
+		log.Printf("[MCP Native] server label %q é ambíguo (LOWER(name) duplicado); não persistindo por slug", serverLabel)
+		return "", false
+	}
+	return "", false
+}
+
 // recoverFromPanic captura panic e delega o tratamento para events.HandlePanic.
 // recover() deve ser chamado diretamente no corpo da função adiada — não pode ser delegado.
-func (s *Service) recoverFromPanic(conversationID uint, source string) {
+func (s *Service) recoverFromPanic(conversationID string, source string) {
 	r := recover()
 	events.HandlePanic(s.emitter, conversationID, source, r)
 }
@@ -482,9 +1189,291 @@ func convertToolCalls(llmCalls []llm.ToolCall) []tools.ToolCall {
 	return result
 }
 
+func selectedToolsFromCatalog(results []tools.ToolExecutionResult) []string {
+	var selected []string
+	seen := map[string]struct{}{}
+	for _, result := range results {
+		if result.ToolName != tools.ToolCatalogName || result.Result.IsError {
+			continue
+		}
+		var payload struct {
+			SelectedTools []string `json:"selected_tools"`
+		}
+		if err := json.Unmarshal([]byte(result.Result.Content), &payload); err != nil {
+			log.Printf("[Agent] resposta inválida de %s: %v", tools.ToolCatalogName, err)
+			continue
+		}
+		for _, name := range payload.SelectedTools {
+			name = strings.TrimSpace(name)
+			if name == "" || name == tools.ToolCatalogName {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			selected = append(selected, name)
+		}
+	}
+	return selected
+}
+
+func appendUniqueToolDefs(existing []llm.ToolDefinition, additions ...llm.ToolDefinition) []llm.ToolDefinition {
+	if len(additions) == 0 {
+		return existing
+	}
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+	for _, def := range existing {
+		seen[def.Function.Name] = struct{}{}
+	}
+	for _, def := range additions {
+		if def.Function.Name == "" {
+			continue
+		}
+		if _, ok := seen[def.Function.Name]; ok {
+			continue
+		}
+		existing = append(existing, def)
+		seen[def.Function.Name] = struct{}{}
+	}
+	return existing
+}
+
+func expandToolDefsFromCatalogResults(
+	existing []llm.ToolDefinition,
+	results []tools.ToolExecutionResult,
+	resolveToolDefs func([]string) []llm.ToolDefinition,
+) []llm.ToolDefinition {
+	if resolveToolDefs == nil {
+		return existing
+	}
+	return appendUniqueToolDefs(existing, resolveToolDefs(selectedToolsFromCatalog(results))...)
+}
+
+type toolExecutionBatch struct {
+	Executions        []tools.ToolExecutionResult
+	PersistedByCallID map[string]bool
+}
+
+func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin) toolExecutionBatch {
+	if s.toolInvocations == nil {
+		execs := s.toolExecutor.ExecuteAll(ctx, calls)
+		persisted := make(map[string]bool, len(execs))
+		for _, r := range execs {
+			persisted[r.CallID] = false
+		}
+		return toolExecutionBatch{Executions: execs, PersistedByCallID: persisted}
+	}
+	results := s.toolInvocations.ExecuteAll(ctx, calls, origin)
+	out := make([]tools.ToolExecutionResult, len(results))
+	persisted := make(map[string]bool, len(results))
+	for i, result := range results {
+		out[i] = result.Execution
+		persisted[result.Execution.CallID] = result.Persisted
+	}
+	return toolExecutionBatch{Executions: out, PersistedByCallID: persisted}
+}
+
+func (s *Service) executeToolCall(ctx context.Context, call tools.ToolCall, origin toolinvocations.Origin) (tools.ToolExecutionResult, bool) {
+	if s.toolInvocations == nil {
+		return s.toolExecutor.ExecuteOne(ctx, call), false
+	}
+	res := s.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{Call: call, Origin: origin})
+	return res.Execution, res.Persisted
+}
+
 func truncateString(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+
+	const suffix = "..."
+	if maxLen <= len(suffix) {
+		return suffix[:maxLen]
+	}
+
+	cutoff := maxLen - len(suffix)
+	// UTF-8 safe: recua até achar limite de rune válido
+	for cutoff > 0 && !utf8.RuneStart(s[cutoff]) {
+		cutoff--
+	}
+	return s[:cutoff] + suffix
+}
+
+func (s *Service) loadAssistantPrefill(ctx context.Context, assistantMessageID string) string {
+	assistantMessageID = strings.TrimSpace(assistantMessageID)
+	if assistantMessageID == "" || s.msgRepo == nil {
+		return ""
+	}
+	msg, err := s.msgRepo.GetMessage(ctx, assistantMessageID)
+	if err != nil || msg == nil {
+		return ""
+	}
+	return msg.Content
+}
+
+func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assistantMessageID, content, reasoning string) {
+	assistantMessageID = strings.TrimSpace(assistantMessageID)
+	if assistantMessageID == "" || strings.TrimSpace(content) == "" || s.msgRepo == nil {
+		return
+	}
+	persistCtx := context.WithoutCancel(ctx)
+
+	var (
+		promptTokens     int
+		completionTokens int
+		totalTokens      int
+		model            string
+	)
+	if msg, err := s.msgRepo.GetMessage(persistCtx, assistantMessageID); err == nil && msg != nil {
+		promptTokens = msg.PromptTokens
+		completionTokens = msg.CompletionTokens
+		totalTokens = msg.TotalTokens
+		model = msg.Model
+		if strings.TrimSpace(reasoning) == "" {
+			reasoning = msg.Reasoning
+		}
+	}
+
+	if err := s.msgRepo.UpdateMessageContentAndReasoning(persistCtx, assistantMessageID, content, reasoning, promptTokens, completionTokens, totalTokens, model); err != nil {
+		log.Printf("[Agent] aviso: falha ao persistir conteúdo parcial da mensagem assistant %s: %v", assistantMessageID, err)
+	}
+}
+
+func (s *Service) emitSimpleContextDone(
+	ctx context.Context,
+	conversationID string,
+	turnID string,
+	assistantMessageID string,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+) {
+	err := ctx.Err()
+	if err == nil || s.emitter == nil {
+		return
+	}
+	errorMessage := "geração cancelada"
+	if errors.Is(err, context.DeadlineExceeded) {
+		errorMessage = "tempo limite da geração atingido"
+	}
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID:     conversationID,
+		TurnID:             turnID,
+		AssistantMessageID: assistantMessageID,
+		SurfaceOrigin:      surfaceOrigin,
+		Reason:             "error",
+		ErrorMessage:       errorMessage,
+	})
+}
+
+func (s *Service) emitAgenticContextDone(
+	ctx context.Context,
+	conversationID string,
+	turnID string,
+	assistantMessageID string,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+	iteration int,
+	toolCallCount int,
+	toolsUsedSet map[string]struct{},
+) {
+	err := ctx.Err()
+	if err == nil || s.emitter == nil {
+		return
+	}
+	errorMessage := "geração cancelada"
+	if errors.Is(err, context.DeadlineExceeded) {
+		errorMessage = "tempo limite da geração atingido"
+	}
+	toolsUsed := make([]string, 0, len(toolsUsedSet))
+	for name := range toolsUsedSet {
+		toolsUsed = append(toolsUsed, name)
+	}
+	sort.Strings(toolsUsed)
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID:     conversationID,
+		TurnID:             turnID,
+		AssistantMessageID: assistantMessageID,
+		SurfaceOrigin:      surfaceOrigin,
+		HadToolCalls:       toolCallCount > 0,
+		Reason:             "error",
+		ErrorMessage:       errorMessage,
+		IterationCount:     iteration + 1,
+		ToolCallCount:      toolCallCount,
+		ToolsUsed:          toolsUsed,
+	})
+}
+
+// patchTrailingAssistantPrefill substitui o conteúdo do trailing assistant no prompt.
+// Intencionalmente NÃO adiciona uma nova mensagem assistant: isso preserva a regra
+// padrão de que o prompt termina em user, exceto quando o histórico já carrega um
+// trailing assistant (caso de continuação explícita).
+func patchTrailingAssistantPrefill(messages []llm.Message, prefill string) []llm.Message {
+	if strings.TrimSpace(prefill) == "" || len(messages) == 0 {
+		return messages
+	}
+	lastIdx := len(messages) - 1
+	if strings.TrimSpace(messages[lastIdx].Role) != "assistant" {
+		return messages
+	}
+	messages[lastIdx].Content = prefill
+	return messages
+}
+
+// buildUserContinuationPrompt monta o conteúdo da mensagem de usuário usada no
+// fallback de continuação para providers/modelos sem suporte a assistant prefill
+// (Issue #124). O texto parcial é embutido na instrução para que o modelo
+// continue exatamente de onde parou, sem repetir o que já foi escrito.
+func buildUserContinuationPrompt(prefill string) string {
+	return "Continue a resposta a partir deste texto, sem repetir o que já foi escrito e sem reintroduções:\n\n" + prefill
+}
+
+// patchTrailingAssistantAsUserContinuation converte o trailing assistant (parcial)
+// em uma mensagem de usuário "continue a partir deste texto: ...". É o fallback
+// usado quando o provider/modelo não suporta assistant prefill: o prompt volta a
+// terminar em user (compatível com qualquer provider, inclusive Qwen/LocalAI que
+// rejeitam prefill com enable_thinking) e o texto parcial é preservado na instrução.
+func patchTrailingAssistantAsUserContinuation(messages []llm.Message, prefill string) []llm.Message {
+	if strings.TrimSpace(prefill) == "" || len(messages) == 0 {
+		return messages
+	}
+	lastIdx := len(messages) - 1
+	if strings.TrimSpace(messages[lastIdx].Role) != "assistant" {
+		return messages
+	}
+	messages[lastIdx] = llm.Message{
+		Role:    "user",
+		Content: buildUserContinuationPrompt(prefill),
+	}
+	return messages
+}
+
+// applyContinuationPrefill prepara o prompt e o handler para uma continuação
+// explícita. Centraliza a regra dos dois modos: assistant prefill (suportado)
+// vs. fallback por mensagem de usuário (provider não suporta prefill).
+// Retorna as mensagens (possivelmente alteradas) e o prefill carregado.
+func (s *Service) applyContinuationPrefill(
+	ctx context.Context,
+	messages []llm.Message,
+	params llm.ChatParams,
+	assistantMessageID string,
+	setInitialContent func(string),
+) []llm.Message {
+	if !params.AllowAssistantPrefill && !params.ContinueViaUserMessage {
+		return messages
+	}
+	prefill := s.loadAssistantPrefill(ctx, assistantMessageID)
+	if prefill == "" {
+		return messages
+	}
+	if params.ContinueViaUserMessage {
+		messages = patchTrailingAssistantAsUserContinuation(messages, prefill)
+	} else {
+		messages = patchTrailingAssistantPrefill(messages, prefill)
+	}
+	if setInitialContent != nil {
+		setInitialContent(prefill)
+	}
+	return messages
 }

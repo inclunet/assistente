@@ -1,6 +1,10 @@
 package speech
 
-import "assistente/internal/database"
+import (
+	"context"
+
+	"assistente/internal/database"
+)
 
 // DBAudioStore implementa AudioRepository usando o banco de dados SQLite via GORM.
 type DBAudioStore struct{}
@@ -8,14 +12,14 @@ type DBAudioStore struct{}
 // NewDBAudioStore cria um DBAudioStore pronto para uso.
 func NewDBAudioStore() *DBAudioStore { return &DBAudioStore{} }
 
-func (s *DBAudioStore) GetMessageAudio(messageID uint) (string, string, error) {
-	return database.GetMessageAudio(messageID)
+func (s *DBAudioStore) GetMessageAudio(ctx context.Context, messageID string) (string, string, error) {
+	return database.GetMessageAudioWithContext(ctx, messageID)
 }
 
-func (s *DBAudioStore) SaveMessageAudio(messageID uint, audioBase64, mimeType string) error {
-	return database.SaveMessageAudio(messageID, audioBase64, mimeType)
+func (s *DBAudioStore) SaveMessageAudio(ctx context.Context, messageID string, audioBase64, mimeType string) error {
+	return database.SaveMessageAudioWithContext(ctx, messageID, audioBase64, mimeType)
 }
 
-func (s *DBAudioStore) GetMessageContent(messageID uint) (string, error) {
-	return database.GetMessageContent(messageID)
+func (s *DBAudioStore) GetMessageContent(ctx context.Context, messageID string) (string, error) {
+	return database.GetMessageContentWithContext(ctx, messageID)
 }

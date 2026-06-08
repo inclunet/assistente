@@ -259,7 +259,7 @@ export function TemplateEditor({
   }, [context]);
 
   const resolvedHeight = height ?? (singleLine ? '38px' : '200px');
-  const label = ariaLabel ?? t('templateEditorLabel', 'Editor de template Go');
+  const label = ariaLabel ?? t('jobs.builder.templateEditorLabel');
 
   const handleMount = useCallback(
     (editor: MonacoEditorApi, monacoRaw: unknown) => {

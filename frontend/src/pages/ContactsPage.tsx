@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
@@ -30,7 +31,7 @@ type AuthorizedContactsResponse = Record<string, AuthorizedContact[]>;
 
 export default function ContactsPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'contacts-page' });
@@ -64,7 +65,7 @@ export default function ContactsPage() {
       }
       setContactRows(rows);
     } catch (error) {
-      console.error('Erro ao carregar contatos:', error);
+      logger.error('Erro ao carregar contatos:', error);
       addToast(t('contacts.error.loadFailed', 'Erro ao carregar contatos'), 'error');
       setContactRows([]);
     } finally {

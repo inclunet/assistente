@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { extractMessagesFromThreads, isAgentMessage } from './chatUtils';
 import type { Message, MessageNode } from '../store/chatStore';
-import { main } from '../../wailsjs/go/models';
+import { chat } from '../../wailsjs/go/models';
 
 describe('chatUtils', () => {
   it('extrai mensagens de threads', () => {
-    const message1 = new main.EnrichedMessage({
+    const message1 = new chat.EnrichedMessage({
       id: '1',
-      conversationId: 1,
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'user',
       content: 'Oi',
       createdAt: new Date().toISOString(),
@@ -16,9 +16,9 @@ describe('chatUtils', () => {
       internal: false,
     }) as Message;
 
-    const message2 = new main.EnrichedMessage({
+    const message2 = new chat.EnrichedMessage({
       id: '2',
-      conversationId: 1,
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',
       content: 'Ola',
       createdAt: new Date().toISOString(),
@@ -28,12 +28,12 @@ describe('chatUtils', () => {
     }) as Message;
 
     const threads: MessageNode[] = [
-      main.MessageNode.createFrom({
+      chat.MessageNode.createFrom({
         message: message1,
         childCount: 1,
         level: 0,
         children: [
-          main.MessageNode.createFrom({
+          chat.MessageNode.createFrom({
             message: message2,
             childCount: 0,
             level: 1,
@@ -51,9 +51,9 @@ describe('chatUtils', () => {
   });
 
   it('isAgentMessage retorna false', () => {
-    const message = new main.EnrichedMessage({
+    const message = new chat.EnrichedMessage({
       id: '3',
-      conversationId: 1,
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',
       content: 'Teste',
       createdAt: new Date().toISOString(),

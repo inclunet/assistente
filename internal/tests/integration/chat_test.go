@@ -2,7 +2,6 @@ package integration
 
 import (
 	"testing"
-	"time"
 
 	"assistente/internal/database"
 )
@@ -19,14 +18,12 @@ func TestIntegration_SendMessageFlow(t *testing.T) {
 	// 1. Criar conversa
 	conv := &database.Conversation{
 		Title:     "Teste SendMessage",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 	if err := db.Create(conv).Error; err != nil {
 		t.Fatalf("falha ao criar conversa: %v", err)
 	}
 
-	if conv.ID == 0 {
+	if conv.ID == "" {
 		t.Fatal("conversa não tem ID após criação")
 	}
 
@@ -36,7 +33,6 @@ func TestIntegration_SendMessageFlow(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        userContent,
-		CreatedAt:      time.Now(),
 	}
 
 	if err := db.Create(userMsg).Error; err != nil {
@@ -48,7 +44,6 @@ func TestIntegration_SendMessageFlow(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        "Olá! Estou bem, obrigado por perguntar. Como posso ajudá-lo?",
-		CreatedAt:      time.Now().Add(500 * time.Millisecond),
 	}
 
 	if err := db.Create(assistantMsg).Error; err != nil {
@@ -107,8 +102,6 @@ func TestIntegration_ConversationUpdate(t *testing.T) {
 	// 1. Criar conversa com título genérico
 	conv := &database.Conversation{
 		Title:     "Nova Conversa",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 	if err := db.Create(conv).Error; err != nil {
 		t.Fatalf("falha ao criar conversa: %v", err)
@@ -121,7 +114,6 @@ func TestIntegration_ConversationUpdate(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "user",
 		Content:        "Como fazer um bolo?",
-		CreatedAt:      time.Now(),
 	}
 	if err := db.Create(userMsg).Error; err != nil {
 		t.Fatalf("falha ao criar mensagem: %v", err)

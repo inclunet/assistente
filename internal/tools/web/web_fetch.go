@@ -33,9 +33,16 @@ func NewWebFetch(credMgr *credentials.Manager) *WebFetch {
 	client := httpclient.New(&httpclient.Config{
 		CredentialManager: credMgr,
 	}, map[string]string{})
-	return &WebFetch{
+	t := &WebFetch{
 		client: client,
 	}
+	// net/http segue redirects automaticamente; sem isto uma URL pública poderia
+	// redirecionar para um host privado (ex.: 127.0.0.1, 169.254.169.254) e burlar
+	// o bloqueio anti-SSRF. Aplica o guard compartilhado no client desta tool.
+	if bc := client.GetBaseClient(); bc != nil {
+		bc.CheckRedirect = httpclient.RedirectGuard(httpclient.DefaultMaxRedirects, func() bool { return t.allowPrivateHosts })
+	}
+	return t
 }
 
 func (t *WebFetch) Name() string { return "web_fetch" }
@@ -100,7 +107,7 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	// Bloqueia hosts locais/privados (exceto em modo teste)
-	if !t.allowPrivateHosts && isPrivateHost(parsedURL.Hostname()) {
+	if !t.allowPrivateHosts && httpclient.IsPrivateHost(parsedURL.Hostname()) {
 		return tools.ToolResult{Content: "Acesso a hosts locais/privados não é permitido", IsError: true}, nil
 	}
 
@@ -421,36 +428,3 @@ func collapseWhitespace(s string) string {
 	return strings.Join(lines, "\n")
 }
 
-// isPrivateHost verifica se um host é local/privado.
-func isPrivateHost(host string) bool {
-	host = strings.ToLower(host)
-
-	private := []string{
-		"localhost",
-		"127.0.0.1",
-		"0.0.0.0",
-		"::1",
-		"[::1]",
-	}
-
-	for _, p := range private {
-		if host == p {
-			return true
-		}
-	}
-
-	// Bloqueia ranges privados comuns
-	if strings.HasPrefix(host, "10.") ||
-		strings.HasPrefix(host, "192.168.") ||
-		strings.HasPrefix(host, "172.16.") ||
-		strings.HasPrefix(host, "172.17.") ||
-		strings.HasPrefix(host, "172.18.") ||
-		strings.HasPrefix(host, "172.19.") ||
-		strings.HasPrefix(host, "172.2") ||
-		strings.HasPrefix(host, "172.30.") ||
-		strings.HasPrefix(host, "172.31.") {
-		return true
-	}
-
-	return false
-}

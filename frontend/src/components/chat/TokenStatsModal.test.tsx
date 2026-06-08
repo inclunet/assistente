@@ -5,11 +5,11 @@ import { TokenStatsModal } from './TokenStatsModal';
 const getStatsSpy = vi.fn();
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'pt-BR' } }),
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
-  GetConversationTokenStats: (id: number) => getStatsSpy(id),
+  GetConversationTokenStats: (id: string) => getStatsSpy(id),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -19,10 +19,11 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 describe('TokenStatsModal', () => {
   it('renderiza stats quando aberto', async () => {
     getStatsSpy.mockResolvedValueOnce({
-      conversationId: 1,
+      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
+      contextTokens: 18,
       messageCount: 1,
       mostUsedModel: 'x',
       contextUsage: 10,
@@ -44,7 +45,7 @@ describe('TokenStatsModal', () => {
 
     render(
       <TokenStatsModal
-        conversationId={1}
+        conversationId={"01926b90-7a5a-7c4e-8d3f-000000000001"}
         isOpen={true}
         onClose={() => {}}
       />

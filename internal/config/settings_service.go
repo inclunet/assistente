@@ -19,9 +19,19 @@ type SettingsService struct {
 	reloadLLM      func() // callback para recarregar cliente LLM após mudança de modelo
 }
 
-// CredentialCleaner limpa credenciais armazenadas.
+// CredentialCleaner limpa credenciais armazenadas. O contrato é
+// "iterar a lista visível e deletar pattern por pattern" — sem chamada
+// "limpar tudo" sem nome. `ListVisible` já é filtrado por instance
+// secrets e cross-user, então iterar é seguro por construção.
 type CredentialCleaner interface {
+	ListVisible(ctx context.Context) ([]VisibleCredential, error)
 	DeletePattern(ctx context.Context, pattern string) error
+}
+
+// VisibleCredential é a forma mínima exposta para o cleaner — só
+// pattern, sem segredos.
+type VisibleCredential struct {
+	Pattern string
 }
 
 // ProfileCleaner lista e deleta perfis.
@@ -131,17 +141,29 @@ func (s *SettingsService) ResetConfig() error {
 	return nil
 }
 
-// ClearAllCredentials apaga todas as credenciais armazenadas.
+// ClearAllCredentials apaga todas as credenciais visíveis ao usuário
+// do contexto, iterando pattern por pattern.
 func (s *SettingsService) ClearAllCredentials(ctx context.Context) error {
 	if s.credCleaner == nil {
 		return fmt.Errorf("gerenciador de credenciais não disponível")
 	}
 
-	if err := s.credCleaner.DeletePattern(ctx, ""); err != nil {
-		return fmt.Errorf("erro ao limpar credenciais: %w", err)
+	creds, err := s.credCleaner.ListVisible(ctx)
+	if err != nil {
+		return fmt.Errorf("erro ao listar credenciais: %w", err)
+	}
+	deleted := 0
+	for _, cred := range creds {
+		if cred.Pattern == "" {
+			continue
+		}
+		if err := s.credCleaner.DeletePattern(ctx, cred.Pattern); err != nil {
+			return fmt.Errorf("erro ao apagar credencial %q: %w", cred.Pattern, err)
+		}
+		deleted++
 	}
 
-	log.Println("[ClearAllCredentials] Credenciais apagadas")
+	log.Printf("[ClearAllCredentials] %d credenciais apagadas", deleted)
 	s.emitter.Emit("credentials:cleared", nil)
 
 	return nil

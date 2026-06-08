@@ -1,59 +1,124 @@
+import { logger } from '../utils/logger';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  ApartmentOutlined,
   CheckOutlined,
+  CodeOutlined,
   DeleteOutlined,
   ExportOutlined,
+  FilePdfOutlined,
+  FileTextOutlined,
   FolderOpenOutlined,
-  ImportOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations, SearchConversationHistory } from '@wailsjs/go/app/App';
+import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ExportConversationsToFile, SearchConversationHistory } from '@wailsjs/go/app/App';
+import { portability } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import type { MenuItem as ContextMenuItem } from '../components/menu';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
+import { Modal } from '../components/ui/Modal';
+import { Checkbox } from '../components/ui/Checkbox';
+import { Button } from '../components/ui/Button';
+import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useConfirm } from '../hooks/useConfirm';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { executeDeepLink } from '../lib/deepLinks';
 import { formatRelativeTime } from '../lib/dateUtils';
-import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
+import { downloadJSON, generateFilename } from '../lib/exportImport';
 import './HistoryPage.css';
 
 interface Conversation {
-  id: number;
+  id: string;
   title: string;
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
   message_count: number;
   snippet?: string;
+  // Sub-conversas de sub-agentes (AEP-0068) são mescladas nesta listagem como
+  // conversas comuns; isSubAgent só controla o badge/indicador de status na UI.
+  isSubAgent?: boolean;
+  subAgentStatus?: string;
+}
+
+// Status de run de sub-agente considerados "ativos" — só nesses casos exibimos o
+// indicador de status ao lado do título (AEP-0068 Fase 5).
+const ACTIVE_SUBAGENT_STATUSES = new Set(['queued', 'running']);
+
+type RichExportFormat = 'html' | 'pdf' | 'md';
+
+interface ContentExportOptions {
+  includeTimestamps: boolean;
+  includeReasoning: boolean;
+  includeMetadata: boolean;
+}
+
+const DEFAULT_EXPORT_OPTIONS: ContentExportOptions = {
+  includeTimestamps: true,
+  includeReasoning: true,
+  includeMetadata: true,
+};
+
+interface ActiveRichExport {
+  format: RichExportFormat;
+  ids: string[];
 }
 
 export default function HistoryPage() {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const confirm = useConfirm();
   const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
-  const [searchResultIds, setSearchResultIds] = useState<Set<number> | null>(null);
-  const [snippetsMap, setSnippetsMap] = useState<Map<number, string>>(new Map());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [searchResultIds, setSearchResultIds] = useState<Set<string> | null>(null);
+  const [snippetsMap, setSnippetsMap] = useState<Map<string, string>>(new Map());
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
+  const [showSubAgents, setShowSubAgents] = useState(true);
+  const [exportRequest, setExportRequest] = useState<ActiveRichExport | null>(null);
+  const [exportOptions, setExportOptions] = useState<ContentExportOptions>(DEFAULT_EXPORT_OPTIONS);
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'history-page' });
   const moveTabToWorkspace = useWorkspaceStore(state => state.moveTabToWorkspace);
   const addWorkspaceTab = useWorkspaceStore(state => state.addTab);
   const workspaces = useWorkspaceStore(state => state.workspaces);
 
+  const loadConversations = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Listagem unificada (AEP-0068): GetConversations retorna conversas comuns
+      // E sub-conversas de sub-agentes (kind=subagent), já ordenadas por recência,
+      // com latestStatus preenchido para sub-agentes. Uma única chamada.
+      const result = await GetConversations();
+      const mapped: Conversation[] = (result || []).map((c) => ({
+        id: c.id,
+        title: c.title || t('history.untitled', 'Sem título'),
+        createdAt: String(c.createdAt ?? ''),
+        updatedAt: String(c.updatedAt ?? ''),
+        message_count: c.message_count || 0,
+        isSubAgent: c.kind === 'subagent',
+        subAgentStatus: c.latestStatus || undefined,
+      }));
+      setConversations(mapped);
+    } catch (error) {
+      logger.error('Erro ao carregar conversas:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
   useEffect(() => {
-    loadConversations();
-  }, []);
+    void loadConversations();
+  }, [loadConversations]);
 
   const doSearch = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -68,8 +133,8 @@ export default function HistoryPage() {
         setSearchResultIds(new Set());
         setSnippetsMap(new Map());
       } else {
-        const ids = new Set<number>();
-        const snippets = new Map<number, string>();
+        const ids = new Set<string>();
+        const snippets = new Map<string, string>();
         for (const r of results) {
           ids.add(r.conversation_id);
           if (!snippets.has(r.conversation_id)) {
@@ -82,7 +147,7 @@ export default function HistoryPage() {
         setSnippetsMap(snippets);
       }
     } catch (error) {
-      console.error('Erro na busca:', error);
+      logger.error('Erro na busca:', error);
       setSearchResultIds(new Set());
       setSnippetsMap(new Map());
     } finally {
@@ -113,26 +178,7 @@ export default function HistoryPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const loadConversations = async () => {
-    setLoading(true);
-    try {
-      const result = await GetConversations();
-      const mapped = (result || []).map((c: Conversation) => ({
-        id: c.id,
-        title: c.title || t('history.untitled', 'Sem título'),
-        created_at: c.created_at,
-        updated_at: c.updated_at,
-        message_count: c.message_count || 0
-      }));
-      setConversations(mapped || []);
-    } catch (error) {
-      console.error('Erro ao carregar conversas:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleOpenConversation = useCallback(async (conversationId: number, title?: string) => {
+  const handleOpenConversation = useCallback(async (conversationId: string, title?: string) => {
     await executeDeepLink(
       { type: 'conversation:open', conversationId, title },
       { navigate },
@@ -143,7 +189,19 @@ export default function HistoryPage() {
     navigate('/');
   };
 
-  const handleDeleteConversation = useCallback(async (conversationId: number) => {
+  const handleToggleSubAgents = useCallback(() => {
+    setShowSubAgents((prev) => {
+      const next = !prev;
+      announce(
+        next
+          ? t('history.subAgentsShown', 'Sub-agentes exibidos')
+          : t('history.subAgentsHidden', 'Sub-agentes ocultos'),
+      );
+      return next;
+    });
+  }, [announce, t]);
+
+  const handleDeleteConversation = useCallback(async (conversationId: string) => {
     const conv = conversations.find((c) => c.id === conversationId);
     const title = conv?.title || t('history.untitled');
     const ok = await confirm({
@@ -164,13 +222,13 @@ export default function HistoryPage() {
         return newSet;
       });
     } catch (error) {
-      console.error('Erro ao deletar conversa:', error);
+      logger.error('Erro ao deletar conversa:', error);
     }
   }, [confirm, conversations, t]);
 
   const handleDeleteSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
-    const ids = Array.from(selectedIds);
+    const ids = Array.from(selectedIds).map(String);
     const count = ids.length;
     const ok = await confirm({
       title: t('history.confirmDeleteMultipleTitle'),
@@ -182,22 +240,24 @@ export default function HistoryPage() {
     if (!ok) return;
 
     try {
-      await Promise.all(ids.map((id) => DeleteConversation(Number(id))));
+      await Promise.all(ids.map((id) => DeleteConversation(id)));
       const idSet = new Set(ids);
       setConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
       setSelectedIds(new Set());
     } catch (error) {
-      console.error('Erro ao deletar conversas:', error);
+      logger.error('Erro ao deletar conversas:', error);
     }
   }, [confirm, selectedIds, t]);
 
-  const handleExport = async () => {
-    const idsToExport = selectedIds.size > 0 
-      ? Array.from(selectedIds).map(id => Number(id))
-      : conversations.map(c => c.id);
-    
+  const getContextConversationIds = useCallback(() => (
+    selectedIds.size > 0
+      ? Array.from(selectedIds).map(String)
+      : (focusedRow && conversations.some((conversation) => conversation.id === focusedRow.id) ? [focusedRow.id] : [])
+  ), [conversations, focusedRow, selectedIds]);
+
+  const exportJsonByIds = useCallback(async (idsToExport: string[]) => {
     if (idsToExport.length === 0) {
-      alert(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'));
+      announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
       return;
     }
 
@@ -206,28 +266,62 @@ export default function HistoryPage() {
       const filename = generateFilename('conversas');
       downloadJSON(jsonData, filename);
     } catch (error) {
-      console.error('Erro ao exportar conversas:', error);
-      alert(t('history.exportError', 'Erro ao exportar conversas'));
+      logger.error('Erro ao exportar conversas em JSON:', error);
+      announce(t('history.exportError', 'Erro ao exportar conversas'), 'assertive');
     }
-  };
+  }, [announce, t]);
 
-  const handleImport = async () => {
-    try {
-      const jsonData = await openFileDialog('.json');
-      const result = await ImportConversations(jsonData);
-      
-      if (result.success) {
-        alert(t('history.importSuccess', `Importação concluída: ${result.message}`));
-        loadConversations();
-      } else {
-        alert(t('history.importPartial', `Importação parcial: ${result.message}\nErros: ${result.errors?.join(', ')}`));
-        loadConversations();
-      }
-    } catch (error) {
-      console.error('Erro ao importar conversas:', error);
-      alert(t('history.importError', 'Erro ao importar conversas'));
+  const exportRichByIds = useCallback(async (
+    idsToExport: string[],
+    format: RichExportFormat,
+    options: ContentExportOptions,
+  ) => {
+    if (idsToExport.length === 0) {
+      announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
+      return;
     }
-  };
+
+    try {
+      const savedPath = await ExportConversationsToFile(
+        idsToExport,
+        format,
+        portability.ContentExportOptions.createFrom(options),
+      );
+      if (!savedPath) return;
+      announce(t('history.exportSaved', { path: savedPath, defaultValue: `Arquivo exportado: ${savedPath}` }));
+    } catch (error) {
+      logger.error(`Erro ao exportar conversas em ${format}:`, error);
+      announce(t('history.exportError', 'Erro ao exportar conversas'), 'assertive');
+    }
+  }, [announce, t]);
+
+  const handleExport = useCallback(() => {
+    void exportJsonByIds(getContextConversationIds());
+  }, [exportJsonByIds, getContextConversationIds]);
+
+  const openRichExport = useCallback((format: RichExportFormat, ids: string[]) => {
+    if (ids.length === 0) {
+      announce(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'), 'assertive');
+      return;
+    }
+    setExportOptions(DEFAULT_EXPORT_OPTIONS);
+    setExportRequest({ format, ids });
+  }, [announce, t]);
+
+  const handleRichExport = useCallback((format: RichExportFormat) => {
+    openRichExport(format, getContextConversationIds());
+  }, [openRichExport, getContextConversationIds]);
+
+  const closeExportModal = useCallback(() => {
+    setExportRequest(null);
+  }, []);
+
+  const confirmRichExport = useCallback(async () => {
+    if (!exportRequest) return;
+    const { ids, format } = exportRequest;
+    setExportRequest(null);
+    await exportRichByIds(ids, format, exportOptions);
+  }, [exportRequest, exportOptions, exportRichByIds]);
 
   const handleDeleteAction = useCallback(() => {
     if (selectedIds.size > 0) {
@@ -240,9 +334,30 @@ export default function HistoryPage() {
   }, [focusedRow, handleDeleteConversation, handleDeleteSelected, selectedIds]);
 
   const displayItems = useMemo(() => {
-    if (searchResultIds === null) return conversations;
-    return conversations.filter(c => searchResultIds.has(c.id));
-  }, [conversations, searchResultIds]);
+    const base = showSubAgents ? conversations : conversations.filter((c) => !c.isSubAgent);
+    if (searchResultIds === null) return base;
+    // A busca FTS (SearchConversationHistory) já cobre TODAS as conversas do
+    // usuário — o índice de mensagens não filtra por kind, então sub-conversas
+    // de sub-agentes entram nos resultados como qualquer outra. Busca uniforme:
+    // o mesmo conjunto de ids vale para conversas comuns e sub-agentes.
+    return base.filter((c) => searchResultIds.has(c.id));
+  }, [conversations, searchResultIds, showSubAgents]);
+
+  // Reconcilia foco e seleção com o que está visível: ao ocultar sub-agentes
+  // (toggle) ou aplicar busca, itens saem de displayItems. Sem isso, as ações
+  // da toolbar (Abrir/Excluir/Exportar) continuariam habilitadas e operariam
+  // sobre conversas fora da lista (risco de exclusão/export indevidos).
+  useEffect(() => {
+    const visibleIds = new Set(displayItems.map((c) => c.id));
+    if (focusedRow && !visibleIds.has(focusedRow.id)) {
+      setFocusedRow(null);
+    }
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set([...prev].filter((id) => visibleIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [displayItems, focusedRow]);
 
   const handleFocusChange = useCallback((item: Conversation | null) => {
     setFocusedRow(item);
@@ -252,7 +367,7 @@ export default function HistoryPage() {
     handleDeleteConversation(item.id);
   }, [handleDeleteConversation]);
 
-  const handleSendToWorkspace = useCallback(async (_conversationId: number, title: string, targetWorkspaceId: string, isActive: boolean) => {
+  const handleSendToWorkspace = useCallback(async (_conversationId: string, title: string, targetWorkspaceId: string, isActive: boolean) => {
     try {
       const tabTitle = title || t('chat.newConversation', 'Nova conversa');
       if (isActive) {
@@ -263,7 +378,7 @@ export default function HistoryPage() {
         await moveTabToWorkspace(tabId, targetWorkspaceId);
       }
     } catch (error) {
-      console.error('Erro ao enviar conversa ao workspace:', error);
+      logger.error('Erro ao enviar conversa ao workspace:', error);
     }
   }, [addWorkspaceTab, moveTabToWorkspace, navigate, t]);
 
@@ -293,6 +408,37 @@ export default function HistoryPage() {
       }
 
       actions.push({
+        id: 'export',
+        label: t('history.exportMenu', 'Exportar'),
+        icon: <ExportOutlined />,
+        submenu: [
+          {
+            id: 'export-json',
+            label: t('history.exportJson', 'Exportar JSON'),
+            action: () => void exportJsonByIds([item.id]),
+          },
+          {
+            id: 'export-html',
+            label: t('history.exportHtml', 'Exportar HTML'),
+            icon: <FileTextOutlined />,
+            action: () => openRichExport('html', [item.id]),
+          },
+          {
+            id: 'export-markdown',
+            label: t('history.exportMarkdown', 'Exportar Markdown'),
+            icon: <CodeOutlined />,
+            action: () => openRichExport('md', [item.id]),
+          },
+          {
+            id: 'export-pdf',
+            label: t('history.exportPdf', 'Exportar PDF'),
+            icon: <FilePdfOutlined />,
+            action: () => openRichExport('pdf', [item.id]),
+          },
+        ],
+      });
+
+      actions.push({
         id: 'delete',
         label: t('history.deleteConversation', 'Excluir conversa'),
         icon: <DeleteOutlined />,
@@ -301,7 +447,7 @@ export default function HistoryPage() {
 
       return actions;
     },
-    [handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, workspaces, t]
+    [exportJsonByIds, openRichExport, handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, workspaces, t]
   );
 
   const getMenuButtonItems = useCallback(
@@ -333,15 +479,31 @@ export default function HistoryPage() {
       editable: true,
       format: (_value, item) => {
         const snippet = snippetsMap.get(item.id);
+        const titleMain = (
+          <span className="history-page__title-main">
+            <span className="history-page__title-text">{item.title}</span>
+            {item.isSubAgent && (
+              <span className="history-page__subagent-badge">
+                {t('history.subAgent', 'Sub-agente')}
+              </span>
+            )}
+            {item.isSubAgent && item.subAgentStatus && ACTIVE_SUBAGENT_STATUSES.has(item.subAgentStatus) && (
+              <span className={`history-page__status history-page__status--${item.subAgentStatus}`}>
+                <span className="history-page__status-dot" aria-hidden="true" />
+                {t(`history.subAgentStatus.${item.subAgentStatus}`)}
+              </span>
+            )}
+          </span>
+        );
         if (snippet) {
           return (
             <span className="history-page__title-cell">
-              <span className="history-page__title-text">{item.title}</span>
+              {titleMain}
               <span className="history-page__title-snippet">{snippet}</span>
             </span>
           );
         }
-        return item.title;
+        return titleMain;
       },
     },
     {
@@ -351,7 +513,7 @@ export default function HistoryPage() {
       format: (value) => String(value || 0),
     },
     {
-      key: 'created_at',
+      key: 'createdAt',
       label: t('history.created', 'Criada em'),
       width: '20%',
       format: (value) => {
@@ -363,7 +525,7 @@ export default function HistoryPage() {
       },
     },
     {
-      key: 'updated_at',
+      key: 'updatedAt',
       label: t('history.updated', 'Atualizada em'),
       width: '20%',
       format: (value) => {
@@ -399,7 +561,7 @@ export default function HistoryPage() {
           )
         );
       } catch (error) {
-        console.error('Erro ao atualizar título:', error);
+        logger.error('Erro ao atualizar título:', error);
       }
     }
   }, []);
@@ -436,6 +598,16 @@ export default function HistoryPage() {
             disabled: !focusedRow,
           },
           {
+            key: 'toggle-subagents',
+            label: showSubAgents
+              ? t('history.hideSubAgents', 'Ocultar sub-agentes')
+              : t('history.showSubAgents', 'Mostrar sub-agentes'),
+            icon: <ApartmentOutlined />,
+            onClick: handleToggleSubAgents,
+            variant: 'secondary',
+            'aria-pressed': showSubAgents,
+          },
+          {
             key: 'delete',
             label: selectedIds.size > 0
               ? t('history.deleteSelected', `Deletar (${selectedIds.size})`)
@@ -446,19 +618,40 @@ export default function HistoryPage() {
             variant: 'danger',
           },
           {
-            key: 'export',
+            key: 'export-json',
             label: selectedIds.size > 0 
-              ? t('history.exportSelected', `Exportar (${selectedIds.size})`)
-              : t('history.exportAll', 'Exportar Tudo'),
+              ? t('history.exportJsonSelected', {
+                  count: selectedIds.size,
+                  defaultValue: 'Exportar JSON ({{count}})',
+                })
+              : t('history.exportJson', 'Exportar JSON'),
             icon: <ExportOutlined />,
             onClick: handleExport,
+            disabled: selectedIds.size === 0 && !focusedRow,
             variant: 'secondary',
           },
           {
-            key: 'import',
-            label: t('history.import', 'Importar'),
-            icon: <ImportOutlined />,
-            onClick: handleImport,
+            key: 'export-html',
+            label: t('history.exportHtml', 'Exportar HTML'),
+            icon: <FileTextOutlined />,
+            onClick: () => handleRichExport('html'),
+            disabled: selectedIds.size === 0 && !focusedRow,
+            variant: 'secondary',
+          },
+          {
+            key: 'export-markdown',
+            label: t('history.exportMarkdown', 'Exportar Markdown'),
+            icon: <CodeOutlined />,
+            onClick: () => handleRichExport('md'),
+            disabled: selectedIds.size === 0 && !focusedRow,
+            variant: 'secondary',
+          },
+          {
+            key: 'export-pdf',
+            label: t('history.exportPdf', 'Exportar PDF'),
+            icon: <FilePdfOutlined />,
+            onClick: () => handleRichExport('pdf'),
+            disabled: selectedIds.size === 0 && !focusedRow,
             variant: 'secondary',
           },
         ]}
@@ -476,11 +669,71 @@ export default function HistoryPage() {
         onDelete={handleDeleteRow}
         selectedIds={selectedIds}
         multiSelect={true}
-        onSelectionChange={setSelectedIds}
+        onSelectionChange={(ids: Set<string | number>) => setSelectedIds(new Set([...ids].map(String)))}
         onGridReady={handleGridReady}
         onFocusChange={handleFocusChange}
         getRowActions={getRowActions}
       />
+
+      <Modal
+        isOpen={exportRequest !== null}
+        onClose={closeExportModal}
+        title={t('history.exportOptionsTitle', 'Opções de exportação')}
+        size="sm"
+        ariaDescribedBy="history-export-options-desc"
+      >
+        <p id="history-export-options-desc" className="history-page__export-desc">
+          {exportRequest
+            ? t('history.exportOptionsDescription', {
+                format: exportFormatLabel(exportRequest.format, t),
+                count: exportRequest.ids.length,
+                defaultValue: 'Escolha o que incluir na exportação ({{format}}) de {{count}} conversa(s).',
+              })
+            : ''}
+        </p>
+        <fieldset className="history-page__export-fieldset">
+          <legend className="history-page__export-legend">
+            {t('history.exportOptionsLegend', 'Conteúdo incluído')}
+          </legend>
+          <Checkbox
+            checked={exportOptions.includeTimestamps}
+            onChange={(e) => setExportOptions((prev) => ({ ...prev, includeTimestamps: e.target.checked }))}
+            label={t('history.exportIncludeTimestamps', 'Incluir datas e horários')}
+          />
+          <Checkbox
+            checked={exportOptions.includeReasoning}
+            onChange={(e) => setExportOptions((prev) => ({ ...prev, includeReasoning: e.target.checked }))}
+            label={t('history.exportIncludeReasoning', 'Incluir raciocínio (reasoning)')}
+          />
+          <Checkbox
+            checked={exportOptions.includeMetadata}
+            onChange={(e) => setExportOptions((prev) => ({ ...prev, includeMetadata: e.target.checked }))}
+            label={t('history.exportIncludeMetadata', 'Incluir metadados (modelo, provedor, tokens)')}
+          />
+        </fieldset>
+        <div className="history-page__export-actions">
+          <Button variant="secondary" onClick={closeExportModal}>
+            {t('common.cancel', 'Cancelar')}
+          </Button>
+          <Button variant="primary" onClick={() => void confirmRichExport()}>
+            {t('history.exportConfirm', 'Exportar')}
+          </Button>
+        </div>
+      </Modal>
+
     </div>
   );
+}
+
+function exportFormatLabel(format: RichExportFormat, t: TFunction): string {
+  switch (format) {
+    case 'html':
+      return t('history.exportFormat.html', { defaultValue: 'HTML' });
+    case 'pdf':
+      return t('history.exportFormat.pdf', { defaultValue: 'PDF' });
+    case 'md':
+      return t('history.exportFormat.markdown', { defaultValue: 'Markdown' });
+    default:
+      return format;
+  }
 }

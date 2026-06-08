@@ -1,4 +1,4 @@
-package app
+﻿package app
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"assistente/adapters/noop"
@@ -22,6 +23,12 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
+
+const wizardTestUserID = "test-user"
+
+func wizardTestCtx() context.Context {
+	return database.WithUserID(context.Background(), wizardTestUserID)
+}
 
 func setupWizardTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -49,10 +56,11 @@ func setupWizardTestApp(t *testing.T) *App {
 	})
 
 	a := &App{
-		ctx:         context.Background(),
-		credMgr:     credMgr,
-		llmRegistry: llmRegistry,
-		providerSvc: svc,
+		ctx:           context.Background(),
+		credMgr:       credMgr,
+		llmRegistry:   llmRegistry,
+		providerSvc:   svc,
+		currentUserID: "test-user",
 	}
 	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
 		LLMRegistry: llmRegistry,
@@ -63,7 +71,7 @@ func setupWizardTestApp(t *testing.T) *App {
 		CredMgr:          credMgr,
 		ProviderSvc:      svc,
 		LLMRegistry:      llmRegistry,
-		SaveLLMProviders: func() error { return svc.Save() },
+		SaveLLMProviders: func() error { return svc.Save(a.internalBootstrapCtx()) },
 	})
 	return a
 }
@@ -110,6 +118,7 @@ func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
 		llmRegistry:    llmRegistry,
 		profileManager: pm,
 		providerSvc:    svc,
+		currentUserID:  "test-user",
 	}
 	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
 		LLMRegistry: llmRegistry,
@@ -120,7 +129,7 @@ func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
 		CredMgr:          credMgr,
 		ProviderSvc:      svc,
 		LLMRegistry:      llmRegistry,
-		SaveLLMProviders: func() error { return svc.Save() },
+		SaveLLMProviders: func() error { return svc.Save(a.internalBootstrapCtx()) },
 	})
 	return a, pm
 }
@@ -414,7 +423,7 @@ func TestCreateWizardProvider_PersistsToSQLite(t *testing.T) {
 		t.Fatalf("createWizardProvider: %v", err)
 	}
 
-	dbProviders, err := database.GetLLMProviders()
+	dbProviders, err := database.GetLLMProvidersWithContext(wizardTestCtx())
 	if err != nil {
 		t.Fatalf("GetLLMProviders: %v", err)
 	}
@@ -520,10 +529,10 @@ func TestResolveProfileDefaults_ResolvesSentinels(t *testing.T) {
 		DefaultModel: "test-model-v1",
 		IsDefault:    true,
 	}
-	if err := database.SaveLLMProvider(dbProv); err != nil {
+	if err := database.SaveLLMProviderWithContext(wizardTestCtx(), dbProv); err != nil {
 		t.Fatalf("SaveLLMProvider: %v", err)
 	}
-	if err := database.SetDefaultProvider("test-provider"); err != nil {
+	if err := database.SetDefaultProviderWithContext(wizardTestCtx(), "test-provider"); err != nil {
 		t.Fatalf("SetDefaultProvider: %v", err)
 	}
 
@@ -568,10 +577,10 @@ func TestResolveProfileDefaults_ConcreteIDsUnchanged(t *testing.T) {
 		ID: "default-prov", Name: "Default", Type: "openai", BaseURL: "https://api.test.com/v1",
 		DefaultModel: "default-model", IsDefault: true,
 	}
-	if err := database.SaveLLMProvider(dbProv); err != nil {
+	if err := database.SaveLLMProviderWithContext(wizardTestCtx(), dbProv); err != nil {
 		t.Fatalf("SaveLLMProvider: %v", err)
 	}
-	if err := database.SetDefaultProvider("default-prov"); err != nil {
+	if err := database.SetDefaultProviderWithContext(wizardTestCtx(), "default-prov"); err != nil {
 		t.Fatalf("SetDefaultProvider: %v", err)
 	}
 
@@ -645,19 +654,20 @@ func TestSetDefaultProvider_SwitchesCorrectly(t *testing.T) {
 
 	p1 := &database.LLMProvider{ID: "prov-1", Name: "P1", Type: "openai", BaseURL: "https://a.com", IsDefault: true}
 	p2 := &database.LLMProvider{ID: "prov-2", Name: "P2", Type: "openai", BaseURL: "https://b.com", IsDefault: false}
-	_ = database.SaveLLMProvider(p1)
-	_ = database.SaveLLMProvider(p2)
+	ctx := wizardTestCtx()
+	_ = database.SaveLLMProviderWithContext(ctx, p1)
+	_ = database.SaveLLMProviderWithContext(ctx, p2)
 
-	def, err := database.GetDefaultProvider()
+	def, err := database.GetDefaultProviderWithContext(ctx)
 	if err != nil || def.ID != "prov-1" {
 		t.Fatalf("initial default: got %v, err %v", def, err)
 	}
 
-	if err := database.SetDefaultProvider("prov-2"); err != nil {
+	if err := database.SetDefaultProviderWithContext(ctx, "prov-2"); err != nil {
 		t.Fatalf("SetDefaultProvider: %v", err)
 	}
 
-	def, err = database.GetDefaultProvider()
+	def, err = database.GetDefaultProviderWithContext(ctx)
 	if err != nil {
 		t.Fatalf("GetDefaultProvider after switch: %v", err)
 	}
@@ -666,7 +676,7 @@ func TestSetDefaultProvider_SwitchesCorrectly(t *testing.T) {
 	}
 
 	// Ensure prov-1 is no longer default
-	old, _ := database.GetLLMProvider("prov-1")
+	old, _ := database.GetLLMProviderWithContext(ctx, "prov-1")
 	if old.IsDefault {
 		t.Error("prov-1 should no longer be default")
 	}
@@ -675,7 +685,7 @@ func TestSetDefaultProvider_SwitchesCorrectly(t *testing.T) {
 func TestGetDefaultProvider_NoDefault(t *testing.T) {
 	_ = setupWizardTestDB(t)
 
-	def, err := database.GetDefaultProvider()
+	def, err := database.GetDefaultProviderWithContext(wizardTestCtx())
 	if err == nil && def != nil {
 		t.Error("expected no default provider")
 	}
@@ -759,7 +769,7 @@ func TestCreateLLMProvider_FirstProviderIsAutoDefault(t *testing.T) {
 	}
 
 	// Verify in DB
-	def, err := database.GetDefaultProvider()
+	def, err := database.GetDefaultProviderWithContext(wizardTestCtx())
 	if err != nil {
 		t.Fatalf("GetDefaultProvider: %v", err)
 	}
@@ -793,7 +803,7 @@ func TestCreateLLMProvider_APIFormatPersisted(t *testing.T) {
 		t.Errorf("GetAPIFormat: got %q, want %q", provider.GetAPIFormat(), llm.APIFormatOpenAIResponses)
 	}
 
-	dbProv, err := database.GetLLMProvider("openai-test")
+	dbProv, err := database.GetLLMProviderWithContext(wizardTestCtx(), "openai-test")
 	if err != nil {
 		t.Fatalf("GetLLMProvider: %v", err)
 	}
@@ -848,7 +858,7 @@ func TestCreateLLMProvider_SecondProviderIsNotAutoDefault(t *testing.T) {
 	}
 
 	// Default should still be prov-1
-	def, err := database.GetDefaultProvider()
+	def, err := database.GetDefaultProviderWithContext(wizardTestCtx())
 	if err != nil {
 		t.Fatalf("GetDefaultProvider: %v", err)
 	}
@@ -866,8 +876,8 @@ func TestResolveProfileDefaults_PartialSentinel_OnlyModel(t *testing.T) {
 		ID: "default-prov", Name: "Default", Type: "openai", BaseURL: "https://api.test.com/v1",
 		DefaultModel: "fallback-model", IsDefault: true,
 	}
-	_ = database.SaveLLMProvider(dbProv)
-	_ = database.SetDefaultProvider("default-prov")
+	_ = database.SaveLLMProviderWithContext(wizardTestCtx(), dbProv)
+	_ = database.SetDefaultProviderWithContext(wizardTestCtx(), "default-prov")
 
 	// Concrete provider but $default model
 	profile := &profiles.Profile{
@@ -907,8 +917,8 @@ func TestResolveProfileDefaults_PartialSentinel_OnlyProvider(t *testing.T) {
 		ID: "default-prov", Name: "Default", Type: "openai", BaseURL: "https://api.test.com/v1",
 		DefaultModel: "fallback-model", IsDefault: true,
 	}
-	_ = database.SaveLLMProvider(dbProv)
-	_ = database.SetDefaultProvider("default-prov")
+	_ = database.SaveLLMProviderWithContext(wizardTestCtx(), dbProv)
+	_ = database.SetDefaultProviderWithContext(wizardTestCtx(), "default-prov")
 
 	// $default provider but concrete model
 	profile := &profiles.Profile{
@@ -942,7 +952,7 @@ func TestEnsureDefaultProvider_MarksFirstWhenNoneIsDefault(t *testing.T) {
 		BaseURL: "http://localhost:4000/v1",
 		Model:   "gpt-4o",
 	}
-	if err := database.SaveLLMProvider(legacyProv); err != nil {
+	if err := database.SaveLLMProviderWithContext(wizardTestCtx(), legacyProv); err != nil {
 		t.Fatalf("save legacy provider: %v", err)
 	}
 
@@ -956,7 +966,7 @@ func TestEnsureDefaultProvider_MarksFirstWhenNoneIsDefault(t *testing.T) {
 	_ = app.llmRegistry.Register(cfg)
 
 	// Verify no default exists
-	defProv, _ := database.GetDefaultProvider()
+	defProv, _ := database.GetDefaultProviderWithContext(wizardTestCtx())
 	if defProv != nil {
 		t.Fatal("expected no default provider before migration")
 	}
@@ -964,7 +974,7 @@ func TestEnsureDefaultProvider_MarksFirstWhenNoneIsDefault(t *testing.T) {
 	app.ensureDefaultProvider()
 
 	// Now should have a default
-	defProv, err := database.GetDefaultProvider()
+	defProv, err := database.GetDefaultProviderWithContext(wizardTestCtx())
 	if err != nil {
 		t.Fatalf("GetDefaultProvider: %v", err)
 	}
@@ -994,9 +1004,9 @@ func TestEnsureDefaultProvider_DoesNotOverrideExistingDefault(t *testing.T) {
 		IsDefault:    true,
 		DefaultModel: "my-model",
 	}
-	_ = database.SaveLLMProvider(prov1)
-	_ = database.SaveLLMProvider(prov2)
-	_ = database.SetDefaultProvider(prov2.ID)
+	_ = database.SaveLLMProviderWithContext(wizardTestCtx(), prov1)
+	_ = database.SaveLLMProviderWithContext(wizardTestCtx(), prov2)
+	_ = database.SetDefaultProviderWithContext(wizardTestCtx(), prov2.ID)
 
 	for _, p := range []*database.LLMProvider{prov1, prov2} {
 		_ = app.llmRegistry.Register(&llm.ProviderConfig{
@@ -1009,7 +1019,7 @@ func TestEnsureDefaultProvider_DoesNotOverrideExistingDefault(t *testing.T) {
 
 	app.ensureDefaultProvider()
 
-	defProv, err := database.GetDefaultProvider()
+	defProv, err := database.GetDefaultProviderWithContext(wizardTestCtx())
 	if err != nil {
 		t.Fatalf("GetDefaultProvider: %v", err)
 	}
@@ -1018,21 +1028,33 @@ func TestEnsureDefaultProvider_DoesNotOverrideExistingDefault(t *testing.T) {
 	}
 }
 
-// --- Builtin padrao.json has active:true ---
-
-func TestBuiltinPadraoJSON_HasActiveTrue(t *testing.T) {
-	data, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/padrao.json")
+// TestBuiltinProfilesJSON_DoNotEmbedActive garante que NENHUM profile
+// builtin embarque `active: true`. Active é estado runtime do user;
+// embarcar no factory default ressuscitava o flag a cada upgrade
+// builtin (installBuiltinProfiles reescreve os arquivos), criando
+// múltiplos perfis com active=true ao mesmo tempo e sobrescrevendo a
+// escolha do user. A ativação inicial passa exclusivamente por
+// `ensureActiveProfile` em runtime.
+func TestBuiltinProfilesJSON_DoNotEmbedActive(t *testing.T) {
+	entries, err := fs.ReadDir(builtinProfilesFS, "builtin/profiles")
 	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
+		t.Fatalf("ReadDir: %v", err)
 	}
-
-	var p profiles.Profile
-	if err := json.Unmarshal(data, &p); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-
-	if !p.Active {
-		t.Error("padrao.json should have active=true")
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/"+entry.Name())
+		if err != nil {
+			t.Fatalf("ReadFile %s: %v", entry.Name(), err)
+		}
+		var p profiles.Profile
+		if err := json.Unmarshal(data, &p); err != nil {
+			t.Fatalf("Unmarshal %s: %v", entry.Name(), err)
+		}
+		if p.Active {
+			t.Errorf("builtin %s tem active=true; é proibido embarcar Active no factory default", entry.Name())
+		}
 	}
 }
 

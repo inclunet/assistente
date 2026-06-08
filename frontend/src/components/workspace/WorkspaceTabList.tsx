@@ -1,4 +1,5 @@
-import { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { logger } from '../../utils/logger';
+import React, { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   MessageOutlined,
@@ -7,6 +8,7 @@ import {
   CheckSquareOutlined,
 } from '@ant-design/icons';
 import { useWorkspaceStore, type WorkspaceTab, type TabType } from '../../store/workspaceStore';
+import { useShallow } from 'zustand/shallow';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { playBumpSound } from '../../services/audioFeedback';
@@ -22,9 +24,11 @@ const TAB_TYPE_ICONS: Record<TabType, ReactNode> = {
   tasklist: <CheckSquareOutlined />,
 };
 
-export function WorkspaceTabList() {
+export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
   const { t } = useTranslation();
-  const { workspace, workspaces, setActiveTab, removeTab, updateTab, reorderTabs, moveTabToWorkspace, renameTabContent } = useWorkspaceStore();
+  const { workspace, workspaces, setActiveTab, removeTab, updateTab, reorderTabs, moveTabToWorkspace, renameTabContent } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, setActiveTab: s.setActiveTab, removeTab: s.removeTab, updateTab: s.updateTab, reorderTabs: s.reorderTabs, moveTabToWorkspace: s.moveTabToWorkspace, renameTabContent: s.renameTabContent }))
+  );
   const { announce } = useAnnouncer();
   const tabListRef = useRef<HTMLDivElement>(null);
 
@@ -99,7 +103,7 @@ export function WorkspaceTabList() {
       try {
         renameTabContent(tabIdToRename, trimmedTitle);
       } catch (error) {
-        console.error('[WorkspaceTabList] Rename tab content error:', error);
+        logger.error('[WorkspaceTabList] Rename tab content error:', error);
       }
     }
 
@@ -264,7 +268,7 @@ export function WorkspaceTabList() {
               await moveTabToWorkspace(tabId, ws.id);
               announce(`${tab.title} movida para ${ws.name}`);
             } catch (error) {
-              console.error('[WorkspaceTabList] Move tab error:', error);
+              logger.error('[WorkspaceTabList] Move tab error:', error);
             }
           },
         })),
@@ -421,4 +425,4 @@ export function WorkspaceTabList() {
       />
     </>
   );
-}
+});

@@ -34,9 +34,8 @@ export default [
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
 
-      // Evita logs de debug no app; permite warn/error.
-      // (Não quebra CI: fica como warning.)
-      'no-console': ['warn', { allow: ['warn', 'error'] }],
+      // A política de `no-console` é definida no override estrito abaixo
+      // (proíbe todo `console.*` em src, exceto no logger centralizado).
 
       // Mantemos o plugin carregado (para não quebrar eslint-disable existentes),
       // mas não aplicamos as regras agora porque o repo ainda não está limpo nelas.
@@ -57,6 +56,23 @@ export default [
     rules: {
       // O facade precisa importar a implementação.
       'no-restricted-imports': 'off',
+    },
+  },
+  {
+    // Override ESTRITO: proíbe QUALQUER uso de `console.*` no app.
+    // Vem depois do bloco base para sobrescrever a política anterior.
+    // A exceção do logger (bloco seguinte) vem por último para vencer aqui.
+    files: ['src/**/*.{ts,tsx}'],
+    rules: {
+      'no-console': 'error',
+    },
+  },
+  {
+    // Exceção centralizada: o logger é o ÚNICO ponto autorizado a usar console.*
+    // Precisa ser o último bloco para sobrescrever o override estrito acima.
+    files: ['src/utils/logger.ts', 'src/utils/logger.test.ts'],
+    rules: {
+      'no-console': 'off',
     },
   },
 ];

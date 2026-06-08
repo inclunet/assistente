@@ -22,7 +22,41 @@ const (
 	ProviderFireworks  ProviderType = "fireworks"
 	ProviderPerplexity ProviderType = "perplexity"
 	ProviderOllama     ProviderType = "ollama"
+	ProviderLocalAI    ProviderType = "localai"
+	ProviderLlamaCPP   ProviderType = "llamacpp"
 	ProviderCustom     ProviderType = "custom"
+)
+
+// AuthMode descreve o tratamento de autenticação para o provedor.
+//
+// Modos:
+//
+//   - AuthModeRequired (default): a credencial é obrigatória. Ausência
+//     dispara erro explícito ("credencial gerenciada não resolvida"),
+//     evitando que o request vá para upstream sem chave e gere um 401
+//     opaco. Este é o comportamento esperado para provedores cloud
+//     (OpenAI, Anthropic, etc.).
+//
+//   - AuthModeOptional: a credencial pode ou não existir. Quando existe,
+//     o transport injeta normalmente (Authorization header). Quando
+//     ausente, o request segue sem header — útil para provedores que
+//     suportam autenticação opcional (LocalAI, LiteLLM standalone,
+//     Ollama com proxy custom).
+//
+//   - AuthModeNone: o provedor explicitamente não usa Authorization.
+//     O SDK não injeta o placeholder "managed-by-credential-transport",
+//     e o transport remove qualquer header Authorization residual.
+//     Para Ollama/llama.cpp puros que rejeitam headers desconhecidos.
+//
+// O default vazio é tratado como AuthModeRequired apenas para CredentialPattern != "".
+// Se CredentialPattern == "" e AuthMode == "", trata como AuthModeNone (compatibilidade
+// com configs existentes onde "sem pattern" significava "sem auth").
+type AuthMode string
+
+const (
+	AuthModeRequired AuthMode = "required"
+	AuthModeOptional AuthMode = "optional"
+	AuthModeNone     AuthMode = "none"
 )
 
 // APIFormat determina qual SDK/protocolo usar para comunicação com o provedor.
@@ -84,6 +118,89 @@ type ProviderConfig struct {
 	Timeout           int               `json:"timeout,omitempty"`
 	Headers           map[string]string `json:"headers,omitempty"`
 	CredentialPattern string            `json:"credential_pattern,omitempty"`
+	// AuthMode controla o tratamento de credenciais. Ver `AuthMode` para detalhes.
+	// Vazio = inferido a partir de CredentialPattern (sem pattern → none, com pattern → required).
+	AuthMode AuthMode `json:"auth_mode,omitempty"`
+}
+
+// EffectiveAuthMode devolve o AuthMode resolvido, aplicando a inferência
+// de compat: configs antigas sem AuthMode tinham `CredentialPattern: ""`
+// para indicar "sem auth" (caso ollama). Mantemos esse contrato.
+func (p *ProviderConfig) EffectiveAuthMode() AuthMode {
+	if p == nil {
+		return AuthModeRequired
+	}
+	if p.AuthMode != "" {
+		return p.AuthMode
+	}
+	switch p.Type {
+	case ProviderLocalAI:
+		return AuthModeOptional
+	case ProviderOllama, ProviderLlamaCPP:
+		return AuthModeNone
+	}
+	if strings.TrimSpace(p.CredentialPattern) == "" {
+		return AuthModeNone
+	}
+	return AuthModeRequired
+}
+
+// AssistantPrefillCapability descreve, de forma explícita, até onde um
+// provider/modelo suporta continuação via trailing assistant ("assistant
+// prefill"). Modela os três casos previstos no AEP-0064 / Issue #124:
+//
+//   - PrefillUnsupported: o provider não aceita um trailing assistant como
+//     prefill. A continuação explícita deve usar o fallback por mensagem de
+//     usuário ("continue a partir deste texto: ...").
+//
+//   - PrefillWithoutThinking: aceita prefill apenas quando o thinking/reasoning
+//     está desativado. É o caso de servidores locais (Qwen via LocalAI/Ollama/
+//     llama.cpp) que rejeitam um trailing assistant quando `enable_thinking`
+//     está ligado. Como o pipeline atual não desliga thinking só para
+//     continuar, tratamos esse caso de forma conservadora: NÃO enviamos
+//     prefill incondicionalmente; o fallback por mensagem de usuário é usado,
+//     mantendo compatibilidade independentemente do estado do thinking.
+//
+//   - PrefillWithThinking: aceita prefill mesmo com thinking/reasoning ativo.
+//     É o caso da OpenAI real via Responses API.
+type AssistantPrefillCapability string
+
+const (
+	PrefillUnsupported     AssistantPrefillCapability = "unsupported"
+	PrefillWithoutThinking AssistantPrefillCapability = "without_thinking"
+	PrefillWithThinking    AssistantPrefillCapability = "with_thinking"
+)
+
+// PrefillCapability classifica o provider em um dos três casos de capacidade
+// de assistant prefill. Mantém a postura conservadora existente: apenas a
+// OpenAI real (Responses API) recebe prefill incondicional; servidores locais
+// (LocalAI/Ollama/llama.cpp) são marcados como "só sem thinking" — e na
+// prática usam o fallback por mensagem de usuário; os demais são tratados como
+// não suportados.
+func PrefillCapability(p *ProviderConfig) AssistantPrefillCapability {
+	if p == nil {
+		return PrefillUnsupported
+	}
+	switch {
+	case p.Type == ProviderOpenAI && p.GetAPIFormat() == APIFormatOpenAIResponses:
+		return PrefillWithThinking
+	case p.Type == ProviderLocalAI, p.Type == ProviderOllama, p.Type == ProviderLlamaCPP:
+		return PrefillWithoutThinking
+	default:
+		return PrefillUnsupported
+	}
+}
+
+// SupportsAssistantPrefill informa se é seguro enviar trailing assistant
+// intencional para continuação explícita SEM nenhum tratamento adicional.
+// Só é verdadeiro quando o provider aceita prefill mesmo com thinking ativo
+// (PrefillWithThinking) — hoje, apenas OpenAI real via Responses API.
+//
+// Quando retorna false (inclui o caso "só sem thinking" de Qwen/LocalAI), a
+// continuação explícita deve recorrer ao fallback por mensagem de usuário em
+// vez de injetar um trailing assistant.
+func SupportsAssistantPrefill(p *ProviderConfig) bool {
+	return PrefillCapability(p) == PrefillWithThinking
 }
 
 // GetAPIFormat retorna o api_format efetivo.
@@ -98,7 +215,17 @@ type ProviderConfig struct {
 // sem exigir migração manual de configs existentes.
 func (p *ProviderConfig) GetAPIFormat() APIFormat {
 	if p.APIFormat != "" {
+		switch p.Type {
+		case ProviderLocalAI, ProviderOllama, ProviderLlamaCPP:
+			if p.APIFormat == APIFormatOpenAIResponses {
+				return APIFormatOpenAI
+			}
+		}
 		return p.APIFormat
+	}
+	switch p.Type {
+	case ProviderLocalAI, ProviderOllama, ProviderLlamaCPP:
+		return APIFormatOpenAI
 	}
 	if isOpenAIRealURL(p.BaseURL) {
 		return APIFormatOpenAIResponses

@@ -1,13 +1,42 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 
 	"assistente/controllers"
 	"assistente/internal/config"
+	"assistente/internal/credentials"
 	"assistente/internal/skills"
 )
+
+// credentialCleanerAdapter adapta credentials.Manager para
+// config.CredentialCleaner; ListVisibleCredentialsWithContext já filtra
+// instance secrets e cross-user.
+type credentialCleanerAdapter struct{ mgr *credentials.Manager }
+
+func (a credentialCleanerAdapter) ListVisible(ctx context.Context) ([]config.VisibleCredential, error) {
+	if a.mgr == nil {
+		return nil, fmt.Errorf("credential manager indisponível")
+	}
+	creds, err := a.mgr.ListVisibleCredentialsWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]config.VisibleCredential, 0, len(creds))
+	for _, c := range creds {
+		out = append(out, config.VisibleCredential{Pattern: c.Pattern})
+	}
+	return out, nil
+}
+
+func (a credentialCleanerAdapter) DeletePattern(ctx context.Context, pattern string) error {
+	if a.mgr == nil {
+		return fmt.Errorf("credential manager indisponível")
+	}
+	return a.mgr.DeletePattern(ctx, pattern)
+}
 
 // GetNativeTTSProviders retorna os IDs de provedores TTS nativos
 // disponíveis na plataforma atual (ex.: webspeech sempre, sapi5 apenas no Windows).
@@ -67,7 +96,11 @@ func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, er
 	if a.settingsCtrl == nil {
 		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
 	}
-	return a.settingsCtrl.SendMessageSync(a.ctx, messages, params)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return "", err
+	}
+	return a.settingsCtrl.SendMessageSync(ctx, messages, params)
 }
 
 func (a *App) SetChatModel(model string) error {
@@ -76,6 +109,9 @@ func (a *App) SetChatModel(model string) error {
 
 func (a *App) GetConfig() (*config.Config, error) { return a.settingsCtrl.GetConfig() }
 func (a *App) SaveSettings(input controllers.SettingsInput) error {
+	if _, err := a.requireAdminContext(); err != nil {
+		return err
+	}
 	return a.settingsCtrl.SaveSettings(input)
 }
 func (a *App) SetDefaultModel(model string) error { return a.settingsCtrl.SetDefaultModel(model) }
@@ -83,11 +119,37 @@ func (a *App) TestConnection() (bool, error)      { return a.settingsCtrl.TestCo
 func (a *App) TestConnectionWithModels() ([]string, error) {
 	return a.settingsCtrl.TestConnectionWithModels()
 }
-func (a *App) ResetConfig() error         { return a.settingsCtrl.ResetConfig() }
-func (a *App) ClearAllCredentials() error { return a.settingsCtrl.ClearAllCredentials() }
-func (a *App) ClearAllProfiles() error    { return a.settingsCtrl.ClearAllProfiles() }
-func (a *App) ClearAllSkills() error      { return a.settingsCtrl.ClearAllSkills() }
-func (a *App) ClearAllChannels() error    { return a.settingsCtrl.ClearAllChannels() }
+func (a *App) ResetConfig() error {
+	if _, err := a.requireAdminContext(); err != nil {
+		return err
+	}
+	return a.settingsCtrl.ResetConfig()
+}
+func (a *App) ClearAllCredentials() error {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.settingsCtrl.ClearAllCredentials(ctx)
+}
+func (a *App) ClearAllProfiles() error {
+	if _, err := a.requireAdminContext(); err != nil {
+		return err
+	}
+	return a.settingsCtrl.ClearAllProfiles()
+}
+func (a *App) ClearAllSkills() error {
+	if _, err := a.requireAdminContext(); err != nil {
+		return err
+	}
+	return a.settingsCtrl.ClearAllSkills()
+}
+func (a *App) ClearAllChannels() error {
+	if _, err := a.requireAdminContext(); err != nil {
+		return err
+	}
+	return a.settingsCtrl.ClearAllChannels()
+}
 
 // parseSlashCommand é um shim para manter compatibilidade com testes e código existente.
 func parseSlashCommand(content string) (slug string, args string, ok bool) {

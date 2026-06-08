@@ -1,6 +1,10 @@
 package tasklist
 
-import "assistente/internal/database"
+import (
+	"context"
+
+	"assistente/internal/database"
+)
 
 // DBStore implementa TaskListRepository usando o banco de dados SQLite via GORM.
 type DBStore struct{}
@@ -10,180 +14,323 @@ func NewDBStore() *DBStore { return &DBStore{} }
 
 // ── Task List ──────────────────────────────────────────────────────────────────
 
-func (s *DBStore) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
-	return database.CreateTaskList(title, description, templateWorkflow, slug)
+func (s *DBStore) CreateTaskList(ctx context.Context, title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.CreateTaskListWithContext(ctx, title, description, templateWorkflow, slug)
 }
 
-func (s *DBStore) GetTaskList(id uint) (*database.TaskList, error) {
-	return database.GetTaskList(id)
+func (s *DBStore) GetTaskList(ctx context.Context, id string) (*database.TaskList, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetTaskListWithContext(ctx, id)
 }
 
-func (s *DBStore) GetAllTaskLists() ([]database.TaskList, error) {
-	return database.GetAllTaskLists()
+func (s *DBStore) GetAllTaskLists(ctx context.Context) ([]database.TaskList, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetAllTaskListsWithContext(ctx)
 }
 
-func (s *DBStore) UpdateTaskList(id uint, title, description string) error {
-	return database.UpdateTaskList(id, title, description)
+func (s *DBStore) UpdateTaskList(ctx context.Context, id string, title, description string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateTaskListWithContext(ctx, id, title, description)
 }
 
-func (s *DBStore) UpdateTaskListFull(id uint, title, description, preferredViewMode string, slug *string) error {
-	return database.UpdateTaskListFull(id, title, description, preferredViewMode, slug)
+func (s *DBStore) UpdateTaskListFull(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateTaskListFullWithContext(ctx, id, title, description, preferredViewMode, slug)
 }
 
-func (s *DBStore) ResolveTaskListRef(taskListID *uint, taskListSlug string) (uint, error) {
-	return database.ResolveTaskListID(taskListID, taskListSlug)
+func (s *DBStore) ResolveTaskListRef(ctx context.Context, taskListID *string, taskListSlug string) (string, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return "", err
+	}
+	return database.ResolveTaskListIDWithContext(ctx, taskListID, taskListSlug)
 }
 
-func (s *DBStore) SetTaskListValidationPolicy(taskListID uint, policyJSON string) error {
-	return database.SetTaskListValidationPolicy(taskListID, policyJSON)
+func (s *DBStore) SetTaskListValidationPolicy(ctx context.Context, taskListID string, policyJSON string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.SetTaskListValidationPolicyWithContext(ctx, taskListID, policyJSON)
 }
 
-func (s *DBStore) SetTaskListViewMode(id uint, viewMode string) error {
-	return database.SetTaskListViewMode(id, viewMode)
+func (s *DBStore) GetTaskListCustomActions(ctx context.Context, taskListID string) (*database.TaskListCustomActions, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.LoadTaskListCustomActionsWithContext(ctx, taskListID)
 }
 
-func (s *DBStore) CloneTaskList(id uint, newTitle string) (*database.TaskList, error) {
-	return database.CloneTaskList(id, newTitle)
+func (s *DBStore) SetTaskListCustomActions(ctx context.Context, taskListID string, actionsJSON string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.SetTaskListCustomActionsWithContext(ctx, taskListID, actionsJSON)
 }
 
-func (s *DBStore) ClearTaskList(id uint) error {
-	return database.ClearTaskList(id)
+func (s *DBStore) SetTaskListViewMode(ctx context.Context, id string, viewMode string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.SetTaskListViewModeWithContext(ctx, id, viewMode)
 }
 
-func (s *DBStore) DeleteTaskList(id uint) error {
-	return database.DeleteTaskList(id)
+func (s *DBStore) CloneTaskList(ctx context.Context, id string, newTitle string) (*database.TaskList, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.CloneTaskListWithContext(ctx, id, newTitle)
 }
 
-func (s *DBStore) GetTaskListStats(taskListID uint) (map[string]interface{}, error) {
-	return database.GetTaskListStats(taskListID)
+func (s *DBStore) ClearTaskList(ctx context.Context, id string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.ClearTaskListWithContext(ctx, id)
 }
 
-func (s *DBStore) GetTaskListWithHierarchy(id uint) (*database.TaskList, error) {
-	return database.GetTaskListWithHierarchy(id)
+func (s *DBStore) DeleteTaskList(ctx context.Context, id string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.DeleteTaskListWithContext(ctx, id)
+}
+
+func (s *DBStore) GetTaskListStats(ctx context.Context, taskListID string) (map[string]interface{}, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetTaskListStatsWithContext(ctx, taskListID)
+}
+
+func (s *DBStore) GetTaskListWithHierarchy(ctx context.Context, id string) (*database.TaskList, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetTaskListWithHierarchyWithContext(ctx, id)
 }
 
 // ── Workflow ───────────────────────────────────────────────────────────────────
 
-func (s *DBStore) GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error) {
-	return database.GetWorkflow(taskListID)
+func (s *DBStore) GetWorkflow(ctx context.Context, taskListID string) (*database.TaskListWorkflow, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetWorkflowWithContext(ctx, taskListID)
 }
 
-func (s *DBStore) UpdateWorkflow(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions map[int][]int) error {
-	return database.UpdateWorkflow(taskListID, statuses, transitions)
+func (s *DBStore) UpdateWorkflow(ctx context.Context, taskListID string, statuses []database.TaskListWorkflowStatus, transitions map[int][]int) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateWorkflowWithContext(ctx, taskListID, statuses, transitions)
 }
 
-func (s *DBStore) UpdateWorkflowFull(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
-	return database.UpdateWorkflowFull(taskListID, statuses, transitions, initialStatusID, statusMigration)
+func (s *DBStore) UpdateWorkflowFull(ctx context.Context, taskListID string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateWorkflowFullWithContext(ctx, taskListID, statuses, transitions, initialStatusID, statusMigration)
 }
 
-func (s *DBStore) GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
-	return database.GetTaskCountsByStatus(taskListID)
+func (s *DBStore) GetTaskCountsByStatus(ctx context.Context, taskListID string) (map[int]int64, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetTaskCountsByStatusWithContext(ctx, taskListID)
 }
 
-func (s *DBStore) ReorderWorkflowStatuses(taskListID uint, statusOrder []int) error {
-	return database.ReorderWorkflowStatuses(taskListID, statusOrder)
+func (s *DBStore) ReorderWorkflowStatuses(ctx context.Context, taskListID string, statusOrder []int) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.ReorderWorkflowStatusesWithContext(ctx, taskListID, statusOrder)
 }
 
-func (s *DBStore) ValidateStatusTransition(taskListID uint, fromStatusID, toStatusID int) error {
-	return database.ValidateStatusTransition(taskListID, fromStatusID, toStatusID)
+func (s *DBStore) ValidateStatusTransition(ctx context.Context, taskListID string, fromStatusID, toStatusID int) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.ValidateStatusTransitionWithContext(ctx, taskListID, fromStatusID, toStatusID)
 }
 
 // ── Task ──────────────────────────────────────────────────────────────────────
 
-func (s *DBStore) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error) {
-	return database.CreateTask(taskListID, title, description, code, link, parentID)
+func (s *DBStore) CreateTask(ctx context.Context, taskListID string, title, description, code, link string, parentID *string) (*database.Task, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.CreateTaskWithContext(ctx, taskListID, title, description, code, link, parentID)
 }
 
-func (s *DBStore) CreateTaskFull(taskListID uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *uint) (*database.Task, error) {
-	return database.CreateTaskFull(taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
+func (s *DBStore) CreateTaskFull(ctx context.Context, taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*database.Task, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.CreateTaskFullWithContext(ctx, taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
 }
 
-func (s *DBStore) GetTask(id uint) (*database.Task, error) {
-	return database.GetTask(id)
+func (s *DBStore) GetTask(ctx context.Context, id string) (*database.Task, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetTaskWithContext(ctx, id)
 }
 
-func (s *DBStore) GetTasksByTaskListID(taskListID uint) ([]database.Task, error) {
-	return database.GetTasksByTaskListID(taskListID)
+func (s *DBStore) GetTasksByTaskListID(ctx context.Context, taskListID string) ([]database.Task, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetTasksByTaskListIDWithContext(ctx, taskListID)
 }
 
-func (s *DBStore) GetTasksByStatus(taskListID uint, statusID int) ([]database.Task, error) {
-	return database.GetTasksByStatus(taskListID, statusID)
+func (s *DBStore) GetTasksByStatus(ctx context.Context, taskListID string, statusID int) ([]database.Task, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetTasksByStatusWithContext(ctx, taskListID, statusID)
 }
 
-func (s *DBStore) FindTaskByCode(taskListID uint, code string) (*database.Task, error) {
-	return database.FindTaskByCode(taskListID, code)
+func (s *DBStore) FindTaskByCode(ctx context.Context, taskListID string, code string) (*database.Task, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.FindTaskByCodeWithContext(ctx, taskListID, code)
 }
 
-func (s *DBStore) ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error) {
-	return database.ResolveTaskID(taskListID, taskListSlug, taskID, code)
+func (s *DBStore) ResolveTaskRef(ctx context.Context, taskListID *string, taskListSlug string, taskID *string, code string) (string, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return "", err
+	}
+	return database.ResolveTaskIDWithContext(ctx, taskListID, taskListSlug, taskID, code)
 }
 
-func (s *DBStore) ResolveTaskIDByTaskCode(taskListID *uint, taskCode string) (uint, error) {
-	return database.ResolveTaskIDByTaskCode(taskListID, taskCode)
+func (s *DBStore) ResolveTaskIDByTaskCode(ctx context.Context, taskListID *string, taskCode string) (string, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return "", err
+	}
+	return database.ResolveTaskIDByTaskCodeWithContext(ctx, taskListID, taskCode)
 }
 
-func (s *DBStore) UpdateTask(id uint, title, description, code, link string) error {
-	return database.UpdateTask(id, title, description, code, link)
+func (s *DBStore) UpdateTask(ctx context.Context, id string, title, description, code, link string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateTaskWithContext(ctx, id, title, description, code, link)
 }
 
-func (s *DBStore) UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
-	return database.UpdateTaskFull(id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
+func (s *DBStore) UpdateTaskFull(ctx context.Context, id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateTaskFullWithContext(ctx, id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
 }
 
-func (s *DBStore) UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error {
-	return database.UpdateTaskAssignee(id, assigneeName, assigneeID)
+func (s *DBStore) UpdateTaskAssignee(ctx context.Context, id string, assigneeName, assigneeID string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateTaskAssigneeWithContext(ctx, id, assigneeName, assigneeID)
 }
 
-func (s *DBStore) UpdateTaskStatus(id uint, newStatusID int) error {
-	return database.UpdateTaskStatus(id, newStatusID)
+func (s *DBStore) UpdateTaskStatus(ctx context.Context, id string, newStatusID int) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateTaskStatusWithContext(ctx, id, newStatusID)
 }
 
-func (s *DBStore) ReorderTasks(taskListID uint, statusID int, orderedIDs []uint) error {
-	return database.ReorderTasks(taskListID, statusID, orderedIDs)
+func (s *DBStore) ReorderTasks(ctx context.Context, taskListID string, statusID int, orderedIDs []string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.ReorderTasksWithContext(ctx, taskListID, statusID, orderedIDs)
 }
 
-func (s *DBStore) PromoteTask(id uint) error {
-	return database.PromoteTask(id)
+func (s *DBStore) PromoteTask(ctx context.Context, id string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.PromoteTaskWithContext(ctx, id)
 }
 
-func (s *DBStore) DemoteTask(id uint, parentID uint) error {
-	return database.DemoteTask(id, parentID)
+func (s *DBStore) DemoteTask(ctx context.Context, id string, parentID string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.DemoteTaskWithContext(ctx, id, parentID)
 }
 
-func (s *DBStore) MoveTaskToList(taskID uint, targetTaskListID uint) (*database.Task, error) {
-	return database.MoveTaskToList(taskID, targetTaskListID)
+func (s *DBStore) MoveTaskToList(ctx context.Context, taskID string, targetTaskListID string) (*database.Task, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.MoveTaskToListWithContext(ctx, taskID, targetTaskListID)
 }
 
-func (s *DBStore) DeleteTask(id uint) error {
-	return database.DeleteTask(id)
+func (s *DBStore) DeleteTask(ctx context.Context, id string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.DeleteTaskWithContext(ctx, id)
 }
 
-func (s *DBStore) GetSubtasks(parentID uint) ([]database.Task, error) {
-	return database.GetSubtasks(parentID)
+func (s *DBStore) GetSubtasks(ctx context.Context, parentID string) ([]database.Task, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetSubtasksWithContext(ctx, parentID)
 }
 
 // ── Task Note ─────────────────────────────────────────────────────────────────
 
-func (s *DBStore) CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
-	return database.CreateTaskNote(taskID, noteType, content, authorName, authorID)
+func (s *DBStore) CreateTaskNote(ctx context.Context, taskID string, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.CreateTaskNoteWithContext(ctx, taskID, noteType, content, authorName, authorID)
 }
 
-func (s *DBStore) UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
-	return database.UpsertTaskNoteByExternal(p)
+func (s *DBStore) UpsertTaskNoteByExternal(ctx context.Context, p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, false, err
+	}
+	return database.UpsertTaskNoteByExternalWithContext(ctx, p)
 }
 
-func (s *DBStore) GetTaskNotes(taskID uint) ([]database.TaskNote, error) {
-	return database.GetTaskNotes(taskID)
+func (s *DBStore) GetTaskNotes(ctx context.Context, taskID string) ([]database.TaskNote, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetTaskNotesWithContext(ctx, taskID)
 }
 
-func (s *DBStore) GetTaskNote(noteID uint) (*database.TaskNote, error) {
-	return database.GetTaskNote(noteID)
+func (s *DBStore) GetTaskNote(ctx context.Context, noteID string) (*database.TaskNote, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetTaskNoteWithContext(ctx, noteID)
 }
 
-func (s *DBStore) UpdateTaskNote(noteID uint, content string) error {
-	return database.UpdateTaskNote(noteID, content)
+func (s *DBStore) UpdateTaskNote(ctx context.Context, noteID string, content string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateTaskNoteWithContext(ctx, noteID, content)
 }
 
-func (s *DBStore) DeleteTaskNote(noteID uint) error {
-	return database.DeleteTaskNote(noteID)
+func (s *DBStore) DeleteTaskNote(ctx context.Context, noteID string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.DeleteTaskNoteWithContext(ctx, noteID)
 }

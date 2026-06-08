@@ -85,12 +85,12 @@ func (c *LLMController) GetLLMProvider(id string) *llm.ProviderConfig {
 	return c.llmRegistry.Get(id)
 }
 
-func (c *LLMController) GetActiveProviderInfo() map[string]interface{} {
+func (c *LLMController) GetActiveProviderInfo(ctx context.Context) map[string]interface{} {
 	activeProfile, err := c.profileMgr.GetActive()
 	if err != nil || activeProfile == nil {
 		return map[string]interface{}{"error": "perfil ativo não encontrado"}
 	}
-	info := c.providerSvc.GetActiveProviderInfo(activeProfile)
+	info := c.providerSvc.GetActiveProviderInfo(ctx, activeProfile)
 	if info.Error != "" {
 		return map[string]interface{}{
 			"error":      info.Error,
@@ -98,11 +98,12 @@ func (c *LLMController) GetActiveProviderInfo() map[string]interface{} {
 		}
 	}
 	return map[string]interface{}{
-		"id":       info.ID,
-		"name":     info.Name,
-		"type":     info.Type,
-		"base_url": info.BaseURL,
-		"model":    info.Model,
+		"id":                         info.ID,
+		"name":                       info.Name,
+		"type":                       info.Type,
+		"base_url":                   info.BaseURL,
+		"model":                      info.Model,
+		"supports_assistant_prefill": info.SupportsAssistantPrefill,
 	}
 }
 
@@ -140,7 +141,7 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 		"id":                    p.ID,
 		"name":                  p.Name,
 		"type":                  string(p.Type),
-		"api_format":            string(p.APIFormat),
+		"api_format":            string(p.GetAPIFormat()),
 		"base_url":              p.BaseURL,
 		"model":                 p.Model,
 		"default_model":         p.DefaultModel,
@@ -148,6 +149,7 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 		"timeout":               p.Timeout,
 		"credential_pattern":    credentialPattern,
 		"credential_configured": credentialConfigured,
+		"auth_mode":             string(p.EffectiveAuthMode()),
 	}
 }
 
@@ -183,8 +185,8 @@ func (c *LLMController) UpdateLLMProvider(ctx context.Context, id string, req Up
 	return providerToMap(p, p.CredentialPattern, res.CredentialConfigured), nil
 }
 
-func (c *LLMController) SetDefaultProvider(id string) error {
-	if err := c.providerSvc.SetDefault(id); err != nil {
+func (c *LLMController) SetDefaultProvider(ctx context.Context, id string) error {
+	if err := c.providerSvc.SetDefault(ctx, id); err != nil {
 		return err
 	}
 	if c.onProviderChange != nil {
@@ -193,12 +195,12 @@ func (c *LLMController) SetDefaultProvider(id string) error {
 	return nil
 }
 
-func (c *LLMController) DeleteLLMProvider(id string) error {
-	return c.providerSvc.Delete(id)
+func (c *LLMController) DeleteLLMProvider(ctx context.Context, id string) error {
+	return c.providerSvc.Delete(ctx, id)
 }
 
-func (c *LLMController) GetLLMProvidersWithStatus() []map[string]interface{} {
-	statuses := c.providerSvc.ListWithStatus()
+func (c *LLMController) GetLLMProvidersWithStatus(ctx context.Context) []map[string]interface{} {
+	statuses := c.providerSvc.ListWithStatus(ctx)
 	result := make([]map[string]interface{}, 0, len(statuses))
 	for _, s := range statuses {
 		result = append(result, providerToMap(s.Provider, s.Provider.CredentialPattern, s.CredentialConfigured))

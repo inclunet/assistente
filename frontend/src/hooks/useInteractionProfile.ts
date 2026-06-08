@@ -36,6 +36,7 @@
  * ```
  */
 
+import { logger } from '../utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSTT } from './useSTT';
 import { useWakewordDetection } from './useWakewordDetection';
@@ -44,7 +45,7 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import { profiles } from '../../wailsjs/go/models';
 import { playSound, SOUND_TYPES } from '../services/audioFeedback';
 import { ttsService, type RoleVoiceConfig } from '../services/tts';
-import { TTSProvider } from '../services/tts/types';
+import { TTSProvider, type TTSSelectionMode } from '../services/tts/types';
 
 // Tipos re-exportados do novo sistema de perfis
 type Profile = profiles.Profile;
@@ -286,7 +287,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
         : await GetActiveProfile();
       setActiveProfileState(profile);
     } catch (e) {
-      console.error('[useInteractionProfile] Erro ao carregar perfil:', e);
+      logger.error('[useInteractionProfile] Erro ao carregar perfil:', e);
       setError(e instanceof Error ? e.message : 'Erro ao carregar perfil');
     } finally {
       setIsLoading(false);
@@ -418,7 +419,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       if (!sttInitialized) {
         const success = await initSTT();
         if (!success) {
-          console.error('[useInteractionProfile] Falha ao inicializar STT');
+          logger.error('[useInteractionProfile] Falha ao inicializar STT');
           callbacksRef.current.onError?.('Falha ao inicializar reconhecimento de voz');
           setIsActive(false);
           return;
@@ -428,7 +429,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       await startRecording();
     },
     onError: (message) => {
-      console.error('[useInteractionProfile] Wakeword error:', message);
+      logger.error('[useInteractionProfile] Wakeword error:', message);
       callbacksRef.current.onError?.(message);
     },
   });
@@ -515,10 +516,15 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       }
 
       // Configura voice configs por role para speakAsRole()
-      const makeRoleConfig = (voice: { provider?: string; llm_provider_id?: string; voice_id?: string; model?: string; rate?: number; pitch?: number; volume?: number } | undefined): RoleVoiceConfig => ({
+      const normalizeSelectionMode = (mode?: string): TTSSelectionMode | undefined => (
+        mode === 'model_and_voice' || mode === 'model_only' ? mode : undefined
+      );
+
+      const makeRoleConfig = (voice: { provider?: string; llm_provider_id?: string; voice_id?: string; model?: string; selection_mode?: string; rate?: number; pitch?: number; volume?: number } | undefined): RoleVoiceConfig => ({
         providerId: resolveProviderId(voice),
         voiceId: voice?.voice_id || '',
         model: voice?.model || '',
+        selectionMode: normalizeSelectionMode(voice?.selection_mode),
         rate: voice?.rate || 1.0,
         pitch: voice?.pitch || 1.0,
         volume: voice?.volume || 1.0,
@@ -538,7 +544,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     };
 
     syncTTS().catch((err) => {
-      console.error('[useInteractionProfile] Erro ao sincronizar TTS:', err);
+      logger.error('[useInteractionProfile] Erro ao sincronizar TTS:', err);
     });
   }, [activeProfile]);
 
@@ -589,7 +595,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     if (!sttInitialized) {
       const success = await initSTT();
       if (!success) {
-        console.error('[useInteractionProfile] Falha ao inicializar STT');
+        logger.error('[useInteractionProfile] Falha ao inicializar STT');
         callbacksRef.current.onError?.('Falha ao inicializar reconhecimento de voz');
         return;
       }
@@ -693,7 +699,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
           loadActiveProfile();
         }));
       } catch (err) {
-        console.warn('[useInteractionProfile] Falha ao registrar listener profile:changed:', err);
+        logger.warn('[useInteractionProfile] Falha ao registrar listener profile:changed:', err);
       }
     };
 

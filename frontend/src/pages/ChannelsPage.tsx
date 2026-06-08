@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -90,7 +91,7 @@ type SignalRegisterStep = 'idle' | 'registering' | 'awaiting_code' | 'verifying'
 
 export default function ChannelsPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady: channelsHandleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'channels-page' });
@@ -158,7 +159,7 @@ export default function ChannelsPage() {
       const result = await GetChannelTemplates();
       setChannelTemplates(result || []);
     } catch (error) {
-      console.error('Erro ao carregar templates de canal:', error);
+      logger.error('Erro ao carregar templates de canal:', error);
     }
   }, []);
 
@@ -256,7 +257,7 @@ export default function ChannelsPage() {
       ]);
 
     } catch (error) {
-      console.error('Erro ao carregar canais:', error);
+      logger.error('Erro ao carregar canais:', error);
       addToast(t('channels.error.loadFailed'), 'error');
     } finally {
       setLoading(false);
@@ -338,7 +339,7 @@ export default function ChannelsPage() {
         await loadAll();
         setEditingChannel(template.type);
       } catch (error: unknown) {
-        console.error('Erro ao criar canal:', error);
+        logger.error('Erro ao criar canal:', error);
         addToast(getErrorMessage(error) || 'Erro ao criar canal', 'error');
       }
       return;

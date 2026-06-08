@@ -1,11 +1,13 @@
-import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback } from 'react';
+import { logger } from '../../utils/logger';
+import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
-import { PaperClipOutlined } from '@ant-design/icons';
+import { PaperClipOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
 import { MediaPreview } from './MediaPreview';
 import { VoiceButton } from './VoiceButton';
 import { SlashCommandMenu, countFilteredSkills } from './SlashCommandMenu';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { DIMENSIONS } from '../../constants/chat';
 import { GetUserInvocableSkills } from '@wailsjs/go/app/App';
 import type { skills } from '../../../wailsjs/go/models';
@@ -13,21 +15,41 @@ import './ChatInput.css';
 
 export interface ChatInputProps {
   onSend: (message: string, mediaFiles?: MediaFile[]) => void;
+  onCancelStreaming?: () => void;
+  isStreaming?: boolean;
   disabled?: boolean;
   placeholder?: string;
   maxFiles?: number;
   onArrowUp?: () => void;
   /** Se o controle de voz está habilitado */
   voiceEnabled?: boolean;
+  message?: string;
+  mediaFiles?: MediaFile[];
+  onMessageChange?: (message: string) => void;
+  onMediaFilesChange?: (mediaFiles: MediaFile[]) => void;
 }
 
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
-  { onSend, disabled = false, placeholder, maxFiles = 5, onArrowUp, voiceEnabled = false },
+  {
+    onSend,
+    onCancelStreaming,
+    isStreaming = false,
+    disabled = false,
+    placeholder,
+    maxFiles = 5,
+    onArrowUp,
+    voiceEnabled = false,
+    message: controlledMessage,
+    mediaFiles: controlledMediaFiles,
+    onMessageChange,
+    onMediaFilesChange,
+  },
   ref
 ) => {
   const { t } = useTranslation();
-  const [message, setMessage] = useState('');
-  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
+  const { announce } = useAnnouncer();
+  const [localMessage, setLocalMessage] = useState('');
+  const [localMediaFiles, setLocalMediaFiles] = useState<MediaFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -39,8 +61,53 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
   const [invocableSkills, setInvocableSkills] = useState<skills.SkillInfo[]>([]);
   
-  // Use external ref if provided, otherwise use internal ref
-  const textareaRef = (ref as React.RefObject<HTMLTextAreaElement>) || internalTextareaRef;
+  const textareaRef = internalTextareaRef;
+  useImperativeHandle(ref, () => internalTextareaRef.current as HTMLTextAreaElement, []);
+  const isMessageControlled = controlledMessage !== undefined && !!onMessageChange;
+  const isMediaFilesControlled = controlledMediaFiles !== undefined && !!onMediaFilesChange;
+  const handleMessageChange = isMessageControlled ? onMessageChange : undefined;
+  const handleMediaFilesChange = isMediaFilesControlled ? onMediaFilesChange : undefined;
+  const message = isMessageControlled ? controlledMessage : localMessage;
+  const mediaFiles = isMediaFilesControlled ? controlledMediaFiles : localMediaFiles;
+  // Só indicamos "rascunho salvo" quando o estado é persistido pela superfície
+  // (auto-save por aba/conversa). Texto e anexos são dimensões independentes:
+  // o indicador aparece se houver rascunho persistido de texto OU de anexos.
+  // Estado puramente local/não-controlado não conta como "salvo".
+  const hasControlledTextDraft = isMessageControlled && message.trim().length > 0;
+  const hasControlledMediaDraft = isMediaFilesControlled && mediaFiles.length > 0;
+  const showDraftSaved = hasControlledTextDraft || hasControlledMediaDraft;
+  const mediaFilesRef = useRef<MediaFile[]>(mediaFiles);
+
+  useEffect(() => {
+    mediaFilesRef.current = mediaFiles;
+  }, [mediaFiles]);
+
+  // Anúncio do rascunho salvo via announcer global (sem criar live region local).
+  // Inicializado com o valor atual para não anunciar na montagem; só dispara na
+  // transição real false->true durante a sessão, evitando spam a cada render.
+  const draftSavedAnnouncedRef = useRef(showDraftSaved);
+  useEffect(() => {
+    if (showDraftSaved && !draftSavedAnnouncedRef.current) {
+      announce(t('chat.draftSaved'), 'polite');
+    }
+    draftSavedAnnouncedRef.current = showDraftSaved;
+  }, [showDraftSaved, announce, t]);
+
+  const setMessage = useCallback((nextMessage: string) => {
+    if (handleMessageChange) {
+      handleMessageChange(nextMessage);
+      return;
+    }
+    setLocalMessage(nextMessage);
+  }, [handleMessageChange]);
+  const setMediaFiles = useCallback((nextMediaFiles: MediaFile[]) => {
+    mediaFilesRef.current = nextMediaFiles;
+    if (handleMediaFilesChange) {
+      handleMediaFilesChange(nextMediaFiles);
+      return;
+    }
+    setLocalMediaFiles(nextMediaFiles);
+  }, [handleMediaFilesChange]);
 
   // Carrega skills invocáveis quando o componente monta
   useEffect(() => {
@@ -124,23 +191,27 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   };
 
   const handleFileSelect = async (files: File[]) => {
-    if (files.length === 0 || mediaFiles.length >= maxFiles) return;
+    const currentMediaFiles = mediaFilesRef.current;
+    if (files.length === 0 || currentMediaFiles.length >= maxFiles) return;
     
     setIsProcessing(true);
     try {
-      const remainingSlots = maxFiles - mediaFiles.length;
+      const remainingSlots = maxFiles - currentMediaFiles.length;
       const filesToProcess = files.slice(0, remainingSlots);
       const processed = await processMediaFiles(filesToProcess);
-      setMediaFiles(prev => [...prev, ...processed]);
+      const latestMediaFiles = mediaFilesRef.current;
+      const latestRemainingSlots = maxFiles - latestMediaFiles.length;
+      if (latestRemainingSlots <= 0) return;
+      setMediaFiles([...latestMediaFiles, ...processed.slice(0, latestRemainingSlots)]);
     } catch (error) {
-      console.error('Erro ao processar arquivos:', error);
+      logger.error('Erro ao processar arquivos:', error);
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleRemoveMedia = (id: string) => {
-    setMediaFiles(prev => prev.filter(m => m.id !== id));
+    setMediaFiles(mediaFilesRef.current.filter(m => m.id !== id));
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -239,9 +310,17 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled) {
+      if (!disabled && !isStreaming) {
         handleSend();
       }
+    }
+
+    const isCancelShortcut = e.key === 'Escape';
+    if (isCancelShortcut && isStreaming && onCancelStreaming) {
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      onCancelStreaming();
+      return;
     }
     
     // ArrowUp no início do texto navega para a lista de mensagens
@@ -320,7 +399,18 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           aria-label={t('chat.messageLabel')}
         />
         {/* Mostra botão de voz quando input vazio, senão botão de enviar */}
-        {voiceEnabled && !message.trim() && mediaFiles.length === 0 ? (
+        {isStreaming ? (
+          <Button
+            onClick={onCancelStreaming}
+            disabled={!onCancelStreaming}
+            variant="danger"
+            size="md"
+            className="chat-input__button"
+            aria-label={t('chat.cancelGenerationLabel')}
+          >
+            {t('chat.cancelGeneration')}
+          </Button>
+        ) : voiceEnabled && !message.trim() && mediaFiles.length === 0 ? (
           <VoiceButton
             onTranscription={handleVoiceTranscription}
             disabled={disabled}
@@ -350,6 +440,19 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
               />
             </svg>
           </Button>
+        )}
+      </div>
+
+      {/* Indicador puramente visual; sempre montado para preservar o espaço
+          (min-height no CSS) e evitar layout shift. O anúncio para leitores de
+          tela é feito pelo announcer global (useAnnouncer), não por uma live
+          region local — por isso o container fica marcado como aria-hidden. */}
+      <div className="chat-input__draft-status" aria-hidden="true">
+        {showDraftSaved && (
+          <span className="chat-input__draft-indicator">
+            <CheckCircleOutlined aria-hidden="true" />
+            {t('chat.draftSaved')}
+          </span>
         )}
       </div>
     </div>

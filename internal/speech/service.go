@@ -23,7 +23,7 @@ type ProviderRegistry interface {
 // ProfileProvider abstrai o acesso ao perfil ativo e resolução de defaults.
 type ProfileProvider interface {
 	GetActive() (*profiles.Profile, error)
-	ResolveDefaults(p *profiles.Profile) *profiles.Profile
+	ResolveDefaults(ctx context.Context, p *profiles.Profile) *profiles.Profile
 }
 
 // ServiceConfig contém dependências injetadas para o Service.
@@ -68,13 +68,13 @@ func (s *Service) SetSpeechManager(sm *SpeechManager) {
 }
 
 // InitFromProfile inicializa o speech manager a partir do perfil ativo.
-func (s *Service) InitFromProfile() error {
+func (s *Service) InitFromProfile(ctx context.Context) error {
 	p, err := s.profileProvider.GetActive()
 	if err != nil || p == nil {
 		return fmt.Errorf("perfil ativo não encontrado: %w", err)
 	}
-	resolved := s.profileProvider.ResolveDefaults(p)
-	sm := NewSpeechManagerFromProfile(resolved, s.registry, s.credMgr)
+	resolved := s.profileProvider.ResolveDefaults(ctx, p)
+	sm := NewSpeechManagerFromProfile(ctx, resolved, s.registry, s.credMgr)
 	if sm == nil {
 		return fmt.Errorf("falha ao criar speech manager para perfil ativo")
 	}
@@ -83,11 +83,11 @@ func (s *Service) InitFromProfile() error {
 }
 
 // EnsureSpeechManager garante que o speechManager está inicializado.
-func (s *Service) EnsureSpeechManager() bool {
+func (s *Service) EnsureSpeechManager(ctx context.Context) bool {
 	if s.speechManager != nil {
 		return true
 	}
-	if err := s.InitFromProfile(); err != nil {
+	if err := s.InitFromProfile(ctx); err != nil {
 		log.Printf("[Speech] Erro ao inicializar speechManager do perfil: %v", err)
 		return false
 	}
@@ -95,7 +95,7 @@ func (s *Service) EnsureSpeechManager() bool {
 }
 
 // CreateTTSClient cria um TTSClient para um provider LLM específico.
-func (s *Service) CreateTTSClient(providerID string, model string) *TTSClient {
+func (s *Service) CreateTTSClient(ctx context.Context, providerID string, model string) *TTSClient {
 	cfg := s.registry.Get(providerID)
 	if cfg == nil {
 		log.Printf("[TTS] Provider %s não encontrado", providerID)
@@ -108,86 +108,48 @@ func (s *Service) CreateTTSClient(providerID string, model string) *TTSClient {
 	}, s.credMgr)
 }
 
-// FindOpenAILikeProvider procura um provider LLM com API OpenAI-compatible que suporte TTS.
-func (s *Service) FindOpenAILikeProvider() *llm.ProviderConfig {
-	isOpenAILike := func(cfg *llm.ProviderConfig) bool {
-		if cfg == nil {
-			return false
-		}
-		format := cfg.GetAPIFormat()
-		return format == llm.APIFormatOpenAI || format == llm.APIFormatOpenAIResponses
+func (s *Service) CreateTTSClientWithLanguage(ctx context.Context, providerID string, model string, language string) *TTSClient {
+	cfg := s.registry.Get(providerID)
+	if cfg == nil {
+		log.Printf("[TTS] Provider %s não encontrado", providerID)
+		return nil
 	}
-
-	isOfficialOpenAI := func(cfg *llm.ProviderConfig) bool {
-		return cfg.BaseURL == "" || strings.Contains(cfg.BaseURL, "api.openai.com")
-	}
-
-	// Tenta o provider do perfil ativo primeiro (voice → chat → default)
-	if profile, err := s.profileProvider.GetActive(); err == nil && profile != nil {
-		resolved := s.profileProvider.ResolveDefaults(profile)
-		if resolved.Voice.Assistant.LLMProviderID != "" {
-			if cfg := s.registry.Get(resolved.Voice.Assistant.LLMProviderID); isOpenAILike(cfg) {
-				return cfg
-			}
-		}
-		if resolved.Chat.LLMProvider != "" {
-			if cfg := s.registry.Get(resolved.Chat.LLMProvider); isOpenAILike(cfg) {
-				return cfg
-			}
-		}
-	}
-
-	// Tenta o provider default do sistema
-	for _, cfg := range s.registry.List() {
-		if cfg.IsDefault && isOpenAILike(cfg) {
-			return cfg
-		}
-	}
-
-	// Último recurso: prefere providers com URL oficial do OpenAI
-	var fallbackProxy *llm.ProviderConfig
-	for _, cfg := range s.registry.List() {
-		if isOpenAILike(cfg) {
-			if isOfficialOpenAI(cfg) {
-				return cfg
-			}
-			if fallbackProxy == nil {
-				fallbackProxy = cfg
-			}
-		}
-	}
-
-	return fallbackProxy
+	return NewTTSClient(TTSConfig{
+		BaseURL:           cfg.BaseURL,
+		CredentialPattern: cfg.CredentialPattern,
+		Model:             TTSModel(model),
+		Language:          language,
+	}, s.credMgr)
 }
 
 // SpeakMessage retorna o áudio de uma mensagem, usando cache do DB se disponível.
-func (s *Service) SpeakMessage(messageID uint, providerID string, voiceID string, model string, rate float64) (*AudioResult, error) {
+func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID string, model string, voiceID string, rate float64) (*AudioResult, error) {
 	// 1. Checa cache no DB
-	audio, mime, err := s.audioRepo.GetMessageAudio(messageID)
+	audio, mime, err := s.audioRepo.GetMessageAudio(ctx, messageID)
 	if err == nil && audio != "" {
 		return &AudioResult{Audio: audio, MimeType: mime, Cached: true}, nil
 	}
 
 	// 2. Busca o conteúdo textual da mensagem
-	content, err := s.audioRepo.GetMessageContent(messageID)
+	content, err := s.audioRepo.GetMessageContent(ctx, messageID)
 	if err != nil {
-		return nil, fmt.Errorf("mensagem %d não encontrada: %w", messageID, err)
+		return nil, fmt.Errorf("mensagem %s não encontrada: %w", messageID, err)
 	}
 	if strings.TrimSpace(content) == "" {
-		return nil, fmt.Errorf("mensagem %d sem conteúdo textual", messageID)
+		return nil, fmt.Errorf("mensagem %s sem conteúdo textual", messageID)
 	}
 
 	// 3. Gera TTS: roteia entre SAPI5 (local) e provedores API (HTTP)
-	audioData, mimeType, err := s.synthesizeForProvider(content, providerID, voiceID, model, rate)
+	audioData, mimeType, err := s.synthesizeForProvider(ctx, content, providerID, model, voiceID, rate)
 	if err != nil {
-		return nil, fmt.Errorf("TTS for message %d: %w", messageID, err)
+		return nil, fmt.Errorf("TTS for message %s: %w", messageID, err)
 	}
 
 	// 4. Persiste no DB
 	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
 	cached := true
-	if saveErr := s.audioRepo.SaveMessageAudio(messageID, audioBase64, mimeType); saveErr != nil {
-		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%d): %v", messageID, saveErr)
+	if saveErr := s.audioRepo.SaveMessageAudio(ctx, messageID, audioBase64, mimeType); saveErr != nil {
+		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%s): %v", messageID, saveErr)
 		cached = false
 	}
 
@@ -195,11 +157,11 @@ func (s *Service) SpeakMessage(messageID uint, providerID string, voiceID string
 }
 
 // synthesizeForProvider roteia a síntese TTS para o provider correto.
-func (s *Service) synthesizeForProvider(text, providerID, voiceID, model string, rate float64) ([]byte, string, error) {
+func (s *Service) synthesizeForProvider(ctx context.Context, text, providerID, model, voiceID string, rate float64) ([]byte, string, error) {
 	if providerID == "sapi5" {
 		return s.synthesizeSAPI5(text, voiceID, mapRateToSAPI5(rate))
 	}
-	return s.synthesizeAPI(text, providerID, voiceID, model, rate)
+	return s.synthesizeAPI(ctx, text, providerID, model, voiceID, rate)
 }
 
 // mapRateToSAPI5 converte a escala de rate do perfil (0.25–4.0, padrão 1.0)
@@ -241,16 +203,16 @@ func (s *Service) synthesizeSAPI5(text, voiceID string, rate int) ([]byte, strin
 }
 
 // synthesizeAPI gera áudio MP3 via provider OpenAI-compatible (HTTP).
-func (s *Service) synthesizeAPI(text, providerID, voiceID, model string, rate float64) ([]byte, string, error) {
-	if model == "" {
-		model = voiceID
+func (s *Service) synthesizeAPI(ctx context.Context, text, providerID, model, voiceID string, rate float64) ([]byte, string, error) {
+	if err := validateTTSSelection(model, voiceID, ""); err != nil {
+		return nil, "", err
 	}
 	if rate <= 0 {
 		rate = 1.0
 	}
 	speed := clampSpeed(rate)
 
-	client := s.CreateTTSClient(providerID, model)
+	client := s.CreateTTSClient(ctx, providerID, model)
 	if client == nil {
 		return nil, "", fmt.Errorf("provider TTS %q não encontrado", providerID)
 	}
@@ -265,28 +227,49 @@ func (s *Service) synthesizeAPI(text, providerID, voiceID, model string, rate fl
 }
 
 // GenerateAndSaveMessageAudio gera áudio TTS para uma mensagem e salva no DB.
-func (s *Service) GenerateAndSaveMessageAudio(messageID uint, text string) (*AudioResult, error) {
-	if !s.EnsureSpeechManager() {
+func (s *Service) GenerateAndSaveMessageAudio(ctx context.Context, messageID string, text string) (*AudioResult, error) {
+	if !s.EnsureSpeechManager(ctx) {
 		return nil, fmt.Errorf("speech manager indisponível")
 	}
 
 	result, err := s.speechManager.Synthesize(text)
 	if err != nil {
-		return nil, fmt.Errorf("generate audio for message %d: %w", messageID, err)
+		return nil, fmt.Errorf("generate audio for message %s: %w", messageID, err)
 	}
 
 	mimeType := "audio/mpeg"
 	cached := true
-	if err := s.audioRepo.SaveMessageAudio(messageID, result.AudioBase64, mimeType); err != nil {
-		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%d): %v — áudio será retornado mas não persistido", messageID, err)
+	if err := s.audioRepo.SaveMessageAudio(ctx, messageID, result.AudioBase64, mimeType); err != nil {
+		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%s): %v — áudio será retornado mas não persistido", messageID, err)
 		cached = false
 	}
 
 	return &AudioResult{Audio: result.AudioBase64, MimeType: mimeType, Cached: cached}, nil
 }
 
-// GetTTSVoices retorna vozes TTS disponíveis para um provedor.
-func (s *Service) GetTTSVoices(providerID string) []TTSVoiceInfo {
+// GetTTSModels retorna modelos TTS disponíveis para um provedor.
+func (s *Service) GetTTSModels(ctx context.Context, providerID string) []TTSModelInfo {
+	if providerID == "" {
+		return []TTSModelInfo{}
+	}
+	if providerID == "webspeech" || providerID == "sapi5" {
+		return []TTSModelInfo{}
+	}
+	client := s.CreateTTSClient(ctx, providerID, "")
+	if client == nil {
+		log.Printf("[GetTTSModels] não foi possível criar client para provider %s", providerID)
+		return []TTSModelInfo{}
+	}
+	models, err := client.FetchTTSModels(ctx)
+	if err != nil {
+		log.Printf("[GetTTSModels] erro ao buscar modelos para %s: %v", providerID, err)
+		return []TTSModelInfo{}
+	}
+	return models
+}
+
+// GetTTSVoices retorna vozes TTS disponíveis para um provedor e modelo.
+func (s *Service) GetTTSVoices(ctx context.Context, providerID, modelID string) []TTSVoiceInfo {
 	if providerID == "" {
 		return []TTSVoiceInfo{}
 	}
@@ -311,15 +294,19 @@ func (s *Service) GetTTSVoices(providerID string) []TTSVoiceInfo {
 	if providerID == "webspeech" {
 		return []TTSVoiceInfo{}
 	}
+	if modelID == "" {
+		log.Printf("[GetTTSVoices] model é obrigatório para provider %s", providerID)
+		return []TTSVoiceInfo{}
+	}
 
 	// Provedores LLM: consulta via TTSClient
-	client := s.CreateTTSClient(providerID, "")
+	client := s.CreateTTSClient(ctx, providerID, modelID)
 	if client == nil {
 		log.Printf("[GetTTSVoices] não foi possível criar client para provider %s", providerID)
 		return []TTSVoiceInfo{}
 	}
 
-	voices, err := client.FetchVoices()
+	voices, err := client.FetchVoices(ctx, modelID)
 	if err != nil {
 		log.Printf("[GetTTSVoices] erro ao buscar vozes para %s: %v", providerID, err)
 		return []TTSVoiceInfo{}
@@ -329,20 +316,20 @@ func (s *Service) GetTTSVoices(providerID string) []TTSVoiceInfo {
 }
 
 // GetSTTModels retorna modelos STT disponíveis para um provedor.
-func (s *Service) GetSTTModels(providerID string) []SpeechModelInfo {
+func (s *Service) GetSTTModels(ctx context.Context, providerID string) []SpeechModelInfo {
 	if providerID == "" {
 		return []SpeechModelInfo{}
 	}
-	client := s.CreateTTSClient(providerID, "")
+	client := s.CreateTTSClient(ctx, providerID, "")
 	if client == nil {
 		return StaticSTTModels()
 	}
-	return client.FetchSTTModels()
+	return client.FetchSTTModels(ctx)
 }
 
 // SynthesizeStream executa síntese com streaming, emitindo eventos via Emitter.
-func (s *Service) SynthesizeStream(text string, voice string, sessionID string) error {
-	if !s.EnsureSpeechManager() {
+func (s *Service) SynthesizeStream(ctx context.Context, text string, voice string, sessionID string) error {
+	if !s.EnsureSpeechManager(ctx) {
 		s.emitter.Emit(EventTTSStreamError, TTSStreamEvent{
 			SessionID: sessionID,
 			Error:     "speech manager não disponível - configure um provedor no perfil",
@@ -406,7 +393,7 @@ func (s *Service) SynthesizeStream(text string, voice string, sessionID string) 
 			},
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), CalcTTSTimeout(len(text)))
+		ctx, cancel := context.WithTimeout(ctx, CalcTTSTimeout(len(text)))
 		defer cancel()
 
 		err := s.speechManager.SynthesizeStream(ctx, text, voice, callbacks)
@@ -426,6 +413,7 @@ type SpeakPreviewParams struct {
 	ProviderID string
 	VoiceID    string
 	Model      string
+	Language   string
 	Rate       float64
 	Volume     float64
 	Text       string
@@ -433,7 +421,7 @@ type SpeakPreviewParams struct {
 }
 
 // SpeakPreview faz preview de voz para configurações de perfil.
-func (s *Service) SpeakPreview(p SpeakPreviewParams) error {
+func (s *Service) SpeakPreview(ctx context.Context, p SpeakPreviewParams) error {
 	text := p.Text
 	if text == "" {
 		return fmt.Errorf("texto de preview é obrigatório")
@@ -448,7 +436,7 @@ func (s *Service) SpeakPreview(p SpeakPreviewParams) error {
 		volume = 1.0
 	}
 
-	log.Printf("[SpeakPreview] provider=%s, voice=%s, model=%s, rate=%.2f, volume=%.2f", p.ProviderID, p.VoiceID, p.Model, rate, volume)
+	log.Printf("[SpeakPreview] provider=%s, voice=%s, model=%s, language=%s, rate=%.2f, volume=%.2f", p.ProviderID, p.VoiceID, p.Model, p.Language, rate, volume)
 
 	switch p.ProviderID {
 	case "webspeech":
@@ -456,7 +444,7 @@ func (s *Service) SpeakPreview(p SpeakPreviewParams) error {
 	case "sapi5":
 		return s.previewSAPI5(text, p.VoiceID, rate, volume)
 	default:
-		return s.previewLLM(p.ProviderID, text, p.VoiceID, p.Model, rate, p.SessionID)
+		return s.previewLLM(ctx, p.ProviderID, text, p.VoiceID, p.Model, p.Language, rate, p.SessionID)
 	}
 }
 
@@ -473,17 +461,15 @@ func (s *Service) previewSAPI5(text, voiceID string, rate, volume float64) error
 	return manager.Speak(text, voiceID)
 }
 
-func (s *Service) previewLLM(providerID, text, voiceID, model string, rate float64, sessionID string) error {
-	client := s.CreateTTSClient(providerID, model)
-	if client == nil {
-		if fallback := s.FindOpenAILikeProvider(); fallback != nil {
-			client = s.CreateTTSClient(fallback.ID, model)
-		}
+func (s *Service) previewLLM(ctx context.Context, providerID, text, voiceID, model, language string, rate float64, sessionID string) error {
+	if err := validateTTSSelection(model, voiceID, ""); err != nil {
+		return err
 	}
+	client := s.CreateTTSClientWithLanguage(ctx, providerID, model, language)
 	if client == nil {
 		s.emitter.Emit(EventTTSStreamError, TTSStreamEvent{
 			SessionID: sessionID,
-			Error:     "nenhum provedor OpenAI com credenciais encontrado",
+			Error:     fmt.Sprintf("provider TTS %q não encontrado", providerID),
 		})
 		return fmt.Errorf("no TTS provider available for %s", providerID)
 	}
@@ -520,16 +506,16 @@ func (s *Service) previewLLM(providerID, text, voiceID, model string, rate float
 			},
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), CalcTTSTimeout(len(text)))
+		ctx, cancel := context.WithTimeout(ctx, CalcTTSTimeout(len(text)))
 		defer cancel()
 
-		voice := TTSVoice(voiceID)
-		if IsDynamicTTSModel(voiceID) {
-			client.SetModel(TTSModel(voiceID))
-			voice = TTSVoice(voiceID)
+		var err error
+		if voiceID == "" {
+			err = client.SynthesizeStream(ctx, text, callbacks)
+		} else {
+			err = client.SynthesizeStreamWithVoice(ctx, text, TTSVoice(voiceID), callbacks)
 		}
-
-		if err := client.SynthesizeStreamWithVoice(ctx, text, voice, callbacks); err != nil {
+		if err != nil {
 			s.emitter.Emit(EventTTSStreamError, TTSStreamEvent{
 				SessionID: sessionID,
 				Error:     err.Error(),
@@ -541,24 +527,24 @@ func (s *Service) previewLLM(providerID, text, voiceID, model string, rate float
 }
 
 // Transcribe transcreve áudio via speech manager (Whisper STT).
-func (s *Service) Transcribe(audioBase64, filename string) (*TranscriptionResult, error) {
-	if !s.EnsureSpeechManager() {
+func (s *Service) Transcribe(ctx context.Context, audioBase64, filename string) (*TranscriptionResult, error) {
+	if !s.EnsureSpeechManager(ctx) {
 		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
 	}
 	return s.speechManager.Transcribe(audioBase64, filename)
 }
 
 // Synthesize sintetiza texto via speech manager (TTS padrão).
-func (s *Service) Synthesize(text string) (*SynthesisResult, error) {
-	if !s.EnsureSpeechManager() {
+func (s *Service) Synthesize(ctx context.Context, text string) (*SynthesisResult, error) {
+	if !s.EnsureSpeechManager(ctx) {
 		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
 	}
 	return s.speechManager.Synthesize(text)
 }
 
 // SynthesizeWithVoice sintetiza texto com voz específica via speech manager.
-func (s *Service) SynthesizeWithVoice(text, voice string) (*SynthesisResult, error) {
-	if !s.EnsureSpeechManager() {
+func (s *Service) SynthesizeWithVoice(ctx context.Context, text, voice string) (*SynthesisResult, error) {
+	if !s.EnsureSpeechManager(ctx) {
 		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
 	}
 	return s.speechManager.SynthesizeWithVoice(text, voice)
@@ -589,8 +575,8 @@ func (s *Service) GetAvailableVoices() []TTSVoiceInfo {
 }
 
 // GetMessageAudio retorna o áudio cached de uma mensagem.
-func (s *Service) GetMessageAudio(messageID uint) (*AudioResult, error) {
-	audio, mime, err := s.audioRepo.GetMessageAudio(messageID)
+func (s *Service) GetMessageAudio(ctx context.Context, messageID string) (*AudioResult, error) {
+	audio, mime, err := s.audioRepo.GetMessageAudio(ctx, messageID)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar áudio: %w", err)
 	}
@@ -601,8 +587,8 @@ func (s *Service) GetMessageAudio(messageID uint) (*AudioResult, error) {
 }
 
 // SaveMessageAudio salva áudio (base64) numa mensagem existente.
-func (s *Service) SaveMessageAudio(messageID uint, audioBase64, mimeType string) error {
-	return s.audioRepo.SaveMessageAudio(messageID, audioBase64, mimeType)
+func (s *Service) SaveMessageAudio(ctx context.Context, messageID string, audioBase64, mimeType string) error {
+	return s.audioRepo.SaveMessageAudio(ctx, messageID, audioBase64, mimeType)
 }
 
 // GetSpeechProviders retorna provedores LLM que suportam TTS ou STT.

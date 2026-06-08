@@ -6,19 +6,25 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"strings"
 	"time"
 
+	"assistente/internal/eventctx"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
+
+	"github.com/google/uuid"
 )
 
 // JobExecutor executa jobs chamando tools do registry.
 type JobExecutor struct {
-	toolRegistry   *tools.Registry
-	eventBus       *EventBus
-	logger         *Logger
-	circuitBreaker *CircuitBreaker
-	secretResolver SecretResolver
-	notifyFunc     NotifyFunc
+	toolRegistry    *tools.Registry
+	toolInvocations *toolinvocations.Service
+	eventBus        *EventBus
+	repository      Repository
+	circuitBreaker  *CircuitBreaker
+	secretStore     SecretStore
+	notifyFunc      NotifyFunc
 
 	// Callback emitido no inicio/fim de cada run (para atualizar UI)
 	onRunStart func(jobID string, runID string)
@@ -30,27 +36,29 @@ type NotifyFunc func(channels []string, message string)
 
 // ExecutorConfig configura o JobExecutor.
 type ExecutorConfig struct {
-	ToolRegistry   *tools.Registry
-	EventBus       *EventBus
-	Logger         *Logger
-	CircuitBreaker *CircuitBreaker
-	SecretResolver SecretResolver
-	NotifyFunc     NotifyFunc
-	OnRunStart     func(jobID string, runID string)
-	OnRunEnd       func(jobID string, runLog *RunLog)
+	ToolRegistry    *tools.Registry
+	ToolInvocations *toolinvocations.Service
+	EventBus        *EventBus
+	Repository      Repository
+	CircuitBreaker  *CircuitBreaker
+	SecretStore     SecretStore
+	NotifyFunc      NotifyFunc
+	OnRunStart      func(jobID string, runID string)
+	OnRunEnd        func(jobID string, runLog *RunLog)
 }
 
 // NewJobExecutor cria um executor com as dependencias fornecidas.
 func NewJobExecutor(cfg ExecutorConfig) *JobExecutor {
 	return &JobExecutor{
-		toolRegistry:   cfg.ToolRegistry,
-		eventBus:       cfg.EventBus,
-		logger:         cfg.Logger,
-		circuitBreaker: cfg.CircuitBreaker,
-		secretResolver: cfg.SecretResolver,
-		notifyFunc:     cfg.NotifyFunc,
-		onRunStart:     cfg.OnRunStart,
-		onRunEnd:       cfg.OnRunEnd,
+		toolRegistry:    cfg.ToolRegistry,
+		toolInvocations: cfg.ToolInvocations,
+		eventBus:        cfg.EventBus,
+		repository:      cfg.Repository,
+		circuitBreaker:  cfg.CircuitBreaker,
+		secretStore:     cfg.SecretStore,
+		notifyFunc:      cfg.NotifyFunc,
+		onRunStart:      cfg.OnRunStart,
+		onRunEnd:        cfg.OnRunEnd,
 	}
 }
 
@@ -58,6 +66,10 @@ func NewJobExecutor(cfg ExecutorConfig) *JobExecutor {
 type TriggerContext struct {
 	Type         TriggerType
 	EventName    string
+	Expression   string
+	Every        string
+	Keys         string
+	When         string
 	EventPayload map[string]any
 	ChainID      string   // ID da cadeia (para circuit breaker)
 	ChainHistory []string // jobs ja executados nesta cadeia
@@ -66,15 +78,27 @@ type TriggerContext struct {
 // Execute executa um job: resolve inputs, chama a tool, processa output, emite eventos.
 // Respeita error_policy com retry/backoff.
 func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerContext) *RunLog {
-	runID := fmt.Sprintf("run_%d", time.Now().UnixNano())
+	if trigCtx == nil {
+		trigCtx = &TriggerContext{Type: TriggerManual}
+	}
+
+	runUUID, err := uuid.NewV7()
+	if err != nil {
+		runUUID = uuid.New()
+	}
+	runID := "run_" + runUUID.String()
 
 	rl := &RunLog{
-		RunID:   runID,
-		JobID:   job.ID,
+		RunID: runID,
+		JobID: job.ID,
 		Trigger: TriggerInfo{
-			Type:  trigCtx.Type,
-			At:    time.Now(),
-			Event: trigCtx.EventName,
+			Type:       trigCtx.Type,
+			At:         time.Now(),
+			Event:      trigCtx.EventName,
+			Expression: trigCtx.Expression,
+			Every:      trigCtx.Every,
+			Keys:       trigCtx.Keys,
+			When:       trigCtx.When,
 		},
 		StartedAt: time.Now(),
 	}
@@ -86,9 +110,16 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	defer func() {
 		rl.CompletedAt = time.Now()
 		rl.Duration = rl.CompletedAt.Sub(rl.StartedAt).String()
+		rl.addTerminalRunEvent(job.ID)
+		rl.Replayable = rl.Status != "skipped" && rl.ToolName != "" && rl.ResolvedInputs != nil && !ContainsRedactedValue(rl.ResolvedInputs)
 
-		if err := e.logger.LogRun(rl); err != nil {
-			log.Printf("[Jobs] Error logging run: %v", err)
+		if e.repository != nil {
+			persistCtx := context.WithoutCancel(ctx)
+			if err := e.repository.LogRun(persistCtx, rl); err != nil {
+				log.Printf("[Jobs] Error logging run: %v", err)
+			}
+		} else {
+			log.Printf("[Jobs] Error logging run: repository not configured")
 		}
 
 		if e.onRunEnd != nil {
@@ -96,8 +127,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		}
 	}()
 
-	// Log evento: triggered
-	e.logEvent("triggered", job.ID, "", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
+	rl.addRunEvent("triggered", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
 
 	// Circuit breaker: rate limit
 	if err := e.circuitBreaker.CheckRateLimit(job.ID, job.MaxRunsPerHour); err != nil {
@@ -155,7 +185,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 			select {
 			case <-ctx.Done():
 				rl.Status = "failed"
-				rl.Error = "cancelled during retry"
+				rl.Error = cancellationError("cancelled during retry", ctx)
 				e.emitFailure(ctx, job, rl, trigCtx)
 				return rl
 			case <-time.After(delay):
@@ -198,6 +228,11 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 
 // ExecuteDryRun executa um job em modo dry run, ignorando a flag do YAML.
 func (e *JobExecutor) ExecuteDryRun(ctx context.Context, job *Job, trigCtx *TriggerContext) *DryRunResult {
+	// Normaliza trigCtx (como Execute): executeSingle acessa trigCtx.EventPayload
+	// sem nil-check, então um trigCtx nil causaria panic.
+	if trigCtx == nil {
+		trigCtx = &TriggerContext{Type: TriggerManual}
+	}
 	if job.DryRun.MockOutput != nil {
 		return &DryRunResult{
 			Success: true,
@@ -205,7 +240,11 @@ func (e *JobExecutor) ExecuteDryRun(ctx context.Context, job *Job, trigCtx *Trig
 		}
 	}
 
-	// Sem mock: executa a tool de verdade mas nao emite eventos
+	// Sem mock: executa a tool de verdade mas não emite eventos. Além de não
+	// chamar emitSuccess/emitFailure, suprimimos a ponte de eventos de domínio
+	// (AEP-0067): uma mutação feita pela tool durante o dry-run não deve publicar
+	// no EventBus nem cascatear outros jobs. Checado por Manager.PublishDomainEvent.
+	ctx = eventctx.WithSuppressed(ctx)
 	output, err := e.executeSingle(ctx, job, trigCtx, nil)
 	if err != nil {
 		return &DryRunResult{
@@ -220,6 +259,12 @@ func (e *JobExecutor) ExecuteDryRun(ctx context.Context, job *Job, trigCtx *Trig
 }
 
 func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *TriggerContext, rl *RunLog) (map[string]any, error) {
+	// Carimba proveniência no ctx do run (AEP-0067): mutações de domínio feitas
+	// pela tool (ex.: task_list) durante este run são marcadas como _source="job".
+	// Isso flui ctx -> tool -> tasklist.Service, que injeta no payload do evento,
+	// permitindo anti-loop via trigger.when ({{ eq .event._source "user" }}).
+	ctx = eventctx.With(ctx, e.runProvenance(job, trigCtx, rl))
+
 	// Resolve a tool no registry
 	tool, ok := e.toolRegistry.Get(job.Tool)
 	if !ok {
@@ -228,9 +273,14 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 
 	// Monta contexto de template
 	tmplCtx := &TemplateContext{
-		Event:   trigCtx.EventPayload,
-		Secrets: e.secretResolver,
-		Now:     time.Now(),
+		Event: trigCtx.EventPayload,
+		Secrets: func(key string) (string, error) {
+			if e.secretStore == nil {
+				return "", fmt.Errorf("no secret store configured")
+			}
+			return e.secretStore.GetSecret(ctx, key)
+		},
+		Now: time.Now(),
 	}
 
 	// Resolve templates nos inputs
@@ -243,7 +293,7 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 
 	if rl != nil {
 		rl.ToolName = job.Tool
-		rl.ResolvedInputs = resolvedInputs
+		rl.ResolvedInputs = RedactResolvedInputs(job.Inputs, resolvedInputs)
 	}
 
 	// Serializa inputs para JSON (formato esperado por tool.Execute)
@@ -252,14 +302,9 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 		return nil, fmt.Errorf("marshal inputs: %w", err)
 	}
 
-	// Executa a tool
-	result, err := tool.Execute(ctx, argsJSON)
+	result, err := e.executeTool(ctx, job, rl, argsJSON)
 	if err != nil {
-		return nil, fmt.Errorf("tool execute: %w", err)
-	}
-
-	if result.IsError {
-		return nil, fmt.Errorf("tool error: %s", result.Content)
+		return nil, err
 	}
 
 	// Parse o resultado para map[string]any
@@ -278,7 +323,9 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 		} else {
 			log.Printf("[Jobs] Output parsed as object with keys: %v", func() []string {
 				keys := make([]string, 0, len(output))
-				for k := range output { keys = append(keys, k) }
+				for k := range output {
+					keys = append(keys, k)
+				}
 				return keys
 			}())
 		}
@@ -302,6 +349,85 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	return output, nil
 }
 
+func (e *JobExecutor) executeTool(ctx context.Context, job *Job, rl *RunLog, argsJSON json.RawMessage) (tools.ToolResult, error) {
+	if e.toolInvocations == nil {
+		tool, ok := e.toolRegistry.Get(job.Tool)
+		if !ok {
+			return tools.ToolResult{}, fmt.Errorf("tool not found: %s", job.Tool)
+		}
+		result, err := tool.Execute(ctx, argsJSON)
+		if err != nil {
+			return tools.ToolResult{}, wrapToolExecuteErr(ctx, err)
+		}
+		if result.IsError {
+			return tools.ToolResult{}, fmt.Errorf("tool error: %s", result.Content)
+		}
+		return result, nil
+	}
+
+	callID := fmt.Sprintf("job_%s_%d", job.ID, time.Now().UnixNano())
+	originType := toolinvocations.OriginJobRun
+	originID := "dry_run:" + job.ID
+	if rl != nil {
+		callID = fmt.Sprintf("%s_tool", rl.RunID)
+		originType = toolinvocations.OriginJobRun
+		originID = rl.RunID
+	}
+	result := e.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
+		Call: tools.ToolCall{
+			ID:   callID,
+			Type: "function",
+			Function: tools.FunctionCall{
+				Name:      job.Tool,
+				Arguments: string(argsJSON),
+			},
+		},
+		Origin: toolinvocations.Origin{
+			Type: originType,
+			ID:   originID,
+		},
+		DryRun: rl == nil,
+		// Jobs podem precisar processar JSON > 100KB (output maps/encadeamento).
+		// Executa com budget bem maior para evitar corromper JSON por truncamento;
+		// a persistência em tool_invocations pode truncar separadamente.
+		ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
+	}).Execution
+	if result.Error != nil {
+		return tools.ToolResult{}, wrapToolExecuteErr(ctx, result.Error)
+	}
+	if result.Result.IsError {
+		return tools.ToolResult{}, fmt.Errorf("tool error: %s", result.Result.Content)
+	}
+	return result.Result, nil
+}
+
+// runProvenance monta a proveniência carimbada no ctx do run, espelhando a
+// semântica de cadeia de emitSuccess (chainID herdado do trigger ou o RunID).
+func (e *JobExecutor) runProvenance(job *Job, trigCtx *TriggerContext, rl *RunLog) eventctx.Provenance {
+	chainID := ""
+	var history []string
+	if trigCtx != nil {
+		chainID = trigCtx.ChainID
+		history = trigCtx.ChainHistory
+	}
+	if chainID == "" {
+		if rl != nil && rl.RunID != "" {
+			chainID = rl.RunID
+		} else {
+			chainID = newChainID()
+		}
+	}
+	chain := make([]string, 0, len(history)+1)
+	chain = append(chain, history...)
+	chain = append(chain, job.ID)
+	return eventctx.Provenance{
+		Source:       "job",
+		SourceJobID:  job.ID,
+		ChainID:      chainID,
+		ChainHistory: chain,
+	}
+}
+
 func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, trigCtx *TriggerContext) {
 	if job.Events.OnSuccess == "" {
 		return
@@ -311,7 +437,10 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 	if chainID == "" {
 		chainID = rl.RunID
 	}
-	chainHistory := append(trigCtx.ChainHistory, job.ID)
+	// clipHistory garante cap == len: o mesmo slice é compartilhado entre os itens
+	// de fan-out e entregue a handlers concorrentes pelo EventBus, então um append
+	// downstream com capacidade sobrando mutaria o backing array compartilhado.
+	chainHistory := clipHistory(append(trigCtx.ChainHistory, job.ID))
 
 	// Fan-out: se for_each aponta para um campo que é array, emite um evento por item
 	if job.Events.ForEach != "" {
@@ -349,7 +478,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 			}
 
 			if emitted > 0 {
-				e.logEvent("event_emitted", job.ID, job.Events.OnSuccess,
+				rl.addDomainEvent("event_emitted", job.ID, job.Events.OnSuccess,
 					fmt.Sprintf("[%s] -> emitted %q x%d/%d (fan-out on %q)", job.ID, job.Events.OnSuccess, emitted, len(items), job.Events.ForEach), nil)
 				rl.EventsEmitted = append(rl.EventsEmitted, fmt.Sprintf("%s x%d", job.Events.OnSuccess, emitted))
 			} else {
@@ -369,7 +498,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 	output := e.applyPayloadTemplate(job, rl.Output, trigCtx)
 	payload := e.buildEventPayload(job, output)
 
-	e.logEvent("event_emitted", job.ID, job.Events.OnSuccess,
+	rl.addDomainEvent("event_emitted", job.ID, job.Events.OnSuccess,
 		fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnSuccess), nil)
 
 	rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnSuccess)
@@ -428,7 +557,11 @@ func splitDotPath(path string) []string {
 }
 
 func (e *JobExecutor) emitFailure(ctx context.Context, job *Job, rl *RunLog, trigCtx *TriggerContext) {
-	e.logEvent("failed", job.ID, "", fmt.Sprintf("[%s] FAILED: %s", job.ID, rl.Error), nil)
+	eventType := rl.Status
+	if eventType == "" {
+		eventType = "failed"
+	}
+	rl.addRunEvent(eventType, fmt.Sprintf("[%s] %s: %s", job.ID, strings.ToUpper(eventType), rl.Error), nil)
 
 	if job.Events.OnFailure == "" {
 		return
@@ -442,7 +575,7 @@ func (e *JobExecutor) emitFailure(ctx context.Context, job *Job, rl *RunLog, tri
 
 	rl.EventsEmitted = append(rl.EventsEmitted, job.Events.OnFailure)
 
-	e.logEvent("event_emitted", job.ID, job.Events.OnFailure,
+	rl.addDomainEvent("event_emitted", job.ID, job.Events.OnFailure,
 		fmt.Sprintf("[%s] -> emitted %q", job.ID, job.Events.OnFailure), nil)
 
 	e.eventBus.Publish(ctx, job.Events.OnFailure, payload)
@@ -529,19 +662,50 @@ func (e *JobExecutor) buildEventPayload(job *Job, output map[string]any) map[str
 	return output
 }
 
-func (e *JobExecutor) logEvent(eventType, jobID, eventName, message string, data map[string]any) {
-	entry := &EventEntry{
+func (rl *RunLog) addDomainEvent(eventType, jobID, eventName, message string, data map[string]any) {
+	if rl == nil {
+		return
+	}
+	rl.DomainEvents = append(rl.DomainEvents, EventEntry{
 		Timestamp: time.Now(),
 		Type:      eventType,
 		JobID:     jobID,
+		RunID:     rl.RunID,
 		Event:     eventName,
 		Message:   message,
 		Data:      data,
-	}
+	})
+}
 
-	if err := e.logger.LogEvent(entry); err != nil {
-		log.Printf("[Jobs] Error logging event: %v", err)
+func (rl *RunLog) addRunEvent(eventType, message string, data map[string]any) {
+	if rl == nil {
+		return
 	}
+	rl.RunEvents = append(rl.RunEvents, RunEvent{
+		RunID:     rl.RunID,
+		Sequence:  len(rl.RunEvents) + 1,
+		Timestamp: time.Now(),
+		Type:      eventType,
+		Message:   message,
+		Data:      data,
+	})
+}
+
+func (rl *RunLog) addTerminalRunEvent(jobID string) {
+	if rl == nil || rl.Status == "" {
+		return
+	}
+	for _, event := range rl.RunEvents {
+		if event.Type == "completed" || event.Type == "failed" || event.Type == "skipped" {
+			return
+		}
+	}
+	status := rl.Status
+	message := fmt.Sprintf("[%s] %s", jobID, strings.ToUpper(status))
+	if rl.Error != "" {
+		message += ": " + rl.Error
+	}
+	rl.addRunEvent(status, message, nil)
 }
 
 func (e *JobExecutor) calculateRetryDelay(job *Job, attempt int) time.Duration {
@@ -560,6 +724,30 @@ func (e *JobExecutor) calculateRetryDelay(job *Job, attempt int) time.Duration {
 	default: // fixed
 		return baseDelay
 	}
+}
+
+// wrapToolExecuteErr envelopa o erro da tool com o prefixo "tool execute" e,
+// quando o ctx foi cancelado, anexa o motivo (context.Cause) para distinguir
+// deadline vs cancelamento do publicador vs cancelamento manual.
+func wrapToolExecuteErr(ctx context.Context, err error) error {
+	if cause := context.Cause(ctx); cause != nil {
+		return fmt.Errorf("tool execute: %w (ctx cause: %v)", err, cause)
+	}
+	return fmt.Errorf("tool execute: %w", err)
+}
+
+// cancellationError anexa o motivo do cancelamento (context.Cause) à mensagem
+// quando ele difere do erro genérico do ctx, ajudando a distinguir "deadline
+// exceeded" vs "parent canceled" vs cancelamento manual em diagnósticos.
+func cancellationError(prefix string, ctx context.Context) string {
+	cause := context.Cause(ctx)
+	if cause == nil || cause == ctx.Err() {
+		if err := ctx.Err(); err != nil {
+			return fmt.Sprintf("%s: %v", prefix, err)
+		}
+		return prefix
+	}
+	return fmt.Sprintf("%s: %v", prefix, cause)
 }
 
 func estimateSize(v map[string]any) int {

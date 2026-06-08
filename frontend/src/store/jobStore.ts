@@ -11,10 +11,56 @@ import {
   GetToolCatalog,
   SaveJob,
   DeleteJob,
-  TestTool,
+  TestToolDryRun,
 } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { jobs } from '@wailsjs/go/models';
+import { parseToolSource } from '../utils/toolSource';
+
+function applyEffectiveEnabled(job: jobs.JobInfo, enabled: boolean): jobs.JobInfo {
+  const updated = Object.assign(Object.create(Object.getPrototypeOf(job)), job);
+  updated.enabled = enabled;
+  updated.effective_enabled = enabled && updated.pipeline_enabled !== false;
+  return updated as jobs.JobInfo;
+}
+
+function rawMessageToString(raw: unknown): string | undefined {
+  if (raw == null) return undefined;
+  if (typeof raw === 'string') return raw;
+
+  // Wails mapeia Go json.RawMessage como number[] (bytes)
+  if (Array.isArray(raw) && raw.every((v) => typeof v === 'number')) {
+    if (typeof TextDecoder !== 'undefined') {
+      return new TextDecoder().decode(Uint8Array.from(raw));
+    }
+    return String.fromCharCode(...raw);
+  }
+
+  if (raw instanceof Uint8Array) {
+    if (typeof TextDecoder !== 'undefined') {
+      return new TextDecoder().decode(raw);
+    }
+    return String.fromCharCode(...Array.from(raw));
+  }
+
+  // Fallback: preserva a forma serializável
+  return JSON.stringify(raw);
+}
+
+function normalizeCatalogEntry(entry: jobs.CatalogEntry): jobs.CatalogEntry {
+  const normalized = Object.assign(Object.create(Object.getPrototypeOf(entry)), entry) as jobs.CatalogEntry;
+  const schema = rawMessageToString((entry as unknown as { schema?: unknown }).schema);
+  if (schema !== undefined) {
+    (normalized as unknown as { schema?: unknown }).schema = schema;
+  }
+  return normalized;
+}
+
+function isMCPBridgeToolName(toolName: string): boolean {
+  const name = toolName.trim();
+  const source = parseToolSource(name);
+  return source.type === 'mcp' && Boolean(source.serverSlug);
+}
 
 interface JobStoreState {
   jobs: jobs.JobInfo[];
@@ -57,9 +103,7 @@ export const useJobStore = create<JobStoreState>((set, get) => {
       set((state) => ({
         jobs: state.jobs.map((j) => {
           if (j.id !== data.id) return j;
-          const updated = Object.assign(Object.create(Object.getPrototypeOf(j)), j);
-          updated.enabled = data.enabled;
-          return updated as jobs.JobInfo;
+          return applyEffectiveEnabled(j, data.enabled);
         }),
       }));
     });
@@ -128,9 +172,7 @@ export const useJobStore = create<JobStoreState>((set, get) => {
         set((state) => ({
           jobs: state.jobs.map((j) => {
             if (j.id !== id) return j;
-            const updated = Object.assign(Object.create(Object.getPrototypeOf(j)), j);
-            updated.enabled = enabled;
-            return updated as jobs.JobInfo;
+            return applyEffectiveEnabled(j, enabled);
           }),
         }));
       } catch (err) {
@@ -189,7 +231,8 @@ export const useJobStore = create<JobStoreState>((set, get) => {
 
     fetchToolCatalog: async () => {
       try {
-        return await GetToolCatalog() || [];
+        const result = await GetToolCatalog();
+        return (result || []).map(normalizeCatalogEntry);
       } catch (err) {
         set({ error: String(err) });
         return [];
@@ -198,7 +241,25 @@ export const useJobStore = create<JobStoreState>((set, get) => {
 
     testTool: async (toolName: string, inputs: Record<string, unknown>, eventData?: Record<string, unknown>) => {
       try {
-        return await TestTool(toolName, JSON.stringify(inputs), eventData ? JSON.stringify(eventData) : '');
+        const name = toolName.trim();
+        const request: Record<string, unknown> = {
+          tool_name: name,
+          inputs,
+          event_data: eventData,
+        };
+        if (isMCPBridgeToolName(name)) {
+          const catalog = await get().fetchToolCatalog();
+          const entry = catalog.find((item) => item.name === name);
+          if (entry) {
+            request.mcp_server_id = entry.mcp_server_id;
+            request.tool_catalog_id = entry.id;
+            request.origin = entry.origin;
+            request.risk = entry.risk;
+          }
+        }
+        return await TestToolDryRun(
+          JSON.stringify(request),
+        );
       } catch (err) {
         set({ error: String(err) });
         return null;

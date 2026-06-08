@@ -29,13 +29,21 @@ type ChatParams = llm.ChatParams
 
 // GetModels retorna a lista de modelos disponíveis na API do provedor ativo.
 func (a *App) GetModels() ([]string, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
 	activeProfile, _ := a.profileManager.GetActive()
-	return a.providerSvc.GetModels(a.ctx, activeProfile)
+	return a.providerSvc.GetModels(ctx, activeProfile)
 }
 
 // GetModelsByProvider retorna a lista de modelos de um provedor específico.
 func (a *App) GetModelsByProvider(providerID string) ([]string, error) {
-	return a.providerSvc.GetModelsByProvider(a.ctx, providerID)
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.providerSvc.GetModelsByProvider(ctx, providerID)
 }
 
 // Constantes de validação de input — re-exportadas de internal/chat para uso no pacote main.
@@ -46,23 +54,23 @@ const (
 
 // CancelStreamingForConversation cancela o streaming LLM em andamento para uma conversa.
 // Usado pelo pipeline SIP para barge-in.
-func (a *App) CancelStreamingForConversation(conversationID uint) {
+func (a *App) CancelStreamingForConversation(conversationID string) {
 	a.streamMgr.Cancel(conversationID)
 }
 
 // recoverFromPanic captura panic e delega o tratamento para events.HandlePanic.
 // recover() deve ser chamado diretamente no corpo da função adiada — não pode ser delegado.
-func (a *App) recoverFromPanic(conversationID uint, source string) {
+func (a *App) recoverFromPanic(conversationID string, source string) {
 	r := recover()
 	events.HandlePanic(a.emitter, conversationID, source, r)
 }
 
 // registerStreamingContext registra um context cancelável para uma conversa.
-func (a *App) registerStreamingContext(conversationID uint, cancel context.CancelFunc) {
+func (a *App) registerStreamingContext(conversationID string, cancel context.CancelFunc) {
 	a.streamMgr.Register(conversationID, cancel)
 }
 
 // unregisterStreamingContext remove o context de streaming de uma conversa.
-func (a *App) unregisterStreamingContext(conversationID uint) {
+func (a *App) unregisterStreamingContext(conversationID string) {
 	a.streamMgr.Unregister(conversationID)
 }

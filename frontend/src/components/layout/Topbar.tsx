@@ -1,9 +1,15 @@
+import { logger } from '../../utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useShortcutsHelpStore } from '../../store/shortcutsHelpStore';
+import { isModalOpen } from '../ui/Modal';
+import { useShallow } from 'zustand/shallow';
 import { MenuButton, type MenuItem as MenuButtonItem, type MenuButtonRef } from './MenuButton';
+import { ConnectionStatusIndicator } from './ConnectionStatusIndicator';
 import { Menu, type MenuItem } from '../menu';
+import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -24,6 +30,7 @@ import {
   ImportOutlined,
   CheckOutlined,
   DownOutlined,
+  KeyOutlined,
 } from '@ant-design/icons';
 import './Topbar.css';
 
@@ -54,7 +61,12 @@ export function Topbar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { announce } = useAnnouncer();
-  const { workspace, workspaces, switchWorkspace, createWorkspace, renameWorkspace } = useWorkspaceStore();
+  const { workspace, workspaces, switchWorkspace, createWorkspace, renameWorkspace } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, switchWorkspace: s.switchWorkspace, createWorkspace: s.createWorkspace, renameWorkspace: s.renameWorkspace }))
+  );
+  const shortcutsHelpOpen = useShortcutsHelpStore((s) => s.isOpen);
+  const openShortcutsHelp = useShortcutsHelpStore((s) => s.open);
+  const closeShortcutsHelp = useShortcutsHelpStore((s) => s.close);
   const isWorkspaceRoute = pathname === '/' || pathname === '';
   const toolbarRef = useToolbarKeyboardNav();
   const menuButtonRef = useRef<MenuButtonRef>(null);
@@ -102,9 +114,9 @@ export function Topbar() {
       a.download = `workspace-${workspace?.name?.replace(/\s+/g, '-').toLowerCase() || 'export'}.yaml`;
       a.click();
       URL.revokeObjectURL(url);
-      announce(t('workspace.exported', 'Workspace exportado'));
+      announce(t('workspace.exported'));
     } catch (error) {
-      console.error('[Topbar] Export error:', error);
+      logger.error('[Topbar] Export error:', error);
     }
   }, [workspace?.name, announce, t]);
 
@@ -121,7 +133,7 @@ export function Topbar() {
       };
       input.click();
     } catch (error) {
-      console.error('[Topbar] Import error:', error);
+      logger.error('[Topbar] Import error:', error);
     }
   }, []);
 
@@ -136,7 +148,7 @@ export function Topbar() {
       id: `ws-${ws.id}`,
       label: ws.name,
       icon: ws.is_active ? <CheckOutlined /> : undefined,
-      shortcut: `${ws.tab_count} ${ws.tab_count === 1 ? t('workspace.tabSingular', 'aba') : t('workspace.tabPlural', 'abas')}`,
+      shortcut: `${ws.tab_count} ${ws.tab_count === 1 ? t('workspace.tabSingular') : t('workspace.tabPlural')}`,
       checked: ws.is_active,
       action: () => { if (!ws.is_active) void switchWorkspace(ws.id); },
     }));
@@ -156,7 +168,7 @@ export function Topbar() {
     },
     {
       id: 'rename-workspace',
-      label: t('workspace.rename', 'Renomear workspace'),
+      label: t('workspace.rename'),
       icon: <EditOutlined />,
       shortcut: 'F2',
       action: startRename,
@@ -164,13 +176,13 @@ export function Topbar() {
     { id: 'sep-1', separator: true },
     {
       id: 'export-workspace',
-      label: t('workspace.export', 'Exportar workspace'),
+      label: t('workspace.export'),
       icon: <ExportOutlined />,
       action: handleExportWorkspace,
     },
     {
       id: 'import-workspace',
-      label: t('workspace.import', 'Importar workspace'),
+      label: t('workspace.import'),
       icon: <ImportOutlined />,
       action: handleImportWorkspace,
     },
@@ -185,7 +197,7 @@ export function Topbar() {
 
   const handlePickerContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    openCtx(e.clientX, e.clientY, t('workspace.workspaceOptions', 'Opções do workspace'), ctxMenuItems);
+    openCtx(e.clientX, e.clientY, t('workspace.workspaceOptions'), ctxMenuItems);
   }, [openCtx, t, ctxMenuItems]);
 
   const handlePickerKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -207,7 +219,7 @@ export function Topbar() {
     const trimmed = renameValue.trim();
     if (trimmed && trimmed !== workspace?.name) {
       await renameWorkspace(trimmed);
-      announce(`${t('workspace.renamed', 'Workspace renomeado')}: ${trimmed}`);
+      announce(`${t('workspace.renamed')}: ${trimmed}`);
     }
     setIsRenaming(false);
   }, [renameValue, workspace?.name, renameWorkspace, announce, t]);
@@ -236,20 +248,29 @@ export function Topbar() {
     { id: 'profiles', label: t('menu.profiles'), icon: <UserSwitchOutlined />, shortcut: 'Alt+P', onClick: () => navigate('/profiles') },
     { id: 'settings', label: t('menu.settings'), icon: <SettingOutlined />, onClick: () => navigate('/settings') },
     { id: 'help', label: t('menu.help'), icon: <QuestionCircleOutlined />, shortcut: 'F1', onClick: () => navigate('/help') },
+    { id: 'keyboard-shortcuts', label: t('menu.keyboardShortcuts'), icon: <KeyOutlined />, shortcut: 'Ctrl+?', onClick: () => openShortcutsHelp() },
     { id: 'about', label: t('menu.about'), icon: <InfoCircleOutlined />, onClick: () => navigate('/about') },
-  ], [navigate, t, isWorkspaceRoute]);
+  ], [navigate, t, isWorkspaceRoute, openShortcutsHelp]);
 
   // --- Keyboard shortcuts ---
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // F1 (ajuda) é tratado primeiro e SEMPRE faz preventDefault, mesmo com um
+      // modal aberto, para nunca vazar para o comportamento padrão do
+      // navegador/OS.
+      if (event.key === 'F1') { event.preventDefault(); navigate('/help'); return; }
+
+      // Os atalhos de navegação (Alt+M/H/E/I/P) não devem agir na UI de fundo
+      // enquanto qualquer modal está aberto (incl. o painel de atalhos, que se
+      // registra no stack via Modal).
+      if (isModalOpen()) return;
       if (event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey) {
         const key = event.key.toLowerCase();
         if (key === 'm') { event.preventDefault(); menuButtonRef.current?.toggleMenu(); return; }
-        const altRoutes: Record<string, string> = { h: '/history', p: '/profiles' };
+        const altRoutes: Record<string, string> = { h: '/history', e: '/settings/data?action=export', i: '/settings/data?action=import', p: '/profiles' };
         const target = altRoutes[key];
         if (target) { event.preventDefault(); navigate(target); return; }
       }
-      if (event.key === 'F1') { event.preventDefault(); navigate('/help'); }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -261,7 +282,7 @@ export function Topbar() {
         <div
           className="topbar__toolbar"
           role="toolbar"
-          aria-label={t('landmarks.topbar', 'Barra de navegação')}
+          aria-label={t('landmarks.topbar')}
           ref={toolbarRef as React.RefObject<HTMLDivElement>}
         >
         <div className="topbar__left">
@@ -272,6 +293,7 @@ export function Topbar() {
             buttonLabel={t('menu.navLabel')}
             tabIndex={-1}
           />
+          <ConnectionStatusIndicator />
         </div>
 
         <h1 className="topbar__title">{pageTitle}</h1>
@@ -328,7 +350,7 @@ export function Topbar() {
         visible={pickerMenu.visible}
         ariaLabel={pickerMenu.ariaLabel || t('workspace.workspaceList')}
         searchable
-        searchPlaceholder={t('workspace.searchWorkspaces', 'Buscar workspace...')}
+        searchPlaceholder={t('workspace.searchWorkspaces')}
         onClose={closePicker}
         onSelect={onPickerSelect}
       />
@@ -338,10 +360,12 @@ export function Topbar() {
         x={ctxMenu.x}
         y={ctxMenu.y}
         visible={ctxMenu.visible}
-        ariaLabel={ctxMenu.ariaLabel || t('workspace.workspaceOptions', 'Opções do workspace')}
+        ariaLabel={ctxMenu.ariaLabel || t('workspace.workspaceOptions')}
         onClose={closeCtx}
         onSelect={onCtxSelect}
       />
+
+      <KeyboardShortcutsHelp isOpen={shortcutsHelpOpen} onClose={closeShortcutsHelp} />
     </>
   );
 }

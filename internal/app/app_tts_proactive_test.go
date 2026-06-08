@@ -47,8 +47,8 @@ func TestEffectiveVoiceProviderID(t *testing.T) {
 func TestBuildChatSpeakEventUsesBackendAudioForRemoteAssistantVoice(t *testing.T) {
 	app := &App{}
 	req := ChatSpeakRequest{
-		ConversationID: 7,
-		MessageID:      9,
+		ConversationID: "7",
+		MessageID:      "9",
 		Role:           "assistant",
 		Text:           "**Olá**",
 		Origin:         ChatSpeakOriginAssistantMessage,
@@ -66,11 +66,11 @@ func TestBuildChatSpeakEventUsesBackendAudioForRemoteAssistantVoice(t *testing.T
 
 	event := app.buildChatSpeakEvent(req, "assistant", "Olá", cfg)
 
-	if event.ConversationID != 7 {
-		t.Fatalf("conversationId = %d, want 7", event.ConversationID)
+	if event.ConversationID != "7" {
+		t.Fatalf("conversationId = %s, want 7", event.ConversationID)
 	}
-	if event.MessageID != 9 {
-		t.Fatalf("messageId = %d, want 9", event.MessageID)
+	if event.MessageID != "9" {
+		t.Fatalf("messageId = %s, want 9", event.MessageID)
 	}
 	if event.Role != "assistant" {
 		t.Fatalf("role = %q, want assistant", event.Role)
@@ -110,7 +110,7 @@ func TestBuildChatSpeakEventUsesBackendAudioForRemoteAssistantVoice(t *testing.T
 func TestBuildChatSpeakEventUsesAnnounceWhenDisabled(t *testing.T) {
 	app := &App{}
 	req := ChatSpeakRequest{
-		ConversationID: 12,
+		ConversationID: "12",
 		Role:           "user",
 		Text:           "Oi",
 		Origin:         ChatSpeakOriginUserMessage,
@@ -136,7 +136,7 @@ func TestBuildChatSpeakEventUsesLocalStrategies(t *testing.T) {
 	app := &App{}
 
 	webspeechEvent := app.buildChatSpeakEvent(
-		ChatSpeakRequest{ConversationID: 1, Role: "system", Text: "pensando", Origin: ChatSpeakOriginThinking},
+		ChatSpeakRequest{ConversationID: "1", Role: "system", Text: "pensando", Origin: ChatSpeakOriginThinking},
 		"system",
 		"pensando",
 		profiles.VoiceRoleConfig{Enabled: true, Provider: "webspeech", VoiceID: "pt-BR"},
@@ -146,7 +146,7 @@ func TestBuildChatSpeakEventUsesLocalStrategies(t *testing.T) {
 	}
 
 	sapiEvent := app.buildChatSpeakEvent(
-		ChatSpeakRequest{ConversationID: 1, Role: "system", Text: "pensando", Origin: ChatSpeakOriginThinking},
+		ChatSpeakRequest{ConversationID: "1", Role: "system", Text: "pensando", Origin: ChatSpeakOriginThinking},
 		"system",
 		"pensando",
 		profiles.VoiceRoleConfig{Enabled: true, Provider: "sapi5", VoiceID: "Microsoft Maria"},

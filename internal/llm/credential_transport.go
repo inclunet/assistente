@@ -9,8 +9,33 @@ import (
 
 // newHTTPClientForProvider cria um http.Client com CredentialTransport configurado.
 // Delega ao pacote credentials para injeção automática de credenciais.
+// Respeita o EffectiveAuthMode do provider — providers locais (Ollama,
+// LocalAI, llama.cpp) marcados como AuthModeNone geram um cliente que NÃO
+// envia o header Authorization placeholder ao upstream.
 func newHTTPClientForProvider(provider *ProviderConfig, credMgr *credentials.Manager) *http.Client {
-	return credentials.NewHTTPClient(credMgr, provider.CredentialPattern, providerTimeout(provider))
+	mode := credentialAuthRequirement(provider)
+	return credentials.NewHTTPClientWithAuthMode(credMgr, provider.CredentialPattern, mode, providerTimeout(provider))
+}
+
+// credentialAuthRequirement converte llm.AuthMode em credentials.AuthRequirement.
+// Necessário porque o pacote credentials não pode importar llm (ciclo).
+func credentialAuthRequirement(p *ProviderConfig) credentials.AuthRequirement {
+	switch p.EffectiveAuthMode() {
+	case AuthModeNone:
+		return credentials.AuthNone
+	case AuthModeOptional:
+		return credentials.AuthOptional
+	default:
+		return credentials.AuthRequired
+	}
+}
+
+// providerUsesPlaceholderAPIKey indica se o SDK deve injetar o placeholder
+// "managed-by-credential-transport" para que o transport substitua pelo
+// token real. Para AuthModeNone não injetamos — assim mesmo que o transport
+// falhe em remover, nenhum header espúrio é gerado pelo SDK.
+func providerUsesPlaceholderAPIKey(p *ProviderConfig) bool {
+	return p.EffectiveAuthMode() != AuthModeNone
 }
 
 func providerTimeout(p *ProviderConfig) time.Duration {

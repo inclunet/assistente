@@ -1,0 +1,79 @@
+---
+description: Salvaguardas de acessibilidade para o frontend (reuso de Modal, isModalOpen, contraste por token). Complementa o CLAUDE.md e o frontend-design-system.mdc.
+globs: frontend/src/**/*.tsx,frontend/src/**/*.ts,frontend/src/**/*.css
+alwaysApply: false
+---
+
+# Salvaguardas de Acessibilidade do Frontend
+
+A11y é **proativa**, não follow-up de review. As ferramentas de CI têm lacunas reais (ver "Lacunas"); os itens abaixo são responsabilidade do autor. Complementa o `CLAUDE.md` e `frontend-design-system.mdc` — não os contradiz.
+
+## 1. Reuse a infra compartilhada — nunca faça diálogo caseiro
+
+Qualquer diálogo/modal/overlay DEVE usar `Modal` (ou um wrapper sobre ele, como `ConfirmDialog`) de `frontend/src/components/ui/`. Um `<div role="dialog">` próprio é proibido.
+
+Motivo: o `Modal` (`frontend/src/components/ui/Modal.tsx`) já entrega, e um diálogo caseiro perde, tudo isto:
+- focus trap (Tab/Shift+Tab), foco inicial no primeiro focável e restauração via `restoreDefaultFocus()` ao fechar;
+- ESC tratado **apenas pelo modal do topo** da stack (`OPEN_MODAL_STACK`);
+- `inert` + `aria-hidden="true"` no `#root` enquanto há modal aberto;
+- registro no estado global consultável por `isModalOpen()`.
+
+```tsx
+// ❌ ERRADO — diálogo caseiro: sem focus trap, ESC ignora a stack, fundo não fica inert,
+//    e isModalOpen() não enxerga este modal (atalhos globais continuam ativos por trás).
+<div role="dialog" aria-modal="true" onClick={onClose}> ... </div>
+
+// ✅ CORRETO
+<Modal isOpen={isOpen} onClose={onClose} title={t('...')}> ... </Modal>
+```
+
+## 2. Handlers globais de teclado DEVEM respeitar `isModalOpen()`
+
+Todo listener em `document`/`window` (atalhos como `Ctrl+W`, `Ctrl+T`, `F6`, `Ctrl+Shift+P`, `?`, `F1`) NÃO pode agir na UI de fundo enquanto um modal está aberto. `Modal` é portalado para `document.body`, então o evento ainda chega — guarde com `isModalOpen()` (padrão de `useLandmarkNavigation.ts`).
+
+```ts
+import { isModalOpen } from '../components/ui/Modal';
+const onKeyDown = (e: KeyboardEvent) => {
+  if (e.key !== 'F6') return;
+  if (isModalOpen()) return; // não navega landmarks por trás do modal
+  e.preventDefault();
+  // ...
+};
+```
+
+Ordem correta para teclas que devem sempre suprimir o default do browser/OS (ex.: `F1`, `Ctrl+Shift+I`): (1) primeiro valide que o evento é a tecla/combinação alvo; (2) então chame `e.preventDefault()`; (3) só DEPOIS aplique guardas que podem abortar a ação (como `isModalOpen()`). Assim a ação de fundo não roda atrás do modal, mas o default do navegador/SO nunca vaza.
+
+```ts
+const onKeyDown = (e: KeyboardEvent) => {
+  if (e.key !== 'F1') return;   // 1. é a tecla alvo?
+  e.preventDefault();           // 2. suprime o default do SO sempre
+  if (isModalOpen()) return;    // 3. guarda: não age no fundo, mas já preveniu o default
+  openHelp();
+};
+```
+
+## 3. Contraste é escolha de TOKEN semântico (stylelint não pega token errado)
+
+Use o token certo para o fundo. Verifique o par texto/fundo nos temas escuros **e** no Claro/Alto Contraste.
+- Sobre superfícies (`--bg-surface`/`--bg-elevated`/`--bg-overlay`): `--text-primary`/`--text-secondary`/`--text-muted`.
+- `--text-inverse` SOMENTE sobre `--accent`/`--accent-strong` e fundos fortes — nunca sobre `--bg-overlay` (foi um defeito real em tema escuro).
+
+## 4. Atalho exibido DEVE bater com o handler real
+
+Painel de atalhos, tooltips e textos de ajuda só podem mostrar combinações que existem de fato no handler. Ao mudar um atalho, atualize a descrição na mesma mudança (e os 3 locales). Não documente atalho inexistente.
+
+## 5. Checklist de "pronto" (antes de abrir PR)
+
+- [ ] Diálogo usa `Modal` ou wrapper (`ConfirmDialog`), não caseiro; tem `aria-modal`, foco inicial, restauração e focus trap herdados.
+- [ ] ESC fecha só o modal do topo; handlers globais checam `isModalOpen()`.
+- [ ] `preventDefault()` na ordem correta para teclas que suprimem default do SO.
+- [ ] Par texto/fundo com contraste suficiente em todos os temas (token semântico correto).
+- [ ] Atalhos exibidos correspondem aos handlers reais.
+- [ ] Labels/aria presentes (`aria-label` em ícone-only, `htmlFor` em label) e anúncios via `useAnnouncer` (live region global única).
+
+## Lacunas das ferramentas → exigem teste manual
+
+`axe-core`/jsdom NÃO calcula contraste de `var(--token)` nem detecta interação teclado-entre-modais; `stylelint` só bloqueia cor hardcoded (não token errado); `jsx-a11y` não conhece listeners globais em `document`. Para esses casos, escreva testes dedicados (padrão de `frontend/src/test/a11y.test.tsx` e `frontend/src/test/a11y-composed.test.tsx`):
+- atalho global **não age** com modal aberto: renderizar com um `Modal` aberto e disparar a tecla, esperando que a ação de fundo não ocorra.
+- mapeamento atalho↔descrição: garantir que cada combinação exibida bate com a constante/handler real.
+- foco: foco inicial dentro do modal e restauração ao fechar.

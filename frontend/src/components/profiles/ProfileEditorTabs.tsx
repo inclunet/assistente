@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { profiles } from '@wailsjs/go/models';
-import { main, allowlist, skills } from '@wailsjs/go/models';
+import { controllers, allowlist, skills } from '@wailsjs/go/models';
 import { Tabs, TabList, Tab, TabPanel } from '../ui/tabs';
 import { ProfileGeneralSection } from './ProfileGeneralSection';
 import { ProfileChatSection } from './ProfileChatSection';
@@ -15,7 +15,7 @@ type EditorTabId = (typeof EDITOR_TABS)[number];
 
 export interface ProfileEditorTabsProps {
   editingProfile: profiles.Profile & { id?: string; source?: string; isActive?: boolean };
-  availableTools: main.ToolInfo[];
+  availableTools: controllers.ToolInfo[];
   availableSkills: Array<
     | skills.SkillInfo
     | { slug: string; name: string; description?: string; version?: string; source?: string }
@@ -136,6 +136,9 @@ export function ProfileEditorTabs({
             topP={editingProfile.chat?.top_p ?? 1.0}
             responseTimeout={editingProfile.chat?.response_timeout ?? 180}
             reasoningEffort={editingProfile.chat?.reasoning_effort || ''}
+            streamingRecoveryEnabled={editingProfile.chat?.streaming_recovery_enabled ?? true}
+            streamingRecoveryMaxAttempts={editingProfile.chat?.streaming_recovery_max_attempts ?? 3}
+            streamingRecoveryShowContinue={editingProfile.chat?.streaming_recovery_show_continue ?? true}
             onChange={(field, value) => updateField(`chat.${field}`, value)}
             onMultiChange={(updates) => {
               const prefixedUpdates = Object.fromEntries(
@@ -167,6 +170,7 @@ export function ProfileEditorTabs({
             availableAllowlists={availableAllowlists}
             maxAgenticIterations={editingProfile.chat?.max_agentic_iterations ?? 0}
             responseTimeout={editingProfile.chat?.response_timeout ?? 180}
+            nativeMcp={editingProfile.chat?.native_mcp ?? null}
             onChange={(field, value) => updateField(`chat.${field}`, value)}
           />
         </TabPanel>

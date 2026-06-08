@@ -8,6 +8,7 @@
  * Fallback quando backend não tem TTS: frontend usa speakAsRole (WebSpeech/SAPI5)
  */
 
+import { logger } from '../../utils/logger';
 import { SpeakMessage } from '@wailsjs/go/app/App';
 import { base64ToBlob } from '../../lib/audioUtils';
 
@@ -16,10 +17,10 @@ import { base64ToBlob } from '../../lib/audioUtils';
 // ---------------------------------------------------------------------------
 const MEMORY_CACHE_MAX = 20;
 const MEMORY_CACHE_MAX_BYTES = 50 * 1024 * 1024; // 50 MB
-const memoryCache = new Map<number, Blob>();
+const memoryCache = new Map<string, Blob>();
 let memoryCacheTotalBytes = 0;
 
-function memoryCacheGet(messageId: number): Blob | undefined {
+function memoryCacheGet(messageId: string): Blob | undefined {
   const blob = memoryCache.get(messageId);
   if (blob) {
     // Move para o final (LRU refresh)
@@ -43,7 +44,7 @@ function memoryCacheEvict(): void {
   }
 }
 
-function memoryCacheSet(messageId: number, blob: Blob): void {
+function memoryCacheSet(messageId: string, blob: Blob): void {
   // Se já existe, remove antes (atualiza posição e contagem)
   const existing = memoryCache.get(messageId);
   if (existing) {
@@ -61,7 +62,7 @@ function memoryCacheSet(messageId: number, blob: Blob): void {
 let currentPlayer: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
 let currentAbort: AbortController | null = null;
-let currentMessageId: number | null = null;
+let currentMessageId: string | null = null;
 
 /** Para qualquer áudio em reprodução e resolve Promises pendentes */
 function stopCurrentAudio(): void {
@@ -83,7 +84,7 @@ function stopCurrentAudio(): void {
 }
 
 /** Reproduz um blob de áudio */
-async function playAudioBlob(audioBlob: Blob, volume: number = 1.0, messageId?: number): Promise<void> {
+async function playAudioBlob(audioBlob: Blob, volume: number = 1.0, messageId?: string): Promise<void> {
   stopCurrentAudio();
   // Setar messageId DEPOIS do stop para não ser zerado
   if (messageId != null) currentMessageId = messageId;
@@ -133,6 +134,11 @@ export interface TTSProviderParams {
   rate: number;
 }
 
+function canUseBackendTTS(provider?: TTSProviderParams): boolean {
+  const providerId = provider?.providerId ?? '';
+  return providerId !== '' && providerId !== 'webspeech' && !providerId.startsWith('ref_');
+}
+
 /**
  * Reproduz o áudio de uma mensagem usando cache hierárquico:
  *   1. Memória (Blob) → replay instantâneo
@@ -140,12 +146,15 @@ export interface TTSProviderParams {
  *
  * @returns true se reproduziu, false se falhou (chamador deve usar speakAsRole)
  */
-async function speakMessage(messageId: number, volume: number = 1.0, provider?: TTSProviderParams): Promise<boolean> {
+async function speakMessage(messageId: string, volume: number = 1.0, provider?: TTSProviderParams): Promise<boolean> {
   // 1. Cache em memória — instantâneo, sem IPC
   const cached = memoryCacheGet(messageId);
   if (cached) {
     await playAudioBlob(cached, volume, messageId);
     return true;
+  }
+  if (!canUseBackendTTS(provider)) {
+    return false;
   }
 
   // 2. Backend (DB cache ou TTS) → armazena em memória
@@ -153,8 +162,8 @@ async function speakMessage(messageId: number, volume: number = 1.0, provider?: 
     const result = await SpeakMessage(
       messageId,
       provider?.providerId ?? '',
-      provider?.voiceId ?? '',
       provider?.model ?? '',
+      provider?.voiceId ?? '',
       provider?.rate ?? 1.0,
     );
     if (result && result.audio && result.audio.length > 0) {
@@ -165,7 +174,7 @@ async function speakMessage(messageId: number, volume: number = 1.0, provider?: 
     }
     return false;
   } catch (err) {
-    console.warn('[messageAudio] speakMessage failed:', err);
+    logger.warn('[messageAudio] speakMessage failed:', err);
     return false;
   }
 }
@@ -174,17 +183,20 @@ async function speakMessage(messageId: number, volume: number = 1.0, provider?: 
  * Obtém o áudio de uma mensagem como Blob (cache hierárquico).
  * Útil para download. Retorna null se falhar.
  */
-async function getMessageAudioBlob(messageId: number, provider?: TTSProviderParams): Promise<Blob | null> {
+async function getMessageAudioBlob(messageId: string, provider?: TTSProviderParams): Promise<Blob | null> {
   // Checa memória primeiro
   const cached = memoryCacheGet(messageId);
   if (cached) return cached;
+  if (!canUseBackendTTS(provider)) {
+    return null;
+  }
 
   try {
     const result = await SpeakMessage(
       messageId,
       provider?.providerId ?? '',
-      provider?.voiceId ?? '',
       provider?.model ?? '',
+      provider?.voiceId ?? '',
       provider?.rate ?? 1.0,
     );
     if (result && result.audio && result.audio.length > 0) {
@@ -194,7 +206,7 @@ async function getMessageAudioBlob(messageId: number, provider?: TTSProviderPara
     }
     return null;
   } catch (err) {
-    console.warn('[messageAudio] getMessageAudioBlob failed:', err);
+    logger.warn('[messageAudio] getMessageAudioBlob failed:', err);
     return null;
   }
 }
@@ -205,7 +217,7 @@ function isCurrentlyPlaying(): boolean {
 }
 
 /** Retorna o messageId sendo reproduzido, ou null */
-function getCurrentPlayingMessageId(): number | null {
+function getCurrentPlayingMessageId(): string | null {
   if (!isCurrentlyPlaying()) return null;
   return currentMessageId;
 }

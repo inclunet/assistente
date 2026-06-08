@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -13,12 +14,15 @@ import {
   FolderOutlined,
 } from '@ant-design/icons';
 import { useWorkspaceStore, type TabType } from '../../store/workspaceStore';
+import { useShallow } from 'zustand/shallow';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../ui/Toolbar';
 import { Menu, type MenuItem } from '../menu';
 import { ProfilePicker } from '../pickers/ProfilePicker';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { isModalOpen } from '../ui/Modal';
+import { useUIStore } from '../../store/uiStore';
 import './WorkspaceToolbar.css';
 
 const TAB_TYPE_OPTIONS: { type: TabType; icon: ReactNode; labelKey: string; chordKey: string }[] = [
@@ -28,17 +32,13 @@ const TAB_TYPE_OPTIONS: { type: TabType; icon: ReactNode; labelKey: string; chor
   { type: 'tasklist', icon: <CheckSquareOutlined />, labelKey: 'workspace.newTasklist', chordKey: 'T' },
 ];
 
-const TAB_TYPE_DEFAULTS: Record<TabType, string> = {
-  chat: 'Nova conversa',
-  editor: 'Novo documento',
-  terminal: 'Terminal',
-  tasklist: 'Tarefas',
-};
-
 export function WorkspaceToolbar() {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
-  const { workspace, workspaces, addTab, setProfile, createWorkspace, renameWorkspace } = useWorkspaceStore();
+  const addToast = useUIStore((s) => s.addToast);
+  const { workspace, workspaces, addTab, setProfile, createWorkspace, renameWorkspace } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, addTab: s.addTab, setProfile: s.setProfile, createWorkspace: s.createWorkspace, renameWorkspace: s.renameWorkspace }))
+  );
 
   const newTabButtonRef = useRef<HTMLButtonElement>(null);
   const wsMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -80,9 +80,9 @@ export function WorkspaceToolbar() {
       a.download = `workspace-${workspace?.name?.replace(/\s+/g, '-').toLowerCase() || 'export'}.yaml`;
       a.click();
       URL.revokeObjectURL(url);
-      announce(t('workspace.exported', 'Workspace exportado'));
+      announce(t('workspace.exported'));
     } catch (error) {
-      console.error('[WorkspaceToolbar] Export error:', error);
+      logger.error('[WorkspaceToolbar] Export error:', error);
     }
   }, [workspace?.name, announce, t]);
 
@@ -99,7 +99,7 @@ export function WorkspaceToolbar() {
       };
       input.click();
     } catch (error) {
-      console.error('[WorkspaceToolbar] Import error:', error);
+      logger.error('[WorkspaceToolbar] Import error:', error);
     }
   }, []);
 
@@ -113,7 +113,7 @@ export function WorkspaceToolbar() {
     const trimmed = renameValue.trim();
     if (trimmed && trimmed !== workspace?.name) {
       await renameWorkspace(trimmed);
-      announce(`${t('workspace.renamed', 'Workspace renomeado')}: ${trimmed}`);
+      announce(`${t('workspace.renamed')}: ${trimmed}`);
     }
     setIsRenaming(false);
   }, [renameValue, workspace?.name, renameWorkspace, announce, t]);
@@ -150,7 +150,7 @@ export function WorkspaceToolbar() {
     },
     {
       id: 'rename-workspace',
-      label: t('workspace.rename', 'Renomear workspace'),
+      label: t('workspace.rename'),
       icon: <EditOutlined />,
       shortcut: 'F2',
       action: startRename,
@@ -158,20 +158,20 @@ export function WorkspaceToolbar() {
     { id: 'sep-1', separator: true },
     {
       id: 'export-workspace',
-      label: t('workspace.export', 'Exportar workspace'),
+      label: t('workspace.export'),
       icon: <ExportOutlined />,
       action: handleExportWorkspace,
     },
     {
       id: 'import-workspace',
-      label: t('workspace.import', 'Importar workspace'),
+      label: t('workspace.import'),
       icon: <ImportOutlined />,
       action: handleImportWorkspace,
     },
     { id: 'sep-2', separator: true },
     {
       id: 'set-workdir',
-      label: t('workspace.setWorkDir', 'Diretório de trabalho...'),
+      label: t('workspace.setWorkDir'),
       icon: <FolderOutlined />,
       disabled: true,
     },
@@ -180,7 +180,7 @@ export function WorkspaceToolbar() {
   const handleOpenWsMenu = useCallback(() => {
     if (wsMenu.visible) { closeWsMenu(); return; }
     if (wsMenuButtonRef.current) {
-      openWsMenu(wsMenuButtonRef.current, t('workspace.workspaceOptions', 'Opções do workspace'), wsMenuItems);
+      openWsMenu(wsMenuButtonRef.current, t('workspace.workspaceOptions'), wsMenuItems);
     }
   }, [wsMenu.visible, closeWsMenu, openWsMenu, wsMenuItems, t]);
 
@@ -191,8 +191,8 @@ export function WorkspaceToolbar() {
       icon,
       shortcut: chordKey,
       action: () => {
-        void addTab(type, TAB_TYPE_DEFAULTS[type]);
-        announce(`${t('workspace.tabCreated', 'Aba criada')}: ${t(labelKey)}`);
+        void addTab(type, t(labelKey));
+        announce(`${t('workspace.tabCreated')}: ${t(labelKey)}`);
       },
     })),
   [addTab, announce, t]);
@@ -220,15 +220,25 @@ export function WorkspaceToolbar() {
 
   // --- Profile ---
   const handleProfileChange = useCallback(async (slug: string) => {
-    await setProfile(slug);
-    announce(`${t('workspace.profileChanged', 'Perfil alterado')}: ${slug}`);
-  }, [setProfile, announce, t]);
+    try {
+      await setProfile(slug);
+      announce(`${t('workspace.profileChanged')}: ${slug}`);
+    } catch (error) {
+      logger.error('[WorkspaceToolbar] Erro ao trocar perfil do workspace:', error);
+      addToast(
+        t('chat.profileChangeError'),
+        'error'
+      );
+    }
+  }, [setProfile, announce, t, addToast]);
 
   // Ctrl+Shift+P opens workspace profile picker
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'P') {
         e.preventDefault();
+        // Não age na UI de fundo enquanto um modal está aberto (ex.: painel de atalhos).
+        if (isModalOpen()) return;
         const btn = profileContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
         btn?.click();
       }
@@ -268,7 +278,7 @@ export function WorkspaceToolbar() {
             ) : (
               <ToolbarButton
                 ref={wsMenuButtonRef}
-                label={t('workspace.workspaceOptions', 'Opções do workspace')}
+                label={t('workspace.workspaceOptions')}
                 icon={<SettingOutlined />}
                 onClick={handleOpenWsMenu}
                 aria-expanded={wsMenu.visible}
@@ -281,7 +291,7 @@ export function WorkspaceToolbar() {
             <ProfilePicker
               value={workspace?.profile || ''}
               variant="toolbar"
-              label={t('workspace.profileLabel', 'Perfil')}
+              label={t('workspace.profileLabel')}
               description={t('workspace.profileDescription')}
               icon=""
               onChange={handleProfileChange}
@@ -307,7 +317,7 @@ export function WorkspaceToolbar() {
         x={wsMenu.x}
         y={wsMenu.y}
         visible={wsMenu.visible}
-        ariaLabel={wsMenu.ariaLabel || t('workspace.workspaceOptions', 'Opções do workspace')}
+        ariaLabel={wsMenu.ariaLabel || t('workspace.workspaceOptions')}
         onClose={closeWsMenu}
         onSelect={onWsMenuSelect}
       />

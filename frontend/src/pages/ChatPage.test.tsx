@@ -8,9 +8,12 @@ const showMenuMock = vi.fn();
 const hideMenuMock = vi.fn();
 const copyMessageMock = vi.fn();
 const speakMessageMock = vi.fn();
-const ensureWorkspaceTabHasConversationMock = vi.fn().mockResolvedValue(1);
+const ensureWorkspaceTabHasConversationMock = vi.fn().mockResolvedValue('01926b90-7a5a-7c4e-8d3f-000000000001');
+const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
+const activeConversation = { id: conversationId, title: 'Conversa', threadedMessages: [] };
 const workspaceStoreState = {
-  getActiveTab: () => ({ id: 'chat-tab', type: 'chat' as const, conversationId: 1, title: 'Conversa', position: 0 }),
+  workspace: { profile: 'workspace-profile' },
+  getActiveTab: () => ({ id: 'chat-tab', type: 'chat' as const, conversationId, title: 'Conversa', position: 0 }),
 };
 
 vi.mock('react-router-dom', () => ({
@@ -34,27 +37,40 @@ vi.mock('../services/tts', () => ({
 }));
 
 const chatStoreState = {
-  isLoading: false,
-  sendMessage: sendMessageMock,
   sendMessageToConversation: sendMessageMock,
-  getThreadedMessages: () => [],
+  ensureConversationSurfaceSession: vi.fn(),
+  removeConversationSurfaceSession: vi.fn(),
+  sessionsByConversationId: {
+    [conversationId]: {
+      conversation: activeConversation,
+      isLoading: false,
+      hasOlderMessages: false,
+      isLoadingOlderMessages: false,
+    },
+  },
+  timelinesByConversationId: {},
+  surfaceSessionsByKey: {},
   loadMessageChildren: vi.fn(),
-  getActiveConversation: () => ({ id: 1, title: 'Conversa' }),
-  loadConversation: vi.fn(),
-  updateMessage: updateMessageMock,
-  toggleReasoningExpanded: vi.fn(),
-  isReasoningExpanded: () => false,
-  startEditing: vi.fn(),
-  startReading: vi.fn(),
+  loadConversationSession: vi.fn(),
+  updateConversationMessage: updateMessageMock,
+  toggleConversationReasoningExpanded: vi.fn(),
+  isConversationReasoningExpanded: () => false,
+  startConversationEditing: vi.fn(),
+  startConversationReading: vi.fn(),
 };
 
 vi.mock('../store/chatStore', () => ({
-  useChatStore: (selector?: (s: typeof chatStoreState) => unknown) => {
-    if (typeof selector === 'function') {
-      return selector(chatStoreState);
-    }
-    return chatStoreState;
-  },
+  useChatStore: Object.assign(
+    (selector?: (s: typeof chatStoreState) => unknown) => {
+      if (typeof selector === 'function') {
+        return selector(chatStoreState);
+      }
+      return chatStoreState;
+    },
+    {
+      getState: () => chatStoreState,
+    },
+  ),
 }));
 
 vi.mock('../store/workspaceStore', () => ({
@@ -64,6 +80,7 @@ vi.mock('../store/workspaceStore', () => ({
     }
     return workspaceStoreState;
   },
+  useActiveTab: () => workspaceStoreState.getActiveTab(),
 }));
 
 vi.mock('../lib/workspaceConversation', () => ({
@@ -75,7 +92,7 @@ vi.mock('../store/editorStore', () => ({
     getState: () => ({
       requestInsert: vi.fn(),
       activeTabId: 'chat-tab',
-      tabs: [{ id: 'chat-tab', conversationId: 10 }],
+      tabs: [{ id: 'chat-tab', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a' }],
     }),
   },
 }));
@@ -161,13 +178,26 @@ vi.mock('../utils/errorHandler', () => ({
 }));
 
 import ChatPage from './ChatPage';
+import { WorkspacePanelProvider } from '../components/workspace/WorkspacePanelContext';
+
+function getPanelTab() {
+  return workspaceStoreState.getActiveTab();
+}
+
+function renderChatPage() {
+  return render(
+    <WorkspacePanelProvider value={{ tab: getPanelTab(), isActive: true }}>
+      <ChatPage />
+    </WorkspacePanelProvider>,
+  );
+}
 
 describe('ChatPage', () => {
   beforeEach(() => {
     workspaceStoreState.getActiveTab = () => ({
       id: 'chat-tab',
       type: 'chat' as const,
-      conversationId: 1,
+      conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       title: 'Conversa',
       position: 0,
     });
@@ -179,7 +209,7 @@ describe('ChatPage', () => {
   });
 
   it('abre menu de contexto ao acionar MessageList', async () => {
-    render(<ChatPage />);
+    renderChatPage();
     await userEvent.click(screen.getByRole('button', { name: 'open-menu' }));
 
     expect(showMenuMock).toHaveBeenCalled();
@@ -191,26 +221,43 @@ describe('ChatPage', () => {
     workspaceStoreState.getActiveTab = () => ({
       id: 'chat-tab',
       type: 'chat' as const,
-      conversationId: 0,
+      conversationId: '',
       title: 'Conversa',
       position: 0,
     });
-    ensureWorkspaceTabHasConversationMock.mockResolvedValue(42);
+    ensureWorkspaceTabHasConversationMock.mockResolvedValue('01926b90-7a5a-7c4e-8d3f-00000000002a');
     sendMessageMock.mockResolvedValueOnce(undefined);
 
-    render(<ChatPage />);
+    renderChatPage();
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
     await waitFor(() => {
       expect(ensureWorkspaceTabHasConversationMock).toHaveBeenCalled();
-      expect(sendMessageMock).toHaveBeenCalledWith(42, 'oi', undefined);
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-00000000002a',
+        'oi',
+        undefined,
+        expect.objectContaining({
+          profileSlug: 'workspace-profile',
+          tabType: 'chat',
+        }),
+        {
+          origin: expect.objectContaining({
+            conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a',
+            sessionKey: 'page:tab:chat-tab:01926b90-7a5a-7c4e-8d3f-00000000002a',
+            surfaceId: 'page:tab:chat-tab',
+            surfaceType: 'page',
+            tabId: 'chat-tab',
+          }),
+        },
+      );
     });
   });
 
   it('mostra banner de erro e permite retry', async () => {
     const user = userEvent.setup();
-    render(<ChatPage />);
+    renderChatPage();
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 

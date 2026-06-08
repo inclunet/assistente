@@ -16,8 +16,8 @@ const activeWorkspace = {
   tabs: {
     active: 'tab-1',
     items: [
-      { id: 'tab-1', type: 'chat', conversation_id: 1, title: 'Conversa 1', position: 0 },
-      { id: 'tab-2', type: 'chat', conversation_id: 2, title: 'Conversa 2', position: 1 },
+      { id: 'tab-1', type: 'chat', conversation_id: '01970a9e-0001-7000-8000-000000000001', title: 'Conversa 1', position: 0 },
+      { id: 'tab-2', type: 'chat', conversation_id: '01970a9e-0002-7000-8000-000000000002', title: 'Conversa 2', position: 1 },
     ],
   },
 };

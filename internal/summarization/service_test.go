@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/profiles"
 )
@@ -69,6 +70,76 @@ func TestEstimateMessagesTokens(t *testing.T) {
 		result := EstimateMessagesTokens(msgs)
 		if result != 1 {
 			t.Errorf("expected 1, got %d", result)
+		}
+	})
+}
+
+func TestBuildSummarizationUserPrompt_HydratesToolInvocationResults(t *testing.T) {
+	turnID := "turn-1"
+	callID := "call-1"
+	toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"files.read","arguments":"{}"}}]`
+
+	msgs := []database.ChatMessage{{
+		Role:      "assistant",
+		Content:   "",
+		ToolCalls: toolCalls,
+		TurnID:    &turnID,
+	}}
+
+	invResults := map[string]map[string]string{turnID: {callID: "RESULT"}}
+	prompt := BuildSummarizationUserPrompt("", msgs, invResults, nil)
+	if !strings.Contains(prompt, "Tool result (files.read): RESULT") {
+		t.Fatalf("prompt did not include hydrated tool result, got:\n%s", prompt)
+	}
+}
+
+func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
+	makeProfile := func(contextWindow, maxTokens int) *profiles.Profile {
+		return &profiles.Profile{
+			Chat: profiles.ChatConfig{
+				ContextWindow: contextWindow,
+				MaxTokens:     maxTokens,
+			},
+		}
+	}
+
+	t.Run("triggers when large tool_invocations result would be appended", func(t *testing.T) {
+		p := makeProfile(800, 200) // budget = 800 - 200 - 200 = 400 tokens
+		turnID := "turn-1"
+		callID := "call-1"
+		toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"files.read","arguments":"{}"}}]`
+		msgs := []database.ChatMessage{ {
+			Role:      "assistant",
+			Content:   "ok",
+			ToolCalls: toolCalls,
+			TurnID:    &turnID,
+		}}
+		invResults := map[string]map[string]string{
+			turnID: {callID: strings.Repeat("x", 5000)}, // capped to 2000 chars in estimator => 500 tokens
+		}
+
+		if !shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, nil) {
+			t.Fatal("expected summarization to trigger when hydrated tool result pushes estimate over budget")
+		}
+	})
+
+	t.Run("does not double-count when fallback role=tool result exists", func(t *testing.T) {
+		p := makeProfile(1200, 200) // budget = 1200 - 200 - 300 = 700 tokens
+		turnID := "turn-1"
+		callID := "call-1"
+		toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"files.read","arguments":"{}"}}]`
+		toolContent := strings.Repeat("y", 2000) // 500 tokens (already counted via tool message)
+		msgs := []database.ChatMessage{
+			{Role: "assistant", Content: "ok", ToolCalls: toolCalls, TurnID: &turnID},
+			{Role: "tool", Content: toolContent, TurnID: &turnID, ToolCallID: callID},
+		}
+		invResults := map[string]map[string]string{
+			turnID: {callID: strings.Repeat("y", 5000)},
+		}
+		fallback := collectSummarizationFallbackToolResults(msgs)
+
+		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, fallback) {
+			t.Fatal("expected summarization NOT to trigger when fallback tool message already accounts for the result")
 		}
 	})
 }
@@ -159,14 +230,92 @@ func TestShouldTriggerSummarization(t *testing.T) {
 	})
 }
 
+// setupProfileTestEnv isola perfis em um HOME temporário, reaproveitando o
+// padrão usado em internal/chat/interactor_test.go.
+func setupProfileTestEnv(t *testing.T) *profiles.Manager {
+	t.Helper()
+
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	return profiles.NewManager()
+}
+
+// TestResolveConversationProfile cobre a Issue #203: a sumarização deve resolver
+// o modelo/provider a partir do perfil DA CONVERSA (slug propagado pelo envio),
+// recaindo no perfil ativo global apenas quando o slug está vazio ou não resolve.
+func TestResolveConversationProfile(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+
+	active := profiles.DefaultProfile()
+	active.Name = "Padrão Global"
+	active.Active = true
+	active.Chat.LLMProvider = "openai-provider"
+	active.Chat.Model = "gpt-4o-mini"
+	activeSlug, err := profileMgr.Create(active)
+	if err != nil {
+		t.Fatalf("create active profile: %v", err)
+	}
+	if err := profileMgr.SetActive(activeSlug); err != nil {
+		t.Fatalf("set active profile: %v", err)
+	}
+
+	conv := profiles.DefaultProfile()
+	conv.Name = "Perfil da Conversa"
+	conv.Active = false
+	conv.Chat.LLMProvider = "localai-provider"
+	conv.Chat.Model = "qwen2.5"
+	convSlug, err := profileMgr.Create(conv)
+	if err != nil {
+		t.Fatalf("create conversation profile: %v", err)
+	}
+
+	svc := NewService(ServiceConfig{ProfileManager: profileMgr})
+
+	t.Run("usa o perfil da conversa quando o slug é fornecido", func(t *testing.T) {
+		got := svc.resolveConversationProfile(convSlug)
+		if got == nil {
+			t.Fatal("expected profile, got nil")
+		}
+		if got.Chat.Model != "qwen2.5" || got.Chat.LLMProvider != "localai-provider" {
+			t.Fatalf("resolveu perfil errado: provider=%q model=%q (esperado localai-provider/qwen2.5)",
+				got.Chat.LLMProvider, got.Chat.Model)
+		}
+	})
+
+	t.Run("recai no perfil ativo global quando o slug é vazio", func(t *testing.T) {
+		got := svc.resolveConversationProfile("")
+		if got == nil {
+			t.Fatal("expected profile, got nil")
+		}
+		if got.Chat.Model != "gpt-4o-mini" || got.Chat.LLMProvider != "openai-provider" {
+			t.Fatalf("fallback errado: provider=%q model=%q (esperado openai-provider/gpt-4o-mini)",
+				got.Chat.LLMProvider, got.Chat.Model)
+		}
+	})
+
+	t.Run("recai no perfil ativo global quando o slug não resolve", func(t *testing.T) {
+		got := svc.resolveConversationProfile("inexistente")
+		if got == nil {
+			t.Fatal("expected profile, got nil")
+		}
+		if got.Chat.Model != "gpt-4o-mini" {
+			t.Fatalf("fallback errado para slug inexistente: model=%q (esperado gpt-4o-mini)", got.Chat.Model)
+		}
+	})
+}
+
 func TestBuildSummarizationUserPrompt(t *testing.T) {
 	t.Run("without existing summary", func(t *testing.T) {
 		msgs := []database.ChatMessage{
 			{Role: "user", Content: "Hello"},
-			{Role: "assistant", Content: "Hi there!"},
+			{Role: "assistant", Content: "Hi there!", ToolCalls: `[{"id":"call_1","type":"function","function":{"name":"grep_search","arguments":"{}"},"result":"found it"}]`},
 		}
 
-		result := BuildSummarizationUserPrompt("", msgs)
+		result := BuildSummarizationUserPrompt("", msgs, nil, nil)
 
 		if !strings.Contains(result, "## Conversation to Summarize") {
 			t.Error("expected '## Conversation to Summarize' header")
@@ -180,8 +329,21 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 		if !strings.Contains(result, "**[assistant]**: Hi there!") {
 			t.Error("expected assistant message in output")
 		}
+		if !strings.Contains(result, "Tool result") || !strings.Contains(result, "found it") {
+			t.Error("expected tool result in output")
+		}
 		if !strings.Contains(result, "Please produce a concise summary of the conversation above.") {
 			t.Error("expected closing instruction for new summary")
+		}
+	})
+
+	t.Run("tool_calls single-object is supported", func(t *testing.T) {
+		msgs := []database.ChatMessage{
+			{Role: "assistant", Content: "ok", ToolCalls: `{"id":"call_1","type":"function","function":{"name":"grep_search","arguments":"{}"},"result":"achou"}`},
+		}
+		result := BuildSummarizationUserPrompt("", msgs, nil, nil)
+		if !strings.Contains(result, "Tool result") || !strings.Contains(result, "achou") {
+			t.Error("expected tool result from single-object tool_calls in output")
 		}
 	})
 
@@ -190,7 +352,7 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 			{Role: "user", Content: "What about feature X?"},
 		}
 
-		result := BuildSummarizationUserPrompt("Previous context about the project.", msgs)
+		result := BuildSummarizationUserPrompt("Previous context about the project.", msgs, nil, nil)
 
 		if !strings.Contains(result, "## Previous Summary") {
 			t.Error("expected '## Previous Summary' header")
@@ -212,7 +374,7 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 			{Role: "user", Content: longContent},
 		}
 
-		result := BuildSummarizationUserPrompt("", msgs)
+		result := BuildSummarizationUserPrompt("", msgs, nil, nil)
 
 		if !strings.Contains(result, "... [truncated]") {
 			t.Error("expected truncation marker for content > 2000 chars")
@@ -223,7 +385,7 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 	})
 
 	t.Run("empty messages produces minimal prompt", func(t *testing.T) {
-		result := BuildSummarizationUserPrompt("", nil)
+		result := BuildSummarizationUserPrompt("", nil, nil, nil)
 
 		if !strings.Contains(result, "## Conversation to Summarize") {
 			t.Error("expected header even with no messages")

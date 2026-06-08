@@ -5,6 +5,12 @@ import { messageAudioService } from './index';
 import { base64ToBlob } from '../../lib/audioUtils';
 
 const speakMessageMock = vi.fn();
+const backendProvider = {
+  providerId: 'openai',
+  voiceId: 'nova',
+  model: 'tts-1',
+  rate: 1,
+};
 
 vi.mock('@wailsjs/go/app/App', () => ({
   SpeakMessage: (...args: unknown[]) => speakMessageMock(...args),
@@ -37,17 +43,17 @@ describe('messageAudioService', () => {
     it('reproduz audio retornado pelo backend', async () => {
       speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
 
-      const result = await messageAudioService.speakMessage(42, 0.8);
+      const result = await messageAudioService.speakMessage("42", 0.8, backendProvider);
 
       expect(result).toBe(true);
-      expect(speakMessageMock).toHaveBeenCalledWith(42, '', '', '', 1);
+      expect(speakMessageMock).toHaveBeenCalledWith("42", 'openai', 'tts-1', 'nova', 1);
       expect(globalThis.URL.createObjectURL).toHaveBeenCalled();
     });
 
     it('retorna false quando backend retorna vazio', async () => {
       speakMessageMock.mockResolvedValue({ audio: '', mimeType: '' });
 
-      const result = await messageAudioService.speakMessage(1);
+      const result = await messageAudioService.speakMessage("1", 1.0, backendProvider);
 
       expect(result).toBe(false);
     });
@@ -55,7 +61,7 @@ describe('messageAudioService', () => {
     it('retorna false quando backend retorna null', async () => {
       speakMessageMock.mockResolvedValue(null);
 
-      const result = await messageAudioService.speakMessage(1);
+      const result = await messageAudioService.speakMessage("1", 1.0, backendProvider);
 
       expect(result).toBe(false);
     });
@@ -63,7 +69,7 @@ describe('messageAudioService', () => {
     it('retorna false quando backend lança erro', async () => {
       speakMessageMock.mockRejectedValue(new Error('TTS indisponível'));
 
-      const result = await messageAudioService.speakMessage(1);
+      const result = await messageAudioService.speakMessage("1", 1.0, backendProvider);
 
       expect(result).toBe(false);
     });
@@ -72,7 +78,7 @@ describe('messageAudioService', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       speakMessageMock.mockRejectedValue(new Error('TTS indisponível'));
 
-      await messageAudioService.speakMessage(1);
+      await messageAudioService.speakMessage("1", 1.0, backendProvider);
 
       expect(warnSpy).toHaveBeenCalledWith(
         '[messageAudio] speakMessage failed:',
@@ -84,14 +90,22 @@ describe('messageAudioService', () => {
     it('passa provider params ao backend', async () => {
       speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
 
-      await messageAudioService.speakMessage(42, 1.0, {
+      await messageAudioService.speakMessage("42", 1.0, {
         providerId: 'openai',
         voiceId: 'nova',
         model: 'tts-1',
         rate: 1.5,
       });
 
-      expect(speakMessageMock).toHaveBeenCalledWith(42, 'openai', 'nova', 'tts-1', 1.5);
+      expect(speakMessageMock).toHaveBeenCalledWith("42", 'openai', 'tts-1', 'nova', 1.5);
+    });
+
+    it('não chama backend para providers frontend ou referência', async () => {
+      await expect(messageAudioService.speakMessage("1")).resolves.toBe(false);
+      await expect(messageAudioService.speakMessage("2", 1.0, { ...backendProvider, providerId: 'webspeech' })).resolves.toBe(false);
+      await expect(messageAudioService.speakMessage("3", 1.0, { ...backendProvider, providerId: 'ref_profile' })).resolves.toBe(false);
+
+      expect(speakMessageMock).not.toHaveBeenCalled();
     });
   });
 
@@ -99,35 +113,35 @@ describe('messageAudioService', () => {
     it('segunda chamada usa cache sem chamar backend', async () => {
       speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
 
-      await messageAudioService.speakMessage(100, 1.0);
+      await messageAudioService.speakMessage("100", 1.0, backendProvider);
       expect(speakMessageMock).toHaveBeenCalledTimes(1);
 
-      await messageAudioService.speakMessage(100, 1.0);
+      await messageAudioService.speakMessage("100", 1.0, backendProvider);
       expect(speakMessageMock).toHaveBeenCalledTimes(1); // NÃO chamou de novo
     });
 
     it('mensagens diferentes usam caches separados', async () => {
       speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
 
-      await messageAudioService.speakMessage(100);
-      await messageAudioService.speakMessage(200);
+      await messageAudioService.speakMessage("100", 1.0, backendProvider);
+      await messageAudioService.speakMessage("200", 1.0, backendProvider);
       expect(speakMessageMock).toHaveBeenCalledTimes(2);
 
       // Ambas agora em cache
-      await messageAudioService.speakMessage(100);
-      await messageAudioService.speakMessage(200);
+      await messageAudioService.speakMessage("100", 1.0, backendProvider);
+      await messageAudioService.speakMessage("200", 1.0, backendProvider);
       expect(speakMessageMock).toHaveBeenCalledTimes(2);
     });
 
     it('clearMemoryCache limpa o cache', async () => {
       speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
 
-      await messageAudioService.speakMessage(100);
+      await messageAudioService.speakMessage("100", 1.0, backendProvider);
       expect(speakMessageMock).toHaveBeenCalledTimes(1);
 
       messageAudioService.clearMemoryCache();
 
-      await messageAudioService.speakMessage(100);
+      await messageAudioService.speakMessage("100", 1.0, backendProvider);
       expect(speakMessageMock).toHaveBeenCalledTimes(2); // Chamou de novo
     });
 
@@ -135,11 +149,11 @@ describe('messageAudioService', () => {
       speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
 
       // Popula cache via speakMessage
-      await messageAudioService.speakMessage(100);
+      await messageAudioService.speakMessage("100", 1.0, backendProvider);
       expect(speakMessageMock).toHaveBeenCalledTimes(1);
 
       // getMessageAudioBlob deve usar cache
-      const blob = await messageAudioService.getMessageAudioBlob(100);
+      const blob = await messageAudioService.getMessageAudioBlob("100", backendProvider);
       expect(blob).toBeInstanceOf(Blob);
       expect(speakMessageMock).toHaveBeenCalledTimes(1);
     });
@@ -147,11 +161,11 @@ describe('messageAudioService', () => {
     it('não armazena resultado falho no cache', async () => {
       speakMessageMock.mockResolvedValue(null);
 
-      await messageAudioService.speakMessage(100);
+      await messageAudioService.speakMessage("100", 1.0, backendProvider);
       expect(speakMessageMock).toHaveBeenCalledTimes(1);
 
       speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
-      await messageAudioService.speakMessage(100);
+      await messageAudioService.speakMessage("100", 1.0, backendProvider);
       expect(speakMessageMock).toHaveBeenCalledTimes(2); // Tentou de novo
     });
   });
@@ -160,7 +174,7 @@ describe('messageAudioService', () => {
     it('retorna blob quando backend retorna audio', async () => {
       speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
 
-      const blob = await messageAudioService.getMessageAudioBlob(42);
+      const blob = await messageAudioService.getMessageAudioBlob("42", backendProvider);
 
       expect(blob).toBeInstanceOf(Blob);
       expect(blob!.type).toBe('audio/mpeg');
@@ -169,7 +183,7 @@ describe('messageAudioService', () => {
     it('retorna null quando backend falha', async () => {
       speakMessageMock.mockRejectedValue(new Error('falha'));
 
-      const blob = await messageAudioService.getMessageAudioBlob(1);
+      const blob = await messageAudioService.getMessageAudioBlob("1", backendProvider);
 
       expect(blob).toBeNull();
     });
@@ -178,13 +192,21 @@ describe('messageAudioService', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       speakMessageMock.mockRejectedValue(new Error('falha'));
 
-      await messageAudioService.getMessageAudioBlob(1);
+      await messageAudioService.getMessageAudioBlob("1", backendProvider);
 
       expect(warnSpy).toHaveBeenCalledWith(
         '[messageAudio] getMessageAudioBlob failed:',
         expect.any(Error),
       );
       warnSpy.mockRestore();
+    });
+
+    it('retorna null sem backend para providers frontend ou referência', async () => {
+      await expect(messageAudioService.getMessageAudioBlob("1")).resolves.toBeNull();
+      await expect(messageAudioService.getMessageAudioBlob("2", { ...backendProvider, providerId: 'webspeech' })).resolves.toBeNull();
+      await expect(messageAudioService.getMessageAudioBlob("3", { ...backendProvider, providerId: 'ref_profile' })).resolves.toBeNull();
+
+      expect(speakMessageMock).not.toHaveBeenCalled();
     });
   });
 

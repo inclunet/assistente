@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"context"
+
 	"assistente/internal/database"
 	"assistente/internal/llm"
 )
@@ -13,10 +15,24 @@ func NewDBStore() *DBStore { return &DBStore{} }
 
 // Save persiste todos os provedores fornecidos no banco.
 // Usa GORM Save (upsert por primary key).
-func (s *DBStore) Save(providers []*llm.ProviderConfig) error {
+//
+// Save é fail-closed: exige que o contexto carregue um userID OU esteja
+// explicitamente marcado por database.WithBootstrap. Sem nenhum dos dois
+// retorna ErrUserScopeRequired. Essa garantia fecha o vetor levantado no
+// review do AEP-0052 onde Save sem proteção podia gravar provedores órfãos
+// se chamado por engano fora do caminho de bootstrap.
+//
+// Caminho normal (post-login): o ctx carrega o userID via WithUserID.
+// Caminho bootstrap (CLI setup, wizard pré-login): o caller marca o ctx
+// com WithBootstrap deliberadamente. Os registros nascem órfãos
+// (user_id="") e são adotados pelo primeiro usuário em AdoptLegacyData.
+func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) error {
+	if err := database.RequireUserIDOrBootstrap(ctx); err != nil {
+		return err
+	}
 	for _, p := range providers {
 		dbP := toDBModel(p)
-		if err := database.SaveLLMProvider(dbP); err != nil {
+		if err := database.SaveLLMProviderWithContext(ctx, dbP); err != nil {
 			return err
 		}
 	}
@@ -24,8 +40,11 @@ func (s *DBStore) Save(providers []*llm.ProviderConfig) error {
 }
 
 // Load retorna todos os provedores do banco convertidos para ProviderConfig.
-func (s *DBStore) Load() ([]*llm.ProviderConfig, error) {
-	dbProviders, err := database.GetLLMProviders()
+func (s *DBStore) Load(ctx context.Context) ([]*llm.ProviderConfig, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	dbProviders, err := database.GetLLMProvidersWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -37,13 +56,19 @@ func (s *DBStore) Load() ([]*llm.ProviderConfig, error) {
 }
 
 // SetDefault marca o provedor com o ID fornecido como padrão no banco.
-func (s *DBStore) SetDefault(id string) error {
-	return database.SetDefaultProvider(id)
+func (s *DBStore) SetDefault(ctx context.Context, id string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.SetDefaultProviderWithContext(ctx, id)
 }
 
 // GetDefault retorna o provedor marcado como padrão, ou nil + erro se nenhum.
-func (s *DBStore) GetDefault() (*llm.ProviderConfig, error) {
-	dbP, err := database.GetDefaultProvider()
+func (s *DBStore) GetDefault(ctx context.Context) (*llm.ProviderConfig, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	dbP, err := database.GetDefaultProviderWithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -51,8 +76,11 @@ func (s *DBStore) GetDefault() (*llm.ProviderConfig, error) {
 }
 
 // Get retorna um provedor por ID.
-func (s *DBStore) Get(id string) (*llm.ProviderConfig, error) {
-	dbP, err := database.GetLLMProvider(id)
+func (s *DBStore) Get(ctx context.Context, id string) (*llm.ProviderConfig, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	dbP, err := database.GetLLMProviderWithContext(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -60,8 +88,11 @@ func (s *DBStore) Get(id string) (*llm.ProviderConfig, error) {
 }
 
 // Count retorna a contagem total de provedores no banco.
-func (s *DBStore) Count() (int, error) {
-	n, err := database.CountLLMProviders()
+func (s *DBStore) Count(ctx context.Context) (int, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return 0, err
+	}
+	n, err := database.CountLLMProvidersWithContext(ctx)
 	return int(n), err
 }
 
@@ -81,11 +112,12 @@ func toDBModel(p *llm.ProviderConfig) *database.LLMProvider {
 		IsDefault:         p.IsDefault,
 		Timeout:           p.Timeout,
 		CredentialPattern: p.CredentialPattern,
+		AuthMode:          string(p.AuthMode),
 	}
 }
 
 func fromDBModel(dbP *database.LLMProvider) *llm.ProviderConfig {
-	return &llm.ProviderConfig{
+	p := &llm.ProviderConfig{
 		ID:                dbP.ID,
 		Name:              dbP.Name,
 		Type:              llm.ProviderType(dbP.Type),
@@ -96,5 +128,8 @@ func fromDBModel(dbP *database.LLMProvider) *llm.ProviderConfig {
 		IsDefault:         dbP.IsDefault,
 		Timeout:           dbP.Timeout,
 		CredentialPattern: dbP.CredentialPattern,
+		AuthMode:          llm.AuthMode(dbP.AuthMode),
 	}
+	normalizeProviderRuntimeDefaults(p)
+	return p
 }

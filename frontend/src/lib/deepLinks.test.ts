@@ -13,9 +13,9 @@ import {
 
 const mockWsSetActiveTab = vi.fn().mockResolvedValue(undefined);
 const mockWsAddTab = vi.fn().mockResolvedValue(undefined);
-const mockSendMessage = vi.fn().mockResolvedValue(undefined);
+const mockSendMessageToConversation = vi.fn().mockResolvedValue(undefined);
 
-let mockWsTabs: Array<{ id: string; type: string; conversationId?: number; state?: Record<string, unknown> }> = [];
+let mockWsTabs: Array<{ id: string; type: string; conversationId?: string; state?: Record<string, unknown> }> = [];
 
 vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: {
@@ -28,15 +28,14 @@ vi.mock('../store/workspaceStore', () => ({
 }));
 
 const mockLoadConversation = vi.fn().mockResolvedValue(undefined);
-const mockCreateConversation = vi.fn().mockResolvedValue(100);
+const mockCreateConversation = vi.fn().mockResolvedValue('01926b90-7a5a-7c4e-8d3f-000000000064');
 
 vi.mock('../store/chatStore', () => ({
   useChatStore: {
     getState: () => ({
-      sendMessage: mockSendMessage,
-      loadConversation: mockLoadConversation,
+      sendMessageToConversation: mockSendMessageToConversation,
+      loadConversationSession: mockLoadConversation,
       createConversation: mockCreateConversation,
-      activeConversationId: 1,
     }),
   },
 }));
@@ -124,17 +123,16 @@ describe('isDeepLink', () => {
 
 describe('parseDeepLink', () => {
   describe('conversation:open', () => {
-    it('faz parse de assistente://conversation/{id}', () => {
-      const result = parseDeepLink('assistente://conversation/42');
-      expect(result).toEqual({ type: 'conversation:open', conversationId: 42 });
+    it('faz parse de assistente://conversation/{uuid}', () => {
+      const result = parseDeepLink('assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000002a');
+      expect(result).toEqual({ type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a' });
     });
 
-    it('aceita IDs grandes', () => {
-      const result = parseDeepLink('assistente://conversation/999999');
-      expect(result).toEqual({ type: 'conversation:open', conversationId: 999999 });
+    it('rejeita UUIDs v4 (somente v7 é aceito)', () => {
+      expect(parseDeepLink('assistente://conversation/550e8400-e29b-41d4-a716-446655440000')).toBeNull();
     });
 
-    it('rejeita ID zero', () => {
+    it('rejeita ID numérico (legado)', () => {
       expect(parseDeepLink('assistente://conversation/0')).toBeNull();
     });
 
@@ -142,7 +140,7 @@ describe('parseDeepLink', () => {
       expect(parseDeepLink('assistente://conversation/-1')).toBeNull();
     });
 
-    it('rejeita ID não numérico', () => {
+    it('rejeita ID não-UUID', () => {
       expect(parseDeepLink('assistente://conversation/abc')).toBeNull();
     });
 
@@ -192,20 +190,20 @@ describe('parseDeepLink', () => {
   describe('conversation:send', () => {
     it('faz parse de send com message', () => {
       const result = parseDeepLink(
-        'assistente://conversation/10/send?message=continue+aqui',
+        'assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000000a/send?message=continue+aqui',
       );
       expect(result).toEqual({
         type: 'conversation:send',
-        conversationId: 10,
+        conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a',
         message: 'continue aqui',
       });
     });
 
     it('rejeita send sem message', () => {
-      expect(parseDeepLink('assistente://conversation/10/send')).toBeNull();
+      expect(parseDeepLink('assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000000a/send')).toBeNull();
     });
 
-    it('rejeita send com ID inválido', () => {
+    it('rejeita send com ID não-UUID', () => {
       expect(parseDeepLink('assistente://conversation/abc/send?message=oi')).toBeNull();
     });
   });
@@ -216,6 +214,7 @@ describe('parseDeepLink', () => {
         'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
         'settings/channels', 'settings/contacts', 'settings/credentials',
         'settings/allowlists', 'settings/appearance', 'settings/restore-defaults',
+        'settings/data',
         'profiles', 'history', 'tasklists', 'help', 'about', 'update',
       ];
 
@@ -414,8 +413,8 @@ describe('parseDeepLink', () => {
 
 describe('buildDeepLink', () => {
   it('constrói conversation:open', () => {
-    const uri = buildDeepLink({ type: 'conversation:open', conversationId: 42 });
-    expect(uri).toBe('assistente://conversation/42');
+    const uri = buildDeepLink({ type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a' });
+    expect(uri).toBe('assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000002a');
   });
 
   it('constrói conversation:new sem parâmetros', () => {
@@ -437,10 +436,10 @@ describe('buildDeepLink', () => {
   it('constrói conversation:send', () => {
     const uri = buildDeepLink({
       type: 'conversation:send',
-      conversationId: 10,
+      conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a',
       message: 'continue aqui',
     });
-    expect(uri).toContain('assistente://conversation/10/send?');
+    expect(uri).toContain('assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000000a/send?');
     expect(uri).toContain('message=continue+aqui');
   });
 
@@ -522,10 +521,10 @@ describe('buildDeepLink', () => {
 
 describe('roundtrip build → parse', () => {
   const actions: DeepLinkAction[] = [
-    { type: 'conversation:open', conversationId: 7 },
+    { type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000007' },
     { type: 'conversation:new', message: 'olá mundo', title: 'Test' },
     { type: 'conversation:new' },
-    { type: 'conversation:send', conversationId: 3, message: 'continue' },
+    { type: 'conversation:send', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000003', message: 'continue' },
     { type: 'navigate', route: 'history' },
     { type: 'navigate', route: 'tasklists' },
     { type: 'navigate', route: '' },
@@ -557,11 +556,11 @@ describe('roundtrip build → parse', () => {
 
 describe('getDeepLinkTypeClass', () => {
   it('retorna classe correta por tipo', () => {
-    expect(getDeepLinkTypeClass({ type: 'conversation:open', conversationId: 1 }))
+    expect(getDeepLinkTypeClass({ type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001' }))
       .toBe('deep-link--conversation');
     expect(getDeepLinkTypeClass({ type: 'conversation:new' }))
       .toBe('deep-link--new-conversation');
-    expect(getDeepLinkTypeClass({ type: 'conversation:send', conversationId: 1, message: 'x' }))
+    expect(getDeepLinkTypeClass({ type: 'conversation:send', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001', message: 'x' }))
       .toBe('deep-link--send');
     expect(getDeepLinkTypeClass({ type: 'navigate', route: 'help' }))
       .toBe('deep-link--navigate');
@@ -602,17 +601,18 @@ describe('executeDeepLink', () => {
     vi.clearAllMocks();
     vi.useRealTimers();
     mockWsTabs = [];
+    mockWsAddTab.mockResolvedValue('tab-created');
   });
 
   describe('conversation:open — dedup', () => {
     it('ativa aba existente se a conversa já está aberta', async () => {
       mockWsTabs = [
-        { id: 'tab-1', type: 'chat', conversationId: 42 },
-        { id: 'tab-2', type: 'chat', conversationId: 99 },
+        { id: 'tab-1', type: 'chat', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a' },
+        { id: 'tab-2', type: 'chat', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000063' },
       ];
 
       await executeDeepLink(
-        { type: 'conversation:open', conversationId: 42 },
+        { type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a' },
         deps,
       );
 
@@ -622,14 +622,14 @@ describe('executeDeepLink', () => {
     });
 
     it('abre nova aba se a conversa não está aberta', async () => {
-      mockWsTabs = [{ id: 'tab-1', type: 'chat', conversationId: 99 }];
+      mockWsTabs = [{ id: 'tab-1', type: 'chat', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000063' }];
 
       await executeDeepLink(
-        { type: 'conversation:open', conversationId: 42 },
+        { type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a' },
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa', { conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a' });
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
@@ -638,28 +638,42 @@ describe('executeDeepLink', () => {
       mockWsTabs = [];
 
       await executeDeepLink(
-        { type: 'conversation:open', conversationId: 7 },
+        { type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000007' },
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa', { conversationId: '01926b90-7a5a-7c4e-8d3f-000000000007' });
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
     });
   });
 
   describe('conversation:send — dedup', () => {
     it('ativa aba existente se a conversa já está aberta', async () => {
-      mockWsTabs = [{ id: 'tab-5', type: 'chat', conversationId: 10 }];
+      mockWsTabs = [{ id: 'tab-5', type: 'chat', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a' }];
 
       await executeDeepLink(
-        { type: 'conversation:send', conversationId: 10, message: 'oi' },
+        { type: 'conversation:send', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a', message: 'oi' },
         deps,
       );
 
       expect(mockWsSetActiveTab).toHaveBeenCalledWith('tab-5');
       expect(mockWsAddTab).not.toHaveBeenCalled();
-      expect(mockLoadConversation).toHaveBeenCalledWith(10);
-      expect(mockSendMessage).toHaveBeenCalledWith('oi');
+      expect(mockLoadConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a');
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-00000000000a',
+        'oi',
+        undefined,
+        expect.objectContaining({ tabType: 'chat' }),
+        {
+          origin: expect.objectContaining({
+            conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a',
+            sessionKey: 'page:tab:tab-5:01926b90-7a5a-7c4e-8d3f-00000000000a',
+            surfaceId: 'page:tab:tab-5',
+            surfaceType: 'page',
+            tabId: 'tab-5',
+          }),
+        },
+      );
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
@@ -667,14 +681,28 @@ describe('executeDeepLink', () => {
       mockWsTabs = [];
 
       await executeDeepLink(
-        { type: 'conversation:send', conversationId: 10, message: 'oi' },
+        { type: 'conversation:send', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a', message: 'oi' },
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa', { conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a' });
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
-      expect(mockLoadConversation).toHaveBeenCalledWith(10);
-      expect(mockSendMessage).toHaveBeenCalledWith('oi');
+      expect(mockLoadConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a');
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-00000000000a',
+        'oi',
+        undefined,
+        expect.objectContaining({ tabType: 'chat' }),
+        {
+          origin: expect.objectContaining({
+            conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a',
+            sessionKey: 'page:tab:tab-created:01926b90-7a5a-7c4e-8d3f-00000000000a',
+            surfaceId: 'page:tab:tab-created',
+            surfaceType: 'page',
+            tabId: 'tab-created',
+          }),
+        },
+      );
     });
   });
 
@@ -683,9 +711,9 @@ describe('executeDeepLink', () => {
       await executeDeepLink({ type: 'conversation:new' }, deps);
 
       expect(mockCreateConversation).toHaveBeenCalledWith('Nova Conversa');
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa', { conversationId: '01926b90-7a5a-7c4e-8d3f-000000000064' });
       expect(mockNavigate).toHaveBeenCalledWith('/');
-      expect(mockSendMessage).not.toHaveBeenCalled();
+      expect(mockSendMessageToConversation).not.toHaveBeenCalled();
     });
 
     it('cria conversa e envia mensagem se fornecida', async () => {
@@ -695,8 +723,22 @@ describe('executeDeepLink', () => {
       );
 
       expect(mockCreateConversation).toHaveBeenCalled();
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
-      expect(mockSendMessage).toHaveBeenCalledWith('analise isso');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa', { conversationId: '01926b90-7a5a-7c4e-8d3f-000000000064' });
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-000000000064',
+        'analise isso',
+        undefined,
+        expect.objectContaining({ tabType: 'chat' }),
+        {
+          origin: expect.objectContaining({
+            conversationId: '01926b90-7a5a-7c4e-8d3f-000000000064',
+            sessionKey: 'page:tab:tab-created:01926b90-7a5a-7c4e-8d3f-000000000064',
+            surfaceId: 'page:tab:tab-created',
+            surfaceType: 'page',
+            tabId: 'tab-created',
+          }),
+        },
+      );
     });
 
     it('usa título customizado quando fornecido', async () => {
@@ -706,7 +748,7 @@ describe('executeDeepLink', () => {
       );
 
       expect(mockCreateConversation).toHaveBeenCalledWith('Minha Análise');
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Minha Análise');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Minha Análise', { conversationId: '01926b90-7a5a-7c4e-8d3f-000000000064' });
     });
   });
 
@@ -871,7 +913,7 @@ describe('executeDeepLink', () => {
   describe('announce', () => {
     it('anuncia após cada ação', async () => {
       await executeDeepLink(
-        { type: 'conversation:open', conversationId: 1 },
+        { type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001' },
         deps,
       );
       expect(mockAnnounce).toHaveBeenCalled();

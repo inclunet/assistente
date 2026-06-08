@@ -3,6 +3,7 @@
  * Usa a API OpenAI TTS via backend Wails com suporte a streaming
  */
 
+import { logger } from '../../../utils/logger';
 import { BaseTTSProvider } from './base';
 import { TTSProvider, TTSVoice } from '../types';
 import { base64ToBlob } from '../../../lib/audioUtils';
@@ -13,7 +14,7 @@ import {
   SetOpenAITTSSpeed,
   SetOpenAITTSVoice
 } from '@wailsjs/go/app/App';
-import { main } from '../../../../wailsjs/go/models';
+import { app } from '../../../../wailsjs/go/models';
 import { getStreamPlayer, TTSStreamPlayer } from '../streamPlayer';
 
 interface OpenAITTSVoiceInfo {
@@ -256,7 +257,7 @@ export class OpenAIProvider extends BaseTTSProvider {
       await streamPromise;
       
     } catch (error) {
-      console.error('[OpenAI] Streaming error:', error);
+      logger.error('[OpenAI] Streaming error:', error);
       this._isSpeaking = false;
       this.dispatchEvent('error', { error: error as Error });
     }
@@ -289,7 +290,7 @@ export class OpenAIProvider extends BaseTTSProvider {
       await SetOpenAITTSSpeed(this.calculateBackendRate());
       
       // Chama backend para sintetizar
-      const result: main.SynthesisResultInfo = await SynthesizeOpenAIWithVoice(
+      const result: app.SynthesisResultInfo = await SynthesizeOpenAIWithVoice(
         text, 
         this._currentVoice || 'nova'
       );
@@ -330,7 +331,7 @@ export class OpenAIProvider extends BaseTTSProvider {
         }
         this.currentAudio = null;
         globalAudioPlayer = null;
-        console.error('[OpenAI] Audio playback error:', error);
+        logger.error('[OpenAI] Audio playback error:', error);
         this.dispatchEvent('error', { 
           error: new Error(`OpenAI audio playback error`) 
         });
@@ -339,7 +340,7 @@ export class OpenAIProvider extends BaseTTSProvider {
       await globalAudioPlayer.play();
       
     } catch (error) {
-      console.error('[OpenAI] Error speaking:', error);
+      logger.error('[OpenAI] Error speaking:', error);
       this._isSpeaking = false;
       this.dispatchEvent('error', { error: error as Error });
     }
@@ -424,7 +425,7 @@ export class OpenAIProvider extends BaseTTSProvider {
           this.dispatchEvent('resume', undefined);
         })
         .catch(error => {
-          console.error('[OpenAI] Error resuming:', error);
+          logger.error('[OpenAI] Error resuming:', error);
         });
     }
   }

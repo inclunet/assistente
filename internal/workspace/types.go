@@ -3,6 +3,8 @@ package workspace
 import (
 	"fmt"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // TabType define o tipo de conteúdo exibido em uma aba.
@@ -19,16 +21,43 @@ const (
 // Toda aba tem um ConversationID dedicado para seu chat inline.
 // Dados específicos do tipo (filePath, sessionId, tasklistId) ficam em State.
 type Tab struct {
-	ID             string         `json:"id" yaml:"id"`
-	Type           TabType        `json:"type" yaml:"type"`
-	ConversationID int64          `json:"conversation_id,omitempty" yaml:"conversation_id,omitempty"`
-	Title          string         `json:"title" yaml:"title"`
-	Position       int            `json:"position" yaml:"position"`
+	ID              string         `json:"id" yaml:"id"`
+	Type            TabType        `json:"type" yaml:"type"`
+	ConversationID  string         `json:"conversation_id,omitempty" yaml:"conversation_id,omitempty"`
+	Title           string         `json:"title" yaml:"title"`
+	Position        int            `json:"position" yaml:"position"`
 	ProfileOverride map[string]any `json:"profile_override,omitempty" yaml:"profile_override,omitempty"`
-	State          map[string]any `json:"state,omitempty" yaml:"state,omitempty"`
+	State           map[string]any `json:"state,omitempty" yaml:"state,omitempty"`
 
 	// ContentID: campo legado para migração de workspaces antigos. Ignorado após load.
 	ContentID string `json:"content_id,omitempty" yaml:"content_id,omitempty"`
+}
+
+// UnmarshalYAML handles legacy workspace files where conversation_id was
+// serialized as an integer (!!int). yaml.v3 refuses to unmarshal !!int into a
+// string field, so we patch the node tag before decoding.
+func (t *Tab) UnmarshalYAML(value *yaml.Node) error {
+	// Patch conversation_id and content_id nodes: force !!str so yaml.v3
+	// accepts numeric values into string fields.
+	if value.Kind == yaml.MappingNode {
+		for i := 0; i < len(value.Content)-1; i += 2 {
+			key := value.Content[i].Value
+			if key == "conversation_id" || key == "content_id" {
+				val := value.Content[i+1]
+				if val.Tag == "!!int" || val.Tag == "!!float" {
+					val.Tag = "!!str"
+				}
+			}
+		}
+	}
+
+	type rawTab Tab
+	var raw rawTab
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	*t = Tab(raw)
+	return nil
 }
 
 // TabsState armazena qual aba está ativa e a lista de abas.
@@ -115,8 +144,8 @@ func (w *Workspace) FindTab(tabID string) *Tab {
 }
 
 // FindTabByConversation encontra a primeira tab com o conversationId especificado.
-func (w *Workspace) FindTabByConversation(conversationID int64) *Tab {
-	if conversationID == 0 {
+func (w *Workspace) FindTabByConversation(conversationID string) *Tab {
+	if conversationID == "" {
 		return nil
 	}
 	for i := range w.Tabs.Items {

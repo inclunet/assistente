@@ -13,96 +13,108 @@ import (
 	"assistente/internal/tasklist"
 	"assistente/internal/tools"
 	deeplinktool "assistente/internal/tools/deeplink"
+	feedtool "assistente/internal/tools/feed"
 	"assistente/internal/tools/filesystem"
 	"assistente/internal/tools/history"
+	jobtool "assistente/internal/tools/job"
 	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
+	subagenttool "assistente/internal/tools/subagent"
 	tasklisttool "assistente/internal/tools/tasklist"
 	"assistente/internal/tools/web"
 )
 
 // serviceTaskListManager adapta tasklist.Service para a interface tasklisttool.TaskListManager.
 type serviceTaskListManager struct {
-	ctx context.Context
 	svc *tasklist.Service
 }
 
-func (m *serviceTaskListManager) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
-	return m.svc.CreateTaskList(m.ctx, title, description, templateWorkflow, slug)
+func (m *serviceTaskListManager) CreateTaskList(ctx context.Context, title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
+	return m.svc.CreateTaskList(ctx, title, description, templateWorkflow, slug)
 }
-func (m *serviceTaskListManager) GetTaskList(id uint) (*database.TaskList, error) {
-	return m.svc.GetTaskList(id)
+func (m *serviceTaskListManager) GetTaskList(ctx context.Context, id string) (*database.TaskList, error) {
+	return m.svc.GetTaskList(ctx, id)
 }
-func (m *serviceTaskListManager) GetAllTaskLists() ([]database.TaskList, error) {
-	return m.svc.GetAllTaskLists()
+func (m *serviceTaskListManager) GetAllTaskLists(ctx context.Context) ([]database.TaskList, error) {
+	return m.svc.GetAllTaskLists(ctx)
 }
-func (m *serviceTaskListManager) GetTaskListStats(taskListID uint) (map[string]interface{}, error) {
-	return m.svc.GetTaskListStats(taskListID)
+func (m *serviceTaskListManager) GetTaskListStats(ctx context.Context, taskListID string) (map[string]interface{}, error) {
+	return m.svc.GetTaskListStats(ctx, taskListID)
 }
-func (m *serviceTaskListManager) UpdateTaskListFull(id uint, title, description, preferredViewMode string, slug *string) error {
-	return m.svc.UpdateTaskListFull(id, title, description, preferredViewMode, slug)
+func (m *serviceTaskListManager) UpdateTaskListFull(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error {
+	return m.svc.UpdateTaskListFull(ctx, id, title, description, preferredViewMode, slug)
 }
-func (m *serviceTaskListManager) ResolveTaskListRef(taskListID *uint, taskListSlug string) (uint, error) {
-	return m.svc.ResolveTaskListRef(taskListID, taskListSlug)
+func (m *serviceTaskListManager) ResolveTaskListRef(ctx context.Context, taskListID *string, taskListSlug string) (string, error) {
+	return m.svc.ResolveTaskListRef(ctx, taskListID, taskListSlug)
 }
-func (m *serviceTaskListManager) SetTaskListValidationPolicy(taskListID uint, policyJSON string) error {
-	return m.svc.SetTaskListValidationPolicy(taskListID, policyJSON)
+func (m *serviceTaskListManager) SetTaskListValidationPolicy(ctx context.Context, taskListID string, policyJSON string) error {
+	return m.svc.SetTaskListValidationPolicy(ctx, taskListID, policyJSON)
 }
-func (m *serviceTaskListManager) UpdateWorkflowFull(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
-	return m.svc.UpdateWorkflowFull(taskListID, statuses, transitions, initialStatusID, statusMigration)
+func (m *serviceTaskListManager) GetTaskListCustomActions(ctx context.Context, taskListID string) (*database.TaskListCustomActions, error) {
+	return m.svc.GetTaskListCustomActions(ctx, taskListID)
 }
-func (m *serviceTaskListManager) GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
-	return m.svc.GetTaskCountsByStatus(taskListID)
+func (m *serviceTaskListManager) SetTaskListCustomActions(ctx context.Context, taskListID string, actionsJSON string) error {
+	return m.svc.SetTaskListCustomActions(ctx, taskListID, actionsJSON)
 }
-func (m *serviceTaskListManager) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error) {
-	return m.svc.CreateTask(taskListID, title, description, code, link, parentID)
+func (m *serviceTaskListManager) UpdateWorkflowFull(ctx context.Context, taskListID string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
+	return m.svc.UpdateWorkflowFull(ctx, taskListID, statuses, transitions, initialStatusID, statusMigration)
 }
-func (m *serviceTaskListManager) CreateTaskFull(taskListID uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *uint) (*database.Task, error) {
-	return m.svc.CreateTaskFull(taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
+func (m *serviceTaskListManager) GetTaskCountsByStatus(ctx context.Context, taskListID string) (map[int]int64, error) {
+	return m.svc.GetTaskCountsByStatus(ctx, taskListID)
 }
-func (m *serviceTaskListManager) GetTask(id uint) (*database.Task, error) { return m.svc.GetTask(id) }
-func (m *serviceTaskListManager) FindTaskByCode(taskListID uint, code string) (*database.Task, error) {
-	return m.svc.FindTaskByCode(taskListID, code)
+func (m *serviceTaskListManager) CreateTask(ctx context.Context, taskListID string, title, description, code, link string, parentID *string) (*database.Task, error) {
+	return m.svc.CreateTask(ctx, taskListID, title, description, code, link, parentID)
 }
-func (m *serviceTaskListManager) ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error) {
-	return m.svc.ResolveTaskRef(taskListID, taskListSlug, taskID, code)
+func (m *serviceTaskListManager) CreateTaskFull(ctx context.Context, taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*database.Task, error) {
+	return m.svc.CreateTaskFull(ctx, taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
 }
-func (m *serviceTaskListManager) ResolveTaskIDByTaskCode(taskListID *uint, taskCode string) (uint, error) {
-	return m.svc.ResolveTaskIDByTaskCode(taskListID, taskCode)
+func (m *serviceTaskListManager) GetTask(ctx context.Context, id string) (*database.Task, error) {
+	return m.svc.GetTask(ctx, id)
 }
-func (m *serviceTaskListManager) UpdateTask(id uint, title, description, code, link string) error {
-	return m.svc.UpdateTask(id, title, description, code, link)
+func (m *serviceTaskListManager) FindTaskByCode(ctx context.Context, taskListID string, code string) (*database.Task, error) {
+	return m.svc.FindTaskByCode(ctx, taskListID, code)
 }
-func (m *serviceTaskListManager) UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
-	return m.svc.UpdateTaskFull(id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
+func (m *serviceTaskListManager) ResolveTaskRef(ctx context.Context, taskListID *string, taskListSlug string, taskID *string, code string) (string, error) {
+	return m.svc.ResolveTaskRef(ctx, taskListID, taskListSlug, taskID, code)
 }
-func (m *serviceTaskListManager) UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error {
-	return m.svc.UpdateTaskAssignee(id, assigneeName, assigneeID)
+func (m *serviceTaskListManager) ResolveTaskIDByTaskCode(ctx context.Context, taskListID *string, taskCode string) (string, error) {
+	return m.svc.ResolveTaskIDByTaskCode(ctx, taskListID, taskCode)
 }
-func (m *serviceTaskListManager) UpdateTaskStatus(id uint, newStatusID int) error {
-	return m.svc.UpdateTaskStatus(id, newStatusID)
+func (m *serviceTaskListManager) UpdateTask(ctx context.Context, id string, title, description, code, link string) error {
+	return m.svc.UpdateTask(ctx, id, title, description, code, link)
 }
-func (m *serviceTaskListManager) MoveTaskToList(taskID uint, targetTaskListID uint) (*database.Task, error) {
-	return m.svc.MoveTaskToList(taskID, targetTaskListID)
+func (m *serviceTaskListManager) UpdateTaskFull(ctx context.Context, id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+	return m.svc.UpdateTaskFull(ctx, id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
 }
-func (m *serviceTaskListManager) DeleteTask(id uint) error { return m.svc.DeleteTask(id) }
-func (m *serviceTaskListManager) GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error) {
-	return m.svc.GetWorkflow(taskListID)
+func (m *serviceTaskListManager) UpdateTaskAssignee(ctx context.Context, id string, assigneeName, assigneeID string) error {
+	return m.svc.UpdateTaskAssignee(ctx, id, assigneeName, assigneeID)
 }
-func (m *serviceTaskListManager) CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
-	return m.svc.CreateTaskNote(taskID, int(noteType), content, authorName, authorID)
+func (m *serviceTaskListManager) UpdateTaskStatus(ctx context.Context, id string, newStatusID int) error {
+	return m.svc.UpdateTaskStatus(ctx, id, newStatusID)
 }
-func (m *serviceTaskListManager) UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
-	return m.svc.UpsertTaskNoteByExternal(p)
+func (m *serviceTaskListManager) MoveTaskToList(ctx context.Context, taskID string, targetTaskListID string) (*database.Task, error) {
+	return m.svc.MoveTaskToList(ctx, taskID, targetTaskListID)
 }
-func (m *serviceTaskListManager) UpdateTaskNote(noteID uint, content string) error {
-	return m.svc.UpdateTaskNote(noteID, content)
+func (m *serviceTaskListManager) DeleteTask(ctx context.Context, id string) error {
+	return m.svc.DeleteTask(ctx, id)
 }
-func (m *serviceTaskListManager) GetTaskNotes(taskID uint) ([]database.TaskNote, error) {
-	return m.svc.GetTaskNotes(taskID)
+func (m *serviceTaskListManager) GetWorkflow(ctx context.Context, taskListID string) (*database.TaskListWorkflow, error) {
+	return m.svc.GetWorkflow(ctx, taskListID)
 }
-func (m *serviceTaskListManager) GetTaskNote(noteID uint) (*database.TaskNote, error) {
-	return m.svc.GetTaskNote(noteID)
+func (m *serviceTaskListManager) CreateTaskNote(ctx context.Context, taskID string, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
+	return m.svc.CreateTaskNote(ctx, taskID, int(noteType), content, authorName, authorID)
+}
+func (m *serviceTaskListManager) UpsertTaskNoteByExternal(ctx context.Context, p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
+	return m.svc.UpsertTaskNoteByExternal(ctx, p)
+}
+func (m *serviceTaskListManager) UpdateTaskNote(ctx context.Context, noteID string, content string) error {
+	return m.svc.UpdateTaskNote(ctx, noteID, content)
+}
+func (m *serviceTaskListManager) GetTaskNotes(ctx context.Context, taskID string) ([]database.TaskNote, error) {
+	return m.svc.GetTaskNotes(ctx, taskID)
+}
+func (m *serviceTaskListManager) GetTaskNote(ctx context.Context, noteID string) (*database.TaskNote, error) {
+	return m.svc.GetTaskNote(ctx, noteID)
 }
 
 // appDeepLinkEmitter emite deep links para o frontend via events.Emitter.
@@ -184,6 +196,9 @@ func (a *App) initToolRegistry() {
 
 	a.toolRegistry.MustRegister(web.NewWebSearch(a.credMgr))
 
+	// feed_read: RSS/Atom/JSON Feed/podcast -> JSON canônico (auth por domínio)
+	a.toolRegistry.MustRegister(feedtool.NewFeedRead(a.credMgr))
+
 	// Registra ferramenta de shell (run_command)
 	confirmFn := func(ctx context.Context, cmd, wd string) (bool, error) {
 		if a.questionnaireMgr == nil {
@@ -250,10 +265,34 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(history.NewSearchConversations(a.msgRepo))
 
 	// Registra ferramentas de gerenciamento de task lists
-	tlMgr := &serviceTaskListManager{ctx: a.ctx, svc: a.taskSvc}
+	tlMgr := &serviceTaskListManager{svc: a.taskSvc}
 	a.toolRegistry.MustRegister(tasklisttool.NewTaskList(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewTask(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewTaskNote(tlMgr))
+
+	// Jobs são opt-in para não inflar o payload padrão, mas descobríveis
+	// na UI/catálogo para enabled_tools explícito.
+	jobMgr := func() jobtool.Manager {
+		if a.jobMgr == nil {
+			return nil
+		}
+		return a.jobMgr
+	}
+	a.toolRegistry.MustRegisterDiscoverableOptIn(jobtool.NewJobWithProvider(jobMgr))
+	a.toolRegistry.MustRegisterDiscoverableOptIn(jobtool.NewPipelineWithProvider(jobMgr))
+
+	// Sub-agentes (AEP-0068): opt-in para não inflar o payload padrão, mas
+	// descobrível na UI/catálogo. O gate de profundidade é o próprio profile —
+	// o sub-agente só pode criar novos sub-agentes se o profile dele habilitar
+	// a tool `subagent` (EnabledTools / DisableTools). O Manager é criado mais
+	// tarde no wiring (após o ChatController existir), então o provider é lazy.
+	subagentRunner := func() subagenttool.Runner {
+		if a.subagentMgr == nil {
+			return nil
+		}
+		return a.subagentMgr
+	}
+	a.toolRegistry.MustRegisterDiscoverableOptIn(subagenttool.NewWithProvider(subagentRunner))
 
 	// Registra ferramenta de deep links
 	a.toolRegistry.MustRegister(deeplinktool.NewOpenDeepLink(&appDeepLinkEmitter{emitter: a.emitter}))

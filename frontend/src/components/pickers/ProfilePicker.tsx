@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect, forwardRef, useImperativeHandle, useCallback, type ReactNode } from 'react';
 import { MessageOutlined, WarningOutlined } from '@ant-design/icons';
 import { ComboboxItem } from './Combobox';
@@ -70,7 +71,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Erro ao carregar perfis');
-        console.error('[ProfilePicker] Failed to load profiles:', err);
+        logger.error('[ProfilePicker] Failed to load profiles:', err);
       } finally {
         setLoading(false);
       }
@@ -150,7 +151,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
         onAnnounce?.(`Perfil alterado para ${profile?.name || newValue}`);
         onChange?.(newValue);
       } catch (err) {
-        console.error('[ProfilePicker] Error setting profile:', err);
+        logger.error('[ProfilePicker] Error setting profile:', err);
       }
     };
 

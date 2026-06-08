@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // ==================== Message Types ====================
@@ -28,6 +29,19 @@ type ToolCall struct {
 type FunctionCall struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
+}
+
+// EnrichedToolCall estende ToolCall com metadata de execução para persistência no DB (AEP-0039 Fase 5).
+// Usado apenas na serialização para o banco; ToolCall regular é usado nas chamadas à API do LLM.
+type EnrichedToolCall struct {
+	ID          string       `json:"id"`
+	Type        string       `json:"type"`
+	Function    FunctionCall `json:"function"`
+	Result      string       `json:"result,omitempty"`       // Resultado compacto para export/histórico
+	Origin      string       `json:"origin,omitempty"`       // "builtin" | "mcp_bridge" | "mcp_native"
+	ServerLabel string       `json:"server_label,omitempty"` // Label do servidor MCP
+	Iteration   int          `json:"iteration"`              // Iteração do agentic loop (0-based)
+	DurationMs  int64        `json:"duration_ms,omitempty"`  // Duração da execução em milissegundos
 }
 
 // ToolCallDelta representa um delta incremental de tool_call durante streaming.
@@ -187,19 +201,93 @@ type ModelsResponse struct {
 
 // ChatParams contém os parâmetros para uma requisição de chat
 type ChatParams struct {
-	Model                string  `json:"model"`
-	MaxTokens            int     `json:"maxTokens"`
-	MaxTokensMode        string  `json:"maxTokensMode,omitempty"` // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
-	Temperature          float64 `json:"temperature"`
-	TopP                 float64 `json:"topP,omitempty"`
-	ReasoningEffort      string  `json:"reasoningEffort,omitempty"`      // off, low, medium, high
-	ProfileSlug          string  `json:"profileSlug,omitempty"`          // Perfil específico (canais). Vazio = perfil ativo global
-	MaxAgenticIterations int     `json:"maxAgenticIterations,omitempty"` // 0 = usar default (25), >0 = limite customizado
-	ResponseTimeout      int     `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
-	TabType              string  `json:"tabType,omitempty"`              // Tipo da aba de origem ("editor", "chat", etc.)
-	ActiveFilePath       string  `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
-	SurfaceStateJSON     string  `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
-	SurfaceContextJSON   string  `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
+	Model           string  `json:"model"`
+	MaxTokens       int     `json:"maxTokens"`
+	MaxTokensMode   string  `json:"maxTokensMode,omitempty"` // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
+	Temperature     float64 `json:"temperature"`
+	TopP            float64 `json:"topP,omitempty"`
+	ReasoningEffort string  `json:"reasoningEffort,omitempty"` // off, low, medium, high
+	ProfileSlug     string  `json:"profileSlug,omitempty"`     // Perfil específico (canais). Vazio = perfil ativo global
+	// AllowAssistantPrefill habilita a continuação explícita de resposta via trailing assistant.
+	// Default: false (AEP-0064 Fase 6). Só deve ser usado em retry explícito.
+	AllowAssistantPrefill bool `json:"allowAssistantPrefill,omitempty"`
+	// ContinueViaUserMessage habilita o fallback de continuação para providers/modelos
+	// que NÃO suportam assistant prefill (Issue #124). Em vez de injetar um trailing
+	// assistant, a continuação é montada como uma mensagem de usuário do tipo
+	// "continue a partir deste texto: ...". É definido pelo backend (use case) quando
+	// a continuação está habilitada no perfil mas o provider não suporta prefill.
+	// Mutuamente exclusivo com AllowAssistantPrefill.
+	ContinueViaUserMessage bool   `json:"continueViaUserMessage,omitempty"`
+	MaxAgenticIterations  int    `json:"maxAgenticIterations,omitempty"` // 0 = usar default (25), >0 = limite customizado
+	ResponseTimeout       int    `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
+	ContextWindow         int    `json:"contextWindow,omitempty"`        // Tamanho da janela de contexto do modelo (0 = sem limite). AEP-0039 Fase 4.
+	TabType               string `json:"tabType,omitempty"`              // Tipo da aba de origem ("editor", "chat", etc.)
+	ActiveFilePath        string `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
+	SurfaceStateJSON      string `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
+	SurfaceContextJSON    string `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
+	SurfaceSessionKey     string `json:"surfaceSessionKey,omitempty"`    // Identidade explícita da sessão visual que originou o turno
+	SurfaceID             string `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
+	SurfaceType           string `json:"surfaceType,omitempty"`          // page | embedded | modal | external
+	SurfaceTabID          string `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
+
+	// OnNativeMCPUnsupported é um hook opcional, definido pelo backend (use case),
+	// chamado quando uma request com MCP nativo falha com erro de não-suporte
+	// (ex.: 400 unknown variant "mcp"). Permite à camada superior auto-ajustar e
+	// PERSISTIR o perfil para adapter (Profile.Chat.NativeMCP nil→false), sem que o
+	// provider conheça a camada de perfis (AEP-0021). Não é serializado.
+	OnNativeMCPUnsupported func() `json:"-"`
+
+	// NativeMCPFallback, quando presente, indica que o caller (loop agêntico) é capaz
+	// de re-tentar o MESMO turno em modo adapter (MCP como bridge/function tools).
+	// Ao detectar o erro de não-suporte a MCP nativo, o provider apenas marca o
+	// fallback (Trigger) e aborta sem emitir, deixando o caller re-montar as tools no
+	// modo adapter e re-tentar — assim as tools MCP continuam disponíveis já neste
+	// turno. Não é serializado. Ver AEP-0021.
+	NativeMCPFallback *NativeMCPAdapterFallback `json:"-"`
+}
+
+// NativeMCPAdapterFallback carrega as alternativas em modo ADAPTER (provider sem
+// MCP servers nativos + tools com bridges) para que o loop agêntico re-tente o
+// mesmo turno quando o modelo/endpoint rejeitar MCP nativo. É preenchido pela camada
+// de chat (que conhece o registro de tools); o provider apenas sinaliza via Trigger.
+type NativeMCPAdapterFallback struct {
+	// Streamer é o provider em modo adapter (BASE, sem WithMCPServers nativo).
+	Streamer Streamer
+	// ToolDefs são as tools iniciais COM as bridge tools MCP (não removidas).
+	ToolDefs []ToolDefinition
+	// ResolveToolDefs reconstrói as tools por nome em modo adapter (mantém bridges),
+	// usado nas iterações seguintes do loop agêntico após expansão de catálogo.
+	ResolveToolDefs func([]string) []ToolDefinition
+
+	mu        sync.Mutex
+	triggered bool
+	consumed  bool
+}
+
+// Trigger marca que o fallback nativo→adapter deve ocorrer. Idempotente e thread-safe.
+func (f *NativeMCPAdapterFallback) Trigger() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	f.triggered = true
+	f.mu.Unlock()
+}
+
+// Consume retorna true UMA única vez, quando o fallback foi disparado e ainda não
+// foi consumido. O caller usa isso para trocar streamer/tools e re-tentar o turno
+// exatamente uma vez (evita loop infinito).
+func (f *NativeMCPAdapterFallback) Consume() bool {
+	if f == nil {
+		return false
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.triggered && !f.consumed {
+		f.consumed = true
+		return true
+	}
+	return false
 }
 
 // ==================== Helper Functions ====================

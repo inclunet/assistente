@@ -40,7 +40,7 @@ func (c *ToolsController) GetAvailableTools() []ToolInfo {
 		return []ToolInfo{}
 	}
 
-	allTools := c.toolRegistry.All()
+	allTools := c.toolRegistry.Discoverable()
 	result := make([]ToolInfo, len(allTools))
 	for i, t := range allTools {
 		name := t.Name()

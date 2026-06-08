@@ -272,6 +272,8 @@ func (a *App) agenticLoop(ctx, messages, tools, turnID, handler) {
 
 ## Eventos Wails
 
+> **Adendo (2026-05):** esta tabela é histórica. O contrato vigente de eventos de chat é **backend-driven** e está tipado em `internal/core/ports/chat_events.go` (AEP-0040), com enriquecimentos em `chat:done`/`chat:segment_done` (AEP-0039). Todo evento carrega `conversationId` e, quando aplicável, `turnId`/`surfaceOrigin`.
+
 | Evento | Quando | Dados | Verbalização |
 |---|---|---|---|
 | chat:stream | Chunks de texto (como hoje) | {content, done} | — |

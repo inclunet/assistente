@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { HistoryOutlined } from '@ant-design/icons';
 import { ComboboxItem } from './Combobox';
@@ -7,8 +8,8 @@ import { database } from '../../../wailsjs/go/models';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 
 export interface HistoryPickerProps {
-  value?: number; // ID da conversa atual
-  onChange: (conversationId: number, conversation: database.Conversation) => void;
+  value?: string; // ID da conversa atual
+  onChange: (conversationId: string, conversation: database.Conversation) => void;
   label?: string;
   description?: string;
   disabled?: boolean;
@@ -41,13 +42,13 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
       // Ordena por data de atualização (mais recente primeiro)
       const sorted = result.sort((a, b) => {
         // Converte time.Time para número (timestamp)
-        const dateA = new Date(a.updated_at as string | number | Date).getTime();
-        const dateB = new Date(b.updated_at as string | number | Date).getTime();
+        const dateA = new Date(a.updatedAt as string | number | Date).getTime();
+        const dateB = new Date(b.updatedAt as string | number | Date).getTime();
         return dateB - dateA;
       });
       setConversations(sorted);
     } catch (error) {
-      console.error('[HistoryPicker] Erro ao carregar conversas:', error);
+      logger.error('[HistoryPicker] Erro ao carregar conversas:', error);
     } finally {
       setIsLoading(false);
     }
@@ -118,17 +119,16 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
   const items: ComboboxItem[] = conversations.map(conv => ({
     value: conv.id.toString(),
     label: conv.title || 'Sem título',
-    sublabel: `${conv.message_count || 0} msgs • ${formatDate(conv.updated_at)}`
+    sublabel: `${conv.message_count || 0} msgs • ${formatDate(conv.updatedAt)}`
   }));
 
   // Valor selecionado (string vazia se não houver conversa selecionada)
   const selectedValue = value ? value.toString() : '';
 
   const handleSelect = (selectedValue: string) => {
-    const conversationId = parseInt(selectedValue, 10);
-    const conversation = conversations.find(c => c.id === conversationId);
+    const conversation = conversations.find(c => String(c.id) === selectedValue);
     if (conversation) {
-      onChange(conversationId, conversation);
+      onChange(selectedValue, conversation);
     }
   };
 

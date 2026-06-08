@@ -20,17 +20,17 @@ type Config struct {
 
 // RetryPolicy define política de retry
 type RetryPolicy struct {
-	MaxAttempts      int
+	MaxAttempts       int
 	BackoffMultiplier float64
-	InitialBackoff   time.Duration
+	InitialBackoff    time.Duration
 }
 
 // Client é o cliente HTTP centralizado com interceptor de autenticação
 type Client struct {
-	baseClient    *http.Client
-	credMgr       *credentials.Manager
-	retryPolicy   *RetryPolicy
-	logFn         func(msg string)
+	baseClient     *http.Client
+	credMgr        *credentials.Manager
+	retryPolicy    *RetryPolicy
+	logFn          func(msg string)
 	domainPatterns map[string]string // domínio → padrão de credencial
 }
 
@@ -67,15 +67,17 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	// Aplicar autenticação
-	c.applyAuth(req)
+	// Aplicar autenticação. O vazamento de credenciais em redirects que cruzam um
+	// limite de confiança é tratado pelo RedirectGuard (allowlist deny-by-default),
+	// que cobre tanto estes headers quanto os custom passados pelo chamador.
+	c.applyAuth(ctx, req)
 
 	// Executar com retry
 	return c.doWithRetry(ctx, req)
 }
 
 // applyAuth aplica autenticação baseada no domínio da requisição
-func (c *Client) applyAuth(req *http.Request) {
+func (c *Client) applyAuth(ctx context.Context, req *http.Request) {
 	if c.credMgr == nil {
 		return
 	}
@@ -101,7 +103,7 @@ func (c *Client) applyAuth(req *http.Request) {
 	}
 
 	if pattern != "" {
-		resolved, err := c.credMgr.GetByPattern(pattern)
+		resolved, err := c.credMgr.GetByPatternWithContext(ctx, pattern)
 		if err == nil {
 			auth = resolved
 		}
@@ -109,7 +111,7 @@ func (c *Client) applyAuth(req *http.Request) {
 
 	// 2) Fallback: resolve por URL (regex/wildcard matching no credential manager)
 	if auth == nil {
-		resolved, err := c.credMgr.ResolveForURL(req.URL.String())
+		resolved, err := c.credMgr.ResolveForURLWithContext(ctx, req.URL.String())
 		if err == nil {
 			auth = resolved
 		}

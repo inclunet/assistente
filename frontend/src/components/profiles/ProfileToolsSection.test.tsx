@@ -64,6 +64,63 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByRole('grid')).toBeInTheDocument();
   });
 
+  it('reflete o estado tri-state de MCP nativo (auto/on/off)', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <ProfileToolsSection
+        availableTools={mockTools}
+        enabledTools={null}
+        availableAllowlists={mockAllowlists}
+        nativeMcp={null}
+        onChange={onChange}
+      />
+    );
+    const select = screen.getByTestId('native-mcp-select') as HTMLSelectElement;
+    expect(select.value).toBe('auto');
+
+    rerender(
+      <ProfileToolsSection
+        availableTools={mockTools}
+        enabledTools={null}
+        availableAllowlists={mockAllowlists}
+        nativeMcp={true}
+        onChange={onChange}
+      />
+    );
+    expect((screen.getByTestId('native-mcp-select') as HTMLSelectElement).value).toBe('on');
+
+    rerender(
+      <ProfileToolsSection
+        availableTools={mockTools}
+        enabledTools={null}
+        availableAllowlists={mockAllowlists}
+        nativeMcp={false}
+        onChange={onChange}
+      />
+    );
+    expect((screen.getByTestId('native-mcp-select') as HTMLSelectElement).value).toBe('off');
+  });
+
+  it('emite native_mcp com null/true/false ao trocar a seleção', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={mockTools}
+        enabledTools={null}
+        availableAllowlists={mockAllowlists}
+        nativeMcp={null}
+        onChange={onChange}
+      />
+    );
+    const select = screen.getByTestId('native-mcp-select');
+    fireEvent.change(select, { target: { value: 'on' } });
+    expect(onChange).toHaveBeenCalledWith('native_mcp', true);
+    fireEvent.change(select, { target: { value: 'off' } });
+    expect(onChange).toHaveBeenCalledWith('native_mcp', false);
+    fireEvent.change(select, { target: { value: 'auto' } });
+    expect(onChange).toHaveBeenCalledWith('native_mcp', null);
+  });
+
   it('renderiza todas as ferramentas no grid', () => {
     const onChange = vi.fn();
     render(

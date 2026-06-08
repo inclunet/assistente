@@ -79,10 +79,10 @@ function RunDetail({
     }
   }, [onReplay, run]);
 
-  const canReplay = Boolean(run.tool_name && run.resolved_inputs && onReplay);
+  const canReplay = Boolean(run.replayable && run.tool_name && run.resolved_inputs && onReplay);
 
   return (
-    <section className="run-detail" aria-label={t('jobs.runDetailLabel', 'Detalhes da execução')}>
+    <section className="run-detail" aria-label={t('jobs.runDetailLabel')}>
       {run.tool_name && (
         <div className="run-detail__row">
           <h4 className="run-detail__label">{t('jobs.logTool')}</h4>
@@ -198,7 +198,7 @@ export function RunLogViewer({ logs, isLoading, onReplay, onRerun }: RunLogViewe
   }, []);
 
   if (isLoading) {
-    return <div className="run-log-viewer run-log-viewer--loading" role="status">{t('common.loading', 'Loading...')}</div>;
+    return <div className="run-log-viewer run-log-viewer--loading" role="status">{t('common.loading')}</div>;
   }
 
   if (!logs || logs.length === 0) {

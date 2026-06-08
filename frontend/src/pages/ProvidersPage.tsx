@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -46,7 +47,7 @@ interface ProviderRow extends Provider {
 export default function ProvidersPage() {
   const { t } = useTranslation();
   const confirm = useConfirm();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'providers-page' });
@@ -74,7 +75,7 @@ export default function ProvidersPage() {
       })) as ProviderRow[];
       setProviders(mapped);
     } catch (error) {
-      console.error('Erro ao carregar provedores:', error);
+      logger.error('Erro ao carregar provedores:', error);
       addToast(t('providers.error.loadFailed', 'Erro ao carregar provedores'), 'error');
     } finally {
       setLoading(false);

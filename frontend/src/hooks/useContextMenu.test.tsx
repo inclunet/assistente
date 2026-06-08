@@ -112,7 +112,7 @@ describe('useContextMenu', () => {
   it('nao restaura foco quando store sinaliza skip', () => {
     consumeSkipFocusRestoreMock.mockReturnValue(true);
     vi.useFakeTimers();
-    const { result } = renderHook(() => useContextMenu({}));
+    const { result } = renderHook(() => useContextMenu({ sessionKey: 'surface:conversation-1' }));
 
     const target = document.createElement('button');
     target.tabIndex = 0;
@@ -126,7 +126,7 @@ describe('useContextMenu', () => {
     } as unknown as ReactMouseEvent;
 
     act(() => {
-      result.current.showMenu(event, { id: 1, content: 'Oi' } as never, true);
+      result.current.showMenu(event, { id: 1, conversationId: 'conversation-1', content: 'Oi' } as never, true);
       result.current.hideMenu();
     });
 
@@ -135,6 +135,7 @@ describe('useContextMenu', () => {
     });
 
     expect(document.activeElement).not.toBe(target);
+    expect(consumeSkipFocusRestoreMock).toHaveBeenCalledWith('conversation-1', 'surface:conversation-1');
     vi.useRealTimers();
   });
 });
@@ -176,10 +177,10 @@ describe('useMessageActions', () => {
     const { result } = renderHook(() => useMessageActions());
 
     await act(async () => {
-      await result.current.speakMessage({ id: 10, content: 'Ola', role: 'assistant' } as never);
+      await result.current.speakMessage({ id: '01926b90-7a5a-7c4e-8d3f-00000000000a', content: 'Ola', role: 'assistant' } as never);
     });
 
-    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith(10, 0.75, {
+    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000000a', 0.75, {
       providerId: 'test-provider',
       voiceId: 'test-voice',
       model: 'tts-1',
@@ -195,7 +196,7 @@ describe('useMessageActions', () => {
     const { result } = renderHook(() => useMessageActions());
 
     await act(async () => {
-      await result.current.speakMessage({ id: 11, content: 'Teste', role: 'assistant' } as never);
+      await result.current.speakMessage({ id: '01926b90-7a5a-7c4e-8d3f-00000000000b', content: 'Teste', role: 'assistant' } as never);
     });
 
     expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith('Teste', 'assistant');
@@ -207,14 +208,14 @@ describe('useMessageActions', () => {
     const { result } = renderHook(() => useMessageActions());
 
     await act(async () => {
-      await result.current.speakMessage({ id: 12, content: 'Teste', role: 'assistant' } as never);
+      await result.current.speakMessage({ id: '01926b90-7a5a-7c4e-8d3f-00000000000c', content: 'Teste', role: 'assistant' } as never);
     });
 
     expect(messageAudioServiceMock.speakMessage).not.toHaveBeenCalled();
     expect(ttsServiceMock.speakAsRole).not.toHaveBeenCalled();
   });
 
-  it('usa fallback para IDs locais (não-numéricos)', async () => {
+  it('usa fallback para IDs não-UUID (não chama backend)', async () => {
     ttsServiceMock.hasVoiceConfig.mockReturnValue(true);
 
     const { result } = renderHook(() => useMessageActions());
@@ -227,17 +228,17 @@ describe('useMessageActions', () => {
     expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith('Teste', 'assistant');
   });
 
-  it('usa SpeakMessage para IDs numéricos (string)', async () => {
+  it('usa SpeakMessage para IDs UUID', async () => {
     messageAudioServiceMock.speakMessage.mockResolvedValue(true);
     ttsServiceMock.hasVoiceConfig.mockReturnValue(true);
 
     const { result } = renderHook(() => useMessageActions());
 
     await act(async () => {
-      await result.current.speakMessage({ id: '42', content: 'Ola', role: 'assistant' } as never);
+      await result.current.speakMessage({ id: '01926b90-7a5a-7c4e-8d3f-00000000002a', content: 'Ola', role: 'assistant' } as never);
     });
 
-    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith(42, 0.75, {
+    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-00000000002a', 0.75, {
       providerId: 'test-provider',
       voiceId: 'test-voice',
       model: 'tts-1',

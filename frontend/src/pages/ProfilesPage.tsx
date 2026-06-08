@@ -48,7 +48,7 @@ interface ProfileRow extends Profile {
 
 export default function ProfilesPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'profiles-page' });
@@ -137,6 +137,9 @@ export default function ProfilesPage() {
             top_p: 1.0,
             response_timeout: 180,
             reasoning_effort: '',
+            streaming_recovery_enabled: true,
+            streaming_recovery_max_attempts: 3,
+            streaming_recovery_show_continue: true,
             system_prompt: '',
             system_prompt_position: 'after',
           },

@@ -6,7 +6,7 @@
  *
  * Cada teste pode sobrescrever respostas via page.evaluate():
  *   await page.evaluate(() => {
- *     window.__wailsMock.setResponse('SendMessage', 42);
+ *     window.__wailsMock.setResponse('SendMessage', '01926b90-0000-7000-8000-000000000099');
  *   });
  */
 
@@ -45,7 +45,7 @@ export function buildWailsMockScript(): string {
   const now = new Date().toISOString();
 
   const defaultConversation = {
-    id: 1,
+    id: '01926b90-0000-7000-8000-000000000001',
     title: 'Nova conversa',
     created_at: now,
     updated_at: now,
@@ -65,7 +65,7 @@ export function buildWailsMockScript(): string {
         {
           id: 'tab-1',
           type: 'chat',
-          conversation_id: 1,
+          conversation_id: '01926b90-0000-7000-8000-000000000001',
           title: 'Nova conversa',
           position: 0,
         },
@@ -93,12 +93,28 @@ export function buildWailsMockScript(): string {
     stt: {},
   };
 
+  const defaultAuthUser = {
+    userId: 'user-e2e',
+    sessionId: 'session-e2e',
+    role: 'admin',
+  };
+
   const defaults = {
     /* App init */
     GetConfig: defaultConfig,
     NeedsWelcomeWizard: false,
     RunWelcomeWizard: true,
     GetAppVersion: '1.0.0-test',
+
+    /* Auth */
+    GetAuthStatus: {
+      vaultConfigured: true,
+      vaultUnlocked: true,
+      hasUsers: true,
+    },
+    RefreshAuth: defaultAuthUser,
+    Login: defaultAuthUser,
+    Logout: undefined,
 
     /* Workspace */
     GetActiveWorkspace: defaultWorkspace,
@@ -118,6 +134,18 @@ export function buildWailsMockScript(): string {
     GetConversationInfo: defaultConversation,
     GetConversations: [],
     GetMessages: [],
+    GetRecentMessages: [],
+    GetMessagesBefore: [],
+    GetConversationMessageWindow: {
+      scope: 'conversation',
+      conversationId: defaultConversation.id,
+      nodes: [],
+      totalCount: 0,
+      startIndex: 0,
+      endIndex: -1,
+      hasBefore: false,
+      hasAfter: false,
+    },
     GetMessageChildren: [],
     ClearConversation: undefined,
     DeleteConversation: undefined,
@@ -126,8 +154,8 @@ export function buildWailsMockScript(): string {
     SearchConversationHistory: [],
 
     /* Messages */
-    SendMessage: 1,
-    AddMessage: { id: 1, conversationId: 1, role: 'user', content: '', createdAt: now },
+    SendMessage: '01926b90-0000-7000-8000-000000000002',
+    AddMessage: { id: '01926b90-0000-7000-8000-000000000002', conversationId: '01926b90-0000-7000-8000-000000000001', role: 'user', content: '', createdAt: now },
     DeleteMessage: undefined,
     UpdateMessage: undefined,
 
@@ -160,10 +188,11 @@ export function buildWailsMockScript(): string {
     /* Tokens */
     GetAllTokenStats: {},
     GetConversationTokenStats: {
-      conversationId: 1,
+      conversationId: '01926b90-0000-7000-8000-000000000001',
       promptTokens: 0,
       completionTokens: 0,
       totalTokens: 0,
+      contextTokens: 0,
       messageCount: 0,
       mostUsedModel: 'gpt-4',
       contextUsage: 0,
@@ -178,6 +207,7 @@ export function buildWailsMockScript(): string {
     /* Speech */
     GetSpeechProviders: [],
     GetNativeTTSProviders: ['webspeech'],
+    GetTTSModels: [],
     GetTTSVoices: [],
     GetSTTModels: [],
     GetOpenAITTSVoices: [],
@@ -228,6 +258,70 @@ export function buildWailsMockScript(): string {
           if (fnName in _config.responses) {
             const val = _config.responses[fnName];
             return Promise.resolve(typeof val === 'function' ? val(...args) : val);
+          }
+          if (fnName === 'GetRecentMessages' && 'GetMessages' in _config.responses) {
+            const val = _config.responses.GetMessages;
+            return Promise.resolve(typeof val === 'function' ? val(...args) : val);
+          }
+          if (fnName === 'GetMessagesBefore' && 'GetMessages' in _config.responses) {
+            const val = _config.responses.GetMessages;
+            return Promise.resolve(typeof val === 'function' ? val(...args) : val);
+          }
+          if (
+            fnName === 'GetConversationMessageWindow'
+            && !('GetConversationMessageWindow' in _config.responses)
+            && 'GetMessages' in _config.responses
+          ) {
+            const val = _config.responses.GetMessages;
+            const messages = typeof val === 'function' ? val(...args) : val;
+            const nodes = Array.isArray(messages) ? messages : [];
+            const req = args[0] || {};
+            const limit = Math.max(0, Number(req.limit || nodes.length || 0));
+            const direction = String(req.direction || 'before');
+            const anchor = String(req.anchor || 'end');
+            const anchorMessageId = String(req.anchorMessageId || '');
+            const getNodeId = (node) => String(node?.message?.id ?? node?.id ?? '');
+            const anchorIndex = anchorMessageId
+              ? nodes.findIndex((node) => getNodeId(node) === anchorMessageId)
+              : -1;
+            let startIndex = 0;
+            let endIndexExclusive = limit > 0 ? limit : 0;
+            if (anchorIndex >= 0 && direction === 'before') {
+              endIndexExclusive = anchorIndex;
+              startIndex = Math.max(0, endIndexExclusive - limit);
+            } else if (anchorIndex >= 0 && direction === 'after') {
+              startIndex = Math.min(nodes.length, anchorIndex + 1);
+              endIndexExclusive = limit > 0 ? startIndex + limit : startIndex;
+            } else if (anchorIndex >= 0 && direction === 'around') {
+              startIndex = Math.max(0, anchorIndex - Math.floor(limit / 2));
+              if (limit > 0 && startIndex + limit > nodes.length) {
+                startIndex = Math.max(0, nodes.length - limit);
+              }
+              endIndexExclusive = limit > 0 ? startIndex + limit : startIndex;
+            } else if (anchorIndex >= 0) {
+              startIndex = Math.max(0, Math.min(anchorIndex, nodes.length - limit));
+              endIndexExclusive = limit > 0 ? startIndex + limit : startIndex;
+            } else if (anchor === 'end' || direction === 'before') {
+              startIndex = Math.max(0, nodes.length - limit);
+              endIndexExclusive = limit > 0 ? startIndex + limit : startIndex;
+            } else {
+              endIndexExclusive = limit > 0 ? startIndex + limit : startIndex;
+            }
+            const visibleNodes = nodes.slice(startIndex, endIndexExclusive).map((node, index) => ({
+              ...node,
+              originalIndex: startIndex + index,
+            }));
+            return Promise.resolve({
+              scope: req.scope || 'conversation',
+              conversationId: req.conversationId || defaultConversation.id,
+              threadParentId: req.threadParentId || '',
+              nodes: visibleNodes,
+              totalCount: nodes.length,
+              startIndex,
+              endIndex: visibleNodes.length > 0 ? startIndex + visibleNodes.length - 1 : -1,
+              hasBefore: startIndex > 0,
+              hasAfter: visibleNodes.length > 0 && startIndex + visibleNodes.length < nodes.length,
+            });
           }
           if (fnName in defaults) {
             const val = defaults[fnName];

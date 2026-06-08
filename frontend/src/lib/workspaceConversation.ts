@@ -3,28 +3,31 @@ import i18next from 'i18next';
 import type { WorkspaceTab } from '../store/workspaceStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
+import { isBackendId } from './idUtils';
 
 /** Evita duas criações em paralelo para a mesma aba (ex.: bridge + chat modal). */
-const inflight = new Map<string, Promise<number>>();
+const inflight = new Map<string, Promise<string>>();
 
 /**
  * Garante que a aba do workspace tem `conversationId` persistido, sem assumir que deve
  * também trocar a conversa ativa global do `chatStore`.
  */
-export async function ensureWorkspaceTabConversationId(wsTab: WorkspaceTab): Promise<number> {
+export async function ensureWorkspaceTabConversationId(wsTab: WorkspaceTab): Promise<string> {
   const pending = inflight.get(wsTab.id);
   if (pending) return pending;
 
-  const run = async (): Promise<number> => {
+  const run = async (): Promise<string> => {
     const fresh = useWorkspaceStore.getState().workspace?.tabs.find((t) => t.id === wsTab.id);
     if (!fresh) {
       throw new Error(`[workspaceConversation] Aba não encontrada: ${wsTab.id}`);
     }
 
-    let cid = fresh.conversationId ?? 0;
-    if (cid > 0) {
+    let cid = fresh.conversationId ?? '';
+    if (cid && isBackendId(cid)) {
       return cid;
     }
+    // Legacy numeric ID or invalid format — treat as missing
+    cid = '';
 
     const title = i18next.t('chat.newConversation');
     const conv = await CreateConversation(title, '');
@@ -42,17 +45,12 @@ export async function ensureWorkspaceTabConversationId(wsTab: WorkspaceTab): Pro
 
 /**
  * Garante que a aba do workspace tem conversa no backend e sincroniza o `chatStore`
- * com essa conversa quando necessário.
+ * sem acionar efeitos globais de ativação.
  */
-export async function ensureWorkspaceTabHasConversation(wsTab: WorkspaceTab): Promise<number> {
+export async function ensureWorkspaceTabHasConversation(
+  wsTab: WorkspaceTab,
+): Promise<string> {
   const cid = await ensureWorkspaceTabConversationId(wsTab);
-  const activeTab = useWorkspaceStore.getState().getActiveTab?.();
-  if (activeTab && activeTab.id !== wsTab.id) {
-    return cid;
-  }
-  const chat = useChatStore.getState();
-  if (chat.activeConversationId !== cid) {
-    await chat.loadConversation(cid);
-  }
+  await useChatStore.getState().loadConversationSession(cid);
   return cid;
 }

@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { BarChartOutlined, LoadingOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -6,10 +7,11 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import './TokenStatsButton.css';
 
 interface TokenStats {
-  conversationId: number;
+  conversationId: string;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  contextTokens: number;
   messageCount: number;
   mostUsedModel: string;
   contextUsage: number;
@@ -19,7 +21,7 @@ interface TokenStats {
 }
 
 interface TokenStatsButtonProps {
-  conversationId?: number;
+  conversationId?: string;
   onOpenModal: () => void;
 }
 
@@ -45,13 +47,14 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
           setStats(data);
         })
         .catch((error) => {
-          console.error('[TokenStatsButton] Erro ao carregar stats:', error);
+          logger.error('[TokenStatsButton] Erro ao carregar stats:', error);
           // Define stats padrão em caso de erro
           setStats({
             conversationId,
             promptTokens: 0,
             completionTokens: 0,
             totalTokens: 0,
+            contextTokens: 0,
             messageCount: 0,
             mostUsedModel: '',
             contextUsage: 0,
@@ -82,7 +85,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
 
     // Escuta quando mensagens do usuário são adicionadas (antes do streaming)
     const unsubscribeMessages = EventsOn('chat:messages_ready', (data: unknown) => {
-      const eventData = data as { conversationId?: number };
+      const eventData = data as { conversationId?: string };
       if (eventData.conversationId === conversationId) {
         loadStats();
       }
@@ -90,7 +93,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
 
     // Escuta quando o streaming termina (garantia extra de atualização)
     const unsubscribeDone = EventsOn('chat:done', (data: unknown) => {
-      const eventData = data as { conversationId?: number };
+      const eventData = data as { conversationId?: string };
       if (eventData.conversationId === conversationId) {
         loadStats();
       }
@@ -124,13 +127,14 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
   }
 
   const formatNumber = (num: number): string => {
-    if (num >= 1000000) {
-      return `${(num / 1000000).toFixed(1)}M`;
+    const value = Number.isFinite(num) ? num : 0;
+    if (value >= 1000000) {
+      return `${(value / 1000000).toFixed(1)}M`;
     }
-    if (num >= 1000) {
-      return `${(num / 1000).toFixed(1)}K`;
+    if (value >= 1000) {
+      return `${(value / 1000).toFixed(1)}K`;
     }
-    return num.toString();
+    return value.toString();
   };
 
   const getStatusColor = (): string => {
@@ -145,23 +149,33 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
     return <BarChartOutlined />;
   };
 
-  // Se não houver limite de contexto configurado, mostra apenas o total
+  // Mostra a ocupação ATUAL da janela de contexto (usage do último turno),
+  // não a soma acumulada de todos os turnos (issue #197).
   const hasContextLimit = stats.contextLimit > 0;
   const ariaLabel = hasContextLimit
-    ? `${formatNumber(stats.totalTokens)} de ${formatNumber(stats.contextLimit)} tokens`
-    : `${formatNumber(stats.totalTokens)} tokens`;
+    ? t('chat.tokenStatsAriaWithLimit', {
+        used: formatNumber(stats.contextTokens),
+        limit: formatNumber(stats.contextLimit),
+      })
+    : t('chat.tokenStatsAriaNoLimit', {
+        used: formatNumber(stats.contextTokens),
+      });
 
   return (
     <button
       className={`token-stats-button token-stats-button--${getStatusColor()}`}
       onClick={onOpenModal}
-      aria-label={`${ariaLabel}. Consumo de contexto: ${stats.contextUsage.toFixed(1)}% ${t('chat.tokenDetailsShortcut')}`}
+      aria-label={t('chat.tokenStatsButtonLabel', {
+        summary: ariaLabel,
+        percent: stats.contextUsage.toFixed(1),
+        shortcut: t('chat.tokenDetailsShortcut'),
+      })}
     >
       <span className="token-stats-button__icon" aria-hidden="true">
         {getStatusIcon()}
       </span>
       <span className="token-stats-button__text">
-        {formatNumber(stats.totalTokens)}
+        {formatNumber(stats.contextTokens)}
         {hasContextLimit && (
           <>
             <span className="token-stats-button__separator">/</span>
@@ -170,7 +184,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
         )}
       </span>
       {hasContextLimit && (
-        <span className="token-stats-button__context-badge" aria-label={`${stats.contextUsage.toFixed(1)}% do contexto consumido`}>
+        <span className="token-stats-button__context-badge" aria-label={t('chat.tokenStatsContextConsumed', { percent: stats.contextUsage.toFixed(1) })}>
           {stats.contextUsage.toFixed(1)}%
         </span>
       )}

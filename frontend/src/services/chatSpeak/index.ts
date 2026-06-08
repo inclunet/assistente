@@ -1,10 +1,13 @@
 import { DispatchSpeech } from '@wailsjs/go/app/App';
 import i18next from 'i18next';
 
-import { announce } from '../../hooks/useAnnouncer';
 import { messageAudioService } from '../messageAudio';
 import { ttsService } from '../tts';
 import type { VoiceRole } from '../tts';
+import { announceWithOrigin } from '../voiceAccessibility/announcerBroker';
+import { requestVoiceTTS } from '../voiceAccessibility/ttsBroker';
+import type { VoiceAccessibilityOrigin } from '../voiceAccessibility/types';
+import type { ChatSurfaceOrigin } from '../chatSessionRegistry';
 
 export type ChatSpeakStrategy = 'announce' | 'webspeech' | 'backend_audio' | 'none';
 
@@ -17,8 +20,8 @@ export type ChatSpeakOrigin =
   | 'segment';
 
 export interface ChatSpeakRequest {
-  conversationId: number;
-  messageId?: number;
+  conversationId: string;
+  messageId?: string;
   profileSlug?: string;
   role: VoiceRole;
   text: string;
@@ -27,8 +30,8 @@ export interface ChatSpeakRequest {
 }
 
 export interface ChatSpeakEvent {
-  messageId?: number;
-  conversationId?: number;
+  messageId?: string;
+  conversationId?: string;
   role?: VoiceRole;
   text?: string;
   strategy?: ChatSpeakStrategy;
@@ -41,6 +44,8 @@ export interface ChatSpeakEvent {
   pitch?: number;
   volume?: number;
   origin?: ChatSpeakOrigin;
+  surfaceOrigin?: ChatSurfaceOrigin;
+  accessibilityOrigin?: VoiceAccessibilityOrigin;
   interrupt?: boolean;
 }
 
@@ -52,6 +57,22 @@ function getRolePrefix(role: VoiceRole): string {
       return i18next.t('chat.system');
     default:
       return i18next.t('chat.assistant');
+  }
+}
+
+function getAnnounceEventType(origin: ChatSpeakOrigin | undefined) {
+  switch (origin) {
+    case 'assistant_message':
+      return 'completion';
+    case 'segment':
+    case 'thinking':
+    case 'tool_status':
+      return 'progress';
+    case 'user_message':
+      return 'user-action';
+    case 'system_message':
+    default:
+      return 'system';
   }
 }
 
@@ -82,33 +103,44 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
 
   const role: VoiceRole = event.role ?? 'assistant';
   const text = event.text?.trim() ?? '';
-
-  if (event.interrupt !== false) {
+  const stopCurrent = () => {
     messageAudioService.stopCurrentAudio();
     ttsService.stop();
-  }
+  };
 
   if (event.strategy === 'announce' || event.autoRead === false) {
     if (text) {
-      announce(`${getRolePrefix(role)}: ${text}`);
+      announceWithOrigin({
+        message: `${getRolePrefix(role)}: ${text}`,
+        origin: event.accessibilityOrigin,
+        eventType: getAnnounceEventType(event.origin),
+      });
     }
     return;
   }
 
   if (event.strategy === 'backend_audio') {
-    if (event.messageId && event.messageId > 0) {
-      const played = await messageAudioService.speakMessage(
-        event.messageId,
-        event.volume ?? ttsService.getVolume(),
-        event.providerId
-          ? {
-              providerId: event.providerId,
-              voiceId: event.voiceId ?? '',
-              model: event.model ?? '',
-              rate: event.rate ?? 1.0,
-            }
-          : undefined,
-      );
+    if (event.messageId) {
+      const played = await requestVoiceTTS({
+        text,
+        origin: event.accessibilityOrigin,
+        priority: 'automatic-active',
+        eventType: 'completion',
+        interrupt: event.interrupt,
+        stopCurrent,
+        speak: () => messageAudioService.speakMessage(
+          event.messageId!,
+          event.volume ?? ttsService.getVolume(),
+          event.providerId
+            ? {
+                providerId: event.providerId,
+                voiceId: event.voiceId ?? '',
+                model: event.model ?? '',
+                rate: event.rate ?? 1.0,
+              }
+            : undefined,
+        ),
+      });
 
       if (!played) {
         // TTS falhou — delega ao fallback (que pode incluir announce)
@@ -131,13 +163,21 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
   }
 
   if (event.strategy === 'webspeech') {
-    await ttsService.speakWithOverride(text, {
-      providerId: event.providerId ?? 'webspeech',
-      voiceName: event.voiceId,
-      ttsModel: event.model,
-      rate: event.rate,
-      pitch: event.pitch,
-      volume: event.volume,
+    await requestVoiceTTS({
+      text,
+      origin: event.accessibilityOrigin,
+      priority: 'automatic-active',
+      eventType: 'completion',
+      interrupt: event.interrupt,
+      stopCurrent,
+      speak: () => ttsService.speakWithOverride(text, {
+        providerId: event.providerId ?? 'webspeech',
+        voiceName: event.voiceId,
+        ttsModel: event.model,
+        rate: event.rate,
+        pitch: event.pitch,
+        volume: event.volume,
+      }),
     });
   }
 }

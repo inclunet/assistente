@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -17,6 +18,7 @@ interface ToolBreakdownEntry {
 
 interface TokenStats {
   totalTokens: number;
+  contextTokens: number;
   promptTokens: number;
   completionTokens: number;
   contextLimit: number;
@@ -36,7 +38,7 @@ interface TokenStats {
 }
 
 interface TokenStatsModalProps {
-  conversationId: number;
+  conversationId: string;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -46,7 +48,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [stats, setStats] = useState<TokenStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +67,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
         const result = await GetConversationTokenStats(conversationId);
         setStats(result);
       } catch (err) {
-        console.error('[TokenStatsModal] Erro ao carregar estatísticas:', err);
+        logger.error('[TokenStatsModal] Erro ao carregar estatísticas:', err);
         setError(t('tokenStats.loadError'));
       } finally {
         setLoading(false);
@@ -75,7 +77,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     loadStats();
 
     // Escuta atualizações em tempo real
-    const unsubscribe = EventsOn('chat:token_stats', (data: TokenStats & { conversationId: number }) => {
+    const unsubscribe = EventsOn('chat:token_stats', (data: TokenStats & { conversationId: string }) => {
       if (data.conversationId === conversationId) {
         setStats(data);
       }
@@ -85,7 +87,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   }, [conversationId, isOpen, t]);
 
   const formatNumber = (num: number): string => {
-    return num.toLocaleString('pt-BR');
+    return (Number.isFinite(num) ? num : 0).toLocaleString(i18n.language);
   };
 
   const calculatePercentage = (value: number, total: number): number => {
@@ -105,7 +107,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   } : null;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={t('tokenStats.title')} size="md">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('tokenStats.title')} size="md" readingMode>
       <div className="token-stats-modal__content">
         {loading && (
           <div className="token-stats-modal__loading">
@@ -135,7 +137,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                 <div className="token-stats-context">
                   <div className="token-stats-context__numbers">
                     <span className="token-stats-context__current">
-                      {formatNumber(stats.totalTokens)}
+                      {formatNumber(stats.contextTokens)}
                     </span>
                     <span className="token-stats-context__separator">/</span>
                     <span className="token-stats-context__limit">
@@ -145,6 +147,9 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                       ({stats.contextUsage.toFixed(1)}%)
                     </span>
                   </div>
+                  <p className="token-stats-cost__note">
+                    {t('tokenStats.currentContextNote')}
+                  </p>
                   <div className="token-stats-progress">
                     <div
                       className={`token-stats-progress__bar token-stats-progress__bar--${getProgressBarColor(stats.contextUsage)}`}
@@ -169,6 +174,9 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
 
               <section className="token-stats-section">
                 <h3>{t('tokenStats.breakdown')}</h3>
+                <p className="token-stats-cost__note">
+                  {t('tokenStats.cumulativeNote')}
+                </p>
                 <table className="token-stats-table">
                   <thead>
                     <tr>

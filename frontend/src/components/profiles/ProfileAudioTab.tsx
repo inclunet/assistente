@@ -7,7 +7,7 @@ import { ProfileVoiceSection } from './ProfileVoiceSection';
 import { ProfileInteractionSection } from './ProfileInteractionSection';
 import { VOICE_REF_ASSISTANT, VOICE_REF_USER, VOICE_REF_SYSTEM } from '../pickers/VoicePicker';
 import { VoiceProviderPicker, type VoiceProviderItem } from '../pickers/VoiceProviderPicker';
-import { parseCompositeVoiceId } from '../../config/providers';
+import { logger } from '../../utils/logger';
 
 export interface ProfileAudioTabProps {
   editingProfile: profiles.Profile;
@@ -24,7 +24,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
   const [sttModelsCache, setSTTModelsCache] = useState<Record<string, speech.SpeechModelInfo[]>>({});
 
   useEffect(() => {
-    GetSpeechProviders().then(setSpeechProviders).catch(console.error);
+    GetSpeechProviders().then(setSpeechProviders).catch(logger.error);
     GetNativeTTSProviders()
       .then(setNativeTTSProviders)
       .catch(() => setNativeTTSProviders(['webspeech']));
@@ -36,7 +36,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
     if (sttModelsCache[providerID]) return;
     GetSTTModels(providerID)
       .then((models) => setSTTModelsCache((prev) => ({ ...prev, [providerID]: models })))
-      .catch(console.error);
+      .catch(logger.error);
   }, [sttModelsCache]);
 
   const voice = editingProfile.voice;
@@ -136,10 +136,16 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
     if (pId === 'webspeech' || pId === 'sapi5') {
       updates[`voice.${type}.provider`] = pId;
       updates[`voice.${type}.llm_provider_id`] = '';
+      updates[`voice.${type}.model`] = '';
+      updates[`voice.${type}.voice_id`] = '';
+      updates[`voice.${type}.selection_mode`] = '';
       updates[`voice.${type}.enabled`] = true;
     } else if (!pId.startsWith('ref_')) {
       updates[`voice.${type}.provider`] = 'openai';
       updates[`voice.${type}.llm_provider_id`] = pId;
+      updates[`voice.${type}.model`] = '';
+      updates[`voice.${type}.voice_id`] = '';
+      updates[`voice.${type}.selection_mode`] = '';
       updates[`voice.${type}.enabled`] = true;
     }
 
@@ -188,21 +194,39 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
       ? t('profiles.voiceFollow.userHelp')
       : undefined;
 
-  const handleVoiceChange = (type: 'assistant' | 'user' | 'system', field: 'voice' | 'rate' | 'volume', value: string | number) => {
+  const handleVoiceChange = (type: 'assistant' | 'user' | 'system', field: 'voice' | 'model' | 'selectionMode' | 'rate' | 'volume', value: string | number) => {
     if (field === 'voice') {
-      const strValue = String(value);
-      const composite = parseCompositeVoiceId(strValue);
-      if (composite) {
-        updateFields({
-          [`voice.${type}.voice_id`]: composite.voiceId,
-          [`voice.${type}.model`]: composite.model,
-        });
-      } else {
-        updateField(`voice.${type}.voice_id`, strValue);
-      }
+      updateField(`voice.${type}.voice_id`, String(value));
+      return;
+    }
+    if (field === 'model') {
+      updateField(`voice.${type}.model`, String(value));
+      return;
+    }
+    if (field === 'selectionMode') {
+      updateField(`voice.${type}.selection_mode`, String(value));
       return;
     }
     updateField(`voice.${type}.${field}`, value);
+  };
+
+  const handleVoiceChanges = (
+    type: 'assistant' | 'user' | 'system',
+    changes: Partial<Record<'voice' | 'model' | 'selectionMode' | 'rate' | 'volume', string | number>>,
+  ) => {
+    const updates: Record<string, unknown> = {};
+    for (const [field, value] of Object.entries(changes)) {
+      if (field === 'voice') {
+        updates[`voice.${type}.voice_id`] = String(value);
+      } else if (field === 'model') {
+        updates[`voice.${type}.model`] = String(value);
+      } else if (field === 'selectionMode') {
+        updates[`voice.${type}.selection_mode`] = String(value);
+      } else {
+        updates[`voice.${type}.${field}`] = value;
+      }
+    }
+    updateFields(updates);
   };
 
   /**
@@ -299,8 +323,11 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 providerType={providerTypeMap[resolveProviderId(currentAssistantProvider, 'assistant')] || ''}
                 profileId={profileId}
                 ttsModel={assistantVoice?.model}
+                selectionMode={assistantVoice?.selection_mode as 'model_and_voice' | 'model_only' | undefined}
+                previewLanguage={editingProfile.input?.language || 'pt-BR'}
                 label={t('profiles.voiceLabels.assistantPicker')}
                 onChange={(f, v) => handleVoiceChange('assistant', f, v)}
+                onChangeMany={(updates) => handleVoiceChanges('assistant', updates)}
                 disabled={isVoiceDisabled}
               />
             </CollapsibleSection>
@@ -332,9 +359,12 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 providerType={providerTypeMap[resolveProviderId(currentUserProvider, 'user')] || ''}
                 profileId={profileId}
                 ttsModel={userVoice?.model}
+                selectionMode={userVoice?.selection_mode as 'model_and_voice' | 'model_only' | undefined}
+                previewLanguage={editingProfile.input?.language || 'pt-BR'}
                 label={t('profiles.voiceLabels.userPicker')}
                 helpText={userFollowHelpText}
                 onChange={(f, v) => handleVoiceChange('user', f, v)}
+                onChangeMany={(updates) => handleVoiceChanges('user', updates)}
                 disabled={isVoiceDisabled || isUserVoiceFollowing}
               />
             </CollapsibleSection>
@@ -366,9 +396,12 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 providerType={providerTypeMap[resolveProviderId(currentSystemProvider, 'system')] || ''}
                 profileId={profileId}
                 ttsModel={systemVoice?.model}
+                selectionMode={systemVoice?.selection_mode as 'model_and_voice' | 'model_only' | undefined}
+                previewLanguage={editingProfile.input?.language || 'pt-BR'}
                 label={t('profiles.voiceLabels.systemPicker')}
                 helpText={systemFollowHelpText}
                 onChange={(f, v) => handleVoiceChange('system', f, v)}
+                onChangeMany={(updates) => handleVoiceChanges('system', updates)}
                 disabled={isVoiceDisabled || isSystemVoiceFollowing}
               />
             </CollapsibleSection>

@@ -3,27 +3,30 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Spin } from 'antd';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useShallow } from 'zustand/shallow';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useWorkspaceKeyboardShortcuts } from '../../hooks/useWorkspaceKeyboardShortcuts';
 import { useWorkspaceChatBridge } from '../../hooks/useWorkspaceChatBridge';
-import { useWorkspaceTerminalBridge } from '../../hooks/useWorkspaceTerminalBridge';
-import { useWorkspaceEditorBridge } from '../../hooks/useWorkspaceEditorBridge';
-import { useWorkspaceTasklistBridge } from '../../hooks/useWorkspaceTasklistBridge';
 import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { useVoiceAccessibilityWorkspaceResolver } from '../../services/voiceAccessibility/workspaceResolver';
 import { ensureModalCleanup } from '../ui/Modal';
 import { Topbar } from '../layout/Topbar';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
 import { WorkspaceTabList } from './WorkspaceTabList';
 import { WorkspaceContent } from './WorkspaceContent';
 import { WorkspaceChatModal } from './WorkspaceChatModal';
+import { useWorkspacePanelRenameHandlers } from './useWorkspacePanelRenameHandlers';
+import { useWorkspacePanelLifecycleCleanup } from './useWorkspacePanelLifecycleCleanup';
 import './WorkspaceLayout.css';
 
 export function WorkspaceLayout() {
   useDocumentTitle();
   const { t } = useTranslation();
   const { pathname } = useLocation();
-  const { workspace, isInitialized, initialize, setupEventListeners } = useWorkspaceStore();
+  const { workspace, isInitialized, initialize, setupEventListeners } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, isInitialized: s.isInitialized, initialize: s.initialize, setupEventListeners: s.setupEventListeners }))
+  );
   useEffect(() => {
     if (!isInitialized) {
       initialize();
@@ -33,14 +36,13 @@ export function WorkspaceLayout() {
   useEffect(() => {
     const cleanup = setupEventListeners();
     return cleanup;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [setupEventListeners]);
 
   useWorkspaceKeyboardShortcuts();
   useWorkspaceChatBridge();
-  useWorkspaceTerminalBridge();
-  useWorkspaceEditorBridge();
-  useWorkspaceTasklistBridge();
+  useWorkspacePanelRenameHandlers();
+  useWorkspacePanelLifecycleCleanup();
+  useVoiceAccessibilityWorkspaceResolver();
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
 
@@ -198,14 +200,14 @@ export function WorkspaceLayout() {
         id: 'contentToolbar',
         label: t('landmarks.contentToolbar', 'Barra de ferramentas do conteúdo'),
         focus: () => {
-          const toolbar = document.querySelector('.ws-content .ws-content-toolbar') as Element | null;
+          const toolbar = document.querySelector('.ws-content__panel[data-active="true"] .ws-content-toolbar') as Element | null;
           if (!toolbar) return false;
           const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
           if (!btn) return false;
           btn.focus();
           return true;
         },
-        contains: () => !!document.activeElement?.closest?.('.ws-content-toolbar'),
+        contains: () => !!document.activeElement?.closest?.('.ws-content__panel[data-active="true"] .ws-content-toolbar'),
       },
       // 4. Content Area (genérico, foco inteligente por tipo de aba)
       {
@@ -215,7 +217,7 @@ export function WorkspaceLayout() {
           if (document.querySelector('.ws-tabs__tab-edit')) {
             return false;
           }
-          const area = document.querySelector('.ws-content .ws-content-area') as HTMLElement | null;
+          const area = document.querySelector('.ws-content__panel[data-active="true"] .ws-content-area') as HTMLElement | null;
           if (!area) return false;
 
           // Chat/Terminal: foca no textarea do input
@@ -236,7 +238,7 @@ export function WorkspaceLayout() {
           area.focus();
           return true;
         },
-        contains: () => !!document.activeElement?.closest?.('.ws-content-area'),
+        contains: () => !!document.activeElement?.closest?.('.ws-content__panel[data-active="true"] .ws-content-area'),
       },
     ];
   }, [t, isWorkspaceRoute, pathname]);

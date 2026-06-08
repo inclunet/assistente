@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GetChannelTemplates, CreateChannelFromTemplate } from '@wailsjs/go/app/App';
@@ -44,7 +45,7 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
       const result = await GetChannelTemplates();
       setTemplates(result || []);
     } catch (err) {
-      console.error('Erro ao carregar templates:', err);
+      logger.error('Erro ao carregar templates:', err);
       setError(t('channels.createModal.loadError'));
     }
   };
@@ -78,7 +79,7 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
       onSuccess();
       handleClose();
     } catch (err: unknown) {
-      console.error('Erro ao criar canal:', err);
+      logger.error('Erro ao criar canal:', err);
       const errMessage = (err as { message?: unknown } | null)?.message;
       setError(String(errMessage || err || 'Erro ao criar canal'));
     } finally {

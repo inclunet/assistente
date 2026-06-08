@@ -56,7 +56,7 @@ A acessibilidade é um requisito fundamental do projeto, não opcional.
 ### Componentes reutilizáveis
 Sempre usar componentes existentes em `frontend/src/components/ui/`:
 - `DataGrid` para tabelas (já tem role="grid" e navegação por teclado)
-- `Modal` / `SimpleModal` para diálogos (focus trap, ESC, aria-hidden)
+- `Modal` para diálogos em geral (focus trap, ESC, aria-hidden); `ConfirmDialog` (wrapper sobre o `Modal`) para confirmações
 - `Button` para botões (variantes: primary, secondary, danger, ghost, outline)
 - `Toolbar` para barras de ferramentas (ARIA toolbar)
 
@@ -86,11 +86,13 @@ Todas as strings visíveis ao usuário DEVEM ser internacionalizadas.
 O sistema de envio/recebimento de mensagens segue uma arquitetura backend-driven (AEP-0040).
 
 ### Regras absolutas
-- **NUNCA** crie uma nova função de envio de mensagens. Existe UMA única `SendMessage` no backend (`app_chat.go`) e UMA única `sendMessage` no frontend (`chatStore`). Se precisar customizar, use parâmetros — não crie wrappers ou métodos alternativos.
+- **NUNCA** crie fluxo alternativo de envio de mensagens. Existe UMA única `SendMessage` no backend (`app_chat.go`) para mensagens novas e `RetryMessage` para retry explícito. No frontend, componentes e controllers por aba/conversa devem reutilizar o contrato/pipeline compartilhado de envio; não duplique validação, serialização, parâmetros ou chamada ao backend em wrappers divergentes.
 - **NUNCA** crie mensagens locais no frontend. O frontend não gera IDs temporários, não insere mensagens otimistas, não cria placeholders. Só renderiza o que o backend emite via eventos.
 - **Mensagens só para conversas existentes.** `SendMessage` com `conversationID=0` ou inexistente retorna erro. Criação de conversa é responsabilidade separada.
 - **Todo evento de chat carrega `conversationId`.** Sem exceções. Eventos são tipados com structs Go e interfaces TypeScript.
 - **Conversas são independentes de abas.** Existem no banco sem vínculo com UI. Canais criam e mantêm conversas sem abas.
+- **Controllers por aba/conversa são permitidos.** Cada controller deve filtrar eventos por `conversationId`, manter apenas seu estado visual próprio e delegar envio/retry ao contrato compartilhado.
+- **Announcer, TTS e STT são serviços globais arbitrados.** Não crie múltiplas live regions por aba; TTS não pode falar em paralelo; STT local só pode escutar a aba ativa.
 - **Protocolo de eventos é contrato central.** O backend usa eventos para orquestrar TTS, rename, notificação de canais. Alterar schema de evento exige atualizar todos os consumidores.
 
 ### Referência

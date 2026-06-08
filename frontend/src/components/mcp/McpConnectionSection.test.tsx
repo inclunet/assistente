@@ -3,6 +3,23 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { McpConnectionSection } from './McpConnectionSection';
 import type { ComponentProps } from 'react';
+import ptBR from '../../locales/pt-BR';
+
+function resolveLocaleString(key: string, vars?: Record<string, unknown>): string | undefined {
+  const root = (ptBR as { translation: Record<string, unknown> }).translation;
+  const value = key.split('.').reduce<unknown>((acc, part) => {
+    if (!acc || typeof acc !== 'object') return undefined;
+    return (acc as Record<string, unknown>)[part];
+  }, root);
+
+  if (typeof value !== 'string') return undefined;
+
+  if (!vars) return value;
+  return value.replace(/\{\{\s*(\w+)\s*\}\}/g, (_match, varName: string) => {
+    const v = vars[varName];
+    return v == null ? '' : String(v);
+  });
+}
 
 vi.mock('react-i18next', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-i18next')>();
@@ -10,16 +27,8 @@ vi.mock('react-i18next', async (importOriginal) => {
     ...actual,
     useTranslation: () => ({
       t: (key: string, options?: string | Record<string, unknown>) => {
-        if (typeof options === 'string') {
-          return options;
-        }
-        if (options && typeof options === 'object' && options !== null) {
-          const def = (options as { defaultValue?: string }).defaultValue;
-          if (typeof def === 'string') {
-            return def;
-          }
-        }
-        return key;
+        const vars = options && typeof options === 'object' ? (options as Record<string, unknown>) : undefined;
+        return resolveLocaleString(key, vars) ?? key;
       },
     }),
   };

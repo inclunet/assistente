@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { EditorWriteFile } from '@wailsjs/go/app/App';
 
 const openToolbarMenuSpy = vi.fn();
 
 const editorStoreState = {
-  documents: {} as Record<string, { id: string; title: string; markdown: string; mode: string }>,
-  activeDocumentId: null as string | null,
+  documents: {} as Record<string, { id: string; title: string; markdown: string; mode: string; filePath?: string | null; draftId?: string | null }>,
   autoSaveEnabled: true,
   editorProfileSlug: 'editor-texto',
   createDocument: vi.fn(),
@@ -22,7 +22,6 @@ const editorStoreState = {
   setDocMode: vi.fn(),
   consumePendingInsert: vi.fn().mockReturnValue(null),
   getDocument: vi.fn(),
-  getActiveDocument: vi.fn(),
   removeDocument: vi.fn(),
 };
 
@@ -47,24 +46,23 @@ vi.mock('../store/workspaceStore', () => ({
       updateTab: vi.fn(),
       workspace: { tabs: [], profile: undefined },
       getActiveTab: () => undefined,
+      isInitialized: true,
     }),
     { getState: () => ({ workspace: { tabs: [] }, addTab: vi.fn(), getActiveTab: () => undefined }), subscribe: () => () => {} }
   ),
+  useActiveTab: () => undefined,
 }));
 
 vi.mock('../store/chatStore', () => ({
   useChatStore: Object.assign(
     (selector?: (s: Record<string, unknown>) => unknown) => {
       const state: Record<string, unknown> = {
-        sendMessage: vi.fn(),
-        isLoading: false,
-        activeConversationId: null,
         createConversation: vi.fn(),
-        getMessages: () => [],
+        getConversationMessages: () => [],
       };
       return typeof selector === 'function' ? selector(state) : state;
     },
-    { getState: () => ({ sendMessage: vi.fn(), activeConversationId: null, createConversation: vi.fn(), getMessages: () => [] }) },
+    { getState: () => ({ createConversation: vi.fn(), getConversationMessages: () => [] }) },
   ),
 }));
 
@@ -75,9 +73,10 @@ vi.mock('../store/questionnaireUIStore', () => ({
 }));
 
 vi.mock('../store/uiStore', () => ({
-  useUIStore: () => ({
-    addToast: vi.fn(),
-  }),
+  useUIStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const s = { addToast: vi.fn() };
+    return selector ? selector(s) : s;
+  },
 }));
 
 vi.mock('../hooks/useEditorTabsKeyboardShortcuts', () => ({
@@ -88,7 +87,7 @@ vi.mock('../hooks/useEditorInlineChatPatch', () => ({
   useEditorInlineChatPatch: () => ({
     waitForChatDone: vi.fn(),
     waitForEditorPatch: vi.fn(),
-    getMaxNumericMessageId: vi.fn(),
+    getMaxMessageId: vi.fn(),
   }),
 }));
 
@@ -189,8 +188,8 @@ vi.mock('@wailsjs/go/app/App', () => ({
   EditorReadFile: vi.fn(),
   EditorSaveFileDialog: vi.fn(),
   EditorSaveSession: vi.fn(),
-  EditorUnwatchFile: vi.fn(),
-  EditorWatchFile: vi.fn(),
+  EditorUnwatchFile: vi.fn().mockResolvedValue(undefined),
+  EditorWatchFile: vi.fn().mockResolvedValue(undefined),
   EditorWriteDraft: vi.fn(),
   EditorWriteFile: vi.fn(),
 }));
@@ -200,8 +199,8 @@ import EditorPage from './EditorPage';
 describe('EditorPage', () => {
   beforeEach(() => {
     editorStoreState.documents = {};
-    editorStoreState.activeDocumentId = null;
     openToolbarMenuSpy.mockReset();
+    vi.mocked(EditorWriteFile).mockReset();
   });
 
   it('desabilita botoes de formato/inserir/modo sem aba ativa', () => {
@@ -226,10 +225,28 @@ describe('EditorPage', () => {
     editorStoreState.documents = {
       'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'view' },
     };
-    editorStoreState.activeDocumentId = 'tab-1';
 
-    render(<EditorPage />);
+    render(<EditorPage documentId="tab-1" />);
 
     expect(screen.getByRole('button', { name: 'editor.buttons.insert' })).toBeDisabled();
+  });
+
+  it('não executa atalhos de arquivo quando o painel está inativo', async () => {
+    const user = userEvent.setup();
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown: 'text',
+        mode: 'markdown',
+        filePath: 'doc.md',
+      },
+    };
+
+    render(<EditorPage documentId="tab-1" isPanelActive={false} />);
+
+    await user.keyboard('{Control>}s{/Control}');
+
+    expect(EditorWriteFile).not.toHaveBeenCalled();
   });
 });

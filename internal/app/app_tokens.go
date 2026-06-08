@@ -16,23 +16,39 @@ type ToolUsageBreakdownResult = chat.ToolUsageBreakdown
 type TokenStatsResult = chat.TokenStats
 
 // GetConversationTokenStats retorna estatísticas de tokens de uma conversa.
-func (a *App) GetConversationTokenStats(conversationID uint) (*TokenStatsResult, error) {
-	return a.tokensCtrl.GetConversationTokenStats(conversationID)
+func (a *App) GetConversationTokenStats(conversationID string) (*TokenStatsResult, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.tokensCtrl.GetConversationTokenStats(ctx, conversationID)
 }
 
 // GetTurnTokenStats retorna estatísticas de tokens para um turno específico.
-func (a *App) GetTurnTokenStats(conversationID uint, turnID uint) (*TokenStatsResult, error) {
-	return a.tokensCtrl.GetTurnTokenStats(conversationID, turnID)
+func (a *App) GetTurnTokenStats(conversationID string, turnID string) (*TokenStatsResult, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.tokensCtrl.GetTurnTokenStats(ctx, conversationID, turnID)
 }
 
 // GetRecentMessagesTokenCount retorna o total de tokens das N mensagens mais recentes.
-func (a *App) GetRecentMessagesTokenCount(conversationID uint, messageLimit int) (int, error) {
-	return a.tokensCtrl.GetRecentMessagesTokenCount(conversationID, messageLimit)
+func (a *App) GetRecentMessagesTokenCount(conversationID string, messageLimit int) (int, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return 0, err
+	}
+	return a.tokensCtrl.GetRecentMessagesTokenCount(ctx, conversationID, messageLimit)
 }
 
 // CheckContextWindowThreshold verifica se a conversa está próxima do limite de contexto.
-func (a *App) CheckContextWindowThreshold(conversationID uint, threshold float64) (bool, float64, error) {
-	return a.tokensCtrl.CheckContextWindowThreshold(conversationID, threshold)
+func (a *App) CheckContextWindowThreshold(conversationID string, threshold float64) (bool, float64, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return false, 0, err
+	}
+	return a.tokensCtrl.CheckContextWindowThreshold(ctx, conversationID, threshold)
 }
 
 // GetLLMSettings retorna as configurações atuais da API LLM.

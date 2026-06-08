@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { LinkOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -13,12 +14,12 @@ import TaskDetailModal from './TaskDetailModal';
 import './TasksTable.css';
 
 interface TasksTableProps {
-  taskListId: number;
+  taskListId: string;
   tasks: Task[];
   taskList?: TaskListWithWorkflow;
   onTaskCreated?: (task: Task) => void;
   onTaskUpdated?: (task: Task) => void;
-  onTaskDeleted?: (taskId: number) => void;
+  onTaskDeleted?: (taskId: string) => void;
 }
 
 export interface TasksTableRef {
@@ -84,7 +85,7 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
     onTaskUpdated?.(task);
   };
 
-  const handleDeleteTask = async (taskId: number) => {
+  const handleDeleteTask = async (taskId: string) => {
     if (!confirm(t('tasklist.confirmDeleteTask', 'Tem certeza que deseja deletar esta tarefa?'))) {
       return;
     }
@@ -93,7 +94,7 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
       await deleteTask(taskId);
       onTaskDeleted?.(taskId);
     } catch (error) {
-      console.error('Erro ao deletar tarefa:', error);
+      logger.error('Erro ao deletar tarefa:', error);
     }
   };
 
@@ -102,7 +103,7 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
     setIsDemoteModalOpen(true);
   };
 
-  const handleDemote = async (parentId: number) => {
+  const handleDemote = async (parentId: string) => {
     if (!demotingTask) return;
     try {
       await demoteTask(demotingTask.id, parentId);

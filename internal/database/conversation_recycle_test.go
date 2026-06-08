@@ -30,16 +30,17 @@ func setupRecycleTestDB(t *testing.T) {
 
 func TestRecycleOrCreateConversation_CreatesWhenNoCandidates(t *testing.T) {
 	setupRecycleTestDB(t)
+	ctx := testCtx()
 
-	conv, err := RecycleOrCreateConversation("Minha Conversa")
+	conv, err := RecycleOrCreateConversationWithContext(ctx, "Minha Conversa")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if conv.Title != "Minha Conversa" {
 		t.Errorf("expected title 'Minha Conversa', got %q", conv.Title)
 	}
-	if conv.ID == 0 {
-		t.Error("expected non-zero ID")
+	if conv.ID == "" {
+		t.Error("expected non-empty ID")
 	}
 
 	var count int64
@@ -51,20 +52,21 @@ func TestRecycleOrCreateConversation_CreatesWhenNoCandidates(t *testing.T) {
 
 func TestRecycleOrCreateConversation_RecyclesEmptyOrphan(t *testing.T) {
 	setupRecycleTestDB(t)
+	ctx := testCtx()
 
-	orphan, err := CreateConversation("Conversa Orfã", "")
+	orphan, err := CreateConversationWithContext(ctx, "Conversa Orfã", "")
 	if err != nil {
 		t.Fatalf("failed to create orphan: %v", err)
 	}
 	orphanID := orphan.ID
 
-	conv, err := RecycleOrCreateConversation("Reciclada")
+	conv, err := RecycleOrCreateConversationWithContext(ctx, "Reciclada")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if conv.ID != orphanID {
-		t.Errorf("expected recycled ID %d, got %d", orphanID, conv.ID)
+		t.Errorf("expected recycled ID %s, got %s", orphanID, conv.ID)
 	}
 	if conv.Title != "Reciclada" {
 		t.Errorf("expected title 'Reciclada', got %q", conv.Title)
@@ -79,11 +81,12 @@ func TestRecycleOrCreateConversation_RecyclesEmptyOrphan(t *testing.T) {
 
 func TestRecycleOrCreateConversation_DoesNotRecycleWithMessages(t *testing.T) {
 	setupRecycleTestDB(t)
+	ctx := testCtx()
 
-	conv, _ := CreateConversation("Com Mensagens", "")
+	conv, _ := CreateConversationWithContext(ctx, "Com Mensagens", "")
 	db.Create(&ChatMessage{ConversationID: conv.ID, Role: "user", Content: "oi"})
 
-	result, err := RecycleOrCreateConversation("Nova")
+	result, err := RecycleOrCreateConversationWithContext(ctx, "Nova")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -101,11 +104,12 @@ func TestRecycleOrCreateConversation_DoesNotRecycleWithMessages(t *testing.T) {
 
 func TestRecycleOrCreateConversation_DoesNotRecycleChannelConversation(t *testing.T) {
 	setupRecycleTestDB(t)
+	ctx := testCtx()
 
-	conv := &Conversation{Title: "Signal Chat", Channel: "signal", ContactID: "+5511999"}
+	conv := &Conversation{Title: "Signal Chat", Channel: "signal", ContactID: "+5511999", UserID: testUserID}
 	db.Create(conv)
 
-	result, err := RecycleOrCreateConversation("Nova")
+	result, err := RecycleOrCreateConversationWithContext(ctx, "Nova")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -117,46 +121,48 @@ func TestRecycleOrCreateConversation_DoesNotRecycleChannelConversation(t *testin
 
 func TestRecycleOrCreateConversation_RecyclesOldestFirst(t *testing.T) {
 	setupRecycleTestDB(t)
+	ctx := testCtx()
 
-	first, _ := CreateConversation("Primeira", "")
-	second, _ := CreateConversation("Segunda", "")
+	first, _ := CreateConversationWithContext(ctx, "Primeira", "")
+	second, _ := CreateConversationWithContext(ctx, "Segunda", "")
 
-	result, err := RecycleOrCreateConversation("Reciclada")
+	result, err := RecycleOrCreateConversationWithContext(ctx, "Reciclada")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if result.ID != first.ID {
-		t.Errorf("expected to recycle oldest (ID=%d), got ID=%d", first.ID, result.ID)
+		t.Errorf("expected to recycle oldest (ID=%s), got ID=%s", first.ID, result.ID)
 	}
 
 	var remaining Conversation
-	if err := db.First(&remaining, second.ID).Error; err != nil {
+	if err := db.First(&remaining, "id = ?", second.ID).Error; err != nil {
 		t.Error("second conversation should still exist")
 	}
 }
 
 func TestRecycleOrCreateConversation_ResetsSummaryFields(t *testing.T) {
 	setupRecycleTestDB(t)
+	ctx := testCtx()
 
-	conv, _ := CreateConversation("Com Resumo", "")
+	conv, _ := CreateConversationWithContext(ctx, "Com Resumo", "")
 	db.Model(conv).Updates(map[string]interface{}{
 		"summary":                  "resumo antigo",
 		"summary_up_to_message_id": 42,
 	})
 
-	result, err := RecycleOrCreateConversation("Limpa")
+	result, err := RecycleOrCreateConversationWithContext(ctx, "Limpa")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if result.ID != conv.ID {
-		t.Fatalf("expected recycled ID %d", conv.ID)
+		t.Fatalf("expected recycled ID %s", conv.ID)
 	}
 	if result.Summary != "" {
 		t.Errorf("expected empty summary, got %q", result.Summary)
 	}
-	if result.SummaryUpToMessageID != 0 {
-		t.Errorf("expected SummaryUpToMessageID=0, got %d", result.SummaryUpToMessageID)
+	if result.SummaryUpToMessageID != "" {
+		t.Errorf("expected SummaryUpToMessageID=empty, got %s", result.SummaryUpToMessageID)
 	}
 }

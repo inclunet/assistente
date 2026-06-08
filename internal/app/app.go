@@ -4,15 +4,20 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
+	"time"
 
 	"assistente/controllers"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
+	"assistente/internal/auth"
 	"assistente/internal/chat"
 	"assistente/internal/config"
+	"assistente/internal/connstatus"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
@@ -24,13 +29,22 @@ import (
 	"assistente/internal/questionnaire"
 	"assistente/internal/skills"
 	"assistente/internal/speech"
+	"assistente/internal/subagent"
 	"assistente/internal/summarization"
 	"assistente/internal/tasklist"
 	"assistente/internal/terminal"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 	"assistente/internal/updater"
 	"assistente/internal/workspace"
 )
+
+// subagentReconcileTimeout é o teto de tempo da reconciliação de runs órfãos de
+// sub-agente no startup. Operação de manutenção que roda em goroutine; o deadline
+// impede que um DB travado (lock/I/O lento) deixe a goroutine pendurada
+// indefinidamente. 30s é consistente com o teto usado em operações de jobs
+// (internal/jobs/manager.go).
+const subagentReconcileTimeout = 30 * time.Second
 
 // Request structs for LLM Provider Management — type aliases para controllers.
 // Mantém compatibilidade com código e testes existentes durante a migração.
@@ -46,22 +60,34 @@ type ChannelInfo = controllers.ChannelInfo
 
 // App struct
 type App struct {
-	ctx              context.Context
-	llmRegistry      *llm.ProviderRegistry // Registro de provedores LLM
-	profileManager   *profiles.Manager
-	toolRegistry     *tools.Registry             // Registro de ferramentas disponíveis
-	toolExecutor     *tools.Executor             // Executor de ferramentas com paralelismo e timeout
-	terminalMgr      *terminal.Manager           // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
-	questionnaireMgr *questionnaire.Manager      // Gerenciador de questionários (coleta estruturada)
-	allowlistMgr     *allowlist.Manager          // Gerenciador de allowlists de comandos
-	mcpMgr           *mcpmgr.Manager             // Gerenciador de servidores MCP
-	skillMgr         *skills.Manager             // Gerenciador de skills
-	responseNotifier *messaging.ResponseNotifier // Notificador de respostas para mensageiros
-	msgGateway       *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
-	updater          *updater.Updater            // Gerenciador de atualizações automáticas
+	ctx               context.Context
+	llmRegistry       *llm.ProviderRegistry // Registro de provedores LLM
+	profileManager    *profiles.Manager
+	toolRegistry      *tools.Registry             // Registro de ferramentas disponíveis
+	toolExecutor      *tools.Executor             // Executor de ferramentas com paralelismo e timeout
+	toolInvocationSvc *toolinvocations.Service    // Persistência e execução comum de tool calls
+	terminalMgr       *terminal.Manager           // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
+	questionnaireMgr  *questionnaire.Manager      // Gerenciador de questionários (coleta estruturada)
+	allowlistMgr      *allowlist.Manager          // Gerenciador de allowlists de comandos
+	mcpMgr            *mcpmgr.Manager             // Gerenciador de servidores MCP
+	skillMgr          *skills.Manager             // Gerenciador de skills
+	responseNotifier  *messaging.ResponseNotifier // Notificador de respostas para mensageiros
+	msgGateway        *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
+	updater           *updater.Updater            // Gerenciador de atualizações automáticas
 
-	credMgr   *credentials.Manager
-	credStore credentials.Store
+	credMgr           *credentials.Manager
+	credStore         credentials.Store
+	vaultSvc          *auth.VaultService
+	identitySvc       *auth.IdentityService
+	sessionSvc        *auth.SessionService
+	httpAPIServer     *http.Server
+	authMu            sync.RWMutex
+	authSessionMu     sync.Mutex
+	currentUserID     string
+	currentAuthUser   *AuthUser
+	authKeyringLoad   func() (string, error)
+	authKeyringSave   func(string) error
+	authKeyringDelete func() error
 
 	// Watcher de arquivos do editor (mudanças externas)
 	editorWatchMu    sync.Mutex
@@ -72,6 +98,19 @@ type App struct {
 
 	// Jobs manager (event-driven automation)
 	jobMgr *jobs.Manager
+
+	// Subagent manager (sub-agentes em sub-conversas — AEP-0068)
+	subagentMgr *subagent.Manager
+
+	// Contexto cancelável do runtime user-scoped (ex.: loops de auto-connect).
+	userRuntimeMu     sync.Mutex
+	userRuntimeCtx    context.Context
+	userRuntimeCancel context.CancelFunc
+
+	// Monitor de status de conexão com a API LLM (health check periódico).
+	connMu      sync.Mutex
+	connMonitor *connstatus.Monitor
+	connCancel  context.CancelFunc
 
 	// Provider service (business logic para provedores LLM)
 	providerSvc *providers.Service
@@ -185,12 +224,33 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa Credential Manager PRIMEIRO (antes de qualquer uso)
 	a.initCredentialManager()
+	a.initAuthServices()
+
+	// Inicializa o rate limiter das chamadas LLM (Issue #27 / AEP-0065).
+	// Escopo por usuário (userID do contexto); defaults sensatos com override
+	// por variáveis de ambiente. nil quando desabilitado.
+	llmRateLimiter := llm.NewRateLimiter(llm.RateLimitConfigFromEnv())
+	if llmRateLimiter != nil {
+		llmRateLimiter.SetNearLimitHandler(func(key string, remaining float64) {
+			log.Printf("[llm/ratelimit] usuário %s próximo do limite de chamadas LLM (%.0f tokens restantes)", key, remaining)
+		})
+	}
+	// Chave do rate limit = userID do contexto (AEP-0052). Compartilhada entre
+	// o provider service (chat) e a sumarização para usarem o mesmo bucket.
+	llmRateLimitKeyFunc := func(ctx context.Context) string {
+		if userID, ok := database.UserIDFromContext(ctx); ok {
+			return userID
+		}
+		return ""
+	}
 
 	// Inicializa o Provider Service (camada de negócio para provedores LLM)
 	a.providerSvc = providers.NewService(providers.ServiceConfig{
-		Registry: a.llmRegistry,
-		CredMgr:  a.credMgr,
-		Store:    providers.NewDBStore(),
+		Registry:         a.llmRegistry,
+		CredMgr:          a.credMgr,
+		Store:            providers.NewDBStore(),
+		RateLimiter:      llmRateLimiter,
+		RateLimitKeyFunc: llmRateLimitKeyFunc,
 	})
 
 	// Inicializa o Token Service (estatísticas de tokens)
@@ -215,21 +275,17 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o Summary Service (sumarização de conversas)
 	a.summarySvc = summarization.NewService(summarization.ServiceConfig{
-		Repo:            summarization.NewDBStore(),
-		Emitter:         a.emitter,
-		LLMRegistry:     a.llmRegistry,
-		CredMgr:         a.credMgr,
-		ProfileManager:  a.profileManager,
-		ProfileResolver: a.resolveProfileDefaults,
+		Repo:           summarization.NewDBStore(),
+		Emitter:        a.emitter,
+		LLMRegistry:    a.llmRegistry,
+		CredMgr:        a.credMgr,
+		ProfileManager: a.profileManager,
+		ProfileResolver: func(ctx context.Context, p *profiles.Profile) *profiles.Profile {
+			return a.providerSvc.ResolveProfileDefaults(ctx, p)
+		},
+		RateLimiter:      llmRateLimiter,
+		RateLimitKeyFunc: llmRateLimitKeyFunc,
 	})
-	a.initLLMProviders()
-
-	// Inicializa o cliente LLM (usa credMgr + registry já populado)
-	a.initLLMClient()
-
-	// Migra config.json legado para novo sistema (se necessário)
-	a.migrateLegacyConfig()
-
 	// Inicializa managers de terminal, confirmação e allowlists
 	a.initTerminalAndAllowlists()
 
@@ -244,12 +300,13 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o gerenciador de servidores MCP (após tool registry)
 	a.initMCP()
+	a.toolInvocationSvc = toolinvocations.NewService(toolinvocations.NewDBRepository(database.DB()), a.toolExecutor)
 
 	// Inicializa o gateway de mensageria (Telegram, etc.)
 	a.initMessaging()
 
 	// Callback reutilizado pelo agent.Service e ChatController
-	speechDispatcher := func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool) {
+	speechDispatcher := func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool) {
 		if _, err := a.dispatchSpeechEvent(ChatSpeakRequest{
 			ConversationID: conversationID,
 			MessageID:      messageID,
@@ -259,7 +316,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 			Origin:         ChatSpeakOrigin(origin),
 			Interrupt:      &interrupt,
 		}); err != nil {
-			log.Printf("[Speech] WARN: dispatchSpeechEvent falhou (conv=%d msg=%d): %v", conversationID, messageID, err)
+			log.Printf("[Speech] WARN: dispatchSpeechEvent falhou (conv=%s msg=%s): %v", conversationID, messageID, err)
 		}
 	}
 
@@ -268,6 +325,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		Emitter:          a.emitter,
 		MsgRepo:          a.msgRepo,
 		ToolExecutor:     a.toolExecutor,
+		ToolInvocations:  a.toolInvocationSvc,
 		ResponseNotifier: a.responseNotifier,
 		GetTokenStats:    a.GetConversationTokenStats,
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
@@ -283,15 +341,16 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o Prompt Builder (montagem de system prompt, sem Wails)
 	a.promptBuilder = &prompt.Builder{
-		Skills:    a.skillMgr,
-		Workspace: a.workspaceMgr,
-		Tools:     a.toolRegistry,
+		Skills:          a.skillMgr,
+		Workspace:       a.workspaceMgr,
+		Tools:           a.toolRegistry,
+		OpenEditorPaths: a.workspaceMgr.OpenEditorFilePaths,
 	}
 
 	// Inicializa o Settings Service (config CRUD e reset de dados)
 	a.settingsSvc = config.NewSettingsService(config.SettingsServiceConfig{
 		Emitter:        a.emitter,
-		CredCleaner:    a.credMgr,
+		CredCleaner:    credentialCleanerAdapter{mgr: a.credMgr},
 		ProfileCleaner: profileCleanerAdapter{app: a},
 		SkillCleaner:   skillCleanerAdapter{app: a},
 		ReloadLLM:      a.initLLMClient,
@@ -304,6 +363,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		ConvRepo:      a.convSvc,
 		ProviderSvc:   a.providerSvc,
 		ProfileMgr:    a.profileManager,
+		Workspace:     a.workspaceMgr,
 		SkillMgr:      a.skillMgr,
 		PromptBuilder: a.promptBuilder,
 	})
@@ -321,6 +381,12 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o sistema de jobs (event-driven automation)
 	a.initJobs()
+
+	// Liga a ponte de eventos de domínio das tasklists ao EventBus de jobs (AEP-0067).
+	// O Service é criado antes do jobMgr, então o sink é injetado aqui.
+	if a.taskSvc != nil {
+		a.taskSvc.SetDomainEventSink(a.jobMgr)
+	}
 
 	// Inicializa o updater
 	a.initUpdater()
@@ -378,7 +444,46 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		MsgGateway:       a.msgGateway,
 		ResponseNotifier: a.responseNotifier,
 		OnSpeechRequest:  speechDispatcher,
+		OpenEditorPaths:  a.workspaceMgr.OpenEditorFilePaths,
 	})
+	// Subagent manager (AEP-0068): criado após o ChatController para reusar a
+	// MESMA SendMessageUseCase (sem fluxo alternativo de envio — AEP-0040).
+	a.subagentMgr = subagent.NewManager(subagent.ManagerConfig{
+		Repo:     subagent.NewDBRepository(database.DB()),
+		Notifier: a.responseNotifier,
+		Send: func(ctx context.Context, p subagent.SendParams) (string, error) {
+			return a.chatCtrl.SendForSubagent(ctx, p.ConversationID, p.Prompt, p.Media, p.ProfileSlug, p.Model)
+		},
+		Delivery:     &subagentParentDelivery{app: a},
+		CancelStream: a.streamMgr.Cancel,
+	})
+
+	// Reconciliação de runs órfãos (AEP-0068 F4): runs deixados em queued/running
+	// por um encerramento abrupto do app são marcados como failed no startup
+	// (espelha a reconciliação de jobs). Não bloqueia o startup.
+	//
+	// cutoff capturado AQUI (após criar o manager, antes de servir requests):
+	// como a reconciliação roda em goroutine enquanto o app já pode aceitar
+	// chamadas, só reconciliamos runs criados antes deste instante — um run
+	// legítimo criado em paralelo (created_at >= cutoff) não é marcado como
+	// órfão.
+	reconcileCutoff := time.Now()
+	go func() {
+		// Teto de tempo: a reconciliação roda em goroutine de startup e não pode
+		// pendurar o processo indefinidamente se o DB travar (lock/I/O lento).
+		// WithoutCancel é mantido (não deve ser cancelada por cancelamento normal
+		// do ctx do app durante uso), mas WithTimeout adiciona o deadline —
+		// consistente com o teto de operações de jobs (internal/jobs/manager.go).
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), subagentReconcileTimeout)
+		defer cancel()
+		n, err := a.subagentMgr.ReconcileOrphans(ctx, reconcileCutoff)
+		if err != nil {
+			log.Printf("[Subagent] erro ao reconciliar runs órfãos: %v", err)
+		} else if n > 0 {
+			log.Printf("[Subagent] %d run(s) órfão(s) de sub-agente reconciliado(s) como failed", n)
+		}
+	}()
+
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,
 	})
@@ -387,10 +492,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	})
 	a.jobsCtrl = controllers.NewJobsController(controllers.JobsControllerConfig{
 		JobMgr: a.jobMgr,
-	})
-	a.workspaceCtrl = controllers.NewWorkspaceController(controllers.WorkspaceControllerConfig{
-		WorkspaceMgr: a.workspaceMgr,
-		Emitter:      a.emitter,
 	})
 	a.tokensCtrl = controllers.NewTokensController(controllers.TokensControllerConfig{
 		ProfileMgr:  a.profileManager,
@@ -432,6 +533,10 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	})
 	a.signalCtrl = controllers.NewSignalController()
 
+	if err := a.startHTTPAPI(); err != nil {
+		return err
+	}
+
 	// Verifica atualizações no startup (não bloqueante)
 	go a.checkForUpdatesOnStartup()
 
@@ -446,6 +551,11 @@ func (a *App) ShowWindow() {
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
 	a.stopAllEditorWatches()
+	a.stopConnectionMonitor()
+
+	if a.httpAPIServer != nil {
+		_ = a.httpAPIServer.Shutdown(context.Background())
+	}
 
 	if a.hotkeyCtrl != nil {
 		a.hotkeyCtrl.Stop()
