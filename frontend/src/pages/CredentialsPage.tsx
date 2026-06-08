@@ -276,6 +276,11 @@ export default function CredentialsPage() {
     allSuggestionsRef.current = [];
   }, []);
 
+  const isEditorOpen = Boolean(crud.editingItem);
+  useEffect(() => {
+    if (!isEditorOpen) resetSuggestions();
+  }, [isEditorOpen, resetSuggestions]);
+
   const [viewingManaged, setViewingManaged] = useState<CredentialRow | null>(null);
 
   const getRowId = useCallback((row: CredentialRow) => row.id, []);
@@ -436,7 +441,7 @@ export default function CredentialsPage() {
                   aria-activedescendant={tokenIsRef && activeIndex >= 0 ? `token-suggestion-${activeIndex}` : undefined}
                   aria-autocomplete={tokenIsRef ? 'list' : undefined}
                 />
-                {showSuggestions && suggestions.length > 0 && (
+                {tokenIsRef && hasSuggestions && (
                   <ul
                     id="token-suggestions"
                     ref={listboxRef}
