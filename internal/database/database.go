@@ -424,6 +424,11 @@ func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
 	//   - latest_run: status do run de sub-agente MAIS RECENTE (mesmo critério
 	//     canônico turn_index DESC, created_at DESC, id DESC), vazio quando a
 	//     conversa não é de sub-agente. Escopado por user_id (AEP-0052).
+	//
+	// O JOIN de latest_run é condicionado a conversations.kind='subagent': não há
+	// FK garantindo que SubAgentRun.ChildConversationID aponte para uma conversa
+	// kind=subagent, então sem essa condição um run órfão poderia popular
+	// latest_status numa conversa comum e vazar o dado para o cliente.
 	query := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
 	err = query.
 		Select("conversations.*, COALESCE(msg_counts.count, 0) as message_count, COALESCE(latest_run.status, '') as latest_status").
@@ -435,7 +440,7 @@ func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
 				FROM sub_agent_runs
 				WHERE user_id = ?
 			) WHERE rn = 1
-		) as latest_run ON latest_run.child_conversation_id = conversations.id`, userID).
+		) as latest_run ON latest_run.child_conversation_id = conversations.id AND conversations.kind = 'subagent'`, userID).
 		Order("conversations.updated_at DESC").
 		Find(&conversations).Error
 
