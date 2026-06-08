@@ -47,6 +47,45 @@
   white-space: nowrap;
 }
 
+/* Linha do título: texto + badge de sub-agente + indicador de status (AEP-0068) */
+.history-page__title-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.history-page__subagent-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.history-page__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.history-page__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--color-info);
+  flex: 0 0 auto;
+}
+
+.history-page__status--running .history-page__status-dot,
+.history-page__status--queued .history-page__status-dot {
+  background: var(--color-info);
+}
+
 .history-page__import-modal {
   display: flex;
   flex-direction: column;

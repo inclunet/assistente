@@ -80,7 +80,6 @@ type Manager struct {
 	notifier      *messaging.ResponseNotifier
 	send          SendFunc
 	delivery      ParentDelivery
-	lister        ConversationLister
 	cancelStrm    func(conversationID string)
 	now           func() time.Time
 	maxChainDepth int
@@ -112,9 +111,6 @@ type ManagerConfig struct {
 	// (auto-wake). Pode ser nil (ex.: contextos sem pai); então o aviso é
 	// apenas persistido no run.
 	Delivery ParentDelivery
-	// Lister fornece metadados/custo das sub-conversas para a UI (AEP-0068 F5).
-	// Pode ser nil (ex.: testes que não exercitam a listagem).
-	Lister ConversationLister
 	// CancelStream cancela o streaming LLM de uma conversa (barge-in). Usado
 	// para interromper um sub-agente em background. Pode ser nil em testes.
 	CancelStream func(conversationID string)
@@ -147,7 +143,6 @@ func NewManager(cfg ManagerConfig) *Manager {
 		notifier:      cfg.Notifier,
 		send:          cfg.Send,
 		delivery:      cfg.Delivery,
-		lister:        cfg.Lister,
 		cancelStrm:    cfg.CancelStream,
 		now:           now,
 		maxChainDepth: maxChainDepth,
@@ -760,61 +755,6 @@ func (m *Manager) ReconcileOrphans(ctx context.Context, cutoff time.Time) (int64
 		return 0, fmt.Errorf("subagent manager não configurado: não é possível reconciliar runs órfãos")
 	}
 	return m.repo.ReconcileOrphans(ctx, cutoff, m.nowFn())
-}
-
-// ListSubConversations retorna a visão das sub-conversas do usuário para a UI
-// (AEP-0068 F5): identidade, vínculo com o pai, status do run mais recente,
-// contagem de runs e custo agregado (tokens). Combina os metadados da conversa
-// (via Lister) com os runs persistidos (via Repository), tudo escopado por
-// usuário.
-func (m *Manager) ListSubConversations(ctx context.Context) ([]SubConversationSummary, error) {
-	if m == nil || m.repo == nil || m.lister == nil {
-		// Falha explicitamente: retornar lista vazia mascararia wiring quebrado
-		// do binding Wails (a UI veria "nenhum sub-agente" em vez de um erro),
-		// consistente com Run/ReconcileOrphans.
-		return nil, fmt.Errorf("subagent manager não configurado: não é possível listar sub-conversas")
-	}
-	metas, err := m.lister.ListSubAgentConversations(ctx)
-	if err != nil {
-		return nil, err
-	}
-	// Sem sub-conversas: evita a query de agregação de runs no banco
-	// (AggregateByChildConversation) que não teria com o que casar. Retorna slice
-	// vazio não-nil, idêntico ao contrato do caminho normal
-	// (out = make([]SubConversationSummary, 0, ...)).
-	if len(metas) == 0 {
-		return []SubConversationSummary{}, nil
-	}
-	// Agregação por sub-conversa feita no BANCO (contagem + status/erro/background
-	// do run mais recente), em vez de carregar todos os runs do usuário e agregar
-	// em memória — evita query/transferência pesada nesta tela de listagem.
-	byConv, err := m.repo.AggregateByChildConversation(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	out := make([]SubConversationSummary, 0, len(metas))
-	for _, meta := range metas {
-		s := SubConversationSummary{
-			ConversationID:       meta.ConversationID,
-			Title:                meta.Title,
-			ParentConversationID: meta.ParentConversationID,
-			MessageCount:         meta.MessageCount,
-			PromptTokens:         meta.PromptTokens,
-			CompletionTokens:     meta.CompletionTokens,
-			TotalTokens:          meta.TotalTokens,
-			CreatedAt:            meta.CreatedAt,
-			UpdatedAt:            meta.UpdatedAt,
-		}
-		if agg, ok := byConv[meta.ConversationID]; ok {
-			s.LatestStatus = agg.LatestStatus
-			s.RunCount = agg.RunCount
-			s.Background = agg.LatestBackground
-			s.LastError = agg.LatestError
-		}
-		out = append(out, s)
-	}
-	return out, nil
 }
 
 // resolveRun encontra o run alvo por run_id (validando que pertence à conversa)

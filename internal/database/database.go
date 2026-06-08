@@ -411,19 +411,36 @@ func FindOrCreateChannelConversationWithContext(ctx context.Context, channel, co
 // se o ctx não carregar userID — listar conversas sem escopo retornaria
 // dados de todos os usuários.
 func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
-	if _, err := RequireUserID(ctx); err != nil {
+	userID, err := RequireUserID(ctx)
+	if err != nil {
 		return nil, err
 	}
 	var conversations []Conversation
 
-	// Usa subquery para contar mensagens em uma única query (evita N+1).
-	// Sub-conversas de sub-agentes (kind=subagent, AEP-0068) são omitidas da
-	// listagem principal — elas têm binding/UI próprios (AEP-0068 Fase 5).
+	// Listagem unificada (AEP-0068): inclui conversas comuns E sub-conversas de
+	// sub-agentes (kind=subagent) — são a mesma entidade do ponto de vista do
+	// usuário. Dois LEFT JOINs em uma única query (evita N+1):
+	//   - msg_counts: contagem de mensagens por conversa.
+	//   - latest_run: status do run de sub-agente MAIS RECENTE (mesmo critério
+	//     canônico turn_index DESC, created_at DESC, id DESC), vazio quando a
+	//     conversa não é de sub-agente. Escopado por user_id (AEP-0052).
+	//
+	// O JOIN de latest_run é condicionado a conversations.kind='subagent': não há
+	// FK garantindo que SubAgentRun.ChildConversationID aponte para uma conversa
+	// kind=subagent, então sem essa condição um run órfão poderia popular
+	// latest_status numa conversa comum e vazar o dado para o cliente.
 	query := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
-	err := query.
-		Select("conversations.*, COALESCE(msg_counts.count, 0) as message_count").
+	err = query.
+		Select("conversations.*, COALESCE(msg_counts.count, 0) as message_count, COALESCE(latest_run.status, '') as latest_status").
 		Joins("LEFT JOIN (SELECT conversation_id, COUNT(*) as count FROM chat_messages GROUP BY conversation_id) as msg_counts ON msg_counts.conversation_id = conversations.id").
-		Where("conversations.kind = '' OR conversations.kind IS NULL").
+		Joins(`LEFT JOIN (
+			SELECT child_conversation_id, status FROM (
+				SELECT child_conversation_id, status,
+				       ROW_NUMBER() OVER (PARTITION BY child_conversation_id ORDER BY turn_index DESC, created_at DESC, id DESC) AS rn
+				FROM sub_agent_runs
+				WHERE user_id = ?
+			) WHERE rn = 1
+		) as latest_run ON latest_run.child_conversation_id = conversations.id AND conversations.kind = 'subagent'`, userID).
 		Order("conversations.updated_at DESC").
 		Find(&conversations).Error
 
@@ -432,57 +449,6 @@ func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
 	}
 
 	return conversations, nil
-}
-
-// SubAgentConversationMeta carrega os metadados + custo (tokens) de uma
-// sub-conversa de sub-agente, para a listagem da UI (AEP-0068 F5). É um tipo
-// local do pacote database para evitar ciclo de imports com internal/subagent.
-type SubAgentConversationMeta struct {
-	ConversationID       string    `gorm:"column:id"`
-	Title                string    `gorm:"column:title"`
-	ParentConversationID string    `gorm:"column:parent_conversation_id"`
-	CreatedAt            time.Time `gorm:"column:created_at"`
-	UpdatedAt            time.Time `gorm:"column:updated_at"`
-	MessageCount         int       `gorm:"column:message_count"`
-	PromptTokens         int       `gorm:"column:prompt_tokens"`
-	CompletionTokens     int       `gorm:"column:completion_tokens"`
-	TotalTokens          int       `gorm:"column:total_tokens"`
-}
-
-// ListSubAgentConversationsWithContext lista as sub-conversas de sub-agente
-// (kind=subagent) do usuário do contexto, com contagem de mensagens e soma de
-// tokens (custo) em uma única query (evita N+1). Não inclui dados de run — o
-// chamador (Manager) enriquece com status/contagem de runs.
-func ListSubAgentConversationsWithContext(ctx context.Context) ([]SubAgentConversationMeta, error) {
-	if _, err := RequireUserID(ctx); err != nil {
-		return nil, err
-	}
-	var rows []SubAgentConversationMeta
-	// Agrega via LEFT JOIN direto em chat_messages + GROUP BY pela PK da conversa,
-	// em vez de uma subquery que agrupa a tabela inteira de mensagens a cada
-	// listagem: como a query já está restrita às sub-conversas do usuário, só as
-	// mensagens dessas conversas são varridas/agrupadas (não as de conversas
-	// irrelevantes). Semântica preservada:
-	//   - COUNT(chat_messages.id): 0 para conversa sem mensagens (id NULL no LEFT
-	//     JOIN é ignorado pelo COUNT) — equivalente ao COALESCE(count,0) anterior;
-	//   - SUM(...) sobre 0 linhas = NULL → COALESCE(...,0) = 0, igual ao anterior;
-	//   - GROUP BY conversations.id (PK): demais colunas são funcionalmente
-	//     dependentes da PK (válido no dialeto SQLite do projeto);
-	//   - ordenação por updated_at DESC mantida.
-	query := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
-	err := query.
-		Select("conversations.id, conversations.title, conversations.parent_conversation_id, conversations.created_at, conversations.updated_at, "+
-			"COUNT(chat_messages.id) as message_count, COALESCE(SUM(chat_messages.prompt_tokens), 0) as prompt_tokens, "+
-			"COALESCE(SUM(chat_messages.completion_tokens), 0) as completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens").
-		Joins("LEFT JOIN chat_messages ON chat_messages.conversation_id = conversations.id").
-		Where("conversations.kind = ?", ConversationKindSubagent).
-		Group("conversations.id").
-		Order("conversations.updated_at DESC").
-		Scan(&rows).Error
-	if err != nil {
-		return nil, err
-	}
-	return rows, nil
 }
 
 // GetConversationWithContext retorna uma conversa do usuário do contexto com

@@ -16,7 +16,7 @@ func setupTestDB(t *testing.T) {
 		t.Fatalf("failed to open test db: %v", err)
 	}
 
-	if err := db.AutoMigrate(&Conversation{}, &ChatMessage{}); err != nil {
+	if err := db.AutoMigrate(&Conversation{}, &ChatMessage{}, &SubAgentRun{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 

@@ -33,6 +33,8 @@ type ConversationItem = {
   createdAt: string;
   updatedAt: string;
   message_count: number;
+  kind?: string;
+  latestStatus?: string;
 };
 
 vi.mock('react-router-dom', async (importOriginal) => {
@@ -162,19 +164,21 @@ vi.mock('../components/ui/DataGrid', () => ({
   ),
 }));
 
+// Em ordem decrescente por updatedAt (como o backend retorna e como a listagem
+// unificada reordena após mesclar sub-agentes): Conversa 1 é a mais recente.
 const conversations: ConversationItem[] = [
   {
     id: '01926b90-7a5a-7c4e-8d3f-000000000001',
     title: 'Conversa 1',
-    createdAt: '2025-01-01T00:00:00Z',
-    updatedAt: '2025-01-01T00:00:00Z',
+    createdAt: '2025-01-02T00:00:00Z',
+    updatedAt: '2025-01-02T00:00:00Z',
     message_count: 2,
   },
   {
     id: '01926b90-7a5a-7c4e-8d3f-000000000002',
     title: 'Conversa 2',
-    createdAt: '2025-01-02T00:00:00Z',
-    updatedAt: '2025-01-02T00:00:00Z',
+    createdAt: '2025-01-01T00:00:00Z',
+    updatedAt: '2025-01-01T00:00:00Z',
     message_count: 5,
   },
 ];
@@ -278,6 +282,37 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
         expect.objectContaining({ navigate: expect.any(Function) }),
       );
     });
+  });
+
+  it('mescla sub-agentes na lista e o toggle os oculta', async () => {
+    const user = userEvent.setup();
+    // Listagem unificada: GetConversations já retorna sub-agentes (kind=subagent).
+    mockGetConversations.mockResolvedValue([
+      {
+        id: '01926b90-7a5a-7c4e-8d3f-0000000000aa',
+        title: 'Sub-conversa A',
+        kind: 'subagent',
+        latestStatus: 'running',
+        message_count: 3,
+        createdAt: '2025-01-03T00:00:00Z',
+        updatedAt: '2025-01-03T00:00:00Z',
+      },
+      ...conversations,
+    ]);
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    expect(screen.getByText('Sub-conversa A')).toBeInTheDocument();
+
+    const toggle = lastToolbarActions.find((action) => action.key === 'toggle-subagents');
+    expect(toggle).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: toggle!.label }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Sub-conversa A')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Conversa 1')).toBeInTheDocument();
   });
 
   it('nao mostra importacao administrativa no historico', async () => {
