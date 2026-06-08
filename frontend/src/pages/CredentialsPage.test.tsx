@@ -327,5 +327,25 @@ describe('CredentialsPage', () => {
       expect((tokenInput as HTMLInputElement).value).toBe('keyring://aws-secret');
       expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     });
+
+    it('campo muda de password para text quando valor é referência externa', async () => {
+      render(<CredentialsPage />);
+      await userEvent.click(screen.getByText('Nova'));
+
+      const tokenInput = screen.getByLabelText('Token') as HTMLInputElement;
+      expect(tokenInput.type).toBe('password');
+
+      await userEvent.clear(tokenInput);
+      await userEvent.type(tokenInput, 'keyring://');
+
+      await waitFor(() => {
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByText('github-token'));
+
+      expect(tokenInput.type).toBe('text');
+      expect(tokenInput.value).toBe('keyring://github-token');
+    });
   });
 });

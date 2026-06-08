@@ -260,6 +260,8 @@ export default function CredentialsPage() {
         }
         break;
       case 'Escape':
+        e.stopPropagation();
+        latestTokenRef.current = '';
         setShowSuggestions(false);
         setActiveIndex(-1);
         break;
@@ -420,7 +422,7 @@ export default function CredentialsPage() {
                   value={crud.editingItem.token || ''}
                   onChange={(e) => handleTokenChange(e.target.value)}
                   onKeyDown={handleTokenKeyDown}
-                  onBlur={() => { setShowSuggestions(false); setActiveIndex(-1); }}
+                  onBlur={() => { latestTokenRef.current = ''; setShowSuggestions(false); setActiveIndex(-1); }}
                   placeholder={t('credentials.placeholders.token_ref')}
                   fullWidth
                   autoComplete="off"
