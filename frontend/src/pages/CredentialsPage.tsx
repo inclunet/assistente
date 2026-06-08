@@ -190,26 +190,30 @@ export default function CredentialsPage() {
     crud.updateField('token', value);
     setActiveIndex(-1);
 
-    if (value === 'keyring://' || value === 'env://') {
-      try {
-        const results = await ListExternalSources(value);
-        const items = (results || []).map(r => ({ value: r.value, label: r.label }));
-        allSuggestionsRef.current = items;
-        setSuggestions(items);
-        setShowSuggestions(items.length > 0);
-      } catch {
-        allSuggestionsRef.current = [];
-        setSuggestions([]);
-        setShowSuggestions(false);
-      }
-    } else if (value.startsWith('keyring://') || value.startsWith('env://')) {
+    if (value.startsWith('keyring://') || value.startsWith('env://')) {
       const prefix = value.startsWith('keyring://') ? 'keyring://' : 'env://';
       const search = value.slice(prefix.length).toLowerCase();
-      const filtered = allSuggestionsRef.current.filter(s =>
-        s.label.toLowerCase().includes(search)
-      );
-      setSuggestions(filtered);
-      setShowSuggestions(filtered.length > 0);
+
+      if (allSuggestionsRef.current.length === 0 || !allSuggestionsRef.current[0]?.value.startsWith(prefix)) {
+        try {
+          const results = await ListExternalSources(prefix);
+          const items = (results || []).map(r => ({ value: r.value, label: r.label }));
+          allSuggestionsRef.current = items;
+        } catch {
+          allSuggestionsRef.current = [];
+        }
+      }
+
+      if (search === '') {
+        setSuggestions(allSuggestionsRef.current);
+        setShowSuggestions(allSuggestionsRef.current.length > 0);
+      } else {
+        const filtered = allSuggestionsRef.current.filter(s =>
+          s.label.toLowerCase().includes(search)
+        );
+        setSuggestions(filtered);
+        setShowSuggestions(filtered.length > 0);
+      }
     } else {
       setShowSuggestions(false);
       setSuggestions([]);

@@ -29,6 +29,8 @@ vi.mock('react-i18next', () => ({
         'credentials.modal.editTitle': 'Editar credencial',
         'credentials.placeholders.pattern': 'ex: *.github.com ou channel:slack:bot_token',
         'credentials.placeholders.token': 'Informe o token',
+        'credentials.placeholders.token_ref': 'Token, keyring://service/user ou env://VAR',
+        'credentials.aria.suggestions': 'Sugestões de referência',
         'credentials.hint.sensitive':
           'Os valores sensíveis não são exibidos após salvar. Para atualizar, informe novamente.',
         'credentials.types.bearer': 'Bearer token',
@@ -54,6 +56,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   ListCredentials: () => mockList(),
   UpsertCredential: (payload: unknown) => mockUpsert(payload),
   DeleteCredential: (pattern: string) => mockDelete(pattern),
+  ListExternalSources: () => Promise.resolve([]),
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
