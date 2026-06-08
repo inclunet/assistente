@@ -202,6 +202,7 @@ export default function CredentialsPage() {
         return items;
       } catch {
         allSuggestionsRef.current = [];
+        loadedPrefixRef.current = prefix;
         return [];
       } finally {
         if (sourcesPromiseRef.current?.prefix === prefix) sourcesPromiseRef.current = null;
