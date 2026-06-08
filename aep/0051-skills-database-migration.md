@@ -1,10 +1,14 @@
 # AEP-0051 — Migração de Skills para Banco de Dados
 
-**Status**: Proposta  
+**Status**: Proposta (revisada 2026-06-08)  
 **Criado em**: 2026-04-21  
 **Depende de**: AEP-0046 (UUIDv7 Migration)  
-**Precede**: AEP-0050 (Profiles DB Migration)  
-**Relacionado**: AEP-0025 (Interaction Profiles), AEP-0048 (Jobs DB), AEP-0049 (MCP DB)
+**Fundação de**: AEP-0072 (Skill Catalog & Loading)  
+**Relacionado**: AEP-0025 (Interaction Profiles), AEP-0047 (Import/Export), AEP-0048 (Jobs DB), AEP-0049 (MCP DB), AEP-0050 (Profiles DB)
+
+> **Nota de revisão (2026-06-08).** Esta AEP foi reconciliada com a AEP-0072. Duas mudanças relevantes em relação à versão original de abril:
+> 1. **Filesystem → DB deixa de ser uma "migração one-time destrutiva" e passa a ser uma importação legada não-destrutiva e idempotente** (mesmo padrão de MCP/Jobs — ver D9). Os arquivos `SKILL.md` originais NÃO são renomeados/apagados.
+> 2. Esta AEP é **independente** da AEP-0050 (Profiles DB), cuja implementação foi adiada. A integração `profile_skills → skills.slug` fica para a issue de implementação da AEP-0050.
 
 ---
 
@@ -12,7 +16,7 @@
 
 Migrar o sistema de skills de SKILL.md em filesystem (multi-diretório via `configdir.Resolver`) para SQLite via GORM. Skills são instruções Markdown com metadados YAML (frontmatter) que personalizam o comportamento do LLM — desde coding assistants até job managers. Atualmente vivem em `~/.assistente/skills/{slug}/SKILL.md` com resolução de 3 diretórios.
 
-A migração cria 2 tabelas (`skills` e `skill_permissions`), usa UUIDv7 como PK, mantém slug como identificador humano, seed de builtins (6 skills embeddados) com versionamento, e preserva compatibilidade com o formato SKILL.md para import/export. Deve ser implementada **antes** da AEP-0050 (Profiles DB), pois a junction table `profile_skills` na AEP-0050 referencia skills no banco.
+A migração cria 2 tabelas (`skills` e `skill_tools`), usa UUIDv7 como PK, mantém slug como identificador humano, seed de builtins (6 skills embeddados) com versionamento, e preserva compatibilidade com o formato SKILL.md para import/export. As skills de filesystem são trazidas para o banco via **importação legada não-destrutiva** (D9), no mesmo fluxo pós-login de MCP e Jobs. Esta AEP é a fundação de dados da AEP-0072 (catálogo, descoberta e carregamento sob demanda de skills).
 
 ---
 
@@ -28,9 +32,9 @@ A migração cria 2 tabelas (`skills` e `skill_permissions`), usa UUIDv7 como PK
 
 4. **Metadados ricos e estruturados**: SkillMetadata tem 40+ campos em 13 categorias. Armazenar como arquivo flat impede queries, validação por constraint, e versionamento.
 
-5. **Pré-requisito para AEP-0050**: A junction table `profile_skills` na migração de profiles referencia skills por slug. Com skills no banco, é possível adicionar FK e garantir integridade.
+5. **Habilita a AEP-0072**: catálogo compacto, gating e carregamento sob demanda de skills (AEP-0072) exigem skills queryáveis no banco — varrer/parsear filesystem a cada turno não escala.
 
-6. **Alinhamento**: Jobs (AEP-0048), MCP (AEP-0049) e Profiles (AEP-0050) seguem o mesmo caminho.
+6. **Alinhamento**: Jobs (AEP-0048), MCP (AEP-0049) e Profiles (AEP-0050) seguem o mesmo caminho. A importação filesystem → DB usa o mesmo fluxo legado de MCP/Jobs (D9).
 
 ---
 
@@ -117,7 +121,7 @@ Skills têm campos com dois perfis distintos:
 
 **Justificativa**: Diferente de Voice Roles (3 rows fixos), as sub-configs de skills são opcionais (`*pointer`), raramente queryadas, e extremamente variáveis. Normalizar Filesystem/Network/MCP em tabelas separadas criaria 5+ tabelas pouco utilizadas. JSON é a escolha pragmática aqui.
 
-**Exceção**: `skill_permissions` como tabela separada para tools necessárias/permitidas, pois são referências que beneficiam de junction table.
+**Exceção**: `skill_tools` como tabela separada para tools necessárias/permitidas, pois são referências que beneficiam de junction table.
 
 ### D2. UUIDv7 como PK + slug como identificador humano
 
@@ -159,11 +163,22 @@ Skills declaram tools necessárias/permitidas de 3 formas:
 - `allowed_tools: ["*"]` — wildcard
 - `tools: [{name: "custom", description: "..."}]` — tool definitions inline
 
-As referências simples (nomes de tools) vão para `skill_permissions` como junction table. Tool definitions inline (com description) ficam como JSON na coluna `tools_config`.
+As referências simples (nomes de tools) vão para `skill_tools` como junction table. Tool definitions inline (com description) ficam como JSON na coluna `tools_config`.
 
-### D8. Sem multi-diretório após migração
+### D8. Runtime serve skills exclusivamente do DB
 
-Resolver multi-diretório eliminado. Skills ficam exclusivamente no banco. Mesmo padrão da AEP-0050.
+Após a importação legada (D9), o runtime passa a ler/servir skills **somente do banco** — o `configdir.Resolver` deixa de ser fonte de runtime. O código de descoberta multi-diretório, porém, **não é deletado**: ele é reaproveitado como `LegacyImportSource` (apenas lista/lê os `SKILL.md` para importar). Isso difere da versão original desta AEP (que eliminava o resolver por completo).
+
+### D9. Filesystem → DB via importação legada não-destrutiva
+
+As skills hoje em `configdir/skills/{slug}/SKILL.md` são tratadas como **fonte de importação legada**, exatamente como servidores MCP e definições de Jobs:
+
+- Reusa o contrato genérico `ImportLegacyResourcesWithContext[T]` em `internal/portability/legacy_import.go` e pluga em `runPostLoginLegacyImports` (`internal/app/app_legacy_imports.go`), ao lado de `ImportLegacyMCPServersWithContext` e `jobMgr.ImportLegacyDefinitions`.
+- **Não-destrutivo**: o contrato `LegacyImportSource` exige listar e ler os arquivos originais "without renaming, deleting, or rewriting them". Não há rename para `skills.migrated/`.
+- **Idempotente**: re-executar a importação não duplica nem altera; skill já existente no DB = `skipped`.
+- **Source** = código de descoberta de skills reaproveitado (lista `skills/{slug}/SKILL.md` nos 3 diretórios, com a mesma prioridade workdir > home > exe); **Parse** = `skills.Parse()`; **Import** = upsert idempotente no DB.
+
+Esta decisão substitui a "migração one-time com backup/rename" descrita na versão original (ver Fases 5–6 revisadas).
 
 ---
 
@@ -277,22 +292,21 @@ type Repository interface {
     - Parseia SKILL.md → `SeedBuiltin()`
 12. Integrar no `App.startup()` após AutoMigrate
 
-### Fase 5 — Migração one-time filesystem → DB
+### Fase 5 — Importação legada filesystem → DB (não-destrutiva, D9)
 
-13. Criar `internal/skills/migration.go`:
-    - Detecta `~/.assistente/skills/` + tabela vazia
-    - Carrega via Resolver (3 dirs, dedup)
-    - Insere no DB incluindo skill_tools
-    - Renomeia para `skills.migrated/`
-14. Executar antes do seed no startup
+13. Criar o importador de skills no padrão `LegacyImportSource` + `ImportLegacyResourcesWithContext[T]`:
+    - `Source`: reaproveita a descoberta multi-diretório (lista `skills/{slug}/SKILL.md`, prioridade workdir > home > exe) **sem** renomear/apagar/reescrever.
+    - `Parse`: `skills.Parse()`.
+    - `Import`: upsert idempotente no DB (incluindo `skill_tools`); skill já existente = `skipped`.
+14. Registrar o importador em `runPostLoginLegacyImports` (`internal/app/app_legacy_imports.go`), ao lado de MCP e Jobs, retornando `LegacyImportResult` (importados/ignorados/falhas/warnings).
 
-### Fase 6 — Remoção de código filesystem
+### Fase 6 — Corte do runtime para o DB
 
-15. Remover `configdir.Resolver` do Manager
-16. Remover `discoverAll()`, `GetSearchPaths()`, `EnsureDir()` (dir handling)
-17. Substituir `initSkills()` no App por seed
-18. `SkillInfo.Source` → `SkillInfo.IsBuiltin`
-19. Remover `GetSkillSearchPaths()` do Controller
+15. `Manager` passa a servir skills do DB (Repository); `configdir.Resolver` deixa de ser fonte de runtime.
+16. Manter `discoverAll()` apenas como `Source` da importação legada (D9); não deletar.
+17. Substituir `initSkills()` no App pela sequência seed + importação legada + leitura via Repository.
+18. `SkillInfo.Source` → `SkillInfo.IsBuiltin`.
+19. Remover `GetSkillSearchPaths()` do Controller (paths deixam de ser superfície de runtime).
 
 ### Fase 7 — Testes
 
@@ -301,10 +315,10 @@ type Repository interface {
     - Roundtrip: Skill → DB → Skill (deep equal)
     - Filtros: autoload, available, user-invocable
     - SeedBuiltin versionado
-21. `migration_test.go`:
-    - SKILL.md → DB
-    - Multi-dir dedup
-    - Backup
+21. `legacy_import_test.go`:
+    - SKILL.md → DB (importação)
+    - Multi-dir dedup (prioridade workdir > home > exe)
+    - Idempotência (re-import = skipped) e não-destrutividade (originais intactos)
 22. `seed_test.go`:
     - 6 builtins inseridos
     - Update versionado, skip customizado
@@ -355,20 +369,21 @@ Tudo abaixo do frontmatter `---` vai para `content TEXT`.
 | `internal/database/models_skills.go` | 2 models GORM (SkillModel, SkillToolModel) |
 | `internal/skills/repository.go` | Interface `Repository` + `DBRepository` |
 | `internal/skills/seed.go` | Seed de builtins no DB |
-| `internal/skills/migration.go` | Migração one-time SKILL.md → DB |
+| `internal/skills/legacy_import.go` | Importação legada não-destrutiva SKILL.md → DB (D9) |
 | `internal/skills/repository_test.go` | Testes do repository |
-| `internal/skills/migration_test.go` | Testes da migração |
+| `internal/skills/legacy_import_test.go` | Testes da importação legada (idempotência, não-destrutividade) |
 | `internal/skills/seed_test.go` | Testes do seed |
 
 ### Modificados
 
 | Arquivo | Mudança |
 |---------|---------|
-| `internal/skills/manager.go` | Usar Repository em vez de Resolver |
+| `internal/skills/manager.go` | Servir do Repository; `discoverAll()` reaproveitado como Source da importação legada |
 | `internal/skills/types.go` | `SkillInfo.Source` → `SkillInfo.IsBuiltin` |
 | `internal/database/database.go` | AutoMigrate de 2 tabelas |
+| `internal/app/app_legacy_imports.go` | Registrar importador de skills ao lado de MCP/Jobs |
 | `controllers/skills_controller.go` | Remover `GetSkillSearchPaths()` |
-| `main.go` / `app.go` | Substituir `initSkills()` por seed |
+| `main.go` / `app.go` | Substituir `initSkills()` por seed + importação legada + Repository |
 
 ### Sem alteração
 
@@ -389,7 +404,7 @@ Tudo abaixo do frontmatter `---` vai para `content TEXT`.
 3. **Filtros eficientes**: `GetAutoSkills()`, `GetAvailableSkills()`, `GetUserInvocableSkills()` via queries SQL (não scan + filter)
 4. **Seed de builtins**: 6 skills no DB no primeiro boot
 5. **Versionamento protegido**: Builtins atualizados; customizados preservados
-6. **Migração transparente**: SKILL.md existente → DB → backup criado
+6. **Importação não-destrutiva e idempotente**: SKILL.md existentes → DB sem renomear/apagar os originais; re-executar não duplica nem altera (já existente = `skipped`)
 7. **Import/export preservado**: `Parse()` e `Compose()` continuam funcionando
 8. **Skill files**: Arquivos complementares continuam acessíveis via filesystem
 9. **Testes**: Cobertura para repository, migração, seed
@@ -400,7 +415,7 @@ Tudo abaixo do frontmatter `---` vai para `content TEXT`.
 
 | # | Risco | Probabilidade | Impacto | Mitigação |
 |---|-------|---------------|---------|-----------|
-| R1 | Perda de skills na migração | Baixa | Alto | Backup em `skills.migrated/`, migração idempotente |
+| R1 | Perda de skills na importação | Baixa | Alto | Importação não-destrutiva (originais intactos no filesystem) e idempotente (D9) |
 | R2 | Tools polymorphism (3 formatos) | Média | Médio | `tools_config` JSON para inline defs + `skill_tools` para nomes |
 | R3 | Conteúdo Markdown muito grande | Baixa | Baixo | TEXT sem limite no SQLite; monitoring de tamanho |
 | R4 | Skill files complementares órfãos | Média | Baixo | `GetSkillFiles()` continua usando filesystem; migração futura |
@@ -408,12 +423,12 @@ Tudo abaixo do frontmatter `---` vai para `content TEXT`.
 
 ---
 
-## Relação com AEP-0050
+## Relação com AEP-0050 e AEP-0072
 
-Esta AEP **precede** a AEP-0050 (Profiles DB). A sequência de implementação é:
+Esta AEP é **independente** e implementável sozinha. Ordem de dependência:
 
-1. **AEP-0046** — UUIDv7 (infraestrutura base)
-2. **AEP-0051** — Skills DB (esta AEP)
-3. **AEP-0050** — Profiles DB (usa `profile_skills` junction table referenciando skills)
+1. **AEP-0046** — UUIDv7 (infraestrutura base, já mergeada)
+2. **AEP-0051** — Skills DB (esta AEP) — fundação de dados
+3. **AEP-0072** — Skill Catalog & Loading (catálogo, descoberta, gating e carregamento sob demanda) — consome esta AEP
 
-Com skills no banco, a AEP-0050 pode adicionar FK em `profile_skills.skill_slug → skills.slug` para garantir integridade referencial.
+A **AEP-0050 (Profiles DB) foi adiada** (implementação rastreada por issue própria). Quando for implementada, poderá adicionar FK em `profile_skills.skill_slug → skills.slug` para integridade referencial. Nada nesta AEP depende da AEP-0050.
