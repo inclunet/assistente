@@ -87,6 +87,7 @@ function ChatSessionViewContent({
   controller,
 }: ChatSessionViewContentProps) {
   const { t } = useTranslation();
+  const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -533,6 +534,16 @@ function ChatSessionViewContent({
       if (event.target === input) return;
       if (!input) return;
 
+      // Só devolvemos o foco ao input quando o Escape se origina DENTRO do
+      // painel do chat. Fora dele (outra superfície/painel, ex.: terminal,
+      // editor, task list, ou o chat embutido enquanto inativo), o roteamento
+      // "ESC → área padrão do painel atual" é responsabilidade do sistema
+      // central de landmarks (useLandmarkNavigation no WorkspaceLayout), que
+      // respeita o painel ativo. Assim este listener não "rouba" o foco para o
+      // chat a partir de outras áreas do app (Issue #202 / AEP-0058).
+      const root = rootRef.current;
+      if (!root || !root.contains(event.target as Node | null)) return;
+
       event.preventDefault();
       input.focus();
     };
@@ -830,7 +841,7 @@ function ChatSessionViewContent({
     variant === 'page' ? 'chat-page chat-session-view' : 'chat-session-view chat-session-view--embedded';
 
   return (
-    <div className={rootClass}>
+    <div className={rootClass} ref={rootRef}>
       <div className="ws-content-toolbar">
         <ChatToolbar inputRef={inputRef} conversationId={conversationId} enableShortcuts={isInteractiveSurface} />
       </div>

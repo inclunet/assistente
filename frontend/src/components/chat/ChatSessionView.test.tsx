@@ -348,7 +348,7 @@ describe('ChatSessionView', () => {
     expect(chatStoreState.cancelStreaming).not.toHaveBeenCalled();
   });
 
-  it('Escape com foco já no campo de edição não é interceptado pelo listener global (deixa o ChatInput cancelar)', () => {
+  it('Escape com foco no campo de edição não é interceptado pelo listener global (não chama preventDefault nem move o foco)', () => {
     contextMenuState.visible = false;
     const escSurface = enableStreamingSurface();
     renderWithPanel(
@@ -357,7 +357,11 @@ describe('ChatSessionView', () => {
 
     const input = screen.getByRole('button', { name: 'send' });
     // Garante que o foco está de fato no input antes do Escape, reproduzindo o
-    // cenário em que o usuário está editando. O listener global não deve agir.
+    // cenário em que o usuário está editando. Este teste verifica apenas que o
+    // listener GLOBAL não age (não chama preventDefault nem move o foco),
+    // deixando o Escape livre para o ChatInput. O cancelamento em si é
+    // responsabilidade do ChatInput (mockado aqui como um simples <button> sem
+    // handler de Escape) e é coberto pelos testes do próprio ChatInput.
     input.focus();
     expect(document.activeElement).toBe(input);
     const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
@@ -366,6 +370,34 @@ describe('ChatSessionView', () => {
     expect(event.defaultPrevented).toBe(false);
     expect(document.activeElement).toBe(input);
     expect(chatStoreState.cancelStreaming).not.toHaveBeenCalled();
+  });
+
+  it('Escape originado FORA do painel do chat não rouba o foco para o input (streaming ativo)', () => {
+    contextMenuState.visible = false;
+    const escSurface = enableStreamingSurface();
+    renderWithPanel(
+      <ChatSessionView variant="embedded" surface={escSurface} onSend={vi.fn()} showShortcutsHelp={false} />,
+    );
+
+    const input = screen.getByRole('button', { name: 'send' });
+    // Simula o foco em outra superfície/painel do app (ex.: terminal, editor,
+    // task list), fora do container do chat. O listener global do chat NÃO deve
+    // devolver o foco ao input do chat — esse roteamento cabe ao sistema central
+    // de landmarks, que respeita o painel ativo (Issue #202 / AEP-0058).
+    const externalArea = document.createElement('button');
+    externalArea.textContent = 'outro-painel';
+    document.body.appendChild(externalArea);
+    try {
+      externalArea.focus();
+      expect(document.activeElement).toBe(externalArea);
+      fireEvent.keyDown(externalArea, { key: 'Escape' });
+
+      expect(document.activeElement).toBe(externalArea);
+      expect(document.activeElement).not.toBe(input);
+      expect(chatStoreState.cancelStreaming).not.toHaveBeenCalled();
+    } finally {
+      document.body.removeChild(externalArea);
+    }
   });
 
   it('Escape com modal aberto não cancela a geração nem mexe na UI de fundo', () => {
