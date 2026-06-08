@@ -282,7 +282,9 @@ export default function CredentialsPage() {
       case 'Enter':
         if (activeIndex >= 0 && activeIndex < suggestions.length) {
           e.preventDefault();
-          crud.updateField('token', suggestions[activeIndex].value);
+          const selected = suggestions[activeIndex].value;
+          latestTokenRef.current = selected;
+          crud.updateField('token', selected);
           setShowSuggestions(false);
           setActiveIndex(-1);
         }
@@ -486,6 +488,7 @@ export default function CredentialsPage() {
                         className={`credentials-page__suggestion${index === activeIndex ? ' credentials-page__suggestion--active' : ''}`}
                         onMouseDown={(e) => {
                           e.preventDefault();
+                          latestTokenRef.current = s.value;
                           crud.updateField('token', s.value);
                           setShowSuggestions(false);
                           setActiveIndex(-1);
