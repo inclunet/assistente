@@ -6,7 +6,7 @@
 **Depende de**: AEP-0046 (UUIDv7 Migration), AEP-0051 (Skills DB Migration)  
 **Relacionado**: AEP-0025 (Interaction Profiles), AEP-0027 (Profiles Refactor), AEP-0044 (Profile Settings Revamp), AEP-0048 (Jobs DB), AEP-0049 (MCP DB)
 
-> **Nota de Status (2026-06-08).** A implementação desta AEP foi **adiada** e está fora do escopo atual (que cobre apenas skills — ver AEP-0051 e AEP-0072). O documento permanece como decisão registrada; a implementação será rastreada por uma issue dedicada. A AEP-0051 (Skills DB) é independente e pode ser implementada sem esta.
+> **Nota de Status (2026-06-08).** A implementação desta AEP foi **adiada** e está fora do escopo atual (que cobre apenas skills — ver AEP-0051 e AEP-0072). O documento permanece como decisão registrada; a implementação é rastreada pela issue #213. A AEP-0051 (Skills DB) é independente e pode ser implementada sem esta.
 
 ---
 
