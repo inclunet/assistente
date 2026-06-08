@@ -38,7 +38,8 @@ export default function CredentialsPage() {
   const [activeIndex, setActiveIndex] = useState(-1);
   const allSuggestionsRef = useRef<Array<{value: string; label: string}>>([]);
   const loadedPrefixRef = useRef<string | null>(null);
-  const sourcesPromiseRef = useRef<{ prefix: string; promise: Promise<Array<{value: string; label: string}>> } | null>(null);
+  const sourcesPromiseRef = useRef<{ prefix: string; epoch: number; promise: Promise<Array<{value: string; label: string}>> } | null>(null);
+  const cacheEpochRef = useRef(0);
   const listboxRef = useRef<HTMLUListElement>(null);
   const latestTokenRef = useRef<string>('');
 
@@ -189,27 +190,40 @@ export default function CredentialsPage() {
   const isRefValue = (value?: string): boolean =>
     Boolean(value && (value.startsWith('keyring://') || value.startsWith('env://')));
 
+  const invalidateSuggestionCache = useCallback(() => {
+    cacheEpochRef.current += 1;
+    sourcesPromiseRef.current = null;
+    allSuggestionsRef.current = [];
+    loadedPrefixRef.current = null;
+  }, []);
+
   const loadExternalSources = useCallback((prefix: string) => {
     if (loadedPrefixRef.current === prefix) return Promise.resolve(allSuggestionsRef.current);
-    if (sourcesPromiseRef.current?.prefix === prefix) return sourcesPromiseRef.current.promise;
+
+    const epoch = cacheEpochRef.current;
+    const pending = sourcesPromiseRef.current;
+    if (pending && pending.prefix === prefix && pending.epoch === epoch) return pending.promise;
 
     const promise = (async () => {
+      let items: Array<{value: string; label: string}> = [];
       try {
         const results = await ListExternalSources(prefix);
-        const items = (results || []).map(r => ({ value: r.value, label: r.label }));
+        items = (results || []).map(r => ({ value: r.value, label: r.label }));
+      } catch {
+        items = [];
+      }
+      // Descarta resultado tardio se o cache foi invalidado (reset/close/limpeza) durante a requisição.
+      if (cacheEpochRef.current === epoch) {
         allSuggestionsRef.current = items;
         loadedPrefixRef.current = prefix;
-        return items;
-      } catch {
-        allSuggestionsRef.current = [];
-        loadedPrefixRef.current = prefix;
-        return [];
-      } finally {
-        if (sourcesPromiseRef.current?.prefix === prefix) sourcesPromiseRef.current = null;
+        if (sourcesPromiseRef.current?.epoch === epoch && sourcesPromiseRef.current?.prefix === prefix) {
+          sourcesPromiseRef.current = null;
+        }
       }
+      return items;
     })();
 
-    sourcesPromiseRef.current = { prefix, promise };
+    sourcesPromiseRef.current = { prefix, epoch, promise };
     return promise;
   }, []);
 
@@ -224,8 +238,7 @@ export default function CredentialsPage() {
     if (!prefix) {
       setShowSuggestions(false);
       setSuggestions([]);
-      allSuggestionsRef.current = [];
-      loadedPrefixRef.current = null;
+      invalidateSuggestionCache();
       return;
     }
 
@@ -288,9 +301,8 @@ export default function CredentialsPage() {
     setSuggestions([]);
     setShowSuggestions(false);
     setActiveIndex(-1);
-    allSuggestionsRef.current = [];
-    loadedPrefixRef.current = null;
-  }, []);
+    invalidateSuggestionCache();
+  }, [invalidateSuggestionCache]);
 
   const isEditorOpen = Boolean(crud.editingItem);
   useEffect(() => {
