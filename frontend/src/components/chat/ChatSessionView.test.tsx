@@ -397,11 +397,17 @@ describe('ChatSessionView', () => {
       <ChatSessionView variant="embedded" surface={escSurface} onSend={vi.fn()} showShortcutsHelp={false} />,
     );
 
-    const outside = screen.getByTestId('message-list');
+    // No uso real o Escape parte do elemento focado. Focamos um elemento focável
+    // da lista para reproduzir fielmente o cenário: o handler fecha o menu e o
+    // foco permanece no elemento de origem (não vai para o input).
+    const outside = screen.getByRole('list');
+    outside.focus();
+    expect(document.activeElement).toBe(outside);
     fireEvent.keyDown(outside, { key: 'Escape' });
 
     expect(hideMenuMock).toHaveBeenCalled();
     expect(chatStoreState.cancelStreaming).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(outside);
   });
 
   it('embedded: aciona menu de contexto via MessageList', async () => {
