@@ -337,7 +337,11 @@ describe('ChatSessionView', () => {
     );
 
     const input = screen.getByRole('button', { name: 'send' });
-    const outside = screen.getByTestId('message-list');
+    // No uso real o Escape parte do elemento focado. Focamos um elemento focável
+    // da lista (fora do input) para reproduzir fielmente o cenário.
+    const outside = screen.getByRole('list');
+    outside.focus();
+    expect(document.activeElement).toBe(outside);
     fireEvent.keyDown(outside, { key: 'Escape' });
 
     expect(document.activeElement).toBe(input);
@@ -352,10 +356,15 @@ describe('ChatSessionView', () => {
     );
 
     const input = screen.getByRole('button', { name: 'send' });
+    // Garante que o foco está de fato no input antes do Escape, reproduzindo o
+    // cenário em que o usuário está editando. O listener global não deve agir.
+    input.focus();
+    expect(document.activeElement).toBe(input);
     const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
     input.dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(input);
     expect(chatStoreState.cancelStreaming).not.toHaveBeenCalled();
   });
 
@@ -368,10 +377,16 @@ describe('ChatSessionView', () => {
     );
 
     const input = screen.getByRole('button', { name: 'send' });
-    const outside = screen.getByTestId('message-list');
+    // Com modal aberto, o Escape pertence ao modal: o listener global não pode
+    // mexer no foco da UI de fundo. Focamos um elemento focável da lista e
+    // verificamos que o foco permanece nele após o Escape.
+    const outside = screen.getByRole('list');
+    outside.focus();
+    expect(document.activeElement).toBe(outside);
     fireEvent.keyDown(outside, { key: 'Escape' });
 
     expect(chatStoreState.cancelStreaming).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(outside);
     expect(document.activeElement).not.toBe(input);
   });
 
