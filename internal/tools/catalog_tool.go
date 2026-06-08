@@ -53,7 +53,7 @@ func NewCatalogTool(store CatalogToolStore) *CatalogTool {
 func (t *CatalogTool) Name() string { return ToolCatalogName }
 
 func (t *CatalogTool) Description() string {
-	return "List and select available tool packages/capabilities from the persisted catalog. Use this when you need tools that were not provided in the current request."
+	return "Discover and select tool capabilities from the persisted catalog (filter by origin, category, class, package, risk or availability); the tools you select only become available on the next turn. When tool access in the session is gated by the catalog, this may be the only tool available initially and you must call it first to unlock the tools you need. In sessions where other tools are already provided, use it only when you need a capability that is not yet available."
 }
 
 func (t *CatalogTool) Parameters() json.RawMessage {

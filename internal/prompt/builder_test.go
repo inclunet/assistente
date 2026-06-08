@@ -200,6 +200,103 @@ func TestBuild_OpenEditorFiles_EscapesSpecialChars(t *testing.T) {
 	}
 }
 
+func TestBuild_CatalogFirst_InjectsProtocol(t *testing.T) {
+	b := &prompt.Builder{}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	tplData := chat.TemplateData{
+		ToolCallingEnabled: true,
+		EnabledTools:       []string{tools.ToolCatalogName},
+	}
+	// Sem skills nem slash skill: a seção catalog-first ainda deve ser injetada.
+	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	if len(result) < 2 || result[0].Role != "system" {
+		t.Fatalf("Expected a system message, got %v", result)
+	}
+	sys := result[0].Content.(string)
+	if !strings.Contains(sys, "<tool_selection_protocol>") {
+		t.Error("Expected catalog-first protocol section in system prompt")
+	}
+	if !strings.Contains(sys, "tool_catalog") {
+		t.Error("Expected catalog-first section to mention tool_catalog")
+	}
+}
+
+func TestBuild_CatalogFirst_NotActiveWhenToolCatalogAbsent(t *testing.T) {
+	b := &prompt.Builder{}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	// Perfil fixa EnabledTools sem o tool_catalog: gating não está ativo.
+	tplData := chat.TemplateData{
+		ToolCallingEnabled: true,
+		EnabledTools:       []string{"read_file", "web_search"},
+	}
+	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	if len(result) == 1 && result[0].Role == "user" {
+		return // nenhum system prompt criado, esperado
+	}
+	sys, _ := result[0].Content.(string)
+	if strings.Contains(sys, "<tool_selection_protocol>") {
+		t.Error("Should not include catalog-first protocol when tool_catalog is not in initial tools")
+	}
+}
+
+func TestBuild_CatalogFirst_NotActiveWhenCatalogPlusOtherTools(t *testing.T) {
+	b := &prompt.Builder{}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	// Perfil fixa EnabledTools com tool_catalog + outras tools: como as demais já
+	// ficam disponíveis de imediato, o gating não restringe ao catálogo e o
+	// protocolo catalog-first (que afirma "ONLY tool_catalog") NÃO deve ser injetado.
+	tplData := chat.TemplateData{
+		ToolCallingEnabled: true,
+		EnabledTools:       []string{tools.ToolCatalogName, "read_file", "web_search"},
+	}
+	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	if len(result) == 1 && result[0].Role == "user" {
+		return // nenhum system prompt criado, esperado
+	}
+	sys, _ := result[0].Content.(string)
+	if strings.Contains(sys, "<tool_selection_protocol>") {
+		t.Error("Should not include catalog-first protocol when tool_catalog coexists with other initial tools")
+	}
+}
+
+func TestBuild_CatalogFirst_NotActiveWhenToolCallingDisabled(t *testing.T) {
+	b := &prompt.Builder{}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	tplData := chat.TemplateData{
+		ToolCallingEnabled: false,
+		EnabledTools:       []string{tools.ToolCatalogName},
+	}
+	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	if len(result) == 1 && result[0].Role == "user" {
+		return
+	}
+	sys, _ := result[0].Content.(string)
+	if strings.Contains(sys, "<tool_selection_protocol>") {
+		t.Error("Should not include catalog-first protocol when tool calling is disabled")
+	}
+}
+
+func TestBuild_CatalogFirst_CoexistsWithSkills(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+		},
+	}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	tplData := chat.TemplateData{
+		ToolCallingEnabled: true,
+		EnabledTools:       []string{tools.ToolCatalogName},
+	}
+	result := b.Build(msgs, nil, false, tplData, "", "")
+	sys := result[0].Content.(string)
+	if !strings.Contains(sys, "<tool_selection_protocol>") {
+		t.Error("Expected catalog-first protocol alongside skills")
+	}
+	if !strings.Contains(sys, "<auto_skills>") {
+		t.Error("Expected auto_skills section to still be present")
+	}
+}
+
 func TestBuildSkillsSection_NilSkillReader_ReturnsEmpty(t *testing.T) {
 	b := &prompt.Builder{}
 	if got := b.BuildSkillsSection(nil, false, nil); got != "" {
