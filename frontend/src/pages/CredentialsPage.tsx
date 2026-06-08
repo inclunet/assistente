@@ -37,6 +37,8 @@ export default function CredentialsPage() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const allSuggestionsRef = useRef<Array<{value: string; label: string}>>([]);
+  const loadedPrefixRef = useRef<string | null>(null);
+  const sourcesPromiseRef = useRef<{ prefix: string; promise: Promise<Array<{value: string; label: string}>> } | null>(null);
   const listboxRef = useRef<HTMLUListElement>(null);
   const latestTokenRef = useRef<string>('');
 
@@ -187,42 +189,54 @@ export default function CredentialsPage() {
   const isRefValue = (value?: string): boolean =>
     Boolean(value && (value.startsWith('keyring://') || value.startsWith('env://')));
 
+  const loadExternalSources = useCallback((prefix: string) => {
+    if (loadedPrefixRef.current === prefix) return Promise.resolve(allSuggestionsRef.current);
+    if (sourcesPromiseRef.current?.prefix === prefix) return sourcesPromiseRef.current.promise;
+
+    const promise = (async () => {
+      try {
+        const results = await ListExternalSources(prefix);
+        const items = (results || []).map(r => ({ value: r.value, label: r.label }));
+        allSuggestionsRef.current = items;
+        loadedPrefixRef.current = prefix;
+        return items;
+      } catch {
+        allSuggestionsRef.current = [];
+        return [];
+      } finally {
+        if (sourcesPromiseRef.current?.prefix === prefix) sourcesPromiseRef.current = null;
+      }
+    })();
+
+    sourcesPromiseRef.current = { prefix, promise };
+    return promise;
+  }, []);
+
   const handleTokenChange = async (value: string) => {
     crud.updateField('token', value);
     setActiveIndex(-1);
     latestTokenRef.current = value;
 
-    if (value.startsWith('keyring://') || value.startsWith('env://')) {
-      const prefix = value.startsWith('keyring://') ? 'keyring://' : 'env://';
-      const search = value.slice(prefix.length).toLowerCase();
+    const prefix = value.startsWith('keyring://') ? 'keyring://'
+      : value.startsWith('env://') ? 'env://' : null;
 
-      if (allSuggestionsRef.current.length === 0 || !allSuggestionsRef.current[0]?.value.startsWith(prefix)) {
-        try {
-          const results = await ListExternalSources(prefix);
-          if (latestTokenRef.current !== value) return;
-          const items = (results || []).map(r => ({ value: r.value, label: r.label }));
-          allSuggestionsRef.current = items;
-        } catch {
-          if (latestTokenRef.current !== value) return;
-          allSuggestionsRef.current = [];
-        }
-      }
-
-      if (search === '') {
-        setSuggestions(allSuggestionsRef.current);
-        setShowSuggestions(allSuggestionsRef.current.length > 0);
-      } else {
-        const filtered = allSuggestionsRef.current.filter(s =>
-          s.label.toLowerCase().includes(search)
-        );
-        setSuggestions(filtered);
-        setShowSuggestions(filtered.length > 0);
-      }
-    } else {
+    if (!prefix) {
       setShowSuggestions(false);
       setSuggestions([]);
       allSuggestionsRef.current = [];
+      loadedPrefixRef.current = null;
+      return;
     }
+
+    const items = await loadExternalSources(prefix);
+    if (latestTokenRef.current !== value) return;
+
+    const search = value.slice(prefix.length).toLowerCase();
+    const filtered = search === ''
+      ? items
+      : items.filter(s => s.label.toLowerCase().includes(search));
+    setSuggestions(filtered);
+    setShowSuggestions(filtered.length > 0);
   };
 
   const handleTokenKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -274,6 +288,7 @@ export default function CredentialsPage() {
     setShowSuggestions(false);
     setActiveIndex(-1);
     allSuggestionsRef.current = [];
+    loadedPrefixRef.current = null;
   }, []);
 
   const isEditorOpen = Boolean(crud.editingItem);
