@@ -87,6 +87,7 @@ function ChatSessionViewContent({
   controller,
 }: ChatSessionViewContentProps) {
   const { t } = useTranslation();
+  const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -518,22 +519,42 @@ function ChatSessionViewContent({
       // modal — não cancelar o streaming nem o menu na UI de fundo.
       if (isModalOpen()) return;
 
-      if (event.key === 'Escape' && menuVisible) {
+      if (event.key !== 'Escape') return;
+
+      if (menuVisible) {
         event.preventDefault();
         hideMenu();
         return;
       }
 
-      if (event.key !== 'Escape') return;
+      // O cancelamento por Escape é escopado ao campo de edição (tratado pelo
+      // próprio ChatInput). Aqui apenas devolvemos o foco ao input quando o
+      // Escape vem de qualquer outro elemento do painel — sem cancelar.
+      const input = inputRef.current;
+      if (event.target === input) return;
+      if (!input) return;
+
+      // Só devolvemos o foco ao input quando o Escape se origina DENTRO do
+      // painel do chat. Fora dele (outra superfície/painel, ex.: terminal,
+      // editor, task list, ou o chat embutido enquanto inativo), o roteamento
+      // "ESC → área padrão do painel atual" é responsabilidade do sistema
+      // central de landmarks (useLandmarkNavigation no WorkspaceLayout), que
+      // respeita o painel ativo. Assim este listener não "rouba" o foco para o
+      // chat a partir de outras áreas do app (Issue #202 / AEP-0058).
+      const root = rootRef.current;
+      if (!root || !root.contains(event.target as Node | null)) return;
 
       event.preventDefault();
-      void handleCancelStreaming();
+      input.focus();
     };
 
-    const listenerOptions = { capture: true } as const;
-    window.addEventListener('keydown', onKeyDown, listenerOptions);
-    return () => window.removeEventListener('keydown', onKeyDown, listenerOptions);
-  }, [handleCancelStreaming, hideMenu, isInteractiveSurface, isLoading, menuVisible]);
+    // Registrado na fase de borbulhamento (sem captura) para que handlers locais
+    // de Escape (ex.: colapso/navegação em MessageNode) rodem primeiro e possam
+    // chamar preventDefault()/stopPropagation(). Aqui só agimos quando o Escape
+    // não foi tratado localmente (event.defaultPrevented evita interferência).
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [hideMenu, isInteractiveSurface, isLoading, menuVisible]);
 
   useChatKeyboardNav({
     enabled: isInteractiveSurface,
@@ -820,7 +841,7 @@ function ChatSessionViewContent({
     variant === 'page' ? 'chat-page chat-session-view' : 'chat-session-view chat-session-view--embedded';
 
   return (
-    <div className={rootClass}>
+    <div className={rootClass} ref={rootRef}>
       <div className="ws-content-toolbar">
         <ChatToolbar inputRef={inputRef} conversationId={conversationId} enableShortcuts={isInteractiveSurface} />
       </div>
