@@ -21,67 +21,70 @@ func createSubConvForList(t *testing.T, title, parent string, updatedAt time.Tim
 	return conv.ID
 }
 
-func createMsgWithTokens(t *testing.T, convID, role, content string, prompt, completion, total int) {
+func createRunForChild(t *testing.T, childConvID, status string, turnIndex int, createdAt time.Time) {
 	t.Helper()
-	msg := &ChatMessage{
-		ConversationID:   convID,
-		Role:             role,
-		Content:          content,
-		PromptTokens:     prompt,
-		CompletionTokens: completion,
-		TotalTokens:      total,
+	run := &SubAgentRun{
+		UserID:              testUserID,
+		ChildConversationID: childConvID,
+		TurnIndex:           turnIndex,
+		Status:              status,
 	}
-	if err := db.Create(msg).Error; err != nil {
-		t.Fatalf("criar mensagem: %v", err)
+	run.CreatedAt = createdAt
+	run.UpdatedAt = createdAt
+	if err := db.Create(run).Error; err != nil {
+		t.Fatalf("criar sub_agent_run: %v", err)
 	}
 }
 
-// TestListSubAgentConversationsAggregates valida a agregação via LEFT JOIN +
-// GROUP BY: contagem de mensagens e soma de tokens por sub-conversa, incluindo o
-// caso de sub-conversa SEM mensagens (LEFT JOIN → count 0 e somas 0), a exclusão
-// de conversas normais (kind != subagent) e a ordenação por updated_at DESC.
-func TestListSubAgentConversationsAggregates(t *testing.T) {
+// TestGetConversationsUnifiedListing valida a listagem unificada (AEP-0068):
+// GetConversationsWithContext retorna conversas comuns E sub-conversas de
+// sub-agentes na mesma lista, ordenadas por updated_at DESC, preenchendo
+// LatestStatus (status do run mais recente) apenas para sub-conversas.
+func TestGetConversationsUnifiedListing(t *testing.T) {
 	setupTestDB(t)
 	ctx := testCtx()
 
 	now := time.Now()
-	// convA: mais recente, com 2 mensagens e tokens.
-	convA := createSubConvForList(t, "A", "parent-1", now)
-	createMsgWithTokens(t, convA, "user", "m1", 100, 50, 150)
-	createMsgWithTokens(t, convA, "assistant", "m2", 10, 5, 15)
-	// convB: mais antiga, SEM mensagens (cobre LEFT JOIN → count 0).
-	convB := createSubConvForList(t, "B", "parent-2", now.Add(-time.Hour))
+	// Sub-conversa mais recente, com dois runs: o mais recente (turn_index maior)
+	// define o LatestStatus.
+	subA := createSubConvForList(t, "Sub A", "parent-1", now)
+	createRunForChild(t, subA, SubAgentRunStatusFailed, 0, now.Add(-2*time.Hour))
+	createRunForChild(t, subA, SubAgentRunStatusRunning, 1, now.Add(-time.Hour))
 
-	// Conversa normal (kind="") com mensagem: NÃO deve aparecer na listagem.
-	normal := createTestConversation(t, "normal")
-	createMsgWithTokens(t, normal, "user", "x", 7, 7, 14)
+	// Conversa normal, intermediária.
+	normal := createTestConversation(t, "Normal")
+	if err := db.Model(&Conversation{}).Where("id = ?", normal).Update("updated_at", now.Add(-30*time.Minute)).Error; err != nil {
+		t.Fatalf("ajustar updated_at: %v", err)
+	}
 
-	rows, err := ListSubAgentConversationsWithContext(ctx)
+	// Sub-conversa mais antiga, sem runs (LatestStatus vazio).
+	subB := createSubConvForList(t, "Sub B", "parent-2", now.Add(-time.Hour))
+
+	rows, err := GetConversationsWithContext(ctx)
 	if err != nil {
-		t.Fatalf("ListSubAgentConversationsWithContext: %v", err)
+		t.Fatalf("GetConversationsWithContext: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("esperava 2 sub-conversas, veio %d (%#v)", len(rows), rows)
-	}
-
-	// Ordenação por updated_at DESC: convA primeiro, convB depois.
-	if rows[0].ConversationID != convA || rows[1].ConversationID != convB {
-		t.Fatalf("ordenação inesperada: %s, %s", rows[0].ConversationID, rows[1].ConversationID)
+	if len(rows) != 3 {
+		t.Fatalf("esperava 3 conversas, veio %d (%#v)", len(rows), rows)
 	}
 
-	a := rows[0]
-	if a.MessageCount != 2 || a.PromptTokens != 110 || a.CompletionTokens != 55 || a.TotalTokens != 165 {
-		t.Fatalf("agregação de convA incorreta: %#v", a)
-	}
-	if a.ParentConversationID != "parent-1" || a.Title != "A" {
-		t.Fatalf("metadados de convA incorretos: %#v", a)
+	byID := make(map[string]Conversation, len(rows))
+	for _, c := range rows {
+		byID[c.ID] = c
 	}
 
-	b := rows[1]
-	if b.MessageCount != 0 || b.PromptTokens != 0 || b.CompletionTokens != 0 || b.TotalTokens != 0 {
-		t.Fatalf("convB sem mensagens deveria ter contagem/somas 0: %#v", b)
+	if got := byID[subA]; got.Kind != ConversationKindSubagent || got.LatestStatus != SubAgentRunStatusRunning {
+		t.Fatalf("subA deveria ser kind=subagent com LatestStatus=running: %#v", got)
 	}
-	if b.ParentConversationID != "parent-2" {
-		t.Fatalf("metadados de convB incorretos: %#v", b)
+	if got := byID[subB]; got.Kind != ConversationKindSubagent || got.LatestStatus != "" {
+		t.Fatalf("subB (sem runs) deveria ter LatestStatus vazio: %#v", got)
+	}
+	if got := byID[normal]; got.Kind != "" || got.LatestStatus != "" {
+		t.Fatalf("conversa normal não deveria ter kind/LatestStatus: %#v", got)
+	}
+
+	// Ordenação por updated_at DESC: subA (now), normal (-30m), subB (-1h).
+	if rows[0].ID != subA || rows[1].ID != normal || rows[2].ID != subB {
+		t.Fatalf("ordenação inesperada: %s, %s, %s", rows[0].ID, rows[1].ID, rows[2].ID)
 	}
 }

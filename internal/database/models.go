@@ -102,6 +102,11 @@ type Conversation struct {
 	Kind                 string `json:"kind,omitempty" gorm:"index"`
 	ParentConversationID string `json:"parentConversationId,omitempty" gorm:"index"`
 
+	// LatestStatus é o status do run de sub-agente MAIS RECENTE desta conversa
+	// (AEP-0068), preenchido só na listagem unificada via LEFT JOIN com
+	// sub_agent_runs. Vazio para conversas comuns. Campo calculado, não persiste.
+	LatestStatus string `json:"latestStatus,omitempty" gorm:"-:migration;->"`
+
 	// Rolling Context: sumarização automática de mensagens antigas
 	Summary               string `json:"summary,omitempty" gorm:"type:text"`                     // Resumo acumulativo da conversa
 	SummaryUpToMessageID  string `json:"summary_up_to_message_id,omitempty"`                     // ID da última mensagem coberta pelo resumo

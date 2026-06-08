@@ -153,15 +153,19 @@ operações de consulta/cancelamento resolvem o alvo assim:
   senão `prompt` presente → criar/continuar; senão (só `conversation_id`/`run_id`,
   sem `prompt`) → `status`.
 
-Listar sub-agentes do usuário é **binding Wails/UI**, não tool — para não inchar a
-superfície exposta ao LLM; ele reabre usando o `conversation_id` que já recebeu.
+Listar sub-conversas é responsabilidade da **UI**, não uma tool — para não inchar a
+superfície exposta ao LLM; ele reabre usando o `conversation_id` que já recebeu. A
+listagem é **unificada**: o mesmo binding `GetConversations` retorna conversas comuns e
+sub-conversas (campo `kind`), com o `latestStatus` do run mais recente preenchido via
+`LEFT JOIN sub_agent_runs` (ver Fase 5). Não há binding separado para sub-agentes.
 
 ### Sub-conversa e identidade
 
 - **1 conversa UUID por sub-agente** (não reusa a do pai: há um stream por conversa
   no `StreamingManager`; reusar causaria cancelamento mútuo).
 - `Conversation` ganha `parent_conversation_id` e `kind` (`subagent`) para vínculo
-  e filtragem no histórico. O **handle durável é o `conversation_id`**.
+  e distinção no histórico (badge/filtro na UI). O **handle durável é o
+  `conversation_id`**.
 
 ### Disparo e execução
 
@@ -229,9 +233,27 @@ propagada:
 - **Fase 4 — Jobs**: job chamando a tool `subagent` (conversa fixa = histórico
   recorrente; ou conversa nova por run); proveniência/circuit-breaker compartilhados;
   reconciliação de runs órfãos no startup.
-- **Fase 5 — UI + limites**: frontend para listar/abrir sub-conversas (filtrável por
-  `kind=subagent`); teto global de concorrência por usuário + visibilidade de custo
-  e passagem pelo rate-limiter (AEP-0065).
+- **Fase 5 — UI + limites**: sub-conversas são **mescladas na listagem do Histórico**
+  (`HistoryPage`), não em página separada — são conversas comuns do ponto de vista do
+  usuário (mesma tabela, mesmas ações: abrir, renomear, excluir, exportar). A listagem
+  vem de **um único binding `GetConversations`**, que inclui as sub-conversas (campo
+  `kind`) e o `latestStatus` do run mais recente (via `LEFT JOIN sub_agent_runs`). A
+  `HistoryPage` exibe cada sub-conversa com um **badge "sub-agente"** e, quando o run
+  está ativo (`queued`/`running`), um **indicador de status**; um **filtro "mostrar
+  sub-agentes"** permite ocultá-las. A busca (FTS) já cobre todas as conversas (o índice
+  de mensagens não filtra por `kind`), então é uniforme. Teto global de concorrência por
+  usuário + visibilidade de custo e passagem pelo rate-limiter (AEP-0065).
+  - **Histórico decisório**: a versão inicial desta fase entregou uma página dedicada
+    (`/subagents`) com colunas operacionais (status, runs, tokens) e um binding próprio
+    (`GetSubAgentConversations` → `Manager.ListSubConversations`). Isso foi revisto em
+    duas etapas: (1) o enquadramento de sub-agentes como "tarefas em background a
+    monitorar" (próximo de Jobs) estava errado — são conversas, e qualquer sub-conversa
+    pode ser usada/aberta como conversa comum; a página separada e seu item de menu foram
+    removidos em favor da listagem no Histórico; (2) por serem a mesma entidade, manter
+    dois métodos de listagem era distinção desnecessária — `GetSubAgentConversations`,
+    `Manager.ListSubConversations`, o `ConversationLister` e a agregação de runs para a UI
+    (`AggregateByChildConversation`) foram removidos; `GetConversations` passou a ser o
+    único caminho de listagem.
 
 Entrega em PRs **empilhados** e mergeáveis em ordem (F1→F5), pois cada fase depende
 da anterior.
