@@ -79,6 +79,14 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   // Foco a reaplicar depois que um movimento de card recompõe as colunas.
   const pendingFocusRef = useRef<PendingFocus | null>(null);
+  // Id do card que detém o foco — capturado por id (não por posição), para que
+  // possamos reencontrá-lo mesmo quando uma atualização EXTERNA (ex.: um job) o
+  // move de coluna e a posição antiga passa a apontar para outro card (issue #177).
+  const focusedTaskIdRef = useRef<string | null>(null);
+  // Indica que o board detém o foco do teclado. Mantido `true` mesmo quando o
+  // foco "cai" no body por desmontagem do card focado (job/menu de contexto),
+  // para que o effect de recuperação saiba que deve reposicionar o foco.
+  const boardOwnsFocusRef = useRef(false);
 
   // ── Context menu ───────────────────────────────────────────
   const {
@@ -121,6 +129,11 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
     [tasksByStatus, statuses],
   );
 
+  // Espelho síncrono das colunas atuais, para ler em effects/handlers SEM
+  // recriá-los (e sem re-capturar o id do card focado) a cada update (issue #177).
+  const columnsRef = useRef(tasksByStatus);
+  columnsRef.current = tasksByStatus;
+
   // ── Imperative handle para criar tarefa ────────────────────
   useImperativeHandle(ref, () => ({
     openCreateModal: () => {
@@ -138,10 +151,16 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
     }
   }, []);
 
-  // Após alterar focusPos, mover foco real
+  // Após alterar focusPos, mover foco real e registrar (por id) qual card detém
+  // o foco. Lemos as colunas via ref para NÃO recapturar o id quando apenas as
+  // tarefas mudam (ex.: um job) — assim o id permanece o de ANTES da atualização,
+  // permitindo seguir o card até sua nova coluna (issue #177).
   useEffect(() => {
     focusCard(focusPos.col, focusPos.row);
-  }, [focusPos, focusCard]);
+    const status = statuses[focusPos.col];
+    const colTasks = status ? (columnsRef.current.get(status.id) ?? []) : [];
+    focusedTaskIdRef.current = colTasks[focusPos.row]?.id ?? null;
+  }, [focusPos, focusCard, statuses]);
 
   // Localiza a posição (coluna/linha) atual de um card pelo id.
   const findTaskPos = useCallback(
@@ -192,42 +211,84 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   }, [statuses, getColumnTasks]);
 
   // issue #177: ao mover um card entre colunas, o card focado é desmontado e o
-  // foco "cai" para o body, obrigando o usuário a apertar Tab. Quando há um
-  // foco pendente, reposicionamos o foco dentro do board assim que as colunas
-  // são recompostas (depois da atualização otimista de `tasks`).
+  // foco "cai" para o body, obrigando o usuário a apertar Tab. Reposicionamos o
+  // foco dentro do board assim que as colunas são recompostas:
+  //   1. Movimento iniciado pelo usuário (teclado/menu): há um `pendingFocusRef`
+  //      armado, e seguimos a regra dele (próximo card da origem ou o card movido).
+  //   2. Atualização EXTERNA (ex.: um job mudou o status de um card sem gesto do
+  //      usuário): não há foco pendente. Se o board detinha o foco e o card focado
+  //      foi desmontado (o foco escapou para o body), seguimos esse mesmo card até
+  //      a nova coluna — ou caímos num fallback — para não exigir Tab.
   useEffect(() => {
     const pending = pendingFocusRef.current;
-    if (!pending) return;
-    pendingFocusRef.current = null;
+    if (pending) {
+      pendingFocusRef.current = null;
 
-    let next: FocusPos | null = null;
-    if (pending.kind === 'followTask') {
-      // Se o card movido não for encontrado (ex.: removido/consolidado por uma
-      // atualização concorrente), mantém o foco no board indo para o primeiro
-      // card de uma coluna não vazia, em vez de deixar o foco cair no body.
-      next = findTaskPos(pending.taskId) ?? firstNonEmptyColumnPos();
-    } else {
-      const sourceTasks = getColumnTasks(pending.sourceCol);
-      if (sourceTasks.length > 0) {
-        // Próximo card da coluna de origem (o que ocupou a posição liberada);
-        // se o card movido era o último, cai no novo último da coluna.
-        next = {
-          col: pending.sourceCol,
-          row: Math.min(pending.sourceRow, sourceTasks.length - 1),
-        };
-      } else {
-        // Coluna de origem ficou vazia: o foco acompanha o card movido.
+      let next: FocusPos | null = null;
+      if (pending.kind === 'followTask') {
+        // Se o card movido não for encontrado (ex.: removido/consolidado por uma
+        // atualização concorrente), mantém o foco no board indo para o primeiro
+        // card de uma coluna não vazia, em vez de deixar o foco cair no body.
         next = findTaskPos(pending.taskId) ?? firstNonEmptyColumnPos();
+      } else {
+        const sourceTasks = getColumnTasks(pending.sourceCol);
+        if (sourceTasks.length > 0) {
+          // Próximo card da coluna de origem (o que ocupou a posição liberada);
+          // se o card movido era o último, cai no novo último da coluna.
+          next = {
+            col: pending.sourceCol,
+            row: Math.min(pending.sourceRow, sourceTasks.length - 1),
+          };
+        } else {
+          // Coluna de origem ficou vazia: o foco acompanha o card movido.
+          next = findTaskPos(pending.taskId) ?? firstNonEmptyColumnPos();
+        }
       }
+
+      if (next) {
+        // `next` é sempre um objeto novo, então `setFocusPos` dispara o effect de
+        // `focusPos` acima, que aplica o `.focus()` uma única vez. Não chamamos
+        // `focusCard` aqui para evitar foco/anúncio duplicado.
+        setFocusPos(next);
+      }
+      return;
     }
 
+    // Sem foco pendente: a recomposição veio de FORA (ex.: um job). Só agimos se o
+    // board detinha o foco E ele escapou do board (caiu no body) — caso contrário
+    // não roubamos o foco de onde o usuário o deixou.
+    if (!boardOwnsFocusRef.current) return;
+    const boardEl = boardRef.current;
+    const active = document.activeElement;
+    if (boardEl && active && active !== document.body && boardEl.contains(active)) {
+      return; // o foco ainda está dentro do board — nada a fazer.
+    }
+
+    // Segue o card que estava focado (capturado por id) até sua nova coluna.
+    const focusedId = focusedTaskIdRef.current;
+    let next: FocusPos | null = focusedId ? findTaskPos(focusedId) : null;
+    if (!next) {
+      // O card focado sumiu (deletado/consolidado): vai para o card que ocupou a
+      // posição antiga; se a coluna esvaziou, para a primeira coluna não vazia.
+      const colTasks = getColumnTasks(focusPos.col);
+      next =
+        colTasks.length > 0
+          ? { col: focusPos.col, row: Math.min(focusPos.row, colTasks.length - 1) }
+          : firstNonEmptyColumnPos();
+    }
     if (next) {
       // `next` é sempre um objeto novo, então `setFocusPos` dispara o effect de
-      // `focusPos` acima, que aplica o `.focus()` uma única vez. Não chamamos
-      // `focusCard` aqui para evitar foco/anúncio duplicado.
+      // `focusPos`, que aplica o `.focus()` uma única vez (mesmo padrão do ramo
+      // de foco pendente acima).
       setFocusPos(next);
     }
-  }, [tasksByStatus, getColumnTasks, findTaskPos, firstNonEmptyColumnPos]);
+  }, [
+    tasksByStatus,
+    getColumnTasks,
+    findTaskPos,
+    firstNonEmptyColumnPos,
+    focusPos,
+  ]);
 
   // Formata a data de criação no MESMO formato relativo usado nas mensagens
   // do chat (ver `getAriaLabel` em ChatMessage.tsx e `buildChatMessageAriaLabel`).
@@ -377,7 +438,22 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
               label: s.label,
               action: () => {
                 const targetIdx = statuses.findIndex((st) => st.id === s.id);
-                moveTaskToColumn(task, targetIdx);
+                const liveTask = findTaskById(task.id) ?? task;
+                const targetStatus = statuses[targetIdx];
+                if (!targetStatus || liveTask.statusId === targetStatus.id) return;
+                // Mantém o foco no board após mover (issue #177): vai para o
+                // próximo card da coluna de origem, igual ao Alt+Seta. Sem isso, o
+                // card focado é desmontado e o foco cai no body (precisa de Tab).
+                const pos = findTaskPos(task.id);
+                if (pos) {
+                  pendingFocusRef.current = {
+                    kind: 'sourceNext',
+                    sourceCol: pos.col,
+                    sourceRow: pos.row,
+                    taskId: task.id,
+                  };
+                }
+                moveTaskToColumn(liveTask, targetIdx);
               },
             })),
         },
@@ -415,7 +491,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
 
       openForTrigger(trigger, t('tasklist.kanban.cardMenu', 'Menu do card'), items);
     },
-    [statuses, moveTaskToColumn, handleDeleteTask, openForTrigger, t, listCardCustomActions, runCustomAction, taskListId],
+    [statuses, moveTaskToColumn, handleDeleteTask, openForTrigger, t, listCardCustomActions, runCustomAction, taskListId, findTaskById, findTaskPos],
   );
 
   // ── Inline rename (F2) ────────────────────────────────────
@@ -856,6 +932,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
             if (task) {
               focusCard(focusPos.col, focusPos.row);
               announceCard(task, focusPos.col, focusPos.row);
+              focusedTaskIdRef.current = task.id;
             } else {
               const status = statuses[focusPos.col];
               announce(
@@ -864,11 +941,19 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
               );
             }
           }
+          // O board passou a deter o foco do teclado (issue #177).
+          boardOwnsFocusRef.current = true;
           setBoardHasInternalFocus(true);
         }}
         onBlur={(e) => {
-          if (!boardRef.current?.contains(e.relatedTarget as Node)) {
+          const next = e.relatedTarget as Node | null;
+          if (!boardRef.current?.contains(next)) {
             setBoardHasInternalFocus(false);
+            // Só abrimos mão da POSSE do foco quando o usuário o move para um
+            // elemento real FORA do board. Se `relatedTarget` é null, o foco caiu
+            // no body — provável desmontagem do card focado por um job/menu —, e
+            // mantemos a posse para o effect de recuperação reposicionar (issue #177).
+            if (next) boardOwnsFocusRef.current = false;
           }
         }}
       >
