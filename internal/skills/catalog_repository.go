@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"strconv"
 
 	"assistente/internal/database"
@@ -191,11 +192,18 @@ func (r *DBRepository) catalogMatchesHashes(ctx context.Context, desired map[str
 		if !ok || row.ContentHash != want {
 			return false, nil
 		}
-		// Catálogo sem path materializado é considerado defasado (precisa
-		// re-materializar para servir o Nível 1 via read_file) — só quando há
-		// materializador para preenchê-lo.
-		if requirePath && row.Path == "" {
-			return false, nil
+		// Com materializador, a entrada só está "fresh" se o corpo materializado
+		// ainda existe em disco. Path vazio (nunca materializado) OU arquivo
+		// ausente (ex.: cache limpo) força rebuild + re-materialização — caso
+		// contrário o catálogo manteria um path quebrado e o read_file do Nível 1
+		// falharia. Sem materializador, o path não é gerenciado e não força rebuild.
+		if requirePath {
+			if row.Path == "" {
+				return false, nil
+			}
+			if _, err := os.Stat(row.Path); err != nil {
+				return false, nil
+			}
 		}
 	}
 	return true, nil

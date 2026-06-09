@@ -2,6 +2,8 @@ package skills
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -134,10 +136,16 @@ func TestRebuildCatalogSkipsWhenInSync(t *testing.T) {
 	if _, err := repo.Create(ctx, newSkill("stable", nil)); err != nil {
 		t.Fatalf("create: %v", err)
 	}
+	dir := t.TempDir()
 	var calls int
+	// Materializa em disco de verdade: o no-op exige que o arquivo ainda exista.
 	materialize := func(s Skill) (string, error) {
 		calls++
-		return "/cache/skills/" + s.Slug + "/SKILL.md", nil
+		p := filepath.Join(dir, s.Slug+".md")
+		if err := os.WriteFile(p, []byte(s.Content), 0o600); err != nil {
+			return "", err
+		}
+		return p, nil
 	}
 
 	if err := repo.RebuildCatalog(ctx, materialize); err != nil {
@@ -164,6 +172,60 @@ func TestRebuildCatalogSkipsWhenInSync(t *testing.T) {
 	}
 	if calls != 3 {
 		t.Errorf("após adicionar skill, deveria re-materializar ambas (calls=3), got %d", calls)
+	}
+}
+
+func TestRebuildCatalogRematerializesWhenFileMissing(t *testing.T) {
+	// AEP-0072 D2: com materializador, o no-op só vale se o corpo materializado
+	// ainda existe em disco. Se o cache for limpo (arquivo apagado), o rebuild deve
+	// re-materializar — caso contrário o skill_catalog manteria um path quebrado.
+	repo, ctx := setupRepo(t)
+	if _, err := repo.Create(ctx, newSkill("ghost", nil)); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	dir := t.TempDir()
+	var calls int
+	materialize := func(s Skill) (string, error) {
+		calls++
+		p := filepath.Join(dir, s.Slug+".md")
+		if err := os.WriteFile(p, []byte(s.Content), 0o600); err != nil {
+			return "", err
+		}
+		return p, nil
+	}
+
+	if err := repo.RebuildCatalog(ctx, materialize); err != nil {
+		t.Fatalf("rebuild 1: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("rebuild inicial deveria materializar 1 skill, got %d", calls)
+	}
+
+	// Arquivo presente + hashes iguais → no-op.
+	if err := repo.RebuildCatalog(ctx, materialize); err != nil {
+		t.Fatalf("rebuild 2: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("com arquivo presente deveria ser no-op, materializou %d vez(es)", calls)
+	}
+
+	// Cache limpo: apaga o arquivo materializado → próximo rebuild re-materializa.
+	entries, err := repo.ListCatalog(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	e, ok := findCatalogEntry(entries, "ghost")
+	if !ok || e.Path == "" {
+		t.Fatalf("entrada ghost sem path materializado: %+v", e)
+	}
+	if err := os.Remove(e.Path); err != nil {
+		t.Fatalf("remove arquivo materializado: %v", err)
+	}
+	if err := repo.RebuildCatalog(ctx, materialize); err != nil {
+		t.Fatalf("rebuild 3: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("arquivo materializado ausente deveria forçar re-materialização, calls=%d", calls)
 	}
 }
 
