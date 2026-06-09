@@ -1516,10 +1516,10 @@ export namespace database {
 	    message_count: number;
 	    kind?: string;
 	    parentConversationId?: string;
+	    latestStatus?: string;
 	    summary?: string;
 	    summary_up_to_message_id?: string;
 	    summarizing_in_progress?: boolean;
-	    latestStatus?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Conversation(source);
@@ -1538,10 +1538,10 @@ export namespace database {
 	        this.message_count = source["message_count"];
 	        this.kind = source["kind"];
 	        this.parentConversationId = source["parentConversationId"];
+	        this.latestStatus = source["latestStatus"];
 	        this.summary = source["summary"];
 	        this.summary_up_to_message_id = source["summary_up_to_message_id"];
 	        this.summarizing_in_progress = source["summarizing_in_progress"];
-	        this.latestStatus = source["latestStatus"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2675,6 +2675,22 @@ export namespace llm {
 	        this.arguments = source["arguments"];
 	    }
 	}
+	export class FunctionDefinition {
+	    name: string;
+	    description: string;
+	    parameters: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new FunctionDefinition(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.parameters = source["parameters"];
+	    }
+	}
 	export class ToolCall {
 	    id: string;
 	    type: string;
@@ -2747,6 +2763,70 @@ export namespace llm {
 		    return a;
 		}
 	}
+	export class ToolDefinition {
+	    type: string;
+	    function: FunctionDefinition;
+	
+	    static createFrom(source: any = {}) {
+	        return new ToolDefinition(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.function = this.convertValues(source["function"], FunctionDefinition);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class NativeMCPAdapterFallback {
+	    Streamer: any;
+	    ToolDefs: ToolDefinition[];
+	
+	    static createFrom(source: any = {}) {
+	        return new NativeMCPAdapterFallback(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Streamer = source["Streamer"];
+	        this.ToolDefs = this.convertValues(source["ToolDefs"], ToolDefinition);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ProviderConfig {
 	    id: string;
 	    name: string;
@@ -2781,6 +2861,7 @@ export namespace llm {
 	        this.auth_mode = source["auth_mode"];
 	    }
 	}
+	
 
 }
 

@@ -159,6 +159,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
       title={task?.title ?? ''}
       size="lg"
       className="task-detail-modal"
+      readingMode
     >
       {!task ? null : (
       <>

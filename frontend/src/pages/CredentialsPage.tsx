@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { ListCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/app/App';
+import { ListCredentials, UpsertCredential, DeleteCredential, ListExternalSources } from '@wailsjs/go/app/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
@@ -12,6 +12,7 @@ import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import { useAnnouncer } from '../hooks/useAnnouncer';
 import './CredentialsPage.css';
 
 interface CredentialRow {
@@ -30,9 +31,20 @@ interface CredentialRow {
 
 export default function CredentialsPage() {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'credentials-page' });
   const [focusedRow, setFocusedRow] = useState<CredentialRow | null>(null);
+  const [suggestions, setSuggestions] = useState<Array<{value: string; label: string}>>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const allSuggestionsRef = useRef<Array<{value: string; label: string}>>([]);
+  const loadedPrefixRef = useRef<string | null>(null);
+  const sourcesPromiseRef = useRef<{ prefix: string; epoch: number; promise: Promise<Array<{value: string; label: string}>> } | null>(null);
+  const cacheEpochRef = useRef(0);
+  const listboxRef = useRef<HTMLUListElement>(null);
+  const latestTokenRef = useRef<string>('');
+  const prevShowSuggestionsRef = useRef(false);
 
   const typeOptions = [
     { value: 'bearer', label: t('credentials.types.bearer') },
@@ -178,6 +190,147 @@ export default function CredentialsPage() {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [crud]);
 
+  const isRefValue = (value?: string): boolean =>
+    Boolean(value && (value.startsWith('keyring://') || value.startsWith('env://')));
+
+  const invalidateSuggestionCache = useCallback(() => {
+    cacheEpochRef.current += 1;
+    sourcesPromiseRef.current = null;
+    allSuggestionsRef.current = [];
+    loadedPrefixRef.current = null;
+  }, []);
+
+  const loadExternalSources = useCallback((prefix: string) => {
+    if (loadedPrefixRef.current === prefix) return Promise.resolve(allSuggestionsRef.current);
+
+    const epoch = cacheEpochRef.current;
+    const pending = sourcesPromiseRef.current;
+    if (pending && pending.prefix === prefix && pending.epoch === epoch) return pending.promise;
+
+    const promise = (async () => {
+      let items: Array<{value: string; label: string}> = [];
+      try {
+        const results = await ListExternalSources(prefix);
+        items = (results || []).map(r => ({ value: r.value, label: r.label }));
+      } catch {
+        items = [];
+      }
+      // Descarta resultado tardio se o cache foi invalidado (reset/close/limpeza) durante a requisição.
+      if (cacheEpochRef.current === epoch) {
+        allSuggestionsRef.current = items;
+        loadedPrefixRef.current = prefix;
+        if (sourcesPromiseRef.current?.epoch === epoch && sourcesPromiseRef.current?.prefix === prefix) {
+          sourcesPromiseRef.current = null;
+        }
+      }
+      return items;
+    })();
+
+    sourcesPromiseRef.current = { prefix, epoch, promise };
+    return promise;
+  }, []);
+
+  const handleTokenChange = async (value: string) => {
+    crud.updateField('token', value);
+    setActiveIndex(-1);
+    latestTokenRef.current = value;
+
+    const prefix = value.startsWith('keyring://') ? 'keyring://'
+      : value.startsWith('env://') ? 'env://' : null;
+
+    if (!prefix) {
+      // Só limpa/invalida se o autocomplete chegou a ser ativado (evita renders e
+      // incremento de epoch a cada tecla quando o token nunca foi uma referência).
+      if (loadedPrefixRef.current !== null || showSuggestions) {
+        setShowSuggestions(false);
+        setSuggestions([]);
+        invalidateSuggestionCache();
+      }
+      return;
+    }
+
+    const items = await loadExternalSources(prefix);
+    if (latestTokenRef.current !== value) return;
+
+    const search = value.slice(prefix.length).toLowerCase();
+    const filtered = search === ''
+      ? items
+      : items.filter(s => s.label.toLowerCase().includes(search));
+    setSuggestions(filtered);
+    setShowSuggestions(filtered.length > 0);
+  };
+
+  const handleTokenKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!showSuggestions || suggestions.length === 0) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setActiveIndex(prev => {
+          const next = prev < suggestions.length - 1 ? prev + 1 : 0;
+          requestAnimationFrame(() => {
+            listboxRef.current?.querySelector(`#token-suggestion-${next}`)
+              ?.scrollIntoView({ block: 'nearest' });
+          });
+          return next;
+        });
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setActiveIndex(prev => {
+          const next = prev > 0 ? prev - 1 : suggestions.length - 1;
+          requestAnimationFrame(() => {
+            listboxRef.current?.querySelector(`#token-suggestion-${next}`)
+              ?.scrollIntoView({ block: 'nearest' });
+          });
+          return next;
+        });
+        break;
+      case 'Enter':
+        if (activeIndex >= 0 && activeIndex < suggestions.length) {
+          e.preventDefault();
+          const selected = suggestions[activeIndex].value;
+          latestTokenRef.current = selected;
+          crud.updateField('token', selected);
+          setShowSuggestions(false);
+          setActiveIndex(-1);
+        }
+        break;
+      case 'Escape':
+        e.stopPropagation();
+        latestTokenRef.current = '';
+        setShowSuggestions(false);
+        setActiveIndex(-1);
+        break;
+    }
+  }, [showSuggestions, suggestions, activeIndex, crud]);
+
+  const resetSuggestions = useCallback(() => {
+    latestTokenRef.current = '';
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setActiveIndex(-1);
+    invalidateSuggestionCache();
+  }, [invalidateSuggestionCache]);
+
+  const isEditorOpen = Boolean(crud.editingItem);
+  useEffect(() => {
+    if (!isEditorOpen) resetSuggestions();
+  }, [isEditorOpen, resetSuggestions]);
+
+  // Anuncia as sugestões apenas na TRANSIÇÃO de visibilidade do dropdown
+  // (fechado→aberto), não a cada tecla — evita "spam" de announcements no leitor
+  // de tela enquanto o usuário digita e a lista é apenas refiltrada. O ref é
+  // mantido em sincronia por este efeito independentemente de onde showSuggestions
+  // muda (seleção, Escape, blur, reset).
+  useEffect(() => {
+    if (showSuggestions === prevShowSuggestionsRef.current) return;
+    prevShowSuggestionsRef.current = showSuggestions;
+    if (showSuggestions) {
+      announce(t('credentials.aria.suggestionsAvailable', { count: suggestions.length }));
+    }
+  }, [showSuggestions, suggestions.length, announce, t]);
+
   const [viewingManaged, setViewingManaged] = useState<CredentialRow | null>(null);
 
   const getRowId = useCallback((row: CredentialRow) => row.id, []);
@@ -295,7 +448,7 @@ export default function CredentialsPage() {
 
       <Modal
         isOpen={Boolean(crud.editingItem)}
-        onClose={crud.closeEditor}
+        onClose={() => { resetSuggestions(); crud.closeEditor(); }}
         title={crud.isNew ? t('credentials.modal.newTitle') : t('credentials.modal.editTitle')}
         size="md"
       >
@@ -317,16 +470,59 @@ export default function CredentialsPage() {
               fullWidth
             />
 
-            {(crud.editingItem.type === 'bearer' || crud.editingItem.type === 'oauth2' || crud.editingItem.type === 'secret') && (
-              <Input
-                label="Token"
-                type="password"
-                value={crud.editingItem.token || ''}
-                onChange={(e) => crud.updateField('token', e.target.value)}
-                placeholder={t('credentials.placeholders.token')}
-                fullWidth
-              />
-            )}
+            {(crud.editingItem.type === 'bearer' || crud.editingItem.type === 'oauth2' || crud.editingItem.type === 'secret') && (() => {
+              const tokenIsRef = isRefValue(crud.editingItem.token);
+              const hasSuggestions = showSuggestions && suggestions.length > 0;
+              return (
+              <div className="credentials-page__token-field">
+                <Input
+                  label={t('credentials.labels.token')}
+                  type={tokenIsRef ? 'text' : 'password'}
+                  value={crud.editingItem.token || ''}
+                  onChange={(e) => handleTokenChange(e.target.value)}
+                  onKeyDown={handleTokenKeyDown}
+                  onBlur={() => { latestTokenRef.current = ''; setShowSuggestions(false); setActiveIndex(-1); }}
+                  placeholder={t('credentials.placeholders.token_ref')}
+                  fullWidth
+                  autoComplete="off"
+                  role={tokenIsRef ? 'combobox' : undefined}
+                  aria-haspopup={tokenIsRef ? 'listbox' : undefined}
+                  aria-expanded={tokenIsRef ? hasSuggestions : undefined}
+                  aria-controls={tokenIsRef && hasSuggestions ? 'token-suggestions' : undefined}
+                  aria-activedescendant={tokenIsRef && activeIndex >= 0 ? `token-suggestion-${activeIndex}` : undefined}
+                  aria-autocomplete={tokenIsRef ? 'list' : undefined}
+                />
+                {tokenIsRef && hasSuggestions && (
+                  <ul
+                    id="token-suggestions"
+                    ref={listboxRef}
+                    className="credentials-page__suggestions"
+                    role="listbox"
+                    aria-label={t('credentials.aria.suggestions')}
+                  >
+                    {suggestions.map((s, index) => (
+                      <li
+                        key={s.value}
+                        id={`token-suggestion-${index}`}
+                        role="option"
+                        aria-selected={index === activeIndex}
+                        className={`credentials-page__suggestion${index === activeIndex ? ' credentials-page__suggestion--active' : ''}`}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          latestTokenRef.current = s.value;
+                          crud.updateField('token', s.value);
+                          setShowSuggestions(false);
+                          setActiveIndex(-1);
+                        }}
+                      >
+                        {s.label}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              );
+            })()}
 
             {crud.editingItem.type === 'basic' && (
               <div className="credentials-page__row">
@@ -382,7 +578,7 @@ export default function CredentialsPage() {
               {t('credentials.buttons.delete')}
             </Button>
           )}
-          <Button variant="ghost" onClick={crud.closeEditor}>
+          <Button variant="ghost" onClick={() => { resetSuggestions(); crud.closeEditor(); }}>
             {t('common.cancel')}
           </Button>
           <Button onClick={crud.save} loading={crud.saving}>
