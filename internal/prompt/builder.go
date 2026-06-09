@@ -459,74 +459,92 @@ func asTemplateData(tplData any) (chat.TemplateData, bool) {
 	}
 }
 
-// filesystemCapabilityTools e networkCapabilityTools mapeiam tools builtin para as
-// capacidades que uma skill pode exigir (requires_filesystem / requires_network).
-// Espelham as categorias de internal/tools/catalog.go (filesystem e web/http).
-var filesystemCapabilityTools = map[string]bool{
-	"read_file": true, "list_directory": true, "search_files": true, "grep_search": true,
-	"write_file": true, "edit_file": true, "move_file": true, "copy_file": true,
-	"delete_file": true, "make_directory": true,
-}
-
-var networkCapabilityTools = map[string]bool{
-	"web_search": true, "web_fetch": true, "http_request": true, "feed_read": true,
-}
-
 // skillCapabilities resume as capacidades que o modelo realmente alcança segundo o
 // perfil (tplData), usadas no gating de skills do Nível 1 (AEP-0072 D4).
 type skillCapabilities struct {
-	tools      bool // tool calling utilizável (qualquer tool inicial alcançável)
+	tools      bool // tool calling utilizável (alguma tool real no universo do perfil)
 	filesystem bool
 	network    bool
 	mcp        bool
 	onDemand   bool // read_file alcançável → ativação por leitura (Nível 2) viável
 }
 
-// resolveSkillCapabilities deriva as capacidades alcançáveis a partir do perfil.
+func allSkillCapabilities() skillCapabilities {
+	return skillCapabilities{tools: true, filesystem: true, network: true, mcp: true, onDemand: true}
+}
+
+// resolveSkillCapabilities deriva, de forma confiável, as capacidades que uma skill
+// pode exigir contra o UNIVERSO de tools realmente disponível ao perfil.
 //
-// Regras: sem tool calling → nada alcançável. EnabledTools nil/vazio = default
-// (todas as tools) → tudo alcançável. tool_catalog presente = catalog-first
-// (qualquer tool pode ser habilitada depois) → tudo alcançável. Caso contrário, o
-// perfil fixa uma lista restrita e cada capacidade é derivada do que está nela —
-// evitando instruir read_file ou exibir skills incompatíveis quando a tool não
-// existe naquele perfil.
+// Princípio (AEP-0072 D4): o tool_catalog só ESCONDE tools inicialmente, não reduz
+// o universo. Uma tool não desativada para o perfil torna a skill disponível mesmo
+// que comece escondida no catálogo; uma tool ausente do perfil deve ocultar a skill.
+//
+//   - Sem tool calling → nada alcançável.
+//   - Perfil sem allowlist (EnabledTools == nil) → universo completo → tudo
+//     alcançável (catalog-first revela qualquer tool, ou todas já estão diretas).
+//   - Perfil com allowlist fixa → o universo é exatamente essa lista (o catálogo
+//     não excede a allowlist). Cada capacidade é derivada das tools presentes; o
+//     próprio tool_catalog não concede capacidade.
 func resolveSkillCapabilities(tplData any) skillCapabilities {
 	data, ok := asTemplateData(tplData)
 	if !ok {
 		// Sem TemplateData tipado (ex.: chamadas simples/testes): assume tudo
 		// habilitado, preservando o comportamento histórico.
-		return skillCapabilities{tools: true, filesystem: true, network: true, mcp: true, onDemand: true}
+		return allSkillCapabilities()
 	}
 	if !data.ToolCallingEnabled {
 		return skillCapabilities{}
 	}
-	all := len(data.EnabledTools) == 0
-	if !all {
-		for _, n := range data.EnabledTools {
-			if n == tools.ToolCatalogName {
-				all = true
-				break
-			}
-		}
+	universe, restricted := profileToolUniverse(data)
+	if !restricted {
+		return allSkillCapabilities()
 	}
-	if all {
-		return skillCapabilities{tools: true, filesystem: true, network: true, mcp: true, onDemand: true}
-	}
-	caps := skillCapabilities{tools: len(data.EnabledTools) > 0}
-	for _, n := range data.EnabledTools {
-		if filesystemCapabilityTools[n] {
-			caps.filesystem = true
+	caps := skillCapabilities{}
+	for _, n := range universe {
+		if n == tools.ToolCatalogName {
+			continue // meta-tool: não concede capacidade própria
 		}
-		if networkCapabilityTools[n] {
-			caps.network = true
-		}
+		caps.tools = true
 		if n == "read_file" {
 			caps.onDemand = true
 		}
+		switch tools.ToolCapabilityKind(n) {
+		case tools.ToolCapabilityFilesystem:
+			caps.filesystem = true
+		case tools.ToolCapabilityNetwork:
+			caps.network = true
+		case tools.ToolCapabilityMCP:
+			caps.mcp = true
+		}
 	}
-	// MCP não é alcançável por uma lista builtin fixa (tools MCP são dinâmicas);
-	// só vale no modo default/catalog-first, já tratado acima.
 	return caps
+}
+
+// profileToolUniverse devolve o universo de tools do perfil e se há restrição
+// (allowlist). restricted=false significa universo completo (sem allowlist).
+//
+// A fonte confiável é o perfil (data.Profile.Chat): EnabledTools == nil = sem
+// allowlist; DisableTools cobre o caso sem tools (já barrado por ToolCallingEnabled).
+// Sem Profile tipado (testes/callers simples), interpreta data.EnabledTools como a
+// allowlist — com [tool_catalog] sozinho equivalendo a catalog-first (sem restrição).
+func profileToolUniverse(data chat.TemplateData) (names []string, restricted bool) {
+	if data.Profile != nil {
+		if data.Profile.Chat.DisableTools {
+			return nil, true
+		}
+		if data.Profile.Chat.EnabledTools == nil {
+			return nil, false
+		}
+		return data.Profile.Chat.EnabledTools, true
+	}
+	if data.EnabledTools == nil {
+		return nil, false
+	}
+	if len(data.EnabledTools) == 1 && data.EnabledTools[0] == tools.ToolCatalogName {
+		return nil, false
+	}
+	return data.EnabledTools, true
 }
 
 // collectCatalogPool carrega o índice compacto de skills (catálogo, Nível 1),

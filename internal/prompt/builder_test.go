@@ -577,6 +577,51 @@ func TestBuildSkillsSection_ReadFileEnabledKeepsOnDemandAndFilesystem(t *testing
 	}
 }
 
+func TestBuildSkillsSection_CatalogFirstProfileKeepsNetworkSkillAvailable(t *testing.T) {
+	// Perfil sem allowlist (EnabledTools == nil): catalog-first. As tools de rede
+	// começam escondidas no tool_catalog, mas continuam alcançáveis → uma skill que
+	// exige rede deve permanecer disponível.
+	netSkill := makeSkill("netskill", "NetSkill", "Needs net", "Net body.", false, true)
+	netSkill.RequiresNetwork = true
+	b := &prompt.Builder{Skills: &mockSkillReader{availableSkills: []skills.Skill{netSkill}}}
+
+	tpl := chat.TemplateData{
+		ToolCallingEnabled: true,
+		EnabledTools:       []string{tools.ToolCatalogName},
+		Profile:            &profiles.Profile{Chat: profiles.ChatConfig{EnabledTools: nil}},
+	}
+	result := b.BuildSkillsSection(nil, false, tpl)
+	if !strings.Contains(result, "<available_skills>") || !strings.Contains(result, "netskill") {
+		t.Errorf("catalog-first deveria manter skill de rede disponível: %q", result)
+	}
+}
+
+func TestBuildSkillsSection_AllowlistWithCatalogStillGatesMissingCapability(t *testing.T) {
+	// Perfil com allowlist fixa (tool_catalog + read_file): o universo é exatamente
+	// essas tools — o catálogo não excede a allowlist. Skill de rede deve sumir
+	// (sem tool de rede), mas a de filesystem permanece (read_file disponível).
+	netSkill := makeSkill("netskill", "NetSkill", "Needs net", "Net body.", false, true)
+	netSkill.RequiresNetwork = true
+	fsSkill := makeSkill("fsskill", "FsSkill", "Needs fs", "FS body.", false, true)
+	fsSkill.RequiresFilesystem = true
+	b := &prompt.Builder{Skills: &mockSkillReader{availableSkills: []skills.Skill{netSkill, fsSkill}}}
+
+	tpl := chat.TemplateData{
+		ToolCallingEnabled: true,
+		EnabledTools:       []string{tools.ToolCatalogName, "read_file"},
+		Profile: &profiles.Profile{Chat: profiles.ChatConfig{
+			EnabledTools: []string{tools.ToolCatalogName, "read_file"},
+		}},
+	}
+	result := b.BuildSkillsSection(nil, false, tpl)
+	if strings.Contains(result, "netskill") {
+		t.Errorf("skill de rede deveria ser oculta sem tool de rede na allowlist: %q", result)
+	}
+	if !strings.Contains(result, "fsskill") {
+		t.Errorf("skill de filesystem deveria permanecer (read_file na allowlist): %q", result)
+	}
+}
+
 func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 	s := makeSkill("dev", "Dev", "Dev desc", "Dev content.", true, false)
 	b := &prompt.Builder{Skills: &mockSkillReader{

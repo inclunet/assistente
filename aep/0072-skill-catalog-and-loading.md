@@ -114,7 +114,15 @@ Fechar o laço entre a Fase 3 (catálogo persistido) e a Fase 4 (disclosure): o 
 Completam-se aqui também os dois pontos de D2/D3 que faltavam:
 
 - **Budget por janela do modelo (D3)**: o cap do Nível 1 é resolvido como percentual da janela de contexto do modelo (`Builder.SkillCatalogBudgetPercent`, default ~2% estilo Codex), lido de `profile.Chat.ContextWindow`; quando a janela é desconhecida, cai no fallback fixo de ~8.000 caracteres. Coberto por `TestBuildSkillsSection_BudgetScalesWithContextWindow`.
-- **Detecção de defasagem via `ContentHash` (D2)**: o rebuild calcula um hash canônico (frontmatter + corpo via `Compose`, mais origem builtin/custom) por skill e compara com o `skill_catalog.content_hash` persistido. Em sincronia → no-op (não re-materializa nem reescreve); com defasagem (hash/contagem/`path` ausente) → reconstrói. Coberto por `TestRebuildCatalogSkipsWhenInSync`.
+- **Detecção de defasagem via `ContentHash` (D2)**: o rebuild calcula um hash canônico (frontmatter + corpo via `Compose`, mais origem builtin/custom) por skill e compara com o `skill_catalog.content_hash` persistido. Em sincronia → no-op (não re-materializa nem reescreve); com defasagem (hash/contagem/`path` ausente quando há materializador) → reconstrói. Coberto por `TestRebuildCatalogSkipsWhenInSync`.
+
+**Gating por universo de tools do perfil (D4) — fonte confiável.** O gating do Nível 1 valida cada skill contra o **universo de tools realmente disponível ao perfil**, não contra o conjunto inicialmente exposto. Princípio: o `tool_catalog` (AEP-0049) apenas *esconde* tools no começo; ele não reduz o universo. Logo:
+
+- Perfil **sem allowlist** (`profile.Chat.EnabledTools == nil`) → universo completo: o catalog-first pode revelar qualquer tool (ou todas já estão diretas). Uma skill que exige rede/filesystem/MCP fica **disponível** mesmo que a tool comece escondida no catálogo.
+- Perfil com **allowlist fixa** → o universo é exatamente essa lista (o catálogo não excede a allowlist; ver `TestBuild_CatalogFirst_NotActiveWhenCatalogPlusOtherTools`). Cada capability (`requires_filesystem/network/mcp`) é derivada das tools presentes via `tools.ToolCapabilityKind` (categorias de `internal/tools/catalog.go`; nomes desconhecidos = MCP dinâmico); o próprio `tool_catalog` não concede capability. Uma skill que exige uma capability ausente da allowlist é **ocultada**.
+- A ativação por leitura (Nível 2, sob demanda) exige `read_file` no universo; sem ele, `<available_skills>` é omitido (não adianta instruir `read_file` se a tool não existe no perfil).
+
+Coberto por `TestBuildSkillsSection_CatalogFirstProfileKeepsNetworkSkillAvailable`, `TestBuildSkillsSection_AllowlistWithCatalogStillGatesMissingCapability`, `TestBuildSkillsSection_RestrictiveEnabledToolsGatesOnDemandAndCapabilities` e `TestBuildSkillsSection_ReadFileEnabledKeepsOnDemandAndFilesystem`.
 
 ### Fase 5 — Importação observável + testes
 Evoluir `runPostLoginLegacyImports` para resultado estruturado/telemetria (#123), cobrindo skills. Testes de regressão: autoload vs. sob demanda; tools on/off; templates inválidos; seleção por perfil; budget (encurtamento/omissão/warning); importação idempotente e não-destrutiva.
