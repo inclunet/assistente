@@ -812,6 +812,118 @@ describe('KanbanBoard', () => {
     }
   });
 
+  it('mantém o foco no board ao mover via menu de contexto (issue #177)', async () => {
+    render(<ControlledBoard initialTasks={makeTasks()} />);
+
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board); // foca col 0, row 0 ("Tarefa Alpha")
+
+    // Abre o menu de contexto do card focado e captura os itens passados ao menu.
+    const alphaCard = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+    fireEvent.keyDown(alphaCard!, { key: 'ContextMenu' });
+    await waitFor(() => expect(mockOpenForTrigger).toHaveBeenCalled());
+
+    type MenuItemLike = {
+      id: string;
+      action?: () => void;
+      submenu?: MenuItemLike[];
+    };
+    const calls = mockOpenForTrigger.mock.calls;
+    const items = calls[calls.length - 1][2] as MenuItemLike[];
+    const moveTo = items.find((i) => i.id === 'move-to');
+    const moveToProgress = moveTo?.submenu?.find((s) => s.id === 'move-2');
+    expect(moveToProgress).toBeTruthy();
+
+    // Invoca "Mover para Em Progresso" (status 2), como faria o clique no menu.
+    act(() => {
+      moveToProgress!.action!();
+    });
+
+    await waitFor(() => {
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith('10', 2);
+    });
+
+    // O foco permanece no board, no próximo card da coluna de origem ("Tarefa Beta").
+    const betaCard = screen.getByText('Tarefa Beta').closest('.kanban-card');
+    await waitFor(() => {
+      expect(board.contains(document.activeElement)).toBe(true);
+      expect(document.activeElement).toBe(betaCard);
+    });
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('segue o card focado quando um job externo o move de coluna (issue #177)', async () => {
+    const controlRef: { current: TasksUpdater | null } = { current: null };
+    render(<ControlledBoard initialTasks={makeTasks()} controlRef={controlRef} />);
+
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board); // foca "Tarefa Alpha" (id 10, col 0)
+    const alphaCard = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+    await waitFor(() => expect(document.activeElement).toBe(alphaCard));
+
+    // Um job externo muda o status de "Tarefa Alpha" para a coluna 2 (status 2),
+    // sem nenhum gesto do usuário — o card focado é desmontado e remontado lá.
+    act(() => {
+      controlRef.current?.((prev) =>
+        prev.map((t) => (t.id === '10' ? { ...t, statusId: 2 } : t)),
+      );
+    });
+
+    // O foco SEGUE o card até a nova coluna, sem cair no body (sem precisar de Tab).
+    await waitFor(() => {
+      const movedAlpha = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+      expect(board.contains(document.activeElement)).toBe(true);
+      expect(document.activeElement).toBe(movedAlpha);
+    });
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('em update externo, se o card focado some, o foco fica no board (fallback)', async () => {
+    const controlRef: { current: TasksUpdater | null } = { current: null };
+    render(<ControlledBoard initialTasks={makeTasks()} controlRef={controlRef} />);
+
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board); // foca "Tarefa Alpha" (id 10, col 0, row 0)
+    const alphaCard = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+    await waitFor(() => expect(document.activeElement).toBe(alphaCard));
+
+    // Um job externo REMOVE o card focado (ex.: consolidação/conclusão).
+    act(() => {
+      controlRef.current?.((prev) => prev.filter((t) => t.id !== '10'));
+    });
+
+    // Fallback: o foco vai para o card que ocupou a posição na mesma coluna
+    // ("Tarefa Beta"), permanecendo no board.
+    const betaCard = screen.getByText('Tarefa Beta').closest('.kanban-card');
+    await waitFor(() => {
+      expect(board.contains(document.activeElement)).toBe(true);
+      expect(document.activeElement).toBe(betaCard);
+    });
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('não rouba o foco em update externo se o board não tinha foco', async () => {
+    const controlRef: { current: TasksUpdater | null } = { current: null };
+    render(<ControlledBoard initialTasks={makeTasks()} controlRef={controlRef} />);
+
+    // O foco está num elemento FORA do board (o board nunca teve foco).
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    expect(document.activeElement).toBe(outside);
+
+    // Um job externo move um card.
+    act(() => {
+      controlRef.current?.((prev) =>
+        prev.map((t) => (t.id === '10' ? { ...t, statusId: 2 } : t)),
+      );
+    });
+
+    // O foco NÃO deve ser puxado para o board — permanece no elemento externo.
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
+
   // ── Coluna vazia ──────────────────────────────────────────
 
   it('mostra texto de coluna vazia para status sem cards', async () => {
