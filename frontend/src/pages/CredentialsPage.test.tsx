@@ -36,7 +36,6 @@ vi.mock('react-i18next', () => ({
         'credentials.placeholders.token_ref': 'Token, keyring://service/user ou env://VAR',
         'credentials.aria.suggestions': 'Sugestões de referência',
         'credentials.aria.suggestionsAvailable': '{{count}} sugestões disponíveis',
-        'credentials.aria.noSuggestions': 'Nenhuma sugestão disponível',
         'credentials.hint.sensitive':
           'Os valores sensíveis não são exibidos após salvar. Para atualizar, informe novamente.',
         'credentials.types.bearer': 'Bearer token',
@@ -348,6 +347,28 @@ describe('CredentialsPage', () => {
       await userEvent.click(screen.getByText('aws-secret'));
 
       expect((tokenInput as HTMLInputElement).value).toBe('keyring://aws-secret');
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
+
+    it('mostra e seleciona sugestões ao digitar env://', async () => {
+      render(<CredentialsPage />);
+      await userEvent.click(screen.getByText('Nova'));
+
+      const tokenInput = screen.getByLabelText('Token') as HTMLInputElement;
+      await userEvent.clear(tokenInput);
+      await userEvent.type(tokenInput, 'env://');
+
+      await waitFor(() => {
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+      });
+
+      expect(mockListExternalSources).toHaveBeenCalledWith('env://');
+      expect(screen.getByText('HOME')).toBeInTheDocument();
+
+      await userEvent.click(screen.getByText('HOME'));
+
+      expect(tokenInput.value).toBe('env://HOME');
+      expect(tokenInput.type).toBe('text');
       expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     });
 

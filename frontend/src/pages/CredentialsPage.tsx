@@ -44,6 +44,7 @@ export default function CredentialsPage() {
   const cacheEpochRef = useRef(0);
   const listboxRef = useRef<HTMLUListElement>(null);
   const latestTokenRef = useRef<string>('');
+  const prevShowSuggestionsRef = useRef(false);
 
   const typeOptions = [
     { value: 'bearer', label: t('credentials.types.bearer') },
@@ -257,9 +258,6 @@ export default function CredentialsPage() {
       : items.filter(s => s.label.toLowerCase().includes(search));
     setSuggestions(filtered);
     setShowSuggestions(filtered.length > 0);
-    announce(filtered.length > 0
-      ? t('credentials.aria.suggestionsAvailable', { count: filtered.length })
-      : t('credentials.aria.noSuggestions'));
   };
 
   const handleTokenKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -319,6 +317,19 @@ export default function CredentialsPage() {
   useEffect(() => {
     if (!isEditorOpen) resetSuggestions();
   }, [isEditorOpen, resetSuggestions]);
+
+  // Anuncia as sugestões apenas na TRANSIÇÃO de visibilidade do dropdown
+  // (fechado→aberto), não a cada tecla — evita "spam" de announcements no leitor
+  // de tela enquanto o usuário digita e a lista é apenas refiltrada. O ref é
+  // mantido em sincronia por este efeito independentemente de onde showSuggestions
+  // muda (seleção, Escape, blur, reset).
+  useEffect(() => {
+    if (showSuggestions === prevShowSuggestionsRef.current) return;
+    prevShowSuggestionsRef.current = showSuggestions;
+    if (showSuggestions) {
+      announce(t('credentials.aria.suggestionsAvailable', { count: suggestions.length }));
+    }
+  }, [showSuggestions, suggestions.length, announce, t]);
 
   const [viewingManaged, setViewingManaged] = useState<CredentialRow | null>(null);
 
