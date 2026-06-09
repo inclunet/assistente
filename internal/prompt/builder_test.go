@@ -543,6 +543,33 @@ func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 	}
 }
 
+func TestBuildSkillsSection_BudgetScalesWithContextWindow(t *testing.T) {
+	// AEP-0072 D3: o cap do Nível 1 é percentual da janela do modelo. Janela
+	// grande comporta todas as skills; janela pequena omite as de menor prioridade.
+	longDesc := strings.Repeat("x", 500)
+	var avail []skills.Skill
+	for i := 0; i < 50; i++ {
+		avail = append(avail, makeSkill(fmt.Sprintf("skill-%02d", i), fmt.Sprintf("Skill %02d", i), longDesc, "body", false, true))
+	}
+	b := &prompt.Builder{Skills: &mockSkillReader{availableSkills: avail}}
+
+	bigWindow := chat.TemplateData{ToolCallingEnabled: true, Profile: &profiles.Profile{Chat: profiles.ChatConfig{ContextWindow: 1_000_000}}}
+	big := b.BuildSkillsSection(nil, false, bigWindow)
+	if !strings.Contains(big, "skill-49") {
+		t.Errorf("janela grande (2%%) deveria comportar todas as skills, omitiu skill-49")
+	}
+
+	// 25k tokens → ~2000 chars de budget: comporta algumas skills, mas não as 50.
+	smallWindow := chat.TemplateData{ToolCallingEnabled: true, Profile: &profiles.Profile{Chat: profiles.ChatConfig{ContextWindow: 25_000}}}
+	small := b.BuildSkillsSection(nil, false, smallWindow)
+	if strings.Contains(small, "skill-49") {
+		t.Errorf("janela pequena (2%%) deveria omitir skills de menor prioridade")
+	}
+	if !strings.Contains(small, "skill-00") {
+		t.Errorf("janela pequena deveria manter ao menos a skill de maior prioridade")
+	}
+}
+
 func TestBuildSkillsSection_OnDemandServedFromCatalog_NoBodyLoad(t *testing.T) {
 	// AEP-0072 Fase 4b: a descoberta (Nível 1) deve ser servida do catálogo
 	// compacto. Uma skill sob demanda NÃO pode ter o corpo carregado (Get) ao

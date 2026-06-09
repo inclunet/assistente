@@ -122,6 +122,46 @@ func TestRebuildCatalogFailsOnMaterializeError(t *testing.T) {
 	}
 }
 
+func TestRebuildCatalogSkipsWhenInSync(t *testing.T) {
+	// AEP-0072 D2: o ContentHash detecta defasagem. Sem mudanças, o rebuild é
+	// no-op (não re-materializa nem reescreve); com mudança, reconstrói.
+	repo, ctx := setupRepo(t)
+	if _, err := repo.Create(ctx, newSkill("stable", nil)); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var calls int
+	materialize := func(s Skill) (string, error) {
+		calls++
+		return "/cache/skills/" + s.Slug + "/SKILL.md", nil
+	}
+
+	if err := repo.RebuildCatalog(ctx, materialize); err != nil {
+		t.Fatalf("rebuild 1: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("rebuild inicial deveria materializar 1 skill, got %d", calls)
+	}
+
+	// Sem mudanças: hashes batem → no-op, sem nova materialização.
+	if err := repo.RebuildCatalog(ctx, materialize); err != nil {
+		t.Fatalf("rebuild 2: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("rebuild sem defasagem deveria ser no-op, materializou %d vez(es)", calls)
+	}
+
+	// Nova skill: defasagem por contagem → reconstrói (re-materializa ambas).
+	if _, err := repo.Create(ctx, newSkill("added", nil)); err != nil {
+		t.Fatalf("create added: %v", err)
+	}
+	if err := repo.RebuildCatalog(ctx, materialize); err != nil {
+		t.Fatalf("rebuild 3: %v", err)
+	}
+	if calls != 3 {
+		t.Errorf("após adicionar skill, deveria re-materializar ambas (calls=3), got %d", calls)
+	}
+}
+
 func TestRebuildCatalogIsIdempotent(t *testing.T) {
 	repo, ctx := setupRepo(t)
 	if _, err := repo.Create(ctx, newSkill("a", nil)); err != nil {

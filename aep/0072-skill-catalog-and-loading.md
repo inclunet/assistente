@@ -108,8 +108,13 @@ Catálogo compacto persistido e política única de seleção/gating por perfil/
 ### Fase 4 — Progressive disclosure + budget (D2/D3)
 Refatorar `BuildSkillsSection` (`internal/prompt/builder.go`): Nível 1 compacto com cap de budget; minimizar `<auto_skills>` (só com `autoload_reason`); formalizar a ativação por leitura; aplicar gating de D4 para omitir/degradar skills incompatíveis.
 
-### Fase 4b — Catálogo como fonte de runtime da descoberta (D1+D2)
+### Fase 4b — Catálogo como fonte de runtime da descoberta (D1+D2+D3)
 Fechar o laço entre a Fase 3 (catálogo persistido) e a Fase 4 (disclosure): o `BuildSkillsSection` passa a montar o Nível 1 **diretamente do `skill_catalog`** (`SkillReader.ListCatalog` + `SkillSelectionPolicy.DecideAllCatalog`), sem recarregar o corpo das skills. Só as skills classificadas como **autoload** têm o corpo carregado sob demanda (por slug). O caminho legível do corpo (`Path`) é **pré-materializado** no rebuild do catálogo e persistido na entrada (`skill_catalog.path`), tornando a ativação por leitura (Nível 2) servível direto do catálogo. Snapshot de saída (`TestBuildSkillsSection_GoldenSnapshot`) e teste de não-carregamento de corpo na descoberta protegem contra regressão.
+
+Completam-se aqui também os dois pontos de D2/D3 que faltavam:
+
+- **Budget por janela do modelo (D3)**: o cap do Nível 1 é resolvido como percentual da janela de contexto do modelo (`Builder.SkillCatalogBudgetPercent`, default ~2% estilo Codex), lido de `profile.Chat.ContextWindow`; quando a janela é desconhecida, cai no fallback fixo de ~8.000 caracteres. Coberto por `TestBuildSkillsSection_BudgetScalesWithContextWindow`.
+- **Detecção de defasagem via `ContentHash` (D2)**: o rebuild calcula um hash canônico (frontmatter + corpo via `Compose`, mais origem builtin/custom) por skill e compara com o `skill_catalog.content_hash` persistido. Em sincronia → no-op (não re-materializa nem reescreve); com defasagem (hash/contagem/`path` ausente) → reconstrói. Coberto por `TestRebuildCatalogSkipsWhenInSync`.
 
 ### Fase 5 — Importação observável + testes
 Evoluir `runPostLoginLegacyImports` para resultado estruturado/telemetria (#123), cobrindo skills. Testes de regressão: autoload vs. sob demanda; tools on/off; templates inválidos; seleção por perfil; budget (encurtamento/omissão/warning); importação idempotente e não-destrutiva.

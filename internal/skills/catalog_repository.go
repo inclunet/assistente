@@ -5,19 +5,24 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 
 	"assistente/internal/database"
 
 	"gorm.io/gorm"
 )
 
-// contentHashHex calcula um hash estável do corpo da skill, usado para detectar
-// defasagem entre o catálogo persistido e a fonte canônica (AEP-0072 D2).
-func contentHashHex(content string) string {
-	if content == "" {
-		return ""
+// canonicalSkillHash calcula um hash estável da projeção canônica de uma skill
+// (frontmatter + corpo, via Compose, mais a origem builtin/custom). É a base da
+// detecção de defasagem entre o catálogo persistido e a fonte canônica das
+// skills (AEP-0072 D2): qualquer mudança relevante para o catálogo altera o hash.
+func canonicalSkillHash(s *Skill, isBuiltin bool) string {
+	raw, err := Compose(&s.SkillMetadata, s.Content)
+	if err != nil {
+		// Fallback defensivo: ao menos o corpo entra no hash.
+		raw = s.Content
 	}
-	sum := sha256.Sum256([]byte(content))
+	sum := sha256.Sum256([]byte(raw + "\x00builtin=" + strconv.FormatBool(isBuiltin)))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -97,28 +102,56 @@ func (r *DBRepository) RebuildCatalog(ctx context.Context, materialize CatalogMa
 		return err
 	}
 
-	models := make([]*database.SkillCatalog, 0, len(rows))
+	// Projeta cada skill e calcula o hash canônico ANTES de materializar, para
+	// poder pular o trabalho pesado quando o catálogo já está em sincronia.
+	type pending struct {
+		skill     *Skill
+		slug      string
+		skillType string
+		isBuiltin bool
+		hash      string
+	}
+	items := make([]pending, 0, len(rows))
+	desired := make(map[string]string, len(rows))
 	for i := range rows {
 		s, err := skillFromModel(&rows[i])
 		if err != nil {
 			return err
 		}
-		entry := CatalogEntryFromSkill(s)
-		entry.Slug = rows[i].Slug
+		h := canonicalSkillHash(s, rows[i].IsBuiltin)
+		items = append(items, pending{skill: s, slug: rows[i].Slug, skillType: rows[i].Type, isBuiltin: rows[i].IsBuiltin, hash: h})
+		desired[rows[i].Slug] = h
+	}
+
+	// AEP-0072 D2: detecção de defasagem via ContentHash. Se o conjunto de slugs
+	// e todos os hashes batem com o catálogo persistido, não há nada a fazer —
+	// evita re-materializar e reescrever o catálogo a cada chamada (no-op).
+	fresh, err := r.catalogMatchesHashes(ctx, desired)
+	if err != nil {
+		return err
+	}
+	if fresh {
+		return nil
+	}
+
+	models := make([]*database.SkillCatalog, 0, len(items))
+	for _, it := range items {
+		entry := CatalogEntryFromSkill(it.skill)
+		entry.Slug = it.slug
 		// IsBuiltin vem da row persistida (a projeção de domínio não conhece a
 		// origem builtin/custom do DB).
-		entry.IsBuiltin = rows[i].IsBuiltin
+		entry.IsBuiltin = it.isBuiltin
 		if materialize != nil {
 			// Falha-rápido: um path vazio quebraria a ativação via read_file no
 			// Nível 1. Como a materialização ocorre antes da transação, o catálogo
 			// anterior permanece íntegro caso isto retorne erro (sem estado parcial).
-			path, err := materialize(*s)
+			path, err := materialize(*it.skill)
 			if err != nil {
-				return fmt.Errorf("materializar skill %q para o catálogo: %w", rows[i].Slug, err)
+				return fmt.Errorf("materializar skill %q para o catálogo: %w", it.slug, err)
 			}
 			entry.Path = path
 		}
-		models = append(models, catalogEntryToModel(entry, contentHashHex(rows[i].Content)))
+		models = append(models, catalogEntryToModel(entry, it.hash))
 	}
 
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -132,4 +165,29 @@ func (r *DBRepository) RebuildCatalog(ctx context.Context, materialize CatalogMa
 		}
 		return nil
 	})
+}
+
+// catalogMatchesHashes informa se o catálogo persistido está em sincronia com o
+// conjunto desejado (slug → hash canônico). Defasagem = contagem diferente, slug
+// ausente/extra, ou hash divergente. Base da detecção de drift (AEP-0072 D2).
+func (r *DBRepository) catalogMatchesHashes(ctx context.Context, desired map[string]string) (bool, error) {
+	var rows []database.SkillCatalog
+	if err := r.db.WithContext(ctx).Select("slug", "content_hash", "path").Find(&rows).Error; err != nil {
+		return false, err
+	}
+	if len(rows) != len(desired) {
+		return false, nil
+	}
+	for _, row := range rows {
+		want, ok := desired[row.Slug]
+		if !ok || row.ContentHash != want {
+			return false, nil
+		}
+		// Catálogo sem path materializado é considerado defasado (precisa
+		// re-materializar para servir o Nível 1 via read_file).
+		if row.Path == "" {
+			return false, nil
+		}
+	}
+	return true, nil
 }

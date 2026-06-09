@@ -63,6 +63,12 @@ type Builder struct {
 	// Se definido e não-vazio, o Build() adiciona uma seção ao system prompt
 	// informando ao modelo que esses arquivos podem ser lidos/editados via tools.
 	OpenEditorPaths func() []string
+
+	// SkillCatalogBudgetPercent é o cap do bloco de descoberta (Nível 1) como
+	// percentual da janela de contexto do modelo (AEP-0072 D3, estilo Codex ~2%).
+	// 0 = usa o default. Quando a janela do modelo é desconhecida, cai no
+	// fallback fixo em caracteres (skillCatalogCharBudget).
+	SkillCatalogBudgetPercent float64
 }
 
 // TemplateData é um alias para chat.TemplateData — a definição canônica vive em internal/chat
@@ -300,12 +306,14 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		modelInvocable = append(modelInvocable, e)
 	}
 
-	// AEP-0072 D3: orçamento de contexto no bloco de descoberta. Encurta
+	// AEP-0072 D3: orçamento de contexto no bloco de descoberta. O cap é um
+	// percentual da janela do modelo (fallback fixo quando desconhecida). Encurta
 	// descrições e, se ainda exceder, omite skills de menor prioridade (ordem),
 	// sinalizando a omissão de forma observável.
-	kept, descs, omitted := planAvailableCatalogBudget(modelInvocable, skillCatalogCharBudget)
+	budget := resolveSkillCatalogBudget(b.SkillCatalogBudgetPercent, templateContextWindow(tplData))
+	kept, descs, omitted := planAvailableCatalogBudget(modelInvocable, budget)
 	if omitted > 0 {
-		log.Printf("[prompt] catálogo de skills excedeu o budget (%d chars): %d skill(s) omitida(s) do Nível 1", skillCatalogCharBudget, omitted)
+		log.Printf("[prompt] catálogo de skills excedeu o budget (%d chars): %d skill(s) omitida(s) do Nível 1", budget, omitted)
 	}
 
 	if len(kept) > 0 {
@@ -384,13 +392,64 @@ func (b *Builder) renderAutoSkill(s skills.Skill, tplData any) string {
 	return sb.String()
 }
 
-// skillCatalogCharBudget é o cap (em caracteres) do bloco de descoberta do
-// Nível 1 (AEP-0072 D3), no espírito do limite do Codex (~8k chars).
+// skillCatalogCharBudget é o cap (em caracteres) do bloco de descoberta do Nível
+// 1 (AEP-0072 D3) usado como FALLBACK quando a janela do modelo é desconhecida,
+// no espírito do limite do Codex (~8k chars).
 const skillCatalogCharBudget = 8000
+
+// defaultSkillCatalogBudgetPercent é o percentual default da janela do modelo
+// reservado ao bloco de descoberta (Codex usa ~2%).
+const defaultSkillCatalogBudgetPercent = 2.0
+
+// skillCatalogCharsPerToken converte tokens (janela do modelo) em caracteres
+// (unidade do planner de budget). Heurística ~4 chars/token.
+const skillCatalogCharsPerToken = 4
 
 // skillCatalogShortDescLen é o comprimento máximo das descrições quando o
 // catálogo precisa ser encurtado para caber no budget.
 const skillCatalogShortDescLen = 100
+
+// resolveSkillCatalogBudget calcula o cap em caracteres do bloco de descoberta.
+// Com a janela do modelo conhecida (tokens), usa percent% dela (convertida em
+// chars); caso contrário, cai no fallback fixo skillCatalogCharBudget. percent<=0
+// usa o default.
+func resolveSkillCatalogBudget(percent float64, windowTokens int) int {
+	if percent <= 0 {
+		percent = defaultSkillCatalogBudgetPercent
+	}
+	if windowTokens <= 0 {
+		return skillCatalogCharBudget
+	}
+	chars := int(float64(windowTokens) * (percent / 100.0) * skillCatalogCharsPerToken)
+	if chars < 1 {
+		return 1
+	}
+	return chars
+}
+
+// templateContextWindow extrai a janela de contexto do modelo (em tokens) do
+// perfil ativo no tplData; 0 quando indisponível (cai no fallback de budget).
+func templateContextWindow(tplData any) int {
+	var data chat.TemplateData
+	switch d := tplData.(type) {
+	case chat.TemplateData:
+		data = d
+	case *chat.TemplateData:
+		if d == nil {
+			return 0
+		}
+		data = *d
+	default:
+		return 0
+	}
+	if data.Profile == nil {
+		return 0
+	}
+	if w := data.Profile.Chat.ContextWindow; w > 0 {
+		return w
+	}
+	return 0
+}
 
 // collectCatalogPool carrega o índice compacto de skills (catálogo, Nível 1),
 // preservando a ordem esperada por cada modo. No modo lista-explícita do perfil,
