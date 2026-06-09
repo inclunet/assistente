@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 
 	"assistente/internal/portability"
@@ -52,7 +53,7 @@ func (m *Manager) importLegacySkillsFrom(ctx context.Context, source portability
 	if m.repo == nil {
 		return portability.LegacyImportResult{ResourceType: "skills"}, fmt.Errorf("repository de skills não configurado")
 	}
-	return portability.ImportLegacyResourcesWithContext(ctx, portability.LegacyImportRequest[*Skill]{
+	result, err := portability.ImportLegacyResourcesWithContext(ctx, portability.LegacyImportRequest[*Skill]{
 		ResourceType: "skills",
 		Source:       source,
 		Parse: func(file portability.LegacyImportFile, data []byte) (*Skill, error) {
@@ -92,4 +93,12 @@ func (m *Manager) importLegacySkillsFrom(ctx context.Context, source portability
 			return msgs
 		},
 	})
+	// AEP-0072 D1: ressincroniza o catálogo após a importação em massa, mesmo
+	// que parcial — só faz sentido se algo foi importado.
+	if result.Imported > 0 {
+		if rebuildErr := m.repo.RebuildCatalog(ctx); rebuildErr != nil {
+			log.Printf("[Skills] Erro ao reconstruir catálogo pós-importação: %v", rebuildErr)
+		}
+	}
+	return result, err
 }

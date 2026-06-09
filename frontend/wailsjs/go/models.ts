@@ -4271,6 +4271,44 @@ export namespace skills {
 		    return a;
 		}
 	}
+	export class SkillCatalogEntry {
+	    slug: string;
+	    name: string;
+	    displayName?: string;
+	    description: string;
+	    contextBudget: number;
+	    requiresTools: boolean;
+	    requiresFilesystem: boolean;
+	    requiresNetwork: boolean;
+	    requiresMcp: boolean;
+	    autoLoad: boolean;
+	    autoloadReason?: string;
+	    modelInvocable: boolean;
+	    userInvocable: boolean;
+	    isBuiltin: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SkillCatalogEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.slug = source["slug"];
+	        this.name = source["name"];
+	        this.displayName = source["displayName"];
+	        this.description = source["description"];
+	        this.contextBudget = source["contextBudget"];
+	        this.requiresTools = source["requiresTools"];
+	        this.requiresFilesystem = source["requiresFilesystem"];
+	        this.requiresNetwork = source["requiresNetwork"];
+	        this.requiresMcp = source["requiresMcp"];
+	        this.autoLoad = source["autoLoad"];
+	        this.autoloadReason = source["autoloadReason"];
+	        this.modelInvocable = source["modelInvocable"];
+	        this.userInvocable = source["userInvocable"];
+	        this.isBuiltin = source["isBuiltin"];
+	    }
+	}
 	export class SkillInfo {
 	    name: string;
 	    version: string;

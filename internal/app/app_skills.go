@@ -28,6 +28,9 @@ func (a *App) DeleteSkill(slug string) error { return a.skillsCtrl.DeleteSkill(s
 func (a *App) GetUserInvocableSkills() ([]skills.SkillInfo, error) {
 	return a.skillsCtrl.GetUserInvocableSkills()
 }
+func (a *App) GetSkillCatalog() ([]skills.SkillCatalogEntry, error) {
+	return a.skillsCtrl.GetSkillCatalog()
+}
 
 // ============================================================================
 // Skills — funções de inicialização (internas ao App)
@@ -54,6 +57,10 @@ func (a *App) initSkills() {
 			log.Printf("[Skills] Erro no seed de builtins: %v", err)
 		} else {
 			log.Printf("[Skills] Seed de builtins: %d seedados, %d falhas", res.Seeded, res.Failed)
+		}
+		// AEP-0072 D1: reconstrói o catálogo compacto após o seed em massa.
+		if err := a.skillMgr.RebuildCatalog(); err != nil {
+			log.Printf("[Skills] Erro ao reconstruir catálogo pós-seed: %v", err)
 		}
 	} else {
 		// DB indisponível — fallback para o modelo filesystem.

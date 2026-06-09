@@ -38,6 +38,10 @@ type Repository interface {
 	GetUserInvocableSkills(ctx context.Context) ([]SkillInfo, error)
 
 	SeedBuiltin(ctx context.Context, skill *Skill, version string) error
+
+	// Catálogo compacto persistido (AEP-0072 D1).
+	ListCatalog(ctx context.Context) ([]SkillCatalogEntry, error)
+	RebuildCatalog(ctx context.Context) error
 }
 
 // DBRepository implementa Repository usando GORM.
