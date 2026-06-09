@@ -21,13 +21,14 @@ func contentHashHex(content string) string {
 }
 
 // catalogEntryToModel projeta um SkillCatalogEntry de domínio na row persistida.
-func catalogEntryToModel(entry SkillCatalogEntry, skillType, contentHash string) *database.SkillCatalog {
+func catalogEntryToModel(entry SkillCatalogEntry, contentHash string) *database.SkillCatalog {
 	return &database.SkillCatalog{
 		Slug:               entry.Slug,
 		Name:               entry.Name,
 		DisplayName:        entry.DisplayName,
 		Description:        entry.Description,
-		Type:               skillType,
+		Type:               entry.Type,
+		Path:               entry.Path,
 		ContextBudget:      entry.ContextBudget,
 		RequiresTools:      entry.RequiresTools,
 		RequiresFilesystem: entry.RequiresFilesystem,
@@ -49,6 +50,8 @@ func catalogModelToEntry(m database.SkillCatalog) SkillCatalogEntry {
 		Name:               m.Name,
 		DisplayName:        m.DisplayName,
 		Description:        m.Description,
+		Type:               m.Type,
+		Path:               m.Path,
 		ContextBudget:      m.ContextBudget,
 		RequiresTools:      m.RequiresTools,
 		RequiresFilesystem: m.RequiresFilesystem,
@@ -75,10 +78,19 @@ func (r *DBRepository) ListCatalog(ctx context.Context) ([]SkillCatalogEntry, er
 	return entries, nil
 }
 
+// CatalogMaterializer escreve o corpo da skill em disco e devolve o caminho
+// legível usado na ativação por leitura (AEP-0072 D2). Injetado pelo Manager
+// (que conhece o cache em disco); nil = mantém apenas o Path já presente na skill.
+type CatalogMaterializer func(s Skill) (string, error)
+
 // RebuildCatalog reconstrói o skill_catalog a partir das skills persistidas
 // (fonte canônica). Idempotente: substitui completamente o catálogo dentro de
 // uma transação. Chamado após seed/import e a cada CRUD de skill.
-func (r *DBRepository) RebuildCatalog(ctx context.Context) error {
+//
+// Quando `materialize` é fornecido, o corpo de cada skill é pré-materializado em
+// disco e o caminho resultante é persistido no catálogo, tornando o Nível 1
+// (descoberta) servível diretamente do catálogo, sem recarregar o corpo.
+func (r *DBRepository) RebuildCatalog(ctx context.Context, materialize CatalogMaterializer) error {
 	var rows []database.Skill
 	if err := r.db.WithContext(ctx).Order("name ASC").Find(&rows).Error; err != nil {
 		return err
@@ -95,7 +107,12 @@ func (r *DBRepository) RebuildCatalog(ctx context.Context) error {
 		// IsBuiltin vem da row persistida (a projeção de domínio não conhece a
 		// origem builtin/custom do DB).
 		entry.IsBuiltin = rows[i].IsBuiltin
-		models = append(models, catalogEntryToModel(entry, rows[i].Type, contentHashHex(rows[i].Content)))
+		if materialize != nil {
+			if path, err := materialize(*s); err == nil && path != "" {
+				entry.Path = path
+			}
+		}
+		models = append(models, catalogEntryToModel(entry, contentHashHex(rows[i].Content)))
 	}
 
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

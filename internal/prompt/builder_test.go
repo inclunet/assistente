@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
@@ -24,6 +25,10 @@ type mockSkillReader struct {
 	autoErr         error
 	availErr        error
 	allErr          error
+
+	// getCalls registra quantas vezes Get(slug) foi chamado — usado para provar
+	// que a descoberta (Nível 1) é servida do catálogo, sem carregar o corpo.
+	getCalls map[string]int
 }
 
 func (m *mockSkillReader) GetAutoSkills() ([]skills.Skill, error) {
@@ -43,6 +48,56 @@ func (m *mockSkillReader) GetSkillFiles(slug string) ([]string, error) {
 }
 func (m *mockSkillReader) MaterializeSkill(s skills.Skill) (string, error) {
 	return s.Path, nil
+}
+
+// allKnown reúne (dedup por slug) as skills configuradas no mock, espelhando a
+// fonte canônica do manager real. A ordem segue auto → disponíveis → todas.
+func (m *mockSkillReader) allKnown() []skills.Skill {
+	seen := make(map[string]bool)
+	var out []skills.Skill
+	add := func(list []skills.Skill) {
+		for _, s := range list {
+			if seen[s.Slug] {
+				continue
+			}
+			seen[s.Slug] = true
+			out = append(out, s)
+		}
+	}
+	add(m.autoSkills)
+	add(m.availableSkills)
+	add(m.allSkillsFull)
+	return out
+}
+
+// ListCatalog projeta o catálogo compacto (Nível 1) a partir das skills conhecidas,
+// ordenado por nome — como o catálogo persistido do manager (Order name ASC).
+func (m *mockSkillReader) ListCatalog() ([]skills.SkillCatalogEntry, error) {
+	if m.allErr != nil {
+		return nil, m.allErr
+	}
+	all := m.allKnown()
+	entries := make([]skills.SkillCatalogEntry, 0, len(all))
+	for i := range all {
+		entries = append(entries, skills.CatalogEntryFromSkill(&all[i]))
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	return entries, nil
+}
+
+// Get devolve o corpo completo de uma skill conhecida (Nível 2, autoload).
+func (m *mockSkillReader) Get(slug string) (*skills.Skill, error) {
+	if m.getCalls == nil {
+		m.getCalls = map[string]int{}
+	}
+	m.getCalls[slug]++
+	for _, s := range m.allKnown() {
+		if s.Slug == slug {
+			cp := s
+			return &cp, nil
+		}
+	}
+	return nil, fmt.Errorf("skill not found: %s", slug)
 }
 
 type mockWorkspaceReader struct{ ws *workspace.Workspace }
@@ -485,6 +540,74 @@ func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 	}
 	if !strings.Contains(result, "guide.md") {
 		t.Error("Expected guide.md listed")
+	}
+}
+
+func TestBuildSkillsSection_OnDemandServedFromCatalog_NoBodyLoad(t *testing.T) {
+	// AEP-0072 Fase 4b: a descoberta (Nível 1) deve ser servida do catálogo
+	// compacto. Uma skill sob demanda NÃO pode ter o corpo carregado (Get) ao
+	// montar o bloco <available_skills>; o Path vem pré-materializado do catálogo.
+	avail := makeSkill("ondemand", "On Demand", "On demand desc", "Corpo pesado.", false, true)
+	m := &mockSkillReader{availableSkills: []skills.Skill{avail}}
+	b := &prompt.Builder{Skills: m}
+
+	result := b.BuildSkillsSection(nil, false, nil)
+	if !strings.Contains(result, "<available_skills>") || !strings.Contains(result, "ondemand") {
+		t.Fatalf("esperava skill sob demanda no catálogo: %q", result)
+	}
+	if strings.Contains(result, "Corpo pesado.") {
+		t.Errorf("o corpo não deveria ser injetado para skill sob demanda: %q", result)
+	}
+	if !strings.Contains(result, "/skills/ondemand/SKILL.md") {
+		t.Errorf("o Path do catálogo deveria ser renderizado: %q", result)
+	}
+	if n := m.getCalls["ondemand"]; n != 0 {
+		t.Errorf("descoberta não deveria carregar o corpo (Get chamado %d vez(es))", n)
+	}
+}
+
+func TestBuildSkillsSection_AutoloadLoadsBodyBySlug(t *testing.T) {
+	// Apenas o autoload (Nível 2) carrega o corpo, e exatamente uma vez por skill.
+	auto := makeSkill("loader", "Loader", "Loader desc", "Corpo do loader.", true, true)
+	m := &mockSkillReader{autoSkills: []skills.Skill{auto}}
+	b := &prompt.Builder{Skills: m}
+
+	result := b.BuildSkillsSection(nil, false, nil)
+	if !strings.Contains(result, "Corpo do loader.") {
+		t.Fatalf("esperava corpo do autoload injetado: %q", result)
+	}
+	if n := m.getCalls["loader"]; n != 1 {
+		t.Errorf("autoload deveria carregar o corpo exatamente uma vez, got %d", n)
+	}
+}
+
+func TestBuildSkillsSection_GoldenSnapshot(t *testing.T) {
+	// Snapshot do contrato de saída (auto + available) para travar o formato e
+	// proteger contra regressões no refactor catalog-driven.
+	auto := makeSkill("dev", "Dev", "Faz coisas de dev", "Conteúdo de dev.", true, true)
+	auto.Type = "command"
+	avail := makeSkill("notes", "Notes", "Gerencia notas", "Corpo notes.", false, true)
+	avail.Type = "agent"
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		autoSkills:      []skills.Skill{auto},
+		availableSkills: []skills.Skill{avail},
+	}}
+
+	want := "<auto_skills>\n" +
+		"## Dev [command]\n" +
+		"Conteúdo de dev.\n" +
+		"</auto_skills>\n\n" +
+		"<available_skills>\n" +
+		"You have skills available that provide specialized instructions for specific tasks.\n" +
+		"To use a skill, read its file using the read_file tool with the path indicated below.\n" +
+		"Only read a skill when it's relevant to the current task.\n\n" +
+		"- **Notes** (`notes`) [agent]: Gerencia notas\n" +
+		"  Path: `/skills/notes/SKILL.md`\n" +
+		"</available_skills>"
+
+	got := b.BuildSkillsSection(nil, false, nil)
+	if got != want {
+		t.Errorf("snapshot divergente.\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
 

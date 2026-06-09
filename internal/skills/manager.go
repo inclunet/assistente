@@ -323,7 +323,7 @@ func (m *Manager) RebuildCatalog() error {
 	if m.repo == nil {
 		return nil
 	}
-	return m.repo.RebuildCatalog(m.repoCtx())
+	return m.repo.RebuildCatalog(m.repoCtx(), m.MaterializeSkill)
 }
 
 // rebuildCatalogBestEffort ressincroniza o catálogo após uma mutação de skill,
@@ -332,7 +332,7 @@ func (m *Manager) rebuildCatalogBestEffort() {
 	if m.repo == nil {
 		return
 	}
-	if err := m.repo.RebuildCatalog(m.repoCtx()); err != nil {
+	if err := m.repo.RebuildCatalog(m.repoCtx(), m.MaterializeSkill); err != nil {
 		log.Printf("[Skills] Erro ao reconstruir catálogo: %v", err)
 	}
 }

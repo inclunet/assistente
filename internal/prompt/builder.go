@@ -18,13 +18,20 @@ import (
 
 // SkillReader é o subconjunto de skills.Manager que o Builder precisa.
 // Permite mockar em testes sem instanciar o manager completo.
+//
+// AEP-0072 (Fase 4b): a descoberta (Nível 1) é servida diretamente do catálogo
+// compacto persistido (ListCatalog) — sem recarregar o corpo das skills. Apenas
+// as skills classificadas como autoload têm o corpo carregado sob demanda (Get),
+// pois precisam ser injetadas inteiras no system prompt.
 type SkillReader interface {
-	GetAutoSkills() ([]skills.Skill, error)
-	GetAvailableSkills() ([]skills.Skill, error)
-	GetAllSkillsFull() ([]skills.Skill, error)
+	// ListCatalog devolve o índice compacto de skills (Nível 1, descoberta).
+	ListCatalog() ([]skills.SkillCatalogEntry, error)
+	// Get carrega o corpo completo de uma skill (usado só no autoload, Nível 2).
+	Get(slug string) (*skills.Skill, error)
 	GetSkillFiles(slug string) ([]string, error)
 	// MaterializeSkill devolve um caminho em disco legível para o corpo da skill
 	// (AEP-0072 D2). Em modo DB materializa um cache; em filesystem retorna o path.
+	// Usado como fallback quando o catálogo não traz um Path pré-materializado.
 	MaterializeSkill(s skills.Skill) (string, error)
 }
 
@@ -223,9 +230,9 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		return ""
 	}
 
-	pool, err := b.collectSelectionPool(enabledSkills)
+	pool, err := b.collectCatalogPool(enabledSkills)
 	if err != nil {
-		log.Printf("[prompt] Erro ao carregar skills: %v", err)
+		log.Printf("[prompt] Erro ao carregar catálogo de skills: %v", err)
 		return ""
 	}
 
@@ -246,71 +253,51 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		RequireAutoloadReason: enabledSkills == nil,
 	}
 
+	// AEP-0072 Fase 4b: classificação feita sobre o catálogo compacto (Nível 1),
+	// sem corpo. Só as skills de autoload terão o corpo carregado depois (Nível 2).
 	policy := skills.NewSkillSelectionPolicy()
-	sel := policy.DecideAll(pool, selCtx)
-	bySlug := make(map[string]skills.Skill, len(pool))
-	for _, s := range pool {
-		bySlug[s.Slug] = s
+	sel := policy.DecideAllCatalog(pool, selCtx)
+	bySlug := make(map[string]skills.SkillCatalogEntry, len(pool))
+	for _, e := range pool {
+		bySlug[e.Slug] = e
 	}
-	autoSkills := pickSkillsByDecision(sel.Autoload, bySlug)
-	availableSkills := pickSkillsByDecision(sel.OnDemand, bySlug)
 
-	if len(autoSkills) == 0 && len(availableSkills) == 0 {
+	if len(sel.Autoload) == 0 && len(sel.OnDemand) == 0 {
 		return ""
 	}
 
 	var sb strings.Builder
 
-	// <auto_skills>: conteúdo completo injetado no system prompt
-	if len(autoSkills) > 0 {
-		sb.WriteString("<auto_skills>\n")
-		for i, s := range autoSkills {
-			if i > 0 {
-				sb.WriteString("\n")
-			}
-			sb.WriteString("## ")
-			sb.WriteString(s.GetDisplayName())
-			if s.Type != "" {
-				sb.WriteString(" [")
-				sb.WriteString(s.Type)
-				sb.WriteString("]")
-			}
-			sb.WriteString("\n")
-
-			content := skills.ProcessTemplate(s.Content, tplData)
-			var allowedBash []string
-			if s.Tools != nil && s.Tools.BashCommands != nil {
-				allowedBash = s.Tools.BashCommands.Allowed
-			}
-			content = skills.PreprocessCommands(content, allowedBash)
-			sb.WriteString(content)
-			sb.WriteString("\n")
-
-			supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
-			if len(supplementary) > 0 {
-				sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
-				for _, f := range supplementary {
-					sb.WriteString("- `")
-					sb.WriteString(f)
-					sb.WriteString("`\n")
-				}
-			}
+	// <auto_skills>: corpo completo injetado no system prompt. O corpo é carregado
+	// sob demanda (por slug) a partir da fonte canônica — apenas para autoload.
+	autoBlocks := make([]string, 0, len(sel.Autoload))
+	for _, d := range sel.Autoload {
+		full, err := b.Skills.Get(d.Slug)
+		if err != nil || full == nil {
+			log.Printf("[prompt] autoload: skill %q indisponível: %v", d.Slug, err)
+			continue
 		}
+		autoBlocks = append(autoBlocks, b.renderAutoSkill(*full, tplData))
+	}
+	if len(autoBlocks) > 0 {
+		sb.WriteString("<auto_skills>\n")
+		sb.WriteString(strings.Join(autoBlocks, "\n"))
 		sb.WriteString("</auto_skills>")
 	}
 
-	// <available_skills>: catálogo compacto (Nível 1) para leitura lazy pelo modelo.
-	var modelInvocable []skills.Skill
-	for _, s := range availableSkills {
-		if s.IsModelInvocable() {
-			modelInvocable = append(modelInvocable, s)
+	// <available_skills>: catálogo compacto (Nível 1) para leitura lazy pelo modelo,
+	// montado direto das entradas do catálogo (sem corpo).
+	var modelInvocable []skills.SkillCatalogEntry
+	for _, d := range sel.OnDemand {
+		if e, ok := bySlug[d.Slug]; ok && e.ModelInvocable {
+			modelInvocable = append(modelInvocable, e)
 		}
 	}
 
 	// AEP-0072 D3: orçamento de contexto no bloco de descoberta. Encurta
 	// descrições e, se ainda exceder, omite skills de menor prioridade (ordem),
 	// sinalizando a omissão de forma observável.
-	kept, descs, omitted := planAvailableSkillsBudget(modelInvocable, skillCatalogCharBudget)
+	kept, descs, omitted := planAvailableCatalogBudget(modelInvocable, skillCatalogCharBudget)
 	if omitted > 0 {
 		log.Printf("[prompt] catálogo de skills excedeu o budget (%d chars): %d skill(s) omitida(s) do Nível 1", skillCatalogCharBudget, omitted)
 	}
@@ -323,29 +310,25 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		sb.WriteString("You have skills available that provide specialized instructions for specific tasks.\n")
 		sb.WriteString("To use a skill, read its file using the read_file tool with the path indicated below.\n")
 		sb.WriteString("Only read a skill when it's relevant to the current task.\n\n")
-		for i, s := range kept {
+		for i, e := range kept {
 			sb.WriteString("- **")
-			sb.WriteString(s.GetDisplayName())
+			sb.WriteString(e.GetDisplayName())
 			sb.WriteString("** (`")
-			sb.WriteString(s.Slug)
+			sb.WriteString(e.Slug)
 			sb.WriteString("`)")
-			if s.Type != "" {
+			if e.Type != "" {
 				sb.WriteString(" [")
-				sb.WriteString(s.Type)
+				sb.WriteString(e.Type)
 				sb.WriteString("]")
 			}
 			sb.WriteString(": ")
 			sb.WriteString(descs[i])
 
-			path := s.Path
-			if materialized, err := b.Skills.MaterializeSkill(s); err == nil && materialized != "" {
-				path = materialized
-			}
 			sb.WriteString("\n  Path: `")
-			sb.WriteString(path)
+			sb.WriteString(b.catalogPath(e))
 			sb.WriteString("`\n")
 
-			supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
+			supplementary, _ := b.Skills.GetSkillFiles(e.Slug)
 			if len(supplementary) > 0 {
 				sb.WriteString("  Supporting files:\n")
 				for _, f := range supplementary {
@@ -361,6 +344,57 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 	return sb.String()
 }
 
+// renderAutoSkill monta o bloco de uma skill de autoload (corpo completo) para a
+// seção <auto_skills>, aplicando template e pré-processamento de comandos.
+func (b *Builder) renderAutoSkill(s skills.Skill, tplData any) string {
+	var sb strings.Builder
+	sb.WriteString("## ")
+	sb.WriteString(s.GetDisplayName())
+	if s.Type != "" {
+		sb.WriteString(" [")
+		sb.WriteString(s.Type)
+		sb.WriteString("]")
+	}
+	sb.WriteString("\n")
+
+	content := skills.ProcessTemplate(s.Content, tplData)
+	var allowedBash []string
+	if s.Tools != nil && s.Tools.BashCommands != nil {
+		allowedBash = s.Tools.BashCommands.Allowed
+	}
+	content = skills.PreprocessCommands(content, allowedBash)
+	sb.WriteString(content)
+	sb.WriteString("\n")
+
+	supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
+	if len(supplementary) > 0 {
+		sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
+		for _, f := range supplementary {
+			sb.WriteString("- `")
+			sb.WriteString(f)
+			sb.WriteString("`\n")
+		}
+	}
+	return sb.String()
+}
+
+// catalogPath devolve o caminho legível do corpo de uma entrada de catálogo. Usa
+// o Path pré-materializado (gravado no rebuild do catálogo); como fallback raro
+// (catálogo sem path), carrega o corpo e materializa sob demanda.
+func (b *Builder) catalogPath(e skills.SkillCatalogEntry) string {
+	if e.Path != "" {
+		return e.Path
+	}
+	full, err := b.Skills.Get(e.Slug)
+	if err != nil || full == nil {
+		return ""
+	}
+	if path, err := b.Skills.MaterializeSkill(*full); err == nil {
+		return path
+	}
+	return full.Path
+}
+
 // skillCatalogCharBudget é o cap (em caracteres) do bloco de descoberta do
 // Nível 1 (AEP-0072 D3), no espírito do limite do Codex (~8k chars).
 const skillCatalogCharBudget = 8000
@@ -369,73 +403,46 @@ const skillCatalogCharBudget = 8000
 // catálogo precisa ser encurtado para caber no budget.
 const skillCatalogShortDescLen = 100
 
-// collectSelectionPool carrega o conjunto de skills candidatas a entrar no system
-// prompt, preservando a ordem esperada por cada modo. No modo lista-explícita do
-// perfil, as skills da allowlist vêm primeiro (na ordem do perfil) seguidas das
-// demais; no modo metadata-driven, usa auto + sob demanda já ordenadas pelo
-// manager. A classificação de visibilidade é feita depois pela SkillSelectionPolicy.
-func (b *Builder) collectSelectionPool(enabledSkills []string) ([]skills.Skill, error) {
+// collectCatalogPool carrega o índice compacto de skills (catálogo, Nível 1),
+// preservando a ordem esperada por cada modo. No modo lista-explícita do perfil,
+// as entradas da allowlist vêm primeiro (na ordem do perfil) seguidas das demais;
+// no modo metadata-driven, usa a ordem do catálogo (nome). A classificação de
+// visibilidade é feita depois pela SkillSelectionPolicy.
+func (b *Builder) collectCatalogPool(enabledSkills []string) ([]skills.SkillCatalogEntry, error) {
+	all, err := b.Skills.ListCatalog()
+	if err != nil {
+		return nil, err
+	}
 	if enabledSkills != nil {
-		all, err := b.Skills.GetAllSkillsFull()
-		if err != nil {
-			return nil, err
-		}
-		ordered := skills.FilterByNamesOrdered(all, enabledSkills)
-		return append(ordered, skills.FilterExcludeNames(all, enabledSkills)...), nil
+		ordered := skills.CatalogByNamesOrdered(all, enabledSkills)
+		return append(ordered, skills.CatalogExcludeNames(all, enabledSkills)...), nil
 	}
-
-	auto, err := b.Skills.GetAutoSkills()
-	if err != nil {
-		log.Printf("[prompt] Erro ao carregar auto skills: %v", err)
-	}
-	avail, err := b.Skills.GetAvailableSkills()
-	if err != nil {
-		log.Printf("[prompt] Erro ao carregar available skills: %v", err)
-	}
-	pool := make([]skills.Skill, 0, len(auto)+len(avail))
-	pool = append(pool, auto...)
-	pool = append(pool, avail...)
-	return pool, nil
+	return all, nil
 }
 
-// pickSkillsByDecision recupera as skills correspondentes a um grupo de decisões
-// da SkillSelectionPolicy, preservando a ordem das decisões.
-func pickSkillsByDecision(decisions []skills.SkillDecision, bySlug map[string]skills.Skill) []skills.Skill {
-	if len(decisions) == 0 {
-		return nil
-	}
-	out := make([]skills.Skill, 0, len(decisions))
-	for _, d := range decisions {
-		if s, ok := bySlug[d.Slug]; ok {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-// planAvailableSkillsBudget aplica o orçamento de contexto ao catálogo do Nível
-// 1. Retorna as skills mantidas, suas descrições (possivelmente encurtadas) e a
+// planAvailableCatalogBudget aplica o orçamento de contexto ao catálogo do Nível
+// 1. Retorna as entradas mantidas, suas descrições (possivelmente encurtadas) e a
 // quantidade omitida. Estratégia: (1) cabe com descrição cheia → mantém;
 // (2) encurta descrições; (3) omite skills do fim (menor prioridade).
-func planAvailableSkillsBudget(list []skills.Skill, budget int) (kept []skills.Skill, descs []string, omitted int) {
+func planAvailableCatalogBudget(list []skills.SkillCatalogEntry, budget int) (kept []skills.SkillCatalogEntry, descs []string, omitted int) {
 	if len(list) == 0 {
 		return nil, nil, 0
 	}
 
 	fullDescs := make([]string, len(list))
 	total := 0
-	for i, s := range list {
-		fullDescs[i] = s.Description
-		total += skillEntryCost(s, s.Description)
+	for i, e := range list {
+		fullDescs[i] = e.Description
+		total += catalogEntryCost(e, e.Description)
 	}
 
 	chosen := fullDescs
 	if budget > 0 && total > budget {
 		chosen = make([]string, len(list))
 		total = 0
-		for i, s := range list {
-			chosen[i] = truncateDescription(s.Description, skillCatalogShortDescLen)
-			total += skillEntryCost(s, chosen[i])
+		for i, e := range list {
+			chosen[i] = truncateDescription(e.Description, skillCatalogShortDescLen)
+			total += catalogEntryCost(e, chosen[i])
 		}
 	}
 
@@ -443,7 +450,7 @@ func planAvailableSkillsBudget(list []skills.Skill, budget int) (kept []skills.S
 	if budget > 0 {
 		for end > 0 && total > budget {
 			end--
-			total -= skillEntryCost(list[end], chosen[end])
+			total -= catalogEntryCost(list[end], chosen[end])
 			omitted++
 		}
 	}
@@ -451,10 +458,10 @@ func planAvailableSkillsBudget(list []skills.Skill, budget int) (kept []skills.S
 	return list[:end], chosen[:end], omitted
 }
 
-// skillEntryCost estima o custo em caracteres da linha de catálogo de uma skill.
-func skillEntryCost(s skills.Skill, desc string) int {
+// catalogEntryCost estima o custo em caracteres da linha de catálogo de uma skill.
+func catalogEntryCost(e skills.SkillCatalogEntry, desc string) int {
 	// nome + slug + descrição + path + overhead de formatação/markdown.
-	return len(s.GetDisplayName()) + len(s.Slug) + len(desc) + len(s.Path) + 32
+	return len(e.GetDisplayName()) + len(e.Slug) + len(desc) + len(e.Path) + 32
 }
 
 // truncateDescription encurta uma descrição para no máximo max runes, anexando "…".

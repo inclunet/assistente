@@ -108,6 +108,9 @@ Catálogo compacto persistido e política única de seleção/gating por perfil/
 ### Fase 4 — Progressive disclosure + budget (D2/D3)
 Refatorar `BuildSkillsSection` (`internal/prompt/builder.go`): Nível 1 compacto com cap de budget; minimizar `<auto_skills>` (só com `autoload_reason`); formalizar a ativação por leitura; aplicar gating de D4 para omitir/degradar skills incompatíveis.
 
+### Fase 4b — Catálogo como fonte de runtime da descoberta (D1+D2)
+Fechar o laço entre a Fase 3 (catálogo persistido) e a Fase 4 (disclosure): o `BuildSkillsSection` passa a montar o Nível 1 **diretamente do `skill_catalog`** (`SkillReader.ListCatalog` + `SkillSelectionPolicy.DecideAllCatalog`), sem recarregar o corpo das skills. Só as skills classificadas como **autoload** têm o corpo carregado sob demanda (por slug). O caminho legível do corpo (`Path`) é **pré-materializado** no rebuild do catálogo e persistido na entrada (`skill_catalog.path`), tornando a ativação por leitura (Nível 2) servível direto do catálogo. Snapshot de saída (`TestBuildSkillsSection_GoldenSnapshot`) e teste de não-carregamento de corpo na descoberta protegem contra regressão.
+
 ### Fase 5 — Importação observável + testes
 Evoluir `runPostLoginLegacyImports` para resultado estruturado/telemetria (#123), cobrindo skills. Testes de regressão: autoload vs. sob demanda; tools on/off; templates inválidos; seleção por perfil; budget (encurtamento/omissão/warning); importação idempotente e não-destrutiva.
 

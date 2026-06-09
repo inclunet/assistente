@@ -31,7 +31,7 @@ func TestRebuildCatalogProjectsSkills(t *testing.T) {
 		t.Fatalf("create plain: %v", err)
 	}
 
-	if err := repo.RebuildCatalog(ctx); err != nil {
+	if err := repo.RebuildCatalog(ctx, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -75,7 +75,7 @@ func TestRebuildCatalogIsIdempotent(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	for i := 0; i < 3; i++ {
-		if err := repo.RebuildCatalog(ctx); err != nil {
+		if err := repo.RebuildCatalog(ctx, nil); err != nil {
 			t.Fatalf("rebuild %d: %v", i, err)
 		}
 	}
