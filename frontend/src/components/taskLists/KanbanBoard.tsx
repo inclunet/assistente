@@ -277,10 +277,10 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
           : firstNonEmptyColumnPos();
     }
     if (next) {
+      // `next` é sempre um objeto novo, então `setFocusPos` dispara o effect de
+      // `focusPos`, que aplica o `.focus()` uma única vez (mesmo padrão do ramo
+      // de foco pendente acima).
       setFocusPos(next);
-      // `next` pode ser igual ao `focusPos` atual (mesma posição) — nesse caso o
-      // effect de `focusPos` não dispara, então aplicamos o foco aqui também.
-      focusCard(next.col, next.row);
     }
   }, [
     tasksByStatus,
@@ -288,7 +288,6 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
     findTaskPos,
     firstNonEmptyColumnPos,
     focusPos,
-    focusCard,
   ]);
 
   // Formata a data de criação no MESMO formato relativo usado nas mensagens
