@@ -143,11 +143,15 @@ func (r *DBRepository) RebuildCatalog(ctx context.Context, materialize CatalogMa
 		entry.IsBuiltin = it.isBuiltin
 		if materialize != nil {
 			// Falha-rápido: um path vazio quebraria a ativação via read_file no
-			// Nível 1. Como a materialização ocorre antes da transação, o catálogo
-			// anterior permanece íntegro caso isto retorne erro (sem estado parcial).
+			// Nível 1 (o builder omitiria a skill silenciosamente). Tratamos tanto
+			// erro quanto path vazio como falha. Como a materialização ocorre antes
+			// da transação, o catálogo anterior permanece íntegro (sem estado parcial).
 			path, err := materialize(*it.skill)
 			if err != nil {
 				return fmt.Errorf("materializar skill %q para o catálogo: %w", it.slug, err)
+			}
+			if path == "" {
+				return fmt.Errorf("materializar skill %q para o catálogo: path vazio", it.slug)
 			}
 			entry.Path = path
 		}

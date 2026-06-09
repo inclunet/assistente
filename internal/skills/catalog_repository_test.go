@@ -116,6 +116,11 @@ func TestRebuildCatalogFailsOnMaterializeError(t *testing.T) {
 	if err := repo.RebuildCatalog(ctx, materialize); err == nil {
 		t.Fatal("esperava erro quando a materialização falha")
 	}
+	// Path vazio sem erro também é falha (não pode persistir entrada inservível).
+	emptyPath := func(s Skill) (string, error) { return "", nil }
+	if err := repo.RebuildCatalog(ctx, emptyPath); err == nil {
+		t.Fatal("esperava erro quando a materialização devolve path vazio")
+	}
 	// O catálogo anterior (vazio neste caso) permanece consultável, sem path inválido.
 	if _, err := repo.ListCatalog(ctx); err != nil {
 		t.Fatalf("list após falha: %v", err)
