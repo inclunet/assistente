@@ -24,15 +24,13 @@ import (
 // as skills classificadas como autoload têm o corpo carregado sob demanda (Get),
 // pois precisam ser injetadas inteiras no system prompt.
 type SkillReader interface {
-	// ListCatalog devolve o índice compacto de skills (Nível 1, descoberta).
+	// ListCatalog devolve o índice compacto de skills (Nível 1, descoberta). As
+	// entradas já trazem o Path pré-materializado (alvo do read_file, AEP-0072 D2),
+	// gravado no rebuild do catálogo — a descoberta não recarrega o corpo.
 	ListCatalog() ([]skills.SkillCatalogEntry, error)
 	// Get carrega o corpo completo de uma skill (usado só no autoload, Nível 2).
 	Get(slug string) (*skills.Skill, error)
 	GetSkillFiles(slug string) ([]string, error)
-	// MaterializeSkill devolve um caminho em disco legível para o corpo da skill
-	// (AEP-0072 D2). Em modo DB materializa um cache; em filesystem retorna o path.
-	// Usado como fallback quando o catálogo não traz um Path pré-materializado.
-	MaterializeSkill(s skills.Skill) (string, error)
 }
 
 // WorkspaceReader é o subconjunto de workspace.Manager que o Builder precisa.
@@ -286,12 +284,20 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 	}
 
 	// <available_skills>: catálogo compacto (Nível 1) para leitura lazy pelo modelo,
-	// montado direto das entradas do catálogo (sem corpo).
+	// montado direto das entradas do catálogo (sem corpo). Uma entrada sem Path
+	// materializado não tem como ser ativada via read_file: é omitida (anomalia
+	// observável), nunca renderizada com path vazio.
 	var modelInvocable []skills.SkillCatalogEntry
 	for _, d := range sel.OnDemand {
-		if e, ok := bySlug[d.Slug]; ok && e.ModelInvocable {
-			modelInvocable = append(modelInvocable, e)
+		e, ok := bySlug[d.Slug]
+		if !ok || !e.ModelInvocable {
+			continue
 		}
+		if e.Path == "" {
+			log.Printf("[prompt] skill %q sem path materializado no catálogo; omitida da descoberta", e.Slug)
+			continue
+		}
+		modelInvocable = append(modelInvocable, e)
 	}
 
 	// AEP-0072 D3: orçamento de contexto no bloco de descoberta. Encurta
@@ -325,7 +331,7 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 			sb.WriteString(descs[i])
 
 			sb.WriteString("\n  Path: `")
-			sb.WriteString(b.catalogPath(e))
+			sb.WriteString(e.Path)
 			sb.WriteString("`\n")
 
 			supplementary, _ := b.Skills.GetSkillFiles(e.Slug)
@@ -376,23 +382,6 @@ func (b *Builder) renderAutoSkill(s skills.Skill, tplData any) string {
 		}
 	}
 	return sb.String()
-}
-
-// catalogPath devolve o caminho legível do corpo de uma entrada de catálogo. Usa
-// o Path pré-materializado (gravado no rebuild do catálogo); como fallback raro
-// (catálogo sem path), carrega o corpo e materializa sob demanda.
-func (b *Builder) catalogPath(e skills.SkillCatalogEntry) string {
-	if e.Path != "" {
-		return e.Path
-	}
-	full, err := b.Skills.Get(e.Slug)
-	if err != nil || full == nil {
-		return ""
-	}
-	if path, err := b.Skills.MaterializeSkill(*full); err == nil {
-		return path
-	}
-	return full.Path
 }
 
 // skillCatalogCharBudget é o cap (em caracteres) do bloco de descoberta do

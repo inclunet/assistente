@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -66,6 +67,58 @@ func TestRebuildCatalogProjectsSkills(t *testing.T) {
 	}
 	if p.ContextBudget == 0 {
 		t.Errorf("plain-skill deveria estimar budget pelo corpo: got %d", p.ContextBudget)
+	}
+}
+
+func TestRebuildCatalogPersistsMaterializedPath(t *testing.T) {
+	// AEP-0072 Fase 4b: o rebuild deve materializar e PERSISTIR o path no catálogo,
+	// pois o runtime monta o <available_skills> a partir desse campo (sem corpo).
+	repo, ctx := setupRepo(t)
+	if _, err := repo.Create(ctx, newSkill("with-path", nil)); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	var seen []string
+	materialize := func(s Skill) (string, error) {
+		seen = append(seen, s.Slug)
+		return "/cache/skills/" + s.Slug + "/SKILL.md", nil
+	}
+	if err := repo.RebuildCatalog(ctx, materialize); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	entries, err := repo.ListCatalog(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	e, ok := findCatalogEntry(entries, "with-path")
+	if !ok {
+		t.Fatal("with-path ausente do catálogo")
+	}
+	if e.Path != "/cache/skills/with-path/SKILL.md" {
+		t.Errorf("path materializado deveria ser persistido, got %q", e.Path)
+	}
+	if len(seen) != 1 || seen[0] != "with-path" {
+		t.Errorf("materialize deveria ser chamado uma vez por skill, got %v", seen)
+	}
+}
+
+func TestRebuildCatalogFailsOnMaterializeError(t *testing.T) {
+	// Falha de materialização não pode persistir catálogo com path vazio: o rebuild
+	// deve falhar (antes da transação), preservando o catálogo anterior.
+	repo, ctx := setupRepo(t)
+	if _, err := repo.Create(ctx, newSkill("boom", nil)); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	materialize := func(s Skill) (string, error) {
+		return "", errors.New("disco cheio")
+	}
+	if err := repo.RebuildCatalog(ctx, materialize); err == nil {
+		t.Fatal("esperava erro quando a materialização falha")
+	}
+	// O catálogo anterior (vazio neste caso) permanece consultável, sem path inválido.
+	if _, err := repo.ListCatalog(ctx); err != nil {
+		t.Fatalf("list após falha: %v", err)
 	}
 }
 

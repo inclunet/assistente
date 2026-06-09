@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 
 	"assistente/internal/database"
 
@@ -108,9 +109,14 @@ func (r *DBRepository) RebuildCatalog(ctx context.Context, materialize CatalogMa
 		// origem builtin/custom do DB).
 		entry.IsBuiltin = rows[i].IsBuiltin
 		if materialize != nil {
-			if path, err := materialize(*s); err == nil && path != "" {
-				entry.Path = path
+			// Falha-rápido: um path vazio quebraria a ativação via read_file no
+			// Nível 1. Como a materialização ocorre antes da transação, o catálogo
+			// anterior permanece íntegro caso isto retorne erro (sem estado parcial).
+			path, err := materialize(*s)
+			if err != nil {
+				return fmt.Errorf("materializar skill %q para o catálogo: %w", rows[i].Slug, err)
 			}
+			entry.Path = path
 		}
 		models = append(models, catalogEntryToModel(entry, contentHashHex(rows[i].Content)))
 	}
