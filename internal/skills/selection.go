@@ -1,5 +1,7 @@
 package skills
 
+import "strings"
+
 // SkillSelectionPolicy (AEP-0072 D1) — fonte única de verdade, determinística e
 // sem LLM, para "esta skill é aplicável/visível agora?". Espelha a
 // ToolSelectionPolicy (#119): recebe o contexto (capabilities do perfil/runtime)
@@ -33,6 +35,7 @@ const (
 	ReasonModelInvocationOff    = "model_invocation_disabled"
 	ReasonOnDemandDisabled      = "on_demand_disabled"
 	ReasonNotInAutoloadAllowlst = "not_in_autoload_allowlist"
+	ReasonAutoloadNoReason      = "autoload_missing_reason"
 )
 
 // SkillSelectionContext descreve as capacidades disponíveis no contexto/perfil.
@@ -53,6 +56,13 @@ type SkillSelectionContext struct {
 	// fazem autoload (seleção do perfil), sobrepondo o auto_load do metadado.
 	// nil = usa o auto_load declarado em cada skill.
 	AutoloadAllowlist []string
+
+	// RequireAutoloadReason, no modo metadata-driven (sem AutoloadAllowlist),
+	// exige que a skill declare autoload_reason para permanecer em autoload
+	// (AEP-0072 D5). Skills com auto_load=true mas sem motivo são rebaixadas
+	// para sob demanda. Ignorado quando AutoloadAllowlist está definido
+	// (o perfil é a fonte explícita da decisão).
+	RequireAutoloadReason bool
 }
 
 // SkillDecision é o resultado da política para uma skill.
@@ -116,7 +126,14 @@ func (p SkillSelectionPolicy) isAutoload(m *SkillMetadata, slug string, ctx Skil
 		// skill precisa ser invocável pelo modelo.
 		return m.IsModelInvocable() && containsString(ctx.AutoloadAllowlist, slug)
 	}
-	return m.IsAutoLoad()
+	if !m.IsAutoLoad() {
+		return false
+	}
+	// Modo metadata-driven: autoload sem motivo é rebaixado (AEP-0072 D5).
+	if ctx.RequireAutoloadReason && strings.TrimSpace(m.AutoloadReason) == "" {
+		return false
+	}
+	return true
 }
 
 // SkillSelection agrupa o resultado de DecideAll por visibilidade, preservando

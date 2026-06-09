@@ -223,51 +223,37 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		return ""
 	}
 
-	var autoSkills []skills.Skill
-	var availableSkills []skills.Skill
-
-	if enabledSkills != nil {
-		// Lista explícita do perfil: respeita a ordem definida
-		allSkills, err := b.Skills.GetAllSkillsFull()
-		if err != nil {
-			log.Printf("[prompt] Erro ao carregar skills: %v", err)
-			return ""
-		}
-		autoSkills = skills.FilterByNamesOrdered(allSkills, enabledSkills)
-		if !disableOnDemand {
-			availableSkills = skills.FilterExcludeNames(allSkills, enabledSkills)
-		}
-	} else {
-		// Sem lista: usa auto_load do próprio skill (backward compat)
-		var err error
-		autoSkills, err = b.Skills.GetAutoSkills()
-		if err != nil {
-			log.Printf("[prompt] Erro ao carregar auto skills: %v", err)
-		}
-		if !disableOnDemand {
-			availableSkills, err = b.Skills.GetAvailableSkills()
-			if err != nil {
-				log.Printf("[prompt] Erro ao carregar available skills: %v", err)
-			}
-		}
+	pool, err := b.collectSelectionPool(enabledSkills)
+	if err != nil {
+		log.Printf("[prompt] Erro ao carregar skills: %v", err)
+		return ""
 	}
 
-	// AEP-0072 D5: autoload é exceção. No modo metadata-driven (sem lista
-	// explícita do perfil), só permanecem em <auto_skills> as skills que
-	// declaram autoload_reason; as demais são rebaixadas para sob demanda.
-	// No modo lista-explícita a escolha do perfil é respeitada como está.
-	if enabledSkills == nil {
-		var demoted []skills.Skill
-		autoSkills, demoted = splitAutoloadByReason(autoSkills)
-		if !disableOnDemand && len(demoted) > 0 {
-			availableSkills = append(availableSkills, demoted...)
-		}
+	// AEP-0072 D1: a SkillSelectionPolicy é a fonte única de verdade para a
+	// visibilidade de cada skill (autoload / sob demanda / oculta). O builder
+	// apenas monta o contexto a partir do runtime/perfil e renderiza o resultado;
+	// nenhuma regra de gating é reimplementada aqui.
+	toolsEnabled := !templateToolCallingDisabled(tplData)
+	selCtx := skills.SkillSelectionContext{
+		ToolsEnabled:      toolsEnabled,
+		FilesystemEnabled: toolsEnabled,
+		NetworkEnabled:    toolsEnabled,
+		MCPEnabled:        toolsEnabled,
+		// Sem tool calling o modelo não consegue read_file, então o catálogo sob
+		// demanda é inútil: rebaixa tudo para oculto, mantendo só autoload.
+		DisableOnDemand:       disableOnDemand || !toolsEnabled,
+		AutoloadAllowlist:     enabledSkills,
+		RequireAutoloadReason: enabledSkills == nil,
 	}
 
-	if templateToolCallingDisabled(tplData) {
-		autoSkills = filterSkillsWithoutToolDependencies(autoSkills)
-		availableSkills = nil
+	policy := skills.NewSkillSelectionPolicy()
+	sel := policy.DecideAll(pool, selCtx)
+	bySlug := make(map[string]skills.Skill, len(pool))
+	for _, s := range pool {
+		bySlug[s.Slug] = s
 	}
+	autoSkills := pickSkillsByDecision(sel.Autoload, bySlug)
+	availableSkills := pickSkillsByDecision(sel.OnDemand, bySlug)
 
 	if len(autoSkills) == 0 && len(availableSkills) == 0 {
 		return ""
@@ -383,17 +369,48 @@ const skillCatalogCharBudget = 8000
 // catálogo precisa ser encurtado para caber no budget.
 const skillCatalogShortDescLen = 100
 
-// splitAutoloadByReason separa skills autoload que declaram autoload_reason
-// (kept) das que não declaram (demoted), conforme AEP-0072 D5.
-func splitAutoloadByReason(input []skills.Skill) (kept, demoted []skills.Skill) {
-	for _, s := range input {
-		if strings.TrimSpace(s.AutoloadReason) != "" {
-			kept = append(kept, s)
-		} else {
-			demoted = append(demoted, s)
+// collectSelectionPool carrega o conjunto de skills candidatas a entrar no system
+// prompt, preservando a ordem esperada por cada modo. No modo lista-explícita do
+// perfil, as skills da allowlist vêm primeiro (na ordem do perfil) seguidas das
+// demais; no modo metadata-driven, usa auto + sob demanda já ordenadas pelo
+// manager. A classificação de visibilidade é feita depois pela SkillSelectionPolicy.
+func (b *Builder) collectSelectionPool(enabledSkills []string) ([]skills.Skill, error) {
+	if enabledSkills != nil {
+		all, err := b.Skills.GetAllSkillsFull()
+		if err != nil {
+			return nil, err
+		}
+		ordered := skills.FilterByNamesOrdered(all, enabledSkills)
+		return append(ordered, skills.FilterExcludeNames(all, enabledSkills)...), nil
+	}
+
+	auto, err := b.Skills.GetAutoSkills()
+	if err != nil {
+		log.Printf("[prompt] Erro ao carregar auto skills: %v", err)
+	}
+	avail, err := b.Skills.GetAvailableSkills()
+	if err != nil {
+		log.Printf("[prompt] Erro ao carregar available skills: %v", err)
+	}
+	pool := make([]skills.Skill, 0, len(auto)+len(avail))
+	pool = append(pool, auto...)
+	pool = append(pool, avail...)
+	return pool, nil
+}
+
+// pickSkillsByDecision recupera as skills correspondentes a um grupo de decisões
+// da SkillSelectionPolicy, preservando a ordem das decisões.
+func pickSkillsByDecision(decisions []skills.SkillDecision, bySlug map[string]skills.Skill) []skills.Skill {
+	if len(decisions) == 0 {
+		return nil
+	}
+	out := make([]skills.Skill, 0, len(decisions))
+	for _, d := range decisions {
+		if s, ok := bySlug[d.Slug]; ok {
+			out = append(out, s)
 		}
 	}
-	return kept, demoted
+	return out
 }
 
 // planAvailableSkillsBudget aplica o orçamento de contexto ao catálogo do Nível
@@ -507,28 +524,6 @@ func templateToolCallingDisabled(tplData any) bool {
 	default:
 		return false
 	}
-}
-
-func filterSkillsWithoutToolDependencies(input []skills.Skill) []skills.Skill {
-	if len(input) == 0 {
-		return input
-	}
-	filtered := make([]skills.Skill, 0, len(input))
-	for _, s := range input {
-		if skillDependsOnTools(s) {
-			continue
-		}
-		filtered = append(filtered, s)
-	}
-	return filtered
-}
-
-// skillDependsOnTools indica se a skill exige alguma capacidade (tools,
-// filesystem, network ou MCP), seja por declaração explícita (requires_*,
-// AEP-0072 D4) ou inferida das permissões. Usado para omitir skills incompatíveis
-// quando o tool calling está desabilitado.
-func skillDependsOnTools(s skills.Skill) bool {
-	return s.RequiresAnyCapability()
 }
 
 // ComputeEnabledToolNames retorna a lista de nomes de tools habilitadas pelo perfil.

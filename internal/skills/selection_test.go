@@ -22,6 +22,33 @@ func TestPolicyAutoload(t *testing.T) {
 	}
 }
 
+func TestPolicyAutoloadDemotedWithoutReason(t *testing.T) {
+	p := NewSkillSelectionPolicy()
+	// Modo metadata-driven (sem allowlist) com RequireAutoloadReason: autoload
+	// sem reason cai para sob demanda.
+	m := &SkillMetadata{Name: "a", Version: "1.0.0", Description: "x", AutoLoad: true}
+	d := p.Decide(m, "a", SkillSelectionContext{ToolsEnabled: true, RequireAutoloadReason: true})
+	if d.Visibility != VisibilityOnDemand {
+		t.Errorf("esperava on_demand (rebaixada), got %+v", d)
+	}
+	// Com reason permanece autoload.
+	d = p.Decide(mdAutoload("porque sim"), "a", SkillSelectionContext{ToolsEnabled: true, RequireAutoloadReason: true})
+	if d.Visibility != VisibilityAutoload {
+		t.Errorf("esperava autoload com reason, got %+v", d)
+	}
+}
+
+func TestPolicyExplicitAllowlistIgnoresReason(t *testing.T) {
+	p := NewSkillSelectionPolicy()
+	// Allowlist explícita: respeita a escolha do perfil mesmo sem reason e com
+	// RequireAutoloadReason setado (que só vale no modo metadata-driven).
+	m := &SkillMetadata{Name: "a", Version: "1.0.0", Description: "x", AutoLoad: true}
+	d := p.Decide(m, "a", SkillSelectionContext{ToolsEnabled: true, RequireAutoloadReason: true, AutoloadAllowlist: []string{"a"}})
+	if d.Visibility != VisibilityAutoload {
+		t.Errorf("esperava autoload via allowlist, got %+v", d)
+	}
+}
+
 func TestPolicyOnDemandDefault(t *testing.T) {
 	p := NewSkillSelectionPolicy()
 	m := &SkillMetadata{Name: "a", Version: "1.0.0", Description: "x"} // não autoload, model-invocable

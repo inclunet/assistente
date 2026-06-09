@@ -59,6 +59,10 @@ func makeSkill(slug, name, desc, content string, autoLoad, modelInvocable bool) 
 		// AEP-0072 D5: autoload exige autoload_reason para permanecer em <auto_skills>.
 		s.AutoloadReason = "test autoload reason"
 		s.Behavior = &skills.BehaviorConfig{}
+		// Autoload implica model-invocable: IsAutoLoad() retorna false quando
+		// DisableModelInvocation. Mantém a fixture coerente com a semântica real
+		// (GetAutoSkills nunca devolveria um autoload não invocável).
+		s.DisableModelInvocation = false
 	}
 	return s
 }
