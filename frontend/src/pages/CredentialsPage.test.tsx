@@ -8,6 +8,7 @@ const mockList = vi.fn();
 const mockUpsert = vi.fn();
 const mockDelete = vi.fn();
 const mockListExternalSources = vi.fn();
+const mockAnnounce = vi.fn();
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -76,7 +77,8 @@ vi.mock('../hooks/useGridFocus', () => ({
 
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
-    announce: vi.fn(),
+    announce: mockAnnounce,
+    announceRequest: vi.fn(),
   }),
 }));
 
@@ -167,6 +169,7 @@ describe('CredentialsPage', () => {
     mockUpsert.mockResolvedValue(undefined);
     mockDelete.mockResolvedValue(undefined);
     mockListExternalSources.mockResolvedValue([]);
+    mockAnnounce.mockClear();
     confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
@@ -282,7 +285,7 @@ describe('CredentialsPage', () => {
       expect(screen.getByText('aws-secret')).toBeInTheDocument();
     });
 
-    it('anuncia a quantidade de sugestões para leitores de tela (aria-live)', async () => {
+    it('anuncia a quantidade de sugestões via announcer global', async () => {
       render(<CredentialsPage />);
       await userEvent.click(screen.getByText('Nova'));
 
@@ -291,7 +294,7 @@ describe('CredentialsPage', () => {
       await userEvent.type(tokenInput, 'keyring://');
 
       await waitFor(() => {
-        expect(screen.getByRole('status')).toHaveTextContent('2 sugestões disponíveis');
+        expect(mockAnnounce).toHaveBeenCalledWith('2 sugestões disponíveis');
       });
     });
 

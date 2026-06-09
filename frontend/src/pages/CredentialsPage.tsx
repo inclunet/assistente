@@ -12,6 +12,7 @@ import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import { useAnnouncer } from '../hooks/useAnnouncer';
 import './CredentialsPage.css';
 
 interface CredentialRow {
@@ -30,13 +31,13 @@ interface CredentialRow {
 
 export default function CredentialsPage() {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'credentials-page' });
   const [focusedRow, setFocusedRow] = useState<CredentialRow | null>(null);
   const [suggestions, setSuggestions] = useState<Array<{value: string; label: string}>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const [liveMessage, setLiveMessage] = useState('');
   const allSuggestionsRef = useRef<Array<{value: string; label: string}>>([]);
   const loadedPrefixRef = useRef<string | null>(null);
   const sourcesPromiseRef = useRef<{ prefix: string; epoch: number; promise: Promise<Array<{value: string; label: string}>> } | null>(null);
@@ -198,11 +199,6 @@ export default function CredentialsPage() {
     loadedPrefixRef.current = null;
   }, []);
 
-  const announceSuggestions = useCallback((message: string) => {
-    setLiveMessage('');
-    requestAnimationFrame(() => setLiveMessage(message));
-  }, []);
-
   const loadExternalSources = useCallback((prefix: string) => {
     if (loadedPrefixRef.current === prefix) return Promise.resolve(allSuggestionsRef.current);
 
@@ -242,10 +238,13 @@ export default function CredentialsPage() {
       : value.startsWith('env://') ? 'env://' : null;
 
     if (!prefix) {
-      setShowSuggestions(false);
-      setSuggestions([]);
-      setLiveMessage('');
-      invalidateSuggestionCache();
+      // Só limpa/invalida se o autocomplete chegou a ser ativado (evita renders e
+      // incremento de epoch a cada tecla quando o token nunca foi uma referência).
+      if (loadedPrefixRef.current !== null || showSuggestions) {
+        setShowSuggestions(false);
+        setSuggestions([]);
+        invalidateSuggestionCache();
+      }
       return;
     }
 
@@ -258,7 +257,7 @@ export default function CredentialsPage() {
       : items.filter(s => s.label.toLowerCase().includes(search));
     setSuggestions(filtered);
     setShowSuggestions(filtered.length > 0);
-    announceSuggestions(filtered.length > 0
+    announce(filtered.length > 0
       ? t('credentials.aria.suggestionsAvailable', { count: filtered.length })
       : t('credentials.aria.noSuggestions'));
   };
@@ -313,7 +312,6 @@ export default function CredentialsPage() {
     setSuggestions([]);
     setShowSuggestions(false);
     setActiveIndex(-1);
-    setLiveMessage('');
     invalidateSuggestionCache();
   }, [invalidateSuggestionCache]);
 
@@ -511,9 +509,6 @@ export default function CredentialsPage() {
                     ))}
                   </ul>
                 )}
-                <div className="sr-only" aria-live="polite" aria-atomic="true" role="status">
-                  {liveMessage}
-                </div>
               </div>
               );
             })()}
