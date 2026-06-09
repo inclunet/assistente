@@ -51,6 +51,8 @@ A migração cria 2 tabelas (`skills` e `skill_tools`), usa UUIDv7 como PK, mant
 
 ### Struct SkillMetadata (40+ campos)
 
+> Recorte **ilustrativo** (pseudocódigo) apenas para dar a dimensão dos campos. Não reflete os nomes/tipos exatos (`Tools`, `Agent`, `Input`, `Output` etc. diferem). A fonte canônica é `internal/skills/types.go`.
+
 ```go
 type SkillMetadata struct {
     // Identificação (obrigatório)

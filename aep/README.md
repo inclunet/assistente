@@ -49,6 +49,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0047](0047-import-export.md) | Importação e Exportação de Conteúdo | ✅ Done |
 | [0048](0048-jobs-database-migration.md) | Migração de Jobs para Banco de Dados | 🚧 In Progress |
 | [0049](0049-mcp-database-migration.md) | Migração de MCP Servers para Banco de Dados | ✅ Done |
+| [0050](0050-profiles-database-migration.md) | Migração de Profiles para Banco de Dados | 📝 Draft |
+| [0051](0051-skills-database-migration.md) | Migração de Skills para Banco de Dados | 📝 Draft |
 | [0052](0052-multi-user-accounts.md) | Sistema de Contas de Usuário | 🚧 In Progress |
 | [0053](0053-mcp-graceful-degradation.md) | Degradação graciosa de MCP nativo no chat | 📝 Draft |
 | [0056](0056-workspace-self-contained-tabs.md) | Workspace com Abas Autocontidas | 📝 Draft |
@@ -67,6 +69,7 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0069](0069-feed-read-tool.md) | Tool feed_read (RSS/Atom/JSON Feed/Podcast → JSON canônico) | 📝 Draft |
 | [0070](0070-web-search-tool.md) | Tool web_search (busca web → JSON canônico paginável) | 📝 Draft |
 | [0071](0071-structured-tool-output-size-policy.md) | Política canônica de tamanho para saídas estruturadas | ✅ Done |
+| [0072](0072-skill-catalog-and-loading.md) | Skill Catalog & Loading (descoberta, gating e carregamento sob demanda) | 📝 Draft |
 
 ## Status Legend
 
