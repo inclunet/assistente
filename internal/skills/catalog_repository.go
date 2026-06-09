@@ -107,7 +107,6 @@ func (r *DBRepository) RebuildCatalog(ctx context.Context, materialize CatalogMa
 	type pending struct {
 		skill     *Skill
 		slug      string
-		skillType string
 		isBuiltin bool
 		hash      string
 	}
@@ -119,7 +118,7 @@ func (r *DBRepository) RebuildCatalog(ctx context.Context, materialize CatalogMa
 			return err
 		}
 		h := canonicalSkillHash(s, rows[i].IsBuiltin)
-		items = append(items, pending{skill: s, slug: rows[i].Slug, skillType: rows[i].Type, isBuiltin: rows[i].IsBuiltin, hash: h})
+		items = append(items, pending{skill: s, slug: rows[i].Slug, isBuiltin: rows[i].IsBuiltin, hash: h})
 		desired[rows[i].Slug] = h
 	}
 
