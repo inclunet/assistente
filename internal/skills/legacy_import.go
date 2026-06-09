@@ -78,5 +78,18 @@ func (m *Manager) importLegacySkillsFrom(ctx context.Context, source portability
 			}
 			return true, nil
 		},
+		// Observabilidade (AEP-0072 Fase 5 / #123): avisos de qualidade de
+		// descrição nas skills recém-importadas, sem falhar a importação.
+		Inspect: func(_ portability.LegacyImportFile, skill *Skill) []string {
+			warnings := ValidateDescriptionQuality(skill.Description)
+			if len(warnings) == 0 {
+				return nil
+			}
+			msgs := make([]string, 0, len(warnings))
+			for _, w := range warnings {
+				msgs = append(msgs, w.Message)
+			}
+			return msgs
+		},
 	})
 }

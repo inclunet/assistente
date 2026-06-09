@@ -35,6 +35,10 @@ type LegacyImportRequest[T any] struct {
 	FileSuffix   string
 	Parse        func(LegacyImportFile, []byte) (T, error)
 	Import       func(context.Context, T) (bool, error)
+	// Inspect é um hook opcional de observabilidade: roda após um item ser
+	// efetivamente importado e devolve avisos não-fatais (ex.: qualidade de
+	// descrição) que são agregados em LegacyImportResult.Warnings.
+	Inspect func(LegacyImportFile, T) []string
 }
 
 func ImportLegacyResourcesWithContext[T any](ctx context.Context, req LegacyImportRequest[T]) (LegacyImportResult, error) {
@@ -88,6 +92,11 @@ func ImportLegacyResourcesWithContext[T any](ctx context.Context, req LegacyImpo
 		}
 		if imported {
 			result.Imported++
+			if req.Inspect != nil {
+				for _, w := range req.Inspect(file, item) {
+					result.Warnings = append(result.Warnings, fmt.Sprintf("%s %s: %s", req.ResourceType, file.Name, w))
+				}
+			}
 		} else {
 			result.Skipped++
 		}
