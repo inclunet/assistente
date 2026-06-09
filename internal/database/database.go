@@ -126,6 +126,8 @@ func Init() error {
 		&JobRunEvent{},
 		&ToolInvocation{},
 		&SubAgentRun{},
+		&Skill{},
+		&SkillTool{},
 	); err != nil {
 		return err
 	}

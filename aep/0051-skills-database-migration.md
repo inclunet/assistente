@@ -111,19 +111,21 @@ type SkillMetadata struct {
 
 ## Decisões
 
-### D1. Schema híbrido: colunas escalares + JSON para configs complexas
+### D1. Schema "colunas-completas": todos os escalares como colunas + JSON para structs aninhadas
+
+> **Revisão de implementação (2026-06-08).** Durante a Fase 1 verificou-se que o `SkillMetadata` real (`internal/skills/types.go`) tem ~40 campos, vários ausentes da tabela ilustrativa original (Keywords, Category, Subcategory, Type, Difficulty, Audience, MinVersion/MaxVersion, Platforms, Languages, Frameworks, AuthorEmail/AuthorURL, Repository, Homepage, ArgumentHint, Model, Triggers, Hooks; e `agent` é `string`, não `*AgentConfig`). Para garantir o **roundtrip fiel** (critério 2), adotou-se a estratégia **colunas-completas**: todo campo escalar (incluindo slices simples de string serializados como JSON array) vira coluna; cada struct aninhada/opcional vira uma coluna JSON TEXT.
 
 Skills têm campos com dois perfis distintos:
 
 | Tipo | Estratégia | Exemplos |
 |------|-----------|----------|
-| Escalares queryáveis | Colunas diretas | name, version, description, auto_load, user_invocable |
-| Configs complexas opcionais | JSON | filesystem, network, dependencies, mcp, agent, behavior |
+| Escalares + slices de string | Colunas diretas (slices como JSON array em TEXT) | name, version, description, auto_load, user_invocable, keywords, platforms, type, difficulty |
+| Structs aninhadas opcionais | Coluna JSON TEXT | filesystem, network, tools, input, output, behavior, triggers, hooks, dependencies, mcp |
 | Conteúdo Markdown | Coluna TEXT | content (corpo do SKILL.md) |
 
-**Justificativa**: Diferente de Voice Roles (3 rows fixos), as sub-configs de skills são opcionais (`*pointer`), raramente queryadas, e extremamente variáveis. Normalizar Filesystem/Network/MCP em tabelas separadas criaria 5+ tabelas pouco utilizadas. JSON é a escolha pragmática aqui.
+**Justificativa**: as structs aninhadas são opcionais (`*pointer`), raramente queryadas, e extremamente variáveis. Normalizar Filesystem/Network/MCP em tabelas separadas criaria 5+ tabelas pouco utilizadas. JSON é a escolha pragmática para elas; os escalares ficam em colunas para query e fidelidade.
 
-**Exceção**: `skill_tools` como tabela separada para tools necessárias/permitidas, pois são referências que beneficiam de junction table.
+**Exceção**: `skill_tools` como tabela separada (junction) para as tools allowed/denied, derivada de `tools_config`, pois beneficia de query eficiente.
 
 ### D2. UUIDv7 como PK + slug como identificador humano
 
@@ -190,6 +192,8 @@ Esta decisão substitui a "migração one-time com backup/rename" descrita na ve
 
 ### `skills` (tabela principal)
 
+Schema canônico: `internal/database/models_skills.go` (struct `Skill`).
+
 | Coluna | Tipo | Constraints | Notas |
 |--------|------|-------------|-------|
 | `id` | TEXT | PK | UUIDv7 |
@@ -199,24 +203,44 @@ Esta decisão substitui a "migração one-time com backup/rename" descrita na ve
 | `description` | TEXT | NOT NULL | 10-160 chars |
 | `display_name` | TEXT | | Nome legível (fallback: name) |
 | `author` | TEXT | | |
-| `license` | TEXT | | |
-| `auto_load` | BOOL | NOT NULL DEFAULT false | Injetar no system prompt |
+| `author_email` | TEXT | | |
+| `author_url` | TEXT | | |
+| `license` | TEXT | | SPDX |
+| `repository` | TEXT | | |
+| `homepage` | TEXT | | |
+| `keywords` | TEXT | | JSON array (max 10) |
+| `category` | TEXT | INDEX | |
+| `subcategory` | TEXT | | |
+| `type` | TEXT | INDEX | command/agent/hook/mcp |
+| `difficulty` | TEXT | | beginner/intermediate/advanced |
+| `audience` | TEXT | | JSON array |
+| `min_version` | TEXT | | Semver |
+| `max_version` | TEXT | | Semver |
+| `platforms` | TEXT | | JSON array |
+| `languages` | TEXT | | JSON array |
+| `frameworks` | TEXT | | JSON array |
+| `auto_load` | BOOL | NOT NULL DEFAULT false INDEX | Injetar no system prompt |
 | `disable_model_invocation` | BOOL | NOT NULL DEFAULT false | |
 | `user_invocable` | BOOL | | NULL = default(true) |
-| `is_builtin` | BOOL | NOT NULL DEFAULT false | |
-| `builtin_version` | TEXT | | Versão para seed update |
-| `is_customized` | BOOL | NOT NULL DEFAULT false | |
-| `content` | TEXT | NOT NULL | Corpo Markdown (após frontmatter) |
-| `skill_context` | TEXT | | Fork de contexto (subagent) |
-| `agent_config` | TEXT | | JSON: *AgentConfig |
+| `argument_hint` | TEXT | | Dica de args |
+| `skill_context` | TEXT | | "fork" (subagent isolado) |
+| `agent` | TEXT | | subagent type quando context=fork (string, não JSON) |
+| `model` | TEXT | | Modelo preferido |
+| `allowed_tools` | TEXT | | String bruta "Read, Grep" (preserva fidelidade do frontmatter) |
 | `tools_config` | TEXT | | JSON: `ToolPermissions` resolvida (allowed/denied/bashCommands) |
 | `filesystem_config` | TEXT | | JSON: *FilesystemPermissions |
 | `network_config` | TEXT | | JSON: *NetworkPermissions |
+| `input_spec` | TEXT | | JSON: *InputConfig |
+| `output_spec` | TEXT | | JSON: *OutputConfig |
+| `behavior_config` | TEXT | | JSON: *BehaviorConfig |
+| `triggers_config` | TEXT | | JSON: *TriggerConfig |
+| `hooks_config` | TEXT | | JSON: hooks (any) |
 | `dependencies_config` | TEXT | | JSON: *DependenciesConfig |
 | `mcp_config` | TEXT | | JSON: *MCPConfig |
-| `input_spec` | TEXT | | JSON: *InputSpec |
-| `output_spec` | TEXT | | JSON: *OutputSpec |
-| `behavior_config` | TEXT | | JSON: *BehaviorConfig |
+| `content` | TEXT | NOT NULL | Corpo Markdown (após frontmatter) |
+| `is_builtin` | BOOL | NOT NULL DEFAULT false INDEX | |
+| `builtin_version` | TEXT | | Versão para seed update |
+| `is_customized` | BOOL | NOT NULL DEFAULT false | |
 | `created_at` | DATETIME | | |
 | `updated_at` | DATETIME | | |
 
@@ -241,17 +265,19 @@ Esta decisão substitui a "migração one-time com backup/rename" descrita na ve
 
 ## Fases
 
-### Fase 1 — Models GORM + AutoMigrate
+### Fase 1 — Models GORM + AutoMigrate ✅ (PR desta fase)
 
 1. Criar `internal/database/models_skills.go`:
-   - `SkillModel` com `UUIDModel` + todos os campos da tabela
-   - `SkillToolModel` para junction table
-   - GORM tags para FK, cascade, índices
-2. Funções de conversão:
-   - `SkillModel + SkillToolModels → skills.Skill`
-   - `skills.Skill → SkillModel + SkillToolModels`
-   - `SkillModel → skills.SkillInfo`
-3. Adicionar 2 models ao `AutoMigrate`
+   - `database.Skill` com `UUIDModel` + todas as colunas (convenção do projeto: sem sufixo `Model`, como `database.Job`/`database.MCPServer`)
+   - `database.SkillTool` para a junction (allowed/denied), FK cascade
+   - GORM tags para índices (`ux_skills_slug`, índice em `auto_load`/`is_builtin`/`category`/`type`; `ux_skill_tools_identity` em skill_id+tool_name+relation)
+2. Funções de conversão em `internal/skills/dbmodel.go`:
+   - `skillToModel(*Skill) → *database.Skill` (com junction `Tools` derivada de `tools_config`)
+   - `skillFromModel(*database.Skill) → *Skill` (`tools_config` é a fonte de verdade; junction ignorada)
+   - `skillInfoFromModel(*database.Skill) → SkillInfo`
+   - Helpers `marshalJSONField`/`unmarshalJSONField` preservam `omitempty` (nil/empty → coluna vazia) para roundtrip fiel
+3. Adicionar `&Skill{}` e `&SkillTool{}` ao `AutoMigrate`
+4. Teste de roundtrip (`dbmodel_test.go`): Skill (cheio e mínimo) → model → Skill com `reflect.DeepEqual` no `SkillMetadata`
 
 ### Fase 2 — Repository layer
 
@@ -345,8 +371,13 @@ type Repository interface {
 | `auto-load` | `auto_load` | Direto |
 | `disable-model-invocation` | `disable_model_invocation` | Direto |
 | `user-invocable` | `user_invocable` | Direto (nullable) |
-| `skill-context` | `skill_context` | Direto |
-| `agent` | `agent_config` | *AgentConfig → JSON |
+| `context` | `skill_context` | Direto |
+| `agent` | `agent` | Direto (string: subagent type) |
+| `argument-hint` | `argument_hint` | Direto |
+| `model` | `model` | Direto |
+| `keywords`/`audience`/`platforms`/`languages`/`frameworks` | colunas homônimas | slice → JSON array |
+| `category`/`subcategory`/`type`/`difficulty`/`minVersion`/`maxVersion` | colunas homônimas | Direto |
+| `triggers`/`hooks` | `triggers_config`/`hooks_config` | → JSON |
 | `allowed-tools` (string), `tools` (lista ou objeto) | `tools_config` + `skill_tools` | `ResolveToolsRaw` → `ToolPermissions` (JSON em `tools_config`); junction `skill_tools` populada de `allowed`/`denied` (relation="allowed"/"denied") |
 | `filesystem` | `filesystem_config` | *FilesystemPermissions → JSON |
 | `network` | `network_config` | *NetworkPermissions → JSON |
@@ -368,7 +399,8 @@ Tudo abaixo do frontmatter `---` vai para `content TEXT`.
 
 | Arquivo | Descrição |
 |---------|-----------|
-| `internal/database/models_skills.go` | 2 models GORM (SkillModel, SkillToolModel) |
+| `internal/database/models_skills.go` | 2 models GORM (`database.Skill`, `database.SkillTool`) |
+| `internal/skills/dbmodel.go` | Conversões domínio↔model + helpers JSON |
 | `internal/skills/repository.go` | Interface `Repository` + `DBRepository` |
 | `internal/skills/seed.go` | Seed de builtins no DB |
 | `internal/skills/legacy_import.go` | Importação legada não-destrutiva SKILL.md → DB (D9) |
