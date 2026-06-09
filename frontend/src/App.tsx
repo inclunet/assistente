@@ -230,8 +230,14 @@ function App() {
                 );
             }
             if (totals.failed > 0 || totals.errors > 0) {
+                // Cada falha incrementa `failed` e adiciona uma entrada em `errors`
+                // no backend (internal/portability/legacy_import.go), então somar
+                // os dois dobraria a contagem. `max` evita o double-count e ainda
+                // cobre erros do importador (failed=0 mas com mensagens em errors).
                 addToast(
-                    t('app.legacyImport.failed', { count: totals.failed + totals.errors }),
+                    t('app.legacyImport.failed', {
+                        count: Math.max(totals.failed, totals.errors),
+                    }),
                     'error'
                 );
             }
