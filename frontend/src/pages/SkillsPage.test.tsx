@@ -4,7 +4,6 @@ import { render, screen, waitFor, within, fireEvent } from '@testing-library/rea
 
 const mockGetSkills = vi.fn();
 const mockGetSkill = vi.fn();
-const mockGetSkillSearchPaths = vi.fn();
 const mockDuplicateSkill = vi.fn();
 
 vi.mock('react-i18next', () => ({
@@ -19,7 +18,6 @@ vi.mock('react-i18next', () => ({
 vi.mock('@wailsjs/go/app/App', () => ({
   GetSkills: () => mockGetSkills(),
   GetSkill: (slug: string) => mockGetSkill(slug),
-  GetSkillSearchPaths: () => mockGetSkillSearchPaths(),
   CreateSkill: vi.fn(),
   UpdateSkill: vi.fn(),
   DeleteSkill: vi.fn(),
@@ -135,7 +133,6 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockGetSkills.mockReset();
     mockGetSkill.mockReset();
-    mockGetSkillSearchPaths.mockReset();
     mockDuplicateSkill.mockReset();
     mockAddToast.mockReset();
     mockAnnounce.mockReset();
@@ -147,7 +144,7 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
           name: 'skill-base',
           description: 'Descricao valida',
           disableModelInvocation: false,
-          source: 'home',
+          isBuiltin: false,
           tools: { allowed: [] },
         },
       ])
@@ -157,7 +154,7 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
           name: 'skill-base',
           description: 'Descricao valida',
           disableModelInvocation: false,
-          source: 'home',
+          isBuiltin: false,
           tools: { allowed: [] },
         },
         {
@@ -165,7 +162,7 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
           name: 'skill-base-copia',
           description: 'Descricao valida',
           disableModelInvocation: false,
-          source: 'home',
+          isBuiltin: false,
           tools: { allowed: [] },
         },
       ]);
@@ -175,12 +172,11 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
       name: 'skill-base-copia',
       description: 'Descricao valida',
       disableModelInvocation: false,
-      source: 'home',
+      isBuiltin: false,
       tools: { allowed: [] },
       content: 'conteudo',
     });
 
-    mockGetSkillSearchPaths.mockResolvedValue([]);
     mockDuplicateSkill.mockResolvedValue('skill-base-copia');
   });
 

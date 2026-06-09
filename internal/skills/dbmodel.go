@@ -206,15 +206,6 @@ func skillInfoFromModel(m *database.Skill) (SkillInfo, error) {
 	return SkillInfo{
 		SkillMetadata: s.SkillMetadata,
 		Slug:          s.Slug,
-		Source:        sourceFromBuiltin(m.IsBuiltin),
+		IsBuiltin:     m.IsBuiltin,
 	}, nil
-}
-
-// sourceFromBuiltin mapeia is_builtin para o campo legado SkillInfo.Source.
-// Transitório: a Fase 6 (AEP-0051) substitui Source por IsBuiltin.
-func sourceFromBuiltin(isBuiltin bool) string {
-	if isBuiltin {
-		return "exe"
-	}
-	return "home"
 }

@@ -219,8 +219,8 @@ type Skill struct {
 // SkillInfo é um resumo leve de um skill para listagem (sem conteúdo).
 type SkillInfo struct {
 	SkillMetadata
-	Slug   string `json:"slug"`
-	Source string `json:"source"`
+	Slug      string `json:"slug"`
+	IsBuiltin bool   `json:"isBuiltin"` // AEP-0051: substitui o antigo Source (exe/home/workdir)
 }
 
 // ResolveToolsRaw converte os campos de tools em ToolPermissions.

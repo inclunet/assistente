@@ -109,10 +109,3 @@ func (c *SkillsController) GetUserInvocableSkills() ([]skills.SkillInfo, error) 
 	}
 	return c.skillMgr.GetUserInvocableSkills()
 }
-
-func (c *SkillsController) GetSkillSearchPaths() []string {
-	if c.skillMgr == nil {
-		return []string{}
-	}
-	return c.skillMgr.GetSearchPaths()
-}

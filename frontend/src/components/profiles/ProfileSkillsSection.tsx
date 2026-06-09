@@ -7,18 +7,17 @@ import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 import { Combobox, type ComboboxItem } from '../pickers/Combobox';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 
-export type SkillFilter = 'all' | 'exe' | 'home' | 'workdir';
+export type SkillFilter = 'all' | 'builtin' | 'custom';
 
 const SKILL_SOURCE_LABELS: Record<string, string> = {
-  exe: 'Builtin',
-  home: 'Home',
-  workdir: 'Workspace',
+  builtin: 'Builtin',
+  custom: 'Custom',
 };
 
 export interface ProfileSkillsSectionProps {
   availableSkills: Array<
     | skills.SkillInfo
-    | { slug: string; name: string; description?: string; version?: string; source?: string }
+    | { slug: string; name: string; description?: string; version?: string; isBuiltin?: boolean }
   >;
   enabledSkills?: string[];
   disableOnDemand?: boolean;
@@ -55,7 +54,7 @@ export function ProfileSkillsSection({
 
   const autoloadSkills = enabledSkills
     .map(slug => availableSkills.find(s => s.slug === slug))
-    .filter(Boolean) as Array<{ slug: string; name: string; description?: string; source?: string }>;
+    .filter(Boolean) as Array<{ slug: string; name: string; description?: string; isBuiltin?: boolean }>;
   const onDemandSkills = availableSkills.filter(s => !autoloadSet.has(s.slug));
   const sortedSkills: SkillRow[] = useMemo(
     () => [...autoloadSkills, ...onDemandSkills].map(s => ({
@@ -63,7 +62,7 @@ export function ProfileSkillsSection({
       slug: s.slug,
       name: s.name,
       description: s.description || '',
-      source: s.source || 'exe',
+      source: s.isBuiltin ? 'builtin' : 'custom',
     })),
     [availableSkills, enabledSkills],
   );

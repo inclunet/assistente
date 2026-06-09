@@ -7,7 +7,6 @@ import {
   CreateSkill,
   UpdateSkill,
   DeleteSkill,
-  GetSkillSearchPaths,
   DuplicateSkill,
 } from '@wailsjs/go/app/App';
 import { skills, controllers } from '../../wailsjs/go/models';
@@ -37,7 +36,7 @@ interface SkillRow {
   name: string;
   description: string;
   auto: boolean;
-  source: string;
+  isBuiltin: boolean;
   tools: string[];
   // Campos para edição (só preenchidos após loadItem)
   content?: string;
@@ -69,7 +68,6 @@ export default function SkillsPage() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
-  const [searchPaths, setSearchPaths] = useState<string[]>([]);
   const [focusedRow, setFocusedRow] = useState<SkillRow | null>(null);
 
   // useEditableList hook gerencia todo estado CRUD
@@ -83,7 +81,7 @@ export default function SkillsPage() {
           name: s.name,
           description: s.description || '',
           auto: !s.disableModelInvocation,
-          source: s.source,
+          isBuiltin: s.isBuiltin,
           tools: getAllowedTools(s.tools as { allowed?: string[] } | undefined),
         }));
       },
@@ -95,7 +93,7 @@ export default function SkillsPage() {
           name: skill.name,
           description: skill.description,
           auto: !skill.disableModelInvocation,
-          source: skill.source,
+          isBuiltin: false,
           tools: getAllowedTools(skill.tools as { allowed?: string[] } | undefined),
           content: skill.content,
           toolsString: getAllowedTools(skill.tools as { allowed?: string[] } | undefined).join(', '),
@@ -165,7 +163,7 @@ export default function SkillsPage() {
         name: '',
         description: '',
         auto: false,
-        source: 'workdir',
+        isBuiltin: false,
         tools: [],
         content: '',
         toolsString: '',
@@ -175,7 +173,6 @@ export default function SkillsPage() {
 
   useEffect(() => {
     crud.loadItems();
-    GetSkillSearchPaths().then(paths => setSearchPaths(paths || []));
   }, []);
 
   useResourceEditRequest('skills', {
@@ -233,21 +230,13 @@ export default function SkillsPage() {
         ),
     },
     {
-      key: 'source',
+      key: 'isBuiltin',
       label: t('skills.colSource', 'Origem'),
       width: '13%',
-      format: (value) => {
-        switch (String(value || '')) {
-          case 'workdir':
-            return t('skills.sourceWorkdir', 'Projeto');
-          case 'home':
-            return t('skills.sourceHome', 'Global');
-          case 'exe':
-            return t('skills.sourceExe', 'Embutido');
-          default:
-            return String(value || '');
-        }
-      },
+      format: (value) =>
+        Boolean(value)
+          ? t('skills.sourceExe', 'Embutido')
+          : t('skills.sourceCustom', 'Personalizado'),
     },
     {
       key: 'actions',
@@ -472,34 +461,10 @@ export default function SkillsPage() {
         <div className="skills-empty" role="status">
           <p>
             {t(
-              'skills.noSkills',
-              'Nenhum skill encontrado. Crie arquivos .md em'
-            )}{' '}
-            <code>
-              {searchPaths.length > 0
-                ? searchPaths[searchPaths.length - 1]
-                : '.assistente/skills/'}
-            </code>{' '}
-            {t('skills.orUseButton', 'ou use o botão "Novo Skill".')}
+              'skills.noSkillsDb',
+              'Nenhum skill encontrado. Use o botão "Novo Skill" para criar um.'
+            )}
           </p>
-        </div>
-      )}
-
-      {/* Search paths footer */}
-      {searchPaths.length > 0 && (
-        <div
-          className="skills-search-paths"
-          role="contentinfo"
-          aria-label={t('skills.searchPathsLabel', 'Caminhos de busca de skills')}
-        >
-          <p className="skills-search-paths__title">
-            {t('skills.searchPaths', 'Caminhos de busca:')}
-          </p>
-          {searchPaths.map((path, i) => (
-            <p key={i} className="skills-search-paths__item">
-              {path}
-            </p>
-          ))}
         </div>
       )}
     </div>

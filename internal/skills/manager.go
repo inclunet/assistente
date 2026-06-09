@@ -150,7 +150,7 @@ func (m *Manager) List() ([]SkillInfo, error) {
 		infos = append(infos, SkillInfo{
 			SkillMetadata: skill.SkillMetadata,
 			Slug:          skill.Slug,
-			Source:        skill.Source,
+			IsBuiltin:     skill.Source == string(configdir.SourceExe),
 		})
 	}
 
@@ -391,7 +391,7 @@ func (m *Manager) GetUserInvocableSkills() ([]SkillInfo, error) {
 		infos = append(infos, SkillInfo{
 			SkillMetadata: skill.SkillMetadata,
 			Slug:          skill.Slug,
-			Source:        skill.Source,
+			IsBuiltin:     skill.Source == string(configdir.SourceExe),
 		})
 	}
 

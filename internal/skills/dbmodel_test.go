@@ -193,13 +193,13 @@ func TestSkillInfoFromModel(t *testing.T) {
 	if info.Slug != "coding-helper" {
 		t.Errorf("slug: got %q", info.Slug)
 	}
-	if info.Source != "exe" {
-		t.Errorf("source builtin: got %q want exe", info.Source)
+	if !info.IsBuiltin {
+		t.Errorf("isBuiltin: got false want true")
 	}
 
 	model.IsBuiltin = false
 	info, _ = skillInfoFromModel(model)
-	if info.Source != "home" {
-		t.Errorf("source non-builtin: got %q want home", info.Source)
+	if info.IsBuiltin {
+		t.Errorf("isBuiltin: got true want false")
 	}
 }

@@ -19,10 +19,10 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-const mockSkills: Array<{ name: string; slug: string; description: string; source?: string }> = [
-  { name: 'Skill 1', slug: 'skill-1', description: 'First skill', source: 'exe' },
-  { name: 'Skill 2', slug: 'skill-2', description: 'Second skill', source: 'home' },
-  { name: 'Skill 3', slug: 'skill-3', description: 'Third skill', source: 'exe' },
+const mockSkills: Array<{ name: string; slug: string; description: string; isBuiltin?: boolean }> = [
+  { name: 'Skill 1', slug: 'skill-1', description: 'First skill', isBuiltin: true },
+  { name: 'Skill 2', slug: 'skill-2', description: 'Second skill', isBuiltin: false },
+  { name: 'Skill 3', slug: 'skill-3', description: 'Third skill', isBuiltin: true },
 ];
 
 describe('ProfileSkillsSection', () => {
@@ -401,7 +401,7 @@ describe('ProfileSkillsSection', () => {
           onChange={vi.fn()}
         />
       );
-      selectFilter('skills-filter', 'Home');
+      selectFilter('skills-filter', 'Custom');
       expect(screen.getByText('Skill 2')).toBeInTheDocument();
       expect(screen.queryByText('Skill 1')).not.toBeInTheDocument();
       expect(screen.queryByText('Skill 3')).not.toBeInTheDocument();
