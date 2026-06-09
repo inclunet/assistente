@@ -310,21 +310,21 @@ type Repository interface {
    - `SeedBuiltin`: versionamento semver (não existe → insere; customizado → skip; versão maior → atualiza)
    - `ExistsBySlug`: usado pela importação legada idempotente (Fase 5)
 
-### Fase 3 — Migrar Manager para Repository
+### Fase 3 — Migrar Manager para Repository ✅ (PR desta fase)
 
-6. `Manager` struct recebe `repo Repository`
-7. Reescrever CRUD para delegar ao Repository
+6. `Manager` ganha campo `repo Repository` + `SetRepository(repo)` (padrão de `mcp.Manager.SetRepository`) — **dual-mode**: sem repo = filesystem (comportamento atual preservado), com repo = DB. Isso permite mergear sem alterar o runtime; o corte acontece na Fase 6.
+7. CRUD e listagens delegam ao Repository quando `repo != nil`
 8. Manter `GetSkillFiles(slug)` usando filesystem (D4)
 9. Manter `Parse()`, `Compose()`, `Invoke()`, `SubstituteArguments()` sem mudança
-10. Atualizar `NewManager()` para receber `Repository`
+10. `NewManager()` permanece filesystem por default; App injeta o repo na Fase 6
 
-### Fase 4 — Seed de builtins
+### Fase 4 — Seed de builtins ✅ (PR desta fase)
 
 11. Criar `internal/skills/seed.go`:
-    - `SeedBuiltinSkills(repo Repository, fs embed.FS) error`
-    - Lê de `internal/app/builtin/skills/` + `assets/builtin/skills/`
-    - Parseia SKILL.md → `SeedBuiltin()`
-12. Integrar no `App.startup()` após AutoMigrate
+    - `SeedBuiltinSkills(ctx, repo Repository, fsys fs.FS, baseDir string) (SeedResult, error)`
+    - Recebe `fs.FS` (testável via `testing/fstest`; produção = `embed.FS` do binário)
+    - Layout `{slug}/SKILL.md`; parseia → `repo.SeedBuiltin()`; erros por skill não abortam o lote
+12. Integração no `App.startup()` (injeção do embed) acontece na Fase 6
 
 ### Fase 5 — Importação legada filesystem → DB (não-destrutiva, D9)
 

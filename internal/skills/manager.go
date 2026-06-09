@@ -2,6 +2,7 @@ package skills
 
 import (
 	"assistente/internal/configdir"
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -23,17 +24,41 @@ type discoveredSkill struct {
 	source configdir.Source
 }
 
-// Manager gerencia skills no formato: .assistente/skills/{slug}/SKILL.md
-// Usa configdir.Resolver para resolução multi-diretório.
+// Manager gerencia skills.
+//
+// Opera em dois modos (AEP-0051):
+//   - filesystem (default): resolução multi-diretório via configdir.Resolver
+//     (`.assistente/skills/{slug}/SKILL.md`).
+//   - banco de dados: quando um Repository é injetado via SetRepository, o CRUD
+//     e as listagens passam a servir do DB. O resolver permanece disponível para
+//     a importação legada (Fase 5) e para GetSkillFiles (D4).
 type Manager struct {
 	resolver *configdir.Resolver
+	repo     Repository
 }
 
-// NewManager cria um novo gerenciador de skills
+// NewManager cria um novo gerenciador de skills (modo filesystem por default).
 func NewManager() *Manager {
 	return &Manager{
 		resolver: configdir.NewResolver("skills"),
 	}
+}
+
+// SetRepository injeta o repositório de banco. Quando definido, o Manager passa
+// a servir skills do DB. Espelha o padrão de mcp.Manager.SetRepository.
+func (m *Manager) SetRepository(repo Repository) {
+	m.repo = repo
+}
+
+// HasRepository indica se o Manager está operando em modo banco de dados.
+func (m *Manager) HasRepository() bool {
+	return m.repo != nil
+}
+
+// repoCtx retorna o contexto para chamadas ao repositório. Skills são
+// instância-wide (sem user scope), então um contexto base é suficiente.
+func (m *Manager) repoCtx() context.Context {
+	return context.Background()
 }
 
 // discoverAll escaneia todos os diretórios de busca e retorna skills encontrados.
@@ -109,6 +134,9 @@ func loadSkill(ds discoveredSkill) (*Skill, error) {
 
 // List retorna todos os skills resolvidos (sem duplicatas, maior prioridade ganha).
 func (m *Manager) List() ([]SkillInfo, error) {
+	if m.repo != nil {
+		return m.repo.List(m.repoCtx())
+	}
 	discovered := m.discoverAll()
 
 	infos := make([]SkillInfo, 0, len(discovered))
@@ -135,6 +163,9 @@ func (m *Manager) List() ([]SkillInfo, error) {
 
 // Get carrega um skill completo pelo slug.
 func (m *Manager) Get(slug string) (*Skill, error) {
+	if m.repo != nil {
+		return m.repo.Get(m.repoCtx(), slug)
+	}
 	discovered := m.discoverAll()
 	for _, ds := range discovered {
 		if ds.slug == slug {
@@ -148,6 +179,10 @@ func (m *Manager) Get(slug string) (*Skill, error) {
 func (m *Manager) Create(meta *SkillMetadata, content string) (string, error) {
 	if err := validateMetadata(meta); err != nil {
 		return "", err
+	}
+
+	if m.repo != nil {
+		return m.repo.Create(m.repoCtx(), &Skill{SkillMetadata: *meta, Content: content})
 	}
 
 	slug := Slugify(meta.Name)
@@ -185,6 +220,9 @@ func (m *Manager) Create(meta *SkillMetadata, content string) (string, error) {
 
 // Duplicate cria uma copia de um skill existente no diretorio home.
 func (m *Manager) Duplicate(slug string) (string, error) {
+	if m.repo != nil {
+		return m.repo.Duplicate(m.repoCtx(), slug)
+	}
 	skill, err := m.Get(slug)
 	if err != nil {
 		return "", err
@@ -213,6 +251,10 @@ func (m *Manager) Update(slug string, meta *SkillMetadata, content string) error
 		return err
 	}
 
+	if m.repo != nil {
+		return m.repo.Update(m.repoCtx(), slug, &Skill{SkillMetadata: *meta, Content: content})
+	}
+
 	discovered := m.discoverAll()
 	for _, ds := range discovered {
 		if ds.slug == slug {
@@ -229,6 +271,9 @@ func (m *Manager) Update(slug string, meta *SkillMetadata, content string) error
 
 // Delete remove o skill (diretório inteiro).
 func (m *Manager) Delete(slug string) error {
+	if m.repo != nil {
+		return m.repo.Delete(m.repoCtx(), slug)
+	}
 	discovered := m.discoverAll()
 	for _, ds := range discovered {
 		if ds.slug == slug {
@@ -251,6 +296,9 @@ func (m *Manager) EnsureDir() error {
 // GetAutoSkills retorna skills com auto_load=true, com conteúdo completo.
 // Usado para injeção automática no system prompt.
 func (m *Manager) GetAutoSkills() ([]Skill, error) {
+	if m.repo != nil {
+		return m.repo.GetAutoSkills(m.repoCtx())
+	}
 	discovered := m.discoverAll()
 
 	var result []Skill
@@ -275,6 +323,9 @@ func (m *Manager) GetAutoSkills() ([]Skill, error) {
 // GetAvailableSkills retorna skills sem auto_load (sob demanda).
 // Usado para listar skills disponíveis no system prompt (agente lê via read_file).
 func (m *Manager) GetAvailableSkills() ([]Skill, error) {
+	if m.repo != nil {
+		return m.repo.GetAvailableSkills(m.repoCtx())
+	}
 	discovered := m.discoverAll()
 
 	var result []Skill
@@ -298,6 +349,9 @@ func (m *Manager) GetAvailableSkills() ([]Skill, error) {
 
 // GetAllSkillsFull retorna todos os skills com conteúdo completo.
 func (m *Manager) GetAllSkillsFull() ([]Skill, error) {
+	if m.repo != nil {
+		return m.repo.GetAllSkillsFull(m.repoCtx())
+	}
 	discovered := m.discoverAll()
 
 	var result []Skill
@@ -319,6 +373,9 @@ func (m *Manager) GetAllSkillsFull() ([]Skill, error) {
 // GetUserInvocableSkills retorna skills que podem ser invocados pelo usuário via /slash.
 // Filtra por IsUserInvocable() == true.
 func (m *Manager) GetUserInvocableSkills() ([]SkillInfo, error) {
+	if m.repo != nil {
+		return m.repo.GetUserInvocableSkills(m.repoCtx())
+	}
 	discovered := m.discoverAll()
 
 	var infos []SkillInfo
