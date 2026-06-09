@@ -69,6 +69,8 @@ Skills e tools são conceitos distintos (skills = instruções lidas para o cont
 - **Nível 3 (execução)**: arquivos de referência lidos sob demanda (já suportado por `GetSkillFiles`).
 - Invocação explícita do usuário continua via `/slash` (já existente).
 
+**Fonte canônica vs. path lido (resolve a divergência com AEP-0051 D8).** O banco é a fonte canônica do conteúdo da skill. Para manter a ativação por leitura genérica sem ler o arquivo de importação (que pode ficar defasado após edição via UI), o conteúdo é **materializado pelo backend num cache read-only em disco**, derivado do DB e regenerado quando a skill muda. O `path` exposto no catálogo (Nível 1) aponta para esse cache materializado — **não** para o `SKILL.md` original importado. Assim: DB canônico, `read_file` lê do cache consistente, e o arquivo de importação (AEP-0051 D9) permanece apenas como origem de importação, sem ser fonte de runtime. (Os arquivos complementares de Nível 3 que ainda vivem em disco — AEP-0051 D4 — seguem sendo lidos diretamente via `GetSkillFiles`.)
+
 ### D3. Orçamento de contexto (budget) no catálogo, estilo Codex
 
 O bloco de descoberta (Nível 1) tem um **cap configurável** (ex.: percentual da janela do modelo, com fallback em caracteres). Ao exceder: primeiro encurtam-se descrições, depois omitem-se skills de menor prioridade, e a omissão é **sinalizada** (log/telemetria). O budget aplica-se só ao Nível 1; ao ativar uma skill, o corpo completo é lido normalmente.

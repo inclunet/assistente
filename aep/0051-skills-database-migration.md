@@ -207,7 +207,7 @@ Esta decisão substitui a "migração one-time com backup/rename" descrita na ve
 | `content` | TEXT | NOT NULL | Corpo Markdown (após frontmatter) |
 | `skill_context` | TEXT | | Fork de contexto (subagent) |
 | `agent_config` | TEXT | | JSON: *AgentConfig |
-| `tools_config` | TEXT | | JSON: tool definitions inline |
+| `tools_config` | TEXT | | JSON: `ToolPermissions` resolvida (allowed/denied/bashCommands) |
 | `filesystem_config` | TEXT | | JSON: *FilesystemPermissions |
 | `network_config` | TEXT | | JSON: *NetworkPermissions |
 | `dependencies_config` | TEXT | | JSON: *DependenciesConfig |
@@ -218,7 +218,7 @@ Esta decisão substitui a "migração one-time com backup/rename" descrita na ve
 | `created_at` | DATETIME | | |
 | `updated_at` | DATETIME | | |
 
-### `skill_tools` (junction: skill ↔ tool requerida/permitida)
+### `skill_tools` (junction: permissão de tool por skill — allowed/denied)
 
 | Coluna | Tipo | Constraints | Notas |
 |--------|------|-------------|-------|
