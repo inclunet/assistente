@@ -19,6 +19,7 @@ import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { SkillGeneralSection } from '../components/skills/SkillGeneralSection';
 import { SkillContentSection } from '../components/skills/SkillContentSection';
 import { SkillToolsSection } from '../components/skills/SkillToolsSection';
+import { SkillCatalogSection } from '../components/skills/SkillCatalogSection';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
@@ -41,6 +42,13 @@ interface SkillRow {
   // Campos para edição (só preenchidos após loadItem)
   content?: string;
   toolsString?: string;
+  // Catálogo / gating (AEP-0072 D4)
+  autoloadReason?: string;
+  contextBudget?: number;
+  requiresTools?: boolean;
+  requiresFilesystem?: boolean;
+  requiresNetwork?: boolean;
+  requiresMcp?: boolean;
   [key: string]: unknown;
 }
 
@@ -51,6 +59,13 @@ interface SkillFormData {
   disableModelInvocation?: boolean;
   content?: string;
   toolsString?: string;
+  // Catálogo / gating (AEP-0072 D4)
+  autoloadReason?: string;
+  contextBudget?: number;
+  requiresTools?: boolean;
+  requiresFilesystem?: boolean;
+  requiresNetwork?: boolean;
+  requiresMcp?: boolean;
 }
 
 export default function SkillsPage() {
@@ -65,6 +80,26 @@ export default function SkillsPage() {
     error instanceof Error ? error.message : String(error ?? '');
 
   const getAllowedTools = (tools?: { allowed?: string[] }) => tools?.allowed || [];
+
+  const buildSkillRequest = (data: SkillFormData) => {
+    const toolsList = (data.toolsString || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return controllers.SkillCreateRequest.createFrom({
+      name: data.name.trim(),
+      description: data.description.trim(),
+      disableModelInvocation: !data.auto,
+      tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
+      content: data.content || '',
+      autoloadReason: (data.autoloadReason || '').trim(),
+      contextBudget: data.contextBudget ?? 0,
+      requiresTools: data.requiresTools ?? false,
+      requiresFilesystem: data.requiresFilesystem ?? false,
+      requiresNetwork: data.requiresNetwork ?? false,
+      requiresMcp: data.requiresMcp ?? false,
+    });
+  };
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
@@ -97,29 +132,19 @@ export default function SkillsPage() {
           tools: getAllowedTools(skill.tools as { allowed?: string[] } | undefined),
           content: skill.content,
           toolsString: getAllowedTools(skill.tools as { allowed?: string[] } | undefined).join(', '),
+          autoloadReason: skill.autoloadReason,
+          contextBudget: skill.contextBudget,
+          requiresTools: skill.requiresTools,
+          requiresFilesystem: skill.requiresFilesystem,
+          requiresNetwork: skill.requiresNetwork,
+          requiresMcp: skill.requiresMcp,
         };
       },
       createItem: async (data) => {
-        const toolsList = (data.toolsString || '').split(',').map(s => s.trim()).filter(Boolean);
-        const req = controllers.SkillCreateRequest.createFrom({
-          name: data.name.trim(),
-          description: data.description.trim(),
-          disableModelInvocation: !data.auto,
-          tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
-          content: data.content || '',
-        });
-        return await CreateSkill(req);
+        return await CreateSkill(buildSkillRequest(data));
       },
       updateItem: async (id, data) => {
-        const toolsList = (data.toolsString || '').split(',').map(s => s.trim()).filter(Boolean);
-        const req = controllers.SkillCreateRequest.createFrom({
-          name: data.name.trim(),
-          description: data.description.trim(),
-          disableModelInvocation: !data.auto,
-          tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
-          content: data.content || '',
-        });
-        await UpdateSkill(id as string, req);
+        await UpdateSkill(id as string, buildSkillRequest(data));
       },
       deleteItem: async (id) => {
         await DeleteSkill(id as string);
@@ -167,6 +192,12 @@ export default function SkillsPage() {
         tools: [],
         content: '',
         toolsString: '',
+        autoloadReason: '',
+        contextBudget: 0,
+        requiresTools: false,
+        requiresFilesystem: false,
+        requiresNetwork: false,
+        requiresMcp: false,
       }),
     }
   );
@@ -411,6 +442,16 @@ export default function SkillsPage() {
             <SkillToolsSection
               toolsString={crud.editingItem.toolsString || ''}
               onToolsChange={(toolsString) => crud.updateField('toolsString', toolsString)}
+            />
+
+            <SkillCatalogSection
+              item={crud.editingItem}
+              onFieldChange={(field, value) =>
+                crud.updateField(
+                  field as keyof SkillFormData,
+                  value as SkillFormData[keyof SkillFormData]
+                )
+              }
             />
 
             <EditorPanelFooter className="skills-editor__footer">
