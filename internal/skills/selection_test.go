@@ -6,6 +6,52 @@ func mdAutoload(reason string) *SkillMetadata {
 	return &SkillMetadata{Name: "a", Version: "1.0.0", Description: "x", AutoLoad: true, AutoloadReason: reason}
 }
 
+func TestPolicyDecideCatalogParityWithDecide(t *testing.T) {
+	// AEP-0072 Fase 4b: DecideCatalog (sem corpo) deve ser semanticamente idêntico
+	// a Decide (com metadata) — mesma visibilidade e motivo em todos os contextos.
+	p := NewSkillSelectionPolicy()
+
+	mkSkill := func(slug string, mut func(*Skill)) Skill {
+		s := Skill{Slug: slug}
+		s.Name = slug
+		s.Version = "1.0.0"
+		s.Description = "descricao para " + slug
+		if mut != nil {
+			mut(&s)
+		}
+		return s
+	}
+
+	skillsUnderTest := []Skill{
+		mkSkill("plain", nil),
+		mkSkill("autoload-reason", func(s *Skill) { s.AutoLoad = true; s.AutoloadReason = "porque sim" }),
+		mkSkill("autoload-noreason", func(s *Skill) { s.AutoLoad = true }),
+		mkSkill("needs-tools", func(s *Skill) { s.Tools = &ToolPermissions{Allowed: []string{"read_file"}} }),
+		mkSkill("needs-network", func(s *Skill) { s.RequiresNetwork = true }),
+		mkSkill("needs-fs", func(s *Skill) { s.Filesystem = &FilesystemPermissions{Read: []string{"~/x/**"}} }),
+		mkSkill("no-model-invocation", func(s *Skill) { s.DisableModelInvocation = true }),
+	}
+
+	contexts := map[string]SkillSelectionContext{
+		"all-enabled-metadata":      {ToolsEnabled: true, FilesystemEnabled: true, NetworkEnabled: true, MCPEnabled: true, RequireAutoloadReason: true},
+		"tools-off":                 {RequireAutoloadReason: true},
+		"skills-disabled":           {SkillsDisabled: true, ToolsEnabled: true},
+		"disable-on-demand":         {ToolsEnabled: true, FilesystemEnabled: true, NetworkEnabled: true, MCPEnabled: true, DisableOnDemand: true, RequireAutoloadReason: true},
+		"allowlist-autoload-reason": {ToolsEnabled: true, FilesystemEnabled: true, NetworkEnabled: true, MCPEnabled: true, AutoloadAllowlist: []string{"plain", "autoload-noreason"}},
+	}
+
+	for _, s := range skillsUnderTest {
+		entry := CatalogEntryFromSkill(&s)
+		for name, ctx := range contexts {
+			viaMeta := p.Decide(&s.SkillMetadata, s.Slug, ctx)
+			viaCatalog := p.DecideCatalog(entry, ctx)
+			if viaMeta.Visibility != viaCatalog.Visibility || viaMeta.Reason != viaCatalog.Reason {
+				t.Errorf("paridade quebrada em skill=%q ctx=%q: Decide=%+v DecideCatalog=%+v", s.Slug, name, viaMeta, viaCatalog)
+			}
+		}
+	}
+}
+
 func TestPolicySkillsDisabled(t *testing.T) {
 	p := NewSkillSelectionPolicy()
 	d := p.Decide(mdAutoload("r"), "a", SkillSelectionContext{SkillsDisabled: true, ToolsEnabled: true})
