@@ -466,6 +466,7 @@ export default function CredentialsPage() {
                   fullWidth
                   autoComplete="off"
                   role={tokenIsRef ? 'combobox' : undefined}
+                  aria-haspopup={tokenIsRef ? 'listbox' : undefined}
                   aria-expanded={tokenIsRef ? hasSuggestions : undefined}
                   aria-controls={tokenIsRef && hasSuggestions ? 'token-suggestions' : undefined}
                   aria-activedescendant={tokenIsRef && activeIndex >= 0 ? `token-suggestion-${activeIndex}` : undefined}
