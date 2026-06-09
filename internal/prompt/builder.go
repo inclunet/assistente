@@ -244,15 +244,17 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 	// visibilidade de cada skill (autoload / sob demanda / oculta). O builder
 	// apenas monta o contexto a partir do runtime/perfil e renderiza o resultado;
 	// nenhuma regra de gating é reimplementada aqui.
-	toolsEnabled := !templateToolCallingDisabled(tplData)
+	caps := resolveSkillCapabilities(tplData)
 	selCtx := skills.SkillSelectionContext{
-		ToolsEnabled:      toolsEnabled,
-		FilesystemEnabled: toolsEnabled,
-		NetworkEnabled:    toolsEnabled,
-		MCPEnabled:        toolsEnabled,
-		// Sem tool calling o modelo não consegue read_file, então o catálogo sob
-		// demanda é inútil: rebaixa tudo para oculto, mantendo só autoload.
-		DisableOnDemand:       disableOnDemand || !toolsEnabled,
+		ToolsEnabled:      caps.tools,
+		FilesystemEnabled: caps.filesystem,
+		NetworkEnabled:    caps.network,
+		MCPEnabled:        caps.mcp,
+		// O catálogo sob demanda só serve se o modelo conseguir read_file (ativação
+		// por leitura, Nível 2). Quando read_file não é alcançável pelo perfil
+		// (tool calling off, ou EnabledTools fixo sem read_file/tool_catalog),
+		// rebaixa tudo para oculto, mantendo só autoload.
+		DisableOnDemand:       disableOnDemand || !caps.onDemand,
 		AutoloadAllowlist:     enabledSkills,
 		RequireAutoloadReason: enabledSkills == nil,
 	}
@@ -430,25 +432,101 @@ func resolveSkillCatalogBudget(percent float64, windowTokens int) int {
 // templateContextWindow extrai a janela de contexto do modelo (em tokens) do
 // perfil ativo no tplData; 0 quando indisponível (cai no fallback de budget).
 func templateContextWindow(tplData any) int {
-	var data chat.TemplateData
-	switch d := tplData.(type) {
-	case chat.TemplateData:
-		data = d
-	case *chat.TemplateData:
-		if d == nil {
-			return 0
-		}
-		data = *d
-	default:
-		return 0
-	}
-	if data.Profile == nil {
+	data, ok := asTemplateData(tplData)
+	if !ok || data.Profile == nil {
 		return 0
 	}
 	if w := data.Profile.Chat.ContextWindow; w > 0 {
 		return w
 	}
 	return 0
+}
+
+// asTemplateData extrai um chat.TemplateData (por valor) do tplData genérico.
+// ok=false quando o tipo não é TemplateData (ex.: nil ou tipos de teste simples),
+// caso em que os callers devem assumir o comportamento default (sem restrição).
+func asTemplateData(tplData any) (chat.TemplateData, bool) {
+	switch d := tplData.(type) {
+	case chat.TemplateData:
+		return d, true
+	case *chat.TemplateData:
+		if d == nil {
+			return chat.TemplateData{}, false
+		}
+		return *d, true
+	default:
+		return chat.TemplateData{}, false
+	}
+}
+
+// filesystemCapabilityTools e networkCapabilityTools mapeiam tools builtin para as
+// capacidades que uma skill pode exigir (requires_filesystem / requires_network).
+// Espelham as categorias de internal/tools/catalog.go (filesystem e web/http).
+var filesystemCapabilityTools = map[string]bool{
+	"read_file": true, "list_directory": true, "search_files": true, "grep_search": true,
+	"write_file": true, "edit_file": true, "move_file": true, "copy_file": true,
+	"delete_file": true, "make_directory": true,
+}
+
+var networkCapabilityTools = map[string]bool{
+	"web_search": true, "web_fetch": true, "http_request": true, "feed_read": true,
+}
+
+// skillCapabilities resume as capacidades que o modelo realmente alcança segundo o
+// perfil (tplData), usadas no gating de skills do Nível 1 (AEP-0072 D4).
+type skillCapabilities struct {
+	tools      bool // tool calling utilizável (qualquer tool inicial alcançável)
+	filesystem bool
+	network    bool
+	mcp        bool
+	onDemand   bool // read_file alcançável → ativação por leitura (Nível 2) viável
+}
+
+// resolveSkillCapabilities deriva as capacidades alcançáveis a partir do perfil.
+//
+// Regras: sem tool calling → nada alcançável. EnabledTools nil/vazio = default
+// (todas as tools) → tudo alcançável. tool_catalog presente = catalog-first
+// (qualquer tool pode ser habilitada depois) → tudo alcançável. Caso contrário, o
+// perfil fixa uma lista restrita e cada capacidade é derivada do que está nela —
+// evitando instruir read_file ou exibir skills incompatíveis quando a tool não
+// existe naquele perfil.
+func resolveSkillCapabilities(tplData any) skillCapabilities {
+	data, ok := asTemplateData(tplData)
+	if !ok {
+		// Sem TemplateData tipado (ex.: chamadas simples/testes): assume tudo
+		// habilitado, preservando o comportamento histórico.
+		return skillCapabilities{tools: true, filesystem: true, network: true, mcp: true, onDemand: true}
+	}
+	if !data.ToolCallingEnabled {
+		return skillCapabilities{}
+	}
+	all := len(data.EnabledTools) == 0
+	if !all {
+		for _, n := range data.EnabledTools {
+			if n == tools.ToolCatalogName {
+				all = true
+				break
+			}
+		}
+	}
+	if all {
+		return skillCapabilities{tools: true, filesystem: true, network: true, mcp: true, onDemand: true}
+	}
+	caps := skillCapabilities{tools: len(data.EnabledTools) > 0}
+	for _, n := range data.EnabledTools {
+		if filesystemCapabilityTools[n] {
+			caps.filesystem = true
+		}
+		if networkCapabilityTools[n] {
+			caps.network = true
+		}
+		if n == "read_file" {
+			caps.onDemand = true
+		}
+	}
+	// MCP não é alcançável por uma lista builtin fixa (tools MCP são dinâmicas);
+	// só vale no modo default/catalog-first, já tratado acima.
+	return caps
 }
 
 // collectCatalogPool carrega o índice compacto de skills (catálogo, Nível 1),
@@ -568,17 +646,6 @@ func catalogFirstActive(tplData any) bool {
 		return false
 	}
 	return hasCatalog
-}
-
-func templateToolCallingDisabled(tplData any) bool {
-	switch data := tplData.(type) {
-	case chat.TemplateData:
-		return !data.ToolCallingEnabled
-	case *chat.TemplateData:
-		return data != nil && !data.ToolCallingEnabled
-	default:
-		return false
-	}
 }
 
 // ComputeEnabledToolNames retorna a lista de nomes de tools habilitadas pelo perfil.

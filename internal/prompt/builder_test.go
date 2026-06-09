@@ -528,6 +528,55 @@ func TestBuildSkillsSection_RequiresFlagGatedWhenToolsDisabled(t *testing.T) {
 	}
 }
 
+func TestBuildSkillsSection_RestrictiveEnabledToolsGatesOnDemandAndCapabilities(t *testing.T) {
+	// Perfil com tool calling LIGADO mas EnabledTools fixo sem read_file e sem
+	// tool_catalog: o modelo não consegue ativar skills por leitura nem alcançar
+	// rede. On-demand deve sumir; requires_network deve ser oculto; autoload fica.
+	netSkill := makeSkill("net", "Net", "Needs net", "Net content.", true, false)
+	netSkill.RequiresNetwork = true
+	onDemand := makeSkill("ondemand", "OnDemand", "On demand desc", "OnDemand body.", false, true)
+	plainAuto := makeSkill("plain", "Plain", "No deps", "Plain content.", true, false)
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		autoSkills:      []skills.Skill{netSkill, plainAuto},
+		availableSkills: []skills.Skill{onDemand},
+	}}
+
+	tpl := chat.TemplateData{ToolCallingEnabled: true, EnabledTools: []string{"task_list"}}
+	result := b.BuildSkillsSection(nil, false, tpl)
+	if strings.Contains(result, "<available_skills>") {
+		t.Errorf("sem read_file alcançável, on-demand deveria sumir: %q", result)
+	}
+	if strings.Contains(result, "Net content.") {
+		t.Errorf("requires_network deveria ser oculto sem tool de rede: %q", result)
+	}
+	if !strings.Contains(result, "Plain content.") {
+		t.Errorf("autoload sem dependências deveria permanecer: %q", result)
+	}
+}
+
+func TestBuildSkillsSection_ReadFileEnabledKeepsOnDemandAndFilesystem(t *testing.T) {
+	// Perfil restrito a read_file: on-demand é viável (read_file alcançável) e a
+	// capability filesystem fica disponível (read_file é uma tool de filesystem).
+	onDemand := makeSkill("ondemand", "OnDemand", "On demand desc", "OnDemand body.", false, true)
+	fsSkill := makeSkill("fs", "FS", "Needs fs", "FS body.", false, true)
+	fsSkill.RequiresFilesystem = true
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		availableSkills: []skills.Skill{onDemand, fsSkill},
+	}}
+
+	tpl := chat.TemplateData{ToolCallingEnabled: true, EnabledTools: []string{"read_file"}}
+	result := b.BuildSkillsSection(nil, false, tpl)
+	if !strings.Contains(result, "<available_skills>") {
+		t.Fatalf("read_file habilitado deveria manter on-demand: %q", result)
+	}
+	if !strings.Contains(result, "ondemand") {
+		t.Errorf("skill on-demand deveria aparecer: %q", result)
+	}
+	if !strings.Contains(result, "fs") {
+		t.Errorf("requires_filesystem deveria aparecer (read_file = filesystem): %q", result)
+	}
+}
+
 func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 	s := makeSkill("dev", "Dev", "Dev desc", "Dev content.", true, false)
 	b := &prompt.Builder{Skills: &mockSkillReader{

@@ -125,7 +125,7 @@ func (r *DBRepository) RebuildCatalog(ctx context.Context, materialize CatalogMa
 	// AEP-0072 D2: detecção de defasagem via ContentHash. Se o conjunto de slugs
 	// e todos os hashes batem com o catálogo persistido, não há nada a fazer —
 	// evita re-materializar e reescrever o catálogo a cada chamada (no-op).
-	fresh, err := r.catalogMatchesHashes(ctx, desired)
+	fresh, err := r.catalogMatchesHashes(ctx, desired, materialize != nil)
 	if err != nil {
 		return err
 	}
@@ -173,7 +173,12 @@ func (r *DBRepository) RebuildCatalog(ctx context.Context, materialize CatalogMa
 // catalogMatchesHashes informa se o catálogo persistido está em sincronia com o
 // conjunto desejado (slug → hash canônico). Defasagem = contagem diferente, slug
 // ausente/extra, ou hash divergente. Base da detecção de drift (AEP-0072 D2).
-func (r *DBRepository) catalogMatchesHashes(ctx context.Context, desired map[string]string) (bool, error) {
+//
+// requirePath só vale quando o rebuild recebe um materializador: nesse caso um
+// path vazio na entrada significa que ela ainda não foi materializada e o catálogo
+// precisa ser reconstruído. Sem materializador (ex.: testes/callers que não usam
+// ativação por leitura) o path não é gerenciado e não deve forçar rebuild.
+func (r *DBRepository) catalogMatchesHashes(ctx context.Context, desired map[string]string, requirePath bool) (bool, error) {
 	var rows []database.SkillCatalog
 	if err := r.db.WithContext(ctx).Select("slug", "content_hash", "path").Find(&rows).Error; err != nil {
 		return false, err
@@ -187,8 +192,9 @@ func (r *DBRepository) catalogMatchesHashes(ctx context.Context, desired map[str
 			return false, nil
 		}
 		// Catálogo sem path materializado é considerado defasado (precisa
-		// re-materializar para servir o Nível 1 via read_file).
-		if row.Path == "" {
+		// re-materializar para servir o Nível 1 via read_file) — só quando há
+		// materializador para preenchê-lo.
+		if requirePath && row.Path == "" {
 			return false, nil
 		}
 	}
