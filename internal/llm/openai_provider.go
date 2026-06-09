@@ -807,6 +807,44 @@ func (p *OpenAIProvider) buildResponsesParams(
 	return respParams
 }
 
+// pendingMCPCall acumula o estado de um item mcp_call (MCP nativo) durante o
+// streaming da Responses API, keyed por item_id.
+type pendingMCPCall struct {
+	ID          string
+	Name        string
+	ServerLabel string
+	Args        strings.Builder
+	// Completed marca que recebemos response.mcp_call.completed mas ainda não
+	// finalizamos via response.output_item.done. Usado pelo fallback pós-stream.
+	Completed bool
+}
+
+// flushPendingCompletedMCPCalls emite eventos de conclusão (IsCompleted) para os
+// mcp_call sinalizados como concluídos via response.mcp_call.completed mas que
+// nunca receberam response.output_item.done (que os removeria do mapa). Sem isto,
+// endpoints/proxies que omitem output_item.done fariam a tool nativa aparecer
+// "rodando" no streaming e sumir do histórico (nada persistido). O output não está
+// disponível neste caminho; preservamos ao menos a chamada e seus argumentos.
+// Retorna true se emitiu ao menos um evento.
+func flushPendingCompletedMCPCalls(active map[string]*pendingMCPCall, handler StreamHandler) bool {
+	emitted := false
+	for itemID, mc := range active {
+		if mc == nil || !mc.Completed {
+			continue
+		}
+		emitted = true
+		handler.OnMCPToolEvent(MCPToolEvent{
+			ID:          mc.ID,
+			Name:        mc.Name,
+			ServerLabel: mc.ServerLabel,
+			Arguments:   mc.Args.String(),
+			IsCompleted: true,
+		})
+		delete(active, itemID)
+	}
+	return emitted
+}
+
 // doStreamResponses executa streaming via Responses API.
 // Trata eventos de texto, function calls locais e MCP (transparente/server-side).
 func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses.ResponseNewParams, handler StreamHandler, mcpServers []MCPServerConfig) mcpStreamAttemptResult {
@@ -828,12 +866,6 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	activeFuncCalls := make(map[string]*pendingFuncCall) // keyed by item_id
 	var finishedToolCalls []ToolCall
 
-	type pendingMCPCall struct {
-		ID          string
-		Name        string
-		ServerLabel string
-		Args        strings.Builder
-	}
 	activeMCPCalls := make(map[string]*pendingMCPCall) // keyed by item_id
 
 	var eventCount int
@@ -968,7 +1000,17 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			// Server-side execution in progress, tracking handled via output_item events
 
 		case "response.mcp_call.completed":
-			// Completion tracked via output_item.done for full data
+			// A finalização canônica (com output/args) ocorre em
+			// response.output_item.done. Porém alguns endpoints/proxies não emitem
+			// esse output_item.done para itens mcp_call — só este evento, que NÃO
+			// carrega output nem arguments. Marcamos o item como concluído e, ao
+			// fim do stream, um fallback emite a conclusão para itens que nunca
+			// receberam output_item.done (senão a tool sumiria do histórico).
+			if ev := event.AsResponseMcpCallCompleted(); ev.ItemID != "" {
+				if mc, ok := activeMCPCalls[ev.ItemID]; ok {
+					mc.Completed = true
+				}
+			}
 
 		case "response.mcp_call.failed":
 			ev := event.AsResponseMcpCallFailed()
@@ -1046,6 +1088,12 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 	log.Printf("[OpenAIProvider] Stream loop ended: %d events, response=%d bytes, reasoning=%d bytes, toolCalls=%d",
 		eventCount, fullResponse.Len(), fullReasoning.Len(), len(finishedToolCalls))
+
+	// Fallback de conclusão de MCP nativo para itens que receberam
+	// response.mcp_call.completed mas não response.output_item.done.
+	if flushPendingCompletedMCPCalls(activeMCPCalls, handler) {
+		emittedAnything = true
+	}
 
 	if fullReasoning.Len() > 0 {
 		handler.OnThinkingDone(fullReasoning.String())
