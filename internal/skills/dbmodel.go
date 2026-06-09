@@ -98,6 +98,13 @@ func skillToModel(s *Skill) (*database.Skill, error) {
 
 		AllowedTools: s.AllowedTools,
 		Content:      s.Content,
+
+		ContextBudget:      s.ContextBudget,
+		AutoloadReason:     s.AutoloadReason,
+		RequiresTools:      s.RequiresTools,
+		RequiresFilesystem: s.RequiresFilesystem,
+		RequiresNetwork:    s.RequiresNetwork,
+		RequiresMCP:        s.RequiresMCP,
 	}
 
 	type jsonField struct {
@@ -166,6 +173,13 @@ func skillFromModel(m *database.Skill) (*Skill, error) {
 	meta.Agent = m.Agent
 	meta.Model = m.Model
 	meta.AllowedTools = m.AllowedTools
+
+	meta.ContextBudget = m.ContextBudget
+	meta.AutoloadReason = m.AutoloadReason
+	meta.RequiresTools = m.RequiresTools
+	meta.RequiresFilesystem = m.RequiresFilesystem
+	meta.RequiresNetwork = m.RequiresNetwork
+	meta.RequiresMCP = m.RequiresMCP
 
 	type jsonField struct {
 		src string

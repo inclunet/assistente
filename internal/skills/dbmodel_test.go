@@ -85,6 +85,13 @@ func fullSkill() *Skill {
 				Server: &MCPServerConfig{Command: "node", Args: []string{"server.js"}},
 				Tools:  []MCPToolDef{{Name: "do", Description: "does"}},
 			},
+
+			ContextBudget:      1200,
+			AutoloadReason:     "always needed for coding context",
+			RequiresTools:      true,
+			RequiresFilesystem: true,
+			RequiresNetwork:    false,
+			RequiresMCP:        true,
 		},
 	}
 }

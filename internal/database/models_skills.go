@@ -68,6 +68,14 @@ type Skill struct {
 	DependenciesConfig string `json:"dependenciesConfig,omitempty" gorm:"type:text"`
 	MCPConfig          string `json:"mcpConfig,omitempty" gorm:"type:text"`
 
+	// Catálogo / gating (AEP-0072 D4)
+	ContextBudget      int    `json:"contextBudget" gorm:"not null;default:0"`     // custo aprox. do corpo em tokens (0 = desconhecido)
+	AutoloadReason     string `json:"autoloadReason,omitempty" gorm:"type:text"`   // justificativa obrigatória quando auto_load=true
+	RequiresTools      bool   `json:"requiresTools" gorm:"not null;default:false"` // pré-condição de capability
+	RequiresFilesystem bool   `json:"requiresFilesystem" gorm:"not null;default:false"`
+	RequiresNetwork    bool   `json:"requiresNetwork" gorm:"not null;default:false"`
+	RequiresMCP        bool   `json:"requiresMcp" gorm:"not null;default:false;column:requires_mcp"`
+
 	// Conteúdo Markdown (após frontmatter)
 	Content string `json:"content" gorm:"not null;type:text"`
 

@@ -1274,6 +1274,12 @@ export namespace controllers {
 	    dependencies?: any;
 	    // Go type: skills
 	    mcp?: any;
+	    contextBudget?: number;
+	    autoloadReason?: string;
+	    requiresTools?: boolean;
+	    requiresFilesystem?: boolean;
+	    requiresNetwork?: boolean;
+	    requiresMcp?: boolean;
 	    content: string;
 	
 	    static createFrom(source: any = {}) {
@@ -1319,6 +1325,12 @@ export namespace controllers {
 	        this.hooks = source["hooks"];
 	        this.dependencies = this.convertValues(source["dependencies"], null);
 	        this.mcp = this.convertValues(source["mcp"], null);
+	        this.contextBudget = source["contextBudget"];
+	        this.autoloadReason = source["autoloadReason"];
+	        this.requiresTools = source["requiresTools"];
+	        this.requiresFilesystem = source["requiresFilesystem"];
+	        this.requiresNetwork = source["requiresNetwork"];
+	        this.requiresMcp = source["requiresMcp"];
 	        this.content = source["content"];
 	    }
 	
@@ -4175,6 +4187,12 @@ export namespace skills {
 	    dependencies?: any;
 	    // Go type: MCPConfig
 	    mcp?: any;
+	    contextBudget?: number;
+	    autoloadReason?: string;
+	    requiresTools?: boolean;
+	    requiresFilesystem?: boolean;
+	    requiresNetwork?: boolean;
+	    requiresMcp?: boolean;
 	    slug: string;
 	    source: string;
 	    content: string;
@@ -4223,6 +4241,12 @@ export namespace skills {
 	        this.hooks = source["hooks"];
 	        this.dependencies = this.convertValues(source["dependencies"], null);
 	        this.mcp = this.convertValues(source["mcp"], null);
+	        this.contextBudget = source["contextBudget"];
+	        this.autoloadReason = source["autoloadReason"];
+	        this.requiresTools = source["requiresTools"];
+	        this.requiresFilesystem = source["requiresFilesystem"];
+	        this.requiresNetwork = source["requiresNetwork"];
+	        this.requiresMcp = source["requiresMcp"];
 	        this.slug = source["slug"];
 	        this.source = source["source"];
 	        this.content = source["content"];
@@ -4294,6 +4318,12 @@ export namespace skills {
 	    dependencies?: any;
 	    // Go type: MCPConfig
 	    mcp?: any;
+	    contextBudget?: number;
+	    autoloadReason?: string;
+	    requiresTools?: boolean;
+	    requiresFilesystem?: boolean;
+	    requiresNetwork?: boolean;
+	    requiresMcp?: boolean;
 	    slug: string;
 	    isBuiltin: boolean;
 	
@@ -4340,6 +4370,12 @@ export namespace skills {
 	        this.hooks = source["hooks"];
 	        this.dependencies = this.convertValues(source["dependencies"], null);
 	        this.mcp = this.convertValues(source["mcp"], null);
+	        this.contextBudget = source["contextBudget"];
+	        this.autoloadReason = source["autoloadReason"];
+	        this.requiresTools = source["requiresTools"];
+	        this.requiresFilesystem = source["requiresFilesystem"];
+	        this.requiresNetwork = source["requiresNetwork"];
+	        this.requiresMcp = source["requiresMcp"];
 	        this.slug = source["slug"];
 	        this.isBuiltin = source["isBuiltin"];
 	    }

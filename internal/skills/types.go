@@ -27,14 +27,14 @@ type SkillMetadata struct {
 	// === Categorization Fields ===
 	Category    string   `yaml:"category,omitempty" json:"category,omitempty"`
 	Subcategory string   `yaml:"subcategory,omitempty" json:"subcategory,omitempty"`
-	Type        string   `yaml:"type,omitempty" json:"type,omitempty"`           // command, agent, hook, mcp
+	Type        string   `yaml:"type,omitempty" json:"type,omitempty"`             // command, agent, hook, mcp
 	Difficulty  string   `yaml:"difficulty,omitempty" json:"difficulty,omitempty"` // beginner, intermediate, advanced
 	Audience    []string `yaml:"audience,omitempty" json:"audience,omitempty"`
 
 	// === Compatibility Fields ===
 	MinVersion string   `yaml:"minVersion,omitempty" json:"minVersion,omitempty"` // versão mínima do host (spec: minClaudeVersion)
 	MaxVersion string   `yaml:"maxVersion,omitempty" json:"maxVersion,omitempty"` // versão máxima do host (spec: maxClaudeVersion)
-	Platforms  []string `yaml:"platforms,omitempty" json:"platforms,omitempty"`    // macos, linux, windows
+	Platforms  []string `yaml:"platforms,omitempty" json:"platforms,omitempty"`   // macos, linux, windows
 	Languages  []string `yaml:"languages,omitempty" json:"languages,omitempty"`
 	Frameworks []string `yaml:"frameworks,omitempty" json:"frameworks,omitempty"`
 
@@ -49,9 +49,9 @@ type SkillMetadata struct {
 	// === Permission Fields ===
 	Filesystem   *FilesystemPermissions `yaml:"filesystem,omitempty" json:"filesystem,omitempty"`
 	Network      *NetworkPermissions    `yaml:"network,omitempty" json:"network,omitempty"`
-	Tools        *ToolPermissions       `yaml:"-" json:"tools,omitempty"`             // parsed via ResolveToolsRaw
-	ToolsRaw     any                    `yaml:"tools,omitempty" json:"-"`             // captura o valor bruto do YAML
-	AllowedTools string                 `yaml:"allowed-tools,omitempty" json:"-"`     // formato simples: "Read, Grep, Glob"
+	Tools        *ToolPermissions       `yaml:"-" json:"tools,omitempty"`         // parsed via ResolveToolsRaw
+	ToolsRaw     any                    `yaml:"tools,omitempty" json:"-"`         // captura o valor bruto do YAML
+	AllowedTools string                 `yaml:"allowed-tools,omitempty" json:"-"` // formato simples: "Read, Grep, Glob"
 
 	// === Input/Output Fields ===
 	Input  *InputConfig  `yaml:"input,omitempty" json:"input,omitempty"`
@@ -71,6 +71,22 @@ type SkillMetadata struct {
 
 	// === MCP Integration ===
 	MCP *MCPConfig `yaml:"mcp,omitempty" json:"mcp,omitempty"`
+
+	// === Catálogo / Gating (AEP-0072 D4) ===
+	// ContextBudget é o custo aproximado do corpo da skill (em tokens), usado
+	// pelo planner do Nível 1 para orçar o bloco de descoberta. 0 = desconhecido
+	// (o planner estima a partir do conteúdo).
+	ContextBudget int `yaml:"context_budget,omitempty" json:"contextBudget,omitempty"`
+	// AutoloadReason é a justificativa textual obrigatória quando auto_load=true
+	// (D5: autoload é exceção, não regra).
+	AutoloadReason string `yaml:"autoload_reason,omitempty" json:"autoloadReason,omitempty"`
+	// RequiresTools/Filesystem/Network/MCP são pré-condições de capability
+	// declaradas explicitamente. Quando o contexto/perfil não oferece a
+	// capacidade, a skill é omitida ou degradada (não injetada).
+	RequiresTools      bool `yaml:"requires_tools,omitempty" json:"requiresTools,omitempty"`
+	RequiresFilesystem bool `yaml:"requires_filesystem,omitempty" json:"requiresFilesystem,omitempty"`
+	RequiresNetwork    bool `yaml:"requires_network,omitempty" json:"requiresNetwork,omitempty"`
+	RequiresMCP        bool `yaml:"requires_mcp,omitempty" json:"requiresMcp,omitempty"`
 
 	// === Compat: campos legados/custom ===
 	AutoLoad bool `yaml:"auto_load,omitempty" json:"-"` // alias legado → mapeado para behavior
@@ -110,18 +126,18 @@ type InputConfig struct {
 
 // ArgumentDef define um argumento individual.
 type ArgumentDef struct {
-	Name        string `yaml:"name" json:"name"`
-	Type        string `yaml:"type" json:"type"` // string, boolean, number, string[]
-	Description string `yaml:"description,omitempty" json:"description,omitempty"`
-	Required    bool   `yaml:"required,omitempty" json:"required,omitempty"`
-	Default     any    `yaml:"default,omitempty" json:"default,omitempty"`
+	Name        string   `yaml:"name" json:"name"`
+	Type        string   `yaml:"type" json:"type"` // string, boolean, number, string[]
+	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
+	Required    bool     `yaml:"required,omitempty" json:"required,omitempty"`
+	Default     any      `yaml:"default,omitempty" json:"default,omitempty"`
 	Enum        []string `yaml:"enum,omitempty" json:"enum,omitempty"`
 }
 
 // ContextReq define requisitos de contexto do skill.
 type ContextReq struct {
-	RequiresProject    bool `yaml:"requiresProject,omitempty" json:"requiresProject,omitempty"`
-	RequiresGit        bool `yaml:"requiresGit,omitempty" json:"requiresGit,omitempty"`
+	RequiresProject     bool `yaml:"requiresProject,omitempty" json:"requiresProject,omitempty"`
+	RequiresGit         bool `yaml:"requiresGit,omitempty" json:"requiresGit,omitempty"`
 	RequiresPackageJSON bool `yaml:"requiresPackageJson,omitempty" json:"requiresPackageJson,omitempty"`
 }
 
@@ -385,6 +401,55 @@ func (m *SkillMetadata) GetToolsAllowed() []string {
 		return m.Tools.Allowed
 	}
 	return nil
+}
+
+// dependsOnToolsConfig retorna true se a skill declara permissões de tools
+// (allowed/denied/bashCommands) — capability inferida do schema de permissão.
+func (m *SkillMetadata) dependsOnToolsConfig() bool {
+	return m.Tools != nil &&
+		(len(m.Tools.Allowed) > 0 || len(m.Tools.Denied) > 0 || m.Tools.BashCommands != nil)
+}
+
+// dependsOnFilesystemConfig retorna true se a skill declara permissões de filesystem.
+func (m *SkillMetadata) dependsOnFilesystemConfig() bool {
+	return m.Filesystem != nil &&
+		(len(m.Filesystem.Read) > 0 || len(m.Filesystem.Write) > 0 || len(m.Filesystem.Deny) > 0)
+}
+
+// dependsOnNetworkConfig retorna true se a skill declara permissões de rede.
+func (m *SkillMetadata) dependsOnNetworkConfig() bool {
+	return m.Network != nil &&
+		(len(m.Network.AllowedHosts) > 0 || len(m.Network.DeniedHosts) > 0)
+}
+
+// EffectiveRequiresTools combina a flag explícita requires_tools (D4) com a
+// capability inferida das permissões declaradas. Usado pelo gating (AEP-0072).
+func (m *SkillMetadata) EffectiveRequiresTools() bool {
+	return m.RequiresTools || m.dependsOnToolsConfig()
+}
+
+// EffectiveRequiresFilesystem combina requires_filesystem com a capability inferida.
+func (m *SkillMetadata) EffectiveRequiresFilesystem() bool {
+	return m.RequiresFilesystem || m.dependsOnFilesystemConfig()
+}
+
+// EffectiveRequiresNetwork combina requires_network com a capability inferida.
+func (m *SkillMetadata) EffectiveRequiresNetwork() bool {
+	return m.RequiresNetwork || m.dependsOnNetworkConfig()
+}
+
+// EffectiveRequiresMCP combina requires_mcp com a capability inferida (config MCP presente).
+func (m *SkillMetadata) EffectiveRequiresMCP() bool {
+	return m.RequiresMCP || m.MCP != nil
+}
+
+// RequiresAnyCapability retorna true se a skill depende de qualquer capacidade
+// (tools, filesystem, network ou MCP), explícita ou inferida.
+func (m *SkillMetadata) RequiresAnyCapability() bool {
+	return m.EffectiveRequiresTools() ||
+		m.EffectiveRequiresFilesystem() ||
+		m.EffectiveRequiresNetwork() ||
+		m.EffectiveRequiresMCP()
 }
 
 // Skill types

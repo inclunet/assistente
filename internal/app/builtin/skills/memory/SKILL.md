@@ -8,6 +8,7 @@ type: agent
 category: memory
 difficulty: beginner
 auto_load: true
+autoload_reason: Long-term memory must be present in every conversation so the assistant can recall and update decisions and preferences from the start
 platforms:
   - windows
   - macos

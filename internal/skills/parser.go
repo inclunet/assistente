@@ -144,6 +144,17 @@ func validateSpecStrict(meta *SkillMetadata, strict bool) error {
 		}
 	}
 
+	// context_budget não pode ser negativo (sempre)
+	if meta.ContextBudget < 0 {
+		return fmt.Errorf("'context_budget' must be >= 0: got %d", meta.ContextBudget)
+	}
+
+	// auto_load exige autoload_reason (AEP-0072 D5) — apenas em modo estrito,
+	// para não rejeitar skills legadas que já eram autoload sem justificativa.
+	if strict && meta.AutoLoad && strings.TrimSpace(meta.AutoloadReason) == "" {
+		return fmt.Errorf("'autoload_reason' is required when 'auto_load' is true")
+	}
+
 	// context deve ser "fork" se presente
 	if meta.SkillContext != "" && meta.SkillContext != "fork" {
 		return fmt.Errorf("'context' must be 'fork' if set — got %q", meta.SkillContext)

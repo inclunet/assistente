@@ -8,6 +8,7 @@ type: agent
 category: productivity
 difficulty: beginner
 auto_load: true
+autoload_reason: Workspace navigation and deep-link controls are needed throughout the session so the assistant can drive the UI at any moment
 platforms:
   - windows
   - macos

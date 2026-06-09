@@ -8,6 +8,7 @@ type: agent
 category: productivity
 difficulty: beginner
 auto_load: true
+autoload_reason: The active conversation's task lists and workflow context must be present from the start so the assistant can manage tasks accurately
 platforms:
   - windows
   - macos

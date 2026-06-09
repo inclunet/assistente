@@ -8,6 +8,7 @@ type: agent
 category: coding
 difficulty: beginner
 auto_load: true
+autoload_reason: Software engineering workflow and editing methodology guide the assistant on most coding tasks, so it must be available from the start
 platforms:
   - windows
   - macos
