@@ -51,7 +51,7 @@ Conclusão: o `<available_skills>` + `read_file` atual já é, no fundo, o padr�
 ## Estado atual
 
 - `internal/skills/manager.go`: `discoverAll()` varre o filesystem a cada chamada; `GetAutoSkills()` / `GetAvailableSkills()` / `GetAllSkillsFull()` carregam e parseiam tudo do disco.
-- `internal/prompt/builder.go` (`BuildSkillsSection`): emite `<auto_skills>` (conteúdo completo, níveis 1+2 juntos) e `<available_skills>` (referências + path para o modelo ler via `read_file`). Já há gating parcial: `filterSkillsWithoutToolDependencies` remove skills que dependem de tools quando o tool-calling está desabilitado.
+- `internal/prompt/builder.go` (`BuildSkillsSection`): emite `<auto_skills>` (conteúdo completo, níveis 1+2 juntos) e `<available_skills>` (referências + path para o modelo ler via `read_file`). Já há gating parcial: quando o tool-calling está desabilitado, `filterSkillsWithoutToolDependencies` remove qualquer skill que dependa de tools, filesystem, network **ou** MCP (ver `skillDependsOnTools`), e o bloco `<available_skills>` é omitido.
 - `internal/skills/types.go`: `SkillMetadata` é rico (filesystem, network, tools, dependencies, mcp, triggers de hooks, `DisableModelInvocation`, `UserInvocable`), mas **não** tem `context_budget`, `requires_*` semânticos para gating, nem gatilhos de descoberta (o `Triggers` atual é para hooks PreToolUse/PostToolUse).
 
 ---

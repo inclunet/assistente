@@ -158,12 +158,14 @@ O formato SKILL.md (YAML frontmatter + Markdown) continua sendo suportado para:
 
 ### D7. Permissões de tools em tabela separada
 
-Skills declaram tools necessárias/permitidas de 3 formas:
-- `tools: ["read_file", "write_file"]` — tools requeridas
-- `allowed_tools: ["*"]` — wildcard
-- `tools: [{name: "custom", description: "..."}]` — tool definitions inline
+O parser atual (`ResolveToolsRaw` em `internal/skills/types.go`) resolve tudo para uma struct `ToolPermissions` (`Allowed`/`Denied`/`BashCommands`), a partir de três formatos de frontmatter:
+- `allowed-tools: "Read, Grep, Glob"` — string comma-separated (formato Claude Code oficial) → `ToolPermissions.Allowed`.
+- `tools: [read_file, write_file]` — lista simples legada → interpretada como `ToolPermissions.Allowed`.
+- `tools: { allowed: [...], denied: [...], bashCommands: {...} }` — objeto (formato Agent Skills, usado inclusive nas builtins) → `ToolPermissions` completa.
 
-As referências simples (nomes de tools) vão para `skill_tools` como junction table. Tool definitions inline (com description) ficam como JSON na coluna `tools_config`.
+Não existe `allowed_tools` (com underscore) nem "tools requeridas" / "tool definitions inline com description" no parser atual.
+
+Persistência: para preservar `Parse()`/`Compose()`, a `ToolPermissions` resolvida é guardada como JSON em `tools_config`. A junction `skill_tools` é populada a partir dela para consultas eficientes: cada item de `Allowed` vira uma row com `relation="allowed"` e cada item de `Denied`, `relation="denied"`.
 
 ### D8. Runtime serve skills exclusivamente do DB
 
@@ -223,7 +225,7 @@ Esta decisão substitui a "migração one-time com backup/rename" descrita na ve
 | `id` | TEXT | PK | UUIDv7 |
 | `skill_id` | TEXT | FK→skills.id NOT NULL INDEX | Cascade delete |
 | `tool_name` | TEXT | NOT NULL | Nome da tool |
-| `relation` | TEXT | NOT NULL | "required" ou "allowed" |
+| `relation` | TEXT | NOT NULL | "allowed" ou "denied" (de `ToolPermissions`) |
 
 **Constraint**: UNIQUE(skill_id, tool_name, relation)
 
@@ -343,9 +345,7 @@ type Repository interface {
 | `user-invocable` | `user_invocable` | Direto (nullable) |
 | `skill-context` | `skill_context` | Direto |
 | `agent` | `agent_config` | *AgentConfig → JSON |
-| `tools` (inline defs) | `tools_config` | JSON array |
-| `tools` (names only) | → `skill_tools` | 1 row per tool, relation="required" |
-| `allowed-tools` | → `skill_tools` | 1 row per tool, relation="allowed" |
+| `allowed-tools` (string), `tools` (lista ou objeto) | `tools_config` + `skill_tools` | `ResolveToolsRaw` → `ToolPermissions` (JSON em `tools_config`); junction `skill_tools` populada de `allowed`/`denied` (relation="allowed"/"denied") |
 | `filesystem` | `filesystem_config` | *FilesystemPermissions → JSON |
 | `network` | `network_config` | *NetworkPermissions → JSON |
 | `dependencies` | `dependencies_config` | *DependenciesConfig → JSON |
