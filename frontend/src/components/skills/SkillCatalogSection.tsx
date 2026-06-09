@@ -15,7 +15,7 @@ interface SkillCatalogSectionProps {
 }
 
 // SkillCatalogSection edita os metadados de catálogo/gating do AEP-0072 D4:
-// auto_load + autoload_reason (D5), context_budget e pré-condições de capability.
+// autoload_reason (D5), context_budget e pré-condições de capability (requires_*).
 export function SkillCatalogSection({ item, onFieldChange }: SkillCatalogSectionProps) {
   const { t } = useTranslation();
 
@@ -23,34 +23,32 @@ export function SkillCatalogSection({ item, onFieldChange }: SkillCatalogSection
     {
       field: 'requiresTools',
       id: 'sk-requires-tools',
-      label: t('skills.catalogSection.requiresTools', 'Requer ferramentas'),
+      label: t('skills.catalogSection.requiresTools'),
     },
     {
       field: 'requiresFilesystem',
       id: 'sk-requires-filesystem',
-      label: t('skills.catalogSection.requiresFilesystem', 'Requer sistema de arquivos'),
+      label: t('skills.catalogSection.requiresFilesystem'),
     },
     {
       field: 'requiresNetwork',
       id: 'sk-requires-network',
-      label: t('skills.catalogSection.requiresNetwork', 'Requer rede'),
+      label: t('skills.catalogSection.requiresNetwork'),
     },
     {
       field: 'requiresMcp',
       id: 'sk-requires-mcp',
-      label: t('skills.catalogSection.requiresMcp', 'Requer MCP'),
+      label: t('skills.catalogSection.requiresMcp'),
     },
   ];
 
   return (
     <section className="skill-section" data-testid="skill-catalog-section">
-      <h3 className="skill-section__title">
-        {t('skills.catalogSection.title', 'Catálogo e carregamento')}
-      </h3>
+      <h3 className="skill-section__title">{t('skills.catalogSection.title')}</h3>
       <div className="skill-fields">
         <div className="skill-field">
           <label htmlFor="sk-autoload-reason" className="skill-field__label">
-            {t('skills.catalogSection.autoloadReason', 'Justificativa do auto_load')}
+            {t('skills.catalogSection.autoloadReason')}
           </label>
           <textarea
             id="sk-autoload-reason"
@@ -58,22 +56,16 @@ export function SkillCatalogSection({ item, onFieldChange }: SkillCatalogSection
             rows={2}
             value={item.autoloadReason || ''}
             onChange={(e) => onFieldChange('autoloadReason', e.target.value)}
-            placeholder={t(
-              'skills.catalogSection.autoloadReasonPlaceholder',
-              'Por que esta skill precisa estar sempre no prompt?'
-            )}
+            placeholder={t('skills.catalogSection.autoloadReasonPlaceholder')}
           />
           <span className="skill-field__hint">
-            {t(
-              'skills.catalogSection.autoloadReasonHint',
-              'Obrigatória quando auto_load está ativo: skills sem justificativa caem para sob demanda.'
-            )}
+            {t('skills.catalogSection.autoloadReasonHint')}
           </span>
         </div>
 
         <div className="skill-field">
           <label htmlFor="sk-context-budget" className="skill-field__label">
-            {t('skills.catalogSection.contextBudget', 'Orçamento de contexto (tokens)')}
+            {t('skills.catalogSection.contextBudget')}
           </label>
           <input
             id="sk-context-budget"
@@ -86,17 +78,12 @@ export function SkillCatalogSection({ item, onFieldChange }: SkillCatalogSection
               onFieldChange('contextBudget', Number.isNaN(parsed) || parsed < 0 ? 0 : parsed);
             }}
           />
-          <span className="skill-field__hint">
-            {t(
-              'skills.catalogSection.contextBudgetHint',
-              'Custo aproximado do corpo. 0 = estimado automaticamente pelo tamanho.'
-            )}
-          </span>
+          <span className="skill-field__hint">{t('skills.catalogSection.contextBudgetHint')}</span>
         </div>
 
         <fieldset className="skill-fieldset">
           <legend className="skill-field__label">
-            {t('skills.catalogSection.requiresLegend', 'Pré-condições de capacidade')}
+            {t('skills.catalogSection.requiresLegend')}
           </legend>
           {capabilities.map((cap) => (
             <div key={cap.id} className="skill-field skill-field--checkbox">
@@ -111,12 +98,7 @@ export function SkillCatalogSection({ item, onFieldChange }: SkillCatalogSection
               </label>
             </div>
           ))}
-          <span className="skill-field__hint">
-            {t(
-              'skills.catalogSection.requiresHint',
-              'Skills que exigem uma capacidade desabilitada são omitidas do prompt.'
-            )}
-          </span>
+          <span className="skill-field__hint">{t('skills.catalogSection.requiresHint')}</span>
         </fieldset>
       </div>
     </section>

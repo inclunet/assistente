@@ -6,7 +6,27 @@ import { SkillCatalogSection } from './SkillCatalogSection';
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback ?? key,
+    t: (key: string) => {
+      const translations: Record<string, string> = {
+        'skills.catalogSection.title': 'Catálogo e carregamento',
+        'skills.catalogSection.autoloadReason': 'Justificativa do auto_load',
+        'skills.catalogSection.autoloadReasonPlaceholder':
+          'Por que esta skill precisa estar sempre no prompt?',
+        'skills.catalogSection.autoloadReasonHint':
+          'Obrigatória quando auto_load está ativo: skills sem justificativa caem para sob demanda.',
+        'skills.catalogSection.contextBudget': 'Orçamento de contexto (tokens)',
+        'skills.catalogSection.contextBudgetHint':
+          'Custo aproximado do corpo. 0 = estimado automaticamente pelo tamanho.',
+        'skills.catalogSection.requiresLegend': 'Pré-condições de capacidade',
+        'skills.catalogSection.requiresTools': 'Requer ferramentas',
+        'skills.catalogSection.requiresFilesystem': 'Requer sistema de arquivos',
+        'skills.catalogSection.requiresNetwork': 'Requer rede',
+        'skills.catalogSection.requiresMcp': 'Requer MCP',
+        'skills.catalogSection.requiresHint':
+          'Skills que exigem uma capacidade desabilitada são omitidas do prompt.',
+      };
+      return translations[key] ?? key;
+    },
   }),
 }));
 
