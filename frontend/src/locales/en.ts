@@ -1079,7 +1079,7 @@ const en = {
       types: { bearer: 'Bearer token', basic: 'Basic (username/password)', custom: 'Custom header', secret: 'Secret (internal use)' },
       pageTitle: 'Credentials',
       buttons: { new: 'New', delete: 'Delete', create: 'Create', view: 'View', edit: 'Edit' },
-      aria: { toolbar: 'Credentials toolbar', suggestions: 'Reference suggestions' },
+      aria: { toolbar: 'Credentials toolbar', suggestions: 'Reference suggestions', suggestionsAvailable: '{{count}} suggestions available', noSuggestions: 'No suggestions available' },
       labels: { pattern: 'Pattern', type: 'Type', value: 'Value', username: 'Username', password: 'Password', header: 'Header', origin: 'Origin', token: 'Token' },
       origin: { system: 'System', manual: 'Manual' },
       modal: { newTitle: 'New credential', editTitle: 'Edit credential', viewTitle: 'System credential' },

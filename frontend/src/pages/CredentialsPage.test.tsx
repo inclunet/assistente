@@ -12,7 +12,8 @@ const mockListExternalSources = vi.fn();
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (key: string) =>
+    t: (key: string, opts?: Record<string, unknown>) => {
+      const value =
       ({
         'credentials.pageTitle': 'Credenciais',
         'credentials.buttons.new': 'Nova',
@@ -33,6 +34,8 @@ vi.mock('react-i18next', () => ({
         'credentials.placeholders.token': 'Informe o token',
         'credentials.placeholders.token_ref': 'Token, keyring://service/user ou env://VAR',
         'credentials.aria.suggestions': 'Sugestões de referência',
+        'credentials.aria.suggestionsAvailable': '{{count}} sugestões disponíveis',
+        'credentials.aria.noSuggestions': 'Nenhuma sugestão disponível',
         'credentials.hint.sensitive':
           'Os valores sensíveis não são exibidos após salvar. Para atualizar, informe novamente.',
         'credentials.types.bearer': 'Bearer token',
@@ -50,7 +53,11 @@ vi.mock('react-i18next', () => ({
         'common.cancel': 'Cancelar',
         'common.save': 'Salvar',
         'common.close': 'Fechar',
-      } as Record<string, string>)[key] ?? key,
+      } as Record<string, string>)[key] ?? key;
+      return typeof opts?.count !== 'undefined'
+        ? value.replace('{{count}}', String(opts.count))
+        : value;
+    },
   }),
 }));
 
@@ -273,6 +280,19 @@ describe('CredentialsPage', () => {
 
       expect(screen.getByText('github-token')).toBeInTheDocument();
       expect(screen.getByText('aws-secret')).toBeInTheDocument();
+    });
+
+    it('anuncia a quantidade de sugestões para leitores de tela (aria-live)', async () => {
+      render(<CredentialsPage />);
+      await userEvent.click(screen.getByText('Nova'));
+
+      const tokenInput = screen.getByLabelText('Token');
+      await userEvent.clear(tokenInput);
+      await userEvent.type(tokenInput, 'keyring://');
+
+      await waitFor(() => {
+        expect(screen.getByRole('status')).toHaveTextContent('2 sugestões disponíveis');
+      });
     });
 
     it('seleciona sugestão com Enter após navegar com seta', async () => {

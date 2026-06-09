@@ -36,6 +36,7 @@ export default function CredentialsPage() {
   const [suggestions, setSuggestions] = useState<Array<{value: string; label: string}>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [liveMessage, setLiveMessage] = useState('');
   const allSuggestionsRef = useRef<Array<{value: string; label: string}>>([]);
   const loadedPrefixRef = useRef<string | null>(null);
   const sourcesPromiseRef = useRef<{ prefix: string; epoch: number; promise: Promise<Array<{value: string; label: string}>> } | null>(null);
@@ -197,6 +198,11 @@ export default function CredentialsPage() {
     loadedPrefixRef.current = null;
   }, []);
 
+  const announceSuggestions = useCallback((message: string) => {
+    setLiveMessage('');
+    requestAnimationFrame(() => setLiveMessage(message));
+  }, []);
+
   const loadExternalSources = useCallback((prefix: string) => {
     if (loadedPrefixRef.current === prefix) return Promise.resolve(allSuggestionsRef.current);
 
@@ -238,6 +244,7 @@ export default function CredentialsPage() {
     if (!prefix) {
       setShowSuggestions(false);
       setSuggestions([]);
+      setLiveMessage('');
       invalidateSuggestionCache();
       return;
     }
@@ -251,6 +258,9 @@ export default function CredentialsPage() {
       : items.filter(s => s.label.toLowerCase().includes(search));
     setSuggestions(filtered);
     setShowSuggestions(filtered.length > 0);
+    announceSuggestions(filtered.length > 0
+      ? t('credentials.aria.suggestionsAvailable', { count: filtered.length })
+      : t('credentials.aria.noSuggestions'));
   };
 
   const handleTokenKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -303,6 +313,7 @@ export default function CredentialsPage() {
     setSuggestions([]);
     setShowSuggestions(false);
     setActiveIndex(-1);
+    setLiveMessage('');
     invalidateSuggestionCache();
   }, [invalidateSuggestionCache]);
 
@@ -500,6 +511,9 @@ export default function CredentialsPage() {
                     ))}
                   </ul>
                 )}
+                <div className="sr-only" aria-live="polite" aria-atomic="true" role="status">
+                  {liveMessage}
+                </div>
               </div>
               );
             })()}

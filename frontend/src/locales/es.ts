@@ -1078,7 +1078,7 @@ const es = {
       types: { bearer: 'Bearer token', basic: 'Basic (usuario/contraseña)', custom: 'Header personalizado', secret: 'Secreto (uso interno)' },
       pageTitle: 'Credenciales',
       buttons: { new: 'Nueva', delete: 'Eliminar', create: 'Crear', view: 'Ver', edit: 'Editar' },
-      aria: { toolbar: 'Barra de herramientas de credenciales', suggestions: 'Sugerencias de referencia' },
+      aria: { toolbar: 'Barra de herramientas de credenciales', suggestions: 'Sugerencias de referencia', suggestionsAvailable: '{{count}} sugerencias disponibles', noSuggestions: 'Sin sugerencias disponibles' },
       labels: { pattern: 'Pattern', type: 'Tipo', value: 'Valor', username: 'Usuario', password: 'Contraseña', header: 'Header', origin: 'Origen', token: 'Token' },
       origin: { system: 'Sistema', manual: 'Manual' },
       modal: { newTitle: 'Nueva credencial', editTitle: 'Editar credencial', viewTitle: 'Credencial del sistema' },

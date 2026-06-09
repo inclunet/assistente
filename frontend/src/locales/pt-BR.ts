@@ -1079,7 +1079,7 @@ const ptBR = {
       types: { bearer: 'Bearer token', basic: 'Basic (usuário/senha)', custom: 'Header customizado', secret: 'Segredo (uso interno)' },
       pageTitle: 'Credenciais',
       buttons: { new: 'Nova', delete: 'Excluir', create: 'Criar', view: 'Visualizar', edit: 'Editar' },
-      aria: { toolbar: 'Barra de ferramentas de credenciais', suggestions: 'Sugestões de referência' },
+      aria: { toolbar: 'Barra de ferramentas de credenciais', suggestions: 'Sugestões de referência', suggestionsAvailable: '{{count}} sugestões disponíveis', noSuggestions: 'Nenhuma sugestão disponível' },
       labels: { pattern: 'Pattern', type: 'Tipo', value: 'Valor', username: 'Usuário', password: 'Senha', header: 'Header', origin: 'Origem', token: 'Token' },
       origin: { system: 'Sistema', manual: 'Manual' },
       modal: { newTitle: 'Nova credencial', editTitle: 'Editar credencial', viewTitle: 'Credencial do sistema' },
