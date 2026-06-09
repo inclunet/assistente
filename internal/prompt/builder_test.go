@@ -41,6 +41,9 @@ func (m *mockSkillReader) GetSkillFiles(slug string) ([]string, error) {
 	}
 	return nil, nil
 }
+func (m *mockSkillReader) MaterializeSkill(s skills.Skill) (string, error) {
+	return s.Path, nil
+}
 
 type mockWorkspaceReader struct{ ws *workspace.Workspace }
 
@@ -53,6 +56,8 @@ func makeSkill(slug, name, desc, content string, autoLoad, modelInvocable bool) 
 	s.DisableModelInvocation = !modelInvocable
 	if autoLoad {
 		s.AutoLoad = true
+		// AEP-0072 D5: autoload exige autoload_reason para permanecer em <auto_skills>.
+		s.AutoloadReason = "test autoload reason"
 		s.Behavior = &skills.BehaviorConfig{}
 	}
 	return s
@@ -387,6 +392,80 @@ func TestBuildSkillsSection_ToolCallingDisabledSkipsToolDependentSkills(t *testi
 	}
 	if !strings.Contains(result, "Context skill content.") {
 		t.Fatalf("context-only skill should remain available, got: %q", result)
+	}
+}
+
+func TestBuildSkillsSection_AutoloadWithoutReason_DemotedToOnDemand(t *testing.T) {
+	// autoload sem autoload_reason (modo metadata-driven) deve ser rebaixado.
+	noReason := makeSkill("noreason", "No Reason", "Skill autoload sem reason", "Corpo NoReason.", false, true)
+	noReason.AutoLoad = true // autoload no metadado, mas sem reason
+	b := &prompt.Builder{Skills: &mockSkillReader{autoSkills: []skills.Skill{noReason}, availableSkills: nil}}
+
+	result := b.BuildSkillsSection(nil, false, nil)
+	if strings.Contains(result, "Corpo NoReason.") {
+		t.Errorf("skill autoload sem reason não deveria entrar em <auto_skills>: %q", result)
+	}
+	if !strings.Contains(result, "<available_skills>") || !strings.Contains(result, "noreason") {
+		t.Errorf("skill rebaixada deveria aparecer em <available_skills>: %q", result)
+	}
+}
+
+func TestBuildSkillsSection_AutoloadWithoutReason_HiddenWhenOnDemandDisabled(t *testing.T) {
+	noReason := makeSkill("noreason", "No Reason", "desc", "Corpo NoReason.", false, true)
+	noReason.AutoLoad = true
+	b := &prompt.Builder{Skills: &mockSkillReader{autoSkills: []skills.Skill{noReason}}}
+
+	result := b.BuildSkillsSection(nil, true, nil)
+	if result != "" {
+		t.Errorf("autoload sem reason + on-demand desligado deveria sumir, got %q", result)
+	}
+}
+
+func TestBuildSkillsSection_ExplicitAutoloadKeptWithoutReason(t *testing.T) {
+	// No modo lista-explícita, a escolha do perfil é respeitada mesmo sem reason.
+	s := makeSkill("alpha", "Alpha", "A", "Conteúdo Alpha.", false, true)
+	s.AutoLoad = true // sem reason
+	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s}}}
+	result := b.BuildSkillsSection([]string{"alpha"}, true, nil)
+	if !strings.Contains(result, "Conteúdo Alpha.") {
+		t.Errorf("lista explícita deveria autoloadar mesmo sem reason: %q", result)
+	}
+}
+
+func TestBuildSkillsSection_BudgetOmitsLowPrioritySkills(t *testing.T) {
+	longDesc := strings.Repeat("x", 500)
+	var avail []skills.Skill
+	for i := 0; i < 50; i++ {
+		s := makeSkill(fmt.Sprintf("skill-%02d", i), fmt.Sprintf("Skill %02d", i), longDesc, "body", false, true)
+		avail = append(avail, s)
+	}
+	b := &prompt.Builder{Skills: &mockSkillReader{availableSkills: avail}}
+	result := b.BuildSkillsSection(nil, false, nil)
+	if !strings.Contains(result, "<available_skills>") {
+		t.Fatalf("esperava bloco available_skills")
+	}
+	// Com 50 skills de descrição longa, o budget (8000 chars) deve omitir algumas.
+	if strings.Contains(result, "skill-49") {
+		t.Errorf("budget deveria omitir as skills de menor prioridade (fim da lista)")
+	}
+	if !strings.Contains(result, "skill-00") {
+		t.Errorf("budget deveria manter as skills de maior prioridade (início da lista)")
+	}
+}
+
+func TestBuildSkillsSection_RequiresFlagGatedWhenToolsDisabled(t *testing.T) {
+	// requires_network explícito, sem config: deve ser omitida com tools off.
+	netSkill := makeSkill("net", "Net", "Needs net", "Net content.", true, false)
+	netSkill.RequiresNetwork = true
+	plain := makeSkill("plain", "Plain", "No deps", "Plain content.", true, false)
+	b := &prompt.Builder{Skills: &mockSkillReader{autoSkills: []skills.Skill{netSkill, plain}}}
+
+	result := b.BuildSkillsSection(nil, false, chat.TemplateData{ToolCallingEnabled: false})
+	if strings.Contains(result, "Net content.") {
+		t.Errorf("skill com requires_network deveria ser omitida com tools off: %q", result)
+	}
+	if !strings.Contains(result, "Plain content.") {
+		t.Errorf("skill sem dependências deveria permanecer: %q", result)
 	}
 }
 

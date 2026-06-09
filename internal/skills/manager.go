@@ -402,6 +402,41 @@ func (m *Manager) GetUserInvocableSkills() ([]SkillInfo, error) {
 	return infos, nil
 }
 
+// MaterializeSkill garante um caminho em disco legível para o corpo da skill,
+// usado na ativação por leitura (AEP-0072 D2, Nível 2). Em modo filesystem o
+// SKILL.md original já existe e seu Path é retornado. Em modo banco (fonte
+// canônica), o conteúdo é materializado num cache read-only derivado do DB e
+// regenerado apenas quando muda (idempotente por comparação de conteúdo).
+func (m *Manager) MaterializeSkill(s Skill) (string, error) {
+	if m.repo == nil && s.Path != "" {
+		return s.Path, nil
+	}
+
+	base := configdir.GetHomeDir()
+	if base == "" {
+		return "", fmt.Errorf("home directory not available for skill cache")
+	}
+	dir := filepath.Join(base, "cache", "skills", s.Slug)
+	path := filepath.Join(dir, skillFile)
+
+	raw, err := Compose(&s.SkillMetadata, s.Content)
+	if err != nil {
+		return "", err
+	}
+
+	// Idempotente: não reescreve se o conteúdo materializado não mudou.
+	if existing, err := os.ReadFile(path); err == nil && string(existing) == raw {
+		return path, nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create skill cache dir: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		return "", fmt.Errorf("failed to materialize skill: %w", err)
+	}
+	return path, nil
+}
+
 // GetSkillFiles retorna arquivos complementares do diretório de um skill (excluindo SKILL.md).
 // Usado para progressive file loading: o modelo pode ler esses arquivos via read_file.
 func (m *Manager) GetSkillFiles(slug string) ([]string, error) {

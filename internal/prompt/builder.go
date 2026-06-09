@@ -23,6 +23,9 @@ type SkillReader interface {
 	GetAvailableSkills() ([]skills.Skill, error)
 	GetAllSkillsFull() ([]skills.Skill, error)
 	GetSkillFiles(slug string) ([]string, error)
+	// MaterializeSkill devolve um caminho em disco legível para o corpo da skill
+	// (AEP-0072 D2). Em modo DB materializa um cache; em filesystem retorna o path.
+	MaterializeSkill(s skills.Skill) (string, error)
 }
 
 // WorkspaceReader é o subconjunto de workspace.Manager que o Builder precisa.
@@ -249,6 +252,18 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		}
 	}
 
+	// AEP-0072 D5: autoload é exceção. No modo metadata-driven (sem lista
+	// explícita do perfil), só permanecem em <auto_skills> as skills que
+	// declaram autoload_reason; as demais são rebaixadas para sob demanda.
+	// No modo lista-explícita a escolha do perfil é respeitada como está.
+	if enabledSkills == nil {
+		var demoted []skills.Skill
+		autoSkills, demoted = splitAutoloadByReason(autoSkills)
+		if !disableOnDemand && len(demoted) > 0 {
+			availableSkills = append(availableSkills, demoted...)
+		}
+	}
+
 	if templateToolCallingDisabled(tplData) {
 		autoSkills = filterSkillsWithoutToolDependencies(autoSkills)
 		availableSkills = nil
@@ -298,7 +313,7 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		sb.WriteString("</auto_skills>")
 	}
 
-	// <available_skills>: referências para leitura lazy pelo modelo
+	// <available_skills>: catálogo compacto (Nível 1) para leitura lazy pelo modelo.
 	var modelInvocable []skills.Skill
 	for _, s := range availableSkills {
 		if s.IsModelInvocable() {
@@ -306,7 +321,15 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		}
 	}
 
-	if len(modelInvocable) > 0 {
+	// AEP-0072 D3: orçamento de contexto no bloco de descoberta. Encurta
+	// descrições e, se ainda exceder, omite skills de menor prioridade (ordem),
+	// sinalizando a omissão de forma observável.
+	kept, descs, omitted := planAvailableSkillsBudget(modelInvocable, skillCatalogCharBudget)
+	if omitted > 0 {
+		log.Printf("[prompt] catálogo de skills excedeu o budget (%d chars): %d skill(s) omitida(s) do Nível 1", skillCatalogCharBudget, omitted)
+	}
+
+	if len(kept) > 0 {
 		if sb.Len() > 0 {
 			sb.WriteString("\n\n")
 		}
@@ -314,7 +337,7 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		sb.WriteString("You have skills available that provide specialized instructions for specific tasks.\n")
 		sb.WriteString("To use a skill, read its file using the read_file tool with the path indicated below.\n")
 		sb.WriteString("Only read a skill when it's relevant to the current task.\n\n")
-		for _, s := range modelInvocable {
+		for i, s := range kept {
 			sb.WriteString("- **")
 			sb.WriteString(s.GetDisplayName())
 			sb.WriteString("** (`")
@@ -326,9 +349,14 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 				sb.WriteString("]")
 			}
 			sb.WriteString(": ")
-			sb.WriteString(s.Description)
+			sb.WriteString(descs[i])
+
+			path := s.Path
+			if materialized, err := b.Skills.MaterializeSkill(s); err == nil && materialized != "" {
+				path = materialized
+			}
 			sb.WriteString("\n  Path: `")
-			sb.WriteString(s.Path)
+			sb.WriteString(path)
 			sb.WriteString("`\n")
 
 			supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
@@ -345,6 +373,83 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 	}
 
 	return sb.String()
+}
+
+// skillCatalogCharBudget é o cap (em caracteres) do bloco de descoberta do
+// Nível 1 (AEP-0072 D3), no espírito do limite do Codex (~8k chars).
+const skillCatalogCharBudget = 8000
+
+// skillCatalogShortDescLen é o comprimento máximo das descrições quando o
+// catálogo precisa ser encurtado para caber no budget.
+const skillCatalogShortDescLen = 100
+
+// splitAutoloadByReason separa skills autoload que declaram autoload_reason
+// (kept) das que não declaram (demoted), conforme AEP-0072 D5.
+func splitAutoloadByReason(input []skills.Skill) (kept, demoted []skills.Skill) {
+	for _, s := range input {
+		if strings.TrimSpace(s.AutoloadReason) != "" {
+			kept = append(kept, s)
+		} else {
+			demoted = append(demoted, s)
+		}
+	}
+	return kept, demoted
+}
+
+// planAvailableSkillsBudget aplica o orçamento de contexto ao catálogo do Nível
+// 1. Retorna as skills mantidas, suas descrições (possivelmente encurtadas) e a
+// quantidade omitida. Estratégia: (1) cabe com descrição cheia → mantém;
+// (2) encurta descrições; (3) omite skills do fim (menor prioridade).
+func planAvailableSkillsBudget(list []skills.Skill, budget int) (kept []skills.Skill, descs []string, omitted int) {
+	if len(list) == 0 {
+		return nil, nil, 0
+	}
+
+	fullDescs := make([]string, len(list))
+	total := 0
+	for i, s := range list {
+		fullDescs[i] = s.Description
+		total += skillEntryCost(s, s.Description)
+	}
+
+	chosen := fullDescs
+	if budget > 0 && total > budget {
+		chosen = make([]string, len(list))
+		total = 0
+		for i, s := range list {
+			chosen[i] = truncateDescription(s.Description, skillCatalogShortDescLen)
+			total += skillEntryCost(s, chosen[i])
+		}
+	}
+
+	end := len(list)
+	if budget > 0 {
+		for end > 0 && total > budget {
+			end--
+			total -= skillEntryCost(list[end], chosen[end])
+			omitted++
+		}
+	}
+
+	return list[:end], chosen[:end], omitted
+}
+
+// skillEntryCost estima o custo em caracteres da linha de catálogo de uma skill.
+func skillEntryCost(s skills.Skill, desc string) int {
+	// nome + slug + descrição + path + overhead de formatação/markdown.
+	return len(s.GetDisplayName()) + len(s.Slug) + len(desc) + len(s.Path) + 32
+}
+
+// truncateDescription encurta uma descrição para no máximo max runes, anexando "…".
+func truncateDescription(desc string, max int) string {
+	if max <= 0 {
+		return desc
+	}
+	runes := []rune(desc)
+	if len(runes) <= max {
+		return desc
+	}
+	return strings.TrimSpace(string(runes[:max])) + "…"
 }
 
 // joinPrefix retorna o separador adequado para anexar uma nova seção: vazio quando
@@ -418,23 +523,12 @@ func filterSkillsWithoutToolDependencies(input []skills.Skill) []skills.Skill {
 	return filtered
 }
 
+// skillDependsOnTools indica se a skill exige alguma capacidade (tools,
+// filesystem, network ou MCP), seja por declaração explícita (requires_*,
+// AEP-0072 D4) ou inferida das permissões. Usado para omitir skills incompatíveis
+// quando o tool calling está desabilitado.
 func skillDependsOnTools(s skills.Skill) bool {
-	if s.Tools != nil {
-		if len(s.Tools.Allowed) > 0 || len(s.Tools.Denied) > 0 || s.Tools.BashCommands != nil {
-			return true
-		}
-	}
-	if s.Filesystem != nil {
-		if len(s.Filesystem.Read) > 0 || len(s.Filesystem.Write) > 0 || len(s.Filesystem.Deny) > 0 {
-			return true
-		}
-	}
-	if s.Network != nil {
-		if len(s.Network.AllowedHosts) > 0 || len(s.Network.DeniedHosts) > 0 {
-			return true
-		}
-	}
-	return s.MCP != nil
+	return s.RequiresAnyCapability()
 }
 
 // ComputeEnabledToolNames retorna a lista de nomes de tools habilitadas pelo perfil.
