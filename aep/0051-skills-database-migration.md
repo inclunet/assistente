@@ -279,32 +279,36 @@ Schema canônico: `internal/database/models_skills.go` (struct `Skill`).
 3. Adicionar `&Skill{}` e `&SkillTool{}` ao `AutoMigrate`
 4. Teste de roundtrip (`dbmodel_test.go`): Skill (cheio e mínimo) → model → Skill com `reflect.DeepEqual` no `SkillMetadata`
 
-### Fase 2 — Repository layer
+### Fase 2 — Repository layer ✅ (PR desta fase)
 
-4. Criar `internal/skills/repository.go` com interface:
+4. Criar `internal/skills/repository.go` com interface (todos os métodos recebem
+   `ctx` por consistência com Jobs/MCP; skills **não** são user-scoped):
 
 ```go
 type Repository interface {
-    List() ([]SkillInfo, error)
-    Get(slug string) (*Skill, error)
-    GetByID(id string) (*Skill, error)
-    Create(skill *Skill) (string, error)
-    Update(slug string, skill *Skill) error
-    Delete(slug string) error
-    Duplicate(slug string) (string, error)
-    GetAutoSkills() ([]Skill, error)
-    GetAvailableSkills() ([]Skill, error)
-    GetUserInvocableSkills() ([]SkillInfo, error)
-    SeedBuiltin(skill *Skill, version string) error
+    List(ctx context.Context) ([]SkillInfo, error)
+    Get(ctx context.Context, slug string) (*Skill, error)
+    GetByID(ctx context.Context, id string) (*Skill, error)
+    Create(ctx context.Context, skill *Skill) (string, error)
+    Update(ctx context.Context, slug string, skill *Skill) error
+    Delete(ctx context.Context, slug string) error
+    Duplicate(ctx context.Context, slug string) (string, error)
+    ExistsBySlug(ctx context.Context, slug string) (bool, error)
+    GetAutoSkills(ctx context.Context) ([]Skill, error)
+    GetAvailableSkills(ctx context.Context) ([]Skill, error)
+    GetAllSkillsFull(ctx context.Context) ([]Skill, error)
+    GetUserInvocableSkills(ctx context.Context) ([]SkillInfo, error)
+    SeedBuiltin(ctx context.Context, skill *Skill, version string) error
 }
 ```
 
 5. Implementar `DBRepository` com `*gorm.DB`:
-   - `GetAutoSkills`: `WHERE auto_load = true AND disable_model_invocation = false`
-   - `GetAvailableSkills`: `WHERE auto_load = false`
+   - `GetAutoSkills`: `WHERE auto_load = true AND disable_model_invocation = false` (= `IsAutoLoad()`)
+   - `GetAvailableSkills`: `WHERE auto_load = false OR disable_model_invocation = true` (= `!IsAutoLoad()`, espelha o Manager filesystem para não deixar skills órfãos)
    - `GetUserInvocableSkills`: `WHERE user_invocable IS NULL OR user_invocable = true`
-   - `Create`/`Update`: Transação com upsert de skill_tools
-   - `SeedBuiltin`: Lógica de versionamento (como profiles)
+   - `Create`/`Update`/`Delete`: transação; `skill_tools` regravada via `replaceSkill` (delete-all + recreate); `Update` preserva colunas gerenciadas (is_builtin/builtin_version/is_customized/slug)
+   - `SeedBuiltin`: versionamento semver (não existe → insere; customizado → skip; versão maior → atualiza)
+   - `ExistsBySlug`: usado pela importação legada idempotente (Fase 5)
 
 ### Fase 3 — Migrar Manager para Repository
 
