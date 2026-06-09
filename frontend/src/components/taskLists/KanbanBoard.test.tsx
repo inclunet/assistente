@@ -909,19 +909,24 @@ describe('KanbanBoard', () => {
     // O foco está num elemento FORA do board (o board nunca teve foco).
     const outside = document.createElement('button');
     document.body.appendChild(outside);
-    outside.focus();
-    expect(document.activeElement).toBe(outside);
+    try {
+      outside.focus();
+      expect(document.activeElement).toBe(outside);
 
-    // Um job externo move um card.
-    act(() => {
-      controlRef.current?.((prev) =>
-        prev.map((t) => (t.id === '10' ? { ...t, statusId: 2 } : t)),
-      );
-    });
+      // Um job externo move um card.
+      act(() => {
+        controlRef.current?.((prev) =>
+          prev.map((t) => (t.id === '10' ? { ...t, statusId: 2 } : t)),
+        );
+      });
 
-    // O foco NÃO deve ser puxado para o board — permanece no elemento externo.
-    expect(document.activeElement).toBe(outside);
-    outside.remove();
+      // O foco NÃO deve ser puxado para o board — permanece no elemento externo.
+      expect(document.activeElement).toBe(outside);
+    } finally {
+      // Garante a remoção do botão mesmo se um expect acima falhar, para não
+      // vazar o elemento para outros testes (flakiness).
+      outside.remove();
+    }
   });
 
   // ── Coluna vazia ──────────────────────────────────────────
