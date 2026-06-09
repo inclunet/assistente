@@ -33,6 +33,16 @@ func (a *App) runPostLoginLegacyImports(ctx context.Context) {
 			},
 		})
 	}
+	// Skills só importam quando o Manager está em modo banco (Fase 6 em diante).
+	// Antes do corte, HasRepository()==false e o importador é omitido.
+	if a.skillMgr != nil && a.skillMgr.HasRepository() {
+		importers = append(importers, legacyImporter{
+			name: "Skills",
+			run: func(ctx context.Context) (portability.LegacyImportResult, error) {
+				return a.skillMgr.ImportLegacySkills(ctx)
+			},
+		})
+	}
 	for _, importer := range importers {
 		result, err := importer.run(ctx)
 		if err != nil {

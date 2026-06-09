@@ -326,13 +326,14 @@ type Repository interface {
     - Layout `{slug}/SKILL.md`; parseia → `repo.SeedBuiltin()`; erros por skill não abortam o lote
 12. Integração no `App.startup()` (injeção do embed) acontece na Fase 6
 
-### Fase 5 — Importação legada filesystem → DB (não-destrutiva, D9)
+### Fase 5 — Importação legada filesystem → DB (não-destrutiva, D9) ✅ (PR desta fase)
 
-13. Criar o importador de skills no padrão `LegacyImportSource` + `ImportLegacyResourcesWithContext[T]`:
-    - `Source`: reaproveita a descoberta multi-diretório (lista `skills/{slug}/SKILL.md`, prioridade workdir > home > exe) **sem** renomear/apagar/reescrever.
-    - `Parse`: `skills.Parse()`.
-    - `Import`: upsert idempotente no DB (incluindo `skill_tools`); skill já existente = `skipped`.
-14. Registrar o importador em `runPostLoginLegacyImports` (`internal/app/app_legacy_imports.go`), ao lado de MCP e Jobs, retornando `LegacyImportResult` (importados/ignorados/falhas/warnings).
+13. `internal/skills/legacy_import.go`: `LegacySkillSource` (reaproveita `discoverAll()`, read-only) + `ImportLegacySkills(ctx)` via `ImportLegacyResourcesWithContext[*Skill]`:
+    - `Source`: lista os `SKILL.md` descobertos (prioridade workdir > home > exe) **sem** renomear/apagar/reescrever; `ReadLegacyImportFile` é `os.ReadFile`.
+    - `Parse`: `skills.Parse()` (slug = nome do diretório).
+    - `Import`: idempotente — `ExistsBySlug` → skip; senão `Create` (com `skill_tools`).
+14. Registrado em `runPostLoginLegacyImports`, guardado por `skillMgr.HasRepository()` (no-op até o corte da Fase 6).
+15. Testes: criação, **não-destrutividade** (arquivo original intacto) e **idempotência** (re-import = skipped).
 
 ### Fase 6 — Corte do runtime para o DB
 
