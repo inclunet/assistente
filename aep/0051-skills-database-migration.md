@@ -335,13 +335,19 @@ type Repository interface {
 14. Registrado em `runPostLoginLegacyImports`, guardado por `skillMgr.HasRepository()` (no-op até o corte da Fase 6).
 15. Testes: criação, **não-destrutividade** (arquivo original intacto) e **idempotência** (re-import = skipped).
 
-### Fase 6 — Corte do runtime para o DB
+### Fase 6 — Corte do runtime para o DB ✅ (PR desta fase, backend-only)
 
-15. `Manager` passa a servir skills do DB (Repository); `configdir.Resolver` deixa de ser fonte de runtime.
-16. Manter `discoverAll()` apenas como `Source` da importação legada (D9); não deletar.
-17. Substituir `initSkills()` no App pela sequência seed + importação legada + leitura via Repository.
-18. `SkillInfo.Source` → `SkillInfo.IsBuiltin`.
-19. Remover `GetSkillSearchPaths()` do Controller (paths deixam de ser superfície de runtime).
+15. `initSkills()` injeta `NewDBRepository(database.DB())` no Manager (`SetRepository`) quando há banco; `Manager` passa a servir skills do DB. Sem DB, fallback filesystem (`installBuiltinSkills`).
+16. Seed de builtins no boot via `SeedBuiltinSkills(WithBootstrap(...))`; importação legada ativada pós-login (`HasRepository()` agora é true).
+17. `discoverAll()` permanece apenas como `Source` da importação legada (D9) e para `GetSkillFiles` (D4).
+18. **API Wails mantida estável neste PR**: `SkillInfo.Source` continua presente (mapeado de `is_builtin` por `skillInfoFromModel`: builtin→"exe", senão "home"); `GetSkillSearchPaths` continua funcionando (resolver permanece). Sem mudança no frontend.
+
+### Fase 6b — Limpeza de API e frontend (fase dedicada, separada)
+
+19. `SkillInfo.Source` → `SkillInfo.IsBuiltin` (Go + bindings Wails + frontend).
+20. Remover `GetSkillSearchPaths()` do Controller/App/binding e ajustar `SkillsPage`/`ProfileSkillsSection` (coluna "Builtin/Custom", remover UI de paths) respeitando i18n/a11y/tokens de tema.
+
+> **Motivo do split.** O corte de runtime (Fase 6) é backend-only e de baixo risco. O rename de campo + remoção de `GetSkillSearchPaths` tocam bindings gerados e o frontend (com regras estritas de i18n/a11y/tema), então ficam isolados na Fase 6b para revisão própria.
 
 ### Fase 7 — Testes
 

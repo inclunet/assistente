@@ -3,6 +3,7 @@ package app
 import (
 	"assistente/controllers"
 	"assistente/internal/configdir"
+	"assistente/internal/database"
 	"assistente/internal/skills"
 	"log"
 	"os"
@@ -33,14 +34,32 @@ func (a *App) GetSkillSearchPaths() []string { return a.skillsCtrl.GetSkillSearc
 // Skills — funções de inicialização (internas ao App)
 // ============================================================================
 
-// initSkills inicializa o gerenciador de skills
+// initSkills inicializa o gerenciador de skills.
+//
+// AEP-0051 Fase 6 (corte): quando o banco está disponível, o Manager passa a
+// servir skills do DB. Os builtins são seedados no boot (bootstrap ctx) e os
+// SKILL.md legados do filesystem são importados pós-login (não-destrutivo, via
+// runPostLoginLegacyImports). Sem DB, mantém-se o fallback filesystem (instala
+// builtins em ~/.assistente/skills/).
 func (a *App) initSkills() {
 	a.skillMgr = skills.NewManager()
 	if err := a.skillMgr.EnsureDir(); err != nil {
 		log.Printf("[Skills] Erro ao garantir diretório de skills: %v", err)
 	}
 
-	a.installBuiltinSkills()
+	if database.DB() != nil {
+		repo := skills.NewDBRepository(database.DB())
+		a.skillMgr.SetRepository(repo)
+		ctx := database.WithBootstrap(a.internalBootstrapCtx())
+		if res, err := skills.SeedBuiltinSkills(ctx, repo, builtinSkillsFS, "builtin/skills"); err != nil {
+			log.Printf("[Skills] Erro no seed de builtins: %v", err)
+		} else {
+			log.Printf("[Skills] Seed de builtins: %d seedados, %d falhas", res.Seeded, res.Failed)
+		}
+	} else {
+		// DB indisponível — fallback para o modelo filesystem.
+		a.installBuiltinSkills()
+	}
 
 	list, err := a.skillMgr.List()
 	if err != nil {
