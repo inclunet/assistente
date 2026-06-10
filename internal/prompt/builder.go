@@ -564,15 +564,35 @@ func (b *Builder) collectCatalogPool(enabledSkills []string) (pool []skills.Skil
 	if err != nil {
 		return nil, nil, err
 	}
-	if enabledSkills != nil {
-		ordered := skills.CatalogByNamesOrdered(all, enabledSkills)
-		allowlistSlugs = make([]string, 0, len(ordered))
-		for _, e := range ordered {
-			allowlistSlugs = append(allowlistSlugs, e.Slug)
-		}
-		return append(ordered, skills.CatalogExcludeNames(all, enabledSkills)...), allowlistSlugs, nil
+	if enabledSkills == nil {
+		return all, nil, nil
 	}
-	return all, nil, nil
+
+	// Resolve a allowlist para entradas canônicas (slug-first) e deduplica por
+	// slug — uma allowlist que repita o identificador (ou traga slug + nome da
+	// mesma entrada) não pode render/carregar a skill duas vezes.
+	ordered := skills.CatalogByNamesOrdered(all, enabledSkills)
+	inAllowlist := make(map[string]bool, len(ordered))
+	pool = make([]skills.SkillCatalogEntry, 0, len(all))
+	allowlistSlugs = make([]string, 0, len(ordered))
+	for _, e := range ordered {
+		if inAllowlist[e.Slug] {
+			continue
+		}
+		inAllowlist[e.Slug] = true
+		allowlistSlugs = append(allowlistSlugs, e.Slug)
+		pool = append(pool, e)
+	}
+
+	// As "demais" skills são excluídas por SLUG das entradas resolvidas (não pelos
+	// nomes crus de enabledSkills): assim uma skill cujo NOME colida com um slug da
+	// allowlist não é removida por engano e continua disponível como sob demanda.
+	for _, e := range all {
+		if !inAllowlist[e.Slug] {
+			pool = append(pool, e)
+		}
+	}
+	return pool, allowlistSlugs, nil
 }
 
 // planAvailableCatalogBudget aplica o orçamento de contexto ao catálogo do Nível

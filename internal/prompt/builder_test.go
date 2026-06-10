@@ -577,6 +577,27 @@ func TestBuildSkillsSection_ReadFileEnabledKeepsOnDemandAndFilesystem(t *testing
 	}
 }
 
+func TestBuildSkillsSection_AllowlistSlugNameCollisionKeepsOtherSkill(t *testing.T) {
+	// Colisão: o identificador "shared" é o slug da skill A e o nome da skill B.
+	// A allowlist=["shared"] deve autoloadar A (slug-first) sem excluir B do pool —
+	// B continua disponível como sob demanda.
+	a := makeSkill("shared", "Alpha", "desc A", "Corpo A.", false, true)
+	b := makeSkill("beta", "shared", "desc B", "Corpo B.", false, true)
+	bld := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{a, b}}}
+
+	result := bld.BuildSkillsSection([]string{"shared"}, false, nil)
+	if !strings.Contains(result, "Corpo A.") {
+		t.Errorf("skill A (slug=shared) deveria autoloadar: %q", result)
+	}
+	if !strings.Contains(result, "beta") {
+		t.Errorf("skill B (nome=shared) não deveria ser excluída do pool: %q", result)
+	}
+	// A não pode aparecer duplicada (autoload + available).
+	if strings.Count(result, "Corpo A.") != 1 {
+		t.Errorf("skill A não deveria ser renderizada duas vezes: %q", result)
+	}
+}
+
 func TestBuildSkillsSection_AllowlistByNameResolvesToSlug(t *testing.T) {
 	// Perfil lista a skill pelo NOME (slug != nome). O builder resolve a allowlist
 	// para slugs canônicos (via CatalogByNamesOrdered) antes do gating, então a

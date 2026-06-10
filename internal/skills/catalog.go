@@ -72,24 +72,6 @@ func CatalogByNamesOrdered(all []SkillCatalogEntry, names []string) []SkillCatal
 	return out
 }
 
-// CatalogExcludeNames devolve as entradas cujo slug/nome NÃO está em names.
-func CatalogExcludeNames(all []SkillCatalogEntry, names []string) []SkillCatalogEntry {
-	if len(names) == 0 {
-		return all
-	}
-	set := make(map[string]bool, len(names))
-	for _, n := range names {
-		set[n] = true
-	}
-	var out []SkillCatalogEntry
-	for _, e := range all {
-		if !set[e.Slug] && !set[e.Name] {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
 // GetDisplayName devolve o rótulo de exibição (DisplayName ou Name como fallback).
 func (e SkillCatalogEntry) GetDisplayName() string {
 	if e.DisplayName != "" {

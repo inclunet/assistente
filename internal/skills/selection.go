@@ -133,13 +133,12 @@ func (p SkillSelectionPolicy) onDemandReason(isAutoLoad bool, autoloadReason str
 // isAutoload resolve se a skill deve autoloadar no contexto.
 func (p SkillSelectionPolicy) isAutoload(m *SkillMetadata, slug string, ctx SkillSelectionContext) bool {
 	if ctx.AutoloadAllowlist != nil {
-		// Perfil define explicitamente o conjunto de autoload; ainda assim a
-		// skill precisa ser invocável pelo modelo. A allowlist é um conjunto de
-		// membership por slug OU nome — ela NÃO resolve colisões slug/nome de forma
-		// determinística como CatalogByNamesOrdered. Callers que precisam de
-		// determinismo (ex.: o prompt builder) pré-resolvem a allowlist para slugs
-		// canônicos antes de montar o contexto.
-		return m.IsModelInvocable() && allowlistMatches(ctx.AutoloadAllowlist, slug, m.Name)
+		// Perfil define explicitamente o conjunto de autoload; ainda assim a skill
+		// precisa ser invocável pelo modelo. A allowlist é casada por SLUG (canônico):
+		// a resolução de nome→slug é responsabilidade do caller, feita de forma
+		// determinística (slug-first) por CatalogByNamesOrdered — o prompt builder já
+		// entrega slugs resolvidos. Casar por nome aqui reintroduziria colisões.
+		return m.IsModelInvocable() && containsString(ctx.AutoloadAllowlist, slug)
 	}
 	if !m.IsAutoLoad() {
 		return false
@@ -194,7 +193,8 @@ func (p SkillSelectionPolicy) DecideCatalog(entry SkillCatalogEntry, ctx SkillSe
 // isAutoloadCatalog espelha isAutoload usando os campos já efetivos da entry.
 func (p SkillSelectionPolicy) isAutoloadCatalog(entry SkillCatalogEntry, ctx SkillSelectionContext) bool {
 	if ctx.AutoloadAllowlist != nil {
-		return entry.ModelInvocable && allowlistMatches(ctx.AutoloadAllowlist, entry.Slug, entry.Name)
+		// Casa por SLUG canônico (ver isAutoload): a resolução nome→slug é do caller.
+		return entry.ModelInvocable && containsString(ctx.AutoloadAllowlist, entry.Slug)
 	}
 	if !entry.AutoLoad {
 		return false
@@ -257,16 +257,3 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-// allowlistMatches verifica se a allowlist contém o slug ou o nome da skill (o
-// nome só conta quando não-vazio, para não casar entradas vazias). É um teste de
-// membership por entrada — diferente de CatalogByNamesOrdered, NÃO resolve
-// colisões slug/nome de forma determinística (slug-first). Em caso de colisão
-// (um identificador que é slug de uma skill e nome de outra) pode casar ambas;
-// por isso o builder pré-resolve a allowlist para slugs canônicos antes de
-// chamar a política.
-func allowlistMatches(allowlist []string, slug, name string) bool {
-	if containsString(allowlist, slug) {
-		return true
-	}
-	return name != "" && containsString(allowlist, name)
-}

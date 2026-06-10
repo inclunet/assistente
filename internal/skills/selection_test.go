@@ -52,9 +52,10 @@ func TestPolicyDecideCatalogParityWithDecide(t *testing.T) {
 	}
 }
 
-func TestPolicyAllowlistMatchesBySlugOrName(t *testing.T) {
-	// Allowlist de perfil aceita slug OU nome (mesma semântica de
-	// CatalogByNamesOrdered); Decide e DecideCatalog devem concordar.
+func TestPolicyAllowlistMatchesBySlugOnly(t *testing.T) {
+	// A allowlist é casada por SLUG canônico; a resolução nome→slug é do caller
+	// (CatalogByNamesOrdered). Decide e DecideCatalog devem concordar: slug
+	// autoloada, nome cru NÃO (evita reintroduzir colisões slug/nome na política).
 	p := NewSkillSelectionPolicy()
 	s := Skill{Slug: "my-slug"}
 	s.Name = "My Skill"
@@ -62,18 +63,25 @@ func TestPolicyAllowlistMatchesBySlugOrName(t *testing.T) {
 	s.Description = "descricao da skill"
 	entry := CatalogEntryFromSkill(&s)
 
-	for _, allow := range [][]string{{"my-slug"}, {"My Skill"}} {
+	cases := []struct {
+		allow []string
+		want  SkillVisibility
+	}{
+		{[]string{"my-slug"}, VisibilityAutoload},
+		{[]string{"My Skill"}, VisibilityOnDemand},
+	}
+	for _, c := range cases {
 		ctx := SkillSelectionContext{
 			ToolsEnabled: true, FilesystemEnabled: true, NetworkEnabled: true, MCPEnabled: true,
-			AutoloadAllowlist: allow,
+			AutoloadAllowlist: c.allow,
 		}
 		viaMeta := p.Decide(&s.SkillMetadata, s.Slug, ctx)
 		viaCatalog := p.DecideCatalog(entry, ctx)
-		if viaMeta.Visibility != VisibilityAutoload {
-			t.Errorf("Decide deveria autoloadar com allowlist=%v, got %+v", allow, viaMeta)
+		if viaMeta.Visibility != c.want {
+			t.Errorf("Decide com allowlist=%v: esperava %v, got %+v", c.allow, c.want, viaMeta)
 		}
-		if viaCatalog.Visibility != VisibilityAutoload {
-			t.Errorf("DecideCatalog deveria autoloadar com allowlist=%v, got %+v", allow, viaCatalog)
+		if viaCatalog.Visibility != c.want {
+			t.Errorf("DecideCatalog com allowlist=%v: esperava %v, got %+v", c.allow, c.want, viaCatalog)
 		}
 	}
 }
