@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import type React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 
@@ -108,6 +108,11 @@ vi.mock('../../lib/workspaceConversation', () => ({
 import { WorkspaceChatModal } from './WorkspaceChatModal';
 
 describe('WorkspaceChatModal', () => {
+  beforeEach(() => {
+    capturedChatPanelProps.onRequestConversationChange = undefined;
+    mockSetBoundConversation.mockClear();
+  });
+
   it('usa timeline canônica no título quando sessão legada não existe', () => {
     render(<WorkspaceChatModal />);
 
@@ -126,8 +131,11 @@ describe('WorkspaceChatModal', () => {
   });
 
   it('troca de conversa no chat embutido delega para setBoundConversation', () => {
-    mockSetBoundConversation.mockClear();
     render(<WorkspaceChatModal />);
+
+    // Garante que a prop foi de fato capturada neste render (evita falso-positivo
+    // por callback "stale" de outro teste, já que o handle é um global mutável).
+    expect(capturedChatPanelProps.onRequestConversationChange).toBeDefined();
 
     capturedChatPanelProps.onRequestConversationChange?.('nova-conversa', { title: 'Outra' });
 
