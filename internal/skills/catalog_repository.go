@@ -92,80 +92,145 @@ func (r *DBRepository) ListCatalog(ctx context.Context) ([]SkillCatalogEntry, er
 // (que conhece o cache em disco); nil = mantém apenas o Path já presente na skill.
 type CatalogMaterializer func(s Skill) (string, error)
 
+// catalogSnapshotItem é a projeção de uma skill usada na reconstrução do catálogo.
+type catalogSnapshotItem struct {
+	skill     *Skill
+	slug      string
+	isBuiltin bool
+	hash      string
+}
+
+// loadCatalogSnapshot lê as skills persistidas (via db, que pode ser a conexão ou
+// uma transação) e devolve a projeção de cada uma + o mapa slug→hash canônico.
+func loadCatalogSnapshot(db *gorm.DB) ([]catalogSnapshotItem, map[string]string, error) {
+	var rows []database.Skill
+	if err := db.Order("name ASC, slug ASC").Find(&rows).Error; err != nil {
+		return nil, nil, err
+	}
+	items := make([]catalogSnapshotItem, 0, len(rows))
+	desired := make(map[string]string, len(rows))
+	for i := range rows {
+		s, err := skillFromModel(&rows[i])
+		if err != nil {
+			return nil, nil, err
+		}
+		h := canonicalSkillHash(s, rows[i].IsBuiltin)
+		items = append(items, catalogSnapshotItem{skill: s, slug: rows[i].Slug, isBuiltin: rows[i].IsBuiltin, hash: h})
+		desired[rows[i].Slug] = h
+	}
+	return items, desired, nil
+}
+
+func equalHashMaps(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if bv, ok := b[k]; !ok || bv != v {
+			return false
+		}
+	}
+	return true
+}
+
 // RebuildCatalog reconstrói o skill_catalog a partir das skills persistidas
-// (fonte canônica). Idempotente: substitui completamente o catálogo dentro de
-// uma transação. Chamado após seed/import e a cada CRUD de skill.
+// (fonte canônica). Idempotente: substitui completamente o catálogo. Chamado
+// após seed/import e a cada CRUD de skill.
 //
 // Quando `materialize` é fornecido, o corpo de cada skill é pré-materializado em
 // disco e o caminho resultante é persistido no catálogo, tornando o Nível 1
 // (descoberta) servível diretamente do catálogo, sem recarregar o corpo.
+//
+// Estratégia em duas fases para NÃO fazer I/O de disco (materialização) dentro da
+// transação — o que prenderia o lock por mais tempo e deixaria arquivos de cache
+// órfãos num rollback:
+//  1. Lê o snapshot de `skills` e calcula os hashes canônicos.
+//  2. Materializa os corpos em disco (fora da transação; o materializer é
+//     idempotente — mesmo path/conteúdo para a mesma skill).
+//  3. Abre a transação de escrita e só grava se o snapshot ainda for válido
+//     (re-lê `skills` no tx e confere os hashes). Mutação concorrente entre as
+//     fases dispara retry, garantindo que o catálogo reflita um estado real do DB.
 func (r *DBRepository) RebuildCatalog(ctx context.Context, materialize CatalogMaterializer) error {
-	// A leitura de `skills`, a detecção de defasagem e a regravação do catálogo
-	// correm na MESMA transação: assim o catálogo reflete um snapshot consistente
-	// de `skills`. Sem isso, uma mutação concorrente entre a leitura inicial e o
-	// commit poderia gravar um catálogo que não corresponde a nenhum estado real
-	// do banco (perdendo uma skill recém-criada até o próximo rebuild).
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var rows []database.Skill
-		if err := tx.Order("name ASC, slug ASC").Find(&rows).Error; err != nil {
-			return err
-		}
-
-		// Projeta cada skill e calcula o hash canônico ANTES de materializar, para
-		// poder pular o trabalho pesado quando o catálogo já está em sincronia.
-		type pending struct {
-			skill     *Skill
-			slug      string
-			isBuiltin bool
-			hash      string
-		}
-		items := make([]pending, 0, len(rows))
-		desired := make(map[string]string, len(rows))
-		for i := range rows {
-			s, err := skillFromModel(&rows[i])
-			if err != nil {
-				return err
-			}
-			h := canonicalSkillHash(s, rows[i].IsBuiltin)
-			items = append(items, pending{skill: s, slug: rows[i].Slug, isBuiltin: rows[i].IsBuiltin, hash: h})
-			desired[rows[i].Slug] = h
-		}
-
-		// AEP-0072 D2: detecção de defasagem via ContentHash. Se o conjunto de slugs
-		// e todos os hashes batem com o catálogo persistido, não há nada a fazer —
-		// evita re-materializar e reescrever o catálogo a cada chamada (no-op).
-		fresh, err := catalogMatchesHashes(tx, desired, materialize != nil)
+	const maxAttempts = 3
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		desired, models, fresh, err := r.prepareCatalog(ctx, materialize)
 		if err != nil {
 			return err
 		}
 		if fresh {
 			return nil
 		}
-
-		models := make([]*database.SkillCatalog, 0, len(items))
-		for _, it := range items {
-			entry := CatalogEntryFromSkill(it.skill)
-			entry.Slug = it.slug
-			// IsBuiltin vem da row persistida (a projeção de domínio não conhece a
-			// origem builtin/custom do DB).
-			entry.IsBuiltin = it.isBuiltin
-			if materialize != nil {
-				// Falha-rápido: um path vazio quebraria a ativação via read_file no
-				// Nível 1 (o builder omitiria a skill silenciosamente). Tratamos tanto
-				// erro quanto path vazio como falha; um erro aqui aborta a transação e
-				// preserva o catálogo anterior (sem estado parcial).
-				path, err := materialize(*it.skill)
-				if err != nil {
-					return fmt.Errorf("materializar skill %q para o catálogo: %w", it.slug, err)
-				}
-				if path == "" {
-					return fmt.Errorf("materializar skill %q para o catálogo: path vazio", it.slug)
-				}
-				entry.Path = path
-			}
-			models = append(models, catalogEntryToModel(entry, it.hash))
+		committed, err := r.commitCatalogIfFresh(ctx, desired, models)
+		if err != nil {
+			return err
 		}
+		if committed {
+			return nil
+		}
+		// Defasagem concorrente entre as fases: recomeça com snapshot novo.
+	}
+	return fmt.Errorf("reconstruir catálogo: defasagem concorrente persistente após %d tentativas", maxAttempts)
+}
 
+// prepareCatalog (Fase 1+2) lê o snapshot, decide se há defasagem e, em caso
+// afirmativo, materializa os corpos (fora de transação) montando os modelos a
+// gravar. fresh=true quando o catálogo já está em sincronia (no-op).
+func (r *DBRepository) prepareCatalog(ctx context.Context, materialize CatalogMaterializer) (desired map[string]string, models []*database.SkillCatalog, fresh bool, err error) {
+	db := r.db.WithContext(ctx)
+	items, desired, err := loadCatalogSnapshot(db)
+	if err != nil {
+		return nil, nil, false, err
+	}
+
+	// AEP-0072 D2: detecção de defasagem via ContentHash. Se o conjunto de slugs
+	// e todos os hashes batem com o catálogo persistido, não há nada a fazer —
+	// evita re-materializar e reescrever o catálogo a cada chamada (no-op).
+	fresh, err = catalogMatchesHashes(db, desired, materialize != nil)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if fresh {
+		return nil, nil, true, nil
+	}
+
+	models = make([]*database.SkillCatalog, 0, len(items))
+	for _, it := range items {
+		entry := CatalogEntryFromSkill(it.skill)
+		entry.Slug = it.slug
+		// IsBuiltin vem da row persistida (a projeção de domínio não conhece a
+		// origem builtin/custom do DB).
+		entry.IsBuiltin = it.isBuiltin
+		if materialize != nil {
+			// Falha-rápido: um path vazio quebraria a ativação via read_file no
+			// Nível 1 (o builder omitiria a skill silenciosamente). Tratamos tanto
+			// erro quanto path vazio como falha — sem gravar nada no catálogo.
+			path, err := materialize(*it.skill)
+			if err != nil {
+				return nil, nil, false, fmt.Errorf("materializar skill %q para o catálogo: %w", it.slug, err)
+			}
+			if path == "" {
+				return nil, nil, false, fmt.Errorf("materializar skill %q para o catálogo: path vazio", it.slug)
+			}
+			entry.Path = path
+		}
+		models = append(models, catalogEntryToModel(entry, it.hash))
+	}
+	return desired, models, false, nil
+}
+
+// commitCatalogIfFresh (Fase 3) grava o catálogo numa transação, mas só se o
+// snapshot de `skills` ainda corresponder ao `desired` capturado na Fase 1. Se
+// houve mutação concorrente, não grava e devolve committed=false (o caller faz
+// retry com snapshot novo) — evitando persistir um estado inconsistente.
+func (r *DBRepository) commitCatalogIfFresh(ctx context.Context, desired map[string]string, models []*database.SkillCatalog) (committed bool, err error) {
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		_, current, err := loadCatalogSnapshot(tx)
+		if err != nil {
+			return err
+		}
+		if !equalHashMaps(current, desired) {
+			return nil // drift entre as fases → não grava; caller faz retry
+		}
 		if err := tx.Where("1 = 1").Delete(&database.SkillCatalog{}).Error; err != nil {
 			return err
 		}
@@ -174,8 +239,10 @@ func (r *DBRepository) RebuildCatalog(ctx context.Context, materialize CatalogMa
 				return err
 			}
 		}
+		committed = true
 		return nil
 	})
+	return committed, err
 }
 
 // catalogMatchesHashes informa se o catálogo persistido está em sincronia com o
