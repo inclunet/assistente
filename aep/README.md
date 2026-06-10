@@ -70,6 +70,7 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0070](0070-web-search-tool.md) | Tool web_search (busca web → JSON canônico paginável) | 📝 Draft |
 | [0071](0071-structured-tool-output-size-policy.md) | Política canônica de tamanho para saídas estruturadas | ✅ Done |
 | [0072](0072-skill-catalog-and-loading.md) | Skill Catalog & Loading (descoberta, gating e carregamento sob demanda) | 📝 Draft |
+| [0073](0073-tasklist-conversation-linking.md) | Vínculo de Tasks e Tasklists a Conversas | ✅ Done |
 
 ## Status Legend
 
