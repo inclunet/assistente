@@ -997,6 +997,7 @@ const ptBR = {
       deleteCancelled: 'Exclusão cancelada',
       nameRequired: 'Nome é obrigatório',
       descriptionRequired: 'Descrição é obrigatória',
+      autoloadReasonRequired: 'Justificativa de auto_load é obrigatória quando auto_load está ativo',
       colName: 'Nome',
       colDescription: 'Descrição',
       colMode: 'Modo',

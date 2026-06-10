@@ -203,6 +203,12 @@ export default function SkillsPage() {
         if (!item.description.trim()) {
           return t('skills.descriptionRequired', 'Descrição é obrigatória');
         }
+        // auto_load efetivo (autoLoad && auto) exige justificativa: o backend
+        // rejeita em modo estrito (validateSpecStrict). Falha cedo com mensagem
+        // traduzida para evitar o erro de roundtrip + toast genérico.
+        if (item.autoLoad && item.auto && !(item.autoloadReason ?? '').trim()) {
+          return t('skills.autoloadReasonRequired');
+        }
         return null;
       },
       createDefault: () => ({

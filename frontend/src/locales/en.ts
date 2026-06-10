@@ -997,6 +997,7 @@ const en = {
       deleteCancelled: 'Deletion cancelled',
       nameRequired: 'Name is required',
       descriptionRequired: 'Description is required',
+      autoloadReasonRequired: 'An auto_load justification is required when auto_load is on',
       colName: 'Name',
       colDescription: 'Description',
       colMode: 'Mode',

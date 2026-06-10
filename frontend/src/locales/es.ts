@@ -996,6 +996,7 @@ const es = {
       deleteCancelled: 'Eliminación cancelada',
       nameRequired: 'El nombre es obligatorio',
       descriptionRequired: 'La descripción es obligatoria',
+      autoloadReasonRequired: 'La justificación de auto_load es obligatoria cuando auto_load está activo',
       colName: 'Nombre',
       colDescription: 'Descripción',
       colMode: 'Modo',
