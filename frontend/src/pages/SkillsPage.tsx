@@ -93,16 +93,20 @@ export default function SkillsPage() {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
+    const autoLoad = data.autoLoad ?? false;
     return controllers.SkillCreateRequest.createFrom({
       name: data.name.trim(),
       // Backend exige semver em modo estrito (validateSpecStrict); roundtrip do
       // valor carregado em edição, default DEFAULT_SKILL_VERSION na criação.
       version: (data.version || '').trim() || DEFAULT_SKILL_VERSION,
       description: data.description.trim(),
-      disableModelInvocation: !data.auto,
+      // auto_load só vale se o modelo puder invocar a skill (IsAutoLoad exige
+      // !disableModelInvocation). Marcar auto_load força a auto-invocação ligada,
+      // senão o backend rebaixaria a skill para sob demanda (UI enganosa).
+      disableModelInvocation: autoLoad ? false : !data.auto,
       tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
       content: data.content || '',
-      autoLoad: data.autoLoad ?? false,
+      autoLoad,
       autoloadReason: (data.autoloadReason || '').trim(),
       contextBudget: data.contextBudget ?? 0,
       requiresTools: data.requiresTools ?? false,
@@ -462,12 +466,17 @@ export default function SkillsPage() {
 
             <SkillCatalogSection
               item={crud.editingItem}
-              onFieldChange={(field, value) =>
+              onFieldChange={(field, value) => {
                 crud.updateField(
                   field as keyof SkillFormData,
                   value as SkillFormData[keyof SkillFormData]
-                )
-              }
+                );
+                // auto_load implica auto-invocação pelo modelo (IsAutoLoad exige
+                // !disableModelInvocation); mantém a UI coerente auto-habilitando.
+                if (field === 'autoLoad' && value === true) {
+                  crud.updateField('auto', true);
+                }
+              }}
             />
 
             <EditorPanelFooter className="skills-editor__footer">
