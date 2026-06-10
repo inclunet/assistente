@@ -307,6 +307,13 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 			log.Printf("[prompt] skill %q sem path materializado no catálogo; omitida da descoberta", e.Slug)
 			continue
 		}
+		// Slug e Path são renderizados entre backticks; caracteres inseguros (que
+		// fecham backticks/tags ou quebram o Markdown) poderiam injetar/quebrar a
+		// estrutura do system prompt. Omite a entry (e loga) nesse caso.
+		if hasUnsafePathChars(e.Slug) || hasUnsafePathChars(e.Path) {
+			log.Printf("[prompt] skill com slug/path inseguro omitida da descoberta: slug=%q path=%q", e.Slug, e.Path)
+			continue
+		}
 		modelInvocable = append(modelInvocable, e)
 	}
 
@@ -368,6 +375,12 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 // supporting file.
 const unsafeSkillPathChars = "\n\r`<>"
 
+// hasUnsafePathChars informa se s contém algum caractere que poderia fechar
+// backticks/tags ou quebrar a estrutura Markdown/XML do system prompt.
+func hasUnsafePathChars(s string) bool {
+	return strings.ContainsAny(s, unsafeSkillPathChars)
+}
+
 // safeSkillPaths filtra paths de supporting files cujo nome contenha caracteres
 // inseguros (ver unsafeSkillPathChars). Como GetSkillFiles lista o diretório do
 // skill, um nome inesperado/malicioso não pode injetar conteúdo no prompt; paths
@@ -378,7 +391,7 @@ func safeSkillPaths(slug string, paths []string) []string {
 	}
 	safe := make([]string, 0, len(paths))
 	for _, p := range paths {
-		if strings.ContainsAny(p, unsafeSkillPathChars) {
+		if hasUnsafePathChars(p) {
 			log.Printf("[prompt] supporting file omitido da skill %q: caractere inseguro no path %q", slug, p)
 			continue
 		}

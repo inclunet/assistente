@@ -75,7 +75,9 @@ func catalogModelToEntry(m database.SkillCatalog) SkillCatalogEntry {
 // ListCatalog devolve o catálogo compacto persistido (AEP-0072 D1, Nível 1).
 func (r *DBRepository) ListCatalog(ctx context.Context) ([]SkillCatalogEntry, error) {
 	var rows []database.SkillCatalog
-	if err := r.db.WithContext(ctx).Order("name ASC").Find(&rows).Error; err != nil {
+	// Tie-breaker por slug: name não é único, então sem ele a ordem relativa de
+	// skills homônimas seria indefinida (afeta budget/omissão e a saída do prompt).
+	if err := r.db.WithContext(ctx).Order("name ASC, slug ASC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	entries := make([]SkillCatalogEntry, 0, len(rows))

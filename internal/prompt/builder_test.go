@@ -699,6 +699,25 @@ func TestBuildSkillsSection_SupplementaryFiles_OmitsUnsafePaths(t *testing.T) {
 	}
 }
 
+func TestBuildSkillsSection_AvailableSkill_OmitsUnsafePath(t *testing.T) {
+	// Entry on-demand cujo Path contém caractere inseguro deve ser omitida do
+	// bloco <available_skills> (Path é renderizado entre backticks no prompt).
+	safe := makeSkill("safe-doc", "Safe Doc", "Safe desc", "Safe content.", false, true)
+	unsafe := makeSkill("evil-doc", "Evil Doc", "Evil desc", "Evil content.", false, true)
+	unsafe.Path = "/skills/evil-doc/`whoami`.md"
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		availableSkills: []skills.Skill{safe, unsafe},
+	}}
+
+	result := b.BuildSkillsSection(nil, false, nil)
+	if !strings.Contains(result, "safe-doc") {
+		t.Errorf("skill com path seguro deveria aparecer: %q", result)
+	}
+	if strings.Contains(result, "evil-doc") || strings.Contains(result, "whoami") {
+		t.Errorf("skill com path inseguro não deveria aparecer na descoberta: %q", result)
+	}
+}
+
 func TestBuildSkillsSection_BudgetScalesWithContextWindow(t *testing.T) {
 	// AEP-0072 D3: o cap do Nível 1 é percentual da janela do modelo. Janela
 	// grande comporta todas as skills; janela pequena omite as de menor prioridade.

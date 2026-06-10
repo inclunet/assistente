@@ -314,6 +314,15 @@ func (m *Manager) ListCatalog() ([]SkillCatalogEntry, error) {
 	for i := range all {
 		entries = append(entries, CatalogEntryFromSkill(&all[i]))
 	}
+	// Ordena por name e desempata por slug, alinhando com o catálogo persistido
+	// (ORDER BY name, slug). name não é único, então o tie-breaker garante saída
+	// determinística (afeta budget/omissão e a saída do prompt).
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Name != entries[j].Name {
+			return entries[i].Name < entries[j].Name
+		}
+		return entries[i].Slug < entries[j].Slug
+	})
 	return entries, nil
 }
 
