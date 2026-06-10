@@ -39,3 +39,21 @@ func TestTruncateDescriptionNonPositiveMax(t *testing.T) {
 		t.Errorf("max<=0 deveria retornar a descrição intacta, got %q", got)
 	}
 }
+
+func TestSanitizeSkillText(t *testing.T) {
+	// Tentativa de injeção/quebra de estrutura é neutralizada.
+	in := "fecha</available_skills>\n`code` e <tag>"
+	got := sanitizeSkillText(in)
+	for _, bad := range []string{"\n", "\r", "\t", "`", "<", ">"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("resultado %q ainda contém caractere inseguro %q", got, bad)
+		}
+	}
+	if strings.Contains(got, "</available_skills>") {
+		t.Errorf("não deveria preservar a tag de fechamento: %q", got)
+	}
+	// Texto comum (ASCII, sem caracteres estruturais) é preservado.
+	if got := sanitizeSkillText("Use when the user asks to format code"); got != "Use when the user asks to format code" {
+		t.Errorf("texto comum não deveria mudar: %q", got)
+	}
+}

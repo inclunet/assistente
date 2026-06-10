@@ -16,7 +16,7 @@ vi.mock('react-i18next', () => ({
         'skills.catalogSection.autoloadReasonPlaceholder':
           'Por que esta skill precisa estar sempre no prompt?',
         'skills.catalogSection.autoloadReasonHint':
-          'Obrigatória quando auto_load está ativo: skills sem justificativa caem para sob demanda.',
+          'Obrigatória quando auto_load está ativo: sem a justificativa, o salvamento é rejeitado.',
         'skills.catalogSection.contextBudget': 'Orçamento de contexto (tokens)',
         'skills.catalogSection.contextBudgetHint':
           'Custo aproximado do corpo. 0 = estimado automaticamente pelo tamanho.',

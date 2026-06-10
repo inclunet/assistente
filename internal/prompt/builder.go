@@ -338,17 +338,17 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		sb.WriteString("Only read a skill when it's relevant to the current task.\n\n")
 		for i, e := range kept {
 			sb.WriteString("- **")
-			sb.WriteString(e.GetDisplayName())
+			sb.WriteString(sanitizeSkillText(e.GetDisplayName()))
 			sb.WriteString("** (`")
 			sb.WriteString(e.Slug)
 			sb.WriteString("`)")
 			if e.Type != "" {
 				sb.WriteString(" [")
-				sb.WriteString(e.Type)
+				sb.WriteString(sanitizeSkillText(e.Type))
 				sb.WriteString("]")
 			}
 			sb.WriteString(": ")
-			sb.WriteString(descs[i])
+			sb.WriteString(sanitizeSkillText(descs[i]))
 
 			sb.WriteString("\n  Path: `")
 			sb.WriteString(e.Path)
@@ -380,6 +380,27 @@ const unsafeSkillPathChars = "\n\r`<>"
 // backticks/tags ou quebrar a estrutura Markdown/XML do system prompt.
 func hasUnsafePathChars(s string) bool {
 	return strings.ContainsAny(s, unsafeSkillPathChars)
+}
+
+// skillTextSanitizer neutraliza os caracteres que poderiam quebrar a estrutura
+// Markdown/tags do bloco <available_skills>: quebras de linha/tab viram espaço,
+// crases viram aspas simples e os delimitadores de tag < > viram aspas angulares.
+var skillTextSanitizer = strings.NewReplacer(
+	"\n", " ",
+	"\r", " ",
+	"\t", " ",
+	"`", "'",
+	"<", "‹",
+	">", "›",
+)
+
+// sanitizeSkillText neutraliza texto exibido (nome, tipo, descrição) antes de
+// renderizá-lo no <available_skills>. Diferente de Slug/Path (que omitem a entrada
+// inteira quando inseguros), o texto é preservado de forma legível, apenas com os
+// caracteres estruturais neutralizados — evitando injeção acidental/maliciosa
+// (ex.: descrição contendo "</available_skills>").
+func sanitizeSkillText(s string) string {
+	return strings.TrimSpace(skillTextSanitizer.Replace(s))
 }
 
 // safeSkillPaths filtra paths de supporting files cujo nome contenha caracteres
