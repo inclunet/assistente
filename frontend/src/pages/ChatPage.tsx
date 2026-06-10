@@ -4,7 +4,6 @@ import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation'
 import { ChatPanel, type ChatPanelSendContext } from '../components/chat/ChatPanel';
 import { useWorkspacePanel } from '../components/workspace/WorkspacePanelContext';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { useChatStore } from '../store/chatStore';
 import { createChatSurfaceIdentity, normalizeChatSurfaceOrigin } from '../services/chatSessionRegistry';
 import { sendChatSurfaceMessage } from '../components/chat/ChatSurfaceController';
 import { buildChatSurfaceParams } from '../lib/chatSurface';
@@ -14,7 +13,6 @@ export default function ChatPage() {
   const { tab } = useWorkspacePanel();
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const updateTab = useWorkspaceStore((s) => s.updateTab);
-  const loadConversationSession = useChatStore((s) => s.loadConversationSession);
   const conversationId = tab?.type === 'chat' ? tab.conversationId : undefined;
   const tabProfileSlug = tab?.type === 'chat'
     ? (tab.profileOverride?.slug as string | undefined)
@@ -51,18 +49,16 @@ export default function ChatPage() {
   );
 
   // Dono da superfície "página": trocar a conversa re-aponta a aba de chat. Como o
-  // `surface` é derivado de `tab.conversationId`, atualizar a aba já recompõe a view;
-  // o `loadConversationSession` antecipa o carregamento para uma troca mais ágil.
+  // `surface` é derivado de `tab.conversationId`, atualizar a aba já recompõe a view,
+  // e o useWorkspaceChatBridge reage à mudança de `conversationId` carregando a sessão
+  // — não chamamos `loadConversationSession` aqui para não duplicar o load (ver NOTE acima).
   const onRequestConversationChange = useCallback(
     async (nextConversationId: string, conversation: { title?: string }) => {
       if (!tab || tab.type !== 'chat') return;
       const nextTitle = conversation.title || t('chat.newConversation');
-      await Promise.all([
-        loadConversationSession(nextConversationId),
-        updateTab(tab.id, { conversation_id: nextConversationId, title: nextTitle }),
-      ]);
+      await updateTab(tab.id, { conversation_id: nextConversationId, title: nextTitle });
     },
-    [tab, loadConversationSession, updateTab, t],
+    [tab, updateTab, t],
   );
 
   return (
