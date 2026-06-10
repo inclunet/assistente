@@ -264,7 +264,10 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
       try {
         await useWorkspaceStore.getState().updateTab(boundTabId, { conversation_id: conversationId });
       } catch (e) {
+        // A troca visual já foi aplicada e o toolbar anunciou sucesso; sem feedback,
+        // reabrir o modal "voltaria" para a conversa anterior sem o usuário saber.
         logger.error('[workspaceChatModal] falha ao persistir troca de conversa:', e);
+        useUIStore.getState().addToast(i18next.t('chat.switchError'), 'error');
       }
     });
   },

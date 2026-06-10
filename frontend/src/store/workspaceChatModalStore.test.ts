@@ -205,6 +205,8 @@ describe('workspaceChatModalStore.setBoundConversation', () => {
   beforeEach(() => {
     resetWorkspaceChatModalState();
     mockUpdateTab.mockClear();
+    mockUpdateTab.mockResolvedValue(undefined);
+    mockAddToast.mockReset();
   });
 
   const openModalBoundTo = (conversationId: string, tabId = 'tab-editor') => {
@@ -276,6 +278,19 @@ describe('workspaceChatModalStore.setBoundConversation', () => {
     });
     expect(mockUpdateTab).toHaveBeenCalledTimes(2);
     expect(useWorkspaceChatModalStore.getState().boundConversationId).toBe('4');
+  });
+
+  it('mostra toast de erro quando a persistência do vínculo falha', async () => {
+    openModalBoundTo('1');
+    mockUpdateTab.mockRejectedValueOnce(new Error('backend down'));
+
+    useWorkspaceChatModalStore.getState().setBoundConversation('2');
+
+    await vi.waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('chat.switchError', 'error');
+    });
+    // A troca visual otimista permanece; o toast informa que o vínculo não persistiu.
+    expect(useWorkspaceChatModalStore.getState().boundConversationId).toBe('2');
   });
 
   it('latest-wins é por aba: troca em outra aba não invalida persistência pendente', async () => {
