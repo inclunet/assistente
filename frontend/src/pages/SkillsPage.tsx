@@ -47,6 +47,7 @@ interface SkillRow {
   content?: string;
   toolsString?: string;
   // Catálogo / gating (AEP-0072 D4)
+  autoLoad?: boolean;
   autoloadReason?: string;
   contextBudget?: number;
   requiresTools?: boolean;
@@ -65,6 +66,7 @@ interface SkillFormData {
   content?: string;
   toolsString?: string;
   // Catálogo / gating (AEP-0072 D4)
+  autoLoad?: boolean;
   autoloadReason?: string;
   contextBudget?: number;
   requiresTools?: boolean;
@@ -100,6 +102,7 @@ export default function SkillsPage() {
       disableModelInvocation: !data.auto,
       tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
       content: data.content || '',
+      autoLoad: data.autoLoad ?? false,
       autoloadReason: (data.autoloadReason || '').trim(),
       contextBudget: data.contextBudget ?? 0,
       requiresTools: data.requiresTools ?? false,
@@ -142,6 +145,7 @@ export default function SkillsPage() {
           tools: getAllowedTools(skill.tools as { allowed?: string[] } | undefined),
           content: skill.content,
           toolsString: getAllowedTools(skill.tools as { allowed?: string[] } | undefined).join(', '),
+          autoLoad: skill.autoLoad ?? false,
           autoloadReason: skill.autoloadReason,
           contextBudget: skill.contextBudget,
           requiresTools: skill.requiresTools,
@@ -203,6 +207,7 @@ export default function SkillsPage() {
         tools: [],
         content: '',
         toolsString: '',
+        autoLoad: false,
         autoloadReason: '',
         contextBudget: 0,
         requiresTools: false,

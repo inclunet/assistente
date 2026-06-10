@@ -1249,6 +1249,7 @@ export namespace controllers {
 	    platforms?: string[];
 	    languages?: string[];
 	    frameworks?: string[];
+	    autoLoad?: boolean;
 	    disableModelInvocation?: boolean;
 	    userInvocable?: boolean;
 	    argumentHint?: string;
@@ -1309,6 +1310,7 @@ export namespace controllers {
 	        this.platforms = source["platforms"];
 	        this.languages = source["languages"];
 	        this.frameworks = source["frameworks"];
+	        this.autoLoad = source["autoLoad"];
 	        this.disableModelInvocation = source["disableModelInvocation"];
 	        this.userInvocable = source["userInvocable"];
 	        this.argumentHint = source["argumentHint"];
@@ -4162,6 +4164,7 @@ export namespace skills {
 	    platforms?: string[];
 	    languages?: string[];
 	    frameworks?: string[];
+	    autoLoad?: boolean;
 	    disableModelInvocation?: boolean;
 	    userInvocable?: boolean;
 	    argumentHint?: string;
@@ -4225,6 +4228,7 @@ export namespace skills {
 	        this.platforms = source["platforms"];
 	        this.languages = source["languages"];
 	        this.frameworks = source["frameworks"];
+	        this.autoLoad = source["autoLoad"];
 	        this.disableModelInvocation = source["disableModelInvocation"];
 	        this.userInvocable = source["userInvocable"];
 	        this.argumentHint = source["argumentHint"];
@@ -4335,6 +4339,7 @@ export namespace skills {
 	    platforms?: string[];
 	    languages?: string[];
 	    frameworks?: string[];
+	    autoLoad?: boolean;
 	    disableModelInvocation?: boolean;
 	    userInvocable?: boolean;
 	    argumentHint?: string;
@@ -4396,6 +4401,7 @@ export namespace skills {
 	        this.platforms = source["platforms"];
 	        this.languages = source["languages"];
 	        this.frameworks = source["frameworks"];
+	        this.autoLoad = source["autoLoad"];
 	        this.disableModelInvocation = source["disableModelInvocation"];
 	        this.userInvocable = source["userInvocable"];
 	        this.argumentHint = source["argumentHint"];

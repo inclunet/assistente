@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 
 export interface SkillCatalogFields {
+  autoLoad?: boolean;
   autoloadReason?: string;
   contextBudget?: number;
   requiresTools?: boolean;
@@ -15,7 +16,8 @@ interface SkillCatalogSectionProps {
 }
 
 // SkillCatalogSection edita os metadados de catálogo/gating do AEP-0072 D4:
-// autoload_reason (D5), context_budget e pré-condições de capability (requires_*).
+// auto_load + autoload_reason (D5), context_budget e pré-condições de
+// capability (requires_*).
 export function SkillCatalogSection({ item, onFieldChange }: SkillCatalogSectionProps) {
   const { t } = useTranslation();
 
@@ -46,6 +48,19 @@ export function SkillCatalogSection({ item, onFieldChange }: SkillCatalogSection
     <section className="skill-section" data-testid="skill-catalog-section">
       <h3 className="skill-section__title">{t('skills.catalogSection.title')}</h3>
       <div className="skill-fields">
+        <div className="skill-field skill-field--checkbox">
+          <input
+            id="sk-auto-load"
+            type="checkbox"
+            checked={Boolean(item.autoLoad)}
+            onChange={(e) => onFieldChange('autoLoad', e.target.checked)}
+          />
+          <label htmlFor="sk-auto-load" className="skill-field__label">
+            {t('skills.catalogSection.autoLoad')}
+          </label>
+          <span className="skill-field__hint">{t('skills.catalogSection.autoLoadHint')}</span>
+        </div>
+
         <div className="skill-field">
           <label htmlFor="sk-autoload-reason" className="skill-field__label">
             {t('skills.catalogSection.autoloadReason')}

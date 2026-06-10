@@ -1030,7 +1030,7 @@ const es = {
         namePlaceholder: 'Ej: Crear componente React',
         description: 'Descripción',
         descriptionPlaceholder: 'Cuándo debe usarse este skill',
-        auto: 'Auto — inyectar automáticamente en el system prompt',
+        auto: 'Permitir que el modelo invoque este skill automáticamente',
       },
       contentSection: {
         title: 'Contenido',
@@ -1046,6 +1046,8 @@ const es = {
       },
       catalogSection: {
         title: 'Catálogo y carga',
+        autoLoad: 'Auto-load — inyectar automáticamente en el system prompt',
+        autoLoadHint: 'Cuando está activo, el cuerpo del skill se inyecta en cada conversación. Úsalo con moderación y justifícalo abajo.',
         autoloadReason: 'Justificación de auto_load',
         autoloadReasonPlaceholder: '¿Por qué esta skill debe estar siempre en el prompt?',
         autoloadReasonHint: 'Obligatoria cuando auto_load está activo: las skills sin justificación pasan a bajo demanda.',

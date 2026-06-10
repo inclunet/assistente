@@ -1031,7 +1031,7 @@ const en = {
         namePlaceholder: 'E.g. Create React Component',
         description: 'Description',
         descriptionPlaceholder: 'When should this skill be used',
-        auto: 'Auto — inject automatically into system prompt',
+        auto: 'Allow the model to invoke this skill automatically',
       },
       contentSection: {
         title: 'Content',
@@ -1047,6 +1047,8 @@ const en = {
       },
       catalogSection: {
         title: 'Catalog and loading',
+        autoLoad: 'Auto-load — inject automatically into system prompt',
+        autoLoadHint: 'When on, the skill body is injected into every conversation. Use sparingly and justify below.',
         autoloadReason: 'auto_load justification',
         autoloadReasonPlaceholder: 'Why does this skill need to always be in the prompt?',
         autoloadReasonHint: 'Required when auto_load is on: skills without a justification fall back to on-demand.',

@@ -9,6 +9,9 @@ vi.mock('react-i18next', () => ({
     t: (key: string) => {
       const translations: Record<string, string> = {
         'skills.catalogSection.title': 'Catálogo e carregamento',
+        'skills.catalogSection.autoLoad': 'Auto-load — injetar automaticamente no system prompt',
+        'skills.catalogSection.autoLoadHint':
+          'Quando ativo, o corpo do skill é injetado em toda conversa. Use com parcimônia e justifique abaixo.',
         'skills.catalogSection.autoloadReason': 'Justificativa do auto_load',
         'skills.catalogSection.autoloadReasonPlaceholder':
           'Por que esta skill precisa estar sempre no prompt?',
@@ -79,5 +82,22 @@ describe('SkillCatalogSection', () => {
     await user.click(screen.getByLabelText('Requer MCP'));
 
     expect(onFieldChange).toHaveBeenCalledWith('requiresMcp', true);
+  });
+
+  it('reflete e alterna auto_load', async () => {
+    const user = userEvent.setup();
+    const onFieldChange = vi.fn();
+    const { rerender } = render(
+      <SkillCatalogSection item={{ autoLoad: true }} onFieldChange={onFieldChange} />
+    );
+
+    const checkbox = screen.getByLabelText('Auto-load — injetar automaticamente no system prompt');
+    expect(checkbox).toBeChecked();
+
+    rerender(<SkillCatalogSection item={{ autoLoad: false }} onFieldChange={onFieldChange} />);
+    await user.click(
+      screen.getByLabelText('Auto-load — injetar automaticamente no system prompt')
+    );
+    expect(onFieldChange).toHaveBeenCalledWith('autoLoad', true);
   });
 });
