@@ -1627,6 +1627,8 @@ const es = {
       announcedOpenTab: '{{type}} {{id}} abierto',
       newTab: 'Nuevo {{type}}',
       announcedNewTab: 'Nuevo {{type}} creado',
+      invalidProfile: 'Perfil "{{profile}}" no encontrado; usando el perfil predeterminado',
+      profileLoadError: 'Error al cargar el perfil "{{profile}}"; usando el perfil predeterminado',
     },
     connectionStatus: {
       provider: 'API',

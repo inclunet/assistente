@@ -13,16 +13,19 @@ import {
 
 const mockWsSetActiveTab = vi.fn().mockResolvedValue(undefined);
 const mockWsAddTab = vi.fn().mockResolvedValue(undefined);
+const mockWsUpdateTab = vi.fn().mockResolvedValue(undefined);
 const mockSendMessageToConversation = vi.fn().mockResolvedValue(undefined);
 
-let mockWsTabs: Array<{ id: string; type: string; conversationId?: string; state?: Record<string, unknown> }> = [];
+let mockWsProfile: string | undefined;
+let mockWsTabs: Array<{ id: string; type: string; conversationId?: string; state?: Record<string, unknown>; profileOverride?: Record<string, unknown> }> = [];
 
 vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: {
     getState: () => ({
-      workspace: { tabs: mockWsTabs },
+      workspace: { tabs: mockWsTabs, profile: mockWsProfile },
       setActiveTab: mockWsSetActiveTab,
       addTab: mockWsAddTab,
+      updateTab: mockWsUpdateTab,
     }),
   },
 }));
@@ -82,10 +85,21 @@ vi.mock('./i18n', () => ({
 
 const mockEditorReadFile = vi.fn().mockResolvedValue('file content');
 const mockRunTerminalCommand = vi.fn().mockResolvedValue(undefined);
+const mockGetProfile = vi.fn().mockResolvedValue({ slug: 'programacao' });
 
 vi.mock('@wailsjs/go/app/App', () => ({
   EditorReadFile: (...args: unknown[]) => mockEditorReadFile(...args),
   RunTerminalCommand: (...args: unknown[]) => mockRunTerminalCommand(...args),
+  GetProfile: (...args: unknown[]) => mockGetProfile(...args),
+}));
+
+const mockAddToast = vi.fn();
+vi.mock('../store/uiStore', () => ({
+  useUIStore: {
+    getState: () => ({
+      addToast: mockAddToast,
+    }),
+  },
 }));
 
 const mockCreateDocument = vi.fn().mockReturnValue('doc-new-id');
@@ -147,6 +161,15 @@ describe('parseDeepLink', () => {
     it('rejeita ID float', () => {
       expect(parseDeepLink('assistente://conversation/3.14')).toBeNull();
     });
+
+    it('faz parse com profile', () => {
+      const result = parseDeepLink('assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000002a?profile=programacao');
+      expect(result).toEqual({
+        type: 'conversation:open',
+        conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a',
+        profile: 'programacao',
+      });
+    });
   });
 
   describe('conversation:new', () => {
@@ -185,6 +208,16 @@ describe('parseDeepLink', () => {
         title: undefined,
       });
     });
+
+    it('faz parse com message e profile', () => {
+      const result = parseDeepLink('assistente://conversation/new?message=oi&profile=techsupport');
+      expect(result).toEqual({
+        type: 'conversation:new',
+        message: 'oi',
+        title: undefined,
+        profile: 'techsupport',
+      });
+    });
   });
 
   describe('conversation:send', () => {
@@ -205,6 +238,18 @@ describe('parseDeepLink', () => {
 
     it('rejeita send com ID não-UUID', () => {
       expect(parseDeepLink('assistente://conversation/abc/send?message=oi')).toBeNull();
+    });
+
+    it('faz parse de send com message e profile', () => {
+      const result = parseDeepLink(
+        'assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000000a/send?message=continue&profile=techsupport',
+      );
+      expect(result).toEqual({
+        type: 'conversation:send',
+        conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a',
+        message: 'continue',
+        profile: 'techsupport',
+      });
     });
   });
 
@@ -443,6 +488,32 @@ describe('buildDeepLink', () => {
     expect(uri).toContain('message=continue+aqui');
   });
 
+  it('constrói conversation:open com profile', () => {
+    const uri = buildDeepLink({
+      type: 'conversation:open',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a',
+      profile: 'programacao',
+    });
+    expect(uri).toBe('assistente://conversation/01926b90-7a5a-7c4e-8d3f-00000000002a?profile=programacao');
+  });
+
+  it('constrói conversation:new com profile', () => {
+    const uri = buildDeepLink({ type: 'conversation:new', message: 'oi', profile: 'techsupport' });
+    expect(uri).toContain('message=oi');
+    expect(uri).toContain('profile=techsupport');
+  });
+
+  it('constrói conversation:send com profile', () => {
+    const uri = buildDeepLink({
+      type: 'conversation:send',
+      conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a',
+      message: 'continue',
+      profile: 'techsupport',
+    });
+    expect(uri).toContain('message=continue');
+    expect(uri).toContain('profile=techsupport');
+  });
+
   it('constrói navigate', () => {
     const uri = buildDeepLink({ type: 'navigate', route: 'history' });
     expect(uri).toBe('assistente://navigate/history');
@@ -522,9 +593,12 @@ describe('buildDeepLink', () => {
 describe('roundtrip build → parse', () => {
   const actions: DeepLinkAction[] = [
     { type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000007' },
+    { type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000007', profile: 'programacao' },
     { type: 'conversation:new', message: 'olá mundo', title: 'Test' },
+    { type: 'conversation:new', message: 'olá mundo', title: 'Test', profile: 'techsupport' },
     { type: 'conversation:new' },
     { type: 'conversation:send', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000003', message: 'continue' },
+    { type: 'conversation:send', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000003', message: 'continue', profile: 'techsupport' },
     { type: 'navigate', route: 'history' },
     { type: 'navigate', route: 'tasklists' },
     { type: 'navigate', route: '' },
@@ -601,7 +675,9 @@ describe('executeDeepLink', () => {
     vi.clearAllMocks();
     vi.useRealTimers();
     mockWsTabs = [];
+    mockWsProfile = undefined;
     mockWsAddTab.mockResolvedValue('tab-created');
+    mockGetProfile.mockResolvedValue({ slug: 'programacao' });
   });
 
   describe('conversation:open — dedup', () => {
@@ -749,6 +825,103 @@ describe('executeDeepLink', () => {
 
       expect(mockCreateConversation).toHaveBeenCalledWith('Minha Análise');
       expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Minha Análise', { conversationId: '01926b90-7a5a-7c4e-8d3f-000000000064' });
+    });
+  });
+
+  describe('profile override', () => {
+    it('conversation:new aplica profile como override da aba e usa no envio', async () => {
+      await executeDeepLink(
+        { type: 'conversation:new', message: 'analise o ticket', profile: 'techsupport' },
+        deps,
+      );
+
+      expect(mockGetProfile).toHaveBeenCalledWith('techsupport');
+      expect(mockWsUpdateTab).toHaveBeenCalledWith('tab-created', { profile_override: { slug: 'techsupport' } });
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-000000000064',
+        'analise o ticket',
+        undefined,
+        expect.objectContaining({ profileSlug: 'techsupport' }),
+        expect.anything(),
+      );
+    });
+
+    it('conversation:open aplica profile como override da aba existente', async () => {
+      mockWsTabs = [{ id: 'tab-1', type: 'chat', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a' }];
+
+      await executeDeepLink(
+        { type: 'conversation:open', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000002a', profile: 'programacao' },
+        deps,
+      );
+
+      expect(mockWsSetActiveTab).toHaveBeenCalledWith('tab-1');
+      expect(mockGetProfile).toHaveBeenCalledWith('programacao');
+      expect(mockWsUpdateTab).toHaveBeenCalledWith('tab-1', { profile_override: { slug: 'programacao' } });
+    });
+
+    it('conversation:send aplica profile e o usa nos params do envio', async () => {
+      mockWsTabs = [{ id: 'tab-5', type: 'chat', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a' }];
+
+      await executeDeepLink(
+        { type: 'conversation:send', conversationId: '01926b90-7a5a-7c4e-8d3f-00000000000a', message: 'oi', profile: 'techsupport' },
+        deps,
+      );
+
+      expect(mockWsUpdateTab).toHaveBeenCalledWith('tab-5', { profile_override: { slug: 'techsupport' } });
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-00000000000a',
+        'oi',
+        undefined,
+        expect.objectContaining({ profileSlug: 'techsupport' }),
+        expect.anything(),
+      );
+    });
+
+    it('perfil inexistente: não aplica override, avisa via toast "warning" e cai no padrão', async () => {
+      mockGetProfile.mockRejectedValueOnce(new Error('profile not found'));
+
+      await executeDeepLink(
+        { type: 'conversation:new', message: 'oi', profile: 'inexistente' },
+        deps,
+      );
+
+      expect(mockGetProfile).toHaveBeenCalledWith('inexistente');
+      expect(mockWsUpdateTab).not.toHaveBeenCalled();
+      expect(mockAddToast).toHaveBeenCalledWith('deepLink.invalidProfile', 'warning');
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-000000000064',
+        'oi',
+        undefined,
+        expect.objectContaining({ profileSlug: undefined }),
+        expect.anything(),
+      );
+    });
+
+    it('falha inesperada ao carregar perfil: toast "error" genérico e cai no padrão', async () => {
+      mockGetProfile.mockRejectedValueOnce(new Error('unexpected: failed to parse profile json'));
+
+      await executeDeepLink(
+        { type: 'conversation:new', message: 'oi', profile: 'quebrado' },
+        deps,
+      );
+
+      expect(mockGetProfile).toHaveBeenCalledWith('quebrado');
+      expect(mockWsUpdateTab).not.toHaveBeenCalled();
+      expect(mockAddToast).toHaveBeenCalledWith('deepLink.profileLoadError', 'error');
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-000000000064',
+        'oi',
+        undefined,
+        expect.objectContaining({ profileSlug: undefined }),
+        expect.anything(),
+      );
+    });
+
+    it('sem profile no deeplink: não chama GetProfile nem updateTab', async () => {
+      await executeDeepLink({ type: 'conversation:new', message: 'oi' }, deps);
+
+      expect(mockGetProfile).not.toHaveBeenCalled();
+      expect(mockWsUpdateTab).not.toHaveBeenCalled();
     });
   });
 

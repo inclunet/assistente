@@ -13,10 +13,23 @@ O Assistente suporta deep links via protocolo `assistente://`, permitindo navega
 |---|---|
 | `assistente://conversation/{id}` | Abre uma conversa existente pelo ID |
 | `assistente://conversation/new?message=...` | Cria nova conversa com mensagem inicial |
+| `assistente://conversation/{id}/send?message=...` | Envia uma mensagem para uma conversa existente |
 | `assistente://tasklist/{id}` | Abre uma lista de tarefas |
 | `assistente://editor/{id}` | Abre um arquivo no editor |
 | `assistente://terminal/{id}` | Abre uma sessão de terminal |
 | `assistente://navigate/{route}` | Navega para uma rota da aplicação |
+
+### Parâmetro opcional `profile`
+
+As ações de conversa (`new`, abrir e `send`) aceitam o parâmetro opcional `profile={slug}`, que força a conversa-alvo a usar um perfil específico — sem alterar o perfil global. Útil para disparar uma conversa já com o perfil certo, por exemplo uma análise de suporte técnico ou uma tarefa de programação.
+
+```
+assistente://conversation/new?message=analise+este+ticket&profile=techsupport
+assistente://conversation/{id}?profile=programacao
+assistente://conversation/{id}/send?message=revise+este+código&profile=programacao
+```
+
+O perfil é aplicado como _override_ da aba (mesmo mecanismo do seletor de perfil da barra do chat). Se o `slug` informado não existir, um aviso é exibido e a conversa segue com o perfil padrão.
 
 ## Uso em Skills
 
