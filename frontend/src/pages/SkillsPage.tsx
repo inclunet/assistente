@@ -31,10 +31,14 @@ import './SkillsPage.css';
 
 type SkillInfo = skills.SkillInfo;
 
+// Versão semver default para skills novas (backend exige semver em modo estrito).
+const DEFAULT_SKILL_VERSION = '1.0.0';
+
 interface SkillRow {
   id: string;
   slug: string;
   name: string;
+  version: string;
   description: string;
   auto: boolean;
   isBuiltin: boolean;
@@ -54,6 +58,7 @@ interface SkillRow {
 
 interface SkillFormData {
   name: string;
+  version?: string;
   description: string;
   auto: boolean;
   disableModelInvocation?: boolean;
@@ -88,6 +93,9 @@ export default function SkillsPage() {
       .filter(Boolean);
     return controllers.SkillCreateRequest.createFrom({
       name: data.name.trim(),
+      // Backend exige semver em modo estrito (validateSpecStrict); roundtrip do
+      // valor carregado em edição, default DEFAULT_SKILL_VERSION na criação.
+      version: (data.version || '').trim() || DEFAULT_SKILL_VERSION,
       description: data.description.trim(),
       disableModelInvocation: !data.auto,
       tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
@@ -114,6 +122,7 @@ export default function SkillsPage() {
           id: s.slug,
           slug: s.slug,
           name: s.name,
+          version: s.version || DEFAULT_SKILL_VERSION,
           description: s.description || '',
           auto: !s.disableModelInvocation,
           isBuiltin: s.isBuiltin,
@@ -126,6 +135,7 @@ export default function SkillsPage() {
           id: skill.slug,
           slug: skill.slug,
           name: skill.name,
+          version: skill.version || DEFAULT_SKILL_VERSION,
           description: skill.description,
           auto: !skill.disableModelInvocation,
           isBuiltin: false,
@@ -186,6 +196,7 @@ export default function SkillsPage() {
         id: '',
         slug: '',
         name: '',
+        version: DEFAULT_SKILL_VERSION,
         description: '',
         auto: false,
         isBuiltin: false,
