@@ -52,6 +52,32 @@ func TestPolicyDecideCatalogParityWithDecide(t *testing.T) {
 	}
 }
 
+func TestPolicyAllowlistMatchesBySlugOrName(t *testing.T) {
+	// Allowlist de perfil aceita slug OU nome (mesma semântica de
+	// CatalogByNamesOrdered); Decide e DecideCatalog devem concordar.
+	p := NewSkillSelectionPolicy()
+	s := Skill{Slug: "my-slug"}
+	s.Name = "My Skill"
+	s.Version = "1.0.0"
+	s.Description = "descricao da skill"
+	entry := CatalogEntryFromSkill(&s)
+
+	for _, allow := range [][]string{{"my-slug"}, {"My Skill"}} {
+		ctx := SkillSelectionContext{
+			ToolsEnabled: true, FilesystemEnabled: true, NetworkEnabled: true, MCPEnabled: true,
+			AutoloadAllowlist: allow,
+		}
+		viaMeta := p.Decide(&s.SkillMetadata, s.Slug, ctx)
+		viaCatalog := p.DecideCatalog(entry, ctx)
+		if viaMeta.Visibility != VisibilityAutoload {
+			t.Errorf("Decide deveria autoloadar com allowlist=%v, got %+v", allow, viaMeta)
+		}
+		if viaCatalog.Visibility != VisibilityAutoload {
+			t.Errorf("DecideCatalog deveria autoloadar com allowlist=%v, got %+v", allow, viaCatalog)
+		}
+	}
+}
+
 func TestPolicySkillsDisabled(t *testing.T) {
 	p := NewSkillSelectionPolicy()
 	d := p.Decide(mdAutoload("r"), "a", SkillSelectionContext{SkillsDisabled: true, ToolsEnabled: true})

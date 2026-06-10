@@ -47,13 +47,24 @@ func CatalogByNamesOrdered(all []SkillCatalogEntry, names []string) []SkillCatal
 	if len(names) == 0 {
 		return nil
 	}
-	byName := make(map[string]SkillCatalogEntry, len(all)*2)
+	// Mapas separados para slug e nome: misturá-los no mesmo namespace permitiria
+	// colisões (o slug de uma entrada igual ao nome de outra) e resultado não
+	// determinístico. Resolve-se cada identificador pedido por slug primeiro,
+	// depois por nome.
+	bySlug := make(map[string]SkillCatalogEntry, len(all))
+	byName := make(map[string]SkillCatalogEntry, len(all))
 	for _, e := range all {
-		byName[e.Slug] = e
-		byName[e.Name] = e
+		bySlug[e.Slug] = e
+		if e.Name != "" {
+			byName[e.Name] = e
+		}
 	}
 	var out []SkillCatalogEntry
 	for _, n := range names {
+		if e, ok := bySlug[n]; ok {
+			out = append(out, e)
+			continue
+		}
 		if e, ok := byName[n]; ok {
 			out = append(out, e)
 		}

@@ -123,8 +123,9 @@ func (p SkillSelectionPolicy) Decide(m *SkillMetadata, slug string, ctx SkillSel
 func (p SkillSelectionPolicy) isAutoload(m *SkillMetadata, slug string, ctx SkillSelectionContext) bool {
 	if ctx.AutoloadAllowlist != nil {
 		// Perfil define explicitamente o conjunto de autoload; ainda assim a
-		// skill precisa ser invocável pelo modelo.
-		return m.IsModelInvocable() && containsString(ctx.AutoloadAllowlist, slug)
+		// skill precisa ser invocável pelo modelo. A allowlist aceita slug OU nome
+		// (mesma semântica de CatalogByNamesOrdered).
+		return m.IsModelInvocable() && allowlistMatches(ctx.AutoloadAllowlist, slug, m.Name)
 	}
 	if !m.IsAutoLoad() {
 		return false
@@ -179,7 +180,7 @@ func (p SkillSelectionPolicy) DecideCatalog(entry SkillCatalogEntry, ctx SkillSe
 // isAutoloadCatalog espelha isAutoload usando os campos já efetivos da entry.
 func (p SkillSelectionPolicy) isAutoloadCatalog(entry SkillCatalogEntry, ctx SkillSelectionContext) bool {
 	if ctx.AutoloadAllowlist != nil {
-		return entry.ModelInvocable && containsString(ctx.AutoloadAllowlist, entry.Slug)
+		return entry.ModelInvocable && allowlistMatches(ctx.AutoloadAllowlist, entry.Slug, entry.Name)
 	}
 	if !entry.AutoLoad {
 		return false
@@ -240,4 +241,14 @@ func containsString(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// allowlistMatches verifica se a allowlist contém o slug ou o nome da skill.
+// Allowlists de perfil aceitam ambos os identificadores (ver CatalogByNamesOrdered);
+// o nome só é considerado quando não-vazio para não casar entradas vazias.
+func allowlistMatches(allowlist []string, slug, name string) bool {
+	if containsString(allowlist, slug) {
+		return true
+	}
+	return name != "" && containsString(allowlist, name)
 }

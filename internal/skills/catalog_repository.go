@@ -202,7 +202,13 @@ func (r *DBRepository) catalogMatchesHashes(ctx context.Context, desired map[str
 				return false, nil
 			}
 			if _, err := os.Stat(row.Path); err != nil {
-				return false, nil
+				// Arquivo ausente (cache limpo) = defasagem → rebuild. Outros erros
+				// (permissão, I/O transitório) são propagados para não mascarar
+				// problemas operacionais como simples "stale".
+				if os.IsNotExist(err) {
+					return false, nil
+				}
+				return false, fmt.Errorf("stat do corpo materializado %q: %w", row.Path, err)
 			}
 		}
 	}
