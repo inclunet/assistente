@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { Modal } from '../ui/Modal';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { Select, type SelectOption } from '../ui/Select';
+import { Button } from '../ui/Button';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useUIStore } from '../../store/uiStore';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -291,21 +292,20 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
               aria-label={t('tasklist.conversation', 'Conversa vinculada')}
             />
             <div className="task-detail__conversation-actions">
-              <button
-                type="button"
-                data-primary=""
+              <Button
+                variant="primary"
                 onClick={() => void handleSaveConversation()}
                 disabled={conversationSaving}
               >
                 {conversationSaving ? t('common.saving', 'Salvando...') : t('common.save', 'Salvar')}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={() => setIsEditingConversation(false)}
                 disabled={conversationSaving}
               >
                 {t('common.cancel', 'Cancelar')}
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
