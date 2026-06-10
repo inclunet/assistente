@@ -671,6 +671,34 @@ func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 	}
 }
 
+func TestBuildSkillsSection_SupplementaryFiles_OmitsUnsafePaths(t *testing.T) {
+	// Nomes de supporting files com caracteres que poderiam fechar backticks/tags
+	// ou quebrar o Markdown do prompt devem ser omitidos; os seguros permanecem.
+	unsafe := []string{
+		"/skills/dev/ok.md",
+		"/skills/dev/evil`whoami`.md",
+		"/skills/dev/inject<tag>.md",
+		"/skills/dev/break\nline.md",
+	}
+	auto := makeSkill("dev", "Dev", "Dev desc", "Dev content.", true, false)
+	avail := makeSkill("doc", "Doc", "Doc desc", "Doc content.", false, true)
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		autoSkills:      []skills.Skill{auto},
+		availableSkills: []skills.Skill{avail},
+		skillFiles:      map[string][]string{"dev": unsafe, "doc": unsafe},
+	}}
+
+	result := b.BuildSkillsSection(nil, false, nil)
+	if !strings.Contains(result, "ok.md") {
+		t.Errorf("path seguro deveria permanecer: %q", result)
+	}
+	for _, bad := range []string{"evil", "whoami", "inject", "<tag>", "break"} {
+		if strings.Contains(result, bad) {
+			t.Errorf("path inseguro contendo %q não deveria aparecer no prompt: %q", bad, result)
+		}
+	}
+}
+
 func TestBuildSkillsSection_BudgetScalesWithContextWindow(t *testing.T) {
 	// AEP-0072 D3: o cap do Nível 1 é percentual da janela do modelo. Janela
 	// grande comporta todas as skills; janela pequena omite as de menor prioridade.

@@ -346,7 +346,8 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 			sb.WriteString(e.Path)
 			sb.WriteString("`\n")
 
-			supplementary, _ := b.Skills.GetSkillFiles(e.Slug)
+			rawSupp, _ := b.Skills.GetSkillFiles(e.Slug)
+			supplementary := safeSkillPaths(e.Slug, rawSupp)
 			if len(supplementary) > 0 {
 				sb.WriteString("  Supporting files:\n")
 				for _, f := range supplementary {
@@ -360,6 +361,30 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 	}
 
 	return sb.String()
+}
+
+// unsafeSkillPathChars são caracteres que poderiam fechar backticks/tags ou
+// quebrar a estrutura Markdown do system prompt se aparecessem em um nome de
+// supporting file.
+const unsafeSkillPathChars = "\n\r`<>"
+
+// safeSkillPaths filtra paths de supporting files cujo nome contenha caracteres
+// inseguros (ver unsafeSkillPathChars). Como GetSkillFiles lista o diretório do
+// skill, um nome inesperado/malicioso não pode injetar conteúdo no prompt; paths
+// omitidos são logados para diagnóstico.
+func safeSkillPaths(slug string, paths []string) []string {
+	if len(paths) == 0 {
+		return paths
+	}
+	safe := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if strings.ContainsAny(p, unsafeSkillPathChars) {
+			log.Printf("[prompt] supporting file omitido da skill %q: caractere inseguro no path %q", slug, p)
+			continue
+		}
+		safe = append(safe, p)
+	}
+	return safe
 }
 
 // renderAutoSkill monta o bloco de uma skill de autoload (corpo completo) para a
@@ -384,7 +409,8 @@ func (b *Builder) renderAutoSkill(s skills.Skill, tplData any) string {
 	sb.WriteString(content)
 	sb.WriteString("\n")
 
-	supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
+	rawSupp, _ := b.Skills.GetSkillFiles(s.Slug)
+	supplementary := safeSkillPaths(s.Slug, rawSupp)
 	if len(supplementary) > 0 {
 		sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
 		for _, f := range supplementary {
