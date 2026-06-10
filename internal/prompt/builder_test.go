@@ -71,7 +71,9 @@ func (m *mockSkillReader) allKnown() []skills.Skill {
 }
 
 // ListCatalog projeta o catálogo compacto (Nível 1) a partir das skills conhecidas,
-// ordenado por nome — como o catálogo persistido do manager (Order name ASC).
+// ordenado por (name, slug) — como o catálogo persistido do manager (ORDER BY
+// name, slug), cujo tie-breaker por slug garante ordem determinística entre skills
+// homônimas.
 func (m *mockSkillReader) ListCatalog() ([]skills.SkillCatalogEntry, error) {
 	if m.allErr != nil {
 		return nil, m.allErr
@@ -81,7 +83,12 @@ func (m *mockSkillReader) ListCatalog() ([]skills.SkillCatalogEntry, error) {
 	for i := range all {
 		entries = append(entries, skills.CatalogEntryFromSkill(&all[i]))
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Name != entries[j].Name {
+			return entries[i].Name < entries[j].Name
+		}
+		return entries[i].Slug < entries[j].Slug
+	})
 	return entries, nil
 }
 
