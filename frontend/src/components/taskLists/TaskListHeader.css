@@ -1,5 +1,22 @@
 /* TaskListHeader Component */
 
+.tasklist-header-conversation-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+.tasklist-header-conversation-link:hover {
+  text-decoration: underline;
+}
+
 .tasklist-header {
   display: flex;
   justify-content: space-between;

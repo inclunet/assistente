@@ -14,6 +14,7 @@ type TaskListManager interface {
 	GetAllTaskLists(ctx context.Context) ([]database.TaskList, error)
 	GetTaskListStats(ctx context.Context, taskListID string) (map[string]interface{}, error)
 	UpdateTaskListFull(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error
+	SetTaskListConversation(ctx context.Context, id string, conversationID *string) error
 	ResolveTaskListRef(ctx context.Context, taskListID *string, taskListSlug string) (string, error)
 	SetTaskListValidationPolicy(ctx context.Context, taskListID string, policyJSON string) error
 	GetTaskListCustomActions(ctx context.Context, taskListID string) (*database.TaskListCustomActions, error)
@@ -28,6 +29,7 @@ type TaskListManager interface {
 	ResolveTaskIDByTaskCode(ctx context.Context, taskListID *string, taskCode string) (string, error)
 	UpdateTask(ctx context.Context, id string, title, description, code, link string) error
 	UpdateTaskFull(ctx context.Context, id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error
+	SetTaskConversation(ctx context.Context, id string, conversationID *string) error
 	UpdateTaskAssignee(ctx context.Context, id string, assigneeName, assigneeID string) error
 	UpdateTaskStatus(ctx context.Context, id string, newStatusID int) error
 	MoveTaskToList(ctx context.Context, taskID string, targetTaskListID string) (*database.Task, error)

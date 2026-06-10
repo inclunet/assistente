@@ -18,6 +18,8 @@ import {
   UpdateTask,
   UpdateTaskFull,
   UpdateTaskAssignee,
+  SetTaskConversation,
+  SetTaskListConversation,
   DeleteTask,
   UpdateTaskStatus,
   PromoteTask,
@@ -75,6 +77,7 @@ function normalizeTask(raw: unknown): Task {
     createdAt: (r.createdAt ?? r.created_at ?? '') as string,
     updatedAt: (r.updatedAt ?? r.updated_at ?? '') as string,
     completedAt: (r.completedAt ?? r.completed_at) as string | undefined,
+    conversationId: (r.conversationId ?? r.conversation_id ?? '') as string || undefined,
     subtasks: Array.isArray(r.subtasks)
       ? r.subtasks.map(normalizeTask)
       : undefined,
@@ -162,6 +165,7 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
     createdAt: (r.createdAt ?? r.created_at ?? '') as string,
     updatedAt: (r.updatedAt ?? r.updated_at ?? '') as string,
     validationPolicy,
+    conversationId: (r.conversationId ?? r.conversation_id ?? '') as string || undefined,
     workflow: normalizedWorkflow,
     tasks: normalizedTasks,
   };
@@ -212,6 +216,8 @@ interface TaskListStoreState {
   createTask: (taskListId: string, title: string, description?: string, code?: string, link?: string, parentId?: string) => Promise<Task | null>;
   updateTask: (taskId: string, title: string, description?: string, code?: string, link?: string) => Promise<void>;
   updateTaskFull: (taskId: string, title: string, description?: string, code?: string, link?: string, assigneeName?: string, assigneeId?: string, creatorName?: string, creatorId?: string) => Promise<void>;
+  setTaskConversation: (taskId: string, conversationId: string | null) => Promise<void>;
+  setTaskListConversation: (taskListId: string, conversationId: string | null) => Promise<void>;
   updateTaskAssignee: (taskId: string, assigneeName: string, assigneeId?: string) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
   updateTaskStatus: (taskId: string, statusId: number) => Promise<void>;
@@ -622,6 +628,49 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         await UpdateTaskFull(taskId, title, description || '', code || '', link || '', assigneeName || '', assigneeId || '', creatorName || '', creatorId || '');
       } catch (error) {
         get().setError('updateTaskFull', String(error));
+      }
+    },
+
+    setTaskConversation: async (taskId: string, conversationId: string | null) => {
+      const normalized = conversationId && conversationId.trim() ? conversationId.trim() : undefined;
+      set((state) => {
+        const newCache = new Map(state.taskLists);
+        for (const [tlId, taskList] of newCache.entries()) {
+          const tasks = taskList.tasks;
+          if (tasks) {
+            const idx = tasks.findIndex((t) => t.id === taskId);
+            if (idx >= 0) {
+              const updatedTasks = [...tasks];
+              updatedTasks[idx] = { ...updatedTasks[idx], conversationId: normalized };
+              newCache.set(tlId, { ...taskList, tasks: updatedTasks });
+              return { taskLists: newCache };
+            }
+          }
+        }
+        return {};
+      });
+      try {
+        await SetTaskConversation(taskId, normalized ?? null);
+      } catch (error) {
+        get().setError('setTaskConversation', String(error));
+      }
+    },
+
+    setTaskListConversation: async (taskListId: string, conversationId: string | null) => {
+      const normalized = conversationId && conversationId.trim() ? conversationId.trim() : undefined;
+      set((state) => {
+        const newCache = new Map(state.taskLists);
+        const taskList = newCache.get(taskListId);
+        if (taskList) {
+          newCache.set(taskListId, { ...taskList, conversationId: normalized });
+          return { taskLists: newCache };
+        }
+        return {};
+      });
+      try {
+        await SetTaskListConversation(taskListId, normalized ?? null);
+      } catch (error) {
+        get().setError('setTaskListConversation', String(error));
       }
     },
 

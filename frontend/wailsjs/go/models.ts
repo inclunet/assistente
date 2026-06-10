@@ -1800,6 +1800,7 @@ export namespace database {
 	    preferred_view_mode: string;
 	    validation_policy?: string;
 	    custom_actions?: string;
+	    conversation_id?: string;
 	    workflow?: TaskListWorkflow;
 	    tasks?: Task[];
 	
@@ -1819,6 +1820,7 @@ export namespace database {
 	        this.preferred_view_mode = source["preferred_view_mode"];
 	        this.validation_policy = source["validation_policy"];
 	        this.custom_actions = source["custom_actions"];
+	        this.conversation_id = source["conversation_id"];
 	        this.workflow = this.convertValues(source["workflow"], TaskListWorkflow);
 	        this.tasks = this.convertValues(source["tasks"], Task);
 	    }
@@ -1863,6 +1865,7 @@ export namespace database {
 	    due_date?: any;
 	    // Go type: time
 	    completed_at?: any;
+	    conversation_id?: string;
 	    task_list?: TaskList;
 	    parent?: Task;
 	    subtasks?: Task[];
@@ -1891,6 +1894,7 @@ export namespace database {
 	        this.creator_id = source["creator_id"];
 	        this.due_date = this.convertValues(source["due_date"], null);
 	        this.completed_at = this.convertValues(source["completed_at"], null);
+	        this.conversation_id = source["conversation_id"];
 	        this.task_list = this.convertValues(source["task_list"], TaskList);
 	        this.parent = this.convertValues(source["parent"], Task);
 	        this.subtasks = this.convertValues(source["subtasks"], Task);
@@ -3461,7 +3465,7 @@ export namespace profiles {
 	    disable_skills?: boolean;
 	    disable_on_demand_skills?: boolean;
 	    command_allowlist?: string;
-	    native_mcp?: boolean | null;
+	    native_mcp?: boolean;
 	    max_agentic_iterations?: number;
 	    streaming_recovery_enabled?: boolean;
 	    streaming_recovery_max_attempts?: number;

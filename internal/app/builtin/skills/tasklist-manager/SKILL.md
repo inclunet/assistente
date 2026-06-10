@@ -1,6 +1,6 @@
 ---
 name: tasklist-manager
-version: 1.4.0
+version: 1.5.0
 description: Provides context about task lists linked to the current conversation and instructions for managing tasks and workflows via tool calling
 displayName: Task List Manager
 author: Assistente
@@ -61,8 +61,17 @@ _No tasks yet._
 - To duplicate a task, use `task` with `task_id` + `duplicate: true`.
 - To move a task, use `task` with `task_id` + different `task_list_id`.
 {{- if .ToolCallingEnabled }}
-- Tools available: `task_list` (CRUD for task lists), `task` (CRUD for tasks), `task_note` (create/update notes).
+- Tools available: `task_list` (CRUD for task lists), `task` (CRUD for tasks), `task_note` (create/update notes), `get_conversation_info` (read the current conversation, including its conversation_id).
 {{- end }}
+
+## Linking tasks & task lists to a conversation
+
+A task or an entire task list can be linked to a conversation (1 conversation : N tasks/task lists). Linked task lists for the current conversation are shown in the **Conversation Context** above (when any exist).
+
+- To get the **current conversation id**, call `get_conversation_info` (omit `conversation_id` to use the conversation in progress). It returns `conversation_id` plus any already-linked tasks/task lists.
+- To link a **task**, call `task` with the task reference + `conversation_id: "<id>"`. To link a whole **task list**, call `task_list` with the list reference + `conversation_id: "<id>"`.
+- Send `conversation_id: ""` (empty string) to clear the link; omit the field to leave it unchanged.
+- Typical pattern (e.g. a tech-support flow): call `get_conversation_info` to read the current `conversation_id`, then create/update the task or list passing that `conversation_id` so the work stays linked to this conversation. When designing a programming profile, you can create a task list with several steps and link it to the chat the same way.
 
 ## Custom actions (custom context-menu items & buttons)
 

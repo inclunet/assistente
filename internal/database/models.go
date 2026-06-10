@@ -232,6 +232,9 @@ type TaskList struct {
 	ValidationPolicy string `json:"validation_policy,omitempty" gorm:"type:text"`
 	// CustomActions: JSON opcional (TaskListCustomActions) — ações customizáveis por lista (AEP-0067).
 	CustomActions string `json:"custom_actions,omitempty" gorm:"type:text"`
+	// ConversationID: vínculo opcional com uma conversa (1 conversa : N tasklists).
+	// Nullable; nil/ausente quando a lista não pertence a nenhuma conversa.
+	ConversationID *string `json:"conversation_id,omitempty" gorm:"index"`
 
 	// Relacionamentos
 	Workflow *TaskListWorkflow `json:"workflow,omitempty" gorm:"foreignKey:TaskListID"`
@@ -256,6 +259,9 @@ type Task struct {
 	CreatorID    string     `json:"creator_id,omitempty" gorm:"size:200"`   // Identificador estável do criador (email, UUID, account ID externo)
 	DueDate      *time.Time `json:"due_date,omitempty"`
 	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+	// ConversationID: vínculo opcional com uma conversa (1 conversa : N tasks).
+	// Independente do vínculo da lista; nil/ausente quando não vinculada.
+	ConversationID *string `json:"conversation_id,omitempty" gorm:"index"`
 
 	// Relacionamentos
 	TaskList *TaskList  `json:"task_list,omitempty" gorm:"foreignKey:TaskListID"`

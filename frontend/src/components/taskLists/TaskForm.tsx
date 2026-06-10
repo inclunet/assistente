@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { Button } from '../ui/Button';
 import { FormField } from '../ui/FormField';
 import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
+import { Select, type SelectOption } from '../ui/Select';
+import { GetConversations } from '@wailsjs/go/app/App';
+import type { database } from '@wailsjs/go/models';
+import { logger } from '../../utils/logger';
 import type { Task } from '../../types/tasklist';
 import './TaskForm.css';
 
@@ -22,7 +26,7 @@ export default function TaskForm({
   onCancel,
 }: TaskFormProps) {
   const { t } = useTranslation();
-  const { createTask, updateTaskFull } = useTaskListStore();
+  const { createTask, updateTaskFull, setTaskConversation } = useTaskListStore();
 
   const [formData, setFormData] = useState({
     title: task?.title || '',
@@ -34,10 +38,49 @@ export default function TaskForm({
     creatorName: task?.creatorName || '',
     creatorId: task?.creatorId || '',
     dueDate: task?.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : '',
+    conversationId: task?.conversationId || '',
   });
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<database.Conversation[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const result = await GetConversations();
+        if (!active) return;
+        const sorted = [...result].sort((a, b) => {
+          const dateA = new Date(a.updatedAt as string | number | Date).getTime();
+          const dateB = new Date(b.updatedAt as string | number | Date).getTime();
+          return dateB - dateA;
+        });
+        setConversations(sorted);
+      } catch (err) {
+        logger.error('[TaskForm] erro ao carregar conversas:', err);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Garante que a conversa já vinculada apareça como opção mesmo se não estiver
+  // na listagem carregada (ex.: conversa de outro canal/origem).
+  const conversationOptions: SelectOption[] = [
+    { value: '', label: t('tasklist.conversationNone', 'Nenhuma') },
+    ...conversations.map((c) => ({
+      value: String(c.id),
+      label: c.title || t('tasklist.conversationUntitled', 'Sem título'),
+    })),
+  ];
+  if (
+    formData.conversationId &&
+    !conversationOptions.some((o) => o.value === formData.conversationId)
+  ) {
+    conversationOptions.push({ value: formData.conversationId, label: formData.conversationId });
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,6 +105,9 @@ export default function TaskForm({
           formData.creatorName || undefined,
           formData.creatorId || undefined,
         );
+        if ((formData.conversationId || '') !== (task.conversationId || '')) {
+          await setTaskConversation(task.id, formData.conversationId || null);
+        }
         onSuccess?.(task);
       } else {
         const newTask = await createTask(
@@ -72,6 +118,9 @@ export default function TaskForm({
           formData.link || undefined,
         );
         if (newTask) {
+          if (formData.conversationId) {
+            await setTaskConversation(newTask.id, formData.conversationId);
+          }
           onSuccess?.(newTask);
         }
       }
@@ -145,6 +194,19 @@ export default function TaskForm({
           placeholder={t('tasklist.linkPlaceholder', 'Ex: assistente://conversation/open?id=123')}
           disabled={isLoading}
           maxLength={512}
+        />
+      </FormField>
+
+      <FormField
+        label={t('tasklist.conversation', 'Conversa vinculada')}
+        description={t('tasklist.conversationDescription', 'Associe esta tarefa a uma conversa (opcional)')}
+      >
+        <Select
+          fullWidth
+          value={formData.conversationId}
+          onChange={(e) => setFormData({ ...formData, conversationId: e.target.value })}
+          disabled={isLoading}
+          options={conversationOptions}
         />
       </FormField>
 

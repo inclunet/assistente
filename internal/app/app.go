@@ -366,6 +366,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		Workspace:     a.workspaceMgr,
 		SkillMgr:      a.skillMgr,
 		PromptBuilder: a.promptBuilder,
+		LinkedTaskLists: a.linkedTaskListsForConversation,
 	})
 
 	// Inicializa hotkeys globais

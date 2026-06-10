@@ -2021,6 +2021,10 @@ const es = {
       taskCreated: 'Tarea creada exitosamente',
       taskUpdated: 'Tarea actualizada exitosamente',
       taskDeleted: 'Tarea eliminada exitosamente',
+      conversation: 'Conversación vinculada',
+      conversationDescription: 'Vincula esta tarea a una conversación (opcional)',
+      conversationNone: 'Ninguna',
+      conversationUntitled: 'Sin título',
       // History picker
       historyPicker: 'Historial (Ctrl+H)',
       searchHistory: 'Buscar lista...',

@@ -1,9 +1,57 @@
 package app
 
 import (
+	"context"
+	"encoding/json"
+	"strings"
+
+	"assistente/internal/chat"
 	"assistente/internal/database"
 	"assistente/internal/tasklist"
 )
+
+// linkedTaskListsForConversation resolve as task lists vinculadas a uma conversa
+// e as mapeia para o contexto de template da skill tasklist-manager (auto-load).
+// Best-effort: erros (ou ctx sem usuário) resultam em nil → template vazio.
+func (a *App) linkedTaskListsForConversation(ctx context.Context, conversationID string) []chat.TemplateTaskList {
+	if a.taskListCtrl == nil || strings.TrimSpace(conversationID) == "" {
+		return nil
+	}
+	lists, err := a.taskListCtrl.GetTaskListsByConversation(ctx, conversationID)
+	if err != nil || len(lists) == 0 {
+		return nil
+	}
+	out := make([]chat.TemplateTaskList, 0, len(lists))
+	for i := range lists {
+		l := lists[i]
+		statusMeta := map[int]database.TaskListWorkflowStatus{}
+		if l.Workflow != nil && strings.TrimSpace(l.Workflow.Statuses) != "" {
+			var sts []database.TaskListWorkflowStatus
+			if json.Unmarshal([]byte(l.Workflow.Statuses), &sts) == nil {
+				for _, s := range sts {
+					statusMeta[s.ID] = s
+				}
+			}
+		}
+		tasks := make([]chat.TemplateTask, 0, len(l.Tasks))
+		for _, tk := range l.Tasks {
+			meta := statusMeta[tk.StatusID]
+			tasks = append(tasks, chat.TemplateTask{
+				ID:         tk.ID,
+				Title:      tk.Title,
+				Status:     meta.Label,
+				StatusIcon: meta.Icon,
+			})
+		}
+		out = append(out, chat.TemplateTaskList{
+			ID:          l.ID,
+			Title:       l.Title,
+			Description: l.Description,
+			Tasks:       tasks,
+		})
+	}
+	return out
+}
 
 // Re-exporta tipos do database para compatibilidade com o frontend Wails
 type TaskList = database.TaskList
@@ -56,6 +104,20 @@ func (a *App) SetTaskListViewMode(id string, viewMode string) error {
 		return err
 	}
 	return a.taskListCtrl.SetTaskListViewMode(ctx, id, viewMode)
+}
+func (a *App) SetTaskListConversation(id string, conversationID *string) error {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.taskListCtrl.SetTaskListConversation(ctx, id, conversationID)
+}
+func (a *App) GetTaskListsByConversation(conversationID string) ([]TaskList, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.taskListCtrl.GetTaskListsByConversation(ctx, conversationID)
 }
 func (a *App) CloneTaskList(id string, newTitle string) (*TaskList, error) {
 	ctx, err := a.requireAuthenticatedContext()
@@ -174,6 +236,20 @@ func (a *App) UpdateTaskAssignee(id string, assigneeName, assigneeID string) err
 		return err
 	}
 	return a.taskListCtrl.UpdateTaskAssignee(ctx, id, assigneeName, assigneeID)
+}
+func (a *App) SetTaskConversation(id string, conversationID *string) error {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return err
+	}
+	return a.taskListCtrl.SetTaskConversation(ctx, id, conversationID)
+}
+func (a *App) GetTasksByConversation(conversationID string) ([]Task, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.taskListCtrl.GetTasksByConversation(ctx, conversationID)
 }
 func (a *App) UpdateTaskStatus(id string, statusID int) error {
 	ctx, err := a.requireAuthenticatedContext()

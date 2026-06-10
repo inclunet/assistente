@@ -149,6 +149,11 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     openTaskLink(task.link, { navigate });
   }, [task, navigate]);
 
+  const handleConversationClick = useCallback(() => {
+    if (!task?.conversationId) return;
+    openTaskLink(`assistente://conversation/${task.conversationId}`, { navigate });
+  }, [task, navigate]);
+
   const status = task ? statuses.find((s) => s.id === task.statusId) : undefined;
   const isDueDatePast = task?.dueDate && new Date(task.dueDate) < new Date();
 
@@ -206,6 +211,18 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
         {task.dueDate && (
           <span className={`task-detail__badge task-detail__badge--due${isDueDatePast ? ' task-detail__badge--overdue' : ''}`}>
             <CalendarOutlined aria-hidden="true" /> {new Date(task.dueDate).toLocaleDateString()}
+          </span>
+        )}
+        {task.conversationId && (
+          <span
+            className="task-detail__badge task-detail__badge--link"
+            onClick={handleConversationClick}
+            role="link"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleConversationClick(); }}
+            title={task.conversationId}
+          >
+            <MessageOutlined aria-hidden="true" /> {t('tasklist.conversation', 'Conversa vinculada')}
           </span>
         )}
       </div>

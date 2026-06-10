@@ -49,6 +49,20 @@ func (s *DBStore) UpdateTaskListFull(ctx context.Context, id string, title, desc
 	return database.UpdateTaskListFullWithContext(ctx, id, title, description, preferredViewMode, slug)
 }
 
+func (s *DBStore) SetTaskListConversation(ctx context.Context, id string, conversationID *string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.SetTaskListConversationWithContext(ctx, id, conversationID)
+}
+
+func (s *DBStore) GetTaskListsByConversationID(ctx context.Context, conversationID string) ([]database.TaskList, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetTaskListsByConversationIDWithContext(ctx, conversationID)
+}
+
 func (s *DBStore) ResolveTaskListRef(ctx context.Context, taskListID *string, taskListSlug string) (string, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return "", err
@@ -233,6 +247,20 @@ func (s *DBStore) UpdateTaskFull(ctx context.Context, id string, title, descript
 		return err
 	}
 	return database.UpdateTaskFullWithContext(ctx, id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
+}
+
+func (s *DBStore) SetTaskConversation(ctx context.Context, id string, conversationID *string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.SetTaskConversationWithContext(ctx, id, conversationID)
+}
+
+func (s *DBStore) GetTasksByConversationID(ctx context.Context, conversationID string) ([]database.Task, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetTasksByConversationIDWithContext(ctx, conversationID)
 }
 
 func (s *DBStore) UpdateTaskAssignee(ctx context.Context, id string, assigneeName, assigneeID string) error {

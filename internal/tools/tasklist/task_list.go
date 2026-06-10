@@ -36,6 +36,9 @@ type taskListArgs struct {
 	Workflow          *workflowArg    `json:"workflow,omitempty"`
 	ValidationPolicy  json.RawMessage `json:"validation_policy,omitempty"`
 	CustomActions     json.RawMessage `json:"custom_actions,omitempty"`
+	// ConversationID vincula a lista inteira a uma conversa. nil = não altera;
+	// "" = limpa; valor = vincula. Use get_conversation_info para obter o id.
+	ConversationID *string `json:"conversation_id,omitempty"`
 }
 
 type TaskListTool struct {
@@ -88,6 +91,10 @@ func (t *TaskListTool) Parameters() json.RawMessage {
 				"type": "string",
 				"enum": ["list", "kanban"],
 				"description": "View mode: 'list' or 'kanban'. Defaults to 'list' for new lists"
+			},
+			"conversation_id": {
+				"type": "string",
+				"description": "Links the WHOLE list to a conversation (1 conversation : N lists). Use the id from get_conversation_info (e.g. the current chat) to bind the list to that conversation. Set to empty string to clear. Omit to leave unchanged. Independent from the per-task conversation_id of the 'task' tool"
 			},
 			"validation_policy": {
 				"type": "object",
@@ -226,7 +233,7 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	// lista, não cair no update (que sobrescreveria description/view_mode com
 	// vazio). A escrita é disparada por campos reais (title, description, slug
 	// a definir, workflow, validation_policy, custom_actions, duplicate, ...).
-	isWrite := strings.TrimSpace(params.Title) != "" || params.Workflow != nil || params.Duplicate || strings.TrimSpace(params.Description) != "" || params.PreferredViewMode != "" || hasValPolicy || hasCustomActions || params.Slug != nil
+	isWrite := strings.TrimSpace(params.Title) != "" || params.Workflow != nil || params.Duplicate || strings.TrimSpace(params.Description) != "" || params.PreferredViewMode != "" || hasValPolicy || hasCustomActions || params.Slug != nil || params.ConversationID != nil
 
 	idPtr := taskListIDPtrForResolve(params.TaskListID)
 	slugRef := strings.TrimSpace(params.TaskListSlug)
@@ -258,6 +265,28 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		return t.fullDetails(ctx, resolved)
 	}
 
+	// Caso especial: o único campo de escrita é conversation_id. Vincular/
+	// desvincular a lista a uma conversa não deve sobrescrever description/
+	// view_mode com vazio (efeito colateral do update completo), nem exigir
+	// title. Requer referência à lista (não dá para criar lista só com vínculo).
+	convListOnly := params.ConversationID != nil &&
+		strings.TrimSpace(params.Title) == "" && params.Workflow == nil && !params.Duplicate &&
+		strings.TrimSpace(params.Description) == "" && params.PreferredViewMode == "" &&
+		!hasValPolicy && !hasCustomActions && params.Slug == nil
+	if convListOnly {
+		if !hasListRef {
+			return tools.ToolResult{Content: "conversation_id requires task_list_id or task_list_slug to identify the list", IsError: true}, nil
+		}
+		resolved, err := t.mgr.ResolveTaskListRef(ctx, idPtr, slugRef)
+		if err != nil {
+			return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+		}
+		if err := t.applyTaskListConversation(ctx, resolved, params.ConversationID); err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("Error linking list %s to conversation: %v", resolved, err), IsError: true}, nil
+		}
+		return t.fullDetails(ctx, resolved)
+	}
+
 	// WRITE modes
 	if hasListRef {
 		resolved, err := t.mgr.ResolveTaskListRef(ctx, idPtr, slugRef)
@@ -273,7 +302,7 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 			if params.Slug != nil {
 				newSlug = *params.Slug
 			}
-			return t.duplicateTaskList(ctx, resolved, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.CustomActions, newSlug)
+			return t.duplicateTaskList(ctx, resolved, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.CustomActions, newSlug, params.ConversationID)
 		}
 		title := strings.TrimSpace(params.Title)
 		if title == "" {
@@ -286,7 +315,7 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		if title == "" {
 			return tools.ToolResult{Content: "title is required for create; for update the list must have a stored title", IsError: true}, nil
 		}
-		return t.updateTaskList(ctx, resolved, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.CustomActions, params.Slug)
+		return t.updateTaskList(ctx, resolved, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.CustomActions, params.Slug, params.ConversationID)
 	}
 
 	title := strings.TrimSpace(params.Title)
@@ -297,7 +326,7 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	if params.Slug != nil {
 		initialSlug = *params.Slug
 	}
-	return t.createTaskList(ctx, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.CustomActions, initialSlug)
+	return t.createTaskList(ctx, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy, params.CustomActions, initialSlug, params.ConversationID)
 }
 
 // ==================== Read Operations ====================
@@ -425,6 +454,9 @@ func (t *TaskListTool) fullDetails(ctx context.Context, taskListID string) (tool
 	if taskList.Slug != "" {
 		response["slug"] = taskList.Slug
 	}
+	if taskList.ConversationID != nil && *taskList.ConversationID != "" {
+		response["conversation_id"] = *taskList.ConversationID
+	}
 	if vp := validationPolicyToMap(taskList.ValidationPolicy); vp != nil {
 		response["validation_policy"] = vp
 	}
@@ -474,7 +506,7 @@ func (t *TaskListTool) fullDetails(ctx context.Context, taskListID string) (tool
 
 // ==================== Write Operations ====================
 
-func (t *TaskListTool) createTaskList(ctx context.Context, title, description, viewMode string, wf *workflowArg, policyRaw, customActionsRaw json.RawMessage, initialSlug string) (tools.ToolResult, error) {
+func (t *TaskListTool) createTaskList(ctx context.Context, title, description, viewMode string, wf *workflowArg, policyRaw, customActionsRaw json.RawMessage, initialSlug string, conversationID *string) (tools.ToolResult, error) {
 	var template *database.TaskListWorkflow
 	if wf != nil {
 		tpl, err := t.buildWorkflowTemplate(wf)
@@ -501,6 +533,10 @@ func (t *TaskListTool) createTaskList(ctx context.Context, title, description, v
 		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 
+	if err := t.applyTaskListConversation(ctx, taskList.ID, conversationID); err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Task list created (id=%s) but conversation link failed: %v", taskList.ID, err), IsError: true}, nil
+	}
+
 	updated, err := t.mgr.GetTaskList(ctx, taskList.ID)
 	if err != nil {
 		updated = taskList
@@ -513,7 +549,7 @@ func (t *TaskListTool) createTaskList(ctx context.Context, title, description, v
 	}, nil
 }
 
-func (t *TaskListTool) duplicateTaskList(ctx context.Context, sourceID string, title, description, viewMode string, wfOverride *workflowArg, policyRaw, customActionsRaw json.RawMessage, newListSlug string) (tools.ToolResult, error) {
+func (t *TaskListTool) duplicateTaskList(ctx context.Context, sourceID string, title, description, viewMode string, wfOverride *workflowArg, policyRaw, customActionsRaw json.RawMessage, newListSlug string, conversationID *string) (tools.ToolResult, error) {
 	source, err := t.mgr.GetTaskList(ctx, sourceID)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Source task list not found (id=%s): %v", sourceID, err), IsError: true}, nil
@@ -571,6 +607,16 @@ func (t *TaskListTool) duplicateTaskList(ctx context.Context, sourceID string, t
 		}
 	}
 
+	// Por padrão a cópia herda a conversa da origem; conversation_id explícito
+	// sobrescreve (inclusive "" para não vincular a nova lista).
+	effectiveConv := conversationID
+	if effectiveConv == nil {
+		effectiveConv = source.ConversationID
+	}
+	if err := t.applyTaskListConversation(ctx, newList.ID, effectiveConv); err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Task list duplicated (id=%s) but conversation link failed: %v", newList.ID, err), IsError: true}, nil
+	}
+
 	updated, err := t.mgr.GetTaskList(ctx, newList.ID)
 	if err != nil {
 		updated = newList
@@ -585,7 +631,7 @@ func (t *TaskListTool) duplicateTaskList(ctx context.Context, sourceID string, t
 	}, nil
 }
 
-func (t *TaskListTool) updateTaskList(ctx context.Context, id string, title, description, viewMode string, wf *workflowArg, policyRaw, customActionsRaw json.RawMessage, slugUpdate *string) (tools.ToolResult, error) {
+func (t *TaskListTool) updateTaskList(ctx context.Context, id string, title, description, viewMode string, wf *workflowArg, policyRaw, customActionsRaw json.RawMessage, slugUpdate *string, conversationID *string) (tools.ToolResult, error) {
 	existing, err := t.mgr.GetTaskList(ctx, id)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%s): %v", id, err), IsError: true}, nil
@@ -625,6 +671,10 @@ func (t *TaskListTool) updateTaskList(ctx context.Context, id string, title, des
 		if err := t.mgr.UpdateWorkflowFull(ctx, id, statuses, transitions, wf.InitialStatusID, migration); err != nil {
 			return tools.ToolResult{Content: fmt.Sprintf("Task list metadata updated but workflow update failed: %v", err), IsError: true}, nil
 		}
+	}
+
+	if err := t.applyTaskListConversation(ctx, id, conversationID); err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Task list updated but conversation link failed: %v", err), IsError: true}, nil
 	}
 
 	updated, err := t.mgr.GetTaskList(ctx, id)
@@ -691,6 +741,20 @@ func (t *TaskListTool) buildWorkflowTemplate(wf *workflowArg) (*database.TaskLis
 	}, nil
 }
 
+// applyTaskListConversation aplica o vínculo da lista com conversa quando
+// conversation_id foi enviado. nil = não altera; "" = limpa; valor = vincula.
+func (t *TaskListTool) applyTaskListConversation(ctx context.Context, taskListID string, conversationID *string) error {
+	if conversationID == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*conversationID)
+	var ptr *string
+	if trimmed != "" {
+		ptr = &trimmed
+	}
+	return t.mgr.SetTaskListConversation(ctx, taskListID, ptr)
+}
+
 func (t *TaskListTool) buildResult(tl *database.TaskList, action string) map[string]any {
 	result := map[string]any{
 		"id":     tl.ID,
@@ -699,6 +763,9 @@ func (t *TaskListTool) buildResult(tl *database.TaskList, action string) map[str
 	}
 	if tl.Slug != "" {
 		result["slug"] = tl.Slug
+	}
+	if tl.ConversationID != nil && *tl.ConversationID != "" {
+		result["conversation_id"] = *tl.ConversationID
 	}
 	if vp := validationPolicyToMap(tl.ValidationPolicy); vp != nil {
 		result["validation_policy"] = vp

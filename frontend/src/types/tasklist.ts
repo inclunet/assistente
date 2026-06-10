@@ -70,6 +70,8 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  /** Conversa vinculada (opcional). 1 conversa : N tasks. */
+  conversationId?: string;
   
   // Relações
   subtasks?: Task[];
@@ -99,6 +101,8 @@ export interface TaskList {
   updatedAt: string;
   /** Política opcional de validação (JSON); ausente = sem restrições extras */
   validationPolicy?: TaskListValidationPolicy;
+  /** Conversa vinculada (opcional). 1 conversa : N tasklists. */
+  conversationId?: string;
   
   // Relações
   workflow?: TaskListWorkflow;

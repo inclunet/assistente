@@ -289,6 +289,15 @@ func (f *fakeTaskListManager) UpdateTaskAssignee(_ context.Context, id string, a
 	return nil
 }
 
+func (f *fakeTaskListManager) SetTaskConversation(_ context.Context, id string, conversationID *string) error {
+	task, ok := f.tasks[id]
+	if !ok {
+		return fmt.Errorf("task not found: %s", id)
+	}
+	task.ConversationID = conversationID
+	return nil
+}
+
 func (f *fakeTaskListManager) UpdateTaskStatus(_ context.Context, id string, newStatusID int) error {
 	if f.updateStatErr != nil {
 		return f.updateStatErr
@@ -534,6 +543,15 @@ func (f *fakeTaskListManager) UpdateTaskListFull(_ context.Context, id string, t
 		}
 		tl.Slug = s
 	}
+	return nil
+}
+
+func (f *fakeTaskListManager) SetTaskListConversation(_ context.Context, id string, conversationID *string) error {
+	tl, ok := f.taskLists[id]
+	if !ok {
+		return fmt.Errorf("task list not found: %s", id)
+	}
+	tl.ConversationID = conversationID
 	return nil
 }
 
@@ -1022,6 +1040,74 @@ func TestTask_ReadIncludesFields(t *testing.T) {
 		if !strings.Contains(result.Content, expected) {
 			t.Errorf("expected '%s' in content, got: %s", expected, result.Content)
 		}
+	}
+}
+
+func TestTask_ConversationLink(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	tool := NewTask(mgr)
+
+	// Cria task já vinculada a uma conversa.
+	createRes, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id":    tl.ID,
+		"title":           "Linked task",
+		"conversation_id": "conv-123",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createRes.IsError {
+		t.Fatalf("unexpected error creating linked task: %s", createRes.Content)
+	}
+	if !strings.Contains(createRes.Content, "conv-123") {
+		t.Fatalf("expected conversation_id in create output, got: %s", createRes.Content)
+	}
+
+	var created *database.Task
+	for _, tk := range mgr.tasks {
+		if tk.Title == "Linked task" {
+			created = tk
+		}
+	}
+	if created == nil {
+		t.Fatal("created task not found in fake manager")
+	}
+	if created.ConversationID == nil || *created.ConversationID != "conv-123" {
+		t.Fatalf("expected task linked to conv-123, got: %v", created.ConversationID)
+	}
+
+	// Atualização somente do vínculo (sem title) deve preservar os demais campos.
+	updRes, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id":         created.ID,
+		"conversation_id": "conv-456",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updRes.IsError {
+		t.Fatalf("unexpected error on conversation-only update: %s", updRes.Content)
+	}
+	if created.Title != "Linked task" {
+		t.Fatalf("conversation-only update should preserve title, got: %q", created.Title)
+	}
+	if created.ConversationID == nil || *created.ConversationID != "conv-456" {
+		t.Fatalf("expected task re-linked to conv-456, got: %v", created.ConversationID)
+	}
+
+	// Limpar o vínculo passando string vazia.
+	clrRes, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id":         created.ID,
+		"conversation_id": "",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clrRes.IsError {
+		t.Fatalf("unexpected error clearing conversation link: %s", clrRes.Content)
+	}
+	if created.ConversationID != nil {
+		t.Fatalf("expected conversation link cleared, got: %v", *created.ConversationID)
 	}
 }
 

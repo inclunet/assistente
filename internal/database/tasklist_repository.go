@@ -436,6 +436,30 @@ func UpdateTaskListFullWithContext(ctx context.Context, id string, title, descri
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").Where("id = ?", id).Updates(updates).Error
 }
 
+// SetTaskListConversationWithContext vincula (ou desvincula, com nil) uma
+// tasklist do usuário do contexto a uma conversa. Não valida a existência da
+// conversa: o vínculo é uma referência fraca (a conversa pode ser de outra
+// origem/canal); o escopo por usuário já protege contra acesso indevido.
+func SetTaskListConversationWithContext(ctx context.Context, id string, conversationID *string) error {
+	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").
+		Where("id = ?", id).
+		Update("conversation_id", conversationID).Error
+}
+
+// GetTaskListsByConversationIDWithContext retorna as tasklists do usuário do
+// contexto vinculadas a uma conversa, com workflow e tasks raiz.
+func GetTaskListsByConversationIDWithContext(ctx context.Context, conversationID string) ([]TaskList, error) {
+	var taskLists []TaskList
+	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
+		Preload("Tasks", func(db *gorm.DB) *gorm.DB {
+			return db.Where("parent_id IS NULL").Order("`order` ASC")
+		}).
+		Where("conversation_id = ?", conversationID).
+		Order("created_at DESC").
+		Find(&taskLists).Error
+	return taskLists, err
+}
+
 // ReorderWorkflowStatusesWithContext reordena os statuses do workflow do
 // usuário do contexto, mantendo seus IDs e labels.
 func ReorderWorkflowStatusesWithContext(ctx context.Context, taskListID string, statusOrder []int) error {
@@ -738,6 +762,28 @@ func UpdateTaskFullWithContext(ctx context.Context, id string, title, descriptio
 			"creator_name":  creatorName,
 			"creator_id":    creatorID,
 		}).Error
+}
+
+// SetTaskConversationWithContext vincula (ou desvincula, com nil) uma task do
+// usuário do contexto a uma conversa. Usa o mesmo padrão de escopo via subquery
+// de UpdateTaskWithContext para garantir que só tasks do usuário sejam afetadas.
+func SetTaskConversationWithContext(ctx context.Context, id string, conversationID *string) error {
+	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", id))
+	return db.WithContext(ctx).Model(&Task{}).
+		Where("id = ?", id).
+		Where("id IN (?)", taskIDs).
+		Update("conversation_id", conversationID).Error
+}
+
+// GetTasksByConversationIDWithContext retorna as tasks do usuário do contexto
+// vinculadas a uma conversa (todas as tasks, inclusive subtasks), ordenadas.
+func GetTasksByConversationIDWithContext(ctx context.Context, conversationID string) ([]Task, error) {
+	var tasks []Task
+	err := taskQuery(ctx, db.Model(&Task{})).
+		Where("tasks.conversation_id = ?", conversationID).
+		Order("tasks.task_list_id ASC, tasks.`order` ASC").
+		Find(&tasks).Error
+	return tasks, err
 }
 
 // UpdateTaskAssigneeWithContext atualiza apenas o assignee de uma task do
