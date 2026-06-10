@@ -211,23 +211,32 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const handleHistoryChange = (nextConversationId: string, conversation: { title?: string }) => {
     const run = async () => {
       const nextTitle = conversation.title || t('chat.newConversation');
-      try {
-        if (onRequestConversationChange) {
+      // Erros das duas branches são distintos: no modo controlado a falha é da
+      // TROCA (persistir aba/recriar superfície — o load fica com o dono), enquanto
+      // no fallback a falha é do CARREGAMENTO da sessão. Mensagens separadas dão
+      // diagnóstico e feedback (announce) precisos a leitores de tela.
+      if (onRequestConversationChange) {
+        try {
           // Superfície controlada: o dono (página/modal) decide o efeito da troca.
           // O carregamento da sessão pode acontecer depois (ex.: via
           // useWorkspaceChatBridge na ChatPage), então anunciamos "selecionada" —
           // dizer "carregada" aqui seria feedback incorreto a leitores de tela.
           await onRequestConversationChange(nextConversationId, conversation);
           announce(`${t('chat.conversationSelected')}: ${nextTitle}`);
-        } else {
+        } catch (error) {
+          logger.error('[ChatToolbar] Erro ao trocar conversa:', error);
+          announce(t('chat.switchError'));
+        }
+      } else {
+        try {
           // Fallback mínimo: só carrega a sessão (superfícies sem vínculo próprio).
           // Aqui o load é de fato aguardado, então "carregada" é preciso.
           await loadConversationSession(nextConversationId);
           announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
+        } catch (error) {
+          logger.error('[ChatToolbar] Erro ao carregar conversa:', error);
+          announce(t('chat.loadError'));
         }
-      } catch (error) {
-        logger.error('[ChatToolbar] Erro ao carregar conversa:', error);
-        announce(t('chat.loadError'));
       }
       focusInput();
     };

@@ -109,6 +109,7 @@ const ptBR = {
       conversationLoaded: 'Conversa carregada',
       conversationSelected: 'Conversa selecionada',
       loadError: 'Erro ao carregar conversa',
+      switchError: 'Erro ao trocar de conversa',
       toolbarLabel: 'Chat',
       newBtn: 'Nova',
       clearBtn: 'Limpar',

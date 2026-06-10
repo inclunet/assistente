@@ -108,6 +108,7 @@ const es = {
       conversationLoaded: 'Conversación cargada',
       conversationSelected: 'Conversación seleccionada',
       loadError: 'Error al cargar conversación',
+      switchError: 'Error al cambiar de conversación',
       toolbarLabel: 'Chat',
       newBtn: 'Nueva',
       clearBtn: 'Vaciar',

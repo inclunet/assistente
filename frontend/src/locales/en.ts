@@ -109,6 +109,7 @@ const en = {
       conversationLoaded: 'Conversation loaded',
       conversationSelected: 'Conversation selected',
       loadError: 'Error loading conversation',
+      switchError: 'Error switching conversation',
       toolbarLabel: 'Chat',
       newBtn: 'New',
       clearBtn: 'Clear',
