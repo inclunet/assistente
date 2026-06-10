@@ -398,14 +398,18 @@ func (s *Service) SetTaskConversation(ctx context.Context, id string, conversati
 	if err := s.store.SetTaskConversation(ctx, id, conversationID); err != nil {
 		return err
 	}
-	task, _ := s.store.GetTask(ctx, id)
+	// Recarrega para notificar a UI. Aborta se o reload falhar (id inválido,
+	// 0 linhas afetadas ou fora do escopo do usuário): emitir um task:updated
+	// com payload nil quebra o listener do frontend (normalizeTask espera um
+	// objeto). Melhor retornar o erro do que emitir um evento corrompido.
+	task, err := s.store.GetTask(ctx, id)
+	if err != nil {
+		return err
+	}
 	s.emitter.Emit("task:updated", task)
 	if s.wantsDomain("tasklist.task.updated") {
 		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
-			// Ver UpdateTask: changed_fields só com snapshot recarregado.
-			if task != nil {
-				payload["changed_fields"] = changedTaskFields(old, task)
-			}
+			payload["changed_fields"] = changedTaskFields(old, task)
 			s.publishDomain(ctx, "tasklist.task.updated", payload)
 		}
 	}

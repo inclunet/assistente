@@ -219,7 +219,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
             onClick={handleConversationClick}
             role="link"
             tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleConversationClick(); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleConversationClick(); } }}
             title={task.conversationId}
           >
             <MessageOutlined aria-hidden="true" /> {t('tasklist.conversation', 'Conversa vinculada')}
