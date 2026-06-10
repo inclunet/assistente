@@ -37,7 +37,7 @@ vi.mock('react-router-dom', () => ({
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
-  GetConversations: () => getConversationsMock(),
+  GetConversations: getConversationsMock,
 }));
 
 vi.mock('react-i18next', () => ({

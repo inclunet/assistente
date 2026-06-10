@@ -10,7 +10,7 @@ import type { Task, TaskListWorkflowStatus } from '../../types/tasklist';
 const mockLoadTaskNotes = vi.fn();
 const mockListCardCustomActions = vi.fn();
 const mockSetTaskConversation = vi.fn();
-const mockGetConversations = vi.fn();
+const mockGetConversations = vi.hoisted(() => vi.fn());
 
 vi.mock('react-i18next', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-i18next')>();
@@ -21,7 +21,7 @@ vi.mock('react-i18next', async (importOriginal) => {
 });
 
 vi.mock('@wailsjs/go/app/App', () => ({
-  GetConversations: () => mockGetConversations(),
+  GetConversations: mockGetConversations,
 }));
 
 vi.mock('../../store/uiStore', () => ({
