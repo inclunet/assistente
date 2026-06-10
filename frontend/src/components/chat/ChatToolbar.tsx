@@ -214,12 +214,17 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       try {
         if (onRequestConversationChange) {
           // Superfície controlada: o dono (página/modal) decide o efeito da troca.
+          // O carregamento da sessão pode acontecer depois (ex.: via
+          // useWorkspaceChatBridge na ChatPage), então anunciamos "selecionada" —
+          // dizer "carregada" aqui seria feedback incorreto a leitores de tela.
           await onRequestConversationChange(nextConversationId, conversation);
+          announce(`${t('chat.conversationSelected')}: ${nextTitle}`);
         } else {
           // Fallback mínimo: só carrega a sessão (superfícies sem vínculo próprio).
+          // Aqui o load é de fato aguardado, então "carregada" é preciso.
           await loadConversationSession(nextConversationId);
+          announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
         }
-        announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
       } catch (error) {
         logger.error('[ChatToolbar] Erro ao carregar conversa:', error);
         announce(t('chat.loadError'));

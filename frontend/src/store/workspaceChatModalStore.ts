@@ -55,12 +55,14 @@ export interface WorkspaceChatModalAdapter {
 
 const adapters = new Map<string, WorkspaceChatModalAdapter>();
 
-// Serializa a persistência do vínculo de conversa na aba (latest-wins): as escritas
-// são encadeadas e cada uma só executa se ainda for a mais recente solicitada.
-// Sem isso, trocas rápidas poderiam resolver fora de ordem no backend e deixar
-// persistida uma conversa antiga.
+// Serializa a persistência do vínculo de conversa na aba (latest-wins POR ABA): as
+// escritas são encadeadas e cada uma só executa se ainda for a mais recente
+// solicitada para AQUELA aba. Sem a fila, trocas rápidas poderiam resolver fora de
+// ordem no backend e deixar persistida uma conversa antiga; com o seq por aba,
+// fechar/reabrir o modal em outra aba não invalida persistências pendentes da
+// aba anterior (um seq global pularia escritas de abas diferentes indevidamente).
 let persistConversationChain: Promise<void> = Promise.resolve();
-let persistConversationSeq = 0;
+const persistConversationSeqByTab = new Map<string, number>();
 
 export function registerWorkspaceChatModalAdapter(
   tabId: string,
@@ -251,11 +253,14 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
     set({ boundConversationId: conversationId, boundSurface: nextSurface });
 
     // Persiste o vínculo na aba para sobreviver à reabertura do modal. A troca visual
-    // já foi aplicada otimisticamente acima; a persistência é serializada (latest-wins)
-    // para que trocas rápidas não resolvam fora de ordem.
-    const seq = ++persistConversationSeq;
+    // já foi aplicada otimisticamente acima; a persistência é serializada com
+    // latest-wins POR ABA, para que trocas rápidas na mesma aba não resolvam fora de
+    // ordem sem que abas diferentes invalidem persistências pendentes umas das outras.
+    const seq = (persistConversationSeqByTab.get(boundTabId) ?? 0) + 1;
+    persistConversationSeqByTab.set(boundTabId, seq);
     persistConversationChain = persistConversationChain.then(async () => {
-      if (seq !== persistConversationSeq) return; // já há uma troca mais recente
+      // Já há uma troca mais recente para esta mesma aba.
+      if (seq !== persistConversationSeqByTab.get(boundTabId)) return;
       try {
         await useWorkspaceStore.getState().updateTab(boundTabId, { conversation_id: conversationId });
       } catch (e) {

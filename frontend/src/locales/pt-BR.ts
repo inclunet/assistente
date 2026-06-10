@@ -107,6 +107,7 @@ const ptBR = {
       tokenStatsOpened: 'Modal de estatísticas de tokens aberto',
       profileLabel: 'Perfil',
       conversationLoaded: 'Conversa carregada',
+      conversationSelected: 'Conversa selecionada',
       loadError: 'Erro ao carregar conversa',
       toolbarLabel: 'Chat',
       newBtn: 'Nova',

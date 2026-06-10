@@ -163,8 +163,11 @@ histórico do chat e reduzir fricção:
   embutido por tipo de aba dentro do `ChatToolbar`. O componente agora é
   **controlado** via a prop opcional `onRequestConversationChange`: o toolbar só
   **solicita** a troca, e o **dono da superfície** decide o efeito:
-  - **Página de chat** (`ChatPage`): atualiza `tab.conversation_id` (o `surface` é
-    derivado da aba, então a view recompõe) e antecipa o `loadConversationSession`.
+  - **Página de chat** (`ChatPage`): apenas atualiza `tab.conversation_id` (o
+    `surface` é derivado da aba, então a view recompõe). O carregamento da sessão
+    fica a cargo do `useWorkspaceChatBridge`, que reage à mudança de
+    `tab.conversationId` — a página **não** chama `loadConversationSession` para
+    não duplicar o load (2x `GetConversationInfo` + 2x janela de mensagens).
   - **Chat embutido** (`WorkspaceChatModal`): chama
     `workspaceChatModalStore.setBoundConversation`, que **recria a identidade da
     superfície** (`boundSurface`) com a nova conversa e **persiste** o vínculo na

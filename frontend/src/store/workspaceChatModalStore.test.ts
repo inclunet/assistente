@@ -207,13 +207,13 @@ describe('workspaceChatModalStore.setBoundConversation', () => {
     mockUpdateTab.mockClear();
   });
 
-  const openModalBoundTo = (conversationId: string) => {
-    useWorkspaceChatModalStore.getState().open('ctx', {}, 'tab-editor', conversationId, {
+  const openModalBoundTo = (conversationId: string, tabId = 'tab-editor') => {
+    useWorkspaceChatModalStore.getState().open('ctx', {}, tabId, conversationId, {
       conversationId,
-      sessionKey: `modal:workspace-chat:tab-editor:${conversationId}`,
-      surfaceId: 'modal:workspace-chat:tab-editor',
+      sessionKey: `modal:workspace-chat:${tabId}:${conversationId}`,
+      surfaceId: `modal:workspace-chat:${tabId}`,
       surfaceType: 'modal',
-      tabId: 'tab-editor',
+      tabId,
     }, vi.fn());
   };
 
@@ -276,5 +276,31 @@ describe('workspaceChatModalStore.setBoundConversation', () => {
     });
     expect(mockUpdateTab).toHaveBeenCalledTimes(2);
     expect(useWorkspaceChatModalStore.getState().boundConversationId).toBe('4');
+  });
+
+  it('latest-wins é por aba: troca em outra aba não invalida persistência pendente', async () => {
+    openModalBoundTo('1', 'tab-editor');
+
+    // Persistência da aba A fica pendente na fila.
+    let resolveFirst!: () => void;
+    mockUpdateTab.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolveFirst = resolve; }),
+    );
+    useWorkspaceChatModalStore.getState().setBoundConversation('2');
+    await vi.waitFor(() => expect(mockUpdateTab).toHaveBeenCalledTimes(1));
+
+    // Modal é fechado e reaberto vinculado a outra aba; nova troca lá.
+    useWorkspaceChatModalStore.getState().close();
+    openModalBoundTo('10', 'tab-chat');
+    useWorkspaceChatModalStore.getState().setBoundConversation('11');
+
+    resolveFirst();
+
+    // As duas persistências acontecem: a da aba B não pulou a pendente da aba A.
+    await vi.waitFor(() => {
+      expect(mockUpdateTab).toHaveBeenCalledWith('tab-chat', { conversation_id: '11' });
+    });
+    expect(mockUpdateTab).toHaveBeenCalledWith('tab-editor', { conversation_id: '2' });
+    expect(mockUpdateTab).toHaveBeenCalledTimes(2);
   });
 });

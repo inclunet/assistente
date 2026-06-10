@@ -106,6 +106,7 @@ const es = {
       tokenStatsOpened: 'Modal de estadísticas de tokens abierto',
       profileLabel: 'Perfil',
       conversationLoaded: 'Conversación cargada',
+      conversationSelected: 'Conversación seleccionada',
       loadError: 'Error al cargar conversación',
       toolbarLabel: 'Chat',
       newBtn: 'Nueva',

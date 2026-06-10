@@ -107,6 +107,7 @@ const en = {
       tokenStatsOpened: 'Token statistics modal opened',
       profileLabel: 'Profile',
       conversationLoaded: 'Conversation loaded',
+      conversationSelected: 'Conversation selected',
       loadError: 'Error loading conversation',
       toolbarLabel: 'Chat',
       newBtn: 'New',
