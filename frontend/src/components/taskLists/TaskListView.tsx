@@ -489,7 +489,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
                 {t('common.cancel', 'Cancelar')}
               </Button>
               {taskList.conversationId && (
-                <Button variant="secondary" onClick={handleOpenLinkedConversation} disabled={linkSaving}>
+                <Button variant="secondary" onClick={handleOpenLinkedConversation} disabled={linkSaving} aria-label={t('tasklist.openConversation', 'Abrir conversa')}>
                   <MessageOutlined aria-hidden="true" /> {t('tasklist.openConversation', 'Abrir conversa')}
                 </Button>
               )}

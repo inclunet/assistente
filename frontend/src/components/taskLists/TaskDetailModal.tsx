@@ -286,6 +286,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
             tabIndex={0}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleConversationClick(); } }}
             title={task.conversationId}
+            aria-label={t('tasklist.conversation', 'Conversa vinculada')}
           >
             <MessageOutlined aria-hidden="true" /> {t('tasklist.conversation', 'Conversa vinculada')}
           </span>
@@ -327,6 +328,9 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
             type="button"
             className="task-detail__conversation-edit-btn"
             onClick={handleStartEditConversation}
+            aria-label={task.conversationId
+              ? t('tasklist.changeConversation', 'Alterar conversa vinculada')
+              : t('tasklist.linkConversation', 'Vincular conversa')}
           >
             <MessageOutlined aria-hidden="true" />{' '}
             {task.conversationId
@@ -345,8 +349,9 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
               type="button"
               className={`task-detail__custom-action${ca.danger ? ' task-detail__custom-action--danger' : ''}`}
               onClick={() => { void runCustomAction(ca, task.taskListId, task.id); }}
+              aria-label={ca.label}
             >
-              {ca.icon ? `${ca.icon} ${ca.label}` : ca.label}
+              {ca.icon ? <><span aria-hidden="true">{ca.icon}</span> {ca.label}</> : ca.label}
             </button>
           ))}
         </div>
