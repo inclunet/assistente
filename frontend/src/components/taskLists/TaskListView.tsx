@@ -480,6 +480,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               onChange={(e) => setLinkConversationId(e.target.value)}
               disabled={linkSaving}
               options={conversationOptions}
+              aria-label={t('tasklist.conversation', 'Conversa vinculada')}
             />
             <div className="tasklist-link-conversation__actions">
               <Button variant="primary" onClick={() => void handleSaveConversation()} disabled={linkSaving}>

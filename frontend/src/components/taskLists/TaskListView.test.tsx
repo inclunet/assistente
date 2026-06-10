@@ -1,11 +1,12 @@
 import { forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { WorkspaceTab } from '../../store/workspaceStore';
 import TaskListView from './TaskListView';
 
 const openCreateModalMock = vi.fn();
+const getConversationsMock = vi.hoisted(() => vi.fn());
 const workspacePanelState = vi.hoisted(() => ({
   isActive: false,
   tab: {
@@ -33,6 +34,10 @@ const taskListStoreState = vi.hoisted(() => ({
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
+}));
+
+vi.mock('@wailsjs/go/app/App', () => ({
+  GetConversations: () => getConversationsMock(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -133,6 +138,12 @@ describe('TaskListView', () => {
     taskListStoreState.loadTaskList.mockReset();
     taskListStoreState.listBoardCustomActions.mockReset();
     taskListStoreState.listBoardCustomActions.mockResolvedValue([]);
+    taskListStoreState.setTaskListConversation.mockReset();
+    taskListStoreState.setTaskListConversation.mockResolvedValue(undefined);
+    getConversationsMock.mockReset();
+    getConversationsMock.mockResolvedValue([
+      { id: '7', title: 'Conversa Y', updatedAt: '2024-01-02' },
+    ]);
     taskListStoreState.taskLists = new Map([
       ['tasklist-1', {
         id: 'tasklist-1',
@@ -161,5 +172,41 @@ describe('TaskListView', () => {
     await user.keyboard('n');
 
     expect(openCreateModalMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('vincula a lista a uma conversa pelo modal', async () => {
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    await user.click(screen.getByRole('button', { name: 'Vincular conversa' }));
+
+    const select = await screen.findByRole('combobox', { name: 'Conversa vinculada' });
+    await user.selectOptions(select, '7');
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    expect(taskListStoreState.setTaskListConversation).toHaveBeenCalledWith('tasklist-1', '7');
+  });
+
+  it('desvincula a lista ao escolher "Nenhuma" (setTaskListConversation com null)', async () => {
+    taskListStoreState.taskLists = new Map([
+      ['tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Lista',
+        preferredViewMode: 'list',
+        conversationId: '7',
+        tasks: [],
+        workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
+      }],
+    ]);
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    await user.click(screen.getByRole('button', { name: 'Conversa vinculada' }));
+
+    const select = await screen.findByRole('combobox', { name: 'Conversa vinculada' });
+    await user.selectOptions(select, '');
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    expect(taskListStoreState.setTaskListConversation).toHaveBeenCalledWith('tasklist-1', null);
   });
 });

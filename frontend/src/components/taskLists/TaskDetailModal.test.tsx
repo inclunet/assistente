@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import TaskDetailModal from './TaskDetailModal';
 import type { Task, TaskListWorkflowStatus } from '../../types/tasklist';
@@ -8,6 +9,8 @@ import type { Task, TaskListWorkflowStatus } from '../../types/tasklist';
 
 const mockLoadTaskNotes = vi.fn();
 const mockListCardCustomActions = vi.fn();
+const mockSetTaskConversation = vi.fn();
+const mockGetConversations = vi.fn();
 
 vi.mock('react-i18next', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-i18next')>();
@@ -17,6 +20,10 @@ vi.mock('react-i18next', async (importOriginal) => {
   };
 });
 
+vi.mock('@wailsjs/go/app/App', () => ({
+  GetConversations: () => mockGetConversations(),
+}));
+
 vi.mock('../../store/taskListStore', () => ({
   useTaskListStore: () => ({
     loadTaskNotes: mockLoadTaskNotes,
@@ -24,6 +31,7 @@ vi.mock('../../store/taskListStore', () => ({
     updateTaskNote: vi.fn(),
     deleteTaskNote: vi.fn(),
     listCardCustomActions: mockListCardCustomActions,
+    setTaskConversation: mockSetTaskConversation,
   }),
 }));
 
@@ -63,6 +71,10 @@ describe('TaskDetailModal', () => {
     vi.clearAllMocks();
     mockLoadTaskNotes.mockResolvedValue([]);
     mockListCardCustomActions.mockResolvedValue([]);
+    mockSetTaskConversation.mockResolvedValue(undefined);
+    mockGetConversations.mockResolvedValue([
+      { id: '5', title: 'Conversa X', updatedAt: '2024-01-02' },
+    ]);
   });
 
   it('usa readingMode (role="document") para permitir leitura linear no leitor de tela', async () => {
@@ -77,5 +89,40 @@ describe('TaskDetailModal', () => {
     const body = await screen.findByRole('document');
     expect(body).toHaveClass('modal-body');
     expect(screen.queryByRole('application')).toBeNull();
+  });
+
+  it('vincula conversa pelo editor inline e chama setTaskConversation com o ID', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <TaskDetailModal isOpen onClose={vi.fn()} task={task} statuses={statuses} />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Vincular conversa' }));
+
+    const select = await screen.findByRole('combobox', { name: 'Conversa vinculada' });
+    await user.selectOptions(select, '5');
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    expect(mockSetTaskConversation).toHaveBeenCalledWith('10', '5');
+  });
+
+  it('desvincula conversa ao escolher "Nenhuma" (setTaskConversation com null)', async () => {
+    const user = userEvent.setup();
+    const linkedTask = { ...task, conversationId: '5' } as unknown as Task;
+    render(
+      <MemoryRouter>
+        <TaskDetailModal isOpen onClose={vi.fn()} task={linkedTask} statuses={statuses} />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Alterar conversa vinculada' }));
+
+    const select = await screen.findByRole('combobox', { name: 'Conversa vinculada' });
+    await user.selectOptions(select, '');
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    expect(mockSetTaskConversation).toHaveBeenCalledWith('10', null);
   });
 });

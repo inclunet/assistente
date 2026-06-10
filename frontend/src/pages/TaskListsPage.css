@@ -107,7 +107,7 @@
 .tasklist-link-conversation {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md, var(--radius-md));
+  gap: var(--spacing-md);
   padding: var(--radius-md);
 }
 
