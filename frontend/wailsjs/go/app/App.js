@@ -582,6 +582,10 @@ export function GetSkill(arg1) {
   return window['go']['app']['App']['GetSkill'](arg1);
 }
 
+export function GetSkillCatalog() {
+  return window['go']['app']['App']['GetSkillCatalog']();
+}
+
 export function GetSkills() {
   return window['go']['app']['App']['GetSkills']();
 }

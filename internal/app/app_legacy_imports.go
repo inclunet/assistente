@@ -43,20 +43,63 @@ func (a *App) runPostLoginLegacyImports(ctx context.Context) {
 			},
 		})
 	}
+	summary := make([]LegacyImportSummaryEntry, 0, len(importers))
 	for _, importer := range importers {
 		result, err := importer.run(ctx)
 		if err != nil {
 			log.Printf("[LegacyImport] erro ao importar recursos legados %s: %v", importer.name, err)
+			summary = append(summary, LegacyImportSummaryEntry{
+				ResourceType: importer.name,
+				Errors:       []string{err.Error()},
+			})
 			continue
 		}
+		// Warnings/erros já carregam o tipo do recurso no texto (o importador
+		// genérico prefixa com ResourceType, ex.: "skills foo: ..."), então não
+		// reprefixamos com importer.name para evitar logs redundantes.
 		for _, warning := range result.Warnings {
-			log.Printf("[LegacyImport] %s: %s", importer.name, warning)
+			log.Printf("[LegacyImport] %s", warning)
 		}
 		for _, itemErr := range result.Errors {
-			log.Printf("[LegacyImport] %s: %s", importer.name, itemErr)
+			log.Printf("[LegacyImport] %s", itemErr)
 		}
 		if result.Imported > 0 || result.Skipped > 0 || result.Failed > 0 {
 			log.Printf("[LegacyImport] %s: %d importados, %d já existentes, %d falhas", importer.name, result.Imported, result.Skipped, result.Failed)
 		}
+		summary = append(summary, legacyImportSummaryEntry(importer.name, result))
 	}
+
+	// Observabilidade (#123): emite um sumário estruturado único para a UI.
+	if a.emitter != nil && len(summary) > 0 {
+		a.emitter.Emit("legacy:import_summary", summary)
+	}
+}
+
+// LegacyImportSummaryEntry é a projeção observável do resultado de importação de
+// um tipo de recurso legado (#123).
+type LegacyImportSummaryEntry struct {
+	ResourceType string   `json:"resourceType"`
+	Imported     int      `json:"imported"`
+	Skipped      int      `json:"skipped"`
+	Failed       int      `json:"failed"`
+	Warnings     []string `json:"warnings,omitempty"`
+	Errors       []string `json:"errors,omitempty"`
+}
+
+// legacyImportSummaryEntry projeta um LegacyImportResult na entrada de sumário,
+// usando o nome do importador como rótulo do tipo de recurso.
+func legacyImportSummaryEntry(name string, result portability.LegacyImportResult) LegacyImportSummaryEntry {
+	entry := LegacyImportSummaryEntry{
+		ResourceType: name,
+		Imported:     result.Imported,
+		Skipped:      result.Skipped,
+		Failed:       result.Failed,
+	}
+	if len(result.Warnings) > 0 {
+		entry.Warnings = result.Warnings
+	}
+	if len(result.Errors) > 0 {
+		entry.Errors = result.Errors
+	}
+	return entry
 }
