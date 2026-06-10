@@ -116,15 +116,25 @@ func (p SkillSelectionPolicy) Decide(m *SkillMetadata, slug string, ctx SkillSel
 	if ctx.DisableOnDemand {
 		return hidden(ReasonOnDemandDisabled)
 	}
-	return SkillDecision{Slug: slug, Visibility: VisibilityOnDemand, Reason: p.onDemandReason(m.IsAutoLoad(), m.AutoloadReason, ctx)}
+	return SkillDecision{Slug: slug, Visibility: VisibilityOnDemand, Reason: p.onDemandReason(m.IsAutoLoad(), m.AutoloadReason, slug, ctx)}
 }
 
-// onDemandReason distingue um on-demand normal de um autoload REBAIXADO por falta
-// de autoload_reason no modo metadata-driven (AEP-0072 D5). A visibilidade é a
-// mesma (sob demanda); só o motivo muda, para que o rebaixamento seja observável
-// em telemetria/diagnóstico em vez de indistinguível de um on-demand comum.
-func (p SkillSelectionPolicy) onDemandReason(isAutoLoad bool, autoloadReason string, ctx SkillSelectionContext) string {
-	if ctx.AutoloadAllowlist == nil && isAutoLoad && ctx.RequireAutoloadReason && strings.TrimSpace(autoloadReason) == "" {
+// onDemandReason distingue um on-demand normal de um autoload REBAIXADO, para que
+// o rebaixamento seja observável em telemetria/diagnóstico em vez de indistinguível
+// de um on-demand comum. A visibilidade é a mesma (sob demanda); só o motivo muda.
+// Há dois tipos de rebaixamento:
+//   - allowlist do perfil ativa (AutoloadAllowlist != nil) e a skill declara
+//     auto_load mas não está na allowlist -> ReasonNotInAutoloadAllowlist;
+//   - modo metadata-driven (sem allowlist) com auto_load mas sem autoload_reason
+//     em modo estrito (AEP-0072 D5) -> ReasonAutoloadNoReason.
+func (p SkillSelectionPolicy) onDemandReason(isAutoLoad bool, autoloadReason, slug string, ctx SkillSelectionContext) string {
+	if ctx.AutoloadAllowlist != nil {
+		if isAutoLoad && !containsString(ctx.AutoloadAllowlist, slug) {
+			return ReasonNotInAutoloadAllowlist
+		}
+		return ReasonOnDemand
+	}
+	if isAutoLoad && ctx.RequireAutoloadReason && strings.TrimSpace(autoloadReason) == "" {
 		return ReasonAutoloadNoReason
 	}
 	return ReasonOnDemand
@@ -187,7 +197,7 @@ func (p SkillSelectionPolicy) DecideCatalog(entry SkillCatalogEntry, ctx SkillSe
 	if ctx.DisableOnDemand {
 		return hidden(ReasonOnDemandDisabled)
 	}
-	return SkillDecision{Slug: entry.Slug, Visibility: VisibilityOnDemand, Reason: p.onDemandReason(entry.AutoLoad, entry.AutoloadReason, ctx)}
+	return SkillDecision{Slug: entry.Slug, Visibility: VisibilityOnDemand, Reason: p.onDemandReason(entry.AutoLoad, entry.AutoloadReason, entry.Slug, ctx)}
 }
 
 // isAutoloadCatalog espelha isAutoload usando os campos já efetivos da entry.

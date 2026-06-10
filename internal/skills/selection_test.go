@@ -216,10 +216,20 @@ func TestPolicyAutoloadAllowlistOverrides(t *testing.T) {
 	if d := p.Decide(m, "a", ctx); d.Visibility != VisibilityAutoload {
 		t.Errorf("allowlist deveria forçar autoload, got %+v", d)
 	}
-	// Skill autoload no metadado, mas allowlist não a inclui -> sob demanda.
+	// Skill autoload no metadado, mas allowlist não a inclui -> sob demanda, e o
+	// rebaixamento por allowlist deve ser observável no motivo (AEP-0072).
 	ctx2 := SkillSelectionContext{ToolsEnabled: true, AutoloadAllowlist: []string{"outra"}}
-	if d := p.Decide(mdAutoload("r"), "a", ctx2); d.Visibility != VisibilityOnDemand {
-		t.Errorf("fora da allowlist deveria virar on_demand, got %+v", d)
+	if d := p.Decide(mdAutoload("r"), "a", ctx2); d.Visibility != VisibilityOnDemand || d.Reason != ReasonNotInAutoloadAllowlist {
+		t.Errorf("fora da allowlist deveria virar on_demand/%q, got %+v", ReasonNotInAutoloadAllowlist, d)
+	}
+	// Paridade: DecideCatalog reporta o mesmo motivo de rebaixamento por allowlist.
+	entry := CatalogEntryFromSkill(&Skill{SkillMetadata: *mdAutoload("r"), Slug: "a"})
+	if dc := p.DecideCatalog(entry, ctx2); dc.Visibility != VisibilityOnDemand || dc.Reason != ReasonNotInAutoloadAllowlist {
+		t.Errorf("DecideCatalog fora da allowlist deveria reportar %q, got %+v", ReasonNotInAutoloadAllowlist, dc)
+	}
+	// Skill SEM auto_load, fora da allowlist -> on_demand comum (não é rebaixamento).
+	if d := p.Decide(&SkillMetadata{Name: "b", Version: "1.0.0", Description: "x"}, "b", ctx2); d.Reason != ReasonOnDemand {
+		t.Errorf("skill sem auto_load fora da allowlist deveria ser %q, got %+v", ReasonOnDemand, d)
 	}
 }
 

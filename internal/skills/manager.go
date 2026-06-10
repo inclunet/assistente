@@ -491,10 +491,13 @@ func (m *Manager) MaterializeSkill(s Skill) (string, error) {
 	if existing, err := os.ReadFile(path); err == nil && string(existing) == raw {
 		return path, nil
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// Permissões restritas: o corpo da skill pode conter instruções internas,
+	// caminhos ou segredos — evita leitura por outros usuários em ambientes
+	// multi-usuário/containers (0700 no diretório, 0600 no arquivo).
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("failed to create skill cache dir: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 		return "", fmt.Errorf("failed to materialize skill: %w", err)
 	}
 	return path, nil

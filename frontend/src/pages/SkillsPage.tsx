@@ -93,17 +93,18 @@ export default function SkillsPage() {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    const autoLoad = data.autoLoad ?? false;
+    // `auto` (model-invocable) é autoritativo: auto_load só vale se a skill puder
+    // ser invocada pelo modelo (IsAutoLoad exige !disableModelInvocation). Derivamos
+    // autoLoad de auto para manter a invariável do backend e refletir a intenção do
+    // usuário — desmarcar `auto` desliga o auto_load em vez de virar toggle sem efeito.
+    const autoLoad = (data.autoLoad ?? false) && (data.auto ?? false);
     return controllers.SkillCreateRequest.createFrom({
       name: data.name.trim(),
       // Backend exige semver em modo estrito (validateSpecStrict); roundtrip do
       // valor carregado em edição, default DEFAULT_SKILL_VERSION na criação.
       version: (data.version || '').trim() || DEFAULT_SKILL_VERSION,
       description: data.description.trim(),
-      // auto_load só vale se o modelo puder invocar a skill (IsAutoLoad exige
-      // !disableModelInvocation). Marcar auto_load força a auto-invocação ligada,
-      // senão o backend rebaixaria a skill para sob demanda (UI enganosa).
-      disableModelInvocation: autoLoad ? false : !data.auto,
+      disableModelInvocation: !data.auto,
       tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
       content: data.content || '',
       autoLoad,
