@@ -4,13 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Modal } from '../ui/Modal';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
-import { Select, type SelectOption } from '../ui/Select';
-import { Button } from '../ui/Button';
+import { HistoryPicker } from '../pickers/HistoryPicker';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useUIStore } from '../../store/uiStore';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
-import { useConversations } from '../../hooks/useConversations';
 import { openTaskLink } from '../../lib/deepLinks';
 import { TASK_NOTE_TYPES } from '../../types/tasklist';
 import type { Task, TaskNote, TaskNoteType, TaskListWorkflowStatus, CustomActionView } from '../../types/tasklist';
@@ -23,6 +21,9 @@ interface TaskDetailModalProps {
   task: Task | null;
   statuses: TaskListWorkflowStatus[];
 }
+
+// Valor sentinela do item "Nenhuma" no HistoryPicker (não pode colidir com ID de conversa).
+const CONVERSATION_NONE = '__none__';
 
 const NOTE_TYPE_ICONS: Record<TaskNoteType, ReactNode> = {
   1: <FileTextOutlined aria-hidden="true" />,
@@ -64,10 +65,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const [showNoteForm, setShowNoteForm] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
 
-  const [isEditingConversation, setIsEditingConversation] = useState(false);
-  const [conversationSelection, setConversationSelection] = useState('');
   const [conversationSaving, setConversationSaving] = useState(false);
-  const { conversations } = useConversations(isEditingConversation);
 
   // Note form state
   const [noteType, setNoteType] = useState<TaskNoteType>(TASK_NOTE_TYPES.INTERNAL);
@@ -97,7 +95,6 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     setIsLoadingNotes(false);
     setShowNoteForm(false);
     setEditingNoteId(null);
-    setIsEditingConversation(false);
     return undefined;
   }, [isOpen, task, loadTaskNotes, listCardCustomActions]);
 
@@ -167,43 +164,24 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     openTaskLink(`assistente://conversation/${task.conversationId}`, { navigate });
   }, [task, navigate]);
 
-  const handleStartEditConversation = useCallback(() => {
-    setConversationSelection(task?.conversationId || '');
-    setIsEditingConversation(true);
-  }, [task?.conversationId]);
-
-  const handleSaveConversation = useCallback(async () => {
+  // Aplica o vínculo imediatamente ao selecionar no HistoryPicker (id) ou ao
+  // escolher "Nenhuma"/desvincular (null), espelhando a UX do picker do chat.
+  const applyConversation = useCallback(async (conversationId: string | null) => {
     if (!task) return;
     setConversationSaving(true);
     try {
-      await setTaskConversation(task.id, conversationSelection || null);
-      setIsEditingConversation(false);
+      await setTaskConversation(task.id, conversationId);
       const msg = t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado');
       addToast(msg, 'success');
       announce(msg);
     } catch (error) {
-      // setTaskConversation já registra o erro e recarrega a lista; mantém o
-      // editor aberto para o usuário tentar de novo e dá feedback explícito.
+      // setTaskConversation já registra o erro e recarrega a lista; dá feedback explícito.
       const msg = error instanceof Error ? error.message : String(error);
       addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
     } finally {
       setConversationSaving(false);
     }
-  }, [task, conversationSelection, setTaskConversation, addToast, announce, t]);
-
-  const conversationOptions: SelectOption[] = (() => {
-    const opts: SelectOption[] = [
-      { value: '', label: t('tasklist.conversationNone', 'Nenhuma') },
-      ...conversations.map((c) => ({
-        value: String(c.id),
-        label: c.title || t('tasklist.conversationUntitled', 'Sem título'),
-      })),
-    ];
-    if (conversationSelection && !opts.some((o) => o.value === conversationSelection)) {
-      opts.push({ value: conversationSelection, label: conversationSelection });
-    }
-    return opts;
-  })();
+  }, [task, setTaskConversation, addToast, announce, t]);
 
   const status = task ? statuses.find((s) => s.id === task.statusId) : undefined;
   const isDueDatePast = task?.dueDate && new Date(task.dueDate) < new Date();
@@ -281,48 +259,21 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
 
       {/* Conversation link editor */}
       <div className="task-detail__conversation">
-        {isEditingConversation ? (
-          <div className="task-detail__conversation-edit">
-            <Select
-              fullWidth
-              value={conversationSelection}
-              onChange={(e) => setConversationSelection(e.target.value)}
-              disabled={conversationSaving}
-              options={conversationOptions}
-              aria-label={t('tasklist.conversation', 'Conversa vinculada')}
-            />
-            <div className="task-detail__conversation-actions">
-              <Button
-                variant="primary"
-                onClick={() => void handleSaveConversation()}
-                disabled={conversationSaving}
-              >
-                {conversationSaving ? t('common.saving', 'Salvando...') : t('common.save', 'Salvar')}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setIsEditingConversation(false)}
-                disabled={conversationSaving}
-              >
-                {t('common.cancel', 'Cancelar')}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="task-detail__conversation-edit-btn"
-            onClick={handleStartEditConversation}
-            aria-label={task.conversationId
-              ? t('tasklist.changeConversation', 'Alterar conversa vinculada')
-              : t('tasklist.linkConversation', 'Vincular conversa')}
-          >
-            <MessageOutlined aria-hidden="true" />{' '}
-            {task.conversationId
-              ? t('tasklist.changeConversation', 'Alterar conversa vinculada')
-              : t('tasklist.linkConversation', 'Vincular conversa')}
-          </button>
-        )}
+        <HistoryPicker
+          value={task.conversationId}
+          onChange={(id) => void applyConversation(id)}
+          onSelectExtra={() => void applyConversation(null)}
+          extraItems={task.conversationId
+            ? [{ value: CONVERSATION_NONE, label: t('tasklist.conversationNone', 'Nenhuma') }]
+            : undefined}
+          label={task.conversationId
+            ? t('tasklist.changeConversation', 'Alterar conversa vinculada')
+            : t('tasklist.linkConversation', 'Vincular conversa')}
+          description={t('tasklist.conversationDescription', 'Vincula esta tarefa a uma conversa')}
+          disabled={conversationSaving}
+          maxWidth="100%"
+          onAnnounce={announce}
+        />
       </div>
 
       {/* Custom actions (AEP-0067): when avaliado server-side */}

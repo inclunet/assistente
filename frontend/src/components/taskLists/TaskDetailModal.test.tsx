@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import TaskDetailModal from './TaskDetailModal';
@@ -22,6 +22,14 @@ vi.mock('react-i18next', async (importOriginal) => {
 
 vi.mock('@wailsjs/go/app/App', () => ({
   GetConversations: mockGetConversations,
+}));
+
+vi.mock('@wailsjs/runtime/runtime', () => ({
+  EventsOn: () => () => {},
+}));
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({ announce: vi.fn() }),
 }));
 
 vi.mock('../../store/uiStore', () => ({
@@ -97,7 +105,7 @@ describe('TaskDetailModal', () => {
     expect(screen.queryByRole('application')).toBeNull();
   });
 
-  it('vincula conversa pelo editor inline e chama setTaskConversation com o ID', async () => {
+  it('vincula conversa pelo HistoryPicker e chama setTaskConversation com o ID', async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -105,13 +113,10 @@ describe('TaskDetailModal', () => {
       </MemoryRouter>,
     );
 
-    await user.click(await screen.findByRole('button', { name: 'Vincular conversa' }));
-
-    const select = await screen.findByRole('combobox', { name: 'Conversa vinculada' });
+    await user.click(screen.getByRole('button', { name: /Vincular conversa/ }));
     // Opções chegam de forma assíncrona via GetConversations(); aguarda renderizar.
-    await screen.findByRole('option', { name: 'Conversa X' });
-    await user.selectOptions(select, '5');
-    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+    const option = await screen.findByRole('option', { name: /Conversa X/ });
+    fireEvent.mouseDown(option);
 
     expect(mockSetTaskConversation).toHaveBeenCalledWith('10', '5');
   });
@@ -125,11 +130,9 @@ describe('TaskDetailModal', () => {
       </MemoryRouter>,
     );
 
-    await user.click(await screen.findByRole('button', { name: 'Alterar conversa vinculada' }));
-
-    const select = await screen.findByRole('combobox', { name: 'Conversa vinculada' });
-    await user.selectOptions(select, '');
-    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+    await user.click(screen.getByRole('button', { name: /Alterar conversa vinculada/ }));
+    const noneOption = await screen.findByRole('option', { name: 'Nenhuma' });
+    fireEvent.mouseDown(noneOption);
 
     expect(mockSetTaskConversation).toHaveBeenCalledWith('10', null);
   });

@@ -102,23 +102,3 @@
   gap: var(--radius-md);
   justify-content: flex-end;
 }
-
-/* Link tasklist to conversation modal */
-.tasklist-link-conversation {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  padding: var(--spacing-md);
-}
-
-.tasklist-link-conversation__desc {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.tasklist-link-conversation__actions {
-  display: flex;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-}

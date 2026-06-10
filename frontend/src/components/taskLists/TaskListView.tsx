@@ -14,9 +14,6 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
-import { Button } from '../ui/Button';
-import { Select, type SelectOption } from '../ui/Select';
-import { useConversations } from '../../hooks/useConversations';
 import { openTaskLink } from '../../lib/deepLinks';
 import { buildChatSurfaceParams } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
@@ -59,10 +56,11 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const [boardActions, setBoardActions] = useState<CustomActionView[]>([]);
   const [taskCountsByStatus, setTaskCountsByStatus] = useState<Record<number, number>>({});
 
-  const [isLinkConversationOpen, setIsLinkConversationOpen] = useState(false);
-  const [linkConversationId, setLinkConversationId] = useState('');
-  const [linkSaving, setLinkSaving] = useState(false);
-  const { conversations } = useConversations(isLinkConversationOpen);
+  // Conversa atualmente vinculada ao chat embutido desta aba (quando o modal de
+  // chat está aberto). Usada para auto-vincular a lista à conversa do chat.
+  const chatBoundConversationId = useWorkspaceChatModalStore(
+    (s) => (s.isOpen && s.boundTabId === panelTab?.id ? s.boundConversationId : null),
+  );
 
   const boardActionsReqRef = useRef(0);
   const reloadBoardActions = useCallback(() => {
@@ -282,45 +280,24 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     }
   }, [taskList?.title, taskListId, requestConfirm, deleteTaskList, addToast, announce, t]);
 
-  const handleOpenLinkConversation = useCallback(() => {
-    setLinkConversationId(taskList?.conversationId || '');
-    setIsLinkConversationOpen(true);
-  }, [taskList?.conversationId]);
-
-  const handleSaveConversation = useCallback(async () => {
-    setLinkSaving(true);
-    try {
-      await setTaskListConversation(taskListId, linkConversationId || null);
-      setIsLinkConversationOpen(false);
-      const msg = t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado');
-      addToast(msg, 'success');
-      announce(msg);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
-    } finally {
-      setLinkSaving(false);
-    }
-  }, [taskListId, linkConversationId, setTaskListConversation, addToast, announce, t]);
-
   const handleOpenLinkedConversation = useCallback(() => {
     if (!taskList?.conversationId) return;
     openTaskLink(`assistente://conversation/${taskList.conversationId}`, { navigate });
   }, [taskList?.conversationId, navigate]);
 
-  const conversationOptions: SelectOption[] = useMemo(() => {
-    const opts: SelectOption[] = [
-      { value: '', label: t('tasklist.conversationNone', 'Nenhuma') },
-      ...conversations.map((c) => ({
-        value: String(c.id),
-        label: c.title || t('tasklist.conversationUntitled', 'Sem título'),
-      })),
-    ];
-    if (linkConversationId && !opts.some((o) => o.value === linkConversationId)) {
-      opts.push({ value: linkConversationId, label: linkConversationId });
-    }
-    return opts;
-  }, [conversations, linkConversationId, t]);
+  // Auto-vínculo: quando o chat embutido desta aba abre com uma conversa, a lista
+  // passa a apontar para ela (inclusive ao iniciar uma conversa nova pelo chat).
+  // Sem feedback visual extra — é um efeito implícito do uso do chat.
+  useEffect(() => {
+    if (!chatBoundConversationId) return;
+    if (taskList?.conversationId === chatBoundConversationId) return;
+    void setTaskListConversation(taskListId, chatBoundConversationId).then(() => {
+      announce(t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado'));
+    }).catch((error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
+    });
+  }, [chatBoundConversationId, taskList?.conversationId, taskListId, setTaskListConversation, announce, addToast, t]);
 
   if (!taskList) {
     return <div className="tasklist-loading">{t('tasklist.loading', 'Carregando...')}</div>;
@@ -341,15 +318,15 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               shortcut: 'Ctrl+Shift+I',
               onClick: () => void useWorkspaceChatModalStore.getState().requestOpen(panelTab.id),
             },
-            {
-              key: 'link-conversation',
-              label: taskList.conversationId
-                ? t('tasklist.conversationLinked', 'Conversa vinculada')
-                : t('tasklist.linkConversation', 'Vincular conversa'),
-              icon: <MessageOutlined />,
-              onClick: handleOpenLinkConversation,
-              variant: 'secondary' as const,
-            },
+            ...(taskList.conversationId
+              ? [{
+                  key: 'open-conversation',
+                  label: t('tasklist.openConversation', 'Abrir conversa'),
+                  icon: <MessageOutlined />,
+                  onClick: handleOpenLinkedConversation,
+                  variant: 'secondary' as const,
+                }]
+              : []),
             {
               key: 'new-task',
               label: t('tasklist.createTask', 'Nova Tarefa'),
@@ -441,41 +418,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           />
         )}
       </div>
-
-      {isLinkConversationOpen && (
-        <Modal
-          isOpen={isLinkConversationOpen}
-          onClose={() => setIsLinkConversationOpen(false)}
-          title={t('tasklist.conversation', 'Conversa vinculada')}
-        >
-          <div className="tasklist-link-conversation">
-            <p className="tasklist-link-conversation__desc">
-              {t('tasklist.conversationListDescription', 'Associe esta lista inteira a uma conversa (opcional). Tarefas individuais podem ter seu próprio vínculo.')}
-            </p>
-            <Select
-              fullWidth
-              value={linkConversationId}
-              onChange={(e) => setLinkConversationId(e.target.value)}
-              disabled={linkSaving}
-              options={conversationOptions}
-              aria-label={t('tasklist.conversation', 'Conversa vinculada')}
-            />
-            <div className="tasklist-link-conversation__actions">
-              <Button variant="primary" onClick={() => void handleSaveConversation()} disabled={linkSaving}>
-                {linkSaving ? t('common.saving', 'Salvando...') : t('common.save', 'Salvar')}
-              </Button>
-              <Button variant="secondary" onClick={() => setIsLinkConversationOpen(false)} disabled={linkSaving}>
-                {t('common.cancel', 'Cancelar')}
-              </Button>
-              {taskList.conversationId && (
-                <Button variant="secondary" onClick={handleOpenLinkedConversation} disabled={linkSaving} aria-label={t('tasklist.openConversation', 'Abrir conversa')}>
-                  <MessageOutlined aria-hidden="true" /> {t('tasklist.openConversation', 'Abrir conversa')}
-                </Button>
-              )}
-            </div>
-          </div>
-        </Modal>
-      )}
 
       {isCustomActionsEditorOpen && (
         <Modal

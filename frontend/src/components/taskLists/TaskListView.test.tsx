@@ -1,12 +1,16 @@
 import { forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { WorkspaceTab } from '../../store/workspaceStore';
 import TaskListView from './TaskListView';
 
 const openCreateModalMock = vi.fn();
-const getConversationsMock = vi.hoisted(() => vi.fn());
+const chatModalState = vi.hoisted(() => ({
+  isOpen: false,
+  boundTabId: null as string | null,
+  boundConversationId: null as string | null,
+}));
 const workspacePanelState = vi.hoisted(() => ({
   isActive: false,
   tab: {
@@ -36,10 +40,6 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-vi.mock('@wailsjs/go/app/App', () => ({
-  GetConversations: getConversationsMock,
-}));
-
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
@@ -63,11 +63,13 @@ vi.mock('../../store/taskListStore', () => ({
   ),
 }));
 
-vi.mock('../../store/workspaceChatModalStore', () => ({
-  useWorkspaceChatModalStore: {
-    getState: () => ({ requestOpen: vi.fn() }),
-  },
-}));
+vi.mock('../../store/workspaceChatModalStore', () => {
+  const useStore = (selector?: (s: typeof chatModalState) => unknown) => (
+    typeof selector === 'function' ? selector(chatModalState) : chatModalState
+  );
+  (useStore as unknown as { getState: () => unknown }).getState = () => ({ requestOpen: vi.fn() });
+  return { useWorkspaceChatModalStore: useStore };
+});
 
 vi.mock('../../store/uiStore', () => ({
   useUIStore: (selector: (state: { addToast: ReturnType<typeof vi.fn> }) => unknown) => selector({
@@ -134,16 +136,15 @@ vi.mock('./useCustomActions', () => ({
 describe('TaskListView', () => {
   beforeEach(() => {
     workspacePanelState.isActive = false;
+    chatModalState.isOpen = false;
+    chatModalState.boundTabId = null;
+    chatModalState.boundConversationId = null;
     openCreateModalMock.mockReset();
     taskListStoreState.loadTaskList.mockReset();
     taskListStoreState.listBoardCustomActions.mockReset();
     taskListStoreState.listBoardCustomActions.mockResolvedValue([]);
     taskListStoreState.setTaskListConversation.mockReset();
     taskListStoreState.setTaskListConversation.mockResolvedValue(undefined);
-    getConversationsMock.mockReset();
-    getConversationsMock.mockResolvedValue([
-      { id: '7', title: 'Conversa Y', updatedAt: '2024-01-02' },
-    ]);
     taskListStoreState.taskLists = new Map([
       ['tasklist-1', {
         id: 'tasklist-1',
@@ -174,41 +175,44 @@ describe('TaskListView', () => {
     expect(openCreateModalMock).toHaveBeenCalledTimes(1);
   });
 
-  it('vincula a lista a uma conversa pelo modal', async () => {
-    const user = userEvent.setup();
+  it('auto-vincula a lista à conversa do chat embutido quando o modal abre nesta aba', async () => {
+    chatModalState.isOpen = true;
+    chatModalState.boundTabId = 'tasklist-tab';
+    chatModalState.boundConversationId = '9';
     render(<TaskListView taskListId="tasklist-1" />);
 
-    await user.click(screen.getByRole('button', { name: 'Vincular conversa' }));
-
-    const select = await screen.findByRole('combobox', { name: 'Conversa vinculada' });
-    // Opções chegam de forma assíncrona via GetConversations(); aguarda renderizar.
-    await screen.findByRole('option', { name: 'Conversa Y' });
-    await user.selectOptions(select, '7');
-    await user.click(screen.getByRole('button', { name: 'Salvar' }));
-
-    expect(taskListStoreState.setTaskListConversation).toHaveBeenCalledWith('tasklist-1', '7');
+    await waitFor(() =>
+      expect(taskListStoreState.setTaskListConversation).toHaveBeenCalledWith('tasklist-1', '9'),
+    );
   });
 
-  it('desvincula a lista ao escolher "Nenhuma" (setTaskListConversation com null)', async () => {
+  it('não auto-vincula quando o chat embutido está atrelado a outra aba', async () => {
+    chatModalState.isOpen = true;
+    chatModalState.boundTabId = 'outra-aba';
+    chatModalState.boundConversationId = '9';
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    await Promise.resolve();
+    expect(taskListStoreState.setTaskListConversation).not.toHaveBeenCalled();
+  });
+
+  it('não re-vincula quando a lista já aponta para a conversa do chat', async () => {
     taskListStoreState.taskLists = new Map([
       ['tasklist-1', {
         id: 'tasklist-1',
         title: 'Lista',
         preferredViewMode: 'list',
-        conversationId: '7',
+        conversationId: '9',
         tasks: [],
         workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
       }],
     ]);
-    const user = userEvent.setup();
+    chatModalState.isOpen = true;
+    chatModalState.boundTabId = 'tasklist-tab';
+    chatModalState.boundConversationId = '9';
     render(<TaskListView taskListId="tasklist-1" />);
 
-    await user.click(screen.getByRole('button', { name: 'Conversa vinculada' }));
-
-    const select = await screen.findByRole('combobox', { name: 'Conversa vinculada' });
-    await user.selectOptions(select, '');
-    await user.click(screen.getByRole('button', { name: 'Salvar' }));
-
-    expect(taskListStoreState.setTaskListConversation).toHaveBeenCalledWith('tasklist-1', null);
+    await Promise.resolve();
+    expect(taskListStoreState.setTaskListConversation).not.toHaveBeenCalled();
   });
 });

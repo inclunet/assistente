@@ -5,10 +5,12 @@ import { Button } from '../ui/Button';
 import { FormField } from '../ui/FormField';
 import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
-import { Select, type SelectOption } from '../ui/Select';
-import { useConversations } from '../../hooks/useConversations';
+import { HistoryPicker } from '../pickers/HistoryPicker';
 import type { Task } from '../../types/tasklist';
 import './TaskForm.css';
+
+// Valor sentinela do item "Nenhuma" no HistoryPicker (não colide com ID de conversa).
+const CONVERSATION_NONE = '__none__';
 
 interface TaskFormProps {
   taskListId: string;
@@ -41,23 +43,6 @@ export default function TaskForm({
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { conversations } = useConversations();
-
-  // Garante que a conversa já vinculada apareça como opção mesmo se não estiver
-  // na listagem carregada (ex.: conversa de outro canal/origem).
-  const conversationOptions: SelectOption[] = [
-    { value: '', label: t('tasklist.conversationNone', 'Nenhuma') },
-    ...conversations.map((c) => ({
-      value: String(c.id),
-      label: c.title || t('tasklist.conversationUntitled', 'Sem título'),
-    })),
-  ];
-  if (
-    formData.conversationId &&
-    !conversationOptions.some((o) => o.value === formData.conversationId)
-  ) {
-    conversationOptions.push({ value: formData.conversationId, label: formData.conversationId });
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -178,12 +163,16 @@ export default function TaskForm({
         label={t('tasklist.conversation', 'Conversa vinculada')}
         description={t('tasklist.conversationDescription', 'Associe esta tarefa a uma conversa (opcional)')}
       >
-        <Select
-          fullWidth
-          value={formData.conversationId}
-          onChange={(e) => setFormData({ ...formData, conversationId: e.target.value })}
+        <HistoryPicker
+          value={formData.conversationId || undefined}
+          onChange={(id) => setFormData({ ...formData, conversationId: id })}
+          onSelectExtra={() => setFormData({ ...formData, conversationId: '' })}
+          extraItems={formData.conversationId
+            ? [{ value: CONVERSATION_NONE, label: t('tasklist.conversationNone', 'Nenhuma') }]
+            : undefined}
+          label={t('tasklist.linkConversation', 'Vincular conversa')}
           disabled={isLoading}
-          options={conversationOptions}
+          maxWidth="100%"
         />
       </FormField>
 

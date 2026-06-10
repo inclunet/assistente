@@ -15,6 +15,13 @@ export interface HistoryPickerProps {
   disabled?: boolean;
   maxWidth?: string;
   onAnnounce?: (message: string) => void;
+  /**
+   * Itens extras fixados no topo da lista (ex.: "Nenhuma"/desvincular).
+   * O valor de cada item NÃO deve colidir com um ID de conversa.
+   */
+  extraItems?: ComboboxItem[];
+  /** Chamado ao selecionar um extraItem (valor que não corresponde a uma conversa). */
+  onSelectExtra?: (value: string) => void;
 }
 
 export interface HistoryPickerRef {
@@ -29,7 +36,9 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
   description,
   disabled = false,
   maxWidth = '200px',
-  onAnnounce
+  onAnnounce,
+  extraItems,
+  onSelectExtra
 }, ref) => {
   const [conversations, setConversations] = useState<database.Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -115,12 +124,16 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
     });
   };
 
-  // Converte conversas para items do Combobox (apenas conversas, sem opções especiais)
-  const items: ComboboxItem[] = conversations.map(conv => ({
-    value: conv.id.toString(),
-    label: conv.title || 'Sem título',
-    sublabel: `${conv.message_count || 0} msgs • ${formatDate(conv.updatedAt)}`
-  }));
+  // Converte conversas para items do Combobox. extraItems (ex.: "Nenhuma")
+  // ficam fixados no topo da lista.
+  const items: ComboboxItem[] = [
+    ...(extraItems ?? []),
+    ...conversations.map(conv => ({
+      value: conv.id.toString(),
+      label: conv.title || 'Sem título',
+      sublabel: `${conv.message_count || 0} msgs • ${formatDate(conv.updatedAt)}`
+    })),
+  ];
 
   // Valor selecionado (string vazia se não houver conversa selecionada)
   const selectedValue = value ? value.toString() : '';
@@ -129,6 +142,10 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
     const conversation = conversations.find(c => String(c.id) === selectedValue);
     if (conversation) {
       onChange(selectedValue, conversation);
+      return;
+    }
+    if (extraItems?.some(item => item.value === selectedValue)) {
+      onSelectExtra?.(selectedValue);
     }
   };
 
