@@ -309,13 +309,14 @@ describe('workspaceChatModalStore.setBoundConversation', () => {
     openModalBoundTo('10', 'tab-chat');
     useWorkspaceChatModalStore.getState().setBoundConversation('11');
 
-    resolveFirst();
-
-    // As duas persistências acontecem: a da aba B não pulou a pendente da aba A.
+    // Cadeias são independentes por aba: a persistência da aba B acontece sem
+    // esperar a pendente da aba A, e não a invalida.
     await vi.waitFor(() => {
       expect(mockUpdateTab).toHaveBeenCalledWith('tab-chat', { conversation_id: '11' });
     });
     expect(mockUpdateTab).toHaveBeenCalledWith('tab-editor', { conversation_id: '2' });
     expect(mockUpdateTab).toHaveBeenCalledTimes(2);
+
+    resolveFirst();
   });
 });
