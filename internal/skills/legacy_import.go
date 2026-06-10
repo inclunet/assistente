@@ -88,7 +88,9 @@ func (m *Manager) importLegacySkillsFrom(ctx context.Context, source portability
 			}
 			msgs := make([]string, 0, len(warnings))
 			for _, w := range warnings {
-				msgs = append(msgs, w.Message)
+				// Preserva o código estável do warning (ex.: description_first_person)
+				// junto da mensagem, para agregação/filtragem em telemetria.
+				msgs = append(msgs, fmt.Sprintf("[%s] %s", w.Code, w.Message))
 			}
 			return msgs
 		},

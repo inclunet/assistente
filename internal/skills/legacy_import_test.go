@@ -88,10 +88,14 @@ func TestImportLegacySkillsSurfacesDescriptionWarnings(t *testing.T) {
 	if len(res.Warnings) == 0 {
 		t.Fatalf("esperava warnings de qualidade de descrição, got nenhum")
 	}
-	var sawBad bool
+	var sawBad, sawCode bool
 	for _, w := range res.Warnings {
 		if strings.Contains(w, "bad") {
 			sawBad = true
+		}
+		// O código estável do warning é preservado junto da mensagem (telemetria).
+		if strings.Contains(w, "["+DescriptionWarnFirstPerson+"]") {
+			sawCode = true
 		}
 		if strings.Contains(w, "good") {
 			t.Errorf("skill com boa descrição não deveria gerar warning: %q", w)
@@ -99,5 +103,8 @@ func TestImportLegacySkillsSurfacesDescriptionWarnings(t *testing.T) {
 	}
 	if !sawBad {
 		t.Errorf("esperava warning referenciando a skill 'bad': %v", res.Warnings)
+	}
+	if !sawCode {
+		t.Errorf("esperava código estável %q preservado no warning: %v", DescriptionWarnFirstPerson, res.Warnings)
 	}
 }
