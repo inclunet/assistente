@@ -133,6 +133,10 @@ func equalHashMaps(a, b map[string]string) bool {
 	return true
 }
 
+// catalogInsertBatchSize controla quantas entries são inseridas por roundtrip ao
+// regravar o catálogo (batch insert), limitando o tempo de lock da transação.
+const catalogInsertBatchSize = 100
+
 // RebuildCatalog reconstrói o skill_catalog a partir das skills persistidas
 // (fonte canônica). Idempotente: substitui completamente o catálogo. Chamado
 // após seed/import e a cada CRUD de skill.
@@ -234,8 +238,10 @@ func (r *DBRepository) commitCatalogIfFresh(ctx context.Context, desired map[str
 		if err := tx.Where("1 = 1").Delete(&database.SkillCatalog{}).Error; err != nil {
 			return err
 		}
-		for _, m := range models {
-			if err := tx.Create(m).Error; err != nil {
+		// Batch insert: reduz roundtrips e o tempo de lock da transação conforme o
+		// catálogo cresce (GORM rejeita slice vazio, então só insere quando há itens).
+		if len(models) > 0 {
+			if err := tx.CreateInBatches(models, catalogInsertBatchSize).Error; err != nil {
 				return err
 			}
 		}
