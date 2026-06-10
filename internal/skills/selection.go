@@ -123,8 +123,11 @@ func (p SkillSelectionPolicy) Decide(m *SkillMetadata, slug string, ctx SkillSel
 func (p SkillSelectionPolicy) isAutoload(m *SkillMetadata, slug string, ctx SkillSelectionContext) bool {
 	if ctx.AutoloadAllowlist != nil {
 		// Perfil define explicitamente o conjunto de autoload; ainda assim a
-		// skill precisa ser invocável pelo modelo. A allowlist aceita slug OU nome
-		// (mesma semântica de CatalogByNamesOrdered).
+		// skill precisa ser invocável pelo modelo. A allowlist é um conjunto de
+		// membership por slug OU nome — ela NÃO resolve colisões slug/nome de forma
+		// determinística como CatalogByNamesOrdered. Callers que precisam de
+		// determinismo (ex.: o prompt builder) pré-resolvem a allowlist para slugs
+		// canônicos antes de montar o contexto.
 		return m.IsModelInvocable() && allowlistMatches(ctx.AutoloadAllowlist, slug, m.Name)
 	}
 	if !m.IsAutoLoad() {
@@ -243,9 +246,13 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-// allowlistMatches verifica se a allowlist contém o slug ou o nome da skill.
-// Allowlists de perfil aceitam ambos os identificadores (ver CatalogByNamesOrdered);
-// o nome só é considerado quando não-vazio para não casar entradas vazias.
+// allowlistMatches verifica se a allowlist contém o slug ou o nome da skill (o
+// nome só conta quando não-vazio, para não casar entradas vazias). É um teste de
+// membership por entrada — diferente de CatalogByNamesOrdered, NÃO resolve
+// colisões slug/nome de forma determinística (slug-first). Em caso de colisão
+// (um identificador que é slug de uma skill e nome de outra) pode casar ambas;
+// por isso o builder pré-resolve a allowlist para slugs canônicos antes de
+// chamar a política.
 func allowlistMatches(allowlist []string, slug, name string) bool {
 	if containsString(allowlist, slug) {
 		return true

@@ -234,7 +234,7 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		return ""
 	}
 
-	pool, err := b.collectCatalogPool(enabledSkills)
+	pool, allowlistSlugs, err := b.collectCatalogPool(enabledSkills)
 	if err != nil {
 		log.Printf("[prompt] Erro ao carregar catálogo de skills: %v", err)
 		return ""
@@ -254,8 +254,10 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		// por leitura, Nível 2). Quando read_file não é alcançável pelo perfil
 		// (tool calling off, ou EnabledTools fixo sem read_file/tool_catalog),
 		// rebaixa tudo para oculto, mantendo só autoload.
-		DisableOnDemand:       disableOnDemand || !caps.onDemand,
-		AutoloadAllowlist:     enabledSkills,
+		DisableOnDemand: disableOnDemand || !caps.onDemand,
+		// Allowlist já resolvida para slugs canônicos (determinística, slug-first):
+		// a política só precisa de membership por slug, sem ambiguidade slug/nome.
+		AutoloadAllowlist:     allowlistSlugs,
 		RequireAutoloadReason: enabledSkills == nil,
 	}
 
@@ -552,16 +554,25 @@ func profileToolUniverse(data chat.TemplateData) (names []string, restricted boo
 // as entradas da allowlist vêm primeiro (na ordem do perfil) seguidas das demais;
 // no modo metadata-driven, usa a ordem do catálogo (nome). A classificação de
 // visibilidade é feita depois pela SkillSelectionPolicy.
-func (b *Builder) collectCatalogPool(enabledSkills []string) ([]skills.SkillCatalogEntry, error) {
+// collectCatalogPool carrega o catálogo e, no modo lista-explícita, devolve as
+// entradas da allowlist primeiro (ordem do perfil) seguidas das demais. Também
+// devolve a allowlist já RESOLVIDA para slugs canônicos via CatalogByNamesOrdered
+// (resolução determinística slug-first): é esse conjunto que vai para o
+// SkillSelectionContext.AutoloadAllowlist, evitando matches ambíguos por nome.
+func (b *Builder) collectCatalogPool(enabledSkills []string) (pool []skills.SkillCatalogEntry, allowlistSlugs []string, err error) {
 	all, err := b.Skills.ListCatalog()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if enabledSkills != nil {
 		ordered := skills.CatalogByNamesOrdered(all, enabledSkills)
-		return append(ordered, skills.CatalogExcludeNames(all, enabledSkills)...), nil
+		allowlistSlugs = make([]string, 0, len(ordered))
+		for _, e := range ordered {
+			allowlistSlugs = append(allowlistSlugs, e.Slug)
+		}
+		return append(ordered, skills.CatalogExcludeNames(all, enabledSkills)...), allowlistSlugs, nil
 	}
-	return all, nil
+	return all, nil, nil
 }
 
 // planAvailableCatalogBudget aplica o orçamento de contexto ao catálogo do Nível

@@ -577,6 +577,19 @@ func TestBuildSkillsSection_ReadFileEnabledKeepsOnDemandAndFilesystem(t *testing
 	}
 }
 
+func TestBuildSkillsSection_AllowlistByNameResolvesToSlug(t *testing.T) {
+	// Perfil lista a skill pelo NOME (slug != nome). O builder resolve a allowlist
+	// para slugs canônicos (via CatalogByNamesOrdered) antes do gating, então a
+	// skill deve autoloadar mesmo listada por nome.
+	s := makeSkill("my-slug", "My Skill", "desc", "Corpo MySkill.", false, true)
+	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s}}}
+
+	result := b.BuildSkillsSection([]string{"My Skill"}, false, nil)
+	if !strings.Contains(result, "Corpo MySkill.") {
+		t.Errorf("allowlist por nome deveria autoloadar a skill (resolvida para slug): %q", result)
+	}
+}
+
 func TestBuildSkillsSection_CatalogFirstProfileKeepsNetworkSkillAvailable(t *testing.T) {
 	// Perfil sem allowlist (EnabledTools == nil): catalog-first. As tools de rede
 	// começam escondidas no tool_catalog, mas continuam alcançáveis → uma skill que
