@@ -98,7 +98,7 @@ func (e SkillCatalogEntry) GetDisplayName() string {
 	return e.Name
 }
 
-// approxTokensPerChar é uma heurística simples (≈4 chars/token) para estimar o
+// approxCharsPerToken é uma heurística simples (≈4 chars/token) para estimar o
 // custo de contexto do corpo quando context_budget não foi declarado.
 const approxCharsPerToken = 4
 
