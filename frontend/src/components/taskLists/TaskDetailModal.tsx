@@ -4,9 +4,13 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Modal } from '../ui/Modal';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
+import { Select, type SelectOption } from '../ui/Select';
+import { GetConversations } from '@wailsjs/go/app/App';
+import type { database } from '@wailsjs/go/models';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useConfirm } from '../../hooks/useConfirm';
 import { openTaskLink } from '../../lib/deepLinks';
+import { logger } from '../../utils/logger';
 import { TASK_NOTE_TYPES } from '../../types/tasklist';
 import type { Task, TaskNote, TaskNoteType, TaskListWorkflowStatus, CustomActionView } from '../../types/tasklist';
 import { useCustomActions } from './useCustomActions';
@@ -48,7 +52,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const { t } = useTranslation();
   const navigate = useNavigate();
   const requestConfirm = useConfirm();
-  const { loadTaskNotes, createTaskNote, updateTaskNote, deleteTaskNote, listCardCustomActions } = useTaskListStore();
+  const { loadTaskNotes, createTaskNote, updateTaskNote, deleteTaskNote, listCardCustomActions, setTaskConversation } = useTaskListStore();
   const { runCustomAction } = useCustomActions();
 
   const [notes, setNotes] = useState<TaskNote[]>([]);
@@ -56,6 +60,11 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const [isLoadingNotes, setIsLoadingNotes] = useState(false);
   const [showNoteForm, setShowNoteForm] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+
+  const [isEditingConversation, setIsEditingConversation] = useState(false);
+  const [conversations, setConversations] = useState<database.Conversation[]>([]);
+  const [conversationSelection, setConversationSelection] = useState('');
+  const [conversationSaving, setConversationSaving] = useState(false);
 
   // Note form state
   const [noteType, setNoteType] = useState<TaskNoteType>(TASK_NOTE_TYPES.INTERNAL);
@@ -85,8 +94,31 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     setIsLoadingNotes(false);
     setShowNoteForm(false);
     setEditingNoteId(null);
+    setIsEditingConversation(false);
     return undefined;
   }, [isOpen, task, loadTaskNotes, listCardCustomActions]);
+
+  useEffect(() => {
+    if (!isEditingConversation) return;
+    let active = true;
+    void (async () => {
+      try {
+        const result = await GetConversations();
+        if (!active) return;
+        const sorted = [...result].sort((a, b) => {
+          const dateA = new Date(a.updatedAt as string | number | Date).getTime();
+          const dateB = new Date(b.updatedAt as string | number | Date).getTime();
+          return dateB - dateA;
+        });
+        setConversations(sorted);
+      } catch (err) {
+        logger.error('[TaskDetailModal] erro ao carregar conversas:', err);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [isEditingConversation]);
 
   const resetForm = useCallback(() => {
     setNoteType(TASK_NOTE_TYPES.INTERNAL);
@@ -153,6 +185,39 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     if (!task?.conversationId) return;
     openTaskLink(`assistente://conversation/${task.conversationId}`, { navigate });
   }, [task, navigate]);
+
+  const handleStartEditConversation = useCallback(() => {
+    setConversationSelection(task?.conversationId || '');
+    setIsEditingConversation(true);
+  }, [task?.conversationId]);
+
+  const handleSaveConversation = useCallback(async () => {
+    if (!task) return;
+    setConversationSaving(true);
+    try {
+      await setTaskConversation(task.id, conversationSelection || null);
+      setIsEditingConversation(false);
+    } catch {
+      // setTaskConversation já registra o erro e recarrega a lista; mantém o
+      // editor aberto para o usuário tentar de novo.
+    } finally {
+      setConversationSaving(false);
+    }
+  }, [task, conversationSelection, setTaskConversation]);
+
+  const conversationOptions: SelectOption[] = (() => {
+    const opts: SelectOption[] = [
+      { value: '', label: t('tasklist.conversationNone', 'Nenhuma') },
+      ...conversations.map((c) => ({
+        value: String(c.id),
+        label: c.title || t('tasklist.conversationUntitled', 'Sem título'),
+      })),
+    ];
+    if (conversationSelection && !opts.some((o) => o.value === conversationSelection)) {
+      opts.push({ value: conversationSelection, label: conversationSelection });
+    }
+    return opts;
+  })();
 
   const status = task ? statuses.find((s) => s.id === task.statusId) : undefined;
   const isDueDatePast = task?.dueDate && new Date(task.dueDate) < new Date();
@@ -224,6 +289,50 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
           >
             <MessageOutlined aria-hidden="true" /> {t('tasklist.conversation', 'Conversa vinculada')}
           </span>
+        )}
+      </div>
+
+      {/* Conversation link editor */}
+      <div className="task-detail__conversation">
+        {isEditingConversation ? (
+          <div className="task-detail__conversation-edit">
+            <Select
+              fullWidth
+              value={conversationSelection}
+              onChange={(e) => setConversationSelection(e.target.value)}
+              disabled={conversationSaving}
+              options={conversationOptions}
+              aria-label={t('tasklist.conversation', 'Conversa vinculada')}
+            />
+            <div className="task-detail__conversation-actions">
+              <button
+                type="button"
+                data-primary=""
+                onClick={() => void handleSaveConversation()}
+                disabled={conversationSaving}
+              >
+                {conversationSaving ? t('common.saving', 'Salvando...') : t('common.save', 'Salvar')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsEditingConversation(false)}
+                disabled={conversationSaving}
+              >
+                {t('common.cancel', 'Cancelar')}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="task-detail__conversation-edit-btn"
+            onClick={handleStartEditConversation}
+          >
+            <MessageOutlined aria-hidden="true" />{' '}
+            {task.conversationId
+              ? t('tasklist.changeConversation', 'Alterar conversa vinculada')
+              : t('tasklist.linkConversation', 'Vincular conversa')}
+          </button>
         )}
       </div>
 

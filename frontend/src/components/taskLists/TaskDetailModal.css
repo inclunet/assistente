@@ -94,6 +94,45 @@
   border-radius: var(--radius-sm);
 }
 
+/* Conversation link editor */
+.task-detail__conversation {
+  padding: 0 24px;
+  margin-bottom: 8px;
+}
+
+.task-detail__conversation-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-detail__conversation-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.task-detail__conversation-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--color-info);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.task-detail__conversation-edit-btn:hover {
+  text-decoration: underline;
+}
+
+.task-detail__conversation-edit-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 .task-detail__badge--assignee {
   color: var(--text-secondary);
   border-color: var(--border-color);

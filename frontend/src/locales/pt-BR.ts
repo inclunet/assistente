@@ -2003,6 +2003,7 @@ const ptBR = {
       conversationUntitled: 'Sem título',
       conversationLinked: 'Conversa vinculada',
       linkConversation: 'Vincular conversa',
+      changeConversation: 'Alterar conversa vinculada',
       openConversation: 'Abrir conversa',
       conversationLinkSaved: 'Vínculo de conversa atualizado',
       // History picker

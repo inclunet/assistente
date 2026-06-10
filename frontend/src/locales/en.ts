@@ -2029,6 +2029,7 @@ const en = {
       conversationUntitled: 'Untitled',
       conversationLinked: 'Linked conversation',
       linkConversation: 'Link conversation',
+      changeConversation: 'Change linked conversation',
       openConversation: 'Open conversation',
       conversationLinkSaved: 'Conversation link updated',
       // History picker

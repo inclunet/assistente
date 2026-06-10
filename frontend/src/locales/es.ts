@@ -2028,6 +2028,7 @@ const es = {
       conversationUntitled: 'Sin título',
       conversationLinked: 'Conversación vinculada',
       linkConversation: 'Vincular conversación',
+      changeConversation: 'Cambiar conversación vinculada',
       openConversation: 'Abrir conversación',
       conversationLinkSaved: 'Vínculo de conversación actualizado',
       // History picker
