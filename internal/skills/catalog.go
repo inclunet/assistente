@@ -1,5 +1,7 @@
 package skills
 
+import "unicode/utf8"
+
 // Catálogo compacto de skills (AEP-0072 D1/D2 — Nível 1, descoberta).
 //
 // O SkillCatalogEntry é a projeção leve usada na descoberta: nome, descrição
@@ -87,7 +89,9 @@ const approxCharsPerToken = 4
 // EstimateContextBudget estima o custo em tokens de um corpo Markdown a partir
 // do número de caracteres (heurística ~4 chars/token, mínimo 1 quando não vazio).
 func EstimateContextBudget(content string) int {
-	n := len(content)
+	// Conta caracteres (runes), não bytes: textos com runes multibyte (acentos,
+	// emojis, CJK) subestimariam o tamanho com len() e distorceriam o budget.
+	n := utf8.RuneCountInString(content)
 	if n == 0 {
 		return 0
 	}

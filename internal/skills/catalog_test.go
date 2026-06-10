@@ -16,6 +16,11 @@ func TestEstimateContextBudget(t *testing.T) {
 	if got := EstimateContextBudget(string(body)); got != 100 {
 		t.Errorf("400 chars: got %d want 100", got)
 	}
+	// Runes multibyte contam como 1 caractere cada (não por bytes): 8 runes "é"
+	// (2 bytes cada = 16 bytes) -> 8/4 = 2 tokens, não 16/4 = 4.
+	if got := EstimateContextBudget("ééééééék"); got != 2 {
+		t.Errorf("multibyte: got %d want 2 (contagem por runes)", got)
+	}
 }
 
 func TestCatalogEntryFromSkill(t *testing.T) {
