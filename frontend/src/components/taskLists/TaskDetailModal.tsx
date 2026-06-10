@@ -8,6 +8,7 @@ import { Select, type SelectOption } from '../ui/Select';
 import { GetConversations } from '@wailsjs/go/app/App';
 import type { database } from '@wailsjs/go/models';
 import { useTaskListStore } from '../../store/taskListStore';
+import { useUIStore } from '../../store/uiStore';
 import { useConfirm } from '../../hooks/useConfirm';
 import { openTaskLink } from '../../lib/deepLinks';
 import { logger } from '../../utils/logger';
@@ -53,6 +54,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const navigate = useNavigate();
   const requestConfirm = useConfirm();
   const { loadTaskNotes, createTaskNote, updateTaskNote, deleteTaskNote, listCardCustomActions, setTaskConversation } = useTaskListStore();
+  const addToast = useUIStore((s) => s.addToast);
   const { runCustomAction } = useCustomActions();
 
   const [notes, setNotes] = useState<TaskNote[]>([]);
@@ -197,13 +199,16 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     try {
       await setTaskConversation(task.id, conversationSelection || null);
       setIsEditingConversation(false);
-    } catch {
+      addToast(t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado'), 'success');
+    } catch (error) {
       // setTaskConversation já registra o erro e recarrega a lista; mantém o
-      // editor aberto para o usuário tentar de novo.
+      // editor aberto para o usuário tentar de novo e dá feedback explícito.
+      const msg = error instanceof Error ? error.message : String(error);
+      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
     } finally {
       setConversationSaving(false);
     }
-  }, [task, conversationSelection, setTaskConversation]);
+  }, [task, conversationSelection, setTaskConversation, addToast, t]);
 
   const conversationOptions: SelectOption[] = (() => {
     const opts: SelectOption[] = [

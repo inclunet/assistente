@@ -24,6 +24,12 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetConversations: () => mockGetConversations(),
 }));
 
+vi.mock('../../store/uiStore', () => ({
+  useUIStore: (selector: (state: { addToast: ReturnType<typeof vi.fn> }) => unknown) => selector({
+    addToast: vi.fn(),
+  }),
+}));
+
 vi.mock('../../store/taskListStore', () => ({
   useTaskListStore: () => ({
     loadTaskNotes: mockLoadTaskNotes,
@@ -102,6 +108,8 @@ describe('TaskDetailModal', () => {
     await user.click(await screen.findByRole('button', { name: 'Vincular conversa' }));
 
     const select = await screen.findByRole('combobox', { name: 'Conversa vinculada' });
+    // Opções chegam de forma assíncrona via GetConversations(); aguarda renderizar.
+    await screen.findByRole('option', { name: 'Conversa X' });
     await user.selectOptions(select, '5');
     await user.click(screen.getByRole('button', { name: 'Salvar' }));
 
