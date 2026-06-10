@@ -1090,10 +1090,10 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		eventCount, fullResponse.Len(), fullReasoning.Len(), len(finishedToolCalls))
 
 	// Fallback de conclusão de MCP nativo para itens que receberam
-	// response.mcp_call.completed mas não response.output_item.done.
-	if flushPendingCompletedMCPCalls(activeMCPCalls, handler) {
-		emittedAnything = true
-	}
+	// response.mcp_call.completed mas não response.output_item.done. Após o loop,
+	// emittedAnything já não é mais lido (servia para gatear fallback/falha durante
+	// o stream), então não o reatribuímos aqui.
+	flushPendingCompletedMCPCalls(activeMCPCalls, handler)
 
 	if fullReasoning.Len() > 0 {
 		handler.OnThinkingDone(fullReasoning.String())
