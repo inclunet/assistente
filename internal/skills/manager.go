@@ -487,8 +487,11 @@ func (m *Manager) MaterializeSkill(s Skill) (string, error) {
 		return "", err
 	}
 
-	// Idempotente: não reescreve se o conteúdo materializado não mudou.
+	// Idempotente: não reescreve se o conteúdo materializado não mudou. Ainda assim
+	// reforça as permissões restritas (best-effort), pois um cache criado por versões
+	// anteriores pode ter ficado world-readable e não seria endurecido de outra forma.
 	if existing, err := os.ReadFile(path); err == nil && string(existing) == raw {
+		hardenSkillCachePerms(dir, path)
 		return path, nil
 	}
 	// Permissões restritas: o corpo da skill pode conter instruções internas,
@@ -500,7 +503,18 @@ func (m *Manager) MaterializeSkill(s Skill) (string, error) {
 	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 		return "", fmt.Errorf("failed to materialize skill: %w", err)
 	}
+	// MkdirAll não altera permissões de um diretório preexistente; reforça best-effort.
+	hardenSkillCachePerms(dir, path)
 	return path, nil
+}
+
+// hardenSkillCachePerms reforça, em best-effort, as permissões restritas do cache de
+// skills (0700 no diretório, 0600 no arquivo). Erros são ignorados de propósito: em
+// alguns sistemas de arquivos (ex.: Windows) o chmod é parcial/no-op e não deve
+// impedir a materialização — o objetivo é endurecer caches legados quando possível.
+func hardenSkillCachePerms(dir, path string) {
+	_ = os.Chmod(dir, 0o700)
+	_ = os.Chmod(path, 0o600)
 }
 
 // GetSkillFiles retorna arquivos complementares do diretório de um skill (excluindo SKILL.md).
