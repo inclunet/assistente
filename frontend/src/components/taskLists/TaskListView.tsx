@@ -16,10 +16,8 @@ import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
 import { Button } from '../ui/Button';
 import { Select, type SelectOption } from '../ui/Select';
-import { GetConversations } from '@wailsjs/go/app/App';
-import type { database } from '@wailsjs/go/models';
+import { useConversations } from '../../hooks/useConversations';
 import { openTaskLink } from '../../lib/deepLinks';
-import { logger } from '../../utils/logger';
 import { buildChatSurfaceParams } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
@@ -62,9 +60,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const [taskCountsByStatus, setTaskCountsByStatus] = useState<Record<number, number>>({});
 
   const [isLinkConversationOpen, setIsLinkConversationOpen] = useState(false);
-  const [conversations, setConversations] = useState<database.Conversation[]>([]);
   const [linkConversationId, setLinkConversationId] = useState('');
   const [linkSaving, setLinkSaving] = useState(false);
+  const { conversations } = useConversations(isLinkConversationOpen);
 
   const boardActionsReqRef = useRef(0);
   const reloadBoardActions = useCallback(() => {
@@ -284,28 +282,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     }
   }, [taskList?.title, taskListId, requestConfirm, deleteTaskList, addToast, announce, t]);
 
-  useEffect(() => {
-    if (!isLinkConversationOpen) return;
-    let active = true;
-    void (async () => {
-      try {
-        const result = await GetConversations();
-        if (!active) return;
-        const sorted = [...result].sort((a, b) => {
-          const dateA = new Date(a.updatedAt as string | number | Date).getTime();
-          const dateB = new Date(b.updatedAt as string | number | Date).getTime();
-          return dateB - dateA;
-        });
-        setConversations(sorted);
-      } catch (err) {
-        logger.error('[TaskListView] erro ao carregar conversas:', err);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [isLinkConversationOpen]);
-
   const handleOpenLinkConversation = useCallback(() => {
     setLinkConversationId(taskList?.conversationId || '');
     setIsLinkConversationOpen(true);
@@ -316,14 +292,16 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     try {
       await setTaskListConversation(taskListId, linkConversationId || null);
       setIsLinkConversationOpen(false);
-      addToast(t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado'), 'success');
+      const msg = t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado');
+      addToast(msg, 'success');
+      announce(msg);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
     } finally {
       setLinkSaving(false);
     }
-  }, [taskListId, linkConversationId, setTaskListConversation, addToast, t]);
+  }, [taskListId, linkConversationId, setTaskListConversation, addToast, announce, t]);
 
   const handleOpenLinkedConversation = useCallback(() => {
     if (!taskList?.conversationId) return;

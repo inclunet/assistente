@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { Button } from '../ui/Button';
@@ -6,9 +6,7 @@ import { FormField } from '../ui/FormField';
 import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
 import { Select, type SelectOption } from '../ui/Select';
-import { GetConversations } from '@wailsjs/go/app/App';
-import type { database } from '@wailsjs/go/models';
-import { logger } from '../../utils/logger';
+import { useConversations } from '../../hooks/useConversations';
 import type { Task } from '../../types/tasklist';
 import './TaskForm.css';
 
@@ -43,28 +41,7 @@ export default function TaskForm({
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [conversations, setConversations] = useState<database.Conversation[]>([]);
-
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      try {
-        const result = await GetConversations();
-        if (!active) return;
-        const sorted = [...result].sort((a, b) => {
-          const dateA = new Date(a.updatedAt as string | number | Date).getTime();
-          const dateB = new Date(b.updatedAt as string | number | Date).getTime();
-          return dateB - dateA;
-        });
-        setConversations(sorted);
-      } catch (err) {
-        logger.error('[TaskForm] erro ao carregar conversas:', err);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { conversations } = useConversations();
 
   // Garante que a conversa já vinculada apareça como opção mesmo se não estiver
   // na listagem carregada (ex.: conversa de outro canal/origem).
