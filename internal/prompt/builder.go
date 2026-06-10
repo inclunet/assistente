@@ -678,7 +678,8 @@ func catalogEntryCost(e skills.SkillCatalogEntry, desc string) int {
 	return len(e.GetDisplayName()) + len(e.Slug) + len(desc) + len(e.Path) + 32
 }
 
-// truncateDescription encurta uma descrição para no máximo max runes, anexando "…".
+// truncateDescription encurta uma descrição para no máximo max runes (contando o
+// "…" anexado), de modo a não estourar o budget planejado.
 func truncateDescription(desc string, max int) string {
 	if max <= 0 {
 		return desc
@@ -687,7 +688,8 @@ func truncateDescription(desc string, max int) string {
 	if len(runes) <= max {
 		return desc
 	}
-	return strings.TrimSpace(string(runes[:max])) + "…"
+	// Reserva 1 rune para o "…" para que o resultado tenha no máximo max runes.
+	return strings.TrimSpace(string(runes[:max-1])) + "…"
 }
 
 // joinPrefix retorna o separador adequado para anexar uma nova seção: vazio quando
