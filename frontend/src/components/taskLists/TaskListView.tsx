@@ -289,15 +289,19 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   // passa a apontar para ela (inclusive ao iniciar uma conversa nova pelo chat).
   // Sem feedback visual extra — é um efeito implícito do uso do chat.
   useEffect(() => {
+    // Só auto-vincula com a lista já carregada no store: evita escrever no backend
+    // antes de confirmar que a lista existe e impede chamadas espúrias ao alternar
+    // rapidamente de aba/lista (quando taskList ainda é undefined).
+    if (!taskList) return;
     if (!chatBoundConversationId) return;
-    if (taskList?.conversationId === chatBoundConversationId) return;
+    if (taskList.conversationId === chatBoundConversationId) return;
     void setTaskListConversation(taskListId, chatBoundConversationId).then(() => {
       announce(t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado'));
     }).catch((error) => {
       const msg = error instanceof Error ? error.message : String(error);
       addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
     });
-  }, [chatBoundConversationId, taskList?.conversationId, taskListId, setTaskListConversation, announce, addToast, t]);
+  }, [chatBoundConversationId, taskList, taskListId, setTaskListConversation, announce, addToast, t]);
 
   if (!taskList) {
     return <div className="tasklist-loading">{t('tasklist.loading', 'Carregando...')}</div>;

@@ -1,5 +1,6 @@
 import { logger } from '../../utils/logger';
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { useTranslation } from 'react-i18next';
 import { HistoryOutlined } from '@ant-design/icons';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
@@ -32,7 +33,7 @@ export interface HistoryPickerRef {
 export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
   value,
   onChange,
-  label = 'Histórico (Ctrl+H)',
+  label,
   description,
   disabled = false,
   maxWidth = '200px',
@@ -40,6 +41,8 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
   extraItems,
   onSelectExtra
 }, ref) => {
+  const { t } = useTranslation();
+  const resolvedLabel = label ?? t('history.pickerLabel', 'Histórico (Ctrl+H)');
   const [conversations, setConversations] = useState<database.Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -112,13 +115,13 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    if (diffMins < 1) return 'agora';
-    if (diffMins < 60) return `${diffMins}min atrás`;
-    if (diffHours < 24) return `${diffHours}h atrás`;
-    if (diffDays < 7) return `${diffDays}d atrás`;
-    
-    return date.toLocaleDateString('pt-BR', { 
-      day: '2-digit', 
+    if (diffMins < 1) return t('history.relativeNow', 'agora');
+    if (diffMins < 60) return t('history.relativeMinutes', '{{count}}min atrás', { count: diffMins });
+    if (diffHours < 24) return t('history.relativeHours', '{{count}}h atrás', { count: diffHours });
+    if (diffDays < 7) return t('history.relativeDays', '{{count}}d atrás', { count: diffDays });
+
+    return date.toLocaleDateString(undefined, {
+      day: '2-digit',
       month: '2-digit',
       year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
     });
@@ -130,8 +133,8 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
     ...(extraItems ?? []),
     ...conversations.map(conv => ({
       value: conv.id.toString(),
-      label: conv.title || 'Sem título',
-      sublabel: `${conv.message_count || 0} msgs • ${formatDate(conv.updatedAt)}`
+      label: conv.title || t('history.untitled', 'Sem título'),
+      sublabel: `${t('history.messagesCount', '{{count}} msgs', { count: conv.message_count || 0 })} • ${formatDate(conv.updatedAt)}`
     })),
   ];
 
@@ -155,10 +158,10 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
       items={items}
       selected={selectedValue}
       onSelect={handleSelect}
-      label={label}
+      label={resolvedLabel}
       description={description}
       icon={<HistoryOutlined />}
-      placeholder={isLoading ? 'Carregando...' : 'Buscar conversa...'}
+      placeholder={isLoading ? t('history.loadingShort', 'Carregando...') : t('history.searchPlaceholder', 'Buscar conversa...')}
       disabled={disabled || isLoading}
       maxWidth={maxWidth}
       onAnnounce={onAnnounce}
