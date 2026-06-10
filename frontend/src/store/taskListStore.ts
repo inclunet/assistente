@@ -633,6 +633,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
 
     setTaskConversation: async (taskId: string, conversationId: string | null) => {
       const normalized = conversationId && conversationId.trim() ? conversationId.trim() : undefined;
+      let affectedTaskListId: string | undefined;
       set((state) => {
         const newCache = new Map(state.taskLists);
         for (const [tlId, taskList] of newCache.entries()) {
@@ -640,6 +641,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
           if (tasks) {
             const idx = tasks.findIndex((t) => t.id === taskId);
             if (idx >= 0) {
+              affectedTaskListId = tlId;
               const updatedTasks = [...tasks];
               updatedTasks[idx] = { ...updatedTasks[idx], conversationId: normalized };
               newCache.set(tlId, { ...taskList, tasks: updatedTasks });
@@ -653,6 +655,12 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         await SetTaskConversation(taskId, normalized ?? null);
       } catch (error) {
         get().setError('setTaskConversation', String(error));
+        // Update otimista divergiu do backend: recarrega a lista para restaurar
+        // o estado real e repropaga para o caller (TaskForm) poder dar feedback.
+        if (affectedTaskListId) {
+          await get().loadTaskList(affectedTaskListId);
+        }
+        throw error;
       }
     },
 
@@ -671,6 +679,10 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         await SetTaskListConversation(taskListId, normalized ?? null);
       } catch (error) {
         get().setError('setTaskListConversation', String(error));
+        // Update otimista divergiu do backend: recarrega a lista para restaurar
+        // o estado real e repropaga para o caller (TaskListHeader) dar feedback.
+        await get().loadTaskList(taskListId);
+        throw error;
       }
     },
 
