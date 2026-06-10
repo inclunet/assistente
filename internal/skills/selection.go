@@ -25,17 +25,17 @@ const (
 
 // Motivos estáveis (para telemetria/teste).
 const (
-	ReasonAutoload              = "autoload"
-	ReasonOnDemand              = "on_demand"
-	ReasonSkillsDisabled        = "skills_disabled"
-	ReasonRequiresTools         = "requires_tools"
-	ReasonRequiresFilesystem    = "requires_filesystem"
-	ReasonRequiresNetwork       = "requires_network"
-	ReasonRequiresMCP           = "requires_mcp"
-	ReasonModelInvocationOff    = "model_invocation_disabled"
-	ReasonOnDemandDisabled      = "on_demand_disabled"
-	ReasonNotInAutoloadAllowlst = "not_in_autoload_allowlist"
-	ReasonAutoloadNoReason      = "autoload_missing_reason"
+	ReasonAutoload               = "autoload"
+	ReasonOnDemand               = "on_demand"
+	ReasonSkillsDisabled         = "skills_disabled"
+	ReasonRequiresTools          = "requires_tools"
+	ReasonRequiresFilesystem     = "requires_filesystem"
+	ReasonRequiresNetwork        = "requires_network"
+	ReasonRequiresMCP            = "requires_mcp"
+	ReasonModelInvocationOff     = "model_invocation_disabled"
+	ReasonOnDemandDisabled       = "on_demand_disabled"
+	ReasonNotInAutoloadAllowlist = "not_in_autoload_allowlist"
+	ReasonAutoloadNoReason       = "autoload_missing_reason"
 )
 
 // SkillSelectionContext descreve as capacidades disponíveis no contexto/perfil.
@@ -256,4 +256,3 @@ func containsString(list []string, s string) bool {
 	}
 	return false
 }
-
