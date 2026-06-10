@@ -1044,6 +1044,20 @@ const es = {
         placeholder: 'Ej: tool1, tool2, tool3',
         hint: 'Lista las herramientas (tool calling) que pueden usarse en este skill.',
       },
+      catalogSection: {
+        title: 'Catálogo y carga',
+        autoloadReason: 'Justificación de auto_load',
+        autoloadReasonPlaceholder: '¿Por qué esta skill debe estar siempre en el prompt?',
+        autoloadReasonHint: 'Obligatoria cuando auto_load está activo: las skills sin justificación pasan a bajo demanda.',
+        contextBudget: 'Presupuesto de contexto (tokens)',
+        contextBudgetHint: 'Costo aproximado del cuerpo. 0 = estimado automáticamente por el tamaño.',
+        requiresLegend: 'Precondiciones de capacidad',
+        requiresTools: 'Requiere herramientas',
+        requiresFilesystem: 'Requiere sistema de archivos',
+        requiresNetwork: 'Requiere red',
+        requiresMcp: 'Requiere MCP',
+        requiresHint: 'Las skills que requieren una capacidad deshabilitada se omiten del prompt.',
+      },
     },
 
     allowlist: {
@@ -2162,6 +2176,11 @@ const es = {
         started: 'Resumiendo conversación ({{count}} mensajes)...',
         completed: 'Resumen de conversación actualizado ({{count}} mensajes resumidos)',
         error: 'Error al resumir la conversación: {{error}}',
+      },
+      legacyImport: {
+        imported: '{{count}} recurso(s) heredado(s) importado(s) a la base de datos',
+        warnings: '{{count}} advertencia(s) en la importación heredada (calidad de descripción)',
+        failed: '{{count}} fallo(s) en la importación heredada',
       },
       questionnaire: {
         submitError: 'Error al enviar el cuestionario',

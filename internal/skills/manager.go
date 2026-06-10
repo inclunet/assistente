@@ -182,7 +182,11 @@ func (m *Manager) Create(meta *SkillMetadata, content string) (string, error) {
 	}
 
 	if m.repo != nil {
-		return m.repo.Create(m.repoCtx(), &Skill{SkillMetadata: *meta, Content: content})
+		slug, err := m.repo.Create(m.repoCtx(), &Skill{SkillMetadata: *meta, Content: content})
+		if err == nil {
+			m.rebuildCatalogBestEffort()
+		}
+		return slug, err
 	}
 
 	slug := Slugify(meta.Name)
@@ -221,7 +225,11 @@ func (m *Manager) Create(meta *SkillMetadata, content string) (string, error) {
 // Duplicate cria uma copia de um skill existente no diretorio home.
 func (m *Manager) Duplicate(slug string) (string, error) {
 	if m.repo != nil {
-		return m.repo.Duplicate(m.repoCtx(), slug)
+		newSlug, err := m.repo.Duplicate(m.repoCtx(), slug)
+		if err == nil {
+			m.rebuildCatalogBestEffort()
+		}
+		return newSlug, err
 	}
 	skill, err := m.Get(slug)
 	if err != nil {
@@ -252,7 +260,11 @@ func (m *Manager) Update(slug string, meta *SkillMetadata, content string) error
 	}
 
 	if m.repo != nil {
-		return m.repo.Update(m.repoCtx(), slug, &Skill{SkillMetadata: *meta, Content: content})
+		err := m.repo.Update(m.repoCtx(), slug, &Skill{SkillMetadata: *meta, Content: content})
+		if err == nil {
+			m.rebuildCatalogBestEffort()
+		}
+		return err
 	}
 
 	discovered := m.discoverAll()
@@ -272,7 +284,11 @@ func (m *Manager) Update(slug string, meta *SkillMetadata, content string) error
 // Delete remove o skill (diretório inteiro).
 func (m *Manager) Delete(slug string) error {
 	if m.repo != nil {
-		return m.repo.Delete(m.repoCtx(), slug)
+		err := m.repo.Delete(m.repoCtx(), slug)
+		if err == nil {
+			m.rebuildCatalogBestEffort()
+		}
+		return err
 	}
 	discovered := m.discoverAll()
 	for _, ds := range discovered {
@@ -281,6 +297,44 @@ func (m *Manager) Delete(slug string) error {
 		}
 	}
 	return fmt.Errorf("skill not found: %s", slug)
+}
+
+// ListCatalog devolve o catálogo compacto de skills (AEP-0072 D1, Nível 1).
+// Em modo DB lê o catálogo persistido; em filesystem projeta on-the-fly a partir
+// das skills descobertas (sem persistência).
+func (m *Manager) ListCatalog() ([]SkillCatalogEntry, error) {
+	if m.repo != nil {
+		return m.repo.ListCatalog(m.repoCtx())
+	}
+	all, err := m.GetAllSkillsFull()
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]SkillCatalogEntry, 0, len(all))
+	for i := range all {
+		entries = append(entries, CatalogEntryFromSkill(&all[i]))
+	}
+	return entries, nil
+}
+
+// RebuildCatalog reconstrói o catálogo persistido a partir das skills (no-op em
+// modo filesystem). Deve ser chamado após seed/import em massa.
+func (m *Manager) RebuildCatalog() error {
+	if m.repo == nil {
+		return nil
+	}
+	return m.repo.RebuildCatalog(m.repoCtx(), m.MaterializeSkill)
+}
+
+// rebuildCatalogBestEffort ressincroniza o catálogo após uma mutação de skill,
+// registrando (sem propagar) eventuais erros — a mutação principal já teve sucesso.
+func (m *Manager) rebuildCatalogBestEffort() {
+	if m.repo == nil {
+		return
+	}
+	if err := m.repo.RebuildCatalog(m.repoCtx(), m.MaterializeSkill); err != nil {
+		log.Printf("[Skills] Erro ao reconstruir catálogo: %v", err)
+	}
 }
 
 // GetSearchPaths retorna os caminhos de busca do resolver

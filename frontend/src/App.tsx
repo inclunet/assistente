@@ -195,6 +195,54 @@ function App() {
             addToast(t('app.summary.error', { error: eventData.error || '' }), 'error');
         }));
 
+        // AEP-0072 Fase 5 (#123): sumário observável da importação legada.
+        unsubs.push(EventsOn('legacy:import_summary', (data: unknown) => {
+            const entries = Array.isArray(data)
+                ? (data as Array<{
+                      resourceType?: string;
+                      imported?: number;
+                      failed?: number;
+                      warnings?: string[];
+                      errors?: string[];
+                  }>)
+                : [];
+            const totals = entries.reduce(
+                (acc, e) => ({
+                    imported: acc.imported + (e.imported ?? 0),
+                    failed: acc.failed + (e.failed ?? 0),
+                    warnings: acc.warnings + (e.warnings?.length ?? 0),
+                    errors: acc.errors + (e.errors?.length ?? 0),
+                }),
+                { imported: 0, failed: 0, warnings: 0, errors: 0 }
+            );
+            if (totals.imported > 0) {
+                addToast(
+                    t('app.legacyImport.imported', { count: totals.imported }),
+                    'success',
+                    5000
+                );
+            }
+            if (totals.warnings > 0) {
+                addToast(
+                    t('app.legacyImport.warnings', { count: totals.warnings }),
+                    'warning',
+                    8000
+                );
+            }
+            if (totals.failed > 0 || totals.errors > 0) {
+                // Cada falha incrementa `failed` e adiciona uma entrada em `errors`
+                // no backend (internal/portability/legacy_import.go), então somar
+                // os dois dobraria a contagem. `max` evita o double-count e ainda
+                // cobre erros do importador (failed=0 mas com mensagens em errors).
+                addToast(
+                    t('app.legacyImport.failed', {
+                        count: Math.max(totals.failed, totals.errors),
+                    }),
+                    'error'
+                );
+            }
+        }));
+
         return () => {
             unsubs.forEach(fn => fn());
         };

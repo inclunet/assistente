@@ -312,6 +312,8 @@ export function GetSTTModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>
 
 export function GetSkill(arg1:string):Promise<skills.Skill>;
 
+export function GetSkillCatalog():Promise<Array<skills.SkillCatalogEntry>>;
+
 export function GetSkills():Promise<Array<skills.SkillInfo>>;
 
 export function GetSpeechProviders():Promise<Array<llm.ProviderConfig>>;
