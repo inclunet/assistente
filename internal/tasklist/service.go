@@ -391,13 +391,21 @@ func (s *Service) UpdateTaskFull(ctx context.Context, id string, title, descript
 
 // SetTaskConversation vincula/desvincula a task a uma conversa e notifica a UI.
 func (s *Service) SetTaskConversation(ctx context.Context, id string, conversationID *string) error {
+	var old *database.Task
+	if s.wantsDomain("tasklist.task.updated") {
+		old, _ = s.store.GetTask(ctx, id)
+	}
 	if err := s.store.SetTaskConversation(ctx, id, conversationID); err != nil {
 		return err
 	}
 	task, _ := s.store.GetTask(ctx, id)
 	s.emitter.Emit("task:updated", task)
 	if s.wantsDomain("tasklist.task.updated") {
-		if payload := s.taskEventPayload(ctx, task, nil); payload != nil {
+		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+			// Ver UpdateTask: changed_fields só com snapshot recarregado.
+			if task != nil {
+				payload["changed_fields"] = changedTaskFields(old, task)
+			}
 			s.publishDomain(ctx, "tasklist.task.updated", payload)
 		}
 	}
