@@ -3,9 +3,11 @@ import { useChatStore } from '../store/chatStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
 import { useEditorStore } from '../store/editorStore';
 import { useNavigationStore, type EditableResource } from '../store/navigationStore';
+import { useUIStore } from '../store/uiStore';
 import { announce } from '../hooks/useAnnouncer';
 import { EditorReadFile } from '@wailsjs/go/app/App';
 import { RunTerminalCommand } from '@wailsjs/go/app/App';
+import { GetProfile } from '@wailsjs/go/app/App';
 import { BrowserOpenURL } from '@wailsjs/runtime/runtime';
 import { isBackendId } from './idUtils';
 import i18n from './i18n';
@@ -20,9 +22,9 @@ export const DEEP_LINK_PREFIX = `${DEEP_LINK_PROTOCOL}://`;
 export type TabType = 'tasklist' | 'editor' | 'terminal';
 
 export type DeepLinkAction =
-  | { type: 'conversation:open'; conversationId: string; title?: string }
-  | { type: 'conversation:new'; message?: string; title?: string }
-  | { type: 'conversation:send'; conversationId: string; message: string }
+  | { type: 'conversation:open'; conversationId: string; title?: string; profile?: string }
+  | { type: 'conversation:new'; message?: string; title?: string; profile?: string }
+  | { type: 'conversation:send'; conversationId: string; message: string; profile?: string }
   | { type: 'navigate'; route: string }
   | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
   | { type: 'resource:new'; resource: EditableResource }
@@ -95,27 +97,32 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
     const resource = segments[0];
 
     if (resource === 'conversation') {
-      // assistente://conversation/new?message=...&title=...
+      // Parâmetro opcional para forçar o perfil da conversa-alvo
+      // (ex.: ?profile=programacao). Vazio = mantém cascata aba/workspace/global.
+      const profile = params.get('profile') || undefined;
+
+      // assistente://conversation/new?message=...&title=...&profile=...
       if (segments[1] === 'new') {
         return {
           type: 'conversation:new',
           message: params.get('message') || undefined,
           title: params.get('title') || undefined,
+          profile,
         };
       }
 
       const id = segments[1] || '';
       if (!isBackendId(id)) return null;
 
-      // assistente://conversation/{id}/send?message=...
+      // assistente://conversation/{id}/send?message=...&profile=...
       if (segments[2] === 'send') {
         const message = params.get('message');
         if (!message) return null;
-        return { type: 'conversation:send', conversationId: id, message };
+        return { type: 'conversation:send', conversationId: id, message, profile };
       }
 
-      // assistente://conversation/{id}
-      return { type: 'conversation:open', conversationId: id };
+      // assistente://conversation/{id}?profile=...
+      return { type: 'conversation:open', conversationId: id, profile };
     }
 
     if (resource === 'navigate') {
@@ -167,13 +174,18 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
 
 export function buildDeepLink(action: DeepLinkAction): string {
   switch (action.type) {
-    case 'conversation:open':
-      return `${DEEP_LINK_PREFIX}conversation/${action.conversationId}`;
+    case 'conversation:open': {
+      const params = new URLSearchParams();
+      if (action.profile) params.set('profile', action.profile);
+      const qs = params.toString();
+      return `${DEEP_LINK_PREFIX}conversation/${action.conversationId}${qs ? `?${qs}` : ''}`;
+    }
 
     case 'conversation:new': {
       const params = new URLSearchParams();
       if (action.message) params.set('message', action.message);
       if (action.title) params.set('title', action.title);
+      if (action.profile) params.set('profile', action.profile);
       const qs = params.toString();
       return `${DEEP_LINK_PREFIX}conversation/new${qs ? `?${qs}` : ''}`;
     }
@@ -181,6 +193,7 @@ export function buildDeepLink(action: DeepLinkAction): string {
     case 'conversation:send': {
       const params = new URLSearchParams();
       params.set('message', action.message);
+      if (action.profile) params.set('profile', action.profile);
       return `${DEEP_LINK_PREFIX}conversation/${action.conversationId}/send?${params}`;
     }
 
@@ -293,8 +306,13 @@ export async function executeDeepLink(
     }
   };
 
-  const buildChatTabSendContext = (tab: WorkspaceTab, conversationId: string) => {
-    const profileSlug = (tab.profileOverride?.slug as string | undefined)
+  const buildChatTabSendContext = (
+    tab: WorkspaceTab,
+    conversationId: string,
+    profileSlugOverride?: string,
+  ) => {
+    const profileSlug = profileSlugOverride
+      || (tab.profileOverride?.slug as string | undefined)
       || wsStore.workspace?.profile
       || undefined;
     const identity = createChatSurfaceIdentity({
@@ -308,9 +326,30 @@ export async function executeDeepLink(
     };
   };
 
+  // Aplica o perfil informado no deeplink como override da aba-alvo (mesmo
+  // mecanismo do seletor de perfil da toolbar). Valida o slug antes de
+  // persistir; se inválido, avisa e segue sem override (o backend cai no
+  // perfil ativo). Retorna o slug efetivamente aplicado, ou undefined.
+  const applyProfileOverride = async (
+    tabId: string,
+    profile: string | undefined,
+  ): Promise<string | undefined> => {
+    if (!profile) return undefined;
+    try {
+      await GetProfile(profile);
+    } catch {
+      useUIStore.getState().addToast(t('deepLink.invalidProfile', { profile }), 'warning');
+      announce(t('deepLink.invalidProfile', { profile }));
+      return undefined;
+    }
+    await wsStore.updateTab(tabId, { profile_override: { slug: profile } });
+    return profile;
+  };
+
   switch (action.type) {
     case 'conversation:open': {
-      await openOrCreateChatTab(action.conversationId, action.title);
+      const tab = await openOrCreateChatTab(action.conversationId, action.title);
+      await applyProfileOverride(tab.id, action.profile);
       deps.navigate('/');
       announce(t('deepLink.announcedOpen', { id: action.conversationId }));
       break;
@@ -320,6 +359,7 @@ export async function executeDeepLink(
       const title = action.title || t('chat.newConversation');
       const conversationId = await useChatStore.getState().createConversation(title);
       const tabId = await wsStore.addTab('chat', title, { conversationId });
+      const appliedProfile = await applyProfileOverride(tabId, action.profile);
       deps.navigate('/');
       if (action.message) {
         const tab: WorkspaceTab = {
@@ -328,8 +368,9 @@ export async function executeDeepLink(
           title,
           position: 0,
           conversationId,
+          ...(appliedProfile ? { profileOverride: { slug: appliedProfile } } : {}),
         };
-        const { origin, params } = buildChatTabSendContext(tab, conversationId);
+        const { origin, params } = buildChatTabSendContext(tab, conversationId, appliedProfile);
         await useChatStore.getState().sendMessageToConversation(conversationId, action.message, undefined, params, { origin });
       }
       announce(title);
@@ -338,9 +379,10 @@ export async function executeDeepLink(
 
     case 'conversation:send': {
       const tab = await openOrCreateChatTab(action.conversationId);
+      const appliedProfile = await applyProfileOverride(tab.id, action.profile);
       deps.navigate('/');
       await useChatStore.getState().loadConversationSession(action.conversationId);
-      const { origin, params } = buildChatTabSendContext(tab, action.conversationId);
+      const { origin, params } = buildChatTabSendContext(tab, action.conversationId, appliedProfile);
       await useChatStore.getState().sendMessageToConversation(action.conversationId, action.message, undefined, params, { origin });
       announce(t('deepLink.announcedSent', { id: action.conversationId }));
       break;

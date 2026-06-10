@@ -1628,6 +1628,7 @@ const en = {
       announcedOpenTab: '{{type}} {{id}} opened',
       newTab: 'New {{type}}',
       announcedNewTab: 'New {{type}} created',
+      invalidProfile: 'Profile "{{profile}}" not found; using the default profile',
     },
     connectionStatus: {
       provider: 'API',
