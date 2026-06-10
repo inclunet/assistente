@@ -337,9 +337,15 @@ export async function executeDeepLink(
     if (!profile) return undefined;
     try {
       await GetProfile(profile);
-    } catch {
-      useUIStore.getState().addToast(t('deepLink.invalidProfile', { profile }), 'warning');
-      announce(t('deepLink.invalidProfile', { profile }));
+    } catch (err) {
+      // Distingue "perfil inexistente" de falhas inesperadas (ex.: erro ao
+      // ler/parsear o JSON do perfil) para não exibir um aviso enganoso. Em
+      // ambos os casos seguimos sem override — o backend cai no perfil ativo.
+      const message = err instanceof Error ? err.message : String(err);
+      const notFound = /not found/i.test(message);
+      const msgKey = notFound ? 'deepLink.invalidProfile' : 'deepLink.profileLoadError';
+      useUIStore.getState().addToast(t(msgKey, { profile }), notFound ? 'warning' : 'error');
+      announce(t(msgKey, { profile }));
       return undefined;
     }
     await wsStore.updateTab(tabId, { profile_override: { slug: profile } });

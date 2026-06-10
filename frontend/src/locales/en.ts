@@ -1629,6 +1629,7 @@ const en = {
       newTab: 'New {{type}}',
       announcedNewTab: 'New {{type}} created',
       invalidProfile: 'Profile "{{profile}}" not found; using the default profile',
+      profileLoadError: 'Failed to load profile "{{profile}}"; using the default profile',
     },
     connectionStatus: {
       provider: 'API',

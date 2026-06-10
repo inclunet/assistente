@@ -877,7 +877,7 @@ describe('executeDeepLink', () => {
       );
     });
 
-    it('perfil inválido: não aplica override, avisa via toast e cai no padrão', async () => {
+    it('perfil inexistente: não aplica override, avisa via toast "warning" e cai no padrão', async () => {
       mockGetProfile.mockRejectedValueOnce(new Error('profile not found'));
 
       await executeDeepLink(
@@ -887,7 +887,27 @@ describe('executeDeepLink', () => {
 
       expect(mockGetProfile).toHaveBeenCalledWith('inexistente');
       expect(mockWsUpdateTab).not.toHaveBeenCalled();
-      expect(mockAddToast).toHaveBeenCalled();
+      expect(mockAddToast).toHaveBeenCalledWith('deepLink.invalidProfile', 'warning');
+      expect(mockSendMessageToConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-000000000064',
+        'oi',
+        undefined,
+        expect.objectContaining({ profileSlug: undefined }),
+        expect.anything(),
+      );
+    });
+
+    it('falha inesperada ao carregar perfil: toast "error" genérico e cai no padrão', async () => {
+      mockGetProfile.mockRejectedValueOnce(new Error('unexpected: failed to parse profile json'));
+
+      await executeDeepLink(
+        { type: 'conversation:new', message: 'oi', profile: 'quebrado' },
+        deps,
+      );
+
+      expect(mockGetProfile).toHaveBeenCalledWith('quebrado');
+      expect(mockWsUpdateTab).not.toHaveBeenCalled();
+      expect(mockAddToast).toHaveBeenCalledWith('deepLink.profileLoadError', 'error');
       expect(mockSendMessageToConversation).toHaveBeenCalledWith(
         '01926b90-7a5a-7c4e-8d3f-000000000064',
         'oi',

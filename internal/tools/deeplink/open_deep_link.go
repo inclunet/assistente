@@ -32,7 +32,7 @@ func (t *OpenDeepLinkTool) Name() string { return "open_deep_link" }
 func (t *OpenDeepLinkTool) Description() string {
 	return `Opens a deep link in the application. Supported URIs:
 - Conversations: assistente://conversation/{id}, assistente://conversation/new?message=...&title=..., assistente://conversation/{id}/send?message=...
-  Optional &profile={slug} on conversation links forces the target conversation to use a specific profile (e.g. ?profile=techsupport to trigger a tech-support analysis, or ?profile=programacao for a coding task). Works for new, open and send.
+  Conversation links accept an optional profile={slug} query parameter that forces the target conversation to use a specific profile (works for new, open and send). Add it with "?" when the URI has no query yet, or with "&" when it already has one — e.g. assistente://conversation/{id}?profile=techsupport or assistente://conversation/new?message=...&profile=programacao.
 - Tab open: assistente://tasklist/{id}, assistente://editor/{id}, assistente://terminal/{id}
 - Tab create: assistente://tasklist/new?title=..., assistente://editor/new?title=..., assistente://editor/open?file=..., assistente://terminal/new?cmd=...
 - Navigate: assistente://navigate/{route} (routes: history, tasklists, settings, profiles, providers, credentials, skills, mcp, channels, allowlists, help, about, update)

@@ -1603,6 +1603,7 @@ const ptBR = {
       newTab: 'Novo {{type}}',
       announcedNewTab: 'Novo {{type}} criado',
       invalidProfile: 'Perfil "{{profile}}" não encontrado; usando o perfil padrão',
+      profileLoadError: 'Falha ao carregar o perfil "{{profile}}"; usando o perfil padrão',
     },
     connectionStatus: {
       provider: 'API',
