@@ -201,22 +201,33 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     }
   }, [focusInput, panelTab.id, updateWsTab, addToast, t]);
 
-  const handleHistoryChange = async (nextConversationId: string, conversation: { title?: string }) => {
-    const nextTitle = conversation.title || t('chat.newConversation');
-    try {
-      if (onRequestConversationChange) {
-        // Superfície controlada: o dono (página/modal) decide o efeito da troca.
-        await onRequestConversationChange(nextConversationId, conversation);
-      } else {
-        // Fallback mínimo: só carrega a sessão (superfícies sem vínculo próprio).
-        await loadConversationSession(nextConversationId);
+  // O HistoryPicker chama onChange de forma síncrona (não aguarda a promise), então
+  // seleções rápidas poderiam disparar trocas concorrentes e efeitos fora de ordem.
+  // Um ref (e não useState, cujo valor capturado na closure não impede reentrância no
+  // mesmo tick) encadeia as trocas, garantindo execução serializada na ordem das
+  // seleções — a última selecionada é a última aplicada.
+  const historyChangeChainRef = useRef<Promise<void>>(Promise.resolve());
+
+  const handleHistoryChange = (nextConversationId: string, conversation: { title?: string }) => {
+    const run = async () => {
+      const nextTitle = conversation.title || t('chat.newConversation');
+      try {
+        if (onRequestConversationChange) {
+          // Superfície controlada: o dono (página/modal) decide o efeito da troca.
+          await onRequestConversationChange(nextConversationId, conversation);
+        } else {
+          // Fallback mínimo: só carrega a sessão (superfícies sem vínculo próprio).
+          await loadConversationSession(nextConversationId);
+        }
+        announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
+      } catch (error) {
+        logger.error('[ChatToolbar] Erro ao carregar conversa:', error);
+        announce(t('chat.loadError'));
       }
-      announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
-    } catch (error) {
-      logger.error('[ChatToolbar] Erro ao carregar conversa:', error);
-      announce(t('chat.loadError'));
-    }
-    focusInput();
+      focusInput();
+    };
+    historyChangeChainRef.current = historyChangeChainRef.current.then(run);
+    return historyChangeChainRef.current;
   };
 
   return (

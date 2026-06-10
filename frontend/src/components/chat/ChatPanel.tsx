@@ -1,4 +1,5 @@
 import { ChatSessionView } from './ChatSessionView';
+import type { ChatToolbarConversationChangeHandler } from './ChatToolbar';
 import type { ChatSurfaceIdentity } from '../../services/chatSessionRegistry';
 import type {
   ChatSurfaceSendContext,
@@ -14,11 +15,10 @@ export type ChatPanelSendHandler = ChatSurfaceSendHandler;
  * significa — apenas notifica o dono (página, modal, etc.), que reage atualizando
  * a identidade da superfície que passa para baixo (ex.: `tab.conversation_id` na
  * página; `setBoundConversation` no modal embutido).
+ *
+ * Alias do tipo do `ChatToolbar` (origem do contrato) para não driftar.
  */
-export type ChatPanelConversationChangeHandler = (
-  conversationId: string,
-  conversation: { title?: string },
-) => void | Promise<void>;
+export type ChatPanelConversationChangeHandler = ChatToolbarConversationChangeHandler;
 
 export interface ChatPanelProps {
   surface: ChatSurfaceIdentity;

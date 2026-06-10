@@ -230,7 +230,7 @@ describe('workspaceChatModalStore.setBoundConversation', () => {
     expect(mockUpdateTab).not.toHaveBeenCalled();
   });
 
-  it('recria a superfície, atualiza boundConversationId e persiste o vínculo na aba', () => {
+  it('recria a superfície, atualiza boundConversationId e persiste o vínculo na aba', async () => {
     openModalBoundTo('1');
 
     useWorkspaceChatModalStore.getState().setBoundConversation('2');
@@ -244,6 +244,37 @@ describe('workspaceChatModalStore.setBoundConversation', () => {
       surfaceType: 'modal',
       tabId: 'tab-editor',
     });
-    expect(mockUpdateTab).toHaveBeenCalledWith('tab-editor', { conversation_id: '2' });
+    await vi.waitFor(() => {
+      expect(mockUpdateTab).toHaveBeenCalledWith('tab-editor', { conversation_id: '2' });
+    });
+  });
+
+  it('serializa a persistência em trocas rápidas (latest-wins, sem fora de ordem)', async () => {
+    openModalBoundTo('1');
+
+    // 1ª persistência lenta: enquanto pendente, fazem-se mais duas trocas.
+    let resolveFirst!: () => void;
+    mockUpdateTab.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolveFirst = resolve; }),
+    );
+
+    useWorkspaceChatModalStore.getState().setBoundConversation('2');
+    await vi.waitFor(() => expect(mockUpdateTab).toHaveBeenCalledTimes(1));
+
+    useWorkspaceChatModalStore.getState().setBoundConversation('3');
+    useWorkspaceChatModalStore.getState().setBoundConversation('4');
+
+    // Enquanto a 1ª não resolve, nada mais é persistido (escritas encadeadas).
+    expect(mockUpdateTab).toHaveBeenCalledTimes(1);
+    expect(mockUpdateTab).toHaveBeenLastCalledWith('tab-editor', { conversation_id: '2' });
+
+    resolveFirst();
+
+    // Ao liberar a fila, a troca intermediária ('3') é pulada: persiste só a última.
+    await vi.waitFor(() => {
+      expect(mockUpdateTab).toHaveBeenLastCalledWith('tab-editor', { conversation_id: '4' });
+    });
+    expect(mockUpdateTab).toHaveBeenCalledTimes(2);
+    expect(useWorkspaceChatModalStore.getState().boundConversationId).toBe('4');
   });
 });

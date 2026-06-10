@@ -55,6 +55,13 @@ export interface WorkspaceChatModalAdapter {
 
 const adapters = new Map<string, WorkspaceChatModalAdapter>();
 
+// Serializa a persistência do vínculo de conversa na aba (latest-wins): as escritas
+// são encadeadas e cada uma só executa se ainda for a mais recente solicitada.
+// Sem isso, trocas rápidas poderiam resolver fora de ordem no backend e deixar
+// persistida uma conversa antiga.
+let persistConversationChain: Promise<void> = Promise.resolve();
+let persistConversationSeq = 0;
+
 export function registerWorkspaceChatModalAdapter(
   tabId: string,
   adapter: WorkspaceChatModalAdapter | null,
@@ -243,13 +250,17 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
     });
     set({ boundConversationId: conversationId, boundSurface: nextSurface });
 
-    // Persiste o vínculo na aba para sobreviver à reabertura do modal. Fire-and-forget
-    // com log: a troca visual já foi aplicada otimisticamente acima.
-    void useWorkspaceStore
-      .getState()
-      .updateTab(boundTabId, { conversation_id: conversationId })
-      .catch((e) => {
+    // Persiste o vínculo na aba para sobreviver à reabertura do modal. A troca visual
+    // já foi aplicada otimisticamente acima; a persistência é serializada (latest-wins)
+    // para que trocas rápidas não resolvam fora de ordem.
+    const seq = ++persistConversationSeq;
+    persistConversationChain = persistConversationChain.then(async () => {
+      if (seq !== persistConversationSeq) return; // já há uma troca mais recente
+      try {
+        await useWorkspaceStore.getState().updateTab(boundTabId, { conversation_id: conversationId });
+      } catch (e) {
         logger.error('[workspaceChatModal] falha ao persistir troca de conversa:', e);
-      });
+      }
+    });
   },
 }));
