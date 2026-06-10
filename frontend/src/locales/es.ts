@@ -1030,7 +1030,7 @@ const es = {
         namePlaceholder: 'Ej: Crear componente React',
         description: 'Descripción',
         descriptionPlaceholder: 'Cuándo debe usarse este skill',
-        auto: 'Auto — inyectar automáticamente en el system prompt',
+        auto: 'Permitir que el modelo invoque este skill automáticamente',
       },
       contentSection: {
         title: 'Contenido',
@@ -1043,6 +1043,22 @@ const es = {
         label: 'Herramientas (separadas por coma)',
         placeholder: 'Ej: tool1, tool2, tool3',
         hint: 'Lista las herramientas (tool calling) que pueden usarse en este skill.',
+      },
+      catalogSection: {
+        title: 'Catálogo y carga',
+        autoLoad: 'Auto-load — inyectar automáticamente en el system prompt',
+        autoLoadHint: 'Cuando está activo, el cuerpo del skill se inyecta en cada conversación. Úsalo con moderación y justifícalo abajo.',
+        autoloadReason: 'Justificación de auto_load',
+        autoloadReasonPlaceholder: '¿Por qué esta skill debe estar siempre en el prompt?',
+        autoloadReasonHint: 'Obligatoria cuando auto_load está activo: las skills sin justificación pasan a bajo demanda.',
+        contextBudget: 'Presupuesto de contexto (tokens)',
+        contextBudgetHint: 'Costo aproximado del cuerpo. 0 = estimado automáticamente por el tamaño.',
+        requiresLegend: 'Precondiciones de capacidad',
+        requiresTools: 'Requiere herramientas',
+        requiresFilesystem: 'Requiere sistema de archivos',
+        requiresNetwork: 'Requiere red',
+        requiresMcp: 'Requiere MCP',
+        requiresHint: 'Las skills que requieren una capacidad deshabilitada se omiten del prompt.',
       },
     },
 
@@ -2162,6 +2178,11 @@ const es = {
         started: 'Resumiendo conversación ({{count}} mensajes)...',
         completed: 'Resumen de conversación actualizado ({{count}} mensajes resumidos)',
         error: 'Error al resumir la conversación: {{error}}',
+      },
+      legacyImport: {
+        imported: '{{count}} recurso(s) heredado(s) importado(s) a la base de datos',
+        warnings: '{{count}} advertencia(s) en la importación heredada (calidad de descripción)',
+        failed: '{{count}} fallo(s) en la importación heredada',
       },
       questionnaire: {
         submitError: 'Error al enviar el cuestionario',

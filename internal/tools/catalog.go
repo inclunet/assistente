@@ -135,3 +135,35 @@ func builtinToolCatalogMetadata(name string) builtinToolMetadata {
 	}
 	return builtinToolMetadata{Category: "app", Class: "app_tool", Package: "basic", Risk: "read"}
 }
+
+// Capacidades de skill que uma tool pode satisfazer (AEP-0072 D4). Usadas para
+// validar, de forma confiável, se uma skill é compatível com o universo de tools
+// realmente disponível ao perfil.
+const (
+	ToolCapabilityFilesystem = "filesystem"
+	ToolCapabilityNetwork    = "network"
+	ToolCapabilityMCP        = "mcp"
+)
+
+// ToolCapabilityKind classifica uma tool (por nome) na capacidade de skill que ela
+// satisfaz: "filesystem", "network", "mcp" ou "" (genérica, sem capacidade
+// específica). Builtins usam as categorias do catálogo de metadados; o tool_catalog
+// é uma meta-tool e não concede capacidade própria; qualquer outro nome desconhecido
+// é tratado como MCP (tools dinâmicas registradas por servidores MCP).
+func ToolCapabilityKind(name string) string {
+	if name == ToolCatalogName {
+		return ""
+	}
+	metadata, ok := builtinToolMetadataByName[name]
+	if !ok {
+		return ToolCapabilityMCP
+	}
+	switch metadata.Category {
+	case "filesystem":
+		return ToolCapabilityFilesystem
+	case "web", "http":
+		return ToolCapabilityNetwork
+	default:
+		return ""
+	}
+}

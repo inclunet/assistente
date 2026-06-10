@@ -18,7 +18,7 @@ func setupRepo(t *testing.T) (*DBRepository, context.Context) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&database.Skill{}, &database.SkillTool{}); err != nil {
+	if err := db.AutoMigrate(&database.Skill{}, &database.SkillTool{}, &database.SkillCatalog{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
 	return NewDBRepository(db), context.Background()

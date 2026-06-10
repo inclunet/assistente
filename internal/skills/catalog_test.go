@@ -75,3 +75,32 @@ func TestCatalogEntryFromInfo(t *testing.T) {
 		t.Errorf("entry from info: %+v", e)
 	}
 }
+
+func TestCatalogByNamesOrderedResolvesSlugBeforeNameOnCollision(t *testing.T) {
+	// Colisão: o slug de uma entrada é igual ao nome de outra. A resolução deve
+	// ser determinística e priorizar o slug — sem depender da ordem de iteração.
+	a := SkillCatalogEntry{Slug: "shared", Name: "Alpha"}
+	b := SkillCatalogEntry{Slug: "beta", Name: "shared"}
+	all := []SkillCatalogEntry{a, b}
+
+	got := CatalogByNamesOrdered(all, []string{"shared"})
+	if len(got) != 1 || got[0].Slug != "shared" {
+		t.Fatalf("colisão deveria resolver pelo slug (entrada a), got %+v", got)
+	}
+
+	// Resolução por nome continua funcionando quando não há slug correspondente.
+	got = CatalogByNamesOrdered(all, []string{"Alpha", "beta"})
+	if len(got) != 2 || got[0].Slug != "shared" || got[1].Slug != "beta" {
+		t.Fatalf("esperava [shared(Alpha), beta], got %+v", got)
+	}
+}
+
+func TestCatalogByNamesOrderedNilVsEmpty(t *testing.T) {
+	all := []SkillCatalogEntry{{Slug: "a", Name: "A"}}
+	if got := CatalogByNamesOrdered(all, nil); len(got) != 1 {
+		t.Errorf("nil names = todas, got %+v", got)
+	}
+	if got := CatalogByNamesOrdered(all, []string{}); got != nil {
+		t.Errorf("names vazio = nenhuma, got %+v", got)
+	}
+}

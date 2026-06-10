@@ -1,5 +1,7 @@
 package skills
 
+import "strings"
+
 // SkillSelectionPolicy (AEP-0072 D1) — fonte única de verdade, determinística e
 // sem LLM, para "esta skill é aplicável/visível agora?". Espelha a
 // ToolSelectionPolicy (#119): recebe o contexto (capabilities do perfil/runtime)
@@ -33,6 +35,7 @@ const (
 	ReasonModelInvocationOff    = "model_invocation_disabled"
 	ReasonOnDemandDisabled      = "on_demand_disabled"
 	ReasonNotInAutoloadAllowlst = "not_in_autoload_allowlist"
+	ReasonAutoloadNoReason      = "autoload_missing_reason"
 )
 
 // SkillSelectionContext descreve as capacidades disponíveis no contexto/perfil.
@@ -53,6 +56,13 @@ type SkillSelectionContext struct {
 	// fazem autoload (seleção do perfil), sobrepondo o auto_load do metadado.
 	// nil = usa o auto_load declarado em cada skill.
 	AutoloadAllowlist []string
+
+	// RequireAutoloadReason, no modo metadata-driven (sem AutoloadAllowlist),
+	// exige que a skill declare autoload_reason para permanecer em autoload
+	// (AEP-0072 D5). Skills com auto_load=true mas sem motivo são rebaixadas
+	// para sob demanda. Ignorado quando AutoloadAllowlist está definido
+	// (o perfil é a fonte explícita da decisão).
+	RequireAutoloadReason bool
 }
 
 // SkillDecision é o resultado da política para uma skill.
@@ -106,17 +116,111 @@ func (p SkillSelectionPolicy) Decide(m *SkillMetadata, slug string, ctx SkillSel
 	if ctx.DisableOnDemand {
 		return hidden(ReasonOnDemandDisabled)
 	}
-	return SkillDecision{Slug: slug, Visibility: VisibilityOnDemand, Reason: ReasonOnDemand}
+	return SkillDecision{Slug: slug, Visibility: VisibilityOnDemand, Reason: p.onDemandReason(m.IsAutoLoad(), m.AutoloadReason, ctx)}
+}
+
+// onDemandReason distingue um on-demand normal de um autoload REBAIXADO por falta
+// de autoload_reason no modo metadata-driven (AEP-0072 D5). A visibilidade é a
+// mesma (sob demanda); só o motivo muda, para que o rebaixamento seja observável
+// em telemetria/diagnóstico em vez de indistinguível de um on-demand comum.
+func (p SkillSelectionPolicy) onDemandReason(isAutoLoad bool, autoloadReason string, ctx SkillSelectionContext) string {
+	if ctx.AutoloadAllowlist == nil && isAutoLoad && ctx.RequireAutoloadReason && strings.TrimSpace(autoloadReason) == "" {
+		return ReasonAutoloadNoReason
+	}
+	return ReasonOnDemand
 }
 
 // isAutoload resolve se a skill deve autoloadar no contexto.
 func (p SkillSelectionPolicy) isAutoload(m *SkillMetadata, slug string, ctx SkillSelectionContext) bool {
 	if ctx.AutoloadAllowlist != nil {
-		// Perfil define explicitamente o conjunto de autoload; ainda assim a
-		// skill precisa ser invocável pelo modelo.
+		// Perfil define explicitamente o conjunto de autoload; ainda assim a skill
+		// precisa ser invocável pelo modelo. A allowlist é casada por SLUG (canônico):
+		// a resolução de nome→slug é responsabilidade do caller, feita de forma
+		// determinística (slug-first) por CatalogByNamesOrdered — o prompt builder já
+		// entrega slugs resolvidos. Casar por nome aqui reintroduziria colisões.
 		return m.IsModelInvocable() && containsString(ctx.AutoloadAllowlist, slug)
 	}
-	return m.IsAutoLoad()
+	if !m.IsAutoLoad() {
+		return false
+	}
+	// Modo metadata-driven: autoload sem motivo é rebaixado (AEP-0072 D5).
+	if ctx.RequireAutoloadReason && strings.TrimSpace(m.AutoloadReason) == "" {
+		return false
+	}
+	return true
+}
+
+// DecideCatalog classifica uma entrada de catálogo (sem corpo) no contexto. É o
+// análogo de Decide para o Nível 1 servido direto do catálogo persistido: as
+// pré-condições de capability já vêm efetivas na entry (explícitas OU inferidas),
+// portanto não há reconstrução de SkillMetadata aqui. A ordem das regras espelha
+// Decide para garantir decisões idênticas.
+func (p SkillSelectionPolicy) DecideCatalog(entry SkillCatalogEntry, ctx SkillSelectionContext) SkillDecision {
+	hidden := func(reason string) SkillDecision {
+		return SkillDecision{Slug: entry.Slug, Visibility: VisibilityHidden, Reason: reason}
+	}
+
+	if ctx.SkillsDisabled {
+		return hidden(ReasonSkillsDisabled)
+	}
+
+	if entry.RequiresTools && !ctx.ToolsEnabled {
+		return hidden(ReasonRequiresTools)
+	}
+	if entry.RequiresFilesystem && !ctx.FilesystemEnabled {
+		return hidden(ReasonRequiresFilesystem)
+	}
+	if entry.RequiresNetwork && !ctx.NetworkEnabled {
+		return hidden(ReasonRequiresNetwork)
+	}
+	if entry.RequiresMCP && !ctx.MCPEnabled {
+		return hidden(ReasonRequiresMCP)
+	}
+
+	if p.isAutoloadCatalog(entry, ctx) {
+		return SkillDecision{Slug: entry.Slug, Visibility: VisibilityAutoload, Reason: ReasonAutoload}
+	}
+
+	if !entry.ModelInvocable {
+		return hidden(ReasonModelInvocationOff)
+	}
+	if ctx.DisableOnDemand {
+		return hidden(ReasonOnDemandDisabled)
+	}
+	return SkillDecision{Slug: entry.Slug, Visibility: VisibilityOnDemand, Reason: p.onDemandReason(entry.AutoLoad, entry.AutoloadReason, ctx)}
+}
+
+// isAutoloadCatalog espelha isAutoload usando os campos já efetivos da entry.
+func (p SkillSelectionPolicy) isAutoloadCatalog(entry SkillCatalogEntry, ctx SkillSelectionContext) bool {
+	if ctx.AutoloadAllowlist != nil {
+		// Casa por SLUG canônico (ver isAutoload): a resolução nome→slug é do caller.
+		return entry.ModelInvocable && containsString(ctx.AutoloadAllowlist, entry.Slug)
+	}
+	if !entry.AutoLoad {
+		return false
+	}
+	if ctx.RequireAutoloadReason && strings.TrimSpace(entry.AutoloadReason) == "" {
+		return false
+	}
+	return true
+}
+
+// DecideAllCatalog aplica a política a uma lista de entradas de catálogo e agrupa
+// por visibilidade, preservando a ordem de entrada dentro de cada grupo.
+func (p SkillSelectionPolicy) DecideAllCatalog(entries []SkillCatalogEntry, ctx SkillSelectionContext) SkillSelection {
+	var sel SkillSelection
+	for i := range entries {
+		d := p.DecideCatalog(entries[i], ctx)
+		switch d.Visibility {
+		case VisibilityAutoload:
+			sel.Autoload = append(sel.Autoload, d)
+		case VisibilityOnDemand:
+			sel.OnDemand = append(sel.OnDemand, d)
+		default:
+			sel.Hidden = append(sel.Hidden, d)
+		}
+	}
+	return sel
 }
 
 // SkillSelection agrupa o resultado de DecideAll por visibilidade, preservando
@@ -152,3 +256,4 @@ func containsString(list []string, s string) bool {
 	}
 	return false
 }
+
