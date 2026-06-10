@@ -123,8 +123,9 @@ func (p SkillSelectionPolicy) Decide(m *SkillMetadata, slug string, ctx SkillSel
 func (p SkillSelectionPolicy) isAutoload(m *SkillMetadata, slug string, ctx SkillSelectionContext) bool {
 	if ctx.AutoloadAllowlist != nil {
 		// Perfil define explicitamente o conjunto de autoload; ainda assim a
-		// skill precisa ser invocável pelo modelo.
-		return m.IsModelInvocable() && containsString(ctx.AutoloadAllowlist, slug)
+		// skill precisa ser invocável pelo modelo. A allowlist aceita slug OU nome
+		// (mesma semântica de CatalogByNamesOrdered).
+		return m.IsModelInvocable() && allowlistMatches(ctx.AutoloadAllowlist, slug, m.Name)
 	}
 	if !m.IsAutoLoad() {
 		return false
@@ -134,6 +135,78 @@ func (p SkillSelectionPolicy) isAutoload(m *SkillMetadata, slug string, ctx Skil
 		return false
 	}
 	return true
+}
+
+// DecideCatalog classifica uma entrada de catálogo (sem corpo) no contexto. É o
+// análogo de Decide para o Nível 1 servido direto do catálogo persistido: as
+// pré-condições de capability já vêm efetivas na entry (explícitas OU inferidas),
+// portanto não há reconstrução de SkillMetadata aqui. A ordem das regras espelha
+// Decide para garantir decisões idênticas.
+func (p SkillSelectionPolicy) DecideCatalog(entry SkillCatalogEntry, ctx SkillSelectionContext) SkillDecision {
+	hidden := func(reason string) SkillDecision {
+		return SkillDecision{Slug: entry.Slug, Visibility: VisibilityHidden, Reason: reason}
+	}
+
+	if ctx.SkillsDisabled {
+		return hidden(ReasonSkillsDisabled)
+	}
+
+	if entry.RequiresTools && !ctx.ToolsEnabled {
+		return hidden(ReasonRequiresTools)
+	}
+	if entry.RequiresFilesystem && !ctx.FilesystemEnabled {
+		return hidden(ReasonRequiresFilesystem)
+	}
+	if entry.RequiresNetwork && !ctx.NetworkEnabled {
+		return hidden(ReasonRequiresNetwork)
+	}
+	if entry.RequiresMCP && !ctx.MCPEnabled {
+		return hidden(ReasonRequiresMCP)
+	}
+
+	if p.isAutoloadCatalog(entry, ctx) {
+		return SkillDecision{Slug: entry.Slug, Visibility: VisibilityAutoload, Reason: ReasonAutoload}
+	}
+
+	if !entry.ModelInvocable {
+		return hidden(ReasonModelInvocationOff)
+	}
+	if ctx.DisableOnDemand {
+		return hidden(ReasonOnDemandDisabled)
+	}
+	return SkillDecision{Slug: entry.Slug, Visibility: VisibilityOnDemand, Reason: ReasonOnDemand}
+}
+
+// isAutoloadCatalog espelha isAutoload usando os campos já efetivos da entry.
+func (p SkillSelectionPolicy) isAutoloadCatalog(entry SkillCatalogEntry, ctx SkillSelectionContext) bool {
+	if ctx.AutoloadAllowlist != nil {
+		return entry.ModelInvocable && allowlistMatches(ctx.AutoloadAllowlist, entry.Slug, entry.Name)
+	}
+	if !entry.AutoLoad {
+		return false
+	}
+	if ctx.RequireAutoloadReason && strings.TrimSpace(entry.AutoloadReason) == "" {
+		return false
+	}
+	return true
+}
+
+// DecideAllCatalog aplica a política a uma lista de entradas de catálogo e agrupa
+// por visibilidade, preservando a ordem de entrada dentro de cada grupo.
+func (p SkillSelectionPolicy) DecideAllCatalog(entries []SkillCatalogEntry, ctx SkillSelectionContext) SkillSelection {
+	var sel SkillSelection
+	for i := range entries {
+		d := p.DecideCatalog(entries[i], ctx)
+		switch d.Visibility {
+		case VisibilityAutoload:
+			sel.Autoload = append(sel.Autoload, d)
+		case VisibilityOnDemand:
+			sel.OnDemand = append(sel.OnDemand, d)
+		default:
+			sel.Hidden = append(sel.Hidden, d)
+		}
+	}
+	return sel
 }
 
 // SkillSelection agrupa o resultado de DecideAll por visibilidade, preservando
@@ -168,4 +241,14 @@ func containsString(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// allowlistMatches verifica se a allowlist contém o slug ou o nome da skill.
+// Allowlists de perfil aceitam ambos os identificadores (ver CatalogByNamesOrdered);
+// o nome só é considerado quando não-vazio para não casar entradas vazias.
+func allowlistMatches(allowlist []string, slug, name string) bool {
+	if containsString(allowlist, slug) {
+		return true
+	}
+	return name != "" && containsString(allowlist, name)
 }

@@ -126,6 +126,10 @@ type SkillCatalog struct {
 	Description string `json:"description,omitempty" gorm:"type:text"`
 	Type        string `json:"type,omitempty" gorm:"index"`
 
+	// Path é o caminho em disco pré-materializado do corpo da skill (alvo do
+	// read_file na ativação por leitura, AEP-0072 D2).
+	Path string `json:"path,omitempty" gorm:"type:text"`
+
 	// Custo aproximado do corpo (tokens) para o planner do Nível 1.
 	ContextBudget int `json:"contextBudget" gorm:"not null;default:0"`
 

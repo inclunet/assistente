@@ -1045,6 +1045,20 @@ const en = {
         placeholder: 'E.g. tool1, tool2, tool3',
         hint: 'List the tools (tool calling) that can be used with this skill.',
       },
+      catalogSection: {
+        title: 'Catalog and loading',
+        autoloadReason: 'auto_load justification',
+        autoloadReasonPlaceholder: 'Why does this skill need to always be in the prompt?',
+        autoloadReasonHint: 'Required when auto_load is on: skills without a justification fall back to on-demand.',
+        contextBudget: 'Context budget (tokens)',
+        contextBudgetHint: 'Approximate body cost. 0 = estimated automatically from size.',
+        requiresLegend: 'Capability preconditions',
+        requiresTools: 'Requires tools',
+        requiresFilesystem: 'Requires filesystem',
+        requiresNetwork: 'Requires network',
+        requiresMcp: 'Requires MCP',
+        requiresHint: 'Skills requiring a disabled capability are omitted from the prompt.',
+      },
     },
 
     allowlist: {
@@ -2163,6 +2177,11 @@ const en = {
         started: 'Summarizing conversation ({{count}} messages)...',
         completed: 'Conversation summary updated ({{count}} messages summarized)',
         error: 'Error summarizing conversation: {{error}}',
+      },
+      legacyImport: {
+        imported: '{{count}} legacy resource(s) imported into the database',
+        warnings: '{{count}} warning(s) during legacy import (description quality)',
+        failed: '{{count}} failure(s) during legacy import',
       },
       questionnaire: {
         submitError: 'Error submitting questionnaire',

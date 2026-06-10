@@ -13,6 +13,12 @@ type SkillCatalogEntry struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName,omitempty"`
 	Description string `json:"description"`
+	Type        string `json:"type,omitempty"`
+
+	// Path é o caminho em disco legível do corpo da skill (pré-materializado no
+	// rebuild do catálogo em modo DB; SKILL.md original em modo filesystem). É o
+	// alvo do read_file na ativação por leitura (AEP-0072 D2, Nível 2).
+	Path string `json:"path,omitempty"`
 
 	// Custo aproximado do corpo (tokens) para o planner de budget do Nível 1.
 	ContextBudget int `json:"contextBudget"`
@@ -30,6 +36,66 @@ type SkillCatalogEntry struct {
 	UserInvocable  bool   `json:"userInvocable"`
 
 	IsBuiltin bool `json:"isBuiltin"`
+}
+
+// CatalogByNamesOrdered devolve as entradas cujo slug/nome está em names, na ordem
+// de names (modo lista-explícita do perfil). nil = todas; vazio = nenhuma.
+func CatalogByNamesOrdered(all []SkillCatalogEntry, names []string) []SkillCatalogEntry {
+	if names == nil {
+		return all
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	// Mapas separados para slug e nome: misturá-los no mesmo namespace permitiria
+	// colisões (o slug de uma entrada igual ao nome de outra) e resultado não
+	// determinístico. Resolve-se cada identificador pedido por slug primeiro,
+	// depois por nome.
+	bySlug := make(map[string]SkillCatalogEntry, len(all))
+	byName := make(map[string]SkillCatalogEntry, len(all))
+	for _, e := range all {
+		bySlug[e.Slug] = e
+		if e.Name != "" {
+			byName[e.Name] = e
+		}
+	}
+	var out []SkillCatalogEntry
+	for _, n := range names {
+		if e, ok := bySlug[n]; ok {
+			out = append(out, e)
+			continue
+		}
+		if e, ok := byName[n]; ok {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// CatalogExcludeNames devolve as entradas cujo slug/nome NÃO está em names.
+func CatalogExcludeNames(all []SkillCatalogEntry, names []string) []SkillCatalogEntry {
+	if len(names) == 0 {
+		return all
+	}
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
+	}
+	var out []SkillCatalogEntry
+	for _, e := range all {
+		if !set[e.Slug] && !set[e.Name] {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// GetDisplayName devolve o rótulo de exibição (DisplayName ou Name como fallback).
+func (e SkillCatalogEntry) GetDisplayName() string {
+	if e.DisplayName != "" {
+		return e.DisplayName
+	}
+	return e.Name
 }
 
 // approxTokensPerChar é uma heurística simples (≈4 chars/token) para estimar o
@@ -61,6 +127,7 @@ func CatalogEntryFromSkill(s *Skill) SkillCatalogEntry {
 		entry.ContextBudget = EstimateContextBudget(s.Content)
 	}
 	entry.IsBuiltin = s.Source == sourceExe
+	entry.Path = s.Path
 	return entry
 }
 
@@ -81,6 +148,7 @@ func catalogEntryFromMetadata(m *SkillMetadata, slug string) SkillCatalogEntry {
 		Name:               m.Name,
 		DisplayName:        m.DisplayName,
 		Description:        m.Description,
+		Type:               m.Type,
 		ContextBudget:      m.ContextBudget,
 		RequiresTools:      m.EffectiveRequiresTools(),
 		RequiresFilesystem: m.EffectiveRequiresFilesystem(),

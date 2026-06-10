@@ -96,7 +96,7 @@ func (m *Manager) importLegacySkillsFrom(ctx context.Context, source portability
 	// AEP-0072 D1: ressincroniza o catálogo após a importação em massa, mesmo
 	// que parcial — só faz sentido se algo foi importado.
 	if result.Imported > 0 {
-		if rebuildErr := m.repo.RebuildCatalog(ctx); rebuildErr != nil {
+		if rebuildErr := m.repo.RebuildCatalog(ctx, m.MaterializeSkill); rebuildErr != nil {
 			log.Printf("[Skills] Erro ao reconstruir catálogo pós-importação: %v", rebuildErr)
 		}
 	}

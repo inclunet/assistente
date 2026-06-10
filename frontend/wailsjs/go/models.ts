@@ -4276,6 +4276,8 @@ export namespace skills {
 	    name: string;
 	    displayName?: string;
 	    description: string;
+	    type?: string;
+	    path?: string;
 	    contextBudget: number;
 	    requiresTools: boolean;
 	    requiresFilesystem: boolean;
@@ -4297,6 +4299,8 @@ export namespace skills {
 	        this.name = source["name"];
 	        this.displayName = source["displayName"];
 	        this.description = source["description"];
+	        this.type = source["type"];
+	        this.path = source["path"];
 	        this.contextBudget = source["contextBudget"];
 	        this.requiresTools = source["requiresTools"];
 	        this.requiresFilesystem = source["requiresFilesystem"];

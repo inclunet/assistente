@@ -1045,6 +1045,20 @@ const ptBR = {
         placeholder: 'Ex: tool1, tool2, tool3',
         hint: 'Liste as ferramentas (tool calling) que podem ser usadas neste skill.',
       },
+      catalogSection: {
+        title: 'Catálogo e carregamento',
+        autoloadReason: 'Justificativa do auto_load',
+        autoloadReasonPlaceholder: 'Por que esta skill precisa estar sempre no prompt?',
+        autoloadReasonHint: 'Obrigatória quando auto_load está ativo: skills sem justificativa caem para sob demanda.',
+        contextBudget: 'Orçamento de contexto (tokens)',
+        contextBudgetHint: 'Custo aproximado do corpo. 0 = estimado automaticamente pelo tamanho.',
+        requiresLegend: 'Pré-condições de capacidade',
+        requiresTools: 'Requer ferramentas',
+        requiresFilesystem: 'Requer sistema de arquivos',
+        requiresNetwork: 'Requer rede',
+        requiresMcp: 'Requer MCP',
+        requiresHint: 'Skills que exigem uma capacidade desabilitada são omitidas do prompt.',
+      },
     },
 
     allowlist: {
@@ -2138,6 +2152,11 @@ const ptBR = {
         started: 'Sumarizando conversa ({{count}} mensagens)...',
         completed: 'Resumo da conversa atualizado ({{count}} mensagens resumidas)',
         error: 'Erro ao sumarizar conversa: {{error}}',
+      },
+      legacyImport: {
+        imported: '{{count}} recurso(s) legado(s) importado(s) para o banco',
+        warnings: '{{count}} aviso(s) na importação legada (qualidade de descrição)',
+        failed: '{{count}} falha(s) na importação legada',
       },
       questionnaire: {
         submitError: 'Erro ao enviar questionário',
