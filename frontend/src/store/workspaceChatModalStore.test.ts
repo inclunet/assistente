@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockIsModalOpen = vi.fn();
 const mockAddToast = vi.fn();
+const mockUpdateTab = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('./workspaceStore', () => ({
   useWorkspaceStore: {
@@ -12,6 +13,7 @@ vi.mock('./workspaceStore', () => ({
           { id: 'tab-chat', type: 'chat' as const, title: 'Chat', position: 1 },
         ],
       },
+      updateTab: mockUpdateTab,
     }),
   },
 }));
@@ -196,5 +198,52 @@ describe('workspaceChatModalStore.requestOpen', () => {
     expect(useWorkspaceChatModalStore.getState().isOpen).toBe(false);
     expect(mockAddToast).toHaveBeenCalledWith('workspace.chatModal.prepareFailed', 'error');
     expect(mockEnsureWorkspaceTabConversationId).not.toHaveBeenCalled();
+  });
+});
+
+describe('workspaceChatModalStore.setBoundConversation', () => {
+  beforeEach(() => {
+    resetWorkspaceChatModalState();
+    mockUpdateTab.mockClear();
+  });
+
+  const openModalBoundTo = (conversationId: string) => {
+    useWorkspaceChatModalStore.getState().open('ctx', {}, 'tab-editor', conversationId, {
+      conversationId,
+      sessionKey: `modal:workspace-chat:tab-editor:${conversationId}`,
+      surfaceId: 'modal:workspace-chat:tab-editor',
+      surfaceType: 'modal',
+      tabId: 'tab-editor',
+    }, vi.fn());
+  };
+
+  it('é no-op quando o modal está fechado', () => {
+    useWorkspaceChatModalStore.getState().setBoundConversation('99');
+    const s = useWorkspaceChatModalStore.getState();
+    expect(s.boundConversationId).toBeNull();
+    expect(mockUpdateTab).not.toHaveBeenCalled();
+  });
+
+  it('é no-op quando a conversa é a mesma', () => {
+    openModalBoundTo('1');
+    useWorkspaceChatModalStore.getState().setBoundConversation('1');
+    expect(mockUpdateTab).not.toHaveBeenCalled();
+  });
+
+  it('recria a superfície, atualiza boundConversationId e persiste o vínculo na aba', () => {
+    openModalBoundTo('1');
+
+    useWorkspaceChatModalStore.getState().setBoundConversation('2');
+
+    const s = useWorkspaceChatModalStore.getState();
+    expect(s.boundConversationId).toBe('2');
+    expect(s.boundSurface).toEqual({
+      conversationId: '2',
+      sessionKey: 'modal:workspace-chat:tab-editor:2',
+      surfaceId: 'modal:workspace-chat:tab-editor',
+      surfaceType: 'modal',
+      tabId: 'tab-editor',
+    });
+    expect(mockUpdateTab).toHaveBeenCalledWith('tab-editor', { conversation_id: '2' });
   });
 });

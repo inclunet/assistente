@@ -62,6 +62,27 @@ describe('ChatPanel', () => {
     }));
   });
 
+  it('repassa onRequestConversationChange para a view interna', () => {
+    const onRequestConversationChange = vi.fn();
+    render(
+      <ChatPanel
+        surface={{
+          conversationId: 'conversation-a',
+          sessionKey: 'surface-a:conversation-a',
+          surfaceId: 'surface-a',
+          surfaceType: 'modal',
+          tabId: 'tab-chat',
+        }}
+        onSend={vi.fn()}
+        onRequestConversationChange={onRequestConversationChange}
+      />,
+    );
+
+    expect(chatSessionViewMock).toHaveBeenCalledWith(expect.objectContaining({
+      onRequestConversationChange,
+    }));
+  });
+
   it('adapta envio da view para contexto de superfície', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockResolvedValue(undefined);

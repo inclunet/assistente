@@ -22,16 +22,29 @@ import { useChatSession } from './ChatSessionContext';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import './ChatToolbar.css';
 
+export type ChatToolbarConversationChangeHandler = (
+  conversationId: string,
+  conversation: { title?: string },
+) => void | Promise<void>;
+
 export interface ChatToolbarProps {
   inputRef?: React.RefObject<HTMLTextAreaElement>;
   conversationId?: string | null;
   enableShortcuts?: boolean;
+  /**
+   * Solicitação de troca de conversa originada no HistoryPicker. Quando fornecida,
+   * o dono da superfície decide o efeito (persistir na aba, recriar a superfície do
+   * modal embutido, etc.). Sem ela, o toolbar apenas carrega a sessão da conversa —
+   * comportamento mínimo para superfícies que não possuem um vínculo próprio.
+   */
+  onRequestConversationChange?: ChatToolbarConversationChangeHandler;
 }
 
 export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   inputRef,
   conversationId,
   enableShortcuts = true,
+  onRequestConversationChange,
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -191,15 +204,11 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const handleHistoryChange = async (nextConversationId: string, conversation: { title?: string }) => {
     const nextTitle = conversation.title || t('chat.newConversation');
     try {
-      if (panelTab.type === 'chat') {
-        await Promise.all([
-          loadConversationSession(nextConversationId),
-          updateWsTab(panelTab.id, {
-            conversation_id: nextConversationId,
-            title: nextTitle,
-          }),
-        ]);
+      if (onRequestConversationChange) {
+        // Superfície controlada: o dono (página/modal) decide o efeito da troca.
+        await onRequestConversationChange(nextConversationId, conversation);
       } else {
+        // Fallback mínimo: só carrega a sessão (superfícies sem vínculo próprio).
         await loadConversationSession(nextConversationId);
       }
       announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);

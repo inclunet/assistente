@@ -8,7 +8,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import { ttsService } from '../../services/tts';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
-import { ChatToolbar } from './ChatToolbar';
+import { ChatToolbar, type ChatToolbarConversationChangeHandler } from './ChatToolbar';
 import { ChatSessionProvider } from './ChatSessionContext';
 import type {
   ChatSurfaceIdentity,
@@ -38,6 +38,8 @@ export interface ChatSessionViewProps {
   surface: ChatSurfaceIdentity;
   /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
   onSend: (content: string, mediaFiles: MediaFile[] | undefined, origin: ChatSurfaceOrigin) => Promise<void>;
+  /** Solicitação de troca de conversa (controlada pelo dono da superfície). */
+  onRequestConversationChange?: ChatToolbarConversationChangeHandler;
   showShortcutsHelp?: boolean;
 }
 
@@ -45,6 +47,7 @@ export function ChatSessionView({
   variant = 'page',
   surface,
   onSend,
+  onRequestConversationChange,
   showShortcutsHelp,
 }: ChatSessionViewProps) {
   return (
@@ -53,6 +56,7 @@ export function ChatSessionView({
         variant={variant}
         surface={surface}
         onSend={onSend}
+        onRequestConversationChange={onRequestConversationChange}
         showShortcutsHelp={showShortcutsHelp}
       />
     </ChatSessionProvider>
@@ -61,6 +65,7 @@ export function ChatSessionView({
 
 function ChatSessionViewControllerBridge({
   onSend,
+  onRequestConversationChange,
   variant,
   showShortcutsHelp,
 }: ChatSessionViewProps) {
@@ -72,18 +77,20 @@ function ChatSessionViewControllerBridge({
     <ChatSessionViewContent
       variant={variant}
       showShortcutsHelp={showShortcutsHelp}
+      onRequestConversationChange={onRequestConversationChange}
       controller={controller}
     />
   );
 }
 
-interface ChatSessionViewContentProps extends Pick<ChatSessionViewProps, 'variant' | 'showShortcutsHelp'> {
+interface ChatSessionViewContentProps extends Pick<ChatSessionViewProps, 'variant' | 'showShortcutsHelp' | 'onRequestConversationChange'> {
   controller: ChatSurfaceController;
 }
 
 function ChatSessionViewContent({
   variant = 'page',
   showShortcutsHelp,
+  onRequestConversationChange,
   controller,
 }: ChatSessionViewContentProps) {
   const { t } = useTranslation();
@@ -843,7 +850,12 @@ function ChatSessionViewContent({
   return (
     <div className={rootClass} ref={rootRef}>
       <div className="ws-content-toolbar">
-        <ChatToolbar inputRef={inputRef} conversationId={conversationId} enableShortcuts={isInteractiveSurface} />
+        <ChatToolbar
+          inputRef={inputRef}
+          conversationId={conversationId}
+          enableShortcuts={isInteractiveSurface}
+          onRequestConversationChange={onRequestConversationChange}
+        />
       </div>
       <div className="ws-content-area">
         <MessageList

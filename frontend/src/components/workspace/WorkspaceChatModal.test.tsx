@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 
+const mockSetBoundConversation = vi.fn();
+
 const workspaceChatModalState = {
   isOpen: true,
   boundTabId: 'tab-editor',
@@ -19,6 +21,7 @@ const workspaceChatModalState = {
   focusNonce: 1,
   adapterError: null,
   close: vi.fn(),
+  setBoundConversation: mockSetBoundConversation,
 };
 
 const activeTab = { id: 'tab-editor', type: 'editor' as const, title: 'Editor', position: 0 };
@@ -40,10 +43,18 @@ vi.mock('../ui/Modal', () => ({
   ),
 }));
 
+const capturedChatPanelProps: {
+  onRequestConversationChange?: (id: string, conversation: { title?: string }) => void;
+} = {};
+
 vi.mock('../chat/ChatPanel', () => ({
-  ChatPanel: ({ surface }: { surface: { sessionKey: string } }) => (
-    <div data-session-key={surface.sessionKey}>chat-panel</div>
-  ),
+  ChatPanel: ({ surface, onRequestConversationChange }: {
+    surface: { sessionKey: string };
+    onRequestConversationChange?: (id: string, conversation: { title?: string }) => void;
+  }) => {
+    capturedChatPanelProps.onRequestConversationChange = onRequestConversationChange;
+    return <div data-session-key={surface.sessionKey}>chat-panel</div>;
+  },
 }));
 
 vi.mock('../../store/workspaceChatModalStore', () => ({
@@ -112,5 +123,14 @@ describe('WorkspaceChatModal', () => {
       'data-session-key',
       `modal:workspace-chat:tab-editor:${conversationId}`,
     );
+  });
+
+  it('troca de conversa no chat embutido delega para setBoundConversation', () => {
+    mockSetBoundConversation.mockClear();
+    render(<WorkspaceChatModal />);
+
+    capturedChatPanelProps.onRequestConversationChange?.('nova-conversa', { title: 'Outra' });
+
+    expect(mockSetBoundConversation).toHaveBeenCalledWith('nova-conversa');
   });
 });

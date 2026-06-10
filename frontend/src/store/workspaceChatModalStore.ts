@@ -99,6 +99,14 @@ interface WorkspaceChatModalState {
   bumpFocus: () => void;
   setAdapterError: (msg: string | null) => void;
   requestOpen: (tabId: string) => Promise<void>;
+  /**
+   * Troca a conversa vinculada ao modal já aberto, recriando a superfície de chat
+   * (a `ChatSessionProvider` deriva tudo de `surface.conversationId`, então é a
+   * recriação da identidade que efetiva a troca na view embutida) e persistindo o
+   * vínculo na aba. Painéis que observam `boundConversationId` (ex.: TaskListView)
+   * reagem automaticamente. No-op se o modal estiver fechado ou a conversa for a mesma.
+   */
+  setBoundConversation: (conversationId: string) => void;
 }
 
 export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, get) => ({
@@ -220,5 +228,28 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
       tabId: tab.id,
     });
     get().open(result.contextDisplay, result.meta, tab.id, conversationId, boundSurface, adapter.send);
+  },
+
+  setBoundConversation: (conversationId) => {
+    const { isOpen, boundTabId, boundSurface } = get();
+    if (!isOpen || !boundTabId || !boundSurface) return;
+    if (boundSurface.conversationId === conversationId) return;
+
+    const nextSurface = createChatSurfaceIdentity({
+      conversationId,
+      surfaceId: boundSurface.surfaceId,
+      surfaceType: boundSurface.surfaceType,
+      tabId: boundTabId,
+    });
+    set({ boundConversationId: conversationId, boundSurface: nextSurface });
+
+    // Persiste o vínculo na aba para sobreviver à reabertura do modal. Fire-and-forget
+    // com log: a troca visual já foi aplicada otimisticamente acima.
+    void useWorkspaceStore
+      .getState()
+      .updateTab(boundTabId, { conversation_id: conversationId })
+      .catch((e) => {
+        logger.error('[workspaceChatModal] falha ao persistir troca de conversa:', e);
+      });
   },
 }));

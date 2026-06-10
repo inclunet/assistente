@@ -24,6 +24,7 @@ export function WorkspaceChatModal() {
   const close = useWorkspaceChatModalStore((s) => s.close);
   const boundConversationId = useWorkspaceChatModalStore((s) => s.boundConversationId);
   const boundSurface = useWorkspaceChatModalStore((s) => s.boundSurface);
+  const setBoundConversation = useWorkspaceChatModalStore((s) => s.setBoundConversation);
   const workspaceTabs = useWorkspaceStore((s) => s.workspace?.tabs ?? []);
   const activeConversation = useChatConversationTimeline(boundConversationId);
   const activeWorkspaceTab = useActiveTab();
@@ -39,6 +40,16 @@ export function WorkspaceChatModal() {
   const handleClose = useCallback(() => {
     close();
   }, [close]);
+
+  // Dono da superfície "modal embutido": trocar a conversa no HistoryPicker recria a
+  // superfície vinculada e persiste o vínculo na aba. Painéis que observam
+  // `boundConversationId` (ex.: TaskListView) re-vinculam a lista automaticamente.
+  const handleRequestConversationChange = useCallback(
+    (nextConversationId: string) => {
+      setBoundConversation(nextConversationId);
+    },
+    [setBoundConversation],
+  );
 
   /** `bumpFocus()` altera o nonce; sem isto o textarea do ChatInput não volta a receber foco. */
   useEffect(() => {
@@ -142,6 +153,7 @@ export function WorkspaceChatModal() {
               <ChatPanel
                 surface={boundSurface}
                 onSend={handleSend}
+                onRequestConversationChange={handleRequestConversationChange}
                 showShortcutsHelp={false}
               />
             </div>
