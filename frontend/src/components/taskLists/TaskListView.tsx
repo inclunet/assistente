@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
 import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, ThunderboltOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
@@ -13,6 +14,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
+import { openTaskLink } from '../../lib/deepLinks';
 import { buildChatSurfaceParams } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
@@ -32,6 +34,7 @@ interface TaskListViewProps {
  */
 export default function TaskListView({ taskListId }: TaskListViewProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const requestConfirm = useConfirm();
@@ -44,7 +47,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
-  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions } = useTaskListStore();
+  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
   const { runCustomAction } = useCustomActions();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
@@ -52,6 +55,12 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const [isCustomActionsEditorOpen, setIsCustomActionsEditorOpen] = useState(false);
   const [boardActions, setBoardActions] = useState<CustomActionView[]>([]);
   const [taskCountsByStatus, setTaskCountsByStatus] = useState<Record<number, number>>({});
+
+  // Conversa atualmente vinculada ao chat embutido desta aba (quando o modal de
+  // chat está aberto). Usada para auto-vincular a lista à conversa do chat.
+  const chatBoundConversationId = useWorkspaceChatModalStore(
+    (s) => (s.isOpen && s.boundTabId === panelTab?.id ? s.boundConversationId : null),
+  );
 
   const boardActionsReqRef = useRef(0);
   const reloadBoardActions = useCallback(() => {
@@ -271,6 +280,29 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     }
   }, [taskList?.title, taskListId, requestConfirm, deleteTaskList, addToast, announce, t]);
 
+  const handleOpenLinkedConversation = useCallback(() => {
+    if (!taskList?.conversationId) return;
+    openTaskLink(`assistente://conversation/${taskList.conversationId}`, { navigate });
+  }, [taskList?.conversationId, navigate]);
+
+  // Auto-vínculo: quando o chat embutido desta aba abre com uma conversa, a lista
+  // passa a apontar para ela (inclusive ao iniciar uma conversa nova pelo chat).
+  // Sem feedback visual extra — é um efeito implícito do uso do chat.
+  useEffect(() => {
+    // Só auto-vincula com a lista já carregada no store: evita escrever no backend
+    // antes de confirmar que a lista existe e impede chamadas espúrias ao alternar
+    // rapidamente de aba/lista (quando taskList ainda é undefined).
+    if (!taskList) return;
+    if (!chatBoundConversationId) return;
+    if (taskList.conversationId === chatBoundConversationId) return;
+    void setTaskListConversation(taskListId, chatBoundConversationId).then(() => {
+      announce(t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado'));
+    }).catch((error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
+    });
+  }, [chatBoundConversationId, taskList, taskListId, setTaskListConversation, announce, addToast, t]);
+
   if (!taskList) {
     return <div className="tasklist-loading">{t('tasklist.loading', 'Carregando...')}</div>;
   }
@@ -290,6 +322,15 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               shortcut: 'Ctrl+Shift+I',
               onClick: () => void useWorkspaceChatModalStore.getState().requestOpen(panelTab.id),
             },
+            ...(taskList.conversationId
+              ? [{
+                  key: 'open-conversation',
+                  label: t('tasklist.openConversation', 'Abrir conversa'),
+                  icon: <MessageOutlined />,
+                  onClick: handleOpenLinkedConversation,
+                  variant: 'secondary' as const,
+                }]
+              : []),
             {
               key: 'new-task',
               label: t('tasklist.createTask', 'Nova Tarefa'),

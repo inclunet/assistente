@@ -680,7 +680,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       } catch (error) {
         get().setError('setTaskListConversation', String(error));
         // Update otimista divergiu do backend: recarrega a lista para restaurar
-        // o estado real e repropaga para o caller (TaskListHeader) dar feedback.
+        // o estado real e repropaga para o caller (TaskListView) dar feedback.
         await get().loadTaskList(taskListId);
         throw error;
       }

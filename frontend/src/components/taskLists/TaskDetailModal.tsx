@@ -4,8 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Modal } from '../ui/Modal';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
+import { HistoryPicker } from '../pickers/HistoryPicker';
 import { useTaskListStore } from '../../store/taskListStore';
+import { useUIStore } from '../../store/uiStore';
 import { useConfirm } from '../../hooks/useConfirm';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { openTaskLink } from '../../lib/deepLinks';
 import { TASK_NOTE_TYPES } from '../../types/tasklist';
 import type { Task, TaskNote, TaskNoteType, TaskListWorkflowStatus, CustomActionView } from '../../types/tasklist';
@@ -18,6 +21,9 @@ interface TaskDetailModalProps {
   task: Task | null;
   statuses: TaskListWorkflowStatus[];
 }
+
+// Valor sentinela do item "Nenhuma" no HistoryPicker (não pode colidir com ID de conversa).
+const CONVERSATION_NONE = '__none__';
 
 const NOTE_TYPE_ICONS: Record<TaskNoteType, ReactNode> = {
   1: <FileTextOutlined aria-hidden="true" />,
@@ -48,7 +54,9 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const { t } = useTranslation();
   const navigate = useNavigate();
   const requestConfirm = useConfirm();
-  const { loadTaskNotes, createTaskNote, updateTaskNote, deleteTaskNote, listCardCustomActions } = useTaskListStore();
+  const { loadTaskNotes, createTaskNote, updateTaskNote, deleteTaskNote, listCardCustomActions, setTaskConversation } = useTaskListStore();
+  const addToast = useUIStore((s) => s.addToast);
+  const { announce } = useAnnouncer();
   const { runCustomAction } = useCustomActions();
 
   const [notes, setNotes] = useState<TaskNote[]>([]);
@@ -56,6 +64,8 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const [isLoadingNotes, setIsLoadingNotes] = useState(false);
   const [showNoteForm, setShowNoteForm] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+
+  const [conversationSaving, setConversationSaving] = useState(false);
 
   // Note form state
   const [noteType, setNoteType] = useState<TaskNoteType>(TASK_NOTE_TYPES.INTERNAL);
@@ -154,6 +164,25 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     openTaskLink(`assistente://conversation/${task.conversationId}`, { navigate });
   }, [task, navigate]);
 
+  // Aplica o vínculo imediatamente ao selecionar no HistoryPicker (id) ou ao
+  // escolher "Nenhuma"/desvincular (null), espelhando a UX do picker do chat.
+  const applyConversation = useCallback(async (conversationId: string | null) => {
+    if (!task) return;
+    setConversationSaving(true);
+    try {
+      await setTaskConversation(task.id, conversationId);
+      const msg = t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado');
+      addToast(msg, 'success');
+      announce(msg);
+    } catch (error) {
+      // setTaskConversation já registra o erro e recarrega a lista; dá feedback explícito.
+      const msg = error instanceof Error ? error.message : String(error);
+      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
+    } finally {
+      setConversationSaving(false);
+    }
+  }, [task, setTaskConversation, addToast, announce, t]);
+
   const status = task ? statuses.find((s) => s.id === task.statusId) : undefined;
   const isDueDatePast = task?.dueDate && new Date(task.dueDate) < new Date();
 
@@ -221,10 +250,30 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
             tabIndex={0}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleConversationClick(); } }}
             title={task.conversationId}
+            aria-label={t('tasklist.conversation', 'Conversa vinculada')}
           >
             <MessageOutlined aria-hidden="true" /> {t('tasklist.conversation', 'Conversa vinculada')}
           </span>
         )}
+      </div>
+
+      {/* Conversation link editor */}
+      <div className="task-detail__conversation">
+        <HistoryPicker
+          value={task.conversationId}
+          onChange={(id) => void applyConversation(id)}
+          onSelectExtra={() => void applyConversation(null)}
+          extraItems={task.conversationId
+            ? [{ value: CONVERSATION_NONE, label: t('tasklist.conversationNone', 'Nenhuma') }]
+            : undefined}
+          label={task.conversationId
+            ? t('tasklist.changeConversation', 'Alterar conversa vinculada')
+            : t('tasklist.linkConversation', 'Vincular conversa')}
+          description={t('tasklist.conversationDescription', 'Vincula esta tarefa a uma conversa')}
+          disabled={conversationSaving}
+          maxWidth="100%"
+          onAnnounce={announce}
+        />
       </div>
 
       {/* Custom actions (AEP-0067): when avaliado server-side */}
@@ -236,8 +285,9 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
               type="button"
               className={`task-detail__custom-action${ca.danger ? ' task-detail__custom-action--danger' : ''}`}
               onClick={() => { void runCustomAction(ca, task.taskListId, task.id); }}
+              aria-label={ca.label}
             >
-              {ca.icon ? `${ca.icon} ${ca.label}` : ca.label}
+              {ca.icon ? <><span aria-hidden="true">{ca.icon}</span> {ca.label}</> : ca.label}
             </button>
           ))}
         </div>

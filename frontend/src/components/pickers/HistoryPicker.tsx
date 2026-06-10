@@ -1,5 +1,6 @@
 import { logger } from '../../utils/logger';
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { useTranslation } from 'react-i18next';
 import { HistoryOutlined } from '@ant-design/icons';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
@@ -15,6 +16,13 @@ export interface HistoryPickerProps {
   disabled?: boolean;
   maxWidth?: string;
   onAnnounce?: (message: string) => void;
+  /**
+   * Itens extras fixados no topo da lista (ex.: "Nenhuma"/desvincular).
+   * O valor de cada item NÃO deve colidir com um ID de conversa.
+   */
+  extraItems?: ComboboxItem[];
+  /** Chamado ao selecionar um extraItem (valor que não corresponde a uma conversa). */
+  onSelectExtra?: (value: string) => void;
 }
 
 export interface HistoryPickerRef {
@@ -25,12 +33,16 @@ export interface HistoryPickerRef {
 export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
   value,
   onChange,
-  label = 'Histórico (Ctrl+H)',
+  label,
   description,
   disabled = false,
   maxWidth = '200px',
-  onAnnounce
+  onAnnounce,
+  extraItems,
+  onSelectExtra
 }, ref) => {
+  const { t } = useTranslation();
+  const resolvedLabel = label ?? t('history.pickerLabel', 'Histórico (Ctrl+H)');
   const [conversations, setConversations] = useState<database.Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -103,24 +115,28 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    if (diffMins < 1) return 'agora';
-    if (diffMins < 60) return `${diffMins}min atrás`;
-    if (diffHours < 24) return `${diffHours}h atrás`;
-    if (diffDays < 7) return `${diffDays}d atrás`;
-    
-    return date.toLocaleDateString('pt-BR', { 
-      day: '2-digit', 
+    if (diffMins < 1) return t('history.relativeNow', 'agora');
+    if (diffMins < 60) return t('history.relativeMinutes', '{{count}}min atrás', { count: diffMins });
+    if (diffHours < 24) return t('history.relativeHours', '{{count}}h atrás', { count: diffHours });
+    if (diffDays < 7) return t('history.relativeDays', '{{count}}d atrás', { count: diffDays });
+
+    return date.toLocaleDateString(undefined, {
+      day: '2-digit',
       month: '2-digit',
       year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
     });
   };
 
-  // Converte conversas para items do Combobox (apenas conversas, sem opções especiais)
-  const items: ComboboxItem[] = conversations.map(conv => ({
-    value: conv.id.toString(),
-    label: conv.title || 'Sem título',
-    sublabel: `${conv.message_count || 0} msgs • ${formatDate(conv.updatedAt)}`
-  }));
+  // Converte conversas para items do Combobox. extraItems (ex.: "Nenhuma")
+  // ficam fixados no topo da lista.
+  const items: ComboboxItem[] = [
+    ...(extraItems ?? []),
+    ...conversations.map(conv => ({
+      value: conv.id.toString(),
+      label: conv.title || t('history.untitled', 'Sem título'),
+      sublabel: `${t('history.messagesCount', '{{count}} msgs', { count: conv.message_count || 0 })} • ${formatDate(conv.updatedAt)}`
+    })),
+  ];
 
   // Valor selecionado (string vazia se não houver conversa selecionada)
   const selectedValue = value ? value.toString() : '';
@@ -129,6 +145,10 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
     const conversation = conversations.find(c => String(c.id) === selectedValue);
     if (conversation) {
       onChange(selectedValue, conversation);
+      return;
+    }
+    if (extraItems?.some(item => item.value === selectedValue)) {
+      onSelectExtra?.(selectedValue);
     }
   };
 
@@ -138,10 +158,10 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
       items={items}
       selected={selectedValue}
       onSelect={handleSelect}
-      label={label}
+      label={resolvedLabel}
       description={description}
       icon={<HistoryOutlined />}
-      placeholder={isLoading ? 'Carregando...' : 'Buscar conversa...'}
+      placeholder={isLoading ? t('history.loadingShort', 'Carregando...') : t('history.searchPlaceholder', 'Buscar conversa...')}
       disabled={disabled || isLoading}
       maxWidth={maxWidth}
       onAnnounce={onAnnounce}

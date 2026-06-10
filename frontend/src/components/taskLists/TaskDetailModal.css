@@ -94,6 +94,12 @@
   border-radius: var(--radius-sm);
 }
 
+/* Conversation link editor */
+.task-detail__conversation {
+  padding: 0 24px;
+  margin-bottom: 8px;
+}
+
 .task-detail__badge--assignee {
   color: var(--text-secondary);
   border-color: var(--border-color);

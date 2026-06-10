@@ -139,14 +139,32 @@ feito em `internal/app/app.go` via `linkedTaskListsForConversation`.
 
 ### UI
 
-- **`TaskForm`** e **cabeçalho da lista** (`TaskListHeader`): `Select` para
-  vincular/editar a conversa, reaproveitando `GetConversations`.
-- **`TaskDetailModal`** e **`TaskListHeader`**: badge clicável que abre a conversa
-  vinculada via deep link.
+A UI de vínculo evoluiu durante a revisão para reaproveitar o componente de
+histórico do chat e reduzir fricção:
+
+- **Vínculo do card** (`TaskForm` e `TaskDetailModal`): usa o **`HistoryPicker`**
+  (o mesmo seletor de conversas da toolbar do chat) em vez de um `Select` próprio.
+  - O `HistoryPicker` ganhou props opcionais e **retrocompatíveis** `extraItems` +
+    `onSelectExtra`, usadas aqui para injetar o item **"Nenhuma" (desvincular)** no
+    topo da lista — algo que o picker não oferecia nativamente.
+  - No **detalhe do card** (`TaskDetailModal`) o vínculo é **aplicado na hora** ao
+    selecionar (auto-save, espelhando a UX do picker do chat), com toast e
+    `announce()`. No **`TaskForm`** a seleção entra no estado do formulário e é
+    persistida no submit.
+- **Vínculo da lista inteira** (`TaskListView`): **não há mais modal/seletor
+  manual**. A lista é **auto-vinculada** à conversa do **chat embutido da aba**
+  quando o modal de chat é aberto (inclusive ao iniciar uma conversa nova pelo
+  botão de chat). Quando há vínculo, a toolbar expõe a ação **"Abrir conversa"**
+  (deep link). O efeito só roda com a lista já carregada no store.
 - **Store** (`taskListStore`): normalização de `conversation_id` (snake→camel) e
-  ações `setTaskConversation` / `setTaskListConversation` com update otimista.
-- **i18n**: chaves `conversation`, `conversationDescription`, `conversationNone`,
-  `conversationUntitled` em pt-BR/en/es.
+  ações `setTaskConversation` / `setTaskListConversation` com update otimista
+  (em erro, revalida via `loadTaskList` e repropaga o erro para feedback na UI).
+- **i18n**: chaves `tasklist.conversation`, `conversationDescription`,
+  `conversationNone`, `linkConversation`, `changeConversation`, `openConversation`,
+  `conversationLinkSaved`; e o `HistoryPicker` passou a usar `history.*`
+  (`untitled`, `pickerLabel`, `loadingShort`, `searchPlaceholder`, `messagesCount`,
+  `relative*`) em pt-BR/en/es. O componente `TaskListHeader` (seletor antigo) foi
+  removido por estar fora da árvore de render.
 
 ## Compatibilidade e migração
 
@@ -165,6 +183,10 @@ feito em `internal/app/app.go` via `linkedTaskListsForConversation`.
 
 ## Trabalho futuro
 
+- **Sincronizar a troca de conversa no chat embutido com o vínculo da lista.**
+  Hoje o auto-vínculo ocorre na **abertura** do chat da aba. Trocar a conversa no
+  `HistoryPicker` do chat embutido carrega a sessão de forma transitória e **não**
+  re-vincula a lista, porque a superfície de chat é fixada na abertura do modal —
+  acompanhar isso exige refactor da chat surface (fora do escopo deste PR).
 - Filtro/agrupamento de tasklists por conversa nas telas de listagem.
-- Custom action "abrir conversa" pré-configurada (AEP-0067) quando houver vínculo.
 - Exibir, na timeline da conversa, as tasks/tasklists derivadas dela.
