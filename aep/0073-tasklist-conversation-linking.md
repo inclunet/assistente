@@ -153,9 +153,26 @@ histórico do chat e reduzir fricção:
     persistida no submit.
 - **Vínculo da lista inteira** (`TaskListView`): **não há mais modal/seletor
   manual**. A lista é **auto-vinculada** à conversa do **chat embutido da aba**
-  quando o modal de chat é aberto (inclusive ao iniciar uma conversa nova pelo
-  botão de chat). Quando há vínculo, a toolbar expõe a ação **"Abrir conversa"**
-  (deep link). O efeito só roda com a lista já carregada no store.
+  tanto na **abertura** do modal de chat (inclusive ao iniciar uma conversa nova
+  pelo botão de chat) quanto ao **trocar de conversa** no `HistoryPicker` do chat
+  embutido (ver "Superfície de chat controlada" abaixo). Quando há vínculo, a
+  toolbar expõe a ação **"Abrir conversa"** (deep link). O efeito só roda com a
+  lista já carregada no store.
+- **Superfície de chat controlada** (`ChatPanel` → `ChatSessionView` →
+  `ChatToolbar`): a troca de conversa no `HistoryPicker` deixou de ter o efeito
+  embutido por tipo de aba dentro do `ChatToolbar`. O componente agora é
+  **controlado** via a prop opcional `onRequestConversationChange`: o toolbar só
+  **solicita** a troca, e o **dono da superfície** decide o efeito:
+  - **Página de chat** (`ChatPage`): apenas atualiza `tab.conversation_id` (o
+    `surface` é derivado da aba, então a view recompõe). O carregamento da sessão
+    fica a cargo do `useWorkspaceChatBridge`, que reage à mudança de
+    `tab.conversationId` — a página **não** chama `loadConversationSession` para
+    não duplicar o load (2x `GetConversationInfo` + 2x janela de mensagens).
+  - **Chat embutido** (`WorkspaceChatModal`): chama
+    `workspaceChatModalStore.setBoundConversation`, que **recria a identidade da
+    superfície** (`boundSurface`) com a nova conversa e **persiste** o vínculo na
+    aba. Como `TaskListView` observa `boundConversationId`, a lista é
+    **re-vinculada automaticamente** — sem acoplar o toolbar ao store da tasklist.
 - **Store** (`taskListStore`): normalização de `conversation_id` (snake→camel) e
   ações `setTaskConversation` / `setTaskListConversation` com update otimista
   (em erro, revalida via `loadTaskList` e repropaga o erro para feedback na UI).
@@ -183,10 +200,5 @@ histórico do chat e reduzir fricção:
 
 ## Trabalho futuro
 
-- **Sincronizar a troca de conversa no chat embutido com o vínculo da lista.**
-  Hoje o auto-vínculo ocorre na **abertura** do chat da aba. Trocar a conversa no
-  `HistoryPicker` do chat embutido carrega a sessão de forma transitória e **não**
-  re-vincula a lista, porque a superfície de chat é fixada na abertura do modal —
-  acompanhar isso exige refactor da chat surface (fora do escopo deste PR).
 - Filtro/agrupamento de tasklists por conversa nas telas de listagem.
 - Exibir, na timeline da conversa, as tasks/tasklists derivadas dela.

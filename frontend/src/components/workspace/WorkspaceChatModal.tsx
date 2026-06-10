@@ -8,6 +8,7 @@ import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore'
 import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
 import { useUIStore } from '../../store/uiStore';
 import { ensureWorkspaceTabConversationId } from '../../lib/workspaceConversation';
+import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
 import { normalizeChatSurfaceOrigin } from '../../services/chatSessionRegistry';
 import { WorkspacePanelProvider } from './WorkspacePanelContext';
@@ -24,6 +25,7 @@ export function WorkspaceChatModal() {
   const close = useWorkspaceChatModalStore((s) => s.close);
   const boundConversationId = useWorkspaceChatModalStore((s) => s.boundConversationId);
   const boundSurface = useWorkspaceChatModalStore((s) => s.boundSurface);
+  const setBoundConversation = useWorkspaceChatModalStore((s) => s.setBoundConversation);
   const workspaceTabs = useWorkspaceStore((s) => s.workspace?.tabs ?? []);
   const activeConversation = useChatConversationTimeline(boundConversationId);
   const activeWorkspaceTab = useActiveTab();
@@ -39,6 +41,16 @@ export function WorkspaceChatModal() {
   const handleClose = useCallback(() => {
     close();
   }, [close]);
+
+  // Dono da superfície "modal embutido": trocar a conversa no HistoryPicker recria a
+  // superfície vinculada e persiste o vínculo na aba. Painéis que observam
+  // `boundConversationId` (ex.: TaskListView) re-vinculam a lista automaticamente.
+  const handleRequestConversationChange = useCallback(
+    (nextConversationId: string) => {
+      setBoundConversation(nextConversationId);
+    },
+    [setBoundConversation],
+  );
 
   /** `bumpFocus()` altera o nonce; sem isto o textarea do ChatInput não volta a receber foco. */
   useEffect(() => {
@@ -74,13 +86,21 @@ export function WorkspaceChatModal() {
         return;
       }
 
+      // A conversa vinculada ao modal (boundConversationId) é a fonte de verdade do
+      // que a superfície está exibindo. Quando já é um ID válido do backend, enviamos
+      // para ela diretamente, sem reconsultar o workspaceStore. Isso evita um race:
+      // `setBoundConversation` atualiza o vínculo de forma síncrona, mas persiste a aba
+      // via `updateTab()` (assíncrono); ler a aba aqui poderia devolver o ID antigo e
+      // mandar a mensagem para a conversa errada se o envio acontecer logo após a troca.
       let targetConversationId = storedConversationId;
-      try {
-        targetConversationId = await ensureWorkspaceTabConversationId(tab);
-      } catch (e) {
-        logger.error('[workspaceChatModal] falha ao garantir conversa no envio:', e);
-        useUIStore.getState().addToast(t('editor.chatModal.newConversationError'), 'error');
-        return;
+      if (!targetConversationId || !isBackendId(targetConversationId)) {
+        try {
+          targetConversationId = await ensureWorkspaceTabConversationId(tab);
+        } catch (e) {
+          logger.error('[workspaceChatModal] falha ao garantir conversa no envio:', e);
+          useUIStore.getState().addToast(t('editor.chatModal.newConversationError'), 'error');
+          return;
+        }
       }
 
       if (!targetConversationId) {
@@ -142,6 +162,7 @@ export function WorkspaceChatModal() {
               <ChatPanel
                 surface={boundSurface}
                 onSend={handleSend}
+                onRequestConversationChange={handleRequestConversationChange}
                 showShortcutsHelp={false}
               />
             </div>

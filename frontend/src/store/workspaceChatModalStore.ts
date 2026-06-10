@@ -55,6 +55,16 @@ export interface WorkspaceChatModalAdapter {
 
 const adapters = new Map<string, WorkspaceChatModalAdapter>();
 
+// Serializa a persistência do vínculo de conversa na aba (latest-wins POR ABA): as
+// escritas são encadeadas POR aba e cada uma só executa se ainda for a mais recente
+// solicitada para AQUELA aba. Sem a fila, trocas rápidas poderiam resolver fora de
+// ordem no backend e deixar persistida uma conversa antiga; cadeias independentes
+// por aba evitam que uma persistência lenta em uma aba atrase as demais, e o seq
+// por aba garante que fechar/reabrir o modal em outra aba não invalide
+// persistências pendentes da aba anterior.
+const persistConversationChainByTab = new Map<string, Promise<void>>();
+const persistConversationSeqByTab = new Map<string, number>();
+
 export function registerWorkspaceChatModalAdapter(
   tabId: string,
   adapter: WorkspaceChatModalAdapter | null,
@@ -99,6 +109,14 @@ interface WorkspaceChatModalState {
   bumpFocus: () => void;
   setAdapterError: (msg: string | null) => void;
   requestOpen: (tabId: string) => Promise<void>;
+  /**
+   * Troca a conversa vinculada ao modal já aberto, recriando a superfície de chat
+   * (a `ChatSessionProvider` deriva tudo de `surface.conversationId`, então é a
+   * recriação da identidade que efetiva a troca na view embutida) e persistindo o
+   * vínculo na aba. Painéis que observam `boundConversationId` (ex.: TaskListView)
+   * reagem automaticamente. No-op se o modal estiver fechado ou a conversa for a mesma.
+   */
+  setBoundConversation: (conversationId: string) => void;
 }
 
 export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, get) => ({
@@ -220,5 +238,47 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
       tabId: tab.id,
     });
     get().open(result.contextDisplay, result.meta, tab.id, conversationId, boundSurface, adapter.send);
+  },
+
+  setBoundConversation: (conversationId) => {
+    const { isOpen, boundTabId, boundSurface } = get();
+    if (!isOpen || !boundTabId || !boundSurface) return;
+    if (boundSurface.conversationId === conversationId) return;
+
+    const nextSurface = createChatSurfaceIdentity({
+      conversationId,
+      surfaceId: boundSurface.surfaceId,
+      surfaceType: boundSurface.surfaceType,
+      tabId: boundTabId,
+    });
+    set({ boundConversationId: conversationId, boundSurface: nextSurface });
+
+    // Persiste o vínculo na aba para sobreviver à reabertura do modal. A troca visual
+    // já foi aplicada otimisticamente acima; a persistência é serializada com
+    // latest-wins POR ABA, para que trocas rápidas na mesma aba não resolvam fora de
+    // ordem sem que abas diferentes invalidem persistências pendentes umas das outras.
+    const seq = (persistConversationSeqByTab.get(boundTabId) ?? 0) + 1;
+    persistConversationSeqByTab.set(boundTabId, seq);
+    const previous = persistConversationChainByTab.get(boundTabId) ?? Promise.resolve();
+    const next = previous.then(async () => {
+      // Já há uma troca mais recente para esta mesma aba.
+      if (seq !== persistConversationSeqByTab.get(boundTabId)) return;
+      try {
+        await useWorkspaceStore.getState().updateTab(boundTabId, { conversation_id: conversationId });
+      } catch (e) {
+        // A troca visual já foi aplicada e o toolbar anunciou sucesso; sem feedback,
+        // reabrir o modal "voltaria" para a conversa anterior sem o usuário saber.
+        logger.error('[workspaceChatModal] falha ao persistir troca de conversa:', e);
+        useUIStore.getState().addToast(i18next.t('chat.switchError'), 'error');
+      }
+    });
+    persistConversationChainByTab.set(boundTabId, next);
+    // Evita crescimento indefinido do Map quando a cadeia da aba esvazia.
+    void next.finally(() => {
+      if (persistConversationChainByTab.get(boundTabId) === next) {
+        persistConversationChainByTab.delete(boundTabId);
+        persistConversationSeqByTab.delete(boundTabId);
+      }
+    });
   },
 }));

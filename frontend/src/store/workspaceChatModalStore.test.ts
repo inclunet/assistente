@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockIsModalOpen = vi.fn();
 const mockAddToast = vi.fn();
+const mockUpdateTab = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('./workspaceStore', () => ({
   useWorkspaceStore: {
@@ -12,6 +13,7 @@ vi.mock('./workspaceStore', () => ({
           { id: 'tab-chat', type: 'chat' as const, title: 'Chat', position: 1 },
         ],
       },
+      updateTab: mockUpdateTab,
     }),
   },
 }));
@@ -196,5 +198,125 @@ describe('workspaceChatModalStore.requestOpen', () => {
     expect(useWorkspaceChatModalStore.getState().isOpen).toBe(false);
     expect(mockAddToast).toHaveBeenCalledWith('workspace.chatModal.prepareFailed', 'error');
     expect(mockEnsureWorkspaceTabConversationId).not.toHaveBeenCalled();
+  });
+});
+
+describe('workspaceChatModalStore.setBoundConversation', () => {
+  beforeEach(() => {
+    resetWorkspaceChatModalState();
+    mockUpdateTab.mockClear();
+    mockUpdateTab.mockResolvedValue(undefined);
+    mockAddToast.mockReset();
+  });
+
+  const openModalBoundTo = (conversationId: string, tabId = 'tab-editor') => {
+    useWorkspaceChatModalStore.getState().open('ctx', {}, tabId, conversationId, {
+      conversationId,
+      sessionKey: `modal:workspace-chat:${tabId}:${conversationId}`,
+      surfaceId: `modal:workspace-chat:${tabId}`,
+      surfaceType: 'modal',
+      tabId,
+    }, vi.fn());
+  };
+
+  it('é no-op quando o modal está fechado', () => {
+    useWorkspaceChatModalStore.getState().setBoundConversation('99');
+    const s = useWorkspaceChatModalStore.getState();
+    expect(s.boundConversationId).toBeNull();
+    expect(mockUpdateTab).not.toHaveBeenCalled();
+  });
+
+  it('é no-op quando a conversa é a mesma', () => {
+    openModalBoundTo('1');
+    useWorkspaceChatModalStore.getState().setBoundConversation('1');
+    expect(mockUpdateTab).not.toHaveBeenCalled();
+  });
+
+  it('recria a superfície, atualiza boundConversationId e persiste o vínculo na aba', async () => {
+    openModalBoundTo('1');
+
+    useWorkspaceChatModalStore.getState().setBoundConversation('2');
+
+    const s = useWorkspaceChatModalStore.getState();
+    expect(s.boundConversationId).toBe('2');
+    expect(s.boundSurface).toEqual({
+      conversationId: '2',
+      sessionKey: 'modal:workspace-chat:tab-editor:2',
+      surfaceId: 'modal:workspace-chat:tab-editor',
+      surfaceType: 'modal',
+      tabId: 'tab-editor',
+    });
+    await vi.waitFor(() => {
+      expect(mockUpdateTab).toHaveBeenCalledWith('tab-editor', { conversation_id: '2' });
+    });
+  });
+
+  it('serializa a persistência em trocas rápidas (latest-wins, sem fora de ordem)', async () => {
+    openModalBoundTo('1');
+
+    // 1ª persistência lenta: enquanto pendente, fazem-se mais duas trocas.
+    let resolveFirst!: () => void;
+    mockUpdateTab.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolveFirst = resolve; }),
+    );
+
+    useWorkspaceChatModalStore.getState().setBoundConversation('2');
+    await vi.waitFor(() => expect(mockUpdateTab).toHaveBeenCalledTimes(1));
+
+    useWorkspaceChatModalStore.getState().setBoundConversation('3');
+    useWorkspaceChatModalStore.getState().setBoundConversation('4');
+
+    // Enquanto a 1ª não resolve, nada mais é persistido (escritas encadeadas).
+    expect(mockUpdateTab).toHaveBeenCalledTimes(1);
+    expect(mockUpdateTab).toHaveBeenLastCalledWith('tab-editor', { conversation_id: '2' });
+
+    resolveFirst();
+
+    // Ao liberar a fila, a troca intermediária ('3') é pulada: persiste só a última.
+    await vi.waitFor(() => {
+      expect(mockUpdateTab).toHaveBeenLastCalledWith('tab-editor', { conversation_id: '4' });
+    });
+    expect(mockUpdateTab).toHaveBeenCalledTimes(2);
+    expect(useWorkspaceChatModalStore.getState().boundConversationId).toBe('4');
+  });
+
+  it('mostra toast de erro quando a persistência do vínculo falha', async () => {
+    openModalBoundTo('1');
+    mockUpdateTab.mockRejectedValueOnce(new Error('backend down'));
+
+    useWorkspaceChatModalStore.getState().setBoundConversation('2');
+
+    await vi.waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('chat.switchError', 'error');
+    });
+    // A troca visual otimista permanece; o toast informa que o vínculo não persistiu.
+    expect(useWorkspaceChatModalStore.getState().boundConversationId).toBe('2');
+  });
+
+  it('latest-wins é por aba: troca em outra aba não invalida persistência pendente', async () => {
+    openModalBoundTo('1', 'tab-editor');
+
+    // Persistência da aba A fica pendente na fila.
+    let resolveFirst!: () => void;
+    mockUpdateTab.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolveFirst = resolve; }),
+    );
+    useWorkspaceChatModalStore.getState().setBoundConversation('2');
+    await vi.waitFor(() => expect(mockUpdateTab).toHaveBeenCalledTimes(1));
+
+    // Modal é fechado e reaberto vinculado a outra aba; nova troca lá.
+    useWorkspaceChatModalStore.getState().close();
+    openModalBoundTo('10', 'tab-chat');
+    useWorkspaceChatModalStore.getState().setBoundConversation('11');
+
+    // Cadeias são independentes por aba: a persistência da aba B acontece sem
+    // esperar a pendente da aba A, e não a invalida.
+    await vi.waitFor(() => {
+      expect(mockUpdateTab).toHaveBeenCalledWith('tab-chat', { conversation_id: '11' });
+    });
+    expect(mockUpdateTab).toHaveBeenCalledWith('tab-editor', { conversation_id: '2' });
+    expect(mockUpdateTab).toHaveBeenCalledTimes(2);
+
+    resolveFirst();
   });
 });

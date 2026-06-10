@@ -22,16 +22,29 @@ import { useChatSession } from './ChatSessionContext';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import './ChatToolbar.css';
 
+export type ChatToolbarConversationChangeHandler = (
+  conversationId: string,
+  conversation: { title?: string },
+) => void | Promise<void>;
+
 export interface ChatToolbarProps {
   inputRef?: React.RefObject<HTMLTextAreaElement>;
   conversationId?: string | null;
   enableShortcuts?: boolean;
+  /**
+   * Solicitação de troca de conversa originada no HistoryPicker. Quando fornecida,
+   * o dono da superfície decide o efeito (persistir na aba, recriar a superfície do
+   * modal embutido, etc.). Sem ela, o toolbar apenas carrega a sessão da conversa —
+   * comportamento mínimo para superfícies que não possuem um vínculo próprio.
+   */
+  onRequestConversationChange?: ChatToolbarConversationChangeHandler;
 }
 
 export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   inputRef,
   conversationId,
   enableShortcuts = true,
+  onRequestConversationChange,
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -188,26 +201,47 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     }
   }, [focusInput, panelTab.id, updateWsTab, addToast, t]);
 
-  const handleHistoryChange = async (nextConversationId: string, conversation: { title?: string }) => {
-    const nextTitle = conversation.title || t('chat.newConversation');
-    try {
-      if (panelTab.type === 'chat') {
-        await Promise.all([
-          loadConversationSession(nextConversationId),
-          updateWsTab(panelTab.id, {
-            conversation_id: nextConversationId,
-            title: nextTitle,
-          }),
-        ]);
+  // O HistoryPicker chama onChange de forma síncrona (não aguarda a promise), então
+  // seleções rápidas poderiam disparar trocas concorrentes e efeitos fora de ordem.
+  // Um ref (e não useState, cujo valor capturado na closure não impede reentrância no
+  // mesmo tick) encadeia as trocas, garantindo execução serializada na ordem das
+  // seleções — a última selecionada é a última aplicada.
+  const historyChangeChainRef = useRef<Promise<void>>(Promise.resolve());
+
+  const handleHistoryChange = (nextConversationId: string, conversation: { title?: string }) => {
+    const run = async () => {
+      const nextTitle = conversation.title || t('chat.newConversation');
+      // Erros das duas branches são distintos: no modo controlado a falha é da
+      // TROCA (persistir aba/recriar superfície — o load fica com o dono), enquanto
+      // no fallback a falha é do CARREGAMENTO da sessão. Mensagens separadas dão
+      // diagnóstico e feedback (announce) precisos a leitores de tela.
+      if (onRequestConversationChange) {
+        try {
+          // Superfície controlada: o dono (página/modal) decide o efeito da troca.
+          // O carregamento da sessão pode acontecer depois (ex.: via
+          // useWorkspaceChatBridge na ChatPage), então anunciamos "selecionada" —
+          // dizer "carregada" aqui seria feedback incorreto a leitores de tela.
+          await onRequestConversationChange(nextConversationId, conversation);
+          announce(`${t('chat.conversationSelected')}: ${nextTitle}`);
+        } catch (error) {
+          logger.error('[ChatToolbar] Erro ao trocar conversa:', error);
+          announce(t('chat.switchError'));
+        }
       } else {
-        await loadConversationSession(nextConversationId);
+        try {
+          // Fallback mínimo: só carrega a sessão (superfícies sem vínculo próprio).
+          // Aqui o load é de fato aguardado, então "carregada" é preciso.
+          await loadConversationSession(nextConversationId);
+          announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
+        } catch (error) {
+          logger.error('[ChatToolbar] Erro ao carregar conversa:', error);
+          announce(t('chat.loadError'));
+        }
       }
-      announce(`${t('chat.conversationLoaded')}: ${nextTitle}`);
-    } catch (error) {
-      logger.error('[ChatToolbar] Erro ao carregar conversa:', error);
-      announce(t('chat.loadError'));
-    }
-    focusInput();
+      focusInput();
+    };
+    historyChangeChainRef.current = historyChangeChainRef.current.then(run);
+    return historyChangeChainRef.current;
   };
 
   return (
