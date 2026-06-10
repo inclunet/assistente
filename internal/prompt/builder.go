@@ -550,15 +550,15 @@ func profileToolUniverse(data chat.TemplateData) (names []string, restricted boo
 }
 
 // collectCatalogPool carrega o índice compacto de skills (catálogo, Nível 1),
-// preservando a ordem esperada por cada modo. No modo lista-explícita do perfil,
+// preservando a ordem esperada por cada modo: no modo lista-explícita do perfil,
 // as entradas da allowlist vêm primeiro (na ordem do perfil) seguidas das demais;
 // no modo metadata-driven, usa a ordem do catálogo (nome). A classificação de
 // visibilidade é feita depois pela SkillSelectionPolicy.
-// collectCatalogPool carrega o catálogo e, no modo lista-explícita, devolve as
-// entradas da allowlist primeiro (ordem do perfil) seguidas das demais. Também
-// devolve a allowlist já RESOLVIDA para slugs canônicos via CatalogByNamesOrdered
-// (resolução determinística slug-first): é esse conjunto que vai para o
-// SkillSelectionContext.AutoloadAllowlist, evitando matches ambíguos por nome.
+//
+// Também devolve a allowlist já RESOLVIDA para slugs canônicos via
+// CatalogByNamesOrdered (resolução determinística slug-first): é esse conjunto que
+// vai para o SkillSelectionContext.AutoloadAllowlist, evitando matches ambíguos
+// por nome.
 func (b *Builder) collectCatalogPool(enabledSkills []string) (pool []skills.SkillCatalogEntry, allowlistSlugs []string, err error) {
 	all, err := b.Skills.ListCatalog()
 	if err != nil {

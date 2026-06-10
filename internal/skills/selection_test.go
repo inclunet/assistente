@@ -103,6 +103,15 @@ func TestPolicyAutoloadDemotedWithoutReason(t *testing.T) {
 	if d.Visibility != VisibilityOnDemand {
 		t.Errorf("esperava on_demand (rebaixada), got %+v", d)
 	}
+	// O rebaixamento por falta de reason deve ser observável no motivo (AEP-0072 D5).
+	if d.Reason != ReasonAutoloadNoReason {
+		t.Errorf("esperava motivo %q (rebaixamento observável), got %q", ReasonAutoloadNoReason, d.Reason)
+	}
+	// Paridade: DecideCatalog reporta o mesmo motivo de rebaixamento.
+	entry := CatalogEntryFromSkill(&Skill{SkillMetadata: *m, Slug: "a"})
+	if dc := p.DecideCatalog(entry, SkillSelectionContext{ToolsEnabled: true, RequireAutoloadReason: true}); dc.Reason != ReasonAutoloadNoReason {
+		t.Errorf("DecideCatalog deveria reportar %q, got %q", ReasonAutoloadNoReason, dc.Reason)
+	}
 	// Com reason permanece autoload.
 	d = p.Decide(mdAutoload("porque sim"), "a", SkillSelectionContext{ToolsEnabled: true, RequireAutoloadReason: true})
 	if d.Visibility != VisibilityAutoload {
