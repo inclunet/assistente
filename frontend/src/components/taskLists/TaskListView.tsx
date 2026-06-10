@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
 import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, ThunderboltOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
@@ -13,6 +14,12 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
+import { Button } from '../ui/Button';
+import { Select, type SelectOption } from '../ui/Select';
+import { GetConversations } from '@wailsjs/go/app/App';
+import type { database } from '@wailsjs/go/models';
+import { openTaskLink } from '../../lib/deepLinks';
+import { logger } from '../../utils/logger';
 import { buildChatSurfaceParams } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
@@ -32,6 +39,7 @@ interface TaskListViewProps {
  */
 export default function TaskListView({ taskListId }: TaskListViewProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const requestConfirm = useConfirm();
@@ -44,7 +52,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
-  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions } = useTaskListStore();
+  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus, listBoardCustomActions, setTaskListConversation } = useTaskListStore();
   const { runCustomAction } = useCustomActions();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
@@ -52,6 +60,11 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const [isCustomActionsEditorOpen, setIsCustomActionsEditorOpen] = useState(false);
   const [boardActions, setBoardActions] = useState<CustomActionView[]>([]);
   const [taskCountsByStatus, setTaskCountsByStatus] = useState<Record<number, number>>({});
+
+  const [isLinkConversationOpen, setIsLinkConversationOpen] = useState(false);
+  const [conversations, setConversations] = useState<database.Conversation[]>([]);
+  const [linkConversationId, setLinkConversationId] = useState('');
+  const [linkSaving, setLinkSaving] = useState(false);
 
   const boardActionsReqRef = useRef(0);
   const reloadBoardActions = useCallback(() => {
@@ -271,6 +284,66 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     }
   }, [taskList?.title, taskListId, requestConfirm, deleteTaskList, addToast, announce, t]);
 
+  useEffect(() => {
+    if (!isLinkConversationOpen) return;
+    let active = true;
+    void (async () => {
+      try {
+        const result = await GetConversations();
+        if (!active) return;
+        const sorted = [...result].sort((a, b) => {
+          const dateA = new Date(a.updatedAt as string | number | Date).getTime();
+          const dateB = new Date(b.updatedAt as string | number | Date).getTime();
+          return dateB - dateA;
+        });
+        setConversations(sorted);
+      } catch (err) {
+        logger.error('[TaskListView] erro ao carregar conversas:', err);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [isLinkConversationOpen]);
+
+  const handleOpenLinkConversation = useCallback(() => {
+    setLinkConversationId(taskList?.conversationId || '');
+    setIsLinkConversationOpen(true);
+  }, [taskList?.conversationId]);
+
+  const handleSaveConversation = useCallback(async () => {
+    setLinkSaving(true);
+    try {
+      await setTaskListConversation(taskListId, linkConversationId || null);
+      setIsLinkConversationOpen(false);
+      addToast(t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado'), 'success');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
+    } finally {
+      setLinkSaving(false);
+    }
+  }, [taskListId, linkConversationId, setTaskListConversation, addToast, t]);
+
+  const handleOpenLinkedConversation = useCallback(() => {
+    if (!taskList?.conversationId) return;
+    openTaskLink(`assistente://conversation/${taskList.conversationId}`, { navigate });
+  }, [taskList?.conversationId, navigate]);
+
+  const conversationOptions: SelectOption[] = useMemo(() => {
+    const opts: SelectOption[] = [
+      { value: '', label: t('tasklist.conversationNone', 'Nenhuma') },
+      ...conversations.map((c) => ({
+        value: String(c.id),
+        label: c.title || t('tasklist.conversationUntitled', 'Sem título'),
+      })),
+    ];
+    if (linkConversationId && !opts.some((o) => o.value === linkConversationId)) {
+      opts.push({ value: linkConversationId, label: linkConversationId });
+    }
+    return opts;
+  }, [conversations, linkConversationId, t]);
+
   if (!taskList) {
     return <div className="tasklist-loading">{t('tasklist.loading', 'Carregando...')}</div>;
   }
@@ -289,6 +362,15 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               icon: <MessageOutlined />,
               shortcut: 'Ctrl+Shift+I',
               onClick: () => void useWorkspaceChatModalStore.getState().requestOpen(panelTab.id),
+            },
+            {
+              key: 'link-conversation',
+              label: taskList.conversationId
+                ? t('tasklist.conversationLinked', 'Conversa vinculada')
+                : t('tasklist.linkConversation', 'Vincular conversa'),
+              icon: <MessageOutlined />,
+              onClick: handleOpenLinkConversation,
+              variant: 'secondary' as const,
             },
             {
               key: 'new-task',
@@ -381,6 +463,40 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           />
         )}
       </div>
+
+      {isLinkConversationOpen && (
+        <Modal
+          isOpen={isLinkConversationOpen}
+          onClose={() => setIsLinkConversationOpen(false)}
+          title={t('tasklist.conversation', 'Conversa vinculada')}
+        >
+          <div className="tasklist-link-conversation">
+            <p className="tasklist-link-conversation__desc">
+              {t('tasklist.conversationListDescription', 'Associe esta lista inteira a uma conversa (opcional). Tarefas individuais podem ter seu próprio vínculo.')}
+            </p>
+            <Select
+              fullWidth
+              value={linkConversationId}
+              onChange={(e) => setLinkConversationId(e.target.value)}
+              disabled={linkSaving}
+              options={conversationOptions}
+            />
+            <div className="tasklist-link-conversation__actions">
+              <Button variant="primary" onClick={() => void handleSaveConversation()} disabled={linkSaving}>
+                {linkSaving ? t('common.saving', 'Salvando...') : t('common.save', 'Salvar')}
+              </Button>
+              <Button variant="secondary" onClick={() => setIsLinkConversationOpen(false)} disabled={linkSaving}>
+                {t('common.cancel', 'Cancelar')}
+              </Button>
+              {taskList.conversationId && (
+                <Button variant="secondary" onClick={handleOpenLinkedConversation} disabled={linkSaving}>
+                  <MessageOutlined aria-hidden="true" /> {t('tasklist.openConversation', 'Abrir conversa')}
+                </Button>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {isCustomActionsEditorOpen && (
         <Modal

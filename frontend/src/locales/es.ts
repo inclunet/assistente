@@ -2023,8 +2023,13 @@ const es = {
       taskDeleted: 'Tarea eliminada exitosamente',
       conversation: 'Conversación vinculada',
       conversationDescription: 'Vincula esta tarea a una conversación (opcional)',
+      conversationListDescription: 'Vincula esta lista completa a una conversación (opcional). Las tareas individuales pueden tener su propio vínculo.',
       conversationNone: 'Ninguna',
       conversationUntitled: 'Sin título',
+      conversationLinked: 'Conversación vinculada',
+      linkConversation: 'Vincular conversación',
+      openConversation: 'Abrir conversación',
+      conversationLinkSaved: 'Vínculo de conversación actualizado',
       // History picker
       historyPicker: 'Historial (Ctrl+H)',
       searchHistory: 'Buscar lista...',

@@ -2024,8 +2024,13 @@ const en = {
       taskDeleted: 'Task deleted successfully',
       conversation: 'Linked conversation',
       conversationDescription: 'Link this task to a conversation (optional)',
+      conversationListDescription: 'Link this whole list to a conversation (optional). Individual tasks can have their own link.',
       conversationNone: 'None',
       conversationUntitled: 'Untitled',
+      conversationLinked: 'Linked conversation',
+      linkConversation: 'Link conversation',
+      openConversation: 'Open conversation',
+      conversationLinkSaved: 'Conversation link updated',
       // History picker
       historyPicker: 'History (Ctrl+H)',
       searchHistory: 'Search list...',

@@ -1998,8 +1998,13 @@ const ptBR = {
       taskDeleted: 'Tarefa deletada com sucesso',
       conversation: 'Conversa vinculada',
       conversationDescription: 'Associe esta tarefa a uma conversa (opcional)',
+      conversationListDescription: 'Associe esta lista inteira a uma conversa (opcional). Tarefas individuais podem ter seu próprio vínculo.',
       conversationNone: 'Nenhuma',
       conversationUntitled: 'Sem título',
+      conversationLinked: 'Conversa vinculada',
+      linkConversation: 'Vincular conversa',
+      openConversation: 'Abrir conversa',
+      conversationLinkSaved: 'Vínculo de conversa atualizado',
       // History picker
       historyPicker: 'Histórico (Ctrl+H)',
       searchHistory: 'Buscar lista...',

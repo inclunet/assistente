@@ -28,6 +28,11 @@ const taskListStoreState = vi.hoisted(() => ({
   getTaskCountsByStatus: vi.fn(),
   listBoardCustomActions: vi.fn(),
   triggerCustomAction: vi.fn(),
+  setTaskListConversation: vi.fn(),
+}));
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
