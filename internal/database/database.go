@@ -128,6 +128,7 @@ func Init() error {
 		&SubAgentRun{},
 		&Skill{},
 		&SkillTool{},
+		&SkillCatalog{},
 	); err != nil {
 		return err
 	}

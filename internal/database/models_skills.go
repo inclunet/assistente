@@ -110,3 +110,46 @@ const (
 	SkillToolAllowed = "allowed"
 	SkillToolDenied  = "denied"
 )
+
+// SkillCatalog é o catálogo compacto persistido de skills (AEP-0072 D1),
+// espelhando o padrão do tool_catalog (AEP-0049): a tabela `skills` é a fonte
+// canônica do conteúdo; este catálogo é um índice/metadata leve para a
+// descoberta (Nível 1) e o planner de budget. É derivado das skills e mantido em
+// sincronia (rebuild) a cada seed/import/CRUD. Skills são instância-wide (sem
+// user scope), como os builtins do tool_catalog.
+type SkillCatalog struct {
+	UUIDModel
+
+	Slug        string `json:"slug" gorm:"not null;uniqueIndex:ux_skill_catalog_slug"`
+	Name        string `json:"name" gorm:"not null"`
+	DisplayName string `json:"displayName,omitempty"`
+	Description string `json:"description,omitempty" gorm:"type:text"`
+	Type        string `json:"type,omitempty" gorm:"index"`
+
+	// Path é o caminho em disco pré-materializado do corpo da skill (alvo do
+	// read_file na ativação por leitura, AEP-0072 D2).
+	Path string `json:"path,omitempty" gorm:"type:text"`
+
+	// Custo aproximado do corpo (tokens) para o planner do Nível 1.
+	ContextBudget int `json:"contextBudget" gorm:"not null;default:0"`
+
+	// Pré-condições de capability efetivas (explícitas OU inferidas das permissões).
+	RequiresTools      bool `json:"requiresTools" gorm:"not null;default:false"`
+	RequiresFilesystem bool `json:"requiresFilesystem" gorm:"not null;default:false"`
+	RequiresNetwork    bool `json:"requiresNetwork" gorm:"not null;default:false"`
+	RequiresMCP        bool `json:"requiresMcp" gorm:"not null;default:false;column:requires_mcp"`
+
+	// Controle de carregamento.
+	AutoLoad       bool   `json:"autoLoad" gorm:"not null;default:false;index"`
+	AutoloadReason string `json:"autoloadReason,omitempty" gorm:"type:text"`
+	ModelInvocable bool   `json:"modelInvocable" gorm:"not null;default:true"`
+	UserInvocable  bool   `json:"userInvocable" gorm:"not null;default:true"`
+
+	IsBuiltin bool `json:"isBuiltin" gorm:"not null;default:false;index"`
+
+	// ContentHash detecta defasagem entre o catálogo e o corpo da skill (D2).
+	ContentHash string `json:"contentHash,omitempty" gorm:"index"`
+}
+
+// TableName fixa o nome da tabela.
+func (SkillCatalog) TableName() string { return "skill_catalog" }

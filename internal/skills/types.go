@@ -89,7 +89,10 @@ type SkillMetadata struct {
 	RequiresMCP        bool `yaml:"requires_mcp,omitempty" json:"requiresMcp,omitempty"`
 
 	// === Compat: campos legados/custom ===
-	AutoLoad bool `yaml:"auto_load,omitempty" json:"-"` // alias legado → mapeado para behavior
+	// AutoLoad indica que a skill deve ser injetada automaticamente no system
+	// prompt (auto_load). Exposto no JSON para que a UI possa criar/editar skills
+	// autoload (exige autoload_reason em modo estrito — AEP-0072 D5).
+	AutoLoad bool `yaml:"auto_load,omitempty" json:"autoLoad,omitempty"`
 }
 
 // FilesystemPermissions define permissões de acesso ao filesystem.

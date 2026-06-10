@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"assistente/internal/configdir"
@@ -66,5 +67,44 @@ func TestImportLegacySkillsRequiresRepo(t *testing.T) {
 	m := &Manager{resolver: configdir.NewResolverWithBase(t.TempDir())}
 	if _, err := m.ImportLegacySkills(context.Background()); err == nil {
 		t.Errorf("esperava erro sem repository configurado")
+	}
+}
+
+func TestImportLegacySkillsSurfacesDescriptionWarnings(t *testing.T) {
+	repo, ctx := setupRepo(t)
+	tmp := t.TempDir()
+	// Descrição em 1ª pessoa e sem frase-gatilho -> deve gerar warnings.
+	writeSkillFile(t, tmp, "bad", buildSkillMD("bad", "1.0.0", "I will format my code now", "corpo"))
+	// Descrição boa (3ª pessoa + gatilho) -> sem warnings.
+	writeSkillFile(t, tmp, "good", buildSkillMD("good", "1.0.0", "Use when the user asks to format code", "corpo"))
+
+	m := &Manager{resolver: configdir.NewResolverWithBase(tmp)}
+	m.SetRepository(repo)
+
+	res, err := m.ImportLegacySkills(ctx)
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if len(res.Warnings) == 0 {
+		t.Fatalf("esperava warnings de qualidade de descrição, got nenhum")
+	}
+	var sawBad, sawCode bool
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "bad") {
+			sawBad = true
+		}
+		// O código estável do warning é preservado junto da mensagem (telemetria).
+		if strings.Contains(w, "["+DescriptionWarnFirstPerson+"]") {
+			sawCode = true
+		}
+		if strings.Contains(w, "good") {
+			t.Errorf("skill com boa descrição não deveria gerar warning: %q", w)
+		}
+	}
+	if !sawBad {
+		t.Errorf("esperava warning referenciando a skill 'bad': %v", res.Warnings)
+	}
+	if !sawCode {
+		t.Errorf("esperava código estável %q preservado no warning: %v", DescriptionWarnFirstPerson, res.Warnings)
 	}
 }
