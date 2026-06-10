@@ -1051,7 +1051,7 @@ const ptBR = {
         autoLoadHint: 'Quando ativo, o corpo do skill é injetado em toda conversa. Use com parcimônia e justifique abaixo.',
         autoloadReason: 'Justificativa do auto_load',
         autoloadReasonPlaceholder: 'Por que esta skill precisa estar sempre no prompt?',
-        autoloadReasonHint: 'Obrigatória quando auto_load está ativo: skills sem justificativa caem para sob demanda.',
+        autoloadReasonHint: 'Obrigatória quando auto_load está ativo: sem a justificativa, o salvamento é rejeitado.',
         contextBudget: 'Orçamento de contexto (tokens)',
         contextBudgetHint: 'Custo aproximado do corpo. 0 = estimado automaticamente pelo tamanho.',
         requiresLegend: 'Pré-condições de capacidade',

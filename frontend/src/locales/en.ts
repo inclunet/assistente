@@ -1051,7 +1051,7 @@ const en = {
         autoLoadHint: 'When on, the skill body is injected into every conversation. Use sparingly and justify below.',
         autoloadReason: 'auto_load justification',
         autoloadReasonPlaceholder: 'Why does this skill need to always be in the prompt?',
-        autoloadReasonHint: 'Required when auto_load is on: skills without a justification fall back to on-demand.',
+        autoloadReasonHint: 'Required when auto_load is on: saving is rejected without a justification.',
         contextBudget: 'Context budget (tokens)',
         contextBudgetHint: 'Approximate body cost. 0 = estimated automatically from size.',
         requiresLegend: 'Capability preconditions',

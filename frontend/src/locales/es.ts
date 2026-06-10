@@ -1050,7 +1050,7 @@ const es = {
         autoLoadHint: 'Cuando está activo, el cuerpo del skill se inyecta en cada conversación. Úsalo con moderación y justifícalo abajo.',
         autoloadReason: 'Justificación de auto_load',
         autoloadReasonPlaceholder: '¿Por qué esta skill debe estar siempre en el prompt?',
-        autoloadReasonHint: 'Obligatoria cuando auto_load está activo: las skills sin justificación pasan a bajo demanda.',
+        autoloadReasonHint: 'Obligatoria cuando auto_load está activo: sin la justificación, no se puede guardar.',
         contextBudget: 'Presupuesto de contexto (tokens)',
         contextBudgetHint: 'Costo aproximado del cuerpo. 0 = estimado automáticamente por el tamaño.',
         requiresLegend: 'Precondiciones de capacidad',
