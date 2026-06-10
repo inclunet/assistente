@@ -44,6 +44,14 @@ func (c *TaskListController) SetTaskListViewMode(ctx context.Context, id string,
 	return c.taskSvc.SetTaskListViewMode(ctx, id, viewMode)
 }
 
+func (c *TaskListController) SetTaskListConversation(ctx context.Context, id string, conversationID *string) error {
+	return c.taskSvc.SetTaskListConversation(ctx, id, conversationID)
+}
+
+func (c *TaskListController) GetTaskListsByConversation(ctx context.Context, conversationID string) ([]database.TaskList, error) {
+	return c.taskSvc.GetTaskListsByConversation(ctx, conversationID)
+}
+
 func (c *TaskListController) CloneTaskList(ctx context.Context, id string, newTitle string) (*database.TaskList, error) {
 	return c.taskSvc.CloneTaskList(ctx, id, newTitle)
 }
@@ -118,6 +126,14 @@ func (c *TaskListController) UpdateTaskFull(ctx context.Context, id string, titl
 
 func (c *TaskListController) UpdateTaskAssignee(ctx context.Context, id string, assigneeName, assigneeID string) error {
 	return c.taskSvc.UpdateTaskAssignee(ctx, id, assigneeName, assigneeID)
+}
+
+func (c *TaskListController) SetTaskConversation(ctx context.Context, id string, conversationID *string) error {
+	return c.taskSvc.SetTaskConversation(ctx, id, conversationID)
+}
+
+func (c *TaskListController) GetTasksByConversation(ctx context.Context, conversationID string) ([]database.Task, error) {
+	return c.taskSvc.GetTasksByConversation(ctx, conversationID)
 }
 
 func (c *TaskListController) UpdateTaskStatus(ctx context.Context, id string, statusID int) error {

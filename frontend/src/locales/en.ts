@@ -2022,6 +2022,10 @@ const en = {
       taskCreated: 'Task created successfully',
       taskUpdated: 'Task updated successfully',
       taskDeleted: 'Task deleted successfully',
+      conversation: 'Linked conversation',
+      conversationDescription: 'Link this task to a conversation (optional)',
+      conversationNone: 'None',
+      conversationUntitled: 'Untitled',
       // History picker
       historyPicker: 'History (Ctrl+H)',
       searchHistory: 'Search list...',

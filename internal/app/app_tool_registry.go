@@ -47,6 +47,9 @@ func (m *serviceTaskListManager) UpdateTaskListFull(ctx context.Context, id stri
 func (m *serviceTaskListManager) ResolveTaskListRef(ctx context.Context, taskListID *string, taskListSlug string) (string, error) {
 	return m.svc.ResolveTaskListRef(ctx, taskListID, taskListSlug)
 }
+func (m *serviceTaskListManager) SetTaskListConversation(ctx context.Context, id string, conversationID *string) error {
+	return m.svc.SetTaskListConversation(ctx, id, conversationID)
+}
 func (m *serviceTaskListManager) SetTaskListValidationPolicy(ctx context.Context, taskListID string, policyJSON string) error {
 	return m.svc.SetTaskListValidationPolicy(ctx, taskListID, policyJSON)
 }
@@ -88,6 +91,9 @@ func (m *serviceTaskListManager) UpdateTaskFull(ctx context.Context, id string, 
 }
 func (m *serviceTaskListManager) UpdateTaskAssignee(ctx context.Context, id string, assigneeName, assigneeID string) error {
 	return m.svc.UpdateTaskAssignee(ctx, id, assigneeName, assigneeID)
+}
+func (m *serviceTaskListManager) SetTaskConversation(ctx context.Context, id string, conversationID *string) error {
+	return m.svc.SetTaskConversation(ctx, id, conversationID)
 }
 func (m *serviceTaskListManager) UpdateTaskStatus(ctx context.Context, id string, newStatusID int) error {
 	return m.svc.UpdateTaskStatus(ctx, id, newStatusID)
@@ -263,6 +269,7 @@ func (a *App) initToolRegistry() {
 
 	// Registra ferramenta de busca no histórico de conversas
 	a.toolRegistry.MustRegister(history.NewSearchConversations(a.msgRepo))
+	a.toolRegistry.MustRegister(history.NewGetConversationInfo())
 
 	// Registra ferramentas de gerenciamento de task lists
 	tlMgr := &serviceTaskListManager{svc: a.taskSvc}

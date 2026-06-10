@@ -134,9 +134,10 @@ func taskPayload(t *database.Task, slug string) map[string]any {
 		"assignee_id":    t.AssigneeID,
 		"assignee_name":  t.AssigneeName,
 		"creator_id":     t.CreatorID,
-		"due_date":       rfc3339OrEmpty(t.DueDate),
-		"completed_at":   rfc3339OrEmpty(t.CompletedAt),
-		"link":           t.Link,
+		"due_date":        rfc3339OrEmpty(t.DueDate),
+		"completed_at":    rfc3339OrEmpty(t.CompletedAt),
+		"link":            t.Link,
+		"conversation_id": parentOrEmpty(t.ConversationID),
 	}
 }
 
@@ -173,6 +174,9 @@ func changedTaskFields(old, updated *database.Task) []string {
 	}
 	if old.CreatorID != updated.CreatorID {
 		changed = append(changed, "creator_id")
+	}
+	if parentOrEmpty(old.ConversationID) != parentOrEmpty(updated.ConversationID) {
+		changed = append(changed, "conversation_id")
 	}
 	return changed
 }
@@ -212,9 +216,10 @@ func listPayload(tl *database.TaskList) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"task_list_id":   tl.ID,
-		"task_list_slug": tl.Slug,
-		"title":          tl.Title,
+		"task_list_id":    tl.ID,
+		"task_list_slug":  tl.Slug,
+		"title":           tl.Title,
+		"conversation_id": parentOrEmpty(tl.ConversationID),
 	}
 }
 

@@ -98,6 +98,28 @@ func (s *Service) ResolveTaskListRef(ctx context.Context, taskListID *string, ta
 	return s.store.ResolveTaskListRef(ctx, taskListID, taskListSlug)
 }
 
+// SetTaskListConversation vincula/desvincula a lista a uma conversa e notifica a UI.
+func (s *Service) SetTaskListConversation(ctx context.Context, id string, conversationID *string) error {
+	if err := s.store.SetTaskListConversation(ctx, id, conversationID); err != nil {
+		return err
+	}
+	tl, _ := s.store.GetTaskList(ctx, id)
+	if tl != nil {
+		s.emitter.Emit("taskList:updated", tl)
+	} else {
+		s.emitter.Emit("taskList:updated", id)
+	}
+	if s.wantsDomain("tasklist.list.updated") {
+		s.publishDomain(ctx, "tasklist.list.updated", s.listEventPayload(ctx, tl, id))
+	}
+	return nil
+}
+
+// GetTaskListsByConversation retorna as listas vinculadas a uma conversa.
+func (s *Service) GetTaskListsByConversation(ctx context.Context, conversationID string) ([]database.TaskList, error) {
+	return s.store.GetTaskListsByConversationID(ctx, conversationID)
+}
+
 func (s *Service) SetTaskListValidationPolicy(ctx context.Context, taskListID string, policyJSON string) error {
 	return s.store.SetTaskListValidationPolicy(ctx, taskListID, policyJSON)
 }
@@ -365,6 +387,38 @@ func (s *Service) UpdateTaskFull(ctx context.Context, id string, title, descript
 		}
 	}
 	return nil
+}
+
+// SetTaskConversation vincula/desvincula a task a uma conversa e notifica a UI.
+func (s *Service) SetTaskConversation(ctx context.Context, id string, conversationID *string) error {
+	var old *database.Task
+	if s.wantsDomain("tasklist.task.updated") {
+		old, _ = s.store.GetTask(ctx, id)
+	}
+	if err := s.store.SetTaskConversation(ctx, id, conversationID); err != nil {
+		return err
+	}
+	// Recarrega para notificar a UI. Aborta se o reload falhar (id inválido,
+	// 0 linhas afetadas ou fora do escopo do usuário): emitir um task:updated
+	// com payload nil quebra o listener do frontend (normalizeTask espera um
+	// objeto). Melhor retornar o erro do que emitir um evento corrompido.
+	task, err := s.store.GetTask(ctx, id)
+	if err != nil {
+		return err
+	}
+	s.emitter.Emit("task:updated", task)
+	if s.wantsDomain("tasklist.task.updated") {
+		if payload := s.taskEventPayload(ctx, task, old); payload != nil {
+			payload["changed_fields"] = changedTaskFields(old, task)
+			s.publishDomain(ctx, "tasklist.task.updated", payload)
+		}
+	}
+	return nil
+}
+
+// GetTasksByConversation retorna as tasks vinculadas a uma conversa.
+func (s *Service) GetTasksByConversation(ctx context.Context, conversationID string) ([]database.Task, error) {
+	return s.store.GetTasksByConversationID(ctx, conversationID)
 }
 
 // UpdateTaskAssignee atualiza o responsável da task e cria nota de auditoria se houve mudança.

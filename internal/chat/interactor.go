@@ -52,6 +52,10 @@ type InteractorConfig struct {
 	Workspace     WorkspaceProvider
 	SkillMgr      skills.InvokerManager // optional during startup; safe to be nil
 	PromptBuilder SystemPromptBuilder   // optional during startup; safe to be nil
+	// LinkedTaskLists resolve as task lists vinculadas a uma conversa para
+	// alimentar o contexto da skill tasklist-manager (auto-load). Opcional: se
+	// nil, o template renderiza vazio (HasTaskLists=false).
+	LinkedTaskLists func(ctx context.Context, conversationID string) []TemplateTaskList
 }
 
 // Interactor orchestrates the core chat use cases, free of Wails dependencies.
@@ -64,6 +68,7 @@ type Interactor struct {
 	workspace     WorkspaceProvider
 	skillMgr      skills.InvokerManager
 	promptBuilder SystemPromptBuilder
+	linkedTaskLists func(ctx context.Context, conversationID string) []TemplateTaskList
 
 	// nativeMCPAdjustMu serializa o read-modify-write do auto-ajuste de MCP nativo
 	// do perfil (nil→false), garantindo idempotência sob concorrência (vários runs
@@ -82,6 +87,7 @@ func NewInteractor(cfg InteractorConfig) *Interactor {
 		workspace:     cfg.Workspace,
 		skillMgr:      cfg.SkillMgr,
 		promptBuilder: cfg.PromptBuilder,
+		linkedTaskLists: cfg.LinkedTaskLists,
 	}
 }
 
@@ -499,6 +505,13 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	var skillTplData TemplateData
 	if i.promptBuilder != nil {
 		skillTplData = i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params, req.ConversationID)
+	}
+	// Contexto de task lists vinculadas à conversa (skill tasklist-manager).
+	if i.linkedTaskLists != nil && strings.TrimSpace(req.ConversationID) != "" {
+		if lists := i.linkedTaskLists(ctx, req.ConversationID); len(lists) > 0 {
+			skillTplData.TaskLists = lists
+			skillTplData.HasTaskLists = true
+		}
 	}
 
 	var slashSkillContent string

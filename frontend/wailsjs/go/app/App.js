@@ -630,8 +630,16 @@ export function GetTaskListWithHierarchy(arg1) {
   return window['go']['app']['App']['GetTaskListWithHierarchy'](arg1);
 }
 
+export function GetTaskListsByConversation(arg1) {
+  return window['go']['app']['App']['GetTaskListsByConversation'](arg1);
+}
+
 export function GetTaskNotes(arg1) {
   return window['go']['app']['App']['GetTaskNotes'](arg1);
+}
+
+export function GetTasksByConversation(arg1) {
+  return window['go']['app']['App']['GetTasksByConversation'](arg1);
 }
 
 export function GetTasksByStatus(arg1, arg2) {
@@ -928,6 +936,14 @@ export function SetOpenAITTSSpeed(arg1) {
 
 export function SetOpenAITTSVoice(arg1) {
   return window['go']['app']['App']['SetOpenAITTSVoice'](arg1);
+}
+
+export function SetTaskConversation(arg1, arg2) {
+  return window['go']['app']['App']['SetTaskConversation'](arg1, arg2);
+}
+
+export function SetTaskListConversation(arg1, arg2) {
+  return window['go']['app']['App']['SetTaskListConversation'](arg1, arg2);
 }
 
 export function SetTaskListCustomActions(arg1, arg2) {

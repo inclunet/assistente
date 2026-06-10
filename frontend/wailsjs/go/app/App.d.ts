@@ -336,7 +336,11 @@ export function GetTaskListStats(arg1:string):Promise<Record<string, any>>;
 
 export function GetTaskListWithHierarchy(arg1:string):Promise<database.TaskList>;
 
+export function GetTaskListsByConversation(arg1:string):Promise<Array<database.TaskList>>;
+
 export function GetTaskNotes(arg1:string):Promise<Array<database.TaskNote>>;
+
+export function GetTasksByConversation(arg1:string):Promise<Array<database.Task>>;
 
 export function GetTasksByStatus(arg1:string,arg2:number):Promise<Array<database.Task>>;
 
@@ -485,6 +489,10 @@ export function SetMCPWorkspaceRoots(arg1:Array<mcp.Root>):Promise<void>;
 export function SetOpenAITTSSpeed(arg1:number):Promise<void>;
 
 export function SetOpenAITTSVoice(arg1:string):Promise<void>;
+
+export function SetTaskConversation(arg1:string,arg2:any):Promise<void>;
+
+export function SetTaskListConversation(arg1:string,arg2:any):Promise<void>;
 
 export function SetTaskListCustomActions(arg1:string,arg2:string):Promise<void>;
 

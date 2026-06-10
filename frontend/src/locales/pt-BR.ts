@@ -1996,6 +1996,10 @@ const ptBR = {
       taskCreated: 'Tarefa criada com sucesso',
       taskUpdated: 'Tarefa atualizada com sucesso',
       taskDeleted: 'Tarefa deletada com sucesso',
+      conversation: 'Conversa vinculada',
+      conversationDescription: 'Associe esta tarefa a uma conversa (opcional)',
+      conversationNone: 'Nenhuma',
+      conversationUntitled: 'Sem título',
       // History picker
       historyPicker: 'Histórico (Ctrl+H)',
       searchHistory: 'Buscar lista...',

@@ -1,10 +1,16 @@
-import { useState } from 'react';
-import { EditOutlined } from '@ant-design/icons';
+import { useEffect, useState } from 'react';
+import { EditOutlined, MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
+import { Select, type SelectOption } from '../ui/Select';
+import { GetConversations } from '@wailsjs/go/app/App';
+import type { database } from '@wailsjs/go/models';
+import { openTaskLink } from '../../lib/deepLinks';
+import { logger } from '../../utils/logger';
 import type { TaskListWithWorkflow } from '../../types/tasklist';
 import './TaskListHeader.css';
 
@@ -15,15 +21,54 @@ interface TaskListHeaderProps {
 
 export default function TaskListHeader({ taskList, onRefresh }: TaskListHeaderProps) {
   const { t } = useTranslation();
-  const { updateTaskList } = useTaskListStore();
+  const navigate = useNavigate();
+  const { updateTaskList, setTaskListConversation } = useTaskListStore();
 
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
     title: taskList.title,
     description: taskList.description || '',
+    conversationId: taskList.conversationId || '',
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<database.Conversation[]>([]);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    let active = true;
+    void (async () => {
+      try {
+        const result = await GetConversations();
+        if (!active) return;
+        const sorted = [...result].sort((a, b) => {
+          const dateA = new Date(a.updatedAt as string | number | Date).getTime();
+          const dateB = new Date(b.updatedAt as string | number | Date).getTime();
+          return dateB - dateA;
+        });
+        setConversations(sorted);
+      } catch (err) {
+        logger.error('[TaskListHeader] erro ao carregar conversas:', err);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [isEditing]);
+
+  const conversationOptions: SelectOption[] = [
+    { value: '', label: t('tasklist.conversationNone', 'Nenhuma') },
+    ...conversations.map((c) => ({
+      value: String(c.id),
+      label: c.title || t('tasklist.conversationUntitled', 'Sem título'),
+    })),
+  ];
+  if (
+    formData.conversationId &&
+    !conversationOptions.some((o) => o.value === formData.conversationId)
+  ) {
+    conversationOptions.push({ value: formData.conversationId, label: formData.conversationId });
+  }
 
   const handleSave = async () => {
     if (!formData.title.trim()) {
@@ -39,6 +84,9 @@ export default function TaskListHeader({ taskList, onRefresh }: TaskListHeaderPr
         title: formData.title,
         description: formData.description,
       }));
+      if ((formData.conversationId || '') !== (taskList.conversationId || '')) {
+        await setTaskListConversation(taskList.id, formData.conversationId || null);
+      }
       setIsEditing(false);
       onRefresh?.();
     } catch (err) {
@@ -52,9 +100,15 @@ export default function TaskListHeader({ taskList, onRefresh }: TaskListHeaderPr
     setFormData({
       title: taskList.title,
       description: taskList.description || '',
+      conversationId: taskList.conversationId || '',
     });
     setError(null);
     setIsEditing(false);
+  };
+
+  const handleOpenConversation = () => {
+    if (!taskList.conversationId) return;
+    openTaskLink(`assistente://conversation/${taskList.conversationId}`, { navigate });
   };
 
   // Calcula estatísticas
@@ -101,6 +155,20 @@ export default function TaskListHeader({ taskList, onRefresh }: TaskListHeaderPr
             />
           </div>
 
+          <div className="tasklist-header-form-group">
+            <label htmlFor="header-conversation" className="tasklist-header-label">
+              {t('tasklist.conversation', 'Conversa vinculada')}
+            </label>
+            <Select
+              id="header-conversation"
+              fullWidth
+              value={formData.conversationId}
+              onChange={(e) => setFormData({ ...formData, conversationId: e.target.value })}
+              disabled={isLoading}
+              options={conversationOptions}
+            />
+          </div>
+
           <div className="tasklist-header-form-actions">
             <Button
               onClick={handleSave}
@@ -138,6 +206,17 @@ export default function TaskListHeader({ taskList, onRefresh }: TaskListHeaderPr
 
         {taskList.description && (
           <p className="tasklist-header-description">{taskList.description}</p>
+        )}
+
+        {taskList.conversationId && (
+          <button
+            type="button"
+            className="tasklist-header-conversation-link"
+            onClick={handleOpenConversation}
+            title={taskList.conversationId}
+          >
+            <MessageOutlined aria-hidden="true" /> {t('tasklist.conversation', 'Conversa vinculada')}
+          </button>
         )}
       </div>
 

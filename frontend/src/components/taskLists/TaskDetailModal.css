@@ -88,6 +88,12 @@
   text-decoration: underline;
 }
 
+.task-detail__badge--link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 .task-detail__badge--assignee {
   color: var(--text-secondary);
   border-color: var(--border-color);
