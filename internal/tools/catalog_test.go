@@ -51,9 +51,14 @@ func TestToolCapabilityKind(t *testing.T) {
 		{"run_command", ""},
 		{"search_conversations", ""},
 		{"task_list", ""},
-		// Nome desconhecido (tool dinâmica de servidor MCP) → MCP.
+		// Tool dinâmica de servidor MCP (convenção de prefixo mcp_) → MCP.
 		{"mcp_some_server_tool", ToolCapabilityMCP},
-		{"totalmente-inexistente", ToolCapabilityMCP},
+		{"mcp_github__search_repositories", ToolCapabilityMCP},
+		// Nome desconhecido SEM prefixo MCP (ex.: tool interna não catalogada) →
+		// genérica (""), para não conceder capability MCP indevidamente.
+		{"totalmente-inexistente", ""},
+		{"send_message", ""},
+		{"validate_pairing_code", ""},
 	}
 	for _, c := range cases {
 		if got := ToolCapabilityKind(c.name); got != c.want {

@@ -150,7 +150,11 @@ export default function SkillsPage() {
           tools: getAllowedTools(skill.tools as { allowed?: string[] } | undefined),
           content: skill.content,
           toolsString: getAllowedTools(skill.tools as { allowed?: string[] } | undefined).join(', '),
-          autoLoad: skill.autoLoad ?? false,
+          // Normaliza para o estado EFETIVO (IsAutoLoad): auto_load só vale quando
+          // o modelo pode invocar (!disableModelInvocation). Evita mostrar autoLoad
+          // marcado para skills legadas/inconsistentes (autoLoad=true + auto=off) e a
+          // consequente mudança silenciosa para false ao salvar (derivação no request).
+          autoLoad: (skill.autoLoad ?? false) && !skill.disableModelInvocation,
           autoloadReason: skill.autoloadReason,
           contextBudget: skill.contextBudget,
           requiresTools: skill.requiresTools,
