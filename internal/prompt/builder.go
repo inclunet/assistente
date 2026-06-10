@@ -7,6 +7,7 @@ import (
 	"log"
 	"reflect"
 	"strings"
+	"unicode/utf8"
 
 	"assistente/internal/chat"
 	"assistente/internal/llm"
@@ -674,8 +675,13 @@ func planAvailableCatalogBudget(list []skills.SkillCatalogEntry, budget int) (ke
 
 // catalogEntryCost estima o custo em caracteres da linha de catálogo de uma skill.
 func catalogEntryCost(e skills.SkillCatalogEntry, desc string) int {
-	// nome + slug + descrição + path + overhead de formatação/markdown.
-	return len(e.GetDisplayName()) + len(e.Slug) + len(desc) + len(e.Path) + 32
+	// nome + slug + descrição + path + overhead de formatação/markdown. Conta runes
+	// (não bytes) para manter a unidade consistente com a documentação ("caracteres")
+	// e com truncateDescription, evitando subestimar descrições com runes multibyte.
+	return utf8.RuneCountInString(e.GetDisplayName()) +
+		utf8.RuneCountInString(e.Slug) +
+		utf8.RuneCountInString(desc) +
+		utf8.RuneCountInString(e.Path) + 32
 }
 
 // truncateDescription encurta uma descrição para no máximo max runes (contando o
