@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -134,4 +135,45 @@ func builtinToolCatalogMetadata(name string) builtinToolMetadata {
 		return metadata
 	}
 	return builtinToolMetadata{Category: "app", Class: "app_tool", Package: "basic", Risk: "read"}
+}
+
+// Capacidades de skill que uma tool pode satisfazer (AEP-0072 D4). Usadas para
+// validar, de forma confiável, se uma skill é compatível com o universo de tools
+// realmente disponível ao perfil.
+const (
+	ToolCapabilityFilesystem = "filesystem"
+	ToolCapabilityNetwork    = "network"
+	ToolCapabilityMCP        = "mcp"
+
+	// MCPToolNamePrefix é a convenção de nome das tools dinâmicas registradas por
+	// servidores MCP (ex.: "mcp_github__search_repositories").
+	MCPToolNamePrefix = "mcp_"
+)
+
+// ToolCapabilityKind classifica uma tool (por nome) na capacidade de skill que ela
+// satisfaz: "filesystem", "network", "mcp" ou "" (genérica, sem capacidade
+// específica). Builtins usam as categorias do catálogo de metadados; o tool_catalog
+// é uma meta-tool e não concede capacidade própria. Só nomes que seguem a convenção
+// MCP (prefixo "mcp_") são classificados como MCP — tools internas desconhecidas (ex.:
+// send_message, validate_pairing_code) ficam como genéricas para não conceder
+// indevidamente capability MCP a skills com requires_mcp em perfis restritos.
+func ToolCapabilityKind(name string) string {
+	if name == ToolCatalogName {
+		return ""
+	}
+	metadata, ok := builtinToolMetadataByName[name]
+	if !ok {
+		if strings.HasPrefix(name, MCPToolNamePrefix) {
+			return ToolCapabilityMCP
+		}
+		return ""
+	}
+	switch metadata.Category {
+	case "filesystem":
+		return ToolCapabilityFilesystem
+	case "web", "http":
+		return ToolCapabilityNetwork
+	default:
+		return ""
+	}
 }

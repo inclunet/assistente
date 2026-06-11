@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"assistente/internal/configdir"
 )
 
 func TestPreprocessCommands_BasicEcho(t *testing.T) {
@@ -266,14 +268,31 @@ func TestProcessTemplate_Now(t *testing.T) {
 	}
 }
 
-func TestProcessTemplate_IncludeRealMemory(t *testing.T) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("cannot determine home directory")
+// TestProcessTemplate_IncludeFromFixture valida o fluxo {{ include }} + {{ now }}
+// de ponta a ponta usando uma fixture controlada (HOME temporário), em vez de
+// depender do memory.md real da máquina. Assim o teste é determinístico e roda
+// no CI.
+func TestProcessTemplate_IncludeFromFixture(t *testing.T) {
+	// Reset registrado ANTES do Setenv para rodar por último (LIFO): garante que
+	// o cache de paths volte ao ambiente real depois que o env for restaurado.
+	t.Cleanup(configdir.ResetForTests)
+
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)        // Unix
+	t.Setenv("USERPROFILE", tmp) // Windows
+	configdir.ResetForTests()
+
+	memoryDir := filepath.Join(tmp, ".assistente", "memory")
+	if err := os.MkdirAll(memoryDir, 0o755); err != nil {
+		t.Fatalf("mkdir fixture dir: %v", err)
 	}
-	memoryPath := filepath.Join(homeDir, ".assistente", "memory", "memory.md")
-	if _, err := os.Stat(memoryPath); os.IsNotExist(err) {
-		t.Skipf("memory.md not found at %s (skip on CI)", memoryPath)
+	// O conteúdo incluído contém um trecho parecido com template ({{ ... }}) de
+	// propósito: ele deve ser inserido VERBATIM, não reprocessado.
+	const marker = "MEMORIA_FIXTURE_MARKER"
+	const literalTemplate = "{{ if .task.link }}true{{ end }}"
+	fixture := marker + "\nGo template doc: `" + literalTemplate + "`\n"
+	if err := os.WriteFile(filepath.Join(memoryDir, "memory.md"), []byte(fixture), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
 	}
 
 	content := `<user_memory>
@@ -283,20 +302,25 @@ Current date/time: {{ now }}
 </user_memory>`
 	result := ProcessTemplate(content, nil)
 
-	if strings.Contains(result, "{{") {
-		t.Errorf("templates should be resolved, got: %q", result)
+	// As diretivas do wrapper devem ter sido resolvidas.
+	if strings.Contains(result, "{{ now }}") || strings.Contains(result, "{{ include") {
+		t.Errorf("wrapper directives should be resolved, got: %q", result)
 	}
 	if !strings.Contains(result, "<user_memory>") {
 		t.Errorf("expected <user_memory> wrapper, got: %q", result)
 	}
 	year := time.Now().Format("2006")
 	if !strings.Contains(result, year) {
-		t.Errorf("expected current year in now output, got: %q", result)
+		t.Errorf("expected current year from {{ now }}, got: %q", result)
 	}
-	if len(result) < 100 {
-		t.Errorf("expected substantial content from memory.md, got only %d chars: %q", len(result), result)
+	// Conteúdo da fixture foi incluído...
+	if !strings.Contains(result, marker) {
+		t.Errorf("expected included fixture content (marker %q), got: %q", marker, result)
 	}
-	t.Logf("Include result (%d bytes):\n%s", len(result), result[:min(500, len(result))])
+	// ...e o trecho parecido com template sobreviveu VERBATIM (include não reprocessa).
+	if !strings.Contains(result, literalTemplate) {
+		t.Errorf("included content should be verbatim (expected %q), got: %q", literalTemplate, result)
+	}
 }
 
 func TestProcessTemplate_ExecWithData(t *testing.T) {

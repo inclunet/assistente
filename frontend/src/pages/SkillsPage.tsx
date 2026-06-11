@@ -19,6 +19,7 @@ import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { SkillGeneralSection } from '../components/skills/SkillGeneralSection';
 import { SkillContentSection } from '../components/skills/SkillContentSection';
 import { SkillToolsSection } from '../components/skills/SkillToolsSection';
+import { SkillCatalogSection } from '../components/skills/SkillCatalogSection';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
@@ -30,10 +31,14 @@ import './SkillsPage.css';
 
 type SkillInfo = skills.SkillInfo;
 
+// Versão semver default para skills novas (backend exige semver em modo estrito).
+const DEFAULT_SKILL_VERSION = '1.0.0';
+
 interface SkillRow {
   id: string;
   slug: string;
   name: string;
+  version: string;
   description: string;
   auto: boolean;
   isBuiltin: boolean;
@@ -41,16 +46,33 @@ interface SkillRow {
   // Campos para edição (só preenchidos após loadItem)
   content?: string;
   toolsString?: string;
+  // Catálogo / gating (AEP-0072 D4)
+  autoLoad?: boolean;
+  autoloadReason?: string;
+  contextBudget?: number;
+  requiresTools?: boolean;
+  requiresFilesystem?: boolean;
+  requiresNetwork?: boolean;
+  requiresMcp?: boolean;
   [key: string]: unknown;
 }
 
 interface SkillFormData {
   name: string;
+  version?: string;
   description: string;
   auto: boolean;
   disableModelInvocation?: boolean;
   content?: string;
   toolsString?: string;
+  // Catálogo / gating (AEP-0072 D4)
+  autoLoad?: boolean;
+  autoloadReason?: string;
+  contextBudget?: number;
+  requiresTools?: boolean;
+  requiresFilesystem?: boolean;
+  requiresNetwork?: boolean;
+  requiresMcp?: boolean;
 }
 
 export default function SkillsPage() {
@@ -66,6 +88,35 @@ export default function SkillsPage() {
 
   const getAllowedTools = (tools?: { allowed?: string[] }) => tools?.allowed || [];
 
+  const buildSkillRequest = (data: SkillFormData) => {
+    const toolsList = (data.toolsString || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    // `auto` (model-invocable) é autoritativo: auto_load só vale se a skill puder
+    // ser invocada pelo modelo (IsAutoLoad exige !disableModelInvocation). Derivamos
+    // autoLoad de auto para manter a invariável do backend e refletir a intenção do
+    // usuário — desmarcar `auto` desliga o auto_load em vez de virar toggle sem efeito.
+    const autoLoad = (data.autoLoad ?? false) && (data.auto ?? false);
+    return controllers.SkillCreateRequest.createFrom({
+      name: data.name.trim(),
+      // Backend exige semver em modo estrito (validateSpecStrict); roundtrip do
+      // valor carregado em edição, default DEFAULT_SKILL_VERSION na criação.
+      version: (data.version || '').trim() || DEFAULT_SKILL_VERSION,
+      description: data.description.trim(),
+      disableModelInvocation: !data.auto,
+      tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
+      content: data.content || '',
+      autoLoad,
+      autoloadReason: (data.autoloadReason || '').trim(),
+      contextBudget: data.contextBudget ?? 0,
+      requiresTools: data.requiresTools ?? false,
+      requiresFilesystem: data.requiresFilesystem ?? false,
+      requiresNetwork: data.requiresNetwork ?? false,
+      requiresMcp: data.requiresMcp ?? false,
+    });
+  };
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [focusedRow, setFocusedRow] = useState<SkillRow | null>(null);
@@ -79,6 +130,7 @@ export default function SkillsPage() {
           id: s.slug,
           slug: s.slug,
           name: s.name,
+          version: s.version || DEFAULT_SKILL_VERSION,
           description: s.description || '',
           auto: !s.disableModelInvocation,
           isBuiltin: s.isBuiltin,
@@ -91,35 +143,31 @@ export default function SkillsPage() {
           id: skill.slug,
           slug: skill.slug,
           name: skill.name,
+          version: skill.version || DEFAULT_SKILL_VERSION,
           description: skill.description,
           auto: !skill.disableModelInvocation,
           isBuiltin: false,
           tools: getAllowedTools(skill.tools as { allowed?: string[] } | undefined),
           content: skill.content,
           toolsString: getAllowedTools(skill.tools as { allowed?: string[] } | undefined).join(', '),
+          // Normaliza para o estado EFETIVO (IsAutoLoad): auto_load só vale quando
+          // o modelo pode invocar (!disableModelInvocation). Evita mostrar autoLoad
+          // marcado para skills legadas/inconsistentes (autoLoad=true + auto=off) e a
+          // consequente mudança silenciosa para false ao salvar (derivação no request).
+          autoLoad: (skill.autoLoad ?? false) && !skill.disableModelInvocation,
+          autoloadReason: skill.autoloadReason,
+          contextBudget: skill.contextBudget,
+          requiresTools: skill.requiresTools,
+          requiresFilesystem: skill.requiresFilesystem,
+          requiresNetwork: skill.requiresNetwork,
+          requiresMcp: skill.requiresMcp,
         };
       },
       createItem: async (data) => {
-        const toolsList = (data.toolsString || '').split(',').map(s => s.trim()).filter(Boolean);
-        const req = controllers.SkillCreateRequest.createFrom({
-          name: data.name.trim(),
-          description: data.description.trim(),
-          disableModelInvocation: !data.auto,
-          tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
-          content: data.content || '',
-        });
-        return await CreateSkill(req);
+        return await CreateSkill(buildSkillRequest(data));
       },
       updateItem: async (id, data) => {
-        const toolsList = (data.toolsString || '').split(',').map(s => s.trim()).filter(Boolean);
-        const req = controllers.SkillCreateRequest.createFrom({
-          name: data.name.trim(),
-          description: data.description.trim(),
-          disableModelInvocation: !data.auto,
-          tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
-          content: data.content || '',
-        });
-        await UpdateSkill(id as string, req);
+        await UpdateSkill(id as string, buildSkillRequest(data));
       },
       deleteItem: async (id) => {
         await DeleteSkill(id as string);
@@ -155,18 +203,32 @@ export default function SkillsPage() {
         if (!item.description.trim()) {
           return t('skills.descriptionRequired', 'Descrição é obrigatória');
         }
+        // auto_load efetivo (autoLoad && auto) exige justificativa: o backend
+        // rejeita em modo estrito (validateSpecStrict). Falha cedo com mensagem
+        // traduzida para evitar o erro de roundtrip + toast genérico.
+        if (item.autoLoad && item.auto && !(item.autoloadReason ?? '').trim()) {
+          return t('skills.autoloadReasonRequired');
+        }
         return null;
       },
       createDefault: () => ({
         id: '',
         slug: '',
         name: '',
+        version: DEFAULT_SKILL_VERSION,
         description: '',
         auto: false,
         isBuiltin: false,
         tools: [],
         content: '',
         toolsString: '',
+        autoLoad: false,
+        autoloadReason: '',
+        contextBudget: 0,
+        requiresTools: false,
+        requiresFilesystem: false,
+        requiresNetwork: false,
+        requiresMcp: false,
       }),
     }
   );
@@ -411,6 +473,21 @@ export default function SkillsPage() {
             <SkillToolsSection
               toolsString={crud.editingItem.toolsString || ''}
               onToolsChange={(toolsString) => crud.updateField('toolsString', toolsString)}
+            />
+
+            <SkillCatalogSection
+              item={crud.editingItem}
+              onFieldChange={(field, value) => {
+                crud.updateField(
+                  field as keyof SkillFormData,
+                  value as SkillFormData[keyof SkillFormData]
+                );
+                // auto_load implica auto-invocação pelo modelo (IsAutoLoad exige
+                // !disableModelInvocation); mantém a UI coerente auto-habilitando.
+                if (field === 'autoLoad' && value === true) {
+                  crud.updateField('auto', true);
+                }
+              }}
             />
 
             <EditorPanelFooter className="skills-editor__footer">

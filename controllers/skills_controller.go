@@ -109,3 +109,12 @@ func (c *SkillsController) GetUserInvocableSkills() ([]skills.SkillInfo, error) 
 	}
 	return c.skillMgr.GetUserInvocableSkills()
 }
+
+// GetSkillCatalog devolve o catálogo compacto de skills (AEP-0072 D1, Nível 1):
+// índice leve persistido, sem o corpo, para descoberta e observabilidade.
+func (c *SkillsController) GetSkillCatalog() ([]skills.SkillCatalogEntry, error) {
+	if err := c.guard(); err != nil {
+		return nil, err
+	}
+	return c.skillMgr.ListCatalog()
+}

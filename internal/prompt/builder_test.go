@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
@@ -24,6 +25,10 @@ type mockSkillReader struct {
 	autoErr         error
 	availErr        error
 	allErr          error
+
+	// getCalls registra quantas vezes Get(slug) foi chamado — usado para provar
+	// que a descoberta (Nível 1) é servida do catálogo, sem carregar o corpo.
+	getCalls map[string]int
 }
 
 func (m *mockSkillReader) GetAutoSkills() ([]skills.Skill, error) {
@@ -41,6 +46,66 @@ func (m *mockSkillReader) GetSkillFiles(slug string) ([]string, error) {
 	}
 	return nil, nil
 }
+func (m *mockSkillReader) MaterializeSkill(s skills.Skill) (string, error) {
+	return s.Path, nil
+}
+
+// allKnown reúne (dedup por slug) as skills configuradas no mock, espelhando a
+// fonte canônica do manager real. A ordem segue auto → disponíveis → todas.
+func (m *mockSkillReader) allKnown() []skills.Skill {
+	seen := make(map[string]bool)
+	var out []skills.Skill
+	add := func(list []skills.Skill) {
+		for _, s := range list {
+			if seen[s.Slug] {
+				continue
+			}
+			seen[s.Slug] = true
+			out = append(out, s)
+		}
+	}
+	add(m.autoSkills)
+	add(m.availableSkills)
+	add(m.allSkillsFull)
+	return out
+}
+
+// ListCatalog projeta o catálogo compacto (Nível 1) a partir das skills conhecidas,
+// ordenado por (name, slug) — como o catálogo persistido do manager (ORDER BY
+// name, slug), cujo tie-breaker por slug garante ordem determinística entre skills
+// homônimas.
+func (m *mockSkillReader) ListCatalog() ([]skills.SkillCatalogEntry, error) {
+	if m.allErr != nil {
+		return nil, m.allErr
+	}
+	all := m.allKnown()
+	entries := make([]skills.SkillCatalogEntry, 0, len(all))
+	for i := range all {
+		entries = append(entries, skills.CatalogEntryFromSkill(&all[i]))
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Name != entries[j].Name {
+			return entries[i].Name < entries[j].Name
+		}
+		return entries[i].Slug < entries[j].Slug
+	})
+	return entries, nil
+}
+
+// Get devolve o corpo completo de uma skill conhecida (Nível 2, autoload).
+func (m *mockSkillReader) Get(slug string) (*skills.Skill, error) {
+	if m.getCalls == nil {
+		m.getCalls = map[string]int{}
+	}
+	m.getCalls[slug]++
+	for _, s := range m.allKnown() {
+		if s.Slug == slug {
+			cp := s
+			return &cp, nil
+		}
+	}
+	return nil, fmt.Errorf("skill not found: %s", slug)
+}
 
 type mockWorkspaceReader struct{ ws *workspace.Workspace }
 
@@ -53,7 +118,13 @@ func makeSkill(slug, name, desc, content string, autoLoad, modelInvocable bool) 
 	s.DisableModelInvocation = !modelInvocable
 	if autoLoad {
 		s.AutoLoad = true
+		// AEP-0072 D5: autoload exige autoload_reason para permanecer em <auto_skills>.
+		s.AutoloadReason = "test autoload reason"
 		s.Behavior = &skills.BehaviorConfig{}
+		// Autoload implica model-invocable: IsAutoLoad() retorna false quando
+		// DisableModelInvocation. Mantém a fixture coerente com a semântica real
+		// (GetAutoSkills nunca devolveria um autoload não invocável).
+		s.DisableModelInvocation = false
 	}
 	return s
 }
@@ -390,6 +461,208 @@ func TestBuildSkillsSection_ToolCallingDisabledSkipsToolDependentSkills(t *testi
 	}
 }
 
+func TestBuildSkillsSection_AutoloadWithoutReason_DemotedToOnDemand(t *testing.T) {
+	// autoload sem autoload_reason (modo metadata-driven) deve ser rebaixado.
+	noReason := makeSkill("noreason", "No Reason", "Skill autoload sem reason", "Corpo NoReason.", false, true)
+	noReason.AutoLoad = true // autoload no metadado, mas sem reason
+	b := &prompt.Builder{Skills: &mockSkillReader{autoSkills: []skills.Skill{noReason}, availableSkills: nil}}
+
+	result := b.BuildSkillsSection(nil, false, nil)
+	if strings.Contains(result, "Corpo NoReason.") {
+		t.Errorf("skill autoload sem reason não deveria entrar em <auto_skills>: %q", result)
+	}
+	if !strings.Contains(result, "<available_skills>") || !strings.Contains(result, "noreason") {
+		t.Errorf("skill rebaixada deveria aparecer em <available_skills>: %q", result)
+	}
+}
+
+func TestBuildSkillsSection_AutoloadWithoutReason_HiddenWhenOnDemandDisabled(t *testing.T) {
+	noReason := makeSkill("noreason", "No Reason", "desc", "Corpo NoReason.", false, true)
+	noReason.AutoLoad = true
+	b := &prompt.Builder{Skills: &mockSkillReader{autoSkills: []skills.Skill{noReason}}}
+
+	result := b.BuildSkillsSection(nil, true, nil)
+	if result != "" {
+		t.Errorf("autoload sem reason + on-demand desligado deveria sumir, got %q", result)
+	}
+}
+
+func TestBuildSkillsSection_ExplicitAutoloadKeptWithoutReason(t *testing.T) {
+	// No modo lista-explícita, a escolha do perfil é respeitada mesmo sem reason.
+	s := makeSkill("alpha", "Alpha", "A", "Conteúdo Alpha.", false, true)
+	s.AutoLoad = true // sem reason
+	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s}}}
+	result := b.BuildSkillsSection([]string{"alpha"}, true, nil)
+	if !strings.Contains(result, "Conteúdo Alpha.") {
+		t.Errorf("lista explícita deveria autoloadar mesmo sem reason: %q", result)
+	}
+}
+
+func TestBuildSkillsSection_BudgetOmitsLowPrioritySkills(t *testing.T) {
+	longDesc := strings.Repeat("x", 500)
+	var avail []skills.Skill
+	for i := 0; i < 50; i++ {
+		s := makeSkill(fmt.Sprintf("skill-%02d", i), fmt.Sprintf("Skill %02d", i), longDesc, "body", false, true)
+		avail = append(avail, s)
+	}
+	b := &prompt.Builder{Skills: &mockSkillReader{availableSkills: avail}}
+	result := b.BuildSkillsSection(nil, false, nil)
+	if !strings.Contains(result, "<available_skills>") {
+		t.Fatalf("esperava bloco available_skills")
+	}
+	// Com 50 skills de descrição longa, o budget (8000 chars) deve omitir algumas.
+	if strings.Contains(result, "skill-49") {
+		t.Errorf("budget deveria omitir as skills de menor prioridade (fim da lista)")
+	}
+	if !strings.Contains(result, "skill-00") {
+		t.Errorf("budget deveria manter as skills de maior prioridade (início da lista)")
+	}
+}
+
+func TestBuildSkillsSection_RequiresFlagGatedWhenToolsDisabled(t *testing.T) {
+	// requires_network explícito, sem config: deve ser omitida com tools off.
+	netSkill := makeSkill("net", "Net", "Needs net", "Net content.", true, false)
+	netSkill.RequiresNetwork = true
+	plain := makeSkill("plain", "Plain", "No deps", "Plain content.", true, false)
+	b := &prompt.Builder{Skills: &mockSkillReader{autoSkills: []skills.Skill{netSkill, plain}}}
+
+	result := b.BuildSkillsSection(nil, false, chat.TemplateData{ToolCallingEnabled: false})
+	if strings.Contains(result, "Net content.") {
+		t.Errorf("skill com requires_network deveria ser omitida com tools off: %q", result)
+	}
+	if !strings.Contains(result, "Plain content.") {
+		t.Errorf("skill sem dependências deveria permanecer: %q", result)
+	}
+}
+
+func TestBuildSkillsSection_RestrictiveEnabledToolsGatesOnDemandAndCapabilities(t *testing.T) {
+	// Perfil com tool calling LIGADO mas EnabledTools fixo sem read_file e sem
+	// tool_catalog: o modelo não consegue ativar skills por leitura nem alcançar
+	// rede. On-demand deve sumir; requires_network deve ser oculto; autoload fica.
+	netSkill := makeSkill("net", "Net", "Needs net", "Net content.", true, false)
+	netSkill.RequiresNetwork = true
+	onDemand := makeSkill("ondemand", "OnDemand", "On demand desc", "OnDemand body.", false, true)
+	plainAuto := makeSkill("plain", "Plain", "No deps", "Plain content.", true, false)
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		autoSkills:      []skills.Skill{netSkill, plainAuto},
+		availableSkills: []skills.Skill{onDemand},
+	}}
+
+	tpl := chat.TemplateData{ToolCallingEnabled: true, EnabledTools: []string{"task_list"}}
+	result := b.BuildSkillsSection(nil, false, tpl)
+	if strings.Contains(result, "<available_skills>") {
+		t.Errorf("sem read_file alcançável, on-demand deveria sumir: %q", result)
+	}
+	if strings.Contains(result, "Net content.") {
+		t.Errorf("requires_network deveria ser oculto sem tool de rede: %q", result)
+	}
+	if !strings.Contains(result, "Plain content.") {
+		t.Errorf("autoload sem dependências deveria permanecer: %q", result)
+	}
+}
+
+func TestBuildSkillsSection_ReadFileEnabledKeepsOnDemandAndFilesystem(t *testing.T) {
+	// Perfil restrito a read_file: on-demand é viável (read_file alcançável) e a
+	// capability filesystem fica disponível (read_file é uma tool de filesystem).
+	onDemand := makeSkill("ondemand", "OnDemand", "On demand desc", "OnDemand body.", false, true)
+	fsSkill := makeSkill("fs", "FS", "Needs fs", "FS body.", false, true)
+	fsSkill.RequiresFilesystem = true
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		availableSkills: []skills.Skill{onDemand, fsSkill},
+	}}
+
+	tpl := chat.TemplateData{ToolCallingEnabled: true, EnabledTools: []string{"read_file"}}
+	result := b.BuildSkillsSection(nil, false, tpl)
+	if !strings.Contains(result, "<available_skills>") {
+		t.Fatalf("read_file habilitado deveria manter on-demand: %q", result)
+	}
+	if !strings.Contains(result, "ondemand") {
+		t.Errorf("skill on-demand deveria aparecer: %q", result)
+	}
+	if !strings.Contains(result, "fs") {
+		t.Errorf("requires_filesystem deveria aparecer (read_file = filesystem): %q", result)
+	}
+}
+
+func TestBuildSkillsSection_AllowlistSlugNameCollisionKeepsOtherSkill(t *testing.T) {
+	// Colisão: o identificador "shared" é o slug da skill A e o nome da skill B.
+	// A allowlist=["shared"] deve autoloadar A (slug-first) sem excluir B do pool —
+	// B continua disponível como sob demanda.
+	a := makeSkill("shared", "Alpha", "desc A", "Corpo A.", false, true)
+	b := makeSkill("beta", "shared", "desc B", "Corpo B.", false, true)
+	bld := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{a, b}}}
+
+	result := bld.BuildSkillsSection([]string{"shared"}, false, nil)
+	if !strings.Contains(result, "Corpo A.") {
+		t.Errorf("skill A (slug=shared) deveria autoloadar: %q", result)
+	}
+	if !strings.Contains(result, "beta") {
+		t.Errorf("skill B (nome=shared) não deveria ser excluída do pool: %q", result)
+	}
+	// A não pode aparecer duplicada (autoload + available).
+	if strings.Count(result, "Corpo A.") != 1 {
+		t.Errorf("skill A não deveria ser renderizada duas vezes: %q", result)
+	}
+}
+
+func TestBuildSkillsSection_AllowlistByNameResolvesToSlug(t *testing.T) {
+	// Perfil lista a skill pelo NOME (slug != nome). O builder resolve a allowlist
+	// para slugs canônicos (via CatalogByNamesOrdered) antes do gating, então a
+	// skill deve autoloadar mesmo listada por nome.
+	s := makeSkill("my-slug", "My Skill", "desc", "Corpo MySkill.", false, true)
+	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s}}}
+
+	result := b.BuildSkillsSection([]string{"My Skill"}, false, nil)
+	if !strings.Contains(result, "Corpo MySkill.") {
+		t.Errorf("allowlist por nome deveria autoloadar a skill (resolvida para slug): %q", result)
+	}
+}
+
+func TestBuildSkillsSection_CatalogFirstProfileKeepsNetworkSkillAvailable(t *testing.T) {
+	// Perfil sem allowlist (EnabledTools == nil): catalog-first. As tools de rede
+	// começam escondidas no tool_catalog, mas continuam alcançáveis → uma skill que
+	// exige rede deve permanecer disponível.
+	netSkill := makeSkill("netskill", "NetSkill", "Needs net", "Net body.", false, true)
+	netSkill.RequiresNetwork = true
+	b := &prompt.Builder{Skills: &mockSkillReader{availableSkills: []skills.Skill{netSkill}}}
+
+	tpl := chat.TemplateData{
+		ToolCallingEnabled: true,
+		EnabledTools:       []string{tools.ToolCatalogName},
+		Profile:            &profiles.Profile{Chat: profiles.ChatConfig{EnabledTools: nil}},
+	}
+	result := b.BuildSkillsSection(nil, false, tpl)
+	if !strings.Contains(result, "<available_skills>") || !strings.Contains(result, "netskill") {
+		t.Errorf("catalog-first deveria manter skill de rede disponível: %q", result)
+	}
+}
+
+func TestBuildSkillsSection_AllowlistWithCatalogStillGatesMissingCapability(t *testing.T) {
+	// Perfil com allowlist fixa (tool_catalog + read_file): o universo é exatamente
+	// essas tools — o catálogo não excede a allowlist. Skill de rede deve sumir
+	// (sem tool de rede), mas a de filesystem permanece (read_file disponível).
+	netSkill := makeSkill("netskill", "NetSkill", "Needs net", "Net body.", false, true)
+	netSkill.RequiresNetwork = true
+	fsSkill := makeSkill("fsskill", "FsSkill", "Needs fs", "FS body.", false, true)
+	fsSkill.RequiresFilesystem = true
+	b := &prompt.Builder{Skills: &mockSkillReader{availableSkills: []skills.Skill{netSkill, fsSkill}}}
+
+	tpl := chat.TemplateData{
+		ToolCallingEnabled: true,
+		EnabledTools:       []string{tools.ToolCatalogName, "read_file"},
+		Profile: &profiles.Profile{Chat: profiles.ChatConfig{
+			EnabledTools: []string{tools.ToolCatalogName, "read_file"},
+		}},
+	}
+	result := b.BuildSkillsSection(nil, false, tpl)
+	if strings.Contains(result, "netskill") {
+		t.Errorf("skill de rede deveria ser oculta sem tool de rede na allowlist: %q", result)
+	}
+	if !strings.Contains(result, "fsskill") {
+		t.Errorf("skill de filesystem deveria permanecer (read_file na allowlist): %q", result)
+	}
+}
+
 func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 	s := makeSkill("dev", "Dev", "Dev desc", "Dev content.", true, false)
 	b := &prompt.Builder{Skills: &mockSkillReader{
@@ -402,6 +675,148 @@ func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 	}
 	if !strings.Contains(result, "guide.md") {
 		t.Error("Expected guide.md listed")
+	}
+}
+
+func TestBuildSkillsSection_SupplementaryFiles_OmitsUnsafePaths(t *testing.T) {
+	// Nomes de supporting files com caracteres que poderiam fechar backticks/tags
+	// ou quebrar o Markdown do prompt devem ser omitidos; os seguros permanecem.
+	unsafe := []string{
+		"/skills/dev/ok.md",
+		"/skills/dev/evil`whoami`.md",
+		"/skills/dev/inject<tag>.md",
+		"/skills/dev/break\nline.md",
+	}
+	auto := makeSkill("dev", "Dev", "Dev desc", "Dev content.", true, false)
+	avail := makeSkill("doc", "Doc", "Doc desc", "Doc content.", false, true)
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		autoSkills:      []skills.Skill{auto},
+		availableSkills: []skills.Skill{avail},
+		skillFiles:      map[string][]string{"dev": unsafe, "doc": unsafe},
+	}}
+
+	result := b.BuildSkillsSection(nil, false, nil)
+	if !strings.Contains(result, "ok.md") {
+		t.Errorf("path seguro deveria permanecer: %q", result)
+	}
+	for _, bad := range []string{"evil", "whoami", "inject", "<tag>", "break"} {
+		if strings.Contains(result, bad) {
+			t.Errorf("path inseguro contendo %q não deveria aparecer no prompt: %q", bad, result)
+		}
+	}
+}
+
+func TestBuildSkillsSection_AvailableSkill_OmitsUnsafePath(t *testing.T) {
+	// Entry on-demand cujo Path contém caractere inseguro deve ser omitida do
+	// bloco <available_skills> (Path é renderizado entre backticks no prompt).
+	safe := makeSkill("safe-doc", "Safe Doc", "Safe desc", "Safe content.", false, true)
+	unsafe := makeSkill("evil-doc", "Evil Doc", "Evil desc", "Evil content.", false, true)
+	unsafe.Path = "/skills/evil-doc/`whoami`.md"
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		availableSkills: []skills.Skill{safe, unsafe},
+	}}
+
+	result := b.BuildSkillsSection(nil, false, nil)
+	if !strings.Contains(result, "safe-doc") {
+		t.Errorf("skill com path seguro deveria aparecer: %q", result)
+	}
+	if strings.Contains(result, "evil-doc") || strings.Contains(result, "whoami") {
+		t.Errorf("skill com path inseguro não deveria aparecer na descoberta: %q", result)
+	}
+}
+
+func TestBuildSkillsSection_BudgetScalesWithContextWindow(t *testing.T) {
+	// AEP-0072 D3: o cap do Nível 1 é percentual da janela do modelo. Janela
+	// grande comporta todas as skills; janela pequena omite as de menor prioridade.
+	longDesc := strings.Repeat("x", 500)
+	var avail []skills.Skill
+	for i := 0; i < 50; i++ {
+		avail = append(avail, makeSkill(fmt.Sprintf("skill-%02d", i), fmt.Sprintf("Skill %02d", i), longDesc, "body", false, true))
+	}
+	b := &prompt.Builder{Skills: &mockSkillReader{availableSkills: avail}}
+
+	bigWindow := chat.TemplateData{ToolCallingEnabled: true, Profile: &profiles.Profile{Chat: profiles.ChatConfig{ContextWindow: 1_000_000}}}
+	big := b.BuildSkillsSection(nil, false, bigWindow)
+	if !strings.Contains(big, "skill-49") {
+		t.Errorf("janela grande (2%%) deveria comportar todas as skills, omitiu skill-49")
+	}
+
+	// 25k tokens → ~2000 chars de budget: comporta algumas skills, mas não as 50.
+	smallWindow := chat.TemplateData{ToolCallingEnabled: true, Profile: &profiles.Profile{Chat: profiles.ChatConfig{ContextWindow: 25_000}}}
+	small := b.BuildSkillsSection(nil, false, smallWindow)
+	if strings.Contains(small, "skill-49") {
+		t.Errorf("janela pequena (2%%) deveria omitir skills de menor prioridade")
+	}
+	if !strings.Contains(small, "skill-00") {
+		t.Errorf("janela pequena deveria manter ao menos a skill de maior prioridade")
+	}
+}
+
+func TestBuildSkillsSection_OnDemandServedFromCatalog_NoBodyLoad(t *testing.T) {
+	// AEP-0072 Fase 4b: a descoberta (Nível 1) deve ser servida do catálogo
+	// compacto. Uma skill sob demanda NÃO pode ter o corpo carregado (Get) ao
+	// montar o bloco <available_skills>; o Path vem pré-materializado do catálogo.
+	avail := makeSkill("ondemand", "On Demand", "On demand desc", "Corpo pesado.", false, true)
+	m := &mockSkillReader{availableSkills: []skills.Skill{avail}}
+	b := &prompt.Builder{Skills: m}
+
+	result := b.BuildSkillsSection(nil, false, nil)
+	if !strings.Contains(result, "<available_skills>") || !strings.Contains(result, "ondemand") {
+		t.Fatalf("esperava skill sob demanda no catálogo: %q", result)
+	}
+	if strings.Contains(result, "Corpo pesado.") {
+		t.Errorf("o corpo não deveria ser injetado para skill sob demanda: %q", result)
+	}
+	if !strings.Contains(result, "/skills/ondemand/SKILL.md") {
+		t.Errorf("o Path do catálogo deveria ser renderizado: %q", result)
+	}
+	if n := m.getCalls["ondemand"]; n != 0 {
+		t.Errorf("descoberta não deveria carregar o corpo (Get chamado %d vez(es))", n)
+	}
+}
+
+func TestBuildSkillsSection_AutoloadLoadsBodyBySlug(t *testing.T) {
+	// Apenas o autoload (Nível 2) carrega o corpo, e exatamente uma vez por skill.
+	auto := makeSkill("loader", "Loader", "Loader desc", "Corpo do loader.", true, true)
+	m := &mockSkillReader{autoSkills: []skills.Skill{auto}}
+	b := &prompt.Builder{Skills: m}
+
+	result := b.BuildSkillsSection(nil, false, nil)
+	if !strings.Contains(result, "Corpo do loader.") {
+		t.Fatalf("esperava corpo do autoload injetado: %q", result)
+	}
+	if n := m.getCalls["loader"]; n != 1 {
+		t.Errorf("autoload deveria carregar o corpo exatamente uma vez, got %d", n)
+	}
+}
+
+func TestBuildSkillsSection_GoldenSnapshot(t *testing.T) {
+	// Snapshot do contrato de saída (auto + available) para travar o formato e
+	// proteger contra regressões no refactor catalog-driven.
+	auto := makeSkill("dev", "Dev", "Faz coisas de dev", "Conteúdo de dev.", true, true)
+	auto.Type = "command"
+	avail := makeSkill("notes", "Notes", "Gerencia notas", "Corpo notes.", false, true)
+	avail.Type = "agent"
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		autoSkills:      []skills.Skill{auto},
+		availableSkills: []skills.Skill{avail},
+	}}
+
+	want := "<auto_skills>\n" +
+		"## Dev [command]\n" +
+		"Conteúdo de dev.\n" +
+		"</auto_skills>\n\n" +
+		"<available_skills>\n" +
+		"You have skills available that provide specialized instructions for specific tasks.\n" +
+		"To use a skill, read its file using the read_file tool with the path indicated below.\n" +
+		"Only read a skill when it's relevant to the current task.\n\n" +
+		"- **Notes** (`notes`) [agent]: Gerencia notas\n" +
+		"  Path: `/skills/notes/SKILL.md`\n" +
+		"</available_skills>"
+
+	got := b.BuildSkillsSection(nil, false, nil)
+	if got != want {
+		t.Errorf("snapshot divergente.\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
 
