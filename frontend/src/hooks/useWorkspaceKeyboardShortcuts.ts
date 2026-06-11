@@ -220,7 +220,7 @@ export function useWorkspaceKeyboardShortcuts() {
           const targetTab = tabs[num - 1];
           if (targetTab) {
             setActiveTab(targetTab.id);
-            announce(`${targetTab.title}, ${num} de ${tabs.length}`);
+            announce(i18next.t('workspace.announce.tabPosition', { title: targetTab.title, position: num, total: tabs.length }));
           }
         }
       }
@@ -242,7 +242,7 @@ export function useWorkspaceKeyboardShortcuts() {
       const nextTab = tabs[nextIndex];
       if (nextTab) {
         setActiveTab(nextTab.id);
-        announce(`${nextTab.title}, ${nextIndex + 1} de ${tabs.length}`);
+        announce(i18next.t('workspace.announce.tabPosition', { title: nextTab.title, position: nextIndex + 1, total: tabs.length }));
       }
     }
 

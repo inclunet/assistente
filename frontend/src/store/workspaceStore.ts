@@ -291,14 +291,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
 
   createWorkspace: async (name) => {
     const bws = await CreateWorkspace(name);
-    announce(`Workspace criado: ${name}`);
+    announce(i18next.t('workspace.announce.workspaceCreated', { name }));
     return bws.id;
   },
 
   switchWorkspace: async (workspaceId) => {
     const bws = await SwitchWorkspace(workspaceId);
     set({ workspace: backendWorkspaceToFrontend(bws) });
-    announce(`Workspace: ${bws.name}`);
+    announce(i18next.t('workspace.announce.workspaceSwitched', { name: bws.name }));
   },
 
   renameWorkspace: async (newName) => {
@@ -306,13 +306,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     set(state => ({
       workspace: state.workspace ? { ...state.workspace, name: newName } : null,
     }));
-    announce(`Workspace renomeado: ${newName}`);
+    announce(i18next.t('workspace.announce.workspaceRenamed', { name: newName }));
   },
 
   deleteWorkspace: async (workspaceId) => {
     await DeleteWorkspace(workspaceId);
     await get().refreshWorkspaceList();
-    announce('Workspace removido');
+    announce(i18next.t('workspace.announce.workspaceRemoved'));
   },
 
   setProfile: async (profileSlug) => {
@@ -359,7 +359,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     if (updatedWs) {
       set({ workspace: backendWorkspaceToFrontend(updatedWs) });
     }
-    announce(`Aba criada: ${title}`);
+    announce(i18next.t('workspace.announce.tabCreated', { title }));
     return tabId;
   },
 
@@ -383,7 +383,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     if (updatedWs) {
       set({ workspace: backendWorkspaceToFrontend(updatedWs) });
     }
-    announce('Aba fechada');
+    announce(i18next.t('workspace.announce.tabClosed'));
   },
 
   setActiveTab: (tabId) => {
@@ -480,7 +480,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   importWorkspace: async (yamlData) => {
     const bws = await ImportWorkspace(yamlData);
     await get().refreshWorkspaceList();
-    announce(`Workspace importado: ${bws.name}`);
+    announce(i18next.t('workspace.announce.workspaceImported', { name: bws.name }));
     return bws.id;
   },
 

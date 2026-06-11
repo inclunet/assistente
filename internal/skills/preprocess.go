@@ -11,6 +11,8 @@ import (
 	"text/template"
 	"time"
 
+	"assistente/internal/allowlist"
+	"assistente/internal/commandpolicy"
 	"assistente/internal/configdir"
 )
 
@@ -36,12 +38,21 @@ const (
 //   - Se o comando falha, a linha é substituída por um comentário de erro
 //   - Timeout de 5s por comando por padrão
 //
-// allowedCommands: se não-nil, apenas comandos cujo executável está na lista são executados.
-// Se nil, todos os comandos são permitidos.
+// Segurança (default-deny, ver AEP-0060):
+//   - allowedCommands vem de tools.bashCommands.allowed do skill. Se nil ou
+//     vazia, NENHUM !command é executado (a linha vira comentário de bloqueio).
+//   - Quando há allowlist, o comando inteiro é avaliado por internal/commandpolicy
+//     (o mesmo avaliador da tool run_command): comandos compostos (`;`, `&&`,
+//     `||`) são decompostos e CADA átomo precisa estar permitido; features de
+//     shell (pipe, redirecionamento, substituição de comando, env inline,
+//     sintaxe ambígua) forçam confirm — e como não há usuário para confirmar
+//     no preprocess, qualquer decisão diferente de approve bloqueia.
 func PreprocessCommands(content string, allowedCommands []string) string {
 	if content == "" {
 		return ""
 	}
+
+	policy := buildSkillPolicy(allowedCommands)
 
 	lines := strings.Split(content, "\n")
 	result := make([]string, 0, len(lines))
@@ -64,16 +75,19 @@ func PreprocessCommands(content string, allowedCommands []string) string {
 		// Suporta sintaxe com backticks: !`command` → remove backticks
 		cmd = stripBackticks(cmd)
 
-		// Verifica se o comando é permitido
-		if !isCommandAllowed(cmd, allowedCommands) {
-			result = append(result, fmt.Sprintf("<!-- command blocked: %s (not in allowed list) -->", cmd))
+		// Verifica se o comando é permitido pela política (default-deny)
+		if allowed, reason := evaluateSkillCommand(cmd, policy); !allowed {
+			// O comentário entra no prompt do LLM; não ecoe a linha do comando
+			// porque ela pode conter secrets inline ou argumentos sensíveis.
+			result = append(result, fmt.Sprintf("<!-- command blocked: %s -->", sanitizeHTMLCommentText(reason)))
 			continue
 		}
 
 		// Executa o comando
 		output, err := executeCommand(cmd)
 		if err != nil {
-			result = append(result, fmt.Sprintf("<!-- command failed: %s — %v -->", cmd, err))
+			// O erro pode conter stderr/args sensíveis; não propague detalhes ao prompt.
+			result = append(result, "<!-- command failed -->")
 			continue
 		}
 
@@ -97,24 +111,72 @@ func stripBackticks(cmd string) string {
 	return strings.TrimSpace(cmd)
 }
 
-// isCommandAllowed verifica se um comando está na lista de permitidos.
-// Se allowedCommands for nil, tudo é permitido (sem restrição).
-// Compara pelo nome do executável (primeiro token do comando).
-func isCommandAllowed(cmd string, allowedCommands []string) bool {
-	if allowedCommands == nil {
-		return true
-	}
-
-	// Extrai o primeiro token (executável)
-	executable := strings.Fields(cmd)[0]
-
-	for _, allowed := range allowedCommands {
-		if strings.EqualFold(executable, allowed) {
-			return true
+// buildSkillPolicy monta uma allowlist sintética default-deny a partir da
+// lista de executáveis permitidos declarada pelo skill (tools.bashCommands.allowed).
+// Cada executável vira uma regra estruturada `approve` com wildcard de cauda
+// (qualquer subcomando/args), preservando a semântica anterior de restrição
+// por executável (case-insensitive). Retorna nil quando a lista é nil/vazia,
+// sinalizando bloqueio total (default-deny).
+func buildSkillPolicy(allowedCommands []string) *allowlist.Allowlist {
+	rules := make([]allowlist.CommandRule, 0, len(allowedCommands))
+	for _, prog := range allowedCommands {
+		prog = strings.TrimSpace(prog)
+		if prog == "" {
+			continue
 		}
+		rules = append(rules, allowlist.CommandRule{
+			Program:     prog,
+			Subcommands: []string{"*"},
+			Decision:    allowlist.DecisionApprove.String(),
+			Description: "permitido por tools.bashCommands do skill",
+		})
+	}
+	if len(rules) == 0 {
+		return nil
+	}
+	return &allowlist.Allowlist{
+		Name:          "skill-preprocess",
+		CommandRules:  rules,
+		DefaultAction: allowlist.DecisionDeny.String(),
+	}
+}
+
+// evaluateSkillCommand decide se um !command de skill pode ser executado.
+//
+// Default-deny: policy nil (skill sem allowlist de bash) bloqueia tudo.
+// Com policy, o comando inteiro passa por commandpolicy.Evaluate: comandos
+// compostos são decompostos e cada átomo é avaliado individualmente; features
+// de shell não suportadas (pipe, redirecionamento, substituição de comando,
+// heredoc, background, env inline, sintaxe ambígua) resultam em confirm.
+// Como o preprocess não tem fluxo de confirmação, só approve executa.
+//
+// O reason retornado usa exclusivamente EvaluationResult.Reasons (canal safe,
+// sem patterns/descrições da allowlist), pois o comentário de bloqueio é
+// injetado no system prompt enviado ao LLM.
+func evaluateSkillCommand(cmd string, policy *allowlist.Allowlist) (allowed bool, reason string) {
+	if policy == nil {
+		return false, "skill não declara comandos bash permitidos"
 	}
 
-	return false
+	result := commandpolicy.Evaluate(cmd, policy)
+	if result.Decision == allowlist.DecisionApprove {
+		return true, ""
+	}
+
+	if len(result.Reasons) == 0 {
+		return false, "não permitido pela política de comandos"
+	}
+	return false, strings.Join(result.Reasons, "; ")
+}
+
+// sanitizeHTMLCommentText evita que texto vindo do parser/policy feche ou
+// quebre o comentário HTML injetado no prompt do LLM.
+func sanitizeHTMLCommentText(text string) string {
+	for strings.Contains(text, "--") {
+		text = strings.ReplaceAll(text, "--", "-")
+	}
+	text = strings.ReplaceAll(text, ">", "&gt;")
+	return text
 }
 
 // ProcessTemplate processa o conteúdo de um skill como Go text/template.

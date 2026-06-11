@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger';
 import { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAnnouncer } from './useAnnouncer';
 import { useUIStore } from '../store/uiStore';
 
@@ -108,6 +109,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
 ): UseEditableListResult<T> {
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
+  const { t } = useTranslation();
 
   // Estado da lista
   const [items, setItems] = useState<T[]>([]);
@@ -148,8 +150,8 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
     setEditingItem(defaultItem);
     setEditingId(null);
     setIsNew(true);
-    announce(`Editor aberto para novo ${options.entityName}`);
-  }, [options, announce]);
+    announce(t('a11y.announce.editorOpenedNew', { name: options.entityName }));
+  }, [options, announce, t]);
 
   const openEdit = useCallback(async (item: T) => {
     try {
@@ -161,7 +163,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       setEditingItem(fullItem);
       setEditingId(item.id);
       setIsNew(false);
-      announce(`Editor aberto para ${getName(item)}`);
+      announce(t('a11y.announce.editorOpened', { name: getName(item) }));
     } catch (error) {
       logger.error(`Erro ao carregar ${options.entityName}:`, error);
       addToast(
@@ -169,14 +171,14 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
         'error'
       );
     }
-  }, [operations, options.entityName, messages.loadError, addToast, announce]);
+  }, [operations, options.entityName, messages.loadError, addToast, announce, t]);
 
   const closeEditor = useCallback(() => {
     setEditingItem(null);
     setEditingId(null);
     setIsNew(false);
-    announce('Editor fechado');
-  }, [announce]);
+    announce(t('a11y.announce.editorClosed'));
+  }, [announce, t]);
 
   const updateField = useCallback(<K extends keyof T>(field: K, value: T[K]) => {
     setEditingItem(prev => {
@@ -205,7 +207,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
           messages.createSuccess || `${options.entityName} criado com sucesso!`,
           'success'
         );
-        announce(`${getName(editingItem)} criado`);
+        announce(t('a11y.announce.itemCreated', { name: getName(editingItem) }));
         setIsNew(false);
         setEditingId(newId);
       } else if (editingId !== null) {
@@ -214,7 +216,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
           messages.updateSuccess || `${options.entityName} atualizado com sucesso!`,
           'success'
         );
-        announce(`${getName(editingItem)} atualizado`);
+        announce(t('a11y.announce.itemUpdated', { name: getName(editingItem) }));
       }
 
       await loadItems();
@@ -238,6 +240,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
     messages,
     addToast,
     announce,
+    t,
     loadItems,
     closeEditor,
   ]);
@@ -271,7 +274,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
         messages.deleteSuccess || `${options.entityName} excluído com sucesso!`,
         'success'
       );
-      announce(`${options.entityName} excluído`);
+      announce(t('a11y.announce.itemDeleted', { name: options.entityName }));
 
       // Fecha editor se estava editando este item
       if (editingId === item.id) {
@@ -287,7 +290,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
         'error'
       );
     }
-  }, [operations, options, messages, addToast, announce, editingId, closeEditor, loadItems]);
+  }, [operations, options, messages, addToast, announce, t, editingId, closeEditor, loadItems]);
 
   return {
     // Lista

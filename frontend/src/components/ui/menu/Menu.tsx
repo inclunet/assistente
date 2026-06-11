@@ -269,7 +269,7 @@ export const Menu: React.FC<MenuProps> = ({
           setSubmenuStack((prev) => [...prev, currentItem.id]);
           const submenuItems = currentItem.submenu.filter((item) => !item.separator);
           setFocusStack((prev) => [...prev, firstFocusableIndex(submenuItems)]);
-          announce(`Submenu aberto: ${currentItem.label}. ${submenuItems.length} opções disponíveis.`);
+          announce(t('a11y.announce.submenuOpened', { label: currentItem.label, count: submenuItems.length }));
         }
         break;
 
@@ -279,7 +279,7 @@ export const Menu: React.FC<MenuProps> = ({
           // Fecha o submenu atual e volta para o nível anterior
           setSubmenuStack((prev) => prev.slice(0, -1));
           setFocusStack((prev) => prev.slice(0, -1));
-          announce('Submenu fechado. Voltando ao menu anterior.');
+          announce(t('a11y.announce.submenuClosed'));
         }
         // Se estiver no menu raiz, não faz nada
         break;
@@ -290,7 +290,7 @@ export const Menu: React.FC<MenuProps> = ({
           // Se está em submenu, volta para o nível anterior
           setSubmenuStack((prev) => prev.slice(0, -1));
           setFocusStack((prev) => prev.slice(0, -1));
-          announce('Submenu fechado. Voltando ao menu anterior.');
+          announce(t('a11y.announce.submenuClosed'));
         } else {
           onClose?.();
           requestAnimationFrame(() => restoreDefaultFocus());
@@ -305,7 +305,7 @@ export const Menu: React.FC<MenuProps> = ({
           setSubmenuStack((prev) => [...prev, currentItem.id]);
           const submenuItems = currentItem.submenu.filter((item) => !item.separator);
           setFocusStack((prev) => [...prev, firstFocusableIndex(submenuItems)]);
-          announce(`Submenu aberto: ${currentItem.label}. ${submenuItems.length} opções disponíveis.`);
+          announce(t('a11y.announce.submenuOpened', { label: currentItem.label, count: submenuItems.length }));
         } else if (currentItem?.action && !currentItem?.disabled) {
           currentItem.action();
           onSelect?.(currentItem);
@@ -351,7 +351,7 @@ export const Menu: React.FC<MenuProps> = ({
                 setSubmenuStack((prev) => [...prev.slice(0, level), item.id]);
                 const submenuItems = item.submenu!.filter((subitem) => !subitem.separator);
                 setFocusStack((prev) => [...prev.slice(0, level + 1), firstFocusableIndex(submenuItems)]);
-                announce(`Submenu aberto: ${item.label}. ${submenuItems.length} opções disponíveis.`);
+                announce(t('a11y.announce.submenuOpened', { label: item.label, count: submenuItems.length }));
               } else {
                 item.action?.();
                 onSelect?.(item);

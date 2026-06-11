@@ -282,6 +282,11 @@ func (a *App) customActionTaskMap(ctx context.Context, task *database.Task) map[
 	m["assignee_name"] = task.AssigneeName
 	m["creator_id"] = task.CreatorID
 	m["link"] = task.Link
+	conversationID := ""
+	if task.ConversationID != nil {
+		conversationID = *task.ConversationID
+	}
+	m["conversation_id"] = conversationID
 	if task.ParentID != nil {
 		m["parent_id"] = *task.ParentID
 	}
@@ -302,19 +307,20 @@ func (a *App) customActionBoardTaskMap(ctx context.Context, taskListID string) m
 
 func emptyTaskMap() map[string]any {
 	return map[string]any{
-		"task_id":        "",
-		"id":             "",
-		"task_list_id":   "",
-		"task_list_slug": "",
-		"code":           "",
-		"title":          "",
-		"description":    "",
-		"status_id":      0,
-		"parent_id":      "",
-		"assignee_id":    "",
-		"assignee_name":  "",
-		"creator_id":     "",
-		"link":           "",
+		"task_id":         "",
+		"id":              "",
+		"task_list_id":    "",
+		"task_list_slug":  "",
+		"code":            "",
+		"title":           "",
+		"description":     "",
+		"status_id":       0,
+		"parent_id":       "",
+		"assignee_id":     "",
+		"assignee_name":   "",
+		"creator_id":      "",
+		"link":            "",
+		"conversation_id": "",
 	}
 }
 
