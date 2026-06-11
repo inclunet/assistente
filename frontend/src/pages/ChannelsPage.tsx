@@ -534,8 +534,9 @@ export default function ChannelsPage() {
       setSignalRegCaptcha('');
       if (mode === 'sms') setSignalSmsSent(true);
       const modeLabel = mode === 'voice' ? t('channels.signal.modeVoice') : t('channels.signal.modeSms');
-      addToast(t('channels.toast.codeSent', { mode: modeLabel, account: signalForm.account }), 'success');
-      announce(t('channels.announce.codeSent', { mode: modeLabel }));
+      const codeSentMessage = t('channels.announce.codeSent', { mode: modeLabel, account: signalForm.account });
+      addToast(codeSentMessage, 'success');
+      announce(codeSentMessage);
     } catch (error: unknown) {
       setSignalRegStep(signalSmsSent ? 'awaiting_code' : 'idle');
       const msg = getErrorMessage(error) || 'Erro ao registrar número';
