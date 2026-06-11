@@ -78,7 +78,7 @@ export default function RestoreDefaultsPage() {
     try {
       await fn();
       addToast(`${opId} concluído com sucesso!`, 'success');
-      announce(`${opId} realizado`);
+      announce(t('restore.announce.operationDone', { name: opId }));
       onSuccess?.();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error ?? '');

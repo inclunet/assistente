@@ -12,6 +12,7 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import { terminal } from '../../wailsjs/go/models';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
 import { announce } from '../hooks/useAnnouncer';
+import i18next from 'i18next';
 
 // Debounce para anúncio de output (acumula chunks e espera streaming parar)
 let announceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -27,9 +28,9 @@ function scheduleOutputAnnounce(chunk: string) {
     if (text) {
       playReceiveSound();
       const truncated = text.length > 300
-        ? text.slice(0, 300) + '… truncado'
+        ? text.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix')
         : text;
-      announce(`Saída: ${truncated}`);
+      announce(i18next.t('terminal.announce.output', { output: truncated }));
     }
     pendingOutput = '';
     announceTimer = null;
@@ -286,9 +287,9 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     unsubs.push(EventsOn('terminal:command_end', (data: { sessionId: string; commandId: string; output: string; exitCode: number }) => {
       playReceiveSound();
       const outputPreview = data.output
-        ? (data.output.length > 300 ? data.output.slice(0, 300) + '… truncado' : data.output)
-        : 'vazia';
-      announce(`Saída: ${outputPreview}. Código de saída: ${data.exitCode}`);
+        ? (data.output.length > 300 ? data.output.slice(0, 300) + i18next.t('terminal.announce.truncatedSuffix') : data.output)
+        : i18next.t('terminal.announce.emptyOutput');
+      announce(i18next.t('terminal.announce.outputWithExit', { output: outputPreview, exitCode: data.exitCode }));
       set(state => {
         const sessionHistory = state.historyBySession[data.sessionId] || [];
         const updatedHistory = sessionHistory.map(entry => {

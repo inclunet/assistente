@@ -494,14 +494,14 @@ export default function ChannelsPage() {
         SignalListAccounts(signalForm.apiURL, apiToken).catch(() => [] as string[]),
       ]);
       setSignalAccounts(accounts || []);
-      let infoText = `API acessível (v${info['version'] || '?'}, build ${info['build'] || '?'}).`;
+      let infoText = t('channels.signal.apiInfo', { version: info['version'] || '?', build: info['build'] || '?' });
       if (accounts && accounts.length > 0) {
-        infoText += ` Contas registradas: ${accounts.join(', ')}`;
+        infoText += ` ${t('channels.signal.apiAccounts', { accounts: accounts.join(', ') })}`;
         if (!signalForm.account) {
           setSignalForm((prev) => ({ ...prev, account: accounts[0] }));
         }
       } else {
-        infoText += ' Nenhuma conta registrada — registre ou vincule abaixo.';
+        infoText += ` ${t('channels.signal.apiNoAccounts')}`;
       }
       setSignalAPIInfo(infoText);
       setSignalAPIReady(true);
@@ -533,9 +533,9 @@ export default function ChannelsPage() {
       setSignalRegStep('awaiting_code');
       setSignalRegCaptcha('');
       if (mode === 'sms') setSignalSmsSent(true);
-      const modeLabel = mode === 'voice' ? 'ligação' : 'SMS';
+      const modeLabel = mode === 'voice' ? t('channels.signal.modeVoice') : t('channels.signal.modeSms');
       addToast(`Código enviado por ${modeLabel} para ${signalForm.account}`, 'success');
-      announce(`Código enviado por ${modeLabel}`);
+      announce(t('channels.announce.codeSent', { mode: modeLabel }));
     } catch (error: unknown) {
       setSignalRegStep(signalSmsSent ? 'awaiting_code' : 'idle');
       const msg = getErrorMessage(error) || 'Erro ao registrar número';
@@ -557,7 +557,7 @@ export default function ChannelsPage() {
       setSignalRegStep('done');
       setSignalSmsSent(false);
       addToast(`Número ${signalForm.account} verificado com sucesso`, 'success');
-      announce('Número verificado com sucesso');
+      announce(t('channels.announce.numberVerified'));
     } catch (error: unknown) {
       setSignalRegStep('awaiting_code');
       const msg = getErrorMessage(error) || 'Erro ao verificar código';
@@ -580,7 +580,7 @@ export default function ChannelsPage() {
         setSignalLinking(false);
         setSignalRegError('Tempo esgotado. Verifique os logs do container signal-cli-rest-api.');
         addToast('Tempo esgotado na vinculação', 'error');
-        announce('Tempo esgotado na vinculação');
+        announce(t('channels.announce.linkTimeout'));
         return;
       }
       try {
@@ -594,7 +594,7 @@ export default function ChannelsPage() {
           setSignalLinking(false);
           setSignalLinkQR('');
           addToast(`Dispositivo vinculado! Conta: ${accounts[0]}`, 'success');
-          announce(`Dispositivo vinculado. Conta: ${accounts[0]}`);
+          announce(t('channels.announce.deviceLinked', { account: accounts[0] }));
           return;
         }
       } catch { /* polling */ }
@@ -615,7 +615,7 @@ export default function ChannelsPage() {
     try {
       const qr = await SignalLink(signalForm.apiURL, 'Assistente', apiToken);
       setSignalLinkQR(qr);
-      announce('QR Code gerado. Escaneie com o Signal no celular.');
+      announce(t('channels.announce.qrGenerated'));
       startLinkPolling(Date.now());
     } catch (error: unknown) {
       setSignalRegError(getErrorMessage(error) || 'Erro ao gerar QR de vinculação');
@@ -643,7 +643,7 @@ export default function ChannelsPage() {
         setSignalForm((prev) => ({ ...prev, account: accounts?.[0] || '' }));
       }
       addToast(`Conta ${account} removida`, 'success');
-      announce(`Conta ${account} removida`);
+      announce(t('channels.announce.accountRemoved', { account }));
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || 'Erro ao remover conta', 'error');
     } finally {
