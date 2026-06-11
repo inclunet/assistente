@@ -77,13 +77,13 @@ export default function RestoreDefaultsPage() {
     setLoadingOps((prev) => new Set([...prev, opId]));
     try {
       await fn();
-      addToast(`${opId} concluído com sucesso!`, 'success');
-      announce(`${opId} realizado`);
+      addToast(t('restore.toast.operationSuccess', { name: title }), 'success');
+      announce(t('restore.announce.operationDone', { name: title }));
       onSuccess?.();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error ?? '');
       logger.error(`Erro em ${opId}:`, error);
-      addToast(message || `Erro ao executar ${opId}`, 'error');
+      addToast(message || t('restore.toast.operationFailed', { name: title }), 'error');
     } finally {
       setLoadingOps((prev) => {
         const newSet = new Set(prev);

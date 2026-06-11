@@ -204,7 +204,7 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
       [ids[idx], ids[targetIdx]] = [ids[targetIdx], ids[idx]];
       void reorderTabs(ids);
       const pos = targetIdx + 1;
-      announce(`${tabs[idx].title} movida para posição ${pos} de ${tabs.length}`);
+      announce(t('workspace.announce.tabMovedToPosition', { title: tabs[idx].title, position: pos, total: tabs.length }));
 
       // Re-foca a aba movida após o re-render
       requestAnimationFrame(() => {
@@ -214,7 +214,7 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
         btn?.focus();
       });
     }
-  }, [editingTabId, tabs, startEditing, reorderTabs, announce]);
+  }, [editingTabId, tabs, startEditing, reorderTabs, announce, t]);
 
   const handleActivate = useCallback(() => {
     return !!editingTabId;
@@ -266,7 +266,7 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
           action: async () => {
             try {
               await moveTabToWorkspace(tabId, ws.id);
-              announce(`${tab.title} movida para ${ws.name}`);
+              announce(t('workspace.announce.tabMovedToWorkspace', { title: tab.title, workspace: ws.name }));
             } catch (error) {
               logger.error('[WorkspaceTabList] Move tab error:', error);
             }
@@ -319,9 +319,9 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
 
     const tab = tabs.find(t => t.id === dragTabId);
     if (tab) {
-      announce(`${tab.title} movida para posição ${toIdx + 1} de ${tabs.length}`);
+      announce(t('workspace.announce.tabMovedToPosition', { title: tab.title, position: toIdx + 1, total: tabs.length }));
     }
-  }, [dragTabId, tabs, reorderTabs, announce]);
+  }, [dragTabId, tabs, reorderTabs, announce, t]);
 
   const renderTab = (tab: WorkspaceTab) => {
     const isActive = tab.id === activeTabId;

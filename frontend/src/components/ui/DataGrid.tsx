@@ -317,10 +317,10 @@ export function DataGrid<T = unknown>({
     
     if (newSelected.has(itemId)) {
       newSelected.delete(itemId);
-      announce(`Desmarcado. ${newSelected.size} selecionados`);
+      announce(t('a11y.announce.gridItemDeselected', { count: newSelected.size }));
     } else {
       newSelected.add(itemId);
-      announce(`Marcado. ${newSelected.size} selecionados`);
+      announce(t('a11y.announce.gridItemSelected', { count: newSelected.size }));
     }
     
     setLocalSelectedIds(newSelected);
@@ -331,13 +331,13 @@ export function DataGrid<T = unknown>({
     const allIds = new Set(items.map(item => getItemId(item)));
     setLocalSelectedIds(allIds);
     onSelectionChange?.(allIds);
-    announce(`${allIds.size} itens selecionados`);
+    announce(t('a11y.announce.gridAllSelected', { count: allIds.size }));
   };
 
   const clearSelection = () => {
     setLocalSelectedIds(new Set());
     onSelectionChange?.(new Set());
-    announce('Seleção limpa');
+    announce(t('a11y.announce.gridSelectionCleared'));
   };
 
   const startEditing = (rowIndex: number, colIndex: number) => {
@@ -350,7 +350,7 @@ export function DataGrid<T = unknown>({
     setEditingRow(rowIndex);
     setEditingCol(colIndex);
     setEditValue(String(value || ''));
-    announce('Editando');
+    announce(t('a11y.announce.gridEditing'));
   };
 
   const saveEdit = () => {
@@ -358,14 +358,14 @@ export function DataGrid<T = unknown>({
       const item = items[editingRow];
       const column = columns[editingCol];
       onCellEdit?.(item, column, editValue, editingRow, editingCol);
-      announce('Salvo');
+      announce(t('a11y.announce.gridSaved'));
     }
     cancelEdit();
   };
 
   const cancelEdit = () => {
     if (editingRow >= 0) {
-      announce('Cancelado');
+      announce(t('a11y.announce.gridEditCancelled'));
     }
     setEditingRow(-1);
     setEditingCol(-1);
@@ -503,7 +503,7 @@ export function DataGrid<T = unknown>({
               }).join('\t');
             }).join('\n');
             navigator.clipboard.writeText(textToCopy);
-            announce(`${selectedItems.length} linhas copiadas`);
+            announce(t('a11y.announce.gridRowsCopied', { count: selectedItems.length }));
           } else {
             // Copiar apenas a célula focada
             const item = items[focusedRow];
@@ -511,7 +511,7 @@ export function DataGrid<T = unknown>({
             const value = item[col.key as keyof T];
             const textToCopy = col.format ? String(col.format(value, item)) : String(value || '');
             navigator.clipboard.writeText(textToCopy);
-            announce('Célula copiada');
+            announce(t('a11y.announce.gridCellCopied'));
           }
           return;
         }
@@ -525,7 +525,7 @@ export function DataGrid<T = unknown>({
             const movedRow = focusedRow - 1;
             setFocusedRow(movedRow);
             scheduleFocusCell(movedRow, focusedCol);
-            announce('Movido para cima');
+            announce(t('a11y.announce.gridMovedUp'));
           } else {
             playBumpSound();
           }
@@ -547,7 +547,7 @@ export function DataGrid<T = unknown>({
             const movedRow = focusedRow + 1;
             setFocusedRow(movedRow);
             scheduleFocusCell(movedRow, focusedCol);
-            announce('Movido para baixo');
+            announce(t('a11y.announce.gridMovedDown'));
           } else {
             playBumpSound();
           }
