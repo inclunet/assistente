@@ -199,6 +199,17 @@ func TestPreprocessCommands_CompositeWithDisallowedPartBlocked(t *testing.T) {
 	}
 }
 
+func TestPreprocessCommands_BlockedCommentDoesNotEchoCommand(t *testing.T) {
+	content := "!echo token=secret-value; rm -rf x"
+	result := PreprocessCommands(content, []string{"echo"})
+	if !strings.Contains(result, "<!-- command blocked:") {
+		t.Errorf("expected blocked comment, got: %q", result)
+	}
+	if strings.Contains(result, "secret-value") || strings.Contains(result, "rm -rf") {
+		t.Errorf("blocked comment must not echo the command line or secrets, got: %q", result)
+	}
+}
+
 func TestPreprocessCommands_CompositeAllAllowedExecutes(t *testing.T) {
 	// Composição com && onde todos os átomos são permitidos deve executar.
 	content := "!echo first && echo second"

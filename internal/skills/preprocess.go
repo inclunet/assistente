@@ -77,7 +77,9 @@ func PreprocessCommands(content string, allowedCommands []string) string {
 
 		// Verifica se o comando é permitido pela política (default-deny)
 		if allowed, reason := evaluateSkillCommand(cmd, policy); !allowed {
-			result = append(result, fmt.Sprintf("<!-- command blocked: %s (%s) -->", cmd, reason))
+			// O comentário entra no prompt do LLM; não ecoe a linha do comando
+			// porque ela pode conter secrets inline ou argumentos sensíveis.
+			result = append(result, fmt.Sprintf("<!-- command blocked: %s -->", reason))
 			continue
 		}
 
