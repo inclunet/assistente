@@ -368,13 +368,13 @@
 }
 
 .tool-source-badge--local {
-  background: var(--bg-elevated, #f0f0f0);
+  background: var(--bg-elevated);
   color: var(--text-muted);
 }
 
 .tool-source-badge--mcp {
-  background: var(--accent-dim, #e6f0ff);
-  color: var(--accent, #1677ff);
+  background: var(--accent-dim);
+  color: var(--accent);
 }
 
 /* === Collapsible sections === */
