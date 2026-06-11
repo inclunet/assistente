@@ -76,16 +76,18 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 	}
 
 	reencrypted := 0
+	orphanLogEmitted := false
 	for _, entry := range candidates {
 		if entry.Auth == nil {
 			continue
 		}
 		value := entry.Auth.RefreshURL
-		if _, err := m.decrypt(value); err == nil {
+		normalizedValue := strings.TrimSpace(value)
+		if _, err := m.decrypt(normalizedValue); err == nil {
 			// Caso 1: já cifrado com a DEK atual.
 			continue
 		}
-		looksLikeCiphertext := couldBeGCMCiphertext(value)
+		looksLikeCiphertext := couldBeGCMCiphertext(normalizedValue)
 		if _, isUnreadable := unreadable[entry.ID]; isUnreadable && looksLikeCiphertext {
 			// Credencial já diagnosticada como órfã e refresh com
 			// formato de ciphertext: mantém para o fluxo AEP-0061.
@@ -94,7 +96,10 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 		if looksLikeCiphertext && !m.isAuthDecryptable(entry.Auth) {
 			// Caso 3: possível ciphertext órfão (DEK divergente).
 			// Deixado para o fluxo de integridade do AEP-0061.
-			log.Printf("[Credentials] refresh token da credencial %s não decifra mas tem formato de ciphertext — pulando re-cifragem (possível DEK divergente, ver AEP-0061)", entry.ID)
+			if !orphanLogEmitted {
+				log.Printf("[Credentials] refresh token não decifra mas tem formato de ciphertext — pulando re-cifragem de possível DEK divergente (ver AEP-0061)")
+				orphanLogEmitted = true
+			}
 			continue
 		}
 		// Caso 2: texto plano legado. Cifra antes de regravar.

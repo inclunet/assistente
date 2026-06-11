@@ -220,7 +220,7 @@ func (s *DBStore) ListAllCredentialsIgnoringScope(ctx context.Context) ([]Stored
 		headers := map[string]string{}
 		if entry.HeadersEnc != "" {
 			if err := json.Unmarshal([]byte(entry.HeadersEnc), &headers); err != nil {
-				continue
+				headers = map[string]string{}
 			}
 		}
 		result = append(result, StoredCredential{
@@ -263,7 +263,7 @@ func (s *DBStore) ListCredentialsWithRefreshTokensIgnoringScope(ctx context.Cont
 		headers := map[string]string{}
 		if entry.HeadersEnc != "" {
 			if err := json.Unmarshal([]byte(entry.HeadersEnc), &headers); err != nil {
-				continue
+				headers = map[string]string{}
 			}
 		}
 		result = append(result, StoredCredential{

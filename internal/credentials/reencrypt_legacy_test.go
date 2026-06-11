@@ -49,16 +49,27 @@ func TestListCredentialsWithRefreshTokensIgnoringScopeFiltersEmptyRefresh(t *tes
 
 	insertLegacyCredentialEntry(t, "cred-empty-refresh", "user-1", "api-empty.example.com", "", "")
 	insertLegacyCredentialEntry(t, "cred-with-refresh", "user-2", "api-refresh.example.com", "", "legacy-refresh")
+	insertLegacyCredentialEntry(t, "cred-invalid-headers", "user-3", "api-invalid.example.com", "", "legacy-refresh-with-invalid-headers")
+	if err := database.DB().Exec(`UPDATE credential_entries SET headers_enc = ? WHERE id = ?`, "{invalid-json", "cred-invalid-headers").Error; err != nil {
+		t.Fatalf("marcar headers_enc inválido: %v", err)
+	}
 
 	got, err := NewDBStore().ListCredentialsWithRefreshTokensIgnoringScope(context.Background())
 	if err != nil {
 		t.Fatalf("ListCredentialsWithRefreshTokensIgnoringScope: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("esperado 1 candidato com refresh preenchido, tenho %d: %+v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("esperado 2 candidatos com refresh preenchido, tenho %d: %+v", len(got), got)
 	}
-	if got[0].ID != "cred-with-refresh" || got[0].Auth == nil || got[0].Auth.RefreshURL != "legacy-refresh" {
-		t.Fatalf("candidato inesperado: %+v", got[0])
+	byID := map[string]StoredCredential{}
+	for _, cred := range got {
+		byID[cred.ID] = cred
+	}
+	if cred := byID["cred-with-refresh"]; cred.Auth == nil || cred.Auth.RefreshURL != "legacy-refresh" {
+		t.Fatalf("candidato com refresh esperado não encontrado: %+v", got)
+	}
+	if cred := byID["cred-invalid-headers"]; cred.Auth == nil || cred.Auth.RefreshURL != "legacy-refresh-with-invalid-headers" || len(cred.Auth.Headers) != 0 {
+		t.Fatalf("candidato com headers inválidos deveria manter refresh e headers vazios: %+v", cred)
 	}
 }
 
@@ -146,6 +157,31 @@ func TestReencryptLegacyPlaintextRefreshTokens_Idempotent(t *testing.T) {
 	}
 	if dec != plainRefresh {
 		t.Fatalf("valor decifrado divergente: esperado %q, tenho %q", plainRefresh, dec)
+	}
+}
+
+func TestReencryptLegacyPlaintextRefreshTokens_SkipsCurrentCiphertextWithWhitespace(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+
+	key := []byte("test-key-exactly-32-bytes-long!!")
+	mgr := NewManagerWithStoreAndPersistence(key, NewDBStore(), true)
+
+	refreshEnc, err := mgr.encrypt("refresh-token")
+	if err != nil {
+		t.Fatalf("encrypt refresh de seed: %v", err)
+	}
+	refreshWithWhitespace := " \t" + refreshEnc + "\n"
+	insertLegacyCredentialEntry(t, "cred-cipher-whitespace", "user-1", "api.example.com", "", refreshWithWhitespace)
+
+	n, err := mgr.reencryptLegacyPlaintextRefreshTokens(context.Background())
+	if err != nil {
+		t.Fatalf("reencryptLegacyPlaintextRefreshTokens: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("ciphertext da DEK atual com whitespace não deveria ser re-cifrado, re-cifrou %d", n)
+	}
+	if got := readRefreshTokenEnc(t, "cred-cipher-whitespace"); got != refreshWithWhitespace {
+		t.Fatalf("ciphertext com whitespace foi alterado: %q != %q", got, refreshWithWhitespace)
 	}
 }
 
