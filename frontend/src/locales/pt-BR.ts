@@ -383,7 +383,7 @@ const ptBR = {
         tabSelected: 'Aba {{label}} selecionada',
         contactRemoved: 'Contato removido',
         credentialRemoved: 'Credencial removida',
-        codeSent: 'Código enviado por {{mode}}',
+        codeSent: 'Código enviado por {{mode}} para {{account}}',
         numberVerified: 'Número verificado com sucesso',
         linkTimeout: 'Tempo esgotado na vinculação',
         deviceLinked: 'Dispositivo vinculado. Conta: {{account}}',

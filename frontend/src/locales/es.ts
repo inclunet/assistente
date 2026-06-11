@@ -382,7 +382,7 @@ const es = {
         tabSelected: 'Pestaña {{label}} seleccionada',
         contactRemoved: 'Contacto eliminado',
         credentialRemoved: 'Credencial eliminada',
-        codeSent: 'Código enviado por {{mode}}',
+        codeSent: 'Código enviado por {{mode}} a {{account}}',
         numberVerified: 'Número verificado con éxito',
         linkTimeout: 'Tiempo agotado en la vinculación',
         deviceLinked: 'Dispositivo vinculado. Cuenta: {{account}}',

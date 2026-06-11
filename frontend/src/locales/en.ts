@@ -383,7 +383,7 @@ const en = {
         tabSelected: '{{label}} tab selected',
         contactRemoved: 'Contact removed',
         credentialRemoved: 'Credential removed',
-        codeSent: 'Code sent via {{mode}}',
+        codeSent: 'Code sent via {{mode}} to {{account}}',
         numberVerified: 'Number verified successfully',
         linkTimeout: 'Linking timed out',
         deviceLinked: 'Device linked. Account: {{account}}',

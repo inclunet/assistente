@@ -534,7 +534,7 @@ export default function ChannelsPage() {
       setSignalRegCaptcha('');
       if (mode === 'sms') setSignalSmsSent(true);
       const modeLabel = mode === 'voice' ? t('channels.signal.modeVoice') : t('channels.signal.modeSms');
-      addToast(`Código enviado por ${modeLabel} para ${signalForm.account}`, 'success');
+      addToast(t('channels.toast.codeSent', { mode: modeLabel, account: signalForm.account }), 'success');
       announce(t('channels.announce.codeSent', { mode: modeLabel }));
     } catch (error: unknown) {
       setSignalRegStep(signalSmsSent ? 'awaiting_code' : 'idle');
