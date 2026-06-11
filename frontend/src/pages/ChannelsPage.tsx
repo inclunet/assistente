@@ -557,8 +557,9 @@ export default function ChannelsPage() {
       await SignalVerify(signalForm.apiURL, signalForm.account, signalRegCode, apiToken);
       setSignalRegStep('done');
       setSignalSmsSent(false);
-      addToast(`Número ${signalForm.account} verificado com sucesso`, 'success');
-      announce(t('channels.announce.numberVerified'));
+      const numberVerifiedMessage = t('channels.announce.numberVerified');
+      addToast(numberVerifiedMessage, 'success');
+      announce(numberVerifiedMessage);
     } catch (error: unknown) {
       setSignalRegStep('awaiting_code');
       const msg = getErrorMessage(error) || 'Erro ao verificar código';
@@ -580,8 +581,9 @@ export default function ChannelsPage() {
       if (Date.now() - startTime > POLL_TIMEOUT_MS) {
         setSignalLinking(false);
         setSignalRegError('Tempo esgotado. Verifique os logs do container signal-cli-rest-api.');
-        addToast('Tempo esgotado na vinculação', 'error');
-        announce(t('channels.announce.linkTimeout'));
+        const linkTimeoutMessage = t('channels.announce.linkTimeout');
+        addToast(linkTimeoutMessage, 'error');
+        announce(linkTimeoutMessage);
         return;
       }
       try {
@@ -594,8 +596,9 @@ export default function ChannelsPage() {
           }
           setSignalLinking(false);
           setSignalLinkQR('');
-          addToast(`Dispositivo vinculado! Conta: ${accounts[0]}`, 'success');
-          announce(t('channels.announce.deviceLinked', { account: accounts[0] }));
+          const deviceLinkedMessage = t('channels.announce.deviceLinked', { account: accounts[0] });
+          addToast(deviceLinkedMessage, 'success');
+          announce(deviceLinkedMessage);
           return;
         }
       } catch { /* polling */ }
@@ -643,8 +646,9 @@ export default function ChannelsPage() {
       if (signalForm.account === account) {
         setSignalForm((prev) => ({ ...prev, account: accounts?.[0] || '' }));
       }
-      addToast(`Conta ${account} removida`, 'success');
-      announce(t('channels.announce.accountRemoved', { account }));
+      const accountRemovedMessage = t('channels.announce.accountRemoved', { account });
+      addToast(accountRemovedMessage, 'success');
+      announce(accountRemovedMessage);
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || 'Erro ao remover conta', 'error');
     } finally {
