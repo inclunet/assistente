@@ -48,8 +48,19 @@ func TestPreprocessCommands_EmptyContent(t *testing.T) {
 func TestPreprocessCommands_FailedCommand(t *testing.T) {
 	content := "!thiscommanddoesnotexist12345"
 	result := PreprocessCommands(content, []string{"thiscommanddoesnotexist12345"})
-	if !strings.Contains(result, "<!-- command failed:") {
+	if !strings.Contains(result, "<!-- command failed") {
 		t.Errorf("expected error comment, got: %q", result)
+	}
+}
+
+func TestPreprocessCommands_FailedCommandDoesNotEchoCommand(t *testing.T) {
+	content := "!thiscommanddoesnotexist12345 --token secret-value"
+	result := PreprocessCommands(content, []string{"thiscommanddoesnotexist12345"})
+	if !strings.Contains(result, "<!-- command failed") {
+		t.Errorf("expected failure comment, got: %q", result)
+	}
+	if strings.Contains(result, "thiscommanddoesnotexist12345") || strings.Contains(result, "secret-value") {
+		t.Errorf("failure comment must not echo command line or secrets, got: %q", result)
 	}
 }
 

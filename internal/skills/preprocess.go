@@ -86,7 +86,8 @@ func PreprocessCommands(content string, allowedCommands []string) string {
 		// Executa o comando
 		output, err := executeCommand(cmd)
 		if err != nil {
-			result = append(result, fmt.Sprintf("<!-- command failed: %s — %v -->", cmd, err))
+			// O erro pode conter stderr/args sensíveis; não propague detalhes ao prompt.
+			result = append(result, "<!-- command failed -->")
 			continue
 		}
 
