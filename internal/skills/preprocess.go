@@ -172,7 +172,9 @@ func evaluateSkillCommand(cmd string, policy *allowlist.Allowlist) (allowed bool
 // sanitizeHTMLCommentText evita que texto vindo do parser/policy feche ou
 // quebre o comentário HTML injetado no prompt do LLM.
 func sanitizeHTMLCommentText(text string) string {
-	text = strings.ReplaceAll(text, "--", "-")
+	for strings.Contains(text, "--") {
+		text = strings.ReplaceAll(text, "--", "-")
+	}
 	text = strings.ReplaceAll(text, ">", "&gt;")
 	return text
 }

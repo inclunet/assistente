@@ -291,6 +291,11 @@ func TestSanitizeHTMLCommentText(t *testing.T) {
 	if !strings.Contains(result, "&gt;") {
 		t.Fatalf("expected greater-than signs to be escaped, got: %q", result)
 	}
+
+	result = sanitizeHTMLCommentText("---->")
+	if strings.Contains(result, "--") || strings.Contains(result, ">") {
+		t.Fatalf("runs of hyphens must not leave HTML comment delimiters, got: %q", result)
+	}
 }
 
 func TestBuildSkillPolicy_NilOrEmptyReturnsNil(t *testing.T) {
