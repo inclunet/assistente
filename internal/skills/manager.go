@@ -488,6 +488,12 @@ func (m *Manager) MaterializeSkill(s Skill) (string, error) {
 	if base == "" {
 		return "", fmt.Errorf("home directory not available for skill cache")
 	}
+	// O slug compõe um único segmento do path de cache. Um slug inesperado vindo do
+	// DB (import/seed antigo, corrupção) poderia conter separadores ou ".." e causar
+	// path traversal/escrita fora do cache. Validamos antes de montar o caminho.
+	if err := configdir.ValidateFilename(s.Slug); err != nil {
+		return "", fmt.Errorf("invalid skill slug %q for cache path: %w", s.Slug, err)
+	}
 	dir := filepath.Join(base, "cache", "skills", s.Slug)
 	path := filepath.Join(dir, skillFile)
 

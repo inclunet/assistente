@@ -1,6 +1,9 @@
 package skills
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseCatalogMetadata(t *testing.T) {
 	raw := `---
@@ -142,6 +145,13 @@ func TestValidateDescriptionQuality(t *testing.T) {
 	// Vazia: sem warnings (presença é tratada por validateSpec).
 	if w := ValidateDescriptionQuality("   "); len(w) != 0 {
 		t.Errorf("descrição vazia não deveria gerar warnings: %+v", w)
+	}
+
+	// Multibyte: 18 runes acentuadas = 36 bytes. Por bytes (≥20) NÃO geraria
+	// too_short, mas em runes (18 < 20) deve gerar — confirma a contagem por runes.
+	short := strings.Repeat("ç", 18)
+	if w := ValidateDescriptionQuality(short); !hasWarning(w, DescriptionWarnTooShort) {
+		t.Errorf("esperava too_short para %d runes (%d bytes): %+v", len([]rune(short)), len(short), w)
 	}
 }
 

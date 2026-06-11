@@ -5,7 +5,27 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"assistente/internal/configdir"
 )
+
+func TestMaterializeSkillRejectsUnsafeSlug(t *testing.T) {
+	// Slug inesperado vindo do DB (import/seed antigo, corrupção) não pode escapar
+	// do diretório de cache. A validação ocorre antes de qualquer escrita em disco.
+	tmp := t.TempDir()
+	m := &Manager{resolver: configdir.NewResolverWithBase(tmp)}
+
+	for _, slug := range []string{"../escape", "a/b", `a\b`, "..", ""} {
+		if _, err := m.MaterializeSkill(Skill{Slug: slug}); err == nil {
+			t.Errorf("slug inseguro %q deveria falhar a materialização", slug)
+		}
+	}
+
+	// Nada deve ter sido criado fora do cache pretendido.
+	if _, err := os.Stat(filepath.Join(filepath.Dir(tmp), "escape")); !os.IsNotExist(err) {
+		t.Errorf("path traversal não deveria criar arquivos fora de %q", tmp)
+	}
+}
 
 func findCatalogEntry(entries []SkillCatalogEntry, slug string) (SkillCatalogEntry, bool) {
 	for _, e := range entries {

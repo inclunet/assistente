@@ -1,6 +1,9 @@
 package skills
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // Validação de qualidade de descrição para descoberta (AEP-0072 D4).
 //
@@ -55,8 +58,9 @@ func ValidateDescriptionQuality(description string) []DescriptionWarning {
 
 	var warnings []DescriptionWarning
 
-	// Recomendação de comprimento mínimo útil para roteamento.
-	if len(desc) < 20 {
+	// Recomendação de comprimento mínimo útil para roteamento. Conta runes (não
+	// bytes) para não distorcer o critério com acentos/multibyte de pt-BR/es.
+	if utf8.RuneCountInString(desc) < 20 {
 		warnings = append(warnings, DescriptionWarning{
 			Code:    DescriptionWarnTooShort,
 			Message: "description is very short; add specifics so the model can route to this skill",
