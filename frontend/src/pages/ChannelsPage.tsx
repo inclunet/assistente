@@ -580,7 +580,7 @@ export default function ChannelsPage() {
     linkPollRef.current = setTimeout(async () => {
       if (Date.now() - startTime > POLL_TIMEOUT_MS) {
         setSignalLinking(false);
-        setSignalRegError('Tempo esgotado. Verifique os logs do container signal-cli-rest-api.');
+        setSignalRegError(t('channels.error.signalLinkTimeoutDetails'));
         const linkTimeoutMessage = t('channels.announce.linkTimeout');
         addToast(linkTimeoutMessage, 'error');
         announce(linkTimeoutMessage);
@@ -622,8 +622,9 @@ export default function ChannelsPage() {
       announce(t('channels.announce.qrGenerated'));
       startLinkPolling(Date.now());
     } catch (error: unknown) {
-      setSignalRegError(getErrorMessage(error) || 'Erro ao gerar QR de vinculação');
-      addToast(getErrorMessage(error) || 'Erro ao gerar QR', 'error');
+      const errorMessage = getErrorMessage(error) || t('channels.error.signalLinkQrFailedDetailed');
+      setSignalRegError(errorMessage);
+      addToast(errorMessage, 'error');
       setSignalLinking(false);
     }
   };

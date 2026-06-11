@@ -396,6 +396,8 @@ const ptBR = {
         slackTokensRequired: 'Informe os tokens do Slack ou desative o cofre.',
         signalApiUrlRequired: 'Informe a URL da API Signal',
         verificationCodeRequired: 'Informe o código de verificação',
+        signalLinkTimeoutDetails: 'Tempo esgotado. Verifique os logs do container signal-cli-rest-api.',
+        signalLinkQrFailedDetailed: 'Erro ao gerar QR de vinculação',
       },
       confirm: {
         removeSignalAccountTitle: 'Remover conta do Signal',

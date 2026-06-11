@@ -395,6 +395,8 @@ const es = {
         slackTokensRequired: 'Ingresa los tokens de Slack o desactiva la bóveda.',
         signalApiUrlRequired: 'Ingresa la URL de la API Signal',
         verificationCodeRequired: 'Ingresa el código de verificación',
+        signalLinkTimeoutDetails: 'Tiempo agotado. Revisa los logs del contenedor signal-cli-rest-api.',
+        signalLinkQrFailedDetailed: 'Error al generar el QR de vinculación',
       },
       confirm: {
         removeSignalAccountTitle: 'Eliminar cuenta de Signal',
