@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"strings"
 )
 
 // gcmMinCiphertextLen é o tamanho mínimo (em bytes, pós-base64) de um
@@ -22,7 +23,7 @@ const gcmMinCiphertextLen = 12 + 16
 // portanto cifrar linhas de todos os usuários com `m.encKey` é
 // correto. NUNCA use esses métodos para servir requests do app.
 type refreshTokenReencryptStore interface {
-	allCredentialsLister
+	ListCredentialsWithRefreshTokensIgnoringScope(ctx context.Context) ([]StoredCredential, error)
 	UpdateRefreshTokenEncByID(ctx context.Context, id, value string) error
 }
 
@@ -64,7 +65,7 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 		return 0, nil
 	}
 
-	all, err := store.ListAllCredentialsIgnoringScope(ctx)
+	candidates, err := store.ListCredentialsWithRefreshTokensIgnoringScope(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("listar credenciais para re-cifragem de refresh tokens legados: %w", err)
 	}
@@ -75,8 +76,8 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 	}
 
 	reencrypted := 0
-	for _, entry := range all {
-		if entry.Auth == nil || entry.Auth.RefreshURL == "" {
+	for _, entry := range candidates {
+		if entry.Auth == nil {
 			continue
 		}
 		value := entry.Auth.RefreshURL
@@ -115,7 +116,11 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 // para descartar; valores que falham este teste certamente são texto
 // plano.
 func couldBeGCMCiphertext(value string) bool {
+	value = strings.TrimSpace(value)
 	data, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		data, err = base64.RawStdEncoding.DecodeString(value)
+	}
 	if err != nil {
 		return false
 	}

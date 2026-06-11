@@ -243,6 +243,49 @@ func (s *DBStore) ListAllCredentialsIgnoringScope(ctx context.Context) ([]Stored
 	return result, nil
 }
 
+// ListCredentialsWithRefreshTokensIgnoringScope retorna apenas credenciais com
+// `refresh_token_enc` preenchido, independentemente do user_id. Existe APENAS
+// para a re-cifragem one-shot de refresh tokens legados no boot; não use em
+// fluxos que servem requests do app.
+func (s *DBStore) ListCredentialsWithRefreshTokensIgnoringScope(ctx context.Context) ([]StoredCredential, error) {
+	db, err := s.ensureDB()
+	if err != nil {
+		return nil, err
+	}
+	var entries []database.CredentialEntry
+	if err := db.WithContext(ctx).
+		Where("refresh_token_enc <> ''").
+		Find(&entries).Error; err != nil {
+		return nil, err
+	}
+	result := make([]StoredCredential, 0, len(entries))
+	for _, entry := range entries {
+		headers := map[string]string{}
+		if entry.HeadersEnc != "" {
+			if err := json.Unmarshal([]byte(entry.HeadersEnc), &headers); err != nil {
+				continue
+			}
+		}
+		result = append(result, StoredCredential{
+			ID:      entry.ID,
+			UserID:  entry.UserID,
+			Pattern: entry.Pattern,
+			Auth: &AuthConfig{
+				Type:         entry.AuthType,
+				Token:        entry.TokenEnc,
+				Username:     entry.Username,
+				Password:     entry.PasswordEnc,
+				Headers:      headers,
+				ExpiresAt:    entry.ExpiresAt,
+				RefreshURL:   entry.RefreshTokenEnc,
+				ClientID:     entry.ClientIDEnc,
+				ClientSecret: entry.ClientSecretEnc,
+			},
+		})
+	}
+	return result, nil
+}
+
 // DeleteCredentialsByID remove credenciais pela lista de IDs,
 // independentemente de user_id ou pattern. Existe APENAS para o
 // caminho de purge de credenciais ilegíveis (ver
@@ -284,6 +327,9 @@ func (s *DBStore) UpdateRefreshTokenEncByID(ctx context.Context, id, value strin
 		Update("refresh_token_enc", value)
 	if res.Error != nil {
 		return fmt.Errorf("atualizar refresh_token_enc da credencial %s: %w", id, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("credencial %s não encontrada para atualizar refresh_token_enc", id)
 	}
 	return nil
 }

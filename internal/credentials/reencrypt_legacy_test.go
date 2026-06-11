@@ -2,6 +2,7 @@ package credentials
 
 import (
 	"context"
+	"encoding/base64"
 	"testing"
 
 	"assistente/internal/database"
@@ -29,6 +30,44 @@ func readRefreshTokenEnc(t *testing.T, id string) string {
 		t.Fatalf("ler refresh_token_enc de %s: %v", id, err)
 	}
 	return got
+}
+
+func TestCouldBeGCMCiphertextAcceptsRawBase64AndWhitespace(t *testing.T) {
+	payload := make([]byte, gcmMinCiphertextLen)
+	raw := base64.RawStdEncoding.EncodeToString(payload)
+
+	if !couldBeGCMCiphertext(raw) {
+		t.Fatalf("raw std base64 sem padding deveria ser aceito como formato plausível: %q", raw)
+	}
+	if !couldBeGCMCiphertext(" \t" + raw + "\n") {
+		t.Fatalf("base64 plausível com whitespace ao redor deveria ser aceito")
+	}
+}
+
+func TestListCredentialsWithRefreshTokensIgnoringScopeFiltersEmptyRefresh(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+
+	insertLegacyCredentialEntry(t, "cred-empty-refresh", "user-1", "api-empty.example.com", "", "")
+	insertLegacyCredentialEntry(t, "cred-with-refresh", "user-2", "api-refresh.example.com", "", "legacy-refresh")
+
+	got, err := NewDBStore().ListCredentialsWithRefreshTokensIgnoringScope(context.Background())
+	if err != nil {
+		t.Fatalf("ListCredentialsWithRefreshTokensIgnoringScope: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("esperado 1 candidato com refresh preenchido, tenho %d: %+v", len(got), got)
+	}
+	if got[0].ID != "cred-with-refresh" || got[0].Auth == nil || got[0].Auth.RefreshURL != "legacy-refresh" {
+		t.Fatalf("candidato inesperado: %+v", got[0])
+	}
+}
+
+func TestUpdateRefreshTokenEncByIDReturnsErrorWhenMissing(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+
+	if err := NewDBStore().UpdateRefreshTokenEncByID(context.Background(), "missing-cred", "encrypted"); err == nil {
+		t.Fatal("UpdateRefreshTokenEncByID deveria falhar quando nenhuma linha é atualizada")
+	}
 }
 
 // TestReencryptLegacyPlaintextRefreshTokens_EncryptsPlainValues cobre o
