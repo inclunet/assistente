@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"assistente/internal/database"
@@ -261,6 +262,30 @@ func (s *DBStore) DeleteCredentialsByID(ctx context.Context, ids []string) (int,
 		return 0, res.Error
 	}
 	return int(res.RowsAffected), nil
+}
+
+// UpdateRefreshTokenEncByID regrava APENAS a coluna `refresh_token_enc`
+// da credencial identificada por `id`, sem aplicar user-scope. Existe
+// APENAS para a re-cifragem one-shot de refresh tokens legados em texto
+// plano (`Manager.reencryptLegacyPlaintextRefreshTokens`, issue #236),
+// que roda no boot antes de qualquer sessão — não use em fluxos que
+// servem requests do app; o caminho canônico é SaveCredential com
+// user-scope.
+func (s *DBStore) UpdateRefreshTokenEncByID(ctx context.Context, id, value string) error {
+	db, err := s.ensureDB()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(id) == "" {
+		return errors.New("id vazio não é permitido em UpdateRefreshTokenEncByID")
+	}
+	res := db.WithContext(ctx).Model(&database.CredentialEntry{}).
+		Where("id = ?", id).
+		Update("refresh_token_enc", value)
+	if res.Error != nil {
+		return fmt.Errorf("atualizar refresh_token_enc da credencial %s: %w", id, res.Error)
+	}
+	return nil
 }
 
 // DeleteCredential remove a credencial associada ao `pattern` exato,

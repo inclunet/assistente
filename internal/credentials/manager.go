@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/url"
 	"regexp"
 	"strings"
@@ -378,6 +379,22 @@ func (m *Manager) LoadInstanceSecrets(ctx context.Context) error {
 	}
 	if !m.persist {
 		return nil
+	}
+	// Re-cifragem one-shot de refresh tokens legados em texto plano
+	// (issue #236). Roda aqui — e não na migração de schema do pacote
+	// database — porque a DEK só está disponível depois que o Manager
+	// é configurado com a chave do keychain. Guardada por `m.persist`
+	// (garante que `m.encKey` é a DEK real, não a aleatória de
+	// fallback) e pela integridade do vault (não cifrar nada com uma
+	// DEK divergente dos wraps, ver AEP-0061).
+	if m.integrity.get().OK {
+		n, err := m.reencryptLegacyPlaintextRefreshTokens(ctx)
+		if err != nil {
+			log.Printf("[Credentials] ERRO na re-cifragem de refresh tokens legados: %v — valores em texto plano permanecem até o próximo boot", err)
+		}
+		if n > 0 {
+			log.Printf("[Credentials] %d refresh tokens legados re-cifrados com a DEK atual", n)
+		}
 	}
 	entries, err := m.lookupPersistedByScope(ctx, "")
 	if err != nil {
