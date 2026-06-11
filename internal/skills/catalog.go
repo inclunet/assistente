@@ -57,8 +57,14 @@ func CatalogByNamesOrdered(all []SkillCatalogEntry, names []string) []SkillCatal
 	byName := make(map[string]SkillCatalogEntry, len(all))
 	for _, e := range all {
 		bySlug[e.Slug] = e
+		// Name não é único; mantemos a PRIMEIRA entrada vista para cada nome.
+		// Como `all` chega ordenado por (name, slug), isso equivale a um
+		// tie-breaker determinístico pelo menor slug, em vez de depender da
+		// última entrada (arbitrário).
 		if e.Name != "" {
-			byName[e.Name] = e
+			if _, exists := byName[e.Name]; !exists {
+				byName[e.Name] = e
+			}
 		}
 	}
 	var out []SkillCatalogEntry

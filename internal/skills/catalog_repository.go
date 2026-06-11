@@ -235,7 +235,10 @@ func (r *DBRepository) commitCatalogIfFresh(ctx context.Context, desired map[str
 		if !equalHashMaps(current, desired) {
 			return nil // drift entre as fases → não grava; caller faz retry
 		}
-		if err := tx.Where("1 = 1").Delete(&database.SkillCatalog{}).Error; err != nil {
+		// AllowGlobalUpdate torna explícita a intenção de apagar TODAS as linhas do
+		// catálogo (o rebuild substitui o snapshot inteiro), em vez do workaround
+		// pouco idiomático `Where("1 = 1")`.
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&database.SkillCatalog{}).Error; err != nil {
 			return err
 		}
 		// Batch insert: reduz roundtrips e o tempo de lock da transação conforme o
