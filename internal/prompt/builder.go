@@ -372,9 +372,10 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 }
 
 // unsafeSkillPathChars são caracteres que poderiam fechar backticks/tags ou
-// quebrar a estrutura Markdown do system prompt se aparecessem em um nome de
-// supporting file.
-const unsafeSkillPathChars = "\n\r`<>"
+// quebrar a estrutura/indentação Markdown do system prompt se aparecessem em um
+// nome de supporting file. Inclui tab (\t), válido em filenames mas capaz de
+// desalinhar o bloco — mantém a política consistente com sanitizeSkillText.
+const unsafeSkillPathChars = "\n\r\t`<>"
 
 // hasUnsafePathChars informa se s contém algum caractere que poderia fechar
 // backticks/tags ou quebrar a estrutura Markdown/XML do system prompt.

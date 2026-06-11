@@ -475,7 +475,16 @@ func (m *Manager) MaterializeSkill(s Skill) (string, error) {
 		return s.Path, nil
 	}
 
-	base := configdir.GetHomeDir()
+	// Deriva a base do resolver quando disponível (respeita overrides de teste como
+	// NewResolverWithBase, evitando poluir ~/.assistente em testes); só cai no home
+	// global como fallback.
+	base := ""
+	if m.resolver != nil {
+		base = m.resolver.GetHomeDir()
+	}
+	if base == "" {
+		base = configdir.GetHomeDir()
+	}
 	if base == "" {
 		return "", fmt.Errorf("home directory not available for skill cache")
 	}
