@@ -1115,6 +1115,10 @@ const es = {
       sections: { appearance: 'Apariencia', quickActions: 'Operaciones rápidas', granular: 'Limpieza granular', nuclear: 'Opciones nucleares', security: 'Seguridad - Contraseña maestra' },
       aria: { appearance: 'Apariencia - elige el tema visual', selectTheme: 'Seleccionar tema', quickActions: 'Operaciones rápidas', granular: 'Limpieza granular', nuclear: 'Opciones nucleares', security: 'Seguridad' },
       announce: { themeChanged: 'Tema cambiado a {{label}}', operationDone: '{{name}} realizado' },
+      toast: {
+        operationSuccess: '{{name}} completado correctamente.',
+        operationFailed: 'Error al ejecutar {{name}}',
+      },
       items: {
         clearMessages: 'Vaciar mensajes y conversaciones',
         clearMessagesDesc: 'Borra todos los mensajes y conversaciones, manteniendo perfiles y credenciales',

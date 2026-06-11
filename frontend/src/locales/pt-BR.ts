@@ -1116,6 +1116,10 @@ const ptBR = {
       sections: { appearance: 'Aparência', quickActions: 'Operações Rápidas', granular: 'Limpeza Granular', nuclear: 'Opções Nucleares', security: 'Segurança - Senha Mestre' },
       aria: { appearance: 'Aparência - escolha o tema visual', selectTheme: 'Selecionar tema', quickActions: 'Operações Rápidas', granular: 'Limpeza Granular', nuclear: 'Opções Nucleares', security: 'Segurança' },
       announce: { themeChanged: 'Tema alterado para {{label}}', operationDone: '{{name}} realizado' },
+      toast: {
+        operationSuccess: '{{name}} concluído com sucesso!',
+        operationFailed: 'Erro ao executar {{name}}',
+      },
       items: {
         clearMessages: 'Limpar Mensagens e Conversas',
         clearMessagesDesc: 'Apaga todas as mensagens e conversas, mantendo perfis e credenciais',

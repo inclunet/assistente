@@ -1116,6 +1116,10 @@ const en = {
       sections: { appearance: 'Appearance', quickActions: 'Quick Actions', granular: 'Granular Cleanup', nuclear: 'Nuclear Options', security: 'Security - Master Password' },
       aria: { appearance: 'Appearance - choose the visual theme', selectTheme: 'Select theme', quickActions: 'Quick Actions', granular: 'Granular Cleanup', nuclear: 'Nuclear Options', security: 'Security' },
       announce: { themeChanged: 'Theme changed to {{label}}', operationDone: '{{name}} completed' },
+      toast: {
+        operationSuccess: '{{name}} completed successfully!',
+        operationFailed: 'Failed to run {{name}}',
+      },
       items: {
         clearMessages: 'Clear Messages and Conversations',
         clearMessagesDesc: 'Deletes all messages and conversations, keeping profiles and credentials',
