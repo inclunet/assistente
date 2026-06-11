@@ -119,6 +119,10 @@ func TestReencryptLegacyPlaintextRefreshTokens_SkipsForeignCiphertext(t *testing
 	setupScopedCredentialStoreTestDB(t)
 
 	foreignMgr := NewManagerWithStoreAndPersistence([]byte("another-key-exactly-32-bytes!!!!"), nil, false)
+	foreignToken, err := foreignMgr.encrypt("access-token-de-outra-dek")
+	if err != nil {
+		t.Fatalf("encrypt token com DEK estrangeira: %v", err)
+	}
 	foreignCiphertext, err := foreignMgr.encrypt("refresh-de-outra-dek")
 	if err != nil {
 		t.Fatalf("encrypt com DEK estrangeira: %v", err)
@@ -126,11 +130,7 @@ func TestReencryptLegacyPlaintextRefreshTokens_SkipsForeignCiphertext(t *testing
 
 	key := []byte("test-key-exactly-32-bytes-long!!")
 	mgr := NewManagerWithStoreAndPersistence(key, NewDBStore(), true)
-	tokenEnc, err := mgr.encrypt("access-token-ok")
-	if err != nil {
-		t.Fatalf("encrypt token de seed: %v", err)
-	}
-	insertLegacyCredentialEntry(t, "cred-foreign", "user-1", "api.example.com", tokenEnc, foreignCiphertext)
+	insertLegacyCredentialEntry(t, "cred-foreign", "user-1", "api.example.com", foreignToken, foreignCiphertext)
 
 	n, err := mgr.reencryptLegacyPlaintextRefreshTokens(context.Background())
 	if err != nil {
@@ -144,11 +144,10 @@ func TestReencryptLegacyPlaintextRefreshTokens_SkipsForeignCiphertext(t *testing
 	}
 }
 
-// TestReencryptLegacyPlaintextRefreshTokens_SkipsUnreadableEntries
-// garante que entradas já marcadas como ilegíveis pelo scan de
-// integridade (AEP-0061) não são tocadas: o fluxo de purge/recovery
-// existente continua dono delas.
-func TestReencryptLegacyPlaintextRefreshTokens_SkipsUnreadableEntries(t *testing.T) {
+// TestReencryptLegacyPlaintextRefreshTokens_ReencryptsUnreadablePlainRefresh
+// garante que UnreadableCredentialIDs não bloqueia a re-cifragem quando
+// o refresh token é claramente texto plano legado.
+func TestReencryptLegacyPlaintextRefreshTokens_ReencryptsUnreadablePlainRefresh(t *testing.T) {
 	setupScopedCredentialStoreTestDB(t)
 
 	foreignMgr := NewManagerWithStoreAndPersistence([]byte("another-key-exactly-32-bytes!!!!"), nil, false)
@@ -172,11 +171,55 @@ func TestReencryptLegacyPlaintextRefreshTokens_SkipsUnreadableEntries(t *testing
 	if err != nil {
 		t.Fatalf("reencryptLegacyPlaintextRefreshTokens: %v", err)
 	}
-	if n != 0 {
-		t.Fatalf("entrada ilegível não deveria ser tocada, re-cifrou %d", n)
+	if n != 1 {
+		t.Fatalf("refresh token plain em entrada ilegível deveria ser re-cifrado, tenho %d", n)
 	}
-	if got := readRefreshTokenEnc(t, "cred-unreadable"); got != plainRefresh {
-		t.Fatalf("entrada ilegível foi alterada: %q", got)
+	stored := readRefreshTokenEnc(t, "cred-unreadable")
+	if stored == plainRefresh {
+		t.Fatal("refresh_token_enc ainda contém texto plano após re-cifragem")
+	}
+	dec, err := mgr.decrypt(stored)
+	if err != nil {
+		t.Fatalf("ciphertext gravado não decifra: %v", err)
+	}
+	if dec != plainRefresh {
+		t.Fatalf("valor decifrado divergente: esperado %q, tenho %q", plainRefresh, dec)
+	}
+}
+
+func TestReencryptLegacyPlaintextRefreshTokens_ReencryptsBase64PlainWhenCredentialDecrypts(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+
+	key := []byte("test-key-exactly-32-bytes-long!!")
+	mgr := NewManagerWithStoreAndPersistence(key, NewDBStore(), true)
+	tokenEnc, err := mgr.encrypt("access-token-ok")
+	if err != nil {
+		t.Fatalf("encrypt token de seed: %v", err)
+	}
+
+	const base64PlainRefresh = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+	if !couldBeGCMCiphertext(base64PlainRefresh) {
+		t.Fatalf("seed precisa parecer ciphertext para cobrir falso positivo: %q", base64PlainRefresh)
+	}
+	insertLegacyCredentialEntry(t, "cred-base64-plain", "user-1", "api.example.com", tokenEnc, base64PlainRefresh)
+
+	n, err := mgr.reencryptLegacyPlaintextRefreshTokens(context.Background())
+	if err != nil {
+		t.Fatalf("reencryptLegacyPlaintextRefreshTokens: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("plaintext base64 em credencial decriptável deveria ser re-cifrado, tenho %d", n)
+	}
+	stored := readRefreshTokenEnc(t, "cred-base64-plain")
+	if stored == base64PlainRefresh {
+		t.Fatal("refresh_token_enc base64-like permaneceu em texto plano")
+	}
+	dec, err := mgr.decrypt(stored)
+	if err != nil {
+		t.Fatalf("ciphertext gravado não decifra: %v", err)
+	}
+	if dec != base64PlainRefresh {
+		t.Fatalf("valor decifrado divergente: esperado %q, tenho %q", base64PlainRefresh, dec)
 	}
 }
 

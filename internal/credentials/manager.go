@@ -390,7 +390,7 @@ func (m *Manager) LoadInstanceSecrets(ctx context.Context) error {
 	if m.integrity.get().OK {
 		n, err := m.reencryptLegacyPlaintextRefreshTokens(ctx)
 		if err != nil {
-			log.Printf("[Credentials] ERRO na re-cifragem de refresh tokens legados: %v — valores em texto plano permanecem até o próximo boot", err)
+			return fmt.Errorf("re-cifrar refresh tokens legados: %w", err)
 		}
 		if n > 0 {
 			log.Printf("[Credentials] %d refresh tokens legados re-cifrados com a DEK atual", n)

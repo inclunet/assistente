@@ -42,19 +42,16 @@ type refreshTokenReencryptStore interface {
 //     impossível ter saído de `encrypt`; é texto plano legado (ex.:
 //     URL com token na query, que contém ':' e falha o decode) →
 //     cifra e regrava.
-//  3. base64 plausível mas `decrypt` falha → ambíguo: pode ser
-//     ciphertext órfão de uma DEK divergente (fluxo de recuperação do
-//     AEP-0061 cuida disso) ou, raramente, plaintext que por
-//     coincidência parece ciphertext. NÃO tocamos: re-cifrar um órfão
-//     o transformaria em "decifrável para lixo" e quebraria a detecção
-//     de credenciais ilegíveis.
+//  3. base64 plausível mas `decrypt` falha → ambíguo. Só tratamos como
+//     ciphertext órfão quando a credencial inteira não tem nenhum campo
+//     sensível decriptável com a DEK atual; caso contrário, preferimos
+//     re-cifrar como texto plano legado para não deixar falsos positivos
+//     em claro.
 //
 // Entradas já marcadas como ilegíveis pelo scan de integridade
-// (`UnreadableCredentialIDs`, AEP-0061) são puladas integralmente:
-// re-cifrar o refresh de uma credencial cujos demais campos são lixo
-// só a esconderia do purge automático com o token ainda corrompido.
-// Essas entradas seguem o fluxo de recuperação/purge existente, como
-// antes desta migração.
+// (`UnreadableCredentialIDs`, AEP-0061) só são puladas quando o refresh
+// token tem formato de ciphertext; refresh tokens claramente em texto
+// plano ainda são re-cifrados.
 //
 // Idempotente: na segunda execução todos os valores re-cifrados caem
 // no caso 1. Retorna quantas linhas foram regravadas.
@@ -82,15 +79,18 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 		if entry.Auth == nil || entry.Auth.RefreshURL == "" {
 			continue
 		}
-		if _, isUnreadable := unreadable[entry.ID]; isUnreadable {
-			continue
-		}
 		value := entry.Auth.RefreshURL
 		if _, err := m.decrypt(value); err == nil {
 			// Caso 1: já cifrado com a DEK atual.
 			continue
 		}
-		if couldBeGCMCiphertext(value) {
+		looksLikeCiphertext := couldBeGCMCiphertext(value)
+		if _, isUnreadable := unreadable[entry.ID]; isUnreadable && looksLikeCiphertext {
+			// Credencial já diagnosticada como órfã e refresh com
+			// formato de ciphertext: mantém para o fluxo AEP-0061.
+			continue
+		}
+		if looksLikeCiphertext && !m.isAuthDecryptable(entry.Auth) {
 			// Caso 3: possível ciphertext órfão (DEK divergente).
 			// Deixado para o fluxo de integridade do AEP-0061.
 			log.Printf("[Credentials] refresh token da credencial %s não decifra mas tem formato de ciphertext — pulando re-cifragem (possível DEK divergente, ver AEP-0061)", entry.ID)
