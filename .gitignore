@@ -86,6 +86,9 @@ final_test.txt
 docs/public/
 public/
 
+# Notas efêmeras de review de PR
+docs/pr-*-review-notes.md
+
 # Wails
 wails.json.bak
 frontend/wailsjs/wailsjs/
@@ -94,3 +97,4 @@ __debug_bin*
 # Backup e artefatos de build
 *.bak
 *_error.txt
+*.md5
