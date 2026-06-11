@@ -79,7 +79,7 @@ func PreprocessCommands(content string, allowedCommands []string) string {
 		if allowed, reason := evaluateSkillCommand(cmd, policy); !allowed {
 			// O comentário entra no prompt do LLM; não ecoe a linha do comando
 			// porque ela pode conter secrets inline ou argumentos sensíveis.
-			result = append(result, fmt.Sprintf("<!-- command blocked: %s -->", reason))
+			result = append(result, fmt.Sprintf("<!-- command blocked: %s -->", sanitizeHTMLCommentText(reason)))
 			continue
 		}
 
@@ -167,6 +167,14 @@ func evaluateSkillCommand(cmd string, policy *allowlist.Allowlist) (allowed bool
 		return false, "not allowed by command policy"
 	}
 	return false, strings.Join(result.Reasons, "; ")
+}
+
+// sanitizeHTMLCommentText evita que texto vindo do parser/policy feche ou
+// quebre o comentário HTML injetado no prompt do LLM.
+func sanitizeHTMLCommentText(text string) string {
+	text = strings.ReplaceAll(text, "--", "-")
+	text = strings.ReplaceAll(text, ">", "&gt;")
+	return text
 }
 
 // ProcessTemplate processa o conteúdo de um skill como Go text/template.

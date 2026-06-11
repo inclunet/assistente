@@ -283,6 +283,16 @@ func TestEvaluateSkillCommand_MatchesExecutable(t *testing.T) {
 	}
 }
 
+func TestSanitizeHTMLCommentText(t *testing.T) {
+	result := sanitizeHTMLCommentText("program --flag closed --> visible")
+	if strings.Contains(result, "--") || strings.Contains(result, ">") {
+		t.Fatalf("sanitized text must not contain HTML comment delimiters, got: %q", result)
+	}
+	if !strings.Contains(result, "&gt;") {
+		t.Fatalf("expected greater-than signs to be escaped, got: %q", result)
+	}
+}
+
 func TestBuildSkillPolicy_NilOrEmptyReturnsNil(t *testing.T) {
 	if buildSkillPolicy(nil) != nil {
 		t.Error("nil allowedCommands should produce nil policy")
