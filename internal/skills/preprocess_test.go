@@ -205,7 +205,7 @@ func TestPreprocessCommands_CompositeWithDisallowedPartBlocked(t *testing.T) {
 	if !strings.Contains(result, "<!-- command blocked:") {
 		t.Errorf("composite command with disallowed part must be blocked, got: %q", result)
 	}
-	if strings.Contains(result, "<!-- command failed:") {
+	if strings.Contains(result, "<!-- command failed") {
 		t.Errorf("command must be blocked before execution, got: %q", result)
 	}
 }

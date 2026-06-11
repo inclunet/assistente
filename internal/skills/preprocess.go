@@ -127,7 +127,7 @@ func buildSkillPolicy(allowedCommands []string) *allowlist.Allowlist {
 		rules = append(rules, allowlist.CommandRule{
 			Program:     prog,
 			Subcommands: []string{"*"},
-			Decision:    "approve",
+			Decision:    allowlist.DecisionApprove.String(),
 			Description: "permitido por tools.bashCommands do skill",
 		})
 	}
@@ -137,7 +137,7 @@ func buildSkillPolicy(allowedCommands []string) *allowlist.Allowlist {
 	return &allowlist.Allowlist{
 		Name:          "skill-preprocess",
 		CommandRules:  rules,
-		DefaultAction: "deny",
+		DefaultAction: allowlist.DecisionDeny.String(),
 	}
 }
 
