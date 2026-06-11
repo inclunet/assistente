@@ -17,7 +17,7 @@ func TestPreprocessCommands_BasicEcho(t *testing.T) {
 		content = "Before\n!echo hello\nAfter"
 	}
 
-	result := PreprocessCommands(content, nil)
+	result := PreprocessCommands(content, []string{"echo"})
 
 	if !strings.Contains(result, "hello") {
 		t.Errorf("expected output to contain 'hello', got: %q", result)
@@ -47,7 +47,7 @@ func TestPreprocessCommands_EmptyContent(t *testing.T) {
 
 func TestPreprocessCommands_FailedCommand(t *testing.T) {
 	content := "!thiscommanddoesnotexist12345"
-	result := PreprocessCommands(content, nil)
+	result := PreprocessCommands(content, []string{"thiscommanddoesnotexist12345"})
 	if !strings.Contains(result, "<!-- command failed:") {
 		t.Errorf("expected error comment, got: %q", result)
 	}
@@ -99,7 +99,7 @@ func TestPreprocessCommands_MultipleCommands(t *testing.T) {
 		content = "!echo first\nMiddle\n!echo second"
 	}
 
-	result := PreprocessCommands(content, nil)
+	result := PreprocessCommands(content, []string{"echo"})
 
 	if !strings.Contains(result, "first") {
 		t.Errorf("expected 'first' in output, got: %q", result)
@@ -115,7 +115,7 @@ func TestPreprocessCommands_MultipleCommands(t *testing.T) {
 func TestPreprocessCommands_BacktickSyntax(t *testing.T) {
 	// Formato oficial Claude Code: !`command`
 	content := "PR diff:\n!`echo backtick-works`\nDone"
-	result := PreprocessCommands(content, nil)
+	result := PreprocessCommands(content, []string{"echo"})
 
 	if !strings.Contains(result, "backtick-works") {
 		t.Errorf("expected backtick command output, got: %q", result)
@@ -133,7 +133,7 @@ func TestPreprocessCommands_BacktickAndPlain(t *testing.T) {
 	} else {
 		content = "!echo plain\n!`echo backtick`"
 	}
-	result := PreprocessCommands(content, nil)
+	result := PreprocessCommands(content, []string{"echo"})
 
 	if !strings.Contains(result, "plain") {
 		t.Errorf("expected plain command output, got: %q", result)
@@ -164,30 +164,112 @@ func TestStripBackticks(t *testing.T) {
 	}
 }
 
-func TestIsCommandAllowed_NilAllowsAll(t *testing.T) {
-	if !isCommandAllowed("anything --flag", nil) {
-		t.Error("nil allowedCommands should allow everything")
+// --- Default-deny e integração com commandpolicy (issue #235) ---
+
+func TestPreprocessCommands_NilAllowlistBlocksAll(t *testing.T) {
+	content := "!echo should-not-run"
+	result := PreprocessCommands(content, nil)
+	if !strings.Contains(result, "<!-- command blocked:") {
+		t.Errorf("nil allowlist must block all commands (default-deny), got: %q", result)
+	}
+	// A linha inteira deve virar o comentário de bloqueio (sem output do echo).
+	if !strings.HasPrefix(strings.TrimSpace(result), "<!--") {
+		t.Errorf("command must not execute with nil allowlist, got: %q", result)
 	}
 }
 
-func TestIsCommandAllowed_EmptyBlocksAll(t *testing.T) {
-	if isCommandAllowed("echo hello", []string{}) {
-		t.Error("empty allowedCommands should block everything")
+func TestPreprocessCommands_EmptyAllowlistBlocksAll(t *testing.T) {
+	content := "!echo should-not-run"
+	result := PreprocessCommands(content, []string{})
+	if !strings.Contains(result, "<!-- command blocked:") {
+		t.Errorf("empty allowlist must block all commands (default-deny), got: %q", result)
 	}
 }
 
-func TestIsCommandAllowed_CaseInsensitive(t *testing.T) {
-	if !isCommandAllowed("ECHO hello", []string{"echo"}) {
-		t.Error("should match case-insensitively")
+func TestPreprocessCommands_CompositeWithDisallowedPartBlocked(t *testing.T) {
+	// "echo" está na allowlist, mas "rm" não: a linha composta inteira deve
+	// ser bloqueada (cada átomo precisa ser aprovado pela política).
+	content := "!echo hello; rm -rf x"
+	result := PreprocessCommands(content, []string{"echo"})
+	if !strings.Contains(result, "<!-- command blocked:") {
+		t.Errorf("composite command with disallowed part must be blocked, got: %q", result)
+	}
+	if strings.Contains(result, "<!-- command failed:") {
+		t.Errorf("command must be blocked before execution, got: %q", result)
 	}
 }
 
-func TestIsCommandAllowed_MatchesExecutable(t *testing.T) {
-	if !isCommandAllowed("git log --oneline -5", []string{"git", "echo"}) {
-		t.Error("should match by executable name")
+func TestPreprocessCommands_CompositeAllAllowedExecutes(t *testing.T) {
+	// Composição com && onde todos os átomos são permitidos deve executar.
+	content := "!echo first && echo second"
+	result := PreprocessCommands(content, []string{"echo"})
+	if strings.Contains(result, "<!-- command blocked:") {
+		t.Errorf("composite command with all parts allowed should execute, got: %q", result)
 	}
-	if isCommandAllowed("rm -rf /", []string{"git", "echo"}) {
-		t.Error("should not match non-allowed executable")
+	if !strings.Contains(result, "first") || !strings.Contains(result, "second") {
+		t.Errorf("expected output of both commands, got: %q", result)
+	}
+}
+
+func TestPreprocessCommands_ShellFeaturesBlocked(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		allowed []string
+	}{
+		{"pipe", "!echo a | sort", []string{"echo", "sort"}},
+		{"redirect output", "!echo a > out.txt", []string{"echo"}},
+		{"redirect append", "!echo a >> out.txt", []string{"echo"}},
+		{"command substitution", "!echo $(whoami)", []string{"echo"}},
+		{"env assignment", "!FOO=bar echo x", []string{"echo"}},
+		{"background", "!echo a &", []string{"echo"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := PreprocessCommands(tc.content, tc.allowed)
+			if !strings.Contains(result, "<!-- command blocked:") {
+				t.Errorf("unsupported shell feature must be blocked, got: %q", result)
+			}
+		})
+	}
+}
+
+func TestEvaluateSkillCommand_NilPolicyDenies(t *testing.T) {
+	allowed, reason := evaluateSkillCommand("echo hello", nil)
+	if allowed {
+		t.Error("nil policy must deny everything (default-deny)")
+	}
+	if reason == "" {
+		t.Error("expected a non-empty block reason")
+	}
+}
+
+func TestEvaluateSkillCommand_CaseInsensitive(t *testing.T) {
+	policy := buildSkillPolicy([]string{"echo"})
+	if allowed, _ := evaluateSkillCommand("ECHO hello", policy); !allowed {
+		t.Error("executable matching should be case-insensitive")
+	}
+}
+
+func TestEvaluateSkillCommand_MatchesExecutable(t *testing.T) {
+	policy := buildSkillPolicy([]string{"git", "echo"})
+	if allowed, _ := evaluateSkillCommand("git log --oneline -5", policy); !allowed {
+		t.Error("allowed executable with args should be approved")
+	}
+	if allowed, _ := evaluateSkillCommand("rm -rf /", policy); allowed {
+		t.Error("non-allowed executable must be denied")
+	}
+}
+
+func TestBuildSkillPolicy_NilOrEmptyReturnsNil(t *testing.T) {
+	if buildSkillPolicy(nil) != nil {
+		t.Error("nil allowedCommands should produce nil policy")
+	}
+	if buildSkillPolicy([]string{}) != nil {
+		t.Error("empty allowedCommands should produce nil policy")
+	}
+	if buildSkillPolicy([]string{"  ", ""}) != nil {
+		t.Error("whitespace-only entries should produce nil policy")
 	}
 }
 
