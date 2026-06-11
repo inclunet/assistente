@@ -155,7 +155,7 @@ func buildSkillPolicy(allowedCommands []string) *allowlist.Allowlist {
 // injetado no system prompt enviado ao LLM.
 func evaluateSkillCommand(cmd string, policy *allowlist.Allowlist) (allowed bool, reason string) {
 	if policy == nil {
-		return false, "skill does not declare allowed bash commands"
+		return false, "skill não declara comandos bash permitidos"
 	}
 
 	result := commandpolicy.Evaluate(cmd, policy)
@@ -164,7 +164,7 @@ func evaluateSkillCommand(cmd string, policy *allowlist.Allowlist) (allowed bool
 	}
 
 	if len(result.Reasons) == 0 {
-		return false, "not allowed by command policy"
+		return false, "não permitido pela política de comandos"
 	}
 	return false, strings.Join(result.Reasons, "; ")
 }
