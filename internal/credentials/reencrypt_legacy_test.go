@@ -160,7 +160,7 @@ func TestReencryptLegacyPlaintextRefreshTokens_Idempotent(t *testing.T) {
 	}
 }
 
-func TestReencryptLegacyPlaintextRefreshTokens_SkipsCurrentCiphertextWithWhitespace(t *testing.T) {
+func TestReencryptLegacyPlaintextRefreshTokens_NormalizesCurrentCiphertextWithWhitespace(t *testing.T) {
 	setupScopedCredentialStoreTestDB(t)
 
 	key := []byte("test-key-exactly-32-bytes-long!!")
@@ -180,8 +180,36 @@ func TestReencryptLegacyPlaintextRefreshTokens_SkipsCurrentCiphertextWithWhitesp
 	if n != 0 {
 		t.Fatalf("ciphertext da DEK atual com whitespace não deveria ser re-cifrado, re-cifrou %d", n)
 	}
-	if got := readRefreshTokenEnc(t, "cred-cipher-whitespace"); got != refreshWithWhitespace {
-		t.Fatalf("ciphertext com whitespace foi alterado: %q != %q", got, refreshWithWhitespace)
+	stored := readRefreshTokenEnc(t, "cred-cipher-whitespace")
+	if stored != refreshEnc {
+		t.Fatalf("ciphertext com whitespace deveria ser normalizado: %q != %q", stored, refreshEnc)
+	}
+	dec, err := mgr.decrypt(stored)
+	if err != nil {
+		t.Fatalf("ciphertext normalizado não decifra: %v", err)
+	}
+	if dec != "refresh-token" {
+		t.Fatalf("valor decifrado divergente: %q", dec)
+	}
+}
+
+func TestReencryptLegacyPlaintextRefreshTokens_ClearsWhitespaceOnlyRefresh(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+
+	key := []byte("test-key-exactly-32-bytes-long!!")
+	mgr := NewManagerWithStoreAndPersistence(key, NewDBStore(), true)
+
+	insertLegacyCredentialEntry(t, "cred-refresh-empty", "user-1", "api.example.com", "", " \t\n")
+
+	n, err := mgr.reencryptLegacyPlaintextRefreshTokens(context.Background())
+	if err != nil {
+		t.Fatalf("reencryptLegacyPlaintextRefreshTokens: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("refresh whitespace-only não deveria ser re-cifrado, re-cifrou %d", n)
+	}
+	if got := readRefreshTokenEnc(t, "cred-refresh-empty"); got != "" {
+		t.Fatalf("refresh whitespace-only deveria ser limpo, tenho %q", got)
 	}
 }
 

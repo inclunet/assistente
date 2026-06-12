@@ -83,8 +83,19 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 		}
 		value := entry.Auth.RefreshURL
 		normalizedValue := strings.TrimSpace(value)
+		if normalizedValue == "" {
+			if err := store.UpdateRefreshTokenEncByID(ctx, entry.ID, ""); err != nil {
+				return reencrypted, fmt.Errorf("limpar refresh token vazio da credencial %s: %w", entry.ID, err)
+			}
+			continue
+		}
 		if _, err := m.decrypt(normalizedValue); err == nil {
 			// Caso 1: já cifrado com a DEK atual.
+			if value != normalizedValue {
+				if err := store.UpdateRefreshTokenEncByID(ctx, entry.ID, normalizedValue); err != nil {
+					return reencrypted, fmt.Errorf("normalizar refresh token cifrado da credencial %s: %w", entry.ID, err)
+				}
+			}
 			continue
 		}
 		looksLikeCiphertext := couldBeGCMCiphertext(normalizedValue)
