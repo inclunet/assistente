@@ -114,7 +114,7 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 			continue
 		}
 		// Caso 2: texto plano legado. Cifra antes de regravar.
-		enc, err := m.encrypt(value)
+		enc, err := m.encrypt(normalizedValue)
 		if err != nil {
 			return reencrypted, fmt.Errorf("cifrar refresh token legado da credencial %s: %w", entry.ID, err)
 		}

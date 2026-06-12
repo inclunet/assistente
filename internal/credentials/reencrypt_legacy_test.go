@@ -123,6 +123,33 @@ func TestReencryptLegacyPlaintextRefreshTokens_EncryptsPlainValues(t *testing.T)
 	}
 }
 
+func TestReencryptLegacyPlaintextRefreshTokens_EncryptsTrimmedPlainValues(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+
+	key := []byte("test-key-exactly-32-bytes-long!!")
+	mgr := NewManagerWithStoreAndPersistence(key, NewDBStore(), true)
+
+	const plainRefresh = "https://auth.example.com/refresh?token=with-space"
+	insertLegacyCredentialEntry(t, "cred-plain-spaced", "user-1", "api.example.com", "", " \t"+plainRefresh+"\n")
+
+	n, err := mgr.reencryptLegacyPlaintextRefreshTokens(context.Background())
+	if err != nil {
+		t.Fatalf("reencryptLegacyPlaintextRefreshTokens: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("esperado 1 re-cifrado, tenho %d", n)
+	}
+
+	stored := readRefreshTokenEnc(t, "cred-plain-spaced")
+	dec, err := mgr.decrypt(stored)
+	if err != nil {
+		t.Fatalf("ciphertext gravado não decifra com a DEK atual: %v", err)
+	}
+	if dec != plainRefresh {
+		t.Fatalf("plaintext deveria ser cifrado sem whitespace ao redor: esperado %q, tenho %q", plainRefresh, dec)
+	}
+}
+
 // TestReencryptLegacyPlaintextRefreshTokens_Idempotent garante que
 // rodar a migração duas vezes não re-cifra de novo (sem double
 // encryption) e mantém o valor decifrável para o original.
