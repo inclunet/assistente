@@ -64,7 +64,7 @@ Sempre usar componentes existentes em `frontend/src/components/ui/`:
 - **Backend**: Go + Wails v2
 - **Frontend**: React + TypeScript + Vite
 - **Estado**: Zustand (stores em `frontend/src/store/`)
-- **Comunicação Frontend↔Backend**: Funções Wails em `wailsjs/go/main/App`
+- **Comunicação Frontend↔Backend**: Funções Wails em `wailsjs/go/app/App`
 - **Testes**: Vitest (frontend), `go test` (backend)
 - **i18n**: react-i18next (locales em `frontend/src/locales/`)
 
@@ -100,7 +100,7 @@ O sistema de envio/recebimento de mensagens segue uma arquitetura backend-driven
 
 ## AEPs — Architecture Evolution Proposals (OBRIGATÓRIO)
 
-O diretório `aep/` é o repositório único de decisões arquiteturais do projeto. Contém 45+ documentos numerados que definem contratos, protocolos, decisões de design e planos de evolução.
+O diretório `aep/` é o repositório único de decisões arquiteturais do projeto. Contém 90 documentos numerados (índice até 0073) que definem contratos, protocolos, decisões de design e planos de evolução.
 
 ### Regras absolutas
 - **NUNCA** crie outro diretório para AEPs (ex.: `aeps/`, `docs/aep/`, `proposals/`). Tudo fica em `aep/`.
