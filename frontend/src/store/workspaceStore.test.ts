@@ -35,7 +35,7 @@ vi.mock('../hooks/useAnnouncer', () => ({
   announce: mockedAnnounce,
 }));
 
-vi.mock('../components/ui/Modal', () => ({
+vi.mock('../lib/modalRegistry', () => ({
   isModalOpen: mockedIsModalOpen,
 }));
 
