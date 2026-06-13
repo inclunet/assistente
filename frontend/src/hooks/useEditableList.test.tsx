@@ -106,7 +106,7 @@ describe('useEditableList', () => {
     });
 
     expect(operations.createItem).toHaveBeenCalled();
-    expect(addToastMock).toHaveBeenCalledWith('Item criado com sucesso!', 'success');
+    expect(addToastMock).toHaveBeenCalledWith('editableList.createSuccess', 'success');
   });
 
   it('save respeita validação e não chama createItem', async () => {
@@ -149,7 +149,7 @@ describe('useEditableList', () => {
 
     expect(confirmMock).toHaveBeenCalled();
     expect(operations.deleteItem).toHaveBeenCalledWith('1');
-    expect(addToastMock).toHaveBeenCalledWith('Item excluído com sucesso!', 'success');
+    expect(addToastMock).toHaveBeenCalledWith('editableList.deleteSuccess', 'success');
   });
 
   it('deleteItem com canDelete assíncrono e skipBuiltInDeleteConfirm não chama window.confirm', async () => {

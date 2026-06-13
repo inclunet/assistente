@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Editor } from '@tiptap/core';
 
 import { useQuestionnaireUIStore } from '../../store/questionnaireUIStore';
@@ -11,6 +12,7 @@ type Args = {
 };
 
 export function useRichLinkDialog({ editor, readOnly }: Args) {
+  const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
@@ -59,7 +61,7 @@ export function useRichLinkDialog({ editor, readOnly }: Args) {
 
     const href = String(resp.answers.href || '').trim();
     if (!isSafeLinkHref(href)) {
-      addToast('Link inválido ou inseguro. Use http(s), mailto, /caminho ou #ancora.', 'error');
+      addToast(t('editor.toast.linkInvalid'), 'error');
       return;
     }
 
@@ -78,5 +80,5 @@ export function useRichLinkDialog({ editor, readOnly }: Args) {
     }
 
     editor.chain().focus().extendMarkRange('link').setLink({ href }).run();
-  }, [editor, readOnly, requestQuestionnaire, addToast]);
+  }, [editor, readOnly, requestQuestionnaire, addToast, t]);
 }

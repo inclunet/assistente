@@ -1,3 +1,4 @@
+import i18next from 'i18next';
 import type { MenuItem } from '../../components/menu';
 import { createRichMenuActions } from './richMenuActions';
 import type { InsertMenuContext } from './menuContext';
@@ -117,7 +118,7 @@ export function buildInsertMenuItemsForContextMenu(args: { ctx: InsertMenuContex
             ?.run?.();
         });
         if (didRun) {
-          addToast('Bloco Mermaid inserido. Dê duplo clique para editar.', 'success');
+          addToast(i18next.t('editor.toast.mermaidInserted'), 'success');
         } else {
           // Quando não está pronto, mostra toast informativo.
           richActions.getRichOrToast();

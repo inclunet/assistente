@@ -340,7 +340,7 @@ export default function ChannelsPage() {
         setEditingChannel(template.type);
       } catch (error: unknown) {
         logger.error('Erro ao criar canal:', error);
-        addToast(getErrorMessage(error) || 'Erro ao criar canal', 'error');
+        addToast(getErrorMessage(error) || t('channels.error.createFailed'), 'error');
       }
       return;
     }
@@ -435,7 +435,7 @@ export default function ChannelsPage() {
       await loadAll();
       setEditingChannel(null);
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || `Erro ao salvar canal ${channelName}`, 'error');
+      addToast(getErrorMessage(error) || t('channels.error.saveFailed', { name: channelName }), 'error');
     } finally {
       setSaving(false);
     }
@@ -469,7 +469,7 @@ export default function ChannelsPage() {
       announce(t('channels.toast.channelReconnected', { name: channelName }));
       await loadAll();
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || `Erro ao reconectar ${channelName}`, 'error');
+      addToast(getErrorMessage(error) || t('channels.error.reconnectFailed', { name: channelName }), 'error');
     } finally {
       setReconnecting(false);
     }
@@ -505,11 +505,11 @@ export default function ChannelsPage() {
       }
       setSignalAPIInfo(infoText);
       setSignalAPIReady(true);
-      addToast('Signal API acessível!', 'success');
+      addToast(t('channels.toast.signalApiAccessible'), 'success');
       announce(infoText);
     } catch (error: unknown) {
       setSignalAPIInfo('');
-      const msg = getErrorMessage(error) || 'Não foi possível conectar à API Signal';
+      const msg = getErrorMessage(error) || t('channels.error.signalApiConnectFailed');
       setSignalRegError(msg);
       setSignalAPIReady(false);
       addToast(msg, 'error');
@@ -520,7 +520,7 @@ export default function ChannelsPage() {
 
   const handleSignalRegister = async (mode: 'sms' | 'voice' = 'sms') => {
     if (!signalForm.account || !signalForm.apiURL) {
-      const msg = 'Informe a URL da API e o número de telefone no campo Conta';
+      const msg = t('channels.error.signalAccountAndUrlRequired');
       setSignalRegError(msg);
       addToast(msg, 'error');
       return;
@@ -539,7 +539,7 @@ export default function ChannelsPage() {
       announce(codeSentMessage);
     } catch (error: unknown) {
       setSignalRegStep(signalSmsSent ? 'awaiting_code' : 'idle');
-      const msg = getErrorMessage(error) || 'Erro ao registrar número';
+      const msg = getErrorMessage(error) || t('channels.error.signalRegisterFailed');
       setSignalRegError(msg);
       addToast(msg, 'error');
     }
@@ -562,7 +562,7 @@ export default function ChannelsPage() {
       announce(numberVerifiedMessage);
     } catch (error: unknown) {
       setSignalRegStep('awaiting_code');
-      const msg = getErrorMessage(error) || 'Erro ao verificar código';
+      const msg = getErrorMessage(error) || t('channels.error.signalVerifyFailed');
       setSignalRegError(msg);
       addToast(msg, 'error');
     }
@@ -651,7 +651,7 @@ export default function ChannelsPage() {
       addToast(accountRemovedMessage, 'success');
       announce(accountRemovedMessage);
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || 'Erro ao remover conta', 'error');
+      addToast(getErrorMessage(error) || t('channels.error.removeAccountFailed'), 'error');
     } finally {
       setSignalUnregistering(null);
     }
@@ -674,7 +674,7 @@ export default function ChannelsPage() {
       announce(t('channels.announce.credentialRemoved'));
       await loadAll();
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || 'Erro ao remover credencial', 'error');
+      addToast(getErrorMessage(error) || t('channels.error.removeCredentialFailed'), 'error');
     }
   }, [addToast, announce, loadAll, requestConfirm, t]);
 

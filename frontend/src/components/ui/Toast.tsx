@@ -26,13 +26,13 @@ export function Toast({ message, variant = 'info', duration = 3000, action, onCl
     return () => clearTimeout(timer);
   }, [duration]);
 
+  // Sem role/aria-live/aria-atomic: o anúncio para leitor de tela é
+  // centralizado no announcer único (useAnnouncer), disparado uma única vez ao
+  // adicionar o toast (ver uiStore.addToast). Manter uma live region aqui
+  // duplicaria a fala quando o call site também chama announce(). O toast
+  // permanece visual e operável (botões de ação/fechar continuam focáveis).
   return (
-    <div
-      className={`toast toast--${variant}`}
-      role="alert"
-      aria-live="assertive"
-      aria-atomic="true"
-    >
+    <div className={`toast toast--${variant}`}>
       <div className="toast__icon" aria-hidden="true">
         {variant === 'success' && <CheckOutlined />}
         {variant === 'error' && <CloseOutlined />}

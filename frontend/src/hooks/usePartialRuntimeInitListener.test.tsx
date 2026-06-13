@@ -113,6 +113,8 @@ describe('usePartialRuntimeInitListener', () => {
       'runtimeStatus.partialInit.retrySuccess',
       'success',
       4000,
+      undefined,
+      { suppressAnnounce: true },
     );
   });
 
@@ -134,6 +136,7 @@ describe('usePartialRuntimeInitListener', () => {
       'warning',
       0,
       expect.objectContaining({ label: 'runtimeStatus.partialInit.retry' }),
+      { suppressAnnounce: true },
     );
     expect(announceSpy).not.toHaveBeenCalledWith(
       'runtimeStatus.partialInit.retrySuccess',
@@ -155,7 +158,13 @@ describe('usePartialRuntimeInitListener', () => {
 
     expect(removeToastSpy).not.toHaveBeenCalled();
     expect(announceSpy).toHaveBeenCalledWith('runtimeStatus.partialInit.retryError', 'assertive');
-    expect(addToastSpy).toHaveBeenCalledWith('runtimeStatus.partialInit.retryError', 'error');
+    expect(addToastSpy).toHaveBeenCalledWith(
+      'runtimeStatus.partialInit.retryError',
+      'error',
+      undefined,
+      undefined,
+      { suppressAnnounce: true },
+    );
   });
 
   it('remove o aviso persistente ao detectar logout (isAuthenticated=false)', () => {

@@ -58,13 +58,13 @@ export default function AboutPage() {
       setUpdateInfo(info);
       
       if (info.available) {
-        addToast(`Nova versão disponível: ${info.latestVersion}`, 'success');
+        addToast(t('about.updateAvailable', { version: info.latestVersion }), 'success');
       } else {
         addToast(t('about.upToDateDesc', { version: info.currentVersion }), 'success');
       }
     } catch (error: unknown) {
       logger.error('Erro ao verificar atualizações:', error);
-      addToast(getErrorMessage(error) || 'Erro ao verificar atualizações', 'error');
+      addToast(getErrorMessage(error) || t('about.checkError'), 'error');
     } finally {
       setChecking(false);
     }
@@ -78,7 +78,7 @@ export default function AboutPage() {
       // pela App.tsx e navegará para /update
     } catch (error: unknown) {
       logger.error('Erro ao iniciar atualização:', error);
-      addToast(getErrorMessage(error) || 'Erro ao iniciar atualização', 'error');
+      addToast(getErrorMessage(error) || t('about.startUpdateError'), 'error');
       setLoading(false);
     }
   };

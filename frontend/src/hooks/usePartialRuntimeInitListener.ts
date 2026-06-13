@@ -76,14 +76,19 @@ export function usePartialRuntimeInitListener() {
             partialToastIdRef.current = null;
           }
           announce(t('runtimeStatus.partialInit.retrySuccess'), 'polite');
-          addToast(t('runtimeStatus.partialInit.retrySuccess'), 'success', 4000);
+          // suppressAnnounce: já anunciamos acima; evita fala duplicada.
+          addToast(t('runtimeStatus.partialInit.retrySuccess'), 'success', 4000, undefined, {
+            suppressAnnounce: true,
+          });
         }
       } catch (err) {
         // RPC falhou: NÃO remove o aviso persistente — o usuário ainda precisa
         // do botão "Tentar novamente". Acrescenta só um toast de erro efêmero.
         logger.error('[partialInit] retry falhou:', err);
         announce(t('runtimeStatus.partialInit.retryError'), 'assertive');
-        addToast(t('runtimeStatus.partialInit.retryError'), 'error');
+        addToast(t('runtimeStatus.partialInit.retryError'), 'error', undefined, undefined, {
+          suppressAnnounce: true,
+        });
       } finally {
         retryingRef.current = false;
       }
@@ -107,12 +112,20 @@ export function usePartialRuntimeInitListener() {
       // toastId só existe após addToast retornar; a ação é chamada depois, então
       // a closure captura o valor já atribuído.
       let toastId = '';
-      toastId = addToast(message, 'warning', 0, {
-        label: t('runtimeStatus.partialInit.retry'),
-        onClick: () => {
-          void handleRetry(toastId);
+      toastId = addToast(
+        message,
+        'warning',
+        0,
+        {
+          label: t('runtimeStatus.partialInit.retry'),
+          onClick: () => {
+            void handleRetry(toastId);
+          },
         },
-      });
+        // suppressAnnounce: já anunciamos a versão "rica" acima (announce key),
+        // evitando fala duplicada com o anúncio automático do toast.
+        { suppressAnnounce: true },
+      );
       partialToastIdRef.current = toastId;
     },
     [announce, addToast, removeToast, labelFor, t, handleRetry],
