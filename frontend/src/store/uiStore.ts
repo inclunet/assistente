@@ -6,11 +6,20 @@ interface Modal {
   data?: unknown;
 }
 
+/** Ação opcional exibida no toast (ex.: "Tentar novamente"). */
+export interface ToastAction {
+  /** Rótulo acessível do botão (já traduzido). */
+  label: string;
+  /** Callback disparado ao acionar a ação. */
+  onClick: () => void;
+}
+
 interface Toast {
   id: string;
   message: string;
   type: 'success' | 'error' | 'warning' | 'info';
   duration?: number;
+  action?: ToastAction;
 }
 
 interface UIState {
@@ -28,7 +37,7 @@ interface UIState {
   closeModal: (id: string) => void;
   closeAllModals: () => void;
   
-  addToast: (message: string, type: Toast['type'], duration?: number) => string;
+  addToast: (message: string, type: Toast['type'], duration?: number, action?: ToastAction) => string;
   removeToast: (id: string) => void;
   
   setGlobalLoading: (loading: boolean) => void;
@@ -60,13 +69,13 @@ export const useUIStore = create<UIState>((set) => ({
   closeAllModals: () => set({ modals: [] }),
 
   // Toast actions
-  addToast: (message, type, duration = 5000) => {
+  addToast: (message, type, duration = 5000, action) => {
     const id = `toast-${toastIdCounter++}`;
     set((state) => ({
-      toasts: [...state.toasts, { id, message, type, duration }],
+      toasts: [...state.toasts, { id, message, type, duration, action }],
     }));
     
-    // Auto remove after duration
+    // Auto remove after duration (duration <= 0 = persistente até ação/fechar)
     if (duration > 0) {
       setTimeout(() => {
         set((state) => ({

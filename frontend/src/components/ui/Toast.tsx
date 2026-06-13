@@ -3,19 +3,29 @@ import { CheckOutlined, CloseOutlined, ExclamationOutlined, InfoOutlined } from 
 import { useTranslation } from 'react-i18next';
 import './Toast.css';
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface ToastProps {
   message: string;
   variant?: 'success' | 'error' | 'warning' | 'info';
   duration?: number;
+  /** Ação opcional (ex.: "Tentar novamente"). Renderiza um botão no toast. */
+  action?: ToastAction;
   onClose: () => void;
 }
 
-export function Toast({ message, variant = 'info', duration = 3000, onClose }: ToastProps) {
+export function Toast({ message, variant = 'info', duration = 3000, action, onClose }: ToastProps) {
   const { t } = useTranslation();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
   useEffect(() => {
+    // duration <= 0 mantém o toast persistente (ex.: avisos com ação que o
+    // usuário precisa ver e decidir). Sem timer nesse caso.
+    if (duration <= 0) return;
     const timer = setTimeout(() => onCloseRef.current(), duration);
     return () => clearTimeout(timer);
   }, [duration]);
@@ -34,6 +44,14 @@ export function Toast({ message, variant = 'info', duration = 3000, onClose }: T
         {variant === 'info' && <InfoOutlined />}
       </div>
       <div className="toast__message">{message}</div>
+      {action && (
+        <button
+          className="toast__action"
+          onClick={action.onClick}
+        >
+          {action.label}
+        </button>
+      )}
       <button
         className="toast__close"
         onClick={onClose}

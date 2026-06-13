@@ -14,6 +14,8 @@ import { ConfirmHost } from './components/ui/ConfirmHost';
 import { QuestionnaireDialog, QuestionnairePayload } from './components/ui/QuestionnaireDialog';
 import { useQuestionnaireUIStore } from './store/questionnaireUIStore';
 import { useConnectionStatusListener } from './hooks/useConnectionStatusListener';
+import { usePartialRuntimeInitListener } from './hooks/usePartialRuntimeInitListener';
+import { ToastHost } from './components/ui/ToastHost';
 import { useTheme } from './hooks/useTheme';
 import { ConfigProvider } from 'antd';
 import type { Locale } from 'antd/es/locale';
@@ -66,6 +68,10 @@ function App() {
     // Status de conexão com a API LLM (Issue #38): assinatura única do evento,
     // anúncios de queda/restauração via announcer global + toast.
     useConnectionStatusListener();
+
+    // Aviso não-bloqueante de runtime parcialmente inicializado pós-login
+    // (issue #250): toast + announce com ação "Tentar novamente".
+    usePartialRuntimeInitListener();
 
     useEffect(() => {
         const controller = new AbortController();
@@ -322,6 +328,7 @@ function App() {
     return (
         <ConfigProvider theme={getAntdTheme(theme)} locale={antLocale}>
             <ScreenReaderAnnouncer />
+            <ToastHost />
             <AuthGate>
                 <Outlet />
                 <ConfirmHost />

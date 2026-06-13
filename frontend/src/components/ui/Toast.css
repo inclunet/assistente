@@ -53,6 +53,30 @@
   font-size: 0.875rem;
 }
 
+.toast__action {
+  flex-shrink: 0;
+  background: var(--bg-overlay);
+  border: 1px solid currentcolor;
+  color: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.375rem 0.625rem;
+  border-radius: var(--radius-sm);
+  min-height: 28px;
+  transition: opacity var(--duration-fast) var(--ease-default);
+}
+
+.toast__action:hover {
+  opacity: 0.85;
+}
+
+.toast__action:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .toast__close {
   background: none;
   border: none;
@@ -67,4 +91,9 @@
 
 .toast__close:hover {
   opacity: 1;
+}
+
+.toast__close:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }

@@ -1655,6 +1655,23 @@ const ptBR = {
         restored: 'Conexão com {{provider}} restaurada',
       },
     },
+    runtimeStatus: {
+      partialInit: {
+        message: 'Alguns recursos não iniciaram após o login: {{subsystems}}.',
+        announce: 'Aviso: alguns recursos não iniciaram após o login: {{subsystems}}. Use o botão Tentar novamente.',
+        retry: 'Tentar novamente',
+        retrying: 'Tentando iniciar os recursos novamente…',
+        retrySuccess: 'Recursos iniciados com sucesso.',
+        retryError: 'Não foi possível reiniciar os recursos. Tente novamente.',
+        subsystems: {
+          mcp: 'servidores MCP',
+          jobs: 'tarefas agendadas',
+          tool_invocations: 'limpeza do histórico de ferramentas',
+          timeout: 'tempo limite de inicialização',
+          unknown: 'recurso desconhecido',
+        },
+      },
+    },
     a11y: {
       announce: {
         gridItemDeselected: 'Desmarcado. {{count}} selecionados',

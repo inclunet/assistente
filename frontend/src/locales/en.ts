@@ -1681,6 +1681,23 @@ const en = {
         restored: 'Connection to {{provider}} restored',
       },
     },
+    runtimeStatus: {
+      partialInit: {
+        message: 'Some features failed to start after login: {{subsystems}}.',
+        announce: 'Warning: some features failed to start after login: {{subsystems}}. Use the Try again button.',
+        retry: 'Try again',
+        retrying: 'Trying to start the features again…',
+        retrySuccess: 'Features started successfully.',
+        retryError: 'Could not restart the features. Please try again.',
+        subsystems: {
+          mcp: 'MCP servers',
+          jobs: 'scheduled jobs',
+          tool_invocations: 'tool history cleanup',
+          timeout: 'initialization timeout',
+          unknown: 'unknown feature',
+        },
+      },
+    },
     a11y: {
       announce: {
         gridItemDeselected: 'Deselected. {{count}} selected',

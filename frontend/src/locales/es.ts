@@ -1680,6 +1680,23 @@ const es = {
         restored: 'Conexión con {{provider}} restaurada',
       },
     },
+    runtimeStatus: {
+      partialInit: {
+        message: 'Algunas funciones no se iniciaron tras el inicio de sesión: {{subsystems}}.',
+        announce: 'Aviso: algunas funciones no se iniciaron tras el inicio de sesión: {{subsystems}}. Usa el botón Reintentar.',
+        retry: 'Reintentar',
+        retrying: 'Intentando iniciar las funciones de nuevo…',
+        retrySuccess: 'Funciones iniciadas correctamente.',
+        retryError: 'No se pudieron reiniciar las funciones. Inténtalo de nuevo.',
+        subsystems: {
+          mcp: 'servidores MCP',
+          jobs: 'tareas programadas',
+          tool_invocations: 'limpieza del historial de herramientas',
+          timeout: 'tiempo de espera de inicialización',
+          unknown: 'función desconocida',
+        },
+      },
+    },
     a11y: {
       announce: {
         gridItemDeselected: 'Desmarcado. {{count}} seleccionados',

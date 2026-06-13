@@ -846,6 +846,10 @@ export function RetryMessage(arg1, arg2, arg3) {
   return window['go']['app']['App']['RetryMessage'](arg1, arg2, arg3);
 }
 
+export function RetryUserRuntimeInit() {
+  return window['go']['app']['App']['RetryUserRuntimeInit']();
+}
+
 export function RunJob(arg1) {
   return window['go']['app']['App']['RunJob'](arg1);
 }
