@@ -8,7 +8,11 @@
 - Use `var(--radius-sm)` / `var(--radius-md)` / `var(--radius-lg)` para border-radius.
 
 ## Acessibilidade (NUNCA negligenciar)
-- Contraste mínimo: texto sobre fundo ≥ 4.5:1 (AA WCAG 2.1); preferir ≥ 7:1 (AAA).
+- Contraste WCAG 2.1 (metas por token, sobre `--bg-surface`):
+  - `--text-primary` ≥ 12:1 (AAA)
+  - `--text-secondary` ≥ 6:1 (AA)
+  - `--text-muted` ≥ 4.5:1 (AA)
+  - Ao adicionar cores, sempre verificar contraste suficiente.
 - Todo elemento interativo deve ser acessível por teclado (Tab, Enter, ESC, setas).
 - Usar `announce()` via `useAnnouncer` para feedback de ações para leitores de tela.
 - Nunca usar apenas cor para transmitir informação — combinar com ícones ou texto.
@@ -67,7 +71,7 @@ O sistema de envio/recebimento de mensagens segue uma arquitetura backend-driven
 
 ## AEPs — Architecture Evolution Proposals (OBRIGATÓRIO)
 
-O diretório `aep/` é o repositório único de decisões arquiteturais do projeto. Contém 45+ documentos numerados que definem contratos, protocolos, decisões de design e planos de evolução.
+O diretório `aep/` é o repositório único de decisões arquiteturais do projeto. Contém 90 documentos numerados (índice até 0073) que definem contratos, protocolos, decisões de design e planos de evolução.
 
 ### Regras absolutas
 - **NUNCA crie outro diretório** para AEPs (ex.: `aeps/`, `docs/aep/`, `proposals/`). Tudo fica em `aep/`.

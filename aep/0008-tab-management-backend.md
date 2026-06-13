@@ -638,7 +638,7 @@ func (a *App) GetConfig() (ConfigResponse, error) {
     CloseTab, 
     SetActiveTab,
     LoadConversationInTab
-  } from '../../../wailsjs/go/main/App.js';
+  } from '../../../wailsjs/go/app/App.js';
   import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime.js';
 
   export let hasApiKey = false;
