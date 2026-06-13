@@ -55,4 +55,22 @@ describe('HelpPage', () => {
     const expandedBodies = document.querySelectorAll('.help-section-body');
     expect(expandedBodies.length).toBeGreaterThan(1);
   });
+
+  it('renderiza a mini-marcacao (kbd, tabela de atalhos e icone inline)', async () => {
+    const user = userEvent.setup();
+    render(<HelpPage />);
+
+    await user.click(screen.getByRole('button', { name: 'Expandir Tudo' }));
+
+    // kbd: tokens [[...]] viram <kbd>
+    expect(document.querySelectorAll('kbd').length).toBeGreaterThan(0);
+
+    // tabela de atalhos: bloco table com cabecalho semantico
+    expect(document.querySelectorAll('table.help-shortcuts thead th').length).toBeGreaterThan(0);
+
+    // icone inline: o stub de @ant-design/icons renderiza null, entao validamos
+    // que o token [icon:...] foi consumido pelo renderInline (nao vaza como texto).
+    const main = document.querySelector('.help-main');
+    expect(main?.textContent ?? '').not.toContain('[icon:');
+  });
 });

@@ -91,7 +91,9 @@ function renderInline(text: string): ReactNode[] {
     if (token.startsWith('[[')) {
       nodes.push(<kbd key={key++}>{token.slice(2, -2)}</kbd>);
     } else if (token.startsWith('[icon:')) {
-      nodes.push(<Fragment key={key++}>{INLINE_ICONS[token.slice(6, -1)]}</Fragment>);
+      const icon = INLINE_ICONS[token.slice(6, -1)];
+      // Icone desconhecido: cai para o texto original do token (nunca descarta conteudo).
+      nodes.push(icon ? <Fragment key={key++}>{icon}</Fragment> : token);
     } else if (token.startsWith('**')) {
       nodes.push(<strong key={key++}>{renderInline(token.slice(2, -2))}</strong>);
     } else if (token.startsWith('`')) {
@@ -159,6 +161,17 @@ function renderBlock(block: HelpBlock, key: number): ReactNode {
   }
 }
 
+// Valida em runtime o retorno de t(..., returnObjects): se a chave estiver ausente
+// o i18next devolve a string da chave, e um cast cego deixaria blocks undefined.
+function isHelpSectionData(value: unknown): value is HelpSectionData {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as HelpSectionData).title === 'string' &&
+    Array.isArray((value as HelpSectionData).blocks)
+  );
+}
+
 export default function HelpPage() {
   const { t, i18n } = useTranslation();
   useContentPageLandmarks({ pageClass: 'help-page' });
@@ -166,7 +179,9 @@ export default function HelpPage() {
 
   const sections = useMemo<HelpSection[]>(() => {
     return SECTION_DEFS.map((def) => {
-      const data = t(`help.sections.${def.key}`, { returnObjects: true }) as unknown as HelpSectionData;
+      const raw = t(`help.sections.${def.key}`, { returnObjects: true }) as unknown;
+      // Fallback seguro para secao vazia se os locales divergirem (evita crash em blocks.map).
+      const data: HelpSectionData = isHelpSectionData(raw) ? raw : { title: '', blocks: [] };
       return {
         id: def.id,
         icon: def.icon,
@@ -200,14 +215,14 @@ export default function HelpPage() {
   return (
     <div className="help-page">
       <div className="help-header">
-        <h1>{t('help.title', 'Ajuda')}</h1>
-        <p>{t('help.subtitle', 'Guia completo do Assistente IA')}</p>
+        <h1>{t('help.title')}</h1>
+        <p>{t('help.subtitle')}</p>
         <div className="help-header-actions">
           <button className="help-expand-btn" onClick={expandAll}>
-            {t('help.expandAll', 'Expandir Tudo')}
+            {t('help.expandAll')}
           </button>
           <button className="help-expand-btn" onClick={collapseAll}>
-            {t('help.collapseAll', 'Colapsar Tudo')}
+            {t('help.collapseAll')}
           </button>
         </div>
       </div>
