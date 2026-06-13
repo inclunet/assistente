@@ -95,14 +95,30 @@ type Manager struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	bgWG           sync.WaitGroup // join de loops (health/token refresh) e reconexões no CloseAll
+	bgMu           sync.Mutex     // protege bgClosed e serializa Add(1) contra Wait (evita WaitGroup misuse)
+	bgClosed       bool           // true após CloseAll iniciar o join; bloqueia novas goroutines rastreadas
 	authContext    func() context.Context
 	roots          []Root // workspace roots globais
 }
 
 // goTracked executa fn numa goroutine rastreada por bgWG, permitindo que
 // CloseAll aguarde o término dos loops e reconexões antes do shutdown.
+//
+// O Add(1) é serializado com a flag bgClosed sob bgMu: depois que CloseAll
+// marca bgClosed (antes de chamar bgWG.Wait()), goTracked vira no-op. Isso
+// garante que nenhum Add ocorra concorrente ao Wait — caso contrário o
+// runtime aborta com "sync: WaitGroup misuse: Add called concurrently with
+// Wait" quando uma reconexão dispara trabalho rastreado durante o shutdown.
+// bgMu é dedicado (não reusa m.mu) porque goTracked é chamado com m.mu já
+// retido em performHealthCheck.
 func (m *Manager) goTracked(fn func()) {
+	m.bgMu.Lock()
+	if m.bgClosed {
+		m.bgMu.Unlock()
+		return
+	}
 	m.bgWG.Add(1)
+	m.bgMu.Unlock()
 	go func() {
 		defer m.bgWG.Done()
 		fn()
@@ -983,6 +999,11 @@ func (m *Manager) DeleteConfig(slug string) error {
 // Use no Stop do app. Para logout/troca de user use DisconnectAll.
 func (m *Manager) CloseAll() {
 	m.cancel()
+	// Bloqueia novas goroutines rastreadas ANTES do Wait: a partir daqui
+	// goTracked vira no-op, então nenhum Add corre concorrente ao Wait.
+	m.bgMu.Lock()
+	m.bgClosed = true
+	m.bgMu.Unlock()
 	m.disconnectAllConnections("shutdown")
 	// Aguarda loops (health/token refresh) e reconexões em andamento encerrarem
 	// após o cancelamento do ctx, evitando goroutines órfãs no shutdown.
