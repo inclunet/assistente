@@ -6,9 +6,10 @@ import (
 )
 
 // TestRuntimeReloadResult_AddCollectsPerSubsystem garante que a coleta de
-// falhas por subsistema acumula apenas erros reais (err != nil), preservando
-// subsistema + mensagem — o coração da correção da issue #250 (antes só havia
-// log.Printf e o usuário não sabia que o runtime subiu parcialmente).
+// falhas por subsistema acumula apenas erros reais (err != nil), registrando o
+// identificador estável do subsistema — o coração da correção da issue #250
+// (antes só havia log.Printf e o usuário não sabia que o runtime subiu
+// parcialmente). A mensagem do erro NÃO é guardada (só vai para logs).
 func TestRuntimeReloadResult_AddCollectsPerSubsystem(t *testing.T) {
 	result := &runtimeReloadResult{}
 
@@ -33,17 +34,14 @@ func TestRuntimeReloadResult_AddCollectsPerSubsystem(t *testing.T) {
 		t.Fatalf("esperava 3 falhas, obteve %d", len(result.failures))
 	}
 
-	bySubsystem := map[string]string{}
+	present := map[string]bool{}
 	for _, f := range result.failures {
-		bySubsystem[f.Subsystem] = f.Error
+		present[f.Subsystem] = true
 	}
 	for _, sub := range []string{runtimeSubsystemMCP, runtimeSubsystemJobs, runtimeSubsystemToolInvocations} {
-		if _, ok := bySubsystem[sub]; !ok {
+		if !present[sub] {
 			t.Errorf("subsistema %q ausente nas falhas coletadas", sub)
 		}
-	}
-	if bySubsystem[runtimeSubsystemMCP] != "falha ao carregar MCP" {
-		t.Errorf("mensagem de erro do MCP não preservada: %q", bySubsystem[runtimeSubsystemMCP])
 	}
 }
 

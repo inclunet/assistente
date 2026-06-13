@@ -8,10 +8,14 @@ export const RUNTIME_PARTIAL_INIT_EVENT = 'runtime:partial-init';
 /** Identificadores estáveis dos subsistemas reportados pelo backend. */
 export const RUNTIME_SUBSYSTEMS = ['mcp', 'jobs', 'tool_invocations', 'timeout'] as const;
 
-/** Falha de um subsistema user-scoped durante o reload pós-login. */
+/**
+ * Falha de um subsistema user-scoped durante o reload pós-login. Carrega só o
+ * identificador estável do subsistema (usado para traduzir o aviso). A
+ * mensagem de erro fica apenas nos logs do backend — não é emitida ao
+ * frontend, evitando vazar detalhes internos (review PR #278).
+ */
 export interface RuntimeSubsystemFailure {
   subsystem: string;
-  error: string;
 }
 
 /** Payload do evento `runtime:partial-init` recebido do backend. */

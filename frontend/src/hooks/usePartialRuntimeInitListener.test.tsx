@@ -40,8 +40,8 @@ vi.mock('react-i18next', () => ({
 function payload(overrides: Partial<RuntimePartialInitPayload> = {}): RuntimePartialInitPayload {
   return {
     subsystems: [
-      { subsystem: 'mcp', error: 'boom' },
-      { subsystem: 'jobs', error: 'boom2' },
+      { subsystem: 'mcp' },
+      { subsystem: 'jobs' },
     ],
     ...overrides,
   };

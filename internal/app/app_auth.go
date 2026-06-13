@@ -652,11 +652,13 @@ const (
 	runtimeSubsystemTimeout         = "timeout"
 )
 
-// RuntimeSubsystemFailure descreve a falha de inicialização de um subsistema
-// user-scoped durante o reload pós-login.
+// RuntimeSubsystemFailure identifica um subsistema user-scoped que falhou no
+// reload pós-login. Carrega APENAS o identificador estável do subsistema (que
+// o frontend usa para traduzir o aviso). A mensagem de erro NÃO é emitida ao
+// frontend — fica somente nos logs do backend (log.Printf) — para não inflar o
+// payload nem vazar paths/stack/contexto interno (review PR #278).
 type RuntimeSubsystemFailure struct {
 	Subsystem string `json:"subsystem"`
-	Error     string `json:"error"`
 }
 
 // RuntimePartialInitPayload é o payload tipado do evento runtime:partial-init.
@@ -673,15 +675,14 @@ type runtimeReloadResult struct {
 }
 
 // add registra a falha de um subsistema. É no-op quando err == nil, então pode
-// ser chamado diretamente no caminho feliz sem checagens extras.
+// ser chamado diretamente no caminho feliz sem checagens extras. O err serve
+// só para o nil-check: a mensagem em si NÃO é guardada (já é logada pelo
+// chamador via log.Printf) e não vai para o frontend.
 func (r *runtimeReloadResult) add(subsystem string, err error) {
 	if err == nil {
 		return
 	}
-	r.failures = append(r.failures, RuntimeSubsystemFailure{
-		Subsystem: subsystem,
-		Error:     err.Error(),
-	})
+	r.failures = append(r.failures, RuntimeSubsystemFailure{Subsystem: subsystem})
 }
 
 // hasFailures indica se algum subsistema falhou durante o reload.
