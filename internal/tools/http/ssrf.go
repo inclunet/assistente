@@ -74,6 +74,12 @@ func isBlockedIP(ip net.IP) bool {
 	if ip == nil {
 		return true
 	}
+	// Normaliza IPv4-mapped IPv6 (ex.: ::ffff:255.255.255.255, ::ffff:10.0.0.1) para
+	// a forma IPv4 de 4 bytes. Sem isto, comparações IPv4 explícitas (como o broadcast
+	// abaixo) poderiam não bater para a representação mapeada, abrindo um bypass.
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
 	// Broadcast IPv4 limitado (255.255.255.255): alcança toda a rede local.
 	if ip.Equal(net.IPv4bcast) {
 		return true

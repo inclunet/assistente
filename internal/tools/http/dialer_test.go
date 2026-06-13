@@ -1,156 +1,53 @@
 package http
 
 import (
-	"context"
 	"errors"
-	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
-// fakeResolver simula a resolução de DNS, permitindo testar o caminho pós-DNS sem
-// depender do resolver real do sistema. Mapeia hostname -> IPs (e o caso de
-// getaddrinfo que normaliza formas numéricas como "2130706433" -> 127.0.0.1).
-type fakeResolver struct {
-	hosts map[string][]net.IPAddr
-	err   error
+// callControl roda o hook Control do guard para um address (IP:porta) como o
+// net.Dialer faria imediatamente antes do connect, devolvendo o erro de política.
+func callControl(allowPrivate func() bool, address string) error {
+	return ssrfControl(allowPrivate)("tcp", address, nil)
 }
 
-func (f *fakeResolver) LookupIPAddr(_ context.Context, host string) ([]net.IPAddr, error) {
-	if f.err != nil {
-		return nil, f.err
+func TestSSRFControl_BlocksPrivate(t *testing.T) {
+	// IPs reais (já resolvidos) que devem ser barrados no momento do connect. Inclui
+	// formas IPv4-mapped IPv6 para garantir a normalização.
+	blocked := []string{
+		"127.0.0.1:80", "10.1.2.3:443", "192.168.0.1:80", "172.16.0.1:80",
+		"169.254.169.254:80", "100.64.0.1:80", "255.255.255.255:80", "0.0.0.0:80",
+		"[::1]:80", "[fe80::1]:80",
+		// IPv4-mapped IPv6.
+		"[::ffff:127.0.0.1]:80", "[::ffff:10.0.0.1]:80", "[::ffff:255.255.255.255]:80",
 	}
-	if ips, ok := f.hosts[host]; ok {
-		return ips, nil
-	}
-	return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
-}
-
-func ipAddrs(ips ...string) []net.IPAddr {
-	out := make([]net.IPAddr, 0, len(ips))
-	for _, s := range ips {
-		out = append(out, net.IPAddr{IP: net.ParseIP(s)})
-	}
-	return out
-}
-
-// newTestDialer monta um guardedDialer com resolver falso e um dialIP que apenas
-// registra qual address recebeu (sem abrir socket de verdade).
-func newTestDialer(res ipResolver, allowPrivate func() bool) (*guardedDialer, *string) {
-	dialed := new(string)
-	g := &guardedDialer{
-		resolver:     res,
-		allowPrivate: allowPrivate,
-		dialIP: func(_ context.Context, _, address string) (net.Conn, error) {
-			*dialed = address
-			return nil, errors.New("dial-stub: conexão não realizada no teste")
-		},
-	}
-	return g, dialed
-}
-
-// blocked roda o DialContext e exige que tenha sido barrado por SSRF (sem dial).
-func assertBlocked(t *testing.T, g *guardedDialer, dialed *string, address string) {
-	t.Helper()
-	_, err := g.DialContext(context.Background(), "tcp", address)
-	var blockErr *BlockedIPError
-	if !errors.As(err, &blockErr) {
-		t.Fatalf("%s: esperado BlockedIPError, got %v", address, err)
-	}
-	if *dialed != "" {
-		t.Fatalf("%s: NÃO deveria ter discado, mas discou para %q", address, *dialed)
+	for _, addr := range blocked {
+		err := callControl(nil, addr)
+		var blockErr *BlockedIPError
+		if !errors.As(err, &blockErr) {
+			t.Errorf("%s: esperado BlockedIPError, got %v", addr, err)
+		}
 	}
 }
 
-// allowedDial roda o DialContext e exige que tenha CHEGADO ao dialIP (passou no
-// guard). O dialIP stub devolve erro, então só checamos que o address foi discado.
-func assertReachedDial(t *testing.T, g *guardedDialer, dialed *string, address, wantDialHostPrefix string) {
-	t.Helper()
-	_, _ = g.DialContext(context.Background(), "tcp", address)
-	if *dialed == "" {
-		t.Fatalf("%s: deveria ter chegado ao dialIP, mas foi barrado antes", address)
-	}
-	host, _, err := net.SplitHostPort(*dialed)
-	if err != nil {
-		t.Fatalf("address discado inválido %q: %v", *dialed, err)
-	}
-	if host != wantDialHostPrefix {
-		t.Fatalf("%s: discou para IP %q, esperado %q", address, host, wantDialHostPrefix)
+func TestSSRFControl_AllowsPublic(t *testing.T) {
+	public := []string{"8.8.8.8:80", "1.1.1.1:443", "93.184.216.34:80", "[2606:4700:4700::1111]:443"}
+	for _, addr := range public {
+		if err := callControl(nil, addr); err != nil {
+			t.Errorf("%s: IP público não deveria ser bloqueado: %v", addr, err)
+		}
 	}
 }
 
-func TestDialContext_HostnameResolvesToPrivate(t *testing.T) {
-	res := &fakeResolver{hosts: map[string][]net.IPAddr{
-		// Hostname público que resolve para IP privado (DNS rebinding).
-		"rebind.example.com": ipAddrs("10.0.0.5"),
-		// CNAME para o metadata endpoint de nuvem.
-		"metadata.example.com": ipAddrs("169.254.169.254"),
-	}}
-	g, dialed := newTestDialer(res, nil)
-	assertBlocked(t, g, dialed, "rebind.example.com:80")
-
-	g2, dialed2 := newTestDialer(res, nil)
-	assertBlocked(t, g2, dialed2, "metadata.example.com:443")
-}
-
-func TestDialContext_NumericFormsBlockedAfterResolution(t *testing.T) {
-	// Em SOs cujo resolver (getaddrinfo) normaliza formas numéricas não-padrão, o
-	// hostname "2130706433"/"0x7f000001" resolve para 127.0.0.1. O guard pós-DNS
-	// barra pelo IP resultante.
-	res := &fakeResolver{hosts: map[string][]net.IPAddr{
-		"2130706433": ipAddrs("127.0.0.1"),
-		"0x7f000001": ipAddrs("127.0.0.1"),
-	}}
-	for _, host := range []string{"2130706433", "0x7f000001"} {
-		g, dialed := newTestDialer(res, nil)
-		assertBlocked(t, g, dialed, host+":80")
-	}
-}
-
-func TestDialContext_LiteralIPsBlocked(t *testing.T) {
-	// IPs literais (inclui IPv4-mapped IPv6) são barrados sem resolução.
-	res := &fakeResolver{}
-	for _, host := range []string{"127.0.0.1", "[::ffff:127.0.0.1]", "169.254.169.254", "10.1.2.3", "100.64.0.1"} {
-		g, dialed := newTestDialer(res, nil)
-		assertBlocked(t, g, dialed, net.JoinHostPort(trimBrackets(host), "80"))
-	}
-}
-
-func TestDialContext_PublicAllowed(t *testing.T) {
-	res := &fakeResolver{hosts: map[string][]net.IPAddr{
-		"example.com": ipAddrs("93.184.216.34"),
-	}}
-	// Hostname público -> chega ao dial com o IP resolvido.
-	g, dialed := newTestDialer(res, nil)
-	assertReachedDial(t, g, dialed, "example.com:80", "93.184.216.34")
-
-	// IP público literal -> chega ao dial.
-	g2, dialed2 := newTestDialer(res, nil)
-	assertReachedDial(t, g2, dialed2, "8.8.8.8:443", "8.8.8.8")
-}
-
-func TestDialContext_FailClosedOnMixedRecords(t *testing.T) {
-	// Múltiplos registros A: um público e um privado. Fail-closed barra o host.
-	res := &fakeResolver{hosts: map[string][]net.IPAddr{
-		"mixed.example.com": ipAddrs("93.184.216.34", "127.0.0.1"),
-	}}
-	g, dialed := newTestDialer(res, nil)
-	assertBlocked(t, g, dialed, "mixed.example.com:80")
-}
-
-func TestDialContext_AllowPrivateBypasses(t *testing.T) {
-	res := &fakeResolver{hosts: map[string][]net.IPAddr{
-		"local.test": ipAddrs("127.0.0.1"),
-	}}
+func TestSSRFControl_AllowPrivateBypass(t *testing.T) {
 	allow := func() bool { return true }
-
-	// Hostname privado liberado (ex.: testes com httptest).
-	g, dialed := newTestDialer(res, allow)
-	assertReachedDial(t, g, dialed, "local.test:80", "127.0.0.1")
-
-	// IP literal privado também liberado.
-	g2, dialed2 := newTestDialer(res, allow)
-	assertReachedDial(t, g2, dialed2, "127.0.0.1:80", "127.0.0.1")
+	for _, addr := range []string{"127.0.0.1:80", "10.0.0.1:80", "[::ffff:127.0.0.1]:80"} {
+		if err := callControl(allow, addr); err != nil {
+			t.Errorf("%s: com allowPrivate=true deveria passar: %v", addr, err)
+		}
+	}
 }
 
 func TestNewGuardedTransport_ProxyDisabled(t *testing.T) {
@@ -202,9 +99,34 @@ func TestNewGuardedTransport_DefaultTransportNotHTTPTransport(t *testing.T) {
 	}
 }
 
-func trimBrackets(h string) string {
-	if len(h) >= 2 && h[0] == '[' && h[len(h)-1] == ']' {
-		return h[1 : len(h)-1]
+// TestGuardedTransport_Integration exercita o caminho real (resolução + Happy
+// Eyeballs + Control) com um servidor httptest (que escuta em 127.0.0.1): com
+// allowPrivate=false a conexão é barrada; com allowPrivate=true ela funciona. Cobre
+// também a ausência de regressão funcional.
+func TestGuardedTransport_Integration(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	blockClient := &http.Client{Transport: NewGuardedTransport(func() bool { return false })}
+	resp, err := blockClient.Get(srv.URL)
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("esperado erro ao conectar em 127.0.0.1 com allowPrivate=false")
 	}
-	return h
+	var blockErr *BlockedIPError
+	if !errors.As(err, &blockErr) {
+		t.Fatalf("esperado BlockedIPError na cadeia de erros, got %v", err)
+	}
+
+	okClient := &http.Client{Transport: NewGuardedTransport(func() bool { return true })}
+	resp2, err := okClient.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("com allowPrivate=true a conexão deveria funcionar: %v", err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("status inesperado: %d", resp2.StatusCode)
+	}
 }

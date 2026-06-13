@@ -142,19 +142,25 @@ anti-SSRF em `internal/tools/http`. A proteção é feita em camadas:
 2. **Redirects** — `RedirectGuard` reaplica a política nos redirects (que o net/http
    segue automaticamente) e remove headers sensíveis ao cruzar limite de confiança.
 3. **Pós-DNS (definitiva)** — `SetTransportGuard`/`NewGuardedTransport` instalam um
-   `DialContext` que **valida o IP REAL após a resolução de DNS** e só conecta
-   fixando o IP já validado.
+   `net.Dialer` com hook `Control` que **valida o IP REAL no momento do connect**,
+   após a resolução de DNS.
 
 > **Validação pós-DNS (issue #237):** validar apenas o host textual não basta. Um
 > hostname público que resolve para um IP privado (DNS rebinding, CNAME para
 > `169.254.169.254`) e formas numéricas não-padrão (`http://2130706433/`,
 > `http://0x7f000001/`, `http://[::ffff:127.0.0.1]/`) burlavam a checagem textual. O
-> `GuardedTransport` resolve o host, aplica `isBlockedIP` a **cada** IP candidato
-> (fail-closed: qualquer candidato privado recusa o host inteiro) e disca no IP já
-> validado, fechando o TOCTOU. Como o `http.Transport` é reusado, os redirects
-> passam pelo mesmo guard. A lista de ranges é centralizada em `isBlockedIP`
-> (`ssrf.go`), fonte única de verdade compartilhada pelas duas camadas. O resolver e
-> o dialer são injetáveis para teste (`dialer_test.go`).
+> `GuardedTransport` usa um `net.Dialer` com `Control func(network, address string,
+> c syscall.RawConn) error`, chamado imediatamente antes de cada `connect()` com o
+> `address` já no formato IP:porta concreto. O `Control` aplica `isBlockedIP` ao IP
+> real e retorna erro (**fail-closed**) se for local/privado, abortando aquela
+> tentativa — um host que só resolve para IPs privados falha por completo. Como o IP
+> validado é exatamente o que será conectado, não há TOCTOU; e por usar o dialer
+> nativo preserva-se o **Happy Eyeballs** (tentativas IPv6/IPv4 concorrentes com
+> fallback), sem regressão de latência. Como o `http.Transport` é reusado, os
+> redirects passam pelo mesmo guard. A lista de ranges é centralizada em
+> `isBlockedIP` (`ssrf.go`), fonte única de verdade compartilhada pelas duas camadas,
+> e normaliza IPv4-mapped IPv6 via `To4()` para fechar bypass de broadcast/privado
+> em forma mapeada.
 
 > **Proxy desabilitado (conexão direta obrigatória):** o `GuardedTransport` define
 > `Transport.Proxy = nil`, **ignorando `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`**. Isso

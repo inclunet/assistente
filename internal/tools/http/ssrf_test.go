@@ -17,6 +17,9 @@ func TestIsPrivateHost(t *testing.T) {
 		"foo.localhost", "evil.LOCALHOST", "a.b.localhost.",
 		// Cloud metadata endpoint e variantes IPv4-mapped/multicast de escopo local.
 		"169.254.169.254", "::ffff:169.254.169.254", "::ffff:127.0.0.1", "224.0.0.1",
+		// IPv4-mapped IPv6 de broadcast e privado: a normalização via To4() deve
+		// fazê-los baterem nos checks IPv4 (broadcast/RFC 1918).
+		"::ffff:255.255.255.255", "::ffff:10.0.0.1", "::ffff:192.168.1.1",
 		// Multicast fora do escopo link-local (SSDP), broadcast limitado e multicast IPv6.
 		"239.255.255.250", "255.255.255.255", "ff02::c", "ff0e::1",
 		// CGNAT (100.64.0.0/10, RFC 6598): alcançável em redes internas/operadoras.
