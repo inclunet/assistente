@@ -240,20 +240,22 @@ export default function HelpPage() {
               id={`help-${section.id}`}
               className={`help-section ${isExpanded ? 'expanded' : ''}`}
             >
-              <button
-                className="help-section-header"
-                onClick={() => toggleSection(section.id)}
-                aria-expanded={isExpanded}
-                aria-controls={`help-content-${section.id}`}
-              >
-                <span className="help-section-icon" aria-hidden="true">
-                  {section.icon}
-                </span>
-                <h3>{section.title}</h3>
-                <span className="help-section-chevron" aria-hidden="true">
-                  {isExpanded ? '▼' : '▶'}
-                </span>
-              </button>
+              <h3 className="help-section-heading">
+                <button
+                  className="help-section-header"
+                  onClick={() => toggleSection(section.id)}
+                  aria-expanded={isExpanded}
+                  aria-controls={`help-content-${section.id}`}
+                >
+                  <span className="help-section-icon" aria-hidden="true">
+                    {section.icon}
+                  </span>
+                  <span className="help-section-title">{section.title}</span>
+                  <span className="help-section-chevron" aria-hidden="true">
+                    {isExpanded ? '▼' : '▶'}
+                  </span>
+                </button>
+              </h3>
               {isExpanded && (
                 <div id={`help-content-${section.id}`} className="help-section-body">
                   <div className="help-content">
