@@ -65,8 +65,8 @@ describe('HelpPage', () => {
     // kbd: tokens [[...]] viram <kbd>
     expect(document.querySelectorAll('kbd').length).toBeGreaterThan(0);
 
-    // tabela de atalhos: bloco table com cabecalho semantico
-    expect(document.querySelectorAll('table.help-shortcuts thead th').length).toBeGreaterThan(0);
+    // tabela de atalhos: bloco table com cabecalho semantico e scope="col"
+    expect(document.querySelectorAll('table.help-shortcuts thead th[scope="col"]').length).toBeGreaterThan(0);
 
     // icone inline: o stub de @ant-design/icons renderiza null, entao validamos
     // que o token [icon:...] foi consumido pelo renderInline (nao vaza como texto).

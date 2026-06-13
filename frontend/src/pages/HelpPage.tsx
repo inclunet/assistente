@@ -141,7 +141,7 @@ function renderBlock(block: HelpBlock, key: number): ReactNode {
           <thead>
             <tr>
               {block.headers.map((header, i) => (
-                <th key={i}>{renderInline(header)}</th>
+                <th key={i} scope="col">{renderInline(header)}</th>
               ))}
             </tr>
           </thead>
@@ -180,8 +180,12 @@ export default function HelpPage() {
   const sections = useMemo<HelpSection[]>(() => {
     return SECTION_DEFS.map((def) => {
       const raw = t(`help.sections.${def.key}`, { returnObjects: true }) as unknown;
-      // Fallback seguro para secao vazia se os locales divergirem (evita crash em blocks.map).
-      const data: HelpSectionData = isHelpSectionData(raw) ? raw : { title: '', blocks: [] };
+      // Fallback seguro se os locales divergirem (evita crash em blocks.map). Mantem um
+      // titulo nao-vazio para o botao do accordion ter nome acessivel: usa a string
+      // devolvida pelo i18next (a propria chave, quando ausente) ou a chave da secao.
+      const data: HelpSectionData = isHelpSectionData(raw)
+        ? raw
+        : { title: typeof raw === 'string' && raw.length > 0 ? raw : def.key, blocks: [] };
       return {
         id: def.id,
         icon: def.icon,
