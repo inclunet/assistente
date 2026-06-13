@@ -4,7 +4,7 @@ import i18next from 'i18next';
 import type { MediaFile } from '../services/mediaService';
 import type { llm } from '../../wailsjs/go/models';
 import { useWorkspaceStore } from './workspaceStore';
-import { isModalOpen } from '../components/ui/Modal';
+import { isModalOpen } from '../lib/modalRegistry';
 import { useUIStore } from './uiStore';
 import { ensureWorkspaceTabConversationId } from '../lib/workspaceConversation';
 import { ttsService } from '../services/tts';
@@ -165,6 +165,19 @@ export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, 
 
   setAdapterError: (msg) => set({ adapterError: msg }),
 
+  // ---------------------------------------------------------------------------
+  // Fronteira de orquestração (cross-store INTENCIONAL e isolada aqui).
+  //
+  // `requestOpen` e `setBoundConversation` são os ÚNICOS pontos deste store que leem
+  // outros stores (`useWorkspaceStore`/`useUIStore`) via `getState()`. Isso é um
+  // padrão aceito do Zustand (acesso pontual a estado irmão, não uma inversão de
+  // camadas como importar um componente React) e fica deliberadamente concentrado
+  // nestes dois métodos para manter o restante do store puro/observável.
+  //
+  // Diretriz: NÃO espalhe novas leituras cross-store pelos demais métodos. Se a
+  // orquestração crescer, extraia para um service/hook em `lib/` ou `hooks/` chamado
+  // pela UI, mantendo este store responsável apenas pelo próprio estado visual.
+  // ---------------------------------------------------------------------------
   requestOpen: async (tabId) => {
     const workspaceStore = useWorkspaceStore.getState();
     const tab = workspaceStore.workspace?.tabs.find((item) => item.id === tabId) ?? null;

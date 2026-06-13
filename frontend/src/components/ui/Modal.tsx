@@ -12,70 +12,19 @@ import { createPortal } from 'react-dom';
 import { CloseOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import {
+  registerOpenModal,
+  unregisterOpenModal,
+  isTopmostModal,
+} from '../../lib/modalRegistry';
 import './Modal.css';
 
-// Stack global simples para garantir que apenas o modal do topo
-// trate Escape/Tab/click-outside quando há múltiplos modais abertos.
-const OPEN_MODAL_STACK: string[] = [];
-
-let previousBodyOverflow: string | null = null;
-
-function setGlobalModalEffects(enabled: boolean) {
-  const appRoot = document.getElementById('root');
-
-  if (enabled) {
-    if (appRoot) {
-      appRoot.setAttribute('aria-hidden', 'true');
-      appRoot.setAttribute('inert', '');
-    }
-    if (previousBodyOverflow === null) {
-      previousBodyOverflow = document.body.style.overflow;
-    }
-    document.body.style.overflow = 'hidden';
-    return;
-  }
-
-  if (appRoot) {
-    appRoot.removeAttribute('aria-hidden');
-    appRoot.removeAttribute('inert');
-  }
-
-  if (previousBodyOverflow !== null) {
-    document.body.style.overflow = previousBodyOverflow;
-    previousBodyOverflow = null;
-  } else {
-    document.body.style.overflow = '';
-  }
-}
-
-function syncGlobalModalEffects() {
-  // Safety net: se a stack diz que há modais abertos, mas nenhum overlay
-  // está no DOM, a stack ficou dessincronizada (ex: erro de render ou
-  // unmount inesperado). Limpa a stack para restaurar a interatividade.
-  if (OPEN_MODAL_STACK.length > 0) {
-    const actualOverlays = document.querySelectorAll('.modal-overlay').length;
-    if (actualOverlays === 0) {
-      OPEN_MODAL_STACK.length = 0;
-    }
-  }
-  setGlobalModalEffects(OPEN_MODAL_STACK.length > 0);
-}
-
-export function isModalOpen(): boolean {
-  return OPEN_MODAL_STACK.length > 0;
-}
-
-/**
- * Força a limpeza do estado de modal (inert/aria-hidden) quando a stack
- * ficou dessincronizada. Chamado ao navegar entre páginas como safety net.
- */
-export function ensureModalCleanup() {
-  const actualOverlays = document.querySelectorAll('.modal-overlay').length;
-  if (actualOverlays === 0 && OPEN_MODAL_STACK.length > 0) {
-    OPEN_MODAL_STACK.length = 0;
-    setGlobalModalEffects(false);
-  }
-}
+// O registro de modais abertos (stack global + efeitos globais de inert/aria-hidden)
+// vive no módulo neutro `lib/modalRegistry.ts`, consumido tanto por este componente
+// quanto por stores/hooks. Reexportamos `isModalOpen`/`ensureModalCleanup` aqui para
+// preservar os consumidores de UI já existentes, sem que a camada de estado precise
+// importar deste componente React.
+export { isModalOpen, ensureModalCleanup } from '../../lib/modalRegistry';
 
 /**
  * Contexto que expõe, para os descendentes de um Modal, se aquele Modal é o
@@ -160,8 +109,7 @@ export function Modal({
   );
 
   const isTopMost = useCallback(() => {
-    const id = modalInstanceIdRef.current;
-    return OPEN_MODAL_STACK.length > 0 && OPEN_MODAL_STACK[OPEN_MODAL_STACK.length - 1] === id;
+    return isTopmostModal(modalInstanceIdRef.current);
   }, []);
 
   // Valor estável exposto via contexto para descendentes do Modal.
@@ -172,18 +120,10 @@ export function Modal({
     const id = modalInstanceIdRef.current;
     if (!isOpen) return;
 
-    // Remove qualquer entrada antiga (best-effort), e empilha no topo.
-    for (let i = OPEN_MODAL_STACK.length - 1; i >= 0; i--) {
-      if (OPEN_MODAL_STACK[i] === id) OPEN_MODAL_STACK.splice(i, 1);
-    }
-    OPEN_MODAL_STACK.push(id);
-    syncGlobalModalEffects();
+    registerOpenModal(id);
 
     return () => {
-      for (let i = OPEN_MODAL_STACK.length - 1; i >= 0; i--) {
-        if (OPEN_MODAL_STACK[i] === id) OPEN_MODAL_STACK.splice(i, 1);
-      }
-      syncGlobalModalEffects();
+      unregisterOpenModal(id);
     };
   }, [isOpen]);
 
