@@ -6,25 +6,28 @@ import (
 )
 
 // IsPrivateHost reporta se um host aponta para um endereço local/privado, servindo
-// como barreira básica anti-SSRF compartilhada pelas tools de rede (web_fetch,
+// como primeira barreira anti-SSRF compartilhada pelas tools de rede (web_fetch,
 // http_request, feed_read) para evitar divergência de política e duplicação.
 //
 // Usa net.ParseIP para cobrir corretamente os ranges privados (10/8, 172.16/12,
-// 192.168/16, fc00::/7), loopback, link-local (inclui 169.254.169.254, o metadata
-// endpoint de nuvem), multicast (inclui 239.255.255.250/SSDP), broadcast IPv4 e
-// unspecified, sem o falso positivo de um prefix match ingênuo (ex.: 172.2.x.x é
-// público). Também bloqueia "localhost" e o TLD reservado ".localhost".
+// 192.168/16, fc00::/7), CGNAT (100.64/10), loopback, link-local (inclui
+// 169.254.169.254, o metadata endpoint de nuvem), multicast (inclui
+// 239.255.255.250/SSDP), broadcast IPv4 e unspecified, sem o falso positivo de um
+// prefix match ingênuo (ex.: 172.2.x.x é público). Também bloqueia "localhost" e o
+// TLD reservado ".localhost".
 //
-// Limitações conhecidas (barreira básica, não proteção anti-SSRF completa):
-//   - Só inspeciona IPs literais em notação padrão (o que net.ParseIP aceita) e
-//     "localhost". Formas numéricas não-padrão (decimal "2130706433", octal
-//     "0177.0.0.1", hex "0x7f.0.0.1") NÃO são reconhecidas como IP aqui.
-//   - Um hostname que resolve via DNS para um IP privado (ex.: "internal.example")
-//     NÃO é bloqueado: não fazemos resolução de DNS aqui, para evitar lookups
-//     extras e o TOCTOU entre o check e o dial.
+// Cobertura em duas camadas (ver dialer.go):
+//   - Esta função é a checagem ANTES do dial, sobre o host textual da URL. Ela só
+//     reconhece IPs literais na notação que net.ParseIP aceita; formas numéricas
+//     não-padrão (decimal "2130706433", octal "0177.0.0.1", hex "0x7f.0.0.1") e
+//     hostnames que resolvem para IP privado (DNS rebinding) passam por aqui.
+//   - A barreira definitiva é o GuardedTransport: o DialContext valida o IP REAL
+//     APÓS a resolução de DNS, fechando o TOCTOU e cobrindo tanto as formas
+//     numéricas alternativas (o SO as normaliza ao resolver) quanto os redirects
+//     (que reusam o mesmo transport).
 //
-// É uma barreira contra URLs que já apontam diretamente para endereços
-// locais/privados em notação usual.
+// Mantida como rejeição rápida e legível de URLs que já apontam diretamente para
+// endereços locais/privados em notação usual.
 func IsPrivateHost(host string) bool {
 	// Normaliza para fechar bypasses clássicos de filtros por string. A ordem
 	// importa para ser robusta a combinações.
@@ -55,8 +58,27 @@ func IsPrivateHost(host string) bool {
 	if ip == nil {
 		return false
 	}
+	return isBlockedIP(ip)
+}
+
+// cgnatNet é o range CGNAT (Carrier-Grade NAT) RFC 6598, que net.IP.IsPrivate NÃO
+// cobre mas é alcançável em redes internas/operadoras e relevante para SSRF.
+var cgnatNet = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
+
+// isBlockedIP reporta se um IP já resolvido cai em range não-roteável/local que
+// deve ser barrado por SSRF: loopback, privado (RFC 1918 / fc00::/7), CGNAT
+// (100.64/10), link-local (inclui 169.254.169.254), multicast, broadcast IPv4 e
+// unspecified. É o ponto único de política de ranges, usado tanto pela checagem
+// textual (IsPrivateHost) quanto pela validação pós-DNS no DialContext.
+func isBlockedIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
 	// Broadcast IPv4 limitado (255.255.255.255): alcança toda a rede local.
 	if ip.Equal(net.IPv4bcast) {
+		return true
+	}
+	if cgnatNet.Contains(ip) {
 		return true
 	}
 	// IsMulticast cobre todo o range multicast (224.0.0.0/4 e ff00::/8), incluindo

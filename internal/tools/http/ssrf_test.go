@@ -19,6 +19,8 @@ func TestIsPrivateHost(t *testing.T) {
 		"169.254.169.254", "::ffff:169.254.169.254", "::ffff:127.0.0.1", "224.0.0.1",
 		// Multicast fora do escopo link-local (SSDP), broadcast limitado e multicast IPv6.
 		"239.255.255.250", "255.255.255.255", "ff02::c", "ff0e::1",
+		// CGNAT (100.64.0.0/10, RFC 6598): alcançável em redes internas/operadoras.
+		"100.64.0.1", "100.127.255.255", "100.100.100.100",
 		// Host vazio não é destino válido.
 		"", "   ",
 	}
@@ -35,6 +37,8 @@ func TestIsPrivateHost(t *testing.T) {
 	public := []string{
 		"172.2.3.4", "172.32.0.1", "8.8.8.8", "example.com", "1.1.1.1", "google.com",
 		"mylocalhost", "localhost.example.com", "notlocalhost",
+		// Limites do CGNAT: 100.63.x e 100.128.x estão FORA do 100.64/10.
+		"100.63.255.255", "100.128.0.1",
 	}
 	for _, h := range public {
 		if IsPrivateHost(h) {

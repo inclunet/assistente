@@ -131,6 +131,33 @@ Testes unitários desabilitam confirmação definindo `confirmFn = nil`.
 
 ---
 
+### 3. Proteção anti-SSRF (validação pós-DNS)
+
+As tools de rede (`web_fetch`, `http_request`, `feed_read`) compartilham a barreira
+anti-SSRF em `internal/tools/http`. A proteção é feita em camadas:
+
+1. **Pré-dial (textual)** — `IsPrivateHost` rejeita rapidamente URLs cujo host já é
+   um IP literal local/privado (loopback, RFC 1918, CGNAT 100.64/10, link-local
+   incl. `169.254.169.254`, multicast, broadcast) ou `localhost`/`.localhost`.
+2. **Redirects** — `RedirectGuard` reaplica a política nos redirects (que o net/http
+   segue automaticamente) e remove headers sensíveis ao cruzar limite de confiança.
+3. **Pós-DNS (definitiva)** — `SetTransportGuard`/`NewGuardedTransport` instalam um
+   `DialContext` que **valida o IP REAL após a resolução de DNS** e só conecta
+   fixando o IP já validado.
+
+> **Validação pós-DNS (issue #237):** validar apenas o host textual não basta. Um
+> hostname público que resolve para um IP privado (DNS rebinding, CNAME para
+> `169.254.169.254`) e formas numéricas não-padrão (`http://2130706433/`,
+> `http://0x7f000001/`, `http://[::ffff:127.0.0.1]/`) burlavam a checagem textual. O
+> `GuardedTransport` resolve o host, aplica `isBlockedIP` a **cada** IP candidato
+> (fail-closed: qualquer candidato privado recusa o host inteiro) e disca no IP já
+> validado, fechando o TOCTOU. Como o `http.Transport` é reusado, os redirects
+> passam pelo mesmo guard. A lista de ranges é centralizada em `isBlockedIP`
+> (`ssrf.go`), fonte única de verdade compartilhada pelas duas camadas. O resolver e
+> o dialer são injetáveis para teste (`dialer_test.go`).
+
+---
+
 ## Configuração no Sistema
 
 ### Carregar credenciais de variáveis de ambiente
