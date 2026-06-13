@@ -35,6 +35,10 @@ const (
 	// listToolsTimeout é o timeout para listar tools de um servidor
 	listToolsTimeout = 15 * time.Second
 
+	// closeAllWaitTimeout é o teto de espera pelo join das goroutines de
+	// background (loops e reconexões) durante o CloseAll. Defensivo.
+	closeAllWaitTimeout = 10 * time.Second
+
 	// healthCheckInterval é o intervalo entre health checks
 	healthCheckInterval = 2 * time.Minute
 
@@ -90,8 +94,34 @@ type Manager struct {
 	connectCancels map[string]context.CancelFunc                          // slug -> cancel for in-flight Connect()
 	ctx            context.Context
 	cancel         context.CancelFunc
+	bgWG           sync.WaitGroup // join de loops (health/token refresh) e reconexões no CloseAll
 	authContext    func() context.Context
 	roots          []Root // workspace roots globais
+}
+
+// goTracked executa fn numa goroutine rastreada por bgWG, permitindo que
+// CloseAll aguarde o término dos loops e reconexões antes do shutdown.
+func (m *Manager) goTracked(fn func()) {
+	m.bgWG.Add(1)
+	go func() {
+		defer m.bgWG.Done()
+		fn()
+	}()
+}
+
+// waitBackground aguarda o término das goroutines rastreadas em bgWG, com
+// timeout defensivo para não travar o shutdown caso alguma fique presa.
+func (m *Manager) waitBackground(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		m.bgWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		log.Printf("[MCP] Timeout aguardando goroutines de background no shutdown")
+	}
 }
 
 // NewManager cria um novo gerenciador de servidores MCP.
@@ -434,7 +464,9 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		return fmt.Errorf("servidor MCP '%s' já está conectando — use Desconectar para cancelar", slug)
 	}
 
-	// Se já conectado, desconecta primeiro
+	// Se já conectado, desconecta primeiro. Ordem de locks: Disconnect adquire
+	// m.mu internamente, então liberamos o lock antes de chamá-lo e o
+	// readquirimos depois (evita deadlock por re-entrância no RWMutex).
 	if _, connected := m.connections[slug]; connected {
 		m.mu.Unlock()
 		_ = m.Disconnect(slug)
@@ -540,14 +572,14 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 
 	// Inicia health check goroutine
 	healthCtx, healthCancel := context.WithCancel(m.ctx)
-	go m.healthCheckLoop(healthCtx, slug)
+	m.goTracked(func() { m.healthCheckLoop(healthCtx, slug) })
 
 	// Inicia token refresh proativo para servidores OAuth2
 	var tokenRefreshCancel context.CancelFunc
 	if cfg.AuthType == AuthOAuth2PKCE || cfg.AuthType == AuthOAuth2ClientCredentials {
 		tokenCtx, cancel := context.WithCancel(m.ctx)
 		tokenRefreshCancel = cancel
-		go m.tokenRefreshLoop(tokenCtx, slug)
+		m.goTracked(func() { m.tokenRefreshLoop(tokenCtx, slug) })
 	}
 
 	now := time.Now()
@@ -952,6 +984,9 @@ func (m *Manager) DeleteConfig(slug string) error {
 func (m *Manager) CloseAll() {
 	m.cancel()
 	m.disconnectAllConnections("shutdown")
+	// Aguarda loops (health/token refresh) e reconexões em andamento encerrarem
+	// após o cancelamento do ctx, evitando goroutines órfãs no shutdown.
+	m.waitBackground(closeAllWaitTimeout)
 	log.Printf("[MCP] Todos os servidores MCP desconectados")
 }
 
@@ -1492,7 +1527,7 @@ func (m *Manager) performHealthCheck(slug string) {
 				s.Status = StatusError
 				s.Error = fmt.Sprintf("health check falhou: %v", err)
 				s.ConsecutiveHealthFailures = 0
-				go m.reconnectWithRetry(slug)
+				m.goTracked(func() { m.reconnectWithRetry(slug) })
 			}
 		} else {
 			s.LastPing = &now
@@ -1537,7 +1572,7 @@ func (m *Manager) handleToolCallError(slug string, err error) {
 	})
 	m.logEvent(slug, "error", "Erro de sessão/transporte durante tool call", map[string]any{"error": err.Error()})
 
-	go m.reconnectWithRetry(slug)
+	m.goTracked(func() { m.reconnectWithRetry(slug) })
 }
 
 // isMethodNotFound detecta erros JSON-RPC "method not found" (código -32601).
@@ -1554,6 +1589,12 @@ func isMethodNotFound(err error) bool {
 // Após esgotar as tentativas rápidas, entra em modo lento (a cada maxRetryDelay)
 // até conseguir reconectar ou o servidor ser desabilitado/removido.
 func (m *Manager) reconnectWithRetry(slug string) {
+	// Se o Manager já foi encerrado (CloseAll cancelou o ctx base), não inicia
+	// reconexão — sai cedo para não segurar o join do shutdown.
+	if m.ctx.Err() != nil {
+		return
+	}
+
 	m.mu.Lock()
 	status, ok := m.servers[slug]
 	if !ok || !status.Config.Enabled {
