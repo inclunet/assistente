@@ -1,12 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { CheckOutlined, CloseOutlined, ExclamationOutlined, InfoOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import type { ToastAction } from '../../store/uiStore';
 import './Toast.css';
-
-export interface ToastAction {
-  label: string;
-  onClick: () => void;
-}
 
 export interface ToastProps {
   message: string;
@@ -46,6 +42,7 @@ export function Toast({ message, variant = 'info', duration = 3000, action, onCl
       <div className="toast__message">{message}</div>
       {action && (
         <button
+          type="button"
           className="toast__action"
           onClick={action.onClick}
         >
@@ -53,6 +50,7 @@ export function Toast({ message, variant = 'info', duration = 3000, action, onCl
         </button>
       )}
       <button
+        type="button"
         className="toast__close"
         onClick={onClose}
         aria-label={t('ui.toast.close')}

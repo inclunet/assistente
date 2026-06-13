@@ -55,9 +55,13 @@
 
 .toast__action {
   flex-shrink: 0;
-  background: var(--bg-overlay);
-  border: 1px solid currentcolor;
-  color: inherit;
+  /* Par de contraste válido: --text-primary sobre --bg-elevated (superfície
+     sólida), em vez de --text-inverse sobre --bg-overlay (proibido pelo
+     contrato em frontend/src/test/a11yHelpers.tsx). Botão "claro" legível
+     em qualquer tema sobre o fundo colorido do toast. */
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
   font-size: var(--font-size-sm);
   font-weight: 600;
   line-height: 1;
