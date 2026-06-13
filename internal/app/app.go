@@ -61,6 +61,8 @@ type ChannelInfo = controllers.ChannelInfo
 // App struct
 type App struct {
 	ctx               context.Context
+	cancel            context.CancelFunc    // cancela o ctx raiz no Shutdown
+	bgWG              sync.WaitGroup        // join das goroutines de background no Shutdown
 	llmRegistry       *llm.ProviderRegistry // Registro de provedores LLM
 	profileManager    *profiles.Manager
 	toolRegistry      *tools.Registry             // Registro de ferramentas disponíveis
@@ -201,7 +203,10 @@ func (a *App) Context() context.Context {
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
 // Reutilizado pelo Wails (main.go na raiz) e pelo CLI (cmd/asst/).
 func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, window ports.WindowPort, dialog ports.SystemDialogPort) error {
-	a.ctx = ctx
+	// Deriva um contexto cancelável: Shutdown chama a.cancel() para sinalizar o
+	// encerramento às goroutines de background. WithCancel preserva os values do
+	// ctx pai (ex.: userID), então Context() continua válido para os consumidores.
+	a.ctx, a.cancel = context.WithCancel(ctx)
 	a.emitter = emitter
 	a.windowPort = window
 	a.dialogPort = dialog
@@ -358,14 +363,14 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o ChatInteractor (após skillMgr e promptBuilder estarem prontos)
 	a.chatInteractor = chat.NewInteractor(chat.InteractorConfig{
-		Emitter:       a.emitter,
-		Repo:          a.msgRepo,
-		ConvRepo:      a.convSvc,
-		ProviderSvc:   a.providerSvc,
-		ProfileMgr:    a.profileManager,
-		Workspace:     a.workspaceMgr,
-		SkillMgr:      a.skillMgr,
-		PromptBuilder: a.promptBuilder,
+		Emitter:         a.emitter,
+		Repo:            a.msgRepo,
+		ConvRepo:        a.convSvc,
+		ProviderSvc:     a.providerSvc,
+		ProfileMgr:      a.profileManager,
+		Workspace:       a.workspaceMgr,
+		SkillMgr:        a.skillMgr,
+		PromptBuilder:   a.promptBuilder,
 		LinkedTaskLists: a.linkedTaskListsForConversation,
 	})
 
@@ -538,8 +543,13 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		return err
 	}
 
-	// Verifica atualizações no startup (não bloqueante)
-	go a.checkForUpdatesOnStartup()
+	// Verifica atualizações no startup (não bloqueante). Rastreada em bgWG para
+	// que o Shutdown faça join e não deixe a goroutine órfã.
+	a.bgWG.Add(1)
+	go func() {
+		defer a.bgWG.Done()
+		a.checkForUpdatesOnStartup()
+	}()
 
 	return nil
 }
@@ -549,8 +559,35 @@ func (a *App) ShowWindow() {
 	a.windowPort.Show()
 }
 
+// shutdownBackgroundTimeout é o teto de espera pelo join das goroutines de
+// background no Shutdown. Defensivo: evita travar o encerramento caso alguma
+// goroutine não respeite o cancelamento do contexto a tempo.
+const shutdownBackgroundTimeout = 10 * time.Second
+
+// waitBackground aguarda o término das goroutines rastreadas em bgWG, com
+// timeout defensivo para não bloquear o shutdown indefinidamente.
+func (a *App) waitBackground(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		a.bgWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		log.Printf("[App] Timeout aguardando goroutines de background no Shutdown")
+	}
+}
+
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
+	// Sinaliza o cancelamento às goroutines de background e aguarda o join
+	// antes de derrubar os managers, evitando loops órfãos no encerramento.
+	if a.cancel != nil {
+		a.cancel()
+	}
+	a.waitBackground(shutdownBackgroundTimeout)
+
 	a.stopAllEditorWatches()
 	a.stopConnectionMonitor()
 
