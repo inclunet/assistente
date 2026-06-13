@@ -63,11 +63,12 @@ export function isModalOpen(): boolean {
  * ficou dessincronizada. Chamado ao navegar entre páginas como safety net.
  */
 export function ensureModalCleanup() {
-  const actualOverlays = document.querySelectorAll('.modal-overlay').length;
-  if (actualOverlays === 0 && OPEN_MODAL_STACK.length > 0) {
-    OPEN_MODAL_STACK.length = 0;
-    setGlobalModalEffects(false);
-  }
+  // Stack já vazia: nada a sincronizar e, deliberadamente, não tocamos em
+  // `body.style.overflow` (não havia modal que o tivesse alterado).
+  if (OPEN_MODAL_STACK.length === 0) return;
+  // Reutiliza o único caminho de sincronização: se não houver overlay no DOM,
+  // a stack está dessincronizada e será zerada, removendo os efeitos globais.
+  syncGlobalModalEffects();
 }
 
 /**
