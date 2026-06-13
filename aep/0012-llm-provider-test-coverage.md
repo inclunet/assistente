@@ -190,7 +190,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import ProviderForm from "./ProviderForm";
 
 // Mock Wails
-vi.mock("@wailsjs/go/main/App", () => ({
+vi.mock("@wailsjs/go/app/App", () => ({
   TestLLMProvider: vi.fn(),
   CreateLLMProvider: vi.fn(),
   UpdateLLMProvider: vi.fn(),
