@@ -177,4 +177,44 @@ describe('usePartialRuntimeInitListener', () => {
 
     expect(removeToastSpy).toHaveBeenCalledWith('toast-1');
   });
+
+  it('no sucesso remove o toast rastreado mesmo se um novo aviso substituiu durante a RPC', async () => {
+    // RPC fica pendente até resolvermos manualmente, simulando a janela em voo.
+    let resolveRetry!: (value: RuntimePartialInitPayload) => void;
+    retrySpy.mockImplementation(
+      () =>
+        new Promise<RuntimePartialInitPayload>((resolve) => {
+          resolveRetry = resolve;
+        }),
+    );
+
+    renderHook(() => usePartialRuntimeInitListener());
+
+    // Primeiro aviso → toast-1 (rastreado em partialToastIdRef).
+    act(() => lastHandler?.(payload()));
+    const action = addToastSpy.mock.calls[0][3] as ToastAction;
+
+    // Inicia o retry: a RPC fica pendente.
+    act(() => action.onClick());
+
+    // Durante a RPC em voo, um novo runtime:partial-init substitui o toast →
+    // showWarning remove toast-1 e cria toast-2 (partialToastIdRef passa a apontar
+    // para toast-2).
+    addToastSpy.mockReturnValueOnce('toast-2');
+    act(() => lastHandler?.(payload()));
+
+    removeToastSpy.mockClear();
+
+    // Backend confirma sucesso (sem subsistemas falhos).
+    await act(async () => {
+      resolveRetry({ subsystems: [] });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Remove tanto o toastId original (toast-1) quanto o atualmente rastreado
+    // (toast-2): nenhum aviso persistente de partial-init permanece na tela.
+    expect(removeToastSpy).toHaveBeenCalledWith('toast-1');
+    expect(removeToastSpy).toHaveBeenCalledWith('toast-2');
+  });
 });

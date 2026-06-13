@@ -71,10 +71,18 @@ export function usePartialRuntimeInitListener() {
           showWarningRef.current(remaining);
         } else {
           // Sucesso confirmado pelo backend: só agora remove o aviso.
+          // Remove SEMPRE o toast atualmente rastreado E o toastId original (se
+          // diferentes): um novo runtime:partial-init pode ter substituído o
+          // toast enquanto a RPC estava em voo (ex.: RefreshAuth reemitindo),
+          // movendo partialToastIdRef para outro id. Como só rastreamos avisos
+          // de partial-init nesse ref, é seguro remover ambos sem afetar toasts
+          // legítimos de outras origens.
+          const currentId = partialToastIdRef.current;
           removeToast(toastId);
-          if (partialToastIdRef.current === toastId) {
-            partialToastIdRef.current = null;
+          if (currentId && currentId !== toastId) {
+            removeToast(currentId);
           }
+          partialToastIdRef.current = null;
           announce(t('runtimeStatus.partialInit.retrySuccess'), 'polite');
           // suppressAnnounce: já anunciamos acima; evita fala duplicada.
           addToast(t('runtimeStatus.partialInit.retrySuccess'), 'success', 4000, undefined, {
