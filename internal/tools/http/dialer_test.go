@@ -152,6 +152,20 @@ func TestDialContext_AllowPrivateBypasses(t *testing.T) {
 	assertReachedDial(t, g2, dialed2, "127.0.0.1:80", "127.0.0.1")
 }
 
+func TestNewGuardedTransport_ProxyDisabled(t *testing.T) {
+	// Mesmo com env de proxy configurada, o transport guardado deve ignorá-la: a
+	// política anti-SSRF exige conexão direta para validar/dialar o IP do DESTINO
+	// real (proxy permitiria bypass do guard pós-DNS).
+	t.Setenv("HTTP_PROXY", "http://10.0.0.1:3128")
+	t.Setenv("HTTPS_PROXY", "http://10.0.0.1:3128")
+	t.Setenv("ALL_PROXY", "http://10.0.0.1:3128")
+
+	tr := NewGuardedTransport(nil)
+	if tr.Proxy != nil {
+		t.Fatal("GuardedTransport.Proxy deveria ser nil (conexão direta obrigatória)")
+	}
+}
+
 func trimBrackets(h string) string {
 	if len(h) >= 2 && h[0] == '[' && h[len(h)-1] == ']' {
 		return h[1 : len(h)-1]

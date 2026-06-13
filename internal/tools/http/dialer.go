@@ -99,6 +99,13 @@ func (g *guardedDialer) DialContext(ctx context.Context, network, address string
 // (ex.: testes com httptest, que usam 127.0.0.1); pode ser nil (= sempre barrar).
 func NewGuardedTransport(allowPrivate func() bool) *http.Transport {
 	base := http.DefaultTransport.(*http.Transport).Clone()
+	// Conexão direta obrigatória (Proxy=nil): o clone dos defaults usa
+	// ProxyFromEnvironment, mas com proxy o DialContext validaria/dialaria o IP do
+	// PROXY, não o do destino — o que (a) quebraria ambientes com proxy interno
+	// (10.x/192.168.x) e (b) abriria um bypass do guard (uma URL para IP privado
+	// seria alcançada via proxy público sem o IP do destino ser validado). A política
+	// anti-SSRF aqui é conexão direta com o IP real validado pós-DNS.
+	base.Proxy = nil
 	d := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
 	g := &guardedDialer{
 		resolver:     net.DefaultResolver,
