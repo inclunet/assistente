@@ -79,15 +79,20 @@ func TestGoTrackedNaoPanicaComCloseAllConcorrente(t *testing.T) {
 
 	var spawners sync.WaitGroup
 	stop := make(chan struct{})
-	for i := 0; i < 32; i++ {
+	// Cadência controlada: poucas goroutines disparam trabalho rastreado em
+	// intervalos curtos (ticker), exercitando a corrida goTracked x CloseAll
+	// sem o busy-loop que poderia explodir o número de goroutines em CI.
+	for i := 0; i < 8; i++ {
 		spawners.Add(1)
 		go func() {
 			defer spawners.Done()
+			ticker := time.NewTicker(time.Millisecond)
+			defer ticker.Stop()
 			for {
 				select {
 				case <-stop:
 					return
-				default:
+				case <-ticker.C:
 					// Simula reconexões disparadas durante o shutdown.
 					m.goTracked(func() { <-m.ctx.Done() })
 				}
