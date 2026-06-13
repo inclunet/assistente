@@ -224,7 +224,7 @@ func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 		a.rollbackLoginState(pair.RefreshToken)
 		return nil, err
 	}
-	a.reloadUserScopedRuntime()
+	a.emitRuntimePartialInit(a.reloadUserScopedRuntime())
 	return a.GetAuthUser()
 }
 
@@ -337,7 +337,7 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 		a.rollbackLoginState(pair.RefreshToken)
 		return nil, err
 	}
-	a.reloadUserScopedRuntime()
+	a.emitRuntimePartialInit(a.reloadUserScopedRuntime())
 	return a.GetAuthUser()
 }
 
@@ -702,7 +702,13 @@ func (a *App) emitRuntimePartialInit(result runtimeReloadResult) {
 	})
 }
 
-func (a *App) reloadUserScopedRuntime() {
+// reloadUserScopedRuntime executa o reload do runtime user-scoped e DEVOLVE o
+// resultado coletado (falhas por subsistema). NÃO emite runtime:partial-init —
+// quem decide como notificar é o chamador: Login/RefreshAuth emitem o evento
+// (aviso assíncrono pós-login); RetryUserRuntimeInit devolve o resultado pela
+// RPC (feedback determinístico do botão "Tentar novamente", sem heurística de
+// timer no frontend).
+func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 	result := &runtimeReloadResult{}
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
@@ -710,7 +716,7 @@ func (a *App) reloadUserScopedRuntime() {
 	authedCtx, err := a.requireAuthenticatedContext()
 	if err != nil {
 		log.Printf("[reloadUserScopedRuntime] sem sessão autenticada, abortando: %v", err)
-		return
+		return *result
 	}
 	ctx, cancel := context.WithTimeout(authedCtx, reloadUserScopedRuntimeTimeout)
 	defer cancel()
@@ -797,25 +803,29 @@ func (a *App) reloadUserScopedRuntime() {
 		result.add(runtimeSubsystemTimeout, err)
 	}
 
-	// Aviso não-bloqueante: se algum subsistema falhou, o frontend recebe
-	// runtime:partial-init e mostra toast + announce com "Tentar novamente"
-	// (RetryUserRuntimeInit). O Login em si já retornou sucesso.
-	a.emitRuntimePartialInit(*result)
+	return *result
 }
 
 // RetryUserRuntimeInit re-executa o reload do runtime user-scoped sob demanda,
 // servindo à ação "Tentar novamente" do aviso de inicialização parcial. Exige
-// sessão autenticada e reaproveita reloadUserScopedRuntime — que reemite
-// runtime:partial-init caso ainda haja falhas (ou nada, se tudo subir agora).
-// Não cria fluxo paralelo de init: é o mesmo pipeline do Login/RefreshAuth.
-func (a *App) RetryUserRuntimeInit() error {
+// sessão autenticada e reaproveita reloadUserScopedRuntime — o mesmo pipeline
+// do Login/RefreshAuth, sem fluxo paralelo. DEVOLVE o resultado (subsistemas
+// ainda falhos, ou lista vazia) para que o frontend dê feedback determinístico
+// sem depender de timer/eventos. Não emite runtime:partial-init neste caminho
+// (evita aviso duplicado: o retorno da RPC já carrega o estado).
+func (a *App) RetryUserRuntimeInit() (RuntimePartialInitPayload, error) {
 	a.authSessionMu.Lock()
 	defer a.authSessionMu.Unlock()
 	if _, err := a.requireAuthenticatedContext(); err != nil {
-		return err
+		return RuntimePartialInitPayload{Subsystems: []RuntimeSubsystemFailure{}}, err
 	}
-	a.reloadUserScopedRuntime()
-	return nil
+	result := a.reloadUserScopedRuntime()
+	subsystems := result.failures
+	if subsystems == nil {
+		// Normaliza para slice vazio: o frontend recebe [] em vez de null.
+		subsystems = []RuntimeSubsystemFailure{}
+	}
+	return RuntimePartialInitPayload{Subsystems: subsystems}, nil
 }
 
 func (a *App) stopUserScopedRuntime() {

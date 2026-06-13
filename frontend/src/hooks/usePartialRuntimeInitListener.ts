@@ -1,21 +1,17 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RetryUserRuntimeInit } from '@wailsjs/go/app/App';
 import { logger } from '../utils/logger';
 import { useWailsEvent } from './useWails';
 import { useAnnouncer } from './useAnnouncer';
 import { useUIStore } from '../store/uiStore';
+import { useAuthStore } from '../store/authStore';
 import {
   RUNTIME_PARTIAL_INIT_EVENT,
   RUNTIME_SUBSYSTEMS,
   type RuntimePartialInitPayload,
+  type RuntimeSubsystemFailure,
 } from '../types/runtime';
-
-// Janela curta para o evento runtime:partial-init (re)propagar após o retry
-// antes de declararmos sucesso. O backend emite o evento de forma síncrona
-// durante o reload, então este tick é folga suficiente para distinguir
-// "ainda falhando" de "subiu tudo agora".
-const RETRY_SETTLE_MS = 400;
 
 /**
  * Assina (uma única vez) o evento `runtime:partial-init` emitido pelo backend
@@ -23,6 +19,11 @@ const RETRY_SETTLE_MS = 400;
  * falhos (issue #250). Exibe um aviso NÃO-bloqueante: announce acessível
  * (assertivo) + toast persistente com ação "Tentar novamente", que rechama o
  * mesmo pipeline de reload no backend (RetryUserRuntimeInit).
+ *
+ * O sucesso/falha do retry é determinístico: vem do RETORNO da RPC
+ * (lista de subsistemas ainda falhos), não de heurística de timer. O aviso
+ * persistente só é removido após o backend confirmar sucesso; em falha da RPC
+ * ele é mantido para o usuário tentar de novo.
  *
  * NÃO cria nova live region: a fala vai pelo announcer único (useAnnouncer),
  * respeitando a arbitragem de acessibilidade global do projeto. Deve ser
@@ -33,11 +34,16 @@ export function usePartialRuntimeInitListener() {
   const { announce } = useAnnouncer();
   const addToast = useUIStore((s) => s.addToast);
   const removeToast = useUIStore((s) => s.removeToast);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
+  // Id do toast persistente de aviso atualmente visível (para removê-lo no
+  // sucesso do retry ou no logout). null quando não há aviso ativo.
+  const partialToastIdRef = useRef<string | null>(null);
+  // Evita cliques duplos no "Tentar novamente" enquanto a RPC está em voo.
   const retryingRef = useRef(false);
-  // Conta eventos partial-init recebidos, para detectar de forma determinística
-  // se um retry ainda resultou em falha (evento novo) ou em sucesso (silêncio).
-  const eventCountRef = useRef(0);
+  // Ref para o showWarning mais recente — quebra o ciclo handleRetry⇄showWarning
+  // sem recriar callbacks a cada render.
+  const showWarningRef = useRef<(subsystems: RuntimeSubsystemFailure[]) => void>(() => {});
 
   const labelFor = useCallback(
     (subsystem: string) => {
@@ -53,54 +59,86 @@ export function usePartialRuntimeInitListener() {
     async (toastId: string) => {
       if (retryingRef.current) return;
       retryingRef.current = true;
-      removeToast(toastId);
-
-      const countBefore = eventCountRef.current;
       announce(t('runtimeStatus.partialInit.retrying'), 'polite');
 
       try {
-        await RetryUserRuntimeInit();
+        const result = await RetryUserRuntimeInit();
+        const remaining = result.subsystems;
+
+        if (Array.isArray(remaining) && remaining.length > 0) {
+          // Ainda falhando: reexibe o aviso persistente com a lista ATUAL
+          // (showWarning substitui o toast anterior). Mantém "Tentar novamente".
+          showWarningRef.current(remaining);
+        } else {
+          // Sucesso confirmado pelo backend: só agora remove o aviso.
+          removeToast(toastId);
+          if (partialToastIdRef.current === toastId) {
+            partialToastIdRef.current = null;
+          }
+          announce(t('runtimeStatus.partialInit.retrySuccess'), 'polite');
+          addToast(t('runtimeStatus.partialInit.retrySuccess'), 'success', 4000);
+        }
       } catch (err) {
+        // RPC falhou: NÃO remove o aviso persistente — o usuário ainda precisa
+        // do botão "Tentar novamente". Acrescenta só um toast de erro efêmero.
         logger.error('[partialInit] retry falhou:', err);
         announce(t('runtimeStatus.partialInit.retryError'), 'assertive');
         addToast(t('runtimeStatus.partialInit.retryError'), 'error');
+      } finally {
         retryingRef.current = false;
-        return;
       }
-
-      // Dá tempo para um eventual novo runtime:partial-init chegar. Se nenhum
-      // chegou, o reload subiu tudo: feedback positivo. Se chegou, o próprio
-      // listener já reexibiu o aviso (não duplicamos mensagem aqui).
-      await new Promise((resolve) => setTimeout(resolve, RETRY_SETTLE_MS));
-      if (eventCountRef.current === countBefore) {
-        announce(t('runtimeStatus.partialInit.retrySuccess'), 'polite');
-        addToast(t('runtimeStatus.partialInit.retrySuccess'), 'success', 4000);
-      }
-      retryingRef.current = false;
     },
     [announce, addToast, removeToast, t],
   );
+
+  const showWarning = useCallback(
+    (subsystems: RuntimeSubsystemFailure[]) => {
+      const list = subsystems.map((s) => labelFor(s.subsystem)).join(', ');
+      const message = t('runtimeStatus.partialInit.message', { subsystems: list });
+
+      announce(t('runtimeStatus.partialInit.announce', { subsystems: list }), 'assertive');
+
+      // Substitui um aviso anterior ainda visível, evitando empilhar toasts.
+      if (partialToastIdRef.current) {
+        removeToast(partialToastIdRef.current);
+        partialToastIdRef.current = null;
+      }
+
+      // toastId só existe após addToast retornar; a ação é chamada depois, então
+      // a closure captura o valor já atribuído.
+      let toastId = '';
+      toastId = addToast(message, 'warning', 0, {
+        label: t('runtimeStatus.partialInit.retry'),
+        onClick: () => {
+          void handleRetry(toastId);
+        },
+      });
+      partialToastIdRef.current = toastId;
+    },
+    [announce, addToast, removeToast, labelFor, t, handleRetry],
+  );
+
+  useEffect(() => {
+    showWarningRef.current = showWarning;
+  }, [showWarning]);
 
   useWailsEvent<RuntimePartialInitPayload>(RUNTIME_PARTIAL_INIT_EVENT, (data) => {
     if (!data || !Array.isArray(data.subsystems) || data.subsystems.length === 0) {
       return;
     }
-    eventCountRef.current += 1;
-
-    const names = data.subsystems.map((s) => labelFor(s.subsystem));
-    const list = names.join(', ');
-    const message = t('runtimeStatus.partialInit.message', { subsystems: list });
-
-    announce(t('runtimeStatus.partialInit.announce', { subsystems: list }), 'assertive');
-
-    // toastId só existe após addToast retornar; a ação é chamada depois, então
-    // a closure captura o valor já atribuído.
-    let toastId = '';
-    toastId = addToast(message, 'warning', 0, {
-      label: t('runtimeStatus.partialInit.retry'),
-      onClick: () => {
-        void handleRetry(toastId);
-      },
-    });
+    showWarning(data.subsystems);
   });
+
+  // Logout: remove o aviso persistente e zera o estado para não sobreviver à
+  // tela de login nem ser relido ao relogar (mesmo padrão do
+  // useConnectionStatusListener).
+  useEffect(() => {
+    if (!isAuthenticated) {
+      if (partialToastIdRef.current) {
+        removeToast(partialToastIdRef.current);
+        partialToastIdRef.current = null;
+      }
+      retryingRef.current = false;
+    }
+  }, [isAuthenticated, removeToast]);
 }
