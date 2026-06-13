@@ -1,11 +1,28 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import ptBR from '../locales/pt-BR';
+
+function resolveKey(key: string): unknown {
+  return key.split('.').reduce<unknown>((acc, part) => {
+    if (acc && typeof acc === 'object') {
+      return (acc as Record<string, unknown>)[part];
+    }
+    return undefined;
+  }, ptBR.translation);
+}
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (_key: string, fallback?: string) => fallback ?? _key,
+    t: (key: string, options?: string | { returnObjects?: boolean }) => {
+      const value = resolveKey(key);
+      if (value === undefined) {
+        return typeof options === 'string' ? options : key;
+      }
+      return value;
+    },
+    i18n: { language: 'pt-BR', changeLanguage: () => Promise.resolve() },
   }),
 }));
 
@@ -16,12 +33,16 @@ describe('HelpPage', () => {
     const user = userEvent.setup();
     render(<HelpPage />);
 
-    expect(screen.getByText((content) => content.includes('O grande diferencial do Assistente'))).toBeInTheDocument();
+    expect(
+      screen.getByText((content) => content.includes('O grande diferencial do Assistente')),
+    ).toBeInTheDocument();
 
-    const sectionButton = screen.getByRole('button', { name: /help\.sections\.commands/ });
+    const sectionButton = screen.getByRole('button', { name: /Comandos por Chat e Voz/ });
     await user.click(sectionButton);
 
-    expect(screen.queryByText((content) => content.includes('O grande diferencial do Assistente'))).not.toBeInTheDocument();
+    expect(
+      screen.queryByText((content) => content.includes('O grande diferencial do Assistente')),
+    ).not.toBeInTheDocument();
   });
 
   it('expandir tudo mostra todas as secoes', async () => {
