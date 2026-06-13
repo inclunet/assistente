@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
 	"testing"
 )
 
@@ -163,6 +164,41 @@ func TestNewGuardedTransport_ProxyDisabled(t *testing.T) {
 	tr := NewGuardedTransport(nil)
 	if tr.Proxy != nil {
 		t.Fatal("GuardedTransport.Proxy deveria ser nil (conexão direta obrigatória)")
+	}
+}
+
+// rtFunc é um http.RoundTripper arbitrário (não *http.Transport) para simular um
+// http.DefaultTransport substituído.
+type rtFunc func(*http.Request) (*http.Response, error)
+
+func (f rtFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestNewGuardedTransport_DefaultTransportNotHTTPTransport(t *testing.T) {
+	// Se http.DefaultTransport for substituído por outro RoundTripper, a construção
+	// não pode entrar em panic: deve cair num http.Transport zerado e ainda aplicar
+	// Proxy=nil e o DialContext do guard.
+	orig := http.DefaultTransport
+	http.DefaultTransport = rtFunc(func(*http.Request) (*http.Response, error) { return nil, nil })
+	defer func() { http.DefaultTransport = orig }()
+
+	var tr *http.Transport
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("NewGuardedTransport entrou em panic: %v", r)
+			}
+		}()
+		tr = NewGuardedTransport(nil)
+	}()
+
+	if tr == nil {
+		t.Fatal("transport não deveria ser nil")
+	}
+	if tr.Proxy != nil {
+		t.Error("Proxy deveria ser nil (conexão direta obrigatória)")
+	}
+	if tr.DialContext == nil {
+		t.Error("DialContext do guard deveria estar aplicado")
 	}
 }
 

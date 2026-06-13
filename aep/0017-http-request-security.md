@@ -156,6 +156,17 @@ anti-SSRF em `internal/tools/http`. A proteção é feita em camadas:
 > (`ssrf.go`), fonte única de verdade compartilhada pelas duas camadas. O resolver e
 > o dialer são injetáveis para teste (`dialer_test.go`).
 
+> **Proxy desabilitado (conexão direta obrigatória):** o `GuardedTransport` define
+> `Transport.Proxy = nil`, **ignorando `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`**. Isso
+> é deliberado: com um proxy ativo, o `DialContext` validaria/dialaria o IP do
+> *proxy*, não o do destino final — o que reabriria o bypass anti-SSRF (uma URL para
+> IP privado seria alcançada através de um proxy público, sem o IP de destino ser
+> validado pós-DNS) e quebraria a garantia desta camada. A política é sempre conexão
+> direta com validação do IP real. **Implicação:** em ambientes que dependem de proxy
+> corporativo para saída à internet, estas tools (`web_fetch`, `http_request`,
+> `feed_read`) não usarão o proxy; um eventual suporte a proxy exigiria uma política
+> explícita que valide o destino final antes de delegar ao proxy (não implementado).
+
 ---
 
 ## Configuração no Sistema

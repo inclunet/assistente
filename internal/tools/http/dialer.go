@@ -98,7 +98,14 @@ func (g *guardedDialer) DialContext(ctx context.Context, network, address string
 // locais/privados/link-local/CGNAT/etc. allowPrivate libera essa checagem em runtime
 // (ex.: testes com httptest, que usam 127.0.0.1); pode ser nil (= sempre barrar).
 func NewGuardedTransport(allowPrivate func() bool) *http.Transport {
-	base := http.DefaultTransport.(*http.Transport).Clone()
+	// Assertion segura: http.DefaultTransport pode ter sido substituído por outro
+	// http.RoundTripper (ex.: em testes), o que faria a assertion direta entrar em
+	// panic. Nesse caso partimos de um http.Transport zerado.
+	def, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		def = &http.Transport{}
+	}
+	base := def.Clone()
 	// Conexão direta obrigatória (Proxy=nil): o clone dos defaults usa
 	// ProxyFromEnvironment, mas com proxy o DialContext validaria/dialaria o IP do
 	// PROXY, não o do destino — o que (a) quebraria ambientes com proxy interno
