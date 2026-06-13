@@ -18,7 +18,7 @@ vi.mock('./workspaceStore', () => ({
   },
 }));
 
-vi.mock('../components/ui/Modal', () => ({
+vi.mock('../lib/modalRegistry', () => ({
   isModalOpen: () => mockIsModalOpen(),
 }));
 
