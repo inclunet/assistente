@@ -62,10 +62,19 @@ func ssrfControl(allowPrivate func() bool) func(network, address string, c sysca
 func NewGuardedTransport(allowPrivate func() bool) *http.Transport {
 	// Assertion segura: http.DefaultTransport pode ter sido substituído por outro
 	// http.RoundTripper (ex.: em testes), o que faria a assertion direta entrar em
-	// panic. Nesse caso partimos de um http.Transport zerado.
+	// panic. No fallback NÃO usamos um http.Transport zerado (perderia timeouts e
+	// limites importantes, arriscando hangs/consumo de recursos); construímos um
+	// transport com os mesmos defaults do net/http (exceto Proxy, que fica nil pela
+	// política anti-SSRF de conexão direta).
 	def, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
-		def = &http.Transport{}
+		def = &http.Transport{
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		}
 	}
 	base := def.Clone()
 	// Conexão direta obrigatória (Proxy=nil): o clone dos defaults usa

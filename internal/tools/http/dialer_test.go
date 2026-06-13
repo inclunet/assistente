@@ -97,6 +97,23 @@ func TestNewGuardedTransport_DefaultTransportNotHTTPTransport(t *testing.T) {
 	if tr.DialContext == nil {
 		t.Error("DialContext do guard deveria estar aplicado")
 	}
+	// No fallback (DefaultTransport customizado), o transport deve ainda ter defaults
+	// sensatos do net/http — sem timeouts/limites o risco é hang e consumo de recursos.
+	if !tr.ForceAttemptHTTP2 {
+		t.Error("ForceAttemptHTTP2 deveria ser true no fallback")
+	}
+	if tr.MaxIdleConns == 0 {
+		t.Error("MaxIdleConns não deveria ser zero no fallback")
+	}
+	if tr.IdleConnTimeout == 0 {
+		t.Error("IdleConnTimeout não deveria ser zero no fallback")
+	}
+	if tr.TLSHandshakeTimeout == 0 {
+		t.Error("TLSHandshakeTimeout não deveria ser zero no fallback")
+	}
+	if tr.ExpectContinueTimeout == 0 {
+		t.Error("ExpectContinueTimeout não deveria ser zero no fallback")
+	}
 }
 
 // TestGuardedTransport_Integration exercita o caminho real (resolução + Happy
