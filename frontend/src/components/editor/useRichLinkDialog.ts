@@ -26,19 +26,19 @@ export function useRichLinkDialog({ editor, readOnly }: Args) {
 
     const resp = await requestQuestionnaire({
       id: `ui-rich-link-${Date.now()}`,
-      title: existingHref ? 'Editar link' : 'Inserir link',
+      title: existingHref ? t('editor.richLink.titleEdit') : t('editor.richLink.titleInsert'),
       description: selectionEmpty
-        ? 'Informe a URL. Se quiser, informe também o texto do link para inserir no cursor.'
-        : 'Informe a URL para aplicar no texto selecionado.',
-      submitLabel: existingHref ? 'Salvar link' : 'Inserir link',
-      cancelLabel: 'Cancelar',
+        ? t('editor.richLink.descNoSelection')
+        : t('editor.richLink.descSelection'),
+      submitLabel: existingHref ? t('editor.richLink.submitSave') : t('editor.richLink.submitInsert'),
+      cancelLabel: t('editor.richLink.cancel'),
       allowCancel: true,
       questions: [
         {
           id: 'href',
           type: 'text',
-          prompt: 'URL',
-          placeholder: 'https://… (ou /caminho, #ancora, mailto:…)',
+          prompt: t('editor.richLink.urlPrompt'),
+          placeholder: t('editor.richLink.urlPlaceholder'),
           required: true,
           default: existingHref,
         },
@@ -47,8 +47,8 @@ export function useRichLinkDialog({ editor, readOnly }: Args) {
               {
                 id: 'text',
                 type: 'text',
-                prompt: 'Texto (opcional)',
-                placeholder: 'Texto do link',
+                prompt: t('editor.richLink.textPrompt'),
+                placeholder: t('editor.richLink.textPlaceholder'),
                 required: false,
                 default: selectedText || '',
               } as const,
