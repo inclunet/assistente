@@ -72,8 +72,9 @@ func (f rtFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r)
 
 func TestNewGuardedTransport_DefaultTransportNotHTTPTransport(t *testing.T) {
 	// Se http.DefaultTransport for substituído por outro RoundTripper, a construção
-	// não pode entrar em panic: deve cair num http.Transport zerado e ainda aplicar
-	// Proxy=nil e o DialContext do guard.
+	// não pode entrar em panic: cai num *http.Transport montado com os defaults do
+	// net/http (ForceAttemptHTTP2, MaxIdleConns, IdleConnTimeout, TLSHandshakeTimeout,
+	// ExpectContinueTimeout), com Proxy=nil e o DialContext de validação do guard.
 	orig := http.DefaultTransport
 	http.DefaultTransport = rtFunc(func(*http.Request) (*http.Response, error) { return nil, nil })
 	defer func() { http.DefaultTransport = orig }()
