@@ -1,6 +1,30 @@
 package http
 
-import "testing"
+import (
+	"net"
+	"testing"
+)
+
+// TestIsBlockedIP_CGNATBoundaries valida diretamente isBlockedIP nos limites do
+// range CGNAT (100.64.0.0/10). Pega regressões na construção do cgnatNet: com um
+// *net.IPNet mal formado, IPNet.Contains classificaria IPs públicos como CGNAT e o
+// caso 8.8.8.8/1.1.1.1 falharia.
+func TestIsBlockedIP_CGNATBoundaries(t *testing.T) {
+	blocked := []string{"100.64.0.1", "100.127.255.255", "100.64.0.0", "100.100.50.25"}
+	for _, s := range blocked {
+		if !isBlockedIP(net.ParseIP(s)) {
+			t.Errorf("%s deveria ser bloqueado (CGNAT 100.64.0.0/10)", s)
+		}
+	}
+
+	// IPs públicos e os limites JUST-OUTSIDE do range CGNAT NÃO podem ser bloqueados.
+	notBlocked := []string{"8.8.8.8", "1.1.1.1", "100.63.255.255", "100.128.0.0"}
+	for _, s := range notBlocked {
+		if isBlockedIP(net.ParseIP(s)) {
+			t.Errorf("%s NÃO deveria ser bloqueado", s)
+		}
+	}
+}
 
 func TestIsPrivateHost(t *testing.T) {
 	blocked := []string{
@@ -17,8 +41,13 @@ func TestIsPrivateHost(t *testing.T) {
 		"foo.localhost", "evil.LOCALHOST", "a.b.localhost.",
 		// Cloud metadata endpoint e variantes IPv4-mapped/multicast de escopo local.
 		"169.254.169.254", "::ffff:169.254.169.254", "::ffff:127.0.0.1", "224.0.0.1",
+		// IPv4-mapped IPv6 de broadcast e privado: a normalização via To4() deve
+		// fazê-los baterem nos checks IPv4 (broadcast/RFC 1918).
+		"::ffff:255.255.255.255", "::ffff:10.0.0.1", "::ffff:192.168.1.1",
 		// Multicast fora do escopo link-local (SSDP), broadcast limitado e multicast IPv6.
 		"239.255.255.250", "255.255.255.255", "ff02::c", "ff0e::1",
+		// CGNAT (100.64.0.0/10, RFC 6598): alcançável em redes internas/operadoras.
+		"100.64.0.1", "100.127.255.255", "100.100.100.100",
 		// Host vazio não é destino válido.
 		"", "   ",
 	}
@@ -35,6 +64,8 @@ func TestIsPrivateHost(t *testing.T) {
 	public := []string{
 		"172.2.3.4", "172.32.0.1", "8.8.8.8", "example.com", "1.1.1.1", "google.com",
 		"mylocalhost", "localhost.example.com", "notlocalhost",
+		// Limites do CGNAT: 100.63.x e 100.128.x estão FORA do 100.64/10.
+		"100.63.255.255", "100.128.0.1",
 	}
 	for _, h := range public {
 		if IsPrivateHost(h) {

@@ -131,6 +131,50 @@ Testes unitários desabilitam confirmação definindo `confirmFn = nil`.
 
 ---
 
+### 3. Proteção anti-SSRF (validação pós-DNS)
+
+As tools de rede (`web_fetch`, `http_request`, `feed_read`) compartilham a barreira
+anti-SSRF em `internal/tools/http`. A proteção é feita em camadas:
+
+1. **Pré-dial (textual)** — `IsPrivateHost` rejeita rapidamente URLs cujo host já é
+   um IP literal local/privado (loopback, RFC 1918, CGNAT 100.64/10, link-local
+   incl. `169.254.169.254`, multicast, broadcast) ou `localhost`/`.localhost`.
+2. **Redirects** — `RedirectGuard` reaplica a política nos redirects (que o net/http
+   segue automaticamente) e remove headers sensíveis ao cruzar limite de confiança.
+3. **Pós-DNS (definitiva)** — `SetTransportGuard`/`NewGuardedTransport` instalam um
+   `net.Dialer` com hook `Control` que **valida o IP REAL no momento do connect**,
+   após a resolução de DNS.
+
+> **Validação pós-DNS (issue #237):** validar apenas o host textual não basta. Um
+> hostname público que resolve para um IP privado (DNS rebinding, CNAME para
+> `169.254.169.254`) e formas numéricas não-padrão (`http://2130706433/`,
+> `http://0x7f000001/`, `http://[::ffff:127.0.0.1]/`) burlavam a checagem textual. O
+> `GuardedTransport` usa um `net.Dialer` com `Control func(network, address string,
+> c syscall.RawConn) error`, chamado imediatamente antes de cada `connect()` com o
+> `address` já no formato IP:porta concreto. O `Control` aplica `isBlockedIP` ao IP
+> real e retorna erro (**fail-closed**) se for local/privado, abortando aquela
+> tentativa — um host que só resolve para IPs privados falha por completo. Como o IP
+> validado é exatamente o que será conectado, não há TOCTOU; e por usar o dialer
+> nativo preserva-se o **Happy Eyeballs** (tentativas IPv6/IPv4 concorrentes com
+> fallback), sem regressão de latência. Como o `http.Transport` é reusado, os
+> redirects passam pelo mesmo guard. A lista de ranges é centralizada em
+> `isBlockedIP` (`ssrf.go`), fonte única de verdade compartilhada pelas duas camadas,
+> e normaliza IPv4-mapped IPv6 via `To4()` para fechar bypass de broadcast/privado
+> em forma mapeada.
+
+> **Proxy desabilitado (conexão direta obrigatória):** o `GuardedTransport` define
+> `Transport.Proxy = nil`, **ignorando `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`**. Isso
+> é deliberado: com um proxy ativo, o `DialContext` validaria/dialaria o IP do
+> *proxy*, não o do destino final — o que reabriria o bypass anti-SSRF (uma URL para
+> IP privado seria alcançada através de um proxy público, sem o IP de destino ser
+> validado pós-DNS) e quebraria a garantia desta camada. A política é sempre conexão
+> direta com validação do IP real. **Implicação:** em ambientes que dependem de proxy
+> corporativo para saída à internet, estas tools (`web_fetch`, `http_request`,
+> `feed_read`) não usarão o proxy; um eventual suporte a proxy exigiria uma política
+> explícita que valide o destino final antes de delegar ao proxy (não implementado).
+
+---
+
 ## Configuração no Sistema
 
 ### Carregar credenciais de variáveis de ambiente

@@ -41,6 +41,10 @@ func NewWebFetch(credMgr *credentials.Manager) *WebFetch {
 	// o bloqueio anti-SSRF. Aplica o guard compartilhado no client desta tool.
 	if bc := client.GetBaseClient(); bc != nil {
 		bc.CheckRedirect = httpclient.RedirectGuard(httpclient.DefaultMaxRedirects, func() bool { return t.allowPrivateHosts })
+		// Barreira anti-SSRF definitiva: valida o IP REAL pós-resolução de DNS no
+		// DialContext, cobrindo DNS rebinding, formas numéricas não-padrão e os
+		// redirects (que reusam este transport).
+		httpclient.SetTransportGuard(bc, func() bool { return t.allowPrivateHosts })
 	}
 	return t
 }
@@ -427,4 +431,3 @@ func collapseWhitespace(s string) string {
 	}
 	return strings.Join(lines, "\n")
 }
-
