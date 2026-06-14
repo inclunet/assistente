@@ -1,6 +1,6 @@
 import { useUIStore } from '../../store/uiStore';
 import { Toast } from './Toast';
-import './Toast.css';
+// Toast.css é importado por Toast.tsx (renderizado aqui); evita import redundante.
 
 /**
  * Host global que renderiza os toasts da uiStore. Montado uma única vez na
