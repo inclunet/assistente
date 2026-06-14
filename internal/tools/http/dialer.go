@@ -16,7 +16,9 @@ type BlockedIPError struct {
 }
 
 func (e *BlockedIPError) Error() string {
-	return fmt.Sprintf("conexão bloqueada (anti-SSRF): IP local/privado %s", e.IP)
+	// e.IP.String() explicitamente: net.IP tem tipo subjacente []byte e passá-lo
+	// direto ao fmt poderia imprimir bytes crus em vez do endereço legível.
+	return "conexão bloqueada (anti-SSRF): IP local/privado " + e.IP.String()
 }
 
 // ssrfControl devolve a função Control de net.Dialer que valida o IP REAL no momento

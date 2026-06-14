@@ -2,8 +2,10 @@ package http
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -11,6 +13,18 @@ import (
 // net.Dialer faria imediatamente antes do connect, devolvendo o erro de política.
 func callControl(allowPrivate func() bool, address string) error {
 	return ssrfControl(allowPrivate)("tcp", address, nil)
+}
+
+func TestBlockedIPError_Message(t *testing.T) {
+	// A mensagem deve conter o IP legível (ex.: "127.0.0.1"), não bytes crus.
+	err := &BlockedIPError{IP: net.ParseIP("127.0.0.1")}
+	if got := err.Error(); !strings.Contains(got, "127.0.0.1") {
+		t.Errorf("mensagem deveria conter o IP legível, got %q", got)
+	}
+	err6 := &BlockedIPError{IP: net.ParseIP("fe80::1")}
+	if got := err6.Error(); !strings.Contains(got, "fe80::1") {
+		t.Errorf("mensagem deveria conter o IPv6 legível, got %q", got)
+	}
 }
 
 func TestSSRFControl_BlocksPrivate(t *testing.T) {
