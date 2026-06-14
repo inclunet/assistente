@@ -1,6 +1,30 @@
 package http
 
-import "testing"
+import (
+	"net"
+	"testing"
+)
+
+// TestIsBlockedIP_CGNATBoundaries valida diretamente isBlockedIP nos limites do
+// range CGNAT (100.64.0.0/10). Pega regressões na construção do cgnatNet: com um
+// *net.IPNet mal formado, IPNet.Contains classificaria IPs públicos como CGNAT e o
+// caso 8.8.8.8/1.1.1.1 falharia.
+func TestIsBlockedIP_CGNATBoundaries(t *testing.T) {
+	blocked := []string{"100.64.0.1", "100.127.255.255", "100.64.0.0", "100.100.50.25"}
+	for _, s := range blocked {
+		if !isBlockedIP(net.ParseIP(s)) {
+			t.Errorf("%s deveria ser bloqueado (CGNAT 100.64.0.0/10)", s)
+		}
+	}
+
+	// IPs públicos e os limites JUST-OUTSIDE do range CGNAT NÃO podem ser bloqueados.
+	notBlocked := []string{"8.8.8.8", "1.1.1.1", "100.63.255.255", "100.128.0.0"}
+	for _, s := range notBlocked {
+		if isBlockedIP(net.ParseIP(s)) {
+			t.Errorf("%s NÃO deveria ser bloqueado", s)
+		}
+	}
+}
 
 func TestIsPrivateHost(t *testing.T) {
 	blocked := []string{

@@ -63,7 +63,22 @@ func IsPrivateHost(host string) bool {
 
 // cgnatNet é o range CGNAT (Carrier-Grade NAT) RFC 6598, que net.IP.IsPrivate NÃO
 // cobre mas é alcançável em redes internas/operadoras e relevante para SSRF.
-var cgnatNet = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
+//
+// Construído via net.ParseCIDR para garantir um *net.IPNet consistente: net.IPv4()
+// devolve um IP de 16 bytes (IPv4-mapped) que, combinado com uma máscara de 4 bytes,
+// pode fazer IPNet.Contains comparar bytes errados e classificar IPs públicos como
+// CGNAT. O ParseCIDR retorna IP/máscara já normalizados (4 bytes).
+var cgnatNet = mustCIDR("100.64.0.0/10")
+
+// mustCIDR parseia um CIDR literal (constante de código) e entra em panic se for
+// inválido — falha de programação, detectada na inicialização.
+func mustCIDR(s string) *net.IPNet {
+	_, n, err := net.ParseCIDR(s)
+	if err != nil {
+		panic("ssrf: CIDR inválido " + s + ": " + err.Error())
+	}
+	return n
+}
 
 // isBlockedIP reporta se um IP já resolvido cai em range não-roteável/local que
 // deve ser barrado por SSRF: loopback, privado (RFC 1918 / fc00::/7), CGNAT
