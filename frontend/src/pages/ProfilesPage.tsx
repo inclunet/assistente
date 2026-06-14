@@ -207,7 +207,7 @@ export default function ProfilesPage() {
     try {
       const newSlug = await DuplicateProfile(row.slug);
       const successMessage = t('profiles.duplicated', 'Perfil duplicado!');
-      addToast(successMessage, 'success');
+      addToast(successMessage, 'success', undefined, undefined, { suppressAnnounce: true });
       announce(successMessage);
       await crud.loadItems();
       await crud.openEdit({ id: newSlug, slug: newSlug, name: row.name } as ProfileRow);
@@ -222,7 +222,9 @@ export default function ProfilesPage() {
   const handleActivateProfile = async (row: ProfileRow) => {
     try {
       await SetActiveProfile(row.slug);
-      addToast(t('profiles.activated', `Perfil "${row.name}" ativado!`), 'success');
+      addToast(t('profiles.activated', `Perfil "${row.name}" ativado!`), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('profiles.activatedAnnounce', `Perfil ${row.name} ativado`));
       await crud.loadItems();
     } catch (error: unknown) {

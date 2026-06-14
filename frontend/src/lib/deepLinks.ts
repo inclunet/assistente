@@ -344,7 +344,9 @@ export async function executeDeepLink(
       const message = err instanceof Error ? err.message : String(err);
       const notFound = /not found/i.test(message);
       const msgKey = notFound ? 'deepLink.invalidProfile' : 'deepLink.profileLoadError';
-      useUIStore.getState().addToast(t(msgKey, { profile }), notFound ? 'warning' : 'error');
+      useUIStore.getState().addToast(t(msgKey, { profile }), notFound ? 'warning' : 'error', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t(msgKey, { profile }));
       return undefined;
     }

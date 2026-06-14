@@ -230,7 +230,7 @@ export default function AllowlistPage() {
         default_action: full?.default_action || 'confirm',
       });
       const newSlug = await CreateAllowlist(payload);
-        addToast(t('allowlist.toast.duplicated'), 'success');
+        addToast(t('allowlist.toast.duplicated'), 'success', undefined, undefined, { suppressAnnounce: true });
         announce(t('allowlist.toast.duplicated'));
       await crud.loadItems();
       await crud.openEdit(buildAllowlistRow({

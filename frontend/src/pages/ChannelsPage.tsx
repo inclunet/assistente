@@ -278,7 +278,8 @@ export default function ChannelsPage() {
   // ── Create Channel Handler ───────────────────────────────────────
 
   const handleChannelCreated = () => {
-    addToast(t('channels.toast.channelCreated'), 'success');
+    // suppressAnnounce: o announce() abaixo já fala (evita anúncio duplicado).
+    addToast(t('channels.toast.channelCreated'), 'success', undefined, undefined, { suppressAnnounce: true });
     announce(t('channels.announce.channelCreated'));
     setCreateModalTemplateType(null);
     setShowCreateChannelModal(false);
@@ -430,7 +431,9 @@ export default function ChannelsPage() {
           max_contacts: slackForm.maxContacts,
         }));
       }
-      addToast(t('channels.toast.channelSaved', { name: channelName }), 'success');
+      addToast(t('channels.toast.channelSaved', { name: channelName }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('channels.toast.channelSaved', { name: channelName }));
       await loadAll();
       setEditingChannel(null);
@@ -465,7 +468,9 @@ export default function ChannelsPage() {
     setReconnecting(true);
     try {
       await RestartChannel(channelName);
-      addToast(t('channels.toast.channelReconnected', { name: channelName }), 'success');
+      addToast(t('channels.toast.channelReconnected', { name: channelName }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('channels.toast.channelReconnected', { name: channelName }));
       await loadAll();
     } catch (error: unknown) {
@@ -505,7 +510,8 @@ export default function ChannelsPage() {
       }
       setSignalAPIInfo(infoText);
       setSignalAPIReady(true);
-      addToast(t('channels.toast.signalApiAccessible'), 'success');
+      // suppressAnnounce: anunciamos infoText (mais rico) logo abaixo.
+      addToast(t('channels.toast.signalApiAccessible'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(infoText);
     } catch (error: unknown) {
       setSignalAPIInfo('');
@@ -535,7 +541,7 @@ export default function ChannelsPage() {
       if (mode === 'sms') setSignalSmsSent(true);
       const modeLabel = mode === 'voice' ? t('channels.signal.modeVoice') : t('channels.signal.modeSms');
       const codeSentMessage = t('channels.announce.codeSent', { mode: modeLabel, account: signalForm.account });
-      addToast(codeSentMessage, 'success');
+      addToast(codeSentMessage, 'success', undefined, undefined, { suppressAnnounce: true });
       announce(codeSentMessage);
     } catch (error: unknown) {
       setSignalRegStep(signalSmsSent ? 'awaiting_code' : 'idle');
@@ -558,7 +564,7 @@ export default function ChannelsPage() {
       setSignalRegStep('done');
       setSignalSmsSent(false);
       const numberVerifiedMessage = t('channels.announce.numberVerified');
-      addToast(numberVerifiedMessage, 'success');
+      addToast(numberVerifiedMessage, 'success', undefined, undefined, { suppressAnnounce: true });
       announce(numberVerifiedMessage);
     } catch (error: unknown) {
       setSignalRegStep('awaiting_code');
@@ -582,7 +588,7 @@ export default function ChannelsPage() {
         setSignalLinking(false);
         setSignalRegError(t('channels.error.signalLinkTimeoutDetails'));
         const linkTimeoutMessage = t('channels.announce.linkTimeout');
-        addToast(linkTimeoutMessage, 'error');
+        addToast(linkTimeoutMessage, 'error', undefined, undefined, { suppressAnnounce: true });
         announce(linkTimeoutMessage);
         return;
       }
@@ -597,7 +603,7 @@ export default function ChannelsPage() {
           setSignalLinking(false);
           setSignalLinkQR('');
           const deviceLinkedMessage = t('channels.announce.deviceLinked', { account: accounts[0] });
-          addToast(deviceLinkedMessage, 'success');
+          addToast(deviceLinkedMessage, 'success', undefined, undefined, { suppressAnnounce: true });
           announce(deviceLinkedMessage);
           return;
         }
@@ -648,7 +654,7 @@ export default function ChannelsPage() {
         setSignalForm((prev) => ({ ...prev, account: accounts?.[0] || '' }));
       }
       const accountRemovedMessage = t('channels.announce.accountRemoved', { account });
-      addToast(accountRemovedMessage, 'success');
+      addToast(accountRemovedMessage, 'success', undefined, undefined, { suppressAnnounce: true });
       announce(accountRemovedMessage);
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || t('channels.error.removeAccountFailed'), 'error');
@@ -670,7 +676,7 @@ export default function ChannelsPage() {
 
     try {
       await DeleteCredential(pattern);
-      addToast(t('channels.toast.credentialRemoved'), 'success');
+      addToast(t('channels.toast.credentialRemoved'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('channels.announce.credentialRemoved'));
       await loadAll();
     } catch (error: unknown) {

@@ -277,7 +277,9 @@ describe('ProfilesPage', { timeout: 60_000 }, () => {
     });
 
     await waitFor(() => {
-      expect(mockAddToast).toHaveBeenCalledWith('Perfil duplicado!', 'success');
+      expect(mockAddToast).toHaveBeenCalledWith('Perfil duplicado!', 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
     });
 
     await waitFor(() => {

@@ -144,6 +144,13 @@ export function usePartialRuntimeInitListener() {
   }, [showWarning]);
 
   useWailsEvent<RuntimePartialInitPayload>(RUNTIME_PARTIAL_INIT_EVENT, (data) => {
+    // Ignora eventos que cheguem após logout (corrida com RefreshAuth/logout):
+    // sem isso o aviso poderia renderizar/anunciar na tela de login antes do
+    // effect de cleanup rodar. useWailsEvent mantém o callback atualizado por
+    // ref, então isAuthenticated é sempre o valor corrente.
+    if (!isAuthenticated) {
+      return;
+    }
     if (!data || !Array.isArray(data.subsystems) || data.subsystems.length === 0) {
       return;
     }

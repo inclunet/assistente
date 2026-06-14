@@ -321,6 +321,9 @@ describe('TaskListsPage', { timeout: 60_000 }, () => {
       expect(mockAddToast).toHaveBeenCalledWith(
         expect.stringContaining('Lista Nova'),
         'success',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
       );
     });
   });
@@ -342,6 +345,9 @@ describe('TaskListsPage', { timeout: 60_000 }, () => {
       expect(mockAddToast).toHaveBeenCalledWith(
         expect.stringContaining('vazio'),
         'error',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
       );
     });
 
@@ -368,6 +374,9 @@ describe('TaskListsPage', { timeout: 60_000 }, () => {
       expect(mockAddToast).toHaveBeenCalledWith(
         expect.stringContaining('clonada'),
         'success',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
       );
     });
   });
@@ -396,6 +405,9 @@ describe('TaskListsPage', { timeout: 60_000 }, () => {
       expect(mockAddToast).toHaveBeenCalledWith(
         expect.stringContaining('deletada'),
         'success',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
       );
     });
   });

@@ -290,7 +290,7 @@ export default function SkillsPage() {
     try {
       const newSlug = await DuplicateSkill(row.slug);
       const successMessage = t('skills.duplicated', 'Skill duplicado!');
-      addToast(successMessage, 'success');
+      addToast(successMessage, 'success', undefined, undefined, { suppressAnnounce: true });
       announce(successMessage);
       await crud.loadItems();
       await crud.openEdit({ id: newSlug, slug: newSlug, name: row.name } as SkillRow);

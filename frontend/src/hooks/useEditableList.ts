@@ -205,7 +205,10 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
         const newId = await operations.createItem(editingItem as unknown as TCreate);
         addToast(
           messages.createSuccess || t('editableList.createSuccess', { name: options.entityName }),
-          'success'
+          'success',
+          undefined,
+          undefined,
+          { suppressAnnounce: true },
         );
         announce(t('a11y.announce.itemCreated', { name: getName(editingItem) }));
         setIsNew(false);
@@ -214,7 +217,10 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
         await operations.updateItem(editingId, editingItem as unknown as TUpdate);
         addToast(
           messages.updateSuccess || t('editableList.updateSuccess', { name: options.entityName }),
-          'success'
+          'success',
+          undefined,
+          undefined,
+          { suppressAnnounce: true },
         );
         announce(t('a11y.announce.itemUpdated', { name: getName(editingItem) }));
       }
@@ -272,7 +278,10 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       await operations.deleteItem(item.id);
       addToast(
         messages.deleteSuccess || t('editableList.deleteSuccess', { name: options.entityName }),
-        'success'
+        'success',
+        undefined,
+        undefined,
+        { suppressAnnounce: true },
       );
       announce(t('a11y.announce.itemDeleted', { name: options.entityName }));
 
