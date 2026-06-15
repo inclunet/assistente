@@ -167,8 +167,10 @@ func ensureUsernameCaseInsensitive() error {
 			return fmt.Errorf("check username collision %q: %w", row.Username, err)
 		}
 		if conflictID != "" {
+			// Preserva o registro MAIS ANTIGO (menor UUIDv7 ≈ criado primeiro) e
+			// desativa o duplicado MAIS RECENTE: loser é o de MAIOR id.
 			loser := row.ID
-			if conflictID < loser {
+			if conflictID > loser {
 				loser = conflictID
 			}
 			suffix := loser
