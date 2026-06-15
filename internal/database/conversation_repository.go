@@ -112,7 +112,7 @@ func (r *ConversationRepository) RecycleOrCreateConversationWithContext(ctx cont
 		return &candidate, nil
 	}
 
-	return CreateConversationWithContext(ctx, title, "")
+	return r.CreateConversationWithContext(ctx, title, "")
 }
 
 // FindOrCreateChannelConversationWithContext localiza ou cria uma conversa de
@@ -309,10 +309,10 @@ func (r *ConversationRepository) DeleteConversationWithContext(ctx context.Conte
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
-	if _, err := GetConversationInfoWithContext(ctx, id); err != nil {
+	if _, err := r.GetConversationInfoWithContext(ctx, id); err != nil {
 		return err
 	}
-	if err := deleteChatToolInvocationsForConversation(ctx, id); err != nil {
+	if err := deleteChatToolInvocationsForConversation(ctx, db, id); err != nil {
 		return err
 	}
 	if err := db.WithContext(ctx).Where("conversation_id = ?", id).Delete(&ChatMessage{}).Error; err != nil {
@@ -321,7 +321,7 @@ func (r *ConversationRepository) DeleteConversationWithContext(ctx context.Conte
 	return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Where("id = ?", id).Delete(&Conversation{}).Error
 }
 
-func deleteChatToolInvocationsForConversation(ctx context.Context, conversationID string) error {
+func deleteChatToolInvocationsForConversation(ctx context.Context, exec *gorm.DB, conversationID string) error {
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
@@ -329,10 +329,10 @@ func deleteChatToolInvocationsForConversation(ctx context.Context, conversationI
 	if conversationID == "" {
 		return nil
 	}
-	if _, err := GetConversationInfoWithContext(ctx, conversationID); err != nil {
+	if _, err := NewConversationRepository(exec).GetConversationInfoWithContext(ctx, conversationID); err != nil {
 		return err
 	}
-	return deleteChatToolInvocationsForConversationTx(ctx, db, conversationID)
+	return deleteChatToolInvocationsForConversationTx(ctx, exec, conversationID)
 }
 
 // deleteChatToolInvocationsForConversationTx remove as tool invocations de chat
@@ -425,7 +425,7 @@ func (r *ConversationRepository) SearchConversationsWithContext(ctx context.Cont
 	var conversations []Conversation
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {
-		return GetConversationsWithContext(ctx)
+		return r.GetConversationsWithContext(ctx)
 	}
 	searchTerm := "%" + query + "%"
 	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").

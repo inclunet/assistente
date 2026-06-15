@@ -226,14 +226,14 @@ func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, 
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
-	basicStats, err := GetConversationDetailedTokenStatsWithContext(ctx, conversationID)
+	basicStats, err := r.GetConversationDetailedTokenStatsWithContext(ctx, conversationID)
 	if err != nil {
 		return nil, err
 	}
 
 	// 2. Recuperar resumo (se houver)
 	summaryTokens := 0
-	summary, _, err := GetConversationSummaryWithContext(ctx, conversationID)
+	summary, _, err := NewSummarizationRepository(db).GetConversationSummaryWithContext(ctx, conversationID)
 	if err == nil && summary != "" {
 		// Estima tokens do resumo: ~1 token a cada 4 caracteres
 		summaryTokens = (len(summary) + 3) / 4
@@ -286,7 +286,7 @@ func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, 
 	}
 
 	// 4. Breakdown de tool usage
-	toolBreakdown, toolsUsedCount := getToolUsageBreakdownWithContext(ctx, conversationID)
+	toolBreakdown, toolsUsedCount := r.getToolUsageBreakdownWithContext(ctx, conversationID)
 
 	// Estima tokens do system prompt: ~1 token a cada 4 caracteres
 	// O DefaultSystemPrompt tem ~500 caracteres, então ~125 tokens
@@ -296,7 +296,7 @@ func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, 
 	// provedor (último turno do assistente). Não soma o histórico reenviado.
 	// Um erro aqui (DB/escopo) não é fatal — mantém contextTokens=0 —, mas é
 	// logado para não mascarar inconsistências no payload (vs. demais campos).
-	contextTokens, ctxErr := getLatestReportedContextTokens(ctx, conversationID)
+	contextTokens, ctxErr := r.getLatestReportedContextTokens(ctx, conversationID)
 	if ctxErr != nil {
 		log.Printf("[DB] aviso: falha ao obter contextTokens da conversa %s: %v", conversationID, ctxErr)
 	}
@@ -320,7 +320,8 @@ func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, 
 }
 
 // getToolUsageBreakdown extrai informações de uso de tools das mensagens
-func getToolUsageBreakdownWithContext(ctx context.Context, conversationID string) ([]ToolUsageBreakdown, int) {
+func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, conversationID string) ([]ToolUsageBreakdown, int) {
+	db := r.db
 	var messages []ChatMessage
 	scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ? AND chat_messages.tool_calls != '' AND chat_messages.tool_calls IS NOT NULL", conversationID).
@@ -380,6 +381,10 @@ func getToolUsageBreakdownWithContext(ctx context.Context, conversationID string
 // no topo para defesa em camadas — se o gate interno for relaxado por
 // engano em refactor futuro, este nível continua fail-closed.
 func GetContextWindowUsageWithContext(ctx context.Context, conversationID string, contextLimit int) (float64, int, error) {
+	return NewTokenRepository(db).GetContextWindowUsageWithContext(ctx, conversationID, contextLimit)
+}
+
+func (r *TokenRepository) GetContextWindowUsageWithContext(ctx context.Context, conversationID string, contextLimit int) (float64, int, error) {
 	if _, err := RequireUserID(ctx); err != nil {
 		return 0, 0, err
 	}
@@ -389,7 +394,7 @@ func GetContextWindowUsageWithContext(ctx context.Context, conversationID string
 	// requisição repetidamente, inflando o percentual muito além de 100% e
 	// disparando alertas críticos falsos (issue #197). Usamos o usage oficial
 	// do provedor no último turno do assistente como base.
-	contextTokens, err := getLatestReportedContextTokens(ctx, conversationID)
+	contextTokens, err := r.getLatestReportedContextTokens(ctx, conversationID)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -410,6 +415,11 @@ func GetContextWindowUsageWithContext(ctx context.Context, conversationID string
 // Retorna 0 quando ainda não há usage reportado (ex.: conversa nova ou provedor
 // que não devolve usage). Respeita o escopo de usuário do contexto (AEP-0052).
 func getLatestReportedContextTokens(ctx context.Context, conversationID string) (int, error) {
+	return NewTokenRepository(db).getLatestReportedContextTokens(ctx, conversationID)
+}
+
+func (r *TokenRepository) getLatestReportedContextTokens(ctx context.Context, conversationID string) (int, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return 0, err
 	}
