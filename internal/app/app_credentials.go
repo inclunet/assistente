@@ -264,7 +264,7 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 // HasMasterKey verifica se uma master key (senha mestre) já foi configurada no banco.
 func (a *App) HasMasterKey() bool {
 	store := credentials.NewDBStore()
-	has, err := store.HasKeyWrap(context.Background(), credentials.KeyWrapKindMaster)
+	has, err := store.HasKeyWrap(a.appContext(), credentials.KeyWrapKindMaster)
 	if err != nil {
 		return false
 	}
