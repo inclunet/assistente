@@ -84,7 +84,7 @@ func (a *App) configureSessionService() {
 	a.sessionSvc = sessionSvc
 	a.authMu.Unlock()
 
-	if deleted, err := sessionSvc.PurgeExpiredSessions(context.Background(), sessionPurgeRetention); err != nil {
+	if deleted, err := sessionSvc.PurgeExpiredSessions(a.appContext(), sessionPurgeRetention); err != nil {
 		log.Printf("[Auth] purge de sessions expiradas/revogadas falhou: %v", err)
 	} else if deleted > 0 {
 		log.Printf("[Auth] %d sessions expiradas/revogadas removidas (retention %s)", deleted, sessionPurgeRetention)
@@ -102,7 +102,7 @@ func (a *App) GetAuthStatus() (AuthStatus, error) {
 		return AuthStatus{}, err
 	}
 
-	vaultStatus, err := a.vaultSvc.Status(context.Background())
+	vaultStatus, err := a.vaultSvc.Status(a.appContext())
 	if err != nil {
 		return AuthStatus{}, err
 	}
@@ -123,14 +123,14 @@ func (a *App) SetupVault(masterPassword string) (string, error) {
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return "", err
 	}
-	return a.vaultSvc.Setup(context.Background(), masterPassword)
+	return a.vaultSvc.Setup(a.appContext(), masterPassword)
 }
 
 func (a *App) UnlockVault(kind, secret string) error {
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return err
 	}
-	return a.vaultSvc.Unlock(context.Background(), kind, secret)
+	return a.vaultSvc.Unlock(a.appContext(), kind, secret)
 }
 
 func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
@@ -146,7 +146,7 @@ func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
 		return nil, errors.New("admin inicial já foi criado")
 	}
 
-	user, err := a.identitySvc.CreateLocalUser(context.Background(), auth.CreateUserParams{
+	user, err := a.identitySvc.CreateLocalUser(a.appContext(), auth.CreateUserParams{
 		Username:    req.Username,
 		DisplayName: req.DisplayName,
 		Password:    req.Password,
@@ -191,23 +191,23 @@ func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 		return nil, err
 	}
 
-	user, err := a.identitySvc.AuthenticateLocal(context.Background(), req.Username, req.Password)
+	user, err := a.identitySvc.AuthenticateLocal(a.appContext(), req.Username, req.Password)
 	if err != nil {
 		return nil, err
 	}
-	pair, err := a.sessionSvc.IssueSession(context.Background(), user, req.ClientLabel)
+	pair, err := a.sessionSvc.IssueSession(a.appContext(), user, req.ClientLabel)
 	if err != nil {
 		return nil, err
 	}
 	if err := a.storeAuthRefreshToken(pair.RefreshToken); err != nil {
 		// Sessão já existe no DB mas não conseguimos persistir o token
 		// localmente — revoga para não deixar sessão "fantasma".
-		_ = a.sessionSvc.Logout(context.Background(), pair.RefreshToken)
+		_ = a.sessionSvc.Logout(a.appContext(), pair.RefreshToken)
 		return nil, err
 	}
 	claims, err := a.sessionSvc.VerifyAccessToken(pair.AccessToken)
 	if err != nil {
-		_ = a.sessionSvc.Logout(context.Background(), pair.RefreshToken)
+		_ = a.sessionSvc.Logout(a.appContext(), pair.RefreshToken)
 		_ = a.clearAuthRefreshToken()
 		return nil, err
 	}
@@ -256,7 +256,7 @@ const rollbackLogoutTimeout = 2 * time.Second
 // e melhor-esforço: cada limpeza é tentada independentemente.
 func (a *App) rollbackLoginState(refreshToken string) {
 	if a.sessionSvc != nil && refreshToken != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), rollbackLogoutTimeout)
+		ctx, cancel := context.WithTimeout(a.appContext(), rollbackLogoutTimeout)
 		err := a.sessionSvc.Logout(ctx, refreshToken)
 		cancel()
 		if err != nil {
@@ -309,7 +309,7 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 	var pair *auth.TokenPair
 	var err error
 	for _, refreshToken := range candidates {
-		pair, err = a.sessionSvc.RefreshLocalCandidate(context.Background(), refreshToken)
+		pair, err = a.sessionSvc.RefreshLocalCandidate(a.appContext(), refreshToken)
 		if err == nil {
 			break
 		}
@@ -319,7 +319,7 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 		return nil, err
 	}
 	if err := a.storeAuthRefreshToken(pair.RefreshToken); err != nil {
-		_ = a.sessionSvc.Logout(context.Background(), pair.RefreshToken)
+		_ = a.sessionSvc.Logout(a.appContext(), pair.RefreshToken)
 		return nil, err
 	}
 	claims, err := a.sessionSvc.VerifyAccessToken(pair.AccessToken)
@@ -397,7 +397,7 @@ func (a *App) Logout(req LogoutRequest) error {
 		}
 	}
 	if refreshToken != "" && a.ensureSessionService() == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), rollbackLogoutTimeout)
+		ctx, cancel := context.WithTimeout(a.appContext(), rollbackLogoutTimeout)
 		err := a.sessionSvc.Logout(ctx, refreshToken)
 		cancel()
 		if err != nil {
@@ -542,9 +542,31 @@ func (a *App) adoptLegacyDataForUser(userID string) error {
 		return err
 	}
 	if a.credMgr != nil {
-		return a.credMgr.LoadUserCredentials(context.Background(), userID)
+		return a.credMgr.LoadUserCredentials(a.appContext(), userID)
 	}
 	return nil
+}
+
+// appContext retorna o contexto de vida do app — o ctx que o Wails entrega
+// em OnStartup e que StartupWithAdapters armazena (derivado com WithCancel,
+// cancelado no Shutdown). É a base correta para QUALQUER operação iniciada a
+// partir de um binding Wails: o cancelamento/deadline do ciclo de vida do app
+// se propaga às chamadas downstream, em vez de usar context.Background() (que
+// é desligado de tudo e impede o encerramento ordenado).
+//
+// O fallback para context.Background() existe APENAS para o caminho em que o
+// app ainda não passou por StartupWithAdapters (ex.: testes que instanciam
+// &App{} direto, ou uso antes do startup). Em produção a.ctx está sempre
+// setado quando um binding é invocável.
+//
+// NOTA: appContext NÃO injeta userID. Para operações que exigem escopo de
+// usuário use requireAuthenticatedContext (fail-closed) ou internalBootstrapCtx
+// (fail-open, só nos bootstraps pré-login documentados).
+func (a *App) appContext() context.Context {
+	if a != nil && a.ctx != nil {
+		return a.ctx
+	}
+	return context.Background()
 }
 
 // internalBootstrapCtx retorna o ctx do app com o userID atual injetado
@@ -573,10 +595,7 @@ func (a *App) adoptLegacyDataForUser(userID string) error {
 // pós-login, CRUD de dados de usuário, NeedsWelcomeWizard, qualquer
 // resolveX/loadX/saveX) use requireAuthenticatedContext.
 func (a *App) internalBootstrapCtx() context.Context {
-	ctx := context.Background()
-	if a != nil && a.ctx != nil {
-		ctx = a.ctx
-	}
+	ctx := a.appContext()
 	a.authMu.RLock()
 	defer a.authMu.RUnlock()
 	if a.currentUserID == "" {
@@ -775,15 +794,18 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 		//
 		// Não herda do `ctx` local (que tem timeout de 10s para o reload
 		// inteiro); o AutoConnectAll é serial e demora N×handshake, e
-		// cada Connect tem seu próprio timeout interno. Herda só o
-		// userID do contexto autenticado vigente.
+		// cada Connect tem seu próprio timeout interno. Deriva do ctx de
+		// vida do app (appContext) — assim o Shutdown propaga o
+		// cancelamento e o loop de auto-connect não fica órfão — mas com
+		// seu PRÓPRIO cancel (userRuntimeCancel), trocado a cada
+		// login/logout, e com o userID do contexto autenticado vigente.
 		a.userRuntimeMu.Lock()
 		if a.userRuntimeCancel != nil {
 			a.userRuntimeCancel()
 			a.userRuntimeCancel = nil
 			a.userRuntimeCtx = nil
 		}
-		runtimeCtx, runtimeCancel := context.WithCancel(database.WithUserID(context.Background(), userID))
+		runtimeCtx, runtimeCancel := context.WithCancel(database.WithUserID(a.appContext(), userID))
 		a.userRuntimeCtx = runtimeCtx
 		a.userRuntimeCancel = runtimeCancel
 		a.userRuntimeMu.Unlock()

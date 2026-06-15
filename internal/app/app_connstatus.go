@@ -9,7 +9,9 @@ import (
 
 // startConnectionMonitor inicia (ou reinicia) o monitor de status de conexão
 // para o usuário autenticado. O loop roda em um contexto próprio cancelável,
-// independente do timeout agregado do reload, e é encerrado no logout/shutdown.
+// derivado do ctx de vida do app (appContext) — assim o Shutdown propaga o
+// cancelamento — independente do timeout agregado do reload, e é encerrado no
+// logout/shutdown.
 //
 // Reaproveita providers.Service.CheckHealth (que por sua vez reaproveita
 // ProbeConnection) — não há lógica de teste de conexão duplicada aqui.
@@ -23,7 +25,7 @@ func (a *App) startConnectionMonitor(userID string) {
 		a.connCancel()
 		a.connCancel = nil
 	}
-	ctx, cancel := context.WithCancel(database.WithUserID(context.Background(), userID))
+	ctx, cancel := context.WithCancel(database.WithUserID(a.appContext(), userID))
 	a.connCancel = cancel
 
 	check := func(c context.Context) connstatus.Snapshot {
