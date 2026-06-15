@@ -42,7 +42,7 @@ export function EditorToolbar({
           <ToolbarButton
             label={t('editor.buttons.file')}
             icon={<FileOutlined />}
-            onClick={(e) => onOpenMenu(e.currentTarget, 'Menu Arquivo', fileMenuItems)}
+            onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.fileMenu'), fileMenuItems)}
             aria-haspopup="menu"
           />
 
@@ -50,7 +50,7 @@ export function EditorToolbar({
             label={t('editor.buttons.format')}
             icon={<SlidersOutlined />}
             disabled={!activeTab || isAsking || activeTab.mode !== 'rich' || !richEditorRef.current}
-            onClick={(e) => onOpenMenu(e.currentTarget, 'Menu Formatar', formatMenuItems)}
+            onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.formatMenu'), formatMenuItems)}
             aria-haspopup="menu"
           />
 
@@ -58,7 +58,7 @@ export function EditorToolbar({
             label={t('editor.buttons.insert')}
             icon={<PlusOutlined />}
             disabled={!activeTab || isAsking || activeTab.mode === 'view'}
-            onClick={(e) => onOpenMenu(e.currentTarget, 'Menu Inserir', insertMenuItems)}
+            onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.insertMenu'), insertMenuItems)}
             aria-haspopup="menu"
           />
 
@@ -66,7 +66,7 @@ export function EditorToolbar({
             label={t('editor.buttons.mode')}
             icon={<CompassOutlined />}
             disabled={!activeTab || isAsking}
-            onClick={(e) => onOpenMenu(e.currentTarget, 'Menu Modo', modeMenuItems)}
+            onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.modeMenu'), modeMenuItems)}
             aria-haspopup="menu"
           />
         </div>

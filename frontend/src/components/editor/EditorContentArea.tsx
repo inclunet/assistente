@@ -56,7 +56,7 @@ export function EditorContentArea({
         <div className="editor-page__empty">{t('editor.empty.noTabs')}</div>
       ) : activeTab.mode === 'markdown' ? (
         <div className={'editor-page__single'}>
-          <div className="editor-page__pane" role="region" aria-label="Editor Markdown">
+          <div className="editor-page__pane" role="region" aria-label={t('editor.aria.markdownEditor')}>
             <div className="editor-page__pane-title">{t('editor.panes.markdown')}</div>
             <div className="editor-page__pane-body">
               <CodeEditor

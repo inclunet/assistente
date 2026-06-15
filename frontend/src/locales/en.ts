@@ -763,7 +763,7 @@ const en = {
       },
       empty: { noTabs: 'No tabs open' },
       labels: { profile: 'Profile (editor)' },
-      aria: { toolbar: 'Editor toolbar', markdownEditor: 'Markdown editor', preview: 'Rendered preview', richEditor: 'Rich editor' },
+      aria: { toolbar: 'Editor toolbar', markdownEditor: 'Markdown editor', preview: 'Rendered preview', richEditor: 'Rich editor', fileMenu: 'File menu', formatMenu: 'Format menu', insertMenu: 'Insert menu', modeMenu: 'Mode menu' },
       placeholders: { markdown: 'Write in Markdown...', rich: 'Write…' },
       panes: { markdown: 'Markdown', preview: 'Preview', rich: 'Rich' },
       hints: { previewMermaid: 'Rendered content for navigation. Double-click (or Enter) on Mermaid to edit.' },

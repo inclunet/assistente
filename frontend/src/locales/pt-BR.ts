@@ -763,7 +763,7 @@ const ptBR = {
       },
       empty: { noTabs: 'Nenhuma aba aberta' },
       labels: { profile: 'Perfil (editor)' },
-      aria: { toolbar: 'Barra de ferramentas do editor', markdownEditor: 'Editor Markdown', preview: 'Visualização renderizada', richEditor: 'Editor rico' },
+      aria: { toolbar: 'Barra de ferramentas do editor', markdownEditor: 'Editor Markdown', preview: 'Visualização renderizada', richEditor: 'Editor rico', fileMenu: 'Menu Arquivo', formatMenu: 'Menu Formatar', insertMenu: 'Menu Inserir', modeMenu: 'Menu Modo' },
       placeholders: { markdown: 'Escreva em Markdown...', rich: 'Escreva…' },
       panes: { markdown: 'Markdown', preview: 'Visualização', rich: 'Rico' },
       hints: { previewMermaid: 'Conteúdo renderizado para navegação. Dê duplo clique (ou Enter) em Mermaid para editar.' },

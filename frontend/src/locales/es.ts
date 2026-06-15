@@ -762,7 +762,7 @@ const es = {
       },
       empty: { noTabs: 'Ninguna pestaña abierta' },
       labels: { profile: 'Perfil (editor)' },
-      aria: { toolbar: 'Barra de herramientas del editor', markdownEditor: 'Editor Markdown', preview: 'Vista previa renderizada', richEditor: 'Editor enriquecido' },
+      aria: { toolbar: 'Barra de herramientas del editor', markdownEditor: 'Editor Markdown', preview: 'Vista previa renderizada', richEditor: 'Editor enriquecido', fileMenu: 'Menú Archivo', formatMenu: 'Menú Formato', insertMenu: 'Menú Insertar', modeMenu: 'Menú Modo' },
       placeholders: { markdown: 'Escribe en Markdown...', rich: 'Escribe…' },
       panes: { markdown: 'Markdown', preview: 'Vista previa', rich: 'Enriquecido' },
       hints: { previewMermaid: 'Contenido renderizado para navegación. Haz doble clic (o Enter) en Mermaid para editar.' },
