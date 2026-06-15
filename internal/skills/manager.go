@@ -2,16 +2,12 @@ package skills
 
 import (
 	"assistente/internal/configdir"
+	"assistente/internal/slug"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
-	"strings"
-	"unicode"
-
-	"golang.org/x/text/unicode/norm"
 )
 
 const skillFile = "SKILL.md" // Cada skill fica em skills/{slug}/SKILL.md
@@ -457,29 +453,9 @@ func validateMetadata(meta *SkillMetadata) error {
 }
 
 // Slugify converte um nome em slug seguro para nome de diretório.
+// Delega ao pacote canônico internal/slug, usando "skill" como fallback.
 func Slugify(name string) string {
-	normalized := norm.NFD.String(name)
-
-	var builder strings.Builder
-	for _, r := range normalized {
-		if unicode.Is(unicode.Mn, r) {
-			continue
-		}
-		builder.WriteRune(r)
-	}
-
-	result := builder.String()
-	result = strings.ToLower(result)
-
-	reg := regexp.MustCompile(`[^a-z0-9]+`)
-	result = reg.ReplaceAllString(result, "-")
-	result = strings.Trim(result, "-")
-
-	if result == "" {
-		result = "skill"
-	}
-
-	return result
+	return slug.Slugify(name, "skill")
 }
 
 func nextCopyName(baseSlug string, existing map[string]bool) string {
