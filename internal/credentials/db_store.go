@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"assistente/internal/database"
@@ -219,7 +220,50 @@ func (s *DBStore) ListAllCredentialsIgnoringScope(ctx context.Context) ([]Stored
 		headers := map[string]string{}
 		if entry.HeadersEnc != "" {
 			if err := json.Unmarshal([]byte(entry.HeadersEnc), &headers); err != nil {
-				continue
+				headers = map[string]string{}
+			}
+		}
+		result = append(result, StoredCredential{
+			ID:      entry.ID,
+			UserID:  entry.UserID,
+			Pattern: entry.Pattern,
+			Auth: &AuthConfig{
+				Type:         entry.AuthType,
+				Token:        entry.TokenEnc,
+				Username:     entry.Username,
+				Password:     entry.PasswordEnc,
+				Headers:      headers,
+				ExpiresAt:    entry.ExpiresAt,
+				RefreshURL:   entry.RefreshTokenEnc,
+				ClientID:     entry.ClientIDEnc,
+				ClientSecret: entry.ClientSecretEnc,
+			},
+		})
+	}
+	return result, nil
+}
+
+// ListCredentialsWithRefreshTokensIgnoringScope retorna apenas credenciais com
+// `refresh_token_enc` preenchido, independentemente do user_id. Existe APENAS
+// para a re-cifragem one-shot de refresh tokens legados no boot; não use em
+// fluxos que servem requests do app.
+func (s *DBStore) ListCredentialsWithRefreshTokensIgnoringScope(ctx context.Context) ([]StoredCredential, error) {
+	db, err := s.ensureDB()
+	if err != nil {
+		return nil, err
+	}
+	var entries []database.CredentialEntry
+	if err := db.WithContext(ctx).
+		Where("refresh_token_enc <> ''").
+		Find(&entries).Error; err != nil {
+		return nil, err
+	}
+	result := make([]StoredCredential, 0, len(entries))
+	for _, entry := range entries {
+		headers := map[string]string{}
+		if entry.HeadersEnc != "" {
+			if err := json.Unmarshal([]byte(entry.HeadersEnc), &headers); err != nil {
+				headers = map[string]string{}
 			}
 		}
 		result = append(result, StoredCredential{
@@ -261,6 +305,33 @@ func (s *DBStore) DeleteCredentialsByID(ctx context.Context, ids []string) (int,
 		return 0, res.Error
 	}
 	return int(res.RowsAffected), nil
+}
+
+// UpdateRefreshTokenEncByID regrava APENAS a coluna `refresh_token_enc`
+// da credencial identificada por `id`, sem aplicar user-scope. Existe
+// APENAS para a re-cifragem one-shot de refresh tokens legados em texto
+// plano (`Manager.reencryptLegacyPlaintextRefreshTokens`, issue #236),
+// que roda no boot antes de qualquer sessão — não use em fluxos que
+// servem requests do app; o caminho canônico é SaveCredential com
+// user-scope.
+func (s *DBStore) UpdateRefreshTokenEncByID(ctx context.Context, id, value string) error {
+	db, err := s.ensureDB()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(id) == "" {
+		return errors.New("id vazio não é permitido em UpdateRefreshTokenEncByID")
+	}
+	res := db.WithContext(ctx).Model(&database.CredentialEntry{}).
+		Where("id = ?", id).
+		Update("refresh_token_enc", value)
+	if res.Error != nil {
+		return fmt.Errorf("atualizar refresh_token_enc da credencial %s: %w", id, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("credencial %s não encontrada para atualizar refresh_token_enc", id)
+	}
+	return nil
 }
 
 // DeleteCredential remove a credencial associada ao `pattern` exato,

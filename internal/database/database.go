@@ -2984,13 +2984,18 @@ func ensureUsernameCaseInsensitive() error {
 //
 //   - **Idempotente:** se a coluna `refresh_url` já foi dropada em boot
 //     anterior, é noop.
-//   - **Não cifra:** o conteúdo era texto plano (URL com token na query) e
-//     vai para `refresh_token_enc` como está. A re-cifragem é responsabilidade
-//     de quem ler/usar o valor (`credentials.Manager` cifra no save). Isso
-//     **não** atende à expectativa do reviewer de cifragem por DEK durante a
-//     migração (DEK não está disponível no boot, antes do login). Após esta
-//     migração, o conteúdo permanece em plain dentro de `refresh_token_enc`
-//     até o próximo write/refresh.
+//   - **Não cifra aqui:** o conteúdo era texto plano (URL com token na
+//     query) e vai para `refresh_token_enc` como está, porque esta migração
+//     roda em `Init()`, ANTES da DEK ser carregada do keychain — e este
+//     pacote não pode importar `credentials` (ciclo de import). A cifragem
+//     acontece logo em seguida, no MESMO startup: o `credentials.Manager`
+//     executa a re-cifragem one-shot idempotente
+//     (`reencryptLegacyPlaintextRefreshTokens`, issue #236) dentro de
+//     `LoadInstanceSecrets`, assim que é configurado com a DEK — antes de
+//     qualquer login. Se a DEK não estiver disponível neste boot (keychain
+//     ausente/pré-Setup), os valores ficam como estavam no disco (eram
+//     plain em `refresh_url` de qualquer forma) e a re-cifragem ocorre no
+//     primeiro boot com DEK.
 //   - **Logs:** registra quantas linhas foram tocadas e se o drop falhou.
 //   - **DROP COLUMN via SQL direto:** `Migrator().DropColumn` faz lookup na
 //     struct Go (que não tem mais o campo) e vira noop silencioso. SQL puro
