@@ -146,7 +146,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     try {
       await updateWorkflowFull(taskListId, statuses, transitions, initialStatusId, statusMigration);
       setIsWorkflowEditorOpen(false);
-      addToast(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'), 'success');
+      addToast(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'));
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -159,7 +161,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     try {
       const cloned = await cloneTaskList(taskListId, newTitle);
       if (cloned) {
-        addToast(t('tasklist.clonedSuccess', 'Lista clonada com sucesso'), 'success');
+        addToast(t('tasklist.clonedSuccess', 'Lista clonada com sucesso'), 'success', undefined, undefined, {
+          suppressAnnounce: true,
+        });
         announce(t('tasklist.clonedSuccess', 'Lista clonada com sucesso'));
       }
     } catch (error) {
@@ -180,7 +184,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
     try {
       await clearTaskList(taskListId);
-      addToast(t('tasklist.clearedSuccess', 'Lista limpa com sucesso'), 'success');
+      addToast(t('tasklist.clearedSuccess', 'Lista limpa com sucesso'), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('tasklist.clearedSuccess', 'Lista limpa com sucesso'));
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -272,7 +278,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
     try {
       await deleteTaskList(taskListId);
-      addToast(t('tasklist.deletedSuccess', 'Lista deletada com sucesso'), 'success');
+      addToast(t('tasklist.deletedSuccess', 'Lista deletada com sucesso'), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('tasklist.deletedSuccess', 'Lista deletada com sucesso'));
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);

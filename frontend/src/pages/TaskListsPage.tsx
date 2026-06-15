@@ -122,7 +122,9 @@ export default function TaskListsPage() {
 
   const handleSaveTaskList = useCallback(async () => {
     if (!editTitle.trim()) {
-      addToast(t('tasklist.emptyTitle', 'Título não pode estar vazio'), 'error');
+      addToast(t('tasklist.emptyTitle', 'Título não pode estar vazio'), 'error', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('tasklist.emptyTitle', 'Título não pode estar vazio'));
       return;
     }
@@ -136,17 +138,23 @@ export default function TaskListsPage() {
             { type: 'tab:open', tabType: 'tasklist', contentId: String(newTaskList.id), title: newTaskList.title },
             { navigate },
           );
-          addToast(t('tasklist.createdSuccess', `Lista "${editTitle}" criada com sucesso!`), 'success');
+          addToast(t('tasklist.createdSuccess', `Lista "${editTitle}" criada com sucesso!`), 'success', undefined, undefined, {
+            suppressAnnounce: true,
+          });
           announce(t('tasklist.createdSuccess', `Lista "${editTitle}" criada com sucesso!`));
         }
       } else {
-        addToast(t('common.success', 'Salvo com sucesso'), 'success');
+        addToast(t('common.success', 'Salvo com sucesso'), 'success', undefined, undefined, {
+          suppressAnnounce: true,
+        });
         announce(t('common.success', 'Salvo com sucesso'));
       }
       handleCloseEditor();
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
+      addToast(msg || t('common.error', 'Erro ao salvar'), 'error', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(msg || t('common.error', 'Erro ao salvar'));
     } finally {
       setEditingLoading(false);
@@ -177,11 +185,15 @@ export default function TaskListsPage() {
 
       try {
         await deleteTaskList(taskListId);
-        addToast(t('tasklist.deletedSuccess', 'Lista deletada com sucesso'), 'success');
+        addToast(t('tasklist.deletedSuccess', 'Lista deletada com sucesso'), 'success', undefined, undefined, {
+          suppressAnnounce: true,
+        });
         announce(t('tasklist.deletedSuccess', 'Lista deletada com sucesso'));
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        addToast(msg || t('common.error', 'Erro ao deletar'), 'error');
+        addToast(msg || t('common.error', 'Erro ao deletar'), 'error', undefined, undefined, {
+          suppressAnnounce: true,
+        });
         announce(msg || t('common.error', 'Erro ao deletar'));
       }
     },
@@ -200,12 +212,16 @@ export default function TaskListsPage() {
             { type: 'tab:open', tabType: 'tasklist', contentId: String(clonedTaskList.id), title: clonedTaskList.title },
             { navigate },
           );
-          addToast(t('tasklist.clonedSuccess', 'Lista clonada com sucesso'), 'success');
+          addToast(t('tasklist.clonedSuccess', 'Lista clonada com sucesso'), 'success', undefined, undefined, {
+            suppressAnnounce: true,
+          });
           announce(t('tasklist.clonedSuccess', 'Lista clonada com sucesso'));
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        addToast(msg || t('common.error', 'Erro ao clonar'), 'error');
+        addToast(msg || t('common.error', 'Erro ao clonar'), 'error', undefined, undefined, {
+          suppressAnnounce: true,
+        });
         announce(msg || t('common.error', 'Erro ao clonar'));
       }
     },

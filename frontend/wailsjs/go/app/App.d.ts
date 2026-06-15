@@ -444,6 +444,8 @@ export function RestartChannel(arg1:string):Promise<void>;
 
 export function RetryMessage(arg1:string,arg2:string,arg3:llm.ChatParams):Promise<string>;
 
+export function RetryUserRuntimeInit():Promise<app.RuntimePartialInitPayload>;
+
 export function RunJob(arg1:string):Promise<jobs.RunLog>;
 
 export function RunTerminalCommand(arg1:string,arg2:string):Promise<void>;

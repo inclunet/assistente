@@ -198,7 +198,9 @@ describe('SkillsPage', { timeout: 60_000 }, () => {
     });
 
     await waitFor(() => {
-      expect(mockAddToast).toHaveBeenCalledWith('Skill duplicado!', 'success');
+      expect(mockAddToast).toHaveBeenCalledWith('Skill duplicado!', 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
     });
 
     await waitFor(() => {

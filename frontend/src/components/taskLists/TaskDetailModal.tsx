@@ -172,7 +172,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     try {
       await setTaskConversation(task.id, conversationId);
       const msg = t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado');
-      addToast(msg, 'success');
+      addToast(msg, 'success', undefined, undefined, { suppressAnnounce: true });
       announce(msg);
     } catch (error) {
       // setTaskConversation já registra o erro e recarrega a lista; dá feedback explícito.

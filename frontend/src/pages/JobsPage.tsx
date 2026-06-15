@@ -113,7 +113,7 @@ export default function JobsPage() {
     async (job: jobs.JobInfo) => {
       try {
         await toggleJob(job.id, !job.enabled);
-        addToast(t('jobs.toggleSuccess'), 'success');
+        addToast(t('jobs.toggleSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
         announce(t('jobs.toggleSuccess'));
       } catch {
         addToast(t('common.error', 'Error'), 'error');
@@ -128,10 +128,10 @@ export default function JobsPage() {
       try {
         const result = await runJob(job.id);
         if (result && result.status === 'completed') {
-          addToast(t('jobs.runSuccess'), 'success');
+          addToast(t('jobs.runSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
           announce(t('jobs.runSuccess'));
         } else {
-          addToast(t('jobs.runFailed'), 'error');
+          addToast(t('jobs.runFailed'), 'error', undefined, undefined, { suppressAnnounce: true });
           announce(t('jobs.runFailed'));
         }
       } catch {
@@ -204,7 +204,7 @@ export default function JobsPage() {
     if (!window.confirm(t('jobs.builder.deleteConfirm', { name: job.name || job.id }))) return;
     try {
       await deleteJob(job.id);
-      addToast(t('jobs.builder.deleteSuccess'), 'success');
+      addToast(t('jobs.builder.deleteSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('jobs.builder.deleteSuccess'));
     } catch {
       addToast(t('common.error'), 'error');

@@ -224,7 +224,7 @@ func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 		a.rollbackLoginState(pair.RefreshToken)
 		return nil, err
 	}
-	a.reloadUserScopedRuntime()
+	a.emitRuntimePartialInit(a.reloadUserScopedRuntime())
 	return a.GetAuthUser()
 }
 
@@ -337,7 +337,7 @@ func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
 		a.rollbackLoginState(pair.RefreshToken)
 		return nil, err
 	}
-	a.reloadUserScopedRuntime()
+	a.emitRuntimePartialInit(a.reloadUserScopedRuntime())
 	return a.GetAuthUser()
 }
 
@@ -635,14 +635,88 @@ func (a *App) requireAdminContext() (context.Context, error) {
 // deixando estado parcial. P1-2 do re-review do PR #94.
 const reloadUserScopedRuntimeTimeout = 10 * time.Second
 
-func (a *App) reloadUserScopedRuntime() {
+// RuntimePartialInitEventName é o evento emitido ao frontend quando o reload
+// do runtime user-scoped pós-login termina com um ou mais subsistemas falhos.
+// O login NÃO é bloqueado: o evento dispara um aviso não-bloqueante na UI
+// (toast + announce acessível) com ação de "Tentar novamente". É a resposta
+// direta ao sintoma do incident AEP-0061 (app "funcionando" sem MCPs/jobs e
+// sem aviso ao usuário).
+const RuntimePartialInitEventName = "runtime:partial-init"
+
+// Identificadores estáveis dos subsistemas user-scoped reportados em
+// runtime:partial-init. São chaves de tradução no frontend (não exibir cru).
+const (
+	runtimeSubsystemMCP             = "mcp"
+	runtimeSubsystemJobs            = "jobs"
+	runtimeSubsystemToolInvocations = "tool_invocations"
+	runtimeSubsystemTimeout         = "timeout"
+)
+
+// RuntimeSubsystemFailure identifica um subsistema user-scoped que falhou no
+// reload pós-login. Carrega APENAS o identificador estável do subsistema (que
+// o frontend usa para traduzir o aviso). A mensagem de erro NÃO é emitida ao
+// frontend — fica somente nos logs do backend (log.Printf) — para não inflar o
+// payload nem vazar paths/stack/contexto interno (review PR #278).
+type RuntimeSubsystemFailure struct {
+	Subsystem string `json:"subsystem"`
+}
+
+// RuntimePartialInitPayload é o payload tipado do evento runtime:partial-init.
+type RuntimePartialInitPayload struct {
+	Subsystems []RuntimeSubsystemFailure `json:"subsystems"`
+}
+
+// runtimeReloadResult agrega as falhas por subsistema coletadas durante o
+// reload do runtime user-scoped. Em vez de só logar (comportamento antigo, que
+// deixava o usuário sem saber que o app subiu parcialmente), as falhas são
+// coletadas para que o caminho de Login as reporte ao frontend de uma vez.
+type runtimeReloadResult struct {
+	failures []RuntimeSubsystemFailure
+}
+
+// add registra a falha de um subsistema. É no-op quando err == nil, então pode
+// ser chamado diretamente no caminho feliz sem checagens extras. O err serve
+// só para o nil-check: a mensagem em si NÃO é guardada (já é logada pelo
+// chamador via log.Printf) e não vai para o frontend.
+func (r *runtimeReloadResult) add(subsystem string, err error) {
+	if err == nil {
+		return
+	}
+	r.failures = append(r.failures, RuntimeSubsystemFailure{Subsystem: subsystem})
+}
+
+// hasFailures indica se algum subsistema falhou durante o reload.
+func (r *runtimeReloadResult) hasFailures() bool {
+	return len(r.failures) > 0
+}
+
+// emitRuntimePartialInit emite runtime:partial-init quando há falhas coletadas.
+// Best-effort e não-bloqueante: é o último passo do reload e nunca aborta o
+// Login. Sem falhas (ou sem emitter, ex.: testes/CLI) é no-op.
+func (a *App) emitRuntimePartialInit(result runtimeReloadResult) {
+	if !result.hasFailures() || a.emitter == nil {
+		return
+	}
+	a.emitter.Emit(RuntimePartialInitEventName, RuntimePartialInitPayload{
+		Subsystems: result.failures,
+	})
+}
+
+// reloadUserScopedRuntime executa o reload do runtime user-scoped e DEVOLVE o
+// resultado coletado (falhas por subsistema). NÃO emite runtime:partial-init —
+// quem decide como notificar é o chamador: Login/RefreshAuth emitem o evento
+// (aviso assíncrono pós-login); RetryUserRuntimeInit devolve o resultado pela
+// RPC (feedback determinístico do botão "Tentar novamente", sem heurística de
+// timer no frontend).
+func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
+	result := &runtimeReloadResult{}
 	if a.llmRegistry != nil {
 		a.llmRegistry.Clear()
 	}
 	authedCtx, err := a.requireAuthenticatedContext()
 	if err != nil {
 		log.Printf("[reloadUserScopedRuntime] sem sessão autenticada, abortando: %v", err)
-		return
+		return *result
 	}
 	ctx, cancel := context.WithTimeout(authedCtx, reloadUserScopedRuntimeTimeout)
 	defer cancel()
@@ -663,6 +737,7 @@ func (a *App) reloadUserScopedRuntime() {
 		}
 		if err := a.jobMgr.Start(); err != nil {
 			log.Printf("[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)
+			result.add(runtimeSubsystemJobs, err)
 		}
 	}
 
@@ -675,6 +750,7 @@ func (a *App) reloadUserScopedRuntime() {
 	if a.toolInvocationSvc != nil {
 		if deleted, err := a.toolInvocationSvc.CleanOld(ctx, 30*24*time.Hour); err != nil {
 			log.Printf("[reloadUserScopedRuntime] erro ao limpar tool invocations antigas: %v", err)
+			result.add(runtimeSubsystemToolInvocations, err)
 		} else if deleted > 0 {
 			log.Printf("[reloadUserScopedRuntime] tool invocations antigas removidas: %d", deleted)
 		}
@@ -688,6 +764,7 @@ func (a *App) reloadUserScopedRuntime() {
 	if a.mcpMgr != nil {
 		if err := a.mcpMgr.LoadConfigs(); err != nil {
 			log.Printf("[reloadUserScopedRuntime] erro ao carregar MCP servers do usuário: %v", err)
+			result.add(runtimeSubsystemMCP, err)
 		}
 		startJobsForCurrentUser()
 		// Auto-connect MCP só agora: depois de adoptLegacyDataForUser →
@@ -723,7 +800,32 @@ func (a *App) reloadUserScopedRuntime() {
 
 	if err := ctx.Err(); err != nil {
 		log.Printf("[reloadUserScopedRuntime] timeout/cancel atingido (%s): %v — runtime pode estar parcialmente inicializado", reloadUserScopedRuntimeTimeout, err)
+		result.add(runtimeSubsystemTimeout, err)
 	}
+
+	return *result
+}
+
+// RetryUserRuntimeInit re-executa o reload do runtime user-scoped sob demanda,
+// servindo à ação "Tentar novamente" do aviso de inicialização parcial. Exige
+// sessão autenticada e reaproveita reloadUserScopedRuntime — o mesmo pipeline
+// do Login/RefreshAuth, sem fluxo paralelo. DEVOLVE o resultado (subsistemas
+// ainda falhos, ou lista vazia) para que o frontend dê feedback determinístico
+// sem depender de timer/eventos. Não emite runtime:partial-init neste caminho
+// (evita aviso duplicado: o retorno da RPC já carrega o estado).
+func (a *App) RetryUserRuntimeInit() (RuntimePartialInitPayload, error) {
+	a.authSessionMu.Lock()
+	defer a.authSessionMu.Unlock()
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return RuntimePartialInitPayload{Subsystems: []RuntimeSubsystemFailure{}}, err
+	}
+	result := a.reloadUserScopedRuntime()
+	subsystems := result.failures
+	if subsystems == nil {
+		// Normaliza para slice vazio: o frontend recebe [] em vez de null.
+		subsystems = []RuntimeSubsystemFailure{}
+	}
+	return RuntimePartialInitPayload{Subsystems: subsystems}, nil
 }
 
 func (a *App) stopUserScopedRuntime() {

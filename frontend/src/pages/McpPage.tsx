@@ -438,7 +438,9 @@ export default function McpPage() {
         await DeleteMCPServerAuth(slug);
       }
 
-      addToast(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'), 'success');
+      addToast(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'));
       handleCloseEditor();
     } catch (error: unknown) {
@@ -461,7 +463,7 @@ export default function McpPage() {
 
     try {
       await remove(slug);
-      addToast(t('mcp.toast.removed'), 'success');
+      addToast(t('mcp.toast.removed'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('mcp.announce.serverRemoved'));
       if (editingSlug === slug) {
         setEditing(null);
@@ -476,7 +478,9 @@ export default function McpPage() {
   const handleConnect = useCallback(async (row: ServerRow) => {
     try {
       await connect(row.slug);
-      addToast(t('mcp.toast.serverConnected', { name: row.name }), 'success');
+      addToast(t('mcp.toast.serverConnected', { name: row.name }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('mcp.announce.serverConnected', { name: row.name }));
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || t('mcp.error.connectFailed'), 'error');
@@ -486,7 +490,9 @@ export default function McpPage() {
   const handleDisconnect = useCallback(async (row: ServerRow) => {
     try {
       await disconnect(row.slug);
-      addToast(t('mcp.toast.serverDisconnected', { name: row.name }), 'success');
+      addToast(t('mcp.toast.serverDisconnected', { name: row.name }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('mcp.announce.serverDisconnected', { name: row.name }));
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || t('mcp.error.disconnectFailed'), 'error');
@@ -496,7 +502,9 @@ export default function McpPage() {
   const handleReconnect = useCallback(async (row: ServerRow) => {
     try {
       await reconnect(row.slug);
-      addToast(t('mcp.toast.serverReconnected', { name: row.name }), 'success');
+      addToast(t('mcp.toast.serverReconnected', { name: row.name }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('mcp.announce.serverReconnected', { name: row.name }));
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || t('mcp.error.reconnectFailed'), 'error');
@@ -506,7 +514,9 @@ export default function McpPage() {
   const handleDuplicate = useCallback(async (row: ServerRow) => {
     try {
       const newSlug = await DuplicateMCPServer(row.slug);
-      addToast(t('mcp.toast.duplicated', 'Servidor MCP duplicado!'), 'success');
+      addToast(t('mcp.toast.duplicated', 'Servidor MCP duplicado!'), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('mcp.toast.duplicated', 'Servidor MCP duplicado!'));
       await loadServers();
 

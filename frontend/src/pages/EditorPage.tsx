@@ -353,10 +353,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     updateLatestMarkdownForTab(tabId, conflictText);
     setDocDirty(tabId, true);
 
-    addToast(
-      'Conflito aberto para mesclagem manual (estilo Git). Resolva os marcadores e use Salvar para gravar no arquivo real.',
-      'warning'
-    );
+    addToast(t('editor.toast.mergeConflict'), 'warning');
   };
 
   const cleanupMergeSessionForTab = async (tabId: string) => {
@@ -490,21 +487,21 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
       if (choice === t('editor.options.resolveMerge')) {
         if (diskReadError) {
-          addToast('Não foi possível ler do disco. Tente novamente.', 'error');
+          addToast(t('editor.toast.diskReadFailed'), 'error');
           return;
         }
         try {
           await startMergeSessionForTab(tabId, filePath, diskContent, localContent);
         } catch (e: any) {
           logger.error('[EditorPage] startMergeSession error:', e);
-          addToast(e?.message || 'Erro ao iniciar mesclagem', 'error');
+          addToast(e?.message || t('editor.toast.mergeStartFailed'), 'error');
         }
         return;
       }
 
       if (choice === t('editor.options.useDisk')) {
         if (diskReadError) {
-          addToast('Não foi possível ler do disco. Tente novamente.', 'error');
+          addToast(t('editor.toast.diskReadFailed'), 'error');
           return;
         }
 
@@ -517,9 +514,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           const afterTab = afterDocs[tabId] || tab;
           void refreshDiskInfoForTab(afterTab);
           setExternalConflictLocked(tabId, false);
-          addToast('Recarregado do disco', 'success');
+          addToast(t('editor.toast.reloaded'), 'success');
         } catch (e: any) {
-          addToast(e?.message || 'Erro ao recarregar arquivo', 'error');
+          addToast(e?.message || t('editor.toast.reloadFailed'), 'error');
         }
         return;
       }
@@ -546,7 +543,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         const afterTab = afterDocs[tabId] || tab;
         void refreshDiskInfoForTab(afterTab);
         setExternalConflictLocked(tabId, false);
-        addToast('Salvo em novo arquivo', 'success');
+        addToast(t('editor.toast.savedAs'), 'success');
         return;
       }
 
@@ -560,9 +557,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         const afterTab = afterDocs[tabId] || tab;
         void refreshDiskInfoForTab(afterTab);
         setExternalConflictLocked(tabId, false);
-        addToast('Sobrescrito no disco', 'success');
+        addToast(t('editor.toast.overwritten'), 'success');
       } catch (e: any) {
-        addToast(e?.message || 'Erro ao sobrescrever no disco', 'error');
+        addToast(e?.message || t('editor.toast.overwriteFailed'), 'error');
       }
     } finally {
       setExternalPromptInFlight(tabId, false);
@@ -620,7 +617,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         if (lastDisk && !diskInfoEquals(lastDisk, currentDisk)) {
           setExternalConflictLocked(tabId, true);
           setDocDirty(tabId, true);
-          addToast('Arquivo foi modificado fora do Assistente. Escolha como resolver.', 'warning');
+          addToast(t('editor.toast.fileModified'), 'warning');
           if (!isExternalPromptInFlight(tabId)) {
             void promptResolveExternalChangeForTab(tabId, filePath);
           }
@@ -866,7 +863,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       if (lastDisk && !diskInfoEquals(lastDisk, currentDisk)) {
         setExternalConflictLocked(tab.id, true);
         setDocDirty(tab.id, true);
-        addToast('Arquivo foi modificado fora do Assistente. Escolha como resolver.', 'warning');
+        addToast(t('editor.toast.fileModified'), 'warning');
         void promptResolveExternalChangeForTab(tab.id, String(tab.filePath));
       }
     };
@@ -1903,7 +1900,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         );
         if (wsTab) {
           await setActiveWsTab(wsTab.id);
-          addToast('Arquivo já aberto — aba ativada', 'info');
+          addToast(t('editor.toast.fileAlreadyOpen'), 'info');
           focusEditorSoon();
           return;
         }
@@ -1947,11 +1944,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       fileModeByPathRef.current[key] = preferredMode === 'rich' ? 'rich' : 'markdown';
 
       EditorDeleteDraft(id).catch(() => null);
-      addToast('Arquivo aberto', 'success');
+      addToast(t('editor.toast.fileOpened'), 'success');
       focusEditorSoon();
     } catch (e: unknown) {
       logger.error('[EditorPage] openFile error:', e);
-      addToast(getErrorMessage(e) || 'Erro ao abrir arquivo', 'error');
+      addToast(getErrorMessage(e) || t('editor.toast.openFailed'), 'error');
     }
   };
 
@@ -2006,7 +2003,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
     await cleanupMergeSessionForTab(activeTab.id);
 
-    addToast('Merge abortado. Sua versão foi restaurada. Use Salvar para resolver a modificação externa.', 'info');
+    addToast(t('editor.toast.mergeAborted'), 'info');
     focusEditorSoon();
   };
 
@@ -2022,7 +2019,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           const mergeSession = getMergeSession(activeTab.id);
           if (mergeSession) {
             if (hasConflictMarkers(content)) {
-              addToast('Ainda existem marcadores de conflito (<<<<<<< / >>>>>>>). Resolva antes de salvar no arquivo real.', 'warning');
+              addToast(t('editor.toast.conflictMarkersRemain'), 'warning');
               return;
             }
             markSelfWrite(activeTab.filePath);
@@ -2032,12 +2029,12 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
             void refreshDiskInfoForTab(activeTab);
             setExternalConflictLocked(activeTab.id, false);
             await cleanupMergeSessionForTab(activeTab.id);
-            addToast('Conflito resolvido e salvo no disco', 'success');
+            addToast(t('editor.toast.conflictResolvedSaved'), 'success');
             focusEditorSoon();
             return;
           }
 
-          addToast('Salvamento travado: resolva a modificação externa primeiro.', 'warning');
+          addToast(t('editor.toast.saveLockedExternal'), 'warning');
           void promptResolveExternalChangeForTab(activeTab.id, String(activeTab.filePath));
           return;
         }
@@ -2046,7 +2043,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         setDiskBaselineForTab(activeTab.id, content);
         setDocDirty(activeTab.id, false);
         void refreshDiskInfoForTab(activeTab);
-        addToast('Arquivo salvo', 'success');
+        addToast(t('editor.toast.fileSaved'), 'success');
         focusEditorSoon();
         return;
       }
@@ -2072,11 +2069,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       setDocDraftId(activeTab.id, null);
       await EditorDeleteDraft(draftId);
 
-      addToast('Arquivo salvo', 'success');
+      addToast(t('editor.toast.fileSaved'), 'success');
       focusEditorSoon();
     } catch (e: unknown) {
       logger.error('[EditorPage] saveFile error:', e);
-      addToast(getErrorMessage(e) || 'Erro ao salvar', 'error');
+      addToast(getErrorMessage(e) || t('editor.toast.saveFailed'), 'error');
     }
   };
 
@@ -2091,11 +2088,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       updateLatestMarkdownForTab(activeTab.id, content);
       markSelfWrite(path);
       await EditorWriteFile(path, content);
-      addToast('Cópia salva', 'success');
+      addToast(t('editor.toast.copySaved'), 'success');
       focusEditorSoon();
     } catch (e: unknown) {
       logger.error('[EditorPage] saveAs error:', e);
-      addToast(getErrorMessage(e) || 'Erro ao salvar como', 'error');
+      addToast(getErrorMessage(e) || t('editor.toast.saveAsFailed'), 'error');
     }
   };
 
@@ -2116,14 +2113,14 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     if (activeMermaidIndex === null) return;
     const fence = findMermaidFenceByIndex(activeTab.markdown, activeMermaidIndex);
     if (!fence) {
-      addToast('O bloco Mermaid não foi encontrado (talvez o documento tenha mudado).', 'error');
+      addToast(t('editor.toast.mermaidBlockGone'), 'error');
       return;
     }
     const nextMarkdown = replaceMermaidFenceCode(activeTab.markdown, fence, code);
     setDocMarkdown(activeTab.id, nextMarkdown);
     updateLatestMarkdownForTab(activeTab.id, nextMarkdown);
     schedulePersistForTab(activeTab.id);
-    addToast('Bloco Mermaid atualizado', 'success');
+    addToast(t('editor.toast.mermaidUpdated'), 'success');
     setActiveMermaidIndex(null);
   };
 
@@ -2157,7 +2154,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
     const fence = findMermaidFenceByIndex(activeTab.markdown, index);
     if (!fence) {
-      addToast('O bloco Mermaid não foi encontrado (talvez o documento tenha mudado).', 'error');
+      addToast(t('editor.toast.mermaidBlockGone'), 'error');
       return;
     }
 
@@ -2165,7 +2162,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     setDocMarkdown(activeTab.id, nextMarkdown);
     updateLatestMarkdownForTab(activeTab.id, nextMarkdown);
     schedulePersistForTab(activeTab.id);
-    addToast('Bloco Mermaid removido', 'success');
+    addToast(t('editor.toast.mermaidRemoved'), 'success');
   };
 
   // Limpa timers de autosave ao desmontar
@@ -2574,7 +2571,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           }
           if (richMermaidSession) {
             richMermaidSession.apply(code);
-            addToast('Bloco Mermaid atualizado', 'success');
+            addToast(t('editor.toast.mermaidUpdated'), 'success');
             setRichMermaidSession(null);
           }
         }}
@@ -2608,7 +2605,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
             if (confirm.cancelled) return;
             richMermaidSession.remove();
-            addToast('Bloco Mermaid removido', 'success');
+            addToast(t('editor.toast.mermaidRemoved'), 'success');
             setRichMermaidSession(null);
           }
         }}

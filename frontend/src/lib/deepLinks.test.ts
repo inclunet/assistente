@@ -887,7 +887,9 @@ describe('executeDeepLink', () => {
 
       expect(mockGetProfile).toHaveBeenCalledWith('inexistente');
       expect(mockWsUpdateTab).not.toHaveBeenCalled();
-      expect(mockAddToast).toHaveBeenCalledWith('deepLink.invalidProfile', 'warning');
+      expect(mockAddToast).toHaveBeenCalledWith('deepLink.invalidProfile', 'warning', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       expect(mockSendMessageToConversation).toHaveBeenCalledWith(
         '01926b90-7a5a-7c4e-8d3f-000000000064',
         'oi',
@@ -907,7 +909,9 @@ describe('executeDeepLink', () => {
 
       expect(mockGetProfile).toHaveBeenCalledWith('quebrado');
       expect(mockWsUpdateTab).not.toHaveBeenCalled();
-      expect(mockAddToast).toHaveBeenCalledWith('deepLink.profileLoadError', 'error');
+      expect(mockAddToast).toHaveBeenCalledWith('deepLink.profileLoadError', 'error', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       expect(mockSendMessageToConversation).toHaveBeenCalledWith(
         '01926b90-7a5a-7c4e-8d3f-000000000064',
         'oi',
