@@ -2578,6 +2578,7 @@ const es = {
       search: 'Buscar jobs...',
       gridLabel: 'Lista de jobs',
       noJobs: 'Ningún job configurado',
+      noSearchResults: 'Ningún job coincide con la búsqueda actual',
       noJobsHint: 'Crea archivos YAML en ~/.assistente/jobs/ para agregar jobs',
       name: 'Nombre',
       tool: 'Herramienta',
