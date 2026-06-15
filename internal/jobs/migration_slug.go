@@ -4,18 +4,15 @@ import (
 	"fmt"
 	"log"
 
-	"assistente/internal/database"
-
 	"gorm.io/gorm"
 )
 
 // slugRenormalizationTarget descreve uma tabela cujo slug é gerado por
 // normalizeSlug e que pode conter registros legados (slug com acentos ou
 // símbolos) gravados antes da unificação do algoritmo em internal/slug
-// (issue #255 / PR #281).
+// (issue #255).
 type slugRenormalizationTarget struct {
 	table string
-	model any
 }
 
 // RenormalizeLegacySlugs re-normaliza para a forma canônica de internal/slug os
@@ -48,9 +45,9 @@ func RenormalizeLegacySlugs(db *gorm.DB) error {
 		return nil
 	}
 	targets := []slugRenormalizationTarget{
-		{table: "tags", model: &database.Tag{}},
-		{table: "job_pipelines", model: &database.JobPipeline{}},
-		{table: "jobs", model: &database.Job{}},
+		{table: "tags"},
+		{table: "job_pipelines"},
+		{table: "jobs"},
 	}
 	var totalUpdated, totalSkipped int
 	for _, target := range targets {
@@ -70,7 +67,7 @@ func RenormalizeLegacySlugs(db *gorm.DB) error {
 // renormalizeSlugsForTable re-normaliza os slugs de uma única tabela. Retorna a
 // contagem de linhas atualizadas e de linhas preservadas por colisão.
 func renormalizeSlugsForTable(db *gorm.DB, target slugRenormalizationTarget) (updated, skipped int, err error) {
-	if !db.Migrator().HasTable(target.model) {
+	if !db.Migrator().HasTable(target.table) {
 		return 0, 0, nil
 	}
 

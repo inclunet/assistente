@@ -74,12 +74,16 @@ func TestRenormalizeLegacySlugs_RenormalizesAcrossTables(t *testing.T) {
 	}
 
 	var gotTag string
-	db.Table("tags").Select("slug").Where("id = ?", tag.ID).Scan(&gotTag)
+	if err := db.Table("tags").Select("slug").Where("id = ?", tag.ID).Scan(&gotTag).Error; err != nil {
+		t.Fatalf("read tag slug: %v", err)
+	}
 	if gotTag != "cafe-tag" {
 		t.Errorf("tag slug = %q, quero %q", gotTag, "cafe-tag")
 	}
 	var gotPipeline string
-	db.Table("job_pipelines").Select("slug").Where("id = ?", pipeline.ID).Scan(&gotPipeline)
+	if err := db.Table("job_pipelines").Select("slug").Where("id = ?", pipeline.ID).Scan(&gotPipeline).Error; err != nil {
+		t.Fatalf("read pipeline slug: %v", err)
+	}
 	if gotPipeline != "my-pipeline" {
 		t.Errorf("pipeline slug = %q, quero %q", gotPipeline, "my-pipeline")
 	}
