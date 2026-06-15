@@ -41,11 +41,12 @@ export function useConnectionStatusListener() {
       if (data.state === 'offline') {
         const message = t('connectionStatus.announce.lost', { provider: providerName });
         announce(message, 'assertive');
-        addToast(message, 'error');
+        // suppressAnnounce: já anunciamos acima; evita fala duplicada.
+        addToast(message, 'error', undefined, undefined, { suppressAnnounce: true });
       } else {
         const message = t('connectionStatus.announce.restored', { provider: providerName });
         announce(message, 'polite');
-        addToast(message, 'success', 4000);
+        addToast(message, 'success', 4000, undefined, { suppressAnnounce: true });
       }
     }
     lastStableRef.current = data.state;

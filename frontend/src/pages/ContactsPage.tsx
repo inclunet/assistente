@@ -91,7 +91,7 @@ export default function ContactsPage() {
 
     try {
       await RemoveAuthorizedContact(row.channel, row.contactId);
-      addToast(t('channels.toast.contactRemoved'), 'success');
+      addToast(t('channels.toast.contactRemoved'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('channels.announce.contactRemoved'));
       await loadContacts();
     } catch (error: unknown) {

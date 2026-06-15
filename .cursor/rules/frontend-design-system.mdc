@@ -200,4 +200,4 @@ Todas as strings visíveis ao usuário DEVEM ser internacionalizadas. **NUNCA ha
 
 - **Zustand** para estado global: `useChatStore`, `useSettingsStore`, `useUIStore`
 - Estado local com `useState` para dados de página (loading, search, selectedIds)
-- Backend via funções Wails: `import { ... } from '../../wailsjs/go/main/App'`
+- Backend via funções Wails: `import { ... } from '../../wailsjs/go/app/App'`

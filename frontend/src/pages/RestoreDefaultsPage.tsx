@@ -77,7 +77,9 @@ export default function RestoreDefaultsPage() {
     setLoadingOps((prev) => new Set([...prev, opId]));
     try {
       await fn();
-      addToast(t('restore.toast.operationSuccess', { name: title }), 'success');
+      addToast(t('restore.toast.operationSuccess', { name: title }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('restore.announce.operationDone', { name: title }));
       onSuccess?.();
     } catch (error: unknown) {

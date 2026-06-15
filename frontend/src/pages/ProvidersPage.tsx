@@ -147,7 +147,9 @@ export default function ProvidersPage() {
   const handleSetDefault = async (provider: ProviderRow) => {
     try {
       await SetDefaultProvider(provider.id);
-      addToast(t('providers.toast.defaultSet', { name: provider.name }), 'success');
+      addToast(t('providers.toast.defaultSet', { name: provider.name }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
       announce(t('providers.toast.defaultSet', { name: provider.name }));
       await loadProviders();
     } catch (error: unknown) {
@@ -176,7 +178,7 @@ export default function ProvidersPage() {
         base_url: provider.base_url,
         api_format: (provider as Provider).api_format || undefined,
       });
-      addToast(t('providers.toast.duplicated'), 'success');
+      addToast(t('providers.toast.duplicated'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('providers.toast.duplicated'));
       await loadProviders();
     } catch (error: unknown) {
@@ -197,7 +199,7 @@ export default function ProvidersPage() {
       type WailsContext = Parameters<typeof DeleteLLMProvider>[0];
       const emptyContext = null as unknown as WailsContext;
       await DeleteLLMProvider(emptyContext, provider.id);
-      addToast(t('providers.toast.deleted'), 'success');
+      addToast(t('providers.toast.deleted'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('providers.toast.deleted'));
       await loadProviders();
     } catch (error: unknown) {

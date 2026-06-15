@@ -230,8 +230,8 @@ export default function AllowlistPage() {
         default_action: full?.default_action || 'confirm',
       });
       const newSlug = await CreateAllowlist(payload);
-        addToast(t('allowlist.toast.duplicated'), 'success');
-        announce(t('allowlist.toast.duplicated'));
+      addToast(t('allowlist.toast.duplicated'), 'success', undefined, undefined, { suppressAnnounce: true });
+      announce(t('allowlist.toast.duplicated'));
       await crud.loadItems();
       await crud.openEdit(buildAllowlistRow({
         id: newSlug,
@@ -244,7 +244,7 @@ export default function AllowlistPage() {
           (payload.command_rules?.length ?? 0),
       }));
     } catch (error: unknown) {
-        addToast(getErrorMessage(error) || t('allowlist.error.duplicate'), 'error');
+      addToast(getErrorMessage(error) || t('allowlist.error.duplicate'), 'error');
     }
   };
 

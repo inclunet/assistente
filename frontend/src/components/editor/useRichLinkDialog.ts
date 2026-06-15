@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Editor } from '@tiptap/core';
 
 import { useQuestionnaireUIStore } from '../../store/questionnaireUIStore';
@@ -11,6 +12,7 @@ type Args = {
 };
 
 export function useRichLinkDialog({ editor, readOnly }: Args) {
+  const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
@@ -24,19 +26,19 @@ export function useRichLinkDialog({ editor, readOnly }: Args) {
 
     const resp = await requestQuestionnaire({
       id: `ui-rich-link-${Date.now()}`,
-      title: existingHref ? 'Editar link' : 'Inserir link',
+      title: existingHref ? t('editor.richLink.titleEdit') : t('editor.richLink.titleInsert'),
       description: selectionEmpty
-        ? 'Informe a URL. Se quiser, informe também o texto do link para inserir no cursor.'
-        : 'Informe a URL para aplicar no texto selecionado.',
-      submitLabel: existingHref ? 'Salvar link' : 'Inserir link',
-      cancelLabel: 'Cancelar',
+        ? t('editor.richLink.descNoSelection')
+        : t('editor.richLink.descSelection'),
+      submitLabel: existingHref ? t('editor.richLink.submitSave') : t('editor.richLink.submitInsert'),
+      cancelLabel: t('editor.richLink.cancel'),
       allowCancel: true,
       questions: [
         {
           id: 'href',
           type: 'text',
-          prompt: 'URL',
-          placeholder: 'https://… (ou /caminho, #ancora, mailto:…)',
+          prompt: t('editor.richLink.urlPrompt'),
+          placeholder: t('editor.richLink.urlPlaceholder'),
           required: true,
           default: existingHref,
         },
@@ -45,8 +47,8 @@ export function useRichLinkDialog({ editor, readOnly }: Args) {
               {
                 id: 'text',
                 type: 'text',
-                prompt: 'Texto (opcional)',
-                placeholder: 'Texto do link',
+                prompt: t('editor.richLink.textPrompt'),
+                placeholder: t('editor.richLink.textPlaceholder'),
                 required: false,
                 default: selectedText || '',
               } as const,
@@ -59,7 +61,7 @@ export function useRichLinkDialog({ editor, readOnly }: Args) {
 
     const href = String(resp.answers.href || '').trim();
     if (!isSafeLinkHref(href)) {
-      addToast('Link inválido ou inseguro. Use http(s), mailto, /caminho ou #ancora.', 'error');
+      addToast(t('editor.toast.linkInvalid'), 'error');
       return;
     }
 
@@ -78,5 +80,5 @@ export function useRichLinkDialog({ editor, readOnly }: Args) {
     }
 
     editor.chain().focus().extendMarkRange('link').setLink({ href }).run();
-  }, [editor, readOnly, requestQuestionnaire, addToast]);
+  }, [editor, readOnly, requestQuestionnaire, addToast, t]);
 }

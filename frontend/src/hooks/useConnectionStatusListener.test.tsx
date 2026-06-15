@@ -78,7 +78,9 @@ describe('useConnectionStatusListener', () => {
     act(() => lastHandler?.(payload({ state: 'offline' })));
 
     expect(announceSpy).toHaveBeenCalledWith('connectionStatus.announce.lost', 'assertive');
-    expect(addToastSpy).toHaveBeenCalledWith('connectionStatus.announce.lost', 'error');
+    expect(addToastSpy).toHaveBeenCalledWith('connectionStatus.announce.lost', 'error', undefined, undefined, {
+      suppressAnnounce: true,
+    });
   });
 
   it('ignora o estado intermediário "checking" para não gerar anúncios espúrios', () => {
@@ -102,7 +104,9 @@ describe('useConnectionStatusListener', () => {
     act(() => lastHandler?.(payload({ state: 'online' })));
 
     expect(announceSpy).toHaveBeenCalledWith('connectionStatus.announce.restored', 'polite');
-    expect(addToastSpy).toHaveBeenCalledWith('connectionStatus.announce.restored', 'success', 4000);
+    expect(addToastSpy).toHaveBeenCalledWith('connectionStatus.announce.restored', 'success', 4000, undefined, {
+      suppressAnnounce: true,
+    });
   });
 
   it('reseta a store e o tracking ao perder a sessão, sem anúncio espúrio ao relogar', () => {
