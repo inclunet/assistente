@@ -50,6 +50,14 @@ func (s *credentialSecretStore) GetSecret(ctx context.Context, key string) (stri
 func (a *App) initJobs() {
 	baseDir := filepath.Join(configdir.GetHomeDir(), "jobs")
 
+	// Re-normaliza slugs legados (jobs/pipelines/tags) para a forma canônica de
+	// internal/slug antes de o Manager ler do banco. Idempotente; falha aqui é
+	// logada mas não aborta o boot (degradação aceitável: apenas registros
+	// legados com acentos/símbolos seguiriam não-encontráveis até a correção).
+	if err := jobs.RenormalizeLegacySlugs(database.DB()); err != nil {
+		log.Printf("[Jobs] AVISO: re-normalização de slugs legados falhou: %v", err)
+	}
+
 	a.jobMgr = jobs.NewManager(jobs.ManagerConfig{
 		BaseDir:         baseDir,
 		Repository:      jobs.NewDBRepository(database.DB()),
