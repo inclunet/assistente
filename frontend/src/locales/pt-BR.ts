@@ -2553,6 +2553,7 @@ const ptBR = {
       search: 'Buscar jobs...',
       gridLabel: 'Lista de jobs',
       noJobs: 'Nenhum job configurado',
+      noSearchResults: 'Nenhum job encontrado para a busca atual',
       noJobsHint: 'Crie arquivos YAML em ~/.assistente/jobs/ para adicionar jobs',
       name: 'Nome',
       tool: 'Ferramenta',

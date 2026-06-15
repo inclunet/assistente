@@ -2579,6 +2579,7 @@ const en = {
       search: 'Search jobs...',
       gridLabel: 'Jobs list',
       noJobs: 'No jobs configured',
+      noSearchResults: 'No jobs match the current search',
       noJobsHint: 'Create YAML files in ~/.assistente/jobs/ to add jobs',
       name: 'Name',
       tool: 'Tool',
