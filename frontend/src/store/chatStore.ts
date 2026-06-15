@@ -40,7 +40,6 @@ import {
 } from '../services/messageWindowLimits';
 import {
   createEmptyChatSurfaceSession,
-  getDefaultChatSessionKey,
   getChatSession,
   getConversationTimeline,
   patchChatConversation,
@@ -58,7 +57,6 @@ import {
   type MessageWindowState,
 } from '../services/chatSessionRegistry';
 import {
-  appendInternalMessageToTree,
   attachChildrenToMessage,
   flattenThreadedMessages,
   finalizeStreamingNode,
@@ -101,12 +99,6 @@ const getErrorMessage = (error: unknown): string => {
 const isPersistedMessageNode = (node: MessageNode | undefined): boolean => {
   if (!node) return false;
   return isPersistedTimelineNode(node);
-};
-
-const stripInternalMessageTurnId = (message: Message): Message => {
-  const messageWithoutTurnId = { ...(message as Message & { turnId?: string }) };
-  delete messageWithoutTurnId.turnId;
-  return messageWithoutTurnId as Message;
 };
 
 const getLastPersistedMessageId = (nodes: MessageNode[]): string | null => {
@@ -174,7 +166,6 @@ interface ChatStore {
 
   updateConversationMessage: (conversationId: string, messageId: string, content: string) => void;
   updateConversationMessageReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
-  addInternalMessage: (message: Message) => void;
   clearConversationMessages: (conversationId: string) => void;
 
   toggleConversationThreadExpanded: (conversationId: string, messageId: string, sessionKey: string) => void;
@@ -1210,59 +1201,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           ...conversation,
           threadedMessages: updateMessageReasoningInTree(conversation.threadedMessages, messageId, reasoning),
         }));
-      });
-    },
-
-    addInternalMessage: (message) => {
-      const conversationId = String(message.conversationId || '');
-      if (!conversationId) return;
-      const messageForTree = message.turnId
-        ? stripInternalMessageTurnId(message)
-        : message;
-      if (message.turnId) {
-        const warning = '[Chat] addInternalMessage recebeu turnId; removendo para evitar colisão com timeline canônica';
-        if (import.meta.env.DEV) {
-          logger.error(new Error(warning));
-        } else {
-          logger.warn(warning);
-        }
-      }
-
-      set((state) => {
-        const session = getSession(state, conversationId);
-        if (!session.conversation) return state;
-        const patches = patchSession(state, conversationId, {
-          conversation: {
-            ...session.conversation,
-            threadedMessages: appendInternalMessageToTree(session.conversation.threadedMessages, messageForTree),
-          },
-        });
-        const updatedTimeline = patches.timelinesByConversationId?.[conversationId]
-          ?? getConversationTimeline(state, conversationId)
-          ?? session.conversation;
-        const timelinesByConversationId = { ...(patches.timelinesByConversationId ?? state.timelinesByConversationId ?? {}) };
-        timelinesByConversationId[conversationId] = {
-          ...updatedTimeline,
-          threadedMessages: updatedTimeline.threadedMessages.filter(isPersistedMessageNode),
-        };
-        const surfaceSessionsByKey = { ...(patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey ?? {}) };
-        const defaultSessionKey = getDefaultChatSessionKey(conversationId);
-        for (const [key, surfaceSession] of Object.entries(state.surfaceSessionsByKey ?? {})) {
-          if (key === defaultSessionKey || surfaceSession.conversationId !== conversationId || !surfaceSession.visibleThreadedMessages) {
-            continue;
-          }
-          surfaceSessionsByKey[key] = {
-            ...surfaceSession,
-            visibleThreadedMessages: capRenderedNodesAtEnd(
-              appendInternalMessageToTree(surfaceSession.visibleThreadedMessages, messageForTree),
-            ),
-          };
-        }
-        return {
-          ...patches,
-          timelinesByConversationId,
-          surfaceSessionsByKey,
-        };
       });
     },
 
