@@ -206,7 +206,7 @@ export function useEditorPersistence({
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('focus', onFocus);
     };
-  }, [sessionLoaded, allDocs, currentDocumentId]);
+  }, [sessionLoaded, currentDocumentId]);
 
   // Watcher de mudanças externas (sincroniza watch/unwatch com as abas abertas).
   useEffect(() => {
