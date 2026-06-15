@@ -20,6 +20,7 @@ Implementado no repositório (não-exaustivo):
 - [x] Mermaid no modo rico com modal de edição e preview.
 - [x] Tratamento de erro de Mermaid no renderer (ações como “Copiar erro” e “Re-renderizar”).
 - [x] Identificação estável de blocos Mermaid no modo rico via `mermaidBlockId` (para aplicar/remover o bloco correto).
+- [x] Refatoração modular da `EditorPage` (issue #258): lógica extraída para hooks (`useEditorMerge`, `useEditorPersistence`, `useEditorDocument`), componentes filhos (`EditorToolbar`, `EditorContentArea`) e utilitários puros (`lib/editorMergeUtils`, `lib/editorContent`); integrações Monaco/TipTap tipadas e regra ESLint `@typescript-eslint/no-explicit-any` reativada (sem `any`). Sem mudança de comportamento.
 
 Adiado (por decisão de escopo agora):
 - [ ] Persistência via SQLite (`editor_documents`) e gestão de arquivos do editor.
