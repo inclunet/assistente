@@ -1082,6 +1082,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     }
 
     const minePreview = truncatePreview(mineContent);
+    const minePreviewText = minePreview.truncated
+      ? minePreview.preview + t('editor.preview.truncatedSuffix', { total: minePreview.total })
+      : minePreview.preview;
 
     const resp = await requestQuestionnaire({
       id: `ui-editor-abort-merge-${Date.now()}`,
@@ -1102,7 +1105,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           id: 'mine',
           type: 'readonly_code' as const,
           prompt: 'Sua versão original (preview)',
-          content: minePreview.preview || '(vazio)',
+          content: minePreviewText || '(vazio)',
         },
       ],
     });

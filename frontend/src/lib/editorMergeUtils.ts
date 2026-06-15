@@ -79,12 +79,17 @@ export function buildUnifiedDiff(diskContent: string, localContent: string): str
   }
 }
 
-/** Trunca um texto para preview, anexando um aviso quando excede o limite. */
+/**
+ * Trunca um texto para preview retornando apenas os dados (preview + flags).
+ *
+ * Não compõe nenhum texto user-facing: quando `truncated` é `true`, cabe ao
+ * caller anexar um sufixo traduzido via i18n (ex.: `editor.preview.truncatedSuffix`).
+ */
 export function truncatePreview(text: string, limit = 20000): TextPreview {
   const s = String(text ?? '');
   if (s.length <= limit) return { preview: s, truncated: false, total: s.length };
   return {
-    preview: s.slice(0, Math.max(0, limit)) + `\n\n… (truncado; total: ${s.length} chars)`,
+    preview: s.slice(0, Math.max(0, limit)),
     truncated: true,
     total: s.length,
   };

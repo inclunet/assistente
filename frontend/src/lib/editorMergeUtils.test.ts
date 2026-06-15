@@ -101,13 +101,13 @@ describe('editorMergeUtils', () => {
       expect(res).toEqual({ preview: 'curto', truncated: false, total: 5 });
     });
 
-    it('trunca textos longos e marca truncated', () => {
+    it('trunca textos longos e marca truncated sem compor sufixo user-facing', () => {
       const long = 'x'.repeat(50);
       const res = truncatePreview(long, 10);
       expect(res.truncated).toBe(true);
       expect(res.total).toBe(50);
-      expect(res.preview.startsWith('xxxxxxxxxx')).toBe(true);
-      expect(res.preview).toContain('truncado');
+      expect(res.preview).toBe('xxxxxxxxxx');
+      expect(res.preview).not.toContain('truncado');
     });
   });
 });

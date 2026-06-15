@@ -702,6 +702,12 @@ const es = {
         mermaidUpdated: 'Bloque Mermaid actualizado',
         mermaidRemoved: 'Bloque Mermaid eliminado',
       },
+      errors: {
+        diskReadFailed: 'Error al leer del disco:',
+      },
+      preview: {
+        truncatedSuffix: '\n\n… (truncado; total: {{total}} caracteres)',
+      },
       richLink: {
         titleEdit: 'Editar enlace',
         titleInsert: 'Insertar enlace',

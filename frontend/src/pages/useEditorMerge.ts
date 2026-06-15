@@ -16,6 +16,7 @@ import {
 } from '@wailsjs/go/app/App';
 import {
   type DiskInfo,
+  type TextPreview,
   buildUnifiedDiff,
   hashStringFNV1a32,
   makeGitStyleConflictText,
@@ -40,6 +41,10 @@ export function useEditorMerge() {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
+
+  // Compõe o texto de um preview, anexando o sufixo traduzido quando truncado.
+  const composePreviewText = (p: TextPreview): string =>
+    p.truncated ? p.preview + t('editor.preview.truncatedSuffix', { total: p.total }) : p.preview;
 
   const setDocMarkdown = useEditorStore((s) => s.setDocMarkdown);
   const setDocFilePath = useEditorStore((s) => s.setDocFilePath);
@@ -176,7 +181,7 @@ export function useEditorMerge() {
       setDocDirty(tabId, true);
 
       const localContent = getCachedMarkdownForTab(tab);
-      const localPreview = truncatePreview(localContent);
+      const localPreviewText = composePreviewText(truncatePreview(localContent));
 
       let diskContent = typeof opts?.diskContent === 'string' ? String(opts?.diskContent) : '';
       let diskReadError = typeof opts?.diskReadError === 'string' ? String(opts?.diskReadError) : '';
@@ -200,12 +205,12 @@ export function useEditorMerge() {
         return;
       }
 
-      const diskPreview = diskReadError
-        ? { preview: `Erro ao ler do disco:\n${diskReadError}`, truncated: false, total: 0 }
-        : truncatePreview(diskContent);
+      const diskPreviewText = diskReadError
+        ? `${t('editor.errors.diskReadFailed')}\n${diskReadError}`
+        : composePreviewText(truncatePreview(diskContent));
 
       const diffText = diskReadError ? '' : buildUnifiedDiff(diskContent, localContent);
-      const diffPreview = diffText ? truncatePreview(diffText, 30000) : { preview: '', truncated: false, total: 0 };
+      const diffPreviewText = diffText ? composePreviewText(truncatePreview(diffText, 30000)) : '';
 
       const resp = await requestQuestionnaire({
         id: `ui-editor-external-change-${Date.now()}`,
@@ -221,13 +226,13 @@ export function useEditorMerge() {
             prompt: t('editor.prompts.file'),
             content: String(filePath || ''),
           },
-          ...(diffPreview.preview
+          ...(diffPreviewText
             ? [
                 {
                   id: 'diff',
                   type: 'readonly_code' as const,
                   prompt: t('editor.prompts.diff'),
-                  content: diffPreview.preview,
+                  content: diffPreviewText,
                 },
               ]
             : []),
@@ -235,13 +240,13 @@ export function useEditorMerge() {
             id: 'disk',
             type: 'readonly_code' as const,
             prompt: t('editor.prompts.diskPreview'),
-            content: diskPreview.preview,
+            content: diskPreviewText,
           },
           {
             id: 'local',
             type: 'readonly_code' as const,
             prompt: t('editor.prompts.localPreview'),
-            content: localPreview.preview,
+            content: localPreviewText,
           },
           {
             id: 'choice',

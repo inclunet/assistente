@@ -217,7 +217,7 @@ export function useEditorDocument({
   useEffect(() => {
     if (!sessionLoaded) return;
     if (!activeTab) return;
-    updateLatestMarkdownForTab(activeTab.id, String(activeTab.markdown ?? ''));  }, [sessionLoaded, activeTab?.id]);
+    updateLatestMarkdownForTab(activeTab.id, String(activeTab.markdown ?? ''));  }, [sessionLoaded, activeTab?.id, activeTab?.markdown]);
 
   // Persiste o estado do editor (fileModeByPath + mergeSessionsByTabId).
   useEffect(() => {

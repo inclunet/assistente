@@ -703,6 +703,12 @@ const en = {
         mermaidUpdated: 'Mermaid block updated',
         mermaidRemoved: 'Mermaid block removed',
       },
+      errors: {
+        diskReadFailed: 'Error reading from disk:',
+      },
+      preview: {
+        truncatedSuffix: '\n\n… (truncated; total: {{total}} chars)',
+      },
       richLink: {
         titleEdit: 'Edit link',
         titleInsert: 'Insert link',

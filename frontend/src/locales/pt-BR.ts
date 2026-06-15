@@ -703,6 +703,12 @@ const ptBR = {
         mermaidUpdated: 'Bloco Mermaid atualizado',
         mermaidRemoved: 'Bloco Mermaid removido',
       },
+      errors: {
+        diskReadFailed: 'Erro ao ler do disco:',
+      },
+      preview: {
+        truncatedSuffix: '\n\n… (truncado; total: {{total}} chars)',
+      },
       richLink: {
         titleEdit: 'Editar link',
         titleInsert: 'Inserir link',
