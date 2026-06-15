@@ -336,7 +336,8 @@ export default function JobsPage() {
     [t, handleToggle, getJobRowActions]
   );
 
-  const hasJobs = filteredJobs.length > 0;
+  const hasJobs = jobsList.length > 0;
+  const hasFilteredJobs = filteredJobs.length > 0;
 
   const homeActions = [
     {
@@ -381,7 +382,7 @@ export default function JobsPage() {
 
       {isLoading && jobsList.length === 0 ? (
         <div className="jobs-loading">{t('common.loading', 'Loading...')}</div>
-      ) : hasJobs ? (
+      ) : hasFilteredJobs ? (
         <div ref={gridRef}>
           <DataGrid
             items={filteredJobs}
@@ -393,6 +394,11 @@ export default function JobsPage() {
             onGridReady={handleGridReady}
             label={t('jobs.gridLabel')}
           />
+        </div>
+      ) : hasJobs ? (
+        <div className="jobs-empty-state">
+          <p className="jobs-empty-message">{t('jobs.noSearchResults')}</p>
+          <p className="jobs-empty-hint">{t('common.noResults')}</p>
         </div>
       ) : (
         <div className="jobs-empty-state">
