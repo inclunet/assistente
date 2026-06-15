@@ -38,9 +38,7 @@ export type { ThreadIndicatorProps } from './chat/ThreadIndicator';
 
 export { ChatToolbar } from './chat/ChatToolbar';
 export type { ChatToolbarProps } from './chat/ChatToolbar';
-// export { MarkdownRenderer } from './ui/MarkdownRenderer'; // Temporariamente desabilitado
 
 // Layout Components
 export { Layout } from './layout/Layout';
 export { Topbar } from './layout/Topbar';
-export { Sidebar } from './layout/Sidebar';
