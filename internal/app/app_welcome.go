@@ -5,7 +5,6 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/providers"
-	"context"
 	"fmt"
 )
 
@@ -70,7 +69,7 @@ func (a *App) validateWizardURL(baseURL string) error {
 // pré-login.
 func (a *App) NeedsWelcomeWizard() bool {
 	store := credentials.NewDBStore()
-	hasMasterKey, err := store.HasKeyWrap(context.Background(), credentials.KeyWrapKindMaster)
+	hasMasterKey, err := store.HasKeyWrap(a.appContext(), credentials.KeyWrapKindMaster)
 	if err != nil {
 		return true
 	}
