@@ -35,9 +35,14 @@ type slugRenormalizationTarget struct {
 //     noop.
 //   - Escopada por usuário: o índice único é (user_id, slug); a detecção de
 //     colisão e a re-normalização são feitas por usuário.
-//   - Não destrutiva: se a forma canônica colidiria com um slug já existente
-//     para o mesmo usuário, a linha legada é PRESERVADA sem alteração e um aviso
-//     é logado, deixando a resolução para o operador. Nenhum dado é apagado.
+//   - Não destrutiva e sempre endereçável: se a forma canônica colidiria com um
+//     slug já existente para o mesmo usuário, a linha legada é re-normalizada para
+//     um slug canônico ÚNICO derivado da forma canônica com sufixo numérico
+//     (`-2`, `-3`, …), garantindo unicidade (user_id, slug) e que toda linha
+//     permaneça endereçável por um slug canônico. O rename é logado. Nenhum dado
+//     é apagado. (Antes a linha legada era preservada com seu slug não-canônico,
+//     o que a tornava inalcançável pelos lookups — que normalizam a busca para a
+//     forma canônica — e fazia toggle/delete/persist/log atingirem o job errado.)
 //   - Slugs que normalizam para vazio (ex.: só símbolos) são preservados como
 //     estão, pois não há forma canônica segura para reescrevê-los.
 func RenormalizeLegacySlugs(db *gorm.DB) error {
@@ -49,24 +54,25 @@ func RenormalizeLegacySlugs(db *gorm.DB) error {
 		{table: "job_pipelines"},
 		{table: "jobs"},
 	}
-	var totalUpdated, totalSkipped int
+	var totalUpdated, totalSuffixed int
 	for _, target := range targets {
-		updated, skipped, err := renormalizeSlugsForTable(db, target)
+		updated, suffixed, err := renormalizeSlugsForTable(db, target)
 		if err != nil {
 			return fmt.Errorf("re-normaliza slugs de %s: %w", target.table, err)
 		}
 		totalUpdated += updated
-		totalSkipped += skipped
+		totalSuffixed += suffixed
 	}
-	if totalUpdated > 0 || totalSkipped > 0 {
-		log.Printf("[Jobs] Re-normalização de slugs legados concluída: %d atualizados, %d preservados por conflito", totalUpdated, totalSkipped)
+	if totalUpdated > 0 {
+		log.Printf("[Jobs] Re-normalização de slugs legados concluída: %d atualizados (%d deles com sufixo por colisão de slug canônico)", totalUpdated, totalSuffixed)
 	}
 	return nil
 }
 
 // renormalizeSlugsForTable re-normaliza os slugs de uma única tabela. Retorna a
-// contagem de linhas atualizadas e de linhas preservadas por colisão.
-func renormalizeSlugsForTable(db *gorm.DB, target slugRenormalizationTarget) (updated, skipped int, err error) {
+// contagem de linhas atualizadas e quantas delas precisaram de sufixo numérico
+// por colisão de slug canônico.
+func renormalizeSlugsForTable(db *gorm.DB, target slugRenormalizationTarget) (updated, suffixed int, err error) {
 	if !db.Migrator().HasTable(target.table) {
 		return 0, 0, nil
 	}
@@ -122,23 +128,42 @@ func renormalizeSlugsForTable(db *gorm.DB, target slugRenormalizationTarget) (up
 		})
 	}
 
-	// 2ª passada: aplica as mudanças, pulando colisões.
+	// 2ª passada: aplica as mudanças. Em colisão, deriva um slug canônico único
+	// com sufixo numérico para manter a linha endereçável (ver doc da função).
 	for _, change := range toChange {
-		if isTaken(change.userID, change.canonical) {
-			log.Printf("[Jobs] AVISO: slug legado %q (tabela %s, user %s) colide com %q já existente; preservado sem alteração para resolução manual",
-				change.oldSlug, target.table, change.userID, change.canonical)
-			// A linha legada continua ocupando seu slug atual.
-			occupy(change.userID, change.oldSlug)
-			skipped++
-			continue
+		finalSlug := change.canonical
+		if isTaken(change.userID, finalSlug) {
+			finalSlug = uniqueCanonicalSlug(change.canonical, func(s string) bool {
+				return isTaken(change.userID, s)
+			})
+			log.Printf("[Jobs] AVISO: slug legado %q (tabela %s, user %s) normalizaria para %q, que já existe; re-normalizado para %q (canônico e único) para mantê-lo endereçável",
+				change.oldSlug, target.table, change.userID, change.canonical, finalSlug)
+			suffixed++
 		}
-		res := db.Table(target.table).Where("id = ?", change.id).Update("slug", change.canonical)
+		res := db.Table(target.table).Where("id = ?", change.id).Update("slug", finalSlug)
 		if res.Error != nil {
-			return updated, skipped, res.Error
+			return updated, suffixed, res.Error
 		}
-		occupy(change.userID, change.canonical)
+		occupy(change.userID, finalSlug)
 		updated++
 	}
 
-	return updated, skipped, nil
+	return updated, suffixed, nil
+}
+
+// uniqueCanonicalSlug retorna a forma canônica base quando livre; caso contrário
+// anexa sufixos numéricos crescentes (`-2`, `-3`, …) até encontrar um slug ainda
+// não ocupado, conforme reportado por taken. O resultado continua sendo um slug
+// canônico válido (somente minúsculas, dígitos e hífens) e endereçável pelos
+// lookups, que normalizam a busca para a mesma forma.
+func uniqueCanonicalSlug(canonical string, taken func(string) bool) string {
+	if !taken(canonical) {
+		return canonical
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", canonical, i)
+		if !taken(candidate) {
+			return candidate
+		}
+	}
 }

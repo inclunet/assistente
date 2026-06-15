@@ -95,12 +95,15 @@ func TestRenormalizeLegacySlugs_RenormalizesAcrossTables(t *testing.T) {
 	}
 }
 
-func TestRenormalizeLegacySlugs_SkipsOnCollision(t *testing.T) {
+func TestRenormalizeLegacySlugs_RenamesOnCollision(t *testing.T) {
 	db := setupSlugMigrationDB(t)
 
 	// Já-canônico tem precedência: ocupa "cafe-report".
 	canonicalID := insertJob(t, db, "user-a", "cafe-report")
-	// Legado normaliza para o mesmo "cafe-report" → deve ser preservado.
+	// Legado normaliza para o mesmo "cafe-report" → como colide, deve ser
+	// re-normalizado para um slug canônico único ("cafe-report-2"), permanecendo
+	// endereçável (antes ficava preservado com o slug não-canônico, inalcançável
+	// pelos lookups que normalizam a busca para a forma canônica).
 	legacyID := insertJob(t, db, "user-a", "Café Report")
 
 	if err := RenormalizeLegacySlugs(db); err != nil {
@@ -110,14 +113,127 @@ func TestRenormalizeLegacySlugs_SkipsOnCollision(t *testing.T) {
 	if got := jobSlugByID(t, db, canonicalID); got != "cafe-report" {
 		t.Errorf("job canônico slug = %q, quero %q", got, "cafe-report")
 	}
-	if got := jobSlugByID(t, db, legacyID); got != "Café Report" {
-		t.Errorf("job legado slug = %q, quero %q (preservado por conflito)", got, "Café Report")
+	if got := jobSlugByID(t, db, legacyID); got != "cafe-report-2" {
+		t.Errorf("job legado slug = %q, quero %q (canônico único por colisão)", got, "cafe-report-2")
 	}
 	// Nenhum dado apagado: as duas linhas continuam existindo.
 	var count int64
 	db.Table("jobs").Where("user_id = ?", "user-a").Count(&count)
 	if count != 2 {
 		t.Errorf("contagem de jobs = %d, quero 2 (nenhuma linha apagada)", count)
+	}
+	// Ambos os slugs finais são canônicos e estáveis: normalizar de novo não muda.
+	for _, s := range []string{"cafe-report", "cafe-report-2"} {
+		if got := normalizeSlug(s); got != s {
+			t.Errorf("slug final %q não é canônico (normalizeSlug = %q)", s, got)
+		}
+	}
+}
+
+// TestRenormalizeLegacySlugs_CollisionRowsRemainAddressable é a reprodução direta
+// do bug do Bugbot: duas linhas do mesmo usuário cujos slugs normalizam para o
+// mesmo canônico. Após a migração, AMBAS devem ser encontráveis por um WHERE
+// slug = normalizeSlug(?) — simulando GetJob/DeleteJob/jobRowBySlug — e cada
+// lookup deve resolver exatamente a linha esperada (sem ambiguidade).
+func TestRenormalizeLegacySlugs_CollisionRowsRemainAddressable(t *testing.T) {
+	db := setupSlugMigrationDB(t)
+
+	canonicalID := insertJob(t, db, "user-a", "daily-report")
+	legacyID := insertJob(t, db, "user-a", "Dáily Report")
+
+	if err := RenormalizeLegacySlugs(db); err != nil {
+		t.Fatalf("renormalize: %v", err)
+	}
+
+	canonicalSlug := jobSlugByID(t, db, canonicalID)
+	legacySlug := jobSlugByID(t, db, legacyID)
+
+	if canonicalSlug == legacySlug {
+		t.Fatalf("slugs colidiram após migração: ambos = %q", canonicalSlug)
+	}
+
+	// jobIDBySlug emula o lookup do repositório: WHERE slug = normalizeSlug(?).
+	jobIDBySlug := func(slug string) (string, error) {
+		var id string
+		err := db.Table("jobs").
+			Select("id").
+			Where("user_id = ? AND slug = ?", "user-a", normalizeSlug(slug)).
+			Scan(&id).Error
+		return id, err
+	}
+
+	gotCanonical, err := jobIDBySlug(canonicalSlug)
+	if err != nil {
+		t.Fatalf("lookup canônico: %v", err)
+	}
+	if gotCanonical != canonicalID {
+		t.Errorf("lookup por %q resolveu id %q, quero %q", canonicalSlug, gotCanonical, canonicalID)
+	}
+
+	gotLegacy, err := jobIDBySlug(legacySlug)
+	if err != nil {
+		t.Fatalf("lookup legado: %v", err)
+	}
+	if gotLegacy != legacyID {
+		t.Errorf("lookup por %q resolveu id %q, quero %q", legacySlug, gotLegacy, legacyID)
+	}
+}
+
+// TestRenormalizeLegacySlugs_MultipleCollisions garante sufixos incrementais
+// estáveis quando três linhas normalizam para o mesmo canônico.
+func TestRenormalizeLegacySlugs_MultipleCollisions(t *testing.T) {
+	db := setupSlugMigrationDB(t)
+
+	idCanonical := insertJob(t, db, "user-a", "relatorio")
+	idLegacy1 := insertJob(t, db, "user-a", "Relatório")
+	idLegacy2 := insertJob(t, db, "user-a", "RELATORIO!!!")
+
+	if err := RenormalizeLegacySlugs(db); err != nil {
+		t.Fatalf("renormalize: %v", err)
+	}
+
+	got := map[string]string{
+		idCanonical: jobSlugByID(t, db, idCanonical),
+		idLegacy1:   jobSlugByID(t, db, idLegacy1),
+		idLegacy2:   jobSlugByID(t, db, idLegacy2),
+	}
+	if got[idCanonical] != "relatorio" {
+		t.Errorf("canônico = %q, quero %q", got[idCanonical], "relatorio")
+	}
+	// As duas linhas legadas recebem "relatorio-2" e "relatorio-3" (a ordem entre
+	// elas depende da ordenação por id; o que importa é unicidade e canonicidade).
+	legacySlugs := map[string]bool{got[idLegacy1]: true, got[idLegacy2]: true}
+	for _, want := range []string{"relatorio-2", "relatorio-3"} {
+		if !legacySlugs[want] {
+			t.Errorf("esperava que alguma linha legada tivesse slug %q; obtido %v", want, got)
+		}
+	}
+
+	// Todos distintos → índice único (user_id, slug) respeitado.
+	seen := map[string]bool{}
+	for _, s := range got {
+		if seen[s] {
+			t.Errorf("slug duplicado após migração: %q", s)
+		}
+		seen[s] = true
+	}
+}
+
+// TestRenormalizeLegacySlugs_SuffixAvoidsExistingCanonical garante que o sufixo
+// pula um slug canônico já ocupado (ex.: "relatorio-2" já existe).
+func TestRenormalizeLegacySlugs_SuffixAvoidsExistingCanonical(t *testing.T) {
+	db := setupSlugMigrationDB(t)
+
+	insertJob(t, db, "user-a", "relatorio")
+	insertJob(t, db, "user-a", "relatorio-2")
+	legacyID := insertJob(t, db, "user-a", "Relatório")
+
+	if err := RenormalizeLegacySlugs(db); err != nil {
+		t.Fatalf("renormalize: %v", err)
+	}
+
+	if got := jobSlugByID(t, db, legacyID); got != "relatorio-3" {
+		t.Errorf("legado = %q, quero %q (deve pular relatorio-2 já existente)", got, "relatorio-3")
 	}
 }
 
