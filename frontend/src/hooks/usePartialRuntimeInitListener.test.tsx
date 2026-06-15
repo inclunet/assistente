@@ -144,6 +144,31 @@ describe('usePartialRuntimeInitListener', () => {
     );
   });
 
+  it('retry acionado logo no primeiro aviso reexibe quando ainda há falhas (ref síncrona, não no-op)', async () => {
+    renderHook(() => usePartialRuntimeInitListener());
+
+    // Primeiro aviso e clique imediato em "Tentar novamente": showWarningRef deve
+    // já apontar para o showWarning real (atribuição síncrona no render), não para
+    // o no-op inicial — senão a reexibição abaixo não aconteceria.
+    const action = emitWarning();
+    retrySpy.mockResolvedValue({ subsystems: [{ subsystem: 'jobs' }] });
+    addToastSpy.mockClear();
+
+    await act(async () => {
+      action.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(addToastSpy).toHaveBeenCalledWith(
+      'runtimeStatus.partialInit.message',
+      'warning',
+      0,
+      expect.objectContaining({ label: 'runtimeStatus.partialInit.retry' }),
+      { suppressAnnounce: true },
+    );
+  });
+
   it('falha da RPC mantém o aviso persistente (não remove) e mostra erro', async () => {
     renderHook(() => usePartialRuntimeInitListener());
     const action = emitWarning();

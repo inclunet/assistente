@@ -139,9 +139,12 @@ export function usePartialRuntimeInitListener() {
     [announce, addToast, removeToast, labelFor, t, handleRetry],
   );
 
-  useEffect(() => {
-    showWarningRef.current = showWarning;
-  }, [showWarning]);
+  // Atualização SÍNCRONA no render (não em useEffect): garante que a ref sempre
+  // aponta para o showWarning mais recente, sem a janela inicial com o no-op em
+  // que um clique em "Tentar novamente" deixaria de reexibir o aviso. Escrever
+  // em uma ref durante o render é seguro/idiomático para este caso (não dispara
+  // re-render nem efeitos colaterais externos).
+  showWarningRef.current = showWarning;
 
   useWailsEvent<RuntimePartialInitPayload>(RUNTIME_PARTIAL_INIT_EVENT, (data) => {
     // Ignora eventos que cheguem após logout (corrida com RefreshAuth/logout):
