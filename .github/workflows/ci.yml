@@ -16,6 +16,7 @@ jobs:
     # Executa em push/PR e manualmente; o agendamento noturno cobre o job backend-race.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -73,6 +74,7 @@ jobs:
     # mantendo os PRs rápidos.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -92,6 +94,7 @@ jobs:
   frontend:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -127,6 +130,7 @@ jobs:
   e2e:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
