@@ -2,11 +2,18 @@ package database
 
 import (
 	"context"
+	"errors"
 
 	"gorm.io/gorm"
 )
 
 // ==================== LLM Providers ====================
+
+// ErrProviderCrossUser indica tentativa de sobrescrever, em contexto
+// autenticado, um LLMProvider existente cujo dono é OUTRO usuário. Falha
+// fechado (AEP-0052) para impedir hijack cross-user via reuso de ID no Save
+// (UPSERT por PK).
+var ErrProviderCrossUser = errors.New("llm provider pertence a outro usuário")
 
 // ProviderRepository encapsula a persistência de LLMProvider com um *gorm.DB
 // injetado, permitindo reuso em transações e testes sem depender da global db.
@@ -41,6 +48,25 @@ func (r *ProviderRepository) SaveLLMProvider(ctx context.Context, provider *LLMP
 	if provider != nil && provider.UserID == "" {
 		if userID, ok := UserIDFromContext(ctx); ok {
 			provider.UserID = userID
+		}
+	}
+	// SECURITY (AEP-0052 / fail-closed): em contexto autenticado, impedir que o
+	// Save (UPSERT por PK) sobrescreva um provider existente pertencente a OUTRO
+	// usuário ao reutilizar seu ID — vetor de hijack cross-user. Registros órfãos
+	// (user_id="") permanecem adotáveis (AdoptLegacyData). O caminho bootstrap
+	// (sem userID no ctx) não dispara esta checagem.
+	if userID, ok := UserIDFromContext(ctx); ok && provider != nil && provider.ID != "" {
+		var existing LLMProvider
+		err := db.WithContext(ctx).Select("id", "user_id").First(&existing, "id = ?", provider.ID).Error
+		switch {
+		case err == nil:
+			if existing.UserID != "" && existing.UserID != userID {
+				return ErrProviderCrossUser
+			}
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			// Sem registro pré-existente: criação normal.
+		default:
+			return err
 		}
 	}
 	return db.WithContext(ctx).Save(provider).Error
