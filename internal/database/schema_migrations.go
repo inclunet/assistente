@@ -6,6 +6,15 @@ import (
 	"strings"
 )
 
+// ensureTaskNoteExternalUniqueIndex aplica índice único parcial em (external_source, external_id).
+//
+// Escolha de modelagem: chave única global por origem (sem task_id na unicidade), alinhada à
+// preferência de produto e ao padrão “ID estável no sistema remoto”. O mesmo comentário Jira
+// (por exemplo) deve mapear a no máximo uma TaskNote no app, impedindo duplicatas em re-syncs.
+// Notas manuais permanecem fora do índice (WHERE ambos os campos não vazios).
+//
+// Se a mesma referência externa for associada a outra task local, UpsertTaskNoteByExternal
+// retorna erro explícito em vez de duplicar linhas.
 func ensureTaskNoteExternalUniqueIndex() {
 	if db == nil {
 		return

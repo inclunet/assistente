@@ -12,6 +12,16 @@ import (
 	"gorm.io/gorm"
 )
 
+// MessageRepository encapsula a persistencia de mensagens de chat com um *gorm.DB injetado.
+type MessageRepository struct {
+	db *gorm.DB
+}
+
+// NewMessageRepository cria um MessageRepository com o *gorm.DB injetado.
+func NewMessageRepository(database *gorm.DB) *MessageRepository {
+	return &MessageRepository{db: database}
+}
+
 // ==================== ChatMessage ====================
 
 // MessageOptions contém opções para criar uma mensagem
@@ -47,6 +57,11 @@ func scopedMessageQuery(ctx context.Context, base *gorm.DB) *gorm.DB {
 // passa fail-open via ScopeByUser e qualquer conversa por ID seria
 // candidata).
 func CreateMessageWithContext(ctx context.Context, opts MessageOptions) (*ChatMessage, error) {
+	return NewMessageRepository(db).CreateMessageWithContext(ctx, opts)
+}
+
+func (r *MessageRepository) CreateMessageWithContext(ctx context.Context, opts MessageOptions) (*ChatMessage, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -147,6 +162,11 @@ func AddMessageWithTokensAndMediaWithContext(ctx context.Context, conversationID
 // pertencente ao usuário do contexto. Retorna ("", "", nil) se a mensagem não
 // tem áudio.
 func GetMessageAudioWithContext(ctx context.Context, messageID string) (string, string, error) {
+	return NewMessageRepository(db).GetMessageAudioWithContext(ctx, messageID)
+}
+
+func (r *MessageRepository) GetMessageAudioWithContext(ctx context.Context, messageID string) (string, string, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return "", "", err
 	}
@@ -162,6 +182,11 @@ func GetMessageAudioWithContext(ctx context.Context, messageID string) (string, 
 // SaveMessageAudioWithContext salva áudio (base64) numa mensagem existente do
 // usuário do contexto.
 func SaveMessageAudioWithContext(ctx context.Context, messageID string, audioBase64 string, mimeType string) error {
+	return NewMessageRepository(db).SaveMessageAudioWithContext(ctx, messageID, audioBase64, mimeType)
+}
+
+func (r *MessageRepository) SaveMessageAudioWithContext(ctx context.Context, messageID string, audioBase64 string, mimeType string) error {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
@@ -179,6 +204,11 @@ func SaveMessageAudioWithContext(ctx context.Context, messageID string, audioBas
 // o banco — antes vazava existência de áudio em mensagens cross-user via
 // scopedMessageQuery (fail-open).
 func HasMessageAudioWithContext(ctx context.Context, messageID string) bool {
+	return NewMessageRepository(db).HasMessageAudioWithContext(ctx, messageID)
+}
+
+func (r *MessageRepository) HasMessageAudioWithContext(ctx context.Context, messageID string) bool {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return false
 	}
@@ -190,6 +220,11 @@ func HasMessageAudioWithContext(ctx context.Context, messageID string) bool {
 // GetMessageContentWithContext retorna o conteúdo textual de uma mensagem
 // pertencente ao usuário do contexto.
 func GetMessageContentWithContext(ctx context.Context, messageID string) (string, error) {
+	return NewMessageRepository(db).GetMessageContentWithContext(ctx, messageID)
+}
+
+func (r *MessageRepository) GetMessageContentWithContext(ctx context.Context, messageID string) (string, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return "", err
 	}
@@ -206,6 +241,11 @@ func GetMessageContentWithContext(ctx context.Context, messageID string) (string
 // usuário do contexto. Falha fechado sem userID — leitura por ID sem escopo
 // retornaria mensagens de qualquer usuário (vetor de leak silencioso).
 func GetMessageWithContext(ctx context.Context, messageID string) (*ChatMessage, error) {
+	return NewMessageRepository(db).GetMessageWithContext(ctx, messageID)
+}
+
+func (r *MessageRepository) GetMessageWithContext(ctx context.Context, messageID string) (*ChatMessage, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -257,6 +297,11 @@ func AddAssistantToolMessageWithContext(ctx context.Context, conversationID stri
 // GetTurnMessagesWithContext retorna todas as mensagens de um turno (mesmo
 // TurnID) pertencentes ao usuário do contexto, ordenadas por criação.
 func GetTurnMessagesWithContext(ctx context.Context, turnID string) ([]ChatMessage, error) {
+	return NewMessageRepository(db).GetTurnMessagesWithContext(ctx, turnID)
+}
+
+func (r *MessageRepository) GetTurnMessagesWithContext(ctx context.Context, turnID string) ([]ChatMessage, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -272,6 +317,11 @@ func GetTurnMessagesWithContext(ctx context.Context, turnID string) ([]ChatMessa
 // pertencentes ao usuário do contexto. Mantém o mesmo escopo de parent da
 // janela para não misturar raiz e threads.
 func GetMessagesByTurnIDWithContext(ctx context.Context, conversationID string, parentID *string, turnID string, limit int) ([]ChatMessage, error) {
+	return NewMessageRepository(db).GetMessagesByTurnIDWithContext(ctx, conversationID, parentID, turnID, limit)
+}
+
+func (r *MessageRepository) GetMessagesByTurnIDWithContext(ctx context.Context, conversationID string, parentID *string, turnID string, limit int) ([]ChatMessage, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -308,6 +358,11 @@ func AddChildMessageWithContext(ctx context.Context, conversationID string, pare
 // UpdateMessageContentWithContext atualiza o conteúdo e tokens de uma mensagem
 // existente do usuário do contexto.
 func UpdateMessageContentWithContext(ctx context.Context, messageID string, content string, promptTokens, completionTokens, totalTokens int, model string) error {
+	return NewMessageRepository(db).UpdateMessageContentWithContext(ctx, messageID, content, promptTokens, completionTokens, totalTokens, model)
+}
+
+func (r *MessageRepository) UpdateMessageContentWithContext(ctx context.Context, messageID string, content string, promptTokens, completionTokens, totalTokens int, model string) error {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
@@ -324,6 +379,11 @@ func UpdateMessageContentWithContext(ctx context.Context, messageID string, cont
 // UpdateMessageContentAndReasoningWithContext atualiza conteúdo, reasoning e tokens de uma mensagem
 // existente no contexto do usuário atual.
 func UpdateMessageContentAndReasoningWithContext(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, model string) error {
+	return NewMessageRepository(db).UpdateMessageContentAndReasoningWithContext(ctx, messageID, content, reasoning, promptTokens, completionTokens, totalTokens, model)
+}
+
+func (r *MessageRepository) UpdateMessageContentAndReasoningWithContext(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, model string) error {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
@@ -341,6 +401,11 @@ func UpdateMessageContentAndReasoningWithContext(ctx context.Context, messageID 
 // DeleteMessageWithContext exclui uma mensagem e todas as suas filhas
 // (respostas) do usuário do contexto.
 func DeleteMessageWithContext(ctx context.Context, messageID string) error {
+	return NewMessageRepository(db).DeleteMessageWithContext(ctx, messageID)
+}
+
+func (r *MessageRepository) DeleteMessageWithContext(ctx context.Context, messageID string) error {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
@@ -592,6 +657,11 @@ func deleteChatToolInvocationsForOriginIDs(ctx context.Context, originIDs []stri
 // DeleteAllMessagesWithContext remove todas as mensagens de uma conversa
 // pertencente ao usuário do contexto.
 func DeleteAllMessagesWithContext(ctx context.Context, conversationID string) error {
+	return NewMessageRepository(db).DeleteAllMessagesWithContext(ctx, conversationID)
+}
+
+func (r *MessageRepository) DeleteAllMessagesWithContext(ctx context.Context, conversationID string) error {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
@@ -617,6 +687,11 @@ func DeleteAllMessagesWithContext(ctx context.Context, conversationID string) er
 //
 // SECURITY: fail-closed (AEP-0052). Sem userID no ctx retorna ErrUserScopeRequired.
 func ClearConversationContentWithContext(ctx context.Context, conversationID string) error {
+	return NewMessageRepository(db).ClearConversationContentWithContext(ctx, conversationID)
+}
+
+func (r *MessageRepository) ClearConversationContentWithContext(ctx context.Context, conversationID string) error {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
@@ -662,6 +737,11 @@ func ClearConversationContentWithContext(ctx context.Context, conversationID str
 // esta função apagava tudo de todos quando chamada sem ctx; o comportamento
 // foi removido para não ser uma bomba-relógio assinada.
 func ClearAllConversationsWithContext(ctx context.Context) error {
+	return NewMessageRepository(db).ClearAllConversationsWithContext(ctx)
+}
+
+func (r *MessageRepository) ClearAllConversationsWithContext(ctx context.Context) error {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
@@ -688,6 +768,11 @@ func ClearAllConversationsWithContext(ctx context.Context) error {
 // GetMessagesWithContext retorna mensagens de uma conversa do usuário do
 // contexto, com filtro opcional por parent.
 func GetMessagesWithContext(ctx context.Context, conversationID string, parentID *string) ([]ChatMessage, error) {
+	return NewMessageRepository(db).GetMessagesWithContext(ctx, conversationID, parentID)
+}
+
+func (r *MessageRepository) GetMessagesWithContext(ctx context.Context, conversationID string, parentID *string) ([]ChatMessage, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -713,6 +798,11 @@ func GetMessagesWithContext(ctx context.Context, conversationID string, parentID
 // GetRecentRootMessagesWithContext retorna as mensagens raiz mais recentes de
 // uma conversa do usuário do contexto, preservando ordem cronológica no retorno.
 func GetRecentRootMessagesWithContext(ctx context.Context, conversationID string, limit int) ([]ChatMessage, error) {
+	return NewMessageRepository(db).GetRecentRootMessagesWithContext(ctx, conversationID, limit)
+}
+
+func (r *MessageRepository) GetRecentRootMessagesWithContext(ctx context.Context, conversationID string, limit int) ([]ChatMessage, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -741,6 +831,11 @@ func GetRecentRootMessagesWithContext(ctx context.Context, conversationID string
 // GetRootMessagesBeforeWithContext retorna mensagens raiz anteriores a
 // beforeID, do usuário do contexto, preservando ordem cronológica no retorno.
 func GetRootMessagesBeforeWithContext(ctx context.Context, conversationID string, beforeID string, limit int) ([]ChatMessage, error) {
+	return NewMessageRepository(db).GetRootMessagesBeforeWithContext(ctx, conversationID, beforeID, limit)
+}
+
+func (r *MessageRepository) GetRootMessagesBeforeWithContext(ctx context.Context, conversationID string, beforeID string, limit int) ([]ChatMessage, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -1187,6 +1282,11 @@ func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) 
 // GetAllConversationMessagesWithContext retorna todas as mensagens de uma
 // conversa (incluindo filhas) pertencente ao usuário do contexto.
 func GetAllConversationMessagesWithContext(ctx context.Context, conversationID string) ([]ChatMessage, error) {
+	return NewMessageRepository(db).GetAllConversationMessagesWithContext(ctx, conversationID)
+}
+
+func (r *MessageRepository) GetAllConversationMessagesWithContext(ctx context.Context, conversationID string) ([]ChatMessage, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -1201,6 +1301,11 @@ func GetAllConversationMessagesWithContext(ctx context.Context, conversationID s
 // CountChildrenWithContext retorna a contagem de filhos para cada mensagem do
 // usuário do contexto.
 func CountChildrenWithContext(ctx context.Context, messageIDs []string) (map[string]int, error) {
+	return NewMessageRepository(db).CountChildrenWithContext(ctx, messageIDs)
+}
+
+func (r *MessageRepository) CountChildrenWithContext(ctx context.Context, messageIDs []string) (map[string]int, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -1242,6 +1347,11 @@ func CountChildrenWithContext(ctx context.Context, messageIDs []string) (map[str
 // ScopeByUser e qualquer messageID poderia ser usado para enumerar
 // estruturas de conversas alheias.
 func GetMessageTreeWithContext(ctx context.Context, messageID string) (*ChatMessage, []ChatMessage, error) {
+	return NewMessageRepository(db).GetMessageTreeWithContext(ctx, messageID)
+}
+
+func (r *MessageRepository) GetMessageTreeWithContext(ctx context.Context, messageID string) (*ChatMessage, []ChatMessage, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, nil, err
 	}
@@ -1353,6 +1463,11 @@ func getDescendantsWithContext(ctx context.Context, parentID string) ([]ChatMess
 // SECURITY: fail-closed (AEP-0052). Sem userID no ctx retorna
 // ErrUserScopeRequired.
 func GetMessagesAfterIDWithContext(ctx context.Context, conversationID string, afterID string) ([]ChatMessage, error) {
+	return NewMessageRepository(db).GetMessagesAfterIDWithContext(ctx, conversationID, afterID)
+}
+
+func (r *MessageRepository) GetMessagesAfterIDWithContext(ctx context.Context, conversationID string, afterID string) ([]ChatMessage, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -1381,6 +1496,11 @@ func GetMessagesAfterIDWithContext(ctx context.Context, conversationID string, a
 //
 // SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
 func GetMessagesBetweenIDsWithContext(ctx context.Context, conversationID string, startAfterID string, endID string) ([]ChatMessage, error) {
+	return NewMessageRepository(db).GetMessagesBetweenIDsWithContext(ctx, conversationID, startAfterID, endID)
+}
+
+func (r *MessageRepository) GetMessagesBetweenIDsWithContext(ctx context.Context, conversationID string, startAfterID string, endID string) ([]ChatMessage, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}

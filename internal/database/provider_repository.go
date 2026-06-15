@@ -8,15 +8,33 @@ import (
 
 // ==================== LLM Providers ====================
 
-// SaveLLMProviderWithContext salva ou atualiza um provedor associado ao
-// usuário do contexto.
+// ProviderRepository encapsula a persistência de LLMProvider com um *gorm.DB
+// injetado, permitindo reuso em transações e testes sem depender da global db.
+type ProviderRepository struct {
+	db *gorm.DB
+}
+
+// NewProviderRepository cria um ProviderRepository com o *gorm.DB injetado.
+func NewProviderRepository(database *gorm.DB) *ProviderRepository {
+	return &ProviderRepository{db: database}
+}
+
+// SaveLLMProviderWithContext é a fachada de transição sobre a global db.
+// Delega para ProviderRepository.SaveLLMProvider.
+func SaveLLMProviderWithContext(ctx context.Context, provider *LLMProvider) error {
+	return NewProviderRepository(db).SaveLLMProvider(ctx, provider)
+}
+
+// SaveLLMProvider salva ou atualiza um provedor associado ao usuário do
+// contexto.
 //
 // SECURITY: fail-closed bootstrap-tolerant (AEP-0052 / B11). Aceita ctx com
 // userID OU marcado por WithBootstrap (CLI setup, registro de credenciais
 // via env). Sem nenhum dos dois, retorna ErrUserScopeRequired — antes era
 // fail-open silencioso (provider.UserID ficava em branco e gravava órfão).
 // Defesa em camadas: o caller providers.DBStore.Save também valida.
-func SaveLLMProviderWithContext(ctx context.Context, provider *LLMProvider) error {
+func (r *ProviderRepository) SaveLLMProvider(ctx context.Context, provider *LLMProvider) error {
+	db := r.db
 	if err := RequireUserIDOrBootstrap(ctx); err != nil {
 		return err
 	}
@@ -28,13 +46,18 @@ func SaveLLMProviderWithContext(ctx context.Context, provider *LLMProvider) erro
 	return db.WithContext(ctx).Save(provider).Error
 }
 
-// GetLLMProvidersWithContext retorna todos os provedores do usuário do
-// contexto.
+// GetLLMProvidersWithContext é a fachada de transição sobre a global db.
+func GetLLMProvidersWithContext(ctx context.Context) ([]*LLMProvider, error) {
+	return NewProviderRepository(db).GetLLMProviders(ctx)
+}
+
+// GetLLMProviders retorna todos os provedores do usuário do contexto.
 //
 // SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
 // Retornar lista global expõe IDs/credenciais (mesmo cifradas/refs) de
 // todos os usuários da instância.
-func GetLLMProvidersWithContext(ctx context.Context) ([]*LLMProvider, error) {
+func (r *ProviderRepository) GetLLMProviders(ctx context.Context) ([]*LLMProvider, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -43,13 +66,18 @@ func GetLLMProvidersWithContext(ctx context.Context) ([]*LLMProvider, error) {
 	return providers, err
 }
 
-// GetLLMProviderWithContext busca um provedor por ID no escopo do usuário do
-// contexto.
+// GetLLMProviderWithContext é a fachada de transição sobre a global db.
+func GetLLMProviderWithContext(ctx context.Context, id string) (*LLMProvider, error) {
+	return NewProviderRepository(db).GetLLMProvider(ctx, id)
+}
+
+// GetLLMProvider busca um provedor por ID no escopo do usuário do contexto.
 //
 // SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
 // Antes, ScopeByUser fail-open + First por ID = leitura cross-user de
 // provedor alheio com todos os metadados.
-func GetLLMProviderWithContext(ctx context.Context, id string) (*LLMProvider, error) {
+func (r *ProviderRepository) GetLLMProvider(ctx context.Context, id string) (*LLMProvider, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -61,23 +89,35 @@ func GetLLMProviderWithContext(ctx context.Context, id string) (*LLMProvider, er
 	return &provider, nil
 }
 
-// DeleteLLMProviderWithContext remove um provedor do usuário do contexto.
+// DeleteLLMProviderWithContext é a fachada de transição sobre a global db.
+func DeleteLLMProviderWithContext(ctx context.Context, id string) error {
+	return NewProviderRepository(db).DeleteLLMProvider(ctx, id)
+}
+
+// DeleteLLMProvider remove um provedor do usuário do contexto.
 //
 // SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
 // Sem isso, DELETE por ID puro apaga provedor de qualquer usuário.
-func DeleteLLMProviderWithContext(ctx context.Context, id string) error {
+func (r *ProviderRepository) DeleteLLMProvider(ctx context.Context, id string) error {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
 	return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Delete(&LLMProvider{}, "id = ?", id).Error
 }
 
-// CountLLMProvidersWithContext retorna o número total de provedores do
-// usuário do contexto.
+// CountLLMProvidersWithContext é a fachada de transição sobre a global db.
+func CountLLMProvidersWithContext(ctx context.Context) (int64, error) {
+	return NewProviderRepository(db).CountLLMProviders(ctx)
+}
+
+// CountLLMProviders retorna o número total de provedores do usuário do
+// contexto.
 //
 // SECURITY: fail-closed (AEP-0052 / B11). Sem userID retornaria contagem
 // global — vetor de inferência sobre uso/dimensão da instância.
-func CountLLMProvidersWithContext(ctx context.Context) (int64, error) {
+func (r *ProviderRepository) CountLLMProviders(ctx context.Context) (int64, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return 0, err
 	}
@@ -86,12 +126,18 @@ func CountLLMProvidersWithContext(ctx context.Context) (int64, error) {
 	return count, err
 }
 
-// SetDefaultProviderWithContext marca um provedor como default (e desmarca os
-// demais) no escopo do usuário do contexto.
+// SetDefaultProviderWithContext é a fachada de transição sobre a global db.
+func SetDefaultProviderWithContext(ctx context.Context, id string) error {
+	return NewProviderRepository(db).SetDefaultProvider(ctx, id)
+}
+
+// SetDefaultProvider marca um provedor como default (e desmarca os demais) no
+// escopo do usuário do contexto.
 //
 // SECURITY: fail-closed (AEP-0052 / B11). Sem userID, o reset is_default=false
 // limparia o default de TODOS os usuários — operação destrutiva cross-user.
-func SetDefaultProviderWithContext(ctx context.Context, id string) error {
+func (r *ProviderRepository) SetDefaultProvider(ctx context.Context, id string) error {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
@@ -104,12 +150,18 @@ func SetDefaultProviderWithContext(ctx context.Context, id string) error {
 	})
 }
 
-// GetDefaultProviderWithContext retorna o provedor marcado como default no
-// escopo do usuário do contexto, ou nil se nenhum.
+// GetDefaultProviderWithContext é a fachada de transição sobre a global db.
+func GetDefaultProviderWithContext(ctx context.Context) (*LLMProvider, error) {
+	return NewProviderRepository(db).GetDefaultProvider(ctx)
+}
+
+// GetDefaultProvider retorna o provedor marcado como default no escopo do
+// usuário do contexto, ou nil se nenhum.
 //
 // SECURITY: fail-closed (AEP-0052 / B11). Sem userID retornaria o primeiro
 // default que aparecer no banco — vetor de leak de provider alheio.
-func GetDefaultProviderWithContext(ctx context.Context) (*LLMProvider, error) {
+func (r *ProviderRepository) GetDefaultProvider(ctx context.Context) (*LLMProvider, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -120,13 +172,3 @@ func GetDefaultProviderWithContext(ctx context.Context) (*LLMProvider, error) {
 	}
 	return &provider, nil
 }
-
-// ensureTaskNoteExternalUniqueIndex aplica índice único parcial em (external_source, external_id).
-//
-// Escolha de modelagem: chave única global por origem (sem task_id na unicidade), alinhada à
-// preferência de produto e ao padrão “ID estável no sistema remoto”. O mesmo comentário Jira
-// (por exemplo) deve mapear a no máximo uma TaskNote no app, impedindo duplicatas em re-syncs.
-// Notas manuais permanecem fora do índice (WHERE ambos os campos não vazios).
-//
-// Se a mesma referência externa for associada a outra task local, UpsertTaskNoteByExternal
-// retorna erro explícito em vez de duplicar linhas.

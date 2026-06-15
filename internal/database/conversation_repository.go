@@ -8,6 +8,16 @@ import (
 	"gorm.io/gorm"
 )
 
+// ConversationRepository encapsula a persistencia de conversas e busca com um *gorm.DB injetado.
+type ConversationRepository struct {
+	db *gorm.DB
+}
+
+// NewConversationRepository cria um ConversationRepository com o *gorm.DB injetado.
+func NewConversationRepository(database *gorm.DB) *ConversationRepository {
+	return &ConversationRepository{db: database}
+}
+
 // ==================== Conversation ====================
 
 // CreateConversationWithContext cria uma nova conversa pertencente ao usuário
@@ -16,6 +26,11 @@ import (
 // (canais legados usam FindOrCreateChannelConversationWithContext +
 // WithBootstrap explícito).
 func CreateConversationWithContext(ctx context.Context, title, model string) (*Conversation, error) {
+	return NewConversationRepository(db).CreateConversationWithContext(ctx, title, model)
+}
+
+func (r *ConversationRepository) CreateConversationWithContext(ctx context.Context, title, model string) (*Conversation, error) {
+	db := r.db
 	userID, err := RequireUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -37,6 +52,11 @@ func CreateConversationWithContext(ctx context.Context, title, model string) (*C
 // ErrUserScopeRequired se o ctx não carregar userID (AEP-0052) — uma
 // sub-conversa sem dono não pode existir.
 func CreateSubAgentConversationWithContext(ctx context.Context, title, parentConversationID string) (*Conversation, error) {
+	return NewConversationRepository(db).CreateSubAgentConversationWithContext(ctx, title, parentConversationID)
+}
+
+func (r *ConversationRepository) CreateSubAgentConversationWithContext(ctx context.Context, title, parentConversationID string) (*Conversation, error) {
+	db := r.db
 	userID, err := RequireUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -58,6 +78,11 @@ func CreateSubAgentConversationWithContext(ctx context.Context, title, parentCon
 // recicla, resetando título e timestamps. Se não encontrar candidata, cria uma
 // nova. Evita acumular registros órfãos no banco.
 func RecycleOrCreateConversationWithContext(ctx context.Context, title string) (*Conversation, error) {
+	return NewConversationRepository(db).RecycleOrCreateConversationWithContext(ctx, title)
+}
+
+func (r *ConversationRepository) RecycleOrCreateConversationWithContext(ctx context.Context, title string) (*Conversation, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -108,6 +133,11 @@ func RecycleOrCreateConversationWithContext(ctx context.Context, title string) (
 // Sem userID e sem WithBootstrap, retorna ErrUserScopeRequired — bug do
 // caller, não fall-through silencioso.
 func FindOrCreateChannelConversationWithContext(ctx context.Context, channel, contactID, contactName string) (*Conversation, bool, error) {
+	return NewConversationRepository(db).FindOrCreateChannelConversationWithContext(ctx, channel, contactID, contactName)
+}
+
+func (r *ConversationRepository) FindOrCreateChannelConversationWithContext(ctx context.Context, channel, contactID, contactName string) (*Conversation, bool, error) {
+	db := r.db
 	if err := RequireUserIDOrBootstrap(ctx); err != nil {
 		return nil, false, err
 	}
@@ -141,6 +171,11 @@ func FindOrCreateChannelConversationWithContext(ctx context.Context, channel, co
 // se o ctx não carregar userID — listar conversas sem escopo retornaria
 // dados de todos os usuários.
 func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
+	return NewConversationRepository(db).GetConversationsWithContext(ctx)
+}
+
+func (r *ConversationRepository) GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
+	db := r.db
 	userID, err := RequireUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -186,6 +221,11 @@ func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
 // GetMessagesWithContext (lazy loading), mas mantida para callers que ainda
 // precisam do payload completo.
 func GetConversationWithContext(ctx context.Context, id string) (*Conversation, error) {
+	return NewConversationRepository(db).GetConversationWithContext(ctx, id)
+}
+
+func (r *ConversationRepository) GetConversationWithContext(ctx context.Context, id string) (*Conversation, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -205,6 +245,11 @@ func GetConversationWithContext(ctx context.Context, id string) (*Conversation, 
 // um caller distraído lendo conv por ID veria dados de qualquer usuário
 // (ScopeByUser fail-open + First por id = vazamento silencioso).
 func GetConversationInfoWithContext(ctx context.Context, id string) (*Conversation, error) {
+	return NewConversationRepository(db).GetConversationInfoWithContext(ctx, id)
+}
+
+func (r *ConversationRepository) GetConversationInfoWithContext(ctx context.Context, id string) (*Conversation, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -218,6 +263,11 @@ func GetConversationInfoWithContext(ctx context.Context, id string) (*Conversati
 
 // UpdateConversationWithContext atualiza título da conversa do usuário do contexto.
 func UpdateConversationWithContext(ctx context.Context, id string, title, model string) error {
+	return NewConversationRepository(db).UpdateConversationWithContext(ctx, id, title, model)
+}
+
+func (r *ConversationRepository) UpdateConversationWithContext(ctx context.Context, id string, title, model string) error {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
@@ -233,6 +283,11 @@ func UpdateConversationWithContext(ctx context.Context, id string, title, model 
 // a uma conversa do usuário do contexto. Passar channel="" e contactID=""
 // desvincula a conversa do canal.
 func UpdateConversationChannelWithContext(ctx context.Context, id string, channel, contactID string) error {
+	return NewConversationRepository(db).UpdateConversationChannelWithContext(ctx, id, channel, contactID)
+}
+
+func (r *ConversationRepository) UpdateConversationChannelWithContext(ctx context.Context, id string, channel, contactID string) error {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
@@ -246,6 +301,11 @@ func UpdateConversationChannelWithContext(ctx context.Context, id string, channe
 // DeleteConversationWithContext deleta uma conversa do usuário do contexto e
 // suas mensagens.
 func DeleteConversationWithContext(ctx context.Context, id string) error {
+	return NewConversationRepository(db).DeleteConversationWithContext(ctx, id)
+}
+
+func (r *ConversationRepository) DeleteConversationWithContext(ctx context.Context, id string) error {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
@@ -354,6 +414,11 @@ func GenerateTitle(content string) string {
 // usuários — vetor crítico porque é alcançado pelo SearchConversationsTool
 // exposto ao LLM (cross-user leak via prompt do agente).
 func SearchConversationsWithContext(ctx context.Context, query string) ([]Conversation, error) {
+	return NewConversationRepository(db).SearchConversationsWithContext(ctx, query)
+}
+
+func (r *ConversationRepository) SearchConversationsWithContext(ctx context.Context, query string) ([]Conversation, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}

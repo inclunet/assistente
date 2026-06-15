@@ -5,7 +5,19 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
+
+// FTSRepository encapsula busca full-text (FTS5) e busca em conteudo de mensagens com um *gorm.DB injetado.
+type FTSRepository struct {
+	db *gorm.DB
+}
+
+// NewFTSRepository cria um FTSRepository com o *gorm.DB injetado.
+func NewFTSRepository(database *gorm.DB) *FTSRepository {
+	return &FTSRepository{db: database}
+}
 
 // MessageSearchResult representa um resultado de busca no conteúdo de mensagens
 type MessageSearchResult struct {
@@ -86,6 +98,11 @@ func initFTS5() error {
 // nenhum disparo aconteça pré-login mesmo sendo uma operação de banco
 // que ignora o escopo.
 func RebuildFTSIndex(ctx context.Context) error {
+	return NewFTSRepository(db).RebuildFTSIndex(ctx)
+}
+
+func (r *FTSRepository) RebuildFTSIndex(ctx context.Context) error {
+	db := r.db
 	sqlDB, err := db.DB()
 	if err != nil {
 		return err
@@ -116,6 +133,11 @@ func RebuildFTSIndex(ctx context.Context) error {
 // FTS5 indexa todas as conversas do banco e a junção com `conversations`
 // só protege se filtrarmos por user_id obrigatoriamente. AEP-0052.
 func SearchMessageContentWithContext(ctx context.Context, query string, limit int) ([]MessageSearchResult, error) {
+	return NewFTSRepository(db).SearchMessageContentWithContext(ctx, query, limit)
+}
+
+func (r *FTSRepository) SearchMessageContentWithContext(ctx context.Context, query string, limit int) ([]MessageSearchResult, error) {
+	db := r.db
 	userID, err := RequireUserID(ctx)
 	if err != nil {
 		return nil, err

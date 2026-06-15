@@ -4,13 +4,30 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+
+	"gorm.io/gorm"
 )
+
+// TokenRepository encapsula estatisticas de tokens e janela de contexto com um *gorm.DB injetado.
+type TokenRepository struct {
+	db *gorm.DB
+}
+
+// NewTokenRepository cria um TokenRepository com o *gorm.DB injetado.
+func NewTokenRepository(database *gorm.DB) *TokenRepository {
+	return &TokenRepository{db: database}
+}
 
 // GetConversationTokenStatsWithContext retorna estatísticas de tokens de uma
 // conversa pertencente ao usuário do contexto.
 //
 // SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
 func GetConversationTokenStatsWithContext(ctx context.Context, conversationID string) (map[string]int, error) {
+	return NewTokenRepository(db).GetConversationTokenStatsWithContext(ctx, conversationID)
+}
+
+func (r *TokenRepository) GetConversationTokenStatsWithContext(ctx context.Context, conversationID string) (map[string]int, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -39,6 +56,11 @@ func GetConversationTokenStatsWithContext(ctx context.Context, conversationID st
 // SECURITY: fail-closed (AEP-0052 / B11). Sem userID retornaria estatísticas
 // agregadas globalmente — vetor de inferência sobre uso da instância.
 func GetAllTokenStatsWithContext(ctx context.Context) (map[string]int, error) {
+	return NewTokenRepository(db).GetAllTokenStatsWithContext(ctx)
+}
+
+func (r *TokenRepository) GetAllTokenStatsWithContext(ctx context.Context) (map[string]int, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -113,6 +135,11 @@ type DetailedTokenStats struct {
 //
 // SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
 func GetTurnTokenStatsWithContext(ctx context.Context, conversationID string, turnID string) (*TokenStats, error) {
+	return NewTokenRepository(db).GetTurnTokenStatsWithContext(ctx, conversationID, turnID)
+}
+
+func (r *TokenRepository) GetTurnTokenStatsWithContext(ctx context.Context, conversationID string, turnID string) (*TokenStats, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -143,6 +170,11 @@ func GetTurnTokenStatsWithContext(ctx context.Context, conversationID string, tu
 // SECURITY: fail-closed (AEP-0052). Sem userID no ctx retorna
 // ErrUserScopeRequired.
 func GetConversationDetailedTokenStatsWithContext(ctx context.Context, conversationID string) (*TokenStats, error) {
+	return NewTokenRepository(db).GetConversationDetailedTokenStatsWithContext(ctx, conversationID)
+}
+
+func (r *TokenRepository) GetConversationDetailedTokenStatsWithContext(ctx context.Context, conversationID string) (*TokenStats, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -186,6 +218,11 @@ func GetConversationDetailedTokenStatsWithContext(ctx context.Context, conversat
 // rota natural via DBStore já enforça userID, mas chamadas diretas a esta
 // função (em util/test/scripts) precisam falhar em vez de vazar.
 func GetDetailedTokenStatsWithContext(ctx context.Context, conversationID string, summaryUpToMessageID string) (*DetailedTokenStats, error) {
+	return NewTokenRepository(db).GetDetailedTokenStatsWithContext(ctx, conversationID, summaryUpToMessageID)
+}
+
+func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, conversationID string, summaryUpToMessageID string) (*DetailedTokenStats, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -397,6 +434,11 @@ func getLatestReportedContextTokens(ctx context.Context, conversationID string) 
 //
 // SECURITY: fail-closed (AEP-0052 / B11). Sem userID = ErrUserScopeRequired.
 func GetRecentMessagesTokenCountWithContext(ctx context.Context, conversationID string, messageLimit int) (int, error) {
+	return NewTokenRepository(db).GetRecentMessagesTokenCountWithContext(ctx, conversationID, messageLimit)
+}
+
+func (r *TokenRepository) GetRecentMessagesTokenCountWithContext(ctx context.Context, conversationID string, messageLimit int) (int, error) {
+	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return 0, err
 	}
