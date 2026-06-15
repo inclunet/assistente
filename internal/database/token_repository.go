@@ -286,7 +286,10 @@ func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, 
 	}
 
 	// 4. Breakdown de tool usage
-	toolBreakdown, toolsUsedCount := r.getToolUsageBreakdownWithContext(ctx, conversationID)
+	toolBreakdown, toolsUsedCount, err := r.getToolUsageBreakdownWithContext(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
 
 	// Estima tokens do system prompt: ~1 token a cada 4 caracteres
 	// O DefaultSystemPrompt tem ~500 caracteres, então ~125 tokens
@@ -320,13 +323,18 @@ func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, 
 }
 
 // getToolUsageBreakdown extrai informações de uso de tools das mensagens
-func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, conversationID string) ([]ToolUsageBreakdown, int) {
+func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, conversationID string) ([]ToolUsageBreakdown, int, error) {
 	db := r.db
 	var messages []ChatMessage
-	scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+	// Propaga falha de DB em vez de degradar silenciosamente para um
+	// breakdown vazio — um erro de query mascarado distorceria as estatísticas
+	// detalhadas sem qualquer sinal ao caller.
+	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ? AND chat_messages.tool_calls != '' AND chat_messages.tool_calls IS NOT NULL", conversationID).
 		Select("chat_messages.tool_calls, chat_messages.prompt_tokens, chat_messages.completion_tokens").
-		Find(&messages)
+		Find(&messages).Error; err != nil {
+		return nil, 0, err
+	}
 
 	// Map para agregar tool usage
 	toolMap := make(map[string]*ToolUsageBreakdown)
@@ -336,12 +344,9 @@ func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, 
 			continue
 		}
 
-		// Parse JSON das tool calls
-		var toolCalls []map[string]interface{}
-		err := json.Unmarshal([]byte(msg.ToolCalls), &toolCalls)
-		if err != nil {
-			continue
-		}
+		// Parse JSON das tool calls, tolerando tanto array (`[{...}]`) quanto
+		// objeto único (`{...}`), espelhando o cleanup em message_repository.go.
+		toolCalls := parseToolCallObjects(msg.ToolCalls)
 
 		for _, toolCall := range toolCalls {
 			if funcData, ok := toolCall["function"].(map[string]interface{}); ok {
@@ -370,7 +375,35 @@ func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, 
 		result = append(result, *breakdown)
 	}
 
-	return result, len(toolMap)
+	return result, len(toolMap), nil
+}
+
+// parseToolCallObjects decodifica o payload JSON de tool_calls aceitando tanto
+// um array de objetos (`[{...}]`) quanto um objeto único (`{...}`). Retorna nil
+// quando o payload é vazio ou inválido. Centraliza a tolerância de formato já
+// adotada no cleanup de tool invocations (message_repository.go).
+func parseToolCallObjects(raw string) []map[string]interface{} {
+	if raw == "" {
+		return nil
+	}
+	var anyPayload any
+	if err := json.Unmarshal([]byte(raw), &anyPayload); err != nil {
+		return nil
+	}
+	switch v := anyPayload.(type) {
+	case []interface{}:
+		result := make([]map[string]interface{}, 0, len(v))
+		for _, item := range v {
+			if obj, ok := item.(map[string]interface{}); ok {
+				result = append(result, obj)
+			}
+		}
+		return result
+	case map[string]interface{}:
+		return []map[string]interface{}{v}
+	default:
+		return nil
+	}
 }
 
 // GetContextWindowUsageWithContext calcula a porcentagem de uso da janela de

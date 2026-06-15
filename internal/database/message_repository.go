@@ -1361,7 +1361,7 @@ func (r *MessageRepository) GetMessageTreeWithContext(ctx context.Context, messa
 		return nil, nil, err
 	}
 
-	descendants, err := getDescendantsWithContext(ctx, messageID)
+	descendants, err := r.getDescendantsWithContext(ctx, messageID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1402,14 +1402,17 @@ SELECT * FROM descendants`
 // nível (N queries em hierarquias profundas). Agora uma única CTE recursiva
 // traz todos os registros do banco e a ordenação hierárquica é reconstruída em
 // memória, reproduzindo o comportamento anterior sem o custo de N consultas.
-func getDescendantsWithContext(ctx context.Context, parentID string) ([]ChatMessage, error) {
+func (r *MessageRepository) getDescendantsWithContext(ctx context.Context, parentID string) ([]ChatMessage, error) {
 	userID, err := RequireUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	var rows []ChatMessage
-	if err := db.WithContext(ctx).
+	// Usa o db injetado (r.db) para preservar a consistência transacional
+	// quando o repositório é construído com um tx (AEP-0040), em vez da
+	// global db.
+	if err := r.db.WithContext(ctx).
 		Raw(descendantsCTE, parentID, userID, userID, maxDescendantDepth).
 		Scan(&rows).Error; err != nil {
 		return nil, err
