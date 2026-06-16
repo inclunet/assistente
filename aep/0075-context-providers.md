@@ -1,0 +1,377 @@
+# AEP-0075 — Context Providers
+
+Status: Proposta
+Criado em: 2026-06-16
+Relacionado: AEP-0072, AEP-0074, AEP-0059, AEP-0042, AEP-0057
+
+## Resumo
+
+Separar **contexto dinâmico** de **skills**.
+
+Hoje `memory` e `workspace` são modelados como skills, mas conceitualmente não são workflows nem instruções procedurais. Eles são fontes de estado e conhecimento dinâmico que alimentam o prompt. Essa mistura tornou o carregamento de skills confuso, prejudicou cache de prompt e forçou skills a suportarem templates Go para resolver necessidades que pertencem a outra camada.
+
+Esta AEP cria a arquitetura de `Context Providers`, responsáveis por produzir blocos de contexto dinâmico e ferramentas de recuperação/ação associadas. Com isso:
+
+- skills voltam a ser módulos de instrução/workflow;
+- memória e workspace deixam de ser skills;
+- Go templates deixam de ser requisito para skills;
+- o prompt passa a ter uma ordem clara por volatilidade;
+- a futura AEP-0074 de prompt cache pode otimizar um contexto já bem separado.
+
+## Motivação
+
+O sistema atual usa skills para responsabilidades diferentes:
+
+- workflows e instruções (`tech-support`, `github`, `flock-api`);
+- memória persistente (`memory`);
+- estado do workspace (`workspace`);
+- contexto de tasklists;
+- includes dinâmicos e templates (`{{ now }}`, `include`, `.Surface`, `.TaskLists`).
+
+Isso cria problemas:
+
+- `/skill` não dá sensação de carregamento explícito;
+- corpo de skill pode ser injetado silenciosamente no system prompt;
+- memória/workspace mudam com frequência e invalidam prefix cache;
+- Go templates tornam skills difíceis de razonar, testar e cachear;
+- autores de skills misturam instrução estável com estado dinâmico;
+- AEP-0072 ficou ampla demais ao tentar resolver catálogo, banco, gating e contexto.
+
+Separar context providers antes de refazer skill loading reduz o escopo e torna as decisões mais parecidas com Cursor, Claude Code, Codex, OpenClaw e Hermes.
+
+## Decisões
+
+### D1. Context Provider é uma categoria nova
+
+Um `ContextProvider` é uma fonte de contexto para o LLM. Ele pode produzir:
+
+- instruções estáveis curtas sobre como usar aquele contexto;
+- blocos dinâmicos para o prompt;
+- tools de busca, leitura, escrita ou inspeção;
+- metadados de volatilidade, orçamento e prioridade.
+
+Contrato conceitual:
+
+```go
+type ContextProvider interface {
+    Slug() string
+    StableInstructions(ctx ContextBuildContext) ContextBlock
+    DynamicContext(ctx ContextBuildContext) []ContextBlock
+    Tools(ctx ContextBuildContext) []ToolDefinition
+}
+```
+
+O contrato real pode variar, mas deve preservar a separação entre instrução estável e contexto dinâmico.
+
+### D2. Memória vira Context Provider
+
+`memory` deixa de ser skill.
+
+Novo desenho:
+
+- instruções estáveis sobre como usar memória entram no prefixo estável;
+- memórias pinned/essenciais entram em um bloco dinâmico pequeno;
+- memórias longas ou raramente usadas ficam acessíveis por tools;
+- escrita/atualização de memória é ação explícita via tool;
+- memória completa não é despejada automaticamente no system prompt.
+
+Tools esperadas:
+
+- `memory_search`
+- `memory_get`
+- `memory_write` ou `memory_update`
+
+Política:
+
+- fatos essenciais e preferências globais podem entrar sempre, com orçamento baixo;
+- FAQs, históricos longos e notas operacionais são recuperáveis;
+- mudanças de memória não reescrevem o prefixo estável.
+
+### D2.1. Memória persistida em banco, sem migrador automático
+
+O Memory Provider deve usar records estruturados em banco como fonte canônica no caminho novo.
+
+Cada record deve ter classificação suficiente para decidir se entra automaticamente no contexto ou se fica disponível sob demanda. Campos conceituais:
+
+- `load_policy`: `core`, `pinned`, `auto`, `retrievable`, `archived`;
+- `kind`: `user_preference`, `identity`, `project_fact`, `decision`, `convention`, `historical_note`, `resolved_issue`;
+- `scope`: `global`, `user`, `workspace`, `project`, `conversation`;
+- `importance`, `confidence`, `tags`, `last_used_at`, `expires_at`;
+- origem opcional, como conversa, arquivo legado ou tool call.
+
+Política de carregamento:
+
+- `core`: sempre carregado, com orçamento muito baixo;
+- `pinned`: carregado automaticamente quando o escopo combina com perfil/workspace;
+- `auto`: candidato a entrar por score de relevância, recência e orçamento;
+- `retrievable`: histórico buscado por `memory_search`/`memory_get`;
+- `archived`: preservado, mas fora do fluxo normal.
+
+Não haverá migrador automático dos arquivos antigos em `~/.assistente/memory`.
+
+Migração dos dados legados:
+
+- os arquivos antigos continuam como fonte de referência temporária;
+- o usuário poderá pedir ao modelo para ler esses arquivos e recompor a memória em records estruturados;
+- o modelo deve classificar cada record ao gravar no banco;
+- a recomposição assistida deve preferir qualidade e deduplicação, não conversão mecânica 1:1;
+- após validação manual, os arquivos podem ser mantidos apenas como backup/legado.
+
+### D2.2. Memórias precisam de governança no frontend
+
+Ao sair de arquivos Markdown e passar a usar records estruturados em banco, a memória deixa de ser diretamente editável pelo usuário no filesystem. Portanto, o Memory Provider exige uma tela de governança no frontend.
+
+Essa tela não é um extra de conveniência; ela substitui a capacidade atual de abrir e editar `~/.assistente/memory/*.md`.
+
+Escopo inicial:
+
+- listar memórias salvas;
+- pesquisar e filtrar por política, tipo, escopo, tags e texto;
+- visualizar conteúdo e metadados essenciais;
+- editar conteúdo, `load_policy`, `kind`, `scope`, tags, importância e confiança;
+- criar nova memória manualmente;
+- arquivar/desarquivar records;
+- excluir records com confirmação;
+- indicar claramente quais records podem entrar automaticamente no prompt;
+- apoiar a recomposição assistida dos arquivos legados, permitindo revisão dos records criados pelo modelo.
+
+Regras de UX:
+
+- records `core`, `pinned` e candidatos `auto` devem ser visualmente distinguíveis por texto, badges e agrupamento, nunca apenas por cor;
+- records `archived` devem ficar fora da lista padrão, mas acessíveis por filtro;
+- a tela deve explicar o impacto de cada `load_policy` no contexto do modelo;
+- edições devem ser auditáveis o suficiente para diagnóstico: registrar timestamps e, quando possível, origem/última atualização;
+- exclusão deve usar confirmação acessível.
+
+Regras técnicas do frontend:
+
+- usar componentes existentes em `frontend/src/components/ui/`, especialmente `DataGrid`, `Modal`, `ConfirmDialog`, `Button` e `Toolbar`;
+- todas as strings visíveis devem usar i18n em `frontend/src/locales/pt-BR.ts`, `frontend/src/locales/en.ts` e `frontend/src/locales/es.ts`;
+- não usar cores hardcoded; usar tokens de `frontend/src/theme.css`;
+- a navegação por teclado deve permitir listar, filtrar, abrir detalhe, salvar, arquivar e cancelar sem mouse.
+
+### D2.3. APIs Wails para memória
+
+O backend deve expor APIs Wails próprias para CRUD e busca de records de memória. Essas APIs são separadas das tools do modelo: a UI usa APIs de aplicação; o LLM usa tools do Context Provider.
+
+APIs conceituais:
+
+- `ListMemoryRecords(filter)`: lista records com paginação/filtros;
+- `GetMemoryRecord(id)`: obtém detalhe;
+- `CreateMemoryRecord(input)`: cria record manual ou assistido;
+- `UpdateMemoryRecord(id, input)`: atualiza conteúdo, classificação e metadados editáveis;
+- `ArchiveMemoryRecord(id)` / `UnarchiveMemoryRecord(id)`: muda estado sem apagar;
+- `DeleteMemoryRecord(id)`: remove record com confirmação no frontend;
+- `SearchMemoryRecords(query, filter)`: busca textual/FTS para UI e apoio às tools;
+- `GetMemoryPolicySummary()`: retorna contagens e orçamento por `load_policy` para explicar impacto no prompt.
+
+Contrato de segurança:
+
+- operações devem respeitar `UserID` e escopo multiusuário existente;
+- records arquivados não entram em contexto automático;
+- exclusões devem ser físicas ou lógicas conforme política de retenção futura, mas a primeira implementação deve deixar o comportamento explícito na UI;
+- dados sensíveis devem seguir o mesmo cuidado de armazenamento e exposição das demais entidades locais do app.
+
+As tools `memory_search`, `memory_get` e `memory_write` podem reutilizar o serviço interno de memória, mas não devem expor diretamente APIs de UI ao modelo.
+
+### D2.4. Integração frontend da tela de memórias
+
+A tela deve seguir os padrões já usados em páginas administrativas do frontend, como `frontend/src/pages/SkillsPage.tsx`.
+
+Integração esperada:
+
+- criar uma página dedicada, por exemplo `frontend/src/pages/MemoriesPage.tsx`;
+- registrar a rota e a entrada de navegação no mesmo padrão das demais páginas de configuração/gestão;
+- usar `DataGrid` para a lista principal, com seleção por teclado e foco restaurável;
+- usar `Toolbar` para busca, filtros e ações principais;
+- usar `Modal` para criação/edição de record;
+- usar `ConfirmDialog`/`useConfirm` para exclusão;
+- usar `useAnnouncer` para anunciar criação, edição, arquivamento, restauração e exclusão;
+- usar `useGridFocus` e `useGridPageLandmarks` quando aplicável, mantendo navegação por landmarks consistente com páginas como Skills e Providers;
+- usar tipos gerados em `frontend/wailsjs/go/models.ts` para os records e inputs expostos pelo backend;
+- manter CSS próprio da página somente com tokens de `frontend/src/theme.css`.
+
+Filtros mínimos:
+
+- texto livre;
+- `load_policy`;
+- `kind`;
+- `scope`;
+- tags;
+- incluir/excluir arquivadas.
+
+Colunas mínimas:
+
+- resumo ou conteúdo curto;
+- política de carregamento;
+- tipo;
+- escopo;
+- importância;
+- última atualização;
+- origem quando existir.
+
+O detalhe de edição deve mostrar uma explicação curta da política selecionada. Isso é necessário porque mudar `core`, `pinned`, `auto`, `retrievable` ou `archived` altera diretamente quais memórias podem impactar o prompt.
+
+### D3. Workspace vira Context Provider
+
+`workspace` deixa de ser skill.
+
+Novo desenho:
+
+- contexto mínimo entra no prompt: workspace ativo, superfície/aba ativa e, quando aplicável, arquivo ativo;
+- listas grandes de abas, arquivos abertos, estado completo e payloads de superfície ficam sob demanda;
+- ferramentas expõem inspeção quando necessário.
+
+Tools esperadas:
+
+- `workspace_state`
+- `workspace_tabs`
+- `workspace_active_surface`
+
+O contexto de workspace deve ser pequeno, ordenado e classificado como dinâmico.
+
+### D4. Tasklists e outros estados seguem o mesmo padrão
+
+Tasklists vinculadas, estado de editor, terminal, tickets ou superfícies específicas não devem entrar em skills. Eles devem ser context providers próprios ou extensões de providers existentes.
+
+Regra:
+
+- se é estado do aplicativo ou dado dinâmico, é context provider;
+- se é workflow/instrução, é skill;
+- se é ação/busca, é tool.
+
+### D5. Skills deixam de depender de Go templates
+
+Com memória/workspace/tasklists fora das skills, Go templates deixam de ser requisito do runtime de skills.
+
+Decisão:
+
+- skills novas devem ser Markdown estático com frontmatter declarativo;
+- argumentos de `/skill` podem ser passados como bloco separado, não por substituição textual no corpo;
+- includes dinâmicos devem ser substituídos por context providers ou supporting files lidos sob demanda;
+- `{{ now }}` não pertence a skill; data/hora é contexto dinâmico produzido por provider quando necessário.
+
+Compatibilidade:
+
+- templates existentes podem continuar funcionando temporariamente em modo legado;
+- o modo novo de skills deve desencorajar templates e emitir aviso quando uma skill usa template dinâmico;
+- a remoção completa de templates deve acontecer só após migração dos builtins afetados.
+
+### D6. Prompt passa a ser montado por blocos
+
+O prompt deve ser montado em blocos classificados por origem e volatilidade.
+
+Ordem alvo:
+
+```text
+stable:
+  - system base
+  - instruções base do perfil
+  - instruções estáveis de context providers
+  - base skills estáveis
+  - tool schemas estáveis
+  - catálogo de skills on-demand
+
+slow_dynamic:
+  - resumo da conversa
+  - memórias pinned/essenciais
+
+rolling_history:
+  - janela recente de mensagens
+
+fast_dynamic:
+  - workspace/surface atual
+  - slash skill do turno
+  - resultados recuperados por tools/context providers
+  - mensagem atual do usuário
+```
+
+Esta AEP não implementa otimização de cache diretamente; ela prepara o terreno para a AEP-0074.
+
+### D7. Perfil controla context providers
+
+Perfis devem poder configurar providers habilitados e orçamento.
+
+Exemplo conceitual:
+
+```json
+{
+  "context_providers": {
+    "memory": {
+      "enabled": true,
+      "mode": "pinned_plus_retrievable",
+      "budget_tokens": 800
+    },
+    "workspace": {
+      "enabled": true,
+      "mode": "minimal",
+      "budget_tokens": 300
+    }
+  }
+}
+```
+
+O formato final pode ser mais simples no primeiro PR, mas a arquitetura deve permitir isso.
+
+## Fases
+
+### Fase 1 — Contrato e separação conceitual
+
+- Criar abstrações internas de context block/provider.
+- Identificar os trechos atuais de `memory` e `workspace` que são instrução estável vs. dados dinâmicos.
+- Não mudar ainda a UI de skills.
+
+### Fase 2 — Memory provider
+
+- Extrair a skill `memory` para provider.
+- Criar bloco de instruções estáveis de memória.
+- Criar bloco dinâmico pequeno de memórias pinned/essenciais.
+- Persistir records de memória em banco com classificação de carregamento.
+- Introduzir tools de busca/leitura/escrita de memória.
+- Expor APIs Wails para CRUD, busca, arquivamento e resumo de política.
+- Criar tela frontend para listar, filtrar, editar, arquivar e excluir memórias.
+- Manter fallback legado até a migração estar validada.
+
+### Fase 3 — Workspace provider
+
+- Extrair a skill `workspace` para provider.
+- Produzir contexto mínimo de workspace.
+- Criar tools de inspeção de workspace.
+- Remover includes/templates de workspace de skills.
+
+### Fase 4 — Prompt block builder
+
+- Substituir montagem monolítica do system prompt por blocos ordenados.
+- Classificar cada bloco por volatilidade.
+- Adicionar testes snapshot para ordem e conteúdo.
+
+### Fase 5 — Deprecar templates em skills
+
+- Marcar skills com templates como legado.
+- Migrar builtins que dependem de `include`, `now`, `.Surface`, `.TaskLists`.
+- Atualizar editor/validação de skills.
+
+## Riscos
+
+- Memória via tool pode ser menos lembrada pelo modelo que memória no prompt.
+- Bloco pinned pequeno pode omitir fatos úteis.
+- Sem UI, a mudança para banco reduziria a autonomia do usuário em comparação ao Markdown.
+- UI de memória pode induzir o usuário a promover registros demais para `core`/`pinned`, aumentando tokens e reduzindo cache.
+- Workspace minimalista pode exigir mais tool calls.
+- Migração de skills legadas pode quebrar workflows existentes se não houver fallback.
+- Perfil pode ficar complexo se todos os providers tiverem knobs expostos na UI.
+
+## Critérios de aceitação
+
+- `memory` não é mais carregada como skill no caminho novo.
+- `workspace` não é mais carregada como skill no caminho novo.
+- Memórias são persistidas como records estruturados no banco no caminho novo.
+- Não existe migrador automático dos arquivos antigos de memória; a recomposição é assistida pelo modelo.
+- Existe tela frontend para visualizar, filtrar, editar, arquivar e excluir memórias salvas.
+- A tela deixa claro quais memórias impactam automaticamente o prompt.
+- APIs Wails permitem CRUD, busca e arquivamento de records de memória.
+- Existe pelo menos um bloco estável e um bloco dinâmico produzido por context provider.
+- Skills novas não precisam de Go templates para acessar memória/workspace/tasklists.
+- Prompt builder tem ordem testável: stable → slow_dynamic → rolling_history → fast_dynamic.
+- AEP-0072 revisada pode focar apenas em Skill Loading Runtime.
+- AEP-0074 passa a depender desta AEP para otimização de cache.
