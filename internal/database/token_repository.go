@@ -233,7 +233,7 @@ func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, 
 
 	// 2. Recuperar resumo (se houver)
 	summaryTokens := 0
-	summary, _, err := NewSummarizationRepository(db).GetConversationSummaryWithContext(ctx, conversationID)
+	summary, _, err := NewSummarizationRepository(r.db).GetConversationSummaryWithContext(ctx, conversationID)
 	if err == nil && summary != "" {
 		// Estima tokens do resumo: ~1 token a cada 4 caracteres
 		summaryTokens = (len(summary) + 3) / 4

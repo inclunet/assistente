@@ -746,23 +746,32 @@ func (r *MessageRepository) ClearAllConversationsWithContext(ctx context.Context
 		return err
 	}
 	userID, _ := UserIDFromContext(ctx)
-	// Limpa tool invocations de chat do usuário (histórico será apagado).
-	// Best-effort: alguns cenários de teste executam migrações parciais.
-	if db.Migrator().HasTable(&ToolInvocation{}) {
-		if err := db.WithContext(ctx).
-			Where("user_id = ? AND origin_type = ?", userID, "chat").
-			Delete(&ToolInvocation{}).Error; err != nil {
-			log.Printf("[DB] aviso: erro ao limpar tool invocations (best-effort): %v", err)
+	// As três deleções (tool invocations + mensagens + conversas) destroem TODO
+	// o conteúdo do usuário. Rodam na MESMA transação para garantir atomicidade:
+	// qualquer erro no meio faz rollback TOTAL, sem estados parciais (ex.: tool
+	// invocations apagadas mas mensagens/conversas preservadas, ou mensagens
+	// apagadas com conversas órfãs). Espelha ClearConversationContentWithContext.
+	return db.Transaction(func(tx *gorm.DB) error {
+		// 1) Tool invocations de chat do usuário (histórico será apagado).
+		//    HasTable tolera cenários de teste com migrações parciais.
+		if tx.Migrator().HasTable(&ToolInvocation{}) {
+			if err := tx.WithContext(ctx).
+				Where("user_id = ? AND origin_type = ?", userID, "chat").
+				Delete(&ToolInvocation{}).Error; err != nil {
+				return fmt.Errorf("erro ao limpar tool invocations: %w", err)
+			}
 		}
-	}
-	messageIDs := scopedMessageQuery(ctx, db.WithContext(ctx).Model(&ChatMessage{}).Select("chat_messages.id"))
-	if err := db.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error; err != nil {
-		return fmt.Errorf("erro ao limpar mensagens: %w", err)
-	}
-	if err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Delete(&Conversation{}).Error; err != nil {
-		return fmt.Errorf("erro ao limpar conversas: %w", err)
-	}
-	return nil
+		// 2) Mensagens (histórico).
+		messageIDs := scopedMessageQuery(ctx, tx.WithContext(ctx).Model(&ChatMessage{}).Select("chat_messages.id"))
+		if err := tx.WithContext(ctx).Where("id IN (?)", messageIDs).Delete(&ChatMessage{}).Error; err != nil {
+			return fmt.Errorf("erro ao limpar mensagens: %w", err)
+		}
+		// 3) Conversas.
+		if err := ScopeByUser(ctx, tx.WithContext(ctx), "user_id").Delete(&Conversation{}).Error; err != nil {
+			return fmt.Errorf("erro ao limpar conversas: %w", err)
+		}
+		return nil
+	})
 }
 
 // GetMessagesWithContext retorna mensagens de uma conversa do usuário do
@@ -973,8 +982,8 @@ func normalizeMessageWindowCursor(query MessageWindowQuery) (anchor string, dire
 	return anchor, direction, nil
 }
 
-func messageScopeQuery(conversationID string, parentID *string) *gorm.DB {
-	query := db.Model(&ChatMessage{}).Where("conversation_id = ?", conversationID)
+func (r *MessageRepository) messageScopeQuery(conversationID string, parentID *string) *gorm.DB {
+	query := r.db.Model(&ChatMessage{}).Where("conversation_id = ?", conversationID)
 	if parentID != nil {
 		return query.Where("parent_id = ?", *parentID)
 	}
@@ -1024,14 +1033,14 @@ func timelineItemArgs(conversationID string, parentID *string) []interface{} {
 	return args
 }
 
-func countTimelineItems(conversationID string, parentID *string) (int, error) {
+func (r *MessageRepository) countTimelineItems(conversationID string, parentID *string) (int, error) {
 	var count int64
 	sql := timelineItemCTE(parentID) + ` SELECT COUNT(*) FROM timeline_items`
-	err := db.Raw(sql, timelineItemArgs(conversationID, parentID)...).Scan(&count).Error
+	err := r.db.Raw(sql, timelineItemArgs(conversationID, parentID)...).Scan(&count).Error
 	return int(count), err
 }
 
-func getAnchorTimelineItem(query MessageWindowQuery) (*MessageWindowItem, error) {
+func (r *MessageRepository) getAnchorTimelineItem(query MessageWindowQuery) (*MessageWindowItem, error) {
 	sql := timelineItemCTE(query.ParentID) + `
 SELECT ti.kind, ti.id, ti.message_id, ti.turn_id, ti.created_at, ti.first_id
 FROM timeline_items ti
@@ -1040,7 +1049,7 @@ WHERE s.id = ?
 LIMIT 1`
 	args := append(timelineItemArgs(query.ConversationID, query.ParentID), query.AnchorMessageID)
 	var item MessageWindowItem
-	if err := db.Raw(sql, args...).Scan(&item).Error; err != nil {
+	if err := r.db.Raw(sql, args...).Scan(&item).Error; err != nil {
 		return nil, err
 	}
 	if item.ID == "" {
@@ -1049,18 +1058,18 @@ LIMIT 1`
 	return &item, nil
 }
 
-func countTimelineItemsBefore(conversationID string, parentID *string, anchor MessageWindowItem) (int, error) {
+func (r *MessageRepository) countTimelineItemsBefore(conversationID string, parentID *string, anchor MessageWindowItem) (int, error) {
 	var count int64
 	sql := timelineItemCTE(parentID) + `
 SELECT COUNT(*)
 FROM timeline_items
 WHERE created_at < ? OR (created_at = ? AND first_id < ?)`
 	args := append(timelineItemArgs(conversationID, parentID), anchor.CreatedAt, anchor.CreatedAt, anchor.FirstID)
-	err := db.Raw(sql, args...).Scan(&count).Error
+	err := r.db.Raw(sql, args...).Scan(&count).Error
 	return int(count), err
 }
 
-func queryTimelineItems(conversationID string, parentID *string, where string, order string, limit int, extraArgs ...interface{}) ([]MessageWindowItem, error) {
+func (r *MessageRepository) queryTimelineItems(conversationID string, parentID *string, where string, order string, limit int, extraArgs ...interface{}) ([]MessageWindowItem, error) {
 	if limit <= 0 {
 		return []MessageWindowItem{}, nil
 	}
@@ -1075,13 +1084,13 @@ FROM timeline_items`
 	sql += " ORDER BY " + order + " LIMIT ?"
 	args = append(args, limit)
 	var items []MessageWindowItem
-	if err := db.Raw(sql, args...).Scan(&items).Error; err != nil {
+	if err := r.db.Raw(sql, args...).Scan(&items).Error; err != nil {
 		return nil, err
 	}
 	return items, nil
 }
 
-func queryTimelineItemsAround(conversationID string, parentID *string, offset int, limit int) ([]MessageWindowItem, error) {
+func (r *MessageRepository) queryTimelineItemsAround(conversationID string, parentID *string, offset int, limit int) ([]MessageWindowItem, error) {
 	if limit <= 0 {
 		return []MessageWindowItem{}, nil
 	}
@@ -1092,7 +1101,7 @@ ORDER BY created_at ASC, first_id ASC
 LIMIT ? OFFSET ?`
 	args := append(timelineItemArgs(conversationID, parentID), limit, offset)
 	var items []MessageWindowItem
-	if err := db.Raw(sql, args...).Scan(&items).Error; err != nil {
+	if err := r.db.Raw(sql, args...).Scan(&items).Error; err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -1104,7 +1113,7 @@ func reverseTimelineItems(items []MessageWindowItem) {
 	}
 }
 
-func fetchMessagesForTimelineItems(conversationID string, parentID *string, items []MessageWindowItem) ([]ChatMessage, error) {
+func (r *MessageRepository) fetchMessagesForTimelineItems(conversationID string, parentID *string, items []MessageWindowItem) ([]ChatMessage, error) {
 	if len(items) == 0 {
 		return []ChatMessage{}, nil
 	}
@@ -1117,7 +1126,7 @@ func fetchMessagesForTimelineItems(conversationID string, parentID *string, item
 			messageIDs = append(messageIDs, item.MessageID)
 		}
 	}
-	query := messageScopeQuery(conversationID, parentID)
+	query := r.messageScopeQuery(conversationID, parentID)
 	switch {
 	case len(turnIDs) > 0 && len(messageIDs) > 0:
 		query = query.Where("turn_id IN ? OR id IN ?", turnIDs, messageIDs)
@@ -1137,17 +1146,21 @@ func fetchMessagesForTimelineItems(conversationID string, parentID *string, item
 // para o usuário do contexto, acompanhada de metadados absolutos para
 // renderização acessível e navegação incremental.
 func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) (*MessageWindowResult, error) {
+	return NewMessageRepository(db).GetMessageWindowWithContext(ctx, query)
+}
+
+func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) (*MessageWindowResult, error) {
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
 	if query.ConversationID == "" {
 		return nil, fmt.Errorf("conversationID é obrigatório para buscar janela de mensagens")
 	}
-	if _, err := GetConversationInfoWithContext(ctx, query.ConversationID); err != nil {
+	if _, err := NewConversationRepository(r.db).GetConversationInfoWithContext(ctx, query.ConversationID); err != nil {
 		return nil, err
 	}
 	if query.ParentID != nil {
-		parent, err := GetMessageWithContext(ctx, *query.ParentID)
+		parent, err := r.GetMessageWithContext(ctx, *query.ParentID)
 		if err != nil {
 			return nil, err
 		}
@@ -1161,7 +1174,7 @@ func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) 
 	}
 
 	limit := normalizeMessageWindowLimit(query.Limit)
-	total, err := countTimelineItems(query.ConversationID, query.ParentID)
+	total, err := r.countTimelineItems(query.ConversationID, query.ParentID)
 	if err != nil {
 		return nil, err
 	}
@@ -1191,18 +1204,18 @@ func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) 
 	var items []MessageWindowItem
 
 	if query.AnchorMessageID != "" {
-		anchorItem, err := getAnchorTimelineItem(query)
+		anchorItem, err := r.getAnchorTimelineItem(query)
 		if err != nil {
 			return nil, err
 		}
-		anchorIndex, err := countTimelineItemsBefore(query.ConversationID, query.ParentID, *anchorItem)
+		anchorIndex, err := r.countTimelineItemsBefore(query.ConversationID, query.ParentID, *anchorItem)
 		if err != nil {
 			return nil, err
 		}
 		switch direction {
 		case messageWindowDirectionAfter:
 			startIndex = anchorIndex + 1
-			items, err = queryTimelineItems(
+			items, err = r.queryTimelineItems(
 				query.ConversationID,
 				query.ParentID,
 				"created_at > ? OR (created_at = ? AND first_id > ?)",
@@ -1223,9 +1236,9 @@ func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) 
 					startIndex = 0
 				}
 			}
-			items, err = queryTimelineItemsAround(query.ConversationID, query.ParentID, startIndex, windowLimit)
+			items, err = r.queryTimelineItemsAround(query.ConversationID, query.ParentID, startIndex, windowLimit)
 		default:
-			items, err = queryTimelineItems(
+			items, err = r.queryTimelineItems(
 				query.ConversationID,
 				query.ParentID,
 				"created_at < ? OR (created_at = ? AND first_id < ?)",
@@ -1246,9 +1259,9 @@ func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) 
 		}
 	} else if anchor == messageWindowAnchorStart || direction == messageWindowDirectionAfter {
 		startIndex = 0
-		items, err = queryTimelineItems(query.ConversationID, query.ParentID, "", "created_at ASC, first_id ASC", windowLimit)
+		items, err = r.queryTimelineItems(query.ConversationID, query.ParentID, "", "created_at ASC, first_id ASC", windowLimit)
 	} else {
-		items, err = queryTimelineItems(query.ConversationID, query.ParentID, "", "created_at DESC, first_id DESC", windowLimit)
+		items, err = r.queryTimelineItems(query.ConversationID, query.ParentID, "", "created_at DESC, first_id DESC", windowLimit)
 		reverseTimelineItems(items)
 		startIndex = total - len(items)
 	}
@@ -1259,7 +1272,7 @@ func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) 
 		items[i].OriginalIndex = startIndex + i
 	}
 
-	messages, err := fetchMessagesForTimelineItems(query.ConversationID, query.ParentID, items)
+	messages, err := r.fetchMessagesForTimelineItems(query.ConversationID, query.ParentID, items)
 	if err != nil {
 		return nil, err
 	}
