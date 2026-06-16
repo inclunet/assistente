@@ -5,18 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # O detector de corrida (job backend-race) roda em push/PR com -short.
-  # `schedule` mantido comentado para evitar runs diários vazios (todos os jobs
-  # têm `if: != schedule`); workflow_dispatch cobre execução manual sob demanda.
-  # Para reativar o nightly, descomente o bloco e remova o `if: != schedule` dos jobs.
-  # schedule:
-  #   - cron: '0 3 * * *'
+  # O detector de corrida (job backend-race) roda em push/PR com -short, então
+  # não há gatilho `schedule`: ele só geraria runs noturnos vazios. workflow_dispatch
+  # cobre execução manual sob demanda.
   workflow_dispatch:
 
 jobs:
   backend:
-    # Executa em push/PR e manualmente.
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -79,7 +74,6 @@ jobs:
   backend-race:
     # Detector de corrida: roda em push/PR (e manualmente) com -short para podar
     # testes mais lentos, garantindo cobertura de -race sobre o código da branch.
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -99,7 +93,6 @@ jobs:
           go test -race -short ./...
 
   frontend:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -135,7 +128,6 @@ jobs:
         run: npm run build
 
   e2e:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
