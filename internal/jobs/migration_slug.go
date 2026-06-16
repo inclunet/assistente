@@ -45,6 +45,27 @@ type slugRenormalizationTarget struct {
 //     forma canônica — e fazia toggle/delete/persist/log atingirem o job errado.)
 //   - Slugs que normalizam para vazio (ex.: só símbolos) são preservados como
 //     estão, pois não há forma canônica segura para reescrevê-los.
+//   - Atomicidade: a re-normalização de CADA tabela roda dentro de uma transação
+//     (db.Transaction). Os contadores só são acumulados após o commit da
+//     transação daquela tabela; se a transação falhar, o banco não fica com
+//     slugs parcialmente migrados naquela tabela.
+//
+// Limitação conhecida (IMPORTANTE):
+//
+//	Esta migração re-normaliza APENAS a coluna `slug` das tabelas `jobs`,
+//	`job_pipelines` e `tags`. Slugs também aparecem como TEXTO em outros lugares
+//	que NÃO são tocados aqui — por exemplo: `Inputs`, `OutputConfig` e
+//	`EventsConfig` de jobs/pipelines, payloads de eventos e mensagens de log.
+//	Essas referências textuais ao slug NÃO são re-normalizadas.
+//
+//	Isso é especialmente perigoso no caso de COLISÃO com sufixo: quando um slug
+//	legado é re-normalizado para uma forma canônica com sufixo (ex.: a forma
+//	canônica "cafe-job" já existia e a linha legada vira "cafe-job-2"), qualquer
+//	referência textual antiga que ainda aponte para "cafe-job" passa a resolver
+//	SILENCIOSAMENTE para o outro job (o que ocupava a forma canônica base), e
+//	não para a linha originalmente pretendida. Para auditoria/rollback manual,
+//	cada renomeação com sufixo é registrada em log no nível WARN com o
+//	mapeamento completo (user, tabela, slug antigo → slug novo); ver loop abaixo.
 func RenormalizeLegacySlugs(db *gorm.DB) error {
 	if db == nil {
 		return nil
@@ -56,7 +77,18 @@ func RenormalizeLegacySlugs(db *gorm.DB) error {
 	}
 	var totalUpdated, totalSuffixed int
 	for _, target := range targets {
-		updated, suffixed, err := renormalizeSlugsForTable(db, target)
+		// A re-normalização de cada tabela é atômica: ou todas as linhas daquela
+		// tabela são atualizadas, ou nenhuma. Os contadores só são acumulados
+		// após o commit, evitando estado parcialmente migrado em caso de falha.
+		var updated, suffixed int
+		err := db.Transaction(func(tx *gorm.DB) error {
+			u, s, err := renormalizeSlugsForTable(tx, target)
+			if err != nil {
+				return err
+			}
+			updated, suffixed = u, s
+			return nil
+		})
 		if err != nil {
 			return fmt.Errorf("re-normaliza slugs de %s: %w", target.table, err)
 		}
@@ -71,9 +103,10 @@ func RenormalizeLegacySlugs(db *gorm.DB) error {
 
 // renormalizeSlugsForTable re-normaliza os slugs de uma única tabela. Retorna a
 // contagem de linhas atualizadas e quantas delas precisaram de sufixo numérico
-// por colisão de slug canônico.
-func renormalizeSlugsForTable(db *gorm.DB, target slugRenormalizationTarget) (updated, suffixed int, err error) {
-	if !db.Migrator().HasTable(target.table) {
+// por colisão de slug canônico. Todas as queries usam o tx recebido para que a
+// operação seja atômica: o chamador a invoca dentro de db.Transaction(...).
+func renormalizeSlugsForTable(tx *gorm.DB, target slugRenormalizationTarget) (updated, suffixed int, err error) {
+	if !tx.Migrator().HasTable(target.table) {
 		return 0, 0, nil
 	}
 
@@ -83,7 +116,7 @@ func renormalizeSlugsForTable(db *gorm.DB, target slugRenormalizationTarget) (up
 		Slug   string `gorm:"column:slug"`
 	}
 	var rows []slugRow
-	if err := db.Table(target.table).
+	if err := tx.Table(target.table).
 		Select("id", "user_id", "slug").
 		Order("user_id, id").
 		Scan(&rows).Error; err != nil {
@@ -136,11 +169,16 @@ func renormalizeSlugsForTable(db *gorm.DB, target slugRenormalizationTarget) (up
 			finalSlug = uniqueCanonicalSlug(change.canonical, func(s string) bool {
 				return isTaken(change.userID, s)
 			})
-			log.Printf("[Jobs] AVISO: slug legado %q (tabela %s, user %s) normalizaria para %q, que já existe; re-normalizado para %q (canônico e único) para mantê-lo endereçável",
-				change.oldSlug, target.table, change.userID, change.canonical, finalSlug)
+			// WARN: renomeação com sufixo é o caso de risco descrito na
+			// "Limitação conhecida" da docstring (referências textuais antigas ao
+			// slug podem resolver para o job errado). Logamos o mapeamento
+			// completo (user, tabela, slug antigo → slug novo) para auditoria e
+			// rollback manual.
+			log.Printf("[WARN][Jobs] slug legado renomeado com sufixo por colisão (auditar referências textuais): user=%s tabela=%s slug antigo=%q -> slug novo=%q (forma canônica %q já estava ocupada)",
+				change.userID, target.table, change.oldSlug, finalSlug, change.canonical)
 			suffixed++
 		}
-		res := db.Table(target.table).Where("id = ?", change.id).Update("slug", finalSlug)
+		res := tx.Table(target.table).Where("id = ?", change.id).Update("slug", finalSlug)
 		if res.Error != nil {
 			return updated, suffixed, res.Error
 		}
