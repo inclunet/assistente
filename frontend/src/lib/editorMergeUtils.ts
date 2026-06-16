@@ -1,4 +1,5 @@
 import { createTwoFilesPatch } from 'diff';
+import type { TFunction } from 'i18next';
 import type { app } from '@wailsjs/go/models';
 
 /** Metadados de disco usados para detectar mudanças externas em um arquivo. */
@@ -93,4 +94,18 @@ export function truncatePreview(text: string, limit = 20000): TextPreview {
     truncated: true,
     total: s.length,
   };
+}
+
+/**
+ * Compõe o texto user-facing de um preview: trunca via {@link truncatePreview}
+ * e, quando truncado, anexa o sufixo traduzido `editor.preview.truncatedSuffix`.
+ *
+ * Recebe a função `t` (TFunction do i18next) como parâmetro, seguindo o padrão
+ * dos demais utilitários deste módulo (data-only) e evitando importar o i18n
+ * global. Centraliza a lógica antes duplicada entre `useEditorMerge` e
+ * `EditorPage`.
+ */
+export function composePreviewText(text: string, t: TFunction, limit?: number): string {
+  const p = limit === undefined ? truncatePreview(text) : truncatePreview(text, limit);
+  return p.truncated ? p.preview + t('editor.preview.truncatedSuffix', { total: p.total }) : p.preview;
 }

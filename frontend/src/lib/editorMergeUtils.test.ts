@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import type { TFunction } from 'i18next';
 import {
   normalizeDiskInfo,
   diskInfoEquals,
@@ -8,6 +9,7 @@ import {
   safeDraftIdPart,
   buildUnifiedDiff,
   truncatePreview,
+  composePreviewText,
 } from './editorMergeUtils';
 
 describe('editorMergeUtils', () => {
@@ -108,6 +110,36 @@ describe('editorMergeUtils', () => {
       expect(res.total).toBe(50);
       expect(res.preview).toBe('xxxxxxxxxx');
       expect(res.preview).not.toContain('truncado');
+    });
+  });
+
+  describe('composePreviewText', () => {
+    // Mock de TFunction: ecoa a chave + os args interpolados.
+    const t = ((key: string, opts?: Record<string, unknown>) =>
+      opts ? `${key}|${JSON.stringify(opts)}` : key) as unknown as TFunction;
+
+    it('retorna o texto intacto, sem sufixo, quando não trunca', () => {
+      expect(composePreviewText('curto', t, 100)).toBe('curto');
+    });
+
+    it('anexa o sufixo traduzido com o total quando trunca', () => {
+      const long = 'x'.repeat(50);
+      const res = composePreviewText(long, t, 10);
+      expect(res).toBe('xxxxxxxxxx' + 'editor.preview.truncatedSuffix|{"total":50}');
+    });
+
+    it('usa o limite padrão quando nenhum limite é informado', () => {
+      const res = composePreviewText('texto pequeno', t);
+      expect(res).toBe('texto pequeno');
+    });
+
+    it('só chama t quando o texto é truncado', () => {
+      const spy = vi.fn((key: string) => key) as unknown as TFunction;
+      composePreviewText('curto', spy, 100);
+      expect(spy).not.toHaveBeenCalled();
+
+      composePreviewText('x'.repeat(20), spy, 5);
+      expect(spy).toHaveBeenCalledWith('editor.preview.truncatedSuffix', { total: 20 });
     });
   });
 });

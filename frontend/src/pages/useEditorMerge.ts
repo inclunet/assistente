@@ -16,13 +16,12 @@ import {
 } from '@wailsjs/go/app/App';
 import {
   type DiskInfo,
-  type TextPreview,
   buildUnifiedDiff,
+  composePreviewText,
   hashStringFNV1a32,
   makeGitStyleConflictText,
   normalizeDiskInfo,
   safeDraftIdPart,
-  truncatePreview,
 } from '../lib/editorMergeUtils';
 import type { MergeSession } from './editorTypes';
 
@@ -41,10 +40,6 @@ export function useEditorMerge() {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
-
-  // Compõe o texto de um preview, anexando o sufixo traduzido quando truncado.
-  const composePreviewText = (p: TextPreview): string =>
-    p.truncated ? p.preview + t('editor.preview.truncatedSuffix', { total: p.total }) : p.preview;
 
   const setDocMarkdown = useEditorStore((s) => s.setDocMarkdown);
   const setDocFilePath = useEditorStore((s) => s.setDocFilePath);
@@ -181,7 +176,7 @@ export function useEditorMerge() {
       setDocDirty(tabId, true);
 
       const localContent = getCachedMarkdownForTab(tab);
-      const localPreviewText = composePreviewText(truncatePreview(localContent));
+      const localPreviewText = composePreviewText(localContent, t);
 
       let diskContent = typeof opts?.diskContent === 'string' ? String(opts?.diskContent) : '';
       let diskReadError = typeof opts?.diskReadError === 'string' ? String(opts?.diskReadError) : '';
@@ -207,10 +202,10 @@ export function useEditorMerge() {
 
       const diskPreviewText = diskReadError
         ? `${t('editor.errors.diskReadFailed')}\n${diskReadError}`
-        : composePreviewText(truncatePreview(diskContent));
+        : composePreviewText(diskContent, t);
 
       const diffText = diskReadError ? '' : buildUnifiedDiff(diskContent, localContent);
-      const diffPreviewText = diffText ? composePreviewText(truncatePreview(diffText, 30000)) : '';
+      const diffPreviewText = diffText ? composePreviewText(diffText, t, 30000) : '';
 
       const resp = await requestQuestionnaire({
         id: `ui-editor-external-change-${Date.now()}`,

@@ -32,7 +32,7 @@ import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
 import { buildChatSurfaceParams } from '../lib/chatSurface';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
 import { getErrorMessage, getMaybeContent } from '../lib/editorContent';
-import { hasConflictMarkers, truncatePreview } from '../lib/editorMergeUtils';
+import { composePreviewText, hasConflictMarkers } from '../lib/editorMergeUtils';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
 import { useEditorInlineChatPatch } from '../hooks/useEditorInlineChatPatch';
 import { isModalOpen } from '../components/ui/Modal';
@@ -1081,10 +1081,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       mineContent = '';
     }
 
-    const minePreview = truncatePreview(mineContent);
-    const minePreviewText = minePreview.truncated
-      ? minePreview.preview + t('editor.preview.truncatedSuffix', { total: minePreview.total })
-      : minePreview.preview;
+    const minePreviewText = composePreviewText(mineContent, t);
 
     const resp = await requestQuestionnaire({
       id: `ui-editor-abort-merge-${Date.now()}`,
