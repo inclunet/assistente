@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/slug"
 	"assistente/internal/tools"
 
 	"gorm.io/gorm"
@@ -1868,10 +1869,11 @@ func unmarshalJSON(raw string, dst any) error {
 	return json.Unmarshal([]byte(raw), dst)
 }
 
+// normalizeSlug delega ao algoritmo canônico em internal/slug. Usa fallback
+// vazio para preservar o contrato dos call sites (ex.: uniqueSlugs ignora slugs
+// vazios e lookups por slug vazio não devem casar registros).
 func normalizeSlug(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	s = strings.ReplaceAll(s, " ", "-")
-	return s
+	return slug.Slugify(s, "")
 }
 
 func uniqueSlugs(values []string) []string {
