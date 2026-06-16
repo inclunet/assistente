@@ -28,6 +28,9 @@ jobs:
         with:
           version: v2.11.4
 
+      - name: Go build
+        run: go build ./...
+
       - name: Go tests
         run: |
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &

@@ -8,6 +8,10 @@ run:
 linters:
   # Não herda os defaults da action; habilita explicitamente o conjunto desejado.
   default: none
+  # Formatters (gofmt, gofumpt, goimports) foram deliberadamente deixados de fora:
+  # habilitá-los exigiria reformatar arquivos legados em massa, o que está fora do
+  # escopo do endurecimento de CI (#266 / PR #284). Podem ser adicionados num PR
+  # dedicado de formatação, isolado das demais mudanças.
   enable:
     - errcheck      # detecta erros não tratados
     - govet         # análises estáticas do toolchain Go

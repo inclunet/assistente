@@ -5,15 +5,16 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # Detector de corrida roda no agendamento noturno (job backend-race),
-  # para não penalizar o tempo dos PRs.
+  # O detector de corrida (job backend-race) roda em push/PR com -short.
+  # O agendamento é mantido apenas como gatilho disponível (workflow_dispatch
+  # cobre execução manual sob demanda).
   schedule:
     - cron: '0 3 * * *'
   workflow_dispatch:
 
 jobs:
   backend:
-    # Executa em push/PR e manualmente; o agendamento noturno cobre o job backend-race.
+    # Executa em push/PR e manualmente.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -47,7 +48,12 @@ jobs:
 
       - name: Relatório de cobertura (informativo)
         run: |
-          COVERAGE=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}')
+          set -euo pipefail
+          if [ ! -s coverage.out ]; then
+            echo "::warning::coverage.out ausente ou vazio; pulando relatório de cobertura."
+            exit 0
+          fi
+          COVERAGE=$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}')
           COVERAGE_NUM=${COVERAGE%\%}
           THRESHOLD=50
           echo "Cobertura total do backend: ${COVERAGE}"
@@ -57,7 +63,7 @@ jobs:
             echo "- Cobertura total: **${COVERAGE}**"
             echo "- Threshold informativo: ${THRESHOLD}%"
           } >> "$GITHUB_STEP_SUMMARY"
-          if awk "BEGIN { exit !(${COVERAGE_NUM} < ${THRESHOLD}) }"; then
+          if awk "BEGIN { exit !(${COVERAGE_NUM:-0} < ${THRESHOLD}) }"; then
             echo "::warning::Cobertura ${COVERAGE} abaixo do threshold informativo de ${THRESHOLD}% (não bloqueante)."
           fi
 
@@ -70,11 +76,11 @@ jobs:
           retention-days: 7
 
   backend-race:
-    # Detector de corrida (mais lento): roda apenas no agendamento noturno e sob demanda,
-    # mantendo os PRs rápidos.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Detector de corrida: roda em push/PR (e manualmente) com -short para podar
+    # testes mais lentos, garantindo cobertura de -race sobre o código da branch.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -85,11 +91,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Go tests (-race)
+      - name: Go tests (-race -short)
         run: |
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
           export DISPLAY=:99.0
-          go test -race ./...
+          go test -race -short ./...
 
   frontend:
     if: github.event_name != 'schedule'
@@ -147,8 +153,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+
       - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install chromium --with-deps
+
+      - name: Install Playwright system deps (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
       - name: Run e2e tests
         run: npm run test:e2e
