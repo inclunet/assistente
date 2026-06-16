@@ -2,17 +2,14 @@ package profiles
 
 import (
 	"assistente/internal/configdir"
+	"assistente/internal/slug"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
-	"unicode"
-
-	"golang.org/x/text/unicode/norm"
 )
 
 // Manager gerencia perfis de conversa armazenados em arquivos JSON.
@@ -457,36 +454,9 @@ func (m *Manager) EnsureDefaults() error {
 
 // Slugify converte um nome em slug seguro para nome de arquivo.
 // Ex: "Padrão" -> "padrao", "Modelo Local" -> "modelo-local"
+// Delega ao pacote canônico internal/slug, usando "perfil" como fallback.
 func Slugify(name string) string {
-	// Normaliza Unicode (NFD) para separar caracteres base de acentos
-	normalized := norm.NFD.String(name)
-
-	// Remove marcas diacríticas (acentos)
-	var builder strings.Builder
-	for _, r := range normalized {
-		if unicode.Is(unicode.Mn, r) {
-			continue // Pula combining marks (acentos)
-		}
-		builder.WriteRune(r)
-	}
-
-	result := builder.String()
-
-	// Converte para minúsculas
-	result = strings.ToLower(result)
-
-	// Substitui espaços e caracteres não-alfanuméricos por hífens
-	reg := regexp.MustCompile(`[^a-z0-9]+`)
-	result = reg.ReplaceAllString(result, "-")
-
-	// Remove hífens do início e fim
-	result = strings.Trim(result, "-")
-
-	if result == "" {
-		result = "perfil"
-	}
-
-	return result
+	return slug.Slugify(name, "perfil")
 }
 
 func (m *Manager) nextCopyName(baseName string) string {
