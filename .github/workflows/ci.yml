@@ -5,10 +5,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # O detector de corrida (job backend-race) roda em push/PR com -short, então
+  # não há gatilho `schedule`: ele só geraria runs noturnos vazios. workflow_dispatch
+  # cobre execução manual sob demanda.
+  workflow_dispatch:
 
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -17,7 +22,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          # Fonte única de versão do Go: go.mod.
+          go-version-file: go.mod
 
       - name: Go vet
         run: go vet ./...
@@ -27,14 +33,68 @@ jobs:
         with:
           version: v2.11.4
 
-      - name: Go tests
+      - name: Go build
+        run: go build ./...
+
+      - name: Go tests (com cobertura)
         run: |
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
           export DISPLAY=:99.0
-          go test ./...
+          go test -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Relatório de cobertura (informativo)
+        run: |
+          set -euo pipefail
+          if [ ! -s coverage.out ]; then
+            echo "::warning::coverage.out ausente ou vazio; pulando relatório de cobertura."
+            exit 0
+          fi
+          COVERAGE=$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}')
+          COVERAGE_NUM=${COVERAGE%\%}
+          THRESHOLD=50
+          echo "Cobertura total do backend: ${COVERAGE}"
+          {
+            echo "## Cobertura do backend"
+            echo ""
+            echo "- Cobertura total: **${COVERAGE}**"
+            echo "- Threshold informativo: ${THRESHOLD}%"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if awk "BEGIN { exit !(${COVERAGE_NUM:-0} < ${THRESHOLD}) }"; then
+            echo "::warning::Cobertura ${COVERAGE} abaixo do threshold informativo de ${THRESHOLD}% (não bloqueante)."
+          fi
+
+      - name: Upload do perfil de cobertura
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: backend-coverage
+          path: coverage.out
+          retention-days: 7
+
+  backend-race:
+    # Detector de corrida: roda em push/PR (e manualmente) com -short para podar
+    # testes mais lentos, garantindo cobertura de -race sobre o código da branch.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev xvfb
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Go tests (-race -short)
+        run: |
+          Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+          export DISPLAY=:99.0
+          go test -race -short ./...
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -42,9 +102,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          # Fonte única de versão do Node: .nvmrc.
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
@@ -63,8 +124,12 @@ jobs:
       - name: Tests (includes axe-core a11y)
         run: npm run test
 
+      - name: Build (Vite) — falha se dist ficar vazio
+        run: npm run build
+
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
@@ -72,17 +137,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+
       - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install chromium --with-deps
+
+      - name: Install Playwright system deps (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
       - name: Run e2e tests
         run: npm run test:e2e
