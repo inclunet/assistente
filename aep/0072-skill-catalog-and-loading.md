@@ -1,14 +1,216 @@
-# AEP-0072 — Skill Catalog & Loading (descoberta, gating e carregamento sob demanda)
+# AEP-0072 — Skill Loading Runtime
 
-**Status**: Proposta  
-**Criado em**: 2026-06-08  
-**Depende de**: AEP-0051 (Skills DB) — fundação de dados; AEP-0046 (UUIDv7)  
-**Relacionado**: AEP-0049 (MCP DB / catalog-first), AEP-0047 (Import/Export), AEP-0063 (Tool Invocations e Executor Comum)  
-**Issues**: #126 (âncora), #123 (importação observável), #119–#122 (plataforma de tools — reuso de padrão)
+**Status**: Proposta revisada
+**Criado em**: 2026-06-08
+**Revisado em**: 2026-06-16
+**Substitui**: versão anterior da AEP-0072 (Skill Catalog & Loading amplo)
+**Depende de**: AEP-0075 (Context Providers)
+**Relacionado**: AEP-0074 (Prompt Cache), AEP-0051 (Skills DB, opcional/futura), AEP-0063 (Tool Invocations e Executor Comum)
 
 ---
 
 ## Resumo
+
+> **Nota de revisão (2026-06-16).** A versão original desta AEP tentou resolver ao mesmo tempo catálogo de skills, migração para banco, gating, templates, autoload e contexto dinâmico. Essa combinação se mostrou ampla demais. A nova direção separa responsabilidades:
+>
+> - AEP-0075: `memory`, `workspace`, tasklists e estado dinâmico viram **Context Providers**.
+> - AEP-0072: skills ficam apenas como **módulos de instrução/workflow** e esta AEP passa a definir o runtime de carregamento.
+> - AEP-0074: otimização de prompt cache vem depois, sobre a arquitetura separada.
+>
+> Portanto, esta AEP não depende mais de migrar skills para banco antes de corrigir o runtime. AEP-0051 pode continuar como evolução de persistência, mas não é pré-requisito para o modelo de carregamento.
+
+## Resumo revisado
+
+Redesenhar o carregamento de skills para seguir progressive disclosure:
+
+- catálogo leve e estável no prompt inicial;
+- skill de perfil/base explicitamente marcada;
+- skills sob demanda invocáveis por `/skill`, menção ou decisão do modelo;
+- corpo completo da skill carregado de forma observável;
+- `memory` e `workspace` fora do sistema de skills;
+- Go templates fora do caminho novo de skills.
+
+Skills passam a ser módulos de instrução. Contexto dinâmico pertence aos Context Providers da AEP-0075.
+
+## Motivação revisada
+
+O runtime atual de `/skill` carrega o corpo da skill de forma silenciosa dentro do system prompt do turno. Isso funciona tecnicamente, mas é ruim porque:
+
+- o usuário não percebe claramente que a skill foi carregada;
+- a ativação não fica auditável como evento de turno;
+- a skill se mistura ao system prompt;
+- templates e includes tornam o corpo da skill dinâmico e pouco cacheável;
+- skills passaram a carregar estado (`memory`, `workspace`) que não pertence ao conceito de skill.
+
+Ferramentas de mercado convergem para outro modelo:
+
+- Cursor: skills invocadas por `/` ou `@`; rules são escopadas separadamente.
+- Claude Code: skill descriptions ficam visíveis; corpo da skill entra quando usada, no ponto da conversa.
+- Codex: lista inicial com nome, descrição e path; lê `SKILL.md` completo apenas quando seleciona.
+- OpenClaw: injeta lista compacta e instrui o modelo a usar `read` para carregar `SKILL.md`.
+
+## Decisões revisadas
+
+### D1. Skill é workflow/instrução, não estado
+
+Skills não devem carregar memória, workspace, tasklists ou estado dinâmico do app. Esses dados pertencem a Context Providers.
+
+Uma skill pode declarar:
+
+- nome;
+- descrição;
+- quando usar;
+- instruções;
+- supporting files;
+- tools úteis/permitidas;
+- escopo de filesystem/network quando aplicável.
+
+Uma skill não deve depender de Go templates para acessar contexto dinâmico.
+
+### D2. Perfil define o modo da skill
+
+O perfil deve controlar como cada skill participa do runtime.
+
+Modos:
+
+- `base`: entra no prompt inicial como parte da persona/instrução do perfil.
+- `on_demand`: aparece no catálogo e pode ser carregada quando invocada ou relevante.
+- `disabled`: não aparece no catálogo e não pode ser invocada.
+
+Exemplo conceitual:
+
+```json
+{
+  "skill_modes": {
+    "tech-support": "base",
+    "github": "on_demand",
+    "flock-api": "on_demand",
+    "job-manager": "disabled"
+  }
+}
+```
+
+`memory` e `workspace` não aparecem aqui; eles são configurados como context providers na AEP-0075.
+
+### D3. Skill base substitui o uso implícito de "primeira skill"
+
+Não deve existir contrato por posição, como "a primeira skill do perfil é a instrução base". Isso é frágil e difícil de auditar.
+
+Se uma skill define a persona do perfil, ela deve ser marcada explicitamente como `base`.
+
+### D4. Catálogo inicial é leve e cacheável
+
+O prompt inicial inclui apenas catálogo de skills `on_demand`:
+
+- slug;
+- display name;
+- descrição;
+- quando usar;
+- caminho ou identificador para carregamento.
+
+O corpo completo não entra no prompt inicial.
+
+O catálogo deve ser ordenado deterministicamente e ter orçamento de tamanho. Se passar do orçamento, descrições podem ser encurtadas e skills menos prioritárias omitidas com aviso observável.
+
+### D5. `/skill` é uma ativação explícita e observável
+
+Quando o usuário digita `/skill args`, o backend deve:
+
+1. resolver a skill;
+2. validar se ela está habilitada no perfil;
+3. registrar evento de skill carregada no turno;
+4. preservar argumentos como bloco separado;
+5. anexar o corpo da skill como contexto do turno, não como mutação silenciosa do system prompt estável;
+6. expor erro claro se a skill não existir ou estiver desabilitada.
+
+O usuário deve conseguir perceber que a skill foi carregada.
+
+### D6. Carregamento sob demanda pelo modelo usa leitura explícita
+
+Quando o modelo decide usar uma skill listada no catálogo, ele deve carregar o corpo completo por ferramenta de leitura/carregamento.
+
+Primeira implementação aceitável:
+
+- usar `read_file`/equivalente sobre o `SKILL.md` existente;
+- registrar o resultado como contexto de tool no turno;
+- manter supporting files lidos sob demanda.
+
+Implementação futura:
+
+- se AEP-0051 for retomada, o DB vira fonte canônica e o backend materializa um caminho read-only ou fornece uma tool `load_skill`.
+
+### D7. Auto-load vira `base` ou deixa de existir
+
+`auto_load` como booleano genérico deve ser descontinuado.
+
+Equivalências:
+
+- `auto_load=true` que define persona do perfil → `base`;
+- `auto_load=true` que é workflow ocasional → `on_demand`;
+- `auto_load=true` que traz estado/contexto → migrar para Context Provider.
+
+### D8. Templates em skills são legado
+
+O caminho novo de skills não deve exigir Go templates.
+
+Política:
+
+- `$ARGUMENTS` pode ser substituído por bloco estruturado de argumentos;
+- `{{ now }}` deve virar context provider temporal, se necessário;
+- `include "memory/..."` deve virar memory provider;
+- `.Surface`, `.TaskLists`, `.Tabs` devem virar context providers;
+- templates existentes continuam em compatibilidade temporária com aviso.
+
+## Fases revisadas
+
+### Fase 0 — AEP-0075 primeiro
+
+Implementar Context Providers para remover `memory` e `workspace` do pool de responsabilidades de skills.
+
+### Fase 1 — Skill modes por perfil
+
+- Adicionar representação de `base`, `on_demand`, `disabled`.
+- Migrar `enabled_skills` atual para modo compatível.
+- Garantir que posição na lista não muda semântica.
+
+### Fase 2 — Catálogo leve
+
+- Construir catálogo só com skills `on_demand`.
+- Ordenar deterministicamente.
+- Aplicar orçamento.
+
+### Fase 3 — Slash explícito e observável
+
+- Reimplementar `/skill` como ativação de turno.
+- Emitir evento/segmento de carregamento.
+- Mostrar erro quando desabilitada.
+
+### Fase 4 — Carregamento sob demanda
+
+- Permitir o modelo carregar skill do catálogo por leitura explícita.
+- Registrar skill carregada como tool/context event.
+
+### Fase 5 — Deprecar templates e autoload legado
+
+- Avisar quando skill usa Go templates.
+- Migrar builtins.
+- Remover `auto_load` após compatibilidade.
+
+## Critérios de aceitação revisados
+
+- `memory` e `workspace` não são skills no caminho novo.
+- Perfil declara skill `base` explicitamente.
+- Skills `on_demand` aparecem em catálogo leve.
+- `/skill` gera ativação observável no turno.
+- Skill desabilitada não aparece nem carrega.
+- O corpo completo de skill não é injetado silenciosamente no system prompt estável.
+- Go templates não são necessários para skills novas.
+
+---
+
+## Histórico da versão anterior
+
+O conteúdo abaixo representa a versão original da AEP-0072. Ele permanece temporariamente para rastreabilidade, mas foi supersedido pelas decisões revisadas acima.
 
 Redesenhar a descoberta, o gating e o carregamento de skills para seguir o padrão de **progressive disclosure** consolidado nas ferramentas líderes (Claude Code, Codex, Cursor, Copilot), usando como fundação as skills persistidas em banco (AEP-0051).
 
