@@ -116,25 +116,27 @@ func TestEnsureUsernameCaseInsensitive_NormalizesLegacyMixedCase(t *testing.T) {
 }
 
 // TestEnsureUsernameCaseInsensitive_HandlesCollision valida B34 em cenário
-// onde já existe um par `Alice`/`alice`. O perdedor (menor id) é renomeado e
-// desativado, e o vencedor permanece — preserva ambos para auditoria sem
-// destruir dados.
+// onde já existe um par `Alice`/`alice`. O registro MAIS ANTIGO (menor
+// UUIDv7) é preservado e o duplicado MAIS RECENTE (maior UUIDv7) é renomeado
+// e desativado — preserva ambos para auditoria sem destruir dados, sem
+// sacrificar o registro criado primeiro (correção do PR #285).
 func TestEnsureUsernameCaseInsensitive_HandlesCollision(t *testing.T) {
 	setupMultiUserTestDB(t)
 
-	loser := &User{Username: "Alice", PasswordHash: "h", Role: UserRoleUser, IsActive: true}
-	if err := db.Create(loser).Error; err != nil {
+	first := &User{Username: "Alice", PasswordHash: "h", Role: UserRoleUser, IsActive: true}
+	if err := db.Create(first).Error; err != nil {
 		t.Fatalf("create Alice: %v", err)
 	}
-	winner := &User{Username: "alice", PasswordHash: "h", Role: UserRoleAdmin, IsActive: true}
-	if err := db.Create(winner).Error; err != nil {
+	second := &User{Username: "alice", PasswordHash: "h", Role: UserRoleAdmin, IsActive: true}
+	if err := db.Create(second).Error; err != nil {
 		t.Fatalf("create alice: %v", err)
 	}
 
-	expectedLoserID := loser.ID
-	expectedWinnerID := winner.ID
-	if expectedWinnerID < expectedLoserID {
-		expectedLoserID, expectedWinnerID = expectedWinnerID, expectedLoserID
+	// O mais antigo (menor id) vence e permanece; o mais recente (maior id) é
+	// o perdedor desativado.
+	expectedWinnerID, expectedLoserID := first.ID, second.ID
+	if expectedLoserID < expectedWinnerID {
+		expectedWinnerID, expectedLoserID = expectedLoserID, expectedWinnerID
 	}
 
 	if err := ensureUsernameCaseInsensitive(); err != nil {
