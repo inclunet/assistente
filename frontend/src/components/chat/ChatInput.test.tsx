@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ChatInput } from './ChatInput';
 import type { MediaFile } from '../../services/mediaService';
 
@@ -27,7 +27,9 @@ vi.mock('../../services/mediaService', () => ({
 }));
 
 vi.mock('./SlashCommandMenu', () => ({
-  SlashCommandMenu: () => <div data-testid="slash-menu" />,
+  SlashCommandMenu: ({ skills }: { skills: Array<{ name: string }> }) => (
+    <div data-testid="slash-menu">{skills.map((skill) => skill.name).join(',')}</div>
+  ),
   countFilteredSkills: () => 1,
 }));
 
@@ -88,11 +90,11 @@ describe('ChatInput', () => {
     expect(getSkillsSpy).not.toHaveBeenCalled();
   });
 
-  it('não carrega slash menu sem profileSlug resolvido', async () => {
+  it('carrega slash menu pelo perfil ativo do backend quando profileSlug não foi resolvido', async () => {
     render(<ChatInput onSend={() => {}} />);
 
     await waitFor(() => {
-      expect(getSkillsForProfileSpy).not.toHaveBeenCalled();
+      expect(getSkillsForProfileSpy).toHaveBeenCalledWith('');
     });
     expect(getSkillsSpy).not.toHaveBeenCalled();
   });
@@ -110,6 +112,42 @@ describe('ChatInput', () => {
     fireEvent.change(textarea, { target: { value: '/' } });
 
     expect(await screen.findByTestId('slash-menu')).toBeInTheDocument();
+  });
+
+  it('ignora resposta atrasada de profileSlug anterior', async () => {
+    const first = deferred<Array<{ slug: string; name: string }>>();
+    const second = deferred<Array<{ slug: string; name: string }>>();
+    getSkillsForProfileSpy
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+
+    const { rerender } = render(<ChatInput onSend={() => {}} profileSlug="old-profile" />);
+    await waitFor(() => {
+      expect(getSkillsForProfileSpy).toHaveBeenCalledWith('old-profile');
+    });
+
+    rerender(<ChatInput onSend={() => {}} profileSlug="new-profile" />);
+    await waitFor(() => {
+      expect(getSkillsForProfileSpy).toHaveBeenCalledWith('new-profile');
+    });
+
+    await act(async () => {
+      second.resolve([{ slug: 'new-skill', name: 'New Skill' }]);
+      await second.promise;
+    });
+    const textarea = screen.getByLabelText('chat.messageLabel');
+    await waitFor(() => {
+      fireEvent.change(textarea, { target: { value: '/' } });
+      expect(screen.getByTestId('slash-menu')).toHaveTextContent('New Skill');
+    });
+
+    await act(async () => {
+      first.resolve([{ slug: 'old-skill', name: 'Old Skill' }]);
+      await first.promise;
+    });
+    fireEvent.change(textarea, { target: { value: '/n' } });
+    expect(screen.getByTestId('slash-menu')).toHaveTextContent('New Skill');
+    expect(screen.getByTestId('slash-menu')).not.toHaveTextContent('Old Skill');
   });
 
   it('mostra botao de voz quando vazio', () => {

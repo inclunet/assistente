@@ -609,12 +609,13 @@ func TestPrepareMessagesPreservesBaseSkillSlashArguments(t *testing.T) {
 	if result.Err != nil {
 		t.Fatalf("PrepareMessages returned error: %v", result.Err)
 	}
-	if !strings.Contains(promptBuilder.slashSkillContent, "<invoked_skill>") ||
-		!strings.Contains(promptBuilder.slashSkillContent, "base instructions with revisar login") {
-		t.Fatalf("base skill should be appended with processed arguments: %q", promptBuilder.slashSkillContent)
+	if !strings.Contains(promptBuilder.slashSkillContent, "<invoked_skill_arguments>") ||
+		!strings.Contains(promptBuilder.slashSkillContent, "revisar login") ||
+		!strings.Contains(promptBuilder.slashSkillContent, "$ARGUMENTS") {
+		t.Fatalf("base skill arguments should be appended as a lightweight argument block: %q", promptBuilder.slashSkillContent)
 	}
-	if strings.Contains(promptBuilder.slashSkillContent, "$ARGUMENTS") {
-		t.Fatalf("base skill placeholders should be substituted: %q", promptBuilder.slashSkillContent)
+	if strings.Contains(promptBuilder.slashSkillContent, "base instructions") {
+		t.Fatalf("base skill body should not be duplicated: %q", promptBuilder.slashSkillContent)
 	}
 }
 

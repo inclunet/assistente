@@ -13,7 +13,7 @@ import (
 )
 
 const skillFile = "SKILL.md" // Cada skill fica em skills/{slug}/SKILL.md
-const fullSkillCacheTTL = 2 * time.Second
+const fullSkillCacheTTL = 30 * time.Second
 
 // discoveredSkill representa um skill encontrado no filesystem (antes do parse).
 type discoveredSkill struct {

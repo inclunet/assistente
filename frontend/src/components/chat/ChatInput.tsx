@@ -113,13 +113,17 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
   // Carrega skills invocáveis quando o componente monta
   useEffect(() => {
-    if (!profileSlug) {
-      setInvocableSkills([]);
-      return;
-    }
-    GetUserInvocableSkillsForProfile(profileSlug)
-      .then((result) => setInvocableSkills(result || []))
-      .catch(() => setInvocableSkills([]));
+    let cancelled = false;
+    GetUserInvocableSkillsForProfile(profileSlug || '')
+      .then((result) => {
+        if (!cancelled) setInvocableSkills(result || []);
+      })
+      .catch(() => {
+        if (!cancelled) setInvocableSkills([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [profileSlug]);
 
   // Handler para transcrição de voz

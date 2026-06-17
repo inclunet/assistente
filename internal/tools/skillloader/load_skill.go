@@ -40,7 +40,7 @@ func New(skillMgr SkillManager, profileMgr ProfileManager) *Tool {
 func (t *Tool) Name() string { return ToolName }
 
 func (t *Tool) Description() string {
-	return "Load an enabled on-demand skill into the current turn. Use this when the task matches a skill from the prompt's skill catalog and you need the full skill instructions before continuing. Only profile-enabled on-demand skills can be loaded. This is a runtime control tool; if you call it in the same tool batch as other tools, the runtime executes load_skill first so the loaded skill's permissions apply to the remaining calls."
+	return "Load an enabled on-demand skill into the current turn. Use this when the task matches a skill from the prompt's skill catalog and you need the full skill instructions before continuing. Only profile-enabled on-demand skills can be loaded. This is a runtime control tool with ordering semantics: when load_skill appears in the same tool batch as other tool calls, the runtime executes load_skill first and applies the loaded skill's permissions/context before running the remaining calls, while preserving the original result order in the conversation."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
@@ -48,7 +48,7 @@ func (t *Tool) Parameters() json.RawMessage {
   "type": "object",
   "properties": {
     "skill": {"type": "string", "description": "Skill slug or canonical skill name to load."},
-    "reason": {"type": "string", "description": "Brief reason why this skill is needed for the current task."}
+    "reason": {"type": "string", "description": "Brief reason why this skill is needed for the current task. If you need additional tools in the same assistant turn, include load_skill in the same batch; the runtime will execute it first and apply its permissions before the other calls."}
   },
   "required": ["skill"]
 }`)

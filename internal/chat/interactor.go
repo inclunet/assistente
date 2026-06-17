@@ -564,7 +564,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		}
 		if inv.Mode == skills.SkillModeBase {
 			if args := strings.TrimSpace(inv.Arguments); args != "" {
-				slashSkillContent = inv.Content
+				slashSkillContent = formatBaseSkillArguments(inv.SkillSlug, args)
 			}
 		} else {
 			slashSkillContent = inv.Content
@@ -619,6 +619,20 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		ModelOnDemandSkillAvailable: modelOnDemandSkillAvailable,
 		Err:                         nil,
 	}
+}
+
+func formatBaseSkillArguments(slug, args string) string {
+	var sb strings.Builder
+	sb.WriteString("<invoked_skill_arguments>\n")
+	sb.WriteString("Skill: ")
+	sb.WriteString(slug)
+	sb.WriteString("\n")
+	sb.WriteString("For this turn, apply these slash-command arguments to the already-loaded base skill. ")
+	sb.WriteString("Treat `$ARGUMENTS` in that base skill as the full arguments string below and `$1`, `$2`, ... as whitespace-separated positional arguments.\n")
+	sb.WriteString("Arguments:\n")
+	sb.WriteString(args)
+	sb.WriteString("\n</invoked_skill_arguments>")
+	return sb.String()
 }
 
 func hasModelOnDemandSkill(policy skills.SelectionPolicy) bool {
@@ -682,6 +696,8 @@ func (i *Interactor) ValidateSkillInvocation(activeProfile *profiles.Profile, us
 }
 
 func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string) []contextprovider.Block {
+	// Linked task lists are conversation context, not skill instructions. Keep
+	// them available even when profile skill loading is disabled.
 	taskListBlocks := taskListContextBlocks(data)
 	if i.contextProviders == nil {
 		return taskListBlocks
