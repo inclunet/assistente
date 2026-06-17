@@ -79,6 +79,12 @@ export default function MemoriesPage() {
   const loadRequestRef = useRef(0);
   const savingRef = useRef(false);
 
+  const policyOptions = useMemo(
+    () => includeArchived ? LOAD_POLICIES : LOAD_POLICIES.filter((policy) => policy !== 'archived'),
+    [includeArchived],
+  );
+  const includeArchivedDisabled = policyFilter !== '' && policyFilter !== 'archived';
+
   const loadRecords = useCallback(async () => {
     const requestId = loadRequestRef.current + 1;
     loadRequestRef.current = requestId;
@@ -127,9 +133,28 @@ export default function MemoriesPage() {
     void loadRecords();
   }, [loadRecords]);
 
-  useEffect(() => {
+  const handleSearchChange = useCallback((value: string) => {
     setPage(0);
-  }, [debouncedSearchTerm, includeArchived, policyFilter]);
+    setSearchTerm(value);
+  }, []);
+
+  const handlePolicyFilterChange = useCallback((value: string) => {
+    setPage(0);
+    setPolicyFilter(value);
+    if (value === 'archived') {
+      setIncludeArchived(true);
+    } else if (value !== '') {
+      setIncludeArchived(false);
+    }
+  }, []);
+
+  const handleIncludeArchivedChange = useCallback((checked: boolean) => {
+    setPage(0);
+    setIncludeArchived(checked);
+    if (!checked && policyFilter === 'archived') {
+      setPolicyFilter('');
+    }
+  }, [policyFilter]);
 
   const openCreate = useCallback(() => {
     setEditing(null);
@@ -296,24 +321,20 @@ export default function MemoriesPage() {
 
   return (
     <div className="memories-page">
-      <header className="memories-page__header">
-        <h2>{t('memories.title')}</h2>
-        <p>{t('memories.description')}</p>
-      </header>
-
       <Toolbar
         ariaLabel={t('memories.toolbarLabel')}
+        left={<h1 className="page-toolbar__title">{t('memories.title')}</h1>}
         searchValue={searchTerm}
-        onSearchChange={setSearchTerm}
+        onSearchChange={handleSearchChange}
         searchPlaceholder={t('memories.searchPlaceholder')}
         isLoading={loading}
-        rightEnd={(
+        right={(
           <div className="memories-page__filters">
             <label>
               <span>{t('memories.filters.policy')}</span>
-              <select value={policyFilter} onChange={(event) => setPolicyFilter(event.target.value)}>
+              <select value={policyFilter} onChange={(event) => handlePolicyFilterChange(event.target.value)}>
                 <option value="">{t('memories.filters.allPolicies')}</option>
-                {LOAD_POLICIES.map((policy) => (
+                {policyOptions.map((policy) => (
                   <option key={policy} value={policy}>{t(`memories.loadPolicies.${policy}`)}</option>
                 ))}
               </select>
@@ -322,7 +343,8 @@ export default function MemoriesPage() {
               <input
                 type="checkbox"
                 checked={includeArchived}
-                onChange={(event) => setIncludeArchived(event.target.checked)}
+                disabled={includeArchivedDisabled}
+                onChange={(event) => handleIncludeArchivedChange(event.target.checked)}
               />
               <span>{t('memories.filters.includeArchived')}</span>
             </label>

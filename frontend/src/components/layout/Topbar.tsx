@@ -18,6 +18,7 @@ import {
   ArrowLeftOutlined,
   FolderOutlined,
   HistoryOutlined,
+  ReadOutlined,
   CheckSquareOutlined,
   UserSwitchOutlined,
   ThunderboltOutlined,
@@ -36,6 +37,7 @@ import './Topbar.css';
 
 const PAGE_TITLE_KEYS: Record<string, string> = {
   '/history': 'menu.history',
+  '/memories': 'menu.memories',
   '/tasklists': 'menu.tasklists',
   '/jobs': 'menu.jobs',
   '/profiles': 'menu.profiles',
@@ -47,6 +49,7 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
 
 const ROUTE_IDS: Record<string, string> = {
   '/history': 'history',
+  '/memories': 'memories',
   '/tasklists': 'tasklists',
   '/jobs': 'jobs',
   '/profiles': 'profiles',
@@ -243,6 +246,7 @@ export function Topbar() {
       { id: 'sep-back', separator: true as const },
     ] : []),
     { id: 'history', label: t('menu.history'), icon: <HistoryOutlined />, shortcut: 'Alt+H', onClick: () => navigate('/history') },
+    { id: 'memories', label: t('menu.memories'), icon: <ReadOutlined />, onClick: () => navigate('/memories') },
     { id: 'tasklists', label: t('menu.tasklists'), icon: <CheckSquareOutlined />, onClick: () => navigate('/tasklists') },
     { id: 'jobs', label: t('menu.jobs'), icon: <ThunderboltOutlined />, onClick: () => navigate('/jobs') },
     { id: 'profiles', label: t('menu.profiles'), icon: <UserSwitchOutlined />, shortcut: 'Alt+P', onClick: () => navigate('/profiles') },

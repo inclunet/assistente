@@ -59,18 +59,22 @@ vi.mock('../store/uiStore', () => ({
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
-  Toolbar: ({ actions = [], searchValue, onSearchChange, rightEnd }: {
+  Toolbar: ({ actions = [], searchValue, onSearchChange, left, right, rightEnd }: {
     actions?: Array<{ key: string; label: string; onClick: () => void }>;
     searchValue?: string;
     onSearchChange?: (value: string) => void;
+    left?: ReactNode;
+    right?: ReactNode;
     rightEnd?: ReactNode;
   }) => (
     <div>
+      {left}
       <input
         aria-label="search"
         value={searchValue}
         onChange={(event) => onSearchChange?.(event.target.value)}
       />
+      {right}
       {rightEnd}
       {actions.map((action) => (
         <button key={action.key} type="button" onClick={action.onClick}>{action.label}</button>
@@ -236,6 +240,64 @@ describe('MemoriesPage', () => {
         (filter as { includeArchived?: boolean; loadPolicies?: string[] }).includeArchived === true &&
         (filter as { loadPolicies?: string[] }).loadPolicies?.[0] === 'archived'
       ))).toBe(true);
+    });
+  });
+
+  it('reseta pagina antes de carregar novo filtro', async () => {
+    const user = userEvent.setup();
+    mockListMemoryRecords.mockResolvedValue({
+      records: [{ id: 'mem-1', content: 'memória paginada', loadPolicy: 'core', kind: 'user_preference', scope: 'user' }],
+      total: 251,
+    });
+
+    render(<MemoriesPage />);
+
+    await waitFor(() => {
+      expect(mockListMemoryRecords).toHaveBeenCalledWith(expect.objectContaining({ offset: 0 }));
+    });
+    await user.click(screen.getByText('memories.pagination.next'));
+    await waitFor(() => {
+      expect(mockListMemoryRecords).toHaveBeenCalledWith(expect.objectContaining({ offset: 250 }));
+    });
+
+    fireEvent.change(screen.getByLabelText('memories.filters.policy'), {
+      target: { value: 'core' },
+    });
+
+    await waitFor(() => {
+      expect(mockListMemoryRecords).toHaveBeenCalledWith(expect.objectContaining({
+        loadPolicies: ['core'],
+        offset: 0,
+      }));
+    });
+    expect(mockListMemoryRecords.mock.calls.some(([filter]) => (
+      (filter as { loadPolicies?: string[]; offset?: number }).loadPolicies?.[0] === 'core' &&
+      (filter as { offset?: number }).offset === 250
+    ))).toBe(false);
+  });
+
+  it('controla filtro archived pelo checkbox de arquivadas', async () => {
+    render(<MemoriesPage />);
+
+    await waitFor(() => {
+      expect(mockListMemoryRecords).toHaveBeenCalled();
+    });
+    const policySelect = screen.getByLabelText('memories.filters.policy') as HTMLSelectElement;
+    const archivedCheckbox = screen.getByLabelText('memories.filters.includeArchived') as HTMLInputElement;
+
+    expect(screen.queryByRole('option', { name: 'memories.loadPolicies.archived' })).not.toBeInTheDocument();
+
+    fireEvent.click(archivedCheckbox);
+    expect(screen.getByRole('option', { name: 'memories.loadPolicies.archived' })).toBeInTheDocument();
+
+    fireEvent.change(policySelect, { target: { value: 'archived' } });
+    expect(policySelect.value).toBe('archived');
+
+    fireEvent.click(archivedCheckbox);
+    expect(policySelect.value).toBe('');
+    expect(screen.queryByRole('option', { name: 'memories.loadPolicies.archived' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockListMemoryRecords.mock.calls.length).toBeGreaterThanOrEqual(4);
     });
   });
 

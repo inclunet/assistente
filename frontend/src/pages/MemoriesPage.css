@@ -1,23 +1,13 @@
 .memories-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  min-height: 0;
-}
-
-.memories-page__header {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.memories-page__header h2 {
-  margin: 0;
+  height: 100%;
+  gap: var(--radius-md);
+  padding: var(--radius-md);
+  background-color: var(--bg-base);
   color: var(--text-primary);
-  font-size: var(--font-size-xl);
 }
 
-.memories-page__header p,
 .memories-page__empty,
 .memories-page__policy-help {
   margin: 0;
@@ -28,14 +18,22 @@
 .memories-page__filters {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--radius-md);
 }
 
-.memories-page__filters label,
 .memories-page__form label {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.memories-page__filters label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--radius-sm);
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
 }
@@ -59,7 +57,6 @@
 }
 
 .memories-page__checkbox {
-  flex-direction: row !important;
   align-items: center;
 }
 

@@ -16,6 +16,7 @@ vi.mock('react-i18next', () => ({
         'menu.settings': 'Configura\u00e7\u00f5es',
         'menu.profiles': 'Perfis',
         'menu.history': 'Hist\u00f3rico',
+        'menu.memories': 'Mem\u00f3rias',
         'menu.help': 'Ajuda',
         'menu.about': 'Sobre',
         'menu.appTitle': 'Assistente IA',
@@ -129,6 +130,13 @@ describe('useDocumentTitle', () => {
     render(<Fixture />);
 
     expect(document.title).toBe(`Hist\u00f3rico ${SEP} Assistente IA`);
+  });
+
+  it('define titulo para pagina de memorias', () => {
+    mockPathname = '/memories';
+    render(<Fixture />);
+
+    expect(document.title).toBe(`Mem\u00f3rias ${SEP} Assistente IA`);
   });
 
   it('define titulo para pagina sobre', () => {

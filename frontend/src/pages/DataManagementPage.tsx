@@ -304,11 +304,11 @@ export default function DataManagementPage() {
       }
 
       let memoryRecordIdsToExport: string[] = [];
+      let memoriesRequestedButEmpty = false;
       if (includeMemoriesExport) {
         memoryRecordIdsToExport = await loadExportMemoryRecordIds();
         if (memoryRecordIdsToExport.length === 0) {
-          announce(t('history.exportMemoriesEmpty', 'Nenhuma memória encontrada para exportar'), 'assertive');
-          return;
+          memoriesRequestedButEmpty = true;
         }
       }
 
@@ -321,8 +321,13 @@ export default function DataManagementPage() {
         memoryRecordIdsToExport.length > 0 ||
         includeCredentialExport;
       if (!hasResourcesToExport) {
-        announce(t('history.noDataToExport', 'Nenhum dado selecionado para exportar'), 'assertive');
+        announce(memoriesRequestedButEmpty
+          ? t('history.exportMemoriesEmpty', 'Nenhuma memória encontrada para exportar')
+          : t('history.noDataToExport', 'Nenhum dado selecionado para exportar'), 'assertive');
         return;
+      }
+      if (memoriesRequestedButEmpty) {
+        announce(t('history.exportMemoriesSkippedEmpty', 'Nenhuma memória encontrada; exportando os demais dados selecionados.'), 'assertive');
       }
 
       const payload: ExportRequestPayload = {
