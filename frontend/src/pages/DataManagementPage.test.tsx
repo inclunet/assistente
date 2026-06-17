@@ -203,6 +203,49 @@ describe('DataManagementPage', () => {
     expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('credentialExportPassword');
   });
 
+  it('recarrega ids de memorias ao confirmar exportacao', async () => {
+    const user = userEvent.setup();
+    mockListMemoryRecords
+      .mockResolvedValueOnce({ records: [{ id: 'stale-memory' }], total: 1 })
+      .mockResolvedValueOnce({ records: [{ id: 'fresh-memory' }], total: 1 });
+
+    render(<DataManagementPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('2')).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText('Incluir memórias persistidas no banco'));
+    await waitFor(() => {
+      expect(mockListMemoryRecords).toHaveBeenCalledTimes(1);
+    });
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockExportData).toHaveBeenCalledWith(expect.objectContaining({
+        memoryRecordIds: ['fresh-memory'],
+      }));
+    });
+    expect(mockListMemoryRecords).toHaveBeenCalledTimes(2);
+  });
+
+  it('aborta exportacao quando memorias marcadas ficam vazias no reload', async () => {
+    const user = userEvent.setup();
+    mockListMemoryRecords.mockResolvedValue({ records: [], total: 0 });
+
+    render(<DataManagementPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('2')).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText('Incluir memórias persistidas no banco'));
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockAnnounce).toHaveBeenCalledWith('Nenhuma memória encontrada para exportar', 'assertive');
+    });
+    expect(mockExportData).not.toHaveBeenCalled();
+  });
+
   it('exige senha para exportar credenciais e envia senha aparada', async () => {
     const user = userEvent.setup();
 

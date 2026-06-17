@@ -217,10 +217,9 @@ func (b *Builder) build(
 ) []llm.Message {
 	var parts []string
 
-	// 1. Base prompt — só inclui se há skills ou slash skill
-	if len(enabledSkills) > 0 || slashSkillContent != "" {
-		parts = append(parts, chat.DefaultSystemPrompt)
-	}
+	// 1. Base prompt — independente de skills. Context providers substituem
+	// algumas skills legadas, mas não substituem a identidade base do assistente.
+	parts = append(parts, chat.DefaultSystemPrompt)
 
 	// 1b. Protocolo catalog-first (AEP-0049, D16): incluído SEMPRE que o gating por
 	// catálogo está ativo (tool_catalog é a única tool inicial), independentemente de

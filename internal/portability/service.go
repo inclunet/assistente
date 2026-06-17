@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	memorysvc "assistente/internal/memory"
 	"assistente/internal/toolinvocations"
 
 	"gorm.io/gorm"
@@ -456,8 +457,9 @@ func ImportConversationsWithResolutions(
 		}
 	}
 
+	memorySvc := memorysvc.NewService(memorysvc.NewDBStore(database.DB()))
 	for _, memoryRecord := range file.Resources.MemoryRecords {
-		imported, err := importMemoryRecord(ctx, memoryRecord)
+		imported, err := importMemoryRecord(ctx, memorySvc, memoryRecord)
 		if err != nil {
 			result.Errors = append(result.Errors, err.Error())
 			result.Failed++

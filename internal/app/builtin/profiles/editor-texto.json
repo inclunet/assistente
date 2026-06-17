@@ -12,7 +12,7 @@
     "response_timeout": 180,
     "enable_thinking": false,
     "enabled_tools": ["text_edit"],
-    "enabled_skills": ["workspace", "editor-texto"]
+    "enabled_skills": ["editor-texto"]
   },
   "voice": {
     "assistant": {

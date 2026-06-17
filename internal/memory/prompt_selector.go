@@ -9,6 +9,8 @@ import (
 	"assistente/internal/database"
 )
 
+const minPromptLineBudget = 80
+
 type PromptLine struct {
 	Record database.MemoryRecord
 	Line   string
@@ -56,8 +58,12 @@ func (s PromptSelector) Select(records []database.MemoryRecord, req contextprovi
 					selected = append(selected, PromptLine{Record: record, Line: truncated})
 					used += len([]rune(truncated))
 				}
+				if budgetChars-used < minPromptLineBudget {
+					break
+				}
+				continue
 			}
-			if used > 0 {
+			if budgetChars-used < minPromptLineBudget {
 				break
 			}
 			continue

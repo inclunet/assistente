@@ -170,6 +170,47 @@ describe('MemoriesPage', () => {
     });
   });
 
+  it('exige referencia de escopo para memoria de projeto', async () => {
+    const user = userEvent.setup();
+    render(<MemoriesPage />);
+
+    await user.click(await screen.findByText('memories.actions.new'));
+    fireEvent.change(screen.getByLabelText('memories.fields.content'), {
+      target: { value: 'Memória de projeto' },
+    });
+    fireEvent.change(screen.getByLabelText('memories.fields.scope'), {
+      target: { value: 'project' },
+    });
+    await user.click(screen.getByText('common.save'));
+
+    expect(mockCreateMemoryRecord).not.toHaveBeenCalled();
+    expect(mockAddToast).toHaveBeenCalledWith('memories.errors.scopeRefRequired', 'error');
+  });
+
+  it('limpa referencia stale ao trocar para escopo derivado sem contexto ativo', async () => {
+    const user = userEvent.setup();
+    render(<MemoriesPage />);
+
+    await user.click(await screen.findByText('memories.actions.new'));
+    fireEvent.change(screen.getByLabelText('memories.fields.content'), {
+      target: { value: 'Memória escopada' },
+    });
+    fireEvent.change(screen.getByLabelText('memories.fields.scope'), {
+      target: { value: 'project' },
+    });
+    fireEvent.change(screen.getByLabelText('memories.fields.scopeRef'), {
+      target: { value: 'inclunet/assistente' },
+    });
+    fireEvent.change(screen.getByLabelText('memories.fields.scope'), {
+      target: { value: 'conversation' },
+    });
+
+    expect(screen.getByLabelText('memories.fields.scopeRef')).toHaveValue('');
+    await user.click(screen.getByText('common.save'));
+    expect(mockCreateMemoryRecord).not.toHaveBeenCalled();
+    expect(mockAddToast).toHaveBeenCalledWith('memories.errors.scopeRefRequired', 'error');
+  });
+
   it('troca filtro para archived ao salvar memoria arquivada', async () => {
     const user = userEvent.setup();
     render(<MemoriesPage />);

@@ -17,6 +17,8 @@ import (
 //go:embed all:builtin/skills
 var builtinSkillsFS embed.FS
 
+var legacyContextProviderSkillSlugs = []string{"memory", "workspace"}
+
 // installBuiltinSkills copia skills embutidos no binário para ~/.assistente/skills/.
 // Instala skills novos e atualiza os que têm versão mais antiga que a embutida.
 // Skills que o usuário já atualizou (versão >= embutida) não são sobrescritos.
@@ -32,6 +34,7 @@ func (a *App) installBuiltinSkills() {
 		log.Printf("[Skills] Error creating skills home dir: %v", err)
 		return
 	}
+	removeLegacyContextProviderSkills(homeDir)
 
 	skillEntries, err := fs.ReadDir(builtinSkillsFS, "builtin/skills")
 	if err != nil {
@@ -82,6 +85,23 @@ func (a *App) installBuiltinSkills() {
 		}
 
 		a.copyEmbeddedSkillDir(embeddedBase, targetDir)
+	}
+}
+
+func removeLegacyContextProviderSkills(homeDir string) {
+	for _, slug := range legacyContextProviderSkillSlugs {
+		targetDir := filepath.Join(homeDir, slug)
+		if _, err := os.Stat(targetDir); err != nil {
+			if !os.IsNotExist(err) {
+				log.Printf("[Skills] Error checking legacy context provider skill %s: %v", slug, err)
+			}
+			continue
+		}
+		if err := os.RemoveAll(targetDir); err != nil {
+			log.Printf("[Skills] Error removing legacy context provider skill %s: %v", slug, err)
+			continue
+		}
+		log.Printf("[Skills] Removed legacy context provider skill %s", slug)
 	}
 }
 

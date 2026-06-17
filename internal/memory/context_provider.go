@@ -14,12 +14,16 @@ const defaultPromptBudget = 1200
 func (s *Service) Name() string { return "memory" }
 
 func (s *Service) Build(ctx context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
+	instructions := memoryInstructionsBlock
+	if _, ok := database.UserIDFromContext(ctx); !ok {
+		instructions = legacyMemoryInstructionsBlock
+	}
 	blocks := []contextprovider.Block{{
 		Provider:   s.Name(),
 		Name:       "memory_instructions",
 		Volatility: contextprovider.VolatilityStable,
 		Priority:   10,
-		Content:    memoryInstructionsBlock(),
+		Content:    instructions(),
 	}}
 	block, err := s.promptBlock(ctx, req, req.Budget(s.Name(), defaultPromptBudget))
 	if err != nil {
@@ -43,6 +47,13 @@ func memoryInstructionsBlock() string {
 Use the memory tool for durable user/project facts, preferences, corrections, conventions, and decisions that should survive future conversations.
 Prefer database-backed memory records. Use load policies deliberately: core/pinned for facts that should enter context, auto for relevant contextual recall, retrievable for searchable history, and archived for disabled records.
 Do not write new memories to legacy Markdown files. In unauthenticated legacy compatibility flows, memory.md may appear as read-only context until the user recomposes it into database records.
+</memory_instructions>`
+}
+
+func legacyMemoryInstructionsBlock() string {
+	return `<memory_instructions>
+Database-backed durable memory requires an authenticated user. You are in legacy compatibility mode: legacy memory.md content may appear as read-only context.
+Do not call the memory tool to create, update, or delete records until the user is authenticated. You may propose memory.md additions for the user to apply manually.
 </memory_instructions>`
 }
 
@@ -110,15 +121,20 @@ func legacyPromptBlock(budgetChars int) string {
 	if content == "" || strings.Contains(content, "Ainda não há memórias salvas") {
 		return ""
 	}
+	const prefix = "<legacy_user_memory>\nRead-only legacy memory.md content. Durable database-backed memory requires authentication; propose changes for the user to apply manually.\n"
+	const suffix = "\n</legacy_user_memory>"
+	contentBudget := budgetChars - len([]rune(prefix)) - len([]rune(suffix))
+	if contentBudget <= 0 {
+		return ""
+	}
 	runes := []rune(content)
-	if len(runes) > budgetChars {
-		content = strings.TrimSpace(string(runes[:budgetChars]))
+	if len(runes) > contentBudget {
+		content = strings.TrimSpace(string(runes[:contentBudget]))
 	}
 	if content == "" {
 		return ""
 	}
-	return "<legacy_user_memory>\nRead-only legacy memory.md content. Use it as memory context, but write new/updated memories to the database-backed memory tool.\n" +
-		content + "\n</legacy_user_memory>"
+	return prefix + content + suffix
 }
 
 func firstNonEmpty(values ...string) string {

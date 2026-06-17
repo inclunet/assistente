@@ -124,6 +124,27 @@ func TestLegacyMemoryBlockIsSkippedForAuthenticatedUser(t *testing.T) {
 	}
 }
 
+func TestServiceBuildUsesLegacyInstructionsWithoutAuthenticatedUser(t *testing.T) {
+	svc, _, _ := setupMemoryService(t)
+	restore := setupLegacyMemoryFile(t, "memória legada global")
+	defer restore()
+
+	blocks, err := svc.Build(context.Background(), contextprovider.BuildRequest{})
+	if err != nil {
+		t.Fatalf("Build legacy: %v", err)
+	}
+	instructions := findMemoryBlock(blocks, "memory_instructions")
+	if instructions == nil {
+		t.Fatalf("memory_instructions block not found: %+v", blocks)
+	}
+	if !containsAll(instructions.Content, "legacy compatibility mode", "Do not call the memory tool") {
+		t.Fatalf("unexpected legacy instructions: %s", instructions.Content)
+	}
+	if block := findMemoryBlock(blocks, "user_memory"); block == nil || !strings.Contains(block.Content, "memória legada global") {
+		t.Fatalf("expected legacy memory block, got: %+v", blocks)
+	}
+}
+
 func TestServiceScopesRecordsByUser(t *testing.T) {
 	svc, ctxA, ctxB := setupMemoryService(t)
 
@@ -298,6 +319,28 @@ func TestContextProviderFiltersAutoByRelevance(t *testing.T) {
 	}
 }
 
+func TestPromptCandidatesEscapesLikeWildcardsInRelevanceText(t *testing.T) {
+	svc, ctx, _ := setupMemoryService(t)
+	if _, err := svc.Create(ctx, RecordInput{Content: "taxa de 100 percent", LoadPolicy: LoadPolicyAuto}); err != nil {
+		t.Fatalf("create wildcard false positive: %v", err)
+	}
+	if _, err := svc.Create(ctx, RecordInput{Content: "taxa de 100% literal", LoadPolicy: LoadPolicyAuto}); err != nil {
+		t.Fatalf("create literal match: %v", err)
+	}
+
+	records, err := svc.store.PromptCandidates(ctx, PromptCandidateFilter{
+		LoadPolicies:  []string{LoadPolicyAuto},
+		RelevanceText: "100%",
+		Limit:         10,
+	})
+	if err != nil {
+		t.Fatalf("PromptCandidates: %v", err)
+	}
+	if len(records) != 1 || !strings.Contains(records[0].Content, "100% literal") {
+		t.Fatalf("LIKE wildcard was not escaped, got: %+v", records)
+	}
+}
+
 func TestContextProviderDoesNotDropScopedPinnedAfterManyCandidates(t *testing.T) {
 	svc, ctx, _ := setupMemoryService(t)
 	for i := 0; i < 60; i++ {
@@ -381,6 +424,31 @@ func TestPromptBlockTruncatesOversizedPinned(t *testing.T) {
 	}
 	if block == "" || !strings.Contains(block, "...") {
 		t.Fatalf("pinned memory should be truncated, got: %q", block)
+	}
+}
+
+func TestPromptSelectorSkipsOversizedAutoAndKeepsSmallerAuto(t *testing.T) {
+	now := time.Now()
+	lines := NewPromptSelector().Select([]database.MemoryRecord{
+		{
+			Content:    "budget " + strings.Repeat("x", 300),
+			LoadPolicy: LoadPolicyAuto,
+			Kind:       database.MemoryKindHistoricalNote,
+			Scope:      database.MemoryScopeUser,
+			Importance: 5,
+			UUIDModel:  database.UUIDModel{UpdatedAt: now},
+		},
+		{
+			Content:    "budget pequeno",
+			LoadPolicy: LoadPolicyAuto,
+			Kind:       database.MemoryKindHistoricalNote,
+			Scope:      database.MemoryScopeUser,
+			Importance: 4,
+			UUIDModel:  database.UUIDModel{UpdatedAt: now.Add(-time.Second)},
+		},
+	}, contextprovider.BuildRequest{CurrentUserText: "budget"}, 120)
+	if len(lines) != 1 || !strings.Contains(lines[0].Line, "budget pequeno") {
+		t.Fatalf("expected smaller auto to fit after oversized auto, got: %+v", lines)
 	}
 }
 

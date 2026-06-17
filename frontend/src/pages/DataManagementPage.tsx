@@ -305,7 +305,11 @@ export default function DataManagementPage() {
 
       let memoryRecordIdsToExport: string[] = [];
       if (includeMemoriesExport) {
-        memoryRecordIdsToExport = exportMemoryRecordIds.length > 0 ? exportMemoryRecordIds : await loadExportMemoryRecordIds();
+        memoryRecordIdsToExport = await loadExportMemoryRecordIds();
+        if (memoryRecordIdsToExport.length === 0) {
+          announce(t('history.exportMemoriesEmpty', 'Nenhuma memória encontrada para exportar'), 'assertive');
+          return;
+        }
       }
 
       const idsToExport = includeConversations && !exportMcpExternalFormat ? conversationIds : [];
@@ -348,7 +352,7 @@ export default function DataManagementPage() {
     } finally {
       setIsExporting(false);
     }
-  }, [announce, conversationIds, exportMcpExternalFormat, exportMcpServerSlugs, exportMemoryRecordIds, exportPassword, exportProviderIds, exportTaskListIds, includeConversations, includeCredentialExport, includeMcpServersExport, includeMemoriesExport, includeProvidersExport, includeTaskListsExport, loadExportMcpServerSlugs, loadExportMemoryRecordIds, loadExportProviderIds, loadExportTaskListIds, t]);
+  }, [announce, conversationIds, exportMcpExternalFormat, exportMcpServerSlugs, exportPassword, exportProviderIds, exportTaskListIds, includeConversations, includeCredentialExport, includeMcpServersExport, includeMemoriesExport, includeProvidersExport, includeTaskListsExport, loadExportMcpServerSlugs, loadExportMemoryRecordIds, loadExportProviderIds, loadExportTaskListIds, t]);
 
   const analyzeImportPayload = useCallback(async (jsonData: string, credentialPassword: string, requestKey: string) => {
     importAnalysisInFlightKeyRef.current = requestKey;

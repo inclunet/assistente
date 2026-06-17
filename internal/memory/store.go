@@ -72,8 +72,8 @@ func applyPromptRelevanceFilter(q *gorm.DB, filter PromptCandidateFilter) *gorm.
 	var clauses []string
 	var args []any
 	for _, token := range tokens {
-		like := "%" + token + "%"
-		clauses = append(clauses, "lower(content) LIKE ? OR lower(summary) LIKE ? OR lower(tags) LIKE ? OR lower(kind) LIKE ?")
+		like := likeContains(token)
+		clauses = append(clauses, "lower(content) LIKE ? ESCAPE '\\' OR lower(summary) LIKE ? ESCAPE '\\' OR lower(tags) LIKE ? ESCAPE '\\' OR lower(kind) LIKE ? ESCAPE '\\'")
 		args = append(args, like, like, like, like)
 	}
 	return q.Where("(load_policy <> ? OR "+strings.Join(clauses, " OR ")+")", append([]any{LoadPolicyAuto}, args...)...)
@@ -229,15 +229,24 @@ func (s *DBStore) applyFilter(ctx context.Context, q *gorm.DB, filter Filter) *g
 	}
 	for _, tag := range cleanStrings(filter.Tags) {
 		needle, _ := json.Marshal(tag)
-		q = q.Where("tags LIKE ?", "%"+string(needle)+"%")
+		q = q.Where("tags LIKE ? ESCAPE '\\'", likeContains(string(needle)))
 	}
 	if trimmed := strings.TrimSpace(filter.Query); trimmed != "" {
-		like := "%" + strings.ToLower(trimmed) + "%"
-		q = q.Where("(lower(content) LIKE ? OR lower(summary) LIKE ? OR lower(tags) LIKE ?)", like, like, like)
+		like := likeContains(strings.ToLower(trimmed))
+		q = q.Where("(lower(content) LIKE ? ESCAPE '\\' OR lower(summary) LIKE ? ESCAPE '\\' OR lower(tags) LIKE ? ESCAPE '\\')", like, like, like)
 	}
 	now := time.Now()
 	q = q.Where("expires_at IS NULL OR expires_at > ?", now)
 	return q
+}
+
+func likeContains(value string) string {
+	return "%" + escapeLike(value) + "%"
+}
+
+func escapeLike(value string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return replacer.Replace(value)
 }
 
 func cleanStrings(values []string) []string {

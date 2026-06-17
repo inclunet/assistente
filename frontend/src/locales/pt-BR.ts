@@ -431,6 +431,7 @@ const ptBR = {
       errors: {
         loadFailed: 'Erro ao carregar memórias.',
         saveFailed: 'Erro ao salvar memória.',
+        scopeRefRequired: 'Informe a referência de escopo para {{scope}}.',
         archiveFailed: 'Erro ao alterar arquivamento da memória.',
         deleteFailed: 'Erro ao excluir memória.',
       },
@@ -2398,6 +2399,7 @@ const ptBR = {
       exportMemoriesOption: 'Incluir memórias persistidas no banco',
       exportMemoriesDescription: 'As memórias persistidas no banco serão adicionadas ao mesmo JSON canônico dos dados selecionados.',
       exportMemoriesLoadError: 'Erro ao carregar memórias para exportação',
+      exportMemoriesEmpty: 'Nenhuma memória encontrada para exportar',
       exportCredentialsIncluded: 'Incluir bloco criptografado',
       exportCredentialsNotIncluded: 'Não incluir',
       exportCredentialsOption: 'Incluir credenciais criptografadas no export',

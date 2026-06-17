@@ -180,6 +180,10 @@ export default function MemoriesPage() {
 
   const saveRecord = useCallback(async () => {
     if (savingRef.current) return;
+    if (scopeRequiresRef(form.scope) && form.scopeRef.trim() === '') {
+      addToast(t('memories.errors.scopeRefRequired', { scope: t(`memories.scopes.${form.scope}`, form.scope) }), 'error');
+      return;
+    }
     savingRef.current = true;
     setSaving(true);
     const input = memory.RecordInput.createFrom({
@@ -409,10 +413,11 @@ export default function MemoriesPage() {
                 value={form.scope}
                 onChange={(event) => {
                   const scope = event.target.value;
+                  const derivedScopeRef = scopeRefForScope(scope, workspace);
                   setForm({
                     ...form,
                     scope,
-                    scopeRef: scopeRefForScope(scope, workspace),
+                    scopeRef: derivedScopeRef || scopeRefFallbackForScope(scope, form.scopeRef),
                   });
                 }}
               >
@@ -467,4 +472,12 @@ function scopeRefForScope(scope: string, workspace: WorkspaceData | null): strin
     return activeTab?.conversationId || '';
   }
   return '';
+}
+
+function scopeRequiresRef(scope: string): boolean {
+  return scope === 'workspace' || scope === 'conversation' || scope === 'project' || scope === 'surface';
+}
+
+function scopeRefFallbackForScope(scope: string, currentScopeRef: string): string {
+  return scope === 'project' ? currentScopeRef : '';
 }

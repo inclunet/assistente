@@ -59,12 +59,16 @@ func makeSkill(slug, name, desc, content string, autoLoad, modelInvocable bool) 
 	return s
 }
 
-func TestBuild_NoSkillsNoSlash_NoSystemMessage(t *testing.T) {
+func TestBuild_NoSkillsNoSlash_IncludesDefaultSystemPrompt(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "olá"}}
 	result := b.Build(msgs, []string{}, false, nil, "", "")
-	if len(result) != 1 || result[0].Role != "user" {
-		t.Errorf("Expected unchanged messages, got %v", result)
+	if len(result) != 2 || result[0].Role != "system" || result[1].Role != "user" {
+		t.Fatalf("expected system+user messages, got %v", result)
+	}
+	sys, ok := result[0].Content.(string)
+	if !ok || !strings.Contains(sys, "helpful, intelligent assistant") {
+		t.Fatalf("expected default system prompt, got %v", result[0].Content)
 	}
 }
 

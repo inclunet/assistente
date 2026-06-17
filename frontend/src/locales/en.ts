@@ -431,6 +431,7 @@ const en = {
       errors: {
         loadFailed: 'Error loading memories.',
         saveFailed: 'Error saving memory.',
+        scopeRefRequired: 'Enter the scope reference for {{scope}}.',
         archiveFailed: 'Error changing memory archive state.',
         deleteFailed: 'Error deleting memory.',
       },
@@ -2424,6 +2425,7 @@ const en = {
       exportMemoriesOption: 'Include memories persisted in the database',
       exportMemoriesDescription: 'Memories persisted in the database will be added to the same canonical JSON for the selected data.',
       exportMemoriesLoadError: 'Error loading memories for export',
+      exportMemoriesEmpty: 'No memories found to export',
       exportCredentialsIncluded: 'Include encrypted block',
       exportCredentialsNotIncluded: 'Do not include',
       exportCredentialsOption: 'Include encrypted credentials in the export',

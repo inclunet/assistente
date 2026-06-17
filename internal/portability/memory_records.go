@@ -86,7 +86,7 @@ func exportMemoryRecord(row database.MemoryRecord) MemoryRecordExport {
 	}
 }
 
-func importMemoryRecord(ctx context.Context, exported MemoryRecordExport) (bool, error) {
+func importMemoryRecord(ctx context.Context, svc *memorysvc.Service, exported MemoryRecordExport) (bool, error) {
 	id := strings.TrimSpace(exported.ID)
 	if id == "" {
 		return false, fmt.Errorf("memória sem id não pode ser importada")
@@ -111,17 +111,7 @@ func importMemoryRecord(ctx context.Context, exported MemoryRecordExport) (bool,
 		LastUsedAt:         exported.LastUsedAt,
 		ExpiresAt:          exported.ExpiresAt,
 	}
-	var existing database.MemoryRecord
-	err := database.ScopeByUser(ctx, database.DB().WithContext(ctx).Model(&database.MemoryRecord{}), "user_id").
-		Where("id = ?", id).
-		First(&existing).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return false, err
-	}
-	if err != gorm.ErrRecordNotFound {
-		record.CreatedAt = existing.CreatedAt
-	}
-	if _, importErr := memorysvc.NewService(memorysvc.NewDBStore(database.DB())).Import(ctx, record); importErr != nil {
+	if _, importErr := svc.Import(ctx, record); importErr != nil {
 		return false, importErr
 	}
 	return true, nil

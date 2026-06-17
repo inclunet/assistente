@@ -430,6 +430,7 @@ const es = {
       errors: {
         loadFailed: 'Error al cargar memorias.',
         saveFailed: 'Error al guardar memoria.',
+        scopeRefRequired: 'Informa la referencia de alcance para {{scope}}.',
         archiveFailed: 'Error al cambiar el archivado de la memoria.',
         deleteFailed: 'Error al eliminar memoria.',
       },
@@ -2423,6 +2424,7 @@ const es = {
       exportMemoriesOption: 'Incluir memorias persistidas en la base de datos',
       exportMemoriesDescription: 'Las memorias persistidas en la base de datos se añadirán al mismo JSON canónico de los datos seleccionados.',
       exportMemoriesLoadError: 'Error al cargar memorias para la exportación',
+      exportMemoriesEmpty: 'No se encontraron memorias para exportar',
       exportCredentialsIncluded: 'Incluir bloque cifrado',
       exportCredentialsNotIncluded: 'No incluir',
       exportCredentialsOption: 'Incluir credenciales cifradas en la exportación',
