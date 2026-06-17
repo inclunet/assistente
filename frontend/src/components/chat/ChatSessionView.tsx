@@ -22,7 +22,7 @@ import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
-import { DeleteMessage, EditorGetDraftPath, GetActiveProfile } from '@wailsjs/go/app/App';
+import { DeleteMessage, EditorGetDraftPath, GetActiveProfile, GetActiveProfileSlug } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
@@ -60,6 +60,7 @@ export function ChatSessionView({
         onSend={onSend}
         onRequestConversationChange={onRequestConversationChange}
         showShortcutsHelp={showShortcutsHelp}
+        profileSlug={profileSlug}
       />
     </ChatSessionProvider>
   );
@@ -70,6 +71,7 @@ function ChatSessionViewControllerBridge({
   onRequestConversationChange,
   variant,
   showShortcutsHelp,
+  profileSlug,
 }: ChatSessionViewProps) {
   const controller = useChatSurfaceController({
     onSend: (content, mediaFiles, context) => onSend(content, mediaFiles, context.origin),
@@ -197,7 +199,7 @@ function ChatSessionViewContent({
         // fallback por mensagem de usuário quando não suporta (Issue #124).
         const profileAllowsContinue = profile?.chat?.streaming_recovery_show_continue ?? true;
         setShowContinueEnabled(profileAllowsContinue);
-        setActiveProfileSlug(profile?.slug || '');
+        setActiveProfileSlug(await GetActiveProfileSlug());
       } catch {
         if (!mounted) return;
         setShowContinueEnabled(false);

@@ -690,8 +690,8 @@ export function GetUserInvocableSkills() {
   return window['go']['app']['App']['GetUserInvocableSkills']();
 }
 
-export function GetUserInvocableSkillsForProfile(profileSlug) {
-  return window['go']['app']['App']['GetUserInvocableSkillsForProfile'](profileSlug);
+export function GetUserInvocableSkillsForProfile(arg1) {
+  return window['go']['app']['App']['GetUserInvocableSkillsForProfile'](arg1);
 }
 
 export function GetVaultIntegrityStatus() {
