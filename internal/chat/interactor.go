@@ -504,10 +504,11 @@ type PrepareMessagesRequest struct {
 
 // PrepareMessagesResponse carries the outputs of PrepareMessages.
 type PrepareMessagesResponse struct {
-	Messages         []llm.Message
-	InvokedSkillSlug string
-	InvokedScope     *tools.FilesystemScope
-	Err              error
+	Messages                    []llm.Message
+	InvokedSkillSlug            string
+	InvokedScope                *tools.FilesystemScope
+	ModelOnDemandSkillAvailable bool
+	Err                         error
 }
 
 // PrepareMessages detects slash skill invocation, injects the full system prompt,
@@ -545,7 +546,9 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	var inv *skills.InvocationResult
 	var found bool
 	var err error
+	var modelOnDemandSkillAvailable bool
 	if policyReady {
+		modelOnDemandSkillAvailable = hasModelOnDemandSkill(skillPolicy)
 		inv, found, err = skills.Invoke(req.UserContent, i.skillMgr, skillTplData, req.ConversationID, skillPolicy)
 	} else {
 		inv, found, err = skills.Invoke(req.UserContent, i.skillMgr, skillTplData, req.ConversationID)
@@ -612,11 +615,21 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	messages = PreprocessMessages(ctx, messages, req.Transcribe, audioSupported, docSupported)
 
 	return PrepareMessagesResponse{
-		Messages:         messages,
-		InvokedSkillSlug: invokedSkillSlug,
-		InvokedScope:     invokedScope,
-		Err:              nil,
+		Messages:                    messages,
+		InvokedSkillSlug:            invokedSkillSlug,
+		InvokedScope:                invokedScope,
+		ModelOnDemandSkillAvailable: modelOnDemandSkillAvailable,
+		Err:                         nil,
 	}
+}
+
+func hasModelOnDemandSkill(policy skills.SelectionPolicy) bool {
+	for _, s := range policy.OnDemand {
+		if s.IsModelInvocable() && !skills.HasTemplateSyntax(s.Content) {
+			return true
+		}
+	}
+	return false
 }
 
 func (i *Interactor) BuildSkillSelectionPolicy(activeProfile *profiles.Profile) (skills.SelectionPolicy, bool, error) {

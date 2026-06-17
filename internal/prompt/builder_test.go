@@ -272,6 +272,23 @@ func TestBuild_CatalogFirst_InjectsProtocol(t *testing.T) {
 	}
 }
 
+func TestBuild_CatalogFirst_AllowsLoadSkillRuntimeControl(t *testing.T) {
+	b := &prompt.Builder{}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	tplData := chat.TemplateData{
+		ToolCallingEnabled: true,
+		EnabledTools:       []string{tools.ToolCatalogName, tools.LoadSkillName},
+	}
+	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	if len(result) < 2 || result[0].Role != "system" {
+		t.Fatalf("Expected a system message, got %v", result)
+	}
+	sys := result[0].Content.(string)
+	if !strings.Contains(sys, "<tool_selection_protocol>") {
+		t.Error("Expected catalog-first protocol when only catalog and load_skill are initial")
+	}
+}
+
 func TestBuild_CatalogFirst_NotActiveWhenToolCatalogAbsent(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
@@ -686,6 +703,27 @@ func TestComputeEnabledToolNames_ProfileNilToolsUsesCatalogFirst(t *testing.T) {
 	data := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
 	if !data.ToolCallingEnabled || data.EnabledToolCount != 1 || data.EnabledTools[0] != tools.ToolCatalogName {
 		t.Fatalf("TemplateData tools not aligned with initial definitions: %+v", data)
+	}
+}
+
+func TestComputeEnabledToolNames_AddsLoadSkillForModelOnDemandSkills(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: tools.ToolCatalogName})
+	_ = reg.Register(&fakeTool{name: tools.LoadSkillName})
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base", "review"}
+	b := &prompt.Builder{
+		Tools: reg,
+		Skills: &mockSkillReader{allSkillsFull: []skills.Skill{
+			makeSkill("base", "Base", "Base skill", "base content", false, true),
+			makeSkill("review", "Review", "Review skill", "review content", false, true),
+		}},
+	}
+
+	names := b.ComputeEnabledToolNames(profile)
+	if len(names) != 2 || names[0] != tools.ToolCatalogName || names[1] != tools.LoadSkillName {
+		t.Fatalf("Expected tool_catalog + load_skill, got %v", names)
 	}
 }
 

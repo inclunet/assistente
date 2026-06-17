@@ -277,7 +277,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if activeProfile != nil {
 		profileEnabledTools = activeProfile.Chat.EnabledTools
 	}
-	initialEnabledTools := chat.ResolveInitialEnabledTools(uc.toolRegistry, profileEnabledTools, disableTools)
+	var runtimeTools []string
+	if prepResult.ModelOnDemandSkillAvailable {
+		runtimeTools = append(runtimeTools, tools.LoadSkillName)
+	}
+	initialEnabledTools := chat.ResolveInitialEnabledToolsWithRuntime(uc.toolRegistry, profileEnabledTools, disableTools, runtimeTools)
 	llmToolDefs := chat.BuildLLMToolDefs(uc.toolRegistry, initialEnabledTools, disableTools)
 
 	// Resolve o ChatProvider para o provedor do perfil ativo.

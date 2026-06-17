@@ -7,7 +7,10 @@ import (
 	"strings"
 )
 
-const ToolCatalogName = "tool_catalog"
+const (
+	ToolCatalogName = "tool_catalog"
+	LoadSkillName   = "load_skill"
+)
 
 type CatalogToolStore interface {
 	ListTools(ctx context.Context, filter ToolCatalogFilter) ([]ToolCatalogEntry, error)

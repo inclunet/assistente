@@ -394,8 +394,8 @@ func (b *Builder) buildSkillsSection(enabledSkills []string, disableSkills bool,
 			sb.WriteString("\n\n")
 		}
 		sb.WriteString("<available_skills>\n")
-		sb.WriteString("The user can invoke these on-demand skills with slash commands to load their full instructions for a turn.\n")
-		sb.WriteString("Treat this as a lightweight catalog of available workflows; do not assume the full instructions are loaded until a skill is invoked.\n")
+		sb.WriteString("The user can invoke these on-demand skills with slash commands; you can invoke them by calling `load_skill` when tool calling is available.\n")
+		sb.WriteString("Treat this as a lightweight catalog of available workflows; do not assume the full instructions are loaded until a skill is invoked or `load_skill` succeeds.\n")
 		sb.WriteString("Do not assume disabled or unlisted skills are available.\n\n")
 		for _, s := range modelInvocable {
 			sb.WriteString("- **")
@@ -440,13 +440,11 @@ func joinPrefix(parts []string) string {
 }
 
 // catalogFirstActive informa se o gating por catálogo está ativo, ou seja, se o
-// tool calling está habilitado e "tool_catalog" é a ÚNICA tool inicial exposta ao
-// modelo. Só nesse caso o protocolo catalog-first deve ser instruído: o texto de
-// CatalogFirstToolPrompt afirma que a única tool disponível inicialmente é a
-// "tool_catalog". Quando o perfil fixa EnabledTools com tool_catalog + outras
-// tools, essas outras já ficam disponíveis de imediato (ResolveInitialEnabledTools
-// devolve a lista intacta), então o gating não restringe ao catálogo e o protocolo
-// não deve ser injetado para não enganar o modelo.
+// tool calling está habilitado e as únicas tools iniciais expostas ao modelo são
+// tools de controle do runtime (`tool_catalog` e, opcionalmente, `load_skill`).
+// Quando o perfil fixa EnabledTools com tool_catalog + outras tools, essas outras
+// já ficam disponíveis de imediato, então o protocolo catalog-first não deve ser
+// injetado para não enganar o modelo.
 func catalogFirstActive(tplData any) bool {
 	var data chat.TemplateData
 	switch d := tplData.(type) {
@@ -469,8 +467,11 @@ func catalogFirstActive(tplData any) bool {
 			hasCatalog = true
 			continue
 		}
-		// Qualquer outra tool inicial significa que o gating não restringe o
-		// modelo a apenas o catálogo — o protocolo catalog-first seria enganoso.
+		if name == tools.LoadSkillName {
+			continue
+		}
+		// Qualquer outra tool inicial significa que o gating não restringe o modelo
+		// apenas a tools de controle — o protocolo catalog-first seria enganoso.
 		return false
 	}
 	return hasCatalog
@@ -530,8 +531,12 @@ func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []str
 	}
 
 	var defs []tools.ToolDefinition
+	var runtimeTools []string
+	if b.hasModelOnDemandSkill(activeProfile) {
+		runtimeTools = append(runtimeTools, tools.LoadSkillName)
+	}
 	if activeProfile != nil {
-		initialEnabledTools := chat.ResolveInitialEnabledTools(b.Tools, activeProfile.Chat.EnabledTools, activeProfile.Chat.DisableTools)
+		initialEnabledTools := chat.ResolveInitialEnabledToolsWithRuntime(b.Tools, activeProfile.Chat.EnabledTools, activeProfile.Chat.DisableTools, runtimeTools)
 		if initialEnabledTools != nil {
 			defs = b.Tools.FilterByNames(initialEnabledTools)
 		} else {
@@ -549,4 +554,30 @@ func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []str
 		names = append(names, d.Function.Name)
 	}
 	return names
+}
+
+func (b *Builder) hasModelOnDemandSkill(activeProfile *profiles.Profile) bool {
+	if b.Skills == nil {
+		return false
+	}
+	allSkills, err := b.Skills.GetAllSkillsFull()
+	if err != nil {
+		log.Printf("[prompt] Erro ao carregar política de skills para runtime tools: %v", err)
+		return false
+	}
+	var enabledSkills []string
+	var disableSkills bool
+	var disableOnDemand bool
+	if activeProfile != nil {
+		enabledSkills = activeProfile.Chat.EnabledSkills
+		disableSkills = activeProfile.Chat.DisableSkills
+		disableOnDemand = activeProfile.Chat.DisableOnDemandSkills
+	}
+	policy := skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand)
+	for _, s := range policy.OnDemand {
+		if s.IsModelInvocable() && !skills.HasTemplateSyntax(s.Content) {
+			return true
+		}
+	}
+	return false
 }

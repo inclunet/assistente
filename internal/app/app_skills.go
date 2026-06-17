@@ -4,6 +4,7 @@ import (
 	"assistente/controllers"
 	"assistente/internal/configdir"
 	"assistente/internal/skills"
+	skillloadertool "assistente/internal/tools/skillloader"
 	"log"
 	"os"
 )
@@ -44,6 +45,9 @@ func (a *App) initSkills() {
 	}
 
 	a.installBuiltinSkills()
+	if a.toolRegistry != nil && !a.toolRegistry.Has(skillloadertool.ToolName) {
+		a.toolRegistry.MustRegisterDiscoverableOptIn(skillloadertool.New(a.skillMgr, a.profileManager))
+	}
 
 	list, err := a.skillMgr.List()
 	if err != nil {
