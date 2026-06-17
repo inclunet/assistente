@@ -176,6 +176,7 @@ export function buildWailsMockScript(): string {
 
     /* Skills */
     GetUserInvocableSkills: [],
+    GetUserInvocableSkillsForProfile: [],
     GetSkills: [],
 
     /* Tools */

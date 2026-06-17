@@ -14,9 +14,11 @@ test.describe('Chat — navegação por teclado', () => {
   });
 
   test('Escape fecha o menu de slash commands', async ({ page, wails }) => {
-    await wails.setResponse('GetUserInvocableSkills', [
+    const invocableSkills = [
       { slug: 'summarize', name: 'Resumir', description: 'Resume conteúdo', invocable: true },
-    ]);
+    ];
+    await wails.setResponse('GetUserInvocableSkills', invocableSkills);
+    await wails.setResponse('GetUserInvocableSkillsForProfile', invocableSkills);
 
     await wails.waitForApp();
 
