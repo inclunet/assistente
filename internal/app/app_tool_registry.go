@@ -17,6 +17,7 @@ import (
 	"assistente/internal/tools/filesystem"
 	"assistente/internal/tools/history"
 	jobtool "assistente/internal/tools/job"
+	memorytool "assistente/internal/tools/memory"
 	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
 	subagenttool "assistente/internal/tools/subagent"
@@ -276,6 +277,7 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(tasklisttool.NewTaskList(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewTask(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewTaskNote(tlMgr))
+	a.toolRegistry.MustRegister(memorytool.New(a.memorySvc))
 
 	// Jobs são opt-in para não inflar o payload padrão, mas descobríveis
 	// na UI/catálogo para enabled_tools explícito.

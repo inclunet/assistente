@@ -33,7 +33,7 @@ export type DeepLinkAction =
 
 // Routes the app actually supports (validated in navigate action)
 const VALID_ROUTES = new Set([
-  '', 'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
+  '', 'settings', 'settings/providers', 'settings/mcp', 'settings/skills', 'settings/memories',
   'settings/channels', 'settings/contacts', 'settings/credentials',
   'settings/allowlists', 'settings/appearance', 'settings/restore-defaults',
   'settings/data',
@@ -42,7 +42,7 @@ const VALID_ROUTES = new Set([
 
 const EDITABLE_RESOURCES = new Set<EditableResource>([
   'profiles', 'providers', 'credentials', 'allowlists',
-  'skills', 'mcp', 'channels', 'tasklists',
+  'skills', 'mcp', 'channels', 'memories', 'tasklists',
 ]);
 
 const TAB_RESOURCES = new Set<TabType>(['tasklist', 'editor', 'terminal']);
@@ -59,6 +59,7 @@ const ROUTE_I18N_KEYS: Record<string, string> = {
   'settings/providers': 'menu.providers',
   'settings/mcp': 'menu.mcp',
   'settings/skills': 'menu.skills',
+  'settings/memories': 'settingsPage.tabs.memories',
   'settings/channels': 'menu.channels',
   'settings/contacts': 'settingsPage.tabs.contacts',
   'settings/credentials': 'menu.credentials',
@@ -408,7 +409,7 @@ export async function executeDeepLink(
     case 'resource:edit': {
       const navStore = useNavigationStore.getState();
       navStore.requestResourceEdit(action.resource, action.resourceId, 'edit');
-      const settingsResources = new Set(['providers', 'mcp', 'skills', 'channels', 'credentials', 'allowlists']);
+      const settingsResources = new Set(['providers', 'mcp', 'skills', 'memories', 'channels', 'credentials', 'allowlists']);
       const path = settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
       deps.navigate(path);
       announce(t('deepLink.announcedEditResource', { id: action.resourceId }));
@@ -418,7 +419,7 @@ export async function executeDeepLink(
     case 'resource:new': {
       const navStore = useNavigationStore.getState();
       navStore.requestResourceEdit(action.resource, '', 'new');
-      const settingsResources = new Set(['providers', 'mcp', 'skills', 'channels', 'credentials', 'allowlists']);
+      const settingsResources = new Set(['providers', 'mcp', 'skills', 'memories', 'channels', 'credentials', 'allowlists']);
       const path = settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
       deps.navigate(path);
       announce(t('deepLink.announcedNewResource'));

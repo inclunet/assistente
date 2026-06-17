@@ -10,6 +10,7 @@ import './SettingsPage.css';
 const ProvidersPage = lazy(() => import('./ProvidersPage'));
 const McpPage = lazy(() => import('./McpPage'));
 const SkillsPage = lazy(() => import('./SkillsPage'));
+const MemoriesPage = lazy(() => import('./MemoriesPage'));
 const ChannelsPage = lazy(() => import('./ChannelsPage'));
 const ContactsPage = lazy(() => import('./ContactsPage'));
 const CredentialsPage = lazy(() => import('./CredentialsPage'));
@@ -22,6 +23,7 @@ const SETTINGS_TABS = [
   { id: 'providers',        component: ProvidersPage },
   { id: 'mcp',              component: McpPage },
   { id: 'skills',           component: SkillsPage },
+  { id: 'memories',         component: MemoriesPage },
   { id: 'channels',         component: ChannelsPage },
   { id: 'contacts',         component: ContactsPage },
   { id: 'credentials',      component: CredentialsPage },

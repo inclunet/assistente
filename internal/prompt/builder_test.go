@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"assistente/internal/chat"
+	"assistente/internal/contextprovider"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
@@ -93,6 +94,71 @@ func TestBuild_WithSummary_InjectsSummaryTag(t *testing.T) {
 	}
 	if !strings.Contains(sys, "O usuário perguntou") {
 		t.Error("Expected summary text in system message")
+	}
+}
+
+func TestBuild_InjectsDynamicContextAfterSummary(t *testing.T) {
+	b := &prompt.Builder{}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	result := b.Build(msgs, nil, false, nil, "slash", "Resumo antigo.", "<user_memory>\n- prefere pt-BR\n</user_memory>")
+	sys := result[0].Content.(string)
+	summaryIdx := strings.Index(sys, "<conversation_summary>")
+	memoryIdx := strings.Index(sys, "<user_memory>")
+	if summaryIdx < 0 || memoryIdx < 0 {
+		t.Fatalf("expected summary and memory blocks in system prompt: %s", sys)
+	}
+	if memoryIdx < summaryIdx {
+		t.Fatalf("memory block should come after summary")
+	}
+}
+
+func TestBuildWithContextBlocksInjectsStableContextBeforeSummary(t *testing.T) {
+	b := &prompt.Builder{}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	result := b.BuildWithContextBlocks(
+		msgs,
+		nil,
+		false,
+		nil,
+		"slash",
+		"Resumo antigo.",
+		[]contextprovider.Block{
+			{Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Content: "<memory_instructions>use memory</memory_instructions>"},
+			{Name: "user_memory", Volatility: contextprovider.VolatilitySlowDynamic, Content: "<user_memory>prefere pt-BR</user_memory>"},
+		},
+	)
+	sys := result[0].Content.(string)
+	stableIdx := strings.Index(sys, "<memory_instructions>")
+	summaryIdx := strings.Index(sys, "<conversation_summary>")
+	dynamicIdx := strings.Index(sys, "<user_memory>")
+	if stableIdx < 0 || summaryIdx < 0 || dynamicIdx < 0 {
+		t.Fatalf("expected stable, summary and dynamic blocks: %s", sys)
+	}
+	if stableIdx > summaryIdx {
+		t.Fatalf("stable context should come before summary: %s", sys)
+	}
+	if dynamicIdx < summaryIdx {
+		t.Fatalf("dynamic context should come after summary: %s", sys)
+	}
+}
+
+func TestBuildSkillsSection_FiltersContextProviderSkills(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			autoSkills: []skills.Skill{
+				makeSkill("memory", "memory", "", "memory content", true, true),
+				makeSkill("workspace", "workspace", "", "workspace content", true, true),
+				makeSkill("coding", "coding", "", "coding content", true, true),
+			},
+		},
+	}
+	result := b.Build([]llm.Message{{Role: "user", Content: "oi"}}, nil, false, nil, "", "")
+	sys := result[0].Content.(string)
+	if strings.Contains(sys, "memory content") || strings.Contains(sys, "workspace content") {
+		t.Fatalf("context provider skills should not be injected: %s", sys)
+	}
+	if !strings.Contains(sys, "coding content") {
+		t.Fatalf("regular skill should remain injected: %s", sys)
 	}
 }
 
@@ -422,8 +488,8 @@ func TestBuildTemplateData_WithWorkspace_FillsTabInfo(t *testing.T) {
 		Tabs: workspace.TabsState{
 			Active: "tab-2",
 			Items: []workspace.Tab{
-				{ID: "tab-1", Title: "Terminal", Type: "terminal"},
-				{ID: "tab-2", Title: "Editor", Type: "editor", ContentID: "main.go"},
+				{ID: "tab-1", Title: "Terminal", Type: "terminal", State: map[string]any{"sessionId": "session-1"}},
+				{ID: "tab-2", Title: "Editor", Type: "editor", State: map[string]any{"filePath": "main.go"}},
 			},
 		},
 	}
@@ -440,6 +506,9 @@ func TestBuildTemplateData_WithWorkspace_FillsTabInfo(t *testing.T) {
 	}
 	if data.ActiveTabType != "editor" {
 		t.Errorf("ActiveTabType: got %q", data.ActiveTabType)
+	}
+	if len(data.Tabs) != 2 || data.Tabs[0].ContentID != "session-1" || data.Tabs[1].ContentID != "main.go" {
+		t.Fatalf("Tabs content refs not derived from state: %+v", data.Tabs)
 	}
 }
 
@@ -466,7 +535,7 @@ func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
 		ProfileSlug:        "editor-texto",
 		TabType:            "editor",
 		SurfaceStateJSON:   `{"filePath":"/tmp/readme.md","draftId":"draft-1"}`,
-		SurfaceContextJSON: `{"selectedText":"hello","selectionEmpty":false}`,
+		SurfaceContextJSON: `{"selectedText":"hello","selectionEmpty":false,"projectId":"project-a"}`,
 	}, "7")
 
 	if data.Surface == nil {
@@ -483,6 +552,9 @@ func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
 	}
 	if got := data.Surface.Context["selectedText"]; got != "hello" {
 		t.Fatalf("Surface.Context[selectedText] = %v, want hello", got)
+	}
+	if data.ProjectID != "project-a" {
+		t.Fatalf("ProjectID = %q, want project-a", data.ProjectID)
 	}
 }
 
@@ -554,7 +626,7 @@ Tools available.
 		Tools:  tools.NewRegistry(),
 	}
 	tplData := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
-	result := b.Build([]llm.Message{{Role: "user", Content: "oi"}}, nil, false, tplData, "", "")
+	result := b.Build([]llm.Message{{Role: "user", Content: "oi"}}, nil, false, tplData, "", "", "")
 	if len(result) == 0 {
 		t.Fatal("expected messages")
 	}

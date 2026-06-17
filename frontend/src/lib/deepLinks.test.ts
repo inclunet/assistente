@@ -256,7 +256,7 @@ describe('parseDeepLink', () => {
   describe('navigate', () => {
     it('faz parse de rotas válidas', () => {
       const validRoutes = [
-        'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
+        'settings', 'settings/providers', 'settings/mcp', 'settings/skills', 'settings/memories',
         'settings/channels', 'settings/contacts', 'settings/credentials',
         'settings/allowlists', 'settings/appearance', 'settings/restore-defaults',
         'settings/data',
@@ -300,6 +300,9 @@ describe('parseDeepLink', () => {
       expect(parseDeepLink('assistente://mcp/edit/my-server')).toEqual({
         type: 'resource:edit', resource: 'mcp', resourceId: 'my-server',
       });
+      expect(parseDeepLink('assistente://memories/edit/mem-1')).toEqual({
+        type: 'resource:edit', resource: 'memories', resourceId: 'mem-1',
+      });
     });
 
     it('rejeita recurso não editável', () => {
@@ -326,6 +329,9 @@ describe('parseDeepLink', () => {
       });
       expect(parseDeepLink('assistente://tasklists/new')).toEqual({
         type: 'resource:new', resource: 'tasklists',
+      });
+      expect(parseDeepLink('assistente://memories/new')).toEqual({
+        type: 'resource:new', resource: 'memories',
       });
     });
 

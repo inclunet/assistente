@@ -2,7 +2,7 @@ import { logger } from '../utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ExportOutlined, ImportOutlined } from '@ant-design/icons';
-import { AnalyzeImportData, ExportData, GetAllTaskLists, GetConversations, GetLLMProvidersWithStatus, ImportData, ListMCPServers } from '@wailsjs/go/app/App';
+import { AnalyzeImportData, ExportData, GetAllTaskLists, GetConversations, GetLLMProvidersWithStatus, ImportData, ListMCPServers, ListMemoryRecords } from '@wailsjs/go/app/App';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../components/ui/Button';
 import { Checkbox } from '../components/ui/Checkbox';
@@ -12,7 +12,7 @@ import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import { downloadJSON, generateFilename, ImportFileError, IMPORT_FILE_ERROR_CODES, openImportFileDialog } from '../lib/exportImport';
 import { formatRelativeTime } from '../lib/dateUtils';
-import { portability } from '../../wailsjs/go/models';
+import { memory, portability } from '../../wailsjs/go/models';
 import './DataManagementPage.css';
 
 interface ConversationRecord {
@@ -44,6 +44,7 @@ interface ImportPreview {
   taskListCount: number;
   taskCount: number;
   taskNoteCount: number;
+  memoryRecordCount: number;
   includesCredentials: boolean;
   requiresCredentialPassword: boolean;
   includeAudio: boolean;
@@ -113,6 +114,7 @@ function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
   const taskLists = Array.isArray(resources.taskLists) ? resources.taskLists : [];
   const providers = Array.isArray(resources.providers) ? resources.providers : [];
   const mcpServers = Array.isArray(resources.mcpServers) ? resources.mcpServers : [];
+  const memoryRecords = Array.isArray(resources.memoryRecords) ? resources.memoryRecords : [];
   const mcpServersExternalMap = isRecord(parsed.mcpServers) ? parsed.mcpServers : null;
   const mcpServerCount = mcpServers.length > 0
     ? mcpServers.length
@@ -144,6 +146,7 @@ function buildImportPreview(fileName: string, jsonData: string): ImportPreview {
     taskListCount: taskLists.length,
     taskCount: taskCounts.taskCount,
     taskNoteCount: taskCounts.taskNoteCount,
+    memoryRecordCount: memoryRecords.length,
     includesCredentials,
     requiresCredentialPassword: includesCredentials && isRecord(credentials) && credentials.mode === 'encrypted',
     includeAudio: options.includeAudio === true,
@@ -162,6 +165,7 @@ function buildImportAnalysisKey(preview: ImportPreview, password: string): strin
     preview.taskListCount,
     preview.taskCount,
     preview.taskNoteCount,
+    preview.memoryRecordCount,
     preview.includesCredentials ? 'with-credentials' : 'without-credentials',
     password,
   ].join('::');
@@ -184,6 +188,8 @@ export default function DataManagementPage() {
   const [exportMcpExternalFormat, setExportMcpExternalFormat] = useState(false);
   const [includeTaskListsExport, setIncludeTaskListsExport] = useState(false);
   const [exportTaskListIds, setExportTaskListIds] = useState<string[]>([]);
+  const [includeMemoriesExport, setIncludeMemoriesExport] = useState(false);
+  const [exportMemoryRecordIds, setExportMemoryRecordIds] = useState<string[]>([]);
   const [includeCredentialExport, setIncludeCredentialExport] = useState(false);
   const [exportPassword, setExportPassword] = useState('');
   const [exportPasswordError, setExportPasswordError] = useState('');
@@ -254,6 +260,25 @@ export default function DataManagementPage() {
     return slugs;
   }, []);
 
+  const loadExportMemoryRecordIds = useCallback(async () => {
+    const ids: string[] = [];
+    let offset = 0;
+    const limit = 250;
+    for (;;) {
+      const result = await ListMemoryRecords(memory.Filter.createFrom({
+        includeArchived: true,
+        limit,
+        offset,
+      }));
+      const records = result.records || [];
+      ids.push(...records.map((record) => String(record.id ?? '').trim()).filter((id) => id.length > 0));
+      offset += records.length;
+      if (records.length === 0 || offset >= (result.total || 0)) break;
+    }
+    setExportMemoryRecordIds(ids);
+    return ids;
+  }, []);
+
   const handleConfirmExport = useCallback(async () => {
     if (includeCredentialExport && !exportPassword.trim()) {
       setExportPasswordError(t('history.exportPasswordRequired', 'Informe uma senha para criptografar as credenciais exportadas.'));
@@ -278,12 +303,18 @@ export default function DataManagementPage() {
         taskListIdsToExport = exportTaskListIds.length > 0 ? exportTaskListIds : await loadExportTaskListIds();
       }
 
+      let memoryRecordIdsToExport: string[] = [];
+      if (includeMemoriesExport) {
+        memoryRecordIdsToExport = exportMemoryRecordIds.length > 0 ? exportMemoryRecordIds : await loadExportMemoryRecordIds();
+      }
+
       const idsToExport = includeConversations && !exportMcpExternalFormat ? conversationIds : [];
       const hasResourcesToExport =
         idsToExport.length > 0 ||
         providerIdsToExport.length > 0 ||
         mcpServerSlugsToExport.length > 0 ||
         taskListIdsToExport.length > 0 ||
+        memoryRecordIdsToExport.length > 0 ||
         includeCredentialExport;
       if (!hasResourcesToExport) {
         announce(t('history.noDataToExport', 'Nenhum dado selecionado para exportar'), 'assertive');
@@ -303,6 +334,7 @@ export default function DataManagementPage() {
       if (providerIdsToExport.length > 0) payload.providerIds = providerIdsToExport;
       if (mcpServerSlugsToExport.length > 0) payload.mcpServerSlugs = mcpServerSlugsToExport;
       if (taskListIdsToExport.length > 0) payload.taskListIds = taskListIdsToExport;
+      if (memoryRecordIdsToExport.length > 0) payload.memoryRecordIds = memoryRecordIdsToExport;
       if (payload.includeCredentials && exportPassword.trim()) {
         payload.credentialExportPassword = exportPassword.trim();
       }
@@ -316,7 +348,7 @@ export default function DataManagementPage() {
     } finally {
       setIsExporting(false);
     }
-  }, [announce, conversationIds, exportMcpExternalFormat, exportMcpServerSlugs, exportPassword, exportProviderIds, exportTaskListIds, includeConversations, includeCredentialExport, includeMcpServersExport, includeProvidersExport, includeTaskListsExport, loadExportMcpServerSlugs, loadExportProviderIds, loadExportTaskListIds, t]);
+  }, [announce, conversationIds, exportMcpExternalFormat, exportMcpServerSlugs, exportMemoryRecordIds, exportPassword, exportProviderIds, exportTaskListIds, includeConversations, includeCredentialExport, includeMcpServersExport, includeMemoriesExport, includeProvidersExport, includeTaskListsExport, loadExportMcpServerSlugs, loadExportMemoryRecordIds, loadExportProviderIds, loadExportTaskListIds, t]);
 
   const analyzeImportPayload = useCallback(async (jsonData: string, credentialPassword: string, requestKey: string) => {
     importAnalysisInFlightKeyRef.current = requestKey;
@@ -592,6 +624,7 @@ export default function DataManagementPage() {
           <div><dt>{t('history.exportProvidersLabel', 'Providers')}</dt><dd>{includeProvidersExport ? exportProviderIds.length : t('history.exportProvidersNotIncluded', 'Não incluir')}</dd></div>
           <div><dt>{t('history.exportMcpServersLabel', 'Servidores MCP')}</dt><dd>{includeMcpServersExport ? exportMcpServerSlugs.length : t('history.exportMcpServersNotIncluded', 'Não incluir')}</dd></div>
           <div><dt>{t('history.exportTaskListsLabel', 'Tasklists')}</dt><dd>{includeTaskListsExport ? exportTaskListIds.length : t('history.exportTaskListsNotIncluded', 'Não incluir')}</dd></div>
+          <div><dt>{t('history.exportMemoriesLabel', 'Memórias')}</dt><dd>{includeMemoriesExport ? exportMemoryRecordIds.length : t('history.exportMemoriesNotIncluded', 'Não incluir')}</dd></div>
           <div><dt>{t('history.exportFormatLabel', 'Formato')}</dt><dd>{exportMcpExternalFormat ? t('history.exportMcpJson', 'Exportar MCP JSON') : t('history.exportJson', 'Exportar JSON')}</dd></div>
         </dl>
 
@@ -653,6 +686,8 @@ export default function DataManagementPage() {
                   setExportProviderIds([]);
                   setIncludeTaskListsExport(false);
                   setExportTaskListIds([]);
+                  setIncludeMemoriesExport(false);
+                  setExportMemoryRecordIds([]);
                   setIncludeCredentialExport(false);
                   setExportPassword('');
                   setExportPasswordError('');
@@ -679,6 +714,25 @@ export default function DataManagementPage() {
               });
             }}
             label={t('history.exportTaskListsOption', 'Incluir tasklists persistidas no banco')}
+          />
+          <Checkbox
+            checked={includeMemoriesExport}
+            disabled={exportMcpExternalFormat}
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setIncludeMemoriesExport(checked);
+              if (!checked) {
+                setExportMemoryRecordIds([]);
+                return;
+              }
+              void loadExportMemoryRecordIds().catch((error) => {
+                logger.error('Erro ao carregar memórias para exportação:', error);
+                setIncludeMemoriesExport(false);
+                setExportMemoryRecordIds([]);
+                announce(t('history.exportMemoriesLoadError', 'Erro ao carregar memórias para exportação'), 'assertive');
+              });
+            }}
+            label={t('history.exportMemoriesOption', 'Incluir memórias persistidas no banco')}
           />
           <Checkbox
             checked={includeCredentialExport}
@@ -757,6 +811,7 @@ export default function DataManagementPage() {
             <div><dt>{t('history.importProvidersLabel', 'Providers')}</dt><dd>{importPreview.providerCount}</dd></div>
             <div><dt>{t('history.importMcpServersLabel', 'Servidores MCP')}</dt><dd>{importPreview.mcpServerCount}</dd></div>
             <div><dt>{t('history.importTaskListsLabel', 'Tasklists')}</dt><dd>{importPreview.taskListCount}</dd></div>
+            <div><dt>{t('history.importMemoriesLabel', 'Memórias')}</dt><dd>{importPreview.memoryRecordCount}</dd></div>
             <div><dt>{t('history.importCredentialsLabel', 'Credenciais')}</dt><dd>{importPreview.includesCredentials ? t('history.importCredentialsIncluded', 'Incluídas') : t('history.importCredentialsNotIncluded', 'Não incluídas')}</dd></div>
           </dl>
         )}

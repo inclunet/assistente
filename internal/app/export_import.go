@@ -38,6 +38,7 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 	if req.OutputFormat == "" {
 		req.OutputFormat = portability.FormatJSON
 	}
+	originalReq := req
 	if err := validateDBOnlyExportRequest(req); err != nil {
 		return "", err
 	}
@@ -73,11 +74,16 @@ func (a *App) ExportData(req ExportRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	memoryRecordIDs, err := resolveMemoryRecordIDs(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	req.MemoryRecordIDs = memoryRecordIDs
 	switch req.OutputFormat {
 	case portability.FormatJSON:
 		return portability.ExportPortableDataWithContext(ctx, conversationIDs, providerIDs, taskListIDs, a.credMgr, req, AppVersion)
 	case portability.FormatHTML:
-		if len(taskListIDs) > 0 || len(providerIDs) > 0 || len(mcpServerSlugs) > 0 {
+		if hasUnsupportedRichConversationSelections(originalReq) {
 			return "", fmt.Errorf("exportação HTML/PDF atualmente suporta apenas conversas")
 		}
 		req, err = normalizeRichConversationExportRequest(req)
@@ -122,6 +128,9 @@ func validateMCPJSONExportRequest(req ExportRequest) error {
 	}
 	if len(req.TaskListIDs) > 0 {
 		unsupported = append(unsupported, "taskLists")
+	}
+	if len(req.MemoryRecordIDs) > 0 {
+		unsupported = append(unsupported, "memoryRecords")
 	}
 	if len(req.ChannelNames) > 0 {
 		unsupported = append(unsupported, "channels")
@@ -246,6 +255,7 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 	if req.OutputFormat == "" {
 		req.OutputFormat = portability.FormatJSON
 	}
+	originalReq := req
 	if err := validateDBOnlyExportRequest(req); err != nil {
 		return "", err
 	}
@@ -269,19 +279,7 @@ func (a *App) ExportDataToFile(req ExportRequest, path string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		providerIDs, err := resolveProviderIDs(ctx, req)
-		if err != nil {
-			return "", err
-		}
-		mcpServerSlugs, err := resolveMCPServerSlugs(ctx, req)
-		if err != nil {
-			return "", err
-		}
-		taskListIDs, err := resolveTaskListIDs(ctx, req)
-		if err != nil {
-			return "", err
-		}
-		if len(taskListIDs) > 0 || len(providerIDs) > 0 || len(mcpServerSlugs) > 0 {
+		if hasUnsupportedRichConversationSelections(originalReq) {
 			return "", fmt.Errorf("exportação HTML/PDF/Markdown atualmente suporta apenas conversas")
 		}
 		req, err = normalizeRichConversationExportRequest(req)
@@ -316,6 +314,13 @@ func normalizeRichConversationExportRequest(req ExportRequest) (ExportRequest, e
 	req.IncludeCredentials = false
 	req.CredentialExportPassword = ""
 	return req, nil
+}
+
+func hasUnsupportedRichConversationSelections(req ExportRequest) bool {
+	return len(req.TaskListIDs) > 0 ||
+		len(req.ProviderIDs) > 0 ||
+		len(req.MCPServerSlugs) > 0 ||
+		len(req.MemoryRecordIDs) > 0
 }
 
 func validateDBOnlyExportRequest(req ExportRequest) error {
@@ -367,7 +372,7 @@ func resolveConversationIDs(ctx context.Context, req ExportRequest) ([]string, e
 		if req.ExplicitSelection {
 			return nil, nil
 		}
-		if len(req.ProviderIDs) > 0 || len(req.TaskListIDs) > 0 || len(req.MCPServerSlugs) > 0 {
+		if len(req.ProviderIDs) > 0 || len(req.TaskListIDs) > 0 || len(req.MCPServerSlugs) > 0 || len(req.MemoryRecordIDs) > 0 {
 			return nil, nil
 		}
 		conversations, err := database.GetConversationsWithContext(ctx)
@@ -470,6 +475,36 @@ func resolveTaskListIDs(ctx context.Context, req ExportRequest) ([]string, error
 		id := strings.TrimSpace(raw)
 		if id == "" {
 			return nil, fmt.Errorf("taskListId inválido: %q", raw)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func resolveMemoryRecordIDs(ctx context.Context, req ExportRequest) ([]string, error) {
+	if req.All {
+		var rows []database.MemoryRecord
+		if err := database.ScopeByUser(ctx, database.DB().WithContext(ctx), "user_id").
+			Select("id").
+			Where("expires_at IS NULL OR expires_at > ?", time.Now()).
+			Order("updated_at DESC").
+			Find(&rows).Error; err != nil {
+			return nil, err
+		}
+		ids := make([]string, 0, len(rows))
+		for _, row := range rows {
+			ids = append(ids, row.ID)
+		}
+		return ids, nil
+	}
+	if len(req.MemoryRecordIDs) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, 0, len(req.MemoryRecordIDs))
+	for _, raw := range req.MemoryRecordIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			return nil, fmt.Errorf("memoryRecordId inválido: %q", raw)
 		}
 		ids = append(ids, id)
 	}

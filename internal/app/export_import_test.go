@@ -49,6 +49,24 @@ func TestNormalizeRichConversationExportRequestClearsCredentialFields(t *testing
 	}
 }
 
+func TestRichConversationExportAllowsAllWithoutExplicitUnsupportedSelections(t *testing.T) {
+	if hasUnsupportedRichConversationSelections(ExportRequest{
+		OutputFormat: portability.FormatHTML,
+		All:          true,
+	}) {
+		t.Fatal("expected All to be handled as all conversations in rich exports")
+	}
+}
+
+func TestRichConversationExportRejectsExplicitMemorySelections(t *testing.T) {
+	if !hasUnsupportedRichConversationSelections(ExportRequest{
+		OutputFormat:    portability.FormatHTML,
+		MemoryRecordIDs: []string{"mem-1"},
+	}) {
+		t.Fatal("expected explicit memory selections to be unsupported in rich exports")
+	}
+}
+
 func TestResolveConversationIDsRespectsExplicitSelection(t *testing.T) {
 	ids, err := resolveConversationIDs(context.Background(), ExportRequest{
 		ExplicitSelection:  true,

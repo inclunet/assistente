@@ -9,6 +9,7 @@ const mockGetConversations = vi.fn();
 const mockGetLLMProvidersWithStatus = vi.fn();
 const mockImportData = vi.fn();
 const mockListMCPServers = vi.fn();
+const mockListMemoryRecords = vi.fn();
 const mockDownloadJSON = vi.fn();
 const mockOpenImportFileDialog = vi.fn();
 const mockAnnounce = vi.fn();
@@ -24,6 +25,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetLLMProvidersWithStatus: () => mockGetLLMProvidersWithStatus(),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
   ListMCPServers: () => mockListMCPServers(),
+  ListMemoryRecords: (filter: unknown) => mockListMemoryRecords(filter),
 }));
 
 vi.mock('../lib/exportImport', async () => {
@@ -81,6 +83,7 @@ describe('DataManagementPage', () => {
       message: 'ok',
     });
     mockListMCPServers.mockReset().mockResolvedValue([]);
+    mockListMemoryRecords.mockReset().mockResolvedValue({ records: [], total: 0 });
     mockDownloadJSON.mockReset();
     mockOpenImportFileDialog.mockReset();
     mockAnnounce.mockReset();
@@ -236,7 +239,12 @@ describe('DataManagementPage', () => {
       appVersion: '0.9.0',
       exportedAt: '2025-01-01T00:00:00Z',
       options: { includeCredentials: false, includeAudio: false },
-      resources: { conversations: [], providers: [], taskLists: [] },
+      resources: {
+        conversations: [],
+        providers: [],
+        taskLists: [],
+        memoryRecords: [{ id: 'mem-1' }, { id: 'mem-2' }, { id: 'mem-3' }],
+      },
     });
     mockOpenImportFileDialog.mockResolvedValue({ name: 'backup.json', content: jsonData });
     mockAnalyzeImportData.mockResolvedValue({ conflictCount: 0 });
@@ -248,6 +256,7 @@ describe('DataManagementPage', () => {
       expect(mockAnalyzeImportData).toHaveBeenCalledWith(jsonData, '');
     });
     expect(screen.getByText('backup.json')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Importar agora' }));
     await waitFor(() => {

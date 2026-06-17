@@ -1,0 +1,110 @@
+.memories-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+}
+
+.memories-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.memories-page__header h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-xl);
+}
+
+.memories-page__header p,
+.memories-page__empty,
+.memories-page__policy-help {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.memories-page__filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.memories-page__filters label,
+.memories-page__form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.memories-page__filters select,
+.memories-page__form input,
+.memories-page__form select,
+.memories-page__form textarea {
+  min-height: 32px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  padding: 6px 8px;
+}
+
+.memories-page__form textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.memories-page__checkbox {
+  flex-direction: row !important;
+  align-items: center;
+}
+
+.memories-page__checkbox input {
+  min-height: 0;
+}
+
+.memories-page__form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.memories-page__form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.memories-page__policy-help {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-muted);
+  padding: 8px 10px;
+}
+
+.memories-page__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.memories-page__modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+@media (max-width: 720px) {
+  .memories-page__filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

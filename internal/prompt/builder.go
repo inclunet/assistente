@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"assistente/internal/chat"
+	"assistente/internal/contextprovider"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
@@ -79,6 +80,7 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.
 	var activeTab *workspace.Tab
 	if workspaceReaderIsUsable(b.Workspace) {
 		if ws := b.Workspace.Active(); ws != nil {
+			data.WorkspaceID = ws.ID
 			data.WorkspaceName = ws.Name
 			data.WorkspaceProfile = ws.Profile
 			data.TabCount = len(ws.Tabs.Items)
@@ -89,7 +91,7 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.
 				info := TabInfo{
 					Title:     tab.Title,
 					Type:      string(tab.Type),
-					ContentID: tab.ContentID,
+					ContentID: tabContentReference(tab),
 					IsActive:  isActive,
 				}
 				data.Tabs = append(data.Tabs, info)
@@ -116,6 +118,7 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.
 		surfaceState = activeTab.State
 	}
 	surfaceContext := chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[prompt] surface context json")
+	data.ProjectID = firstNonEmpty(stringFromMap(surfaceContext, "projectId"), stringFromMap(surfaceState, "projectId"))
 
 	if surfaceType != "" || surfaceTitle != "" || surfaceState != nil || surfaceContext != nil {
 		data.Surface = &chat.SurfaceInfo{
@@ -127,6 +130,47 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.
 	}
 
 	return data
+}
+
+func tabContentReference(tab workspace.Tab) string {
+	if tab.ContentID != "" {
+		return tab.ContentID
+	}
+	switch tab.Type {
+	case workspace.TabTypeChat:
+		return tab.ConversationID
+	case workspace.TabTypeEditor:
+		return stringFromAny(tab.State["filePath"])
+	case workspace.TabTypeTerminal:
+		return stringFromAny(tab.State["sessionId"])
+	case workspace.TabTypeTasklist:
+		return stringFromAny(tab.State["tasklistId"])
+	default:
+		return ""
+	}
+}
+
+func stringFromAny(value any) string {
+	if raw, ok := value.(string); ok {
+		return strings.TrimSpace(raw)
+	}
+	return ""
+}
+
+func stringFromMap(values map[string]any, key string) string {
+	if values == nil {
+		return ""
+	}
+	return stringFromAny(values[key])
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // Build compõe o system prompt completo e o injeta na lista de mensagens.
@@ -143,6 +187,33 @@ func (b *Builder) Build(
 	tplData any,
 	slashSkillContent string,
 	conversationSummary string,
+	dynamicContext ...string,
+) []llm.Message {
+	return b.build(messages, enabledSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, nil, dynamicContext)
+}
+
+func (b *Builder) BuildWithContextBlocks(
+	messages []llm.Message,
+	enabledSkills []string,
+	disableOnDemand bool,
+	tplData any,
+	slashSkillContent string,
+	conversationSummary string,
+	contextBlocks []contextprovider.Block,
+) []llm.Message {
+	stableContext, dynamicContext := splitRenderedContextBlocks(contextBlocks)
+	return b.build(messages, enabledSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, stableContext, dynamicContext)
+}
+
+func (b *Builder) build(
+	messages []llm.Message,
+	enabledSkills []string,
+	disableOnDemand bool,
+	tplData any,
+	slashSkillContent string,
+	conversationSummary string,
+	stableContext []string,
+	dynamicContext []string,
 ) []llm.Message {
 	var parts []string
 
@@ -169,12 +240,28 @@ func (b *Builder) Build(
 		parts = append(parts, "\n\n"+slashSkillContent)
 	}
 
-	// 4. Resumo da conversa (rolling context)
+	// 4. Context Providers estáveis (instruções cacheáveis)
+	for _, contextBlock := range stableContext {
+		if strings.TrimSpace(contextBlock) == "" {
+			continue
+		}
+		parts = append(parts, "\n\n"+strings.TrimSpace(contextBlock))
+	}
+
+	// 5. Resumo da conversa (rolling context)
 	if conversationSummary != "" {
 		parts = append(parts, "\n\n<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n"+conversationSummary+"\n</conversation_summary>")
 	}
 
-	// 5. Arquivos abertos em abas de editor (acessíveis via filesystem tools)
+	// 6. Context Providers dinâmicos (memória, workspace/surface, etc.)
+	for _, contextBlock := range dynamicContext {
+		if strings.TrimSpace(contextBlock) == "" {
+			continue
+		}
+		parts = append(parts, "\n\n"+strings.TrimSpace(contextBlock))
+	}
+
+	// 7. Arquivos abertos em abas de editor (acessíveis via filesystem tools)
 	if b.OpenEditorPaths != nil {
 		if paths := b.OpenEditorPaths(); len(paths) > 0 {
 			var sb strings.Builder
@@ -207,6 +294,23 @@ func (b *Builder) Build(
 	}
 
 	return chat.InjectSystemPrompt(messages, strings.Join(parts, ""))
+}
+
+func splitRenderedContextBlocks(blocks []contextprovider.Block) ([]string, []string) {
+	stable := make([]string, 0)
+	dynamic := make([]string, 0)
+	for _, block := range blocks {
+		content := strings.TrimSpace(block.Content)
+		if content == "" {
+			continue
+		}
+		if block.Volatility == contextprovider.VolatilityStable {
+			stable = append(stable, content)
+			continue
+		}
+		dynamic = append(dynamic, content)
+	}
+	return stable, dynamic
 }
 
 // BuildSkillsSection constrói as seções <auto_skills> e <available_skills>.
@@ -253,6 +357,8 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		autoSkills = filterSkillsWithoutToolDependencies(autoSkills)
 		availableSkills = nil
 	}
+	autoSkills = filterOutContextProviderSkills(autoSkills)
+	availableSkills = filterOutContextProviderSkills(availableSkills)
 
 	if len(autoSkills) == 0 && len(availableSkills) == 0 {
 		return ""
@@ -345,6 +451,19 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 	}
 
 	return sb.String()
+}
+
+func filterOutContextProviderSkills(in []skills.Skill) []skills.Skill {
+	out := make([]skills.Skill, 0, len(in))
+	for _, skill := range in {
+		slug := strings.TrimSpace(skill.Slug)
+		category := strings.TrimSpace(skill.Category)
+		if slug == "memory" || slug == "memory-manager" || category == "memory" || slug == "workspace" || category == "workspace" {
+			continue
+		}
+		out = append(out, skill)
+	}
+	return out
 }
 
 // joinPrefix retorna o separador adequado para anexar uma nova seção: vazio quando
