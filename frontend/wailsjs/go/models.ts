@@ -4553,6 +4553,8 @@ export namespace skills {
 	    mcp?: any;
 	    slug: string;
 	    source: string;
+	    autoLoad?: boolean;
+	    templateUnsupported?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new SkillInfo(source);
@@ -4599,6 +4601,8 @@ export namespace skills {
 	        this.mcp = this.convertValues(source["mcp"], null);
 	        this.slug = source["slug"];
 	        this.source = source["source"];
+	        this.autoLoad = source["autoLoad"];
+	        this.templateUnsupported = source["templateUnsupported"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -1,13 +1,12 @@
 ---
 name: job-manager
-version: 2.3.0
+version: 2.4.0
 description: Provides context and instructions for managing event-driven automation jobs and pipelines via the `job` and `job_pipeline` tools (DB-backed) — creation, editing, triggers, conditional events, runs and events inspection
 displayName: Job Manager
 author: Assistente
 type: agent
 category: automation
 difficulty: intermediate
-auto_load: false
 platforms:
   - windows
   - macos
@@ -52,28 +51,28 @@ triggers:                            # required on create (≥ 1)
     expression: "0 9 * * 1-5"
   - type: event
     listen: "upstream.done"
-    when: '{{ eq .event.type "relevant" }}'   # optional condition
+    when: '&#123;&#123; eq .event.type "relevant" &#125;&#125;'   # optional condition
   - type: manual
 
 tool: mcp_jira__search_issue         # required on create — must exist in tool catalog. MCP tools are namespaced as `mcp_<serverSlug>__<toolName>`.
 inputs:
   field: "fixed value"
-  dynamic: "{{ .event.data }}"
-  secret_val: "{{ secret \"API_KEY\" }}"
+  dynamic: "&#123;&#123; .event.data &#125;&#125;"
+  secret_val: "&#123;&#123; secret \"API_KEY\" &#125;&#125;"
 
 output:
   map:
-    result: "{{ .output.data }}"
+    result: "&#123;&#123; .output.data &#125;&#125;"
 
 events:
   on_success: "my-job.done"
   on_failure: "my-job.failed"
-  emit_when: '{{ ne .output.status "unchanged" }}'   # optional
+  emit_when: '&#123;&#123; ne .output.status "unchanged" &#125;&#125;'   # optional
   for_each: "items"                                    # fan-out (optional)
   payload_template: |                                  # reshape payload (optional); wrap every value with `json`
     {
-      "id": {{ json .output.id }},
-      "source": {{ json .event.origin }}
+      "id": &#123;&#123; json .output.id &#125;&#125;,
+      "source": &#123;&#123; json .event.origin &#125;&#125;
     }
   payload_filter:                                      # whitelist/blacklist (optional)
     include: ["id", "status"]
@@ -113,11 +112,11 @@ dry_run_config:                      # configuration-level dry-run, persisted on
 
 Go template evaluated **before** the tool runs. If falsy, the job is silently skipped.
 
-- Context: `{{ .event.* }}` (trigger payload), `{{ .now }}` (current time)
+- Context: `&#123;&#123; .event.* &#125;&#125;` (trigger payload), `&#123;&#123; .now &#125;&#125;` (current time)
 - Empty/omitted = always runs
 
 ```yaml
-when: '{{ eq .event.webhookEvent "jira:issue_updated" }}'
+when: '&#123;&#123; eq .event.webhookEvent "jira:issue_updated" &#125;&#125;'
 ```
 
 ## Event Emission
@@ -126,12 +125,12 @@ when: '{{ eq .event.webhookEvent "jira:issue_updated" }}'
 
 Go template evaluated **after** the tool runs. If falsy, the success event is suppressed.
 
-- Context: `{{ .output.* }}` (tool result), `{{ .event.* }}` (trigger payload), `{{ .now }}`
+- Context: `&#123;&#123; .output.* &#125;&#125;` (tool result), `&#123;&#123; .event.* &#125;&#125;` (trigger payload), `&#123;&#123; .now &#125;&#125;`
 - For fan-out: evaluated **per item** — only matching items emit events
 - Empty/omitted = always emits
 
 ```yaml
-emit_when: '{{ eq .output.status "Done" }}'
+emit_when: '&#123;&#123; eq .output.status "Done" &#125;&#125;'
 ```
 
 ### `when` + `emit_when` — Symmetric Pair
@@ -190,7 +189,7 @@ Custom-action events also appear in `ListKnownEvents`, so they show up in the pi
   "tool": "mcp_jira__search_issue",
   "triggers": [
     { "type": "event", "listen": "tasklist.list.refresh_requested",
-      "when": "{{ eq .event.task_list_slug \"fsd\" }}" }
+      "when": "&#123;&#123; eq .event.task_list_slug \"fsd\" &#125;&#125;" }
   ],
   "inputs": { "jql": "project = FSD AND updated >= -7d" },
   "events": { "on_success": "fsd.issue.found", "for_each": "issues" }
@@ -226,7 +225,7 @@ data := map[string]any{
 Key facts:
 
 - `$` is the template root. At the top level `.event` **is** `$.event` — they are interchangeable. `$` only matters **inside a `range`**, where `.` is rebound to the current element but `$.event` still reaches the root.
-- There is **no `.item`**. In a `for_each` fan-out, the current array element becomes `.output` (see [Fan-out and iteration](#patterns-fan-out-and-iteration)). Writing `{{ .item.key }}` resolves to nothing.
+- There is **no `.item`**. In a `for_each` fan-out, the current array element becomes `.output` (see [Fan-out and iteration](#patterns-fan-out-and-iteration)). Writing `&#123;&#123; .item.key &#125;&#125;` resolves to nothing.
 - A **missing reference renders `<no value>`** — never an error, never `<nil>`. In conditions (`when`/`emit_when`), `<no value>`, `""` and `"false"` are all **falsy**.
 - All three roots (`event`, `output`, `now`) **always exist** in the data map, but `.output` is only **populated after the tool runs**. During `inputs` resolution (and `trigger.when`), `.output` is still **empty (nil)**, so `.output.*` resolves to `<no value>` there. `.output` only carries data in `output.map`, `events.payload_template` and `events.emit_when`.
 
@@ -238,36 +237,36 @@ Key facts:
 
 | Function | Signature / Usage | Description |
 |----------|-------------------|-------------|
-| `pluck` | `{{ pluck .output.issues "key" }}` | Extract a (dot-path) field from every item of a slice → new slice |
-| `any` | `{{ any .output.issues "fields.priority.name" "Critical" }}` | True if any item's dot-path equals the value |
-| `join` | `{{ join .output.keys ", " }}` | Join a slice into a string with a separator |
-| `json` | `{{ json .output }}` | Serialize a value to a JSON string (this is the `toJson` replacement) |
-| `default` | `{{ default 50 .event.limit }}` | **Argument order is `default <fallback> <value>`** — returns `<value>` unless it is nil/zero, in which case returns `<fallback>`. ⚠️ Fallback comes **first** (unlike Sprig's `default`). |
-| `date` | `{{ date .now "2006-01-02" }}` | Format a `time.Time` or a date string using a Go layout. Accepts RFC3339 **and** Jira-style ISO-8601 with a numeric `±HHMM` offset (no colon), e.g. `2026-05-25T15:35:53.521-0300`. |
-| `jiraTime` | `{{ jiraTime .output.updated }}` | Normalize a Jira-style timestamp (`±HHMM` offset) to an RFC3339 string (`±HH:MM`) that downstream tools accept (e.g. `task_note.external_updated_at`). RFC3339 input passes through. Errors on unparseable input. |
-| `now` | `{{ date (now) "2006-01-02" }}` | Function returning the current `time.Time`. Takes **no arguments**. ⚠️ Distinct from the root variable `.now` — see the pitfall below. |
-| `secret` | `{{ secret "API_KEY" }}` | Resolve a secret by name — never hardcode credentials |
-| `adf_markdown` | `{{ adf_markdown .event.description }}` | Render an Atlassian Document Format (ADF) node to Markdown |
-| `adf_text` | `{{ adf_text .event.description }}` | Render an ADF node to plain text |
+| `pluck` | `&#123;&#123; pluck .output.issues "key" &#125;&#125;` | Extract a (dot-path) field from every item of a slice → new slice |
+| `any` | `&#123;&#123; any .output.issues "fields.priority.name" "Critical" &#125;&#125;` | True if any item's dot-path equals the value |
+| `join` | `&#123;&#123; join .output.keys ", " &#125;&#125;` | Join a slice into a string with a separator |
+| `json` | `&#123;&#123; json .output &#125;&#125;` | Serialize a value to a JSON string (this is the `toJson` replacement) |
+| `default` | `&#123;&#123; default 50 .event.limit &#125;&#125;` | **Argument order is `default <fallback> <value>`** — returns `<value>` unless it is nil/zero, in which case returns `<fallback>`. ⚠️ Fallback comes **first** (unlike Sprig's `default`). |
+| `date` | `&#123;&#123; date .now "2006-01-02" &#125;&#125;` | Format a `time.Time` or a date string using a Go layout. Accepts RFC3339 **and** Jira-style ISO-8601 with a numeric `±HHMM` offset (no colon), e.g. `2026-05-25T15:35:53.521-0300`. |
+| `jiraTime` | `&#123;&#123; jiraTime .output.updated &#125;&#125;` | Normalize a Jira-style timestamp (`±HHMM` offset) to an RFC3339 string (`±HH:MM`) that downstream tools accept (e.g. `task_note.external_updated_at`). RFC3339 input passes through. Errors on unparseable input. |
+| `now` | `&#123;&#123; date (now) "2006-01-02" &#125;&#125;` | Function returning the current `time.Time`. Takes **no arguments**. ⚠️ Distinct from the root variable `.now` — see the pitfall below. |
+| `secret` | `&#123;&#123; secret "API_KEY" &#125;&#125;` | Resolve a secret by name — never hardcode credentials |
+| `adf_markdown` | `&#123;&#123; adf_markdown .event.description &#125;&#125;` | Render an Atlassian Document Format (ADF) node to Markdown |
+| `adf_text` | `&#123;&#123; adf_text .event.description &#125;&#125;` | Render an ADF node to plain text |
 
 ### Auto-corrections applied before parsing
 
 Two forgiving rewrites run on every template **before** it is parsed:
 
-- **`fixTemplateDots`**: a leading `{{ event.x }}` / `{{ output.x }}` / `{{ now }}` gets the missing dot → `{{ .event.x }}`. This only fixes the root word at the **start** of a `{{ … }}` block; inside `if`/`range`/`with` you must write the dot yourself (e.g. `{{ if .event.x }}`). **Always write the leading dot** — do not rely on the auto-fix.
-- **`fixArrayAccess`**: JS-style numeric dot indexing is converted to a Go `index` call → `{{ .event.content.0.id }}` becomes `{{ (index .event.content 0).id }}`. You can write either form.
+- **`fixTemplateDots`**: a leading `&#123;&#123; event.x &#125;&#125;` / `&#123;&#123; output.x &#125;&#125;` / `&#123;&#123; now &#125;&#125;` gets the missing dot → `&#123;&#123; .event.x &#125;&#125;`. This only fixes the root word at the **start** of a `&#123;&#123; … &#125;&#125;` block; inside `if`/`range`/`with` you must write the dot yourself (e.g. `&#123;&#123; if .event.x &#125;&#125;`). **Always write the leading dot** — do not rely on the auto-fix.
+- **`fixArrayAccess`**: JS-style numeric dot indexing is converted to a Go `index` call → `&#123;&#123; .event.content.0.id &#125;&#125;` becomes `&#123;&#123; (index .event.content 0).id &#125;&#125;`. You can write either form.
 
-> ⚠️ **`now` function vs `.now` variable pitfall.** Both the `now` *function* (which takes **no arguments** — `func() time.Time`) and the `.now` root *variable* return the current time. But `fixTemplateDots` rewrites a leading `now` without a dot, so any block that **starts** with `now` — `{{ now }}` or even a pipe like `{{ now | … }}` — is silently rewritten to `{{ .now }}`, i.e. it becomes the **variable**, not a function call. (There is no valid `{{ now "…" }}` form — passing arguments to `now` is an error anyway.) To actually **call** the function, keep it off the start of the block by **parenthesizing** it: `{{ date (now) "2006-01-02" }}` — there the auto-fix leaves it alone. In practice just use the `.now` variable (e.g. `{{ date .now "2006-01-02" }}`) unless you specifically need a fresh `time.Now()`.
+> ⚠️ **`now` function vs `.now` variable pitfall.** Both the `now` *function* (which takes **no arguments** — `func() time.Time`) and the `.now` root *variable* return the current time. But `fixTemplateDots` rewrites a leading `now` without a dot, so any block that **starts** with `now` — `&#123;&#123; now &#125;&#125;` or even a pipe like `&#123;&#123; now | … &#125;&#125;` — is silently rewritten to `&#123;&#123; .now &#125;&#125;`, i.e. it becomes the **variable**, not a function call. (There is no valid `&#123;&#123; now "…" &#125;&#125;` form — passing arguments to `now` is an error anyway.) To actually **call** the function, keep it off the start of the block by **parenthesizing** it: `&#123;&#123; date (now) "2006-01-02" &#125;&#125;` — there the auto-fix leaves it alone. In practice just use the `.now` variable (e.g. `&#123;&#123; date .now "2006-01-02" &#125;&#125;`) unless you specifically need a fresh `time.Now()`.
 
 ### `payload_template` renders a JSON string
 
 `events.payload_template` is special: the template must render a **JSON object string** that is then `json.Unmarshal`-ed into the emitted payload map. Rules:
 
 - The rendered text must be a valid JSON **object** (a `map`), not an array or scalar.
-- **Wrap *every* dynamic value with the `json` function — including strings** — and do **not** add manual quotes around it. `json` escapes and quotes the value correctly. Manually quoting (`"id": "{{ .output.id }}"`) does **not** guarantee valid JSON: if the value contains a `"`, a newline or other control characters, `json.Unmarshal` fails and you hit the silent fallback below. Correct form:
+- **Wrap *every* dynamic value with the `json` function — including strings** — and do **not** add manual quotes around it. `json` escapes and quotes the value correctly. Manually quoting (`"id": "&#123;&#123; .output.id &#125;&#125;"`) does **not** guarantee valid JSON: if the value contains a `"`, a newline or other control characters, `json.Unmarshal` fails and you hit the silent fallback below. Correct form:
 
   ```
-  { "task_code": {{ json .output.key }}, "title": {{ json .output.fields.summary }}, "raw": {{ json .output.fields }} }
+  { "task_code": &#123;&#123; json .output.key &#125;&#125;, "title": &#123;&#123; json .output.fields.summary &#125;&#125;, "raw": &#123;&#123; json .output.fields &#125;&#125; }
   ```
 
 - **Silent fallback**: if the rendered text is not valid JSON, the error is only logged and the job emits the **original, unshaped output** instead. There is no run failure — so a broken `payload_template` looks like "it ignored my template". Validate it with a dry-run and inspect the emitted payload.
@@ -277,11 +276,11 @@ Two forgiving rewrites run on every template **before** it is parsed:
 | Symptom | Cause | Diagnosis / fix |
 |---------|-------|-----------------|
 | Field comes out as `<no value>` | Wrong path, or used `.item.*` in fan-out, or referenced `.output.*` during `inputs`/`when` resolution — `.output` exists as a root but is still **empty (nil)** before the tool runs, so `.output.*` is `<no value>` there | Inspect the resolved value with a dry-run; confirm the path against the upstream payload via `job(job_id, run_id)` → `output` |
-| `template: invalid character ':' in variable reference` | JSON/Jinja-style syntax inside `{{ }}` (e.g. `{{ event:foo }}` or `{{ {"a":1} }}`) | Use Go syntax. To emit a JSON literal in `payload_template`, put the JSON **outside** `{{ }}` and only interpolate values inside them |
-| `payload_template` seems ignored | Rendered text is not a valid JSON object → silent fallback to raw output | Dry-run and check the emitted payload; render a valid JSON object wrapping **every** dynamic value with `json` (no manual quotes), e.g. `{ "task_code": {{ json .output.key }} }` |
-| `date: cannot parse "…-0300"` / whole payload comes out `<no value>` | A **Jira timestamp** (e.g. `2026-05-25T15:35:53.521-0300`) uses a numeric `±HHMM` offset (no colon) → not RFC3339. When `date`/`task_note` rejects it, the template render aborts and you hit the silent fallback (every field empty) | Normalize Jira timestamps with **`jiraTime`** before passing them downstream: `"comment_updated": {{ json (jiraTime .output.updated) }}`. (`date` and `task_note.external_updated_at` also accept the `±HHMM` form directly now, but `jiraTime` makes intent explicit.) |
+| `template: invalid character ':' in variable reference` | JSON/Jinja-style syntax inside `&#123;&#123; &#125;&#125;` (e.g. `&#123;&#123; event:foo &#125;&#125;` or `&#123;&#123; {"a":1} &#125;&#125;`) | Use Go syntax. To emit a JSON literal in `payload_template`, put the JSON **outside** `&#123;&#123; &#125;&#125;` and only interpolate values inside them |
+| `payload_template` seems ignored | Rendered text is not a valid JSON object → silent fallback to raw output | Dry-run and check the emitted payload; render a valid JSON object wrapping **every** dynamic value with `json` (no manual quotes), e.g. `{ "task_code": &#123;&#123; json .output.key &#125;&#125; }` |
+| `date: cannot parse "…-0300"` / whole payload comes out `<no value>` | A **Jira timestamp** (e.g. `2026-05-25T15:35:53.521-0300`) uses a numeric `±HHMM` offset (no colon) → not RFC3339. When `date`/`task_note` rejects it, the template render aborts and you hit the silent fallback (every field empty) | Normalize Jira timestamps with **`jiraTime`** before passing them downstream: `"comment_updated": &#123;&#123; json (jiraTime .output.updated) &#125;&#125;`. (`date` and `task_note.external_updated_at` also accept the `±HHMM` form directly now, but `jiraTime` makes intent explicit.) |
 | Used `upper`/`lower`/`toJson` and parse fails | Those functions do not exist | Use `json` for serialization; do case changes upstream or omit |
-| `default` returns the wrong branch | Argument order: it is `default <fallback> <value>` | Put the fallback first: `{{ default 50 .event.limit }}` |
+| `default` returns the wrong branch | Argument order: it is `default <fallback> <value>` | Put the fallback first: `&#123;&#123; default 50 .event.limit &#125;&#125;` |
 
 See [`troubleshooting.md`](./troubleshooting.md) for runtime (non-template) errors.
 
@@ -293,9 +292,9 @@ How it works (`resolveForEachItems` + `emitSuccess` in `executor.go`):
 
 1. `for_each` is a **dot-path into the tool output** that must resolve to an array (e.g. `"issues"`, `"data.items"`). If it does not resolve to an array, the job falls back to emitting a **single** event.
 2. For each element:
-   - If the element is an object, its keys become the event payload (so a child reads `{{ .event.<key> }}`). If it is a scalar, it is wrapped as `{{ .event.content }}`.
+   - If the element is an object, its keys become the event payload (so a child reads `&#123;&#123; .event.<key> &#125;&#125;`). If it is a scalar, it is wrapped as `&#123;&#123; .event.content &#125;&#125;`.
    - Two bookkeeping fields are added: `_fan_out_index` and `_fan_out_total`.
-   - `emit_when` is evaluated **per item**, with the item exposed as `.output` — filter items with `{{ .output.X }}`.
+   - `emit_when` is evaluated **per item**, with the item exposed as `.output` — filter items with `&#123;&#123; .output.X &#125;&#125;`.
    - `payload_template` is applied **per item**, again with the item as `.output`.
 3. Each emitted event is published under `events.on_success`.
 
@@ -314,8 +313,8 @@ How it works (`resolveForEachItems` + `emitSuccess` in `executor.go`):
   "events": {
     "on_success": "fsd.issue.found",
     "for_each": "issues",
-    "emit_when": "{{ ne .output.fields.status.name \"Done\" }}",
-    "payload_template": "{ \"key\": {{ json .output.key }}, \"summary\": {{ json .output.fields.summary }} }"
+    "emit_when": "&#123;&#123; ne .output.fields.status.name \"Done\" &#125;&#125;",
+    "payload_template": "{ \"key\": &#123;&#123; json .output.key &#125;&#125;, \"summary\": &#123;&#123; json .output.fields.summary &#125;&#125; }"
   }
 }
 ```
@@ -329,7 +328,7 @@ How it works (`resolveForEachItems` + `emitSuccess` in `executor.go`):
   "triggers": [{ "type": "event", "listen": "fsd.issue.found" }],
   "inputs": {
     "task_list_slug": "fsd",
-    "title": "{{ .event.key }} — {{ .event.summary }}"
+    "title": "&#123;&#123; .event.key &#125;&#125; — &#123;&#123; .event.summary &#125;&#125;"
   }
 }
 ```
@@ -417,7 +416,7 @@ Consider a daily **meta-monitoring** job (see [`examples/`](./examples/)) that f
 
 `on_success` and domain-event payloads are enriched with correlation/provenance fields you **can read downstream** (and filter on with `trigger.when`):
 
-- `_chain_id` — stable id of the whole reactive chain (the originating run id). Read it in a child via `{{ .event._chain_id }}`.
+- `_chain_id` — stable id of the whole reactive chain (the originating run id). Read it in a child via `&#123;&#123; .event._chain_id &#125;&#125;`.
 - `_chain_history` — ordered history used by the circuit breaker for loop/depth detection. For job-to-job chains it accumulates job ids; for a domain event published from a surface it starts with the originating **event name**.
 - `_source` / `_source_job_id` — added by `PublishDomainEvent` (i.e. on domain events). `_source` is `"user"` (a human acted in the UI) or `"job"` (an automation acted); domain events inherit this from the acting context (`internal/eventctx`). `_source_job_id` holds the job id when `_source == "job"`, and is empty for user-originated events.
 - For fan-out items, `_fan_out_index` / `_fan_out_total` are also present on the event.
@@ -433,12 +432,12 @@ Domain events fire for **every** mutation, including those a job itself performs
 
 ```yaml
 # Only react to human-driven changes (ignore job-driven mutations)
-when: '{{ eq .event._source "user" }}'
+when: '&#123;&#123; eq .event._source "user" &#125;&#125;'
 
 # Or: react to job-driven changes but never to your own.
 # Must also require _source == "job": _source_job_id is empty for user events,
 # so `ne _source_job_id "move-card-job"` alone would also match human actions.
-when: '{{ and (eq .event._source "job") (ne .event._source_job_id "move-card-job") }}'
+when: '&#123;&#123; and (eq .event._source "job") (ne .event._source_job_id "move-card-job") &#125;&#125;'
 ```
 
 Prefer gating high-frequency events (`tasklist.task.updated`, `.status_changed`, `.moved`) on `_source` so an automation chain cannot feed itself.
@@ -469,7 +468,7 @@ The following are **action flags** and cannot be combined with each other, nor w
 | Action | Call shape (key arguments) | Notes |
 |--------|----------------------------|-------|
 | List jobs | `job()` (no args) | Returns summaries of all jobs. |
-| Read job | `job(job_id)` | Returns the full job config. Sensitive fields inside the **configured** `inputs` are redacted (by sensitive key names and `{{ secret … }}` references); `last_run` is cleared. **Naming asymmetry:** the persisted dry-run config is returned under the `dry_run` key (matching `jobs.Job`'s JSON), while create/update accept it as `dry_run_config` — translate the key when round-tripping. |
+| Read job | `job(job_id)` | Returns the full job config. Sensitive fields inside the **configured** `inputs` are redacted (by sensitive key names and `&#123;&#123; secret … &#125;&#125;` references); `last_run` is cleared. **Naming asymmetry:** the persisted dry-run config is returned under the `dry_run` key (matching `jobs.Job`'s JSON), while create/update accept it as `dry_run_config` — translate the key when round-tripping. |
 | Create with generated id | `job(name, tool, triggers, …)` | `name` + `tool` + ≥ 1 `triggers` are required. Slug is derived from `name`. |
 | Create with explicit id | `job(job_id, name, tool, triggers, …)` | When the (sanitized) id does not exist and the required create fields are present, creates a new job. The stored id may differ from the raw `job_id` — see slug normalization below. |
 | Update | `job(job_id, <one or more write fields>)` | Only the provided fields are changed. Sending `triggers: []` resets to a single `manual` trigger. |
@@ -575,8 +574,8 @@ Create and then disable an ops pipeline:
   - Net effect: the **stored** id may differ from what was sent. Prefer ids that are already `[a-z0-9_-]+` to avoid surprises.
 - Pipeline slugs follow the lookup rule (lowercase + spaces → `-`). A pipeline is **auto-created** the first time a job references its slug, so you don't need to `job_pipeline(create)` upfront.
 - Always reference an existing tool from the tool catalog in `tool`. MCP tools are namespaced as `mcp_<serverSlug>__<toolName>` (e.g. `mcp_jira__search_issue`) — do not use dotted names like `mcp.jira.search_issue`, they will not resolve.
-- Use `{{ .event.* }}` in `inputs` to pass data from upstream jobs that emitted the event you are listening to.
-- Use `{{ secret "KEY" }}` for credentials — never hardcode secrets in `inputs`.
+- Use `&#123;&#123; .event.* &#125;&#125;` in `inputs` to pass data from upstream jobs that emitted the event you are listening to.
+- Use `&#123;&#123; secret "KEY" &#125;&#125;` for credentials — never hardcode secrets in `inputs`.
 - Use `pipeline` to group related jobs and to enable/disable them together.
 - When designing pipelines, define clear, stable event names (e.g. `tickets.fetched`, `report.generated`) so downstream jobs can listen to them.
 - Use `trigger.when` to avoid wasteful tool calls on irrelevant events.

@@ -1,5 +1,5 @@
 {
-  "_builtin_version": "4.0.0",
+  "_builtin_version": "4.1.0",
   "name": "Padrão",
   "description": "Configuração padrão.",
   "icon": "chatbox",
@@ -8,7 +8,12 @@
     "max_tokens": 4096,
     "top_p": 1.0,
     "response_timeout": 180,
-    "enable_thinking": false
+    "enable_thinking": false,
+    "enabled_skills": [
+      "coding",
+      "job-manager",
+      "tasklist-manager"
+    ]
   },
   "voice": {
     "assistant": {

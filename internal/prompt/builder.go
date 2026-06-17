@@ -175,7 +175,7 @@ func firstNonEmpty(values ...string) string {
 
 // Build compõe o system prompt completo e o injeta na lista de mensagens.
 //
-//   - enabledSkills: nil = todos os auto_load, [] = skills desabilitados, ["slug1"] = lista explícita
+//   - enabledSkills: nil = compat legacy via auto_load, [] = skills desabilitadas, ["slug1","slug2"] = primeira base, demais on-demand
 //   - disableOnDemand: quando true, omite a seção <available_skills>
 //   - tplData: contexto disponível nos templates dos skills
 //   - slashSkillContent: conteúdo de um skill invocado via /slash (pode ser "")
@@ -189,12 +189,13 @@ func (b *Builder) Build(
 	conversationSummary string,
 	dynamicContext ...string,
 ) []llm.Message {
-	return b.build(messages, enabledSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, nil, dynamicContext)
+	return b.build(messages, enabledSkills, false, disableOnDemand, tplData, slashSkillContent, conversationSummary, nil, dynamicContext)
 }
 
 func (b *Builder) BuildWithContextBlocks(
 	messages []llm.Message,
 	enabledSkills []string,
+	disableSkills bool,
 	disableOnDemand bool,
 	tplData any,
 	slashSkillContent string,
@@ -202,12 +203,13 @@ func (b *Builder) BuildWithContextBlocks(
 	contextBlocks []contextprovider.Block,
 ) []llm.Message {
 	stableContext, dynamicContext := splitRenderedContextBlocks(contextBlocks)
-	return b.build(messages, enabledSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, stableContext, dynamicContext)
+	return b.build(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, stableContext, dynamicContext)
 }
 
 func (b *Builder) build(
 	messages []llm.Message,
 	enabledSkills []string,
+	disableSkills bool,
 	disableOnDemand bool,
 	tplData any,
 	slashSkillContent string,
@@ -228,8 +230,8 @@ func (b *Builder) build(
 		parts = append(parts, joinPrefix(parts)+chat.CatalogFirstToolPrompt)
 	}
 
-	// 2. Seção de skills (auto_load + disponíveis)
-	skillsSection := b.BuildSkillsSection(enabledSkills, disableOnDemand, tplData)
+	// 2. Seção de skills (base + catálogo on-demand)
+	skillsSection := b.buildSkillsSection(enabledSkills, disableSkills, disableOnDemand, tplData)
 	if skillsSection != "" {
 		parts = append(parts, "\n\n"+skillsSection)
 	}
@@ -312,60 +314,39 @@ func splitRenderedContextBlocks(blocks []contextprovider.Block) ([]string, []str
 	return stable, dynamic
 }
 
-// BuildSkillsSection constrói as seções <auto_skills> e <available_skills>.
+// BuildSkillsSection constrói as seções <base_skills> e <available_skills>.
 func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand bool, tplData any) string {
+	return b.buildSkillsSection(enabledSkills, false, disableOnDemand, tplData)
+}
+
+func (b *Builder) buildSkillsSection(enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any) string {
 	if b.Skills == nil {
 		return ""
 	}
 
-	// Slice vazio (não nil) = skills explicitamente desabilitados pelo perfil
-	if enabledSkills != nil && len(enabledSkills) == 0 {
+	allSkills, err := b.Skills.GetAllSkillsFull()
+	if err != nil {
+		log.Printf("[prompt] Erro ao carregar skills: %v", err)
 		return ""
 	}
-
-	var autoSkills []skills.Skill
-	var availableSkills []skills.Skill
-
-	if enabledSkills != nil {
-		// Lista explícita do perfil: respeita a ordem definida
-		allSkills, err := b.Skills.GetAllSkillsFull()
-		if err != nil {
-			log.Printf("[prompt] Erro ao carregar skills: %v", err)
-			return ""
-		}
-		autoSkills = skills.FilterByNamesOrdered(allSkills, enabledSkills)
-		if !disableOnDemand {
-			availableSkills = skills.FilterExcludeNames(allSkills, enabledSkills)
-		}
-	} else {
-		// Sem lista: usa auto_load do próprio skill (backward compat)
-		var err error
-		autoSkills, err = b.Skills.GetAutoSkills()
-		if err != nil {
-			log.Printf("[prompt] Erro ao carregar auto skills: %v", err)
-		}
-		if !disableOnDemand {
-			availableSkills, err = b.Skills.GetAvailableSkills()
-			if err != nil {
-				log.Printf("[prompt] Erro ao carregar available skills: %v", err)
-			}
-		}
-	}
+	policy := skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand)
+	baseSkills := policy.Base
+	availableSkills := policy.OnDemand
 
 	if templateToolCallingDisabled(tplData) {
-		autoSkills = filterSkillsWithoutToolDependencies(autoSkills)
+		baseSkills = filterSkillsWithoutToolDependencies(baseSkills)
 		availableSkills = nil
 	}
-	if len(autoSkills) == 0 && len(availableSkills) == 0 {
+	if len(baseSkills) == 0 && len(availableSkills) == 0 {
 		return ""
 	}
 
 	var sb strings.Builder
 
-	// <auto_skills>: conteúdo completo injetado no system prompt
-	if len(autoSkills) > 0 {
-		sb.WriteString("<auto_skills>\n")
-		for i, s := range autoSkills {
+	// <base_skills>: conteúdo completo da skill base do perfil.
+	if len(baseSkills) > 0 {
+		sb.WriteString("<base_skills>\n")
+		for i, s := range baseSkills {
 			if i > 0 {
 				sb.WriteString("\n")
 			}
@@ -378,7 +359,7 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 			}
 			sb.WriteString("\n")
 
-			content := skills.ProcessTemplate(s.Content, tplData)
+			content := s.Content
 			var allowedBash []string
 			if s.Tools != nil && s.Tools.BashCommands != nil {
 				allowedBash = s.Tools.BashCommands.Allowed
@@ -397,7 +378,7 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 				}
 			}
 		}
-		sb.WriteString("</auto_skills>")
+		sb.WriteString("</base_skills>")
 	}
 
 	// <available_skills>: referências para leitura lazy pelo modelo
@@ -413,9 +394,9 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 			sb.WriteString("\n\n")
 		}
 		sb.WriteString("<available_skills>\n")
-		sb.WriteString("You have skills available that provide specialized instructions for specific tasks.\n")
-		sb.WriteString("To use a skill, read its file using the read_file tool with the path indicated below.\n")
-		sb.WriteString("Only read a skill when it's relevant to the current task.\n\n")
+		sb.WriteString("The user can invoke these on-demand skills with slash commands to load their full instructions for a turn.\n")
+		sb.WriteString("Treat this as a lightweight catalog of available workflows; do not assume the full instructions are loaded until a skill is invoked.\n")
+		sb.WriteString("Do not assume disabled or unlisted skills are available.\n\n")
 		for _, s := range modelInvocable {
 			sb.WriteString("- **")
 			sb.WriteString(s.GetDisplayName())
@@ -429,8 +410,8 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 			}
 			sb.WriteString(": ")
 			sb.WriteString(s.Description)
-			sb.WriteString("\n  Path: `")
-			sb.WriteString(s.Path)
+			sb.WriteString("\n  Identifier: `")
+			sb.WriteString(s.Slug)
 			sb.WriteString("`\n")
 
 			supplementary, _ := b.Skills.GetSkillFiles(s.Slug)

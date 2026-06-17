@@ -116,9 +116,11 @@ func (m *Manager) List() ([]SkillInfo, error) {
 		}
 
 		infos = append(infos, SkillInfo{
-			SkillMetadata: skill.SkillMetadata,
-			Slug:          skill.Slug,
-			Source:        skill.Source,
+			SkillMetadata:       skill.SkillMetadata,
+			Slug:                skill.Slug,
+			Source:              skill.Source,
+			AutoLoad:            skill.IsAutoLoad(),
+			TemplateUnsupported: HasTemplateSyntax(skill.Content),
 		})
 	}
 
@@ -324,13 +326,15 @@ func (m *Manager) GetUserInvocableSkills() ([]SkillInfo, error) {
 			log.Printf("[Skills] Ignorando skill %s: %v", ds.slug, err)
 			continue
 		}
-		if !skill.IsUserInvocable() {
+		if !skill.IsUserInvocable() || HasTemplateSyntax(skill.Content) {
 			continue
 		}
 		infos = append(infos, SkillInfo{
-			SkillMetadata: skill.SkillMetadata,
-			Slug:          skill.Slug,
-			Source:        skill.Source,
+			SkillMetadata:       skill.SkillMetadata,
+			Slug:                skill.Slug,
+			Source:              skill.Source,
+			AutoLoad:            skill.IsAutoLoad(),
+			TemplateUnsupported: HasTemplateSyntax(skill.Content),
 		})
 	}
 

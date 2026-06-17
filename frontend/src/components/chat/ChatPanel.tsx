@@ -25,6 +25,7 @@ export interface ChatPanelProps {
   onSend: ChatPanelSendHandler;
   onRequestConversationChange?: ChatPanelConversationChangeHandler;
   showShortcutsHelp?: boolean;
+  profileSlug?: string;
 }
 
 export function ChatPanel({
@@ -32,6 +33,7 @@ export function ChatPanel({
   onSend,
   onRequestConversationChange,
   showShortcutsHelp,
+  profileSlug,
 }: ChatPanelProps) {
   const variant = surface.surfaceType === 'embedded' || surface.surfaceType === 'modal'
     ? 'embedded'
@@ -47,6 +49,7 @@ export function ChatPanel({
       })}
       onRequestConversationChange={onRequestConversationChange}
       showShortcutsHelp={showShortcutsHelp}
+      profileSlug={profileSlug}
     />
   );
 }

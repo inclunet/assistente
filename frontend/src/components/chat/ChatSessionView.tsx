@@ -41,6 +41,7 @@ export interface ChatSessionViewProps {
   /** Solicitação de troca de conversa (controlada pelo dono da superfície). */
   onRequestConversationChange?: ChatToolbarConversationChangeHandler;
   showShortcutsHelp?: boolean;
+  profileSlug?: string;
 }
 
 export function ChatSessionView({
@@ -49,6 +50,7 @@ export function ChatSessionView({
   onSend,
   onRequestConversationChange,
   showShortcutsHelp,
+  profileSlug,
 }: ChatSessionViewProps) {
   return (
     <ChatSessionProvider surface={surface}>
@@ -79,11 +81,12 @@ function ChatSessionViewControllerBridge({
       showShortcutsHelp={showShortcutsHelp}
       onRequestConversationChange={onRequestConversationChange}
       controller={controller}
+      profileSlug={profileSlug}
     />
   );
 }
 
-interface ChatSessionViewContentProps extends Pick<ChatSessionViewProps, 'variant' | 'showShortcutsHelp' | 'onRequestConversationChange'> {
+interface ChatSessionViewContentProps extends Pick<ChatSessionViewProps, 'variant' | 'showShortcutsHelp' | 'onRequestConversationChange' | 'profileSlug'> {
   controller: ChatSurfaceController;
 }
 
@@ -91,6 +94,7 @@ function ChatSessionViewContent({
   variant = 'page',
   showShortcutsHelp,
   onRequestConversationChange,
+  profileSlug,
   controller,
 }: ChatSessionViewContentProps) {
   const { t } = useTranslation();
@@ -119,6 +123,7 @@ function ChatSessionViewContent({
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
 
   const [showContinueEnabled, setShowContinueEnabled] = useState(false);
+  const [activeProfileSlug, setActiveProfileSlug] = useState('');
 
   const {
     session,
@@ -192,9 +197,11 @@ function ChatSessionViewContent({
         // fallback por mensagem de usuário quando não suporta (Issue #124).
         const profileAllowsContinue = profile?.chat?.streaming_recovery_show_continue ?? true;
         setShowContinueEnabled(profileAllowsContinue);
+        setActiveProfileSlug(profile?.slug || '');
       } catch {
         if (!mounted) return;
         setShowContinueEnabled(false);
+        setActiveProfileSlug('');
       }
     };
 
@@ -655,6 +662,20 @@ function ChatSessionViewContent({
   }, [conversationId, updateConversationMessage]);
 
   useEffect(() => {
+    if (!conversationId) return;
+    const unsubscribe = EventsOn('chat:skill_loaded', (data: unknown) => {
+      const eventData = data as { conversationId?: string; displayName?: string; slug?: string };
+      if (eventData.conversationId !== conversationId) return;
+      const name = eventData.displayName || eventData.slug || '';
+      if (!name) return;
+      announce(t('chat.announce.skillLoaded', { name }));
+    });
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [announce, conversationId, t]);
+
+  useEffect(() => {
     if (sendError && retryButtonRef.current) {
       retryButtonRef.current.focus();
     }
@@ -917,6 +938,7 @@ function ChatSessionViewContent({
           mediaFiles={draftMediaFiles}
           onMessageChange={setDraftMessage}
           onMediaFilesChange={setDraftMediaFiles}
+          profileSlug={profileSlug || activeProfileSlug}
           onArrowUp={() => {
             const container = messagesContainerRef.current;
             if (!container) return;

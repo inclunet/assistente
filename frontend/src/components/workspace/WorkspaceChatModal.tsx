@@ -27,6 +27,7 @@ export function WorkspaceChatModal() {
   const boundSurface = useWorkspaceChatModalStore((s) => s.boundSurface);
   const setBoundConversation = useWorkspaceChatModalStore((s) => s.setBoundConversation);
   const workspaceTabs = useWorkspaceStore((s) => s.workspace?.tabs ?? []);
+  const workspaceProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const activeConversation = useChatConversationTimeline(boundConversationId);
   const activeWorkspaceTab = useActiveTab();
   const boundWorkspaceTab = useMemo(
@@ -37,6 +38,7 @@ export function WorkspaceChatModal() {
     const conversationTitle = activeConversation?.title || t('editor.chatModal.conversation');
     return `${t('editor.chatModal.title')} — ${conversationTitle}`;
   }, [activeConversation?.title, activeConversation?.id, t]);
+  const effectiveProfileSlug = (boundWorkspaceTab?.profileOverride?.slug as string | undefined) || workspaceProfile || undefined;
 
   const handleClose = useCallback(() => {
     close();
@@ -164,6 +166,7 @@ export function WorkspaceChatModal() {
                 onSend={handleSend}
                 onRequestConversationChange={handleRequestConversationChange}
                 showShortcutsHelp={false}
+                profileSlug={effectiveProfileSlug}
               />
             </div>
           </WorkspacePanelProvider>

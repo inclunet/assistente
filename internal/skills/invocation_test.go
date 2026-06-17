@@ -192,6 +192,43 @@ func TestInvoke_WithSupplementaryFiles(t *testing.T) {
 	}
 }
 
+func TestInvoke_WithPolicyRejectsDisabledSkill(t *testing.T) {
+	mgr := &stubInvokerManager{skill: invocableSkill("conteúdo")}
+	_, found, err := Invoke("/test-skill", mgr, nil, "1", SelectionPolicy{})
+	if !found {
+		t.Fatal("slash command should be found")
+	}
+	if err == nil {
+		t.Fatal("disabled skill should return an error")
+	}
+}
+
+func TestInvoke_WithPolicyAllowsOnDemandSkill(t *testing.T) {
+	s := invocableSkill("conteúdo")
+	s.Slug = "test-skill"
+	mgr := &stubInvokerManager{skill: s}
+	result, found, err := Invoke("/test-skill", mgr, nil, "1", SelectionPolicy{OnDemand: []Skill{*s}})
+	if err != nil || !found {
+		t.Fatalf("found=%v err=%v", found, err)
+	}
+	if result.Mode != SkillModeOnDemand {
+		t.Fatalf("expected on_demand mode, got %s", result.Mode)
+	}
+}
+
+func TestInvoke_RejectsTemplateSkill(t *testing.T) {
+	s := invocableSkill("{{ .ToolCallingEnabled }}")
+	s.Slug = "test-skill"
+	mgr := &stubInvokerManager{skill: s}
+	_, found, err := Invoke("/test-skill", mgr, nil, "1", SelectionPolicy{OnDemand: []Skill{*s}})
+	if !found {
+		t.Fatal("slash command should be found")
+	}
+	if err == nil {
+		t.Fatal("templated skill should be rejected")
+	}
+}
+
 // skillNotFoundError é um erro stub para testes.
 type skillNotFoundError struct{}
 

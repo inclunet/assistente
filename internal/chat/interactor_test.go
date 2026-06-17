@@ -7,10 +7,13 @@ import (
 	"testing"
 
 	"assistente/internal/configdir"
+	"assistente/internal/contextprovider"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/events"
+	"assistente/internal/llm"
 	"assistente/internal/profiles"
+	"assistente/internal/skills"
 	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
@@ -33,6 +36,17 @@ func (s *spyEmitter) findError() *ports.ErrorEvent {
 	for _, e := range s.emitted {
 		if e.name == "chat:error" {
 			if ev, ok := e.data.(ports.ErrorEvent); ok {
+				return &ev
+			}
+		}
+	}
+	return nil
+}
+
+func (s *spyEmitter) findSkillLoaded() *ports.SkillLoadedEvent {
+	for _, e := range s.emitted {
+		if e.name == "chat:skill_loaded" {
+			if ev, ok := e.data.(ports.SkillLoadedEvent); ok {
 				return &ev
 			}
 		}
@@ -70,6 +84,48 @@ type staticWorkspaceProvider struct {
 
 func (s staticWorkspaceProvider) Active() *workspace.Workspace {
 	return s.ws
+}
+
+type staticSkillRuntimeManager struct {
+	skills map[string]*skills.Skill
+	files  []string
+}
+
+func (m staticSkillRuntimeManager) Get(slug string) (*skills.Skill, error) {
+	if s, ok := m.skills[slug]; ok {
+		return s, nil
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
+func (m staticSkillRuntimeManager) GetSkillFiles(slug string) ([]string, error) {
+	return m.files, nil
+}
+
+func (m staticSkillRuntimeManager) GetAllSkillsFull() ([]skills.Skill, error) {
+	result := make([]skills.Skill, 0, len(m.skills))
+	for _, s := range m.skills {
+		result = append(result, *s)
+	}
+	return result, nil
+}
+
+type capturingPromptBuilder struct {
+	slashSkillContent string
+}
+
+func (b *capturingPromptBuilder) Build(messages []llm.Message, _ []string, _ bool, _ any, slashSkillContent string, _ string, _ ...string) []llm.Message {
+	b.slashSkillContent = slashSkillContent
+	return messages
+}
+
+func (b *capturingPromptBuilder) BuildWithContextBlocks(messages []llm.Message, _ []string, _ bool, _ bool, _ any, slashSkillContent string, _ string, _ []contextprovider.Block) []llm.Message {
+	b.slashSkillContent = slashSkillContent
+	return messages
+}
+
+func (b *capturingPromptBuilder) BuildTemplateData(_ *profiles.Profile, _ llm.ChatParams, conversationID string) TemplateData {
+	return TemplateData{ConversationID: conversationID}
 }
 
 func (r *retryMessageRepoStub) CreateMessage(_ context.Context, _ MessageOptions) (*Message, error) {
@@ -439,5 +495,158 @@ func TestPrepareContext_ResolvePerfilDoWorkspaceQuandoParamsNaoTrazemSlug(t *tes
 	}
 	if resp.ActiveProfile.Chat.LLMProvider != "localai-provider" {
 		t.Fatalf("LLMProvider = %q, want localai-provider", resp.ActiveProfile.Chat.LLMProvider)
+	}
+}
+
+func TestPrepareMessagesEmitsSkillLoadedForOnDemandSkill(t *testing.T) {
+	em := &spyEmitter{}
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
+		Slug:          "helper",
+		Content:       "help instructions",
+	}
+	baseSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "base", DisplayName: "Base", Description: "Base"},
+		Slug:          "base",
+		Content:       "base instructions",
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter: em,
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"base": baseSkill, "helper": skill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base", "helper"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/helper now"}},
+		UserContent:    "/helper now",
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	loaded := em.findSkillLoaded()
+	if loaded == nil {
+		t.Fatal("expected chat:skill_loaded event")
+	}
+	if loaded.ConversationID != "conv-1" || loaded.TurnID != "turn-1" || loaded.Slug != "helper" || loaded.Mode != string(skills.SkillModeOnDemand) {
+		t.Fatalf("unexpected skill_loaded event: %+v", loaded)
+	}
+	if result.InvokedSkillSlug != "helper" {
+		t.Fatalf("expected invoked skill helper, got %q", result.InvokedSkillSlug)
+	}
+}
+
+func TestPrepareMessagesDoesNotDuplicateBaseSkillOnSlashInvocation(t *testing.T) {
+	em := &spyEmitter{}
+	baseSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "base", DisplayName: "Base", Description: "Base"},
+		Slug:          "base",
+		Content:       "base instructions",
+	}
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:       em,
+		PromptBuilder: promptBuilder,
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"base": baseSkill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/base"}},
+		UserContent:    "/base",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if result.InvokedSkillSlug != "base" {
+		t.Fatalf("expected invoked base skill, got %q", result.InvokedSkillSlug)
+	}
+	if promptBuilder.slashSkillContent != "" {
+		t.Fatalf("base skill should not be appended again as slash content: %q", promptBuilder.slashSkillContent)
+	}
+	if em.findSkillLoaded() != nil {
+		t.Fatal("base skill without arguments should not emit skill_loaded")
+	}
+}
+
+func TestPrepareMessagesPreservesBaseSkillSlashArguments(t *testing.T) {
+	baseSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "base", DisplayName: "Base", Description: "Base"},
+		Slug:          "base",
+		Content:       "base instructions with $ARGUMENTS",
+	}
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder: promptBuilder,
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"base": baseSkill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/base revisar login"}},
+		UserContent:    "/base revisar login",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if !strings.Contains(promptBuilder.slashSkillContent, "<invoked_skill_arguments>") ||
+		!strings.Contains(promptBuilder.slashSkillContent, "revisar login") {
+		t.Fatalf("base skill arguments should be appended without duplicating full skill: %q", promptBuilder.slashSkillContent)
+	}
+	if strings.Contains(promptBuilder.slashSkillContent, "base instructions") {
+		t.Fatalf("base skill body should not be duplicated: %q", promptBuilder.slashSkillContent)
+	}
+}
+
+func TestPrepareMessagesRejectsDisabledSkill(t *testing.T) {
+	em := &spyEmitter{}
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "disabled", DisplayName: "Disabled", Description: "Disabled"},
+		Slug:          "disabled",
+		Content:       "disabled instructions",
+	}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter: em,
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"disabled": skill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"other"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/disabled"}},
+		UserContent:    "/disabled",
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err == nil {
+		t.Fatal("expected disabled skill error")
+	}
+	if em.findError() == nil {
+		t.Fatal("expected chat:error event")
+	}
+	if em.findSkillLoaded() != nil {
+		t.Fatal("disabled skill must not emit skill_loaded")
 	}
 }

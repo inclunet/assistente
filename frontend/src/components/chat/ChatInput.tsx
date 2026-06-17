@@ -9,7 +9,7 @@ import { SlashCommandMenu, countFilteredSkills } from './SlashCommandMenu';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { DIMENSIONS } from '../../constants/chat';
-import { GetUserInvocableSkills } from '@wailsjs/go/app/App';
+import { GetUserInvocableSkills, GetUserInvocableSkillsForProfile } from '@wailsjs/go/app/App';
 import type { skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
 
@@ -27,6 +27,7 @@ export interface ChatInputProps {
   mediaFiles?: MediaFile[];
   onMessageChange?: (message: string) => void;
   onMediaFilesChange?: (mediaFiles: MediaFile[]) => void;
+  profileSlug?: string;
 }
 
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
@@ -43,6 +44,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     mediaFiles: controlledMediaFiles,
     onMessageChange,
     onMediaFilesChange,
+    profileSlug,
   },
   ref
 ) => {
@@ -111,10 +113,13 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
   // Carrega skills invocáveis quando o componente monta
   useEffect(() => {
-    GetUserInvocableSkills()
+    const loader = profileSlug
+      ? GetUserInvocableSkillsForProfile(profileSlug)
+      : GetUserInvocableSkills();
+    loader
       .then((result) => setInvocableSkills(result || []))
       .catch(() => setInvocableSkills([]));
-  }, []);
+  }, [profileSlug]);
 
   // Handler para transcrição de voz
   const handleVoiceTranscription = (text: string) => {

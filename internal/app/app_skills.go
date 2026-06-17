@@ -27,6 +27,9 @@ func (a *App) DeleteSkill(slug string) error { return a.skillsCtrl.DeleteSkill(s
 func (a *App) GetUserInvocableSkills() ([]skills.SkillInfo, error) {
 	return a.skillsCtrl.GetUserInvocableSkills()
 }
+func (a *App) GetUserInvocableSkillsForProfile(profileSlug string) ([]skills.SkillInfo, error) {
+	return a.skillsCtrl.GetUserInvocableSkillsForProfile(profileSlug)
+}
 func (a *App) GetSkillSearchPaths() []string { return a.skillsCtrl.GetSkillSearchPaths() }
 
 // ============================================================================

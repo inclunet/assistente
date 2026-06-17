@@ -18,9 +18,9 @@ const SKILL_SOURCE_LABELS: Record<string, string> = {
 export interface ProfileSkillsSectionProps {
   availableSkills: Array<
     | skills.SkillInfo
-    | { slug: string; name: string; description?: string; version?: string; source?: string }
+    | { slug: string; name: string; description?: string; version?: string; source?: string; autoLoad?: boolean }
   >;
-  enabledSkills?: string[];
+  enabledSkills?: string[] | null;
   disableOnDemand?: boolean;
   skillsDisabled?: boolean;
   onChange: (
@@ -36,11 +36,13 @@ interface SkillRow {
   name: string;
   description: string;
   source: string;
+  autoLoad: boolean;
+  templateUnsupported: boolean;
 }
 
 export function ProfileSkillsSection({
   availableSkills,
-  enabledSkills = [],
+  enabledSkills,
   disableOnDemand = false,
   skillsDisabled = false,
   onChange,
@@ -51,22 +53,38 @@ export function ProfileSkillsSection({
   const [filter, setFilter] = useState<SkillFilter>('all');
   const [search, setSearch] = useState('');
 
-  const autoloadSet = new Set(enabledSkills);
+  const hasExplicitEnabledSkills = enabledSkills !== undefined && enabledSkills !== null;
+  const effectiveEnabledSkills = useMemo(
+    () => hasExplicitEnabledSkills
+      ? enabledSkills
+      : availableSkills.filter((s) => Boolean('autoLoad' in s && s.autoLoad)).map((s) => s.slug),
+    [availableSkills, enabledSkills, hasExplicitEnabledSkills],
+  );
+  const enabledSet = new Set(effectiveEnabledSkills);
 
-  const autoloadSkills = enabledSkills
+  const enabledSkillRows = effectiveEnabledSkills
     .map(slug => availableSkills.find(s => s.slug === slug))
-    .filter(Boolean) as Array<{ slug: string; name: string; description?: string; source?: string }>;
-  const onDemandSkills = availableSkills.filter(s => !autoloadSet.has(s.slug));
+    .filter(Boolean) as Array<{ slug: string; name: string; description?: string; source?: string; autoLoad?: boolean }>;
+  const disabledSkillRows = availableSkills.filter(s => !enabledSet.has(s.slug));
   const sortedSkills: SkillRow[] = useMemo(
-    () => [...autoloadSkills, ...onDemandSkills].map(s => ({
+    () => [...enabledSkillRows, ...disabledSkillRows].map(s => ({
       id: s.slug,
       slug: s.slug,
       name: s.name,
       description: s.description || '',
       source: s.source || 'exe',
+      autoLoad: Boolean('autoLoad' in s && s.autoLoad),
+      templateUnsupported: Boolean('templateUnsupported' in s && s.templateUnsupported),
     })),
-    [availableSkills, enabledSkills],
+    [availableSkills, effectiveEnabledSkills],
   );
+  const effectiveBaseSlug = useMemo(() => {
+    for (const slug of effectiveEnabledSkills) {
+      const skill = sortedSkills.find((row) => row.slug === slug);
+      if (skill && !skill.templateUnsupported) return slug;
+    }
+    return null;
+  }, [effectiveEnabledSkills, sortedSkills]);
 
   const availableSources = useMemo(() => {
     const sources = new Set(sortedSkills.map((s) => s.source));
@@ -93,16 +111,16 @@ export function ProfileSkillsSection({
   const filteredSlugs = useMemo(() => new Set(filteredSkills.map((r) => r.slug)), [filteredSkills]);
   const isFiltered = filter !== 'all' || search.trim() !== '';
 
-  const selectedIds = new Set<string | number>(enabledSkills);
+  const selectedIds = new Set<string | number>(effectiveEnabledSkills);
 
-  const allSlugs = availableSkills.map(s => s.slug);
+  const allSlugs = useMemo(() => sortedSkills.map(s => s.slug), [sortedSkills]);
   const allFilteredSelected = [...filteredSlugs].every((s) => selectedIds.has(s));
   const noneFilteredSelected = [...filteredSlugs].every((s) => !selectedIds.has(s));
   const showSelectAll = !allFilteredSelected;
   const showDeselectAll = !noneFilteredSelected;
 
   const handleSelectionChange = useCallback((newSelectedIds: Set<string | number>) => {
-    const prevSet = new Set(enabledSkills);
+    const prevSet = new Set(effectiveEnabledSkills);
     const newSet = newSelectedIds as Set<string>;
 
     let added: string | null = null;
@@ -115,68 +133,68 @@ export function ProfileSkillsSection({
     }
 
     if (added) {
-      const newList = [...enabledSkills, added];
+      const newList = [...effectiveEnabledSkills, added];
       onChange('enabled_skills', newList.length === allSlugs.length ? allSlugs : newList);
     } else if (removed) {
-      onChange('enabled_skills', enabledSkills.filter(s => s !== removed));
+      onChange('enabled_skills', effectiveEnabledSkills.filter(s => s !== removed));
     }
-  }, [enabledSkills, allSlugs, onChange]);
+  }, [enabledSkills, effectiveEnabledSkills, allSlugs, onChange]);
 
   const handleSelectFiltered = useCallback(() => {
     if (!isFiltered) {
       onChange('enabled_skills', allSlugs);
       return;
     }
-    const current = new Set(enabledSkills);
+    const current = new Set(effectiveEnabledSkills);
     for (const slug of filteredSlugs) current.add(slug);
     const result = allSlugs.filter((s) => current.has(s));
     onChange('enabled_skills', result.length === allSlugs.length ? allSlugs : result);
-  }, [isFiltered, enabledSkills, allSlugs, filteredSlugs, onChange]);
+  }, [isFiltered, effectiveEnabledSkills, allSlugs, filteredSlugs, onChange]);
 
   const handleDeselectFiltered = useCallback(() => {
     if (!isFiltered) {
       onChange('enabled_skills', []);
       return;
     }
-    const result = enabledSkills.filter((s) => !filteredSlugs.has(s));
+    const result = effectiveEnabledSkills.filter((s) => !filteredSlugs.has(s));
     onChange('enabled_skills', result);
-  }, [isFiltered, enabledSkills, filteredSlugs, onChange]);
+  }, [isFiltered, effectiveEnabledSkills, filteredSlugs, onChange]);
 
   const handleMoveItem = useCallback((fromIndex: number, toIndex: number) => {
     const item = filteredSkills[fromIndex];
     const target = filteredSkills[toIndex];
     if (!item || !target) return;
-    if (!autoloadSet.has(item.slug) || !autoloadSet.has(target.slug)) return;
+    if (!enabledSet.has(item.slug) || !enabledSet.has(target.slug)) return;
 
-    const fromEnabledIdx = enabledSkills.indexOf(item.slug);
-    const toEnabledIdx = enabledSkills.indexOf(target.slug);
+    const fromEnabledIdx = effectiveEnabledSkills.indexOf(item.slug);
+    const toEnabledIdx = effectiveEnabledSkills.indexOf(target.slug);
     if (fromEnabledIdx < 0 || toEnabledIdx < 0) return;
 
-    const newList = [...enabledSkills];
+    const newList = [...effectiveEnabledSkills];
     [newList[fromEnabledIdx], newList[toEnabledIdx]] = [newList[toEnabledIdx], newList[fromEnabledIdx]];
     onChange('enabled_skills', newList);
-  }, [filteredSkills, autoloadSet, enabledSkills, onChange]);
+  }, [filteredSkills, enabledSet, effectiveEnabledSkills, onChange]);
 
   const handleMoveButton = useCallback((direction: 'up' | 'down') => {
-    if (!focusedSlug || !autoloadSet.has(focusedSlug)) return;
-    const idx = enabledSkills.indexOf(focusedSlug);
+    if (!focusedSlug || !enabledSet.has(focusedSlug)) return;
+    const idx = effectiveEnabledSkills.indexOf(focusedSlug);
     if (idx < 0) return;
     const newIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (newIdx < 0 || newIdx >= enabledSkills.length) return;
+    if (newIdx < 0 || newIdx >= effectiveEnabledSkills.length) return;
 
-    const newList = [...enabledSkills];
+    const newList = [...effectiveEnabledSkills];
     [newList[idx], newList[newIdx]] = [newList[newIdx], newList[idx]];
     onChange('enabled_skills', newList);
-  }, [focusedSlug, autoloadSet, enabledSkills, onChange]);
+  }, [focusedSlug, enabledSet, effectiveEnabledSkills, onChange]);
 
   const handleFocusChange = useCallback((item: SkillRow | null) => {
     setFocusedSlug(item?.slug ?? null);
   }, []);
 
-  const focusedIsEnabled = focusedSlug ? autoloadSet.has(focusedSlug) : false;
-  const focusedEnabledIdx = focusedSlug ? enabledSkills.indexOf(focusedSlug) : -1;
+  const focusedIsEnabled = focusedSlug ? enabledSet.has(focusedSlug) : false;
+  const focusedEnabledIdx = focusedSlug ? effectiveEnabledSkills.indexOf(focusedSlug) : -1;
   const canMoveUp = focusedIsEnabled && focusedEnabledIdx > 0;
-  const canMoveDown = focusedIsEnabled && focusedEnabledIdx >= 0 && focusedEnabledIdx < enabledSkills.length - 1;
+  const canMoveDown = focusedIsEnabled && focusedEnabledIdx >= 0 && focusedEnabledIdx < effectiveEnabledSkills.length - 1;
 
   const toolbarRef = useToolbarKeyboardNav();
 
@@ -186,17 +204,25 @@ export function ProfileSkillsSection({
       label: '',
       width: '40px',
       format: (_value: unknown, item: SkillRow) => {
-        const idx = enabledSkills.indexOf(item.slug);
+        const idx = effectiveEnabledSkills.indexOf(item.slug);
         const checked = idx >= 0;
+        const effectivelyEnabled = checked && !item.templateUnsupported;
+        const effectivelyOnDemand = effectivelyEnabled && item.slug !== effectiveBaseSlug && !disableOnDemand;
+        const legacyOnDemand = !hasExplicitEnabledSkills && !disableOnDemand && !item.autoLoad && !item.templateUnsupported;
+        const modeLabel = item.templateUnsupported
+          ? t('profiles.skillModeTemplateUnsupported', 'desabilitada: template incompatível')
+          : item.slug === effectiveBaseSlug
+          ? t('profiles.skillModeBase', 'base')
+          : effectivelyOnDemand || legacyOnDemand
+            ? t('profiles.skillModeOnDemand', 'sob demanda')
+            : t('profiles.skillModeDisabled', 'desabilitada');
         return (
           <input
             type="checkbox"
             checked={checked}
             readOnly
             tabIndex={-1}
-            aria-label={checked
-              ? t('profiles.skillAutoload', `${item.name} autoload #${idx + 1}`)
-              : t('profiles.skillOnDemand', `${item.name} sob demanda`)}
+            aria-label={t('profiles.skillModeAria', `${item.name}: ${modeLabel}`, { name: item.name, mode: modeLabel })}
             style={{ pointerEvents: 'none' }}
           />
         );
@@ -204,11 +230,15 @@ export function ProfileSkillsSection({
     },
     {
       key: 'order',
-      label: '#',
-      width: '40px',
+      label: t('profiles.skillColMode', 'Modo'),
+      width: '120px',
       format: (_value: unknown, item: SkillRow) => {
-        const idx = enabledSkills.indexOf(item.slug);
-        return idx >= 0 ? `${idx + 1}` : '';
+        const idx = effectiveEnabledSkills.indexOf(item.slug);
+        if (item.templateUnsupported) return t('profiles.skillModeTemplateUnsupported', 'desabilitada: template incompatível');
+        if (!hasExplicitEnabledSkills && !disableOnDemand && !item.autoLoad) return t('profiles.skillModeOnDemand', 'sob demanda');
+        if (idx < 0) return t('profiles.skillModeDisabled', 'desabilitada');
+        if (item.slug === effectiveBaseSlug) return t('profiles.skillModeBase', 'base');
+        return disableOnDemand ? t('profiles.skillModeDisabled', 'desabilitada') : t('profiles.skillModeOnDemand', 'sob demanda');
       },
     },
     {
@@ -234,7 +264,7 @@ export function ProfileSkillsSection({
       {availableSkills.length > 0 ? (
         <>
           <p className="profiles-field__hint">
-            {t('profiles.skillsHint', 'Marque skills para autoload (injetados no system prompt em ordem). Desmarcados ficam disponíveis sob demanda.')}
+            {t('profiles.skillsHint', 'Ordene as skills por prioridade: a primeira marcada é base, as demais marcadas ficam sob demanda, e desmarcadas ficam desabilitadas.')}
           </p>
           <input
             type="text"

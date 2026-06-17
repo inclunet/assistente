@@ -51,10 +51,10 @@ type ChatConfig struct {
 	ResponseTimeout       int      `json:"response_timeout"`                   // Timeout em segundos
 	ReasoningEffort       string   `json:"reasoning_effort,omitempty"`         // off, low, medium, high (vazio = off)
 	EnabledTools          []string `json:"enabled_tools"`                      // Ferramentas habilitadas (nil = seleção dinâmica/catalogo quando disponível)
-	EnabledSkills         []string `json:"enabled_skills"`                     // Skills autoload ordenados (nil = usa auto_load do skill, [] = nenhum autoload)
+	EnabledSkills         []string `json:"enabled_skills"`                     // Skills habilitadas em ordem de prioridade: primeira=base, demais=on_demand
 	DisableTools          bool     `json:"disable_tools,omitempty"`            // Desabilita completamente tool calling
 	DisableSkills         bool     `json:"disable_skills,omitempty"`           // Desabilita injeção de skills no prompt
-	DisableOnDemandSkills bool     `json:"disable_on_demand_skills,omitempty"` // Desabilita skills sob demanda (apenas autoload)
+	DisableOnDemandSkills bool     `json:"disable_on_demand_skills,omitempty"` // Desabilita skills sob demanda (mantém apenas a primeira/base)
 	CommandAllowlist      string   `json:"command_allowlist,omitempty"`        // Slug da allowlist de comandos
 
 	// NativeMCP é o override tri-state de suporte a MCP nativo (tools type:"mcp"
@@ -206,15 +206,15 @@ func DefaultProfile() *Profile {
 		Description: "Configuração padrão.",
 		Icon:        "chatbox",
 		Chat: ChatConfig{
-			LLMProvider:     DefaultProviderSentinel,
-			Model:           DefaultProviderSentinel,
-			Temperature:     0.7,
-			MaxTokens:       4096,
-			TopP:            1.0,
-			ResponseTimeout: 180,
-			ReasoningEffort: "",
-			StreamingRecoveryEnabled:     boolPtr(true),
-			StreamingRecoveryMaxAttempts: intPtr(3),
+			LLMProvider:                   DefaultProviderSentinel,
+			Model:                         DefaultProviderSentinel,
+			Temperature:                   0.7,
+			MaxTokens:                     4096,
+			TopP:                          1.0,
+			ResponseTimeout:               180,
+			ReasoningEffort:               "",
+			StreamingRecoveryEnabled:      boolPtr(true),
+			StreamingRecoveryMaxAttempts:  intPtr(3),
 			StreamingRecoveryShowContinue: boolPtr(true),
 		},
 		Voice: VoiceConfig{

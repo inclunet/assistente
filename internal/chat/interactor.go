@@ -36,12 +36,17 @@ type ChatParams = llm.ChatParams
 // does not need to import internal/prompt (which already imports internal/chat).
 type SystemPromptBuilder interface {
 	Build(messages []llm.Message, enabledSkills []string, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string, dynamicContext ...string) []llm.Message
-	BuildWithContextBlocks(messages []llm.Message, enabledSkills []string, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string, contextBlocks []contextprovider.Block) []llm.Message
+	BuildWithContextBlocks(messages []llm.Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string, contextBlocks []contextprovider.Block) []llm.Message
 	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData
 }
 
 type WorkspaceProvider interface {
 	Active() *workspace.Workspace
+}
+
+type SkillRuntimeManager interface {
+	skills.InvokerManager
+	GetAllSkillsFull() ([]skills.Skill, error)
 }
 
 // InteractorConfig groups all dependencies for Interactor.
@@ -52,7 +57,7 @@ type InteractorConfig struct {
 	ProviderSvc      *providers.Service
 	ProfileMgr       *profiles.Manager
 	Workspace        WorkspaceProvider
-	SkillMgr         skills.InvokerManager     // optional during startup; safe to be nil
+	SkillMgr         SkillRuntimeManager       // optional during startup; safe to be nil
 	PromptBuilder    SystemPromptBuilder       // optional during startup; safe to be nil
 	ContextProviders *contextprovider.Registry // optional; dynamic Context Provider registry
 	// LinkedTaskLists resolve as task lists vinculadas a uma conversa para
@@ -69,7 +74,7 @@ type Interactor struct {
 	providerSvc      *providers.Service
 	profileMgr       *profiles.Manager
 	workspace        WorkspaceProvider
-	skillMgr         skills.InvokerManager
+	skillMgr         SkillRuntimeManager
 	promptBuilder    SystemPromptBuilder
 	contextProviders *contextprovider.Registry
 	linkedTaskLists  func(ctx context.Context, conversationID string) []TemplateTaskList
@@ -490,8 +495,10 @@ type PrepareMessagesRequest struct {
 	UserContent         string
 	ConversationSummary string
 	ConversationID      string
+	TurnID              string
 	Params              ChatParams
 	ActiveProfile       *profiles.Profile
+	SurfaceOrigin       *ports.ChatSurfaceOrigin
 	Transcribe          TranscribeFunc
 }
 
@@ -500,6 +507,7 @@ type PrepareMessagesResponse struct {
 	Messages         []llm.Message
 	InvokedSkillSlug string
 	InvokedScope     *tools.FilesystemScope
+	Err              error
 }
 
 // PrepareMessages detects slash skill invocation, injects the full system prompt,
@@ -522,10 +530,55 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	var slashSkillContent string
 	var invokedSkillSlug string
 	var invokedScope *tools.FilesystemScope
+	skillPolicy, policyReady, policyErr := i.BuildSkillSelectionPolicy(req.ActiveProfile)
+	if policyErr != nil {
+		if i.emitter != nil {
+			i.emitter.Emit("chat:error", ports.ErrorEvent{
+				ConversationID: req.ConversationID,
+				Error:          policyErr.Error(),
+				SurfaceOrigin:  req.SurfaceOrigin,
+			})
+		}
+		return PrepareMessagesResponse{Messages: req.Messages, Err: policyErr}
+	}
 
-	if inv, found, _ := skills.Invoke(req.UserContent, i.skillMgr, skillTplData, req.ConversationID); found {
-		slashSkillContent = inv.Content
+	var inv *skills.InvocationResult
+	var found bool
+	var err error
+	if policyReady {
+		inv, found, err = skills.Invoke(req.UserContent, i.skillMgr, skillTplData, req.ConversationID, skillPolicy)
+	} else {
+		inv, found, err = skills.Invoke(req.UserContent, i.skillMgr, skillTplData, req.ConversationID)
+	}
+	if found {
+		if err != nil {
+			if i.emitter != nil {
+				i.emitter.Emit("chat:error", ports.ErrorEvent{
+					ConversationID: req.ConversationID,
+					Error:          err.Error(),
+					SurfaceOrigin:  req.SurfaceOrigin,
+				})
+			}
+			return PrepareMessagesResponse{Messages: req.Messages, Err: err}
+		}
+		if inv.Mode == skills.SkillModeBase {
+			if args := strings.TrimSpace(inv.Arguments); args != "" {
+				slashSkillContent = fmt.Sprintf("<invoked_skill_arguments>\nSkill: %s\nArguments:\n%s\n</invoked_skill_arguments>", inv.SkillSlug, args)
+			}
+		} else {
+			slashSkillContent = inv.Content
+		}
 		invokedSkillSlug = inv.SkillSlug
+		if slashSkillContent != "" && i.emitter != nil {
+			i.emitter.Emit("chat:skill_loaded", ports.SkillLoadedEvent{
+				ConversationID: req.ConversationID,
+				TurnID:         req.TurnID,
+				Slug:           inv.SkillSlug,
+				DisplayName:    inv.DisplayName,
+				Mode:           string(inv.Mode),
+				SurfaceOrigin:  req.SurfaceOrigin,
+			})
+		}
 		if inv.Filesystem != nil {
 			invokedScope = &tools.FilesystemScope{
 				Read:  append([]string{}, inv.Filesystem.Read...),
@@ -537,17 +590,16 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 
 	var enabledSkills []string
 	var disableOnDemand bool
+	var disableSkills bool
 	if req.ActiveProfile != nil {
 		enabledSkills = req.ActiveProfile.Chat.EnabledSkills
 		disableOnDemand = req.ActiveProfile.Chat.DisableOnDemandSkills
-		if req.ActiveProfile.Chat.DisableSkills {
-			enabledSkills = []string{}
-		}
+		disableSkills = req.ActiveProfile.Chat.DisableSkills
 	}
 
 	var messages []llm.Message
 	if i.promptBuilder != nil {
-		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary, i.buildDynamicContext(ctx, skillTplData, req.UserContent))
+		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary, i.buildDynamicContext(ctx, skillTplData, req.UserContent))
 	} else {
 		messages = req.Messages
 	}
@@ -563,7 +615,61 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		Messages:         messages,
 		InvokedSkillSlug: invokedSkillSlug,
 		InvokedScope:     invokedScope,
+		Err:              nil,
 	}
+}
+
+func (i *Interactor) BuildSkillSelectionPolicy(activeProfile *profiles.Profile) (skills.SelectionPolicy, bool, error) {
+	if i.skillMgr == nil {
+		return skills.SelectionPolicy{}, false, nil
+	}
+	allSkills, err := i.skillMgr.GetAllSkillsFull()
+	if err != nil {
+		return skills.SelectionPolicy{}, false, fmt.Errorf("erro ao carregar política de skills: %w", err)
+	}
+	var enabledSkills []string
+	var disableOnDemand bool
+	var disableSkills bool
+	if activeProfile != nil {
+		enabledSkills = activeProfile.Chat.EnabledSkills
+		disableOnDemand = activeProfile.Chat.DisableOnDemandSkills
+		disableSkills = activeProfile.Chat.DisableSkills
+	}
+	return skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand), true, nil
+}
+
+func (i *Interactor) ValidateSkillInvocation(activeProfile *profiles.Profile, userContent string, conversationID string, surfaceOrigin *ports.ChatSurfaceOrigin) error {
+	policy, policyReady, err := i.BuildSkillSelectionPolicy(activeProfile)
+	if err != nil {
+		if i.emitter != nil {
+			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: conversationID, Error: err.Error(), SurfaceOrigin: surfaceOrigin})
+		}
+		return err
+	}
+	slug, _, ok := skills.ParseSlashCommand(userContent)
+	if !ok {
+		return nil
+	}
+	if !policyReady {
+		return nil
+	}
+	skill, err := i.skillMgr.Get(slug)
+	if err != nil || skill == nil || !skill.IsUserInvocable() {
+		return nil
+	}
+	var validationErr error
+	if policy.ModeFor(slug) == skills.SkillModeDisabled {
+		validationErr = fmt.Errorf("skill /%s está desabilitada no perfil ativo", slug)
+	} else if skills.HasTemplateSyntax(skill.Content) {
+		validationErr = fmt.Errorf("skill /%s usa templates e precisa ser migrada antes de ser carregada", slug)
+	}
+	if validationErr != nil {
+		if i.emitter != nil {
+			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: conversationID, Error: validationErr.Error(), SurfaceOrigin: surfaceOrigin})
+		}
+		return validationErr
+	}
+	return nil
 }
 
 func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string) []contextprovider.Block {

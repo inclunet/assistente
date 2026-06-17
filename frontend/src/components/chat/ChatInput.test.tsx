@@ -5,6 +5,7 @@ import { ChatInput } from './ChatInput';
 import type { MediaFile } from '../../services/mediaService';
 
 const getSkillsSpy = vi.fn();
+const getSkillsForProfileSpy = vi.fn();
 const processMediaFilesSpy = vi.fn();
 const announceSpy = vi.fn();
 
@@ -18,6 +19,7 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 
 vi.mock('@wailsjs/go/app/App', () => ({
   GetUserInvocableSkills: () => getSkillsSpy(),
+  GetUserInvocableSkillsForProfile: (profileSlug: string) => getSkillsForProfileSpy(profileSlug),
 }));
 
 vi.mock('../../services/mediaService', () => ({
@@ -56,8 +58,11 @@ function deferred<T>() {
 describe('ChatInput', () => {
   beforeEach(() => {
     getSkillsSpy.mockReset();
+    getSkillsForProfileSpy.mockReset();
     processMediaFilesSpy.mockReset();
     announceSpy.mockReset();
+    getSkillsSpy.mockResolvedValue([]);
+    getSkillsForProfileSpy.mockResolvedValue([]);
     processMediaFilesSpy.mockImplementation(async (files: File[]) => mediaResult(files, 'file'));
   });
 
@@ -72,6 +77,15 @@ describe('ChatInput', () => {
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
     expect(onSend).toHaveBeenCalledWith('Oi', undefined);
+  });
+
+  it('carrega slash menu usando profileSlug quando informado', async () => {
+    render(<ChatInput onSend={() => {}} profileSlug="programacao" />);
+
+    await waitFor(() => {
+      expect(getSkillsForProfileSpy).toHaveBeenCalledWith('programacao');
+    });
+    expect(getSkillsSpy).not.toHaveBeenCalled();
   });
 
   it('mostra menu slash quando ha skills', async () => {

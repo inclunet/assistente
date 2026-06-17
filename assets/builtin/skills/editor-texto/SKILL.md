@@ -1,20 +1,19 @@
 ---
 name: editor-texto
-version: 1.0.4
-description: "Instruções operacionais para edição dentro do editor: use text_edit quando toolcalling estiver disponível; quando tools estiverem desativadas (ex.: modelo sem toolcalling), responda com ```editor_patch```."
+version: 2.2.0
+description: "Instruções operacionais para edição dentro do editor: use text_edit para propor alterações no texto selecionado."
 displayName: Editor — Edição de Texto
 author: Assistente
 type: agent
 category: editor
 difficulty: beginner
-acmd /c "cd /d c:\Users\leona\dev\assistente\frontend && npm run build"npx --prefix frontend vitest run --reporter=json --outputFile vitest-report.json --no-coloruto_load: false
 platforms:
   - windows
   - macos
   - linux
 tools:
   allowed:
-    - text_editeE
+    - text_edit
 output:
   format: markdown
 ---
@@ -25,11 +24,9 @@ Você está operando **dentro de um editor**. Você NÃO tem permissão para mex
 
 Objetivo: produzir uma alteração no texto selecionado pelo usuário de forma **aplicável** e **segura**.
 
-{{- if .ToolCallingEnabled }}
+## Caminho preferido
 
-## Quando tool-calling estiver habilitado (preferido)
-
-- Use **sempre** a ferramenta `text_edit` para propor a substituição do trecho selecionado.
+- Quando a ferramenta `text_edit` estiver disponível, use **sempre** `text_edit` para propor a substituição do trecho selecionado.
 - A ferramenta irá abrir um questionário de confirmação (Aplicar/Rejeitar). Só prossiga após a confirmação.
 - Preencha `original` com o texto selecionado e `replacement` com o conteúdo final.
 - `replacement` deve conter **somente** o texto final (Markdown ou texto puro), sem explicações.
@@ -45,13 +42,10 @@ Parâmetros recomendados:
 Regras:
 - Não use `<editor_patch>`.
 - Não inclua blocos de patch na resposta normal quando você estiver usando `text_edit`.
-- IMPORTANTE: quando tool-calling estiver habilitado, NÃO responda com ```editor_patch``` no corpo. Se você não conseguir usar a ferramenta por limitação do modelo/proxy, peça para o usuário desativar ferramentas (tools) neste perfil.
 
-{{- else }}
+## Fallback sem ferramentas
 
-## Quando NÃO houver ferramentas disponíveis (fallback)
-
-Responda **SOMENTE** com um bloco Markdown de patch (sem texto antes/depois), neste formato:
+Se `text_edit` não estiver disponível para o modelo/perfil atual, responda **SOMENTE** com um bloco Markdown de patch (sem texto antes/depois), neste formato:
 
 ```editor_patch
 {"v":1,"op":"replace_selection","format":"markdown","replacement":"...","notes":"..."}
@@ -63,5 +57,3 @@ Regras:
 - Inclua `notes` com um resumo curto do que foi feito (1-3 linhas) e quaisquer suposições importantes.
 - Se o trecho selecionado não tiver contexto suficiente para uma edição segura, NÃO chute: peça ao usuário mais contexto (ex.: 5-10 linhas antes/depois) em vez de devolver um patch.
 - Não use tags legacy como `<editor_patch>`.
-
-{{- end }}
