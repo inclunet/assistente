@@ -9,7 +9,7 @@ import { SlashCommandMenu, countFilteredSkills } from './SlashCommandMenu';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { DIMENSIONS } from '../../constants/chat';
-import { GetUserInvocableSkills, GetUserInvocableSkillsForProfile } from '@wailsjs/go/app/App';
+import { GetUserInvocableSkillsForProfile } from '@wailsjs/go/app/App';
 import type { skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
 
@@ -113,10 +113,11 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
   // Carrega skills invocáveis quando o componente monta
   useEffect(() => {
-    const loader = profileSlug
-      ? GetUserInvocableSkillsForProfile(profileSlug)
-      : GetUserInvocableSkills();
-    loader
+    if (!profileSlug) {
+      setInvocableSkills([]);
+      return;
+    }
+    GetUserInvocableSkillsForProfile(profileSlug)
       .then((result) => setInvocableSkills(result || []))
       .catch(() => setInvocableSkills([]));
   }, [profileSlug]);

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"assistente/internal/core/ports"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 )
@@ -21,6 +22,7 @@ func (loadSkillRuntimeTestTool) Execute(context.Context, json.RawMessage) (tools
 		Content: "loaded",
 		Metadata: map[string]any{
 			"skill_slug":      "review",
+			"skill_name":      "Review",
 			"filesystem_read": []string{"src/**"},
 		},
 	}, nil
@@ -39,16 +41,27 @@ func (scopeProbeTool) Execute(ctx context.Context, _ json.RawMessage) (tools.Too
 	return tools.ToolResult{Content: ec.Filesystem.Read[0]}, nil
 }
 
+type runtimeControlEmitter struct {
+	events []string
+	data   []any
+}
+
+func (e *runtimeControlEmitter) Emit(event string, data any) {
+	e.events = append(e.events, event)
+	e.data = append(e.data, data)
+}
+
 func TestExecuteToolCallsWithRuntimeControlsAppliesLoadSkillScopeBeforeRegularTools(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister(loadSkillRuntimeTestTool{})
 	registry.MustRegister(scopeProbeTool{})
-	svc := &Service{toolExecutor: tools.NewExecutor(registry, tools.DefaultExecutorConfig())}
+	emitter := &runtimeControlEmitter{}
+	svc := &Service{toolExecutor: tools.NewExecutor(registry, tools.DefaultExecutorConfig()), emitter: emitter}
 
 	batch := svc.executeToolCallsWithRuntimeControls(context.Background(), []tools.ToolCall{
 		{ID: "regular", Type: "function", Function: tools.FunctionCall{Name: "scope_probe", Arguments: `{}`}},
 		{ID: "load", Type: "function", Function: tools.FunctionCall{Name: tools.LoadSkillName, Arguments: `{"skill":"review"}`}},
-	}, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: "turn-1"})
+	}, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: "turn-1"}, "conv-1", "turn-1", nil)
 
 	if len(batch.Executions) != 2 {
 		t.Fatalf("expected two executions, got %#v", batch.Executions)
@@ -58,5 +71,15 @@ func TestExecuteToolCallsWithRuntimeControlsAppliesLoadSkillScopeBeforeRegularTo
 	}
 	if batch.Executions[0].Result.IsError || batch.Executions[0].Result.Content != "src/**" {
 		t.Fatalf("regular tool did not receive loaded skill scope: %#v", batch.Executions[0].Result)
+	}
+	if len(emitter.events) != 1 || emitter.events[0] != "chat:skill_loaded" {
+		t.Fatalf("expected one chat:skill_loaded event, got %#v", emitter.events)
+	}
+	ev, ok := emitter.data[0].(ports.SkillLoadedEvent)
+	if !ok {
+		t.Fatalf("expected SkillLoadedEvent, got %T", emitter.data[0])
+	}
+	if ev.ConversationID != "conv-1" || ev.TurnID != "turn-1" || ev.Slug != "review" || ev.DisplayName != "Review" || ev.Mode != "on_demand" {
+		t.Fatalf("unexpected skill loaded event: %+v", ev)
 	}
 }

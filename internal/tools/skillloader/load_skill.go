@@ -40,7 +40,7 @@ func New(skillMgr SkillManager, profileMgr ProfileManager) *Tool {
 func (t *Tool) Name() string { return ToolName }
 
 func (t *Tool) Description() string {
-	return "Load an enabled on-demand skill into the current turn. Use this when the task matches a skill from the prompt's skill catalog and you need the full skill instructions before continuing. Only profile-enabled on-demand skills can be loaded."
+	return "Load an enabled on-demand skill into the current turn. Use this when the task matches a skill from the prompt's skill catalog and you need the full skill instructions before continuing. Only profile-enabled on-demand skills can be loaded. This is a runtime control tool; if you call it in the same tool batch as other tools, the runtime executes load_skill first so the loaded skill's permissions apply to the remaining calls."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
@@ -101,14 +101,11 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	if !loaded.IsModelInvocable() {
 		return tools.ToolResult{Content: fmt.Sprintf("skill %q não permite autoativação pelo modelo", loaded.Slug), IsError: true}, nil
 	}
-	if skills.HasTemplateSyntax(loaded.Content) {
-		return tools.ToolResult{Content: fmt.Sprintf("skill %q usa template legado e não pode ser carregada pelo runtime novo", loaded.Slug), IsError: true}, nil
-	}
 
 	content := formatLoadedSkill(loaded, strings.TrimSpace(req.Reason))
 	metadata := map[string]any{
 		"skill_slug": loaded.Slug,
-		"skill_name": loaded.Name,
+		"skill_name": loaded.GetDisplayName(),
 		"mode":       string(skills.SkillModeOnDemand),
 	}
 	if reason := strings.TrimSpace(req.Reason); reason != "" {

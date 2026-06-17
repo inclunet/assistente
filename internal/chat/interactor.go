@@ -550,8 +550,6 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	if policyReady {
 		modelOnDemandSkillAvailable = hasModelOnDemandSkill(skillPolicy)
 		inv, found, err = skills.Invoke(req.UserContent, i.skillMgr, skillTplData, req.ConversationID, skillPolicy)
-	} else {
-		inv, found, err = skills.Invoke(req.UserContent, i.skillMgr, skillTplData, req.ConversationID)
 	}
 	if found {
 		if err != nil {
@@ -566,7 +564,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		}
 		if inv.Mode == skills.SkillModeBase {
 			if args := strings.TrimSpace(inv.Arguments); args != "" {
-				slashSkillContent = fmt.Sprintf("<invoked_skill_arguments>\nSkill: %s\nArguments:\n%s\n</invoked_skill_arguments>", inv.SkillSlug, args)
+				slashSkillContent = inv.Content
 			}
 		} else {
 			slashSkillContent = inv.Content
@@ -625,7 +623,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 
 func hasModelOnDemandSkill(policy skills.SelectionPolicy) bool {
 	for _, s := range policy.OnDemand {
-		if s.IsModelInvocable() && !skills.HasTemplateSyntax(s.Content) {
+		if s.IsModelInvocable() {
 			return true
 		}
 	}
@@ -673,8 +671,6 @@ func (i *Interactor) ValidateSkillInvocation(activeProfile *profiles.Profile, us
 	var validationErr error
 	if policy.ModeFor(slug) == skills.SkillModeDisabled {
 		validationErr = fmt.Errorf("skill /%s está desabilitada no perfil ativo", slug)
-	} else if skills.HasTemplateSyntax(skill.Content) {
-		validationErr = fmt.Errorf("skill /%s usa templates e precisa ser migrada antes de ser carregada", slug)
 	}
 	if validationErr != nil {
 		if i.emitter != nil {
@@ -686,8 +682,9 @@ func (i *Interactor) ValidateSkillInvocation(activeProfile *profiles.Profile, us
 }
 
 func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string) []contextprovider.Block {
+	taskListBlocks := taskListContextBlocks(data)
 	if i.contextProviders == nil {
-		return nil
+		return taskListBlocks
 	}
 	req := contextprovider.BuildRequest{
 		ConversationID:   data.ConversationID,
@@ -720,7 +717,58 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 	blocks, err := i.contextProviders.Build(ctx, req)
 	if err != nil {
 		log.Printf("[context/providers] erro ao montar blocos dinâmicos: %v", err)
+		return taskListBlocks
+	}
+	return append(taskListBlocks, blocks...)
+}
+
+func taskListContextBlocks(data TemplateData) []contextprovider.Block {
+	if !data.HasTaskLists || len(data.TaskLists) == 0 {
 		return nil
 	}
-	return blocks
+	var sb strings.Builder
+	sb.WriteString("<linked_task_lists>\n")
+	sb.WriteString("This conversation has linked task lists. Use this context to track progress, update tasks, and help the user manage their work.\n")
+	for _, list := range data.TaskLists {
+		sb.WriteString("\n## ")
+		sb.WriteString(list.Title)
+		if list.ID != "" {
+			sb.WriteString(" (ID: ")
+			sb.WriteString(list.ID)
+			sb.WriteString(")")
+		}
+		sb.WriteString("\n")
+		if strings.TrimSpace(list.Description) != "" {
+			sb.WriteString(strings.TrimSpace(list.Description))
+			sb.WriteString("\n")
+		}
+		if len(list.Tasks) == 0 {
+			sb.WriteString("_No tasks yet._\n")
+			continue
+		}
+		sb.WriteString("\n| # | Status | Task | ID |\n|---|--------|------|----|\n")
+		for idx, task := range list.Tasks {
+			sb.WriteString("| ")
+			sb.WriteString(fmt.Sprintf("%d", idx))
+			sb.WriteString(" | ")
+			if task.StatusIcon != "" {
+				sb.WriteString(task.StatusIcon)
+				sb.WriteString(" ")
+			}
+			sb.WriteString(task.Status)
+			sb.WriteString(" | ")
+			sb.WriteString(task.Title)
+			sb.WriteString(" | ")
+			sb.WriteString(task.ID)
+			sb.WriteString(" |\n")
+		}
+	}
+	sb.WriteString("</linked_task_lists>")
+	return []contextprovider.Block{{
+		Provider:   "tasklist",
+		Name:       "linked_task_lists",
+		Volatility: contextprovider.VolatilityFastDynamic,
+		Priority:   40,
+		Content:    sb.String(),
+	}}
 }

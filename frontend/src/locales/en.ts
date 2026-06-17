@@ -1147,7 +1147,6 @@ const en = {
       skillModeBase: 'base',
       skillModeOnDemand: 'on demand',
       skillModeDisabled: 'disabled',
-      skillModeTemplateUnsupported: 'disabled: incompatible template',
       skillModeAria: '{{name}}: {{mode}}',
       skillsNoResults: 'No skills match the filter.',
       filterSkillSource: {

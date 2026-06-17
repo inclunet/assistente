@@ -88,13 +88,22 @@ describe('ChatInput', () => {
     expect(getSkillsSpy).not.toHaveBeenCalled();
   });
 
-  it('mostra menu slash quando ha skills', async () => {
-    getSkillsSpy.mockResolvedValueOnce([{ slug: 'skill', name: 'Skill' }]);
-
+  it('não carrega slash menu sem profileSlug resolvido', async () => {
     render(<ChatInput onSend={() => {}} />);
 
     await waitFor(() => {
-      expect(getSkillsSpy).toHaveBeenCalled();
+      expect(getSkillsForProfileSpy).not.toHaveBeenCalled();
+    });
+    expect(getSkillsSpy).not.toHaveBeenCalled();
+  });
+
+  it('mostra menu slash quando ha skills', async () => {
+    getSkillsForProfileSpy.mockResolvedValueOnce([{ slug: 'skill', name: 'Skill' }]);
+
+    render(<ChatInput onSend={() => {}} profileSlug="programacao" />);
+
+    await waitFor(() => {
+      expect(getSkillsForProfileSpy).toHaveBeenCalledWith('programacao');
     });
 
     const textarea = screen.getByLabelText('chat.messageLabel');

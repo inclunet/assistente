@@ -1147,7 +1147,6 @@ const ptBR = {
       skillModeBase: 'base',
       skillModeOnDemand: 'sob demanda',
       skillModeDisabled: 'desabilitada',
-      skillModeTemplateUnsupported: 'desabilitada: template incompatível',
       skillModeAria: '{{name}}: {{mode}}',
       skillsNoResults: 'Nenhum skill corresponde ao filtro.',
       filterSkillSource: {

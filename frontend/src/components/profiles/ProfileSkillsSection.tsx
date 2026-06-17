@@ -37,7 +37,6 @@ interface SkillRow {
   description: string;
   source: string;
   autoLoad: boolean;
-  templateUnsupported: boolean;
 }
 
 export function ProfileSkillsSection({
@@ -55,10 +54,14 @@ export function ProfileSkillsSection({
 
   const hasExplicitEnabledSkills = enabledSkills !== undefined && enabledSkills !== null;
   const effectiveEnabledSkills = useMemo(
-    () => hasExplicitEnabledSkills
-      ? enabledSkills
-      : availableSkills.filter((s) => Boolean('autoLoad' in s && s.autoLoad)).map((s) => s.slug),
-    [availableSkills, enabledSkills, hasExplicitEnabledSkills],
+    () => {
+      if (hasExplicitEnabledSkills) return enabledSkills;
+      const base = availableSkills.filter((s) => Boolean('autoLoad' in s && s.autoLoad)).map((s) => s.slug);
+      if (disableOnDemand) return base;
+      const onDemand = availableSkills.filter((s) => !Boolean('autoLoad' in s && s.autoLoad)).map((s) => s.slug);
+      return [...base, ...onDemand];
+    },
+    [availableSkills, disableOnDemand, enabledSkills, hasExplicitEnabledSkills],
   );
   const enabledSet = new Set(effectiveEnabledSkills);
 
@@ -74,14 +77,13 @@ export function ProfileSkillsSection({
       description: s.description || '',
       source: s.source || 'exe',
       autoLoad: Boolean('autoLoad' in s && s.autoLoad),
-      templateUnsupported: Boolean('templateUnsupported' in s && s.templateUnsupported),
     })),
     [availableSkills, effectiveEnabledSkills],
   );
   const effectiveBaseSlug = useMemo(() => {
     for (const slug of effectiveEnabledSkills) {
       const skill = sortedSkills.find((row) => row.slug === slug);
-      if (skill && !skill.templateUnsupported) return slug;
+      if (skill) return slug;
     }
     return null;
   }, [effectiveEnabledSkills, sortedSkills]);
@@ -206,12 +208,10 @@ export function ProfileSkillsSection({
       format: (_value: unknown, item: SkillRow) => {
         const idx = effectiveEnabledSkills.indexOf(item.slug);
         const checked = idx >= 0;
-        const effectivelyEnabled = checked && !item.templateUnsupported;
+        const effectivelyEnabled = checked;
         const effectivelyOnDemand = effectivelyEnabled && item.slug !== effectiveBaseSlug && !disableOnDemand;
-        const legacyOnDemand = !hasExplicitEnabledSkills && !disableOnDemand && !item.autoLoad && !item.templateUnsupported;
-        const modeLabel = item.templateUnsupported
-          ? t('profiles.skillModeTemplateUnsupported', 'desabilitada: template incompatível')
-          : item.slug === effectiveBaseSlug
+        const legacyOnDemand = !hasExplicitEnabledSkills && !disableOnDemand && !item.autoLoad;
+        const modeLabel = item.slug === effectiveBaseSlug
           ? t('profiles.skillModeBase', 'base')
           : effectivelyOnDemand || legacyOnDemand
             ? t('profiles.skillModeOnDemand', 'sob demanda')
@@ -234,7 +234,6 @@ export function ProfileSkillsSection({
       width: '120px',
       format: (_value: unknown, item: SkillRow) => {
         const idx = effectiveEnabledSkills.indexOf(item.slug);
-        if (item.templateUnsupported) return t('profiles.skillModeTemplateUnsupported', 'desabilitada: template incompatível');
         if (!hasExplicitEnabledSkills && !disableOnDemand && !item.autoLoad) return t('profiles.skillModeOnDemand', 'sob demanda');
         if (idx < 0) return t('profiles.skillModeDisabled', 'desabilitada');
         if (item.slug === effectiveBaseSlug) return t('profiles.skillModeBase', 'base');

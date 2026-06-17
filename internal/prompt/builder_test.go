@@ -59,6 +59,15 @@ func makeSkill(slug, name, desc, content string, autoLoad, modelInvocable bool) 
 	return s
 }
 
+func buildSystemPromptForSkills(b *prompt.Builder, enabledSkills []string, disableOnDemand bool, tplData any) string {
+	result := b.Build([]llm.Message{{Role: "user", Content: "oi"}}, enabledSkills, disableOnDemand, tplData, "", "")
+	if len(result) == 0 {
+		return ""
+	}
+	sys, _ := result[0].Content.(string)
+	return sys
+}
+
 func TestBuild_NoSkillsNoSlash_IncludesDefaultSystemPrompt(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "olá"}}
@@ -367,15 +376,16 @@ func TestBuild_CatalogFirst_CoexistsWithSkills(t *testing.T) {
 
 func TestBuildSkillsSection_NilSkillReader_ReturnsEmpty(t *testing.T) {
 	b := &prompt.Builder{}
-	if got := b.BuildSkillsSection(nil, false, nil); got != "" {
-		t.Errorf("Expected empty, got %q", got)
+	got := buildSystemPromptForSkills(b, nil, false, nil)
+	if strings.Contains(got, "<base_skills>") || strings.Contains(got, "<available_skills>") {
+		t.Errorf("Expected no skills section, got %q", got)
 	}
 }
 
 func TestBuildSkillsSection_EmptyListReturnsEmpty(t *testing.T) {
 	s := makeSkill("manual", "Manual", "Manual desc", "Manual content.", true, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s}}}
-	if got := b.BuildSkillsSection([]string{}, false, nil); got != "" {
+	if got := buildSystemPromptForSkills(b, []string{}, false, nil); strings.Contains(got, "<base_skills>") || strings.Contains(got, "<available_skills>") {
 		t.Fatalf("empty enabled_skills should omit skills section, got %q", got)
 	}
 }
@@ -402,7 +412,7 @@ func TestBuildWithContextBlocks_DisableSkillsOmitsSkillsSection(t *testing.T) {
 func TestBuildSkillsSection_LegacyAutoLoad_ContainsBaseSkillsTag(t *testing.T) {
 	s := makeSkill("dev", "Dev", "Dev desc", "Conteúdo de dev.", true, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s}}}
-	result := b.BuildSkillsSection(nil, false, nil)
+	result := buildSystemPromptForSkills(b, nil, false, nil)
 	if !strings.Contains(result, "<base_skills>") {
 		t.Error("Expected <base_skills> tag")
 	}
@@ -415,7 +425,7 @@ func TestBuildSkillsSection_ExplicitList_FirstBaseRestOnDemand(t *testing.T) {
 	s1 := makeSkill("alpha", "Alpha", "A", "Conteúdo A.", true, true)
 	s2 := makeSkill("beta", "Beta", "B", "Conteúdo B.", true, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s1, s2}}}
-	result := b.BuildSkillsSection([]string{"beta", "alpha"}, false, nil)
+	result := buildSystemPromptForSkills(b, []string{"beta", "alpha"}, false, nil)
 	if !strings.Contains(result, "<base_skills>") || !strings.Contains(result, "Conteúdo B.") {
 		t.Fatalf("first enabled skill should be base: %q", result)
 	}
@@ -432,7 +442,7 @@ func TestBuildSkillsSection_AvailableSkills_ContainsTag(t *testing.T) {
 	avail := makeSkill("avail", "Avail", "Avail desc", "Avail content.", false, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{
 		allSkillsFull: []skills.Skill{auto, avail}}}
-	result := b.BuildSkillsSection(nil, false, nil)
+	result := buildSystemPromptForSkills(b, nil, false, nil)
 	if !strings.Contains(result, "<available_skills>") {
 		t.Error("Expected <available_skills> tag")
 	}
@@ -446,7 +456,7 @@ func TestBuildSkillsSection_DisableOnDemand_NoAvailableSection(t *testing.T) {
 	avail := makeSkill("avail", "Avail", "Avail desc", "Avail content.", false, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{
 		allSkillsFull: []skills.Skill{auto, avail}}}
-	result := b.BuildSkillsSection(nil, true, nil)
+	result := buildSystemPromptForSkills(b, nil, true, nil)
 	if strings.Contains(result, "<available_skills>") {
 		t.Error("Should not include <available_skills> when disableOnDemand=true")
 	}
@@ -463,7 +473,7 @@ func TestBuildSkillsSection_ToolCallingDisabledSkipsToolDependentSkills(t *testi
 		allSkillsFull: []skills.Skill{toolSkill, filesystemSkill, contextOnlySkill, available},
 	}}
 
-	result := b.BuildSkillsSection(nil, false, chat.TemplateData{ToolCallingEnabled: false})
+	result := buildSystemPromptForSkills(b, nil, false, chat.TemplateData{ToolCallingEnabled: false})
 	if strings.Contains(result, "Tool skill content.") {
 		t.Fatalf("tool-dependent skill should be omitted when tool calling is disabled: %q", result)
 	}
@@ -478,13 +488,30 @@ func TestBuildSkillsSection_ToolCallingDisabledSkipsToolDependentSkills(t *testi
 	}
 }
 
+func TestBuildSkillsSection_ToolCallingDisabledDoesNotPromoteExplicitOnDemand(t *testing.T) {
+	base := makeSkill("base", "Base", "Uses tools", "Base content.", false, true)
+	base.Tools = &skills.ToolPermissions{Allowed: []string{"read_file"}}
+	onDemand := makeSkill("later", "Later", "No tools", "Later content.", false, true)
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		allSkillsFull: []skills.Skill{base, onDemand},
+	}}
+
+	result := buildSystemPromptForSkills(b, []string{"base", "later"}, false, chat.TemplateData{ToolCallingEnabled: false})
+	if strings.Contains(result, "Base content.") {
+		t.Fatalf("tool-dependent explicit base should be omitted when tool calling is disabled: %q", result)
+	}
+	if strings.Contains(result, "Later content.") {
+		t.Fatalf("explicit on-demand skill must not be promoted to base: %q", result)
+	}
+}
+
 func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 	s := makeSkill("dev", "Dev", "Dev desc", "Dev content.", true, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{
 		allSkillsFull: []skills.Skill{s},
 		skillFiles:    map[string][]string{"dev": {"/skills/dev/guide.md"}},
 	}}
-	result := b.BuildSkillsSection(nil, false, nil)
+	result := buildSystemPromptForSkills(b, nil, false, nil)
 	if !strings.Contains(result, "Supporting files") {
 		t.Error("Expected supplementary files section")
 	}
@@ -631,7 +658,7 @@ func TestBuildTemplateData_DoesNotReuseActiveTabStateWhenSurfaceTypeDiffers(t *t
 	}
 }
 
-func TestBuild_SkillWithTemplateSyntaxIsNotLoaded(t *testing.T) {
+func TestBuild_SkillWithTemplateExamplesIsLoadedAsPlainMarkdown(t *testing.T) {
 	taskListSkill := makeSkill("tasklist-manager", "Task List Manager", "", `{{- if .HasTaskLists }}
 Task lists:
 {{- range .TaskLists }}
@@ -653,8 +680,8 @@ Tools available.
 	if !ok {
 		t.Fatalf("expected system content string, got %T", result[0].Content)
 	}
-	if strings.Contains(sys, "Task List Manager") || strings.Contains(sys, "{{") {
-		t.Fatalf("skill with template syntax must not be loaded by new runtime: %q", sys)
+	if !strings.Contains(sys, "Task List Manager") || !strings.Contains(sys, "{{- if .HasTaskLists }}") {
+		t.Fatalf("skill content with template examples should be preserved as plain markdown: %q", sys)
 	}
 }
 

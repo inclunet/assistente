@@ -314,11 +314,6 @@ func splitRenderedContextBlocks(blocks []contextprovider.Block) ([]string, []str
 	return stable, dynamic
 }
 
-// BuildSkillsSection constrói as seções <base_skills> e <available_skills>.
-func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand bool, tplData any) string {
-	return b.buildSkillsSection(enabledSkills, false, disableOnDemand, tplData)
-}
-
 func (b *Builder) buildSkillsSection(enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any) string {
 	if b.Skills == nil {
 		return ""
@@ -334,7 +329,15 @@ func (b *Builder) buildSkillsSection(enabledSkills []string, disableSkills bool,
 	availableSkills := policy.OnDemand
 
 	if templateToolCallingDisabled(tplData) {
-		baseSkills = filterSkillsWithoutToolDependencies(baseSkills)
+		if enabledSkills == nil {
+			compatible := filterSkillsWithoutToolDependencies(append(append([]skills.Skill{}, baseSkills...), availableSkills...))
+			baseSkills = nil
+			if len(compatible) > 0 {
+				baseSkills = compatible[:1]
+			}
+		} else {
+			baseSkills = filterSkillsWithoutToolDependencies(baseSkills)
+		}
 		availableSkills = nil
 	}
 	if len(baseSkills) == 0 && len(availableSkills) == 0 {
@@ -575,7 +578,7 @@ func (b *Builder) hasModelOnDemandSkill(activeProfile *profiles.Profile) bool {
 	}
 	policy := skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand)
 	for _, s := range policy.OnDemand {
-		if s.IsModelInvocable() && !skills.HasTemplateSyntax(s.Content) {
+		if s.IsModelInvocable() {
 			return true
 		}
 	}

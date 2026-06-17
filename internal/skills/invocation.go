@@ -73,7 +73,7 @@ func ParseSlashCommand(content string) (slug string, args string, ok bool) {
 //
 // Retorna (resultado, encontrado, erro).
 // found=false significa que o conteúdo não é um slash command ou o skill não existe.
-func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID string, policy ...SelectionPolicy) (*InvocationResult, bool, error) {
+func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID string, policy SelectionPolicy) (*InvocationResult, bool, error) {
 	slug, args, ok := ParseSlashCommand(userContent)
 	if !ok || mgr == nil {
 		return nil, false, nil
@@ -88,15 +88,9 @@ func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID strin
 	if !skill.IsUserInvocable() {
 		return nil, false, nil
 	}
-	mode := SkillModeOnDemand
-	if len(policy) > 0 {
-		mode = policy[0].ModeFor(slug)
-		if mode == SkillModeDisabled {
-			return nil, true, fmt.Errorf("skill /%s está desabilitada no perfil ativo", slug)
-		}
-	}
-	if HasTemplateSyntax(skill.Content) {
-		return nil, true, fmt.Errorf("skill /%s usa templates e precisa ser migrada antes de ser carregada", slug)
+	mode := policy.ModeFor(slug)
+	if mode == SkillModeDisabled {
+		return nil, true, fmt.Errorf("skill /%s está desabilitada no perfil ativo", slug)
 	}
 
 	log.Printf("[Skills] Slash command detectado: /%s args=%q", slug, args)

@@ -17,7 +17,8 @@ type SelectionPolicy struct {
 }
 
 func (p SelectionPolicy) IsEnabled(slug string) bool {
-	return p.ModeFor(slug) == SkillModeBase || p.ModeFor(slug) == SkillModeOnDemand
+	mode := p.ModeFor(slug)
+	return mode == SkillModeBase || mode == SkillModeOnDemand
 }
 
 func (p SelectionPolicy) ModeFor(slug string) SkillMode {
@@ -42,15 +43,14 @@ func (p SelectionPolicy) InvocableUserSkills() []SkillInfo {
 	enabled := append(append([]Skill{}, p.Base...), p.OnDemand...)
 	infos := make([]SkillInfo, 0, len(enabled))
 	for _, s := range enabled {
-		if !s.IsUserInvocable() || HasTemplateSyntax(s.Content) {
+		if !s.IsUserInvocable() {
 			continue
 		}
 		infos = append(infos, SkillInfo{
-			SkillMetadata:       s.SkillMetadata,
-			Slug:                s.Slug,
-			Source:              s.Source,
-			AutoLoad:            s.IsAutoLoad(),
-			TemplateUnsupported: false,
+			SkillMetadata: s.SkillMetadata,
+			Slug:          s.Slug,
+			Source:        s.Source,
+			AutoLoad:      s.IsAutoLoad(),
 		})
 	}
 	return infos
@@ -76,10 +76,6 @@ func ResolveSelectionPolicy(allSkills []Skill, enabledSkills []string, disableSk
 
 	policy := SelectionPolicy{}
 	for _, s := range ordered {
-		if HasTemplateSyntax(s.Content) {
-			policy.Disabled = append(policy.Disabled, s)
-			continue
-		}
 		if len(policy.Base) == 0 {
 			policy.Base = append(policy.Base, s)
 			continue
@@ -103,12 +99,16 @@ func ResolveSelectionPolicy(allSkills []Skill, enabledSkills []string, disableSk
 func resolveLegacyAutoLoadPolicy(allSkills []Skill, disableOnDemand bool) SelectionPolicy {
 	policy := SelectionPolicy{}
 	for _, s := range allSkills {
-		if HasTemplateSyntax(s.Content) {
-			policy.Disabled = append(policy.Disabled, s)
-			continue
-		}
 		if s.IsAutoLoad() {
-			policy.Base = append(policy.Base, s)
+			if len(policy.Base) == 0 {
+				policy.Base = append(policy.Base, s)
+				continue
+			}
+			if disableOnDemand {
+				policy.Disabled = append(policy.Disabled, s)
+				continue
+			}
+			policy.OnDemand = append(policy.OnDemand, s)
 			continue
 		}
 		if disableOnDemand {
@@ -122,8 +122,4 @@ func resolveLegacyAutoLoadPolicy(allSkills []Skill, disableOnDemand bool) Select
 
 func skillMatches(skill Skill, name string) bool {
 	return skill.Slug == name || skill.Name == name
-}
-
-func HasTemplateSyntax(content string) bool {
-	return strings.Contains(content, "{{") && strings.Contains(content, "}}")
 }

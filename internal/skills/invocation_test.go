@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -106,15 +107,20 @@ func invocableSkill(content string) *Skill {
 	}
 }
 
+func invocablePolicy(s *Skill) SelectionPolicy {
+	s.Slug = "test-skill"
+	return SelectionPolicy{OnDemand: []Skill{*s}}
+}
+
 func TestInvoke_NotSlashCommand(t *testing.T) {
-	_, found, err := Invoke("olá mundo", &stubInvokerManager{}, nil, "1")
+	_, found, err := Invoke("olá mundo", &stubInvokerManager{}, nil, "1", SelectionPolicy{})
 	if err != nil || found {
 		t.Errorf("non-slash content: found=%v err=%v", found, err)
 	}
 }
 
 func TestInvoke_NilManager(t *testing.T) {
-	_, found, err := Invoke("/test-skill", nil, nil, "1")
+	_, found, err := Invoke("/test-skill", nil, nil, "1", SelectionPolicy{})
 	if err != nil || found {
 		t.Errorf("nil manager: found=%v err=%v", found, err)
 	}
@@ -122,15 +128,16 @@ func TestInvoke_NilManager(t *testing.T) {
 
 func TestInvoke_SkillNotFound(t *testing.T) {
 	mgr := &stubInvokerManager{err: &skillNotFoundError{}}
-	_, found, err := Invoke("/missing", mgr, nil, "1")
+	_, found, err := Invoke("/missing", mgr, nil, "1", SelectionPolicy{})
 	if err != nil || found {
 		t.Errorf("missing skill: found=%v err=%v", found, err)
 	}
 }
 
 func TestInvoke_ReturnsContent(t *testing.T) {
-	mgr := &stubInvokerManager{skill: invocableSkill("conteúdo do skill")}
-	result, found, err := Invoke("/test-skill", mgr, nil, "42")
+	s := invocableSkill("conteúdo do skill")
+	mgr := &stubInvokerManager{skill: s}
+	result, found, err := Invoke("/test-skill", mgr, nil, "42", invocablePolicy(s))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +164,7 @@ func TestInvoke_WithFilesystem(t *testing.T) {
 		Deny:  []string{"/etc"},
 	}
 	mgr := &stubInvokerManager{skill: s}
-	result, found, err := Invoke("/test-skill", mgr, nil, "1")
+	result, found, err := Invoke("/test-skill", mgr, nil, "1", invocablePolicy(s))
 	if err != nil || !found {
 		t.Fatalf("found=%v err=%v", found, err)
 	}
@@ -174,7 +181,7 @@ func TestInvoke_WithSupplementaryFiles(t *testing.T) {
 		skill: invocableSkill("c"),
 		files: []string{"/path/to/extra.md"},
 	}
-	result, _, _ := Invoke("/test-skill", mgr, nil, "1")
+	result, _, _ := Invoke("/test-skill", mgr, nil, "1", invocablePolicy(mgr.skill))
 	if result == nil {
 		t.Fatal("result must not be nil")
 	}
@@ -216,16 +223,16 @@ func TestInvoke_WithPolicyAllowsOnDemandSkill(t *testing.T) {
 	}
 }
 
-func TestInvoke_RejectsTemplateSkill(t *testing.T) {
+func TestInvoke_AllowsTemplateExamplesAsPlainContent(t *testing.T) {
 	s := invocableSkill("{{ .ToolCallingEnabled }}")
 	s.Slug = "test-skill"
 	mgr := &stubInvokerManager{skill: s}
-	_, found, err := Invoke("/test-skill", mgr, nil, "1", SelectionPolicy{OnDemand: []Skill{*s}})
-	if !found {
-		t.Fatal("slash command should be found")
+	result, found, err := Invoke("/test-skill", mgr, nil, "1", SelectionPolicy{OnDemand: []Skill{*s}})
+	if err != nil || !found {
+		t.Fatalf("found=%v err=%v", found, err)
 	}
-	if err == nil {
-		t.Fatal("templated skill should be rejected")
+	if result == nil || !strings.Contains(result.Content, "{{ .ToolCallingEnabled }}") {
+		t.Fatalf("expected template example to be preserved as plain content, got %#v", result)
 	}
 }
 

@@ -112,6 +112,7 @@ func (m staticSkillRuntimeManager) GetAllSkillsFull() ([]skills.Skill, error) {
 
 type capturingPromptBuilder struct {
 	slashSkillContent string
+	contextBlocks     []contextprovider.Block
 }
 
 func (b *capturingPromptBuilder) Build(messages []llm.Message, _ []string, _ bool, _ any, slashSkillContent string, _ string, _ ...string) []llm.Message {
@@ -119,8 +120,9 @@ func (b *capturingPromptBuilder) Build(messages []llm.Message, _ []string, _ boo
 	return messages
 }
 
-func (b *capturingPromptBuilder) BuildWithContextBlocks(messages []llm.Message, _ []string, _ bool, _ bool, _ any, slashSkillContent string, _ string, _ []contextprovider.Block) []llm.Message {
+func (b *capturingPromptBuilder) BuildWithContextBlocks(messages []llm.Message, _ []string, _ bool, _ bool, _ any, slashSkillContent string, _ string, blocks []contextprovider.Block) []llm.Message {
 	b.slashSkillContent = slashSkillContent
+	b.contextBlocks = append([]contextprovider.Block{}, blocks...)
 	return messages
 }
 
@@ -607,12 +609,58 @@ func TestPrepareMessagesPreservesBaseSkillSlashArguments(t *testing.T) {
 	if result.Err != nil {
 		t.Fatalf("PrepareMessages returned error: %v", result.Err)
 	}
-	if !strings.Contains(promptBuilder.slashSkillContent, "<invoked_skill_arguments>") ||
-		!strings.Contains(promptBuilder.slashSkillContent, "revisar login") {
-		t.Fatalf("base skill arguments should be appended without duplicating full skill: %q", promptBuilder.slashSkillContent)
+	if !strings.Contains(promptBuilder.slashSkillContent, "<invoked_skill>") ||
+		!strings.Contains(promptBuilder.slashSkillContent, "base instructions with revisar login") {
+		t.Fatalf("base skill should be appended with processed arguments: %q", promptBuilder.slashSkillContent)
 	}
-	if strings.Contains(promptBuilder.slashSkillContent, "base instructions") {
-		t.Fatalf("base skill body should not be duplicated: %q", promptBuilder.slashSkillContent)
+	if strings.Contains(promptBuilder.slashSkillContent, "$ARGUMENTS") {
+		t.Fatalf("base skill placeholders should be substituted: %q", promptBuilder.slashSkillContent)
+	}
+}
+
+func TestPrepareMessagesInjectsLinkedTaskListsAsDynamicContext(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder: promptBuilder,
+		LinkedTaskLists: func(_ context.Context, conversationID string) []TemplateTaskList {
+			if conversationID != "conv-1" {
+				t.Fatalf("conversationID = %q, want conv-1", conversationID)
+			}
+			return []TemplateTaskList{{
+				ID:          "list-1",
+				Title:       "Sprint",
+				Description: "Current sprint",
+				Tasks: []TemplateTask{{
+					ID:         "task-1",
+					Title:      "Fix login",
+					Status:     "Doing",
+					StatusIcon: ">",
+				}},
+			}}
+		},
+	})
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "status"}},
+		UserContent:    "status",
+		ConversationID: "conv-1",
+		ActiveProfile:  &profiles.Profile{},
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.contextBlocks) != 1 {
+		t.Fatalf("expected one tasklist context block, got %#v", promptBuilder.contextBlocks)
+	}
+	block := promptBuilder.contextBlocks[0]
+	if block.Provider != "tasklist" || block.Name != "linked_task_lists" {
+		t.Fatalf("unexpected context block: %+v", block)
+	}
+	if !strings.Contains(block.Content, "<linked_task_lists>") ||
+		!strings.Contains(block.Content, "Sprint (ID: list-1)") ||
+		!strings.Contains(block.Content, "| > Doing | Fix login | task-1 |") {
+		t.Fatalf("linked task list context missing expected content: %q", block.Content)
 	}
 }
 

@@ -5,6 +5,7 @@ import type {
   ChatSurfaceSendContext,
   ChatSurfaceSendHandler,
 } from './ChatSurfaceController';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 
 export type ChatPanelSendContext = ChatSurfaceSendContext;
 export type ChatPanelSendHandler = ChatSurfaceSendHandler;
@@ -35,9 +36,18 @@ export function ChatPanel({
   showShortcutsHelp,
   profileSlug,
 }: ChatPanelProps) {
+  const workspaceTabs = useWorkspaceStore((s) => s.workspace?.tabs);
+  const workspaceProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const variant = surface.surfaceType === 'embedded' || surface.surfaceType === 'modal'
     ? 'embedded'
     : 'page';
+  const surfaceTab = surface.tabId
+    ? workspaceTabs?.find((tab) => tab.id === surface.tabId)
+    : undefined;
+  const effectiveProfileSlug = profileSlug
+    || (surfaceTab?.profileOverride?.slug as string | undefined)
+    || workspaceProfile
+    || undefined;
 
   return (
     <ChatSessionView
@@ -49,7 +59,7 @@ export function ChatPanel({
       })}
       onRequestConversationChange={onRequestConversationChange}
       showShortcutsHelp={showShortcutsHelp}
-      profileSlug={profileSlug}
+      profileSlug={effectiveProfileSlug}
     />
   );
 }

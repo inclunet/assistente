@@ -432,7 +432,7 @@ func (s *Service) RunAgenticLoop(
 			}
 		}
 		s.emitToolStarts(conversationID, turnID, result.ToolCalls, surfaceOrigin)
-		execBatch := s.executeToolCallsWithRuntimeControls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID})
+		execBatch := s.executeToolCallsWithRuntimeControls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID}, conversationID, turnID, surfaceOrigin)
 		ctx = execBatch.Context
 		execResults := execBatch.Executions
 
@@ -1251,11 +1251,12 @@ func expandToolDefsFromCatalogResults(
 	return appendUniqueToolDefs(existing, resolveToolDefs(selectedToolsFromCatalog(results))...)
 }
 
-func applyLoadedSkillExecutionContext(ctx context.Context, results []tools.ToolExecutionResult) context.Context {
+func applyLoadedSkillExecutionContext(ctx context.Context, results []tools.ToolExecutionResult, emitter events.Emitter, conversationID, turnID string, surfaceOrigin *ports.ChatSurfaceOrigin) context.Context {
 	for _, result := range results {
 		if result.ToolName != tools.LoadSkillName || result.Result.IsError || result.Result.Metadata == nil {
 			continue
 		}
+		emitLoadedSkillEvent(emitter, result.Result.Metadata, conversationID, turnID, surfaceOrigin)
 		read := metadataStringSlice(result.Result.Metadata, "filesystem_read")
 		write := metadataStringSlice(result.Result.Metadata, "filesystem_write")
 		deny := metadataStringSlice(result.Result.Metadata, "filesystem_deny")
@@ -1276,6 +1277,27 @@ func applyLoadedSkillExecutionContext(ctx context.Context, results []tools.ToolE
 		ctx = tools.WithExecutionContext(ctx, ec)
 	}
 	return ctx
+}
+
+func emitLoadedSkillEvent(emitter events.Emitter, metadata map[string]any, conversationID, turnID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
+	if emitter == nil {
+		return
+	}
+	slug, _ := metadata["skill_slug"].(string)
+	name, _ := metadata["skill_name"].(string)
+	slug = strings.TrimSpace(slug)
+	name = strings.TrimSpace(name)
+	if slug == "" {
+		return
+	}
+	emitter.Emit("chat:skill_loaded", ports.SkillLoadedEvent{
+		ConversationID: conversationID,
+		TurnID:         turnID,
+		Slug:           slug,
+		DisplayName:    name,
+		Mode:           "on_demand",
+		SurfaceOrigin:  surfaceOrigin,
+	})
 }
 
 func mergeFilesystemScope(existing, next *tools.FilesystemScope) *tools.FilesystemScope {
@@ -1340,7 +1362,10 @@ type toolExecutionBatch struct {
 	Context           context.Context
 }
 
-func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin) toolExecutionBatch {
+func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin, conversationID, turnID string, surfaceOrigin *ports.ChatSurfaceOrigin) toolExecutionBatch {
+	// Runtime control tools can change the execution context for the rest of the
+	// batch. Run load_skill first even when the model emitted it after regular
+	// tools, then place results back in the original order for persistence/history.
 	loadSkillCalls := make([]tools.ToolCall, 0)
 	loadSkillIndexes := make([]int, 0)
 	regularCalls := make([]tools.ToolCall, 0, len(calls))
@@ -1367,7 +1392,7 @@ func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls
 		executions[loadSkillIndexes[i]] = result
 		persisted[result.CallID] = loadBatch.PersistedByCallID[result.CallID]
 	}
-	ctx = applyLoadedSkillExecutionContext(ctx, loadBatch.Executions)
+	ctx = applyLoadedSkillExecutionContext(ctx, loadBatch.Executions, s.emitter, conversationID, turnID, surfaceOrigin)
 
 	if len(regularCalls) > 0 {
 		regularBatch := s.executeToolCalls(ctx, regularCalls, origin)

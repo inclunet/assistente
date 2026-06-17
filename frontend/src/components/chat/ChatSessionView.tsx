@@ -126,7 +126,6 @@ function ChatSessionViewContent({
 
   const [showContinueEnabled, setShowContinueEnabled] = useState(false);
   const [activeProfileSlug, setActiveProfileSlug] = useState('');
-
   const {
     session,
     conversation,

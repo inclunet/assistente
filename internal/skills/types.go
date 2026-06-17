@@ -219,10 +219,9 @@ type Skill struct {
 // SkillInfo é um resumo leve de um skill para listagem (sem conteúdo).
 type SkillInfo struct {
 	SkillMetadata
-	Slug                string `json:"slug"`
-	Source              string `json:"source"`
-	AutoLoad            bool   `json:"autoLoad,omitempty"`
-	TemplateUnsupported bool   `json:"templateUnsupported,omitempty"`
+	Slug     string `json:"slug"`
+	Source   string `json:"source"`
+	AutoLoad bool   `json:"autoLoad,omitempty"`
 }
 
 // ResolveToolsRaw converte os campos de tools em ToolPermissions.

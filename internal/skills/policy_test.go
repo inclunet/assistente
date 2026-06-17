@@ -56,6 +56,24 @@ func TestResolveSelectionPolicyLegacyAutoLoadMapsToBase(t *testing.T) {
 	}
 }
 
+func TestResolveSelectionPolicyLegacyMultipleAutoLoadOnlyFirstBase(t *testing.T) {
+	all := []Skill{
+		policySkill("first", "first body", true),
+		policySkill("second", "second body", true),
+		policySkill("manual", "manual body", false),
+	}
+	policy := ResolveSelectionPolicy(all, nil, false, false)
+	if got := policy.ModeFor("first"); got != SkillModeBase {
+		t.Fatalf("first legacy auto_load skill should be base, got %s", got)
+	}
+	if got := policy.ModeFor("second"); got != SkillModeOnDemand {
+		t.Fatalf("second legacy auto_load skill should be on_demand, got %s", got)
+	}
+	if got := policy.ModeFor("manual"); got != SkillModeOnDemand {
+		t.Fatalf("manual legacy skill should be on_demand, got %s", got)
+	}
+}
+
 func TestResolveSelectionPolicyEmptyEnabledSkillsDisablesAll(t *testing.T) {
 	all := []Skill{
 		policySkill("coding", "coding body", true),
@@ -85,16 +103,16 @@ func TestSelectionPolicyInvocableUserSkillsIncludesBaseAndOnDemand(t *testing.T)
 	}
 }
 
-func TestResolveSelectionPolicyTemplateSkillDisabled(t *testing.T) {
+func TestResolveSelectionPolicyKeepsSkillsWithTemplateExamples(t *testing.T) {
 	all := []Skill{
 		policySkill("templated", "{{ .ToolCallingEnabled }}", false),
 		policySkill("plain", "plain body", false),
 	}
 	policy := ResolveSelectionPolicy(all, []string{"templated", "plain"}, false, false)
-	if got := policy.ModeFor("templated"); got != SkillModeDisabled {
-		t.Fatalf("templated skill should be disabled, got %s", got)
+	if got := policy.ModeFor("templated"); got != SkillModeBase {
+		t.Fatalf("skill content with template examples should remain loadable, got %s", got)
 	}
-	if got := policy.ModeFor("plain"); got != SkillModeBase {
-		t.Fatalf("next loadable skill should become base, got %s", got)
+	if got := policy.ModeFor("plain"); got != SkillModeOnDemand {
+		t.Fatalf("next enabled skill should remain on-demand, got %s", got)
 	}
 }
