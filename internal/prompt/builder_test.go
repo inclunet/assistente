@@ -142,26 +142,6 @@ func TestBuildWithContextBlocksInjectsStableContextBeforeSummary(t *testing.T) {
 	}
 }
 
-func TestBuildSkillsSection_FiltersContextProviderSkills(t *testing.T) {
-	b := &prompt.Builder{
-		Skills: &mockSkillReader{
-			autoSkills: []skills.Skill{
-				makeSkill("memory", "memory", "", "memory content", true, true),
-				makeSkill("workspace", "workspace", "", "workspace content", true, true),
-				makeSkill("coding", "coding", "", "coding content", true, true),
-			},
-		},
-	}
-	result := b.Build([]llm.Message{{Role: "user", Content: "oi"}}, nil, false, nil, "", "")
-	sys := result[0].Content.(string)
-	if strings.Contains(sys, "memory content") || strings.Contains(sys, "workspace content") {
-		t.Fatalf("context provider skills should not be injected: %s", sys)
-	}
-	if !strings.Contains(sys, "coding content") {
-		t.Fatalf("regular skill should remain injected: %s", sys)
-	}
-}
-
 func TestBuild_ExistingSystemMessage_Combined(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "system", Content: "Existente."}, {Role: "user", Content: "oi"}}

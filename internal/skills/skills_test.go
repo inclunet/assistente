@@ -9,9 +9,8 @@ import (
 	"assistente/internal/configdir"
 )
 
-func TestParseMemorySkill(t *testing.T) {
-	// Lê o skill memory do diretório do projeto (exe dir simulado)
-	data, err := os.ReadFile("../../internal/app/builtin/skills/memory/SKILL.md")
+func TestParseTaskListSkill(t *testing.T) {
+	data, err := os.ReadFile("../../internal/app/builtin/skills/tasklist-manager/SKILL.md")
 	if err != nil {
 		t.Fatalf("Falha ao ler SKILL.md: %v", err)
 	}
@@ -22,19 +21,19 @@ func TestParseMemorySkill(t *testing.T) {
 	}
 
 	// === Required Fields ===
-	if meta.Name != "memory-manager" {
-		t.Errorf("Name esperado 'memory-manager', got %q", meta.Name)
+	if meta.Name != "tasklist-manager" {
+		t.Errorf("Name esperado 'tasklist-manager', got %q", meta.Name)
 	}
-	if meta.Version != "2.1.0" {
-		t.Errorf("Version esperado '2.1.0', got %q", meta.Version)
+	if meta.Version != "1.5.0" {
+		t.Errorf("Version esperado '1.5.0', got %q", meta.Version)
 	}
 	if meta.Description == "" {
 		t.Error("Description não deve ser vazio")
 	}
 
 	// === Identity Fields ===
-	if meta.DisplayName != "Memory Manager" {
-		t.Errorf("DisplayName esperado 'Memory Manager', got %q", meta.DisplayName)
+	if meta.DisplayName != "Task List Manager" {
+		t.Errorf("DisplayName esperado 'Task List Manager', got %q", meta.DisplayName)
 	}
 	if meta.Author != "Assistente" {
 		t.Errorf("Author esperado 'Assistente', got %q", meta.Author)
@@ -44,8 +43,8 @@ func TestParseMemorySkill(t *testing.T) {
 	if meta.Type != "agent" {
 		t.Errorf("Type esperado 'agent', got %q", meta.Type)
 	}
-	if meta.Category != "memory" {
-		t.Errorf("Category esperado 'memory', got %q", meta.Category)
+	if meta.Category != "productivity" {
+		t.Errorf("Category esperado 'productivity', got %q", meta.Category)
 	}
 	if meta.Difficulty != "beginner" {
 		t.Errorf("Difficulty esperado 'beginner', got %q", meta.Difficulty)
@@ -59,31 +58,6 @@ func TestParseMemorySkill(t *testing.T) {
 	// === Platforms ===
 	if len(meta.Platforms) != 3 {
 		t.Errorf("Platforms esperado 3, got %d", len(meta.Platforms))
-	}
-
-	// === Tools (structured format) ===
-	if meta.Tools == nil {
-		t.Fatal("Tools não deve ser nil")
-	}
-	if len(meta.Tools.Allowed) != 4 {
-		t.Errorf("Tools.Allowed esperado 4, got %d: %v", len(meta.Tools.Allowed), meta.Tools.Allowed)
-	}
-	expectedTools := []string{"read_file", "write_file", "edit_file", "list_directory"}
-	for i, expected := range expectedTools {
-		if i < len(meta.Tools.Allowed) && meta.Tools.Allowed[i] != expected {
-			t.Errorf("Tools.Allowed[%d] esperado %q, got %q", i, expected, meta.Tools.Allowed[i])
-		}
-	}
-
-	// === Filesystem ===
-	if meta.Filesystem == nil {
-		t.Fatal("Filesystem não deve ser nil")
-	}
-	if len(meta.Filesystem.Read) != 1 {
-		t.Errorf("Filesystem.Read esperado 1 entry, got %d", len(meta.Filesystem.Read))
-	}
-	if len(meta.Filesystem.Write) != 1 {
-		t.Errorf("Filesystem.Write esperado 1 entry, got %d", len(meta.Filesystem.Write))
 	}
 
 	// === Behavior ===
@@ -107,15 +81,12 @@ func TestParseMemorySkill(t *testing.T) {
 		t.Error("Content (corpo Markdown) não deve ser vazio")
 	}
 
-	// Verifica que o content tem as seções chave do sistema hierárquico
+	// Verifica que o content tem seções chave da skill de tasklists.
 	requiredSections := []string{
-		"## memory.md",
-		"## daily/",
-		"## Lifecycle",
-		"Weekly Rollup",
-		"Monthly Rollup",
-		"Yearly Rollup",
-		"## Conversation Start Checklist",
+		"# Task Lists",
+		"## Linked Task Lists",
+		"## Guidelines",
+		"## Linking tasks",
 	}
 	for _, section := range requiredSections {
 		if !strings.Contains(content, section) {
@@ -138,8 +109,8 @@ func TestSlugify(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"memory-manager", "memory-manager"},
-		{"Memory Manager", "memory-manager"},
+		{"tasklist-manager", "tasklist-manager"},
+		{"Tasklist Manager", "tasklist-manager"},
 		{"Código Review", "codigo-review"},
 		{"test--skill", "test-skill"},
 		{"  spaces  ", "spaces"},

@@ -524,15 +524,13 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	var invokedScope *tools.FilesystemScope
 
 	if inv, found, _ := skills.Invoke(req.UserContent, i.skillMgr, skillTplData, req.ConversationID); found {
-		if !isContextProviderSkillSlug(inv.SkillSlug) {
-			slashSkillContent = inv.Content
-			invokedSkillSlug = inv.SkillSlug
-			if inv.Filesystem != nil {
-				invokedScope = &tools.FilesystemScope{
-					Read:  append([]string{}, inv.Filesystem.Read...),
-					Write: append([]string{}, inv.Filesystem.Write...),
-					Deny:  append([]string{}, inv.Filesystem.Deny...),
-				}
+		slashSkillContent = inv.Content
+		invokedSkillSlug = inv.SkillSlug
+		if inv.Filesystem != nil {
+			invokedScope = &tools.FilesystemScope{
+				Read:  append([]string{}, inv.Filesystem.Read...),
+				Write: append([]string{}, inv.Filesystem.Write...),
+				Deny:  append([]string{}, inv.Filesystem.Deny...),
 			}
 		}
 	}
@@ -565,15 +563,6 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		Messages:         messages,
 		InvokedSkillSlug: invokedSkillSlug,
 		InvokedScope:     invokedScope,
-	}
-}
-
-func isContextProviderSkillSlug(slug string) bool {
-	switch strings.TrimSpace(slug) {
-	case "memory", "memory-manager", "workspace":
-		return true
-	default:
-		return false
 	}
 }
 

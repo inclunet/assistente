@@ -357,9 +357,6 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 		autoSkills = filterSkillsWithoutToolDependencies(autoSkills)
 		availableSkills = nil
 	}
-	autoSkills = filterOutContextProviderSkills(autoSkills)
-	availableSkills = filterOutContextProviderSkills(availableSkills)
-
 	if len(autoSkills) == 0 && len(availableSkills) == 0 {
 		return ""
 	}
@@ -451,19 +448,6 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 	}
 
 	return sb.String()
-}
-
-func filterOutContextProviderSkills(in []skills.Skill) []skills.Skill {
-	out := make([]skills.Skill, 0, len(in))
-	for _, skill := range in {
-		slug := strings.TrimSpace(skill.Slug)
-		category := strings.TrimSpace(skill.Category)
-		if slug == "memory" || slug == "memory-manager" || category == "memory" || slug == "workspace" || category == "workspace" {
-			continue
-		}
-		out = append(out, skill)
-	}
-	return out
 }
 
 // joinPrefix retorna o separador adequado para anexar uma nova seção: vazio quando
