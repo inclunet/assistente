@@ -8,6 +8,7 @@ import {context} from '../models';
 import {app} from '../models';
 import {allowlist} from '../models';
 import {controllers} from '../models';
+import {memory} from '../models';
 import {profiles} from '../models';
 import {terminal} from '../models';
 import {mcp} from '../models';
@@ -37,6 +38,8 @@ export function AddWorkspaceTab(arg1:workspace.Tab):Promise<workspace.Workspace>
 export function AnalyzeImportData(arg1:string,arg2:string):Promise<portability.ImportAnalysis>;
 
 export function ApplyUpdate():Promise<void>;
+
+export function ArchiveMemoryRecord(arg1:string):Promise<database.MemoryRecord>;
 
 export function AssignConversationToChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
 
@@ -84,6 +87,8 @@ export function CreateDefaultLLMProvider(arg1:string,arg2:string):Promise<void>;
 
 export function CreateLLMProvider(arg1:controllers.CreateLLMProviderRequest):Promise<Record<string, any>>;
 
+export function CreateMemoryRecord(arg1:memory.RecordInput):Promise<database.MemoryRecord>;
+
 export function CreateMessage(arg1:string,arg2:string,arg3:string):Promise<database.ChatMessage>;
 
 export function CreateProfile(arg1:profiles.Profile):Promise<string>;
@@ -113,6 +118,8 @@ export function DeleteLLMProvider(arg1:context.Context,arg2:string):Promise<void
 export function DeleteMCPServer(arg1:string):Promise<void>;
 
 export function DeleteMCPServerAuth(arg1:string):Promise<void>;
+
+export function DeleteMemoryRecord(arg1:string):Promise<void>;
 
 export function DeleteMessage(arg1:string):Promise<void>;
 
@@ -278,6 +285,10 @@ export function GetMCPServerTools(arg1:string):Promise<Array<mcp.MCPToolInfo>>;
 
 export function GetMCPWorkspaceRoots():Promise<Array<mcp.Root>>;
 
+export function GetMemoryPolicySummary():Promise<memory.PolicySummary>;
+
+export function GetMemoryRecord(arg1:string):Promise<database.MemoryRecord>;
+
 export function GetMessageAudio(arg1:string):Promise<speech.AudioResult>;
 
 export function GetMessageChildren(arg1:string):Promise<Array<chat.MessageNode>>;
@@ -390,6 +401,8 @@ export function ListKnownEvents():Promise<Array<string>>;
 
 export function ListMCPServers():Promise<Array<mcp.ServerInfo>>;
 
+export function ListMemoryRecords(arg1:memory.Filter):Promise<memory.ListResult>;
+
 export function ListModelsRaw(arg1:controllers.TestLLMProviderRequest):Promise<Array<string>>;
 
 export function ListTerminalSessions():Promise<Array<terminal.SessionInfo>>;
@@ -467,6 +480,8 @@ export function SaveSettings(arg1:controllers.SettingsInput):Promise<void>;
 export function SaveWorkspace():Promise<void>;
 
 export function SearchConversationHistory(arg1:string,arg2:number):Promise<Array<database.MessageSearchResult>>;
+
+export function SearchMemoryRecords(arg1:string,arg2:memory.Filter):Promise<memory.ListResult>;
 
 export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<string>;
 
@@ -556,6 +571,8 @@ export function TranscribeWhisper(arg1:string,arg2:string):Promise<speech.Transc
 
 export function TriggerCustomAction(arg1:string,arg2:string,arg3:string):Promise<string>;
 
+export function UnarchiveMemoryRecord(arg1:string,arg2:string):Promise<database.MemoryRecord>;
+
 export function UnassignConversationFromChannel(arg1:string):Promise<void>;
 
 export function UnlockVault(arg1:string,arg2:string):Promise<void>;
@@ -569,6 +586,8 @@ export function UpdateConversation(arg1:string,arg2:string,arg3:string):Promise<
 export function UpdateConversationModel(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateLLMProvider(arg1:string,arg2:controllers.UpdateLLMProviderRequest):Promise<Record<string, any>>;
+
+export function UpdateMemoryRecord(arg1:string,arg2:memory.RecordInput):Promise<database.MemoryRecord>;
 
 export function UpdateMessage(arg1:string,arg2:string):Promise<void>;
 

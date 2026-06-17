@@ -103,6 +103,7 @@ func Init() error {
 		&Session{},
 		&Conversation{},
 		&ChatMessage{},
+		&MemoryRecord{},
 		&CredentialEntry{},
 		&CredentialKeyWrap{},
 		&LLMProvider{},
@@ -207,8 +208,12 @@ func AdoptLegacyData(userID string) error {
 			"llm_providers",
 			"conversations",
 			"task_lists",
+			"memory_records",
 		}
 		for _, table := range tables {
+			if !tx.Migrator().HasTable(table) {
+				continue
+			}
 			if err := tx.Exec(
 				fmt.Sprintf("UPDATE %s SET user_id = ? WHERE user_id IS NULL OR user_id = ''", table),
 				userID,

@@ -15,7 +15,6 @@
     "enable_thinking": false,
     "enabled_tools": null,
     "enabled_skills": [
-      "memory-manager",
       "coding"
     ]
   },

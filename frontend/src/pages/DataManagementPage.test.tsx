@@ -9,6 +9,7 @@ const mockGetConversations = vi.fn();
 const mockGetLLMProvidersWithStatus = vi.fn();
 const mockImportData = vi.fn();
 const mockListMCPServers = vi.fn();
+const mockListMemoryRecords = vi.fn();
 const mockDownloadJSON = vi.fn();
 const mockOpenImportFileDialog = vi.fn();
 const mockAnnounce = vi.fn();
@@ -24,6 +25,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetLLMProvidersWithStatus: () => mockGetLLMProvidersWithStatus(),
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
   ListMCPServers: () => mockListMCPServers(),
+  ListMemoryRecords: (filter: unknown) => mockListMemoryRecords(filter),
 }));
 
 vi.mock('../lib/exportImport', async () => {
@@ -81,6 +83,7 @@ describe('DataManagementPage', () => {
       message: 'ok',
     });
     mockListMCPServers.mockReset().mockResolvedValue([]);
+    mockListMemoryRecords.mockReset().mockResolvedValue({ records: [], total: 0 });
     mockDownloadJSON.mockReset();
     mockOpenImportFileDialog.mockReset();
     mockAnnounce.mockReset();
@@ -200,6 +203,71 @@ describe('DataManagementPage', () => {
     expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('credentialExportPassword');
   });
 
+  it('recarrega ids de memorias ao confirmar exportacao', async () => {
+    const user = userEvent.setup();
+    mockListMemoryRecords
+      .mockResolvedValueOnce({ records: [{ id: 'stale-memory' }], total: 1 })
+      .mockResolvedValueOnce({ records: [{ id: 'fresh-memory' }], total: 1 });
+
+    render(<DataManagementPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('2')).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText('Incluir memórias persistidas no banco'));
+    await waitFor(() => {
+      expect(mockListMemoryRecords).toHaveBeenCalledTimes(1);
+    });
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockExportData).toHaveBeenCalledWith(expect.objectContaining({
+        memoryRecordIds: ['fresh-memory'],
+      }));
+    });
+    expect(mockListMemoryRecords).toHaveBeenCalledTimes(2);
+  });
+
+  it('aborta exportacao quando apenas memorias marcadas ficam vazias no reload', async () => {
+    const user = userEvent.setup();
+    mockListMemoryRecords.mockResolvedValue({ records: [], total: 0 });
+
+    render(<DataManagementPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('2')).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText('Incluir conversas do histórico'));
+    await user.click(screen.getByLabelText('Incluir memórias persistidas no banco'));
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockAnnounce).toHaveBeenCalledWith('Nenhuma memória encontrada para exportar', 'assertive');
+    });
+    expect(mockExportData).not.toHaveBeenCalled();
+  });
+
+  it('exporta demais recursos quando memorias marcadas ficam vazias', async () => {
+    const user = userEvent.setup();
+    mockListMemoryRecords.mockResolvedValue({ records: [], total: 0 });
+
+    render(<DataManagementPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('2')).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText('Incluir memórias persistidas no banco'));
+    await user.click(screen.getByRole('button', { name: 'Exportar agora' }));
+
+    await waitFor(() => {
+      expect(mockExportData).toHaveBeenCalledWith(expect.objectContaining({
+        conversationIds: ['conversation-1', 'conversation-2'],
+      }));
+    });
+    expect(mockExportData.mock.calls[0][0]).not.toHaveProperty('memoryRecordIds');
+    expect(mockAnnounce).toHaveBeenCalledWith('Nenhuma memória encontrada; exportando os demais dados selecionados.', 'assertive');
+  });
+
   it('exige senha para exportar credenciais e envia senha aparada', async () => {
     const user = userEvent.setup();
 
@@ -236,7 +304,12 @@ describe('DataManagementPage', () => {
       appVersion: '0.9.0',
       exportedAt: '2025-01-01T00:00:00Z',
       options: { includeCredentials: false, includeAudio: false },
-      resources: { conversations: [], providers: [], taskLists: [] },
+      resources: {
+        conversations: [],
+        providers: [],
+        taskLists: [],
+        memoryRecords: [{ id: 'mem-1' }, { id: 'mem-2' }, { id: 'mem-3' }],
+      },
     });
     mockOpenImportFileDialog.mockResolvedValue({ name: 'backup.json', content: jsonData });
     mockAnalyzeImportData.mockResolvedValue({ conflictCount: 0 });
@@ -248,6 +321,7 @@ describe('DataManagementPage', () => {
       expect(mockAnalyzeImportData).toHaveBeenCalledWith(jsonData, '');
     });
     expect(screen.getByText('backup.json')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Importar agora' }));
     await waitFor(() => {

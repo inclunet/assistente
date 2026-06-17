@@ -17,6 +17,7 @@ const ROUTE_I18N_KEYS: Record<string, string> = {
   '/settings': 'menu.settings',
   '/profiles': 'menu.profiles',
   '/history': 'menu.history',
+  '/memories': 'menu.memories',
   '/help': 'menu.help',
   '/about': 'menu.about',
   '/update': 'update.pageTitle',

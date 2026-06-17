@@ -89,6 +89,7 @@ describe('Topbar', () => {
     expect(screen.getByTestId('current-item')).toHaveTextContent('history');
 
     const items = screen.getByTestId('menu-items').textContent || '';
+    expect(items).toContain('memories');
     expect(items).toContain('settings');
     expect(items).not.toContain('export-data');
     expect(items).not.toContain('import-data');

@@ -1635,6 +1635,74 @@ export namespace database {
 	        this.confirm = source["confirm"];
 	    }
 	}
+	export class MemoryRecord {
+	    id: string;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	    userId?: string;
+	    content: string;
+	    summary?: string;
+	    loadPolicy: string;
+	    archivedFromPolicy?: string;
+	    kind: string;
+	    scope: string;
+	    scopeRef?: string;
+	    tags?: string;
+	    importance: number;
+	    confidence: number;
+	    sourceType?: string;
+	    sourceId?: string;
+	    // Go type: time
+	    lastUsedAt?: any;
+	    // Go type: time
+	    expiresAt?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.userId = source["userId"];
+	        this.content = source["content"];
+	        this.summary = source["summary"];
+	        this.loadPolicy = source["loadPolicy"];
+	        this.archivedFromPolicy = source["archivedFromPolicy"];
+	        this.kind = source["kind"];
+	        this.scope = source["scope"];
+	        this.scopeRef = source["scopeRef"];
+	        this.tags = source["tags"];
+	        this.importance = source["importance"];
+	        this.confidence = source["confidence"];
+	        this.sourceType = source["sourceType"];
+	        this.sourceId = source["sourceId"];
+	        this.lastUsedAt = this.convertValues(source["lastUsedAt"], null);
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class MessageSearchResult {
 	    conversation_id: string;
 	    conversation_title: string;
@@ -3223,6 +3291,144 @@ export namespace mcp {
 
 }
 
+export namespace memory {
+	
+	export class Filter {
+	    query?: string;
+	    loadPolicies?: string[];
+	    kinds?: string[];
+	    scopes?: string[];
+	    tags?: string[];
+	    includeArchived?: boolean;
+	    limit?: number;
+	    offset?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Filter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.query = source["query"];
+	        this.loadPolicies = source["loadPolicies"];
+	        this.kinds = source["kinds"];
+	        this.scopes = source["scopes"];
+	        this.tags = source["tags"];
+	        this.includeArchived = source["includeArchived"];
+	        this.limit = source["limit"];
+	        this.offset = source["offset"];
+	    }
+	}
+	export class ListResult {
+	    records: database.MemoryRecord[];
+	    total: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ListResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.records = this.convertValues(source["records"], database.MemoryRecord);
+	        this.total = source["total"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PolicySummary {
+	    core: number;
+	    pinned: number;
+	    auto: number;
+	    retrievable: number;
+	    archived: number;
+	    total: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PolicySummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.core = source["core"];
+	        this.pinned = source["pinned"];
+	        this.auto = source["auto"];
+	        this.retrievable = source["retrievable"];
+	        this.archived = source["archived"];
+	        this.total = source["total"];
+	    }
+	}
+	export class RecordInput {
+	    content: string;
+	    summary?: string;
+	    loadPolicy?: string;
+	    kind?: string;
+	    scope?: string;
+	    scopeRef?: string;
+	    tags?: string[];
+	    importance?: number;
+	    confidence?: number;
+	    sourceType?: string;
+	    sourceId?: string;
+	    // Go type: time
+	    expiresAt?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new RecordInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.content = source["content"];
+	        this.summary = source["summary"];
+	        this.loadPolicy = source["loadPolicy"];
+	        this.kind = source["kind"];
+	        this.scope = source["scope"];
+	        this.scopeRef = source["scopeRef"];
+	        this.tags = source["tags"];
+	        this.importance = source["importance"];
+	        this.confidence = source["confidence"];
+	        this.sourceType = source["sourceType"];
+	        this.sourceId = source["sourceId"];
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace portability {
 	
 	export class ContentExportOptions {
@@ -3252,6 +3458,7 @@ export namespace portability {
 	    mcpServerSlugs?: string[];
 	    jobIds?: string[];
 	    taskListIds?: string[];
+	    memoryRecordIds?: string[];
 	    channelNames?: string[];
 	    includeContacts: boolean;
 	    includeWorkspace: boolean;
@@ -3279,6 +3486,7 @@ export namespace portability {
 	        this.mcpServerSlugs = source["mcpServerSlugs"];
 	        this.jobIds = source["jobIds"];
 	        this.taskListIds = source["taskListIds"];
+	        this.memoryRecordIds = source["memoryRecordIds"];
 	        this.channelNames = source["channelNames"];
 	        this.includeContacts = source["includeContacts"];
 	        this.includeWorkspace = source["includeWorkspace"];
@@ -3319,6 +3527,7 @@ export namespace portability {
 	    taskListCount: number;
 	    taskCount: number;
 	    taskNoteCount: number;
+	    memoryRecordCount: number;
 	    includesCredentials: boolean;
 	    requiresCredentialPassword: boolean;
 	    credentialCount: number;
@@ -3347,6 +3556,7 @@ export namespace portability {
 	        this.taskListCount = source["taskListCount"];
 	        this.taskCount = source["taskCount"];
 	        this.taskNoteCount = source["taskNoteCount"];
+	        this.memoryRecordCount = source["memoryRecordCount"];
 	        this.includesCredentials = source["includesCredentials"];
 	        this.requiresCredentialPassword = source["requiresCredentialPassword"];
 	        this.credentialCount = source["credentialCount"];
@@ -3508,7 +3718,7 @@ export namespace profiles {
 	    disable_skills?: boolean;
 	    disable_on_demand_skills?: boolean;
 	    command_allowlist?: string;
-	    native_mcp?: boolean | null;
+	    native_mcp?: boolean;
 	    max_agentic_iterations?: number;
 	    streaming_recovery_enabled?: boolean;
 	    streaming_recovery_max_attempts?: number;

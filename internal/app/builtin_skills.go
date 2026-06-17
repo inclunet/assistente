@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"assistente/internal/configdir"
 	"assistente/internal/skills"
@@ -16,6 +17,10 @@ import (
 
 //go:embed all:builtin/skills
 var builtinSkillsFS embed.FS
+
+var legacyContextProviderSkillSlugs = []string{"memory", "workspace"}
+
+const legacyContextProviderCleanupMarker = ".legacy-context-providers-cleaned"
 
 // installBuiltinSkills copia skills embutidos no binário para ~/.assistente/skills/.
 // Instala skills novos e atualiza os que têm versão mais antiga que a embutida.
@@ -32,6 +37,7 @@ func (a *App) installBuiltinSkills() {
 		log.Printf("[Skills] Error creating skills home dir: %v", err)
 		return
 	}
+	removeLegacyContextProviderSkills(homeDir)
 
 	skillEntries, err := fs.ReadDir(builtinSkillsFS, "builtin/skills")
 	if err != nil {
@@ -82,6 +88,48 @@ func (a *App) installBuiltinSkills() {
 		}
 
 		a.copyEmbeddedSkillDir(embeddedBase, targetDir)
+	}
+}
+
+func removeLegacyContextProviderSkills(homeDir string) {
+	markerFile := filepath.Join(homeDir, legacyContextProviderCleanupMarker)
+	if _, err := os.Stat(markerFile); err == nil {
+		return
+	} else if err != nil && !os.IsNotExist(err) {
+		log.Printf("[Skills] Error checking legacy context provider cleanup marker: %v", err)
+		return
+	}
+
+	backupRoot := filepath.Join(homeDir, ".legacy-backup", "context-providers-"+time.Now().Format("20060102-150405"))
+	cleanupFailed := false
+	for _, slug := range legacyContextProviderSkillSlugs {
+		targetDir := filepath.Join(homeDir, slug)
+		if _, err := os.Stat(targetDir); err != nil {
+			if !os.IsNotExist(err) {
+				log.Printf("[Skills] Error checking legacy context provider skill %s: %v", slug, err)
+				cleanupFailed = true
+			}
+			continue
+		}
+		backupDir := filepath.Join(backupRoot, slug)
+		if err := os.MkdirAll(filepath.Dir(backupDir), 0755); err != nil {
+			log.Printf("[Skills] Error creating legacy context provider backup dir for %s: %v", slug, err)
+			cleanupFailed = true
+			continue
+		}
+		if err := os.Rename(targetDir, backupDir); err != nil {
+			log.Printf("[Skills] Error backing up legacy context provider skill %s: %v", slug, err)
+			cleanupFailed = true
+			continue
+		}
+		log.Printf("[Skills] Backed up legacy context provider skill %s to %s", slug, backupDir)
+	}
+	if cleanupFailed {
+		log.Printf("[Skills] Legacy context provider cleanup incomplete; marker not written")
+		return
+	}
+	if err := os.WriteFile(markerFile, []byte(time.Now().Format(time.RFC3339)), 0644); err != nil {
+		log.Printf("[Skills] Error writing legacy context provider cleanup marker: %v", err)
 	}
 }
 

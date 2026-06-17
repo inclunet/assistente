@@ -19,6 +19,8 @@ type TemplateData struct {
 	TaskLists    []TemplateTaskList
 
 	// Workspace context
+	WorkspaceID      string
+	ProjectID        string
 	WorkspaceName    string
 	WorkspaceProfile string
 	ActiveTabTitle   string

@@ -156,6 +156,149 @@ func TestExportPortableDataIncludesMCPServers(t *testing.T) {
 	}
 }
 
+func TestExportPortableDataIncludesMemoryRecordsWhenAll(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	record := database.MemoryRecord{
+		UserID:             portabilityTestUserID,
+		Content:            "Preferir respostas em pt-BR.",
+		LoadPolicy:         database.MemoryLoadPolicyPinned,
+		ArchivedFromPolicy: database.MemoryLoadPolicyCore,
+		Kind:               database.MemoryKindUserPreference,
+		Scope:              database.MemoryScopeUser,
+		Importance:         5,
+		Confidence:         90,
+	}
+	if err := database.DB().Create(&record).Error; err != nil {
+		t.Fatalf("create memory: %v", err)
+	}
+	expired := database.MemoryRecord{
+		UserID:     portabilityTestUserID,
+		Content:    "Memória expirada",
+		LoadPolicy: database.MemoryLoadPolicyPinned,
+		Kind:       database.MemoryKindUserPreference,
+		Scope:      database.MemoryScopeUser,
+		ExpiresAt:  timePtr(time.Now().Add(-time.Hour)),
+	}
+	if err := database.DB().Create(&expired).Error; err != nil {
+		t.Fatalf("create expired memory: %v", err)
+	}
+
+	file, err := BuildExportFileWithContext(ctx, nil, nil, nil, nil, ExportRequest{All: true}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext: %v", err)
+	}
+	if len(file.Resources.MemoryRecords) != 1 {
+		t.Fatalf("MemoryRecords len = %d, want 1", len(file.Resources.MemoryRecords))
+	}
+	got := file.Resources.MemoryRecords[0]
+	if got.ID != record.ID || got.Content != record.Content || got.ArchivedFromPolicy != database.MemoryLoadPolicyCore {
+		t.Fatalf("unexpected memory export: %#v", got)
+	}
+}
+
+func TestImportPortableMemoryRecordUpsertsByID(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	exported := ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Options:    ExportOptions{},
+		Resources: ExportResources{
+			MemoryRecords: []MemoryRecordExport{{
+				ID:                 "mem-1",
+				Content:            "Memória importada",
+				LoadPolicy:         database.MemoryLoadPolicyArchived,
+				ArchivedFromPolicy: database.MemoryLoadPolicyPinned,
+				Kind:               database.MemoryKindDecision,
+				Scope:              database.MemoryScopeUser,
+				Importance:         4,
+				Confidence:         80,
+				CreatedAt:          time.Unix(100, 0),
+			}},
+		},
+	}
+	raw, err := json.Marshal(exported)
+	if err != nil {
+		t.Fatalf("marshal export: %v", err)
+	}
+
+	result, err := ImportConversationsWithContext(ctx, string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversationsWithContext: %v", err)
+	}
+	if !result.Success || result.Imported != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	var record database.MemoryRecord
+	if err := database.ScopeByUser(ctx, database.DB(), "user_id").First(&record, "id = ?", "mem-1").Error; err != nil {
+		t.Fatalf("load memory: %v", err)
+	}
+	if record.ArchivedFromPolicy != database.MemoryLoadPolicyPinned || record.LoadPolicy != database.MemoryLoadPolicyArchived {
+		t.Fatalf("memory metadata not imported: %+v", record)
+	}
+
+	exported.Resources.MemoryRecords[0].Content = "Memória atualizada"
+	raw, err = json.Marshal(exported)
+	if err != nil {
+		t.Fatalf("marshal second export: %v", err)
+	}
+	result, err = ImportConversationsWithContext(ctx, string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversationsWithContext second: %v", err)
+	}
+	if !result.Success || result.Imported != 1 {
+		t.Fatalf("unexpected second result: %+v", result)
+	}
+	if err := database.ScopeByUser(ctx, database.DB(), "user_id").First(&record, "id = ?", "mem-1").Error; err != nil {
+		t.Fatalf("reload memory: %v", err)
+	}
+	if record.Content != "Memória atualizada" {
+		t.Fatalf("memory not upserted: %+v", record)
+	}
+}
+
+func TestImportPortableMemoryRecordValidatesRecord(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	exported := ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Options:    ExportOptions{},
+		Resources: ExportResources{
+			MemoryRecords: []MemoryRecordExport{{
+				ID:         "mem-invalid",
+				Content:    "sem referência de escopo",
+				LoadPolicy: database.MemoryLoadPolicyPinned,
+				Kind:       database.MemoryKindDecision,
+				Scope:      database.MemoryScopeWorkspace,
+				Importance: 4,
+				Confidence: 80,
+				CreatedAt:  time.Unix(100, 0),
+			}},
+		},
+	}
+	raw, err := json.Marshal(exported)
+	if err != nil {
+		t.Fatalf("marshal export: %v", err)
+	}
+
+	result, err := ImportConversationsWithContext(ctx, string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversationsWithContext: %v", err)
+	}
+	if result.Success || result.Failed != 1 {
+		t.Fatalf("invalid memory import should fail: %+v", result)
+	}
+	var count int64
+	if err := database.ScopeByUser(ctx, database.DB().Model(&database.MemoryRecord{}), "user_id").Count(&count).Error; err != nil {
+		t.Fatalf("count memories: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("invalid memory was persisted, count=%d", count)
+	}
+}
+
 func TestExportExternalMCPServersOmitsEnv(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()
@@ -760,6 +903,7 @@ func setupPortabilityTestDB(t *testing.T) {
 		&database.TaskList{},
 		&database.Task{},
 		&database.TaskNote{},
+		&database.MemoryRecord{},
 		&database.CredentialEntry{},
 		&database.MCPServer{},
 		&database.SubAgentRun{},

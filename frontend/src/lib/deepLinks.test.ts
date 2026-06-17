@@ -260,7 +260,7 @@ describe('parseDeepLink', () => {
         'settings/channels', 'settings/contacts', 'settings/credentials',
         'settings/allowlists', 'settings/appearance', 'settings/restore-defaults',
         'settings/data',
-        'profiles', 'history', 'tasklists', 'help', 'about', 'update',
+        'profiles', 'history', 'memories', 'tasklists', 'help', 'about', 'update',
       ];
 
       for (const route of validRoutes) {
@@ -300,6 +300,9 @@ describe('parseDeepLink', () => {
       expect(parseDeepLink('assistente://mcp/edit/my-server')).toEqual({
         type: 'resource:edit', resource: 'mcp', resourceId: 'my-server',
       });
+      expect(parseDeepLink('assistente://memories/edit/mem-1')).toEqual({
+        type: 'resource:edit', resource: 'memories', resourceId: 'mem-1',
+      });
     });
 
     it('rejeita recurso não editável', () => {
@@ -311,6 +314,7 @@ describe('parseDeepLink', () => {
       expect(parseDeepLink('assistente://profiles/edit')).toBeNull();
       expect(parseDeepLink('assistente://profiles/edit/')).toBeNull();
     });
+
   });
 
   describe('resource:new', () => {
@@ -327,11 +331,15 @@ describe('parseDeepLink', () => {
       expect(parseDeepLink('assistente://tasklists/new')).toEqual({
         type: 'resource:new', resource: 'tasklists',
       });
+      expect(parseDeepLink('assistente://memories/new')).toEqual({
+        type: 'resource:new', resource: 'memories',
+      });
     });
 
     it('rejeita new para recurso não editável', () => {
       expect(parseDeepLink('assistente://help/new')).toBeNull();
     });
+
   });
 
   describe('resource:edit tasklists', () => {
@@ -952,6 +960,17 @@ describe('executeDeepLink', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/profiles');
       expect(mockAnnounce).toHaveBeenCalled();
     });
+
+    it('navega para memories como página first-level', async () => {
+      await executeDeepLink(
+        { type: 'resource:edit', resource: 'memories', resourceId: 'mem-1' },
+        deps,
+      );
+
+      expect(mockRequestResourceEdit).toHaveBeenCalledWith('memories', 'mem-1', 'edit');
+      expect(mockNavigate).toHaveBeenCalledWith('/memories');
+      expect(mockAnnounce).toHaveBeenCalled();
+    });
   });
 
   describe('resource:new', () => {
@@ -963,6 +982,17 @@ describe('executeDeepLink', () => {
 
       expect(mockRequestResourceEdit).toHaveBeenCalledWith('skills', '', 'new');
       expect(mockNavigate).toHaveBeenCalledWith('/settings/skills');
+      expect(mockAnnounce).toHaveBeenCalled();
+    });
+
+    it('navega para memories como página first-level', async () => {
+      await executeDeepLink(
+        { type: 'resource:new', resource: 'memories' },
+        deps,
+      );
+
+      expect(mockRequestResourceEdit).toHaveBeenCalledWith('memories', '', 'new');
+      expect(mockNavigate).toHaveBeenCalledWith('/memories');
       expect(mockAnnounce).toHaveBeenCalled();
     });
   });

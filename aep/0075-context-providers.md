@@ -75,11 +75,9 @@ Novo desenho:
 - escrita/atualização de memória é ação explícita via tool;
 - memória completa não é despejada automaticamente no system prompt.
 
-Tools esperadas:
+Tool esperada:
 
-- `memory_search`
-- `memory_get`
-- `memory_write` ou `memory_update`
+- `memory`, com `action` explícita para `search`, `list`, `create`, `update` e `delete`.
 
 Política:
 
@@ -104,7 +102,7 @@ Política de carregamento:
 - `core`: sempre carregado, com orçamento muito baixo;
 - `pinned`: carregado automaticamente quando o escopo combina com perfil/workspace;
 - `auto`: candidato a entrar por score de relevância, recência e orçamento;
-- `retrievable`: histórico buscado por `memory_search`/`memory_get`;
+- `retrievable`: histórico buscado sob demanda pela action `search` da tool `memory`;
 - `archived`: preservado, mas fora do fluxo normal.
 
 Não haverá migrador automático dos arquivos antigos em `~/.assistente/memory`.
@@ -172,7 +170,7 @@ Contrato de segurança:
 - exclusões devem ser físicas ou lógicas conforme política de retenção futura, mas a primeira implementação deve deixar o comportamento explícito na UI;
 - dados sensíveis devem seguir o mesmo cuidado de armazenamento e exposição das demais entidades locais do app.
 
-As tools `memory_search`, `memory_get` e `memory_write` podem reutilizar o serviço interno de memória, mas não devem expor diretamente APIs de UI ao modelo.
+A tool `memory` pode reutilizar o serviço interno de memória, mas não deve expor diretamente APIs de UI ao modelo. A consolidação em uma única tool reduz superfície de contrato e mantém as ações explícitas via `action`.
 
 ### D2.4. Integração frontend da tela de memórias
 

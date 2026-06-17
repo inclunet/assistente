@@ -37,12 +37,12 @@ const VALID_ROUTES = new Set([
   'settings/channels', 'settings/contacts', 'settings/credentials',
   'settings/allowlists', 'settings/appearance', 'settings/restore-defaults',
   'settings/data',
-  'profiles', 'history', 'tasklists', 'help', 'about', 'update',
+  'profiles', 'history', 'memories', 'tasklists', 'help', 'about', 'update',
 ]);
 
 const EDITABLE_RESOURCES = new Set<EditableResource>([
   'profiles', 'providers', 'credentials', 'allowlists',
-  'skills', 'mcp', 'channels', 'tasklists',
+  'skills', 'mcp', 'channels', 'memories', 'tasklists',
 ]);
 
 const TAB_RESOURCES = new Set<TabType>(['tasklist', 'editor', 'terminal']);
@@ -68,6 +68,7 @@ const ROUTE_I18N_KEYS: Record<string, string> = {
   'settings/data': 'settingsPage.tabs.data',
   profiles: 'menu.profiles',
   history: 'menu.history',
+  memories: 'menu.memories',
   tasklists: 'menu.tasklists',
   help: 'menu.help',
   about: 'menu.about',

@@ -244,7 +244,7 @@ Mensagem Markdown
 | `frontend/src/store/navigationStore.ts` | Store de pending edit/new para recursos editáveis |
 | `frontend/src/hooks/useResourceEditRequest.ts` | Hook consumido pelas páginas de recurso |
 | `internal/tools/deeplink/open_deep_link.go` | Tool Go para o agente emitir deep links |
-| `builtin/skills/workspace/SKILL.md` | Documentação de deep links para o agente |
+| Context provider/tooling de workspace | Documentação operacional de deep links para o agente. Historicamente ficava em `builtin/skills/workspace/SKILL.md`, removido pela migração de workspace para Context Provider. |
 
 ### Testes
 
@@ -287,4 +287,4 @@ O sistema foi projetado para ser facilmente extensível. Para adicionar um novo 
 6. Adicionar a classe CSS em `getDeepLinkTypeClass()` e os estilos em `MarkdownRenderer.css`
 7. Adicionar as chaves i18n nos 3 locales
 8. Atualizar a `Description()` em `internal/tools/deeplink/open_deep_link.go`
-9. Atualizar `builtin/skills/workspace/SKILL.md`
+9. Atualizar a documentação operacional do provider/tooling de workspace, quando houver impacto para o agente

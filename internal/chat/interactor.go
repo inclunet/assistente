@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"assistente/internal/contextprovider"
 	"assistente/internal/core/ports"
 	"assistente/internal/events"
 	"assistente/internal/llm"
@@ -34,7 +35,8 @@ type ChatParams = llm.ChatParams
 // Implemented by *prompt.Builder. Defined as an interface here so that internal/chat
 // does not need to import internal/prompt (which already imports internal/chat).
 type SystemPromptBuilder interface {
-	Build(messages []llm.Message, enabledSkills []string, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string) []llm.Message
+	Build(messages []llm.Message, enabledSkills []string, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string, dynamicContext ...string) []llm.Message
+	BuildWithContextBlocks(messages []llm.Message, enabledSkills []string, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string, contextBlocks []contextprovider.Block) []llm.Message
 	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData
 }
 
@@ -44,14 +46,15 @@ type WorkspaceProvider interface {
 
 // InteractorConfig groups all dependencies for Interactor.
 type InteractorConfig struct {
-	Emitter       events.Emitter
-	Repo          MessageRepository
-	ConvRepo      ConversationRepository
-	ProviderSvc   *providers.Service
-	ProfileMgr    *profiles.Manager
-	Workspace     WorkspaceProvider
-	SkillMgr      skills.InvokerManager // optional during startup; safe to be nil
-	PromptBuilder SystemPromptBuilder   // optional during startup; safe to be nil
+	Emitter          events.Emitter
+	Repo             MessageRepository
+	ConvRepo         ConversationRepository
+	ProviderSvc      *providers.Service
+	ProfileMgr       *profiles.Manager
+	Workspace        WorkspaceProvider
+	SkillMgr         skills.InvokerManager     // optional during startup; safe to be nil
+	PromptBuilder    SystemPromptBuilder       // optional during startup; safe to be nil
+	ContextProviders *contextprovider.Registry // optional; dynamic Context Provider registry
 	// LinkedTaskLists resolve as task lists vinculadas a uma conversa para
 	// alimentar o contexto da skill tasklist-manager (auto-load). Opcional: se
 	// nil, o template renderiza vazio (HasTaskLists=false).
@@ -60,15 +63,16 @@ type InteractorConfig struct {
 
 // Interactor orchestrates the core chat use cases, free of Wails dependencies.
 type Interactor struct {
-	emitter       events.Emitter
-	repo          MessageRepository
-	convRepo      ConversationRepository
-	providerSvc   *providers.Service
-	profileMgr    *profiles.Manager
-	workspace     WorkspaceProvider
-	skillMgr      skills.InvokerManager
-	promptBuilder SystemPromptBuilder
-	linkedTaskLists func(ctx context.Context, conversationID string) []TemplateTaskList
+	emitter          events.Emitter
+	repo             MessageRepository
+	convRepo         ConversationRepository
+	providerSvc      *providers.Service
+	profileMgr       *profiles.Manager
+	workspace        WorkspaceProvider
+	skillMgr         skills.InvokerManager
+	promptBuilder    SystemPromptBuilder
+	contextProviders *contextprovider.Registry
+	linkedTaskLists  func(ctx context.Context, conversationID string) []TemplateTaskList
 
 	// nativeMCPAdjustMu serializa o read-modify-write do auto-ajuste de MCP nativo
 	// do perfil (nil→false), garantindo idempotência sob concorrência (vários runs
@@ -79,15 +83,16 @@ type Interactor struct {
 // NewInteractor creates an Interactor with its required dependencies.
 func NewInteractor(cfg InteractorConfig) *Interactor {
 	return &Interactor{
-		emitter:       cfg.Emitter,
-		repo:          cfg.Repo,
-		convRepo:      cfg.ConvRepo,
-		providerSvc:   cfg.ProviderSvc,
-		profileMgr:    cfg.ProfileMgr,
-		workspace:     cfg.Workspace,
-		skillMgr:      cfg.SkillMgr,
-		promptBuilder: cfg.PromptBuilder,
-		linkedTaskLists: cfg.LinkedTaskLists,
+		emitter:          cfg.Emitter,
+		repo:             cfg.Repo,
+		convRepo:         cfg.ConvRepo,
+		providerSvc:      cfg.ProviderSvc,
+		profileMgr:       cfg.ProfileMgr,
+		workspace:        cfg.Workspace,
+		skillMgr:         cfg.SkillMgr,
+		promptBuilder:    cfg.PromptBuilder,
+		contextProviders: cfg.ContextProviders,
+		linkedTaskLists:  cfg.LinkedTaskLists,
 	}
 }
 
@@ -542,7 +547,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 
 	var messages []llm.Message
 	if i.promptBuilder != nil {
-		messages = i.promptBuilder.Build(req.Messages, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary)
+		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary, i.buildDynamicContext(ctx, skillTplData, req.UserContent))
 	} else {
 		messages = req.Messages
 	}
@@ -559,4 +564,44 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		InvokedSkillSlug: invokedSkillSlug,
 		InvokedScope:     invokedScope,
 	}
+}
+
+func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string) []contextprovider.Block {
+	if i.contextProviders == nil {
+		return nil
+	}
+	req := contextprovider.BuildRequest{
+		ConversationID:   data.ConversationID,
+		WorkspaceID:      data.WorkspaceID,
+		ProjectID:        data.ProjectID,
+		WorkspaceName:    data.WorkspaceName,
+		WorkspaceProfile: data.WorkspaceProfile,
+		TabCount:         data.TabCount,
+		ActiveTabTitle:   data.ActiveTabTitle,
+		ActiveTabType:    data.ActiveTabType,
+		Tabs:             make([]contextprovider.Tab, 0, len(data.Tabs)),
+		CurrentUserText:  currentUserText,
+	}
+	for _, tab := range data.Tabs {
+		req.Tabs = append(req.Tabs, contextprovider.Tab{
+			Title:     tab.Title,
+			Type:      tab.Type,
+			ContentID: tab.ContentID,
+			IsActive:  tab.IsActive,
+		})
+	}
+	if data.Surface != nil {
+		req.Surface = &contextprovider.Surface{
+			Type:    data.Surface.Type,
+			Title:   data.Surface.Title,
+			State:   data.Surface.State,
+			Context: data.Surface.Context,
+		}
+	}
+	blocks, err := i.contextProviders.Build(ctx, req)
+	if err != nil {
+		log.Printf("[context/providers] erro ao montar blocos dinâmicos: %v", err)
+		return nil
+	}
+	return blocks
 }

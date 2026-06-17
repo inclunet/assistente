@@ -14,10 +14,7 @@
     "top_p": 1,
     "response_timeout": 180,
     "enabled_tools": null,
-    "enabled_skills": [
-      "workspace",
-      "memory"
-    ]
+    "enabled_skills": []
   },
   "voice": {
     "assistant": {

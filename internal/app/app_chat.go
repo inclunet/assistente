@@ -72,7 +72,7 @@ func (a *App) effectivePromptBuilder() *prompt.Builder {
 // buildFullSystemPrompt composes the complete system prompt with DefaultSystemPrompt, skills injection,
 // invoked skill, and conversation summary. Used directly in unit tests via &App{}.
 func (a *App) buildFullSystemPrompt(messages []Message, enabledSkills []string, disableOnDemand bool, skillTplData any, slashSkillContent string, conversationSummary string) []Message {
-	return a.effectivePromptBuilder().Build(messages, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, conversationSummary)
+	return a.effectivePromptBuilder().Build(messages, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, conversationSummary, "")
 }
 
 // loadConversationHistory carrega o histórico de mensagens de uma conversa.

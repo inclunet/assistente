@@ -143,6 +143,59 @@ type ChatMessage struct {
 	Source           string  `json:"source,omitempty"`                 // Origem da mensagem: "wails", "telegram", "signal", etc.
 }
 
+// ==================== Context Providers / Memory ====================
+
+const (
+	MemoryLoadPolicyCore        = "core"
+	MemoryLoadPolicyPinned      = "pinned"
+	MemoryLoadPolicyAuto        = "auto"
+	MemoryLoadPolicyRetrievable = "retrievable"
+	MemoryLoadPolicyArchived    = "archived"
+)
+
+const (
+	MemoryKindUserPreference = "user_preference"
+	MemoryKindIdentity       = "identity"
+	MemoryKindProjectFact    = "project_fact"
+	MemoryKindDecision       = "decision"
+	MemoryKindConvention     = "convention"
+	MemoryKindHistoricalNote = "historical_note"
+	MemoryKindResolvedIssue  = "resolved_issue"
+)
+
+const (
+	MemoryScopeGlobal       = "global"
+	MemoryScopeUser         = "user"
+	MemoryScopeWorkspace    = "workspace"
+	MemoryScopeProject      = "project"
+	MemoryScopeConversation = "conversation"
+)
+
+// MemoryRecord armazena uma unidade estruturada de memória do usuário.
+// A política de carregamento controla se o record entra automaticamente no
+// contexto ou se fica apenas recuperável por tool/busca.
+type MemoryRecord struct {
+	UUIDModel
+	UserID             string `json:"userId,omitempty" gorm:"not null;index;index:idx_memory_user_policy_updated,priority:1"`
+	Content            string `json:"content" gorm:"type:text;not null"`
+	Summary            string `json:"summary,omitempty" gorm:"type:text"`
+	LoadPolicy         string `json:"loadPolicy" gorm:"not null;default:'retrievable';index;index:idx_memory_user_policy_updated,priority:2"`
+	ArchivedFromPolicy string `json:"archivedFromPolicy,omitempty" gorm:"index"`
+	Kind               string `json:"kind" gorm:"not null;default:'historical_note';index"`
+	Scope              string `json:"scope" gorm:"not null;default:'user';index"`
+	ScopeRef           string `json:"scopeRef,omitempty" gorm:"index"`
+	Tags               string `json:"tags,omitempty" gorm:"type:text"` // JSON array de strings
+	Importance         int    `json:"importance" gorm:"not null;default:3;index"`
+	Confidence         int    `json:"confidence" gorm:"not null;default:80"`
+
+	SourceType string     `json:"sourceType,omitempty" gorm:"index"`
+	SourceID   string     `json:"sourceId,omitempty" gorm:"index"`
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+	ExpiresAt  *time.Time `json:"expiresAt,omitempty" gorm:"index"`
+
+	User *User `json:"-" gorm:"foreignKey:UserID"`
+}
+
 // ==================== Credenciais ====================
 
 // CredentialEntry armazena credenciais por padrão de domínio (com campos sensíveis criptografados).

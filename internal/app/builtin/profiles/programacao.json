@@ -15,9 +15,7 @@
     "response_timeout": 180,
     "enabled_tools": null,
     "enabled_skills": [
-      "workspace",
       "coding",
-      "memory",
       "prometheus"
     ]
   },

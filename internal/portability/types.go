@@ -173,6 +173,25 @@ type TaskListExport struct {
 	Tasks             []TaskExport           `json:"tasks,omitempty"`
 }
 
+type MemoryRecordExport struct {
+	ID                 string     `json:"id"`
+	Content            string     `json:"content"`
+	Summary            string     `json:"summary,omitempty"`
+	LoadPolicy         string     `json:"loadPolicy"`
+	ArchivedFromPolicy string     `json:"archivedFromPolicy,omitempty"`
+	Kind               string     `json:"kind"`
+	Scope              string     `json:"scope"`
+	ScopeRef           string     `json:"scopeRef,omitempty"`
+	Tags               string     `json:"tags,omitempty"`
+	Importance         int        `json:"importance"`
+	Confidence         int        `json:"confidence"`
+	SourceType         string     `json:"sourceType,omitempty"`
+	SourceID           string     `json:"sourceId,omitempty"`
+	LastUsedAt         *time.Time `json:"lastUsedAt,omitempty"`
+	ExpiresAt          *time.Time `json:"expiresAt,omitempty"`
+	CreatedAt          time.Time  `json:"createdAt"`
+}
+
 type CredentialExport struct {
 	ID           string            `json:"id,omitempty"`
 	Pattern      string            `json:"pattern"`
@@ -192,6 +211,7 @@ type ExportResources struct {
 	Providers     []ProviderExport     `json:"providers,omitempty"`
 	MCPServers    []MCPServerExport    `json:"mcpServers,omitempty"`
 	TaskLists     []TaskListExport     `json:"taskLists,omitempty"`
+	MemoryRecords []MemoryRecordExport `json:"memoryRecords,omitempty"`
 	Credentials   *CredentialCipher    `json:"credentials,omitempty"`
 }
 
@@ -214,6 +234,7 @@ type ExportRequest struct {
 	MCPServerSlugs           []string `json:"mcpServerSlugs,omitempty"`
 	JobIDs                   []string `json:"jobIds,omitempty"`
 	TaskListIDs              []string `json:"taskListIds,omitempty"`
+	MemoryRecordIDs          []string `json:"memoryRecordIds,omitempty"`
 	ChannelNames             []string `json:"channelNames,omitempty"`
 	IncludeContacts          bool     `json:"includeContacts"`
 	IncludeWorkspace         bool     `json:"includeWorkspace"`
@@ -291,6 +312,7 @@ type ImportAnalysis struct {
 	TaskListCount              int              `json:"taskListCount"`
 	TaskCount                  int              `json:"taskCount"`
 	TaskNoteCount              int              `json:"taskNoteCount"`
+	MemoryRecordCount          int              `json:"memoryRecordCount"`
 	IncludesCredentials        bool             `json:"includesCredentials"`
 	RequiresCredentialPassword bool             `json:"requiresCredentialPassword"`
 	CredentialCount            int              `json:"credentialCount"`

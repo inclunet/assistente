@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	memorysvc "assistente/internal/memory"
 	"assistente/internal/toolinvocations"
 
 	"gorm.io/gorm"
@@ -21,6 +22,7 @@ var supportedPortableResourceTypes = map[string]struct{}{
 	"providers":     {},
 	"mcpServers":    {},
 	"taskLists":     {},
+	"memoryRecords": {},
 	"credentials":   {},
 }
 
@@ -89,6 +91,10 @@ func BuildExportFileWithContext(ctx context.Context, conversationIDs []string, p
 		}
 		taskLists = append(taskLists, taskList)
 	}
+	memoryRecords, err := buildMemoryRecordExports(ctx, req.MemoryRecordIDs, req.All)
+	if err != nil {
+		return nil, err
+	}
 
 	file := &ExportFile{
 		Version:    ExportVersion,
@@ -106,6 +112,7 @@ func BuildExportFileWithContext(ctx context.Context, conversationIDs []string, p
 			Providers:     providers,
 			MCPServers:    mcpServers,
 			TaskLists:     taskLists,
+			MemoryRecords: memoryRecords,
 		},
 	}
 
@@ -440,6 +447,19 @@ func ImportConversationsWithResolutions(
 
 	for _, taskList := range file.Resources.TaskLists {
 		imported, err := importTaskList(ctx, taskList)
+		if err != nil {
+			result.Errors = append(result.Errors, err.Error())
+			result.Failed++
+			continue
+		}
+		if imported {
+			result.Imported++
+		}
+	}
+
+	memorySvc := memorysvc.NewService(memorysvc.NewDBStore(database.DB()))
+	for _, memoryRecord := range file.Resources.MemoryRecords {
+		imported, err := importMemoryRecord(ctx, memorySvc, memoryRecord)
 		if err != nil {
 			result.Errors = append(result.Errors, err.Error())
 			result.Failed++
@@ -942,6 +962,7 @@ func analyzeImportFile(ctx context.Context, file *ExportFile, credMgr *credentia
 		ProviderCount:         len(file.Resources.Providers),
 		MCPServerCount:        len(file.Resources.MCPServers),
 		TaskListCount:         len(file.Resources.TaskLists),
+		MemoryRecordCount:     len(file.Resources.MemoryRecords),
 		IncludesCredentials:   file.Options.IncludeCredentials && file.Resources.Credentials != nil,
 		ConversationConflicts: make([]ImportConflict, 0),
 		ProviderConflicts:     make([]ImportConflict, 0),

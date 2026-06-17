@@ -29,6 +29,7 @@ frontend/.vite/
 .idea/
 .vscode/
 .claude/
+.cursor/plans/
 *.swp
 *.swo
 *~

@@ -1,0 +1,83 @@
+package contextprovider
+
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+type testProvider struct {
+	name   string
+	blocks []Block
+	err    error
+}
+
+func (p testProvider) Name() string { return p.name }
+
+func (p testProvider) Build(context.Context, BuildRequest) ([]Block, error) {
+	if p.err != nil {
+		return p.blocks, p.err
+	}
+	return p.blocks, nil
+}
+
+func TestRegistryBuildSortsByVolatilityPriorityAndProvider(t *testing.T) {
+	registry := NewRegistry(
+		testProvider{name: "workspace", blocks: []Block{{Name: "workspace", Volatility: VolatilityFastDynamic, Priority: 100, Content: "workspace"}}},
+		testProvider{name: "memory", blocks: []Block{{Name: "memory", Volatility: VolatilitySlowDynamic, Priority: 100, Content: "memory"}}},
+		testProvider{name: "stable", blocks: []Block{{Name: "instructions", Volatility: VolatilityStable, Priority: 100, Content: "stable"}}},
+	)
+
+	blocks, err := registry.Build(context.Background(), BuildRequest{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	rendered := RenderBlocks(blocks)
+	want := []string{"stable", "memory", "workspace"}
+	if len(rendered) != len(want) {
+		t.Fatalf("rendered len = %d, want %d: %#v", len(rendered), len(want), rendered)
+	}
+	for i := range want {
+		if rendered[i] != want[i] {
+			t.Fatalf("rendered[%d] = %q, want %q (all=%#v)", i, rendered[i], want[i], rendered)
+		}
+	}
+}
+
+func TestRegistryBuildSkipsFailedProvider(t *testing.T) {
+	registry := NewRegistry(
+		testProvider{name: "memory", err: errors.New("boom")},
+		testProvider{name: "workspace", blocks: []Block{{Name: "workspace", Volatility: VolatilityFastDynamic, Priority: 100, Content: "workspace"}}},
+	)
+
+	blocks, err := registry.Build(context.Background(), BuildRequest{})
+	if err != nil {
+		t.Fatalf("Build returned provider error: %v", err)
+	}
+	rendered := RenderBlocks(blocks)
+	if len(rendered) != 1 || rendered[0] != "workspace" {
+		t.Fatalf("rendered = %#v, want workspace only", rendered)
+	}
+}
+
+func TestRegistryBuildKeepsPartialBlocksFromFailedProvider(t *testing.T) {
+	registry := NewRegistry(
+		testProvider{name: "memory", blocks: []Block{{Name: "instructions", Volatility: VolatilityStable, Priority: 10, Content: "stable memory instructions"}}, err: errors.New("boom")},
+		testProvider{name: "workspace", blocks: []Block{{Name: "workspace", Volatility: VolatilityFastDynamic, Priority: 100, Content: "workspace"}}},
+	)
+
+	blocks, err := registry.Build(context.Background(), BuildRequest{})
+	if err != nil {
+		t.Fatalf("Build returned provider error: %v", err)
+	}
+	rendered := RenderBlocks(blocks)
+	want := []string{"stable memory instructions", "workspace"}
+	if len(rendered) != len(want) {
+		t.Fatalf("rendered len = %d, want %d: %#v", len(rendered), len(want), rendered)
+	}
+	for i := range want {
+		if rendered[i] != want[i] {
+			t.Fatalf("rendered[%d] = %q, want %q (all=%#v)", i, rendered[i], want[i], rendered)
+		}
+	}
+}

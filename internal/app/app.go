@@ -15,6 +15,7 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/config"
 	"assistente/internal/connstatus"
+	"assistente/internal/contextprovider"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
@@ -22,6 +23,7 @@ import (
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
+	"assistente/internal/memory"
 	"assistente/internal/messaging"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
@@ -123,6 +125,9 @@ type App struct {
 	// TaskList service (business logic para listas de tarefas)
 	taskSvc *tasklist.Service
 
+	// Memory service (Context Provider de memória)
+	memorySvc *memory.Service
+
 	// Audio repository (persistência de áudio de mensagens)
 	audioSvc speech.AudioRepository
 
@@ -143,6 +148,9 @@ type App struct {
 
 	// Prompt builder (monta system prompt — puro, sem Wails)
 	promptBuilder *prompt.Builder
+
+	// Context Providers (AEP-0075): blocos dinâmicos separados de skills.
+	contextProviders *contextprovider.Registry
 
 	// Settings service (config CRUD e reset de dados — sem Wails)
 	settingsSvc *config.SettingsService
@@ -169,6 +177,7 @@ type App struct {
 	settingsCtrl    *controllers.SettingsController
 	chatCtrl        *controllers.ChatController
 	taskListCtrl    *controllers.TaskListController
+	memoryCtrl      *controllers.MemoryController
 	speechCtrl      *controllers.SpeechController
 	jobsCtrl        *controllers.JobsController
 	workspaceCtrl   *controllers.WorkspaceController
@@ -264,6 +273,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa o TaskList Service (business logic de listas de tarefas)
 	a.taskSvc = a.newTaskListService()
 
+	// Inicializa o Memory Service (Context Provider de memória)
+	a.memorySvc = memory.NewService(memory.NewDBStore(database.DB()))
+
 	// Inicializa repositórios de audio e conversa
 	a.audioSvc = speech.NewDBAudioStore()
 	a.convSvc = chat.NewDBConversationStore()
@@ -351,6 +363,10 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		Tools:           a.toolRegistry,
 		OpenEditorPaths: a.workspaceMgr.OpenEditorFilePaths,
 	}
+	a.contextProviders = contextprovider.NewRegistry(
+		a.memorySvc,
+		workspace.NewContextProvider(),
+	)
 
 	// Inicializa o Settings Service (config CRUD e reset de dados)
 	a.settingsSvc = config.NewSettingsService(config.SettingsServiceConfig{
@@ -363,15 +379,16 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o ChatInteractor (após skillMgr e promptBuilder estarem prontos)
 	a.chatInteractor = chat.NewInteractor(chat.InteractorConfig{
-		Emitter:         a.emitter,
-		Repo:            a.msgRepo,
-		ConvRepo:        a.convSvc,
-		ProviderSvc:     a.providerSvc,
-		ProfileMgr:      a.profileManager,
-		Workspace:       a.workspaceMgr,
-		SkillMgr:        a.skillMgr,
-		PromptBuilder:   a.promptBuilder,
-		LinkedTaskLists: a.linkedTaskListsForConversation,
+		Emitter:          a.emitter,
+		Repo:             a.msgRepo,
+		ConvRepo:         a.convSvc,
+		ProviderSvc:      a.providerSvc,
+		ProfileMgr:       a.profileManager,
+		Workspace:        a.workspaceMgr,
+		SkillMgr:         a.skillMgr,
+		PromptBuilder:    a.promptBuilder,
+		ContextProviders: a.contextProviders,
+		LinkedTaskLists:  a.linkedTaskListsForConversation,
 	})
 
 	// Inicializa hotkeys globais
@@ -492,6 +509,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,
+	})
+	a.memoryCtrl = controllers.NewMemoryController(controllers.MemoryControllerConfig{
+		MemorySvc: a.memorySvc,
 	})
 	a.speechCtrl = controllers.NewSpeechController(controllers.SpeechControllerConfig{
 		SpeechSvc: a.speechSvc,
