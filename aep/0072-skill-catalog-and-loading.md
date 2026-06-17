@@ -25,7 +25,7 @@ Redesenhar o carregamento de skills para seguir progressive disclosure:
 
 - catálogo leve e estável no prompt inicial;
 - skills ordenadas por relevância no perfil, com a primeira skill carregável podendo atuar como base;
-- skills sob demanda invocáveis por `/skill`, menção ou decisão do modelo;
+- skills sob demanda invocáveis por `/skill`, menção ou decisão do modelo quando tool calling estiver disponível;
 - corpo completo da skill carregado pelo runtime de forma observável quando a skill é ativada;
 - `memory` e `workspace` fora do sistema de skills;
 - template engine fora do caminho novo de skills.
@@ -150,6 +150,21 @@ Implementação futura:
 
 - se AEP-0051 for retomada, o DB pode virar fonte canônica. Isso não exige, por si só, uma tool nova `load_skill`; a decisão deve ser tomada apenas se houver benefício claro.
 
+### D6.1. Catálogos e autoativação pelo modelo dependem de tool calling
+
+`tool_catalog` e qualquer futura tool/ação de autoativação de skill pelo modelo, como `load_skill`, são capacidades mediadas por tool calling. Se `toolCallingEnabled=false`, o runtime deve desativar essas portas de entrada para o modelo.
+
+Regra efetiva:
+
+- `tool_catalog` não deve ser exposta ao modelo;
+- `load_skill` ou mecanismo equivalente de autoativação de skill não deve ser exposto ao modelo;
+- skills `on_demand` não podem ser autoativadas pelo modelo;
+- `/skill` explícito do usuário continua permitido, porque o backend carrega a skill antes da chamada ao modelo;
+- a skill `base` continua funcionando, desde que seja compatível com o modo sem tool calling;
+- skills que dependem de tools/filesystem/network/MCP devem ser omitidas ou degradadas quando tool calling estiver indisponível.
+
+Resumo do contrato: carregamento sob demanda dirigido pelo modelo exige tool calling; carregamento sob demanda dirigido pelo usuário via `/skill` não exige.
+
 ### D7. Auto-load vira `base`
 
 `auto_load` como booleano genérico deve ser migrado para o modo `base`. Não há remoção funcional de comportamento: o que antes entrava automaticamente passa a ser representado explicitamente como skill base.
@@ -206,6 +221,7 @@ Status: concluída como pré-requisito principal. `memory` e `workspace` já sa�
 
 - Permitir ativação explícita de skill do catálogo e carregamento pelo runtime.
 - Registrar skill carregada como tool/context event.
+- Garantir que `tool_catalog` e autoativação de skills pelo modelo sejam desativadas quando tool calling estiver indisponível.
 
 ### Fase 5 — Remover templates de skills e migrar built-ins
 
@@ -250,7 +266,7 @@ O novo contrato canônico é:
 Semântica:
 
 - primeira skill marcada: `base`, entra no prompt inicial como instrução base do perfil;
-- demais skills marcadas: `on_demand`, aparecem no catálogo leve e podem ser carregadas por `/skill`, menção ou decisão do modelo;
+- demais skills marcadas: `on_demand`, aparecem no catálogo leve e podem ser carregadas por `/skill`, menção ou decisão do modelo quando tool calling estiver disponível;
 - skills não marcadas: `disabled`, não aparecem no catálogo e não podem ser invocadas;
 - a ordem da lista é relevante e representa prioridade.
 
@@ -261,6 +277,7 @@ Semântica:
 - skills disponíveis ausentes de `enabled_skills` → `disabled`;
 - perfis com `disable_skills=true` devem produzir uma política efetiva sem skills carregáveis;
 - perfis com `disable_on_demand_skills=true` devem produzir política efetiva com apenas `enabled_skills[0]` como `base` e o restante como `disabled`.
+- se `toolCallingEnabled=false`, o catálogo para o modelo deve omitir `tool_catalog` e qualquer autoativação de skills; permanecem apenas a skill `base` e `/skill` explícito do usuário.
 
 Depois da migração semântica, os perfis builtin podem continuar declarando `enabled_skills`, mas devem ordenar a lista por relevância.
 
@@ -317,6 +334,8 @@ Regras:
 - skill `disabled` não pode ser carregada por `/skill`;
 - skill `on_demand` pode ser carregada quando ativada;
 - skill `base` entra como instrução base e a ordenação do perfil define sua prioridade relativa.
+- ativação dirigida pelo modelo só é permitida quando tool calling estiver disponível;
+- `tool_catalog` e qualquer tool de controle como `load_skill` devem ser removidas do conjunto exposto ao modelo quando tool calling estiver indisponível.
 
 ### Frontend
 
@@ -353,6 +372,8 @@ O PR deve cobrir:
 - `/skill` rejeitado para skill `disabled`;
 - preservação de argumentos e permissões de filesystem no turno;
 - slash menu mostrando apenas skills invocáveis;
+- `tool_catalog` e autoativação pelo modelo indisponíveis quando `toolCallingEnabled=false`;
+- `/skill` explícito do usuário funcionando mesmo quando `toolCallingEnabled=false`;
 - UI de perfil mantendo/ordenando `enabled_skills` e explicando a semântica efetiva;
 - migração de `auto_load` e built-in skills sem templates no caminho novo.
 
@@ -369,6 +390,7 @@ O PR deve cobrir:
 - Perfis antigos com `enabled_skills` continuam compatíveis e ganham semântica determinística.
 - O catálogo leve respeita orçamento e informa omissões/encurtamentos.
 - A UI de perfis deixa clara a semântica: primeira marcada = base; demais marcadas = on demand; não marcadas = disabled.
+- Quando tool calling estiver indisponível, `tool_catalog` e autoativação de skills pelo modelo não são expostos; `/skill` explícito do usuário e skill `base` continuam sendo os caminhos suportados.
 
 ---
 
