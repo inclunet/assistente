@@ -359,6 +359,7 @@ const es = {
         policy: 'Política',
         allPolicies: 'Todas',
         includeArchived: 'Incluir archivadas',
+        includeArchivedAutoDisabled: 'Las memorias archivadas se ocultaron porque se seleccionó una política específica.',
       },
       columns: {
         content: 'Contenido',

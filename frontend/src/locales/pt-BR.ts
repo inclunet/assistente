@@ -360,6 +360,7 @@ const ptBR = {
         policy: 'Política',
         allPolicies: 'Todas',
         includeArchived: 'Incluir arquivadas',
+        includeArchivedAutoDisabled: 'Arquivadas foram ocultadas porque uma política específica foi selecionada.',
       },
       columns: {
         content: 'Conteúdo',

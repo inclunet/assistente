@@ -17,8 +17,9 @@
 
 .memories-page__filters {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--radius-md);
+  gap: 0.5rem;
 }
 
 .memories-page__form label {
@@ -29,16 +30,6 @@
   font-size: var(--font-size-sm);
 }
 
-.memories-page__filters label {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.memories-page__filters select,
 .memories-page__form input,
 .memories-page__form select,
 .memories-page__form textarea {
@@ -51,17 +42,56 @@
   padding: 6px 8px;
 }
 
+.memories-page__form input:focus-visible,
+.memories-page__form select:focus-visible,
+.memories-page__form textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.memories-page__filters .combobox-picker {
+  flex-shrink: 0;
+}
+
+.memories-page__filter-toggle {
+  min-height: 36px;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-default);
+}
+
+.memories-page__filter-toggle:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.memories-page__filter-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.memories-page__filter-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.memories-page__filter-toggle--active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--text-inverse);
+}
+
+.memories-page__filter-toggle--active:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
 .memories-page__form textarea {
   resize: vertical;
   min-height: 120px;
-}
-
-.memories-page__checkbox {
-  align-items: center;
-}
-
-.memories-page__checkbox input {
-  min-height: 0;
 }
 
 .memories-page__form {

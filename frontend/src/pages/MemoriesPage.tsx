@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PlusOutlined, DeleteOutlined, InboxOutlined, RollbackOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, InboxOutlined, RollbackOutlined, FilterOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import {
   ArchiveMemoryRecord,
@@ -13,6 +13,7 @@ import {
 import { database, memory } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
+import { Combobox, type ComboboxItem } from '../components/pickers/Combobox';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { useConfirm } from '../hooks/useConfirm';
@@ -83,6 +84,16 @@ export default function MemoriesPage() {
     () => includeArchived ? LOAD_POLICIES : LOAD_POLICIES.filter((policy) => policy !== 'archived'),
     [includeArchived],
   );
+  const policyFilterItems = useMemo<ComboboxItem[]>(
+    () => [
+      { value: '', label: t('memories.filters.allPolicies') },
+      ...policyOptions.map((policy) => ({
+        value: policy,
+        label: t(`memories.loadPolicies.${policy}`),
+      })),
+    ],
+    [policyOptions, t],
+  );
   const includeArchivedDisabled = policyFilter !== '' && policyFilter !== 'archived';
 
   const loadRecords = useCallback(async () => {
@@ -144,9 +155,12 @@ export default function MemoriesPage() {
     if (value === 'archived') {
       setIncludeArchived(true);
     } else if (value !== '') {
+      if (includeArchived) {
+        announce(t('memories.filters.includeArchivedAutoDisabled'));
+      }
       setIncludeArchived(false);
     }
-  }, []);
+  }, [announce, includeArchived, t]);
 
   const handleIncludeArchivedChange = useCallback((checked: boolean) => {
     setPage(0);
@@ -330,24 +344,23 @@ export default function MemoriesPage() {
         isLoading={loading}
         right={(
           <div className="memories-page__filters">
-            <label>
-              <span>{t('memories.filters.policy')}</span>
-              <select value={policyFilter} onChange={(event) => handlePolicyFilterChange(event.target.value)}>
-                <option value="">{t('memories.filters.allPolicies')}</option>
-                {policyOptions.map((policy) => (
-                  <option key={policy} value={policy}>{t(`memories.loadPolicies.${policy}`)}</option>
-                ))}
-              </select>
-            </label>
-            <label className="memories-page__checkbox">
-              <input
-                type="checkbox"
-                checked={includeArchived}
-                disabled={includeArchivedDisabled}
-                onChange={(event) => handleIncludeArchivedChange(event.target.checked)}
-              />
-              <span>{t('memories.filters.includeArchived')}</span>
-            </label>
+            <Combobox
+              items={policyFilterItems}
+              selected={policyFilter}
+              onSelect={(value) => handlePolicyFilterChange(value)}
+              label={t('memories.filters.policy')}
+              icon={<FilterOutlined aria-hidden="true" />}
+              maxWidth="180px"
+            />
+            <button
+              type="button"
+              className={`memories-page__filter-toggle${includeArchived ? ' memories-page__filter-toggle--active' : ''}`}
+              onClick={() => handleIncludeArchivedChange(!includeArchived)}
+              disabled={includeArchivedDisabled}
+              aria-pressed={includeArchived}
+            >
+              {t('memories.filters.includeArchived')}
+            </button>
           </div>
         )}
         actions={[{

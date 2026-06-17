@@ -360,6 +360,7 @@ const en = {
         policy: 'Policy',
         allPolicies: 'All',
         includeArchived: 'Include archived',
+        includeArchivedAutoDisabled: 'Archived memories were hidden because a specific policy was selected.',
       },
       columns: {
         content: 'Content',

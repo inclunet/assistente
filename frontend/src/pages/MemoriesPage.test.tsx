@@ -36,6 +36,7 @@ vi.mock('@ant-design/icons', () => ({
   DeleteOutlined: () => <span data-testid="delete-icon" />,
   InboxOutlined: () => <span data-testid="inbox-icon" />,
   RollbackOutlined: () => <span data-testid="rollback-icon" />,
+  FilterOutlined: () => <span data-testid="filter-icon" />,
 }));
 
 vi.mock('../hooks/useConfirm', () => ({
@@ -67,7 +68,7 @@ vi.mock('../components/ui/Toolbar', () => ({
     right?: ReactNode;
     rightEnd?: ReactNode;
   }) => (
-    <div>
+    <div role="toolbar" aria-label="memories.toolbarLabel">
       {left}
       <input
         aria-label="search"
@@ -120,6 +121,17 @@ vi.mock('../components/ui/Button', () => ({
 
 import MemoriesPage from './MemoriesPage';
 
+async function selectPolicy(label: string) {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /memories\.filters\.policy/ }));
+  await act(async () => {
+    fireEvent.mouseDown(screen.getByRole('option', { name: label }));
+  });
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /memories\.filters\.policy/ })).toBeInTheDocument();
+  });
+}
+
 describe('MemoriesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -154,6 +166,22 @@ describe('MemoriesPage', () => {
       expect(mockListMemoryRecords).toHaveBeenCalled();
       expect(screen.getByText('Usuário prefere respostas curtas.')).toBeInTheDocument();
     });
+  });
+
+  it('renderiza busca, filtros e acao principal na mesma toolbar ARIA', async () => {
+    render(<MemoriesPage />);
+
+    await waitFor(() => {
+      expect(mockListMemoryRecords).toHaveBeenCalled();
+    });
+    const toolbars = screen.getAllByRole('toolbar');
+    const toolbar = screen.getByRole('toolbar', { name: 'memories.toolbarLabel' });
+
+    expect(toolbars).toHaveLength(1);
+    expect(toolbar).toContainElement(screen.getByLabelText('search'));
+    expect(toolbar).toContainElement(screen.getByRole('button', { name: /memories\.filters\.policy/ }));
+    expect(toolbar).toContainElement(screen.getByRole('button', { name: 'memories.filters.includeArchived' }));
+    expect(toolbar).toContainElement(screen.getByRole('button', { name: 'memories.actions.new' }));
   });
 
   it('cria memória pelo modal', async () => {
@@ -222,9 +250,7 @@ describe('MemoriesPage', () => {
     await waitFor(() => {
       expect(mockListMemoryRecords).toHaveBeenCalled();
     });
-    fireEvent.change(screen.getByLabelText('memories.filters.policy'), {
-      target: { value: 'core' },
-    });
+    await selectPolicy('memories.loadPolicies.core');
     await user.click(screen.getByText('memories.actions.new'));
     fireEvent.change(screen.getByLabelText('memories.fields.content'), {
       target: { value: 'Memória arquivada' },
@@ -260,9 +286,7 @@ describe('MemoriesPage', () => {
       expect(mockListMemoryRecords).toHaveBeenCalledWith(expect.objectContaining({ offset: 250 }));
     });
 
-    fireEvent.change(screen.getByLabelText('memories.filters.policy'), {
-      target: { value: 'core' },
-    });
+    await selectPolicy('memories.loadPolicies.core');
 
     await waitFor(() => {
       expect(mockListMemoryRecords).toHaveBeenCalledWith(expect.objectContaining({
@@ -276,29 +300,44 @@ describe('MemoriesPage', () => {
     ))).toBe(false);
   });
 
-  it('controla filtro archived pelo checkbox de arquivadas', async () => {
+  it('controla filtro archived pelo toggle de arquivadas', async () => {
     render(<MemoriesPage />);
 
     await waitFor(() => {
       expect(mockListMemoryRecords).toHaveBeenCalled();
     });
-    const policySelect = screen.getByLabelText('memories.filters.policy') as HTMLSelectElement;
-    const archivedCheckbox = screen.getByLabelText('memories.filters.includeArchived') as HTMLInputElement;
+    const archivedToggle = screen.getByRole('button', { name: 'memories.filters.includeArchived' });
 
     expect(screen.queryByRole('option', { name: 'memories.loadPolicies.archived' })).not.toBeInTheDocument();
 
-    fireEvent.click(archivedCheckbox);
+    fireEvent.click(archivedToggle);
+    await userEvent.click(screen.getByRole('button', { name: /memories\.filters\.policy/ }));
     expect(screen.getByRole('option', { name: 'memories.loadPolicies.archived' })).toBeInTheDocument();
 
-    fireEvent.change(policySelect, { target: { value: 'archived' } });
-    expect(policySelect.value).toBe('archived');
+    await act(async () => {
+      fireEvent.mouseDown(screen.getByRole('option', { name: 'memories.loadPolicies.archived' }));
+    });
+    expect(screen.getByRole('button', { name: /memories\.loadPolicies\.archived/ })).toBeInTheDocument();
 
-    fireEvent.click(archivedCheckbox);
-    expect(policySelect.value).toBe('');
+    fireEvent.click(archivedToggle);
+    expect(screen.getByRole('button', { name: /memories\.filters\.allPolicies/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /memories\.filters\.policy/ }));
     expect(screen.queryByRole('option', { name: 'memories.loadPolicies.archived' })).not.toBeInTheDocument();
     await waitFor(() => {
       expect(mockListMemoryRecords.mock.calls.length).toBeGreaterThanOrEqual(4);
     });
+  });
+
+  it('anuncia quando policy especifica oculta arquivadas automaticamente', async () => {
+    render(<MemoriesPage />);
+
+    await waitFor(() => {
+      expect(mockListMemoryRecords).toHaveBeenCalled();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'memories.filters.includeArchived' }));
+    await selectPolicy('memories.loadPolicies.core');
+
+    expect(mockAnnounce).toHaveBeenCalledWith('memories.filters.includeArchivedAutoDisabled');
   });
 
   it('bloqueia submit duplicado enquanto salva', async () => {
