@@ -1658,11 +1658,11 @@ export namespace database {
 	    lastUsedAt?: any;
 	    // Go type: time
 	    expiresAt?: any;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new MemoryRecord(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1684,7 +1684,7 @@ export namespace database {
 	        this.lastUsedAt = this.convertValues(source["lastUsedAt"], null);
 	        this.expiresAt = this.convertValues(source["expiresAt"], null);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3292,7 +3292,7 @@ export namespace mcp {
 }
 
 export namespace memory {
-
+	
 	export class Filter {
 	    query?: string;
 	    loadPolicies?: string[];
@@ -3302,11 +3302,11 @@ export namespace memory {
 	    includeArchived?: boolean;
 	    limit?: number;
 	    offset?: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Filter(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.query = source["query"];
@@ -3322,17 +3322,17 @@ export namespace memory {
 	export class ListResult {
 	    records: database.MemoryRecord[];
 	    total: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ListResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.records = this.convertValues(source["records"], database.MemoryRecord);
 	        this.total = source["total"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3358,11 +3358,11 @@ export namespace memory {
 	    retrievable: number;
 	    archived: number;
 	    total: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PolicySummary(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.core = source["core"];
@@ -3387,11 +3387,11 @@ export namespace memory {
 	    sourceId?: string;
 	    // Go type: time
 	    expiresAt?: any;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new RecordInput(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.content = source["content"];
@@ -3407,7 +3407,7 @@ export namespace memory {
 	        this.sourceId = source["sourceId"];
 	        this.expiresAt = this.convertValues(source["expiresAt"], null);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
