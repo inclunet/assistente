@@ -13,13 +13,13 @@ Key behaviors:
 
 // CatalogFirstToolPrompt instrui o modelo a seguir o fluxo catalog-first (AEP-0049, D16):
 // quando o gating por catálogo está ativo, as únicas tools inicialmente disponíveis
-// são tools de controle como "tool_catalog" e "load_skill"; as demais só ficam
-// disponíveis APÓS serem selecionadas pelo catálogo.
+// são tools de controle como "tool_catalog"; as demais só ficam disponíveis APÓS
+// serem selecionadas pelo catálogo.
 // Esta seção é injetada sempre que o gating por catálogo está ativo, para que a ordem
 // "consultar catálogo → tools ficam disponíveis → usar" não dependa apenas da exposição
 // de tools nem de uma descrição de tool opcional.
 const CatalogFirstToolPrompt = `<tool_selection_protocol>
-Tool access in this session is gated by a catalog. Initially the only regular tool selection capability available to you is "tool_catalog"; runtime control tools such as "load_skill" may also be available for skill loading. Other tools (file access, web search, tasks, MCP servers, etc.) are NOT yet available and will not appear until you select them.
+Tool access in this session is gated by a catalog. Initially the only regular tool selection capability available to you is "tool_catalog"; other runtime control tools may be provided separately when available. Other tools (file access, web search, tasks, MCP servers, etc.) are NOT yet available and will not appear until you select them.
 
 Follow this order strictly:
 1. First, call "tool_catalog" to discover and select the capabilities you need for the task. You can filter by origin, category, class, package, risk or availability.

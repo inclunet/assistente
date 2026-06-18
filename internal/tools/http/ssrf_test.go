@@ -1,8 +1,11 @@
 package http
 
 import (
+	"context"
 	"net"
 	"testing"
+
+	"assistente/internal/tools"
 )
 
 // TestIsBlockedIP_CGNATBoundaries valida diretamente isBlockedIP nos limites do
@@ -71,5 +74,37 @@ func TestIsPrivateHost(t *testing.T) {
 		if IsPrivateHost(h) {
 			t.Errorf("%q NÃO deveria ser bloqueado", h)
 		}
+	}
+}
+
+func TestValidateNetworkScope(t *testing.T) {
+	base := tools.ExecutionContext{
+		InvokedSkillSlug:   "net-skill",
+		NetworkAllowedHost: []string{"api.example.com", "*.trusted.test"},
+		NetworkDeniedHost:  []string{"blocked.example.com", "*.evil.test"},
+	}
+	ctx := tools.WithExecutionContext(context.Background(), base)
+
+	if err := ValidateNetworkScope(ctx, "api.example.com"); err != nil {
+		t.Fatalf("expected exact allowed host, got %v", err)
+	}
+	if err := ValidateNetworkScope(ctx, "svc.trusted.test."); err != nil {
+		t.Fatalf("expected wildcard subdomain allowed, got %v", err)
+	}
+	if err := ValidateNetworkScope(ctx, "trusted.test"); err == nil {
+		t.Fatal("wildcard must not match apex domain")
+	}
+	if err := ValidateNetworkScope(ctx, "blocked.example.com"); err == nil {
+		t.Fatal("expected denied exact host to be blocked")
+	}
+	if err := ValidateNetworkScope(ctx, "a.evil.test"); err == nil {
+		t.Fatal("expected denied wildcard host to be blocked")
+	}
+
+	denyWins := base
+	denyWins.NetworkAllowedHost = []string{"api.example.com"}
+	denyWins.NetworkDeniedHost = []string{"api.example.com"}
+	if err := ValidateNetworkScope(tools.WithExecutionContext(context.Background(), denyWins), "api.example.com"); err == nil {
+		t.Fatal("denylist must take precedence over allowlist")
 	}
 }

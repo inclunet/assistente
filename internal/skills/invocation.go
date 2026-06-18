@@ -26,6 +26,10 @@ type InvocationResult struct {
 	Mode SkillMode
 	// Filesystem contém as permissões de filesystem declaradas pelo skill (nil se não definido).
 	Filesystem *FilesystemPermissions
+	// Tools contém as permissões de tools declaradas pelo skill (nil se não definido).
+	Tools *ToolPermissions
+	// Network contém as permissões de rede declaradas pelo skill (nil se não definido).
+	Network *NetworkPermissions
 }
 
 // ParseSlashCommand detecta se uma mensagem é um slash command para invocar um skill.
@@ -142,6 +146,12 @@ func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID strin
 	}
 	if skill.Filesystem != nil {
 		result.Filesystem = skill.Filesystem
+	}
+	if skill.Tools != nil {
+		result.Tools = skill.Tools
+	}
+	if skill.Network != nil {
+		result.Network = skill.Network
 	}
 
 	return result, true, nil

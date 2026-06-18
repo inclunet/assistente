@@ -270,6 +270,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	messages = prepResult.Messages
 	invokedSkillSlug := prepResult.InvokedSkillSlug
 	invokedFilesystemScope := prepResult.InvokedScope
+	invokedExecutionContext := prepResult.InvokedExecutionContext
 
 	// Constrói tool definitions para o LLM.
 	disableTools := activeProfile != nil && activeProfile.Chat.DisableTools
@@ -352,7 +353,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if len(llmToolDefs) > 0 || len(adapterToolDefs) > 0 {
 		recoveryEnabled, recoveryMaxAttempts := resolveStreamingRecoverySettings(activeProfile)
 		agentCtx := convCtx
-		if invokedSkillSlug != "" {
+		if invokedExecutionContext != nil {
+			agentCtx = tools.WithExecutionContext(agentCtx, *invokedExecutionContext)
+		} else if invokedSkillSlug != "" {
 			agentCtx = tools.WithExecutionContext(agentCtx, tools.ExecutionContext{
 				InvokedSkillSlug: invokedSkillSlug,
 				Filesystem:       invokedFilesystemScope,

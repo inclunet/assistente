@@ -1,8 +1,12 @@
 package http
 
 import (
+	"context"
+	"fmt"
 	"net"
 	"strings"
+
+	"assistente/internal/tools"
 )
 
 // IsPrivateHost reporta se um host aponta para um endereço local/privado, servindo
@@ -59,6 +63,58 @@ func IsPrivateHost(host string) bool {
 		return false
 	}
 	return isBlockedIP(ip)
+}
+
+func ValidateNetworkScope(ctx context.Context, host string) error {
+	ec, ok := tools.GetExecutionContext(ctx)
+	if !ok {
+		return nil
+	}
+	host = normalizeNetworkHost(host)
+	if host == "" {
+		return fmt.Errorf("host de rede vazio bloqueado pelo escopo do skill '%s'", ec.InvokedSkillSlug)
+	}
+	if hostMatchesAny(ec.NetworkDeniedHost, host) {
+		return fmt.Errorf("host %q bloqueado pela denylist de rede do skill '%s'", host, ec.InvokedSkillSlug)
+	}
+	if len(ec.NetworkAllowedHost) > 0 && !hostMatchesAny(ec.NetworkAllowedHost, host) {
+		return fmt.Errorf("skill '%s' não permite acesso de rede ao host %q", ec.InvokedSkillSlug, host)
+	}
+	return nil
+}
+
+func hostMatchesAny(patterns []string, host string) bool {
+	host = normalizeNetworkHost(host)
+	for _, pattern := range patterns {
+		if hostMatchesPattern(pattern, host) {
+			return true
+		}
+	}
+	return false
+}
+
+func hostMatchesPattern(pattern, host string) bool {
+	pattern = normalizeNetworkHost(pattern)
+	if pattern == "" || host == "" {
+		return false
+	}
+	if pattern == host {
+		return true
+	}
+	if strings.HasPrefix(pattern, "*.") {
+		suffix := strings.TrimPrefix(pattern, "*.")
+		return host != suffix && strings.HasSuffix(host, "."+suffix)
+	}
+	return false
+}
+
+func normalizeNetworkHost(host string) string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	host = strings.Trim(host, "[]")
+	if i := strings.IndexByte(host, '%'); i >= 0 {
+		host = host[:i]
+	}
+	return strings.TrimRight(host, ".")
 }
 
 // cgnatNet é o range CGNAT (Carrier-Grade NAT) RFC 6598, que net.IP.IsPrivate NÃO

@@ -105,7 +105,7 @@ Semântica efetiva:
 
 `memory` e `workspace` não aparecem aqui; eles são configurados como context providers na AEP-0075.
 
-`disable_skills=true` significa perfil de prompt enxuto. Além de omitir a seção de skills, o runtime também deve omitir blocos dinâmicos criados para substituir templates de skills quando esses blocos contiverem instruções imperativas para o modelo, como `linked_task_lists`. Context Providers puramente informativos podem ter política própria, mas não devem reintroduzir instruções de workflow de skill por trás desse flag.
+`disable_skills=true` significa perfil de prompt enxuto. Além de omitir a seção de skills, o runtime também deve omitir blocos dinâmicos criados para substituir templates de skills quando esses blocos contiverem instruções imperativas para o modelo, como `linked_task_lists`. Esse bloco também só deve ser injetado quando a skill `tasklist-manager` estiver efetivamente habilitada (`base` ou `on_demand`) no perfil ativo. Context Providers puramente informativos podem ter política própria, mas não devem reintroduzir instruções de workflow de skill por trás desse flag.
 
 ### D3. Primeira skill carregável pode atuar como base
 

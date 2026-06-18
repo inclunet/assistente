@@ -66,6 +66,12 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 	if req == nil {
 		return nil, fmt.Errorf("request cannot be nil")
 	}
+	if req.URL == nil {
+		return nil, fmt.Errorf("request URL cannot be nil")
+	}
+	if err := ValidateNetworkScope(ctx, req.URL.Hostname()); err != nil {
+		return nil, err
+	}
 
 	// Aplicar autenticação. O vazamento de credenciais em redirects que cruzam um
 	// limite de confiança é tratado pelo RedirectGuard (allowlist deny-by-default),
