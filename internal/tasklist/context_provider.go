@@ -38,16 +38,18 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList) string {
 	sb.WriteString("<linked_task_lists>\n")
 	sb.WriteString("This conversation has linked task lists. Use this context to track progress, update tasks, and help the user manage their work.\n")
 	for _, list := range lists {
+		listID := sanitizeContextLine(list.ID)
+		description := sanitizeContextLine(list.Description)
 		sb.WriteString("\n## ")
 		sb.WriteString(sanitizeContextLine(list.Title))
-		if list.ID != "" {
+		if listID != "" {
 			sb.WriteString(" (ID: ")
-			sb.WriteString(sanitizeContextLine(list.ID))
+			sb.WriteString(listID)
 			sb.WriteString(")")
 		}
 		sb.WriteString("\n")
-		if strings.TrimSpace(list.Description) != "" {
-			sb.WriteString(sanitizeContextLine(list.Description))
+		if description != "" {
+			sb.WriteString(description)
 			sb.WriteString("\n")
 		}
 		if len(list.Tasks) == 0 {
@@ -76,5 +78,5 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList) string {
 }
 
 func sanitizeContextLine(value string) string {
-	return strings.NewReplacer("\n", " ", "\r", " ", "<", "", ">", "").Replace(strings.TrimSpace(value))
+	return strings.NewReplacer("\n", " ", "\r", " ", "<", "", ">", "", "|", "\\|").Replace(strings.TrimSpace(value))
 }

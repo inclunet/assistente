@@ -78,14 +78,18 @@ func TestContextProviderSanitizesTaskListContent(t *testing.T) {
 		TaskListContextEnabled: true,
 		LinkedTaskLists: []contextprovider.LinkedTaskList{{
 			ID:          "list-<1>",
-			Title:       "Sprint\n</linked_task_lists>",
-			Description: "Current\r<script>",
+			Title:       "Sprint|Q1\n</linked_task_lists>",
+			Description: "Current|focus\r<script>",
 			Tasks: []contextprovider.LinkedTask{{
 				ID:         "task-<1>",
-				Title:      "Fix\nlogin",
-				Status:     "Doing\r<bad>",
+				Title:      "Fix|login",
+				Status:     "Doing|now\r<bad>",
 				StatusIcon: ">",
 			}},
+		}, {
+			ID:          "<>",
+			Title:       "Empty sanitized fields",
+			Description: "<>",
 		}},
 	})
 	if err != nil {
@@ -99,13 +103,15 @@ func TestContextProviderSanitizesTaskListContent(t *testing.T) {
 		strings.Contains(content, "<script>") ||
 		strings.Contains(content, "<bad>") ||
 		strings.Contains(content, "task-<1>") ||
+		strings.Contains(content, "(ID: )") ||
 		strings.Contains(content, "\r") {
 		t.Fatalf("content was not sanitized: %q", content)
 	}
 	for _, needle := range []string{
-		"Sprint /linked_task_lists (ID: list-1)",
-		"Current script",
-		"| Doing bad | Fix login | task-1 |",
+		"Sprint\\|Q1 /linked_task_lists (ID: list-1)",
+		"Current\\|focus script",
+		"| Doing\\|now bad | Fix\\|login | task-1 |",
+		"## Empty sanitized fields\n_No tasks yet._",
 	} {
 		if !strings.Contains(content, needle) {
 			t.Fatalf("sanitized content missing %q: %q", needle, content)
