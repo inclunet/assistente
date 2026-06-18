@@ -741,7 +741,7 @@ func TestPrepareMessagesInjectsLinkedTaskListsAsDynamicContext(t *testing.T) {
 					ID:         "task-1",
 					Title:      "Fix login",
 					Status:     "Doing",
-					StatusIcon: ">",
+					StatusIcon: "*",
 				}},
 			}}
 		},
@@ -768,7 +768,7 @@ func TestPrepareMessagesInjectsLinkedTaskListsAsDynamicContext(t *testing.T) {
 	}
 	if !strings.Contains(block.Content, "<linked_task_lists>") ||
 		!strings.Contains(block.Content, "Sprint (ID: list-1)") ||
-		!strings.Contains(block.Content, "| > Doing | Fix login | task-1 |") {
+		!strings.Contains(block.Content, "| * Doing | Fix login | task-1 |") {
 		t.Fatalf("linked task list context missing expected content: %q", block.Content)
 	}
 }
@@ -787,7 +787,8 @@ func TestPrepareMessagesOmitsLinkedTaskListsWhenSkillsDisabled(t *testing.T) {
 			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
 		},
 		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
-			return []contextprovider.LinkedTaskList{{ID: "list-1", Title: "Sprint"}}
+			t.Fatal("LinkedTaskLists should not be resolved when skills are disabled")
+			return nil
 		},
 	})
 	profile := &profiles.Profile{}
@@ -822,7 +823,8 @@ func TestPrepareMessagesOmitsLinkedTaskListsWhenTasklistSkillDisabled(t *testing
 			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
 		},
 		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
-			return []contextprovider.LinkedTaskList{{ID: "list-1", Title: "Sprint"}}
+			t.Fatal("LinkedTaskLists should not be resolved when tasklist-manager is disabled")
+			return nil
 		},
 	})
 	profile := &profiles.Profile{}

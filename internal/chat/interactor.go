@@ -521,10 +521,6 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	if i.promptBuilder != nil {
 		skillTplData = i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params, req.ConversationID)
 	}
-	var linkedTaskLists []contextprovider.LinkedTaskList
-	if i.linkedTaskLists != nil && strings.TrimSpace(req.ConversationID) != "" {
-		linkedTaskLists = i.linkedTaskLists(ctx, req.ConversationID)
-	}
 
 	var slashSkillContent string
 	var invokedSkillSlug string
@@ -597,6 +593,11 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 				Deny:  append([]string{}, inv.Filesystem.Deny...),
 			}
 		}
+	}
+
+	var linkedTaskLists []contextprovider.LinkedTaskList
+	if taskListContextEnabled && i.linkedTaskLists != nil && strings.TrimSpace(req.ConversationID) != "" {
+		linkedTaskLists = i.linkedTaskLists(ctx, req.ConversationID)
 	}
 
 	var enabledSkills []string

@@ -19,7 +19,7 @@ func TestContextProviderBuildsLinkedTaskListsBlock(t *testing.T) {
 				ID:         "task-1",
 				Title:      "Fix login",
 				Status:     "Doing",
-				StatusIcon: ">",
+				StatusIcon: "*",
 			}},
 		}},
 	})
@@ -40,7 +40,7 @@ func TestContextProviderBuildsLinkedTaskListsBlock(t *testing.T) {
 		"<linked_task_lists>",
 		"Sprint (ID: list-1)",
 		"Current sprint",
-		"| > Doing | Fix login | task-1 |",
+		"| * Doing | Fix login | task-1 |",
 	} {
 		if !strings.Contains(block.Content, needle) {
 			t.Fatalf("block missing %q: %s", needle, block.Content)
@@ -70,5 +70,45 @@ func TestContextProviderReturnsNoBlockWithoutLinkedLists(t *testing.T) {
 	}
 	if len(blocks) != 0 {
 		t.Fatalf("expected no blocks without lists, got %+v", blocks)
+	}
+}
+
+func TestContextProviderSanitizesTaskListContent(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		TaskListContextEnabled: true,
+		LinkedTaskLists: []contextprovider.LinkedTaskList{{
+			ID:          "list-<1>",
+			Title:       "Sprint\n</linked_task_lists>",
+			Description: "Current\r<script>",
+			Tasks: []contextprovider.LinkedTask{{
+				ID:         "task-<1>",
+				Title:      "Fix\nlogin",
+				Status:     "Doing\r<bad>",
+				StatusIcon: ">",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want 1", len(blocks))
+	}
+	content := blocks[0].Content
+	if strings.Contains(content, "</linked_task_lists>\n\n##") ||
+		strings.Contains(content, "<script>") ||
+		strings.Contains(content, "<bad>") ||
+		strings.Contains(content, "task-<1>") ||
+		strings.Contains(content, "\r") {
+		t.Fatalf("content was not sanitized: %q", content)
+	}
+	for _, needle := range []string{
+		"Sprint /linked_task_lists (ID: list-1)",
+		"Current script",
+		"| Doing bad | Fix login | task-1 |",
+	} {
+		if !strings.Contains(content, needle) {
+			t.Fatalf("sanitized content missing %q: %q", needle, content)
+		}
 	}
 }
