@@ -49,6 +49,7 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList, budgetCha
 	}
 	var sb strings.Builder
 	sb.WriteString(linkedTaskListsPrefix)
+	hasContent := false
 	for _, list := range lists {
 		listID := sanitizeContextLine(list.ID)
 		description := sanitizeContextLine(list.Description)
@@ -62,22 +63,26 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList, budgetCha
 		}
 		heading.WriteString("\n")
 		if !writeTaskListContextLine(&sb, budgetChars, heading.String(), true) {
-			return closeLinkedTaskListsBlock(&sb, budgetChars, true)
+			return closeLinkedTaskListsBlock(&sb, budgetChars, true, hasContent)
 		}
+		hasContent = true
 		if description != "" {
 			if !writeTaskListContextLine(&sb, budgetChars, description+"\n", true) {
-				return closeLinkedTaskListsBlock(&sb, budgetChars, true)
+				return closeLinkedTaskListsBlock(&sb, budgetChars, true, hasContent)
 			}
+			hasContent = true
 		}
 		if len(list.Tasks) == 0 {
 			if !writeTaskListContextLine(&sb, budgetChars, "_No tasks yet._\n", true) {
-				return closeLinkedTaskListsBlock(&sb, budgetChars, true)
+				return closeLinkedTaskListsBlock(&sb, budgetChars, true, hasContent)
 			}
+			hasContent = true
 			continue
 		}
 		if !writeTaskListContextLine(&sb, budgetChars, "\n| # | Status | Task | ID |\n|---|--------|------|----|\n", true) {
-			return closeLinkedTaskListsBlock(&sb, budgetChars, true)
+			return closeLinkedTaskListsBlock(&sb, budgetChars, true, hasContent)
 		}
+		hasContent = true
 		for idx, task := range list.Tasks {
 			var line strings.Builder
 			line.WriteString("| ")
@@ -94,11 +99,12 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList, budgetCha
 			line.WriteString(sanitizeContextLine(task.ID))
 			line.WriteString(" |\n")
 			if !writeTaskListContextLine(&sb, budgetChars, line.String(), true) {
-				return closeLinkedTaskListsBlock(&sb, budgetChars, true)
+				return closeLinkedTaskListsBlock(&sb, budgetChars, true, hasContent)
 			}
+			hasContent = true
 		}
 	}
-	return closeLinkedTaskListsBlock(&sb, budgetChars, false)
+	return closeLinkedTaskListsBlock(&sb, budgetChars, false, hasContent)
 }
 
 func sanitizeContextLine(value string) string {
@@ -117,7 +123,10 @@ func writeTaskListContextLine(sb *strings.Builder, budgetChars int, line string,
 	return true
 }
 
-func closeLinkedTaskListsBlock(sb *strings.Builder, budgetChars int, truncated bool) string {
+func closeLinkedTaskListsBlock(sb *strings.Builder, budgetChars int, truncated bool, hasContent bool) string {
+	if !hasContent {
+		return ""
+	}
 	if truncated {
 		_ = writeTaskListContextLine(sb, budgetChars, linkedTaskListsTruncationNotice, false)
 	}

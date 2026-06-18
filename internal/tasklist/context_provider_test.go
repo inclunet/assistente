@@ -196,3 +196,21 @@ func TestContextProviderOmitsBlockWhenBudgetCannotFitTruncationNotice(t *testing
 		t.Fatalf("expected no block when budget cannot fit truncation notice, got %+v", blocks)
 	}
 }
+
+func TestContextProviderOmitsBlockWhenBudgetCannotFitAnyTaskListContent(t *testing.T) {
+	budget := runeLen(linkedTaskListsPrefix) + runeLen(linkedTaskListsTruncationNotice) + runeLen(linkedTaskListsSuffix)
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		TaskListContextEnabled: true,
+		ProviderBudgets:        map[string]int{"tasklist": budget},
+		LinkedTaskLists: []contextprovider.LinkedTaskList{{
+			ID:    "list-1",
+			Title: "Sprint",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 0 {
+		t.Fatalf("expected no block when budget cannot fit task list content, got %+v", blocks)
+	}
+}
