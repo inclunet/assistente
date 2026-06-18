@@ -22,7 +22,7 @@ import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
-import { DeleteMessage, EditorGetDraftPath, GetActiveProfile } from '@wailsjs/go/app/App';
+import { DeleteMessage, EditorGetDraftPath, GetActiveProfile, GetActiveProfileSlug } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
@@ -41,6 +41,7 @@ export interface ChatSessionViewProps {
   /** Solicitação de troca de conversa (controlada pelo dono da superfície). */
   onRequestConversationChange?: ChatToolbarConversationChangeHandler;
   showShortcutsHelp?: boolean;
+  profileSlug?: string;
 }
 
 export function ChatSessionView({
@@ -49,6 +50,7 @@ export function ChatSessionView({
   onSend,
   onRequestConversationChange,
   showShortcutsHelp,
+  profileSlug,
 }: ChatSessionViewProps) {
   return (
     <ChatSessionProvider surface={surface}>
@@ -58,6 +60,7 @@ export function ChatSessionView({
         onSend={onSend}
         onRequestConversationChange={onRequestConversationChange}
         showShortcutsHelp={showShortcutsHelp}
+        profileSlug={profileSlug}
       />
     </ChatSessionProvider>
   );
@@ -68,6 +71,7 @@ function ChatSessionViewControllerBridge({
   onRequestConversationChange,
   variant,
   showShortcutsHelp,
+  profileSlug,
 }: ChatSessionViewProps) {
   const controller = useChatSurfaceController({
     onSend: (content, mediaFiles, context) => onSend(content, mediaFiles, context.origin),
@@ -79,11 +83,12 @@ function ChatSessionViewControllerBridge({
       showShortcutsHelp={showShortcutsHelp}
       onRequestConversationChange={onRequestConversationChange}
       controller={controller}
+      profileSlug={profileSlug}
     />
   );
 }
 
-interface ChatSessionViewContentProps extends Pick<ChatSessionViewProps, 'variant' | 'showShortcutsHelp' | 'onRequestConversationChange'> {
+interface ChatSessionViewContentProps extends Pick<ChatSessionViewProps, 'variant' | 'showShortcutsHelp' | 'onRequestConversationChange' | 'profileSlug'> {
   controller: ChatSurfaceController;
 }
 
@@ -91,6 +96,7 @@ function ChatSessionViewContent({
   variant = 'page',
   showShortcutsHelp,
   onRequestConversationChange,
+  profileSlug,
   controller,
 }: ChatSessionViewContentProps) {
   const { t } = useTranslation();
@@ -119,7 +125,7 @@ function ChatSessionViewContent({
   const isInteractiveSurface = variant === 'embedded' || isPanelActive;
 
   const [showContinueEnabled, setShowContinueEnabled] = useState(false);
-
+  const [activeProfileSlug, setActiveProfileSlug] = useState('');
   const {
     session,
     conversation,
@@ -185,16 +191,18 @@ function ChatSessionViewContent({
 
     const loadActiveProfile = async () => {
       try {
-        const profile = await GetActiveProfile();
+        const [profile, profileSlug] = await Promise.all([GetActiveProfile(), GetActiveProfileSlug()]);
         if (!mounted) return;
         // A continuação é habilitada apenas pelo perfil: o backend sempre consegue
         // continuar — via assistant prefill quando o provider suporta, ou via
         // fallback por mensagem de usuário quando não suporta (Issue #124).
         const profileAllowsContinue = profile?.chat?.streaming_recovery_show_continue ?? true;
         setShowContinueEnabled(profileAllowsContinue);
+        setActiveProfileSlug(profileSlug);
       } catch {
         if (!mounted) return;
         setShowContinueEnabled(false);
+        setActiveProfileSlug('');
       }
     };
 
@@ -655,6 +663,20 @@ function ChatSessionViewContent({
   }, [conversationId, updateConversationMessage]);
 
   useEffect(() => {
+    if (!conversationId) return;
+    const unsubscribe = EventsOn('chat:skill_loaded', (data: unknown) => {
+      const eventData = data as { conversationId?: string; displayName?: string; slug?: string };
+      if (eventData.conversationId !== conversationId) return;
+      const name = eventData.displayName || eventData.slug || '';
+      if (!name) return;
+      announce(t('chat.announce.skillLoaded', { name }));
+    });
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [announce, conversationId, t]);
+
+  useEffect(() => {
     if (sendError && retryButtonRef.current) {
       retryButtonRef.current.focus();
     }
@@ -917,6 +939,7 @@ function ChatSessionViewContent({
           mediaFiles={draftMediaFiles}
           onMessageChange={setDraftMessage}
           onMediaFilesChange={setDraftMediaFiles}
+          profileSlug={profileSlug || activeProfileSlug}
           onArrowUp={() => {
             const container = messagesContainerRef.current;
             if (!container) return;

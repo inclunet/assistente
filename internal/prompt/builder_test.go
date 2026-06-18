@@ -18,21 +18,11 @@ import (
 )
 
 type mockSkillReader struct {
-	autoSkills      []skills.Skill
-	availableSkills []skills.Skill
-	allSkillsFull   []skills.Skill
-	skillFiles      map[string][]string
-	autoErr         error
-	availErr        error
-	allErr          error
+	allSkillsFull []skills.Skill
+	skillFiles    map[string][]string
+	allErr        error
 }
 
-func (m *mockSkillReader) GetAutoSkills() ([]skills.Skill, error) {
-	return m.autoSkills, m.autoErr
-}
-func (m *mockSkillReader) GetAvailableSkills() ([]skills.Skill, error) {
-	return m.availableSkills, m.availErr
-}
 func (m *mockSkillReader) GetAllSkillsFull() ([]skills.Skill, error) {
 	return m.allSkillsFull, m.allErr
 }
@@ -59,10 +49,32 @@ func makeSkill(slug, name, desc, content string, autoLoad, modelInvocable bool) 
 	return s
 }
 
+func buildPromptForTest(b *prompt.Builder, messages []llm.Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string, dynamicContext ...string) []llm.Message {
+	blocks := make([]contextprovider.Block, 0, len(dynamicContext))
+	for _, content := range dynamicContext {
+		blocks = append(blocks, contextprovider.Block{
+			Provider:   "test",
+			Name:       "dynamic",
+			Volatility: contextprovider.VolatilityFastDynamic,
+			Content:    content,
+		})
+	}
+	return b.BuildWithContextBlocks(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, blocks)
+}
+
+func buildSystemPromptForSkills(b *prompt.Builder, enabledSkills []string, disableOnDemand bool, tplData any) string {
+	result := buildPromptForTest(b, []llm.Message{{Role: "user", Content: "oi"}}, enabledSkills, false, disableOnDemand, tplData, "", "")
+	if len(result) == 0 {
+		return ""
+	}
+	sys, _ := result[0].Content.(string)
+	return sys
+}
+
 func TestBuild_NoSkillsNoSlash_IncludesDefaultSystemPrompt(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "olá"}}
-	result := b.Build(msgs, []string{}, false, nil, "", "")
+	result := buildPromptForTest(b, msgs, []string{}, false, false, nil, "", "")
 	if len(result) != 2 || result[0].Role != "system" || result[1].Role != "user" {
 		t.Fatalf("expected system+user messages, got %v", result)
 	}
@@ -75,7 +87,7 @@ func TestBuild_NoSkillsNoSlash_IncludesDefaultSystemPrompt(t *testing.T) {
 func TestBuild_WithSlashSkill_AddsSystemMessage(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "olá"}}
-	result := b.Build(msgs, []string{}, false, nil, "slash content", "")
+	result := buildPromptForTest(b, msgs, []string{}, false, false, nil, "slash content", "")
 	if len(result) < 2 {
 		t.Fatalf("Expected system+user, got %d", len(result))
 	}
@@ -91,7 +103,7 @@ func TestBuild_WithSlashSkill_AddsSystemMessage(t *testing.T) {
 func TestBuild_WithSummary_InjectsSummaryTag(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
-	result := b.Build(msgs, nil, false, nil, "slash", "O usuário perguntou sobre finanças.")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "slash", "O usuário perguntou sobre finanças.")
 	sys := result[0].Content.(string)
 	if !strings.Contains(sys, "<conversation_summary>") {
 		t.Error("Expected <conversation_summary> tag")
@@ -104,7 +116,7 @@ func TestBuild_WithSummary_InjectsSummaryTag(t *testing.T) {
 func TestBuild_InjectsDynamicContextAfterSummary(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
-	result := b.Build(msgs, nil, false, nil, "slash", "Resumo antigo.", "<user_memory>\n- prefere pt-BR\n</user_memory>")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "slash", "Resumo antigo.", "<user_memory>\n- prefere pt-BR\n</user_memory>")
 	sys := result[0].Content.(string)
 	summaryIdx := strings.Index(sys, "<conversation_summary>")
 	memoryIdx := strings.Index(sys, "<user_memory>")
@@ -122,6 +134,7 @@ func TestBuildWithContextBlocksInjectsStableContextBeforeSummary(t *testing.T) {
 	result := b.BuildWithContextBlocks(
 		msgs,
 		nil,
+		false,
 		false,
 		nil,
 		"slash",
@@ -149,7 +162,7 @@ func TestBuildWithContextBlocksInjectsStableContextBeforeSummary(t *testing.T) {
 func TestBuild_ExistingSystemMessage_Combined(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "system", Content: "Existente."}, {Role: "user", Content: "oi"}}
-	result := b.Build(msgs, nil, false, nil, "Novo.", "")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "Novo.", "")
 	if len(result) != 2 {
 		t.Errorf("Expected 2 messages, got %d", len(result))
 	}
@@ -165,14 +178,14 @@ func TestBuild_ExistingSystemMessage_Combined(t *testing.T) {
 func TestBuild_OpenEditorFiles_InjectsSection(t *testing.T) {
 	b := &prompt.Builder{
 		Skills: &mockSkillReader{
-			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+			allSkillsFull: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
 		},
 		OpenEditorPaths: func() []string {
 			return []string{"/home/user/doc.txt", "/tmp/notes.md"}
 		},
 	}
 	msgs := []llm.Message{{Role: "user", Content: "leia o doc"}}
-	result := b.Build(msgs, nil, false, nil, "", "")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "", "")
 	sys := result[0].Content.(string)
 	if !strings.Contains(sys, "<open_editor_files>") {
 		t.Error("Expected <open_editor_files> tag in system prompt")
@@ -191,12 +204,12 @@ func TestBuild_OpenEditorFiles_InjectsSection(t *testing.T) {
 func TestBuild_OpenEditorFiles_EmptyPaths_NoSection(t *testing.T) {
 	b := &prompt.Builder{
 		Skills: &mockSkillReader{
-			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+			allSkillsFull: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
 		},
 		OpenEditorPaths: func() []string { return nil },
 	}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
-	result := b.Build(msgs, nil, false, nil, "", "")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "", "")
 	sys := result[0].Content.(string)
 	if strings.Contains(sys, "<open_editor_files>") {
 		t.Error("Should not include open_editor_files when paths are empty")
@@ -206,11 +219,11 @@ func TestBuild_OpenEditorFiles_EmptyPaths_NoSection(t *testing.T) {
 func TestBuild_OpenEditorFiles_NilFunc_NoSection(t *testing.T) {
 	b := &prompt.Builder{
 		Skills: &mockSkillReader{
-			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+			allSkillsFull: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
 		},
 	}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
-	result := b.Build(msgs, nil, false, nil, "", "")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "", "")
 	sys := result[0].Content.(string)
 	if strings.Contains(sys, "<open_editor_files>") {
 		t.Error("Should not include open_editor_files when OpenEditorPaths is nil")
@@ -220,7 +233,7 @@ func TestBuild_OpenEditorFiles_NilFunc_NoSection(t *testing.T) {
 func TestBuild_OpenEditorFiles_EscapesSpecialChars(t *testing.T) {
 	b := &prompt.Builder{
 		Skills: &mockSkillReader{
-			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+			allSkillsFull: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
 		},
 		OpenEditorPaths: func() []string {
 			// Nomes de arquivo com caracteres especiais que poderiam causar prompt injection
@@ -232,7 +245,7 @@ func TestBuild_OpenEditorFiles_EscapesSpecialChars(t *testing.T) {
 		},
 	}
 	msgs := []llm.Message{{Role: "user", Content: "leia"}}
-	result := b.Build(msgs, nil, false, nil, "", "")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "", "")
 	sys := result[0].Content.(string)
 	// Os caracteres perigosos devem ser sanitizados, nunca aparecendo literalmente
 	if strings.Contains(sys, "<injected>") {
@@ -258,7 +271,7 @@ func TestBuild_CatalogFirst_InjectsProtocol(t *testing.T) {
 		EnabledTools:       []string{tools.ToolCatalogName},
 	}
 	// Sem skills nem slash skill: a seção catalog-first ainda deve ser injetada.
-	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	result := buildPromptForTest(b, msgs, []string{}, false, false, tplData, "", "")
 	if len(result) < 2 || result[0].Role != "system" {
 		t.Fatalf("Expected a system message, got %v", result)
 	}
@@ -271,6 +284,23 @@ func TestBuild_CatalogFirst_InjectsProtocol(t *testing.T) {
 	}
 }
 
+func TestBuild_CatalogFirst_AllowsLoadSkillRuntimeControl(t *testing.T) {
+	b := &prompt.Builder{}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	tplData := chat.TemplateData{
+		ToolCallingEnabled: true,
+		EnabledTools:       []string{tools.ToolCatalogName, tools.LoadSkillName},
+	}
+	result := buildPromptForTest(b, msgs, []string{}, false, false, tplData, "", "")
+	if len(result) < 2 || result[0].Role != "system" {
+		t.Fatalf("Expected a system message, got %v", result)
+	}
+	sys := result[0].Content.(string)
+	if !strings.Contains(sys, "<tool_selection_protocol>") {
+		t.Error("Expected catalog-first protocol when only catalog and load_skill are initial")
+	}
+}
+
 func TestBuild_CatalogFirst_NotActiveWhenToolCatalogAbsent(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
@@ -279,7 +309,7 @@ func TestBuild_CatalogFirst_NotActiveWhenToolCatalogAbsent(t *testing.T) {
 		ToolCallingEnabled: true,
 		EnabledTools:       []string{"read_file", "web_search"},
 	}
-	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	result := buildPromptForTest(b, msgs, []string{}, false, false, tplData, "", "")
 	if len(result) == 1 && result[0].Role == "user" {
 		return // nenhum system prompt criado, esperado
 	}
@@ -299,7 +329,7 @@ func TestBuild_CatalogFirst_NotActiveWhenCatalogPlusOtherTools(t *testing.T) {
 		ToolCallingEnabled: true,
 		EnabledTools:       []string{tools.ToolCatalogName, "read_file", "web_search"},
 	}
-	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	result := buildPromptForTest(b, msgs, []string{}, false, false, tplData, "", "")
 	if len(result) == 1 && result[0].Role == "user" {
 		return // nenhum system prompt criado, esperado
 	}
@@ -316,7 +346,7 @@ func TestBuild_CatalogFirst_NotActiveWhenToolCallingDisabled(t *testing.T) {
 		ToolCallingEnabled: false,
 		EnabledTools:       []string{tools.ToolCatalogName},
 	}
-	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	result := buildPromptForTest(b, msgs, []string{}, false, false, tplData, "", "")
 	if len(result) == 1 && result[0].Role == "user" {
 		return
 	}
@@ -329,7 +359,7 @@ func TestBuild_CatalogFirst_NotActiveWhenToolCallingDisabled(t *testing.T) {
 func TestBuild_CatalogFirst_CoexistsWithSkills(t *testing.T) {
 	b := &prompt.Builder{
 		Skills: &mockSkillReader{
-			autoSkills: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
+			allSkillsFull: []skills.Skill{makeSkill("s1", "s1", "", "skill1", true, true)},
 		},
 	}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
@@ -337,63 +367,85 @@ func TestBuild_CatalogFirst_CoexistsWithSkills(t *testing.T) {
 		ToolCallingEnabled: true,
 		EnabledTools:       []string{tools.ToolCatalogName},
 	}
-	result := b.Build(msgs, nil, false, tplData, "", "")
+	result := buildPromptForTest(b, msgs, nil, false, false, tplData, "", "")
 	sys := result[0].Content.(string)
 	if !strings.Contains(sys, "<tool_selection_protocol>") {
 		t.Error("Expected catalog-first protocol alongside skills")
 	}
-	if !strings.Contains(sys, "<auto_skills>") {
-		t.Error("Expected auto_skills section to still be present")
+	if !strings.Contains(sys, "<base_skills>") {
+		t.Error("Expected base_skills section to still be present")
 	}
 }
 
 func TestBuildSkillsSection_NilSkillReader_ReturnsEmpty(t *testing.T) {
 	b := &prompt.Builder{}
-	if got := b.BuildSkillsSection(nil, false, nil); got != "" {
-		t.Errorf("Expected empty, got %q", got)
+	got := buildSystemPromptForSkills(b, nil, false, nil)
+	if strings.Contains(got, "<base_skills>") || strings.Contains(got, "<available_skills>") {
+		t.Errorf("Expected no skills section, got %q", got)
 	}
 }
 
-func TestBuildSkillsSection_EmptyList_ReturnsEmpty(t *testing.T) {
-	b := &prompt.Builder{Skills: &mockSkillReader{}}
-	if got := b.BuildSkillsSection([]string{}, false, nil); got != "" {
-		t.Errorf("Expected empty for disabled skills, got %q", got)
+func TestBuildSkillsSection_EmptyListReturnsEmpty(t *testing.T) {
+	s := makeSkill("manual", "Manual", "Manual desc", "Manual content.", true, true)
+	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s}}}
+	if got := buildSystemPromptForSkills(b, []string{}, false, nil); strings.Contains(got, "<base_skills>") || strings.Contains(got, "<available_skills>") {
+		t.Fatalf("empty enabled_skills should omit skills section, got %q", got)
 	}
 }
 
-func TestBuildSkillsSection_AutoLoad_ContainsAutoSkillsTag(t *testing.T) {
-	s := makeSkill("dev", "Dev", "Dev desc", "Conteúdo de dev.", true, false)
-	b := &prompt.Builder{Skills: &mockSkillReader{autoSkills: []skills.Skill{s}}}
-	result := b.BuildSkillsSection(nil, false, nil)
-	if !strings.Contains(result, "<auto_skills>") {
-		t.Error("Expected <auto_skills> tag")
+func TestBuildWithContextBlocks_DisableSkillsOmitsSkillsSection(t *testing.T) {
+	s := makeSkill("manual", "Manual", "Manual desc", "Manual content.", true, true)
+	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s}}}
+	result := b.BuildWithContextBlocks(
+		[]llm.Message{{Role: "user", Content: "oi"}},
+		[]string{},
+		true,
+		false,
+		nil,
+		"",
+		"",
+		nil,
+	)
+	sys := result[0].Content.(string)
+	if strings.Contains(sys, "<base_skills>") || strings.Contains(sys, "<available_skills>") || strings.Contains(sys, "Manual content.") {
+		t.Fatalf("disableSkills should omit all skill sections: %q", sys)
+	}
+}
+
+func TestBuildSkillsSection_LegacyAutoLoad_ContainsBaseSkillsTag(t *testing.T) {
+	s := makeSkill("dev", "Dev", "Dev desc", "Conteúdo de dev.", true, true)
+	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s}}}
+	result := buildSystemPromptForSkills(b, nil, false, nil)
+	if !strings.Contains(result, "<base_skills>") {
+		t.Error("Expected <base_skills> tag")
 	}
 	if !strings.Contains(result, "Conteúdo de dev.") {
 		t.Error("Expected skill content")
 	}
 }
 
-func TestBuildSkillsSection_ExplicitList_OrderRespected(t *testing.T) {
-	s1 := makeSkill("alpha", "Alpha", "A", "Conteúdo A.", true, false)
-	s2 := makeSkill("beta", "Beta", "B", "Conteúdo B.", true, false)
+func TestBuildSkillsSection_ExplicitList_FirstBaseRestOnDemand(t *testing.T) {
+	s1 := makeSkill("alpha", "Alpha", "A", "Conteúdo A.", true, true)
+	s2 := makeSkill("beta", "Beta", "B", "Conteúdo B.", true, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s1, s2}}}
-	result := b.BuildSkillsSection([]string{"beta", "alpha"}, true, nil)
-	betaIdx := strings.Index(result, "Conteúdo B.")
-	alphaIdx := strings.Index(result, "Conteúdo A.")
-	if betaIdx == -1 || alphaIdx == -1 {
-		t.Fatal("Both skills should appear")
+	result := buildSystemPromptForSkills(b, []string{"beta", "alpha"}, false, nil)
+	if !strings.Contains(result, "<base_skills>") || !strings.Contains(result, "Conteúdo B.") {
+		t.Fatalf("first enabled skill should be base: %q", result)
 	}
-	if betaIdx > alphaIdx {
-		t.Error("Beta should appear before Alpha")
+	if strings.Contains(result, "Conteúdo A.") {
+		t.Fatalf("on-demand skill body must not be injected: %q", result)
+	}
+	if !strings.Contains(result, "<available_skills>") || !strings.Contains(result, "Identifier: `alpha`") {
+		t.Fatalf("second enabled skill should be in light catalog: %q", result)
 	}
 }
 
 func TestBuildSkillsSection_AvailableSkills_ContainsTag(t *testing.T) {
-	auto := makeSkill("auto", "Auto", "Auto desc", "Auto content.", true, false)
+	auto := makeSkill("auto", "Auto", "Auto desc", "Auto content.", true, true)
 	avail := makeSkill("avail", "Avail", "Avail desc", "Avail content.", false, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{
-		autoSkills: []skills.Skill{auto}, availableSkills: []skills.Skill{avail}}}
-	result := b.BuildSkillsSection(nil, false, nil)
+		allSkillsFull: []skills.Skill{auto, avail}}}
+	result := buildSystemPromptForSkills(b, nil, false, nil)
 	if !strings.Contains(result, "<available_skills>") {
 		t.Error("Expected <available_skills> tag")
 	}
@@ -403,29 +455,28 @@ func TestBuildSkillsSection_AvailableSkills_ContainsTag(t *testing.T) {
 }
 
 func TestBuildSkillsSection_DisableOnDemand_NoAvailableSection(t *testing.T) {
-	auto := makeSkill("auto", "Auto", "Auto desc", "Auto content.", true, false)
+	auto := makeSkill("auto", "Auto", "Auto desc", "Auto content.", true, true)
 	avail := makeSkill("avail", "Avail", "Avail desc", "Avail content.", false, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{
-		autoSkills: []skills.Skill{auto}, availableSkills: []skills.Skill{avail}}}
-	result := b.BuildSkillsSection(nil, true, nil)
+		allSkillsFull: []skills.Skill{auto, avail}}}
+	result := buildSystemPromptForSkills(b, nil, true, nil)
 	if strings.Contains(result, "<available_skills>") {
 		t.Error("Should not include <available_skills> when disableOnDemand=true")
 	}
 }
 
 func TestBuildSkillsSection_ToolCallingDisabledSkipsToolDependentSkills(t *testing.T) {
-	toolSkill := makeSkill("tool-skill", "Tool Skill", "Uses tools", "Tool skill content.", true, false)
+	toolSkill := makeSkill("tool-skill", "Tool Skill", "Uses tools", "Tool skill content.", true, true)
 	toolSkill.Tools = &skills.ToolPermissions{Allowed: []string{"read_file"}}
-	filesystemSkill := makeSkill("filesystem-skill", "Filesystem Skill", "Uses filesystem", "Filesystem skill content.", true, false)
+	filesystemSkill := makeSkill("filesystem-skill", "Filesystem Skill", "Uses filesystem", "Filesystem skill content.", true, true)
 	filesystemSkill.Filesystem = &skills.FilesystemPermissions{Read: []string{"~/.assistente/**"}}
-	contextOnlySkill := makeSkill("context-skill", "Context Skill", "No tools", "Context skill content.", true, false)
+	contextOnlySkill := makeSkill("context-skill", "Context Skill", "No tools", "Context skill content.", true, true)
 	available := makeSkill("available", "Available", "Available desc", "Available content.", false, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{
-		autoSkills:      []skills.Skill{toolSkill, filesystemSkill, contextOnlySkill},
-		availableSkills: []skills.Skill{available},
+		allSkillsFull: []skills.Skill{toolSkill, filesystemSkill, contextOnlySkill, available},
 	}}
 
-	result := b.BuildSkillsSection(nil, false, chat.TemplateData{ToolCallingEnabled: false})
+	result := buildSystemPromptForSkills(b, nil, false, chat.TemplateData{ToolCallingEnabled: false})
 	if strings.Contains(result, "Tool skill content.") {
 		t.Fatalf("tool-dependent skill should be omitted when tool calling is disabled: %q", result)
 	}
@@ -440,13 +491,30 @@ func TestBuildSkillsSection_ToolCallingDisabledSkipsToolDependentSkills(t *testi
 	}
 }
 
-func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
-	s := makeSkill("dev", "Dev", "Dev desc", "Dev content.", true, false)
+func TestBuildSkillsSection_ToolCallingDisabledDoesNotPromoteExplicitOnDemand(t *testing.T) {
+	base := makeSkill("base", "Base", "Uses tools", "Base content.", false, true)
+	base.Tools = &skills.ToolPermissions{Allowed: []string{"read_file"}}
+	onDemand := makeSkill("later", "Later", "No tools", "Later content.", false, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{
-		autoSkills: []skills.Skill{s},
-		skillFiles: map[string][]string{"dev": {"/skills/dev/guide.md"}},
+		allSkillsFull: []skills.Skill{base, onDemand},
 	}}
-	result := b.BuildSkillsSection(nil, false, nil)
+
+	result := buildSystemPromptForSkills(b, []string{"base", "later"}, false, chat.TemplateData{ToolCallingEnabled: false})
+	if strings.Contains(result, "Base content.") {
+		t.Fatalf("tool-dependent explicit base should be omitted when tool calling is disabled: %q", result)
+	}
+	if strings.Contains(result, "Later content.") {
+		t.Fatalf("explicit on-demand skill must not be promoted to base: %q", result)
+	}
+}
+
+func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
+	s := makeSkill("dev", "Dev", "Dev desc", "Dev content.", true, true)
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		allSkillsFull: []skills.Skill{s},
+		skillFiles:    map[string][]string{"dev": {"/skills/dev/guide.md"}},
+	}}
+	result := buildSystemPromptForSkills(b, nil, false, nil)
 	if !strings.Contains(result, "Supporting files") {
 		t.Error("Expected supplementary files section")
 	}
@@ -593,7 +661,7 @@ func TestBuildTemplateData_DoesNotReuseActiveTabStateWhenSurfaceTypeDiffers(t *t
 	}
 }
 
-func TestBuild_TaskListSkillTemplateRendersEmptyWithoutTaskLists(t *testing.T) {
+func TestBuild_SkillWithTemplateExamplesIsLoadedAsPlainMarkdown(t *testing.T) {
 	taskListSkill := makeSkill("tasklist-manager", "Task List Manager", "", `{{- if .HasTaskLists }}
 Task lists:
 {{- range .TaskLists }}
@@ -603,14 +671,11 @@ Task lists:
 Tools available.
 {{- end }}
 {{- end }}`, true, true)
-	profile := &profiles.Profile{}
-	profile.Chat.DisableTools = true
 	b := &prompt.Builder{
-		Skills: &mockSkillReader{autoSkills: []skills.Skill{taskListSkill}},
+		Skills: &mockSkillReader{allSkillsFull: []skills.Skill{taskListSkill}},
 		Tools:  tools.NewRegistry(),
 	}
-	tplData := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
-	result := b.Build([]llm.Message{{Role: "user", Content: "oi"}}, nil, false, tplData, "", "", "")
+	result := buildPromptForTest(b, []llm.Message{{Role: "user", Content: "oi"}}, nil, false, false, nil, "", "")
 	if len(result) == 0 {
 		t.Fatal("expected messages")
 	}
@@ -618,11 +683,8 @@ Tools available.
 	if !ok {
 		t.Fatalf("expected system content string, got %T", result[0].Content)
 	}
-	if strings.Contains(sys, "{{") || strings.Contains(sys, ".HasTaskLists") {
-		t.Fatalf("template was not rendered: %q", sys)
-	}
-	if strings.Contains(sys, "Tools available.") {
-		t.Fatalf("tool guidance should not render when task lists are absent: %q", sys)
+	if !strings.Contains(sys, "Task List Manager") || !strings.Contains(sys, "{{- if .HasTaskLists }}") {
+		t.Fatalf("skill content with template examples should be preserved as plain markdown: %q", sys)
 	}
 }
 
@@ -671,6 +733,27 @@ func TestComputeEnabledToolNames_ProfileNilToolsUsesCatalogFirst(t *testing.T) {
 	data := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
 	if !data.ToolCallingEnabled || data.EnabledToolCount != 1 || data.EnabledTools[0] != tools.ToolCatalogName {
 		t.Fatalf("TemplateData tools not aligned with initial definitions: %+v", data)
+	}
+}
+
+func TestComputeEnabledToolNames_AddsLoadSkillForModelOnDemandSkills(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: tools.ToolCatalogName})
+	_ = reg.Register(&fakeTool{name: tools.LoadSkillName})
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"base", "review"}
+	b := &prompt.Builder{
+		Tools: reg,
+		Skills: &mockSkillReader{allSkillsFull: []skills.Skill{
+			makeSkill("base", "Base", "Base skill", "base content", false, true),
+			makeSkill("review", "Review", "Review skill", "review content", false, true),
+		}},
+	}
+
+	names := b.ComputeEnabledToolNames(profile)
+	if len(names) != 2 || names[0] != tools.ToolCatalogName || names[1] != tools.LoadSkillName {
+		t.Fatalf("Expected tool_catalog + load_skill, got %v", names)
 	}
 }
 

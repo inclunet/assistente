@@ -1,13 +1,12 @@
 ---
 name: job-manager
-version: 2.3.0
+version: 2.4.0
 description: Provides context and instructions for managing event-driven automation jobs and pipelines via the `job` and `job_pipeline` tools (DB-backed) — creation, editing, triggers, conditional events, runs and events inspection
 displayName: Job Manager
 author: Assistente
 type: agent
 category: automation
 difficulty: intermediate
-auto_load: false
 platforms:
   - windows
   - macos
@@ -126,7 +125,7 @@ when: '{{ eq .event.webhookEvent "jira:issue_updated" }}'
 
 Go template evaluated **after** the tool runs. If falsy, the success event is suppressed.
 
-- Context: `{{ .output.* }}` (tool result), `{{ .event.* }}` (trigger payload), `{{ .now }}`
+- Context: `{{ .output.* }}` (tool result), `{{ .event.* }}` (trigger payload), `{{ .now }}` (current time)
 - For fan-out: evaluated **per item** — only matching items emit events
 - Empty/omitted = always emits
 
@@ -254,7 +253,7 @@ Key facts:
 
 Two forgiving rewrites run on every template **before** it is parsed:
 
-- **`fixTemplateDots`**: a leading `{{ event.x }}` / `{{ output.x }}` / `{{ now }}` gets the missing dot → `{{ .event.x }}`. This only fixes the root word at the **start** of a `{{ … }}` block; inside `if`/`range`/`with` you must write the dot yourself (e.g. `{{ if .event.x }}`). **Always write the leading dot** — do not rely on the auto-fix.
+- **`fixTemplateDots`**: a leading `{{ event.x }}` / `{{ output.x }}` / `{{ now }}` gets the missing dot → `{{ .event.x }}`. This only fixes the root word at the **start** of a template block; inside `if`/`range`/`with` you must write the dot yourself (e.g. `{{ if .event.x }}`). **Always write the leading dot** — do not rely on the auto-fix.
 - **`fixArrayAccess`**: JS-style numeric dot indexing is converted to a Go `index` call → `{{ .event.content.0.id }}` becomes `{{ (index .event.content 0).id }}`. You can write either form.
 
 > ⚠️ **`now` function vs `.now` variable pitfall.** Both the `now` *function* (which takes **no arguments** — `func() time.Time`) and the `.now` root *variable* return the current time. But `fixTemplateDots` rewrites a leading `now` without a dot, so any block that **starts** with `now` — `{{ now }}` or even a pipe like `{{ now | … }}` — is silently rewritten to `{{ .now }}`, i.e. it becomes the **variable**, not a function call. (There is no valid `{{ now "…" }}` form — passing arguments to `now` is an error anyway.) To actually **call** the function, keep it off the start of the block by **parenthesizing** it: `{{ date (now) "2006-01-02" }}` — there the auto-fix leaves it alone. In practice just use the `.now` variable (e.g. `{{ date .now "2006-01-02" }}`) unless you specifically need a fresh `time.Now()`.

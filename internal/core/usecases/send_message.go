@@ -206,6 +206,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		messages = rmsg.Messages
 		conversationSummary = rmsg.ConversationSummary
 		userContent = userMsg.Content
+		if err := uc.chatInteractor.ValidateSkillInvocation(activeProfile, userContent, req.ConversationID, surfaceOrigin); err != nil {
+			return "", err
+		}
 	} else {
 		// Resolve conteúdo: extrai áudio do media e aplica STT fallback para canais.
 		var sttProvider string
@@ -220,6 +223,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			Transcribe:  uc.whisperTranscribeFunc(),
 		})
 		userContent = resolved.Content
+		if err := uc.chatInteractor.ValidateSkillInvocation(activeProfile, userContent, req.ConversationID, surfaceOrigin); err != nil {
+			return "", err
+		}
 
 		// Persiste mensagem do usuário, emite ready e carrega histórico.
 		rmsg, err := uc.chatInteractor.RecordUserMessage(ctx, chat.RecordUserMessageRequest{
@@ -252,13 +258,19 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		UserContent:         userContent,
 		ConversationSummary: conversationSummary,
 		ConversationID:      req.ConversationID,
+		TurnID:              userMsg.ID,
 		Params:              params,
 		ActiveProfile:       activeProfile,
+		SurfaceOrigin:       surfaceOrigin,
 		Transcribe:          uc.whisperTranscribeFunc(),
 	})
+	if prepResult.Err != nil {
+		return "", prepResult.Err
+	}
 	messages = prepResult.Messages
 	invokedSkillSlug := prepResult.InvokedSkillSlug
 	invokedFilesystemScope := prepResult.InvokedScope
+	invokedExecutionContext := prepResult.InvokedExecutionContext
 
 	// Constrói tool definitions para o LLM.
 	disableTools := activeProfile != nil && activeProfile.Chat.DisableTools
@@ -266,7 +278,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if activeProfile != nil {
 		profileEnabledTools = activeProfile.Chat.EnabledTools
 	}
-	initialEnabledTools := chat.ResolveInitialEnabledTools(uc.toolRegistry, profileEnabledTools, disableTools)
+	var runtimeTools []string
+	if prepResult.ModelOnDemandSkillAvailable {
+		runtimeTools = append(runtimeTools, tools.LoadSkillName)
+	}
+	initialEnabledTools := chat.ResolveInitialEnabledToolsWithRuntime(uc.toolRegistry, profileEnabledTools, disableTools, runtimeTools)
 	llmToolDefs := chat.BuildLLMToolDefs(uc.toolRegistry, initialEnabledTools, disableTools)
 
 	// Resolve o ChatProvider para o provedor do perfil ativo.
@@ -337,7 +353,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if len(llmToolDefs) > 0 || len(adapterToolDefs) > 0 {
 		recoveryEnabled, recoveryMaxAttempts := resolveStreamingRecoverySettings(activeProfile)
 		agentCtx := convCtx
-		if invokedSkillSlug != "" {
+		if invokedExecutionContext != nil {
+			agentCtx = tools.WithExecutionContext(agentCtx, *invokedExecutionContext)
+		} else if invokedSkillSlug != "" {
 			agentCtx = tools.WithExecutionContext(agentCtx, tools.ExecutionContext{
 				InvokedSkillSlug: invokedSkillSlug,
 				Filesystem:       invokedFilesystemScope,

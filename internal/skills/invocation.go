@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"fmt"
 	"log"
 	"strings"
 )
@@ -15,10 +16,20 @@ type InvokerManager interface {
 type InvocationResult struct {
 	// SkillSlug é o identificador do skill invocado.
 	SkillSlug string
+	// DisplayName é o nome amigável do skill invocado.
+	DisplayName string
 	// Content é o bloco XML pronto para injetar no system prompt.
 	Content string
+	// Arguments contém os argumentos passados após o slash command.
+	Arguments string
+	// Mode é o modo efetivo do skill no perfil ativo.
+	Mode SkillMode
 	// Filesystem contém as permissões de filesystem declaradas pelo skill (nil se não definido).
 	Filesystem *FilesystemPermissions
+	// Tools contém as permissões de tools declaradas pelo skill (nil se não definido).
+	Tools *ToolPermissions
+	// Network contém as permissões de rede declaradas pelo skill (nil se não definido).
+	Network *NetworkPermissions
 }
 
 // ParseSlashCommand detecta se uma mensagem é um slash command para invocar um skill.
@@ -61,12 +72,12 @@ func ParseSlashCommand(content string) (slug string, args string, ok bool) {
 // Invoke tenta invocar um skill via slash command no conteúdo da mensagem do usuário.
 //
 //   - mgr: repositório de skills para busca e listagem de arquivos complementares.
-//   - tplData: dados de template passados ao ProcessTemplate do skill.
+//   - tplData: parâmetro legado mantido para compatibilidade de assinatura; templates não são executados no runtime novo.
 //   - sessionID: ID numérico da conversa, disponibilizado como variável $CLAUDE_SESSION_ID.
 //
 // Retorna (resultado, encontrado, erro).
 // found=false significa que o conteúdo não é um slash command ou o skill não existe.
-func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID string) (*InvocationResult, bool, error) {
+func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID string, policy SelectionPolicy) (*InvocationResult, bool, error) {
 	slug, args, ok := ParseSlashCommand(userContent)
 	if !ok || mgr == nil {
 		return nil, false, nil
@@ -81,6 +92,10 @@ func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID strin
 	if !skill.IsUserInvocable() {
 		return nil, false, nil
 	}
+	mode := policy.ModeFor(slug)
+	if mode == SkillModeDisabled {
+		return nil, true, fmt.Errorf("skill /%s está desabilitada no perfil ativo", slug)
+	}
 
 	log.Printf("[Skills] Slash command detectado: /%s args=%q", slug, args)
 
@@ -89,7 +104,6 @@ func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID strin
 		"CLAUDE_SESSION_ID": sessionID,
 	}
 	processedContent := SubstituteArguments(skill.Content, args, sessionVars)
-	processedContent = ProcessTemplate(processedContent, tplData)
 
 	// Preprocessa !commands (respeita permissões de bash do skill)
 	var allowedBashCmds []string
@@ -124,11 +138,20 @@ func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID strin
 	sb.WriteString("</invoked_skill>")
 
 	result := &InvocationResult{
-		SkillSlug: slug,
-		Content:   sb.String(),
+		SkillSlug:   slug,
+		DisplayName: skill.GetDisplayName(),
+		Content:     sb.String(),
+		Arguments:   args,
+		Mode:        mode,
 	}
 	if skill.Filesystem != nil {
 		result.Filesystem = skill.Filesystem
+	}
+	if skill.Tools != nil {
+		result.Tools = skill.Tools
+	}
+	if skill.Network != nil {
+		result.Network = skill.Network
 	}
 
 	return result, true, nil

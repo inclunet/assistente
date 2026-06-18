@@ -118,6 +118,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			IsError: true,
 		}, nil
 	}
+	if result, blocked := validateSkillBashCommand(ctx, a.Command); blocked {
+		return result, nil
+	}
 
 	// Resolve diretório de trabalho
 	workDir := rc.workDir
@@ -268,6 +271,35 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 			"sessionId": session.ID(),
 		},
 	}, nil
+}
+
+func validateSkillBashCommand(ctx context.Context, command string) (tools.ToolResult, bool) {
+	ec, ok := tools.GetExecutionContext(ctx)
+	if !ok {
+		return tools.ToolResult{}, false
+	}
+	if containsString(ec.DeniedBash, command) {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("Comando bloqueado pela denylist do skill '%s'", ec.InvokedSkillSlug),
+			IsError: true,
+		}, true
+	}
+	if len(ec.AllowedBash) > 0 && !containsString(ec.AllowedBash, command) {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("Skill '%s' não permite executar este comando", ec.InvokedSkillSlug),
+			IsError: true,
+		}, true
+	}
+	return tools.ToolResult{}, false
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 // evaluateCommand avalia o comando passando pelo pipeline do commandpolicy:

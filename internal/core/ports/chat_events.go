@@ -68,6 +68,16 @@ type MessagesReadyEvent struct {
 	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }
 
+// SkillLoadedEvent is the payload for chat:skill_loaded.
+type SkillLoadedEvent struct {
+	ConversationID string             `json:"conversationId"`
+	TurnID         string             `json:"turnId,omitempty"`
+	Slug           string             `json:"slug"`
+	DisplayName    string             `json:"displayName,omitempty"`
+	Mode           string             `json:"mode,omitempty"`
+	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
+}
+
 // ToolStartEvent is the payload for chat:tool_start.
 type ToolStartEvent struct {
 	ConversationID string             `json:"conversationId"`

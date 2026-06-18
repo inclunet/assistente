@@ -365,7 +365,7 @@ export function GetToolCatalog():Promise<Array<jobs.CatalogEntry>>;
 
 export function GetTurnTokenStats(arg1:string,arg2:string):Promise<chat.TokenStats>;
 
-export function GetUserInvocableSkills():Promise<Array<skills.SkillInfo>>;
+export function GetUserInvocableSkillsForProfile(arg1:string):Promise<Array<skills.SkillInfo>>;
 
 export function GetVaultIntegrityStatus():Promise<credentials.VaultIntegrityStatus>;
 

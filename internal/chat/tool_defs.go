@@ -85,6 +85,48 @@ func ResolveInitialEnabledTools(registry *tools.Registry, enabledTools []string,
 	return nil
 }
 
+func ResolveInitialEnabledToolsWithRuntime(registry *tools.Registry, enabledTools []string, disableTools bool, runtimeTools []string) []string {
+	initial := ResolveInitialEnabledTools(registry, enabledTools, disableTools)
+	if disableTools || registry == nil || len(runtimeTools) == 0 {
+		return initial
+	}
+	// [] é uma seleção explícita de zero tools no perfil; não adiciona runtime tools.
+	if enabledTools != nil && len(enabledTools) == 0 {
+		return initial
+	}
+	if initial == nil {
+		defs := registry.ToDefinitions()
+		names := make([]string, 0, len(defs)+len(runtimeTools))
+		for _, def := range defs {
+			names = append(names, def.Function.Name)
+		}
+		initial = names
+	} else {
+		initial = append([]string{}, initial...)
+	}
+	seen := make(map[string]struct{}, len(initial)+len(runtimeTools))
+	for _, name := range initial {
+		if name = strings.TrimSpace(name); name != "" {
+			seen[name] = struct{}{}
+		}
+	}
+	for _, name := range runtimeTools {
+		name = strings.TrimSpace(name)
+		if name == "" || !registry.Has(name) {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		initial = append(initial, name)
+		seen[name] = struct{}{}
+	}
+	if len(initial) == 0 {
+		return []string{}
+	}
+	return initial
+}
+
 func BuildLLMToolDefsByNames(registry *tools.Registry, names []string, disableTools bool) []llm.ToolDefinition {
 	if disableTools || registry == nil || len(names) == 0 {
 		return nil

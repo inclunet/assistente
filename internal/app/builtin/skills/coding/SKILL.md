@@ -1,6 +1,6 @@
 ---
 name: coding
-version: 1.1.0
+version: 1.2.0
 description: Operational instructions for software engineering tasks — code exploration workflow, editing methodology, verification, and best practices inspired by senior developer patterns
 displayName: Software Engineering
 author: Assistente

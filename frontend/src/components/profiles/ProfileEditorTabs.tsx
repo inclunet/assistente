@@ -153,7 +153,7 @@ export function ProfileEditorTabs({
         <TabPanel value="skills" className="profile-editor-tabs__panel">
           <ProfileSkillsSection
             availableSkills={availableSkills}
-            enabledSkills={editingProfile.chat?.enabled_skills || []}
+            enabledSkills={editingProfile.chat?.enabled_skills ?? undefined}
             disableOnDemand={editingProfile.chat?.disable_on_demand_skills ?? false}
             skillsDisabled={editingProfile.chat?.disable_skills ?? false}
             onChange={(field, value) => updateField(`chat.${field}`, value)}

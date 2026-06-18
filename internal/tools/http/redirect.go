@@ -34,12 +34,12 @@ func RedirectGuard(maxRedirects int, allowPrivate func() bool) func(req *http.Re
 		// outro domínio (ou em texto puro) sem isto.
 		stripUnsafeHeadersOnUntrustedRedirect(req, via)
 		if allowPrivate != nil && allowPrivate() {
-			return nil
+			return ValidateNetworkScope(req.Context(), req.URL.Hostname())
 		}
 		if IsPrivateHost(req.URL.Hostname()) {
 			return fmt.Errorf("redirect para host local/privado bloqueado: %s", req.URL.Host)
 		}
-		return nil
+		return ValidateNetworkScope(req.Context(), req.URL.Hostname())
 	}
 }
 

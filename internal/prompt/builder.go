@@ -20,8 +20,6 @@ import (
 // SkillReader é o subconjunto de skills.Manager que o Builder precisa.
 // Permite mockar em testes sem instanciar o manager completo.
 type SkillReader interface {
-	GetAutoSkills() ([]skills.Skill, error)
-	GetAvailableSkills() ([]skills.Skill, error)
 	GetAllSkillsFull() ([]skills.Skill, error)
 	GetSkillFiles(slug string) ([]string, error)
 }
@@ -173,28 +171,10 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// Build compõe o system prompt completo e o injeta na lista de mensagens.
-//
-//   - enabledSkills: nil = todos os auto_load, [] = skills desabilitados, ["slug1"] = lista explícita
-//   - disableOnDemand: quando true, omite a seção <available_skills>
-//   - tplData: contexto disponível nos templates dos skills
-//   - slashSkillContent: conteúdo de um skill invocado via /slash (pode ser "")
-//   - conversationSummary: resumo de mensagens antigas (rolling context)
-func (b *Builder) Build(
-	messages []llm.Message,
-	enabledSkills []string,
-	disableOnDemand bool,
-	tplData any,
-	slashSkillContent string,
-	conversationSummary string,
-	dynamicContext ...string,
-) []llm.Message {
-	return b.build(messages, enabledSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, nil, dynamicContext)
-}
-
 func (b *Builder) BuildWithContextBlocks(
 	messages []llm.Message,
 	enabledSkills []string,
+	disableSkills bool,
 	disableOnDemand bool,
 	tplData any,
 	slashSkillContent string,
@@ -202,12 +182,13 @@ func (b *Builder) BuildWithContextBlocks(
 	contextBlocks []contextprovider.Block,
 ) []llm.Message {
 	stableContext, dynamicContext := splitRenderedContextBlocks(contextBlocks)
-	return b.build(messages, enabledSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, stableContext, dynamicContext)
+	return b.build(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, stableContext, dynamicContext)
 }
 
 func (b *Builder) build(
 	messages []llm.Message,
 	enabledSkills []string,
+	disableSkills bool,
 	disableOnDemand bool,
 	tplData any,
 	slashSkillContent string,
@@ -228,8 +209,8 @@ func (b *Builder) build(
 		parts = append(parts, joinPrefix(parts)+chat.CatalogFirstToolPrompt)
 	}
 
-	// 2. Seção de skills (auto_load + disponíveis)
-	skillsSection := b.BuildSkillsSection(enabledSkills, disableOnDemand, tplData)
+	// 2. Seção de skills (base + catálogo on-demand)
+	skillsSection := b.buildSkillsSection(enabledSkills, disableSkills, disableOnDemand, tplData)
 	if skillsSection != "" {
 		parts = append(parts, "\n\n"+skillsSection)
 	}
@@ -312,60 +293,42 @@ func splitRenderedContextBlocks(blocks []contextprovider.Block) ([]string, []str
 	return stable, dynamic
 }
 
-// BuildSkillsSection constrói as seções <auto_skills> e <available_skills>.
-func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand bool, tplData any) string {
+func (b *Builder) buildSkillsSection(enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any) string {
 	if b.Skills == nil {
 		return ""
 	}
 
-	// Slice vazio (não nil) = skills explicitamente desabilitados pelo perfil
-	if enabledSkills != nil && len(enabledSkills) == 0 {
+	allSkills, err := b.Skills.GetAllSkillsFull()
+	if err != nil {
+		log.Printf("[prompt] Erro ao carregar skills: %v", err)
 		return ""
 	}
+	policy := skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand)
+	baseSkills := policy.Base
+	availableSkills := policy.OnDemand
 
-	var autoSkills []skills.Skill
-	var availableSkills []skills.Skill
-
-	if enabledSkills != nil {
-		// Lista explícita do perfil: respeita a ordem definida
-		allSkills, err := b.Skills.GetAllSkillsFull()
-		if err != nil {
-			log.Printf("[prompt] Erro ao carregar skills: %v", err)
-			return ""
-		}
-		autoSkills = skills.FilterByNamesOrdered(allSkills, enabledSkills)
-		if !disableOnDemand {
-			availableSkills = skills.FilterExcludeNames(allSkills, enabledSkills)
-		}
-	} else {
-		// Sem lista: usa auto_load do próprio skill (backward compat)
-		var err error
-		autoSkills, err = b.Skills.GetAutoSkills()
-		if err != nil {
-			log.Printf("[prompt] Erro ao carregar auto skills: %v", err)
-		}
-		if !disableOnDemand {
-			availableSkills, err = b.Skills.GetAvailableSkills()
-			if err != nil {
-				log.Printf("[prompt] Erro ao carregar available skills: %v", err)
+	if toolCallingDisabled(tplData) {
+		if enabledSkills == nil {
+			compatible := filterSkillsWithoutToolDependencies(append(append([]skills.Skill{}, baseSkills...), availableSkills...))
+			baseSkills = nil
+			if len(compatible) > 0 {
+				baseSkills = compatible[:1]
 			}
+		} else {
+			baseSkills = filterSkillsWithoutToolDependencies(baseSkills)
 		}
-	}
-
-	if templateToolCallingDisabled(tplData) {
-		autoSkills = filterSkillsWithoutToolDependencies(autoSkills)
 		availableSkills = nil
 	}
-	if len(autoSkills) == 0 && len(availableSkills) == 0 {
+	if len(baseSkills) == 0 && len(availableSkills) == 0 {
 		return ""
 	}
 
 	var sb strings.Builder
 
-	// <auto_skills>: conteúdo completo injetado no system prompt
-	if len(autoSkills) > 0 {
-		sb.WriteString("<auto_skills>\n")
-		for i, s := range autoSkills {
+	// <base_skills>: conteúdo completo da skill base do perfil.
+	if len(baseSkills) > 0 {
+		sb.WriteString("<base_skills>\n")
+		for i, s := range baseSkills {
 			if i > 0 {
 				sb.WriteString("\n")
 			}
@@ -378,7 +341,7 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 			}
 			sb.WriteString("\n")
 
-			content := skills.ProcessTemplate(s.Content, tplData)
+			content := s.Content
 			var allowedBash []string
 			if s.Tools != nil && s.Tools.BashCommands != nil {
 				allowedBash = s.Tools.BashCommands.Allowed
@@ -397,7 +360,7 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 				}
 			}
 		}
-		sb.WriteString("</auto_skills>")
+		sb.WriteString("</base_skills>")
 	}
 
 	// <available_skills>: referências para leitura lazy pelo modelo
@@ -413,9 +376,9 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 			sb.WriteString("\n\n")
 		}
 		sb.WriteString("<available_skills>\n")
-		sb.WriteString("You have skills available that provide specialized instructions for specific tasks.\n")
-		sb.WriteString("To use a skill, read its file using the read_file tool with the path indicated below.\n")
-		sb.WriteString("Only read a skill when it's relevant to the current task.\n\n")
+		sb.WriteString("The user can invoke these on-demand skills with slash commands; you can invoke them by calling `load_skill` when tool calling is available.\n")
+		sb.WriteString("Treat this as a lightweight catalog of available workflows; do not assume the full instructions are loaded until a skill is invoked or `load_skill` succeeds.\n")
+		sb.WriteString("Do not assume disabled or unlisted skills are available.\n\n")
 		for _, s := range modelInvocable {
 			sb.WriteString("- **")
 			sb.WriteString(s.GetDisplayName())
@@ -429,8 +392,8 @@ func (b *Builder) BuildSkillsSection(enabledSkills []string, disableOnDemand boo
 			}
 			sb.WriteString(": ")
 			sb.WriteString(s.Description)
-			sb.WriteString("\n  Path: `")
-			sb.WriteString(s.Path)
+			sb.WriteString("\n  Identifier: `")
+			sb.WriteString(s.Slug)
 			sb.WriteString("`\n")
 
 			supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
@@ -459,13 +422,11 @@ func joinPrefix(parts []string) string {
 }
 
 // catalogFirstActive informa se o gating por catálogo está ativo, ou seja, se o
-// tool calling está habilitado e "tool_catalog" é a ÚNICA tool inicial exposta ao
-// modelo. Só nesse caso o protocolo catalog-first deve ser instruído: o texto de
-// CatalogFirstToolPrompt afirma que a única tool disponível inicialmente é a
-// "tool_catalog". Quando o perfil fixa EnabledTools com tool_catalog + outras
-// tools, essas outras já ficam disponíveis de imediato (ResolveInitialEnabledTools
-// devolve a lista intacta), então o gating não restringe ao catálogo e o protocolo
-// não deve ser injetado para não enganar o modelo.
+// tool calling está habilitado e as únicas tools iniciais expostas ao modelo são
+// tools de controle do runtime (`tool_catalog` e, opcionalmente, `load_skill`).
+// Quando o perfil fixa EnabledTools com tool_catalog + outras tools, essas outras
+// já ficam disponíveis de imediato, então o protocolo catalog-first não deve ser
+// injetado para não enganar o modelo.
 func catalogFirstActive(tplData any) bool {
 	var data chat.TemplateData
 	switch d := tplData.(type) {
@@ -488,14 +449,17 @@ func catalogFirstActive(tplData any) bool {
 			hasCatalog = true
 			continue
 		}
-		// Qualquer outra tool inicial significa que o gating não restringe o
-		// modelo a apenas o catálogo — o protocolo catalog-first seria enganoso.
+		if name == tools.LoadSkillName {
+			continue
+		}
+		// Qualquer outra tool inicial significa que o gating não restringe o modelo
+		// apenas a tools de controle — o protocolo catalog-first seria enganoso.
 		return false
 	}
 	return hasCatalog
 }
 
-func templateToolCallingDisabled(tplData any) bool {
+func toolCallingDisabled(tplData any) bool {
 	switch data := tplData.(type) {
 	case chat.TemplateData:
 		return !data.ToolCallingEnabled
@@ -549,8 +513,12 @@ func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []str
 	}
 
 	var defs []tools.ToolDefinition
+	var runtimeTools []string
+	if b.modelOnDemandSkillAvailable(activeProfile) {
+		runtimeTools = append(runtimeTools, tools.LoadSkillName)
+	}
 	if activeProfile != nil {
-		initialEnabledTools := chat.ResolveInitialEnabledTools(b.Tools, activeProfile.Chat.EnabledTools, activeProfile.Chat.DisableTools)
+		initialEnabledTools := chat.ResolveInitialEnabledToolsWithRuntime(b.Tools, activeProfile.Chat.EnabledTools, activeProfile.Chat.DisableTools, runtimeTools)
 		if initialEnabledTools != nil {
 			defs = b.Tools.FilterByNames(initialEnabledTools)
 		} else {
@@ -568,4 +536,24 @@ func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []str
 		names = append(names, d.Function.Name)
 	}
 	return names
+}
+
+func (b *Builder) modelOnDemandSkillAvailable(activeProfile *profiles.Profile) bool {
+	if b.Skills == nil {
+		return false
+	}
+	allSkills, err := b.Skills.GetAllSkillsFull()
+	if err != nil {
+		log.Printf("[prompt] Erro ao carregar política de skills para runtime tools: %v", err)
+		return false
+	}
+	var enabledSkills []string
+	var disableSkills bool
+	var disableOnDemand bool
+	if activeProfile != nil {
+		enabledSkills = activeProfile.Chat.EnabledSkills
+		disableSkills = activeProfile.Chat.DisableSkills
+		disableOnDemand = activeProfile.Chat.DisableOnDemandSkills
+	}
+	return skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand).HasModelOnDemandSkill()
 }

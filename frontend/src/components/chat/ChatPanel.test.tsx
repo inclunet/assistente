@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPanel } from './ChatPanel';
 import type { ChatSurfaceIdentity, ChatSurfaceOrigin } from '../../services/chatSessionRegistry';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 
 const chatSessionViewMock = vi.fn();
 
@@ -32,6 +33,7 @@ vi.mock('./ChatSessionView', () => ({
 describe('ChatPanel', () => {
   beforeEach(() => {
     chatSessionViewMock.mockClear();
+    useWorkspaceStore.setState({ workspace: null });
   });
 
   it('expõe contrato declarativo de superfície para a view interna', () => {
@@ -80,6 +82,40 @@ describe('ChatPanel', () => {
 
     expect(chatSessionViewMock).toHaveBeenCalledWith(expect.objectContaining({
       onRequestConversationChange,
+    }));
+  });
+
+  it('deriva profileSlug da aba da superfície quando o pai não informa', () => {
+    useWorkspaceStore.setState({
+      workspace: {
+        id: 'ws-1',
+        name: 'Workspace',
+        profile: 'workspace-profile',
+        tabs: [{
+          id: 'tab-chat',
+          type: 'chat',
+          title: 'Chat',
+          profileOverride: { slug: 'tab-profile' },
+        }],
+        activeTabId: 'tab-chat',
+      } as never,
+    });
+
+    render(
+      <ChatPanel
+        surface={{
+          conversationId: 'conversation-a',
+          sessionKey: 'surface-a:conversation-a',
+          surfaceId: 'surface-a',
+          surfaceType: 'modal',
+          tabId: 'tab-chat',
+        }}
+        onSend={vi.fn()}
+      />,
+    );
+
+    expect(chatSessionViewMock).toHaveBeenCalledWith(expect.objectContaining({
+      profileSlug: 'tab-profile',
     }));
   });
 

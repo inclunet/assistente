@@ -24,11 +24,11 @@
 Redesenhar o carregamento de skills para seguir progressive disclosure:
 
 - catálogo leve e estável no prompt inicial;
-- skill de perfil/base explicitamente marcada;
-- skills sob demanda invocáveis por `/skill`, menção ou decisão do modelo;
-- corpo completo da skill carregado de forma observável;
+- skills ordenadas por relevância no perfil, com a primeira skill carregável podendo atuar como base;
+- skills sob demanda invocáveis por `/skill`, menção ou decisão do modelo quando tool calling estiver disponível;
+- corpo completo da skill carregado pelo runtime de forma observável quando a skill é ativada;
 - `memory` e `workspace` fora do sistema de skills;
-- Go templates fora do caminho novo de skills.
+- template engine fora do caminho novo de skills.
 
 Skills passam a ser módulos de instrução. Contexto dinâmico pertence aos Context Providers da AEP-0075.
 
@@ -44,10 +44,12 @@ O runtime atual de `/skill` carrega o corpo da skill de forma silenciosa dentro 
 
 Ferramentas de mercado convergem para outro modelo:
 
-- Cursor: skills invocadas por `/` ou `@`; rules são escopadas separadamente.
-- Claude Code: skill descriptions ficam visíveis; corpo da skill entra quando usada, no ponto da conversa.
-- Codex: lista inicial com nome, descrição e path; lê `SKILL.md` completo apenas quando seleciona.
-- OpenClaw: injeta lista compacta e instrui o modelo a usar `read` para carregar `SKILL.md`.
+- Cursor: skills invocadas por `/` ou `@`; o runtime torna a skill selecionada disponível no contexto.
+- Claude Code: descrições de skills ficam visíveis; o corpo entra quando a skill é usada, não como parte fixa do prompt inicial.
+- Codex: expõe lista compacta com nome/descrição/caminho e carrega conteúdo completo apenas quando a skill é selecionada.
+- OpenClaw: usa catálogo compacto e carregamento progressivo do conteúdo completo.
+
+O ponto comum não é obrigar o modelo a chamar uma ferramenta `read_file` para carregar uma skill. O padrão de mercado é **progressive disclosure**: catálogo leve primeiro; corpo completo só quando a skill é ativada; carregamento feito de forma explícita pelo runtime/ferramenta/plataforma e visível o suficiente para auditoria.
 
 ## Decisões revisadas
 
@@ -67,7 +69,7 @@ Uma skill pode declarar:
 
 Uma skill não deve depender de Go templates para acessar contexto dinâmico.
 
-### D2. Perfil define o modo da skill
+### D2. Perfil define modo e ordem das skills
 
 O perfil deve controlar como cada skill participa do runtime.
 
@@ -77,28 +79,41 @@ Modos:
 - `on_demand`: aparece no catálogo e pode ser carregada quando invocada ou relevante.
 - `disabled`: não aparece no catálogo e não pode ser invocada.
 
+O perfil também preserva a ordem das skills. A ordem representa prioridade/relevância: skills mais relevantes ficam acima; menos relevantes ficam abaixo; desabilitadas ficam no fim ou fora do conjunto carregável. Essa ordem deve guiar o orçamento do catálogo quando houver omissão.
+
 Exemplo conceitual:
 
 ```json
 {
-  "skill_modes": {
-    "tech-support": "base",
-    "github": "on_demand",
-    "flock-api": "on_demand",
-    "job-manager": "disabled"
-  }
+  "enabled_skills": [
+    "tech-support",
+    "github",
+    "flock-api"
+  ]
 }
 ```
 
+Semântica efetiva:
+
+- `enabled_skills: null`/campo ausente → perfil legado; o runtime aplica fallback por `auto_load`;
+- `enabled_skills: []` → seleção explícita vazia; todas as skills ficam `disabled`;
+- `enabled_skills: ["tech-support", "github", "flock-api"]` → seleção explícita ordenada;
+- primeira skill marcada (`tech-support`) → `base`;
+- demais skills marcadas (`github`, `flock-api`) → `on_demand`;
+- skills disponíveis mas não marcadas → `disabled`;
+- a ordem da lista é a ordem de prioridade.
+
 `memory` e `workspace` não aparecem aqui; eles são configurados como context providers na AEP-0075.
 
-### D3. Skill base substitui o uso implícito de "primeira skill"
+`disable_skills=true` significa perfil de prompt enxuto. Além de omitir a seção de skills, o runtime também deve omitir blocos dinâmicos criados para substituir templates de skills quando esses blocos contiverem instruções imperativas para o modelo, como `linked_task_lists`. Esse bloco também só deve ser injetado quando a skill `tasklist-manager` estiver efetivamente habilitada (`base` ou `on_demand`) no perfil ativo. Context Providers puramente informativos podem ter política própria, mas não devem reintroduzir instruções de workflow de skill por trás desse flag.
 
-Não deve existir contrato por posição, como "a primeira skill do perfil é a instrução base". Isso é frágil e difícil de auditar.
+### D3. Primeira skill carregável pode atuar como base
 
-Se uma skill define a persona do perfil, ela deve ser marcada explicitamente como `base`.
+O contrato revisado preserva a utilidade da ordenação já existente no editor de perfil. A primeira skill marcada na lista atua como skill base do perfil. As demais skills marcadas ficam disponíveis sob demanda, seguindo a mesma ordem de prioridade.
 
-### D4. Catálogo inicial é leve e cacheável
+Isso mantém compatibilidade com o schema atual (`enabled_skills`) e evita uma migração estrutural desnecessária. A diferença para o runtime antigo é semântica: `enabled_skills` deixa de significar "todas entram no prompt" e passa a significar "lista ordenada de skills habilitadas", onde a primeira é `base`, as demais são `on_demand`, e as não marcadas são `disabled`.
+
+### D4. Catálogo inicial é leve, ordenado e cacheável
 
 O prompt inicial inclui apenas catálogo de skills `on_demand`:
 
@@ -110,7 +125,7 @@ O prompt inicial inclui apenas catálogo de skills `on_demand`:
 
 O corpo completo não entra no prompt inicial.
 
-O catálogo deve ser ordenado deterministicamente e ter orçamento de tamanho. Se passar do orçamento, descrições podem ser encurtadas e skills menos prioritárias omitidas com aviso observável.
+O catálogo deve respeitar a ordem definida pelo perfil. Essa ordem é a principal regra de prioridade: skills mais acima entram primeiro; skills mais abaixo são candidatas a omissão se houver orçamento. A aplicação de orçamento é desejável, mas o algoritmo exato de corte/encurtamento será definido na implementação. O requisito mínimo é manter a ordenação e não promover skills menos relevantes acima das mais relevantes.
 
 ### D5. `/skill` é uma ativação explícita e observável
 
@@ -125,41 +140,61 @@ Quando o usuário digita `/skill args`, o backend deve:
 
 O usuário deve conseguir perceber que a skill foi carregada.
 
-### D6. Carregamento sob demanda pelo modelo usa leitura explícita
+As permissões declaradas pela skill (`tools`, `bashCommands`, `filesystem` e `network`) devem ser preservadas no contexto de execução do turno. Para rede, o enforcement ocorre no cliente HTTP compartilhado e em redirects, de modo que skills carregadas por `/skill` ou por `load_skill` tenham o mesmo bloqueio de hosts `allowed`/`denied`.
 
-Quando o modelo decide usar uma skill listada no catálogo, ele deve carregar o corpo completo por ferramenta de leitura/carregamento.
+### D6. Carregamento sob demanda é explícito no runtime
+
+Quando uma skill listada no catálogo é ativada, o runtime deve carregar o corpo completo de forma explícita e observável no turno.
 
 Primeira implementação aceitável:
 
-- usar `read_file`/equivalente sobre o `SKILL.md` existente;
-- registrar o resultado como contexto de tool no turno;
+- resolver a skill a partir do catálogo/perfil;
+- carregar o `SKILL.md` completo pelo runtime usando a fonte atual de skills no filesystem;
+- registrar a ativação e o conteúdo carregado como contexto do turno;
 - manter supporting files lidos sob demanda.
 
 Implementação futura:
 
-- se AEP-0051 for retomada, o DB vira fonte canônica e o backend materializa um caminho read-only ou fornece uma tool `load_skill`.
+- se AEP-0051 for retomada, o DB pode virar fonte canônica. Isso não exige, por si só, uma tool nova `load_skill`; a decisão deve ser tomada apenas se houver benefício claro.
 
-### D7. Auto-load vira `base` ou deixa de existir
+### D6.1. Catálogos e autoativação pelo modelo dependem de tool calling
 
-`auto_load` como booleano genérico deve ser descontinuado.
+`tool_catalog` e qualquer futura tool/ação de autoativação de skill pelo modelo, como `load_skill`, são capacidades mediadas por tool calling. Se `toolCallingEnabled=false`, o runtime deve desativar essas portas de entrada para o modelo.
+
+Regra efetiva:
+
+- `tool_catalog` não deve ser exposta ao modelo;
+- `load_skill` ou mecanismo equivalente de autoativação de skill não deve ser exposto ao modelo;
+- skills `on_demand` não podem ser autoativadas pelo modelo;
+- `/skill` explícito do usuário continua permitido, porque o backend carrega a skill antes da chamada ao modelo;
+- a skill `base` continua funcionando, desde que seja compatível com o modo sem tool calling;
+- skills que dependem de tools/filesystem/network/MCP devem ser omitidas ou degradadas quando tool calling estiver indisponível.
+
+Resumo do contrato: carregamento sob demanda dirigido pelo modelo exige tool calling; carregamento sob demanda dirigido pelo usuário via `/skill` não exige.
+
+### D7. Auto-load vira `base`
+
+`auto_load` como booleano genérico deve ser migrado para o modo `base`. Não há remoção funcional de comportamento: o que antes entrava automaticamente passa a ser representado explicitamente como skill base.
 
 Equivalências:
 
 - `auto_load=true` que define persona do perfil → `base`;
-- `auto_load=true` que é workflow ocasional → `on_demand`;
-- `auto_load=true` que traz estado/contexto → migrar para Context Provider.
+- `auto_load=true` que era workflow essencial do perfil → `base`;
+- workflows ocasionais devem ser revisados caso a caso e podem virar `on_demand`, mas isso é decisão de migração, não remoção automática.
 
-### D8. Templates em skills são legado
+### D8. Template engine é removido de skills
 
-O caminho novo de skills não deve exigir Go templates.
+O caminho novo de skills não deve processar Go templates. Skills devem ser instruções/workflows estáticos ou parametrizados por argumentos estruturados do turno.
+
+Não é depreciação: é remoção do template engine do runtime de skills. O conteúdo de `SKILL.md` é markdown literal; sequências como `{{ ... }}` podem aparecer em exemplos, mas não são interpretadas pelo runtime.
 
 Política:
 
-- `$ARGUMENTS` pode ser substituído por bloco estruturado de argumentos;
-- `{{ now }}` deve virar context provider temporal, se necessário;
-- `include "memory/..."` deve virar memory provider;
-- `.Surface`, `.TaskLists`, `.Tabs` devem virar context providers;
-- templates existentes continuam em compatibilidade temporária com aviso.
+- `$ARGUMENTS` deve ser substituído por bloco estruturado de argumentos;
+- `{{ now }}`, includes e variáveis dinâmicas deixam de ser executados no caminho novo;
+- built-in skills não devem depender de Go templates para produzir contexto dinâmico;
+- skills com exemplos de template são carregadas como markdown literal;
+- esta AEP não exige criar novos Context Providers para substituir cada uso de template. Se algum contexto dinâmico for necessário no futuro, ele deve ser planejado em AEP própria ou extensão específica, não como requisito desta implementação.
 
 ## Fases revisadas
 
@@ -167,17 +202,21 @@ Política:
 
 Implementar Context Providers para remover `memory` e `workspace` do pool de responsabilidades de skills.
 
-### Fase 1 — Skill modes por perfil
+Status: concluída como pré-requisito principal. `memory` e `workspace` já saíram dos builtins de skills no caminho novo, e a limpeza de skills legados foi tratada separadamente.
 
-- Adicionar representação de `base`, `on_demand`, `disabled`.
-- Migrar `enabled_skills` atual para modo compatível.
-- Garantir que posição na lista não muda semântica.
+### Fase 1 — Política ordenada por perfil
+
+- Reinterpretar `enabled_skills` como lista ordenada de skills habilitadas.
+- Garantir que a primeira skill marcada seja `base`.
+- Garantir que as demais skills marcadas sejam `on_demand`.
+- Garantir que skills não marcadas sejam `disabled`.
+- Manter a ordenação como regra de prioridade do catálogo.
 
 ### Fase 2 — Catálogo leve
 
 - Construir catálogo só com skills `on_demand`.
-- Ordenar deterministicamente.
-- Aplicar orçamento.
+- Preservar a ordenação do perfil como ordem de prioridade.
+- Planejar e aplicar orçamento sem inverter prioridade; detalhes do algoritmo podem ser definidos durante a implementação.
 
 ### Fase 3 — Slash explícito e observável
 
@@ -187,24 +226,178 @@ Implementar Context Providers para remover `memory` e `workspace` do pool de res
 
 ### Fase 4 — Carregamento sob demanda
 
-- Permitir o modelo carregar skill do catálogo por leitura explícita.
+- Permitir ativação explícita de skill do catálogo e carregamento pelo runtime.
 - Registrar skill carregada como tool/context event.
+- Garantir que `tool_catalog` e autoativação de skills pelo modelo sejam desativadas quando tool calling estiver indisponível.
 
-### Fase 5 — Deprecar templates e autoload legado
+### Fase 5 — Remover templates de skills e migrar built-ins
 
-- Avisar quando skill usa Go templates.
-- Migrar builtins.
-- Remover `auto_load` após compatibilidade.
+- Migrar built-in skills para o novo formato sem Go templates.
+- Bloquear uso do template engine no caminho novo de skills.
+- Migrar `auto_load` para `base`.
+- Remover dependência do template engine no caminho novo.
+
+## Plano de implementação aprovado
+
+> **Nota de planejamento (2026-06-17).** O próximo PR implementa a versão revisada desta AEP como mudança completa de runtime, partindo de `main` após o merge da AEP-0075. O escopo confirmado é manter o schema `enabled_skills`, mas mudar sua semântica para uma lista ordenada de skills habilitadas: primeira = `base`, demais = `on_demand`, não marcadas = `disabled`.
+
+### Escopo do PR
+
+O PR deve implementar, em conjunto:
+
+1. política ordenada baseada em `enabled_skills`;
+2. compatibilidade com perfis existentes sem migração estrutural de schema;
+3. runtime central de seleção de skills por modo;
+4. catálogo leve para skills `on_demand`;
+5. `/skill` com validação por perfil e ativação observável;
+6. carregamento sob demanda explícito pelo runtime;
+7. UI de perfis e slash menu alinhados aos modos;
+8. migração de `auto_load` para `base` e remoção de templates das built-in skills.
+
+AEP-0051 continua fora do caminho crítico. Nesta implementação, `SKILL.md` no filesystem permanece a fonte inicial de leitura; um banco de skills ou tool dedicada `load_skill` ficam como evolução futura.
+
+### Contrato de perfil
+
+O novo contrato canônico é:
+
+```json
+{
+  "enabled_skills": [
+    "coding",
+    "job-manager",
+    "editor-texto"
+  ]
+}
+```
+
+Semântica:
+
+- primeira skill marcada: `base`, entra no prompt inicial como instrução base do perfil;
+- demais skills marcadas: `on_demand`, aparecem no catálogo leve e podem ser carregadas por `/skill`, menção ou decisão do modelo quando tool calling estiver disponível;
+- skills não marcadas: `disabled`, não aparecem no catálogo e não podem ser invocadas;
+- a ordem da lista é relevante e representa prioridade.
+
+`enabled_skills` continua sendo o contrato de armazenamento, preservando compatibilidade com perfis existentes e com o editor atual. A mudança é na política efetiva derivada dessa lista:
+
+- `enabled_skills[0]` → `base`;
+- `enabled_skills[1:]` → `on_demand`;
+- skills disponíveis ausentes de `enabled_skills` → `disabled`;
+- perfis com `disable_skills=true` devem produzir uma política efetiva sem skills carregáveis;
+- perfis com `disable_on_demand_skills=true` devem produzir política efetiva com apenas `enabled_skills[0]` como `base` e o restante como `disabled`.
+- se `toolCallingEnabled=false`, o catálogo para o modelo deve omitir `tool_catalog` e qualquer autoativação de skills; permanecem apenas a skill `base` e `/skill` explícito do usuário.
+
+Depois da migração semântica, os perfis builtin podem continuar declarando `enabled_skills`, mas devem ordenar a lista por relevância.
+
+### Runtime de seleção
+
+Deve existir uma política efetiva de seleção, por exemplo `SkillSelectionPolicy`, responsável por resolver:
+
+- skills `base` do perfil;
+- skills `on_demand` elegíveis para catálogo;
+- skills `disabled`;
+- compatibilidade temporária com `auto_load`;
+- bloqueios globais de skill do perfil, se ainda necessários durante migração.
+
+O `prompt.Builder` não deve interpretar `enabledSkills` diretamente como "autoload de todas". Ele deve receber a política efetiva ou uma estrutura equivalente que deixe claro qual é a skill `base` e quais são `on_demand`.
+
+### Catálogo leve
+
+O prompt inicial deve conter apenas catálogo leve de skills `on_demand`, com:
+
+- slug;
+- display name;
+- descrição ou quando usar;
+- caminho ou identificador de carregamento do `SKILL.md`.
+
+O corpo completo da skill não entra no catálogo. O catálogo deve preservar a ordenação do perfil e pode aplicar orçamento. Quando houver orçamento e ele estourar:
+
+- descrições podem ser encurtadas;
+- skills menos prioritárias, mais abaixo na lista, podem ser omitidas;
+- o prompt deve conter aviso observável de omissão/encurtamento.
+
+O algoritmo exato de orçamento não fica fechado nesta AEP. O requisito é que qualquer corte respeite a ordem: relevantes acima, menos relevantes abaixo, desabilitadas no fim ou fora do catálogo.
+
+### `/skill` observável
+
+Quando o usuário enviar `/skill args`, o backend deve:
+
+1. resolver a skill;
+2. validar a política efetiva do perfil;
+3. rejeitar skill `disabled` com erro claro;
+4. registrar evento de ativação de skill no turno;
+5. preservar os argumentos em bloco separado;
+6. anexar o corpo da skill como contexto do turno carregado explicitamente pelo runtime;
+7. manter as permissões de filesystem/network da skill para o turno.
+
+O carregamento não deve ser uma mutação silenciosa do system prompt estável. O usuário deve conseguir perceber que a skill foi carregada.
+
+### Carregamento sob demanda pelo modelo
+
+Na primeira implementação, a skill listada no catálogo é carregada pelo runtime a partir do `SKILL.md` existente quando ativada. Supporting files continuam sob demanda.
+
+Regras:
+
+- skill `disabled` não aparece no catálogo;
+- skill `disabled` não pode ser carregada por `/skill`;
+- skill `on_demand` pode ser carregada quando ativada;
+- skill `base` entra como instrução base e a ordenação do perfil define sua prioridade relativa.
+- ativação dirigida pelo modelo só é permitida quando tool calling estiver disponível;
+- `tool_catalog` e qualquer tool de controle como `load_skill` devem ser removidas do conjunto exposto ao modelo quando tool calling estiver indisponível.
+
+### Frontend
+
+A UI de perfis deve manter a seleção ordenada já existente, mas expor a semântica efetiva:
+
+- marcada e primeira na ordem: `base`;
+- marcada e não primeira: `on_demand`;
+- não marcada: `disabled`.
+
+A UI atual já permite marcar e ordenar skills. O trabalho principal é deixar a semântica clara para o usuário, por exemplo mostrando que a primeira marcada é a base e que as demais marcadas são sob demanda. O slash menu deve listar somente skills invocáveis segundo a política efetiva do perfil ativo.
+
+### Remoção de templates e compatibilidade de `auto_load`
+
+Templates em skills não continuam como compatibilidade do caminho novo. O runtime novo não deve executar Go templates em skills. Built-in skills que ainda usam templates devem ser migradas para instruções estáticas ou argumentos estruturados antes de entrar no catálogo/base.
+
+Equivalências temporárias:
+
+- `auto_load=true` que representava persona vira `base` durante migração;
+- `auto_load=true` que era workflow essencial também vira `base` inicialmente;
+- workflows ocasionais podem ser revisados para entrar depois da primeira posição como `on_demand`;
+- esta AEP não planeja criar novos Context Providers para substituir templates.
+- skills com templates não são carregáveis no caminho novo até migração explícita.
+
+### Testes mínimos do PR
+
+O PR deve cobrir:
+
+- compatibilidade de perfil existente com `enabled_skills`;
+- perfis builtin com `enabled_skills` ordenados por prioridade;
+- política efetiva com `base`, `on_demand` e `disabled`;
+- catálogo leve sem corpo completo de skill;
+- orçamento de catálogo com encurtamento/omissão;
+- `/skill` permitido para skill habilitada;
+- `/skill` rejeitado para skill `disabled`;
+- preservação de argumentos e permissões de filesystem no turno;
+- slash menu mostrando apenas skills invocáveis;
+- `tool_catalog` e autoativação pelo modelo indisponíveis quando `toolCallingEnabled=false`;
+- `/skill` explícito do usuário funcionando mesmo quando `toolCallingEnabled=false`;
+- UI de perfil mantendo/ordenando `enabled_skills` e explicando a semântica efetiva;
+- migração de `auto_load` e built-in skills sem templates no caminho novo.
 
 ## Critérios de aceitação revisados
 
 - `memory` e `workspace` não são skills no caminho novo.
-- Perfil declara skill `base` explicitamente.
+- Perfil ordena skills em `enabled_skills`; a primeira marcada é a skill `base`.
 - Skills `on_demand` aparecem em catálogo leve.
 - `/skill` gera ativação observável no turno.
 - Skill desabilitada não aparece nem carrega.
 - O corpo completo de skill não é injetado silenciosamente no system prompt estável.
-- Go templates não são necessários para skills novas.
+- Go templates não existem no runtime novo de skills.
+- Perfis builtin e novos usam `enabled_skills` ordenado por prioridade.
+- Perfis antigos com `enabled_skills` continuam compatíveis e ganham semântica determinística.
+- O catálogo leve respeita orçamento e informa omissões/encurtamentos.
+- A UI de perfis deixa clara a semântica: primeira marcada = base; demais marcadas = on demand; não marcadas = disabled.
+- Quando tool calling estiver indisponível, `tool_catalog` e autoativação de skills pelo modelo não são expostos; `/skill` explícito do usuário e skill `base` continuam sendo os caminhos suportados.
 
 ---
 

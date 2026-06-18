@@ -435,8 +435,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		OnProviderChange: a.initLLMClient,
 	})
 	a.skillsCtrl = controllers.NewSkillsController(controllers.SkillsControllerConfig{
-		SkillMgr: a.skillMgr,
-		Emitter:  a.emitter,
+		SkillMgr:   a.skillMgr,
+		ProfileMgr: a.profileManager,
+		Emitter:    a.emitter,
 	})
 	a.settingsCtrl = controllers.NewSettingsController(controllers.SettingsControllerConfig{
 		CredMgr:     a.credMgr,

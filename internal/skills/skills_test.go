@@ -24,8 +24,8 @@ func TestParseTaskListSkill(t *testing.T) {
 	if meta.Name != "tasklist-manager" {
 		t.Errorf("Name esperado 'tasklist-manager', got %q", meta.Name)
 	}
-	if meta.Version != "1.5.0" {
-		t.Errorf("Version esperado '1.5.0', got %q", meta.Version)
+	if meta.Version != "2.0.0" {
+		t.Errorf("Version esperado '2.0.0', got %q", meta.Version)
 	}
 	if meta.Description == "" {
 		t.Error("Description não deve ser vazio")
@@ -50,9 +50,9 @@ func TestParseTaskListSkill(t *testing.T) {
 		t.Errorf("Difficulty esperado 'beginner', got %q", meta.Difficulty)
 	}
 
-	// === AutoLoad ===
-	if !meta.IsAutoLoad() {
-		t.Error("IsAutoLoad() deveria retornar true")
+	// === Loading ===
+	if meta.IsAutoLoad() {
+		t.Error("IsAutoLoad() deveria retornar false; tasklist-manager agora é sob demanda/ordenável por perfil")
 	}
 
 	// === Platforms ===
@@ -84,9 +84,9 @@ func TestParseTaskListSkill(t *testing.T) {
 	// Verifica que o content tem seções chave da skill de tasklists.
 	requiredSections := []string{
 		"# Task Lists",
-		"## Linked Task Lists",
-		"## Guidelines",
-		"## Linking tasks",
+		"## Tools",
+		"## Core Rules",
+		"## Conversation Links",
 	}
 	for _, section := range requiredSections {
 		if !strings.Contains(content, section) {

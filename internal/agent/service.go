@@ -432,7 +432,8 @@ func (s *Service) RunAgenticLoop(
 			}
 		}
 		s.emitToolStarts(conversationID, turnID, result.ToolCalls, surfaceOrigin)
-		execBatch := s.executeToolCalls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID})
+		execBatch := s.executeToolCallsWithRuntimeControls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID}, conversationID, turnID, surfaceOrigin)
+		ctx = execBatch.Context
 		execResults := execBatch.Executions
 
 		// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
@@ -1250,9 +1251,168 @@ func expandToolDefsFromCatalogResults(
 	return appendUniqueToolDefs(existing, resolveToolDefs(selectedToolsFromCatalog(results))...)
 }
 
+func applyLoadedSkillExecutionContext(ctx context.Context, results []tools.ToolExecutionResult, emitter events.Emitter, conversationID, turnID string, surfaceOrigin *ports.ChatSurfaceOrigin) context.Context {
+	for _, result := range results {
+		if result.ToolName != tools.LoadSkillName || result.Result.IsError || result.Result.Metadata == nil {
+			continue
+		}
+		emitLoadedSkillEvent(emitter, result.Result.Metadata, conversationID, turnID, surfaceOrigin)
+		read := metadataStringSlice(result.Result.Metadata, "filesystem_read")
+		write := metadataStringSlice(result.Result.Metadata, "filesystem_write")
+		deny := metadataStringSlice(result.Result.Metadata, "filesystem_deny")
+		allowedTools := metadataStringSlice(result.Result.Metadata, "tools_allowed")
+		deniedTools := metadataStringSlice(result.Result.Metadata, "tools_denied")
+		allowedBash := metadataStringSlice(result.Result.Metadata, "bash_commands_allowed")
+		deniedBash := metadataStringSlice(result.Result.Metadata, "bash_commands_denied")
+		networkAllowed := metadataStringSlice(result.Result.Metadata, "network_allowed_hosts")
+		networkDenied := metadataStringSlice(result.Result.Metadata, "network_denied_hosts")
+		ec, _ := tools.GetExecutionContext(ctx)
+		if len(read) > 0 || len(write) > 0 || len(deny) > 0 {
+			ec.Filesystem = mergeFilesystemScope(ec.Filesystem, &tools.FilesystemScope{
+				Read:  read,
+				Write: write,
+				Deny:  deny,
+			})
+		}
+		ec.AllowedTools = appendUniqueStrings(ec.AllowedTools, allowedTools...)
+		ec.DeniedTools = appendUniqueStrings(ec.DeniedTools, deniedTools...)
+		ec.AllowedBash = appendUniqueStrings(ec.AllowedBash, allowedBash...)
+		ec.DeniedBash = appendUniqueStrings(ec.DeniedBash, deniedBash...)
+		ec.NetworkAllowedHost = appendUniqueStrings(ec.NetworkAllowedHost, networkAllowed...)
+		ec.NetworkDeniedHost = appendUniqueStrings(ec.NetworkDeniedHost, networkDenied...)
+		if ec.InvokedSkillSlug == "" {
+			if slug, _ := result.Result.Metadata["skill_slug"].(string); strings.TrimSpace(slug) != "" {
+				ec.InvokedSkillSlug = strings.TrimSpace(slug)
+			}
+		}
+		ctx = tools.WithExecutionContext(ctx, ec)
+	}
+	return ctx
+}
+
+func emitLoadedSkillEvent(emitter events.Emitter, metadata map[string]any, conversationID, turnID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
+	if emitter == nil {
+		return
+	}
+	slug, _ := metadata["skill_slug"].(string)
+	name, _ := metadata["skill_name"].(string)
+	slug = strings.TrimSpace(slug)
+	name = strings.TrimSpace(name)
+	if slug == "" {
+		return
+	}
+	emitter.Emit("chat:skill_loaded", ports.SkillLoadedEvent{
+		ConversationID: conversationID,
+		TurnID:         turnID,
+		Slug:           slug,
+		DisplayName:    name,
+		Mode:           "on_demand",
+		SurfaceOrigin:  surfaceOrigin,
+	})
+}
+
+func mergeFilesystemScope(existing, next *tools.FilesystemScope) *tools.FilesystemScope {
+	if existing == nil {
+		return &tools.FilesystemScope{
+			Read:  append([]string{}, next.Read...),
+			Write: append([]string{}, next.Write...),
+			Deny:  append([]string{}, next.Deny...),
+		}
+	}
+	return &tools.FilesystemScope{
+		Read:  appendUniqueStrings(existing.Read, next.Read...),
+		Write: appendUniqueStrings(existing.Write, next.Write...),
+		Deny:  appendUniqueStrings(existing.Deny, next.Deny...),
+	}
+}
+
+func metadataStringSlice(metadata map[string]any, key string) []string {
+	raw, ok := metadata[key]
+	if !ok || raw == nil {
+		return nil
+	}
+	switch value := raw.(type) {
+	case []string:
+		return append([]string{}, value...)
+	case []any:
+		out := make([]string, 0, len(value))
+		for _, item := range value {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func appendUniqueStrings(existing []string, additions ...string) []string {
+	out := append([]string{}, existing...)
+	seen := make(map[string]struct{}, len(out)+len(additions))
+	for _, item := range out {
+		seen[item] = struct{}{}
+	}
+	for _, item := range additions {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		out = append(out, item)
+		seen[item] = struct{}{}
+	}
+	return out
+}
+
 type toolExecutionBatch struct {
 	Executions        []tools.ToolExecutionResult
 	PersistedByCallID map[string]bool
+	Context           context.Context
+}
+
+func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin, conversationID, turnID string, surfaceOrigin *ports.ChatSurfaceOrigin) toolExecutionBatch {
+	// Runtime control tools can change the execution context for the rest of the
+	// batch. Run load_skill first even when the model emitted it after regular
+	// tools, then place results back in the original order for persistence/history.
+	loadSkillCalls := make([]tools.ToolCall, 0)
+	loadSkillIndexes := make([]int, 0)
+	regularCalls := make([]tools.ToolCall, 0, len(calls))
+	regularIndexes := make([]int, 0, len(calls))
+	for i, call := range calls {
+		if call.Function.Name == tools.LoadSkillName {
+			loadSkillCalls = append(loadSkillCalls, call)
+			loadSkillIndexes = append(loadSkillIndexes, i)
+			continue
+		}
+		regularCalls = append(regularCalls, call)
+		regularIndexes = append(regularIndexes, i)
+	}
+	if len(loadSkillCalls) == 0 {
+		batch := s.executeToolCalls(ctx, calls, origin)
+		batch.Context = ctx
+		return batch
+	}
+
+	executions := make([]tools.ToolExecutionResult, len(calls))
+	persisted := make(map[string]bool, len(calls))
+	loadBatch := s.executeToolCalls(ctx, loadSkillCalls, origin)
+	for i, result := range loadBatch.Executions {
+		executions[loadSkillIndexes[i]] = result
+		persisted[result.CallID] = loadBatch.PersistedByCallID[result.CallID]
+	}
+	ctx = applyLoadedSkillExecutionContext(ctx, loadBatch.Executions, s.emitter, conversationID, turnID, surfaceOrigin)
+
+	if len(regularCalls) > 0 {
+		regularBatch := s.executeToolCalls(ctx, regularCalls, origin)
+		for i, result := range regularBatch.Executions {
+			executions[regularIndexes[i]] = result
+			persisted[result.CallID] = regularBatch.PersistedByCallID[result.CallID]
+		}
+	}
+	return toolExecutionBatch{Executions: executions, PersistedByCallID: persisted, Context: ctx}
 }
 
 func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin) toolExecutionBatch {
@@ -1262,7 +1422,7 @@ func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, 
 		for _, r := range execs {
 			persisted[r.CallID] = false
 		}
-		return toolExecutionBatch{Executions: execs, PersistedByCallID: persisted}
+		return toolExecutionBatch{Executions: execs, PersistedByCallID: persisted, Context: ctx}
 	}
 	results := s.toolInvocations.ExecuteAll(ctx, calls, origin)
 	out := make([]tools.ToolExecutionResult, len(results))
@@ -1271,7 +1431,7 @@ func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, 
 		out[i] = result.Execution
 		persisted[result.Execution.CallID] = result.Persisted
 	}
-	return toolExecutionBatch{Executions: out, PersistedByCallID: persisted}
+	return toolExecutionBatch{Executions: out, PersistedByCallID: persisted, Context: ctx}
 }
 
 func (s *Service) executeToolCall(ctx context.Context, call tools.ToolCall, origin toolinvocations.Origin) (tools.ToolExecutionResult, bool) {

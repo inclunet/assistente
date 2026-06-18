@@ -66,6 +66,7 @@ export default function ChatPage() {
       surface={surface}
       onSend={onSend}
       onRequestConversationChange={onRequestConversationChange}
+      profileSlug={effectiveProfileSlug}
     />
   );
 }

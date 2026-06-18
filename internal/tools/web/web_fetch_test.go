@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"assistente/internal/credentials"
+	"assistente/internal/tools"
 )
 
 // newTestWebFetch cria um WebFetch que permite hosts privados (para httptest)
@@ -37,6 +38,32 @@ func TestWebFetch_Parameters(t *testing.T) {
 	}
 	if schema["type"] != "object" {
 		t.Error("schema deve ter type=object")
+	}
+}
+
+func TestWebFetch_BlocksNetworkDeniedHost(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		_, _ = fmt.Fprint(w, "should not be reached")
+	}))
+	defer server.Close()
+
+	tool := newTestWebFetch()
+	ctx := tools.WithExecutionContext(context.Background(), tools.ExecutionContext{
+		InvokedSkillSlug:  "net-skill",
+		NetworkDeniedHost: []string{"127.0.0.1"},
+	})
+	args, _ := json.Marshal(map[string]string{"url": server.URL})
+	result, err := tool.Execute(ctx, json.RawMessage(args))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("esperado erro por denylist de rede, got: %s", result.Content)
+	}
+	if called {
+		t.Fatal("servidor não deveria receber requisição quando host está na denylist de rede")
 	}
 }
 

@@ -2,8 +2,10 @@ package controllers
 
 import (
 	"fmt"
+	"strings"
 
 	"assistente/internal/core/ports"
+	"assistente/internal/profiles"
 	"assistente/internal/skills"
 )
 
@@ -15,19 +17,21 @@ type SkillCreateRequest struct {
 
 // SkillsControllerConfig agrupa as dependências do SkillsController.
 type SkillsControllerConfig struct {
-	SkillMgr *skills.Manager
-	Emitter  ports.Emitter
+	SkillMgr   *skills.Manager
+	ProfileMgr *profiles.Manager
+	Emitter    ports.Emitter
 }
 
 // SkillsController é o adapter primário (Inbound) para operações de skills.
 type SkillsController struct {
-	skillMgr *skills.Manager
-	emitter  ports.Emitter
+	skillMgr   *skills.Manager
+	profileMgr *profiles.Manager
+	emitter    ports.Emitter
 }
 
 // NewSkillsController cria um SkillsController com suas dependências.
 func NewSkillsController(cfg SkillsControllerConfig) *SkillsController {
-	return &SkillsController{skillMgr: cfg.SkillMgr, emitter: cfg.Emitter}
+	return &SkillsController{skillMgr: cfg.SkillMgr, profileMgr: cfg.ProfileMgr, emitter: cfg.Emitter}
 }
 
 func (c *SkillsController) guard() error {
@@ -103,11 +107,42 @@ func (c *SkillsController) DeleteSkill(slug string) error {
 	return nil
 }
 
-func (c *SkillsController) GetUserInvocableSkills() ([]skills.SkillInfo, error) {
+func (c *SkillsController) GetUserInvocableSkillsForProfile(profileSlug string) ([]skills.SkillInfo, error) {
 	if err := c.guard(); err != nil {
 		return nil, err
 	}
-	return c.skillMgr.GetUserInvocableSkills()
+	allSkills, err := c.skillMgr.GetAllSkillsFull()
+	if err != nil {
+		return nil, err
+	}
+	var enabledSkills []string
+	var disableSkills bool
+	var disableOnDemand bool
+	if c.profileMgr != nil {
+		profileSlug = strings.TrimSpace(profileSlug)
+		var profile *profiles.Profile
+		if profileSlug != "" {
+			profile, err = c.profileMgr.Get(profileSlug)
+			if err != nil {
+				profile, err = c.profileMgr.GetActive()
+				if err != nil {
+					return nil, err
+				}
+			}
+		} else {
+			profile, err = c.profileMgr.GetActive()
+			if err != nil {
+				return nil, err
+			}
+		}
+		if profile != nil {
+			enabledSkills = profile.Chat.EnabledSkills
+			disableSkills = profile.Chat.DisableSkills
+			disableOnDemand = profile.Chat.DisableOnDemandSkills
+		}
+	}
+	policy := skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand)
+	return policy.InvocableUserSkills(), nil
 }
 
 func (c *SkillsController) GetSkillSearchPaths() []string {

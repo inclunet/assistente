@@ -206,6 +206,30 @@ func TestResolveInitialEnabledTools_EmptyExplicitSelectionStaysEmpty(t *testing.
 	}
 }
 
+func TestResolveInitialEnabledToolsWithRuntime_AppendsLoadSkillToCatalogFirst(t *testing.T) {
+	r := registryWith(tools.ToolCatalogName, tools.LoadSkillName, "read_file")
+	got := ResolveInitialEnabledToolsWithRuntime(r, nil, false, []string{tools.LoadSkillName})
+	if len(got) != 2 || got[0] != tools.ToolCatalogName || got[1] != tools.LoadSkillName {
+		t.Fatalf("expected catalog plus load_skill, got %#v", got)
+	}
+}
+
+func TestResolveInitialEnabledToolsWithRuntime_ExplicitEmptyKeepsToolCallingOff(t *testing.T) {
+	r := registryWith(tools.ToolCatalogName, tools.LoadSkillName, "read_file")
+	got := ResolveInitialEnabledToolsWithRuntime(r, []string{}, false, []string{tools.LoadSkillName})
+	if got == nil || len(got) != 0 {
+		t.Fatalf("expected explicit empty selection, got %#v", got)
+	}
+}
+
+func TestResolveInitialEnabledToolsWithRuntime_AppendsToExplicitTools(t *testing.T) {
+	r := registryWith(tools.ToolCatalogName, tools.LoadSkillName, "read_file")
+	got := ResolveInitialEnabledToolsWithRuntime(r, []string{"read_file"}, false, []string{tools.LoadSkillName})
+	if len(got) != 2 || got[0] != "read_file" || got[1] != tools.LoadSkillName {
+		t.Fatalf("expected explicit tools plus load_skill, got %#v", got)
+	}
+}
+
 func TestResolveInitialEnabledTools_FallsBackToAllWithoutCatalog(t *testing.T) {
 	r := registryWith("read_file", "grep_search")
 	got := ResolveInitialEnabledTools(r, nil, false)

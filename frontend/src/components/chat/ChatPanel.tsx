@@ -5,6 +5,7 @@ import type {
   ChatSurfaceSendContext,
   ChatSurfaceSendHandler,
 } from './ChatSurfaceController';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 
 export type ChatPanelSendContext = ChatSurfaceSendContext;
 export type ChatPanelSendHandler = ChatSurfaceSendHandler;
@@ -25,6 +26,23 @@ export interface ChatPanelProps {
   onSend: ChatPanelSendHandler;
   onRequestConversationChange?: ChatPanelConversationChangeHandler;
   showShortcutsHelp?: boolean;
+  profileSlug?: string;
+}
+
+function profileSlugFrom(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+export function useEffectiveProfileSlug(tabId?: string, overrideProfileSlug?: string): string | undefined {
+  const workspaceTabs = useWorkspaceStore((s) => s.workspace?.tabs);
+  const workspaceProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const surfaceTab = tabId
+    ? workspaceTabs?.find((tab) => tab.id === tabId)
+    : undefined;
+  return overrideProfileSlug
+    || profileSlugFrom(surfaceTab?.profileOverride?.slug)
+    || profileSlugFrom(workspaceProfile)
+    || undefined;
 }
 
 export function ChatPanel({
@@ -32,10 +50,12 @@ export function ChatPanel({
   onSend,
   onRequestConversationChange,
   showShortcutsHelp,
+  profileSlug,
 }: ChatPanelProps) {
   const variant = surface.surfaceType === 'embedded' || surface.surfaceType === 'modal'
     ? 'embedded'
     : 'page';
+  const effectiveProfileSlug = useEffectiveProfileSlug(surface.tabId, profileSlug);
 
   return (
     <ChatSessionView
@@ -47,6 +67,7 @@ export function ChatPanel({
       })}
       onRequestConversationChange={onRequestConversationChange}
       showShortcutsHelp={showShortcutsHelp}
+      profileSlug={effectiveProfileSlug}
     />
   );
 }

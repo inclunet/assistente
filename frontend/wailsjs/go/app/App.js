@@ -686,8 +686,8 @@ export function GetTurnTokenStats(arg1, arg2) {
   return window['go']['app']['App']['GetTurnTokenStats'](arg1, arg2);
 }
 
-export function GetUserInvocableSkills() {
-  return window['go']['app']['App']['GetUserInvocableSkills']();
+export function GetUserInvocableSkillsForProfile(arg1) {
+  return window['go']['app']['App']['GetUserInvocableSkillsForProfile'](arg1);
 }
 
 export function GetVaultIntegrityStatus() {

@@ -19,7 +19,7 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-const mockSkills: Array<{ name: string; slug: string; description: string; source?: string }> = [
+const mockSkills: Array<{ name: string; slug: string; description: string; source?: string; autoLoad?: boolean }> = [
   { name: 'Skill 1', slug: 'skill-1', description: 'First skill', source: 'exe' },
   { name: 'Skill 2', slug: 'skill-2', description: 'Second skill', source: 'home' },
   { name: 'Skill 3', slug: 'skill-3', description: 'Third skill', source: 'exe' },
@@ -166,6 +166,19 @@ describe('ProfileSkillsSection', () => {
     expect(onChange).toHaveBeenCalledWith('enabled_skills', ['skill-1', 'skill-2', 'skill-3']);
   });
 
+  it('preserva a ordem visível ao selecionar todas', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileSkillsSection
+        availableSkills={mockSkills}
+        enabledSkills={['skill-3']}
+        onChange={onChange}
+      />
+    );
+    fireEvent.click(screen.getByTestId('skills-select-all'));
+    expect(onChange).toHaveBeenCalledWith('enabled_skills', ['skill-3', 'skill-1', 'skill-2']);
+  });
+
   it('mostra botão "Desmarcar todas" quando pelo menos uma skill selecionada', () => {
     const onChange = vi.fn();
     render(
@@ -247,7 +260,7 @@ describe('ProfileSkillsSection', () => {
     expect(screen.getByTestId('skills-toggle-on-demand')).toBeDisabled();
   });
 
-  it('ordena skills colocando autoload primeiro', () => {
+  it('ordena skills habilitadas primeiro', () => {
     const onChange = vi.fn();
     render(
       <ProfileSkillsSection
@@ -257,12 +270,12 @@ describe('ProfileSkillsSection', () => {
       />
     );
     const rows = screen.getAllByRole('row');
-    // row[0] = header, row[1] = skill-3 (autoload), row[2] = skill-1, row[3] = skill-2
+    // row[0] = header, row[1] = skill-3 (habilitada), row[2] = skill-1, row[3] = skill-2
     expect(rows[1]).toHaveTextContent('Skill 3');
     expect(rows[1]).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('mostra checkboxes e número de ordem para skills enabled', () => {
+  it('mostra checkboxes e modo efetivo para skills enabled', () => {
     const onChange = vi.fn();
     render(
       <ProfileSkillsSection
@@ -281,9 +294,44 @@ describe('ProfileSkillsSection', () => {
     expect((skill3Cb as HTMLInputElement).checked).toBe(false);
 
     const rows = screen.getAllByRole('row');
-    // row[1] = skill-2 (order 1), row[2] = skill-1 (order 2), row[3] = skill-3 (no order)
-    expect(rows[1]).toHaveTextContent('1');
-    expect(rows[2]).toHaveTextContent('2');
+    // row[1] = skill-2 (base), row[2] = skill-1 (sob demanda), row[3] = skill-3 (desabilitada)
+    expect(rows[1]).toHaveTextContent('base');
+    expect(rows[2]).toHaveTextContent('sob demanda');
+    expect(rows[3]).toHaveTextContent('desabilitada');
+  });
+
+  it('usa autoLoad para representar perfis legados sem enabledSkills', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileSkillsSection
+        availableSkills={[
+          { name: 'Auto', slug: 'auto', description: 'Auto skill', autoLoad: true },
+          { name: 'Manual', slug: 'manual', description: 'Manual skill' },
+        ]}
+        enabledSkills={undefined}
+        onChange={onChange}
+      />
+    );
+    const rows = screen.getAllByRole('row');
+    expect(rows[1]).toHaveTextContent('Auto');
+    expect(rows[1]).toHaveTextContent('base');
+    expect(rows[2]).toHaveTextContent('Manual');
+    expect(rows[2]).toHaveTextContent('sob demanda');
+  });
+
+  it('mostra skills marcadas após a base como desabilitadas quando sob demanda está desligado', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileSkillsSection
+        availableSkills={mockSkills}
+        enabledSkills={['skill-2', 'skill-1']}
+        disableOnDemand={true}
+        onChange={onChange}
+      />
+    );
+    const rows = screen.getAllByRole('row');
+    expect(rows[1]).toHaveTextContent('base');
+    expect(rows[2]).toHaveTextContent('desabilitada');
   });
 
   // ─── Move buttons ──────────────────────────────────────────────

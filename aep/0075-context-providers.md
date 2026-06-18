@@ -343,9 +343,9 @@ O formato final pode ser mais simples no primeiro PR, mas a arquitetura deve per
 - Classificar cada bloco por volatilidade.
 - Adicionar testes snapshot para ordem e conteúdo.
 
-### Fase 5 — Deprecar templates em skills
+### Fase 5 — Remover templates de skills
 
-- Marcar skills com templates como legado.
+- Remover templates do runtime de skills.
 - Migrar builtins que dependem de `include`, `now`, `.Surface`, `.TaskLists`.
 - Atualizar editor/validação de skills.
 

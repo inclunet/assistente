@@ -4,6 +4,7 @@ import (
 	"assistente/controllers"
 	"assistente/internal/configdir"
 	"assistente/internal/skills"
+	skillloadertool "assistente/internal/tools/skillloader"
 	"log"
 	"os"
 )
@@ -24,8 +25,8 @@ func (a *App) UpdateSkill(slug string, req controllers.SkillCreateRequest) error
 	return a.skillsCtrl.UpdateSkill(slug, req)
 }
 func (a *App) DeleteSkill(slug string) error { return a.skillsCtrl.DeleteSkill(slug) }
-func (a *App) GetUserInvocableSkills() ([]skills.SkillInfo, error) {
-	return a.skillsCtrl.GetUserInvocableSkills()
+func (a *App) GetUserInvocableSkillsForProfile(profileSlug string) ([]skills.SkillInfo, error) {
+	return a.skillsCtrl.GetUserInvocableSkillsForProfile(profileSlug)
 }
 func (a *App) GetSkillSearchPaths() []string { return a.skillsCtrl.GetSkillSearchPaths() }
 
@@ -41,6 +42,9 @@ func (a *App) initSkills() {
 	}
 
 	a.installBuiltinSkills()
+	if a.toolRegistry != nil && !a.toolRegistry.Has(skillloadertool.ToolName) {
+		a.toolRegistry.MustRegisterDiscoverableOptIn(skillloadertool.New(a.skillMgr, a.profileManager))
+	}
 
 	list, err := a.skillMgr.List()
 	if err != nil {

@@ -8,9 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
+	"time"
 )
 
 const skillFile = "SKILL.md" // Cada skill fica em skills/{slug}/SKILL.md
+const fullSkillCacheTTL = 30 * time.Second
 
 // discoveredSkill representa um skill encontrado no filesystem (antes do parse).
 type discoveredSkill struct {
@@ -23,6 +26,13 @@ type discoveredSkill struct {
 // Usa configdir.Resolver para resolução multi-diretório.
 type Manager struct {
 	resolver *configdir.Resolver
+	mu       sync.Mutex
+	cache    cachedFullSkills
+}
+
+type cachedFullSkills struct {
+	skills []Skill
+	at     time.Time
 }
 
 // NewManager cria um novo gerenciador de skills
@@ -119,6 +129,7 @@ func (m *Manager) List() ([]SkillInfo, error) {
 			SkillMetadata: skill.SkillMetadata,
 			Slug:          skill.Slug,
 			Source:        skill.Source,
+			AutoLoad:      skill.IsAutoLoad(),
 		})
 	}
 
@@ -176,6 +187,7 @@ func (m *Manager) Create(meta *SkillMetadata, content string) (string, error) {
 		return "", fmt.Errorf("failed to write skill file: %w", err)
 	}
 
+	m.invalidateFullSkillsCache()
 	return slug, nil
 }
 
@@ -216,7 +228,11 @@ func (m *Manager) Update(slug string, meta *SkillMetadata, content string) error
 			if err != nil {
 				return err
 			}
-			return os.WriteFile(ds.path, []byte(raw), 0644)
+			if err := os.WriteFile(ds.path, []byte(raw), 0644); err != nil {
+				return err
+			}
+			m.invalidateFullSkillsCache()
+			return nil
 		}
 	}
 
@@ -228,7 +244,11 @@ func (m *Manager) Delete(slug string) error {
 	discovered := m.discoverAll()
 	for _, ds := range discovered {
 		if ds.slug == slug {
-			return os.RemoveAll(filepath.Dir(ds.path))
+			if err := os.RemoveAll(filepath.Dir(ds.path)); err != nil {
+				return err
+			}
+			m.invalidateFullSkillsCache()
+			return nil
 		}
 	}
 	return fmt.Errorf("skill not found: %s", slug)
@@ -244,56 +264,11 @@ func (m *Manager) EnsureDir() error {
 	return m.resolver.EnsureHomeDir()
 }
 
-// GetAutoSkills retorna skills com auto_load=true, com conteúdo completo.
-// Usado para injeção automática no system prompt.
-func (m *Manager) GetAutoSkills() ([]Skill, error) {
-	discovered := m.discoverAll()
-
-	var result []Skill
-	for _, ds := range discovered {
-		skill, err := loadSkill(ds)
-		if err != nil {
-			continue
-		}
-		if !skill.IsAutoLoad() {
-			continue
-		}
-		result = append(result, *skill)
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
-
-	return result, nil
-}
-
-// GetAvailableSkills retorna skills sem auto_load (sob demanda).
-// Usado para listar skills disponíveis no system prompt (agente lê via read_file).
-func (m *Manager) GetAvailableSkills() ([]Skill, error) {
-	discovered := m.discoverAll()
-
-	var result []Skill
-	for _, ds := range discovered {
-		skill, err := loadSkill(ds)
-		if err != nil {
-			continue
-		}
-		if skill.IsAutoLoad() {
-			continue
-		}
-		result = append(result, *skill)
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
-
-	return result, nil
-}
-
 // GetAllSkillsFull retorna todos os skills com conteúdo completo.
 func (m *Manager) GetAllSkillsFull() ([]Skill, error) {
+	if cached, ok := m.fullSkillsCache(); ok {
+		return cached, nil
+	}
 	discovered := m.discoverAll()
 
 	var result []Skill
@@ -309,7 +284,38 @@ func (m *Manager) GetAllSkillsFull() ([]Skill, error) {
 		return result[i].Name < result[j].Name
 	})
 
-	return result, nil
+	m.storeFullSkillsCache(result)
+	return cloneSkills(result), nil
+}
+
+func (m *Manager) fullSkillsCache() ([]Skill, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.cache.skills) == 0 || time.Since(m.cache.at) > fullSkillCacheTTL {
+		return nil, false
+	}
+	return cloneSkills(m.cache.skills), true
+}
+
+func (m *Manager) storeFullSkillsCache(skills []Skill) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cache = cachedFullSkills{skills: cloneSkills(skills), at: time.Now()}
+}
+
+func (m *Manager) invalidateFullSkillsCache() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cache = cachedFullSkills{}
+}
+
+func cloneSkills(input []Skill) []Skill {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make([]Skill, len(input))
+	copy(out, input)
+	return out
 }
 
 // GetUserInvocableSkills retorna skills que podem ser invocados pelo usuário via /slash.
@@ -331,6 +337,7 @@ func (m *Manager) GetUserInvocableSkills() ([]SkillInfo, error) {
 			SkillMetadata: skill.SkillMetadata,
 			Slug:          skill.Slug,
 			Source:        skill.Source,
+			AutoLoad:      skill.IsAutoLoad(),
 		})
 	}
 

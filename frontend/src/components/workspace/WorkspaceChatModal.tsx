@@ -2,7 +2,7 @@ import { logger } from '../../utils/logger';
 import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
-import { ChatPanel, type ChatPanelSendContext } from '../chat/ChatPanel';
+import { ChatPanel, useEffectiveProfileSlug, type ChatPanelSendContext } from '../chat/ChatPanel';
 import { sendChatSurfaceMessage, useChatConversationTimeline } from '../chat/ChatSurfaceController';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
@@ -37,6 +37,7 @@ export function WorkspaceChatModal() {
     const conversationTitle = activeConversation?.title || t('editor.chatModal.conversation');
     return `${t('editor.chatModal.title')} — ${conversationTitle}`;
   }, [activeConversation?.title, activeConversation?.id, t]);
+  const effectiveProfileSlug = useEffectiveProfileSlug(boundTabId ?? undefined);
 
   const handleClose = useCallback(() => {
     close();
@@ -164,6 +165,7 @@ export function WorkspaceChatModal() {
                 onSend={handleSend}
                 onRequestConversationChange={handleRequestConversationChange}
                 showShortcutsHelp={false}
+                profileSlug={effectiveProfileSlug}
               />
             </div>
           </WorkspacePanelProvider>
