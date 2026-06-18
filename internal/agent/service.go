@@ -1260,15 +1260,26 @@ func applyLoadedSkillExecutionContext(ctx context.Context, results []tools.ToolE
 		read := metadataStringSlice(result.Result.Metadata, "filesystem_read")
 		write := metadataStringSlice(result.Result.Metadata, "filesystem_write")
 		deny := metadataStringSlice(result.Result.Metadata, "filesystem_deny")
-		if len(read) == 0 && len(write) == 0 && len(deny) == 0 {
-			continue
-		}
+		allowedTools := metadataStringSlice(result.Result.Metadata, "tools_allowed")
+		deniedTools := metadataStringSlice(result.Result.Metadata, "tools_denied")
+		allowedBash := metadataStringSlice(result.Result.Metadata, "bash_commands_allowed")
+		deniedBash := metadataStringSlice(result.Result.Metadata, "bash_commands_denied")
+		networkAllowed := metadataStringSlice(result.Result.Metadata, "network_allowed_hosts")
+		networkDenied := metadataStringSlice(result.Result.Metadata, "network_denied_hosts")
 		ec, _ := tools.GetExecutionContext(ctx)
-		ec.Filesystem = mergeFilesystemScope(ec.Filesystem, &tools.FilesystemScope{
-			Read:  read,
-			Write: write,
-			Deny:  deny,
-		})
+		if len(read) > 0 || len(write) > 0 || len(deny) > 0 {
+			ec.Filesystem = mergeFilesystemScope(ec.Filesystem, &tools.FilesystemScope{
+				Read:  read,
+				Write: write,
+				Deny:  deny,
+			})
+		}
+		ec.AllowedTools = appendUniqueStrings(ec.AllowedTools, allowedTools...)
+		ec.DeniedTools = appendUniqueStrings(ec.DeniedTools, deniedTools...)
+		ec.AllowedBash = appendUniqueStrings(ec.AllowedBash, allowedBash...)
+		ec.DeniedBash = appendUniqueStrings(ec.DeniedBash, deniedBash...)
+		ec.NetworkAllowedHost = appendUniqueStrings(ec.NetworkAllowedHost, networkAllowed...)
+		ec.NetworkDeniedHost = appendUniqueStrings(ec.NetworkDeniedHost, networkDenied...)
 		if ec.InvokedSkillSlug == "" {
 			if slug, _ := result.Result.Metadata["skill_slug"].(string); strings.TrimSpace(slug) != "" {
 				ec.InvokedSkillSlug = strings.TrimSpace(slug)

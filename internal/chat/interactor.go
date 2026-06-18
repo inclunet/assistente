@@ -35,7 +35,6 @@ type ChatParams = llm.ChatParams
 // Implemented by *prompt.Builder. Defined as an interface here so that internal/chat
 // does not need to import internal/prompt (which already imports internal/chat).
 type SystemPromptBuilder interface {
-	Build(messages []llm.Message, enabledSkills []string, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string, dynamicContext ...string) []llm.Message
 	BuildWithContextBlocks(messages []llm.Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string, contextBlocks []contextprovider.Block) []llm.Message
 	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData
 }
@@ -548,7 +547,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	var err error
 	var modelOnDemandSkillAvailable bool
 	if policyReady {
-		modelOnDemandSkillAvailable = hasModelOnDemandSkill(skillPolicy)
+		modelOnDemandSkillAvailable = skillPolicy.HasModelOnDemandSkill()
 		inv, found, err = skills.Invoke(req.UserContent, i.skillMgr, skillTplData, req.ConversationID, skillPolicy)
 	}
 	if found {
@@ -600,7 +599,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 
 	var messages []llm.Message
 	if i.promptBuilder != nil {
-		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary, i.buildDynamicContext(ctx, skillTplData, req.UserContent))
+		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary, i.buildDynamicContext(ctx, skillTplData, req.UserContent, disableSkills))
 	} else {
 		messages = req.Messages
 	}
@@ -635,15 +634,6 @@ func formatBaseSkillArguments(slug, args string) string {
 	return sb.String()
 }
 
-func hasModelOnDemandSkill(policy skills.SelectionPolicy) bool {
-	for _, s := range policy.OnDemand {
-		if s.IsModelInvocable() {
-			return true
-		}
-	}
-	return false
-}
-
 func (i *Interactor) BuildSkillSelectionPolicy(activeProfile *profiles.Profile) (skills.SelectionPolicy, bool, error) {
 	if i.skillMgr == nil {
 		return skills.SelectionPolicy{}, false, nil
@@ -664,16 +654,16 @@ func (i *Interactor) BuildSkillSelectionPolicy(activeProfile *profiles.Profile) 
 }
 
 func (i *Interactor) ValidateSkillInvocation(activeProfile *profiles.Profile, userContent string, conversationID string, surfaceOrigin *ports.ChatSurfaceOrigin) error {
+	slug, _, ok := skills.ParseSlashCommand(userContent)
+	if !ok {
+		return nil
+	}
 	policy, policyReady, err := i.BuildSkillSelectionPolicy(activeProfile)
 	if err != nil {
 		if i.emitter != nil {
 			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: conversationID, Error: err.Error(), SurfaceOrigin: surfaceOrigin})
 		}
 		return err
-	}
-	slug, _, ok := skills.ParseSlashCommand(userContent)
-	if !ok {
-		return nil
 	}
 	if !policyReady {
 		return nil
@@ -682,23 +672,20 @@ func (i *Interactor) ValidateSkillInvocation(activeProfile *profiles.Profile, us
 	if err != nil || skill == nil || !skill.IsUserInvocable() {
 		return nil
 	}
-	var validationErr error
 	if policy.ModeFor(slug) == skills.SkillModeDisabled {
-		validationErr = fmt.Errorf("skill /%s está desabilitada no perfil ativo", slug)
-	}
-	if validationErr != nil {
+		err := fmt.Errorf("skill /%s está desabilitada no perfil ativo", slug)
 		if i.emitter != nil {
-			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: conversationID, Error: validationErr.Error(), SurfaceOrigin: surfaceOrigin})
+			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: conversationID, Error: err.Error(), SurfaceOrigin: surfaceOrigin})
 		}
-		return validationErr
+		return err
 	}
 	return nil
 }
 
-func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string) []contextprovider.Block {
-	// Linked task lists are conversation context, not skill instructions. Keep
-	// them available even when profile skill loading is disabled.
-	taskListBlocks := taskListContextBlocks(data)
+func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string, disableSkills bool) []contextprovider.Block {
+	// Linked task lists include imperative model guidance, so they respect
+	// disable_skills to keep minimal/voice profiles prompt-light.
+	taskListBlocks := taskListContextBlocks(data, disableSkills)
 	if i.contextProviders == nil {
 		return taskListBlocks
 	}
@@ -738,8 +725,8 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 	return append(taskListBlocks, blocks...)
 }
 
-func taskListContextBlocks(data TemplateData) []contextprovider.Block {
-	if !data.HasTaskLists || len(data.TaskLists) == 0 {
+func taskListContextBlocks(data TemplateData, disableSkills bool) []contextprovider.Block {
+	if disableSkills || !data.HasTaskLists || len(data.TaskLists) == 0 {
 		return nil
 	}
 	var sb strings.Builder

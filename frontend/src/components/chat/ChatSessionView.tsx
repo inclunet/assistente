@@ -191,14 +191,14 @@ function ChatSessionViewContent({
 
     const loadActiveProfile = async () => {
       try {
-        const profile = await GetActiveProfile();
+        const [profile, profileSlug] = await Promise.all([GetActiveProfile(), GetActiveProfileSlug()]);
         if (!mounted) return;
         // A continuação é habilitada apenas pelo perfil: o backend sempre consegue
         // continuar — via assistant prefill quando o provider suporta, ou via
         // fallback por mensagem de usuário quando não suporta (Issue #124).
         const profileAllowsContinue = profile?.chat?.streaming_recovery_show_continue ?? true;
         setShowContinueEnabled(profileAllowsContinue);
-        setActiveProfileSlug(await GetActiveProfileSlug());
+        setActiveProfileSlug(profileSlug);
       } catch {
         if (!mounted) return;
         setShowContinueEnabled(false);

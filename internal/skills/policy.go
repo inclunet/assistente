@@ -21,6 +21,15 @@ func (p SelectionPolicy) IsEnabled(slug string) bool {
 	return mode == SkillModeBase || mode == SkillModeOnDemand
 }
 
+func (p SelectionPolicy) HasModelOnDemandSkill() bool {
+	for _, s := range p.OnDemand {
+		if s.IsModelInvocable() {
+			return true
+		}
+	}
+	return false
+}
+
 func (p SelectionPolicy) ModeFor(slug string) SkillMode {
 	slug = strings.TrimSpace(slug)
 	if slug == "" {

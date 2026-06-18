@@ -25,6 +25,7 @@ const activeConversation: { id: string; title: string; threadedMessages: MockThr
 
 const modalState = vi.hoisted(() => ({ open: false }));
 const contextMenuState = vi.hoisted(() => ({ visible: true }));
+const runtimeEventHandlers = vi.hoisted(() => new Map<string, (data: unknown) => void>());
 
 vi.mock('../ui/Modal', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../ui/Modal')>();
@@ -126,13 +127,17 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetActiveProfile: vi.fn().mockResolvedValue({
     chat: { streaming_recovery_show_continue: true },
   }),
+  GetActiveProfileSlug: vi.fn().mockResolvedValue('padrao'),
   GetActiveProviderInfo: vi.fn().mockResolvedValue({
     supports_assistant_prefill: true,
   }),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
-  EventsOn: () => () => {},
+  EventsOn: (event: string, handler: (data: unknown) => void) => {
+    runtimeEventHandlers.set(event, handler);
+    return () => runtimeEventHandlers.delete(event);
+  },
 }));
 
 vi.mock('./ChatToolbar', () => ({
@@ -290,6 +295,7 @@ describe('ChatSessionView', () => {
     chatStoreState.surfaceSessionsByKey = {};
     modalState.open = false;
     contextMenuState.visible = true;
+    runtimeEventHandlers.clear();
     useShortcutsHelpStore.setState({ isOpen: false });
   });
 
@@ -303,6 +309,24 @@ describe('ChatSessionView', () => {
 
     expect(event.defaultPrevented).toBe(true);
     expect(useShortcutsHelpStore.getState().isOpen).toBe(true);
+  });
+
+  it('anuncia skill carregada para a conversa atual', async () => {
+    renderWithPanel(
+      <ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={vi.fn()} showShortcutsHelp={false} />,
+    );
+
+    await waitFor(() => {
+      expect(runtimeEventHandlers.has('chat:skill_loaded')).toBe(true);
+    });
+
+    runtimeEventHandlers.get('chat:skill_loaded')?.({
+      conversationId,
+      slug: 'review',
+      displayName: 'Review',
+    });
+
+    expect(announce).toHaveBeenCalledWith('chat.announce.skillLoaded');
   });
 
   it('? NÃO abre o painel (nem chama preventDefault) quando outro modal está aberto', () => {

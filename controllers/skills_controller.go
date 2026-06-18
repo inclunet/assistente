@@ -107,10 +107,6 @@ func (c *SkillsController) DeleteSkill(slug string) error {
 	return nil
 }
 
-func (c *SkillsController) GetUserInvocableSkills() ([]skills.SkillInfo, error) {
-	return c.GetUserInvocableSkillsForProfile("")
-}
-
 func (c *SkillsController) GetUserInvocableSkillsForProfile(profileSlug string) ([]skills.SkillInfo, error) {
 	if err := c.guard(); err != nil {
 		return nil, err

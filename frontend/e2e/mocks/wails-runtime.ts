@@ -175,7 +175,6 @@ export function buildWailsMockScript(): string {
     ListModelsRaw: ['gpt-4', 'gpt-4o'],
 
     /* Skills */
-    GetUserInvocableSkills: [],
     GetUserInvocableSkillsForProfile: [],
     GetSkills: [],
 

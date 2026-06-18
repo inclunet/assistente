@@ -95,12 +95,17 @@ Exemplo conceitual:
 
 Semântica efetiva:
 
+- `enabled_skills: null`/campo ausente → perfil legado; o runtime aplica fallback por `auto_load`;
+- `enabled_skills: []` → seleção explícita vazia; todas as skills ficam `disabled`;
+- `enabled_skills: ["tech-support", "github", "flock-api"]` → seleção explícita ordenada;
 - primeira skill marcada (`tech-support`) → `base`;
 - demais skills marcadas (`github`, `flock-api`) → `on_demand`;
 - skills disponíveis mas não marcadas → `disabled`;
 - a ordem da lista é a ordem de prioridade.
 
 `memory` e `workspace` não aparecem aqui; eles são configurados como context providers na AEP-0075.
+
+`disable_skills=true` significa perfil de prompt enxuto. Além de omitir a seção de skills, o runtime também deve omitir blocos dinâmicos criados para substituir templates de skills quando esses blocos contiverem instruções imperativas para o modelo, como `linked_task_lists`. Context Providers puramente informativos podem ter política própria, mas não devem reintroduzir instruções de workflow de skill por trás desse flag.
 
 ### D3. Primeira skill carregável pode atuar como base
 
@@ -177,16 +182,16 @@ Equivalências:
 
 ### D8. Template engine é removido de skills
 
-O caminho novo de skills não deve usar Go templates. Skills devem ser instruções/workflows estáticos ou parametrizados por argumentos estruturados do turno.
+O caminho novo de skills não deve processar Go templates. Skills devem ser instruções/workflows estáticos ou parametrizados por argumentos estruturados do turno.
 
-Não é depreciação: é remoção do template engine do runtime de skills. Built-in skills que ainda dependem de templates devem ser migradas para o novo formato sem templates antes de serem carregadas pelo caminho novo.
+Não é depreciação: é remoção do template engine do runtime de skills. O conteúdo de `SKILL.md` é markdown literal; sequências como `{{ ... }}` podem aparecer em exemplos, mas não são interpretadas pelo runtime.
 
 Política:
 
 - `$ARGUMENTS` deve ser substituído por bloco estruturado de argumentos;
-- `{{ now }}`, includes e variáveis dinâmicas deixam de fazer parte do caminho novo;
-- built-in skills não devem conter Go templates no caminho novo;
-- skills com templates não entram no runtime novo até serem migradas;
+- `{{ now }}`, includes e variáveis dinâmicas deixam de ser executados no caminho novo;
+- built-in skills não devem depender de Go templates para produzir contexto dinâmico;
+- skills com exemplos de template são carregadas como markdown literal;
 - esta AEP não exige criar novos Context Providers para substituir cada uso de template. Se algum contexto dinâmico for necessário no futuro, ele deve ser planejado em AEP própria ou extensão específica, não como requisito desta implementação.
 
 ## Fases revisadas

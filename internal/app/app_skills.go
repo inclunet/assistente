@@ -25,9 +25,6 @@ func (a *App) UpdateSkill(slug string, req controllers.SkillCreateRequest) error
 	return a.skillsCtrl.UpdateSkill(slug, req)
 }
 func (a *App) DeleteSkill(slug string) error { return a.skillsCtrl.DeleteSkill(slug) }
-func (a *App) GetUserInvocableSkills() ([]skills.SkillInfo, error) {
-	return a.skillsCtrl.GetUserInvocableSkills()
-}
 func (a *App) GetUserInvocableSkillsForProfile(profileSlug string) ([]skills.SkillInfo, error) {
 	return a.skillsCtrl.GetUserInvocableSkillsForProfile(profileSlug)
 }

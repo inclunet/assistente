@@ -91,6 +91,21 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 	toolName := call.Function.Name
 	start := time.Now()
 
+	if err := validateExecutionContextToolAccess(ctx, toolName); err != nil {
+		return ToolExecutionResult{
+			CallID:   call.ID,
+			ToolName: toolName,
+			Result: ToolResult{
+				Content: err.Error(),
+				IsError: true,
+			},
+			Error:      err,
+			ErrorKind:  ErrorKindInvalidArgs,
+			Retryable:  false,
+			DurationMs: time.Since(start).Milliseconds(),
+		}
+	}
+
 	// Busca a ferramenta no registry
 	tool, ok := e.registry.Get(toolName)
 	if !ok {
@@ -280,6 +295,29 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			DurationMs: elapsed,
 		}
 	}
+}
+
+func validateExecutionContextToolAccess(ctx context.Context, toolName string) error {
+	ec, ok := GetExecutionContext(ctx)
+	if !ok {
+		return nil
+	}
+	if containsString(ec.DeniedTools, toolName) {
+		return fmt.Errorf("tool '%s' bloqueada pela denylist do skill '%s'", toolName, ec.InvokedSkillSlug)
+	}
+	if len(ec.AllowedTools) > 0 && !containsString(ec.AllowedTools, toolName) {
+		return fmt.Errorf("skill '%s' não permite uso da tool '%s'", ec.InvokedSkillSlug, toolName)
+	}
+	return nil
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 // truncateUTF8 trunca uma string até maxBytes sem cortar runes no meio.

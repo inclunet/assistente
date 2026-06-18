@@ -17,7 +17,6 @@ test.describe('Chat — navegação por teclado', () => {
     const invocableSkills = [
       { slug: 'summarize', name: 'Resumir', description: 'Resume conteúdo', invocable: true },
     ];
-    await wails.setResponse('GetUserInvocableSkills', invocableSkills);
     await wails.setResponse('GetUserInvocableSkillsForProfile', invocableSkills);
 
     await wails.waitForApp();

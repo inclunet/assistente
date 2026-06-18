@@ -18,21 +18,11 @@ import (
 )
 
 type mockSkillReader struct {
-	autoSkills      []skills.Skill
-	availableSkills []skills.Skill
-	allSkillsFull   []skills.Skill
-	skillFiles      map[string][]string
-	autoErr         error
-	availErr        error
-	allErr          error
+	allSkillsFull []skills.Skill
+	skillFiles    map[string][]string
+	allErr        error
 }
 
-func (m *mockSkillReader) GetAutoSkills() ([]skills.Skill, error) {
-	return m.autoSkills, m.autoErr
-}
-func (m *mockSkillReader) GetAvailableSkills() ([]skills.Skill, error) {
-	return m.availableSkills, m.availErr
-}
 func (m *mockSkillReader) GetAllSkillsFull() ([]skills.Skill, error) {
 	return m.allSkillsFull, m.allErr
 }
@@ -59,8 +49,21 @@ func makeSkill(slug, name, desc, content string, autoLoad, modelInvocable bool) 
 	return s
 }
 
+func buildPromptForTest(b *prompt.Builder, messages []llm.Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string, dynamicContext ...string) []llm.Message {
+	blocks := make([]contextprovider.Block, 0, len(dynamicContext))
+	for _, content := range dynamicContext {
+		blocks = append(blocks, contextprovider.Block{
+			Provider:   "test",
+			Name:       "dynamic",
+			Volatility: contextprovider.VolatilityFastDynamic,
+			Content:    content,
+		})
+	}
+	return b.BuildWithContextBlocks(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, blocks)
+}
+
 func buildSystemPromptForSkills(b *prompt.Builder, enabledSkills []string, disableOnDemand bool, tplData any) string {
-	result := b.Build([]llm.Message{{Role: "user", Content: "oi"}}, enabledSkills, disableOnDemand, tplData, "", "")
+	result := buildPromptForTest(b, []llm.Message{{Role: "user", Content: "oi"}}, enabledSkills, false, disableOnDemand, tplData, "", "")
 	if len(result) == 0 {
 		return ""
 	}
@@ -71,7 +74,7 @@ func buildSystemPromptForSkills(b *prompt.Builder, enabledSkills []string, disab
 func TestBuild_NoSkillsNoSlash_IncludesDefaultSystemPrompt(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "olá"}}
-	result := b.Build(msgs, []string{}, false, nil, "", "")
+	result := buildPromptForTest(b, msgs, []string{}, false, false, nil, "", "")
 	if len(result) != 2 || result[0].Role != "system" || result[1].Role != "user" {
 		t.Fatalf("expected system+user messages, got %v", result)
 	}
@@ -84,7 +87,7 @@ func TestBuild_NoSkillsNoSlash_IncludesDefaultSystemPrompt(t *testing.T) {
 func TestBuild_WithSlashSkill_AddsSystemMessage(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "olá"}}
-	result := b.Build(msgs, []string{}, false, nil, "slash content", "")
+	result := buildPromptForTest(b, msgs, []string{}, false, false, nil, "slash content", "")
 	if len(result) < 2 {
 		t.Fatalf("Expected system+user, got %d", len(result))
 	}
@@ -100,7 +103,7 @@ func TestBuild_WithSlashSkill_AddsSystemMessage(t *testing.T) {
 func TestBuild_WithSummary_InjectsSummaryTag(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
-	result := b.Build(msgs, nil, false, nil, "slash", "O usuário perguntou sobre finanças.")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "slash", "O usuário perguntou sobre finanças.")
 	sys := result[0].Content.(string)
 	if !strings.Contains(sys, "<conversation_summary>") {
 		t.Error("Expected <conversation_summary> tag")
@@ -113,7 +116,7 @@ func TestBuild_WithSummary_InjectsSummaryTag(t *testing.T) {
 func TestBuild_InjectsDynamicContextAfterSummary(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
-	result := b.Build(msgs, nil, false, nil, "slash", "Resumo antigo.", "<user_memory>\n- prefere pt-BR\n</user_memory>")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "slash", "Resumo antigo.", "<user_memory>\n- prefere pt-BR\n</user_memory>")
 	sys := result[0].Content.(string)
 	summaryIdx := strings.Index(sys, "<conversation_summary>")
 	memoryIdx := strings.Index(sys, "<user_memory>")
@@ -159,7 +162,7 @@ func TestBuildWithContextBlocksInjectsStableContextBeforeSummary(t *testing.T) {
 func TestBuild_ExistingSystemMessage_Combined(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "system", Content: "Existente."}, {Role: "user", Content: "oi"}}
-	result := b.Build(msgs, nil, false, nil, "Novo.", "")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "Novo.", "")
 	if len(result) != 2 {
 		t.Errorf("Expected 2 messages, got %d", len(result))
 	}
@@ -182,7 +185,7 @@ func TestBuild_OpenEditorFiles_InjectsSection(t *testing.T) {
 		},
 	}
 	msgs := []llm.Message{{Role: "user", Content: "leia o doc"}}
-	result := b.Build(msgs, nil, false, nil, "", "")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "", "")
 	sys := result[0].Content.(string)
 	if !strings.Contains(sys, "<open_editor_files>") {
 		t.Error("Expected <open_editor_files> tag in system prompt")
@@ -206,7 +209,7 @@ func TestBuild_OpenEditorFiles_EmptyPaths_NoSection(t *testing.T) {
 		OpenEditorPaths: func() []string { return nil },
 	}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
-	result := b.Build(msgs, nil, false, nil, "", "")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "", "")
 	sys := result[0].Content.(string)
 	if strings.Contains(sys, "<open_editor_files>") {
 		t.Error("Should not include open_editor_files when paths are empty")
@@ -220,7 +223,7 @@ func TestBuild_OpenEditorFiles_NilFunc_NoSection(t *testing.T) {
 		},
 	}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
-	result := b.Build(msgs, nil, false, nil, "", "")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "", "")
 	sys := result[0].Content.(string)
 	if strings.Contains(sys, "<open_editor_files>") {
 		t.Error("Should not include open_editor_files when OpenEditorPaths is nil")
@@ -242,7 +245,7 @@ func TestBuild_OpenEditorFiles_EscapesSpecialChars(t *testing.T) {
 		},
 	}
 	msgs := []llm.Message{{Role: "user", Content: "leia"}}
-	result := b.Build(msgs, nil, false, nil, "", "")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "", "")
 	sys := result[0].Content.(string)
 	// Os caracteres perigosos devem ser sanitizados, nunca aparecendo literalmente
 	if strings.Contains(sys, "<injected>") {
@@ -268,7 +271,7 @@ func TestBuild_CatalogFirst_InjectsProtocol(t *testing.T) {
 		EnabledTools:       []string{tools.ToolCatalogName},
 	}
 	// Sem skills nem slash skill: a seção catalog-first ainda deve ser injetada.
-	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	result := buildPromptForTest(b, msgs, []string{}, false, false, tplData, "", "")
 	if len(result) < 2 || result[0].Role != "system" {
 		t.Fatalf("Expected a system message, got %v", result)
 	}
@@ -288,7 +291,7 @@ func TestBuild_CatalogFirst_AllowsLoadSkillRuntimeControl(t *testing.T) {
 		ToolCallingEnabled: true,
 		EnabledTools:       []string{tools.ToolCatalogName, tools.LoadSkillName},
 	}
-	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	result := buildPromptForTest(b, msgs, []string{}, false, false, tplData, "", "")
 	if len(result) < 2 || result[0].Role != "system" {
 		t.Fatalf("Expected a system message, got %v", result)
 	}
@@ -306,7 +309,7 @@ func TestBuild_CatalogFirst_NotActiveWhenToolCatalogAbsent(t *testing.T) {
 		ToolCallingEnabled: true,
 		EnabledTools:       []string{"read_file", "web_search"},
 	}
-	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	result := buildPromptForTest(b, msgs, []string{}, false, false, tplData, "", "")
 	if len(result) == 1 && result[0].Role == "user" {
 		return // nenhum system prompt criado, esperado
 	}
@@ -326,7 +329,7 @@ func TestBuild_CatalogFirst_NotActiveWhenCatalogPlusOtherTools(t *testing.T) {
 		ToolCallingEnabled: true,
 		EnabledTools:       []string{tools.ToolCatalogName, "read_file", "web_search"},
 	}
-	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	result := buildPromptForTest(b, msgs, []string{}, false, false, tplData, "", "")
 	if len(result) == 1 && result[0].Role == "user" {
 		return // nenhum system prompt criado, esperado
 	}
@@ -343,7 +346,7 @@ func TestBuild_CatalogFirst_NotActiveWhenToolCallingDisabled(t *testing.T) {
 		ToolCallingEnabled: false,
 		EnabledTools:       []string{tools.ToolCatalogName},
 	}
-	result := b.Build(msgs, []string{}, false, tplData, "", "")
+	result := buildPromptForTest(b, msgs, []string{}, false, false, tplData, "", "")
 	if len(result) == 1 && result[0].Role == "user" {
 		return
 	}
@@ -364,7 +367,7 @@ func TestBuild_CatalogFirst_CoexistsWithSkills(t *testing.T) {
 		ToolCallingEnabled: true,
 		EnabledTools:       []string{tools.ToolCatalogName},
 	}
-	result := b.Build(msgs, nil, false, tplData, "", "")
+	result := buildPromptForTest(b, msgs, nil, false, false, tplData, "", "")
 	sys := result[0].Content.(string)
 	if !strings.Contains(sys, "<tool_selection_protocol>") {
 		t.Error("Expected catalog-first protocol alongside skills")
@@ -672,7 +675,7 @@ Tools available.
 		Skills: &mockSkillReader{allSkillsFull: []skills.Skill{taskListSkill}},
 		Tools:  tools.NewRegistry(),
 	}
-	result := b.Build([]llm.Message{{Role: "user", Content: "oi"}}, nil, false, nil, "", "", "")
+	result := buildPromptForTest(b, []llm.Message{{Role: "user", Content: "oi"}}, nil, false, false, nil, "", "")
 	if len(result) == 0 {
 		t.Fatal("expected messages")
 	}

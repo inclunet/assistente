@@ -29,6 +29,22 @@ export interface ChatPanelProps {
   profileSlug?: string;
 }
 
+function profileSlugFrom(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+export function useEffectiveProfileSlug(tabId?: string, overrideProfileSlug?: string): string | undefined {
+  const workspaceTabs = useWorkspaceStore((s) => s.workspace?.tabs);
+  const workspaceProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const surfaceTab = tabId
+    ? workspaceTabs?.find((tab) => tab.id === tabId)
+    : undefined;
+  return overrideProfileSlug
+    || profileSlugFrom(surfaceTab?.profileOverride?.slug)
+    || profileSlugFrom(workspaceProfile)
+    || undefined;
+}
+
 export function ChatPanel({
   surface,
   onSend,
@@ -36,18 +52,10 @@ export function ChatPanel({
   showShortcutsHelp,
   profileSlug,
 }: ChatPanelProps) {
-  const workspaceTabs = useWorkspaceStore((s) => s.workspace?.tabs);
-  const workspaceProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const variant = surface.surfaceType === 'embedded' || surface.surfaceType === 'modal'
     ? 'embedded'
     : 'page';
-  const surfaceTab = surface.tabId
-    ? workspaceTabs?.find((tab) => tab.id === surface.tabId)
-    : undefined;
-  const effectiveProfileSlug = profileSlug
-    || (surfaceTab?.profileOverride?.slug as string | undefined)
-    || workspaceProfile
-    || undefined;
+  const effectiveProfileSlug = useEffectiveProfileSlug(surface.tabId, profileSlug);
 
   return (
     <ChatSessionView

@@ -116,6 +116,18 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 		metadata["filesystem_write"] = append([]string{}, loaded.Filesystem.Write...)
 		metadata["filesystem_deny"] = append([]string{}, loaded.Filesystem.Deny...)
 	}
+	if loaded.Tools != nil {
+		metadata["tools_allowed"] = append([]string{}, loaded.Tools.Allowed...)
+		metadata["tools_denied"] = append([]string{}, loaded.Tools.Denied...)
+		if loaded.Tools.BashCommands != nil {
+			metadata["bash_commands_allowed"] = append([]string{}, loaded.Tools.BashCommands.Allowed...)
+			metadata["bash_commands_denied"] = append([]string{}, loaded.Tools.BashCommands.Denied...)
+		}
+	}
+	if loaded.Network != nil {
+		metadata["network_allowed_hosts"] = append([]string{}, loaded.Network.AllowedHosts...)
+		metadata["network_denied_hosts"] = append([]string{}, loaded.Network.DeniedHosts...)
+	}
 	return tools.ToolResult{Content: content, Metadata: metadata}, nil
 }
 

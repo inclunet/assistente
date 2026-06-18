@@ -20,8 +20,6 @@ import (
 // SkillReader é o subconjunto de skills.Manager que o Builder precisa.
 // Permite mockar em testes sem instanciar o manager completo.
 type SkillReader interface {
-	GetAutoSkills() ([]skills.Skill, error)
-	GetAvailableSkills() ([]skills.Skill, error)
 	GetAllSkillsFull() ([]skills.Skill, error)
 	GetSkillFiles(slug string) ([]string, error)
 }
@@ -173,25 +171,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// Build compõe o system prompt completo e o injeta na lista de mensagens.
-//
-//   - enabledSkills: nil = compat legacy via auto_load, [] = skills desabilitadas, ["slug1","slug2"] = primeira base, demais on-demand
-//   - disableOnDemand: quando true, omite a seção <available_skills>
-//   - tplData: contexto disponível nos templates dos skills
-//   - slashSkillContent: conteúdo de um skill invocado via /slash (pode ser "")
-//   - conversationSummary: resumo de mensagens antigas (rolling context)
-func (b *Builder) Build(
-	messages []llm.Message,
-	enabledSkills []string,
-	disableOnDemand bool,
-	tplData any,
-	slashSkillContent string,
-	conversationSummary string,
-	dynamicContext ...string,
-) []llm.Message {
-	return b.build(messages, enabledSkills, false, disableOnDemand, tplData, slashSkillContent, conversationSummary, nil, dynamicContext)
-}
-
 func (b *Builder) BuildWithContextBlocks(
 	messages []llm.Message,
 	enabledSkills []string,
@@ -328,7 +307,7 @@ func (b *Builder) buildSkillsSection(enabledSkills []string, disableSkills bool,
 	baseSkills := policy.Base
 	availableSkills := policy.OnDemand
 
-	if templateToolCallingDisabled(tplData) {
+	if toolCallingDisabled(tplData) {
 		if enabledSkills == nil {
 			compatible := filterSkillsWithoutToolDependencies(append(append([]skills.Skill{}, baseSkills...), availableSkills...))
 			baseSkills = nil
@@ -480,7 +459,7 @@ func catalogFirstActive(tplData any) bool {
 	return hasCatalog
 }
 
-func templateToolCallingDisabled(tplData any) bool {
+func toolCallingDisabled(tplData any) bool {
 	switch data := tplData.(type) {
 	case chat.TemplateData:
 		return !data.ToolCallingEnabled
@@ -535,7 +514,7 @@ func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []str
 
 	var defs []tools.ToolDefinition
 	var runtimeTools []string
-	if b.hasModelOnDemandSkill(activeProfile) {
+	if b.modelOnDemandSkillAvailable(activeProfile) {
 		runtimeTools = append(runtimeTools, tools.LoadSkillName)
 	}
 	if activeProfile != nil {
@@ -559,7 +538,7 @@ func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []str
 	return names
 }
 
-func (b *Builder) hasModelOnDemandSkill(activeProfile *profiles.Profile) bool {
+func (b *Builder) modelOnDemandSkillAvailable(activeProfile *profiles.Profile) bool {
 	if b.Skills == nil {
 		return false
 	}
@@ -576,11 +555,5 @@ func (b *Builder) hasModelOnDemandSkill(activeProfile *profiles.Profile) bool {
 		disableSkills = activeProfile.Chat.DisableSkills
 		disableOnDemand = activeProfile.Chat.DisableOnDemandSkills
 	}
-	policy := skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand)
-	for _, s := range policy.OnDemand {
-		if s.IsModelInvocable() {
-			return true
-		}
-	}
-	return false
+	return skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand).HasModelOnDemandSkill()
 }

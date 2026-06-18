@@ -264,54 +264,6 @@ func (m *Manager) EnsureDir() error {
 	return m.resolver.EnsureHomeDir()
 }
 
-// GetAutoSkills retorna skills com auto_load=true, com conteúdo completo.
-// Usado para injeção automática no system prompt.
-func (m *Manager) GetAutoSkills() ([]Skill, error) {
-	discovered := m.discoverAll()
-
-	var result []Skill
-	for _, ds := range discovered {
-		skill, err := loadSkill(ds)
-		if err != nil {
-			continue
-		}
-		if !skill.IsAutoLoad() {
-			continue
-		}
-		result = append(result, *skill)
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
-
-	return result, nil
-}
-
-// GetAvailableSkills retorna skills sem auto_load (sob demanda).
-// Usado para listar skills disponíveis no system prompt (agente lê via read_file).
-func (m *Manager) GetAvailableSkills() ([]Skill, error) {
-	discovered := m.discoverAll()
-
-	var result []Skill
-	for _, ds := range discovered {
-		skill, err := loadSkill(ds)
-		if err != nil {
-			continue
-		}
-		if skill.IsAutoLoad() {
-			continue
-		}
-		result = append(result, *skill)
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
-
-	return result, nil
-}
-
 // GetAllSkillsFull retorna todos os skills com conteúdo completo.
 func (m *Manager) GetAllSkillsFull() ([]Skill, error) {
 	if cached, ok := m.fullSkillsCache(); ok {

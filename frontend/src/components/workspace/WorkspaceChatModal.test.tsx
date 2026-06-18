@@ -48,6 +48,7 @@ const capturedChatPanelProps: {
 } = {};
 
 vi.mock('../chat/ChatPanel', () => ({
+  useEffectiveProfileSlug: () => undefined,
   ChatPanel: ({ surface, onRequestConversationChange }: {
     surface: { sessionKey: string };
     onRequestConversationChange?: (id: string, conversation: { title?: string }) => void;

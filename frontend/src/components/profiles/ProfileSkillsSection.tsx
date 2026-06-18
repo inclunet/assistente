@@ -52,23 +52,30 @@ export function ProfileSkillsSection({
   const [filter, setFilter] = useState<SkillFilter>('all');
   const [search, setSearch] = useState('');
 
-  const hasExplicitEnabledSkills = enabledSkills !== undefined && enabledSkills !== null;
+  const explicitEnabledSkills = Array.isArray(enabledSkills) ? enabledSkills : null;
+  const hasExplicitEnabledSkills = explicitEnabledSkills !== null;
   const effectiveEnabledSkills = useMemo(
     () => {
-      if (hasExplicitEnabledSkills) return enabledSkills;
-      const base = availableSkills.filter((s) => Boolean('autoLoad' in s && s.autoLoad)).map((s) => s.slug);
+      if (explicitEnabledSkills) return explicitEnabledSkills;
+      const base = availableSkills.filter((s) => Boolean(s.autoLoad)).map((s) => s.slug);
       if (disableOnDemand) return base;
-      const onDemand = availableSkills.filter((s) => !Boolean('autoLoad' in s && s.autoLoad)).map((s) => s.slug);
+      const onDemand = availableSkills.filter((s) => !Boolean(s.autoLoad)).map((s) => s.slug);
       return [...base, ...onDemand];
     },
-    [availableSkills, disableOnDemand, enabledSkills, hasExplicitEnabledSkills],
+    [availableSkills, disableOnDemand, explicitEnabledSkills],
   );
-  const enabledSet = new Set(effectiveEnabledSkills);
+  const enabledSet = useMemo(() => new Set(effectiveEnabledSkills), [effectiveEnabledSkills]);
 
-  const enabledSkillRows = effectiveEnabledSkills
-    .map(slug => availableSkills.find(s => s.slug === slug))
-    .filter(Boolean) as Array<{ slug: string; name: string; description?: string; source?: string; autoLoad?: boolean }>;
-  const disabledSkillRows = availableSkills.filter(s => !enabledSet.has(s.slug));
+  const enabledSkillRows = useMemo(
+    () => effectiveEnabledSkills
+      .map(slug => availableSkills.find(s => s.slug === slug))
+      .filter(Boolean) as Array<{ slug: string; name: string; description?: string; source?: string; autoLoad?: boolean }>,
+    [availableSkills, effectiveEnabledSkills],
+  );
+  const disabledSkillRows = useMemo(
+    () => availableSkills.filter(s => !enabledSet.has(s.slug)),
+    [availableSkills, enabledSet],
+  );
   const sortedSkills: SkillRow[] = useMemo(
     () => [...enabledSkillRows, ...disabledSkillRows].map(s => ({
       id: s.slug,
@@ -76,9 +83,9 @@ export function ProfileSkillsSection({
       name: s.name,
       description: s.description || '',
       source: s.source || 'exe',
-      autoLoad: Boolean('autoLoad' in s && s.autoLoad),
+      autoLoad: Boolean(s.autoLoad),
     })),
-    [availableSkills, effectiveEnabledSkills],
+    [enabledSkillRows, disabledSkillRows],
   );
   const effectiveBaseSlug = useMemo(() => {
     for (const slug of effectiveEnabledSkills) {
@@ -113,7 +120,7 @@ export function ProfileSkillsSection({
   const filteredSlugs = useMemo(() => new Set(filteredSkills.map((r) => r.slug)), [filteredSkills]);
   const isFiltered = filter !== 'all' || search.trim() !== '';
 
-  const selectedIds = new Set<string | number>(effectiveEnabledSkills);
+  const selectedIds = useMemo(() => new Set<string | number>(effectiveEnabledSkills), [effectiveEnabledSkills]);
 
   const allSlugs = useMemo(() => sortedSkills.map(s => s.slug), [sortedSkills]);
   const allFilteredSelected = [...filteredSlugs].every((s) => selectedIds.has(s));
@@ -125,14 +132,8 @@ export function ProfileSkillsSection({
     const prevSet = new Set(effectiveEnabledSkills);
     const newSet = newSelectedIds as Set<string>;
 
-    let added: string | null = null;
-    let removed: string | null = null;
-    for (const id of newSet) {
-      if (!prevSet.has(id)) { added = id; break; }
-    }
-    for (const id of prevSet) {
-      if (!newSet.has(id as string)) { removed = id; break; }
-    }
+    const added = [...newSet].find((id) => !prevSet.has(id));
+    const removed = [...prevSet].find((id) => !newSet.has(id));
 
     if (added) {
       const newList = [...effectiveEnabledSkills, added];
@@ -140,7 +141,7 @@ export function ProfileSkillsSection({
     } else if (removed) {
       onChange('enabled_skills', effectiveEnabledSkills.filter(s => s !== removed));
     }
-  }, [enabledSkills, effectiveEnabledSkills, allSlugs, onChange]);
+  }, [effectiveEnabledSkills, allSlugs, onChange]);
 
   const handleSelectFiltered = useCallback(() => {
     if (!isFiltered) {

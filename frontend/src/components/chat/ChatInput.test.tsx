@@ -4,7 +4,6 @@ import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ChatInput } from './ChatInput';
 import type { MediaFile } from '../../services/mediaService';
 
-const getSkillsSpy = vi.fn();
 const getSkillsForProfileSpy = vi.fn();
 const processMediaFilesSpy = vi.fn();
 const announceSpy = vi.fn();
@@ -18,7 +17,6 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
-  GetUserInvocableSkills: () => getSkillsSpy(),
   GetUserInvocableSkillsForProfile: (profileSlug: string) => getSkillsForProfileSpy(profileSlug),
 }));
 
@@ -59,17 +57,14 @@ function deferred<T>() {
 
 describe('ChatInput', () => {
   beforeEach(() => {
-    getSkillsSpy.mockReset();
     getSkillsForProfileSpy.mockReset();
     processMediaFilesSpy.mockReset();
     announceSpy.mockReset();
-    getSkillsSpy.mockResolvedValue([]);
     getSkillsForProfileSpy.mockResolvedValue([]);
     processMediaFilesSpy.mockImplementation(async (files: File[]) => mediaResult(files, 'file'));
   });
 
   it('envia mensagem ao pressionar Enter', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
     const onSend = vi.fn();
 
     render(<ChatInput onSend={onSend} />);
@@ -87,7 +82,6 @@ describe('ChatInput', () => {
     await waitFor(() => {
       expect(getSkillsForProfileSpy).toHaveBeenCalledWith('programacao');
     });
-    expect(getSkillsSpy).not.toHaveBeenCalled();
   });
 
   it('carrega slash menu pelo perfil ativo do backend quando profileSlug não foi resolvido', async () => {
@@ -96,7 +90,6 @@ describe('ChatInput', () => {
     await waitFor(() => {
       expect(getSkillsForProfileSpy).toHaveBeenCalledWith('');
     });
-    expect(getSkillsSpy).not.toHaveBeenCalled();
   });
 
   it('mostra menu slash quando ha skills', async () => {
@@ -151,15 +144,12 @@ describe('ChatInput', () => {
   });
 
   it('mostra botao de voz quando vazio', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
-
     render(<ChatInput onSend={() => {}} voiceEnabled />);
 
     expect(screen.getByTestId('voice-button')).toBeInTheDocument();
   });
 
   it('mostra botão de cancelar geração durante streaming', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
     const onCancelStreaming = vi.fn();
 
     render(<ChatInput onSend={() => {}} isStreaming onCancelStreaming={onCancelStreaming} />);
@@ -171,7 +161,6 @@ describe('ChatInput', () => {
   });
 
   it('aciona cancelamento no Esc durante streaming', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
     const onCancelStreaming = vi.fn();
 
     render(<ChatInput onSend={() => {}} isStreaming onCancelStreaming={onCancelStreaming} />);
@@ -183,7 +172,6 @@ describe('ChatInput', () => {
   });
 
   it('não envia mensagem com Enter durante streaming', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
     const onSend = vi.fn();
 
     render(<ChatInput onSend={onSend} isStreaming />);
@@ -196,7 +184,6 @@ describe('ChatInput', () => {
   });
 
   it('usa estado controlado para rascunho e anexos', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
     const onMessageChange = vi.fn();
     const onMediaFilesChange = vi.fn();
 
@@ -220,8 +207,6 @@ describe('ChatInput', () => {
   });
 
   it('mostra indicador de rascunho salvo quando há rascunho controlado', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
-
     render(
       <ChatInput
         onSend={() => {}}
@@ -234,8 +219,6 @@ describe('ChatInput', () => {
   });
 
   it('não mostra indicador de rascunho quando o rascunho controlado está vazio', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
-
     render(
       <ChatInput
         onSend={() => {}}
@@ -248,7 +231,6 @@ describe('ChatInput', () => {
   });
 
   it('esconde indicador de rascunho após enviar a mensagem', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
     const onSend = vi.fn();
 
     function ControlledDraftInput() {
@@ -274,8 +256,6 @@ describe('ChatInput', () => {
   });
 
   it('não cria live region local (indicador é puramente visual com aria-hidden)', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
-
     render(
       <ChatInput
         onSend={() => {}}
@@ -289,8 +269,6 @@ describe('ChatInput', () => {
   });
 
   it('não anuncia quando monta já com rascunho existente', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
-
     render(
       <ChatInput
         onSend={() => {}}
@@ -303,8 +281,6 @@ describe('ChatInput', () => {
   });
 
   it('anuncia via announcer global na transição de sem rascunho para com rascunho', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
-
     const { rerender } = render(
       <ChatInput
         onSend={() => {}}
@@ -328,7 +304,6 @@ describe('ChatInput', () => {
   });
 
   it('mostra indicador quando apenas os anexos são controlados e não-vazios', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
     const controlledMedia = mediaResult(
       [new File(['anexo'], 'anexo.txt', { type: 'text/plain' })],
       'draft',
@@ -346,8 +321,6 @@ describe('ChatInput', () => {
   });
 
   it('não mostra indicador quando os anexos controlados estão vazios', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
-
     render(
       <ChatInput
         onSend={() => {}}
@@ -360,7 +333,6 @@ describe('ChatInput', () => {
   });
 
   it('não mostra indicador para anexos locais quando só a mensagem está controlada', async () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
     const localFile = new File(['local'], 'local.txt', { type: 'text/plain' });
 
     render(
@@ -382,8 +354,6 @@ describe('ChatInput', () => {
   });
 
   it('ignora prop message sem onMessageChange para evitar textarea read-only', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
-
     render(<ChatInput onSend={() => {}} message="Prop sem handler" />);
 
     const textarea = screen.getByLabelText('chat.messageLabel');
@@ -395,7 +365,6 @@ describe('ChatInput', () => {
   });
 
   it('ignora prop mediaFiles sem onMediaFilesChange para manter anexos mutáveis localmente', async () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
     const firstFile = new File(['primeiro'], 'first.txt', { type: 'text/plain' });
 
     render(<ChatInput onSend={() => {}} mediaFiles={[]} />);
@@ -409,7 +378,6 @@ describe('ChatInput', () => {
   });
 
   it('expõe o textarea para callback refs', () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
     const callbackRef = vi.fn();
 
     render(<ChatInput ref={callbackRef} onSend={() => {}} />);
@@ -418,7 +386,6 @@ describe('ChatInput', () => {
   });
 
   it('preserva anexos adicionados enquanto outro processamento ainda está pendente', async () => {
-    getSkillsSpy.mockResolvedValueOnce([]);
     const firstProcessing = deferred<void>();
     const firstFile = new File(['primeiro'], 'first.txt', { type: 'text/plain' });
     const secondFile = new File(['segundo'], 'second.txt', { type: 'text/plain' });

@@ -15,9 +15,7 @@ async function openSlashMenu(page: import('@playwright/test').Page, value = '/')
 
   await expect.poll(async () => {
     return page.evaluate(() =>
-      window.__wailsMock.getCallLog().some(
-        (c: { fn: string }) => c.fn === 'GetUserInvocableSkillsForProfile' || c.fn === 'GetUserInvocableSkills',
-      ),
+      window.__wailsMock.getCallLog().some((c: { fn: string }) => c.fn === 'GetUserInvocableSkillsForProfile'),
     );
   }, { timeout: 5_000 }).toBe(true);
 
@@ -29,7 +27,6 @@ async function openSlashMenu(page: import('@playwright/test').Page, value = '/')
 
 test.describe('Chat — Slash Commands', () => {
   test.beforeEach(async ({ wails }) => {
-    await wails.setResponse('GetUserInvocableSkills', mockSkills);
     await wails.setResponse('GetUserInvocableSkillsForProfile', mockSkills);
   });
 

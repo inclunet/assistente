@@ -21,9 +21,15 @@ func (loadSkillRuntimeTestTool) Execute(context.Context, json.RawMessage) (tools
 	return tools.ToolResult{
 		Content: "loaded",
 		Metadata: map[string]any{
-			"skill_slug":      "review",
-			"skill_name":      "Review",
-			"filesystem_read": []string{"src/**"},
+			"skill_slug":            "review",
+			"skill_name":            "Review",
+			"filesystem_read":       []string{"src/**"},
+			"tools_allowed":         []string{"scope_probe"},
+			"tools_denied":          []string{"danger_tool"},
+			"bash_commands_allowed": []string{"go test ./..."},
+			"bash_commands_denied":  []string{"rm -rf /"},
+			"network_allowed_hosts": []string{"api.example.com"},
+			"network_denied_hosts":  []string{"metadata.google.internal"},
 		},
 	}, nil
 }
@@ -37,6 +43,14 @@ func (scopeProbeTool) Execute(ctx context.Context, _ json.RawMessage) (tools.Too
 	ec, ok := tools.GetExecutionContext(ctx)
 	if !ok || ec.Filesystem == nil || len(ec.Filesystem.Read) == 0 {
 		return tools.ToolResult{Content: "missing scope", IsError: true}, nil
+	}
+	if len(ec.AllowedTools) == 0 || ec.AllowedTools[0] != "scope_probe" ||
+		len(ec.DeniedTools) == 0 || ec.DeniedTools[0] != "danger_tool" ||
+		len(ec.AllowedBash) == 0 || ec.AllowedBash[0] != "go test ./..." ||
+		len(ec.DeniedBash) == 0 || ec.DeniedBash[0] != "rm -rf /" ||
+		len(ec.NetworkAllowedHost) == 0 || ec.NetworkAllowedHost[0] != "api.example.com" ||
+		len(ec.NetworkDeniedHost) == 0 || ec.NetworkDeniedHost[0] != "metadata.google.internal" {
+		return tools.ToolResult{Content: "missing non-filesystem permissions", IsError: true}, nil
 	}
 	return tools.ToolResult{Content: ec.Filesystem.Read[0]}, nil
 }

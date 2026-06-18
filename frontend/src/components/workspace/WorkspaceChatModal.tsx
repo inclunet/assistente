@@ -2,7 +2,7 @@ import { logger } from '../../utils/logger';
 import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
-import { ChatPanel, type ChatPanelSendContext } from '../chat/ChatPanel';
+import { ChatPanel, useEffectiveProfileSlug, type ChatPanelSendContext } from '../chat/ChatPanel';
 import { sendChatSurfaceMessage, useChatConversationTimeline } from '../chat/ChatSurfaceController';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { useWorkspaceStore, useActiveTab } from '../../store/workspaceStore';
@@ -27,7 +27,6 @@ export function WorkspaceChatModal() {
   const boundSurface = useWorkspaceChatModalStore((s) => s.boundSurface);
   const setBoundConversation = useWorkspaceChatModalStore((s) => s.setBoundConversation);
   const workspaceTabs = useWorkspaceStore((s) => s.workspace?.tabs ?? []);
-  const workspaceProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const activeConversation = useChatConversationTimeline(boundConversationId);
   const activeWorkspaceTab = useActiveTab();
   const boundWorkspaceTab = useMemo(
@@ -38,7 +37,7 @@ export function WorkspaceChatModal() {
     const conversationTitle = activeConversation?.title || t('editor.chatModal.conversation');
     return `${t('editor.chatModal.title')} — ${conversationTitle}`;
   }, [activeConversation?.title, activeConversation?.id, t]);
-  const effectiveProfileSlug = (boundWorkspaceTab?.profileOverride?.slug as string | undefined) || workspaceProfile || undefined;
+  const effectiveProfileSlug = useEffectiveProfileSlug(boundTabId ?? undefined);
 
   const handleClose = useCallback(() => {
     close();

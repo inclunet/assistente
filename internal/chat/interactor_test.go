@@ -665,6 +665,32 @@ func TestPrepareMessagesInjectsLinkedTaskListsAsDynamicContext(t *testing.T) {
 	}
 }
 
+func TestPrepareMessagesOmitsLinkedTaskListsWhenSkillsDisabled(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder: promptBuilder,
+		LinkedTaskLists: func(_ context.Context, _ string) []TemplateTaskList {
+			return []TemplateTaskList{{ID: "list-1", Title: "Sprint"}}
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.DisableSkills = true
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "status"}},
+		UserContent:    "status",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.contextBlocks) != 0 {
+		t.Fatalf("expected no tasklist context when skills are disabled, got %#v", promptBuilder.contextBlocks)
+	}
+}
+
 func TestPrepareMessagesRejectsDisabledSkill(t *testing.T) {
 	em := &spyEmitter{}
 	skill := &skills.Skill{
