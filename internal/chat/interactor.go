@@ -50,15 +50,17 @@ type SkillRuntimeManager interface {
 
 // InteractorConfig groups all dependencies for Interactor.
 type InteractorConfig struct {
-	Emitter          events.Emitter
-	Repo             MessageRepository
-	ConvRepo         ConversationRepository
-	ProviderSvc      *providers.Service
-	ProfileMgr       *profiles.Manager
-	Workspace        WorkspaceProvider
-	SkillMgr         SkillRuntimeManager       // optional during startup; safe to be nil
-	PromptBuilder    SystemPromptBuilder       // optional during startup; safe to be nil
-	ContextProviders *contextprovider.Registry // optional; dynamic Context Provider registry
+	Emitter       events.Emitter
+	Repo          MessageRepository
+	ConvRepo      ConversationRepository
+	ProviderSvc   *providers.Service
+	ProfileMgr    *profiles.Manager
+	Workspace     WorkspaceProvider
+	SkillMgr      SkillRuntimeManager // optional during startup; safe to be nil
+	PromptBuilder SystemPromptBuilder // optional during startup; safe to be nil
+	// ContextProviders monta blocos dinâmicos de prompt (memory, workspace,
+	// tasklists). Opcional em testes/startup; nil desabilita esses blocos.
+	ContextProviders *contextprovider.Registry
 	// LinkedTaskLists resolve as task lists vinculadas a uma conversa para o
 	// Context Provider tasklist. Opcional: nil produz contexto vazio.
 	LinkedTaskLists func(ctx context.Context, conversationID string) []contextprovider.LinkedTaskList
