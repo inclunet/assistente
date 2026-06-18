@@ -61,7 +61,9 @@ func New(cfg *Config, domainPatterns map[string]string) *Client {
 	}
 }
 
-// Do executa uma requisição HTTP com interceptação de autenticação
+// Do executa uma requisição HTTP com interceptação de autenticação. Este é o
+// ponto comum de enforcement de network scope para tools que usam o cliente
+// compartilhado (web_fetch, http_request, web_search/feed).
 func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, error) {
 	if req == nil {
 		return nil, fmt.Errorf("request cannot be nil")

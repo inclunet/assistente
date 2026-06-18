@@ -140,6 +140,8 @@ Quando o usuário digita `/skill args`, o backend deve:
 
 O usuário deve conseguir perceber que a skill foi carregada.
 
+As permissões declaradas pela skill (`tools`, `bashCommands`, `filesystem` e `network`) devem ser preservadas no contexto de execução do turno. Para rede, o enforcement ocorre no cliente HTTP compartilhado e em redirects, de modo que skills carregadas por `/skill` ou por `load_skill` tenham o mesmo bloqueio de hosts `allowed`/`denied`.
+
 ### D6. Carregamento sob demanda é explícito no runtime
 
 Quando uma skill listada no catálogo é ativada, o runtime deve carregar o corpo completo de forma explícita e observável no turno.

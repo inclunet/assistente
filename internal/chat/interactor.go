@@ -793,7 +793,7 @@ func taskListContextBlocks(data TemplateData, enabled bool) []contextprovider.Bl
 		sb.WriteString("\n| # | Status | Task | ID |\n|---|--------|------|----|\n")
 		for idx, task := range list.Tasks {
 			sb.WriteString("| ")
-			sb.WriteString(fmt.Sprintf("%d", idx))
+			fmt.Fprintf(&sb, "%d", idx)
 			sb.WriteString(" | ")
 			if task.StatusIcon != "" {
 				sb.WriteString(task.StatusIcon)
