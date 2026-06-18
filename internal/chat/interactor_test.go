@@ -15,6 +15,7 @@ import (
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
+	"assistente/internal/tasklist"
 	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
@@ -723,19 +724,20 @@ func TestPrepareMessagesInjectsLinkedTaskListsAsDynamicContext(t *testing.T) {
 		Content:       "tasklist instructions",
 	}
 	interactor := NewInteractor(InteractorConfig{
-		PromptBuilder: promptBuilder,
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(tasklist.NewContextProvider()),
 		SkillMgr: staticSkillRuntimeManager{
 			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
 		},
-		LinkedTaskLists: func(_ context.Context, conversationID string) []TemplateTaskList {
+		LinkedTaskLists: func(_ context.Context, conversationID string) []contextprovider.LinkedTaskList {
 			if conversationID != "conv-1" {
 				t.Fatalf("conversationID = %q, want conv-1", conversationID)
 			}
-			return []TemplateTaskList{{
+			return []contextprovider.LinkedTaskList{{
 				ID:          "list-1",
 				Title:       "Sprint",
 				Description: "Current sprint",
-				Tasks: []TemplateTask{{
+				Tasks: []contextprovider.LinkedTask{{
 					ID:         "task-1",
 					Title:      "Fix login",
 					Status:     "Doing",
@@ -779,12 +781,13 @@ func TestPrepareMessagesOmitsLinkedTaskListsWhenSkillsDisabled(t *testing.T) {
 		Content:       "tasklist instructions",
 	}
 	interactor := NewInteractor(InteractorConfig{
-		PromptBuilder: promptBuilder,
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(tasklist.NewContextProvider()),
 		SkillMgr: staticSkillRuntimeManager{
 			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
 		},
-		LinkedTaskLists: func(_ context.Context, _ string) []TemplateTaskList {
-			return []TemplateTaskList{{ID: "list-1", Title: "Sprint"}}
+		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
+			return []contextprovider.LinkedTaskList{{ID: "list-1", Title: "Sprint"}}
 		},
 	})
 	profile := &profiles.Profile{}
@@ -813,12 +816,13 @@ func TestPrepareMessagesOmitsLinkedTaskListsWhenTasklistSkillDisabled(t *testing
 		Content:       "tasklist instructions",
 	}
 	interactor := NewInteractor(InteractorConfig{
-		PromptBuilder: promptBuilder,
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(tasklist.NewContextProvider()),
 		SkillMgr: staticSkillRuntimeManager{
 			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
 		},
-		LinkedTaskLists: func(_ context.Context, _ string) []TemplateTaskList {
-			return []TemplateTaskList{{ID: "list-1", Title: "Sprint"}}
+		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
+			return []contextprovider.LinkedTaskList{{ID: "list-1", Title: "Sprint"}}
 		},
 	})
 	profile := &profiles.Profile{}

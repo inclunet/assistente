@@ -5,15 +5,15 @@ import (
 	"encoding/json"
 	"strings"
 
-	"assistente/internal/chat"
+	"assistente/internal/contextprovider"
 	"assistente/internal/database"
 	"assistente/internal/tasklist"
 )
 
 // linkedTaskListsForConversation resolve as task lists vinculadas a uma conversa
-// e as mapeia para o contexto de template da skill tasklist-manager (auto-load).
-// Best-effort: erros (ou ctx sem usuário) resultam em nil → template vazio.
-func (a *App) linkedTaskListsForConversation(ctx context.Context, conversationID string) []chat.TemplateTaskList {
+// e as mapeia para o Context Provider tasklist.
+// Best-effort: erros (ou ctx sem usuário) resultam em nil → contexto vazio.
+func (a *App) linkedTaskListsForConversation(ctx context.Context, conversationID string) []contextprovider.LinkedTaskList {
 	if a.taskListCtrl == nil || strings.TrimSpace(conversationID) == "" {
 		return nil
 	}
@@ -21,7 +21,7 @@ func (a *App) linkedTaskListsForConversation(ctx context.Context, conversationID
 	if err != nil || len(lists) == 0 {
 		return nil
 	}
-	out := make([]chat.TemplateTaskList, 0, len(lists))
+	out := make([]contextprovider.LinkedTaskList, 0, len(lists))
 	for i := range lists {
 		l := lists[i]
 		statusMeta := map[int]database.TaskListWorkflowStatus{}
@@ -33,17 +33,17 @@ func (a *App) linkedTaskListsForConversation(ctx context.Context, conversationID
 				}
 			}
 		}
-		tasks := make([]chat.TemplateTask, 0, len(l.Tasks))
+		tasks := make([]contextprovider.LinkedTask, 0, len(l.Tasks))
 		for _, tk := range l.Tasks {
 			meta := statusMeta[tk.StatusID]
-			tasks = append(tasks, chat.TemplateTask{
+			tasks = append(tasks, contextprovider.LinkedTask{
 				ID:         tk.ID,
 				Title:      tk.Title,
 				Status:     meta.Label,
 				StatusIcon: meta.Icon,
 			})
 		}
-		out = append(out, chat.TemplateTaskList{
+		out = append(out, contextprovider.LinkedTaskList{
 			ID:          l.ID,
 			Title:       l.Title,
 			Description: l.Description,
