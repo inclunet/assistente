@@ -365,6 +365,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	}
 	a.contextProviders = contextprovider.NewRegistry(
 		a.memorySvc,
+		tasklist.NewContextProvider(),
 		workspace.NewContextProvider(),
 	)
 

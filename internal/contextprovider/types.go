@@ -24,6 +24,20 @@ type Tab struct {
 	IsActive  bool
 }
 
+type LinkedTaskList struct {
+	ID          string
+	Title       string
+	Description string
+	Tasks       []LinkedTask
+}
+
+type LinkedTask struct {
+	ID         string
+	Title      string
+	Status     string
+	StatusIcon string
+}
+
 type BuildRequest struct {
 	ConversationID   string
 	WorkspaceID      string
@@ -37,6 +51,12 @@ type BuildRequest struct {
 	CurrentUserText  string
 	Surface          *Surface
 	ProviderBudgets  map[string]int
+
+	// TaskListContextEnabled carries the chat skill policy decision into the
+	// tasklist provider. It should only be true when tasklist-manager is enabled
+	// for the active profile and global skill disabling does not apply.
+	TaskListContextEnabled bool
+	LinkedTaskLists        []LinkedTaskList
 }
 
 func (r BuildRequest) Budget(provider string, fallback int) int {

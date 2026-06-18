@@ -50,19 +50,20 @@ type SkillRuntimeManager interface {
 
 // InteractorConfig groups all dependencies for Interactor.
 type InteractorConfig struct {
-	Emitter          events.Emitter
-	Repo             MessageRepository
-	ConvRepo         ConversationRepository
-	ProviderSvc      *providers.Service
-	ProfileMgr       *profiles.Manager
-	Workspace        WorkspaceProvider
-	SkillMgr         SkillRuntimeManager       // optional during startup; safe to be nil
-	PromptBuilder    SystemPromptBuilder       // optional during startup; safe to be nil
-	ContextProviders *contextprovider.Registry // optional; dynamic Context Provider registry
-	// LinkedTaskLists resolve as task lists vinculadas a uma conversa para
-	// alimentar o contexto da skill tasklist-manager (auto-load). Opcional: se
-	// nil, o template renderiza vazio (HasTaskLists=false).
-	LinkedTaskLists func(ctx context.Context, conversationID string) []TemplateTaskList
+	Emitter       events.Emitter
+	Repo          MessageRepository
+	ConvRepo      ConversationRepository
+	ProviderSvc   *providers.Service
+	ProfileMgr    *profiles.Manager
+	Workspace     WorkspaceProvider
+	SkillMgr      SkillRuntimeManager // optional during startup; safe to be nil
+	PromptBuilder SystemPromptBuilder // optional during startup; safe to be nil
+	// ContextProviders monta blocos dinâmicos de prompt (memory, workspace,
+	// tasklists). Opcional em testes/startup; nil desabilita esses blocos.
+	ContextProviders *contextprovider.Registry
+	// LinkedTaskLists resolve as task lists vinculadas a uma conversa para o
+	// Context Provider tasklist. Opcional: nil produz contexto vazio.
+	LinkedTaskLists func(ctx context.Context, conversationID string) []contextprovider.LinkedTaskList
 }
 
 // Interactor orchestrates the core chat use cases, free of Wails dependencies.
@@ -76,7 +77,7 @@ type Interactor struct {
 	skillMgr         SkillRuntimeManager
 	promptBuilder    SystemPromptBuilder
 	contextProviders *contextprovider.Registry
-	linkedTaskLists  func(ctx context.Context, conversationID string) []TemplateTaskList
+	linkedTaskLists  func(ctx context.Context, conversationID string) []contextprovider.LinkedTaskList
 
 	// nativeMCPAdjustMu serializa o read-modify-write do auto-ajuste de MCP nativo
 	// do perfil (nil→false), garantindo idempotência sob concorrência (vários runs
@@ -520,13 +521,6 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	if i.promptBuilder != nil {
 		skillTplData = i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params, req.ConversationID)
 	}
-	// Contexto de task lists vinculadas à conversa (skill tasklist-manager).
-	if i.linkedTaskLists != nil && strings.TrimSpace(req.ConversationID) != "" {
-		if lists := i.linkedTaskLists(ctx, req.ConversationID); len(lists) > 0 {
-			skillTplData.TaskLists = lists
-			skillTplData.HasTaskLists = true
-		}
-	}
 
 	var slashSkillContent string
 	var invokedSkillSlug string
@@ -601,6 +595,11 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		}
 	}
 
+	var linkedTaskLists []contextprovider.LinkedTaskList
+	if taskListContextEnabled && i.promptBuilder != nil && i.contextProviders != nil && i.linkedTaskLists != nil && strings.TrimSpace(req.ConversationID) != "" {
+		linkedTaskLists = i.linkedTaskLists(ctx, req.ConversationID)
+	}
+
 	var enabledSkills []string
 	var disableOnDemand bool
 	var disableSkills bool
@@ -612,7 +611,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 
 	var messages []llm.Message
 	if i.promptBuilder != nil {
-		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary, i.buildDynamicContext(ctx, skillTplData, req.UserContent, taskListContextEnabled))
+		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary, i.buildDynamicContext(ctx, skillTplData, req.UserContent, linkedTaskLists, taskListContextEnabled))
 	} else {
 		messages = req.Messages
 	}
@@ -723,24 +722,23 @@ func (i *Interactor) ValidateSkillInvocation(activeProfile *profiles.Profile, us
 	return nil
 }
 
-func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string, taskListContextEnabled bool) []contextprovider.Block {
-	// Linked task lists include imperative model guidance from tasklist-manager,
-	// so they are only injected when that skill is enabled in the active profile.
-	taskListBlocks := taskListContextBlocks(data, taskListContextEnabled)
+func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string, linkedTaskLists []contextprovider.LinkedTaskList, taskListContextEnabled bool) []contextprovider.Block {
 	if i.contextProviders == nil {
-		return taskListBlocks
+		return nil
 	}
 	req := contextprovider.BuildRequest{
-		ConversationID:   data.ConversationID,
-		WorkspaceID:      data.WorkspaceID,
-		ProjectID:        data.ProjectID,
-		WorkspaceName:    data.WorkspaceName,
-		WorkspaceProfile: data.WorkspaceProfile,
-		TabCount:         data.TabCount,
-		ActiveTabTitle:   data.ActiveTabTitle,
-		ActiveTabType:    data.ActiveTabType,
-		Tabs:             make([]contextprovider.Tab, 0, len(data.Tabs)),
-		CurrentUserText:  currentUserText,
+		ConversationID:         data.ConversationID,
+		WorkspaceID:            data.WorkspaceID,
+		ProjectID:              data.ProjectID,
+		WorkspaceName:          data.WorkspaceName,
+		WorkspaceProfile:       data.WorkspaceProfile,
+		TabCount:               data.TabCount,
+		ActiveTabTitle:         data.ActiveTabTitle,
+		ActiveTabType:          data.ActiveTabType,
+		Tabs:                   make([]contextprovider.Tab, 0, len(data.Tabs)),
+		CurrentUserText:        currentUserText,
+		TaskListContextEnabled: taskListContextEnabled,
+		LinkedTaskLists:        linkedTaskLists,
 	}
 	for _, tab := range data.Tabs {
 		req.Tabs = append(req.Tabs, contextprovider.Tab{
@@ -761,58 +759,7 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 	blocks, err := i.contextProviders.Build(ctx, req)
 	if err != nil {
 		log.Printf("[context/providers] erro ao montar blocos dinâmicos: %v", err)
-		return taskListBlocks
-	}
-	return append(taskListBlocks, blocks...)
-}
-
-func taskListContextBlocks(data TemplateData, enabled bool) []contextprovider.Block {
-	if !enabled || !data.HasTaskLists || len(data.TaskLists) == 0 {
 		return nil
 	}
-	var sb strings.Builder
-	sb.WriteString("<linked_task_lists>\n")
-	sb.WriteString("This conversation has linked task lists. Use this context to track progress, update tasks, and help the user manage their work.\n")
-	for _, list := range data.TaskLists {
-		sb.WriteString("\n## ")
-		sb.WriteString(list.Title)
-		if list.ID != "" {
-			sb.WriteString(" (ID: ")
-			sb.WriteString(list.ID)
-			sb.WriteString(")")
-		}
-		sb.WriteString("\n")
-		if strings.TrimSpace(list.Description) != "" {
-			sb.WriteString(strings.TrimSpace(list.Description))
-			sb.WriteString("\n")
-		}
-		if len(list.Tasks) == 0 {
-			sb.WriteString("_No tasks yet._\n")
-			continue
-		}
-		sb.WriteString("\n| # | Status | Task | ID |\n|---|--------|------|----|\n")
-		for idx, task := range list.Tasks {
-			sb.WriteString("| ")
-			fmt.Fprintf(&sb, "%d", idx)
-			sb.WriteString(" | ")
-			if task.StatusIcon != "" {
-				sb.WriteString(task.StatusIcon)
-				sb.WriteString(" ")
-			}
-			sb.WriteString(task.Status)
-			sb.WriteString(" | ")
-			sb.WriteString(task.Title)
-			sb.WriteString(" | ")
-			sb.WriteString(task.ID)
-			sb.WriteString(" |\n")
-		}
-	}
-	sb.WriteString("</linked_task_lists>")
-	return []contextprovider.Block{{
-		Provider:   "tasklist",
-		Name:       "linked_task_lists",
-		Volatility: contextprovider.VolatilityFastDynamic,
-		Priority:   40,
-		Content:    sb.String(),
-	}}
+	return blocks
 }

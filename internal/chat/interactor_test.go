@@ -15,6 +15,7 @@ import (
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
+	"assistente/internal/tasklist"
 	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
@@ -723,23 +724,24 @@ func TestPrepareMessagesInjectsLinkedTaskListsAsDynamicContext(t *testing.T) {
 		Content:       "tasklist instructions",
 	}
 	interactor := NewInteractor(InteractorConfig{
-		PromptBuilder: promptBuilder,
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(tasklist.NewContextProvider()),
 		SkillMgr: staticSkillRuntimeManager{
 			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
 		},
-		LinkedTaskLists: func(_ context.Context, conversationID string) []TemplateTaskList {
+		LinkedTaskLists: func(_ context.Context, conversationID string) []contextprovider.LinkedTaskList {
 			if conversationID != "conv-1" {
 				t.Fatalf("conversationID = %q, want conv-1", conversationID)
 			}
-			return []TemplateTaskList{{
+			return []contextprovider.LinkedTaskList{{
 				ID:          "list-1",
 				Title:       "Sprint",
 				Description: "Current sprint",
-				Tasks: []TemplateTask{{
+				Tasks: []contextprovider.LinkedTask{{
 					ID:         "task-1",
 					Title:      "Fix login",
 					Status:     "Doing",
-					StatusIcon: ">",
+					StatusIcon: "*",
 				}},
 			}}
 		},
@@ -766,7 +768,7 @@ func TestPrepareMessagesInjectsLinkedTaskListsAsDynamicContext(t *testing.T) {
 	}
 	if !strings.Contains(block.Content, "<linked_task_lists>") ||
 		!strings.Contains(block.Content, "Sprint (ID: list-1)") ||
-		!strings.Contains(block.Content, "| > Doing | Fix login | task-1 |") {
+		!strings.Contains(block.Content, "| * Doing | Fix login | task-1 |") {
 		t.Fatalf("linked task list context missing expected content: %q", block.Content)
 	}
 }
@@ -779,12 +781,14 @@ func TestPrepareMessagesOmitsLinkedTaskListsWhenSkillsDisabled(t *testing.T) {
 		Content:       "tasklist instructions",
 	}
 	interactor := NewInteractor(InteractorConfig{
-		PromptBuilder: promptBuilder,
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(tasklist.NewContextProvider()),
 		SkillMgr: staticSkillRuntimeManager{
 			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
 		},
-		LinkedTaskLists: func(_ context.Context, _ string) []TemplateTaskList {
-			return []TemplateTaskList{{ID: "list-1", Title: "Sprint"}}
+		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
+			t.Fatal("LinkedTaskLists should not be resolved when skills are disabled")
+			return nil
 		},
 	})
 	profile := &profiles.Profile{}
@@ -813,12 +817,14 @@ func TestPrepareMessagesOmitsLinkedTaskListsWhenTasklistSkillDisabled(t *testing
 		Content:       "tasklist instructions",
 	}
 	interactor := NewInteractor(InteractorConfig{
-		PromptBuilder: promptBuilder,
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(tasklist.NewContextProvider()),
 		SkillMgr: staticSkillRuntimeManager{
 			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
 		},
-		LinkedTaskLists: func(_ context.Context, _ string) []TemplateTaskList {
-			return []TemplateTaskList{{ID: "list-1", Title: "Sprint"}}
+		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
+			t.Fatal("LinkedTaskLists should not be resolved when tasklist-manager is disabled")
+			return nil
 		},
 	})
 	profile := &profiles.Profile{}
@@ -836,6 +842,75 @@ func TestPrepareMessagesOmitsLinkedTaskListsWhenTasklistSkillDisabled(t *testing
 	}
 	if len(promptBuilder.contextBlocks) != 0 {
 		t.Fatalf("expected no tasklist context when tasklist-manager is disabled, got %#v", promptBuilder.contextBlocks)
+	}
+}
+
+func TestPrepareMessagesOmitsLinkedTaskListsWithoutContextProviders(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	taskListSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "tasklist-manager", DisplayName: "Task List Manager"},
+		Slug:          "tasklist-manager",
+		Content:       "tasklist instructions",
+	}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder: promptBuilder,
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
+		},
+		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
+			t.Fatal("LinkedTaskLists should not be resolved without ContextProviders")
+			return nil
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"tasklist-manager"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "status"}},
+		UserContent:    "status",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.contextBlocks) != 0 {
+		t.Fatalf("expected no tasklist context without ContextProviders, got %#v", promptBuilder.contextBlocks)
+	}
+}
+
+func TestPrepareMessagesOmitsLinkedTaskListsWithoutPromptBuilder(t *testing.T) {
+	taskListSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "tasklist-manager", DisplayName: "Task List Manager"},
+		Slug:          "tasklist-manager",
+		Content:       "tasklist instructions",
+	}
+	interactor := NewInteractor(InteractorConfig{
+		ContextProviders: contextprovider.NewRegistry(tasklist.NewContextProvider()),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
+		},
+		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
+			t.Fatal("LinkedTaskLists should not be resolved without PromptBuilder")
+			return nil
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"tasklist-manager"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "status"}},
+		UserContent:    "status",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if got := len(result.Messages); got != 1 {
+		t.Fatalf("len(result.Messages) = %d, want original message only", got)
 	}
 }
 
