@@ -8,6 +8,8 @@ import (
 	"assistente/internal/contextprovider"
 )
 
+const defaultPromptBudget = 4000
+
 type ContextProvider struct{}
 
 var taskListContextLineReplacer = strings.NewReplacer("\n", " ", "\r", " ", "<", "", ">", "", "|", "\\|")
@@ -22,7 +24,7 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 	if !req.TaskListContextEnabled || len(req.LinkedTaskLists) == 0 {
 		return nil, nil
 	}
-	content := buildLinkedTaskListsBlock(req.LinkedTaskLists)
+	content := buildLinkedTaskListsBlock(req.LinkedTaskLists, req.Budget(p.Name(), defaultPromptBudget))
 	if strings.TrimSpace(content) == "" {
 		return nil, nil
 	}
@@ -35,50 +37,89 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 	}}, nil
 }
 
-func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList) string {
+func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList, budgetChars int) string {
+	if budgetChars <= 0 {
+		budgetChars = defaultPromptBudget
+	}
 	var sb strings.Builder
 	sb.WriteString("<linked_task_lists>\n")
 	sb.WriteString("This conversation has linked task lists. Use this context to track progress, update tasks, and help the user manage their work.\n")
 	for _, list := range lists {
 		listID := sanitizeContextLine(list.ID)
 		description := sanitizeContextLine(list.Description)
-		sb.WriteString("\n## ")
-		sb.WriteString(sanitizeContextLine(list.Title))
+		var heading strings.Builder
+		heading.WriteString("\n## ")
+		heading.WriteString(sanitizeContextLine(list.Title))
 		if listID != "" {
-			sb.WriteString(" (ID: ")
-			sb.WriteString(listID)
-			sb.WriteString(")")
+			heading.WriteString(" (ID: ")
+			heading.WriteString(listID)
+			heading.WriteString(")")
 		}
-		sb.WriteString("\n")
+		heading.WriteString("\n")
+		if !writeTaskListContextLine(&sb, budgetChars, heading.String(), true) {
+			return closeLinkedTaskListsBlock(&sb, budgetChars, true)
+		}
 		if description != "" {
-			sb.WriteString(description)
-			sb.WriteString("\n")
+			if !writeTaskListContextLine(&sb, budgetChars, description+"\n", true) {
+				return closeLinkedTaskListsBlock(&sb, budgetChars, true)
+			}
 		}
 		if len(list.Tasks) == 0 {
-			sb.WriteString("_No tasks yet._\n")
+			if !writeTaskListContextLine(&sb, budgetChars, "_No tasks yet._\n", true) {
+				return closeLinkedTaskListsBlock(&sb, budgetChars, true)
+			}
 			continue
 		}
-		sb.WriteString("\n| # | Status | Task | ID |\n|---|--------|------|----|\n")
+		if !writeTaskListContextLine(&sb, budgetChars, "\n| # | Status | Task | ID |\n|---|--------|------|----|\n", true) {
+			return closeLinkedTaskListsBlock(&sb, budgetChars, true)
+		}
 		for idx, task := range list.Tasks {
-			sb.WriteString("| ")
-			sb.WriteString(strconv.Itoa(idx))
-			sb.WriteString(" | ")
+			var line strings.Builder
+			line.WriteString("| ")
+			line.WriteString(strconv.Itoa(idx))
+			line.WriteString(" | ")
 			if icon := sanitizeContextLine(task.StatusIcon); icon != "" {
-				sb.WriteString(icon)
-				sb.WriteString(" ")
+				line.WriteString(icon)
+				line.WriteString(" ")
 			}
-			sb.WriteString(sanitizeContextLine(task.Status))
-			sb.WriteString(" | ")
-			sb.WriteString(sanitizeContextLine(task.Title))
-			sb.WriteString(" | ")
-			sb.WriteString(sanitizeContextLine(task.ID))
-			sb.WriteString(" |\n")
+			line.WriteString(sanitizeContextLine(task.Status))
+			line.WriteString(" | ")
+			line.WriteString(sanitizeContextLine(task.Title))
+			line.WriteString(" | ")
+			line.WriteString(sanitizeContextLine(task.ID))
+			line.WriteString(" |\n")
+			if !writeTaskListContextLine(&sb, budgetChars, line.String(), true) {
+				return closeLinkedTaskListsBlock(&sb, budgetChars, true)
+			}
 		}
 	}
-	sb.WriteString("</linked_task_lists>")
-	return sb.String()
+	return closeLinkedTaskListsBlock(&sb, budgetChars, false)
 }
 
 func sanitizeContextLine(value string) string {
 	return taskListContextLineReplacer.Replace(strings.TrimSpace(value))
+}
+
+func writeTaskListContextLine(sb *strings.Builder, budgetChars int, line string, reserveTruncation bool) bool {
+	reserved := "\n</linked_task_lists>"
+	if reserveTruncation {
+		reserved = "\n... Additional linked task list content omitted due to context budget.\n</linked_task_lists>"
+	}
+	if runeLen(sb.String())+runeLen(line)+runeLen(reserved) > budgetChars {
+		return false
+	}
+	sb.WriteString(line)
+	return true
+}
+
+func closeLinkedTaskListsBlock(sb *strings.Builder, budgetChars int, truncated bool) string {
+	if truncated {
+		_ = writeTaskListContextLine(sb, budgetChars, "\n... Additional linked task list content omitted due to context budget.", false)
+	}
+	sb.WriteString("\n</linked_task_lists>")
+	return sb.String()
+}
+
+func runeLen(value string) int {
+	return len([]rune(value))
 }

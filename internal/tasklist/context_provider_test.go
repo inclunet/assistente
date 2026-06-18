@@ -2,6 +2,7 @@ package tasklist
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -116,5 +117,44 @@ func TestContextProviderSanitizesTaskListContent(t *testing.T) {
 		if !strings.Contains(content, needle) {
 			t.Fatalf("sanitized content missing %q: %q", needle, content)
 		}
+	}
+}
+
+func TestContextProviderHonorsPromptBudget(t *testing.T) {
+	tasks := make([]contextprovider.LinkedTask, 0, 20)
+	for i := 0; i < 20; i++ {
+		tasks = append(tasks, contextprovider.LinkedTask{
+			ID:     "task-" + strconv.Itoa(i),
+			Title:  "Long task title that would grow the prompt quickly",
+			Status: "Doing",
+		})
+	}
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		TaskListContextEnabled: true,
+		ProviderBudgets:        map[string]int{"tasklist": 420},
+		LinkedTaskLists: []contextprovider.LinkedTaskList{{
+			ID:    "list-1",
+			Title: "Sprint",
+			Tasks: tasks,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want 1", len(blocks))
+	}
+	content := blocks[0].Content
+	if len([]rune(content)) > 420 {
+		t.Fatalf("content length = %d, want <= 420: %q", len([]rune(content)), content)
+	}
+	if !strings.Contains(content, "omitted due to context budget") {
+		t.Fatalf("expected truncation notice: %q", content)
+	}
+	if !strings.HasSuffix(content, "</linked_task_lists>") {
+		t.Fatalf("expected clean closing tag: %q", content)
+	}
+	if strings.Contains(content, "task-19") {
+		t.Fatalf("expected later tasks to be omitted: %q", content)
 	}
 }
