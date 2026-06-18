@@ -243,7 +243,7 @@ Implementação atual:
 - `linked_task_lists` é produzido por um Context Provider `tasklist`;
 - o provider recebe as listas vinculadas já resolvidas para a conversa e só renderiza quando o runtime informa que o contexto de tasklists está habilitado;
 - esse gating preserva a decisão de perfil: `tasklist-manager` precisa estar habilitada (`base` ou `on_demand`) e `disable_skills=true` continua implicando prompt enxuto;
-- as instruções estáveis de workflow continuam na skill `tasklist-manager`; o provider carrega apenas estado dinâmico vinculado à conversa.
+- as instruções estáveis de workflow continuam na skill `tasklist-manager`; o provider carrega o estado dinâmico vinculado à conversa e uma instrução mínima delimitada ao uso daquele bloco.
 
 ### D5. Skills deixam de depender de Go templates
 

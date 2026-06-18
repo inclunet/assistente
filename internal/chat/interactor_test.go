@@ -845,6 +845,41 @@ func TestPrepareMessagesOmitsLinkedTaskListsWhenTasklistSkillDisabled(t *testing
 	}
 }
 
+func TestPrepareMessagesOmitsLinkedTaskListsWithoutContextProviders(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	taskListSkill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "tasklist-manager", DisplayName: "Task List Manager"},
+		Slug:          "tasklist-manager",
+		Content:       "tasklist instructions",
+	}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder: promptBuilder,
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"tasklist-manager": taskListSkill},
+		},
+		LinkedTaskLists: func(_ context.Context, _ string) []contextprovider.LinkedTaskList {
+			t.Fatal("LinkedTaskLists should not be resolved without ContextProviders")
+			return nil
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"tasklist-manager"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "status"}},
+		UserContent:    "status",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.contextBlocks) != 0 {
+		t.Fatalf("expected no tasklist context without ContextProviders, got %#v", promptBuilder.contextBlocks)
+	}
+}
+
 func TestPrepareMessagesRejectsDisabledSkill(t *testing.T) {
 	em := &spyEmitter{}
 	skill := &skills.Skill{
