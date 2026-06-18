@@ -2,7 +2,7 @@ package tasklist
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"strings"
 
 	"assistente/internal/contextprovider"
@@ -57,7 +57,7 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList) string {
 		sb.WriteString("\n| # | Status | Task | ID |\n|---|--------|------|----|\n")
 		for idx, task := range list.Tasks {
 			sb.WriteString("| ")
-			fmt.Fprintf(&sb, "%d", idx)
+			sb.WriteString(strconv.Itoa(idx))
 			sb.WriteString(" | ")
 			if task.StatusIcon != "" {
 				sb.WriteString(task.StatusIcon)

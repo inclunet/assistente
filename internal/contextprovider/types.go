@@ -52,6 +52,9 @@ type BuildRequest struct {
 	Surface          *Surface
 	ProviderBudgets  map[string]int
 
+	// TaskListContextEnabled carries the chat skill policy decision into the
+	// tasklist provider. It should only be true when tasklist-manager is enabled
+	// for the active profile and global skill disabling does not apply.
 	TaskListContextEnabled bool
 	LinkedTaskLists        []LinkedTaskList
 }
