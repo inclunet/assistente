@@ -204,7 +204,7 @@ func TestContextProviderOmitsBlockWhenBudgetCannotFitAnyTaskListContent(t *testi
 		ProviderBudgets:        map[string]int{"tasklist": budget},
 		LinkedTaskLists: []contextprovider.LinkedTaskList{{
 			ID:    "list-1",
-			Title: "Sprint",
+			Title: strings.Repeat("Sprint ", 40),
 		}},
 	})
 	if err != nil {
@@ -212,5 +212,40 @@ func TestContextProviderOmitsBlockWhenBudgetCannotFitAnyTaskListContent(t *testi
 	}
 	if len(blocks) != 0 {
 		t.Fatalf("expected no block when budget cannot fit task list content, got %+v", blocks)
+	}
+}
+
+func TestContextProviderRendersFullBlockWhenItFitsWithoutTruncationNotice(t *testing.T) {
+	lines := linkedTaskListContextLines([]contextprovider.LinkedTaskList{{
+		ID:    "list-1",
+		Title: "Sprint",
+	}})
+	budget := runeLen(linkedTaskListsPrefix) + runeLen(linkedTaskListsSuffix)
+	for _, line := range lines {
+		budget += runeLen(line)
+	}
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		TaskListContextEnabled: true,
+		ProviderBudgets:        map[string]int{"tasklist": budget},
+		LinkedTaskLists: []contextprovider.LinkedTaskList{{
+			ID:    "list-1",
+			Title: "Sprint",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want 1", len(blocks))
+	}
+	content := blocks[0].Content
+	if strings.Contains(content, "omitted due to context budget") {
+		t.Fatalf("did not expect truncation notice when full block fits: %q", content)
+	}
+	if !strings.Contains(content, "Sprint (ID: list-1)") || !strings.Contains(content, "_No tasks yet._") {
+		t.Fatalf("expected complete tasklist content: %q", content)
+	}
+	if len([]rune(content)) != budget {
+		t.Fatalf("content length = %d, want exact budget %d: %q", len([]rune(content)), budget, content)
 	}
 }

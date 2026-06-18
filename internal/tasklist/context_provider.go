@@ -44,13 +44,42 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList, budgetCha
 	if budgetChars <= 0 {
 		budgetChars = defaultPromptBudget
 	}
-	if runeLen(linkedTaskListsPrefix)+runeLen(linkedTaskListsTruncationNotice)+runeLen(linkedTaskListsSuffix) > budgetChars {
+	if runeLen(linkedTaskListsPrefix)+runeLen(linkedTaskListsSuffix) > budgetChars {
+		return ""
+	}
+	lines := linkedTaskListContextLines(lists)
+	if len(lines) == 0 {
 		return ""
 	}
 	var sb strings.Builder
 	sb.WriteString(linkedTaskListsPrefix)
 	currentRunes := runeLen(linkedTaskListsPrefix)
 	hasContent := false
+	fullContentRunes := currentRunes + runeLen(linkedTaskListsSuffix)
+	for _, line := range lines {
+		fullContentRunes += runeLen(line)
+	}
+	if fullContentRunes <= budgetChars {
+		for _, line := range lines {
+			appendTaskListContextLine(&sb, &currentRunes, line)
+			hasContent = true
+		}
+		return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, false, hasContent)
+	}
+	if runeLen(linkedTaskListsPrefix)+runeLen(linkedTaskListsTruncationNotice)+runeLen(linkedTaskListsSuffix) > budgetChars {
+		return ""
+	}
+	for _, line := range lines {
+		if !writeTaskListContextLine(&sb, &currentRunes, budgetChars, line, true) {
+			return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, true, hasContent)
+		}
+		hasContent = true
+	}
+	return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, false, hasContent)
+}
+
+func linkedTaskListContextLines(lists []contextprovider.LinkedTaskList) []string {
+	lines := make([]string, 0)
 	for _, list := range lists {
 		listID := sanitizeContextLine(list.ID)
 		description := sanitizeContextLine(list.Description)
@@ -63,27 +92,15 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList, budgetCha
 			heading.WriteString(")")
 		}
 		heading.WriteString("\n")
-		if !writeTaskListContextLine(&sb, &currentRunes, budgetChars, heading.String(), true) {
-			return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, true, hasContent)
-		}
-		hasContent = true
+		lines = append(lines, heading.String())
 		if description != "" {
-			if !writeTaskListContextLine(&sb, &currentRunes, budgetChars, description+"\n", true) {
-				return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, true, hasContent)
-			}
-			hasContent = true
+			lines = append(lines, description+"\n")
 		}
 		if len(list.Tasks) == 0 {
-			if !writeTaskListContextLine(&sb, &currentRunes, budgetChars, "_No tasks yet._\n", true) {
-				return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, true, hasContent)
-			}
-			hasContent = true
+			lines = append(lines, "_No tasks yet._\n")
 			continue
 		}
-		if !writeTaskListContextLine(&sb, &currentRunes, budgetChars, "\n| # | Status | Task | ID |\n|---|--------|------|----|\n", true) {
-			return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, true, hasContent)
-		}
-		hasContent = true
+		lines = append(lines, "\n| # | Status | Task | ID |\n|---|--------|------|----|\n")
 		for idx, task := range list.Tasks {
 			var line strings.Builder
 			line.WriteString("| ")
@@ -99,13 +116,10 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList, budgetCha
 			line.WriteString(" | ")
 			line.WriteString(sanitizeContextLine(task.ID))
 			line.WriteString(" |\n")
-			if !writeTaskListContextLine(&sb, &currentRunes, budgetChars, line.String(), true) {
-				return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, true, hasContent)
-			}
-			hasContent = true
+			lines = append(lines, line.String())
 		}
 	}
-	return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, false, hasContent)
+	return lines
 }
 
 func sanitizeContextLine(value string) string {
@@ -124,6 +138,11 @@ func writeTaskListContextLine(sb *strings.Builder, currentRunes *int, budgetChar
 	sb.WriteString(line)
 	*currentRunes += lineLen
 	return true
+}
+
+func appendTaskListContextLine(sb *strings.Builder, currentRunes *int, line string) {
+	sb.WriteString(line)
+	*currentRunes += runeLen(line)
 }
 
 func closeLinkedTaskListsBlock(sb *strings.Builder, currentRunes *int, budgetChars int, truncated bool, hasContent bool) string {
