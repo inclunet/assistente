@@ -9,6 +9,9 @@ import (
 )
 
 const defaultPromptBudget = 4000
+const linkedTaskListsPrefix = "<linked_task_lists>\nThis conversation has linked task lists. Use this context to track progress, update tasks, and help the user manage their work.\n"
+const linkedTaskListsSuffix = "\n</linked_task_lists>"
+const linkedTaskListsTruncationNotice = "\n... Additional linked task list content omitted due to context budget."
 
 type ContextProvider struct{}
 
@@ -41,9 +44,11 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList, budgetCha
 	if budgetChars <= 0 {
 		budgetChars = defaultPromptBudget
 	}
+	if runeLen(linkedTaskListsPrefix)+runeLen(linkedTaskListsSuffix) > budgetChars {
+		return ""
+	}
 	var sb strings.Builder
-	sb.WriteString("<linked_task_lists>\n")
-	sb.WriteString("This conversation has linked task lists. Use this context to track progress, update tasks, and help the user manage their work.\n")
+	sb.WriteString(linkedTaskListsPrefix)
 	for _, list := range lists {
 		listID := sanitizeContextLine(list.ID)
 		description := sanitizeContextLine(list.Description)
@@ -101,9 +106,9 @@ func sanitizeContextLine(value string) string {
 }
 
 func writeTaskListContextLine(sb *strings.Builder, budgetChars int, line string, reserveTruncation bool) bool {
-	reserved := "\n</linked_task_lists>"
+	reserved := linkedTaskListsSuffix
 	if reserveTruncation {
-		reserved = "\n... Additional linked task list content omitted due to context budget.\n</linked_task_lists>"
+		reserved = linkedTaskListsTruncationNotice + linkedTaskListsSuffix
 	}
 	if runeLen(sb.String())+runeLen(line)+runeLen(reserved) > budgetChars {
 		return false
@@ -114,9 +119,9 @@ func writeTaskListContextLine(sb *strings.Builder, budgetChars int, line string,
 
 func closeLinkedTaskListsBlock(sb *strings.Builder, budgetChars int, truncated bool) string {
 	if truncated {
-		_ = writeTaskListContextLine(sb, budgetChars, "\n... Additional linked task list content omitted due to context budget.", false)
+		_ = writeTaskListContextLine(sb, budgetChars, linkedTaskListsTruncationNotice, false)
 	}
-	sb.WriteString("\n</linked_task_lists>")
+	sb.WriteString(linkedTaskListsSuffix)
 	return sb.String()
 }
 

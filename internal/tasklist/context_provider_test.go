@@ -158,3 +158,20 @@ func TestContextProviderHonorsPromptBudget(t *testing.T) {
 		t.Fatalf("expected later tasks to be omitted: %q", content)
 	}
 }
+
+func TestContextProviderOmitsBlockWhenBudgetCannotFitEnvelope(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		TaskListContextEnabled: true,
+		ProviderBudgets:        map[string]int{"tasklist": 32},
+		LinkedTaskLists: []contextprovider.LinkedTaskList{{
+			ID:    "list-1",
+			Title: "Sprint",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 0 {
+		t.Fatalf("expected no block when budget cannot fit envelope, got %+v", blocks)
+	}
+}
