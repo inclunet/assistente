@@ -10,6 +10,8 @@ import (
 
 type ContextProvider struct{}
 
+var taskListContextLineReplacer = strings.NewReplacer("\n", " ", "\r", " ", "<", "", ">", "", "|", "\\|")
+
 func NewContextProvider() *ContextProvider {
 	return &ContextProvider{}
 }
@@ -78,5 +80,5 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList) string {
 }
 
 func sanitizeContextLine(value string) string {
-	return strings.NewReplacer("\n", " ", "\r", " ", "<", "", ">", "", "|", "\\|").Replace(strings.TrimSpace(value))
+	return taskListContextLineReplacer.Replace(strings.TrimSpace(value))
 }
