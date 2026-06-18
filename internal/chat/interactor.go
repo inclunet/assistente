@@ -596,7 +596,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	}
 
 	var linkedTaskLists []contextprovider.LinkedTaskList
-	if taskListContextEnabled && i.contextProviders != nil && i.linkedTaskLists != nil && strings.TrimSpace(req.ConversationID) != "" {
+	if taskListContextEnabled && i.promptBuilder != nil && i.contextProviders != nil && i.linkedTaskLists != nil && strings.TrimSpace(req.ConversationID) != "" {
 		linkedTaskLists = i.linkedTaskLists(ctx, req.ConversationID)
 	}
 
