@@ -49,6 +49,7 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList, budgetCha
 	}
 	var sb strings.Builder
 	sb.WriteString(linkedTaskListsPrefix)
+	currentRunes := runeLen(linkedTaskListsPrefix)
 	hasContent := false
 	for _, list := range lists {
 		listID := sanitizeContextLine(list.ID)
@@ -62,25 +63,25 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList, budgetCha
 			heading.WriteString(")")
 		}
 		heading.WriteString("\n")
-		if !writeTaskListContextLine(&sb, budgetChars, heading.String(), true) {
-			return closeLinkedTaskListsBlock(&sb, budgetChars, true, hasContent)
+		if !writeTaskListContextLine(&sb, &currentRunes, budgetChars, heading.String(), true) {
+			return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, true, hasContent)
 		}
 		hasContent = true
 		if description != "" {
-			if !writeTaskListContextLine(&sb, budgetChars, description+"\n", true) {
-				return closeLinkedTaskListsBlock(&sb, budgetChars, true, hasContent)
+			if !writeTaskListContextLine(&sb, &currentRunes, budgetChars, description+"\n", true) {
+				return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, true, hasContent)
 			}
 			hasContent = true
 		}
 		if len(list.Tasks) == 0 {
-			if !writeTaskListContextLine(&sb, budgetChars, "_No tasks yet._\n", true) {
-				return closeLinkedTaskListsBlock(&sb, budgetChars, true, hasContent)
+			if !writeTaskListContextLine(&sb, &currentRunes, budgetChars, "_No tasks yet._\n", true) {
+				return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, true, hasContent)
 			}
 			hasContent = true
 			continue
 		}
-		if !writeTaskListContextLine(&sb, budgetChars, "\n| # | Status | Task | ID |\n|---|--------|------|----|\n", true) {
-			return closeLinkedTaskListsBlock(&sb, budgetChars, true, hasContent)
+		if !writeTaskListContextLine(&sb, &currentRunes, budgetChars, "\n| # | Status | Task | ID |\n|---|--------|------|----|\n", true) {
+			return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, true, hasContent)
 		}
 		hasContent = true
 		for idx, task := range list.Tasks {
@@ -98,37 +99,39 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList, budgetCha
 			line.WriteString(" | ")
 			line.WriteString(sanitizeContextLine(task.ID))
 			line.WriteString(" |\n")
-			if !writeTaskListContextLine(&sb, budgetChars, line.String(), true) {
-				return closeLinkedTaskListsBlock(&sb, budgetChars, true, hasContent)
+			if !writeTaskListContextLine(&sb, &currentRunes, budgetChars, line.String(), true) {
+				return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, true, hasContent)
 			}
 			hasContent = true
 		}
 	}
-	return closeLinkedTaskListsBlock(&sb, budgetChars, false, hasContent)
+	return closeLinkedTaskListsBlock(&sb, &currentRunes, budgetChars, false, hasContent)
 }
 
 func sanitizeContextLine(value string) string {
 	return taskListContextLineReplacer.Replace(strings.TrimSpace(value))
 }
 
-func writeTaskListContextLine(sb *strings.Builder, budgetChars int, line string, reserveTruncation bool) bool {
+func writeTaskListContextLine(sb *strings.Builder, currentRunes *int, budgetChars int, line string, reserveTruncation bool) bool {
 	reserved := linkedTaskListsSuffix
 	if reserveTruncation {
 		reserved = linkedTaskListsTruncationNotice + linkedTaskListsSuffix
 	}
-	if runeLen(sb.String())+runeLen(line)+runeLen(reserved) > budgetChars {
+	lineLen := runeLen(line)
+	if *currentRunes+lineLen+runeLen(reserved) > budgetChars {
 		return false
 	}
 	sb.WriteString(line)
+	*currentRunes += lineLen
 	return true
 }
 
-func closeLinkedTaskListsBlock(sb *strings.Builder, budgetChars int, truncated bool, hasContent bool) string {
+func closeLinkedTaskListsBlock(sb *strings.Builder, currentRunes *int, budgetChars int, truncated bool, hasContent bool) string {
 	if !hasContent {
 		return ""
 	}
 	if truncated {
-		_ = writeTaskListContextLine(sb, budgetChars, linkedTaskListsTruncationNotice, false)
+		_ = writeTaskListContextLine(sb, currentRunes, budgetChars, linkedTaskListsTruncationNotice, false)
 	}
 	sb.WriteString(linkedTaskListsSuffix)
 	return sb.String()
