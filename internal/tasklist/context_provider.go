@@ -44,7 +44,7 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList, budgetCha
 	if budgetChars <= 0 {
 		budgetChars = defaultPromptBudget
 	}
-	if runeLen(linkedTaskListsPrefix)+runeLen(linkedTaskListsSuffix) > budgetChars {
+	if runeLen(linkedTaskListsPrefix)+runeLen(linkedTaskListsTruncationNotice)+runeLen(linkedTaskListsSuffix) > budgetChars {
 		return ""
 	}
 	var sb strings.Builder
@@ -126,5 +126,9 @@ func closeLinkedTaskListsBlock(sb *strings.Builder, budgetChars int, truncated b
 }
 
 func runeLen(value string) int {
-	return len([]rune(value))
+	count := 0
+	for range value {
+		count++
+	}
+	return count
 }
