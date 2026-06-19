@@ -207,16 +207,13 @@ func TestContextProviderHonorsPromptBudget(t *testing.T) {
 
 func assertContainsInOrder(t *testing.T, haystack string, needles ...string) {
 	t.Helper()
-	last := -1
+	searchStart := 0
 	for _, needle := range needles {
-		idx := strings.Index(haystack, needle)
+		idx := strings.Index(haystack[searchStart:], needle)
 		if idx < 0 {
 			t.Fatalf("missing %q in %q", needle, haystack)
 		}
-		if idx < last {
-			t.Fatalf("%q appeared out of order in %q", needle, haystack)
-		}
-		last = idx
+		searchStart += idx + len(needle)
 	}
 }
 

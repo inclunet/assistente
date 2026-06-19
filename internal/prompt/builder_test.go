@@ -197,6 +197,29 @@ func TestBuildWithContextBlocksSortsCacheFriendlyLayout(t *testing.T) {
 	}
 }
 
+func TestBuildWithContextBlocksDoesNotMutateContextBlocks(t *testing.T) {
+	b := &prompt.Builder{}
+	blocks := []contextprovider.Block{
+		{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityFastDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
+		{Provider: "memory", Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<memory_instructions>stable memory</memory_instructions>"},
+	}
+
+	_ = b.BuildWithContextBlocks(
+		[]llm.Message{{Role: "user", Content: "oi"}},
+		nil,
+		false,
+		false,
+		nil,
+		"",
+		"Resumo antigo.",
+		blocks,
+	)
+
+	if blocks[0].Name != "workspace_context" || blocks[1].Name != "memory_instructions" {
+		t.Fatalf("BuildWithContextBlocks mutated context blocks order: %#v", blocks)
+	}
+}
+
 func TestBuildWithContextBlocksSameStateProducesStablePrefix(t *testing.T) {
 	b := &prompt.Builder{
 		Skills: &mockSkillReader{
@@ -270,16 +293,13 @@ func TestBuild_ExistingSystemMessage_Combined(t *testing.T) {
 
 func assertOrder(t *testing.T, haystack string, needles ...string) {
 	t.Helper()
-	last := -1
+	searchStart := 0
 	for _, needle := range needles {
-		idx := strings.Index(haystack, needle)
+		idx := strings.Index(haystack[searchStart:], needle)
 		if idx < 0 {
 			t.Fatalf("missing %q in %s", needle, haystack)
 		}
-		if idx < last {
-			t.Fatalf("%q appeared out of order in %s", needle, haystack)
-		}
-		last = idx
+		searchStart += idx + len(needle)
 	}
 }
 

@@ -182,6 +182,7 @@ func (b *Builder) BuildWithContextBlocks(
 	conversationSummary string,
 	contextBlocks []contextprovider.Block,
 ) []llm.Message {
+	contextBlocks = append([]contextprovider.Block(nil), contextBlocks...)
 	sortContextBlocks(contextBlocks)
 	stableContext, dynamicContext := splitRenderedContextBlocks(contextBlocks)
 	return b.build(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, stableContext, dynamicContext)
