@@ -24,10 +24,17 @@ Resultado da implementação:
 - `memory`, `workspace` e `tasklist` são registrados como Context Providers no runtime;
 - `memory` usa records estruturados em banco no caminho novo, com fallback legado somente como compatibilidade de leitura;
 - tasklists vinculadas são renderizadas pelo provider `tasklist`, preservando o gating da skill `tasklist-manager`;
-- perfis configuram Context Providers por `enabled`, `budget` em caracteres/runes e `settings`;
+- perfis configuram Context Providers por `enabled`, `budget` em caracteres/runes e `settings` via `profiles.Profile.ContextProviders`;
 - a UI de perfil tem aba dedicada de Context Providers, separada de skills e de cache;
 - há APIs e tela de governança para memórias;
 - skills builtin não dependem de execução de templates para acessar memória, workspace ou tasklists.
+
+Pontos de código relevantes:
+
+- contrato persistido: `internal/profiles/types.go` (`Profile.ContextProviders`);
+- resolução para o prompt: `internal/chat/interactor.go` (`resolveContextProviderProfileConfig` e `BuildRequest.ProviderBudgets`);
+- metadados expostos à UI: `internal/app/app_profiles.go` (`GetContextProviders`);
+- aba de edição: `frontend/src/components/profiles/ProfileEditorTabs.tsx` e `ProfileContextProvidersSection.tsx`.
 
 ## Motivação
 
@@ -429,6 +436,8 @@ Status: concluída como base de Context Providers; a AEP-0074 aprofunda o layout
 ### Fase 5 — Configuração de providers por perfil
 
 Status: concluída.
+
+Implementada com `profiles.Profile.ContextProviders`, validação em `profiles.Profile.Validate`, resolução em `chat.buildDynamicContext` para `contextprovider.BuildRequest.ProviderBudgets`, `ProviderEnabled` e `ProviderSettings`, e aba `contextProviders` no editor de perfil.
 
 - Adicionar `context_providers` ao perfil.
 - Resolver defaults por provider.
