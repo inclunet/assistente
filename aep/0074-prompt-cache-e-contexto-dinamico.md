@@ -30,9 +30,9 @@ Esta AEP parte do estado atual do runtime, não de uma arquitetura hipotética.
 
 Já existe:
 
-- `profiles.Chat.ContextWindow`, que define a janela de contexto do modelo;
-- `profiles.Chat.MaxContextMessages`, com default efetivo de 50 mensagens;
-- `profiles.Chat.MinContextMessages`, com default efetivo de 10 mensagens preservadas após sumarização;
+- `profiles.Profile.Chat.ContextWindow` / `profiles.ChatConfig.ContextWindow`, que define a janela de contexto do modelo;
+- `profiles.Profile.Chat.MaxContextMessages` / `profiles.ChatConfig.MaxContextMessages`, com default efetivo de 50 mensagens;
+- `profiles.Profile.Chat.MinContextMessages` / `profiles.ChatConfig.MinContextMessages`, com default efetivo de 10 mensagens preservadas após sumarização;
 - resumo incremental persistido em `Conversation.Summary` e `SummaryUpToMessageID`;
 - `HistoryLoader`, que remove do contexto mensagens já cobertas pelo resumo;
 - truncamento por quantidade de mensagens, preservando turns a partir de mensagens `user`;

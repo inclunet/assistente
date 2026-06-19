@@ -303,7 +303,7 @@ Essa configuração não é uma configuração de cache. Ela existe porque Conte
 Regras:
 
 - cada provider pode estar habilitado ou desabilitado por perfil;
-- providers habilitados podem ter budget próprio;
+- providers habilitados podem ter budget próprio em caracteres/runes do bloco produzido, não em tokens;
 - providers podem ter settings específicos, validados pelo próprio provider ou por um contrato registrado;
 - defaults por provider continuam existindo para perfis antigos ou campos omitidos;
 - a UI de perfil deve ter uma aba própria de Context Providers, separada de skills e separada de cache;
@@ -343,7 +343,7 @@ Formato conceitual no Go:
 ```go
 type ContextProviderProfileConfig struct {
     Enabled  *bool          `json:"enabled,omitempty"`
-    Budget   int            `json:"budget,omitempty"`
+    Budget   int            `json:"budget,omitempty"` // caracteres/runes, não tokens
     Settings map[string]any `json:"settings,omitempty"`
 }
 ```
@@ -354,6 +354,7 @@ Semântica:
 - `enabled == false`: não montar blocos automáticos daquele provider;
 - `enabled == true`: provider pode montar blocos, respeitando budget/defaults;
 - `budget <= 0`: usar default do provider;
+- `budget > 0`: limite máximo em caracteres/runes do bloco final produzido pelo provider; não é orçamento em tokens;
 - `settings`: espaço namespaced para opções específicas, sem transformar `ChatConfig` em uma lista de campos por provider.
 
 Responsabilidade de implementação:
@@ -416,6 +417,8 @@ Esta seção é pré-requisito funcional para controlar budgets por perfil, mas 
 - Permitir edição de budget e settings específicas declaradas pelo provider.
 
 ### Fase 6 — Garantir skills estáticas
+
+Esta fase não é histórico; é a validação final de que o runtime novo não executa templates em skills e de que os builtins migrados usam Context Providers/supporting files para conteúdo dinâmico.
 
 - Remover qualquer dependência de execução de templates em skill.
 - Garantir que builtins não dependem de `include`, `now`, `.Surface`, `.TaskLists`.
