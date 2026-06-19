@@ -427,9 +427,10 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 				lastModel = string(event.Message.Model)
 			}
 			if event.Message.Usage.InputTokens > 0 {
-				lastUsage = UsageFromAnthropic(
+				lastUsage = mergeAnthropicStreamingUsage(
+					lastUsage,
 					int(event.Message.Usage.InputTokens),
-					lastUsage.CompletionTokens,
+					0,
 					int(event.Message.Usage.CacheCreationInputTokens),
 					int(event.Message.Usage.CacheReadInputTokens),
 				)
@@ -533,7 +534,8 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 				stopReason = string(event.Delta.StopReason)
 			}
 			if event.Usage.OutputTokens > 0 {
-				lastUsage = UsageFromAnthropic(
+				lastUsage = mergeAnthropicStreamingUsage(
+					lastUsage,
 					int(event.Usage.InputTokens),
 					int(event.Usage.OutputTokens),
 					int(event.Usage.CacheCreationInputTokens),
@@ -636,9 +638,10 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 				lastModel = string(event.Message.Model)
 			}
 			if event.Message.Usage.InputTokens > 0 {
-				lastUsage = UsageFromAnthropic(
+				lastUsage = mergeAnthropicStreamingUsage(
+					lastUsage,
 					int(event.Message.Usage.InputTokens),
-					lastUsage.CompletionTokens,
+					0,
 					int(event.Message.Usage.CacheCreationInputTokens),
 					int(event.Message.Usage.CacheReadInputTokens),
 				)
@@ -697,7 +700,8 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 				stopReason = string(event.Delta.StopReason)
 			}
 			if event.Usage.OutputTokens > 0 {
-				lastUsage = UsageFromAnthropic(
+				lastUsage = mergeAnthropicStreamingUsage(
+					lastUsage,
 					int(event.Usage.InputTokens),
 					int(event.Usage.OutputTokens),
 					int(event.Usage.CacheCreationInputTokens),

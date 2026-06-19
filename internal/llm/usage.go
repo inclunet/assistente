@@ -34,6 +34,26 @@ func UsageFromAnthropic(inputTokens, outputTokens, cacheCreationTokens, cacheRea
 	return usage
 }
 
+func mergeAnthropicStreamingUsage(previous Usage, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int) Usage {
+	if outputTokens == 0 {
+		outputTokens = previous.CompletionTokens
+	}
+	if cacheCreationTokens == 0 {
+		cacheCreationTokens = previous.CacheWriteTokens
+	}
+	if cacheReadTokens == 0 {
+		cacheReadTokens = previous.CacheReadTokens
+	}
+	if inputTokens == 0 {
+		if previous.CacheMissTokens > 0 || previous.CacheWriteTokens > 0 || previous.CacheReadTokens > 0 {
+			inputTokens = previous.CacheMissTokens
+		} else {
+			inputTokens = previous.PromptTokens
+		}
+	}
+	return UsageFromAnthropic(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens)
+}
+
 // UsageFromGemini normaliza usage do SDK Gemini.
 func UsageFromGemini(promptTokens, completionTokens, totalTokens, cachedContentTokens int) Usage {
 	usage := baseUsage(promptTokens, completionTokens, totalTokens)

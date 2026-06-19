@@ -42,6 +42,42 @@ func TestUsageFromAnthropic_CacheTokensArePartOfInput(t *testing.T) {
 	}
 }
 
+func TestMergeAnthropicStreamingUsage_PreservesStartCacheMetrics(t *testing.T) {
+	start := UsageFromAnthropic(700, 0, 200, 300)
+	usage := mergeAnthropicStreamingUsage(start, 0, 90, 0, 0)
+
+	if usage.PromptTokens != 1200 {
+		t.Fatalf("PromptTokens=%d, want 1200", usage.PromptTokens)
+	}
+	if usage.CompletionTokens != 90 {
+		t.Fatalf("CompletionTokens=%d, want 90", usage.CompletionTokens)
+	}
+	if usage.CacheWriteTokens != 200 {
+		t.Fatalf("CacheWriteTokens=%d, want 200", usage.CacheWriteTokens)
+	}
+	if usage.CacheReadTokens != 300 {
+		t.Fatalf("CacheReadTokens=%d, want 300", usage.CacheReadTokens)
+	}
+	if usage.CacheMissTokens != 700 {
+		t.Fatalf("CacheMissTokens=%d, want 700", usage.CacheMissTokens)
+	}
+}
+
+func TestMergeAnthropicStreamingUsage_PreservesStartInputWithoutCache(t *testing.T) {
+	start := UsageFromAnthropic(700, 0, 0, 0)
+	usage := mergeAnthropicStreamingUsage(start, 0, 90, 0, 0)
+
+	if usage.PromptTokens != 700 {
+		t.Fatalf("PromptTokens=%d, want 700", usage.PromptTokens)
+	}
+	if usage.CompletionTokens != 90 {
+		t.Fatalf("CompletionTokens=%d, want 90", usage.CompletionTokens)
+	}
+	if usage.TotalTokens != 790 {
+		t.Fatalf("TotalTokens=%d, want 790", usage.TotalTokens)
+	}
+}
+
 func TestUsageFromGemini_CachedContentTokenCount(t *testing.T) {
 	usage := UsageFromGemini(900, 100, 1000, 250)
 	if usage.CacheReadTokens != 250 {
