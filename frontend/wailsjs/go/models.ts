@@ -3686,6 +3686,22 @@ export namespace profiles {
 	        this.response_mode = source["response_mode"];
 	    }
 	}
+	export class PromptCacheConfig {
+	    enabled?: boolean;
+	    provider_hints?: boolean;
+	    explicit_cache_control?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PromptCacheConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.provider_hints = source["provider_hints"];
+	        this.explicit_cache_control = source["explicit_cache_control"];
+	    }
+	}
 	export class ChatConfig {
 	    llm_provider: string;
 	    model?: string;
@@ -3709,6 +3725,7 @@ export namespace profiles {
 	    streaming_recovery_enabled?: boolean;
 	    streaming_recovery_max_attempts?: number;
 	    streaming_recovery_show_continue?: boolean;
+	    prompt_cache?: PromptCacheConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatConfig(source);
@@ -3738,7 +3755,26 @@ export namespace profiles {
 	        this.streaming_recovery_enabled = source["streaming_recovery_enabled"];
 	        this.streaming_recovery_max_attempts = source["streaming_recovery_max_attempts"];
 	        this.streaming_recovery_show_continue = source["streaming_recovery_show_continue"];
+	        this.prompt_cache = this.convertValues(source["prompt_cache"], PromptCacheConfig);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ContextProviderProfileConfig {
 	    enabled?: boolean;
@@ -3984,6 +4020,7 @@ export namespace profiles {
 	        this.source = source["source"];
 	    }
 	}
+	
 	
 	
 

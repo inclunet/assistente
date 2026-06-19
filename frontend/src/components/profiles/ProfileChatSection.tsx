@@ -3,6 +3,12 @@ import { LLMProviderPicker } from '../pickers/LLMProviderPicker';
 import { ModelPicker } from '../pickers/ModelPicker';
 import { RangeSlider } from '../ui/RangeSlider';
 
+interface PromptCacheValue {
+  enabled?: boolean;
+  provider_hints?: boolean;
+  explicit_cache_control?: boolean;
+}
+
 export interface ProfileChatSectionProps {
   llmProvider: string;
   model: string;
@@ -15,6 +21,7 @@ export interface ProfileChatSectionProps {
   topP: number;
   responseTimeout: number;
   reasoningEffort: string;
+  promptCache?: PromptCacheValue;
   streamingRecoveryEnabled?: boolean;
   streamingRecoveryMaxAttempts?: number;
   streamingRecoveryShowContinue?: boolean;
@@ -31,6 +38,9 @@ export interface ProfileChatSectionProps {
       | 'top_p'
       | 'response_timeout'
       | 'reasoning_effort'
+      | 'prompt_cache.enabled'
+      | 'prompt_cache.provider_hints'
+      | 'prompt_cache.explicit_cache_control'
       | 'streaming_recovery_enabled'
       | 'streaming_recovery_max_attempts'
       | 'streaming_recovery_show_continue',
@@ -56,6 +66,7 @@ export function ProfileChatSection({
   topP,
   responseTimeout,
   reasoningEffort,
+  promptCache,
   streamingRecoveryEnabled,
   streamingRecoveryMaxAttempts,
   streamingRecoveryShowContinue,
@@ -73,9 +84,30 @@ export function ProfileChatSection({
   const minContextMessagesValue = minContextMessages ?? 0;
   const responseTimeoutValue = responseTimeout ?? 180;
   const reasoningValue = reasoningEffort || 'off';
+  const promptCacheEnabledValue = promptCache?.enabled ?? false;
+  const promptCacheProviderHintsValue = promptCache?.provider_hints ?? false;
+  const promptCacheExplicitCacheControlValue = promptCache?.explicit_cache_control ?? false;
   const streamingRecoveryEnabledValue = streamingRecoveryEnabled ?? true;
   const streamingRecoveryMaxAttemptsValue = streamingRecoveryMaxAttempts ?? 3;
   const streamingRecoveryShowContinueValue = streamingRecoveryShowContinue ?? true;
+
+  const handlePromptCacheEnabledChange = (enabled: boolean) => {
+    if (!enabled) {
+      if (onMultiChange) {
+        onMultiChange({
+          'prompt_cache.enabled': false,
+          'prompt_cache.provider_hints': false,
+          'prompt_cache.explicit_cache_control': false,
+        });
+        return;
+      }
+      onChange('prompt_cache.enabled', false);
+      onChange('prompt_cache.provider_hints', false);
+      onChange('prompt_cache.explicit_cache_control', false);
+      return;
+    }
+    onChange('prompt_cache.enabled', enabled);
+  };
 
   return (
     <div className="profiles-fields" data-testid="profile-chat-section">
@@ -213,6 +245,61 @@ export function ProfileChatSection({
             {t('profiles.chatSection.maxTokensHint')}
           </span>
         </div>
+      </fieldset>
+
+      {/* ── Prompt Cache ── */}
+      <fieldset className="profiles-field-group">
+        <legend className="profiles-field-group__title">
+          {t('profiles.chatSection.groupPromptCache')}
+        </legend>
+
+        <div className="profiles-field profiles-field--checkbox">
+          <label className="profiles-field__label" htmlFor="chat-prompt-cache-enabled">
+            <input
+              id="chat-prompt-cache-enabled"
+              type="checkbox"
+              checked={promptCacheEnabledValue}
+              onChange={(e) => handlePromptCacheEnabledChange(e.target.checked)}
+              disabled={disabled}
+            />
+            {t('profiles.chatSection.promptCacheEnabled')}
+          </label>
+        </div>
+        <span className="profiles-field__hint">
+          {t('profiles.chatSection.promptCacheEnabledHint')}
+        </span>
+
+        <div className="profiles-field profiles-field--checkbox">
+          <label className="profiles-field__label" htmlFor="chat-prompt-cache-provider-hints">
+            <input
+              id="chat-prompt-cache-provider-hints"
+              type="checkbox"
+              checked={promptCacheProviderHintsValue}
+              onChange={(e) => onChange('prompt_cache.provider_hints', e.target.checked)}
+              disabled={disabled || !promptCacheEnabledValue}
+            />
+            {t('profiles.chatSection.promptCacheProviderHints')}
+          </label>
+        </div>
+        <span className="profiles-field__hint">
+          {t('profiles.chatSection.promptCacheProviderHintsHint')}
+        </span>
+
+        <div className="profiles-field profiles-field--checkbox">
+          <label className="profiles-field__label" htmlFor="chat-prompt-cache-explicit-cache-control">
+            <input
+              id="chat-prompt-cache-explicit-cache-control"
+              type="checkbox"
+              checked={promptCacheExplicitCacheControlValue}
+              onChange={(e) => onChange('prompt_cache.explicit_cache_control', e.target.checked)}
+              disabled={disabled || !promptCacheEnabledValue}
+            />
+            {t('profiles.chatSection.promptCacheExplicitCacheControl')}
+          </label>
+        </div>
+        <span className="profiles-field__hint">
+          {t('profiles.chatSection.promptCacheExplicitCacheControlHint')}
+        </span>
       </fieldset>
 
       {/* ── Contexto e Limites ── */}

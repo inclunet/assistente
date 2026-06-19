@@ -105,6 +105,17 @@ type ChatConfig struct {
 	// StreamingRecoveryShowContinue controla a exibição da ação manual "Continuar resposta" após falha/cancelamento.
 	// Ponteiro para preservar compatibilidade com perfis antigos (nil = usar default).
 	StreamingRecoveryShowContinue *bool `json:"streaming_recovery_show_continue,omitempty"`
+
+	PromptCache PromptCacheConfig `json:"prompt_cache,omitempty"`
+}
+
+// PromptCacheConfig controla mecanismos ativos de prompt/context cache por
+// perfil. O layout cache-friendly e as métricas reportadas pelo provider
+// continuam sempre ativos independentemente destes campos.
+type PromptCacheConfig struct {
+	Enabled              bool `json:"enabled,omitempty"`
+	ProviderHints        bool `json:"provider_hints,omitempty"`
+	ExplicitCacheControl bool `json:"explicit_cache_control,omitempty"`
 }
 
 func boolPtr(v bool) *bool { return &v }
@@ -229,6 +240,10 @@ func DefaultProfile() *Profile {
 			StreamingRecoveryEnabled:      boolPtr(true),
 			StreamingRecoveryMaxAttempts:  intPtr(3),
 			StreamingRecoveryShowContinue: boolPtr(true),
+			PromptCache: PromptCacheConfig{
+				Enabled:       false,
+				ProviderHints: false,
+			},
 		},
 		Voice: VoiceConfig{
 			Assistant: VoiceRoleConfig{
@@ -295,6 +310,12 @@ func (p *Profile) Validate() error {
 		if *p.Chat.StreamingRecoveryMaxAttempts > 10 {
 			return fmt.Errorf("chat.streaming_recovery_max_attempts must be at most 10")
 		}
+	}
+	if !p.Chat.PromptCache.Enabled && p.Chat.PromptCache.ProviderHints {
+		return fmt.Errorf("chat.prompt_cache.provider_hints requires chat.prompt_cache.enabled")
+	}
+	if !p.Chat.PromptCache.Enabled && p.Chat.PromptCache.ExplicitCacheControl {
+		return fmt.Errorf("chat.prompt_cache.explicit_cache_control requires chat.prompt_cache.enabled")
 	}
 	if p.Chat.ResponseTimeout < 10 {
 		return fmt.Errorf("chat.response_timeout must be at least 10 seconds")

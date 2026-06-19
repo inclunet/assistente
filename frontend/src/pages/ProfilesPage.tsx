@@ -137,6 +137,11 @@ export default function ProfilesPage() {
             top_p: 1.0,
             response_timeout: 180,
             reasoning_effort: '',
+            prompt_cache: {
+              enabled: false,
+              provider_hints: false,
+              explicit_cache_control: false,
+            },
             streaming_recovery_enabled: true,
             streaming_recovery_max_attempts: 3,
             streaming_recovery_show_continue: true,

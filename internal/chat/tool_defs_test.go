@@ -248,8 +248,8 @@ func TestBuildLLMToolDefsByNames(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 defs, got %#v", got)
 	}
-	if got[0].Function.Name != "gamma" || got[1].Function.Name != "alpha" {
-		t.Fatalf("expected registry defs in requested order, got %#v", got)
+	if got[0].Function.Name != "alpha" || got[1].Function.Name != "gamma" {
+		t.Fatalf("expected registry defs in deterministic order, got %#v", got)
 	}
 }
 
@@ -335,6 +335,23 @@ func TestFilterToolNamesForNativeMCPRemovesNativeBridgeNames(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %#v, want %#v", got, want)
 		}
+	}
+}
+
+func TestFilterToolNamesForNativeMCPDoesNotMutateNativeServers(t *testing.T) {
+	p := &mockChatProvider{nativeCapable: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "zeta", Name: "Zeta", URL: "https://zeta.io", ToolNames: []string{"mcp_zeta__z", "mcp_zeta__a"}},
+		{Slug: "alpha", Name: "Alpha", URL: "https://alpha.io", ToolNames: []string{"mcp_alpha__z", "mcp_alpha__a"}},
+	}}
+
+	_ = FilterToolNamesForNativeMCP(p, mgr, []string{"mcp_zeta__z", "mcp_alpha__z", "local_tool"}, false, boolPtr(true))
+
+	if mgr.servers[0].Slug != "zeta" || mgr.servers[1].Slug != "alpha" {
+		t.Fatalf("native servers were reordered: %#v", mgr.servers)
+	}
+	if got := mgr.servers[0].ToolNames; got[0] != "mcp_zeta__z" || got[1] != "mcp_zeta__a" {
+		t.Fatalf("native server tool names were reordered: %#v", got)
 	}
 }
 
@@ -488,6 +505,51 @@ func TestApplyNativeMCP_CallsWithMCPServers(t *testing.T) {
 	}
 	if len(mgr.recoveredServerIDs) != 1 || mgr.recoveredServerIDs[0] != "srv" {
 		t.Fatalf("recover deveria usar slug srv, got %+v", mgr.recoveredServerIDs)
+	}
+}
+
+func TestApplyNativeMCP_SortsServersAndToolNames(t *testing.T) {
+	p := &mockChatProvider{nativeCapable: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "zeta", Name: "Zeta", URL: "https://zeta.io", ToolNames: []string{"mcp_zeta__z", "mcp_zeta__a"}},
+		{Slug: "alpha", Name: "Alpha", URL: "https://alpha.io", ToolNames: []string{"mcp_alpha__z", "mcp_alpha__a"}},
+	}}
+	defs := makeToolDefs("mcp_zeta__z", "mcp_zeta__a", "mcp_alpha__z", "mcp_alpha__a")
+
+	outP, _ := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
+	result, ok := outP.(*mockChatProvider)
+	if !ok {
+		t.Fatal("provider retornado deveria ser mockChatProvider")
+	}
+	if len(result.calledWith) != 2 {
+		t.Fatalf("esperava 2 servidores MCP, got %#v", result.calledWith)
+	}
+	if result.calledWith[0].Slug != "alpha" || result.calledWith[1].Slug != "zeta" {
+		t.Fatalf("servidores MCP fora de ordem: %#v", result.calledWith)
+	}
+	if got := result.calledWith[0].ToolNames; len(got) != 2 || got[0] != "mcp_alpha__a" || got[1] != "mcp_alpha__z" {
+		t.Fatalf("tools do servidor alpha fora de ordem: %#v", got)
+	}
+	if got := result.calledWith[1].ToolNames; len(got) != 2 || got[0] != "mcp_zeta__a" || got[1] != "mcp_zeta__z" {
+		t.Fatalf("tools do servidor zeta fora de ordem: %#v", got)
+	}
+}
+
+func TestApplyNativeMCPDoesNotMutateNativeServers(t *testing.T) {
+	p := &mockChatProvider{nativeCapable: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "zeta", Name: "Zeta", URL: "https://zeta.io", ToolNames: []string{"mcp_zeta__z", "mcp_zeta__a"}},
+		{Slug: "alpha", Name: "Alpha", URL: "https://alpha.io", ToolNames: []string{"mcp_alpha__z", "mcp_alpha__a"}},
+	}}
+	defs := makeToolDefs("mcp_zeta__z", "mcp_zeta__a", "mcp_alpha__z", "mcp_alpha__a")
+
+	_, _ = ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
+
+	if mgr.servers[0].Slug != "zeta" || mgr.servers[1].Slug != "alpha" {
+		t.Fatalf("native servers were reordered: %#v", mgr.servers)
+	}
+	if got := mgr.servers[0].ToolNames; got[0] != "mcp_zeta__z" || got[1] != "mcp_zeta__a" {
+		t.Fatalf("native server tool names were reordered: %#v", got)
 	}
 }
 

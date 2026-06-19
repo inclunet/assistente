@@ -12,6 +12,7 @@ vi.mock('react-i18next', () => ({
         'profiles.chatSection.groupGeneration': 'Parâmetros de Geração',
         'profiles.chatSection.groupContext': 'Contexto e Limites',
         'profiles.chatSection.groupRecovery': 'Recuperação de Streaming',
+        'profiles.chatSection.groupPromptCache': 'Prompt Cache',
         'profiles.chatSection.provider': 'Provedor LLM',
         'profiles.chatSection.model': 'Modelo',
         'profiles.chatSection.temperature': 'Temperatura',
@@ -37,6 +38,12 @@ vi.mock('react-i18next', () => ({
         'profiles.chatSection.reasoningHigh': 'Alto (high)',
         'profiles.chatSection.reasoningMax': 'Máximo (max)',
         'profiles.chatSection.reasoningHint': 'Define como o modelo usa tokens de raciocínio interno.',
+        'profiles.chatSection.promptCacheEnabled': 'Habilitar mecanismos ativos de cache',
+        'profiles.chatSection.promptCacheEnabledHint': 'Mantém o layout cache-friendly sempre ativo; controla apenas hints e cache control.',
+        'profiles.chatSection.promptCacheProviderHints': 'Enviar provider hints',
+        'profiles.chatSection.promptCacheProviderHintsHint': 'Permite hints neutros como prompt_cache_key quando suportado.',
+        'profiles.chatSection.promptCacheExplicitCacheControl': 'Usar cache control explícito',
+        'profiles.chatSection.promptCacheExplicitCacheControlHint': 'Permite marcação explícita de blocos para providers compatíveis.',
         'profiles.chatSection.streamingRecoveryEnabled': 'Tentar recuperar respostas interrompidas automaticamente',
         'profiles.chatSection.streamingRecoveryEnabledHint': 'Quando uma resposta falha ou é interrompida, tenta retomar automaticamente antes de marcar como falha.',
         'profiles.chatSection.streamingRecoveryMaxAttempts': 'Máximo de tentativas de recuperação',
@@ -84,6 +91,11 @@ describe('ProfileChatSection', () => {
     topP: 1.0,
     responseTimeout: 180,
     reasoningEffort: '',
+    promptCache: {
+      enabled: false,
+      provider_hints: false,
+      explicit_cache_control: false,
+    },
     streamingRecoveryEnabled: true,
     streamingRecoveryMaxAttempts: 3,
     streamingRecoveryShowContinue: true,
@@ -208,6 +220,62 @@ describe('ProfileChatSection', () => {
     expect(handleChange).toHaveBeenCalledWith('reasoning_effort', 'medium');
   });
 
+  it('chama onChange ao habilitar prompt cache', () => {
+    const handleChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} onChange={handleChange} />);
+
+    const checkbox = screen.getByLabelText('Habilitar mecanismos ativos de cache');
+    fireEvent.click(checkbox);
+
+    expect(handleChange).toHaveBeenCalledWith('prompt_cache.enabled', true);
+  });
+
+  it('desabilita controles dependentes quando prompt cache está desligado', () => {
+    render(<ProfileChatSection {...defaultProps} />);
+
+    expect(screen.getByLabelText('Enviar provider hints')).toBeDisabled();
+    expect(screen.getByLabelText('Usar cache control explícito')).toBeDisabled();
+  });
+
+  it('chama onChange ao alternar controles dependentes de prompt cache', () => {
+    const handleChange = vi.fn();
+    render(
+      <ProfileChatSection
+        {...defaultProps}
+        promptCache={{ enabled: true, provider_hints: false, explicit_cache_control: false }}
+        onChange={handleChange}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText('Enviar provider hints'));
+    fireEvent.click(screen.getByLabelText('Usar cache control explícito'));
+
+    expect(handleChange).toHaveBeenCalledWith('prompt_cache.provider_hints', true);
+    expect(handleChange).toHaveBeenCalledWith('prompt_cache.explicit_cache_control', true);
+  });
+
+  it('limpa controles dependentes ao desabilitar prompt cache com onMultiChange', () => {
+    const handleChange = vi.fn();
+    const handleMultiChange = vi.fn();
+    render(
+      <ProfileChatSection
+        {...defaultProps}
+        promptCache={{ enabled: true, provider_hints: true, explicit_cache_control: true }}
+        onChange={handleChange}
+        onMultiChange={handleMultiChange}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText('Habilitar mecanismos ativos de cache'));
+
+    expect(handleMultiChange).toHaveBeenCalledWith({
+      'prompt_cache.enabled': false,
+      'prompt_cache.provider_hints': false,
+      'prompt_cache.explicit_cache_control': false,
+    });
+    expect(handleChange).not.toHaveBeenCalled();
+  });
+
   it('chama onChange ao alternar auto-recuperação de streaming', () => {
     const handleChange = vi.fn();
     render(<ProfileChatSection {...defaultProps} onChange={handleChange} />);
@@ -266,6 +334,9 @@ describe('ProfileChatSection', () => {
     expect(screen.getByLabelText('Mín. Mensagens Preservadas')).toBeDisabled();
     expect(screen.getByLabelText('Timeout (segundos)')).toBeDisabled();
     expect(screen.getByLabelText('Raciocínio (Reasoning)')).toBeDisabled();
+    expect(screen.getByLabelText('Habilitar mecanismos ativos de cache')).toBeDisabled();
+    expect(screen.getByLabelText('Enviar provider hints')).toBeDisabled();
+    expect(screen.getByLabelText('Usar cache control explícito')).toBeDisabled();
 
     const modelPickerButton = screen.getByTestId('model-picker-mock').querySelector('button');
     expect(modelPickerButton).toBeDisabled();
