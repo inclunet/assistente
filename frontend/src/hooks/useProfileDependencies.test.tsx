@@ -28,6 +28,10 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 
 describe('useProfileDependencies', () => {
   beforeEach(() => {
+    getAvailableToolsMock.mockReset();
+    getAllowlistsMock.mockReset();
+    getSkillsMock.mockReset();
+    getContextProvidersMock.mockReset();
     getAvailableToolsMock.mockResolvedValue([{ name: 'Tool 1' }]);
     getAllowlistsMock.mockResolvedValue([{ slug: 'al-1', name: 'Allowlist 1', ruleCount: 2 }]);
     getSkillsMock.mockResolvedValue([{ slug: 'skill-1', name: 'Skill 1', description: '' }]);
@@ -47,6 +51,21 @@ describe('useProfileDependencies', () => {
     expect(result.current.skills).toHaveLength(1);
     expect(result.current.allowlists).toHaveLength(1);
     expect(result.current.contextProviders).toHaveLength(1);
+  });
+
+  it('mantém dados disponíveis quando uma dependência falha', async () => {
+    getContextProvidersMock.mockRejectedValueOnce(new Error('context providers unavailable'));
+
+    const { result } = renderHook(() => useProfileDependencies());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.tools).toHaveLength(1);
+    expect(result.current.skills).toHaveLength(1);
+    expect(result.current.allowlists).toHaveLength(1);
+    expect(result.current.contextProviders).toEqual([]);
   });
 
   it('atualiza tools quando recebe evento MCP', async () => {

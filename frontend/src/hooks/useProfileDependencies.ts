@@ -11,6 +11,10 @@ export interface ProfileDependencies {
   loading: boolean;
 }
 
+function fulfilledOrEmpty<T>(result: PromiseSettledResult<T[]>): T[] {
+  return result.status === 'fulfilled' ? (result.value || []) : [];
+}
+
 /**
  * Hook para carregar dependências necessárias para editar perfis:
  * - Ferramentas disponíveis (MCP + builtin)
@@ -30,16 +34,16 @@ export function useProfileDependencies(): ProfileDependencies {
     const loadDependencies = async () => {
       setLoading(true);
       try {
-        const [toolsData, allowlistsData, skillsData, contextProvidersData] = await Promise.all([
+        const [toolsData, allowlistsData, skillsData, contextProvidersData] = await Promise.allSettled([
           GetAvailableTools(),
           GetAllowlists(),
           GetSkills(),
           GetContextProviders(),
         ]);
-        setTools(toolsData || []);
-        setAllowlists(allowlistsData || []);
-        setSkills(skillsData || []);
-        setContextProviders(contextProvidersData || []);
+        setTools(fulfilledOrEmpty(toolsData));
+        setAllowlists(fulfilledOrEmpty(allowlistsData));
+        setSkills(fulfilledOrEmpty(skillsData));
+        setContextProviders(fulfilledOrEmpty(contextProvidersData));
       } finally {
         setLoading(false);
       }

@@ -119,3 +119,18 @@ func TestContextProviderOmitsBlockWhenBudgetCannotFitOpeningTag(t *testing.T) {
 		t.Fatalf("len(blocks) = %d, want only stable instructions block", len(blocks))
 	}
 }
+
+func TestContextProviderOmitsBlockWhenBudgetFitsOnlyOpeningTagAndNotice(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace",
+		ProviderBudgets: map[string]int{
+			"workspace": runeLen(workspaceContextPrefix) + runeLen(workspaceContextTruncationNotice) + runeLen(workspaceContextSuffix),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want only stable instructions block", len(blocks))
+	}
+}

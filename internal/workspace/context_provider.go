@@ -138,7 +138,7 @@ func trimContextBlock(content string, budgetChars int) string {
 		return ""
 	}
 	contentBudget := budgetChars - runeLen(workspaceContextTruncationNotice) - runeLen(workspaceContextSuffix)
-	if contentBudget < runeLen(workspaceContextPrefix) {
+	if contentBudget <= runeLen(workspaceContextPrefix) {
 		return ""
 	}
 	runes := []rune(content)
