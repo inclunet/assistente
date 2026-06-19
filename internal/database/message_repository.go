@@ -394,13 +394,16 @@ func (r *MessageRepository) UpdateMessageContentAndReasoningWithContext(ctx cont
 		return err
 	}
 	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
-	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
-		"content":           content,
-		"reasoning":         reasoning,
-		"prompt_tokens":     promptTokens,
-		"completion_tokens": completionTokens,
-		"total_tokens":      totalTokens,
-		"model":             model,
+	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).UpdateColumns(map[string]interface{}{
+		"content":            content,
+		"reasoning":          reasoning,
+		"prompt_tokens":      promptTokens,
+		"completion_tokens":  completionTokens,
+		"total_tokens":       totalTokens,
+		"cache_read_tokens":  0,
+		"cache_write_tokens": 0,
+		"cache_miss_tokens":  0,
+		"model":              model,
 	}).Error
 }
 

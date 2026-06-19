@@ -91,4 +91,15 @@ func TestUpdateMessageCacheTokensWithContext(t *testing.T) {
 	if retrieved.CacheReadTokens != 10 || retrieved.CacheWriteTokens != 20 || retrieved.CacheMissTokens != 30 {
 		t.Fatalf("zero update should preserve cache tokens: read=%d write=%d miss=%d", retrieved.CacheReadTokens, retrieved.CacheWriteTokens, retrieved.CacheMissTokens)
 	}
+
+	if err := UpdateMessageContentAndReasoningWithContext(testCtx(), msg.ID, "new response", "", 5, 6, 11, "model"); err != nil {
+		t.Fatalf("UpdateMessageContentAndReasoningWithContext: %v", err)
+	}
+	retrieved, err = GetMessageWithContext(testCtx(), msg.ID)
+	if err != nil {
+		t.Fatalf("GetMessageWithContext after content update: %v", err)
+	}
+	if retrieved.CacheReadTokens != 0 || retrieved.CacheWriteTokens != 0 || retrieved.CacheMissTokens != 0 {
+		t.Fatalf("content update should clear stale cache tokens: read=%d write=%d miss=%d", retrieved.CacheReadTokens, retrieved.CacheWriteTokens, retrieved.CacheMissTokens)
+	}
 }
