@@ -157,7 +157,7 @@ func TestRegistryFilterByNames(t *testing.T) {
 		t.Fatalf("FilterByNames esperado 2, obtido %d", len(defs))
 	}
 	if defs[0].Function.Name != "grep_search" || defs[1].Function.Name != "read_file" {
-		t.Fatalf("FilterByNames deve ordenar por nome estavel, got %#v", defs)
+		t.Fatalf("FilterByNames deve ordenar por nome de forma estável, obtido %#v", defs)
 	}
 
 	// Tool inexistente é ignorada silenciosamente

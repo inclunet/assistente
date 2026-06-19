@@ -470,6 +470,6 @@ Status: concluída para os builtins atuais. O runtime novo trata `SKILL.md` como
 - [x] APIs Wails permitem CRUD, busca e arquivamento de records de memória.
 - [x] Existe pelo menos um bloco estável e um bloco dinâmico produzido por context provider.
 - [x] Skills não usam Go templates para acessar memória/workspace/tasklists.
-- [x] Prompt builder tem ordem testável: stable → slow_dynamic → rolling_history → fast_dynamic.
+- [x] Prompt builder tem ordem testável: blocos estáveis antes do resumo; blocos não-estáveis de Context Providers depois do resumo, preservando a janela recente de mensagens fora do system prompt.
 - [x] AEP-0072 revisada pode focar apenas em Skill Loading Runtime.
 - [x] AEP-0074 passa a depender desta AEP para otimização de cache.

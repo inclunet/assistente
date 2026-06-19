@@ -234,8 +234,6 @@ func (r *Registry) ToDefinitions() []ToolDefinition {
 // Útil para filtrar tools por perfil.
 func (r *Registry) FilterByNames(names []string) []ToolDefinition {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	defs := make([]ToolDefinition, 0, len(names))
 	for _, name := range names {
 		tool, ok := r.tools[name]
@@ -251,6 +249,7 @@ func (r *Registry) FilterByNames(names []string) []ToolDefinition {
 			},
 		})
 	}
+	r.mu.RUnlock()
 
 	sortToolDefinitions(defs)
 	return defs
