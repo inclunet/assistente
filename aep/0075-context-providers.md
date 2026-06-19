@@ -1,7 +1,8 @@
 # AEP-0075 — Context Providers
 
-Status: Proposta
+Status: Implementada
 Criado em: 2026-06-16
+Implementada em: 2026-06-19
 Relacionado: AEP-0072, AEP-0074, AEP-0059, AEP-0042, AEP-0057
 
 ## Resumo
@@ -16,7 +17,17 @@ Esta AEP cria a arquitetura de `Context Providers`, responsáveis por produzir b
 - memória e workspace deixam de ser skills;
 - Go templates deixam de ser requisito para skills;
 - o prompt passa a ter uma ordem clara por volatilidade;
-- a futura AEP-0074 de prompt cache pode otimizar um contexto já bem separado.
+- a AEP-0074 de prompt cache pode otimizar um contexto já bem separado.
+
+Resultado da implementação:
+
+- `memory`, `workspace` e `tasklist` são registrados como Context Providers no runtime;
+- `memory` usa records estruturados em banco no caminho novo, com fallback legado somente como compatibilidade de leitura;
+- tasklists vinculadas são renderizadas pelo provider `tasklist`, preservando o gating da skill `tasklist-manager`;
+- perfis configuram Context Providers por `enabled`, `budget` em caracteres/runes e `settings`;
+- a UI de perfil tem aba dedicada de Context Providers, separada de skills e de cache;
+- há APIs e tela de governança para memórias;
+- skills builtin não dependem de execução de templates para acessar memória, workspace ou tasklists.
 
 ## Motivação
 
@@ -379,11 +390,15 @@ Esta seção é pré-requisito funcional para controlar budgets por perfil, mas 
 
 ### Fase 1 — Contrato e separação conceitual
 
+Status: concluída.
+
 - Criar abstrações internas de context block/provider.
 - Identificar os trechos atuais de `memory` e `workspace` que são instrução estável vs. dados dinâmicos.
 - Não mudar ainda a UI de skills.
 
 ### Fase 2 — Memory provider
+
+Status: concluída no caminho novo, mantendo fallback legado de leitura conforme previsto.
 
 - Extrair a skill `memory` para provider.
 - Criar bloco de instruções estáveis de memória.
@@ -396,6 +411,8 @@ Esta seção é pré-requisito funcional para controlar budgets por perfil, mas 
 
 ### Fase 3 — Workspace provider
 
+Status: concluída.
+
 - Extrair a skill `workspace` para provider.
 - Produzir contexto mínimo de workspace.
 - Criar tools de inspeção de workspace.
@@ -403,11 +420,15 @@ Esta seção é pré-requisito funcional para controlar budgets por perfil, mas 
 
 ### Fase 4 — Prompt block builder
 
+Status: concluída como base de Context Providers; a AEP-0074 aprofunda o layout cache-friendly e determinismo da request.
+
 - Substituir montagem monolítica do system prompt por blocos ordenados.
 - Classificar cada bloco por volatilidade.
 - Adicionar testes snapshot para ordem e conteúdo.
 
 ### Fase 5 — Configuração de providers por perfil
+
+Status: concluída.
 
 - Adicionar `context_providers` ao perfil.
 - Resolver defaults por provider.
@@ -419,6 +440,8 @@ Esta seção é pré-requisito funcional para controlar budgets por perfil, mas 
 ### Fase 6 — Auditar skills estáticas
 
 Esta fase é uma auditoria de segurança da migração: confirmar que o runtime novo não executa templates em skills e que os builtins migrados usam Context Providers/supporting files para conteúdo dinâmico, sem degradar o conteúdo instrucional das skills.
+
+Status: concluída para os builtins atuais. O runtime novo trata `SKILL.md` como Markdown estático; exemplos literais com `{{ ... }}` permanecem válidos em skills como `job-manager` e `tasklist-manager`, porque documentam templates de jobs/custom actions e não são executados pelo runtime de skills.
 
 - Remover apenas dependências reais de execução de templates em skill.
 - Garantir que builtins não dependem de `include`, `now`, `.Surface`, `.TaskLists`.
@@ -438,15 +461,15 @@ Esta fase é uma auditoria de segurança da migração: confirmar que o runtime 
 
 ## Critérios de aceitação
 
-- `memory` não é mais carregada como skill no caminho novo.
-- `workspace` não é mais carregada como skill no caminho novo.
-- Memórias são persistidas como records estruturados no banco no caminho novo.
-- Não existe migrador automático dos arquivos antigos de memória; a recomposição é assistida pelo modelo.
-- Existe tela frontend para visualizar, filtrar, editar, arquivar e excluir memórias salvas.
-- A tela deixa claro quais memórias impactam automaticamente o prompt.
-- APIs Wails permitem CRUD, busca e arquivamento de records de memória.
-- Existe pelo menos um bloco estável e um bloco dinâmico produzido por context provider.
-- Skills não usam Go templates para acessar memória/workspace/tasklists.
-- Prompt builder tem ordem testável: stable → slow_dynamic → rolling_history → fast_dynamic.
-- AEP-0072 revisada pode focar apenas em Skill Loading Runtime.
-- AEP-0074 passa a depender desta AEP para otimização de cache.
+- [x] `memory` não é mais carregada como skill no caminho novo.
+- [x] `workspace` não é mais carregada como skill no caminho novo.
+- [x] Memórias são persistidas como records estruturados no banco no caminho novo.
+- [x] Não existe migrador automático dos arquivos antigos de memória; a recomposição é assistida pelo modelo.
+- [x] Existe tela frontend para visualizar, filtrar, editar, arquivar e excluir memórias salvas.
+- [x] A tela deixa claro quais memórias impactam automaticamente o prompt.
+- [x] APIs Wails permitem CRUD, busca e arquivamento de records de memória.
+- [x] Existe pelo menos um bloco estável e um bloco dinâmico produzido por context provider.
+- [x] Skills não usam Go templates para acessar memória/workspace/tasklists.
+- [x] Prompt builder tem ordem testável: stable → slow_dynamic → rolling_history → fast_dynamic.
+- [x] AEP-0072 revisada pode focar apenas em Skill Loading Runtime.
+- [x] AEP-0074 passa a depender desta AEP para otimização de cache.

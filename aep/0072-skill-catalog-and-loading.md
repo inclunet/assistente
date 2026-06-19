@@ -2,22 +2,22 @@
 
 **Status**: Proposta revisada
 **Criado em**: 2026-06-08
-**Revisado em**: 2026-06-16
+**Revisado em**: 2026-06-19
 **Substitui**: versão anterior da AEP-0072 (Skill Catalog & Loading amplo)
-**Depende de**: AEP-0075 (Context Providers)
+**Pré-requisito atendido**: AEP-0075 (Context Providers)
 **Relacionado**: AEP-0074 (Prompt Cache), AEP-0051 (Skills DB, opcional/futura), AEP-0063 (Tool Invocations e Executor Comum)
 
 ---
 
 ## Resumo
 
-> **Nota de revisão (2026-06-16).** A versão original desta AEP tentou resolver ao mesmo tempo catálogo de skills, migração para banco, gating, templates, autoload e contexto dinâmico. Essa combinação se mostrou ampla demais. A nova direção separa responsabilidades:
+> **Nota de revisão (2026-06-19).** A versão original desta AEP tentou resolver ao mesmo tempo catálogo de skills, migração para banco, gating, templates, autoload e contexto dinâmico. Essa combinação se mostrou ampla demais. A separação foi concluída pela AEP-0075 e esta AEP agora fica restrita ao runtime de skill loading:
 >
-> - AEP-0075: `memory`, `workspace`, tasklists e estado dinâmico viram **Context Providers**.
+> - AEP-0075: `memory`, `workspace`, tasklists e estado dinâmico são **Context Providers**.
 > - AEP-0072: skills ficam apenas como **módulos de instrução/workflow** e esta AEP passa a definir o runtime de carregamento.
 > - AEP-0074: otimização de prompt cache vem depois, sobre a arquitetura separada.
 >
-> Portanto, esta AEP não depende mais de migrar skills para banco antes de corrigir o runtime. AEP-0051 pode continuar como evolução de persistência, mas não é pré-requisito para o modelo de carregamento.
+> Portanto, esta AEP não deve reabrir configuração de memória/workspace/tasklists nem montagem de contexto dinâmico. Ela também não depende de migrar skills para banco antes de corrigir o runtime. AEP-0051 pode continuar como evolução de persistência, mas não é pré-requisito para o modelo de carregamento.
 
 ## Resumo revisado
 
@@ -202,7 +202,9 @@ Política:
 
 Implementar Context Providers para remover `memory` e `workspace` do pool de responsabilidades de skills.
 
-Status: concluída como pré-requisito principal. `memory` e `workspace` já saíram dos builtins de skills no caminho novo, e a limpeza de skills legados foi tratada separadamente.
+Status: concluída. `memory`, `workspace` e `tasklist` já são Context Providers no caminho novo; `memory` tem records estruturados, APIs Wails e tela de governança; `workspace` produz contexto mínimo via provider; tasklists vinculadas são bloco dinâmico do provider `tasklist`; e a configuração por perfil (`context_providers`) resolve `enabled`, `budget` e `settings` antes da montagem dos blocos.
+
+Consequência para esta AEP: nenhuma fase posterior deve recolocar memória, workspace, tasklists, budgets de providers ou settings de providers no runtime de skills. O escopo restante é exclusivamente a política e a experiência de carregamento de skills como módulos de workflow/instrução.
 
 ### Fase 1 — Política ordenada por perfil
 
@@ -386,7 +388,7 @@ O PR deve cobrir:
 
 ## Critérios de aceitação revisados
 
-- `memory` e `workspace` não são skills no caminho novo.
+- Pré-requisito atendido: `memory`, `workspace` e tasklists dinâmicas são Context Providers no caminho novo, conforme AEP-0075.
 - Perfil ordena skills em `enabled_skills`; a primeira marcada é a skill `base`.
 - Skills `on_demand` aparecem em catálogo leve.
 - `/skill` gera ativação observável no turno.
