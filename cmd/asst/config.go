@@ -31,9 +31,10 @@ type chatModelUpdater interface {
 }
 
 // setActiveProfileChatModel grava o modelo escolhido no perfil ativo. Resolve o
-// slug ativo UMA vez e usa o mesmo slug para ler e gravar — assim leitura e
-// escrita nunca divergem (GetActiveProfile e GetActiveProfileSlug têm regras de
-// fallback distintas; combiná-las poderia gravar no perfil errado).
+// slug ativo uma única vez (GetActiveProfileSlug agora compartilha a mesma
+// resolução de GetActiveProfile — ver profiles.resolveActive) e usa esse mesmo
+// slug para ler e gravar, garantindo que o modelo seja persistido exatamente no
+// perfil que o app considera ativo.
 func setActiveProfileChatModel(svc chatModelUpdater, model string) error {
 	slug := svc.GetActiveProfileSlug()
 	if slug == "" {

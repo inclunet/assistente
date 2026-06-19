@@ -248,12 +248,26 @@ func (m *Manager) Delete(slug string) error {
 // Fallback (nenhum Active=true): prefere "padrao" sobre o primeiro perfil
 // arbitrário (a ordem de iteração de filesystem não é determinística).
 func (m *Manager) GetActive() (*Profile, error) {
+	profile, _, err := m.resolveActive()
+	return profile, err
+}
+
+// resolveActive é a resolução canônica do perfil ativo: retorna tanto o perfil
+// quanto o slug do arquivo correspondente, usando UMA única regra (active=true →
+// auto-cura por mtime → "padrao" → primeiro perfil legível → DefaultProfile).
+//
+// GetActive e GetActiveSlug delegam para cá para que nunca divirjam: o slug
+// retornado é sempre o do arquivo de onde o perfil veio. Sem isso, gravar o
+// perfil ativo via um e ler via outro poderia atingir slugs diferentes quando
+// há múltiplos active=true ou arquivos corrompidos.
+func (m *Manager) resolveActive() (*Profile, string, error) {
 	files, err := m.resolver.List()
 	if err != nil {
-		return nil, fmt.Errorf("erro ao listar perfis: %w", err)
+		return nil, "", fmt.Errorf("erro ao listar perfis: %w", err)
 	}
 
 	var firstProfile *Profile
+	var firstSlug string
 	var padraoProfile *Profile
 	var actives []activeCandidate
 
@@ -270,6 +284,7 @@ func (m *Manager) GetActive() (*Profile, error) {
 
 		if firstProfile == nil {
 			firstProfile = profile
+			firstSlug = slug
 		}
 
 		if profile.Active {
@@ -282,7 +297,7 @@ func (m *Manager) GetActive() (*Profile, error) {
 	}
 
 	if len(actives) == 1 {
-		return actives[0].profile, nil
+		return actives[0].profile, actives[0].slug, nil
 	}
 	if len(actives) > 1 {
 		winner := pickMostRecentActive(actives)
@@ -302,17 +317,17 @@ func (m *Manager) GetActive() (*Profile, error) {
 				log.Printf("[Profiles] auto-cura: erro ao desativar %q: %v", c.slug, err)
 			}
 		}
-		return winner.profile, nil
+		return winner.profile, winner.slug, nil
 	}
 
 	if padraoProfile != nil {
-		return padraoProfile, nil
+		return padraoProfile, "padrao", nil
 	}
 	if firstProfile != nil {
-		return firstProfile, nil
+		return firstProfile, firstSlug, nil
 	}
 
-	return DefaultProfile(), nil
+	return DefaultProfile(), "padrao", nil
 }
 
 // activeCandidate descreve um perfil candidato a "ativo" durante a
@@ -399,46 +414,15 @@ func (m *Manager) SetActive(slug string) error {
 	return nil
 }
 
-// GetActiveSlug retorna o slug do perfil ativo
+// GetActiveSlug retorna o slug do perfil ativo, usando a MESMA resolução de
+// GetActive (ver resolveActive). Garante que o slug devolvido aqui é sempre o do
+// perfil que GetActive retornaria — leitura e escrita nunca divergem.
 func (m *Manager) GetActiveSlug() string {
-	files, err := m.resolver.List()
-	if err != nil {
+	_, slug, err := m.resolveActive()
+	if err != nil || slug == "" {
 		return "padrao"
 	}
-
-	var firstSlug string
-	hasPadrao := false
-
-	for _, f := range files {
-		if !strings.HasSuffix(f.Filename, ".json") {
-			continue
-		}
-
-		slug := strings.TrimSuffix(f.Filename, ".json")
-		if firstSlug == "" {
-			firstSlug = slug
-		}
-		if slug == "padrao" {
-			hasPadrao = true
-		}
-
-		profile, err := m.Get(slug)
-		if err != nil {
-			continue
-		}
-		if profile.Active {
-			return slug
-		}
-	}
-
-	if hasPadrao {
-		return "padrao"
-	}
-	if firstSlug != "" {
-		return firstSlug
-	}
-
-	return "padrao"
+	return slug
 }
 
 // GetSearchPaths retorna os caminhos de busca do resolver
