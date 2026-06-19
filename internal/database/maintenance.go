@@ -148,7 +148,7 @@ func Compact(ctx context.Context, force bool, minFreeBytes int64) (CompactionRes
 		if err != nil {
 			return err
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		// 1) Checkpoint do WAL: devolve o conteúdo do -wal ao arquivo principal e
 		//    trunca o -wal. Best-effort.
