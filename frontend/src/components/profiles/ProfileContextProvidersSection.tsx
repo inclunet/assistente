@@ -160,6 +160,7 @@ export function ProfileContextProvidersSection({
               placeholder={String(row.effectiveBudget)}
               onChange={(event) => handleBudgetChange(row, event.target.value)}
               onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
               onMouseDown={(event) => event.stopPropagation()}
               disabled={disabled}
               aria-describedby="context-providers-budget-hint"
