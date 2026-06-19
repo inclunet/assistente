@@ -68,11 +68,11 @@ func (m *mockProvidersBackend) SetDefaultProvider(id string) error {
 	return m.setDefaultErr
 }
 
-func (m *mockProvidersBackend) GetActiveProfileSlug() string { return "padrao" }
-
-func (m *mockProvidersBackend) GetProfile(_ string) (*profiles.Profile, error) {
+func (m *mockProvidersBackend) GetActiveProfile() (*profiles.Profile, error) {
 	return &profiles.Profile{}, nil
 }
+
+func (m *mockProvidersBackend) GetActiveProfileSlug() string { return "padrao" }
 
 func (m *mockProvidersBackend) UpdateProfile(_ string, p profiles.Profile) error {
 	m.chatModelSet = p.Chat.Model
