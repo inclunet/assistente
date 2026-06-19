@@ -2,7 +2,6 @@ package tasklist
 
 import (
 	"context"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -91,7 +90,6 @@ func buildLinkedTaskListsBlock(lists []contextprovider.LinkedTaskList, budgetCha
 }
 
 func linkedTaskListContextLines(lists []contextprovider.LinkedTaskList) []string {
-	lists = sortedLinkedTaskLists(lists)
 	lines := make([]string, 0)
 	for _, list := range lists {
 		listID := sanitizeContextLine(list.ID)
@@ -114,7 +112,7 @@ func linkedTaskListContextLines(lists []contextprovider.LinkedTaskList) []string
 			continue
 		}
 		lines = append(lines, "\n| # | Status | Task | ID |\n|---|--------|------|----|\n")
-		for idx, task := range sortedLinkedTasks(list.Tasks) {
+		for idx, task := range list.Tasks {
 			var line strings.Builder
 			line.WriteString("| ")
 			line.WriteString(strconv.Itoa(idx))
@@ -133,55 +131,6 @@ func linkedTaskListContextLines(lists []contextprovider.LinkedTaskList) []string
 		}
 	}
 	return lines
-}
-
-func sortedLinkedTaskLists(lists []contextprovider.LinkedTaskList) []contextprovider.LinkedTaskList {
-	out := append([]contextprovider.LinkedTaskList(nil), lists...)
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Title != out[j].Title {
-			return out[i].Title < out[j].Title
-		}
-		return out[i].ID < out[j].ID
-	})
-	return out
-}
-
-func sortedLinkedTasks(tasks []contextprovider.LinkedTask) []contextprovider.LinkedTask {
-	out := append([]contextprovider.LinkedTask(nil), tasks...)
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Status != out[j].Status {
-			return out[i].Status < out[j].Status
-		}
-		if out[i].Title != out[j].Title {
-			return out[i].Title < out[j].Title
-		}
-		return naturalLess(out[i].ID, out[j].ID)
-	})
-	return out
-}
-
-func naturalLess(left, right string) bool {
-	leftPrefix, leftNumber, leftOK := splitTrailingNumber(left)
-	rightPrefix, rightNumber, rightOK := splitTrailingNumber(right)
-	if leftOK && rightOK && leftPrefix == rightPrefix && leftNumber != rightNumber {
-		return leftNumber < rightNumber
-	}
-	return left < right
-}
-
-func splitTrailingNumber(value string) (string, int, bool) {
-	idx := len(value)
-	for idx > 0 && value[idx-1] >= '0' && value[idx-1] <= '9' {
-		idx--
-	}
-	if idx == len(value) {
-		return value, 0, false
-	}
-	number, err := strconv.Atoi(value[idx:])
-	if err != nil {
-		return value, 0, false
-	}
-	return value[:idx], number, true
 }
 
 func sanitizeContextLine(value string) string {

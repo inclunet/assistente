@@ -120,7 +120,7 @@ func TestContextProviderSanitizesTaskListContent(t *testing.T) {
 	}
 }
 
-func TestContextProviderSortsLinkedTaskListsAndTasks(t *testing.T) {
+func TestContextProviderPreservesLinkedTaskListsAndTasksOrder(t *testing.T) {
 	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
 		TaskListContextEnabled: true,
 		LinkedTaskLists: []contextprovider.LinkedTaskList{{
@@ -157,12 +157,12 @@ func TestContextProviderSortsLinkedTaskListsAndTasks(t *testing.T) {
 	}
 	content := blocks[0].Content
 	assertContainsInOrder(t, content,
-		"Alpha (ID: list-a)",
-		"| Todo | Alpha | task-1 |",
-		"| Todo | Beta | task-3 |",
 		"Zeta (ID: list-z)",
-		"| Doing | Same | task-2 |",
 		"| Doing | Same | task-10 |",
+		"| Doing | Same | task-2 |",
+		"Alpha (ID: list-a)",
+		"| Todo | Beta | task-3 |",
+		"| Todo | Alpha | task-1 |",
 	)
 }
 

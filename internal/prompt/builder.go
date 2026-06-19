@@ -343,7 +343,6 @@ func (b *Builder) buildSkillsSection(enabledSkills []string, disableSkills bool,
 		log.Printf("[prompt] Erro ao carregar skills: %v", err)
 		return ""
 	}
-	sortSkillsForPrompt(allSkills, enabledSkills)
 	policy := skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand)
 	baseSkills := policy.Base
 	availableSkills := policy.OnDemand
@@ -453,18 +452,6 @@ func (b *Builder) buildSkillsSection(enabledSkills []string, disableSkills bool,
 	}
 
 	return sb.String()
-}
-
-func sortSkillsForPrompt(allSkills []skills.Skill, enabledSkills []string) {
-	if enabledSkills != nil {
-		return
-	}
-	sort.SliceStable(allSkills, func(i, j int) bool {
-		if allSkills[i].Slug != allSkills[j].Slug {
-			return allSkills[i].Slug < allSkills[j].Slug
-		}
-		return allSkills[i].Name < allSkills[j].Name
-	})
 }
 
 // joinPrefix retorna o separador adequado para anexar uma nova seção: vazio quando

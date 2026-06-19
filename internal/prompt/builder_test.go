@@ -235,6 +235,23 @@ func TestBuildWithContextBlocksSameStateProducesStablePrefix(t *testing.T) {
 	assertOrder(t, first, "Base content.", "/skills/base/a.md", "/skills/base/z.md", "Identifier: `z-review`", "<memory_instructions>", "<workspace_instructions>")
 }
 
+func TestBuildSkillsSectionPreservesLegacyBaseSkillSelectionOrder(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			allSkillsFull: []skills.Skill{
+				makeSkill("z-base", "Alpha Base", "First autoload desc", "First autoload content.", true, true),
+				makeSkill("a-base", "Zulu Base", "Second autoload desc", "Second autoload content.", true, true),
+			},
+		},
+	}
+
+	sys := buildSystemPromptForSkills(b, nil, false, nil)
+	assertOrder(t, sys, "First autoload content.", "Identifier: `a-base`")
+	if strings.Contains(sys, "<base_skills>\n## Zulu Base") {
+		t.Fatalf("base skill selection should preserve manager order, got: %s", sys)
+	}
+}
+
 func TestBuild_ExistingSystemMessage_Combined(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "system", Content: "Existente."}, {Role: "user", Content: "oi"}}
