@@ -29,13 +29,6 @@ Resultado da implementação no merge do PR #297:
 - há APIs e tela de governança para memórias;
 - skills builtin não dependem de execução de templates para acessar memória, workspace ou tasklists.
 
-Pontos de código relevantes:
-
-- contrato persistido: `internal/profiles/types.go` (`Profile.ContextProviders`);
-- resolução para o prompt: `internal/chat/interactor.go` (`resolveContextProviderProfileConfig` e `BuildRequest.ProviderBudgets`);
-- metadados expostos à UI: `internal/app/app_profiles.go` (`GetContextProviders`);
-- aba de edição: `frontend/src/components/profiles/ProfileEditorTabs.tsx` e `ProfileContextProvidersSection.tsx`.
-
 ## Motivação
 
 O sistema atual usa skills para responsabilidades diferentes:
@@ -436,8 +429,6 @@ Status: concluída como base de Context Providers; a AEP-0074 aprofunda o layout
 ### Fase 5 — Configuração de providers por perfil
 
 Status: concluída pelo PR #297.
-
-Implementada com `profiles.Profile.ContextProviders`, validação em `profiles.Profile.Validate`, resolução em `chat.buildDynamicContext` para `contextprovider.BuildRequest.ProviderBudgets`, `ProviderEnabled` e `ProviderSettings`, e aba `contextProviders` no editor de perfil.
 
 - Adicionar `context_providers` ao perfil.
 - Resolver defaults por provider.
