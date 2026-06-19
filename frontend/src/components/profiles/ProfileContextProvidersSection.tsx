@@ -59,6 +59,11 @@ export function ProfileContextProvidersSection({
     };
   }), [config, providers]);
 
+  const selectedIds = useMemo(
+    () => new Set<string | number>(rows.filter((row) => row.effectiveEnabled).map((row) => row.id)),
+    [rows],
+  );
+
   const updateProvider = useCallback((providerName: string, patch: Partial<profiles.ContextProviderProfileConfig>) => {
     const previous = config[providerName] ?? {};
     const nextProviderConfig = { ...previous, ...patch };
@@ -71,8 +76,7 @@ export function ProfileContextProvidersSection({
     onChange(next);
   }, [config, onChange]);
 
-  const handleEnabledChange = useCallback((row: ProviderRow, enabled: boolean) => {
-    const next = { ...config };
+  const applyEnabledOverride = useCallback((next: ContextProviderConfigMap, row: ProviderRow, enabled: boolean) => {
     const previous: profiles.ContextProviderProfileConfig = next[row.name] ?? {};
     const providerConfig: profiles.ContextProviderProfileConfig = { ...previous };
     if (enabled === row.defaultEnabled) {
@@ -85,8 +89,24 @@ export function ProfileContextProvidersSection({
     } else {
       delete next[row.name];
     }
-    onChange(next);
-  }, [config, onChange]);
+  }, []);
+
+  const handleSelectionChange = useCallback((newSelectedIds: Set<string | number>) => {
+    const next: ContextProviderConfigMap = { ...config };
+    let changed = false;
+
+    for (const row of rows) {
+      const enabled = newSelectedIds.has(row.id);
+      if (enabled !== row.effectiveEnabled) {
+        applyEnabledOverride(next, row, enabled);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      onChange(next);
+    }
+  }, [applyEnabledOverride, config, onChange, rows]);
 
   const handleBudgetChange = useCallback((row: ProviderRow, valueText: string) => {
     const parsed = Number.parseInt(valueText, 10);
@@ -98,20 +118,20 @@ export function ProfileContextProvidersSection({
       key: 'enabled',
       label: '',
       width: '44px',
+      selectionToggle: true,
       format: (_value: unknown, row: ProviderRow) => {
         const localizedName = t(`profiles.contextProviderNames.${row.name}`, row.displayName);
         return (
           <input
             type="checkbox"
             checked={row.effectiveEnabled}
-            onChange={(event) => handleEnabledChange(row, event.target.checked)}
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-            disabled={disabled}
+            readOnly
+            tabIndex={-1}
             aria-label={t('profiles.contextProviderEnabledAria', '{{name}}: {{state}}', {
               name: localizedName,
               state: row.effectiveEnabled ? t('common.enabled', 'Habilitado') : t('common.disabled', 'Desabilitado'),
             })}
+            style={{ pointerEvents: 'none' }}
           />
         );
       },
@@ -120,6 +140,7 @@ export function ProfileContextProvidersSection({
       key: 'displayName',
       label: t('profiles.contextProviderColName', 'Provider'),
       width: '24%',
+      selectionToggle: false,
       format: (_value: unknown, row: ProviderRow) => (
         <div className="profiles-context-provider__name">
           <span>{t(`profiles.contextProviderNames.${row.name}`, row.displayName)}</span>
@@ -131,12 +152,14 @@ export function ProfileContextProvidersSection({
       key: 'description',
       label: t('profiles.contextProviderColDescription', 'Descrição'),
       truncate: true,
+      selectionToggle: false,
       format: (_value: unknown, row: ProviderRow) => t(`profiles.contextProviderDescriptions.${row.name}`, row.description),
     },
     {
       key: 'state',
       label: t('profiles.contextProviderColState', 'Estado'),
       width: '120px',
+      selectionToggle: false,
       format: (_value: unknown, row: ProviderRow) => (
         row.effectiveEnabled
           ? t('profiles.contextProviderStateEnabled', 'habilitado')
@@ -147,6 +170,7 @@ export function ProfileContextProvidersSection({
       key: 'budget',
       label: t('profiles.contextProviderColBudget', 'Budget efetivo'),
       width: '150px',
+      selectionToggle: false,
       format: (_value: unknown, row: ProviderRow) => {
         const localizedName = t(`profiles.contextProviderNames.${row.name}`, row.displayName);
         return (
@@ -196,6 +220,9 @@ export function ProfileContextProvidersSection({
           columns={columns}
           label={t('profiles.contextProvidersGridLabel', 'Lista de Context Providers')}
           getItemId={(item) => item.id}
+          selectedIds={selectedIds}
+          selectionMode="checkbox"
+          onSelectionChange={handleSelectionChange}
           showHeader={true}
           autoFocusOnMount={false}
           className="profiles-context-providers-datagrid"

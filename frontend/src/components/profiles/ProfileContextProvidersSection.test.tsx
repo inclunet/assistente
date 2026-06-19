@@ -19,20 +19,22 @@ vi.mock('@wailsjs/go/models', () => ({
   profiles: {},
 }));
 
+const workspaceProvider = {
+  name: 'workspace',
+  display_name: 'Workspace',
+  description: 'Workspace context',
+  default_enabled: true,
+  default_budget: 500,
+  supports_settings: false,
+};
+
 describe('ProfileContextProvidersSection', () => {
   it('remove provider config when clearing the last effective override', () => {
     const onChange = vi.fn();
 
     render(
       <ProfileContextProvidersSection
-        providers={[{
-          name: 'workspace',
-          display_name: 'Workspace',
-          description: 'Workspace context',
-          default_enabled: true,
-          default_budget: 500,
-          supports_settings: false,
-        }]}
+        providers={[workspaceProvider]}
         value={{ workspace: { budget: 1200 } }}
         onChange={onChange}
       />,
@@ -43,5 +45,23 @@ describe('ProfileContextProvidersSection', () => {
     });
 
     expect(onChange).toHaveBeenCalledWith({});
+  });
+
+  it('alternates provider enabled state with Space on the enabled cell', () => {
+    const onChange = vi.fn();
+
+    render(
+      <ProfileContextProvidersSection
+        providers={[workspaceProvider]}
+        value={{}}
+        onChange={onChange}
+      />,
+    );
+
+    const grid = screen.getByRole('grid', { name: 'Lista de Context Providers' });
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+
+    expect(onChange).toHaveBeenCalledWith({ workspace: { enabled: false } });
   });
 });
