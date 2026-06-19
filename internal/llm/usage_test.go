@@ -78,6 +78,20 @@ func TestMergeAnthropicStreamingUsage_PreservesStartInputWithoutCache(t *testing
 	}
 }
 
+func TestMergeAnthropicStreamingUsage_AllowsFullyCachedInput(t *testing.T) {
+	usage := mergeAnthropicStreamingUsage(Usage{}, 0, 0, 0, 300)
+
+	if usage.PromptTokens != 300 {
+		t.Fatalf("PromptTokens=%d, want 300", usage.PromptTokens)
+	}
+	if usage.CacheReadTokens != 300 {
+		t.Fatalf("CacheReadTokens=%d, want 300", usage.CacheReadTokens)
+	}
+	if usage.CacheMissTokens != 0 {
+		t.Fatalf("CacheMissTokens=%d, want 0", usage.CacheMissTokens)
+	}
+}
+
 func TestUsageFromGemini_CachedContentTokenCount(t *testing.T) {
 	usage := UsageFromGemini(900, 100, 1000, 250)
 	if usage.CacheReadTokens != 250 {

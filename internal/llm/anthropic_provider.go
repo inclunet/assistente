@@ -426,7 +426,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 			if event.Message.Model != "" {
 				lastModel = string(event.Message.Model)
 			}
-			if event.Message.Usage.InputTokens > 0 {
+			if event.Message.Usage.InputTokens > 0 || event.Message.Usage.CacheCreationInputTokens > 0 || event.Message.Usage.CacheReadInputTokens > 0 {
 				lastUsage = mergeAnthropicStreamingUsage(
 					lastUsage,
 					int(event.Message.Usage.InputTokens),
@@ -637,7 +637,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 			if event.Message.Model != "" {
 				lastModel = string(event.Message.Model)
 			}
-			if event.Message.Usage.InputTokens > 0 {
+			if event.Message.Usage.InputTokens > 0 || event.Message.Usage.CacheCreationInputTokens > 0 || event.Message.Usage.CacheReadInputTokens > 0 {
 				lastUsage = mergeAnthropicStreamingUsage(
 					lastUsage,
 					int(event.Message.Usage.InputTokens),
