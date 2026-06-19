@@ -233,9 +233,12 @@ func (r *DBRepository) CleanOrphanChat(ctx context.Context) (int, error) {
 	if !r.db.Migrator().HasTable(&database.ChatMessage{}) {
 		return 0, nil
 	}
-	existingMessageIDs := r.db.WithContext(ctx).Model(&database.ChatMessage{}).Select("id")
+	// NOT EXISTS faz lookup por chave primária por invocação, evitando
+	// materializar/varrer todos os ids de chat_messages (caro conforme o
+	// histórico cresce). Mesma semântica: remove apenas quando não há mensagem.
 	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("origin_type = ? AND origin_id NOT IN (?)", OriginChat, existingMessageIDs).
+		Where("origin_type = ?", OriginChat).
+		Where("NOT EXISTS (SELECT 1 FROM chat_messages WHERE chat_messages.id = tool_invocations.origin_id)").
 		Delete(&database.ToolInvocation{})
 	return int(tx.RowsAffected), tx.Error
 }

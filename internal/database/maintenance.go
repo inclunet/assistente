@@ -156,6 +156,14 @@ func Compact(ctx context.Context, force bool, minFreeBytes int64) (CompactionRes
 		}
 		defer func() { _ = conn.Close() }()
 
+		// busy_timeout é por conexão: o pragma de Init() roda em OUTRA conexão do
+		// pool, então é preciso reaplicá-lo aqui para que checkpoint/VACUUM
+		// aguardem o lock sob contenção em vez de falhar imediatamente com
+		// SQLITE_BUSY (AEP-0074).
+		if _, err := conn.ExecContext(ctx, "PRAGMA busy_timeout=5000"); err != nil {
+			log.Printf("[Database] manutenção: set busy_timeout falhou: %v", err)
+		}
+
 		// 1) Checkpoint do WAL: devolve o conteúdo do -wal ao arquivo principal e
 		//    trunca o -wal. Best-effort.
 		if _, err := conn.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {

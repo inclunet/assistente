@@ -651,4 +651,131 @@ describe('DataManagementPage', () => {
     expect(mockOpenImportFileDialog).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
   });
+
+  describe('manutenção e retenção do banco', () => {
+    it('carrega e exibe a politica de manutencao e as estatisticas do banco', async () => {
+      render(<DataManagementPage />);
+
+      expect(await screen.findByLabelText('Retenção de dados de jobs (horas)')).toHaveValue(24);
+      expect(screen.getByLabelText('Execuções mantidas por job')).toHaveValue(200);
+      expect(screen.getByLabelText('Limite de idade de tool calls de chat (dias)')).toHaveValue(0);
+      // vacuum_min_free_bytes (16 MiB em bytes) é exibido como inteiro em MiB.
+      expect(screen.getByLabelText('Limiar para compactação completa (MiB)')).toHaveValue(16);
+      expect(screen.getByText('Modo de auto_vacuum').closest('div')).toHaveTextContent('incremental');
+    });
+
+    it('salva a politica e reflete os valores normalizados retornados pelo backend', async () => {
+      const user = userEvent.setup();
+      mockGetMaintenanceSettings
+        .mockReset()
+        .mockResolvedValueOnce({
+          job_retention_hours: 24,
+          runs_per_job_keep: 200,
+          chat_tool_calls_retention_days: 0,
+          vacuum_min_free_bytes: 16 * 1024 * 1024,
+        })
+        .mockResolvedValueOnce({
+          job_retention_hours: 48,
+          runs_per_job_keep: 200,
+          chat_tool_calls_retention_days: 0,
+          vacuum_min_free_bytes: 16 * 1024 * 1024,
+        });
+
+      render(<DataManagementPage />);
+
+      const hours = await screen.findByLabelText('Retenção de dados de jobs (horas)');
+      await user.clear(hours);
+      await user.type(hours, '48');
+      await user.click(screen.getByRole('button', { name: 'Salvar política' }));
+
+      await waitFor(() => {
+        expect(mockSaveMaintenanceSettings).toHaveBeenCalledWith(
+          expect.objectContaining({ job_retention_hours: 48 }),
+        );
+      });
+      // Recarrega do backend após salvar e reflete o valor persistido.
+      await waitFor(() => {
+        expect(screen.getByLabelText('Retenção de dados de jobs (horas)')).toHaveValue(48);
+      });
+      expect(mockGetMaintenanceSettings).toHaveBeenCalledTimes(2);
+      expect(mockAnnounce).toHaveBeenCalledWith('Política de manutenção salva.');
+    });
+
+    it('persiste valores fracionarios do limiar como inteiro em MiB', async () => {
+      const user = userEvent.setup();
+      render(<DataManagementPage />);
+
+      const threshold = await screen.findByLabelText('Limiar para compactação completa (MiB)');
+      await user.clear(threshold);
+      await user.type(threshold, '1.5');
+      await user.click(screen.getByRole('button', { name: 'Salvar política' }));
+
+      await waitFor(() => {
+        expect(mockSaveMaintenanceSettings).toHaveBeenCalledWith(
+          expect.objectContaining({ vacuum_min_free_bytes: 1 * 1024 * 1024 }),
+        );
+      });
+    });
+
+    it('executa manutencao manual, atualiza estatisticas e anuncia conclusao', async () => {
+      const user = userEvent.setup();
+      mockGetDatabaseStats
+        .mockReset()
+        .mockResolvedValueOnce({
+          path: '/tmp/conversations.db',
+          fileSizeBytes: 1024,
+          walSizeBytes: 0,
+          totalSizeBytes: 1024,
+          pageSize: 4096,
+          pageCount: 1,
+          freelistCount: 0,
+          freeBytes: 0,
+          autoVacuumMode: 'incremental',
+        })
+        .mockResolvedValueOnce({
+          path: '/tmp/conversations.db',
+          fileSizeBytes: 512,
+          walSizeBytes: 0,
+          totalSizeBytes: 512,
+          pageSize: 4096,
+          pageCount: 1,
+          freelistCount: 0,
+          freeBytes: 0,
+          autoVacuumMode: 'incremental',
+        });
+      mockRunDatabaseMaintenance.mockResolvedValue({
+        mode: 'full',
+        walCheckpointed: true,
+        freeBytesBefore: 0,
+        totalSizeBefore: 1024,
+        totalSizeAfter: 512,
+        reclaimedBytes: 512,
+      });
+
+      render(<DataManagementPage />);
+
+      await user.click(await screen.findByRole('button', { name: 'Limpar agora' }));
+
+      await waitFor(() => {
+        expect(mockRunDatabaseMaintenance).toHaveBeenCalledWith(true);
+      });
+      // Estatísticas são recarregadas após a manutenção (load + pós-execução).
+      await waitFor(() => {
+        expect(mockGetDatabaseStats).toHaveBeenCalledTimes(2);
+      });
+      expect(mockAnnounce).toHaveBeenCalledWith(expect.stringContaining('Manutenção concluída'));
+    });
+
+    it('mantem a politica editavel mesmo se as estatisticas do banco falharem', async () => {
+      mockGetDatabaseStats.mockReset().mockRejectedValue(new Error('stat failed'));
+
+      render(<DataManagementPage />);
+
+      // A política carrega independentemente (Promise.allSettled): a falha das
+      // estatísticas não bloqueia a edição/salvamento.
+      expect(await screen.findByLabelText('Retenção de dados de jobs (horas)')).toHaveValue(24);
+      expect(screen.getByRole('button', { name: 'Salvar política' })).not.toBeDisabled();
+      expect(screen.queryByText('Modo de auto_vacuum')).not.toBeInTheDocument();
+    });
+  });
 });
