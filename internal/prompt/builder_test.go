@@ -258,6 +258,31 @@ func TestBuildWithContextBlocksSameStateProducesStablePrefix(t *testing.T) {
 	assertOrder(t, first, "Base content.", "/skills/base/a.md", "/skills/base/z.md", "Identifier: `z-review`", "<memory_instructions>", "<workspace_instructions>")
 }
 
+func TestBuildSkillsSectionDoesNotMutateSkillFiles(t *testing.T) {
+	skillFiles := map[string][]string{
+		"a-base":   {"/skills/base/z.md", "/skills/base/a.md"},
+		"z-review": {"/skills/review/z.md", "/skills/review/a.md"},
+	}
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			allSkillsFull: []skills.Skill{
+				makeSkill("a-base", "Base", "Base desc", "Base content.", true, true),
+				makeSkill("z-review", "Review", "Review desc", "Review content.", false, true),
+			},
+			skillFiles: skillFiles,
+		},
+	}
+
+	sys := buildSystemPromptForSkills(b, nil, false, nil)
+	assertOrder(t, sys, "/skills/base/a.md", "/skills/base/z.md", "/skills/review/a.md", "/skills/review/z.md")
+	if got := strings.Join(skillFiles["a-base"], ","); got != "/skills/base/z.md,/skills/base/a.md" {
+		t.Fatalf("base skill files were mutated: %s", got)
+	}
+	if got := strings.Join(skillFiles["z-review"], ","); got != "/skills/review/z.md,/skills/review/a.md" {
+		t.Fatalf("on-demand skill files were mutated: %s", got)
+	}
+}
+
 func TestBuildSkillsSectionPreservesLegacyBaseSkillSelectionOrder(t *testing.T) {
 	b := &prompt.Builder{
 		Skills: &mockSkillReader{

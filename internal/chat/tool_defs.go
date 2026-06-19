@@ -220,6 +220,7 @@ func FilterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPMana
 	if len(nativeServers) == 0 {
 		return names
 	}
+	nativeServers = cloneNativeMCPServers(nativeServers)
 	sortNativeMCPServers(nativeServers)
 	nativeToolNames := make(map[string]struct{})
 	for _, srv := range nativeServers {
@@ -261,6 +262,7 @@ func ApplyNativeMCP(
 	if len(nativeServers) == 0 {
 		return streamer, toolDefs
 	}
+	nativeServers = cloneNativeMCPServers(nativeServers)
 	sortNativeMCPServers(nativeServers)
 
 	var enabledSet map[string]bool
@@ -345,6 +347,14 @@ func sortNativeMCPServers(servers []mcplib.NativeMCPServer) {
 	for i := range servers {
 		servers[i].ToolNames = sortedToolNames(servers[i].ToolNames)
 	}
+}
+
+func cloneNativeMCPServers(servers []mcplib.NativeMCPServer) []mcplib.NativeMCPServer {
+	out := append([]mcplib.NativeMCPServer(nil), servers...)
+	for i := range out {
+		out[i].ToolNames = append([]string(nil), out[i].ToolNames...)
+	}
+	return out
 }
 
 func sortedToolNames(names []string) []string {

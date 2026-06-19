@@ -392,7 +392,7 @@ func (b *Builder) buildSkillsSection(enabledSkills []string, disableSkills bool,
 			sb.WriteString("\n")
 
 			supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
-			sort.Strings(supplementary)
+			supplementary = sortedStrings(supplementary)
 			if len(supplementary) > 0 {
 				sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
 				for _, f := range supplementary {
@@ -439,7 +439,7 @@ func (b *Builder) buildSkillsSection(enabledSkills []string, disableSkills bool,
 			sb.WriteString("`\n")
 
 			supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
-			sort.Strings(supplementary)
+			supplementary = sortedStrings(supplementary)
 			if len(supplementary) > 0 {
 				sb.WriteString("  Supporting files:\n")
 				for _, f := range supplementary {

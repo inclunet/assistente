@@ -338,6 +338,23 @@ func TestFilterToolNamesForNativeMCPRemovesNativeBridgeNames(t *testing.T) {
 	}
 }
 
+func TestFilterToolNamesForNativeMCPDoesNotMutateNativeServers(t *testing.T) {
+	p := &mockChatProvider{nativeCapable: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "zeta", Name: "Zeta", URL: "https://zeta.io", ToolNames: []string{"mcp_zeta__z", "mcp_zeta__a"}},
+		{Slug: "alpha", Name: "Alpha", URL: "https://alpha.io", ToolNames: []string{"mcp_alpha__z", "mcp_alpha__a"}},
+	}}
+
+	_ = FilterToolNamesForNativeMCP(p, mgr, []string{"mcp_zeta__z", "mcp_alpha__z", "local_tool"}, false, boolPtr(true))
+
+	if mgr.servers[0].Slug != "zeta" || mgr.servers[1].Slug != "alpha" {
+		t.Fatalf("native servers were reordered: %#v", mgr.servers)
+	}
+	if got := mgr.servers[0].ToolNames; got[0] != "mcp_zeta__z" || got[1] != "mcp_zeta__a" {
+		t.Fatalf("native server tool names were reordered: %#v", got)
+	}
+}
+
 func TestFilterToolNamesForNativeMCPDisabledReturnsNil(t *testing.T) {
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
@@ -515,6 +532,24 @@ func TestApplyNativeMCP_SortsServersAndToolNames(t *testing.T) {
 	}
 	if got := result.calledWith[1].ToolNames; len(got) != 2 || got[0] != "mcp_zeta__a" || got[1] != "mcp_zeta__z" {
 		t.Fatalf("tools do servidor zeta fora de ordem: %#v", got)
+	}
+}
+
+func TestApplyNativeMCPDoesNotMutateNativeServers(t *testing.T) {
+	p := &mockChatProvider{nativeCapable: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "zeta", Name: "Zeta", URL: "https://zeta.io", ToolNames: []string{"mcp_zeta__z", "mcp_zeta__a"}},
+		{Slug: "alpha", Name: "Alpha", URL: "https://alpha.io", ToolNames: []string{"mcp_alpha__z", "mcp_alpha__a"}},
+	}}
+	defs := makeToolDefs("mcp_zeta__z", "mcp_zeta__a", "mcp_alpha__z", "mcp_alpha__a")
+
+	_, _ = ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
+
+	if mgr.servers[0].Slug != "zeta" || mgr.servers[1].Slug != "alpha" {
+		t.Fatalf("native servers were reordered: %#v", mgr.servers)
+	}
+	if got := mgr.servers[0].ToolNames; got[0] != "mcp_zeta__z" || got[1] != "mcp_zeta__a" {
+		t.Fatalf("native server tool names were reordered: %#v", got)
 	}
 }
 
