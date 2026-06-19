@@ -10,6 +10,7 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/slug"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 
 	"gorm.io/gorm"
@@ -1247,7 +1248,7 @@ func (r *DBRepository) deleteRunDependenciesByIDs(ctx context.Context, runIDs []
 	// Best-effort: pode não existir em migrações parciais.
 	if r.db.Migrator().HasTable(&database.ToolInvocation{}) {
 		if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
-			Where("origin_type = ? AND origin_id IN ?", "job_run", runIDs).
+			Where("origin_type = ? AND origin_id IN ?", toolinvocations.OriginJobRun, runIDs).
 			Delete(&database.ToolInvocation{}).Error; err != nil {
 			return err
 		}

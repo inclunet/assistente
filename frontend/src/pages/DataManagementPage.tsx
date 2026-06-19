@@ -256,7 +256,9 @@ export default function DataManagementPage() {
       setMaintenance((prev) => {
         if (!prev) return prev;
         const next = config.MaintenanceSettings.createFrom(prev);
-        next[field] = Number.isFinite(value) && value >= 0 ? value : 0;
+        // O backend espera int/int64; trunca para inteiro não-negativo para
+        // evitar falha de unmarshalling (ex.: usuário cola "1.5" no input).
+        next[field] = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
         return next;
       });
     },

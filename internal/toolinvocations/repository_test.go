@@ -117,8 +117,8 @@ func TestRepositoryRequiresUser(t *testing.T) {
 	}
 }
 
-// seedInvocations popula um conjunto comum de invocações para os testes de
-// retenção e devolve o resolvedor de toolCatalogID já usado.
+// seedRetentionInvocations popula um conjunto comum de invocações para os
+// testes de retenção (chat e dry-runs, com idades variadas).
 func seedRetentionInvocations(t *testing.T, repo *DBRepository, userA context.Context, fixedNow time.Time) {
 	t.Helper()
 	toolID, err := repo.ResolveToolCatalogID(userA, "echo")
