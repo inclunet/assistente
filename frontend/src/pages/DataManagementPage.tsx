@@ -1050,6 +1050,7 @@ export default function DataManagementPage() {
                 <Input
                   type="number"
                   min={1}
+                  step={1}
                   value={String(maintenance.job_retention_hours)}
                   onChange={(event) => updateMaintenanceField('job_retention_hours', Number(event.target.value))}
                 />
@@ -1061,6 +1062,7 @@ export default function DataManagementPage() {
                 <Input
                   type="number"
                   min={0}
+                  step={1}
                   value={String(maintenance.runs_per_job_keep)}
                   onChange={(event) => updateMaintenanceField('runs_per_job_keep', Number(event.target.value))}
                 />
@@ -1072,6 +1074,7 @@ export default function DataManagementPage() {
                 <Input
                   type="number"
                   min={0}
+                  step={1}
                   value={String(maintenance.chat_tool_calls_retention_days)}
                   onChange={(event) => updateMaintenanceField('chat_tool_calls_retention_days', Number(event.target.value))}
                 />
@@ -1083,8 +1086,14 @@ export default function DataManagementPage() {
                 <Input
                   type="number"
                   min={0}
-                  value={String(Math.round(maintenance.vacuum_min_free_bytes / BYTES_PER_MIB))}
-                  onChange={(event) => updateMaintenanceField('vacuum_min_free_bytes', Number(event.target.value) * BYTES_PER_MIB)}
+                  step={1}
+                  value={String(Math.floor(maintenance.vacuum_min_free_bytes / BYTES_PER_MIB))}
+                  onChange={(event) =>
+                    updateMaintenanceField(
+                      'vacuum_min_free_bytes',
+                      Math.floor(Number(event.target.value)) * BYTES_PER_MIB,
+                    )
+                  }
                 />
               </FormField>
             </div>
