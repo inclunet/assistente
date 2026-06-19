@@ -225,6 +225,7 @@ func (r *Registry) ToDefinitions() []ToolDefinition {
 		}
 	}
 
+	sortToolDefinitions(defs)
 	return defs
 }
 
@@ -251,5 +252,28 @@ func (r *Registry) FilterByNames(names []string) []ToolDefinition {
 		})
 	}
 
+	sortToolDefinitions(defs)
 	return defs
+}
+
+func sortToolDefinitions(defs []ToolDefinition) {
+	sort.SliceStable(defs, func(i, j int) bool {
+		left := defs[i].Function.Name
+		right := defs[j].Function.Name
+		if toolDefinitionRank(left) != toolDefinitionRank(right) {
+			return toolDefinitionRank(left) < toolDefinitionRank(right)
+		}
+		return left < right
+	})
+}
+
+func toolDefinitionRank(name string) int {
+	switch name {
+	case ToolCatalogName:
+		return 0
+	case LoadSkillName:
+		return 1
+	default:
+		return 10
+	}
 }

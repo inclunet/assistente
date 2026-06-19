@@ -156,11 +156,37 @@ func TestRegistryFilterByNames(t *testing.T) {
 	if len(defs) != 2 {
 		t.Fatalf("FilterByNames esperado 2, obtido %d", len(defs))
 	}
+	if defs[0].Function.Name != "grep_search" || defs[1].Function.Name != "read_file" {
+		t.Fatalf("FilterByNames deve ordenar por nome estavel, got %#v", defs)
+	}
 
 	// Tool inexistente é ignorada silenciosamente
 	defs = r.FilterByNames([]string{"read_file", "inexistente"})
 	if len(defs) != 1 {
 		t.Fatalf("FilterByNames com inexistente esperado 1, obtido %d", len(defs))
+	}
+}
+
+func TestRegistryDefinitionsKeepRuntimeControlToolsFirst(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newRegistryMockTool("write_file"))
+	r.MustRegister(newRegistryMockTool(LoadSkillName))
+	r.MustRegister(newRegistryMockTool(ToolCatalogName))
+	r.MustRegister(newRegistryMockTool("read_file"))
+
+	defs := r.FilterByNames([]string{"write_file", LoadSkillName, "read_file", ToolCatalogName})
+	got := []string{}
+	for _, def := range defs {
+		got = append(got, def.Function.Name)
+	}
+	want := []string{ToolCatalogName, LoadSkillName, "read_file", "write_file"}
+	if len(got) != len(want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %#v, want %#v", got, want)
+		}
 	}
 }
 
