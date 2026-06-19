@@ -1133,33 +1133,6 @@ export namespace contacts {
 
 }
 
-export namespace contextprovider {
-	
-	export class ProviderMetadata {
-	    name: string;
-	    display_name: string;
-	    description: string;
-	    default_enabled: boolean;
-	    default_budget: number;
-	    supports_settings: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ProviderMetadata(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.display_name = source["display_name"];
-	        this.description = source["description"];
-	        this.default_enabled = source["default_enabled"];
-	        this.default_budget = source["default_budget"];
-	        this.supports_settings = source["supports_settings"];
-	    }
-	}
-
-}
-
 export namespace controllers {
 	
 	export class ChannelInfo {
@@ -3092,6 +3065,35 @@ export namespace llm {
 	        this.auth_mode = source["auth_mode"];
 	    }
 	}
+	
+
+}
+
+export namespace contextprovider {
+	
+	export class ProviderMetadata {
+	    name: string;
+	    display_name: string;
+	    description: string;
+	    default_enabled: boolean;
+	    default_budget: number;
+	    supports_settings: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderMetadata(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.display_name = source["display_name"];
+	        this.description = source["description"];
+	        this.default_enabled = source["default_enabled"];
+	        this.default_budget = source["default_budget"];
+	        this.supports_settings = source["supports_settings"];
+	    }
+	}
+	
 	
 
 }
