@@ -18,6 +18,13 @@ interface ProviderRow {
   supportsSettings: boolean;
 }
 
+function hasProviderConfig(config: profiles.ContextProviderProfileConfig): boolean {
+  const settings = config.settings;
+  return typeof config.enabled === 'boolean'
+    || Boolean(config.budget && config.budget > 0)
+    || Boolean(settings && Object.keys(settings).length > 0);
+}
+
 export interface ProfileContextProvidersSectionProps {
   providers: contextprovider.ProviderMetadata[];
   value?: ContextProviderConfigMap | null;
@@ -65,20 +72,29 @@ export function ProfileContextProvidersSection({
   }, [config, onChange]);
 
   const handleSelectionChange = useCallback((newSelectedIds: Set<string | number>) => {
-    let next: ContextProviderConfigMap | null = null;
+    const next: ContextProviderConfigMap = { ...config };
+    let changed = false;
 
     for (const row of rows) {
       const enabled = newSelectedIds.has(row.id);
       if (enabled !== row.effectiveEnabled) {
-        const previous = (next ?? config)[row.name] ?? {};
-        next = {
-          ...(next ?? config),
-          [row.name]: { ...previous, enabled },
-        };
+        const previous: profiles.ContextProviderProfileConfig = next[row.name] ?? {};
+        const providerConfig: profiles.ContextProviderProfileConfig = { ...previous };
+        if (enabled === row.defaultEnabled) {
+          delete providerConfig.enabled;
+        } else {
+          providerConfig.enabled = enabled;
+        }
+        if (hasProviderConfig(providerConfig)) {
+          next[row.name] = providerConfig;
+        } else {
+          delete next[row.name];
+        }
+        changed = true;
       }
     }
 
-    if (next) {
+    if (changed) {
       onChange(next);
     }
   }, [config, onChange, rows]);

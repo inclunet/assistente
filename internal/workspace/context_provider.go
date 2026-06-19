@@ -9,6 +9,7 @@ import (
 )
 
 const defaultPromptBudget = 500
+const workspaceContextPrefix = "<workspace_context>\n"
 const workspaceContextSuffix = "\n</workspace_context>"
 const workspaceContextTruncationNotice = "\n... Additional workspace context omitted due to context budget."
 
@@ -69,7 +70,7 @@ func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string
 		budgetChars = defaultPromptBudget
 	}
 	var sb strings.Builder
-	sb.WriteString("<workspace_context>\n")
+	sb.WriteString(workspaceContextPrefix)
 	sb.WriteString("Current workspace and active surface context. Treat this as dynamic state, not stable instructions.\n")
 	if req.WorkspaceName != "" {
 		sb.WriteString("- workspace: ")
@@ -136,6 +137,9 @@ func trimContextBlock(content string, budgetChars int) string {
 		return ""
 	}
 	contentBudget := budgetChars - runeLen(workspaceContextTruncationNotice) - runeLen(workspaceContextSuffix)
+	if contentBudget < runeLen(workspaceContextPrefix) {
+		return ""
+	}
 	runes := []rune(content)
 	if len(runes) > contentBudget {
 		content = strings.TrimSpace(string(runes[:contentBudget]))

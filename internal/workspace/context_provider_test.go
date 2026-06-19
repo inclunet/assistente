@@ -101,3 +101,18 @@ func TestContextProviderRespectsProfileBudget(t *testing.T) {
 		t.Fatalf("expected truncation notice, got %q", blocks[1].Content)
 	}
 }
+
+func TestContextProviderOmitsBlockWhenBudgetCannotFitOpeningTag(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace",
+		ProviderBudgets: map[string]int{
+			"workspace": runeLen(workspaceContextTruncationNotice) + runeLen(workspaceContextSuffix) + 5,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want only stable instructions block", len(blocks))
+	}
+}
