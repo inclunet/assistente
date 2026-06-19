@@ -233,23 +233,25 @@ func (r *Registry) ToDefinitions() []ToolDefinition {
 // Ferramentas não encontradas são silenciosamente ignoradas.
 // Útil para filtrar tools por perfil.
 func (r *Registry) FilterByNames(names []string) []ToolDefinition {
-	r.mu.RLock()
 	defs := make([]ToolDefinition, 0, len(names))
-	for _, name := range names {
-		tool, ok := r.tools[name]
-		if !ok {
-			continue
+	func() {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		for _, name := range names {
+			tool, ok := r.tools[name]
+			if !ok {
+				continue
+			}
+			defs = append(defs, ToolDefinition{
+				Type: "function",
+				Function: FunctionDefinition{
+					Name:        tool.Name(),
+					Description: tool.Description(),
+					Parameters:  tool.Parameters(),
+				},
+			})
 		}
-		defs = append(defs, ToolDefinition{
-			Type: "function",
-			Function: FunctionDefinition{
-				Name:        tool.Name(),
-				Description: tool.Description(),
-				Parameters:  tool.Parameters(),
-			},
-		})
-	}
-	r.mu.RUnlock()
+	}()
 
 	sortToolDefinitions(defs)
 	return defs
