@@ -63,6 +63,9 @@ func TestContextProviderBuildsFastDynamicBlock(t *testing.T) {
 			t.Fatalf("workspace block missing %q: %s", needle, block.Content)
 		}
 	}
+	if strings.Contains(block.Content, "\n\n</workspace_context>") {
+		t.Fatalf("workspace block has extra blank line before closing tag: %q", block.Content)
+	}
 }
 
 func TestContextProviderReturnsNoBlockWithoutWorkspaceState(t *testing.T) {

@@ -130,6 +130,7 @@ func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string
 }
 
 func trimContextBlock(content string, budgetChars int) string {
+	content = strings.TrimRight(content, "\n")
 	if runeLen(content)+runeLen(workspaceContextSuffix) <= budgetChars {
 		return content + workspaceContextSuffix
 	}
