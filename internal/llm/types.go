@@ -161,6 +161,9 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+	CacheReadTokens  int `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+	CacheMissTokens  int `json:"cache_miss_tokens,omitempty"`
 }
 
 // ChatResponse representa a resposta da API
@@ -182,6 +185,9 @@ type StreamChunk struct {
 	PromptTokens     int    `json:"promptTokens,omitempty"`
 	CompletionTokens int    `json:"completionTokens,omitempty"`
 	TotalTokens      int    `json:"totalTokens,omitempty"`
+	CacheReadTokens  int    `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens int    `json:"cacheWriteTokens,omitempty"`
+	CacheMissTokens  int    `json:"cacheMissTokens,omitempty"`
 	Model            string `json:"model,omitempty"`
 }
 
@@ -218,17 +224,17 @@ type ChatParams struct {
 	// a continuação está habilitada no perfil mas o provider não suporta prefill.
 	// Mutuamente exclusivo com AllowAssistantPrefill.
 	ContinueViaUserMessage bool   `json:"continueViaUserMessage,omitempty"`
-	MaxAgenticIterations  int    `json:"maxAgenticIterations,omitempty"` // 0 = usar default (25), >0 = limite customizado
-	ResponseTimeout       int    `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
-	ContextWindow         int    `json:"contextWindow,omitempty"`        // Tamanho da janela de contexto do modelo (0 = sem limite). AEP-0039 Fase 4.
-	TabType               string `json:"tabType,omitempty"`              // Tipo da aba de origem ("editor", "chat", etc.)
-	ActiveFilePath        string `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
-	SurfaceStateJSON      string `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
-	SurfaceContextJSON    string `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
-	SurfaceSessionKey     string `json:"surfaceSessionKey,omitempty"`    // Identidade explícita da sessão visual que originou o turno
-	SurfaceID             string `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
-	SurfaceType           string `json:"surfaceType,omitempty"`          // page | embedded | modal | external
-	SurfaceTabID          string `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
+	MaxAgenticIterations   int    `json:"maxAgenticIterations,omitempty"` // 0 = usar default (25), >0 = limite customizado
+	ResponseTimeout        int    `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
+	ContextWindow          int    `json:"contextWindow,omitempty"`        // Tamanho da janela de contexto do modelo (0 = sem limite). AEP-0039 Fase 4.
+	TabType                string `json:"tabType,omitempty"`              // Tipo da aba de origem ("editor", "chat", etc.)
+	ActiveFilePath         string `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
+	SurfaceStateJSON       string `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
+	SurfaceContextJSON     string `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
+	SurfaceSessionKey      string `json:"surfaceSessionKey,omitempty"`    // Identidade explícita da sessão visual que originou o turno
+	SurfaceID              string `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
+	SurfaceType            string `json:"surfaceType,omitempty"`          // page | embedded | modal | external
+	SurfaceTabID           string `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
 
 	// OnNativeMCPUnsupported é um hook opcional, definido pelo backend (use case),
 	// chamado quando uma request com MCP nativo falha com erro de não-suporte

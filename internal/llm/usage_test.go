@@ -1,0 +1,122 @@
+package llm
+
+import "testing"
+
+func TestUsageFromOpenAICompletion_CachedTokens(t *testing.T) {
+	usage := UsageFromOpenAICompletion(1000, 120, 1120, 400, "")
+	if usage.CacheReadTokens != 400 {
+		t.Fatalf("CacheReadTokens=%d, want 400", usage.CacheReadTokens)
+	}
+	if usage.CacheMissTokens != 600 {
+		t.Fatalf("CacheMissTokens=%d, want 600", usage.CacheMissTokens)
+	}
+	if usage.CacheWriteTokens != 0 {
+		t.Fatalf("CacheWriteTokens=%d, want 0", usage.CacheWriteTokens)
+	}
+}
+
+func TestUsageFromOpenAICompletion_DeepSeekFields(t *testing.T) {
+	raw := `{"prompt_cache_hit_tokens":256,"prompt_cache_miss_tokens":744}`
+	usage := UsageFromOpenAICompletion(1000, 80, 1080, 0, raw)
+	if usage.CacheReadTokens != 256 {
+		t.Fatalf("CacheReadTokens=%d, want 256", usage.CacheReadTokens)
+	}
+	if usage.CacheMissTokens != 744 {
+		t.Fatalf("CacheMissTokens=%d, want 744", usage.CacheMissTokens)
+	}
+}
+
+func TestUsageFromOpenAICompletion_NestedCachedTokens(t *testing.T) {
+	raw := `{"prompt_tokens_details":{"cached_tokens":400}}`
+	usage := UsageFromOpenAICompletion(1000, 120, 1120, 0, raw)
+	if usage.CacheReadTokens != 400 {
+		t.Fatalf("CacheReadTokens=%d, want 400", usage.CacheReadTokens)
+	}
+	if usage.CacheMissTokens != 600 {
+		t.Fatalf("CacheMissTokens=%d, want 600", usage.CacheMissTokens)
+	}
+}
+
+func TestUsageFromOpenAICompletion_TopLevelCachedTokensWinsOverNestedShortName(t *testing.T) {
+	raw := `{"cached_tokens":100,"prompt_tokens_details":{"cached_tokens":400}}`
+	usage := UsageFromOpenAICompletion(1000, 120, 1120, 0, raw)
+	if usage.CacheReadTokens != 100 {
+		t.Fatalf("CacheReadTokens=%d, want 100", usage.CacheReadTokens)
+	}
+}
+
+func TestUsageFromAnthropic_CacheTokensArePartOfInput(t *testing.T) {
+	usage := UsageFromAnthropic(700, 90, 200, 300)
+	if usage.PromptTokens != 1200 {
+		t.Fatalf("PromptTokens=%d, want 1200", usage.PromptTokens)
+	}
+	if usage.CacheWriteTokens != 200 {
+		t.Fatalf("CacheWriteTokens=%d, want 200", usage.CacheWriteTokens)
+	}
+	if usage.CacheReadTokens != 300 {
+		t.Fatalf("CacheReadTokens=%d, want 300", usage.CacheReadTokens)
+	}
+	if usage.CacheMissTokens != 700 {
+		t.Fatalf("CacheMissTokens=%d, want 700", usage.CacheMissTokens)
+	}
+}
+
+func TestMergeAnthropicStreamingUsage_PreservesStartCacheMetrics(t *testing.T) {
+	start := UsageFromAnthropic(700, 0, 200, 300)
+	usage := mergeAnthropicStreamingUsage(start, 0, 90, 0, 0)
+
+	if usage.PromptTokens != 1200 {
+		t.Fatalf("PromptTokens=%d, want 1200", usage.PromptTokens)
+	}
+	if usage.CompletionTokens != 90 {
+		t.Fatalf("CompletionTokens=%d, want 90", usage.CompletionTokens)
+	}
+	if usage.CacheWriteTokens != 200 {
+		t.Fatalf("CacheWriteTokens=%d, want 200", usage.CacheWriteTokens)
+	}
+	if usage.CacheReadTokens != 300 {
+		t.Fatalf("CacheReadTokens=%d, want 300", usage.CacheReadTokens)
+	}
+	if usage.CacheMissTokens != 700 {
+		t.Fatalf("CacheMissTokens=%d, want 700", usage.CacheMissTokens)
+	}
+}
+
+func TestMergeAnthropicStreamingUsage_PreservesStartInputWithoutCache(t *testing.T) {
+	start := UsageFromAnthropic(700, 0, 0, 0)
+	usage := mergeAnthropicStreamingUsage(start, 0, 90, 0, 0)
+
+	if usage.PromptTokens != 700 {
+		t.Fatalf("PromptTokens=%d, want 700", usage.PromptTokens)
+	}
+	if usage.CompletionTokens != 90 {
+		t.Fatalf("CompletionTokens=%d, want 90", usage.CompletionTokens)
+	}
+	if usage.TotalTokens != 790 {
+		t.Fatalf("TotalTokens=%d, want 790", usage.TotalTokens)
+	}
+}
+
+func TestMergeAnthropicStreamingUsage_AllowsFullyCachedInput(t *testing.T) {
+	usage := mergeAnthropicStreamingUsage(Usage{}, 0, 0, 0, 300)
+
+	if usage.PromptTokens != 300 {
+		t.Fatalf("PromptTokens=%d, want 300", usage.PromptTokens)
+	}
+	if usage.CacheReadTokens != 300 {
+		t.Fatalf("CacheReadTokens=%d, want 300", usage.CacheReadTokens)
+	}
+	if usage.CacheMissTokens != 0 {
+		t.Fatalf("CacheMissTokens=%d, want 0", usage.CacheMissTokens)
+	}
+}
+
+func TestUsageFromGemini_CachedContentTokenCount(t *testing.T) {
+	usage := UsageFromGemini(900, 100, 1000, 250)
+	if usage.CacheReadTokens != 250 {
+		t.Fatalf("CacheReadTokens=%d, want 250", usage.CacheReadTokens)
+	}
+	if usage.CacheMissTokens != 650 {
+		t.Fatalf("CacheMissTokens=%d, want 650", usage.CacheMissTokens)
+	}
+}

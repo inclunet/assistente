@@ -466,11 +466,13 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 	usage := Usage{}
 	if acc.Usage.TotalTokens > 0 {
-		usage = Usage{
-			PromptTokens:     int(acc.Usage.PromptTokens),
-			CompletionTokens: int(acc.Usage.CompletionTokens),
-			TotalTokens:      int(acc.Usage.TotalTokens),
-		}
+		usage = UsageFromOpenAICompletion(
+			int(acc.Usage.PromptTokens),
+			int(acc.Usage.CompletionTokens),
+			int(acc.Usage.TotalTokens),
+			int(acc.Usage.PromptTokensDetails.CachedTokens),
+			acc.Usage.RawJSON(),
+		)
 	}
 
 	model := acc.Model
@@ -1037,11 +1039,13 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		case "response.completed":
 			ev := event.AsResponseCompleted()
 			if ev.Response.Usage.TotalTokens > 0 {
-				lastUsage = Usage{
-					PromptTokens:     int(ev.Response.Usage.InputTokens),
-					CompletionTokens: int(ev.Response.Usage.OutputTokens),
-					TotalTokens:      int(ev.Response.Usage.TotalTokens),
-				}
+				lastUsage = UsageFromOpenAIResponses(
+					int(ev.Response.Usage.InputTokens),
+					int(ev.Response.Usage.OutputTokens),
+					int(ev.Response.Usage.TotalTokens),
+					int(ev.Response.Usage.InputTokensDetails.CachedTokens),
+					ev.Response.Usage.RawJSON(),
+				)
 			}
 			if string(ev.Response.Model) != "" {
 				lastModel = string(ev.Response.Model)

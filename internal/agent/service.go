@@ -333,6 +333,9 @@ func (s *Service) RunAgenticLoop(
 				ToolsUsed:          errToolsUsed,
 				PromptTokens:       lastUsage.PromptTokens,
 				CompletionTokens:   lastUsage.CompletionTokens,
+				CacheReadTokens:    lastUsage.CacheReadTokens,
+				CacheWriteTokens:   lastUsage.CacheWriteTokens,
+				CacheMissTokens:    lastUsage.CacheMissTokens,
 			})
 			return
 		}
@@ -636,6 +639,9 @@ func (s *Service) RunAgenticLoop(
 					PromptTokens:                stats.PromptTokens,
 					CompletionTokens:            stats.CompletionTokens,
 					TotalTokens:                 stats.TotalTokens,
+					CacheReadTokens:             stats.CacheReadTokens,
+					CacheWriteTokens:            stats.CacheWriteTokens,
+					CacheMissTokens:             stats.CacheMissTokens,
 					ContextTokens:               stats.ContextTokens,
 					ContextUsage:                stats.ContextUsage,
 					ContextLimit:                stats.ContextLimit,
@@ -689,6 +695,9 @@ func (s *Service) RunAgenticLoop(
 		ToolsUsed:        toolsUsedList,
 		PromptTokens:     lastUsage.PromptTokens,
 		CompletionTokens: lastUsage.CompletionTokens,
+		CacheReadTokens:  lastUsage.CacheReadTokens,
+		CacheWriteTokens: lastUsage.CacheWriteTokens,
+		CacheMissTokens:  lastUsage.CacheMissTokens,
 		SurfaceOrigin:    surfaceOrigin,
 	})
 
@@ -738,6 +747,9 @@ func (s *Service) SaveAndFinish(
 			PromptTokens:     result.Usage.PromptTokens,
 			CompletionTokens: result.Usage.CompletionTokens,
 			TotalTokens:      result.Usage.TotalTokens,
+			CacheReadTokens:  result.Usage.CacheReadTokens,
+			CacheWriteTokens: result.Usage.CacheWriteTokens,
+			CacheMissTokens:  result.Usage.CacheMissTokens,
 			Model:            result.Model,
 		}
 		if turnID != "" {
@@ -805,12 +817,24 @@ func (s *Service) SaveAndFinish(
 		if loopStats.LastUsage.CompletionTokens > 0 {
 			doneEvent.CompletionTokens = loopStats.LastUsage.CompletionTokens
 		}
+		doneEvent.CacheReadTokens = loopStats.LastUsage.CacheReadTokens
+		doneEvent.CacheWriteTokens = loopStats.LastUsage.CacheWriteTokens
+		doneEvent.CacheMissTokens = loopStats.LastUsage.CacheMissTokens
 	}
 	if doneEvent.PromptTokens == 0 && result.Usage.PromptTokens > 0 {
 		doneEvent.PromptTokens = result.Usage.PromptTokens
 	}
 	if doneEvent.CompletionTokens == 0 && result.Usage.CompletionTokens > 0 {
 		doneEvent.CompletionTokens = result.Usage.CompletionTokens
+	}
+	if doneEvent.CacheReadTokens == 0 {
+		doneEvent.CacheReadTokens = result.Usage.CacheReadTokens
+	}
+	if doneEvent.CacheWriteTokens == 0 {
+		doneEvent.CacheWriteTokens = result.Usage.CacheWriteTokens
+	}
+	if doneEvent.CacheMissTokens == 0 {
+		doneEvent.CacheMissTokens = result.Usage.CacheMissTokens
 	}
 	s.emitter.Emit("chat:done", doneEvent)
 
@@ -844,6 +868,9 @@ func (s *Service) emitTokenStats(conversationID string) {
 		IsCritical:       stats.IsCritical,
 		PromptTokens:     stats.PromptTokens,
 		CompletionTokens: stats.CompletionTokens,
+		CacheReadTokens:  stats.CacheReadTokens,
+		CacheWriteTokens: stats.CacheWriteTokens,
+		CacheMissTokens:  stats.CacheMissTokens,
 		MessageCount:     stats.MessageCount,
 	})
 	if stats.IsCritical {
