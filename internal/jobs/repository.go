@@ -1287,21 +1287,25 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 // retenção por idade para conter jobs de alta frequência (AEP-0074, D4).
 // keepPerJob <= 0 desativa a limpeza.
 func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob int) (int, error) {
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return 0, err
 	}
 	if keepPerJob <= 0 {
 		return 0, nil
 	}
-	// Seleciona os runs que têm pelo menos `keepPerJob` runs mais novos no mesmo
-	// job — ou seja, tudo além dos N mais recentes. O desempate por id evita
-	// ambiguidade quando started_at é idêntico.
-	const newerSiblings = "(SELECT COUNT(*) FROM job_runs r2 WHERE r2.user_id = job_runs.user_id " +
-		"AND r2.job_id = job_runs.job_id AND (r2.started_at > job_runs.started_at " +
-		"OR (r2.started_at = job_runs.started_at AND r2.id > job_runs.id)))"
+	// Enumera os runs de cada job em ordem decrescente (mais recentes primeiro)
+	// com uma window function e remove tudo além dos `keepPerJob` mais novos.
+	// Evita a subquery correlacionada O(n²) por job — relevante justamente nos
+	// jobs de alta frequência que este cap quer conter. O desempate por id trata
+	// started_at idêntico.
+	ranked := r.db.WithContext(ctx).Model(&database.JobRun{}).
+		Select("id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC, id DESC) AS rn").
+		Where("user_id = ?", userID)
 	var runIDs []string
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.JobRun{}), "user_id").
-		Where(newerSiblings+" >= ?", keepPerJob).
+	if err := r.db.WithContext(ctx).
+		Table("(?) AS ranked", ranked).
+		Where("rn > ?", keepPerJob).
 		Pluck("id", &runIDs).Error; err != nil {
 		return 0, err
 	}

@@ -62,13 +62,19 @@ func autoVacuumModeName(mode int64) string {
 	}
 }
 
-// fileSize retorna o tamanho de um arquivo, ou 0 se não existir.
+// fileSize retorna o tamanho de um arquivo, ou 0 se não existir. A ausência é
+// esperada (ex.: os arquivos -wal/-shm podem não existir); outros erros
+// (permissão, IO, path inválido) são anômalos e logados para não mascarar
+// estatísticas incorretas na UI/telemetria.
 func fileSize(path string) int64 {
 	if path == "" {
 		return 0
 	}
 	info, err := os.Stat(path)
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Printf("[Database] fileSize(%s): %v", path, err)
+		}
 		return 0
 	}
 	return info.Size()

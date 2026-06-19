@@ -270,8 +270,10 @@ export default function DataManagementPage() {
     setIsSavingMaintenance(true);
     try {
       await SaveMaintenanceSettings(maintenance);
-      // Recarrega do backend: SaveMaintenance aplica normalização (ex.: 0 vira
-      // default), então a UI deve refletir os valores efetivamente persistidos.
+      // Recarrega do backend: SaveMaintenance normaliza valores inválidos
+      // (ex.: job_retention_hours <= 0 vira default). Valores 0 explícitos em
+      // runs_per_job_keep/vacuum_min_free_bytes são escolhas válidas e
+      // preservados. A UI deve refletir o que foi efetivamente persistido.
       const persisted = await GetMaintenanceSettings();
       setMaintenance(config.MaintenanceSettings.createFrom(persisted));
       announce(t('dataManagement.maintenanceSaved', 'Política de manutenção salva.'));
