@@ -134,6 +134,36 @@ func TestManagerContextProvidersPersistProfileOverrides(t *testing.T) {
 	}
 }
 
+func TestManagerPromptCachePersistsProfileConfig(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+
+	p := DefaultProfile()
+	p.Name = "Perfil Prompt Cache"
+	p.Chat.PromptCache = PromptCacheConfig{
+		Enabled:              true,
+		ProviderHints:        true,
+		ExplicitCacheControl: false,
+	}
+	slug, err := manager.Create(p)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got, err := manager.Get(slug)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !got.Chat.PromptCache.Enabled {
+		t.Fatal("PromptCache.Enabled = false, want true")
+	}
+	if !got.Chat.PromptCache.ProviderHints {
+		t.Fatal("PromptCache.ProviderHints = false, want true")
+	}
+	if got.Chat.PromptCache.ExplicitCacheControl {
+		t.Fatal("PromptCache.ExplicitCacheControl = true, want false")
+	}
+}
+
 func TestProfileValidateRejectsNegativeContextProviderBudget(t *testing.T) {
 	p := DefaultProfile()
 	p.ContextProviders = map[string]ContextProviderProfileConfig{
@@ -142,6 +172,33 @@ func TestProfileValidateRejectsNegativeContextProviderBudget(t *testing.T) {
 
 	if err := p.Validate(); err == nil {
 		t.Fatal("Validate succeeded, want negative context provider budget error")
+	}
+}
+
+func TestProfileValidateRejectsPromptCacheControlsWhenDisabled(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  PromptCacheConfig
+	}{
+		{
+			name: "provider-hints",
+			cfg:  PromptCacheConfig{ProviderHints: true},
+		},
+		{
+			name: "explicit-cache-control",
+			cfg:  PromptCacheConfig{ExplicitCacheControl: true},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := DefaultProfile()
+			p.Chat.PromptCache = tc.cfg
+
+			if err := p.Validate(); err == nil {
+				t.Fatal("Validate succeeded, want prompt cache dependency error")
+			}
+		})
 	}
 }
 
