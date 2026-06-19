@@ -26,6 +26,13 @@ func (s *DBMessageStore) UpdateMessageContentAndReasoning(ctx context.Context, m
 	return database.UpdateMessageContentAndReasoningWithContext(ctx, messageID, content, reasoning, promptTokens, completionTokens, totalTokens, model)
 }
 
+func (s *DBMessageStore) UpdateMessageContentReasoningAndUsage(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, cacheReadTokens, cacheWriteTokens, cacheMissTokens int, model string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateMessageContentReasoningAndUsageWithContext(ctx, messageID, content, reasoning, promptTokens, completionTokens, totalTokens, cacheReadTokens, cacheWriteTokens, cacheMissTokens, model)
+}
+
 func (s *DBMessageStore) UpdateMessageCacheTokens(ctx context.Context, messageID string, cacheReadTokens, cacheWriteTokens, cacheMissTokens int) error {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return err

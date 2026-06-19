@@ -394,15 +394,37 @@ func (r *MessageRepository) UpdateMessageContentAndReasoningWithContext(ctx cont
 		return err
 	}
 	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
+	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
+		"content":           content,
+		"reasoning":         reasoning,
+		"prompt_tokens":     promptTokens,
+		"completion_tokens": completionTokens,
+		"total_tokens":      totalTokens,
+		"model":             model,
+	}).Error
+}
+
+// UpdateMessageContentReasoningAndUsageWithContext finaliza uma resposta em uma
+// única atualização para manter tokens comuns e métricas de cache consistentes.
+func UpdateMessageContentReasoningAndUsageWithContext(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, cacheReadTokens, cacheWriteTokens, cacheMissTokens int, model string) error {
+	return NewMessageRepository(db).UpdateMessageContentReasoningAndUsageWithContext(ctx, messageID, content, reasoning, promptTokens, completionTokens, totalTokens, cacheReadTokens, cacheWriteTokens, cacheMissTokens, model)
+}
+
+func (r *MessageRepository) UpdateMessageContentReasoningAndUsageWithContext(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, cacheReadTokens, cacheWriteTokens, cacheMissTokens int, model string) error {
+	db := r.db
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
 	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).UpdateColumns(map[string]interface{}{
 		"content":            content,
 		"reasoning":          reasoning,
 		"prompt_tokens":      promptTokens,
 		"completion_tokens":  completionTokens,
 		"total_tokens":       totalTokens,
-		"cache_read_tokens":  0,
-		"cache_write_tokens": 0,
-		"cache_miss_tokens":  0,
+		"cache_read_tokens":  cacheReadTokens,
+		"cache_write_tokens": cacheWriteTokens,
+		"cache_miss_tokens":  cacheMissTokens,
 		"model":              model,
 	}).Error
 }

@@ -99,7 +99,18 @@ func TestUpdateMessageCacheTokensWithContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMessageWithContext after content update: %v", err)
 	}
+	if retrieved.CacheReadTokens != 10 || retrieved.CacheWriteTokens != 20 || retrieved.CacheMissTokens != 30 {
+		t.Fatalf("content-only update should preserve cache tokens: read=%d write=%d miss=%d", retrieved.CacheReadTokens, retrieved.CacheWriteTokens, retrieved.CacheMissTokens)
+	}
+
+	if err := UpdateMessageContentReasoningAndUsageWithContext(testCtx(), msg.ID, "final response", "", 7, 8, 15, 0, 0, 0, "model"); err != nil {
+		t.Fatalf("UpdateMessageContentReasoningAndUsageWithContext: %v", err)
+	}
+	retrieved, err = GetMessageWithContext(testCtx(), msg.ID)
+	if err != nil {
+		t.Fatalf("GetMessageWithContext after atomic usage update: %v", err)
+	}
 	if retrieved.CacheReadTokens != 0 || retrieved.CacheWriteTokens != 0 || retrieved.CacheMissTokens != 0 {
-		t.Fatalf("content update should clear stale cache tokens: read=%d write=%d miss=%d", retrieved.CacheReadTokens, retrieved.CacheWriteTokens, retrieved.CacheMissTokens)
+		t.Fatalf("atomic usage update should clear stale cache tokens: read=%d write=%d miss=%d", retrieved.CacheReadTokens, retrieved.CacheWriteTokens, retrieved.CacheMissTokens)
 	}
 }
