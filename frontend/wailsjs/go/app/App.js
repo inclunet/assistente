@@ -454,6 +454,10 @@ export function GetConversationWithThreads(arg1) {
   return window['go']['app']['App']['GetConversationWithThreads'](arg1);
 }
 
+export function GetContextProviders() {
+  return window['go']['app']['App']['GetContextProviders']();
+}
+
 export function GetConversations() {
   return window['go']['app']['App']['GetConversations']();
 }

@@ -1,16 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { profiles } from '@wailsjs/go/models';
-import { controllers, allowlist, skills } from '@wailsjs/go/models';
+import { controllers, allowlist, contextprovider, skills } from '@wailsjs/go/models';
 import { Tabs, TabList, Tab, TabPanel } from '../ui/tabs';
 import { ProfileGeneralSection } from './ProfileGeneralSection';
 import { ProfileChatSection } from './ProfileChatSection';
 import { ProfileSkillsSection } from './ProfileSkillsSection';
+import { ProfileContextProvidersSection } from './ProfileContextProvidersSection';
 import { ProfileToolsSection } from './ProfileToolsSection';
 import { ProfileAudioTab } from './ProfileAudioTab';
 import './ProfileEditorTabs.css';
 
-const EDITOR_TABS = ['general', 'models', 'skills', 'tools', 'audio'] as const;
+const EDITOR_TABS = ['general', 'models', 'skills', 'contextProviders', 'tools', 'audio'] as const;
 type EditorTabId = (typeof EDITOR_TABS)[number];
 
 export interface ProfileEditorTabsProps {
@@ -20,6 +21,7 @@ export interface ProfileEditorTabsProps {
     | skills.SkillInfo
     | { slug: string; name: string; description?: string; version?: string; source?: string }
   >;
+  availableContextProviders: contextprovider.ProviderMetadata[];
   availableAllowlists: allowlist.AllowlistInfo[];
   updateField: (path: string, value: unknown) => void;
   updateFields: (updates: Record<string, unknown>) => void;
@@ -29,6 +31,7 @@ export function ProfileEditorTabs({
   editingProfile,
   availableTools,
   availableSkills,
+  availableContextProviders,
   availableAllowlists,
   updateField,
   updateFields,
@@ -157,6 +160,15 @@ export function ProfileEditorTabs({
             disableOnDemand={editingProfile.chat?.disable_on_demand_skills ?? false}
             skillsDisabled={editingProfile.chat?.disable_skills ?? false}
             onChange={(field, value) => updateField(`chat.${field}`, value)}
+          />
+        </TabPanel>
+
+        {/* Context Providers */}
+        <TabPanel value="contextProviders" className="profile-editor-tabs__panel">
+          <ProfileContextProvidersSection
+            providers={availableContextProviders}
+            value={editingProfile.context_providers ?? undefined}
+            onChange={(value) => updateField('context_providers', value)}
           />
         </TabPanel>
 

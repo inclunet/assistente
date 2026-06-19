@@ -81,3 +81,36 @@ func TestRegistryBuildKeepsPartialBlocksFromFailedProvider(t *testing.T) {
 		}
 	}
 }
+
+func TestRegistryBuildSkipsDisabledProvider(t *testing.T) {
+	registry := NewRegistry(
+		testProvider{name: "memory", blocks: []Block{{Name: "memory", Volatility: VolatilitySlowDynamic, Content: "memory"}}},
+		testProvider{name: "workspace", blocks: []Block{{Name: "workspace", Volatility: VolatilityFastDynamic, Content: "workspace"}}},
+	)
+
+	blocks, err := registry.Build(context.Background(), BuildRequest{
+		ProviderEnabled: map[string]bool{
+			"memory":    false,
+			"workspace": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	rendered := RenderBlocks(blocks)
+	if len(rendered) != 1 || rendered[0] != "workspace" {
+		t.Fatalf("rendered = %#v, want workspace only", rendered)
+	}
+}
+
+func TestRegistryMetadataUsesProviderFallback(t *testing.T) {
+	registry := NewRegistry(testProvider{name: "memory"})
+
+	metadata := registry.Metadata()
+	if len(metadata) != 1 {
+		t.Fatalf("len(metadata) = %d, want 1", len(metadata))
+	}
+	if metadata[0].Name != "memory" || !metadata[0].DefaultEnabled {
+		t.Fatalf("metadata = %+v, want fallback metadata for memory", metadata[0])
+	}
+}

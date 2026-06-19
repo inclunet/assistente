@@ -13,16 +13,25 @@ const DefaultProviderSentinel = "$default"
 // Combina configurações de chat (LLM), voz (TTS) e input (STT/triggers)
 // em um único arquivo JSON armazenado em .assistente/profiles/.
 type Profile struct {
-	BuiltinVersion string         `json:"_builtin_version,omitempty"` // Version for builtin profiles (used by installBuiltinProfiles)
-	Name           string         `json:"name"`
-	Description    string         `json:"description,omitempty"`
-	Icon           string         `json:"icon,omitempty"`
-	Active         bool           `json:"active,omitempty"` // Marca se este é o perfil ativo
-	Chat           ChatConfig     `json:"chat"`
-	Voice          VoiceConfig    `json:"voice"`
-	Input          InputConfig    `json:"input"`
-	Channels       ChannelsConfig `json:"channels,omitempty"`
-	MediaSupport   *MediaSupport  `json:"media_support,omitempty"` // Suporte a mídia do modelo (auto-detectado)
+	BuiltinVersion   string                                  `json:"_builtin_version,omitempty"` // Version for builtin profiles (used by installBuiltinProfiles)
+	Name             string                                  `json:"name"`
+	Description      string                                  `json:"description,omitempty"`
+	Icon             string                                  `json:"icon,omitempty"`
+	Active           bool                                    `json:"active,omitempty"` // Marca se este é o perfil ativo
+	Chat             ChatConfig                              `json:"chat"`
+	Voice            VoiceConfig                             `json:"voice"`
+	Input            InputConfig                             `json:"input"`
+	Channels         ChannelsConfig                          `json:"channels,omitempty"`
+	ContextProviders map[string]ContextProviderProfileConfig `json:"context_providers,omitempty"`
+	MediaSupport     *MediaSupport                           `json:"media_support,omitempty"` // Suporte a mídia do modelo (auto-detectado)
+}
+
+// ContextProviderProfileConfig controla a contribuição automática de um
+// Context Provider para um perfil. Budget é contado em caracteres/runes.
+type ContextProviderProfileConfig struct {
+	Enabled  *bool          `json:"enabled,omitempty"`
+	Budget   int            `json:"budget,omitempty"`
+	Settings map[string]any `json:"settings,omitempty"`
 }
 
 // MediaSupport indica quais tipos de mídia o modelo LLM suporta nativamente.
@@ -339,6 +348,14 @@ func (p *Profile) Validate() error {
 	validChannelModes := []string{"", ChannelResponseMirror, ChannelResponseAlwaysText, ChannelResponseAlwaysAudio}
 	if !containsStr(validChannelModes, p.Channels.ResponseMode) {
 		return fmt.Errorf("channels.response_mode must be one of: mirror, always_text, always_audio")
+	}
+	for provider, cfg := range p.ContextProviders {
+		if strings.TrimSpace(provider) == "" {
+			return fmt.Errorf("context_providers provider key is required")
+		}
+		if cfg.Budget < 0 {
+			return fmt.Errorf("context_providers.%s.budget must be 0 (default) or a positive number", provider)
+		}
 	}
 
 	// Validação do input (STT)

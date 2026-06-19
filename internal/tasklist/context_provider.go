@@ -23,6 +23,17 @@ func NewContextProvider() *ContextProvider {
 
 func (p *ContextProvider) Name() string { return "tasklist" }
 
+func (p *ContextProvider) Metadata() contextprovider.ProviderMetadata {
+	return contextprovider.ProviderMetadata{
+		Name:             p.Name(),
+		DisplayName:      "Task Lists",
+		Description:      "Task lists linked to the current conversation when tasklist support is active.",
+		DefaultEnabled:   true,
+		DefaultBudget:    defaultPromptBudget,
+		SupportsSettings: false,
+	}
+}
+
 func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
 	if !req.TaskListContextEnabled || len(req.LinkedTaskLists) == 0 {
 		return nil, nil

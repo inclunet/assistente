@@ -63,7 +63,7 @@ export default function ProfilesPage() {
   const [searchPaths, setSearchPaths] = useState<string[]>([]);
   const [focusedRow, setFocusedRow] = useState<ProfileRow | null>(null);
 
-  const { tools: availableTools, skills: availableSkills, allowlists: availableAllowlists, loading: depsLoading } =
+  const { tools: availableTools, skills: availableSkills, allowlists: availableAllowlists, contextProviders: availableContextProviders, loading: depsLoading } =
     useProfileDependencies();
 
   const crud = useEditableList<ProfileRow, Profile, Profile>(
@@ -177,6 +177,7 @@ export default function ProfilesPage() {
           channels: {
             response_mode: 'mirror',
           },
+          context_providers: {},
         }) as ProfileRow;
         defaultProfile.id = '';
         defaultProfile.isActive = false;
@@ -530,6 +531,7 @@ export default function ProfilesPage() {
               editingProfile={editingProfile}
               availableTools={availableTools}
               availableSkills={availableSkills}
+              availableContextProviders={availableContextProviders}
               availableAllowlists={availableAllowlists}
               updateField={updateField}
               updateFields={updateFields}

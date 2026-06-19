@@ -7,6 +7,7 @@ import { useProfileDependencies } from './useProfileDependencies';
 const getAvailableToolsMock = vi.fn();
 const getAllowlistsMock = vi.fn();
 const getSkillsMock = vi.fn();
+const getContextProvidersMock = vi.fn();
 
 let eventsHandler: (() => void) | null = null;
 const unsubscribeMock = vi.fn();
@@ -15,6 +16,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetAvailableTools: (...args: unknown[]) => getAvailableToolsMock(...args),
   GetAllowlists: (...args: unknown[]) => getAllowlistsMock(...args),
   GetSkills: (...args: unknown[]) => getSkillsMock(...args),
+  GetContextProviders: (...args: unknown[]) => getContextProvidersMock(...args),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -29,11 +31,12 @@ describe('useProfileDependencies', () => {
     getAvailableToolsMock.mockResolvedValue([{ name: 'Tool 1' }]);
     getAllowlistsMock.mockResolvedValue([{ slug: 'al-1', name: 'Allowlist 1', ruleCount: 2 }]);
     getSkillsMock.mockResolvedValue([{ slug: 'skill-1', name: 'Skill 1', description: '' }]);
+    getContextProvidersMock.mockResolvedValue([{ name: 'memory', display_name: 'Memory' }]);
     eventsHandler = null;
     unsubscribeMock.mockClear();
   });
 
-  it('carrega tools, skills e allowlists', async () => {
+  it('carrega tools, skills, allowlists e context providers', async () => {
     const { result } = renderHook(() => useProfileDependencies());
 
     await waitFor(() => {
@@ -43,6 +46,7 @@ describe('useProfileDependencies', () => {
     expect(result.current.tools).toHaveLength(1);
     expect(result.current.skills).toHaveLength(1);
     expect(result.current.allowlists).toHaveLength(1);
+    expect(result.current.contextProviders).toHaveLength(1);
   });
 
   it('atualiza tools quando recebe evento MCP', async () => {
