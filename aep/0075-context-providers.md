@@ -416,13 +416,15 @@ Esta seção é pré-requisito funcional para controlar budgets por perfil, mas 
 - Criar aba "Context Providers" no editor de perfil.
 - Permitir edição de budget e settings específicas declaradas pelo provider.
 
-### Fase 6 — Garantir skills estáticas
+### Fase 6 — Auditar skills estáticas
 
-Esta fase não é histórico; é a validação final de que o runtime novo não executa templates em skills e de que os builtins migrados usam Context Providers/supporting files para conteúdo dinâmico.
+Esta fase é uma auditoria de segurança da migração: confirmar que o runtime novo não executa templates em skills e que os builtins migrados usam Context Providers/supporting files para conteúdo dinâmico, sem degradar o conteúdo instrucional das skills.
 
-- Remover qualquer dependência de execução de templates em skill.
+- Remover apenas dependências reais de execução de templates em skill.
 - Garantir que builtins não dependem de `include`, `now`, `.Surface`, `.TaskLists`.
 - Atualizar editor/validação de skills para tratar templates executáveis como inválidos, preservando exemplos literais em Markdown.
+- Não invalidar skills apenas por conterem marcações parecidas com templates, como `{{ ... }}`, quando forem exemplos ou texto literal.
+- Não remover blocos inteiros de instrução só por conterem sintaxe parecida com template; revisar o propósito do bloco e preservar instruções úteis sempre que elas não dependem de renderização dinâmica.
 
 ## Riscos
 
