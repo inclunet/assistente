@@ -2,7 +2,7 @@
 
 Status: Proposta
 Criado em: 2026-06-16
-Atualizado em: 2026-06-18
+Atualizado em: 2026-06-19
 Depende de: AEP-0075 (Context Providers), AEP-0072 revisada (Skill Loading Runtime)
 Relacionado: AEP-0012, AEP-0059, AEP-0051, AEP-0039
 
@@ -54,7 +54,7 @@ Hoje o Assistente já economiza tokens com resumo, janela de mensagens e remoç�
 - custo estimado ainda trata todos os prompt tokens como custo cheio;
 - o layout do system prompt ainda mistura alguns blocos estáveis e dinâmicos;
 - a ordem e o tamanho dos blocos devem ser fáceis de auditar;
-- hints e cache control precisam partir do perfil, porque a decisão de política depende do uso pretendido daquele perfil.
+- hints e cache control precisam partir do perfil, junto da configuração de modelo/parâmetros, porque a decisão de política depende do modelo/rota usados naquele perfil.
 
 ## Providers com cache relevante
 
@@ -190,7 +190,7 @@ O custo estimado deve usar tokens billable por classe quando o provider reportar
 
 ### D8. Controles ativos de cache partem do perfil
 
-Provider informa capacidade técnica; perfil decide política.
+Provider informa capacidade técnica; perfil decide política. Em gateways como LiteLLM e OpenRouter, essa política não pode ser decidida apenas pelo provider cadastrado, porque o mesmo gateway pode rotear modelos com capacidades de cache diferentes. Por isso, os controles ativos de cache pertencem ao perfil, na mesma área conceitual em que o usuário ajusta modelo e parâmetros do modelo.
 
 Configuração conceitual no perfil:
 
@@ -198,8 +198,8 @@ Configuração conceitual no perfil:
 {
   "chat": {
     "prompt_cache": {
-      "mode": "off | observe | auto | explicit",
-      "provider_hints": false,
+      "enabled": true,
+      "provider_hints": true,
       "explicit_cache_control": false
     }
   }
@@ -208,15 +208,16 @@ Configuração conceitual no perfil:
 
 Utilidade dos campos:
 
-- `mode`: define a postura do perfil em relação a mecanismos ativos de cache. `off` desliga hints e cache control explícito, mas não muda o layout cache-friendly nem impede coleta de métricas reportadas pelo provider. `observe` coleta métricas sem enviar hints. `auto` permite hints seguros quando provider suporta. `explicit` permite também cache control explícito em providers suportados.
-- `provider_hints`: controla se o runtime pode enviar hints simples e semanticamente neutros, como `prompt_cache_key` ou headers equivalentes. Esses hints ajudam providers/gateways a associar chamadas consecutivas ao mesmo prefixo/conversa, mas não devem conter conteúdo sensível nem mudar a resposta esperada.
-- `explicit_cache_control`: controla mecanismos que alteram o payload em blocos, como `cache_control` da Anthropic. É separado de `provider_hints` porque é mais provider-specific e tem maior risco de incompatibilidade em gateways.
+- `enabled`: permite que o perfil use mecanismos ativos de cache quando o modelo/rota suportar. `false` desliga hints e cache control explícito, mas não muda o layout cache-friendly nem impede coleta de métricas reportadas pelo provider. Métricas e diagnósticos continuam sempre ativos.
+- `provider_hints`: controla se o runtime pode enviar hints simples e semanticamente neutros, como `prompt_cache_key` ou headers equivalentes. Esses hints ajudam providers/gateways a associar chamadas consecutivas ao mesmo prefixo/conversa, mas não devem conter conteúdo sensível nem mudar a resposta esperada. O uso efetivo depende da capability resolvida para o modelo/rota.
+- `explicit_cache_control`: controla mecanismos que alteram o payload em blocos, como `cache_control` da Anthropic. É separado de `provider_hints` porque é mais específico e tem maior risco de incompatibilidade em gateways. O default deve ser conservador, especialmente em LiteLLM/OpenRouter, até haver capability explícita para o modelo/rota.
 
 Regras:
 
 - diagnósticos e métricas de cache reportadas pelo provider são coletados sempre; não há configuração de perfil para "não diagnosticar";
+- a UI deve expor estes campos na guia ou seção de modelo e parâmetros do modelo do perfil, não na aba de Context Providers;
 - configurações de Context Providers, incluindo `enabled`, budgets e settings próprios, ficam na AEP-0075 e não dentro de `prompt_cache`;
-- provider sem suporte deve ignorar/falhar de forma auditável, sem alterar a resposta;
+- modelo/rota sem suporte deve ignorar/falhar de forma auditável, sem alterar a resposta;
 - chaves de cache não podem conter conteúdo de mensagens, email, nomes de usuário, tickets ou secrets.
 
 ## Fases / PRs
@@ -231,9 +232,9 @@ Entrega:
 - documentar controles existentes de contexto e resumo;
 - definir o plano enxuto abaixo.
 
-### PR 2 — Métricas básicas de cache
+### PR 2 — Métricas de cache, persistência e stats
 
-Estender `llm.Usage` e os providers para capturar métricas de cache quando reportadas.
+Estender `llm.Usage`, providers, persistência e estatísticas para capturar métricas de cache quando reportadas.
 
 Escopo:
 
@@ -241,24 +242,17 @@ Escopo:
 - `CacheWriteTokens`;
 - `CacheMissTokens`;
 - mapeamento OpenAI-compatible/DeepSeek, Anthropic e Gemini;
-- testes com payloads de usage.
-
-Não muda layout de prompt.
-
-### PR 3 — Persistência e stats
-
-Persistir e propagar as métricas novas.
-
-Escopo:
-
 - salvar métricas em mensagem ou estrutura JSON compatível;
 - propagar nos eventos finais de resposta;
 - atualizar estatísticas de token;
-- manter compatibilidade com mensagens antigas.
+- manter compatibilidade com mensagens antigas;
+- testes com payloads de usage e persistência.
 
-### PR 4 — Reordenação cache-friendly do system prompt
+Não muda layout de prompt.
 
-Reorganizar o system prompt para deixar estável primeiro e dinâmico depois.
+### PR 3 — Layout cache-friendly e determinismo da request
+
+Reorganizar o system prompt e garantir ordenação estável do que já entra na request.
 
 Escopo:
 
@@ -267,29 +261,22 @@ Escopo:
 - resumo depois do prefixo estável;
 - Context Providers dinâmicos depois do resumo;
 - conteúdo específico do turno no fim;
-- testes de regressão do builder.
+- skills e catálogo com ordem estável;
+- tools e MCP tools com ordem estável;
+- context blocks com ordem estável;
+- serialização JSON que entra no prompt com ordem determinística;
+- testes de regressão do builder;
+- testes focados em duas chamadas com mesmo estado produzindo prefixo estável.
 
 Não muda a estratégia de histórico.
 
-### PR 5 — Determinismo básico da request
-
-Garantir ordenação estável do que já entra na request.
-
-Escopo:
-
-- skills e catálogo;
-- tools e MCP tools;
-- context blocks;
-- serialização JSON que entra no prompt;
-- testes focados em duas chamadas com mesmo estado produzindo prefixo estável.
-
-### PR 6 — Configuração de cache no perfil
+### PR 4 — Configuração de cache no perfil
 
 Adicionar configuração de cache no perfil.
 
 Escopo:
 
-- `prompt_cache.mode`;
+- `prompt_cache.enabled`;
 - `prompt_cache.provider_hints`;
 - `prompt_cache.explicit_cache_control`;
 - validação;
@@ -298,30 +285,18 @@ Escopo:
 
 O layout cache-friendly continua sempre ativo.
 
-### PR 7 — Consumir configuração de Context Providers
+### PR 5 — Cache hints controlados pelo perfil
 
-Usar a configuração de Context Providers definida na AEP-0075 para preencher `contextprovider.BuildRequest`.
-
-Escopo:
-
-- defaults por provider;
-- overrides por perfil;
-- providers habilitados/desabilitados por perfil;
-- settings próprios de cada provider;
-- aplicar sem substituir `ContextWindow`, `MaxContextMessages` ou `MinContextMessages`.
-
-### PR 8 — Cache hints controlados pelo perfil
-
-Enviar hints apenas quando perfil e provider permitirem.
+Enviar hints apenas quando perfil e capability do modelo/rota permitirem.
 
 Escopo:
 
-- capability técnica no provider;
+- capability técnica resolvida para provider, gateway, modelo e rota;
 - `prompt_cache_key` ou header equivalente em OpenAI-compatible/LiteLLM/DeepSeek-like;
 - chave segura derivada de provider, perfil e conversa, sem dados sensíveis;
 - fallback silencioso quando não suportado.
 
-### PR 9 — Cache control explícito
+### PR 6 — Cache control explícito
 
 Implementar cache control para providers que exigem marcação explícita.
 
@@ -329,10 +304,10 @@ Escopo:
 
 - Anthropic `cache_control` em blocos estáveis;
 - Gemini/Vertex apenas se o caminho estiver claro;
-- só quando `prompt_cache.mode=explicit` ou `explicit_cache_control=true`;
-- nunca aplicar genericamente em gateways sem capability.
+- só quando `prompt_cache.enabled=true` e `explicit_cache_control=true`;
+- nunca aplicar genericamente em gateways sem capability resolvida para o modelo/rota.
 
-### PR 10 — Custo e UX básicos
+### PR 7 — Custo e UX básicos
 
 Expor os resultados de cache para o usuário.
 

@@ -259,7 +259,8 @@ Decisão:
 Compatibilidade:
 
 - não há compatibilidade de runtime para templates em skills;
-- qualquer resquício de template em skill é bug de migração e deve ser removido;
+- templates executáveis ou dependentes de dados dinâmicos em skills são bug de migração e devem ser removidos;
+- sequências como `{{ ... }}` podem existir como texto literal em exemplos Markdown, sem interpretação pelo runtime;
 - Context Providers e supporting files são as formas aceitas de fornecer contexto dinâmico.
 
 ### D6. Prompt passa a ser montado por blocos
@@ -355,6 +356,12 @@ Semântica:
 - `budget <= 0`: usar default do provider;
 - `settings`: espaço namespaced para opções específicas, sem transformar `ChatConfig` em uma lista de campos por provider.
 
+Responsabilidade de implementação:
+
+- resolver defaults, overrides, `enabled`, `budget` e `settings` por perfil é responsabilidade da implementação de Context Providers;
+- o resultado resolvido deve ser aplicado antes da montagem dos blocos, alimentando `contextprovider.BuildRequest` e a decisão de quais providers automáticos podem contribuir;
+- esta resolução é independente da AEP-0074: prompt cache consome os blocos já produzidos e ordenados, sem conhecer detalhes de budget/settings de cada provider.
+
 UI:
 
 - criar uma aba "Context Providers" no editor de perfil;
@@ -410,9 +417,9 @@ Esta seção é pré-requisito funcional para controlar budgets por perfil, mas 
 
 ### Fase 6 — Garantir skills estáticas
 
-- Remover qualquer resquício de template em skill.
+- Remover qualquer dependência de execução de templates em skill.
 - Garantir que builtins não dependem de `include`, `now`, `.Surface`, `.TaskLists`.
-- Atualizar editor/validação de skills para tratar template como inválido.
+- Atualizar editor/validação de skills para tratar templates executáveis como inválidos, preservando exemplos literais em Markdown.
 
 ## Riscos
 
