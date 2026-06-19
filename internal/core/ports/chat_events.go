@@ -48,6 +48,9 @@ type DoneEvent struct {
 	ToolsUsed        []string           `json:"toolsUsed,omitempty"`
 	PromptTokens     int                `json:"promptTokens,omitempty"`
 	CompletionTokens int                `json:"completionTokens,omitempty"`
+	CacheReadTokens  int                `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens int                `json:"cacheWriteTokens,omitempty"`
+	CacheMissTokens  int                `json:"cacheMissTokens,omitempty"`
 	ErrorMessage     string             `json:"errorMessage,omitempty"`
 	SurfaceOrigin    *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }
@@ -158,6 +161,9 @@ type TokenStatsEvent struct {
 	IsCritical       bool    `json:"isCritical"`
 	PromptTokens     int     `json:"promptTokens"`
 	CompletionTokens int     `json:"completionTokens"`
+	CacheReadTokens  int     `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens int     `json:"cacheWriteTokens,omitempty"`
+	CacheMissTokens  int     `json:"cacheMissTokens,omitempty"`
 	MessageCount     int     `json:"messageCount"`
 }
 
@@ -167,6 +173,9 @@ type TokenStatsUpdateEvent struct {
 	PromptTokens                int     `json:"promptTokens"`
 	CompletionTokens            int     `json:"completionTokens"`
 	TotalTokens                 int     `json:"totalTokens"`
+	CacheReadTokens             int     `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens            int     `json:"cacheWriteTokens,omitempty"`
+	CacheMissTokens             int     `json:"cacheMissTokens,omitempty"`
 	ContextTokens               int     `json:"contextTokens"`
 	ContextUsage                float64 `json:"contextUsage"`
 	ContextLimit                int     `json:"contextLimit"`

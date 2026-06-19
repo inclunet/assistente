@@ -40,6 +40,9 @@ type MessageOptions struct {
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
+	CacheReadTokens  int
+	CacheWriteTokens int
+	CacheMissTokens  int
 	Model            string
 	Source           string // Origem da mensagem: "wails", "telegram", "signal", etc.
 }
@@ -96,6 +99,9 @@ func (r *MessageRepository) CreateMessageWithContext(ctx context.Context, opts M
 		PromptTokens:     opts.PromptTokens,
 		CompletionTokens: opts.CompletionTokens,
 		TotalTokens:      opts.TotalTokens,
+		CacheReadTokens:  opts.CacheReadTokens,
+		CacheWriteTokens: opts.CacheWriteTokens,
+		CacheMissTokens:  opts.CacheMissTokens,
 		Model:            opts.Model,
 		Source:           opts.Source,
 	}
@@ -396,6 +402,60 @@ func (r *MessageRepository) UpdateMessageContentAndReasoningWithContext(ctx cont
 		"total_tokens":      totalTokens,
 		"model":             model,
 	}).Error
+}
+
+// UpdateMessageContentReasoningAndUsageWithContext finaliza uma resposta em uma
+// única atualização para manter tokens comuns e métricas de cache consistentes.
+func UpdateMessageContentReasoningAndUsageWithContext(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, cacheReadTokens, cacheWriteTokens, cacheMissTokens int, model string) error {
+	return NewMessageRepository(db).UpdateMessageContentReasoningAndUsageWithContext(ctx, messageID, content, reasoning, promptTokens, completionTokens, totalTokens, cacheReadTokens, cacheWriteTokens, cacheMissTokens, model)
+}
+
+func (r *MessageRepository) UpdateMessageContentReasoningAndUsageWithContext(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, cacheReadTokens, cacheWriteTokens, cacheMissTokens int, model string) error {
+	db := r.db
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
+	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
+		"content":            content,
+		"reasoning":          reasoning,
+		"prompt_tokens":      promptTokens,
+		"completion_tokens":  completionTokens,
+		"total_tokens":       totalTokens,
+		"cache_read_tokens":  cacheReadTokens,
+		"cache_write_tokens": cacheWriteTokens,
+		"cache_miss_tokens":  cacheMissTokens,
+		"model":              model,
+	}).Error
+}
+
+// UpdateMessageCacheTokensWithContext atualiza métricas opcionais de prompt cache
+// de uma mensagem existente. Campos zero preservam compatibilidade com mensagens
+// antigas e providers que não reportam cache.
+func UpdateMessageCacheTokensWithContext(ctx context.Context, messageID string, cacheReadTokens, cacheWriteTokens, cacheMissTokens int) error {
+	return NewMessageRepository(db).UpdateMessageCacheTokensWithContext(ctx, messageID, cacheReadTokens, cacheWriteTokens, cacheMissTokens)
+}
+
+func (r *MessageRepository) UpdateMessageCacheTokensWithContext(ctx context.Context, messageID string, cacheReadTokens, cacheWriteTokens, cacheMissTokens int) error {
+	updates := map[string]interface{}{}
+	if cacheReadTokens > 0 {
+		updates["cache_read_tokens"] = cacheReadTokens
+	}
+	if cacheWriteTokens > 0 {
+		updates["cache_write_tokens"] = cacheWriteTokens
+	}
+	if cacheMissTokens > 0 {
+		updates["cache_miss_tokens"] = cacheMissTokens
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	db := r.db
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
+	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(updates).Error
 }
 
 // DeleteMessageWithContext exclui uma mensagem e todas as suas filhas

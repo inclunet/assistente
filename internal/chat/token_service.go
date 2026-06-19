@@ -47,6 +47,9 @@ func (s *TokenService) GetConversationStats(ctx context.Context, conversationID 
 		PromptTokens:                detailedStats.PromptTokens,
 		CompletionTokens:            detailedStats.CompletionTokens,
 		TotalTokens:                 detailedStats.TotalTokens,
+		CacheReadTokens:             detailedStats.CacheReadTokens,
+		CacheWriteTokens:            detailedStats.CacheWriteTokens,
+		CacheMissTokens:             detailedStats.CacheMissTokens,
 		MessageCount:                detailedStats.MessageCount,
 		Model:                       detailedStats.Model,
 		MostUsedModel:               detailedStats.Model,
@@ -84,6 +87,9 @@ func (s *TokenService) GetTurnStats(ctx context.Context, conversationID, turnID 
 		PromptTokens:     stats.PromptTokens,
 		CompletionTokens: stats.CompletionTokens,
 		TotalTokens:      stats.TotalTokens,
+		CacheReadTokens:  stats.CacheReadTokens,
+		CacheWriteTokens: stats.CacheWriteTokens,
+		CacheMissTokens:  stats.CacheMissTokens,
 		MessageCount:     stats.MessageCount,
 	}, nil
 }
