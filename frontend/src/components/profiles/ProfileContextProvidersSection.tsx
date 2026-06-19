@@ -62,7 +62,12 @@ export function ProfileContextProvidersSection({
   const updateProvider = useCallback((providerName: string, patch: Partial<profiles.ContextProviderProfileConfig>) => {
     const previous = config[providerName] ?? {};
     const nextProviderConfig = { ...previous, ...patch };
-    const next = { ...config, [providerName]: nextProviderConfig };
+    const next = { ...config };
+    if (hasProviderConfig(nextProviderConfig)) {
+      next[providerName] = nextProviderConfig;
+    } else {
+      delete next[providerName];
+    }
     onChange(next);
   }, [config, onChange]);
 
