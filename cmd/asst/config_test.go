@@ -18,23 +18,30 @@ type mockConfigBackend struct {
 	profile    *profiles.Profile
 	profileErr error
 	providers  []*llm.ProviderConfig
-	modelErr   error
+	activeSlug string
+	updateErr  error
 
 	// Capture calls
-	modelSet string
+	updatedSlug  string
+	updatedModel string
 }
 
 func (m *mockConfigBackend) GetActiveProfile() (*profiles.Profile, error) {
 	return m.profile, m.profileErr
 }
 
+func (m *mockConfigBackend) GetActiveProfileSlug() string {
+	return m.activeSlug
+}
+
 func (m *mockConfigBackend) GetLLMProviders() []*llm.ProviderConfig {
 	return m.providers
 }
 
-func (m *mockConfigBackend) SetChatModel(model string) error {
-	m.modelSet = model
-	return m.modelErr
+func (m *mockConfigBackend) UpdateProfile(slug string, p profiles.Profile) error {
+	m.updatedSlug = slug
+	m.updatedModel = p.Chat.Model
+	return m.updateErr
 }
 
 // ---------------------------------------------------------------------------
@@ -134,15 +141,21 @@ func TestConfigProviders_Empty(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestConfigModel_Success(t *testing.T) {
-	mock := &mockConfigBackend{}
+	mock := &mockConfigBackend{
+		profile:    &profiles.Profile{Chat: profiles.ChatConfig{Model: "gpt-4o"}},
+		activeSlug: "padrao",
+	}
 
 	var out bytes.Buffer
 	err := runConfigModel(mock, &out, "gpt-4-turbo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if mock.modelSet != "gpt-4-turbo" {
-		t.Errorf("expected model 'gpt-4-turbo', got %q", mock.modelSet)
+	if mock.updatedModel != "gpt-4-turbo" {
+		t.Errorf("expected model 'gpt-4-turbo', got %q", mock.updatedModel)
+	}
+	if mock.updatedSlug != "padrao" {
+		t.Errorf("expected slug 'padrao', got %q", mock.updatedSlug)
 	}
 	if !strings.Contains(out.String(), "gpt-4-turbo") {
 		t.Error("expected success message")
@@ -151,7 +164,8 @@ func TestConfigModel_Success(t *testing.T) {
 
 func TestConfigModel_Error(t *testing.T) {
 	mock := &mockConfigBackend{
-		modelErr: fmt.Errorf("invalid model"),
+		profile:   &profiles.Profile{},
+		updateErr: fmt.Errorf("invalid model"),
 	}
 
 	var out bytes.Buffer

@@ -4,7 +4,6 @@ import (
 	"log"
 	"time"
 
-	"assistente/controllers"
 	"assistente/internal/database"
 	mcpmgr "assistente/internal/mcp"
 	toolpkg "assistente/internal/tools"
@@ -63,9 +62,6 @@ func (a *App) DiscoverMCPServerAuth(serverURL string) mcpmgr.OAuthDiscoveryResul
 func (a *App) GetMCPServerLogs(slug string, limit int) ([]mcpmgr.MCPServerLog, error) {
 	return a.mcpCtrl.GetMCPServerLogs(slug, limit)
 }
-
-// LLMSettings é alias de controllers.LLMSettings para compatibilidade com o frontend Wails.
-type LLMSettings = controllers.LLMSettings
 
 // initMCP inicializa o gerenciador de servidores MCP.
 // Deve ser chamado após initToolRegistry (precisa do registry para registrar tools MCP).

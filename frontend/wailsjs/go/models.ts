@@ -1029,84 +1029,6 @@ export namespace config {
 	        this.vacuum_min_free_bytes = source["vacuum_min_free_bytes"];
 	    }
 	}
-	export class STTParams {
-	    provider?: string;
-	    recording_mode?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new STTParams(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.provider = source["provider"];
-	        this.recording_mode = source["recording_mode"];
-	    }
-	}
-	export class ModelParams {
-	    model?: string;
-	    temperature?: number;
-	    max_tokens?: number;
-	    top_p?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new ModelParams(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.model = source["model"];
-	        this.temperature = source["temperature"];
-	        this.max_tokens = source["max_tokens"];
-	        this.top_p = source["top_p"];
-	    }
-	}
-	export class Config {
-	    api_key?: string;
-	    api_base_url?: string;
-	    default_model?: string;
-	    response_timeout?: number;
-	    active_profile?: string;
-	    chat_params?: ModelParams;
-	    stt_params?: STTParams;
-	    maintenance: MaintenanceSettings;
-	
-	    static createFrom(source: any = {}) {
-	        return new Config(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.api_key = source["api_key"];
-	        this.api_base_url = source["api_base_url"];
-	        this.default_model = source["default_model"];
-	        this.response_timeout = source["response_timeout"];
-	        this.active_profile = source["active_profile"];
-	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
-	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
-	        this.maintenance = this.convertValues(source["maintenance"], MaintenanceSettings);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
-	
 
 }
 
@@ -1128,6 +1050,33 @@ export namespace contacts {
 	        this.display_name = source["display_name"];
 	        this.username = source["username"];
 	        this.authorized_at = source["authorized_at"];
+	    }
+	}
+
+}
+
+export namespace contextprovider {
+	
+	export class ProviderMetadata {
+	    name: string;
+	    display_name: string;
+	    description: string;
+	    default_enabled: boolean;
+	    default_budget: number;
+	    supports_settings: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderMetadata(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.display_name = source["display_name"];
+	        this.description = source["description"];
+	        this.default_enabled = source["default_enabled"];
+	        this.default_budget = source["default_budget"];
+	        this.supports_settings = source["supports_settings"];
 	    }
 	}
 
@@ -1250,58 +1199,6 @@ export namespace controllers {
 	        this.value = source["value"];
 	        this.label = source["label"];
 	    }
-	}
-	export class LLMSettings {
-	    APIKey: string;
-	    BaseURL: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new LLMSettings(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.APIKey = source["APIKey"];
-	        this.BaseURL = source["BaseURL"];
-	    }
-	}
-	export class SettingsInput {
-	    apiKey: string;
-	    apiBaseUrl: string;
-	    responseTimeout: number;
-	    chatParams: config.ModelParams;
-	    sttParams: config.STTParams;
-	
-	    static createFrom(source: any = {}) {
-	        return new SettingsInput(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.apiKey = source["apiKey"];
-	        this.apiBaseUrl = source["apiBaseUrl"];
-	        this.responseTimeout = source["responseTimeout"];
-	        this.chatParams = this.convertValues(source["chatParams"], config.ModelParams);
-	        this.sttParams = this.convertValues(source["sttParams"], config.STTParams);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class SkillCreateRequest {
 	    name: string;
@@ -3065,35 +2962,6 @@ export namespace llm {
 	        this.auth_mode = source["auth_mode"];
 	    }
 	}
-	
-
-}
-
-export namespace contextprovider {
-	
-	export class ProviderMetadata {
-	    name: string;
-	    display_name: string;
-	    description: string;
-	    default_enabled: boolean;
-	    default_budget: number;
-	    supports_settings: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ProviderMetadata(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.display_name = source["display_name"];
-	        this.description = source["description"];
-	        this.default_enabled = source["default_enabled"];
-	        this.default_budget = source["default_budget"];
-	        this.supports_settings = source["supports_settings"];
-	    }
-	}
-	
 	
 
 }

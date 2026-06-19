@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"assistente/controllers"
+	"assistente/internal/profiles"
 )
 
 // ---------------------------------------------------------------------------
@@ -25,17 +26,17 @@ type mockProvidersBackend struct {
 	createResult        map[string]interface{}
 	createErr           error
 	setDefaultErr       error
-	setChatModelErr     error
+	updateProfileErr    error
 	deleteErr           error
 
 	// Capture calls
-	testedReq          controllers.TestLLMProviderRequest
-	createdDefault     string
-	createdDefaultKey  string
-	createdReq         controllers.CreateLLMProviderRequest
-	defaultProviderID  string
-	chatModelSet       string
-	deletedID          string
+	testedReq         controllers.TestLLMProviderRequest
+	createdDefault    string
+	createdDefaultKey string
+	createdReq        controllers.CreateLLMProviderRequest
+	defaultProviderID string
+	chatModelSet      string
+	deletedID         string
 }
 
 func (m *mockProvidersBackend) GetLLMProvidersWithStatus() []map[string]interface{} {
@@ -67,9 +68,15 @@ func (m *mockProvidersBackend) SetDefaultProvider(id string) error {
 	return m.setDefaultErr
 }
 
-func (m *mockProvidersBackend) SetChatModel(model string) error {
-	m.chatModelSet = model
-	return m.setChatModelErr
+func (m *mockProvidersBackend) GetActiveProfile() (*profiles.Profile, error) {
+	return &profiles.Profile{}, nil
+}
+
+func (m *mockProvidersBackend) GetActiveProfileSlug() string { return "padrao" }
+
+func (m *mockProvidersBackend) UpdateProfile(_ string, p profiles.Profile) error {
+	m.chatModelSet = p.Chat.Model
+	return m.updateProfileErr
 }
 
 func (m *mockProvidersBackend) DeleteLLMProvider(_ context.Context, id string) error {

@@ -15,8 +15,31 @@ import (
 // configBackend abstracts the app methods used by config commands.
 type configBackend interface {
 	GetActiveProfile() (*profiles.Profile, error)
+	GetActiveProfileSlug() string
 	GetLLMProviders() []*llm.ProviderConfig
-	SetChatModel(model string) error
+	UpdateProfile(slug string, p profiles.Profile) error
+}
+
+// chatModelUpdater agrupa os métodos necessários para fixar o modelo de chat no
+// perfil ativo. Substitui o antigo config.SetChatModel legado (#299): o modelo
+// passa a viver no perfil (profiles), não mais no config.json.
+type chatModelUpdater interface {
+	GetActiveProfile() (*profiles.Profile, error)
+	GetActiveProfileSlug() string
+	UpdateProfile(slug string, p profiles.Profile) error
+}
+
+// setActiveProfileChatModel grava o modelo escolhido no perfil ativo.
+func setActiveProfileChatModel(svc chatModelUpdater, model string) error {
+	profile, err := svc.GetActiveProfile()
+	if err != nil {
+		return err
+	}
+	if profile == nil {
+		return fmt.Errorf("nenhum perfil ativo")
+	}
+	profile.Chat.Model = model
+	return svc.UpdateProfile(svc.GetActiveProfileSlug(), *profile)
 }
 
 var configCmd = &cobra.Command{
@@ -87,10 +110,10 @@ var configModelCmd = &cobra.Command{
 }
 
 func runConfigModel(svc configBackend, out io.Writer, model string) error {
-	if err := svc.SetChatModel(model); err != nil {
+	if err := setActiveProfileChatModel(svc, model); err != nil {
 		return fmt.Errorf("erro ao definir modelo: %w", err)
 	}
-	_, err := fmt.Fprintf(out, "Modelo alterado para '%s'.\n", model)
+	_, err := fmt.Fprintf(out, "Modelo alterado para '%s' no perfil ativo.\n", model)
 	return err
 }
 

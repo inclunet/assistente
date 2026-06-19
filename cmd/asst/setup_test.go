@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"assistente/controllers"
+	"assistente/internal/profiles"
 )
 
 // ---------------------------------------------------------------------------
@@ -24,15 +25,15 @@ type mockSetupBackend struct {
 	testProviderErr error
 	listModels      []string
 	listModelsErr   error
-	createErr       error
-	defaultProvErr  error
-	setChatModelErr error
+	createErr        error
+	defaultProvErr   error
+	updateProfileErr error
 
-	setupPwdCalled   string
-	createdType      string
-	createdKey       string
-	defaultProvID    string
-	chatModelSet     string
+	setupPwdCalled string
+	createdType    string
+	createdKey     string
+	defaultProvID  string
+	chatModelSet   string
 }
 
 func (m *mockSetupBackend) NeedsWelcomeWizard() bool { return m.needsWizard }
@@ -62,9 +63,15 @@ func (m *mockSetupBackend) SetDefaultProvider(id string) error {
 	return m.defaultProvErr
 }
 
-func (m *mockSetupBackend) SetChatModel(model string) error {
-	m.chatModelSet = model
-	return m.setChatModelErr
+func (m *mockSetupBackend) GetActiveProfile() (*profiles.Profile, error) {
+	return &profiles.Profile{}, nil
+}
+
+func (m *mockSetupBackend) GetActiveProfileSlug() string { return "padrao" }
+
+func (m *mockSetupBackend) UpdateProfile(_ string, p profiles.Profile) error {
+	m.chatModelSet = p.Chat.Model
+	return m.updateProfileErr
 }
 
 // ---------------------------------------------------------------------------

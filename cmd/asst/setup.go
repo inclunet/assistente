@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"assistente/controllers"
+	"assistente/internal/profiles"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -24,7 +25,9 @@ type setupBackend interface {
 	ListModelsRaw(req controllers.TestLLMProviderRequest) ([]string, error)
 	CreateDefaultLLMProvider(providerType, apiKey string) error
 	SetDefaultProvider(id string) error
-	SetChatModel(model string) error
+	GetActiveProfile() (*profiles.Profile, error)
+	GetActiveProfileSlug() string
+	UpdateProfile(slug string, p profiles.Profile) error
 }
 
 // passwordReader abstracts password reading for testing.
@@ -231,9 +234,9 @@ func runSetup(svc setupBackend, readPwd passwordReader, out io.Writer) error {
 		_ = svc.SetDefaultProvider(info.ID)
 	}
 
-	// Aplicar modelo selecionado
+	// Aplicar modelo selecionado ao perfil ativo
 	if model != "" {
-		_ = svc.SetChatModel(model)
+		_ = setActiveProfileChatModel(svc, model)
 	}
 
 	_, _ = fmt.Fprintln(out)

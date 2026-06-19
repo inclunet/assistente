@@ -18,15 +18,6 @@ import (
 	"assistente/internal/skills"
 )
 
-// SettingsInput é o payload de SaveSettings (mantém compatibilidade com o frontend).
-type SettingsInput struct {
-	APIKey          string             `json:"apiKey"`
-	APIBaseURL      string             `json:"apiBaseUrl"`
-	ResponseTimeout int                `json:"responseTimeout"`
-	ChatParams      config.ModelParams `json:"chatParams"`
-	STTParams       config.STTParams   `json:"sttParams"`
-}
-
 // SettingsControllerConfig agrupa as dependências do SettingsController.
 type SettingsControllerConfig struct {
 	CredMgr     *credentials.Manager
@@ -37,7 +28,6 @@ type SettingsControllerConfig struct {
 	// Callbacks cross-domain
 	RestartChannel func(channelName string) error
 	GetModels      func() ([]string, error)
-	InitLLMClient  func()
 }
 
 // SettingsController é o adapter primário (Inbound) para operações de configurações globais e reset.
@@ -49,7 +39,6 @@ type SettingsController struct {
 	providerSvc    *providers.Service
 	restartChannel func(string) error
 	getModels      func() ([]string, error)
-	initLLMClient  func()
 }
 
 // NewSettingsController cria um SettingsController com suas dependências.
@@ -62,12 +51,7 @@ func NewSettingsController(cfg SettingsControllerConfig) *SettingsController {
 		providerSvc:    cfg.ProviderSvc,
 		restartChannel: cfg.RestartChannel,
 		getModels:      cfg.GetModels,
-		initLLMClient:  cfg.InitLLMClient,
 	}
-}
-
-func (c *SettingsController) GetConfig() (*config.Config, error) {
-	return config.Load()
 }
 
 // GetMaintenanceSettings retorna a política de retenção/compactação do banco
@@ -125,55 +109,6 @@ func (c *SettingsController) SendMessageSync(ctx context.Context, messages []llm
 		return "", err
 	}
 	return cp.SendChat(ctx, messages, params)
-}
-
-// SetChatModel atualiza apenas o modelo de chat na configuração e recarrega o cliente LLM.
-func (c *SettingsController) SetChatModel(model string) error {
-	err := config.Update(func(existing *config.Config) *config.Config {
-		existing.DefaultModel = model
-		existing.ChatParams.Model = model
-		return existing
-	})
-	if err != nil {
-		return err
-	}
-	if c.initLLMClient != nil {
-		c.initLLMClient()
-	}
-	log.Printf("[SetChatModel] Modelo atualizado para: %s", model)
-	return nil
-}
-
-func (c *SettingsController) SaveSettings(input SettingsInput) error {
-	responseTimeout := input.ResponseTimeout
-	if responseTimeout <= 0 {
-		responseTimeout = 180
-	}
-	return config.Update(func(existing *config.Config) *config.Config {
-		return &config.Config{
-			APIKey:          input.APIKey,
-			APIBaseURL:      input.APIBaseURL,
-			DefaultModel:    input.ChatParams.Model,
-			ResponseTimeout: responseTimeout,
-			ChatParams: config.ModelParams{
-				Model:       input.ChatParams.Model,
-				Temperature: input.ChatParams.Temperature,
-				MaxTokens:   input.ChatParams.MaxTokens,
-				TopP:        input.ChatParams.TopP,
-			},
-			STTParams: config.STTParams{
-				Provider:      input.STTParams.Provider,
-				RecordingMode: input.STTParams.RecordingMode,
-			},
-		}
-	})
-}
-
-func (c *SettingsController) SetDefaultModel(model string) error {
-	return config.Update(func(cfg *config.Config) *config.Config {
-		cfg.DefaultModel = model
-		return cfg
-	})
 }
 
 func (c *SettingsController) TestConnection() (bool, error) {

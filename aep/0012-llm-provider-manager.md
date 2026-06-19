@@ -495,6 +495,41 @@ type Config struct {
 
 ---
 
+### Phase 8: Teardown final do config legado (#299) ✅ **COMPLETED**
+**Goal:** remover de vez os campos/métodos deprecados — a Fase 6 apenas os
+marcou como DEPRECATED; esta fase os elimina.
+
+- [x] Removidos os campos legados de `config.Config` (`APIKey`, `APIBaseURL`,
+  `DefaultModel`, `ResponseTimeout`, `ActiveProfile`, `ChatParams`, `STTParams`).
+  O struct agora guarda **apenas** a seção `maintenance` (AEP-0074).
+- [x] Removidos os tipos `config.ModelParams`, `config.STTParams` e
+  `Config.GetResponseTimeout()` (código morto).
+- [x] Removido o `config.SettingsService` inteiro (`GetConfig`, `SetChatModel`,
+  `SaveSettings`, `SetDefaultModel`, `SettingsInput`, `SettingsModelParams` +
+  interfaces cleaner). A limpeza/reset de dados vive no `SettingsController`
+  (com escopo de usuário/admin), que era a duplicata real em uso.
+- [x] Removidos `SettingsController.GetConfig/SaveSettings/SetChatModel/SetDefaultModel`
+  e o `controllers.SettingsInput`.
+- [x] Removido `WelcomeController.SaveWelcomeConfig` — o wizard grava só via
+  provider registry + credentials manager (`CreateWizardProvider`).
+- [x] Removido `TokensController.GetLLMSettings` (e o binding `App.GetLLMSettings`).
+- [x] Removido `App.migrateLegacyConfig()` e seu call site — a migração era lixo
+  do início do projeto; todos já usam profiles + provider registry + credentials.
+- [x] Bindings Wails regenerados: `GetConfig`, `SaveSettings`, `SetChatModel`,
+  `SetDefaultModel`, `GetLLMSettings` e os tipos `config.Config/ModelParams/STTParams`
+  e `controllers.SettingsInput` não existem mais no frontend.
+- [x] CLI migrada: `asst config model`, `asst setup` e `asst providers create`
+  agora gravam o modelo no **perfil ativo** (`profiles`), não no config.json.
+- [x] Frontend: `App.tsx` não chama mais `GetConfig` no boot; `settingsStore`
+  enxugado para `theme`/`language` (preferências de UI persistidas localmente).
+- [x] Removido `internal/app/app_config_deprecation_test.go`.
+
+**Resultado:** `config.json` agora é exclusivamente a seção `maintenance`
+(AEP-0074). Não há mais nenhum campo legado no arquivo nem código que dependa
+dele para LLM/modelo/voz/perfil ativo.
+
+---
+
 ### Phase 7: Builtin Profiles Update ✅ **COMPLETED IN PHASE 4**
   1. Load providers from registry
   2. Load **active profile** (not from config.json, from profile's `Active` field)
