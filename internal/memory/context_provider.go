@@ -13,6 +13,17 @@ const defaultPromptBudget = 1200
 
 func (s *Service) Name() string { return "memory" }
 
+func (s *Service) Metadata() contextprovider.ProviderMetadata {
+	return contextprovider.ProviderMetadata{
+		Name:             s.Name(),
+		DisplayName:      "Memory",
+		Description:      "Saved user, project, and conversation facts that can enter the prompt automatically.",
+		DefaultEnabled:   true,
+		DefaultBudget:    defaultPromptBudget,
+		SupportsSettings: false,
+	}
+}
+
 func (s *Service) Build(ctx context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
 	instructions := memoryInstructionsBlock
 	if _, ok := database.UserIDFromContext(ctx); !ok {

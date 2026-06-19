@@ -318,7 +318,8 @@
 
 /* DataGrid inline no editor de perfil (skills e tools) */
 .profiles-skills-datagrid.datagrid-container,
-.profiles-tools-datagrid.datagrid-container {
+.profiles-tools-datagrid.datagrid-container,
+.profiles-context-providers-datagrid.datagrid-container {
   height: auto;
   max-height: 320px;
   border-radius: var(--radius-md);
@@ -326,27 +327,60 @@
 }
 
 .profiles-skills-datagrid .datagrid-body,
-.profiles-tools-datagrid .datagrid-body {
+.profiles-tools-datagrid .datagrid-body,
+.profiles-context-providers-datagrid .datagrid-body {
   overflow-y: auto;
 }
 
 .profiles-skills-datagrid .datagrid-header-cell,
 .profiles-skills-datagrid .datagrid-cell,
 .profiles-tools-datagrid .datagrid-header-cell,
-.profiles-tools-datagrid .datagrid-cell {
+.profiles-tools-datagrid .datagrid-cell,
+.profiles-context-providers-datagrid .datagrid-header-cell,
+.profiles-context-providers-datagrid .datagrid-cell {
   padding: 8px 12px;
 }
 
 .profiles-skills-datagrid .datagrid-row.selected,
-.profiles-tools-datagrid .datagrid-row.selected {
+.profiles-tools-datagrid .datagrid-row.selected,
+.profiles-context-providers-datagrid .datagrid-row.selected {
   background: var(--accent-dim);
   border-left: 3px solid var(--accent);
 }
 
 .profiles-skills-datagrid .datagrid-cell input[type="checkbox"],
-.profiles-tools-datagrid .datagrid-cell input[type="checkbox"] {
+.profiles-tools-datagrid .datagrid-cell input[type="checkbox"],
+.profiles-context-providers-datagrid .datagrid-cell input[type="checkbox"] {
   margin: 0;
   accent-color: var(--accent);
+}
+
+.profiles-context-provider__name {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.profiles-context-provider__slug {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.profiles-context-provider__budget input {
+  width: 100%;
+  height: 32px;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.profiles-context-provider__budget input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 .profiles-field__tool-desc {

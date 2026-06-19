@@ -36,12 +36,39 @@ func (r *Registry) Providers() []Provider {
 	return append([]Provider(nil), r.providers...)
 }
 
+func (r *Registry) Metadata() []ProviderMetadata {
+	if r == nil || len(r.providers) == 0 {
+		return []ProviderMetadata{}
+	}
+	items := make([]ProviderMetadata, 0, len(r.providers))
+	for _, provider := range r.providers {
+		if metadataProvider, ok := provider.(MetadataProvider); ok {
+			metadata := metadataProvider.Metadata()
+			if metadata.Name == "" {
+				metadata.Name = provider.Name()
+			}
+			items = append(items, metadata)
+			continue
+		}
+		items = append(items, ProviderMetadata{
+			Name:           provider.Name(),
+			DisplayName:    provider.Name(),
+			Description:    "",
+			DefaultEnabled: true,
+		})
+	}
+	return items
+}
+
 func (r *Registry) Build(ctx context.Context, req BuildRequest) ([]Block, error) {
 	if r == nil {
 		return nil, nil
 	}
 	var blocks []Block
 	for _, provider := range r.providers {
+		if !req.Enabled(provider.Name()) {
+			continue
+		}
 		providerBlocks, err := provider.Build(ctx, req)
 		blocks = appendProviderBlocks(blocks, provider.Name(), providerBlocks)
 		if err != nil {

@@ -14,6 +14,7 @@ export interface DataGridColumn<T = unknown> {
   actionIcon?: string;
   actionLabel?: string; // Texto acessível para leitores de tela (ex: "Abrir", "Editar", "Excluir")
   editable?: boolean;
+  selectionToggle?: boolean;
   format?: (value: unknown, item: T) => string | React.ReactNode;
 }
 
@@ -426,7 +427,7 @@ export function DataGrid<T = unknown>({
     switch (event.key) {
       case ' ':
         event.preventDefault();
-        if (isCheckboxMode) {
+        if (isCheckboxMode && columns[focusedCol]?.selectionToggle !== false) {
           toggleSelection(focusedRow);
         } else if (event.ctrlKey && isMultiSelect) {
           toggleSelection(focusedRow);
@@ -728,7 +729,7 @@ export function DataGrid<T = unknown>({
     // Foca a célula clicada
     scheduleFocusCell(rowIndex, colIndex);
 
-    if (isCheckboxMode) {
+    if (isCheckboxMode && col.selectionToggle !== false) {
       toggleSelection(rowIndex);
     } else if (event.detail === 2) {
       startEditing(rowIndex, colIndex);

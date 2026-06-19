@@ -51,6 +51,8 @@ type BuildRequest struct {
 	CurrentUserText  string
 	Surface          *Surface
 	ProviderBudgets  map[string]int
+	ProviderEnabled  map[string]bool
+	ProviderSettings map[string]map[string]any
 
 	// TaskListContextEnabled carries the chat skill policy decision into the
 	// tasklist provider. It should only be true when tasklist-manager is enabled
@@ -69,6 +71,24 @@ func (r BuildRequest) Budget(provider string, fallback int) int {
 	return fallback
 }
 
+func (r BuildRequest) Enabled(provider string) bool {
+	if r.ProviderEnabled == nil {
+		return true
+	}
+	enabled, ok := r.ProviderEnabled[provider]
+	if !ok {
+		return true
+	}
+	return enabled
+}
+
+func (r BuildRequest) Settings(provider string) map[string]any {
+	if r.ProviderSettings == nil {
+		return nil
+	}
+	return r.ProviderSettings[provider]
+}
+
 type Block struct {
 	Provider   string
 	Name       string
@@ -80,4 +100,17 @@ type Block struct {
 type Provider interface {
 	Name() string
 	Build(ctx context.Context, req BuildRequest) ([]Block, error)
+}
+
+type ProviderMetadata struct {
+	Name             string `json:"name"`
+	DisplayName      string `json:"display_name"`
+	Description      string `json:"description"`
+	DefaultEnabled   bool   `json:"default_enabled"`
+	DefaultBudget    int    `json:"default_budget"`
+	SupportsSettings bool   `json:"supports_settings"`
+}
+
+type MetadataProvider interface {
+	Metadata() ProviderMetadata
 }

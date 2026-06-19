@@ -100,6 +100,51 @@ func TestManagerNativeMCPPersistsTriState(t *testing.T) {
 	}
 }
 
+func TestManagerContextProvidersPersistProfileOverrides(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+
+	enabled := false
+	p := DefaultProfile()
+	p.Name = "Perfil Context Providers"
+	p.ContextProviders = map[string]ContextProviderProfileConfig{
+		"memory": {
+			Enabled:  &enabled,
+			Budget:   900,
+			Settings: map[string]any{"mode": "pinned_plus_auto"},
+		},
+	}
+	slug, err := manager.Create(p)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got, err := manager.Get(slug)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	cfg := got.ContextProviders["memory"]
+	if cfg.Enabled == nil || *cfg.Enabled {
+		t.Fatalf("Enabled = %v, want false", cfg.Enabled)
+	}
+	if cfg.Budget != 900 {
+		t.Fatalf("Budget = %d, want 900", cfg.Budget)
+	}
+	if cfg.Settings["mode"] != "pinned_plus_auto" {
+		t.Fatalf("Settings[mode] = %v, want pinned_plus_auto", cfg.Settings["mode"])
+	}
+}
+
+func TestProfileValidateRejectsNegativeContextProviderBudget(t *testing.T) {
+	p := DefaultProfile()
+	p.ContextProviders = map[string]ContextProviderProfileConfig{
+		"memory": {Budget: -1},
+	}
+
+	if err := p.Validate(); err == nil {
+		t.Fatal("Validate succeeded, want negative context provider budget error")
+	}
+}
+
 func TestManagerGetActiveSlugFallback(t *testing.T) {
 	manager := setupProfileTestEnv(t)
 

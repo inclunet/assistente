@@ -8,6 +8,7 @@ import {context} from '../models';
 import {app} from '../models';
 import {allowlist} from '../models';
 import {controllers} from '../models';
+import {contextprovider} from '../models';
 import {memory} from '../models';
 import {profiles} from '../models';
 import {terminal} from '../models';
@@ -248,6 +249,8 @@ export function GetConversationSummary(arg1:string):Promise<app.ConversationSumm
 export function GetConversationTokenStats(arg1:string):Promise<chat.TokenStats>;
 
 export function GetConversationWithThreads(arg1:string):Promise<chat.ConversationWithThreads>;
+
+export function GetContextProviders():Promise<Array<contextprovider.ProviderMetadata>>;
 
 export function GetConversations():Promise<Array<database.Conversation>>;
 
