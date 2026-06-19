@@ -103,6 +103,27 @@ func TestRegistryBuildSkipsDisabledProvider(t *testing.T) {
 	}
 }
 
+func TestRegistryMetadataReturnsEmptySliceWhenNoProviders(t *testing.T) {
+	registry := NewRegistry()
+
+	metadata := registry.Metadata()
+	if metadata == nil {
+		t.Fatal("metadata = nil, want empty slice")
+	}
+	if len(metadata) != 0 {
+		t.Fatalf("len(metadata) = %d, want 0", len(metadata))
+	}
+
+	var nilRegistry *Registry
+	nilMetadata := nilRegistry.Metadata()
+	if nilMetadata == nil {
+		t.Fatal("nil registry metadata = nil, want empty slice")
+	}
+	if len(nilMetadata) != 0 {
+		t.Fatalf("len(nil registry metadata) = %d, want 0", len(nilMetadata))
+	}
+}
+
 func TestRegistryMetadataUsesProviderFallback(t *testing.T) {
 	registry := NewRegistry(testProvider{name: "memory"})
 
