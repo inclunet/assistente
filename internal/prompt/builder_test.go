@@ -159,6 +159,147 @@ func TestBuildWithContextBlocksInjectsStableContextBeforeSummary(t *testing.T) {
 	}
 }
 
+func TestBuildWithContextBlocksSortsCacheFriendlyLayout(t *testing.T) {
+	b := &prompt.Builder{
+		OpenEditorPaths: func() []string {
+			return []string{"/tmp/z.go", "/tmp/a.go"}
+		},
+	}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	result := b.BuildWithContextBlocks(
+		msgs,
+		nil,
+		false,
+		false,
+		nil,
+		"<slash_skill>turno atual</slash_skill>",
+		"Resumo antigo.",
+		[]contextprovider.Block{
+			{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityFastDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
+			{Provider: "memory", Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<memory_instructions>stable memory</memory_instructions>"},
+			{Provider: "tasklist", Name: "linked_task_lists", Volatility: contextprovider.VolatilityFastDynamic, Priority: 40, Content: "<linked_task_lists>dynamic tasks</linked_task_lists>"},
+			{Provider: "workspace", Name: "workspace_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<workspace_instructions>stable workspace</workspace_instructions>"},
+		},
+	)
+	sys := result[0].Content.(string)
+	assertOrder(t, sys,
+		"helpful, intelligent assistant",
+		"<memory_instructions>",
+		"<workspace_instructions>",
+		"<conversation_summary>",
+		"<linked_task_lists>",
+		"<workspace_context>",
+		"<open_editor_files>",
+		"<slash_skill>",
+	)
+	if strings.Index(sys, "/tmp/a.go") > strings.Index(sys, "/tmp/z.go") {
+		t.Fatalf("open editor paths should be sorted: %s", sys)
+	}
+}
+
+func TestBuildWithContextBlocksDoesNotMutateContextBlocks(t *testing.T) {
+	b := &prompt.Builder{}
+	blocks := []contextprovider.Block{
+		{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityFastDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
+		{Provider: "memory", Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<memory_instructions>stable memory</memory_instructions>"},
+	}
+
+	_ = b.BuildWithContextBlocks(
+		[]llm.Message{{Role: "user", Content: "oi"}},
+		nil,
+		false,
+		false,
+		nil,
+		"",
+		"Resumo antigo.",
+		blocks,
+	)
+
+	if blocks[0].Name != "workspace_context" || blocks[1].Name != "memory_instructions" {
+		t.Fatalf("BuildWithContextBlocks mutated context blocks order: %#v", blocks)
+	}
+}
+
+func TestBuildWithContextBlocksSameStateProducesStablePrefix(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			allSkillsFull: []skills.Skill{
+				makeSkill("z-review", "Review", "Review desc", "Review content.", false, true),
+				makeSkill("a-base", "Base", "Base desc", "Base content.", true, true),
+			},
+			skillFiles: map[string][]string{
+				"a-base": {"/skills/base/z.md", "/skills/base/a.md"},
+			},
+		},
+	}
+	blocks := []contextprovider.Block{
+		{Provider: "workspace", Name: "workspace_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<workspace_instructions>stable workspace</workspace_instructions>"},
+		{Provider: "memory", Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<memory_instructions>stable memory</memory_instructions>"},
+		{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityFastDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
+	}
+	build := func() string {
+		result := b.BuildWithContextBlocks(
+			[]llm.Message{{Role: "user", Content: "oi"}},
+			nil,
+			false,
+			false,
+			nil,
+			"",
+			"Resumo antigo.",
+			append([]contextprovider.Block(nil), blocks...),
+		)
+		return result[0].Content.(string)
+	}
+	first := stablePrefixForTest(t, build())
+	second := stablePrefixForTest(t, build())
+	if first != second {
+		t.Fatalf("stable prefix differs between identical builds:\nfirst=%s\nsecond=%s", first, second)
+	}
+	assertOrder(t, first, "Base content.", "/skills/base/a.md", "/skills/base/z.md", "Identifier: `z-review`", "<memory_instructions>", "<workspace_instructions>")
+}
+
+func TestBuildSkillsSectionDoesNotMutateSkillFiles(t *testing.T) {
+	skillFiles := map[string][]string{
+		"a-base":   {"/skills/base/z.md", "/skills/base/a.md"},
+		"z-review": {"/skills/review/z.md", "/skills/review/a.md"},
+	}
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			allSkillsFull: []skills.Skill{
+				makeSkill("a-base", "Base", "Base desc", "Base content.", true, true),
+				makeSkill("z-review", "Review", "Review desc", "Review content.", false, true),
+			},
+			skillFiles: skillFiles,
+		},
+	}
+
+	sys := buildSystemPromptForSkills(b, nil, false, nil)
+	assertOrder(t, sys, "/skills/base/a.md", "/skills/base/z.md", "/skills/review/a.md", "/skills/review/z.md")
+	if got := strings.Join(skillFiles["a-base"], ","); got != "/skills/base/z.md,/skills/base/a.md" {
+		t.Fatalf("base skill files were mutated: %s", got)
+	}
+	if got := strings.Join(skillFiles["z-review"], ","); got != "/skills/review/z.md,/skills/review/a.md" {
+		t.Fatalf("on-demand skill files were mutated: %s", got)
+	}
+}
+
+func TestBuildSkillsSectionPreservesLegacyBaseSkillSelectionOrder(t *testing.T) {
+	b := &prompt.Builder{
+		Skills: &mockSkillReader{
+			allSkillsFull: []skills.Skill{
+				makeSkill("z-base", "Alpha Base", "First autoload desc", "First autoload content.", true, true),
+				makeSkill("a-base", "Zulu Base", "Second autoload desc", "Second autoload content.", true, true),
+			},
+		},
+	}
+
+	sys := buildSystemPromptForSkills(b, nil, false, nil)
+	assertOrder(t, sys, "First autoload content.", "Identifier: `a-base`")
+	if strings.Contains(sys, "<base_skills>\n## Zulu Base") {
+		t.Fatalf("base skill selection should preserve manager order, got: %s", sys)
+	}
+}
+
 func TestBuild_ExistingSystemMessage_Combined(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "system", Content: "Existente."}, {Role: "user", Content: "oi"}}
@@ -173,6 +314,27 @@ func TestBuild_ExistingSystemMessage_Combined(t *testing.T) {
 	if !strings.Contains(sys, "Novo.") {
 		t.Error("New content should be injected")
 	}
+}
+
+func assertOrder(t *testing.T, haystack string, needles ...string) {
+	t.Helper()
+	searchStart := 0
+	for _, needle := range needles {
+		idx := strings.Index(haystack[searchStart:], needle)
+		if idx < 0 {
+			t.Fatalf("missing %q in %s", needle, haystack)
+		}
+		searchStart += idx + len(needle)
+	}
+}
+
+func stablePrefixForTest(t *testing.T, sys string) string {
+	t.Helper()
+	idx := strings.Index(sys, "<conversation_summary>")
+	if idx < 0 {
+		t.Fatalf("missing conversation summary in %s", sys)
+	}
+	return sys[:idx]
 }
 
 func TestBuild_OpenEditorFiles_InjectsSection(t *testing.T) {

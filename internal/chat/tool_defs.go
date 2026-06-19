@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"reflect"
+	"sort"
 	"strings"
 
 	"assistente/internal/llm"
@@ -219,6 +220,8 @@ func FilterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPMana
 	if len(nativeServers) == 0 {
 		return names
 	}
+	nativeServers = cloneNativeMCPServers(nativeServers)
+	sortNativeMCPServers(nativeServers)
 	nativeToolNames := make(map[string]struct{})
 	for _, srv := range nativeServers {
 		for _, name := range srv.ToolNames {
@@ -259,6 +262,8 @@ func ApplyNativeMCP(
 	if len(nativeServers) == 0 {
 		return streamer, toolDefs
 	}
+	nativeServers = cloneNativeMCPServers(nativeServers)
+	sortNativeMCPServers(nativeServers)
 
 	var enabledSet map[string]bool
 	if enabledTools != nil {
@@ -277,7 +282,7 @@ func ApplyNativeMCP(
 			Name:      srv.Name,
 			URL:       srv.URL,
 			AuthToken: srv.AuthToken,
-			ToolNames: srv.ToolNames,
+			ToolNames: sortedToolNames(srv.ToolNames),
 			Recover: func(slug string) func(context.Context) error {
 				return func(ctx context.Context) error {
 					return mcpMgr.RecoverServerBestEffort(ctx, slug).Err
@@ -330,4 +335,30 @@ func ApplyNativeMCP(
 	}
 
 	return streamer, toolDefs
+}
+
+func sortNativeMCPServers(servers []mcplib.NativeMCPServer) {
+	sort.SliceStable(servers, func(i, j int) bool {
+		if servers[i].Slug != servers[j].Slug {
+			return servers[i].Slug < servers[j].Slug
+		}
+		return servers[i].Name < servers[j].Name
+	})
+	for i := range servers {
+		servers[i].ToolNames = sortedToolNames(servers[i].ToolNames)
+	}
+}
+
+func cloneNativeMCPServers(servers []mcplib.NativeMCPServer) []mcplib.NativeMCPServer {
+	out := append([]mcplib.NativeMCPServer(nil), servers...)
+	for i := range out {
+		out[i].ToolNames = append([]string(nil), out[i].ToolNames...)
+	}
+	return out
+}
+
+func sortedToolNames(names []string) []string {
+	out := append([]string(nil), names...)
+	sort.Strings(out)
+	return out
 }

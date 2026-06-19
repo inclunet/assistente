@@ -1223,3 +1223,40 @@ func TestGetEligibleNativeMCPServers_URLFiltering(t *testing.T) {
 		t.Error("HTTP remote should NOT be eligible")
 	}
 }
+
+func TestGetEligibleNativeMCPServersSortsServersAndTools(t *testing.T) {
+	registry := tools.NewRegistry()
+	credMgr := credentials.NewManager(nil)
+	m := NewManager(registry, credMgr, func(string, any) {})
+
+	m.servers["zeta"] = &ServerStatus{
+		Status: StatusConnected,
+		Config: ServerConfig{Transport: TransportSSE, URL: "https://zeta.example.com/sse", Name: "Zeta"},
+		Tools: []MCPToolInfo{
+			{Name: "z", FullName: "mcp_zeta__z"},
+			{Name: "a", FullName: "mcp_zeta__a"},
+		},
+	}
+	m.servers["alpha"] = &ServerStatus{
+		Status: StatusConnected,
+		Config: ServerConfig{Transport: TransportSSE, URL: "https://alpha.example.com/sse", Name: "Alpha"},
+		Tools: []MCPToolInfo{
+			{Name: "z", FullName: "mcp_alpha__z"},
+			{Name: "a", FullName: "mcp_alpha__a"},
+		},
+	}
+
+	result := m.GetEligibleNativeMCPServers()
+	if len(result) != 2 {
+		t.Fatalf("len(result) = %d, want 2: %#v", len(result), result)
+	}
+	if result[0].Slug != "alpha" || result[1].Slug != "zeta" {
+		t.Fatalf("servers out of order: %#v", result)
+	}
+	if got := result[0].ToolNames; len(got) != 2 || got[0] != "mcp_alpha__a" || got[1] != "mcp_alpha__z" {
+		t.Fatalf("alpha tools out of order: %#v", got)
+	}
+	if got := result[1].ToolNames; len(got) != 2 || got[0] != "mcp_zeta__a" || got[1] != "mcp_zeta__z" {
+		t.Fatalf("zeta tools out of order: %#v", got)
+	}
+}

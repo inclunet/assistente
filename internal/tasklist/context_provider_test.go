@@ -120,6 +120,52 @@ func TestContextProviderSanitizesTaskListContent(t *testing.T) {
 	}
 }
 
+func TestContextProviderPreservesLinkedTaskListsAndTasksOrder(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		TaskListContextEnabled: true,
+		LinkedTaskLists: []contextprovider.LinkedTaskList{{
+			ID:    "list-z",
+			Title: "Zeta",
+			Tasks: []contextprovider.LinkedTask{{
+				ID:     "task-10",
+				Title:  "Same",
+				Status: "Doing",
+			}, {
+				ID:     "task-2",
+				Title:  "Same",
+				Status: "Doing",
+			}},
+		}, {
+			ID:    "list-a",
+			Title: "Alpha",
+			Tasks: []contextprovider.LinkedTask{{
+				ID:     "task-3",
+				Title:  "Beta",
+				Status: "Todo",
+			}, {
+				ID:     "task-1",
+				Title:  "Alpha",
+				Status: "Todo",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want 1", len(blocks))
+	}
+	content := blocks[0].Content
+	assertContainsInOrder(t, content,
+		"Zeta (ID: list-z)",
+		"| Doing | Same | task-10 |",
+		"| Doing | Same | task-2 |",
+		"Alpha (ID: list-a)",
+		"| Todo | Beta | task-3 |",
+		"| Todo | Alpha | task-1 |",
+	)
+}
+
 func TestContextProviderHonorsPromptBudget(t *testing.T) {
 	tasks := make([]contextprovider.LinkedTask, 0, 20)
 	for i := 0; i < 20; i++ {
@@ -156,6 +202,18 @@ func TestContextProviderHonorsPromptBudget(t *testing.T) {
 	}
 	if strings.Contains(content, "task-19") {
 		t.Fatalf("expected later tasks to be omitted: %q", content)
+	}
+}
+
+func assertContainsInOrder(t *testing.T, haystack string, needles ...string) {
+	t.Helper()
+	searchStart := 0
+	for _, needle := range needles {
+		idx := strings.Index(haystack[searchStart:], needle)
+		if idx < 0 {
+			t.Fatalf("missing %q in %q", needle, haystack)
+		}
+		searchStart += idx + len(needle)
 	}
 }
 

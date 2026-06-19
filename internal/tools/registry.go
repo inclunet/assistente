@@ -225,6 +225,7 @@ func (r *Registry) ToDefinitions() []ToolDefinition {
 		}
 	}
 
+	sortToolDefinitions(defs)
 	return defs
 }
 
@@ -232,24 +233,48 @@ func (r *Registry) ToDefinitions() []ToolDefinition {
 // Ferramentas não encontradas são silenciosamente ignoradas.
 // Útil para filtrar tools por perfil.
 func (r *Registry) FilterByNames(names []string) []ToolDefinition {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	defs := make([]ToolDefinition, 0, len(names))
-	for _, name := range names {
-		tool, ok := r.tools[name]
-		if !ok {
-			continue
+	func() {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		for _, name := range names {
+			tool, ok := r.tools[name]
+			if !ok {
+				continue
+			}
+			defs = append(defs, ToolDefinition{
+				Type: "function",
+				Function: FunctionDefinition{
+					Name:        tool.Name(),
+					Description: tool.Description(),
+					Parameters:  tool.Parameters(),
+				},
+			})
 		}
-		defs = append(defs, ToolDefinition{
-			Type: "function",
-			Function: FunctionDefinition{
-				Name:        tool.Name(),
-				Description: tool.Description(),
-				Parameters:  tool.Parameters(),
-			},
-		})
-	}
+	}()
 
+	sortToolDefinitions(defs)
 	return defs
+}
+
+func sortToolDefinitions(defs []ToolDefinition) {
+	sort.SliceStable(defs, func(i, j int) bool {
+		left := defs[i].Function.Name
+		right := defs[j].Function.Name
+		if toolDefinitionRank(left) != toolDefinitionRank(right) {
+			return toolDefinitionRank(left) < toolDefinitionRank(right)
+		}
+		return left < right
+	})
+}
+
+func toolDefinitionRank(name string) int {
+	switch name {
+	case ToolCatalogName:
+		return 0
+	case LoadSkillName:
+		return 1
+	default:
+		return 10
+	}
 }

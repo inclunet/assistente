@@ -6,6 +6,7 @@ package prompt
 import (
 	"log"
 	"reflect"
+	"sort"
 	"strings"
 
 	"assistente/internal/chat"
@@ -181,6 +182,8 @@ func (b *Builder) BuildWithContextBlocks(
 	conversationSummary string,
 	contextBlocks []contextprovider.Block,
 ) []llm.Message {
+	contextBlocks = append([]contextprovider.Block(nil), contextBlocks...)
+	sortContextBlocks(contextBlocks)
 	stableContext, dynamicContext := splitRenderedContextBlocks(contextBlocks)
 	return b.build(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, stableContext, dynamicContext)
 }
@@ -215,12 +218,7 @@ func (b *Builder) build(
 		parts = append(parts, "\n\n"+skillsSection)
 	}
 
-	// 3. Skill invocado via /slash
-	if slashSkillContent != "" {
-		parts = append(parts, "\n\n"+slashSkillContent)
-	}
-
-	// 4. Context Providers estáveis (instruções cacheáveis)
+	// 3. Context Providers estáveis (instruções cacheáveis)
 	for _, contextBlock := range stableContext {
 		if strings.TrimSpace(contextBlock) == "" {
 			continue
@@ -228,12 +226,12 @@ func (b *Builder) build(
 		parts = append(parts, "\n\n"+strings.TrimSpace(contextBlock))
 	}
 
-	// 5. Resumo da conversa (rolling context)
+	// 4. Resumo da conversa (rolling context)
 	if conversationSummary != "" {
 		parts = append(parts, "\n\n<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n"+conversationSummary+"\n</conversation_summary>")
 	}
 
-	// 6. Context Providers dinâmicos (memória, workspace/surface, etc.)
+	// 5. Context Providers dinâmicos (memória, workspace/surface, etc.)
 	for _, contextBlock := range dynamicContext {
 		if strings.TrimSpace(contextBlock) == "" {
 			continue
@@ -241,9 +239,10 @@ func (b *Builder) build(
 		parts = append(parts, "\n\n"+strings.TrimSpace(contextBlock))
 	}
 
-	// 7. Arquivos abertos em abas de editor (acessíveis via filesystem tools)
+	// 6. Arquivos abertos em abas de editor (acessíveis via filesystem tools)
 	if b.OpenEditorPaths != nil {
 		if paths := b.OpenEditorPaths(); len(paths) > 0 {
+			paths = sortedStrings(paths)
 			var sb strings.Builder
 			sb.WriteString("\n\n<open_editor_files>\n")
 			sb.WriteString("The following files are currently open in the user's editor tabs. ")
@@ -273,7 +272,49 @@ func (b *Builder) build(
 		}
 	}
 
+	// 7. Skill invocado via /slash é conteúdo específico do turno e fica no fim.
+	if slashSkillContent != "" {
+		parts = append(parts, "\n\n"+slashSkillContent)
+	}
+
 	return chat.InjectSystemPrompt(messages, strings.Join(parts, ""))
+}
+
+func sortContextBlocks(blocks []contextprovider.Block) {
+	sort.SliceStable(blocks, func(i, j int) bool {
+		if blocks[i].Volatility != blocks[j].Volatility {
+			return contextVolatilityRank(blocks[i].Volatility) < contextVolatilityRank(blocks[j].Volatility)
+		}
+		if blocks[i].Priority != blocks[j].Priority {
+			return blocks[i].Priority < blocks[j].Priority
+		}
+		if blocks[i].Provider != blocks[j].Provider {
+			return blocks[i].Provider < blocks[j].Provider
+		}
+		if blocks[i].Name != blocks[j].Name {
+			return blocks[i].Name < blocks[j].Name
+		}
+		return blocks[i].Content < blocks[j].Content
+	})
+}
+
+func contextVolatilityRank(value contextprovider.Volatility) int {
+	switch value {
+	case contextprovider.VolatilityStable:
+		return 0
+	case contextprovider.VolatilitySlowDynamic:
+		return 1
+	case contextprovider.VolatilityFastDynamic:
+		return 2
+	default:
+		return 9
+	}
+}
+
+func sortedStrings(values []string) []string {
+	out := append([]string(nil), values...)
+	sort.Strings(out)
+	return out
 }
 
 func splitRenderedContextBlocks(blocks []contextprovider.Block) ([]string, []string) {
@@ -351,6 +392,7 @@ func (b *Builder) buildSkillsSection(enabledSkills []string, disableSkills bool,
 			sb.WriteString("\n")
 
 			supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
+			supplementary = sortedStrings(supplementary)
 			if len(supplementary) > 0 {
 				sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
 				for _, f := range supplementary {
@@ -397,6 +439,7 @@ func (b *Builder) buildSkillsSection(enabledSkills []string, disableSkills bool,
 			sb.WriteString("`\n")
 
 			supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
+			supplementary = sortedStrings(supplementary)
 			if len(supplementary) > 0 {
 				sb.WriteString("  Supporting files:\n")
 				for _, f := range supplementary {

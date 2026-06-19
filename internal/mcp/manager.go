@@ -711,6 +711,10 @@ func (m *Manager) refreshServerOfferingsWithContext(parentCtx context.Context, s
 			})
 		}
 	}
+	sortMCPBridges(bridges)
+	sortMCPToolInfos(toolInfos)
+	sortMCPResourceInfos(resourceInfos)
+	sortMCPPromptInfos(promptInfos)
 
 	// Atualiza registry: remove bridges antigos, registra novos
 	m.mu.Lock()
@@ -2006,6 +2010,7 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 		for _, t := range status.Tools {
 			srv.ToolNames = append(srv.ToolNames, t.FullName)
 		}
+		sort.Strings(srv.ToolNames)
 
 		// Resolve auth token se disponível (escopado pelo user vigente)
 		if m.credMgr != nil {
@@ -2032,5 +2037,49 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 
 		result = append(result, srv)
 	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].Slug != result[j].Slug {
+			return result[i].Slug < result[j].Slug
+		}
+		return result[i].Name < result[j].Name
+	})
 	return result
+}
+
+func sortMCPBridges(bridges []*MCPToolBridge) {
+	sort.SliceStable(bridges, func(i, j int) bool {
+		return bridges[i].Name() < bridges[j].Name()
+	})
+}
+
+func sortMCPToolInfos(infos []MCPToolInfo) {
+	sort.SliceStable(infos, func(i, j int) bool {
+		if infos[i].FullName != infos[j].FullName {
+			return infos[i].FullName < infos[j].FullName
+		}
+		return infos[i].Name < infos[j].Name
+	})
+}
+
+func sortMCPResourceInfos(infos []MCPResourceInfo) {
+	sort.SliceStable(infos, func(i, j int) bool {
+		if infos[i].URI != infos[j].URI {
+			return infos[i].URI < infos[j].URI
+		}
+		return infos[i].Name < infos[j].Name
+	})
+}
+
+func sortMCPPromptInfos(infos []MCPPromptInfo) {
+	sort.SliceStable(infos, func(i, j int) bool {
+		if infos[i].Name != infos[j].Name {
+			return infos[i].Name < infos[j].Name
+		}
+		return infos[i].Description < infos[j].Description
+	})
+	for i := range infos {
+		sort.SliceStable(infos[i].Arguments, func(a, b int) bool {
+			return infos[i].Arguments[a].Name < infos[i].Arguments[b].Name
+		})
+	}
 }
