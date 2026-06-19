@@ -30,6 +30,9 @@ func TestSaveAndFinish_DoneEvent_WithLoopStats(t *testing.T) {
 		LastUsage: llm.Usage{
 			PromptTokens:     1200,
 			CompletionTokens: 300,
+			CacheReadTokens:  450,
+			CacheWriteTokens: 80,
+			CacheMissTokens:  750,
 		},
 	}
 
@@ -67,6 +70,15 @@ func TestSaveAndFinish_DoneEvent_WithLoopStats(t *testing.T) {
 	if done.CompletionTokens != 300 {
 		t.Errorf("CompletionTokens=%d, esperava 300", done.CompletionTokens)
 	}
+	if done.CacheReadTokens != 450 {
+		t.Errorf("CacheReadTokens=%d, esperava 450", done.CacheReadTokens)
+	}
+	if done.CacheWriteTokens != 80 {
+		t.Errorf("CacheWriteTokens=%d, esperava 80", done.CacheWriteTokens)
+	}
+	if done.CacheMissTokens != 750 {
+		t.Errorf("CacheMissTokens=%d, esperava 750", done.CacheMissTokens)
+	}
 	if !done.HadToolCalls {
 		t.Error("HadToolCalls deveria ser true quando ToolCallCount > 0")
 	}
@@ -99,6 +111,9 @@ func TestSaveAndFinish_DoneEvent_NilLoopStats(t *testing.T) {
 		Usage: llm.Usage{
 			PromptTokens:     500,
 			CompletionTokens: 100,
+			CacheReadTokens:  200,
+			CacheWriteTokens: 50,
+			CacheMissTokens:  300,
 		},
 	}, "", nil, nil)
 
@@ -134,6 +149,15 @@ func TestSaveAndFinish_DoneEvent_NilLoopStats(t *testing.T) {
 	}
 	if done.CompletionTokens != 100 {
 		t.Errorf("CompletionTokens=%d, esperava 100 (fallback de result.Usage)", done.CompletionTokens)
+	}
+	if done.CacheReadTokens != 200 {
+		t.Errorf("CacheReadTokens=%d, esperava 200 (fallback de result.Usage)", done.CacheReadTokens)
+	}
+	if done.CacheWriteTokens != 50 {
+		t.Errorf("CacheWriteTokens=%d, esperava 50 (fallback de result.Usage)", done.CacheWriteTokens)
+	}
+	if done.CacheMissTokens != 300 {
+		t.Errorf("CacheMissTokens=%d, esperava 300 (fallback de result.Usage)", done.CacheMissTokens)
 	}
 }
 

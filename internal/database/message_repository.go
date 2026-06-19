@@ -40,6 +40,9 @@ type MessageOptions struct {
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
+	CacheReadTokens  int
+	CacheWriteTokens int
+	CacheMissTokens  int
 	Model            string
 	Source           string // Origem da mensagem: "wails", "telegram", "signal", etc.
 }
@@ -96,6 +99,9 @@ func (r *MessageRepository) CreateMessageWithContext(ctx context.Context, opts M
 		PromptTokens:     opts.PromptTokens,
 		CompletionTokens: opts.CompletionTokens,
 		TotalTokens:      opts.TotalTokens,
+		CacheReadTokens:  opts.CacheReadTokens,
+		CacheWriteTokens: opts.CacheWriteTokens,
+		CacheMissTokens:  opts.CacheMissTokens,
 		Model:            opts.Model,
 		Source:           opts.Source,
 	}
@@ -395,6 +401,26 @@ func (r *MessageRepository) UpdateMessageContentAndReasoningWithContext(ctx cont
 		"completion_tokens": completionTokens,
 		"total_tokens":      totalTokens,
 		"model":             model,
+	}).Error
+}
+
+// UpdateMessageCacheTokensWithContext atualiza métricas opcionais de prompt cache
+// de uma mensagem existente. Campos zero preservam compatibilidade com mensagens
+// antigas e providers que não reportam cache.
+func UpdateMessageCacheTokensWithContext(ctx context.Context, messageID string, cacheReadTokens, cacheWriteTokens, cacheMissTokens int) error {
+	return NewMessageRepository(db).UpdateMessageCacheTokensWithContext(ctx, messageID, cacheReadTokens, cacheWriteTokens, cacheMissTokens)
+}
+
+func (r *MessageRepository) UpdateMessageCacheTokensWithContext(ctx context.Context, messageID string, cacheReadTokens, cacheWriteTokens, cacheMissTokens int) error {
+	db := r.db
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
+	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
+		"cache_read_tokens":  cacheReadTokens,
+		"cache_write_tokens": cacheWriteTokens,
+		"cache_miss_tokens":  cacheMissTokens,
 	}).Error
 }
 

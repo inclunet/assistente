@@ -94,6 +94,13 @@ func FinalizeAssistantMessage(ctx context.Context, msgRepo MessageRepository, as
 		if err := msgRepo.UpdateMessageContentAndReasoning(ctx, assistantMessageID, opts.Content, opts.Reasoning, opts.PromptTokens, opts.CompletionTokens, opts.TotalTokens, opts.Model); err != nil {
 			return assistantMessageID, err
 		}
+		if updater, ok := msgRepo.(interface {
+			UpdateMessageCacheTokens(context.Context, string, int, int, int) error
+		}); ok {
+			if err := updater.UpdateMessageCacheTokens(ctx, assistantMessageID, opts.CacheReadTokens, opts.CacheWriteTokens, opts.CacheMissTokens); err != nil {
+				return assistantMessageID, err
+			}
+		}
 		return assistantMessageID, nil
 	}
 

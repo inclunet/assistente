@@ -233,11 +233,12 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 		}
 
 		if resp.UsageMetadata != nil {
-			lastUsage = Usage{
-				PromptTokens:     int(resp.UsageMetadata.PromptTokenCount),
-				CompletionTokens: int(resp.UsageMetadata.CandidatesTokenCount),
-				TotalTokens:      int(resp.UsageMetadata.TotalTokenCount),
-			}
+			lastUsage = UsageFromGemini(
+				int(resp.UsageMetadata.PromptTokenCount),
+				int(resp.UsageMetadata.CandidatesTokenCount),
+				int(resp.UsageMetadata.TotalTokenCount),
+				int(resp.UsageMetadata.CachedContentTokenCount),
+			)
 		}
 
 		if len(resp.Candidates) == 0 {

@@ -35,18 +35,24 @@ func (r *TokenRepository) GetConversationTokenStatsWithContext(ctx context.Conte
 		TotalPromptTokens     int
 		TotalCompletionTokens int
 		TotalTokens           int
+		TotalCacheReadTokens  int
+		TotalCacheWriteTokens int
+		TotalCacheMissTokens  int
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ?", conversationID).
-		Select("SUM(chat_messages.prompt_tokens) as total_prompt_tokens, SUM(chat_messages.completion_tokens) as total_completion_tokens, SUM(chat_messages.total_tokens) as total_tokens").
+		Select("SUM(chat_messages.prompt_tokens) as total_prompt_tokens, SUM(chat_messages.completion_tokens) as total_completion_tokens, SUM(chat_messages.total_tokens) as total_tokens, SUM(chat_messages.cache_read_tokens) as total_cache_read_tokens, SUM(chat_messages.cache_write_tokens) as total_cache_write_tokens, SUM(chat_messages.cache_miss_tokens) as total_cache_miss_tokens").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
 	}
 	return map[string]int{
-		"prompt_tokens":     result.TotalPromptTokens,
-		"completion_tokens": result.TotalCompletionTokens,
-		"total_tokens":      result.TotalTokens,
+		"prompt_tokens":      result.TotalPromptTokens,
+		"completion_tokens":  result.TotalCompletionTokens,
+		"total_tokens":       result.TotalTokens,
+		"cache_read_tokens":  result.TotalCacheReadTokens,
+		"cache_write_tokens": result.TotalCacheWriteTokens,
+		"cache_miss_tokens":  result.TotalCacheMissTokens,
 	}, nil
 }
 
@@ -68,17 +74,23 @@ func (r *TokenRepository) GetAllTokenStatsWithContext(ctx context.Context) (map[
 		TotalPromptTokens     int
 		TotalCompletionTokens int
 		TotalTokens           int
+		TotalCacheReadTokens  int
+		TotalCacheWriteTokens int
+		TotalCacheMissTokens  int
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
-		Select("SUM(chat_messages.prompt_tokens) as total_prompt_tokens, SUM(chat_messages.completion_tokens) as total_completion_tokens, SUM(chat_messages.total_tokens) as total_tokens").
+		Select("SUM(chat_messages.prompt_tokens) as total_prompt_tokens, SUM(chat_messages.completion_tokens) as total_completion_tokens, SUM(chat_messages.total_tokens) as total_tokens, SUM(chat_messages.cache_read_tokens) as total_cache_read_tokens, SUM(chat_messages.cache_write_tokens) as total_cache_write_tokens, SUM(chat_messages.cache_miss_tokens) as total_cache_miss_tokens").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
 	}
 	return map[string]int{
-		"prompt_tokens":     result.TotalPromptTokens,
-		"completion_tokens": result.TotalCompletionTokens,
-		"total_tokens":      result.TotalTokens,
+		"prompt_tokens":      result.TotalPromptTokens,
+		"completion_tokens":  result.TotalCompletionTokens,
+		"total_tokens":       result.TotalTokens,
+		"cache_read_tokens":  result.TotalCacheReadTokens,
+		"cache_write_tokens": result.TotalCacheWriteTokens,
+		"cache_miss_tokens":  result.TotalCacheMissTokens,
 	}, nil
 }
 
@@ -87,6 +99,9 @@ type TokenStats struct {
 	PromptTokens     int    `json:"prompt_tokens"`
 	CompletionTokens int    `json:"completion_tokens"`
 	TotalTokens      int    `json:"total_tokens"`
+	CacheReadTokens  int    `json:"cache_read_tokens"`
+	CacheWriteTokens int    `json:"cache_write_tokens"`
+	CacheMissTokens  int    `json:"cache_miss_tokens"`
 	MessageCount     int    `json:"message_count"`
 	Model            string `json:"model,omitempty"`
 }
@@ -106,6 +121,9 @@ type DetailedTokenStats struct {
 	PromptTokens     int    `json:"prompt_tokens"`
 	CompletionTokens int    `json:"completion_tokens"`
 	TotalTokens      int    `json:"total_tokens"`
+	CacheReadTokens  int    `json:"cache_read_tokens"`
+	CacheWriteTokens int    `json:"cache_write_tokens"`
+	CacheMissTokens  int    `json:"cache_miss_tokens"`
 	MessageCount     int    `json:"message_count"`
 	Model            string `json:"model,omitempty"`
 
@@ -147,11 +165,14 @@ func (r *TokenRepository) GetTurnTokenStatsWithContext(ctx context.Context, conv
 		TotalPromptTokens     int
 		TotalCompletionTokens int
 		TotalTokens           int
+		TotalCacheReadTokens  int
+		TotalCacheWriteTokens int
+		TotalCacheMissTokens  int
 		MessageCount          int
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id = ?", conversationID, turnID).
-		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens, COUNT(*) as message_count").
+		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens, SUM(cache_read_tokens) as total_cache_read_tokens, SUM(cache_write_tokens) as total_cache_write_tokens, SUM(cache_miss_tokens) as total_cache_miss_tokens, COUNT(*) as message_count").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -160,6 +181,9 @@ func (r *TokenRepository) GetTurnTokenStatsWithContext(ctx context.Context, conv
 		PromptTokens:     result.TotalPromptTokens,
 		CompletionTokens: result.TotalCompletionTokens,
 		TotalTokens:      result.TotalTokens,
+		CacheReadTokens:  result.TotalCacheReadTokens,
+		CacheWriteTokens: result.TotalCacheWriteTokens,
+		CacheMissTokens:  result.TotalCacheMissTokens,
 		MessageCount:     result.MessageCount,
 	}, nil
 }
@@ -182,11 +206,14 @@ func (r *TokenRepository) GetConversationDetailedTokenStatsWithContext(ctx conte
 		TotalPromptTokens     int
 		TotalCompletionTokens int
 		TotalTokens           int
+		TotalCacheReadTokens  int
+		TotalCacheWriteTokens int
+		TotalCacheMissTokens  int
 		MessageCount          int
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ?", conversationID).
-		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens, COUNT(*) as message_count").
+		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens, SUM(cache_read_tokens) as total_cache_read_tokens, SUM(cache_write_tokens) as total_cache_write_tokens, SUM(cache_miss_tokens) as total_cache_miss_tokens, COUNT(*) as message_count").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -205,6 +232,9 @@ func (r *TokenRepository) GetConversationDetailedTokenStatsWithContext(ctx conte
 		PromptTokens:     result.TotalPromptTokens,
 		CompletionTokens: result.TotalCompletionTokens,
 		TotalTokens:      result.TotalTokens,
+		CacheReadTokens:  result.TotalCacheReadTokens,
+		CacheWriteTokens: result.TotalCacheWriteTokens,
+		CacheMissTokens:  result.TotalCacheMissTokens,
 		MessageCount:     result.MessageCount,
 		Model:            mostUsedModel,
 	}, nil
@@ -308,6 +338,9 @@ func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, 
 		PromptTokens:                basicStats.PromptTokens,
 		CompletionTokens:            basicStats.CompletionTokens,
 		TotalTokens:                 basicStats.TotalTokens,
+		CacheReadTokens:             basicStats.CacheReadTokens,
+		CacheWriteTokens:            basicStats.CacheWriteTokens,
+		CacheMissTokens:             basicStats.CacheMissTokens,
 		MessageCount:                basicStats.MessageCount,
 		Model:                       basicStats.Model,
 		ContextTokens:               contextTokens,

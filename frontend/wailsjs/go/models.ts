@@ -704,6 +704,9 @@ export namespace chat {
 	    promptTokens?: number;
 	    completionTokens?: number;
 	    totalTokens?: number;
+	    cacheReadTokens?: number;
+	    cacheWriteTokens?: number;
+	    cacheMissTokens?: number;
 	    model?: string;
 	    source?: string;
 	    // Go type: time
@@ -732,6 +735,9 @@ export namespace chat {
 	        this.promptTokens = source["promptTokens"];
 	        this.completionTokens = source["completionTokens"];
 	        this.totalTokens = source["totalTokens"];
+	        this.cacheReadTokens = source["cacheReadTokens"];
+	        this.cacheWriteTokens = source["cacheWriteTokens"];
+	        this.cacheMissTokens = source["cacheMissTokens"];
 	        this.model = source["model"];
 	        this.source = source["source"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
@@ -928,6 +934,9 @@ export namespace chat {
 	    promptTokens: number;
 	    completionTokens: number;
 	    totalTokens: number;
+	    cacheReadTokens: number;
+	    cacheWriteTokens: number;
+	    cacheMissTokens: number;
 	    messageCount: number;
 	    model: string;
 	    mostUsedModel: string;
@@ -955,6 +964,9 @@ export namespace chat {
 	        this.promptTokens = source["promptTokens"];
 	        this.completionTokens = source["completionTokens"];
 	        this.totalTokens = source["totalTokens"];
+	        this.cacheReadTokens = source["cacheReadTokens"];
+	        this.cacheWriteTokens = source["cacheWriteTokens"];
+	        this.cacheMissTokens = source["cacheMissTokens"];
 	        this.messageCount = source["messageCount"];
 	        this.model = source["model"];
 	        this.mostUsedModel = source["mostUsedModel"];
@@ -1497,6 +1509,9 @@ export namespace database {
 	    promptTokens?: number;
 	    completionTokens?: number;
 	    totalTokens?: number;
+	    cacheReadTokens?: number;
+	    cacheWriteTokens?: number;
+	    cacheMissTokens?: number;
 	    model?: string;
 	    source?: string;
 	
@@ -1523,6 +1538,9 @@ export namespace database {
 	        this.promptTokens = source["promptTokens"];
 	        this.completionTokens = source["completionTokens"];
 	        this.totalTokens = source["totalTokens"];
+	        this.cacheReadTokens = source["cacheReadTokens"];
+	        this.cacheWriteTokens = source["cacheWriteTokens"];
+	        this.cacheMissTokens = source["cacheMissTokens"];
 	        this.model = source["model"];
 	        this.source = source["source"];
 	    }

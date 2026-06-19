@@ -69,6 +69,9 @@ type EnrichedMessage struct {
 	PromptTokens     int       `json:"promptTokens,omitempty"`
 	CompletionTokens int       `json:"completionTokens,omitempty"`
 	TotalTokens      int       `json:"totalTokens,omitempty"`
+	CacheReadTokens  int       `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens int       `json:"cacheWriteTokens,omitempty"`
+	CacheMissTokens  int       `json:"cacheMissTokens,omitempty"`
 	Model            string    `json:"model,omitempty"`
 	Source           string    `json:"source,omitempty"`
 	CreatedAt        time.Time `json:"createdAt"`
