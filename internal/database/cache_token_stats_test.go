@@ -80,4 +80,15 @@ func TestUpdateMessageCacheTokensWithContext(t *testing.T) {
 	if retrieved.CacheReadTokens != 10 || retrieved.CacheWriteTokens != 20 || retrieved.CacheMissTokens != 30 {
 		t.Fatalf("cache tokens not updated: read=%d write=%d miss=%d", retrieved.CacheReadTokens, retrieved.CacheWriteTokens, retrieved.CacheMissTokens)
 	}
+
+	if err := UpdateMessageCacheTokensWithContext(testCtx(), msg.ID, 0, 0, 0); err != nil {
+		t.Fatalf("UpdateMessageCacheTokensWithContext zeros: %v", err)
+	}
+	retrieved, err = GetMessageWithContext(testCtx(), msg.ID)
+	if err != nil {
+		t.Fatalf("GetMessageWithContext after zero update: %v", err)
+	}
+	if retrieved.CacheReadTokens != 10 || retrieved.CacheWriteTokens != 20 || retrieved.CacheMissTokens != 30 {
+		t.Fatalf("zero update should preserve cache tokens: read=%d write=%d miss=%d", retrieved.CacheReadTokens, retrieved.CacheWriteTokens, retrieved.CacheMissTokens)
+	}
 }

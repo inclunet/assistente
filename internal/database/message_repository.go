@@ -412,6 +412,9 @@ func UpdateMessageCacheTokensWithContext(ctx context.Context, messageID string, 
 }
 
 func (r *MessageRepository) UpdateMessageCacheTokensWithContext(ctx context.Context, messageID string, cacheReadTokens, cacheWriteTokens, cacheMissTokens int) error {
+	if cacheReadTokens == 0 && cacheWriteTokens == 0 && cacheMissTokens == 0 {
+		return nil
+	}
 	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
