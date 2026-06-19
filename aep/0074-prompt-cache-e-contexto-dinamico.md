@@ -14,7 +14,7 @@ Esta AEP define:
 
 - normalização simples das métricas de cache reportadas pelos providers;
 - layout cache-friendly sempre ativo para system prompt, ferramentas, resumo, histórico e contexto dinâmico;
-- configuração de cache controlada pelo perfil, não inferida magicamente pelo provider;
+- controles ativos de cache controlados pelo perfil, não inferidos magicamente pelo provider;
 - uso dos controles de histórico e orçamento que já existem no código;
 - uma sequência enxuta de PRs para implementar cache sem refazer o subsistema de contexto.
 
@@ -91,7 +91,7 @@ Isso não é uma feature toggle. É uma simplificação da arquitetura:
 2. contexto de conversa depois;
 3. contexto dinâmico e turno atual no fim.
 
-O perfil controla se o runtime envia hints, usa cache control explícito, coleta diagnósticos extras ou sobrescreve budgets. O perfil não deve controlar se a request é montada de forma organizada.
+O perfil controla se o runtime envia hints ou usa cache control explícito. Diagnósticos de cache devem ser coletados sempre que disponíveis. Budgets e ativação de Context Providers pertencem à AEP-0075, não a esta AEP. O perfil não deve controlar se a request é montada de forma organizada.
 
 ### D2. A unidade cacheável é a request inteira
 
@@ -140,7 +140,7 @@ Política:
 - `workspace` e `surface` são dinâmicos;
 - `tasklist` é dinâmico e respeita budget;
 - providers devem produzir blocos pequenos, ordenados e com budget;
-- budgets default são parte do runtime, e overrides podem vir do perfil.
+- budgets default são parte do runtime, e overrides por perfil são definidos pela configuração de Context Providers da AEP-0075.
 
 ### D5. Histórico atual é preservado
 
@@ -188,7 +188,7 @@ Mapeamento:
 
 O custo estimado deve usar tokens billable por classe quando o provider reportar os dados. Quando não reportar, o cálculo antigo permanece como fallback.
 
-### D8. Controles ativos partem do perfil
+### D8. Controles ativos de cache partem do perfil
 
 Provider informa capacidade técnica; perfil decide política.
 
@@ -200,22 +200,22 @@ Configuração conceitual no perfil:
     "prompt_cache": {
       "mode": "off | observe | auto | explicit",
       "provider_hints": false,
-      "explicit_cache_control": false,
-      "context_budgets": {
-        "memory": 1200,
-        "workspace": 500,
-        "tasklist": 4000
-      }
+      "explicit_cache_control": false
     }
   }
 }
 ```
 
+Utilidade dos campos:
+
+- `mode`: define a postura do perfil em relação a mecanismos ativos de cache. `off` desliga hints e cache control explícito, mas não muda o layout cache-friendly nem impede coleta de métricas reportadas pelo provider. `observe` coleta métricas sem enviar hints. `auto` permite hints seguros quando provider suporta. `explicit` permite também cache control explícito em providers suportados.
+- `provider_hints`: controla se o runtime pode enviar hints simples e semanticamente neutros, como `prompt_cache_key` ou headers equivalentes. Esses hints ajudam providers/gateways a associar chamadas consecutivas ao mesmo prefixo/conversa, mas não devem conter conteúdo sensível nem mudar a resposta esperada.
+- `explicit_cache_control`: controla mecanismos que alteram o payload em blocos, como `cache_control` da Anthropic. É separado de `provider_hints` porque é mais provider-specific e tem maior risco de incompatibilidade em gateways.
+
 Regras:
 
-- `observe`: coleta métricas quando o provider reporta, sem enviar hints;
-- `auto`: permite hints seguros quando provider suporta;
-- `explicit`: permite cache control explícito em providers suportados;
+- diagnósticos e métricas de cache reportadas pelo provider são coletados sempre; não há configuração de perfil para "não diagnosticar";
+- configurações de Context Providers, incluindo `enabled`, budgets e settings próprios, ficam na AEP-0075 e não dentro de `prompt_cache`;
 - provider sem suporte deve ignorar/falhar de forma auditável, sem alterar a resposta;
 - chaves de cache não podem conter conteúdo de mensagens, email, nomes de usuário, tickets ou secrets.
 
@@ -292,21 +292,22 @@ Escopo:
 - `prompt_cache.mode`;
 - `prompt_cache.provider_hints`;
 - `prompt_cache.explicit_cache_control`;
-- `prompt_cache.context_budgets`;
 - validação;
 - defaults conservadores;
 - tipos Wails/frontend quando necessário.
 
 O layout cache-friendly continua sempre ativo.
 
-### PR 7 — Budgets de Context Providers via perfil
+### PR 7 — Consumir configuração de Context Providers
 
-Usar os overrides do perfil para preencher `contextprovider.BuildRequest.ProviderBudgets`.
+Usar a configuração de Context Providers definida na AEP-0075 para preencher `contextprovider.BuildRequest`.
 
 Escopo:
 
 - defaults por provider;
 - overrides por perfil;
+- providers habilitados/desabilitados por perfil;
+- settings próprios de cada provider;
 - aplicar sem substituir `ContextWindow`, `MaxContextMessages` ou `MinContextMessages`.
 
 ### PR 8 — Cache hints controlados pelo perfil
@@ -358,6 +359,7 @@ Escopo:
 - Métricas são persistidas e aparecem nas estatísticas.
 - System prompt é montado com conteúdo estável antes de conteúdo dinâmico.
 - Controles de contexto existentes continuam funcionando: `ContextWindow`, `MaxContextMessages`, `MinContextMessages`, resumo e `summary_up_to_message_id`.
-- Provider hints e cache control dependem do perfil.
+- Provider hints e cache control dependem da configuração de cache do perfil.
+- Ativação, budgets e settings de Context Providers são configurados pela AEP-0075.
 - Nenhuma chave de cache contém conteúdo sensível.
 - Pelo menos um provider compatível mostra cache read/hit em uso real ou manual.
