@@ -65,14 +65,23 @@ export function ProfileContextProvidersSection({
   }, [config, onChange]);
 
   const handleSelectionChange = useCallback((newSelectedIds: Set<string | number>) => {
+    let next: ContextProviderConfigMap | null = null;
+
     for (const row of rows) {
       const enabled = newSelectedIds.has(row.id);
       if (enabled !== row.effectiveEnabled) {
-        updateProvider(row.name, { enabled });
-        return;
+        const previous = (next ?? config)[row.name] ?? {};
+        next = {
+          ...(next ?? config),
+          [row.name]: { ...previous, enabled },
+        };
       }
     }
-  }, [rows, updateProvider]);
+
+    if (next) {
+      onChange(next);
+    }
+  }, [config, onChange, rows]);
 
   const handleBudgetChange = useCallback((row: ProviderRow, valueText: string) => {
     const parsed = Number.parseInt(valueText, 10);
@@ -146,6 +155,8 @@ export function ProfileContextProvidersSection({
               value={row.budgetOverride > 0 ? row.budgetOverride : ''}
               placeholder={String(row.effectiveBudget)}
               onChange={(event) => handleBudgetChange(row, event.target.value)}
+              onClick={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
               disabled={disabled}
               aria-describedby="context-providers-budget-hint"
             />
