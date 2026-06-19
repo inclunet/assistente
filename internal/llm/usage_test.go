@@ -26,6 +26,25 @@ func TestUsageFromOpenAICompletion_DeepSeekFields(t *testing.T) {
 	}
 }
 
+func TestUsageFromOpenAICompletion_NestedCachedTokens(t *testing.T) {
+	raw := `{"prompt_tokens_details":{"cached_tokens":400}}`
+	usage := UsageFromOpenAICompletion(1000, 120, 1120, 0, raw)
+	if usage.CacheReadTokens != 400 {
+		t.Fatalf("CacheReadTokens=%d, want 400", usage.CacheReadTokens)
+	}
+	if usage.CacheMissTokens != 600 {
+		t.Fatalf("CacheMissTokens=%d, want 600", usage.CacheMissTokens)
+	}
+}
+
+func TestUsageFromOpenAICompletion_TopLevelCachedTokensWinsOverNestedShortName(t *testing.T) {
+	raw := `{"cached_tokens":100,"prompt_tokens_details":{"cached_tokens":400}}`
+	usage := UsageFromOpenAICompletion(1000, 120, 1120, 0, raw)
+	if usage.CacheReadTokens != 100 {
+		t.Fatalf("CacheReadTokens=%d, want 100", usage.CacheReadTokens)
+	}
+}
+
 func TestUsageFromAnthropic_CacheTokensArePartOfInput(t *testing.T) {
 	usage := UsageFromAnthropic(700, 90, 200, 300)
 	if usage.PromptTokens != 1200 {

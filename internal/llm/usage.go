@@ -82,6 +82,10 @@ func applyOpenAICacheUsage(usage *Usage, cachedTokens int, rawJSON string) {
 	readTokens := firstPositive(cachedTokens,
 		fields["prompt_cache_hit_tokens"],
 		fields["cached_tokens"],
+		fields["prompt_tokens_details.cached_tokens"],
+		fields["input_tokens_details.cached_tokens"],
+		fields["usage.prompt_tokens_details.cached_tokens"],
+		fields["usage.input_tokens_details.cached_tokens"],
 		fields["cache_read_tokens"],
 		fields["cache_read_input_tokens"],
 	)
@@ -124,7 +128,9 @@ func flattenUsageFields(prefix string, in map[string]any, out map[string]int) {
 		switch v := value.(type) {
 		case float64:
 			if v > 0 {
-				out[key] = int(v)
+				if prefix == "" {
+					out[key] = int(v)
+				}
 				out[fullKey] = int(v)
 			}
 		case map[string]any:

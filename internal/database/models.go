@@ -130,20 +130,20 @@ type ChatMessage struct {
 	TurnID           *string `json:"turnId,omitempty" gorm:"index"`   // Agrupa mensagens de um turno (aponta para user message)
 	Role             string  `json:"role"`                            // user, assistant, tool, system
 	Content          string  `json:"content"`
-	Reasoning        string  `json:"reasoning,omitempty"`              // Reasoning/thinking do modelo (DeepSeek, Claude, o1, etc)
-	Media            string  `json:"media,omitempty"`                  // JSON com mídias (imagens, áudio, etc) em base64
-	Audio            string  `json:"audio,omitempty" gorm:"type:text"` // Áudio da mensagem em base64 (recebido ou gerado via TTS)
-	AudioMimeType    string  `json:"audioMimeType,omitempty"`          // MIME do áudio: "audio/mpeg", "audio/aac", etc.
-	ToolCalls        string  `json:"toolCalls,omitempty"`              // JSON: [{"id":"call_x","type":"function","function":{...}}]
-	ToolCallID       string  `json:"toolCallId,omitempty"`             // Para role="tool": ID da chamada que este resultado responde
-	PromptTokens     int     `json:"promptTokens,omitempty"`           // Tokens de entrada
-	CompletionTokens int     `json:"completionTokens,omitempty"`       // Tokens de saída
-	TotalTokens      int     `json:"totalTokens,omitempty"`            // Total de tokens
-	CacheReadTokens  int     `json:"cacheReadTokens,omitempty"`        // Tokens de prompt lidos do cache
-	CacheWriteTokens int     `json:"cacheWriteTokens,omitempty"`       // Tokens gravados/criados no cache
-	CacheMissTokens  int     `json:"cacheMissTokens,omitempty"`        // Tokens de prompt não atendidos pelo cache
-	Model            string  `json:"model,omitempty"`                  // Modelo usado
-	Source           string  `json:"source,omitempty"`                 // Origem da mensagem: "wails", "telegram", "signal", etc.
+	Reasoning        string  `json:"reasoning,omitempty"`                         // Reasoning/thinking do modelo (DeepSeek, Claude, o1, etc)
+	Media            string  `json:"media,omitempty"`                             // JSON com mídias (imagens, áudio, etc) em base64
+	Audio            string  `json:"audio,omitempty" gorm:"type:text"`            // Áudio da mensagem em base64 (recebido ou gerado via TTS)
+	AudioMimeType    string  `json:"audioMimeType,omitempty"`                     // MIME do áudio: "audio/mpeg", "audio/aac", etc.
+	ToolCalls        string  `json:"toolCalls,omitempty"`                         // JSON: [{"id":"call_x","type":"function","function":{...}}]
+	ToolCallID       string  `json:"toolCallId,omitempty"`                        // Para role="tool": ID da chamada que este resultado responde
+	PromptTokens     int     `json:"promptTokens,omitempty"`                      // Tokens de entrada
+	CompletionTokens int     `json:"completionTokens,omitempty"`                  // Tokens de saída
+	TotalTokens      int     `json:"totalTokens,omitempty"`                       // Total de tokens
+	CacheReadTokens  int     `json:"cacheReadTokens,omitempty" gorm:"default:0"`  // Tokens de prompt lidos do cache
+	CacheWriteTokens int     `json:"cacheWriteTokens,omitempty" gorm:"default:0"` // Tokens gravados/criados no cache
+	CacheMissTokens  int     `json:"cacheMissTokens,omitempty" gorm:"default:0"`  // Tokens de prompt não atendidos pelo cache
+	Model            string  `json:"model,omitempty"`                             // Modelo usado
+	Source           string  `json:"source,omitempty"`                            // Origem da mensagem: "wails", "telegram", "signal", etc.
 }
 
 // ==================== Context Providers / Memory ====================
