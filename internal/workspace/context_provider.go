@@ -8,6 +8,11 @@ import (
 	"assistente/internal/contextprovider"
 )
 
+const defaultPromptBudget = 500
+const workspaceContextPrefix = "<workspace_context>\n"
+const workspaceContextSuffix = "\n</workspace_context>"
+const workspaceContextTruncationNotice = "\n... Additional workspace context omitted due to context budget."
+
 type ContextProvider struct{}
 
 func NewContextProvider() *ContextProvider {
@@ -15,6 +20,17 @@ func NewContextProvider() *ContextProvider {
 }
 
 func (p *ContextProvider) Name() string { return "workspace" }
+
+func (p *ContextProvider) Metadata() contextprovider.ProviderMetadata {
+	return contextprovider.ProviderMetadata{
+		Name:             p.Name(),
+		DisplayName:      "Workspace",
+		Description:      "Current workspace, tabs, active surface, and editor state for this turn.",
+		DefaultEnabled:   true,
+		DefaultBudget:    defaultPromptBudget,
+		SupportsSettings: false,
+	}
+}
 
 func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
 	blocks := []contextprovider.Block{{
@@ -24,7 +40,7 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 		Priority:   10,
 		Content:    workspaceInstructionsBlock(),
 	}}
-	content := buildContextBlock(req)
+	content := buildContextBlock(req, req.Budget(p.Name(), defaultPromptBudget))
 	if content == "" {
 		return blocks, nil
 	}
@@ -46,12 +62,15 @@ When a deep link is useful, present it directly instead of inventing another nav
 </workspace_instructions>`
 }
 
-func buildContextBlock(req contextprovider.BuildRequest) string {
+func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string {
 	if req.WorkspaceName == "" && req.Surface == nil && req.TabCount == 0 {
 		return ""
 	}
+	if budgetChars <= 0 {
+		budgetChars = defaultPromptBudget
+	}
 	var sb strings.Builder
-	sb.WriteString("<workspace_context>\n")
+	sb.WriteString(workspaceContextPrefix)
 	sb.WriteString("Current workspace and active surface context. Treat this as dynamic state, not stable instructions.\n")
 	if req.WorkspaceName != "" {
 		sb.WriteString("- workspace: ")
@@ -107,8 +126,29 @@ func buildContextBlock(req contextprovider.BuildRequest) string {
 		writeSurfaceValue(&sb, "history_preview", req.Surface.Context, "historyPreview")
 		writeSurfaceValue(&sb, "tasks_preview", req.Surface.Context, "tasksPreview")
 	}
-	sb.WriteString("</workspace_context>")
-	return sb.String()
+	return trimContextBlock(sb.String(), budgetChars)
+}
+
+func trimContextBlock(content string, budgetChars int) string {
+	content = strings.TrimRight(content, "\n")
+	if runeLen(content)+runeLen(workspaceContextSuffix) <= budgetChars {
+		return content + workspaceContextSuffix
+	}
+	if runeLen(workspaceContextTruncationNotice)+runeLen(workspaceContextSuffix) >= budgetChars {
+		return ""
+	}
+	contentBudget := budgetChars - runeLen(workspaceContextTruncationNotice) - runeLen(workspaceContextSuffix)
+	if contentBudget <= runeLen(workspaceContextPrefix) {
+		return ""
+	}
+	runes := []rune(content)
+	if len(runes) > contentBudget {
+		content = strings.TrimSpace(string(runes[:contentBudget]))
+	}
+	if content == "" {
+		return ""
+	}
+	return content + workspaceContextTruncationNotice + workspaceContextSuffix
 }
 
 func deepLinkForTab(tabType, contentID string) string {
@@ -148,4 +188,12 @@ func stringFromMap(values map[string]any, key string) string {
 		return strings.TrimSpace(raw)
 	}
 	return ""
+}
+
+func runeLen(value string) int {
+	count := 0
+	for range value {
+		count++
+	}
+	return count
 }

@@ -611,7 +611,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 
 	var messages []llm.Message
 	if i.promptBuilder != nil {
-		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary, i.buildDynamicContext(ctx, skillTplData, req.UserContent, linkedTaskLists, taskListContextEnabled))
+		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary, i.buildDynamicContext(ctx, skillTplData, req.UserContent, linkedTaskLists, taskListContextEnabled, req.ActiveProfile))
 	} else {
 		messages = req.Messages
 	}
@@ -722,10 +722,11 @@ func (i *Interactor) ValidateSkillInvocation(activeProfile *profiles.Profile, us
 	return nil
 }
 
-func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string, linkedTaskLists []contextprovider.LinkedTaskList, taskListContextEnabled bool) []contextprovider.Block {
+func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string, linkedTaskLists []contextprovider.LinkedTaskList, taskListContextEnabled bool, activeProfile *profiles.Profile) []contextprovider.Block {
 	if i.contextProviders == nil {
 		return nil
 	}
+	providerBudgets, providerEnabled, providerSettings := resolveContextProviderProfileConfig(i.contextProviders.Metadata(), activeProfile)
 	req := contextprovider.BuildRequest{
 		ConversationID:         data.ConversationID,
 		WorkspaceID:            data.WorkspaceID,
@@ -737,6 +738,9 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 		ActiveTabType:          data.ActiveTabType,
 		Tabs:                   make([]contextprovider.Tab, 0, len(data.Tabs)),
 		CurrentUserText:        currentUserText,
+		ProviderBudgets:        providerBudgets,
+		ProviderEnabled:        providerEnabled,
+		ProviderSettings:       providerSettings,
 		TaskListContextEnabled: taskListContextEnabled,
 		LinkedTaskLists:        linkedTaskLists,
 	}
@@ -762,4 +766,35 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 		return nil
 	}
 	return blocks
+}
+
+func resolveContextProviderProfileConfig(metadata []contextprovider.ProviderMetadata, activeProfile *profiles.Profile) (map[string]int, map[string]bool, map[string]map[string]any) {
+	budgets := make(map[string]int, len(metadata))
+	enabled := make(map[string]bool, len(metadata))
+	settings := make(map[string]map[string]any)
+	var overrides map[string]profiles.ContextProviderProfileConfig
+	if activeProfile != nil {
+		overrides = activeProfile.ContextProviders
+	}
+	for _, item := range metadata {
+		if strings.TrimSpace(item.Name) == "" {
+			continue
+		}
+		budget := item.DefaultBudget
+		isEnabled := item.DefaultEnabled
+		if cfg, ok := overrides[item.Name]; ok {
+			if cfg.Enabled != nil {
+				isEnabled = *cfg.Enabled
+			}
+			if cfg.Budget > 0 {
+				budget = cfg.Budget
+			}
+			if len(cfg.Settings) > 0 {
+				settings[item.Name] = cfg.Settings
+			}
+		}
+		budgets[item.Name] = budget
+		enabled[item.Name] = isEnabled
+	}
+	return budgets, enabled, settings
 }

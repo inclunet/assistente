@@ -13,6 +13,9 @@ func TestContextProviderBuildsFastDynamicBlock(t *testing.T) {
 	blocks, err := provider.Build(context.Background(), contextprovider.BuildRequest{
 		WorkspaceName: "Workspace <Atual>",
 		TabCount:      3,
+		ProviderBudgets: map[string]int{
+			"workspace": 2000,
+		},
 		Tabs: []contextprovider.Tab{
 			{Title: "Chat", Type: "chat", ContentID: "conv-1"},
 			{Title: "Tarefas", Type: "tasklist", ContentID: "tl-1", IsActive: true},
@@ -60,6 +63,9 @@ func TestContextProviderBuildsFastDynamicBlock(t *testing.T) {
 			t.Fatalf("workspace block missing %q: %s", needle, block.Content)
 		}
 	}
+	if strings.Contains(block.Content, "\n\n</workspace_context>") {
+		t.Fatalf("workspace block has extra blank line before closing tag: %q", block.Content)
+	}
 }
 
 func TestContextProviderReturnsNoBlockWithoutWorkspaceState(t *testing.T) {
@@ -69,5 +75,62 @@ func TestContextProviderReturnsNoBlockWithoutWorkspaceState(t *testing.T) {
 	}
 	if len(blocks) != 1 || blocks[0].Name != "workspace_instructions" {
 		t.Fatalf("expected only stable instructions block, got %+v", blocks)
+	}
+}
+
+func TestContextProviderRespectsProfileBudget(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace",
+		ProviderBudgets: map[string]int{
+			"workspace": 160,
+		},
+		Surface: &contextprovider.Surface{
+			Type: "editor",
+			Context: map[string]any{
+				"selectedText": strings.Repeat("linha com conteúdo ", 20),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
+	}
+	if got := len([]rune(blocks[1].Content)); got > 160 {
+		t.Fatalf("workspace block length = %d, want <= 160: %q", got, blocks[1].Content)
+	}
+	if !strings.Contains(blocks[1].Content, "omitted due to context budget") {
+		t.Fatalf("expected truncation notice, got %q", blocks[1].Content)
+	}
+}
+
+func TestContextProviderOmitsBlockWhenBudgetCannotFitOpeningTag(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace",
+		ProviderBudgets: map[string]int{
+			"workspace": runeLen(workspaceContextTruncationNotice) + runeLen(workspaceContextSuffix) + 5,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want only stable instructions block", len(blocks))
+	}
+}
+
+func TestContextProviderOmitsBlockWhenBudgetFitsOnlyOpeningTagAndNotice(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace",
+		ProviderBudgets: map[string]int{
+			"workspace": runeLen(workspaceContextPrefix) + runeLen(workspaceContextTruncationNotice) + runeLen(workspaceContextSuffix),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want only stable instructions block", len(blocks))
 	}
 }

@@ -40,6 +40,10 @@ vi.mock('./ProfileSkillsSection', () => ({
   ProfileSkillsSection: () => <div data-testid="skills-section">Skills</div>,
 }));
 
+vi.mock('./ProfileContextProvidersSection', () => ({
+  ProfileContextProvidersSection: () => <div data-testid="context-providers-section">Context Providers</div>,
+}));
+
 vi.mock('./ProfileToolsSection', () => ({
   ProfileToolsSection: () => <div data-testid="tools-section">Tools</div>,
 }));
@@ -83,6 +87,7 @@ function renderTabs(overrides = {}) {
     editingProfile: { ...defaultProfile, ...overrides } as never,
     availableTools: [],
     availableSkills: [],
+    availableContextProviders: [],
     availableAllowlists: [],
     updateField: vi.fn(),
     updateFields: vi.fn(),
@@ -93,10 +98,10 @@ function renderTabs(overrides = {}) {
 /* ── Testes ─────────────────────────────────────────────── */
 
 describe('ProfileEditorTabs', () => {
-  it('renderiza 5 abas', () => {
+  it('renderiza 6 abas', () => {
     renderTabs();
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(5);
+    expect(tabs).toHaveLength(6);
   });
 
   it('mostra aba Geral por padrão', () => {
@@ -136,6 +141,16 @@ describe('ProfileEditorTabs', () => {
     expect(screen.getByTestId('tools-section')).toBeInTheDocument();
   });
 
+  it('troca para aba Context Providers ao clicar', async () => {
+    const user = userEvent.setup();
+    renderTabs();
+
+    const tab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'contextProviders');
+    await user.click(tab!);
+
+    expect(screen.getByTestId('context-providers-section')).toBeInTheDocument();
+  });
+
   it('troca para aba Audio ao clicar', async () => {
     const user = userEvent.setup();
     renderTabs();
@@ -161,7 +176,7 @@ describe('ProfileEditorTabs', () => {
     const container = screen.getAllByRole('tab')[0].closest('[data-tab-scope]')!;
     fireEvent.keyDown(container, { key: 'PageUp', ctrlKey: true });
 
-    // Wrap: do general (0) vai para audio (4)
+    // Wrap: do general (0) vai para audio (5)
     expect(screen.getByTestId('audio-tab')).toBeInTheDocument();
   });
 

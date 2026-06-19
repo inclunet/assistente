@@ -3069,6 +3069,35 @@ export namespace llm {
 
 }
 
+export namespace contextprovider {
+	
+	export class ProviderMetadata {
+	    name: string;
+	    display_name: string;
+	    description: string;
+	    default_enabled: boolean;
+	    default_budget: number;
+	    supports_settings: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderMetadata(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.display_name = source["display_name"];
+	        this.description = source["description"];
+	        this.default_enabled = source["default_enabled"];
+	        this.default_budget = source["default_budget"];
+	        this.supports_settings = source["supports_settings"];
+	    }
+	}
+	
+	
+
+}
+
 export namespace mcp {
 	
 	export class MCPPromptArgument {
@@ -3843,6 +3872,22 @@ export namespace profiles {
 	        this.streaming_recovery_show_continue = source["streaming_recovery_show_continue"];
 	    }
 	}
+	export class ContextProviderProfileConfig {
+	    enabled?: boolean;
+	    budget?: number;
+	    settings?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContextProviderProfileConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.budget = source["budget"];
+	        this.settings = source["settings"];
+	    }
+	}
 	export class TriggerConfig {
 	    type: string;
 	    enabled: boolean;
@@ -4011,6 +4056,7 @@ export namespace profiles {
 	    voice: VoiceConfig;
 	    input: InputConfig;
 	    channels?: ChannelsConfig;
+	    context_providers?: Record<string, ContextProviderProfileConfig>;
 	    media_support?: MediaSupport;
 	
 	    static createFrom(source: any = {}) {
@@ -4028,6 +4074,7 @@ export namespace profiles {
 	        this.voice = this.convertValues(source["voice"], VoiceConfig);
 	        this.input = this.convertValues(source["input"], InputConfig);
 	        this.channels = this.convertValues(source["channels"], ChannelsConfig);
+	        this.context_providers = this.convertValues(source["context_providers"], ContextProviderProfileConfig, true);
 	        this.media_support = this.convertValues(source["media_support"], MediaSupport);
 	    }
 	

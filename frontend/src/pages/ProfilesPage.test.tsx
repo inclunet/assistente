@@ -100,6 +100,7 @@ vi.mock('../hooks/useProfileDependencies', () => ({
     tools: [],
     skills: [],
     allowlists: [],
+    contextProviders: [],
     loading: false,
   }),
 }));

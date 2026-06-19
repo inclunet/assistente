@@ -1,13 +1,18 @@
 import { useState, useEffect } from 'react';
 import { EventsOn } from '@wailsjs/runtime/runtime';
-import { GetAvailableTools, GetAllowlists, GetSkills } from '@wailsjs/go/app/App';
-import { controllers, allowlist, skills } from '../../wailsjs/go/models';
+import { GetAvailableTools, GetAllowlists, GetContextProviders, GetSkills } from '@wailsjs/go/app/App';
+import type { controllers, allowlist, contextprovider, skills } from '../../wailsjs/go/models';
 
 export interface ProfileDependencies {
   tools: controllers.ToolInfo[];
   skills: skills.SkillInfo[];
   allowlists: allowlist.AllowlistInfo[];
+  contextProviders: contextprovider.ProviderMetadata[];
   loading: boolean;
+}
+
+function fulfilledOrEmpty<T>(result: PromiseSettledResult<T[]>): T[] {
+  return result.status === 'fulfilled' ? (result.value || []) : [];
 }
 
 /**
@@ -22,20 +27,23 @@ export function useProfileDependencies(): ProfileDependencies {
   const [tools, setTools] = useState<controllers.ToolInfo[]>([]);
   const [skills, setSkills] = useState<skills.SkillInfo[]>([]);
   const [allowlists, setAllowlists] = useState<allowlist.AllowlistInfo[]>([]);
+  const [contextProviders, setContextProviders] = useState<contextprovider.ProviderMetadata[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const loadDependencies = async () => {
       setLoading(true);
       try {
-        const [toolsData, allowlistsData, skillsData] = await Promise.all([
+        const [toolsData, allowlistsData, skillsData, contextProvidersData] = await Promise.allSettled([
           GetAvailableTools(),
           GetAllowlists(),
           GetSkills(),
+          GetContextProviders(),
         ]);
-        setTools(toolsData || []);
-        setAllowlists(allowlistsData || []);
-        setSkills(skillsData || []);
+        setTools(fulfilledOrEmpty(toolsData));
+        setAllowlists(fulfilledOrEmpty(allowlistsData));
+        setSkills(fulfilledOrEmpty(skillsData));
+        setContextProviders(fulfilledOrEmpty(contextProvidersData));
       } finally {
         setLoading(false);
       }
@@ -53,5 +61,5 @@ export function useProfileDependencies(): ProfileDependencies {
     };
   }, []);
 
-  return { tools, skills, allowlists, loading };
+  return { tools, skills, allowlists, contextProviders, loading };
 }

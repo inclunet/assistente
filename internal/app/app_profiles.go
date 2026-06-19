@@ -1,6 +1,9 @@
 package app
 
-import "assistente/internal/profiles"
+import (
+	"assistente/internal/contextprovider"
+	"assistente/internal/profiles"
+)
 
 // ============================================================================
 // Unified Profile API — delegação para ProfilesController
@@ -28,3 +31,9 @@ func (a *App) UpdateProfile(slug string, p profiles.Profile) error {
 }
 func (a *App) DeleteProfile(slug string) error { return a.profilesCtrl.DeleteProfile(slug) }
 func (a *App) GetProfileSearchPaths() []string { return a.profilesCtrl.GetProfileSearchPaths() }
+func (a *App) GetContextProviders() []contextprovider.ProviderMetadata {
+	if a.contextProviders == nil {
+		return []contextprovider.ProviderMetadata{}
+	}
+	return a.contextProviders.Metadata()
+}
