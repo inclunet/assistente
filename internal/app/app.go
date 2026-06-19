@@ -464,7 +464,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		AgentSvc:         a.agentSvc,
 		StreamMgr:        a.streamMgr,
 		SpeechSvc:        a.speechSvc,
-		SettingsSvc:      a.settingsSvc,
 		ConvRepo:         a.convSvc,
 		MsgGateway:       a.msgGateway,
 		ResponseNotifier: a.responseNotifier,

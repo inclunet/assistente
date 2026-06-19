@@ -3,6 +3,9 @@ package app
 import (
 	"errors"
 	"log"
+
+	"assistente/internal/config"
+	"assistente/internal/database"
 )
 
 // ErrDatabaseResetFailed é o erro genérico devolvido ao caller quando
@@ -40,4 +43,42 @@ func (a *App) ClearMessages() error {
 		return err
 	}
 	return a.settingsCtrl.ClearMessages(ctx)
+}
+
+// ============================================================================
+// Manutenção e retenção do banco (AEP-0074)
+// ============================================================================
+
+// GetMaintenanceSettings retorna a política de retenção/compactação atual.
+func (a *App) GetMaintenanceSettings() (config.MaintenanceSettings, error) {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return config.MaintenanceSettings{}, err
+	}
+	return a.settingsCtrl.GetMaintenanceSettings()
+}
+
+// SaveMaintenanceSettings persiste a política de retenção/compactação.
+func (a *App) SaveMaintenanceSettings(settings config.MaintenanceSettings) error {
+	if _, err := a.requireAuthenticatedContext(); err != nil {
+		return err
+	}
+	return a.settingsCtrl.SaveMaintenanceSettings(settings)
+}
+
+// GetDatabaseStats retorna o estado físico atual do banco (somente leitura).
+func (a *App) GetDatabaseStats() (database.DatabaseStats, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return database.DatabaseStats{}, err
+	}
+	return a.settingsCtrl.GetDatabaseStats(ctx)
+}
+
+// RunDatabaseMaintenance dispara a compactação física do banco sob demanda.
+func (a *App) RunDatabaseMaintenance(force bool) (database.CompactionResult, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return database.CompactionResult{}, err
+	}
+	return a.settingsCtrl.RunDatabaseMaintenance(ctx, force)
 }

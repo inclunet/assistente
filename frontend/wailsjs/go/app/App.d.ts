@@ -254,6 +254,8 @@ export function GetContextProviders():Promise<Array<contextprovider.ProviderMeta
 
 export function GetConversations():Promise<Array<database.Conversation>>;
 
+export function GetDatabaseStats():Promise<database.DatabaseStats>;
+
 export function GetEffectiveModel():Promise<string>;
 
 export function GetJob(arg1:string):Promise<jobs.Job>;
@@ -287,6 +289,8 @@ export function GetMCPServerLogs(arg1:string,arg2:number):Promise<Array<mcp.MCPS
 export function GetMCPServerTools(arg1:string):Promise<Array<mcp.MCPToolInfo>>;
 
 export function GetMCPWorkspaceRoots():Promise<Array<mcp.Root>>;
+
+export function GetMaintenanceSettings():Promise<config.MaintenanceSettings>;
 
 export function GetMemoryPolicySummary():Promise<memory.PolicySummary>;
 
@@ -462,6 +466,8 @@ export function RetryMessage(arg1:string,arg2:string,arg3:llm.ChatParams):Promis
 
 export function RetryUserRuntimeInit():Promise<app.RuntimePartialInitPayload>;
 
+export function RunDatabaseMaintenance(arg1:boolean):Promise<database.CompactionResult>;
+
 export function RunJob(arg1:string):Promise<jobs.RunLog>;
 
 export function RunTerminalCommand(arg1:string,arg2:string):Promise<void>;
@@ -475,6 +481,8 @@ export function SaveJob(arg1:string):Promise<void>;
 export function SaveMCPServer(arg1:string,arg2:mcp.ServerConfig):Promise<void>;
 
 export function SaveMCPServerAuth(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<void>;
+
+export function SaveMaintenanceSettings(arg1:config.MaintenanceSettings):Promise<void>;
 
 export function SaveMessageAudio(arg1:string,arg2:string,arg3:string):Promise<void>;
 

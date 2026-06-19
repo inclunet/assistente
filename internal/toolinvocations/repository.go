@@ -21,7 +21,9 @@ type Repository interface {
 	Delete(ctx context.Context, id string) error
 	Get(ctx context.Context, id string) (*Invocation, error)
 	List(ctx context.Context, filter Filter) ([]Invocation, error)
-	CleanOld(ctx context.Context, maxAge time.Duration) (int, error)
+	CleanOldDryRuns(ctx context.Context, maxAge time.Duration) (int, error)
+	CleanOldChat(ctx context.Context, maxAge time.Duration) (int, error)
+	CleanOrphanChat(ctx context.Context) (int, error)
 	ResolveToolCatalogID(ctx context.Context, toolName string) (string, error)
 	IsToolCatalogIDVisible(ctx context.Context, toolCatalogID string) (bool, error)
 }
@@ -178,7 +180,11 @@ func (r *DBRepository) List(ctx context.Context, filter Filter) ([]Invocation, e
 	return out, nil
 }
 
-func (r *DBRepository) CleanOld(ctx context.Context, maxAge time.Duration) (int, error) {
+// CleanOldDryRuns remove invocações dry-run de origens operacionais (job_run /
+// tool_catalog) mais antigas que maxAge. São dados efêmeros, sem valor histórico
+// (AEP-0074). NÃO toca em invocações de chat nem em execuções reais de job
+// (estas saem em cascata quando o run/conversa é removido). maxAge <= 0 é no-op.
+func (r *DBRepository) CleanOldDryRuns(ctx context.Context, maxAge time.Duration) (int, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return 0, err
 	}
@@ -188,13 +194,51 @@ func (r *DBRepository) CleanOld(ctx context.Context, maxAge time.Duration) (int,
 	cutoff := r.now().Add(-maxAge)
 	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
 		Where(
-			"queued_at < ? AND (origin_type = ? OR (dry_run = ? AND origin_type IN (?, ?)))",
+			"queued_at < ? AND dry_run = ? AND origin_type IN (?, ?)",
 			cutoff,
-			OriginChat,
 			true,
 			OriginToolCatalog,
 			OriginJobRun,
 		).
+		Delete(&database.ToolInvocation{})
+	return int(tx.RowsAffected), tx.Error
+}
+
+// CleanOldChat remove invocações de CHAT mais antigas que maxAge. É um cap de
+// idade OPCIONAL: por padrão a retenção de chat é o ciclo de vida da conversa
+// (AEP-0074), então o chamador só deve invocar quando o usuário configurar um
+// limite explícito. maxAge <= 0 é no-op.
+func (r *DBRepository) CleanOldChat(ctx context.Context, maxAge time.Duration) (int, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return 0, err
+	}
+	if maxAge <= 0 {
+		return 0, nil
+	}
+	cutoff := r.now().Add(-maxAge)
+	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+		Where("queued_at < ? AND origin_type = ?", cutoff, OriginChat).
+		Delete(&database.ToolInvocation{})
+	return int(tx.RowsAffected), tx.Error
+}
+
+// CleanOrphanChat remove invocações de chat cujo turno/mensagem de origem não
+// existe mais em chat_messages — uma rede de segurança para o ciclo de vida
+// (deleções de conversa já removem em cascata, mas falhas podem deixar órfãos).
+// Se a tabela de chat_messages não existir (migrações parciais em teste), é no-op.
+func (r *DBRepository) CleanOrphanChat(ctx context.Context) (int, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return 0, err
+	}
+	if !r.db.Migrator().HasTable(&database.ChatMessage{}) {
+		return 0, nil
+	}
+	// NOT EXISTS faz lookup por chave primária por invocação, evitando
+	// materializar/varrer todos os ids de chat_messages (caro conforme o
+	// histórico cresce). Mesma semântica: remove apenas quando não há mensagem.
+	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+		Where("origin_type = ?", OriginChat).
+		Where("NOT EXISTS (SELECT 1 FROM chat_messages WHERE chat_messages.id = tool_invocations.origin_id)").
 		Delete(&database.ToolInvocation{})
 	return int(tx.RowsAffected), tx.Error
 }

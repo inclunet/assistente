@@ -17,6 +17,10 @@ import (
 
 var db *gorm.DB
 
+// dbPath guarda o caminho absoluto do arquivo SQLite resolvido em Init().
+// Usado pela manutenção física (maintenance.go) para medir tamanho em disco.
+var dbPath string
+
 // gormLogLevel controla o nível de log do GORM. Padrão: Warn.
 // Use SetLogLevel(logger.Silent) para silenciar completamente (ex.: CLI sem --verbose).
 var gormLogLevel = logger.Warn
@@ -64,7 +68,6 @@ func Close() error {
 func Init() error {
 	rootResolver := configdir.NewResolver("")
 
-	var dbPath string
 	resolved, err := rootResolver.Resolve("conversations.db")
 	if err != nil {
 		// Não existe em nenhum diretório — criar no home
@@ -83,9 +86,19 @@ func Init() error {
 		return err
 	}
 
+	// auto_vacuum=INCREMENTAL: bancos NOVOS nascem podendo devolver páginas
+	// livres ao SO via incremental_vacuum, sem reescrever o arquivo inteiro.
+	// DEVE ser definido antes de qualquer tabela existir (e antes do WAL, para
+	// não escrever páginas que fixem o modo none). Em bancos legados o pragma é
+	// no-op aqui; a conversão ocorre no primeiro VACUUM da manutenção
+	// (maintenance.go, AEP-0074).
+	db.Exec("PRAGMA auto_vacuum=INCREMENTAL")
 	// Ativa modo WAL para melhor performance com arquivos grandes
 	db.Exec("PRAGMA journal_mode=WAL")
 	db.Exec("PRAGMA synchronous=NORMAL")
+	// busy_timeout: sob contenção (WAL com writers de background) operações
+	// como VACUUM aguardam o lock em vez de falhar com SQLITE_BUSY (AEP-0074).
+	db.Exec("PRAGMA busy_timeout=5000")
 
 	// Migração: converter IDs INTEGER → UUIDv7 (AEP-0046)
 	if err := migrateToUUIDv7(); err != nil {

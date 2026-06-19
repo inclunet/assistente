@@ -12,7 +12,6 @@ import (
 	"assistente/adapters/noop"
 	"assistente/internal/agent"
 	"assistente/internal/chat"
-	"assistente/internal/config"
 	"assistente/internal/configdir"
 	"assistente/internal/core/usecases"
 	"assistente/internal/database"
@@ -112,7 +111,6 @@ func newTestUseCaseWithProviders(t *testing.T, profileMgr *profiles.Manager, pro
 			t.Fatalf("save providers: %v", err)
 		}
 	}
-	settingsSvc := config.NewSettingsService(config.SettingsServiceConfig{})
 	speechSvc := speech.NewService(speech.ServiceConfig{
 		Emitter:  events.NoopEmitter{},
 		Registry: llmRegistry,
@@ -135,7 +133,6 @@ func newTestUseCaseWithProviders(t *testing.T, profileMgr *profiles.Manager, pro
 		ProviderSvc:    provSvc,
 		StreamMgr:      streamMgr,
 		SpeechSvc:      speechSvc,
-		SettingsSvc:    settingsSvc,
 		Emitter:        noop.EmitterAdapter{},
 		AgentSvc:       agentSvc,
 	})

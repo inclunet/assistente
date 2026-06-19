@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -891,6 +892,115 @@ func TestDBRepositoryListEventsFilterByRunID(t *testing.T) {
 		if ev.RunID != "run-x" {
 			t.Fatalf("run-id filter leaked event from other run: %#v", ev)
 		}
+	}
+}
+
+func TestDBRepositoryCleanRunsExceedingCount(t *testing.T) {
+	repo, userA, userB := setupJobsRepositoryTest(t)
+
+	if err := repo.SaveJob(userA, testRepositoryJob("freq-job", "Freq")); err != nil {
+		t.Fatalf("save freq-job A: %v", err)
+	}
+	if err := repo.SaveJob(userA, testRepositoryJob("other-job", "Other")); err != nil {
+		t.Fatalf("save other-job A: %v", err)
+	}
+	if err := repo.SaveJob(userB, testRepositoryJob("freq-job", "Freq B")); err != nil {
+		t.Fatalf("save freq-job B: %v", err)
+	}
+
+	base := time.Now().Add(-time.Hour)
+	logRun := func(ctx context.Context, jobID, runID string, offset time.Duration) {
+		t.Helper()
+		rl := &RunLog{
+			RunID:     runID,
+			JobID:     jobID,
+			Status:    "completed",
+			Trigger:   TriggerInfo{Type: TriggerManual},
+			StartedAt: base.Add(offset),
+		}
+		if err := repo.LogRun(ctx, rl); err != nil {
+			t.Fatalf("log run %s: %v", runID, err)
+		}
+	}
+
+	// freq-job (A): 5 runs — acima do cap de 2.
+	for i := 0; i < 5; i++ {
+		logRun(userA, "freq-job", fmt.Sprintf("a-freq-%d", i), time.Duration(i)*time.Minute)
+	}
+	// other-job (A): 2 runs — no limite, não deve perder nada.
+	logRun(userA, "other-job", "a-other-0", 0)
+	logRun(userA, "other-job", "a-other-1", time.Minute)
+	// freq-job (B): 4 runs — não devem ser tocados ao limpar user A.
+	for i := 0; i < 4; i++ {
+		logRun(userB, "freq-job", fmt.Sprintf("b-freq-%d", i), time.Duration(i)*time.Minute)
+	}
+
+	// Evento de timeline no run mais antigo de freq-job (A): deve cascatear.
+	if err := repo.db.Create(&database.JobRunEvent{
+		UserID:     "user-a",
+		JobRunID:   "a-freq-0",
+		Sequence:   1,
+		OccurredAt: base,
+		Type:       "started",
+		Message:    "old",
+	}).Error; err != nil {
+		t.Fatalf("seed run event: %v", err)
+	}
+
+	deleted, err := repo.CleanRunsExceedingCount(userA, 2)
+	if err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+	// freq-job (A): mantém 2, remove 3. other-job (A): remove 0. Total = 3.
+	if deleted != 3 {
+		t.Fatalf("deleted = %d, want 3", deleted)
+	}
+
+	runsA, err := repo.GetRuns(userA, "freq-job", 100)
+	if err != nil {
+		t.Fatalf("get freq-job A runs: %v", err)
+	}
+	if len(runsA) != 2 {
+		t.Fatalf("freq-job A runs = %d, want 2", len(runsA))
+	}
+	// Os mantidos devem ser os mais recentes (a-freq-4 e a-freq-3).
+	kept := map[string]bool{}
+	for _, r := range runsA {
+		kept[r.RunID] = true
+	}
+	if !kept["a-freq-4"] || !kept["a-freq-3"] {
+		t.Fatalf("cap manteve runs errados: %v", kept)
+	}
+
+	otherA, err := repo.GetRuns(userA, "other-job", 100)
+	if err != nil {
+		t.Fatalf("get other-job A runs: %v", err)
+	}
+	if len(otherA) != 2 {
+		t.Fatalf("other-job A runs = %d, want 2 (abaixo do cap)", len(otherA))
+	}
+
+	runsB, err := repo.GetRuns(userB, "freq-job", 100)
+	if err != nil {
+		t.Fatalf("get freq-job B runs: %v", err)
+	}
+	if len(runsB) != 4 {
+		t.Fatalf("freq-job B runs = %d, want 4 (escopo por usuário)", len(runsB))
+	}
+
+	// Cascata: o evento do run purgado deve ter sumido.
+	var remainingEvents int64
+	if err := repo.db.Model(&database.JobRunEvent{}).
+		Where("job_run_id = ?", "a-freq-0").Count(&remainingEvents).Error; err != nil {
+		t.Fatalf("count run events: %v", err)
+	}
+	if remainingEvents != 0 {
+		t.Fatalf("eventos do run purgado = %d, want 0 (cascata)", remainingEvents)
+	}
+
+	// keep <= 0 desativa o cap.
+	if d0, err := repo.CleanRunsExceedingCount(userA, 0); err != nil || d0 != 0 {
+		t.Fatalf("keep=0 deveria ser noop: deleted=%d err=%v", d0, err)
 	}
 }
 

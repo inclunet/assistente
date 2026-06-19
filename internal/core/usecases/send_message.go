@@ -7,7 +7,6 @@ import (
 
 	"assistente/internal/agent"
 	"assistente/internal/chat"
-	"assistente/internal/config"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/events"
@@ -50,7 +49,6 @@ type SendMessageConfig struct {
 	AgentSvc       *agent.Service
 	StreamMgr      *chat.StreamingManager
 	SpeechSvc      *speech.Service
-	SettingsSvc    *config.SettingsService
 	Emitter        ports.Emitter
 	// OnSpeechRequest é chamado após salvar a mensagem do usuário para disparar TTS proativo.
 	OnSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
@@ -69,7 +67,6 @@ type SendMessageUseCase struct {
 	agentSvc        *agent.Service
 	streamMgr       *chat.StreamingManager
 	speechSvc       *speech.Service
-	settingsSvc     *config.SettingsService
 	emitter         ports.Emitter
 	onSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 	openEditorPaths func() []string
@@ -85,7 +82,6 @@ func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
 		agentSvc:        cfg.AgentSvc,
 		streamMgr:       cfg.StreamMgr,
 		speechSvc:       cfg.SpeechSvc,
-		settingsSvc:     cfg.SettingsSvc,
 		emitter:         cfg.Emitter,
 		onSpeechRequest: cfg.OnSpeechRequest,
 		openEditorPaths: cfg.OpenEditorPaths,
@@ -128,12 +124,6 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		return "", fmt.Errorf("%s", errMsg)
 	}
 
-	// Resolve modelo padrão do config como fallback.
-	var defaultModel string
-	if cfg, cfgErr := uc.settingsSvc.GetConfig(); cfgErr == nil {
-		defaultModel = cfg.DefaultModel
-	}
-
 	var retryUserMsg *chat.Message
 	if req.RetryMessageID != "" {
 		reused, err := uc.chatInteractor.GetRetryableUserMessage(ctx, req.ConversationID, req.RetryMessageID)
@@ -156,7 +146,6 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		UserMedia:      req.UserMedia,
 		Params:         req.Params,
 		Source:         req.Source,
-		DefaultModel:   defaultModel,
 	})
 	if err != nil {
 		return "", err
