@@ -59,11 +59,6 @@ export function ProfileContextProvidersSection({
     };
   }), [config, providers]);
 
-  const selectedIds = useMemo(
-    () => new Set<string | number>(rows.filter((row) => row.effectiveEnabled).map((row) => row.id)),
-    [rows],
-  );
-
   const updateProvider = useCallback((providerName: string, patch: Partial<profiles.ContextProviderProfileConfig>) => {
     const previous = config[providerName] ?? {};
     const nextProviderConfig = { ...previous, ...patch };
@@ -71,33 +66,22 @@ export function ProfileContextProvidersSection({
     onChange(next);
   }, [config, onChange]);
 
-  const handleSelectionChange = useCallback((newSelectedIds: Set<string | number>) => {
-    const next: ContextProviderConfigMap = { ...config };
-    let changed = false;
-
-    for (const row of rows) {
-      const enabled = newSelectedIds.has(row.id);
-      if (enabled !== row.effectiveEnabled) {
-        const previous: profiles.ContextProviderProfileConfig = next[row.name] ?? {};
-        const providerConfig: profiles.ContextProviderProfileConfig = { ...previous };
-        if (enabled === row.defaultEnabled) {
-          delete providerConfig.enabled;
-        } else {
-          providerConfig.enabled = enabled;
-        }
-        if (hasProviderConfig(providerConfig)) {
-          next[row.name] = providerConfig;
-        } else {
-          delete next[row.name];
-        }
-        changed = true;
-      }
+  const handleEnabledChange = useCallback((row: ProviderRow, enabled: boolean) => {
+    const next = { ...config };
+    const previous: profiles.ContextProviderProfileConfig = next[row.name] ?? {};
+    const providerConfig: profiles.ContextProviderProfileConfig = { ...previous };
+    if (enabled === row.defaultEnabled) {
+      delete providerConfig.enabled;
+    } else {
+      providerConfig.enabled = enabled;
     }
-
-    if (changed) {
-      onChange(next);
+    if (hasProviderConfig(providerConfig)) {
+      next[row.name] = providerConfig;
+    } else {
+      delete next[row.name];
     }
-  }, [config, onChange, rows]);
+    onChange(next);
+  }, [config, onChange]);
 
   const handleBudgetChange = useCallback((row: ProviderRow, valueText: string) => {
     const parsed = Number.parseInt(valueText, 10);
@@ -115,13 +99,14 @@ export function ProfileContextProvidersSection({
           <input
             type="checkbox"
             checked={row.effectiveEnabled}
-            readOnly
-            tabIndex={-1}
+            onChange={(event) => handleEnabledChange(row, event.target.checked)}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            disabled={disabled}
             aria-label={t('profiles.contextProviderEnabledAria', '{{name}}: {{state}}', {
               name: localizedName,
               state: row.effectiveEnabled ? t('common.enabled', 'Habilitado') : t('common.disabled', 'Desabilitado'),
             })}
-            style={{ pointerEvents: 'none' }}
           />
         );
       },
@@ -206,9 +191,6 @@ export function ProfileContextProvidersSection({
           columns={columns}
           label={t('profiles.contextProvidersGridLabel', 'Lista de Context Providers')}
           getItemId={(item) => item.id}
-          selectedIds={selectedIds}
-          selectionMode="checkbox"
-          onSelectionChange={handleSelectionChange}
           showHeader={true}
           autoFocusOnMount={false}
           className="profiles-context-providers-datagrid"
