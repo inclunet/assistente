@@ -1015,6 +1015,7 @@ const en = {
       contextProvidersUnavailable: 'No registered Context Provider was reported by the runtime.',
       contextProvidersSettingsNote: 'Provider-specific settings will appear here when a provider declares support in the metadata contract.',
       contextProviderColName: 'Provider',
+      contextProviderColEnabled: 'Active',
       contextProviderColDescription: 'Description',
       contextProviderColState: 'State',
       contextProviderColBudget: 'Effective budget',

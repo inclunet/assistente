@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { contextprovider, profiles } from '@wailsjs/go/models';
+import type { contextprovider, profiles } from '@wailsjs/go/models';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 
@@ -116,7 +116,7 @@ export function ProfileContextProvidersSection({
   const columns: DataGridColumn<ProviderRow>[] = [
     {
       key: 'enabled',
-      label: '',
+      label: t('profiles.contextProviderColEnabled', 'Ativo'),
       width: '44px',
       selectionToggle: true,
       format: (_value: unknown, row: ProviderRow) => {

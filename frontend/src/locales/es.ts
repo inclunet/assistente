@@ -1014,6 +1014,7 @@ const es = {
       contextProvidersUnavailable: 'El runtime no informó ningún Context Provider registrado.',
       contextProvidersSettingsNote: 'Las settings específicas aparecerán aquí cuando un provider declare soporte en el contrato de metadatos.',
       contextProviderColName: 'Provider',
+      contextProviderColEnabled: 'Activo',
       contextProviderColDescription: 'Descripción',
       contextProviderColState: 'Estado',
       contextProviderColBudget: 'Budget efectivo',

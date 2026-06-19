@@ -1015,6 +1015,7 @@ const ptBR = {
       contextProvidersUnavailable: 'Nenhum Context Provider registrado foi informado pelo runtime.',
       contextProvidersSettingsNote: 'Settings específicas aparecerão aqui quando um provider declarar suporte no contrato de metadados.',
       contextProviderColName: 'Provider',
+      contextProviderColEnabled: 'Ativo',
       contextProviderColDescription: 'Descrição',
       contextProviderColState: 'Estado',
       contextProviderColBudget: 'Budget efetivo',
