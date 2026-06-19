@@ -41,7 +41,7 @@ func (r *TokenRepository) GetConversationTokenStatsWithContext(ctx context.Conte
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ?", conversationID).
-		Select("SUM(chat_messages.prompt_tokens) as total_prompt_tokens, SUM(chat_messages.completion_tokens) as total_completion_tokens, SUM(chat_messages.total_tokens) as total_tokens, SUM(chat_messages.cache_read_tokens) as total_cache_read_tokens, SUM(chat_messages.cache_write_tokens) as total_cache_write_tokens, SUM(chat_messages.cache_miss_tokens) as total_cache_miss_tokens").
+		Select("SUM(chat_messages.prompt_tokens) as total_prompt_tokens, SUM(chat_messages.completion_tokens) as total_completion_tokens, SUM(chat_messages.total_tokens) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -79,7 +79,7 @@ func (r *TokenRepository) GetAllTokenStatsWithContext(ctx context.Context) (map[
 		TotalCacheMissTokens  int
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
-		Select("SUM(chat_messages.prompt_tokens) as total_prompt_tokens, SUM(chat_messages.completion_tokens) as total_completion_tokens, SUM(chat_messages.total_tokens) as total_tokens, SUM(chat_messages.cache_read_tokens) as total_cache_read_tokens, SUM(chat_messages.cache_write_tokens) as total_cache_write_tokens, SUM(chat_messages.cache_miss_tokens) as total_cache_miss_tokens").
+		Select("SUM(chat_messages.prompt_tokens) as total_prompt_tokens, SUM(chat_messages.completion_tokens) as total_completion_tokens, SUM(chat_messages.total_tokens) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -172,7 +172,7 @@ func (r *TokenRepository) GetTurnTokenStatsWithContext(ctx context.Context, conv
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id = ?", conversationID, turnID).
-		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens, SUM(cache_read_tokens) as total_cache_read_tokens, SUM(cache_write_tokens) as total_cache_write_tokens, SUM(cache_miss_tokens) as total_cache_miss_tokens, COUNT(*) as message_count").
+		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens, COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -213,7 +213,7 @@ func (r *TokenRepository) GetConversationDetailedTokenStatsWithContext(ctx conte
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ?", conversationID).
-		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens, SUM(cache_read_tokens) as total_cache_read_tokens, SUM(cache_write_tokens) as total_cache_write_tokens, SUM(cache_miss_tokens) as total_cache_miss_tokens, COUNT(*) as message_count").
+		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens, COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err

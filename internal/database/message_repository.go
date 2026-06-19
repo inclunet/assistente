@@ -416,7 +416,7 @@ func (r *MessageRepository) UpdateMessageContentReasoningAndUsageWithContext(ctx
 		return err
 	}
 	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
-	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).UpdateColumns(map[string]interface{}{
+	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
 		"content":            content,
 		"reasoning":          reasoning,
 		"prompt_tokens":      promptTokens,
@@ -437,7 +437,17 @@ func UpdateMessageCacheTokensWithContext(ctx context.Context, messageID string, 
 }
 
 func (r *MessageRepository) UpdateMessageCacheTokensWithContext(ctx context.Context, messageID string, cacheReadTokens, cacheWriteTokens, cacheMissTokens int) error {
-	if cacheReadTokens == 0 && cacheWriteTokens == 0 && cacheMissTokens == 0 {
+	updates := map[string]interface{}{}
+	if cacheReadTokens > 0 {
+		updates["cache_read_tokens"] = cacheReadTokens
+	}
+	if cacheWriteTokens > 0 {
+		updates["cache_write_tokens"] = cacheWriteTokens
+	}
+	if cacheMissTokens > 0 {
+		updates["cache_miss_tokens"] = cacheMissTokens
+	}
+	if len(updates) == 0 {
 		return nil
 	}
 	db := r.db
@@ -445,11 +455,7 @@ func (r *MessageRepository) UpdateMessageCacheTokensWithContext(ctx context.Cont
 		return err
 	}
 	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
-	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
-		"cache_read_tokens":  cacheReadTokens,
-		"cache_write_tokens": cacheWriteTokens,
-		"cache_miss_tokens":  cacheMissTokens,
-	}).Error
+	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(updates).Error
 }
 
 // DeleteMessageWithContext exclui uma mensagem e todas as suas filhas
