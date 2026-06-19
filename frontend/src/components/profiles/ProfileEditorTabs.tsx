@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { profiles } from '@wailsjs/go/models';
-import { controllers, allowlist, contextprovider, skills } from '@wailsjs/go/models';
+import type { profiles, controllers, allowlist, contextprovider, skills } from '@wailsjs/go/models';
 import { Tabs, TabList, Tab, TabPanel } from '../ui/tabs';
 import { ProfileGeneralSection } from './ProfileGeneralSection';
 import { ProfileChatSection } from './ProfileChatSection';

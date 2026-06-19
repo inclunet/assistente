@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { GetAvailableTools, GetAllowlists, GetContextProviders, GetSkills } from '@wailsjs/go/app/App';
-import { controllers, allowlist, contextprovider, skills } from '../../wailsjs/go/models';
+import type { controllers, allowlist, contextprovider, skills } from '../../wailsjs/go/models';
 
 export interface ProfileDependencies {
   tools: controllers.ToolInfo[];

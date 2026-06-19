@@ -33,7 +33,7 @@ func (a *App) DeleteProfile(slug string) error { return a.profilesCtrl.DeletePro
 func (a *App) GetProfileSearchPaths() []string { return a.profilesCtrl.GetProfileSearchPaths() }
 func (a *App) GetContextProviders() []contextprovider.ProviderMetadata {
 	if a.contextProviders == nil {
-		return nil
+		return []contextprovider.ProviderMetadata{}
 	}
 	return a.contextProviders.Metadata()
 }
