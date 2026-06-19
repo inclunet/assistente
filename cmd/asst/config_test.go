@@ -34,6 +34,10 @@ func (m *mockConfigBackend) GetActiveProfileSlug() string {
 	return m.activeSlug
 }
 
+func (m *mockConfigBackend) GetProfile(_ string) (*profiles.Profile, error) {
+	return m.profile, m.profileErr
+}
+
 func (m *mockConfigBackend) GetLLMProviders() []*llm.ProviderConfig {
 	return m.providers
 }
@@ -164,8 +168,9 @@ func TestConfigModel_Success(t *testing.T) {
 
 func TestConfigModel_Error(t *testing.T) {
 	mock := &mockConfigBackend{
-		profile:   &profiles.Profile{},
-		updateErr: fmt.Errorf("invalid model"),
+		profile:    &profiles.Profile{},
+		activeSlug: "padrao",
+		updateErr:  fmt.Errorf("invalid model"),
 	}
 
 	var out bytes.Buffer

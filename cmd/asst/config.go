@@ -16,6 +16,7 @@ import (
 type configBackend interface {
 	GetActiveProfile() (*profiles.Profile, error)
 	GetActiveProfileSlug() string
+	GetProfile(slug string) (*profiles.Profile, error)
 	GetLLMProviders() []*llm.ProviderConfig
 	UpdateProfile(slug string, p profiles.Profile) error
 }
@@ -24,22 +25,29 @@ type configBackend interface {
 // perfil ativo. Substitui o antigo config.SetChatModel legado (#299): o modelo
 // passa a viver no perfil (profiles), não mais no config.json.
 type chatModelUpdater interface {
-	GetActiveProfile() (*profiles.Profile, error)
 	GetActiveProfileSlug() string
+	GetProfile(slug string) (*profiles.Profile, error)
 	UpdateProfile(slug string, p profiles.Profile) error
 }
 
-// setActiveProfileChatModel grava o modelo escolhido no perfil ativo.
+// setActiveProfileChatModel grava o modelo escolhido no perfil ativo. Resolve o
+// slug ativo UMA vez e usa o mesmo slug para ler e gravar — assim leitura e
+// escrita nunca divergem (GetActiveProfile e GetActiveProfileSlug têm regras de
+// fallback distintas; combiná-las poderia gravar no perfil errado).
 func setActiveProfileChatModel(svc chatModelUpdater, model string) error {
-	profile, err := svc.GetActiveProfile()
+	slug := svc.GetActiveProfileSlug()
+	if slug == "" {
+		return fmt.Errorf("nenhum perfil ativo")
+	}
+	profile, err := svc.GetProfile(slug)
 	if err != nil {
 		return err
 	}
 	if profile == nil {
-		return fmt.Errorf("nenhum perfil ativo")
+		return fmt.Errorf("perfil ativo %q não encontrado", slug)
 	}
 	profile.Chat.Model = model
-	return svc.UpdateProfile(svc.GetActiveProfileSlug(), *profile)
+	return svc.UpdateProfile(slug, *profile)
 }
 
 var configCmd = &cobra.Command{
