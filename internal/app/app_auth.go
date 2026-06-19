@@ -9,6 +9,7 @@ import (
 
 	"assistente/internal/auth"
 	"assistente/internal/channels"
+	"assistente/internal/config"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 )
@@ -767,11 +768,23 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 	a.migrateLegacyConfig(ctx)
 	a.runPostLoginLegacyImports(ctx)
 	if a.toolInvocationSvc != nil {
-		if deleted, err := a.toolInvocationSvc.CleanOld(ctx, 30*24*time.Hour); err != nil {
-			log.Printf("[reloadUserScopedRuntime] erro ao limpar tool invocations antigas: %v", err)
+		// Retenção de tool calls de chat segue o ciclo de vida da conversa
+		// (AEP-0074): no login só varremos órfãos (rede de segurança) e, se o
+		// usuário configurou um cap de idade explícito, aplicamos esse limite.
+		if deleted, err := a.toolInvocationSvc.CleanOrphanChat(ctx); err != nil {
+			log.Printf("[reloadUserScopedRuntime] erro ao limpar tool invocations órfãs de chat: %v", err)
 			result.add(runtimeSubsystemToolInvocations, err)
 		} else if deleted > 0 {
-			log.Printf("[reloadUserScopedRuntime] tool invocations antigas removidas: %d", deleted)
+			log.Printf("[reloadUserScopedRuntime] tool invocations órfãs de chat removidas: %d", deleted)
+		}
+		if maint, mErr := config.GetMaintenance(); mErr == nil && maint.ChatToolCallsRetentionDays > 0 {
+			age := time.Duration(maint.ChatToolCallsRetentionDays) * 24 * time.Hour
+			if deleted, err := a.toolInvocationSvc.CleanOldChat(ctx, age); err != nil {
+				log.Printf("[reloadUserScopedRuntime] erro ao aplicar cap de idade de tool calls de chat: %v", err)
+				result.add(runtimeSubsystemToolInvocations, err)
+			} else if deleted > 0 {
+				log.Printf("[reloadUserScopedRuntime] tool calls de chat acima do cap removidas: %d", deleted)
+			}
 		}
 	}
 	if a.providerSvc != nil {

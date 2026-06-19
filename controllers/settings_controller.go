@@ -70,6 +70,41 @@ func (c *SettingsController) GetConfig() (*config.Config, error) {
 	return config.Load()
 }
 
+// GetMaintenanceSettings retorna a política de retenção/compactação do banco
+// (AEP-0074). Em caso de falha ao ler o config.json, devolve os defaults sem
+// erro — coerente com o uso em background (retenção/compactação usam defaults),
+// permitindo que a UI edite e salve a política (recriando o arquivo).
+func (c *SettingsController) GetMaintenanceSettings() (config.MaintenanceSettings, error) {
+	settings, err := config.GetMaintenance()
+	if err != nil {
+		log.Printf("[Settings] falha ao ler manutenção do config.json; usando defaults: %v", err)
+		return config.DefaultMaintenanceSettings(), nil
+	}
+	return settings, nil
+}
+
+// SaveMaintenanceSettings persiste a política de manutenção no config.json.
+func (c *SettingsController) SaveMaintenanceSettings(settings config.MaintenanceSettings) error {
+	return config.SaveMaintenance(settings)
+}
+
+// GetDatabaseStats retorna o estado físico atual do banco (tamanho, freelist,
+// modo de auto_vacuum) para exibir na tela de configurações.
+func (c *SettingsController) GetDatabaseStats(ctx context.Context) (database.DatabaseStats, error) {
+	return database.DatabaseStatsSnapshot(ctx)
+}
+
+// RunDatabaseMaintenance dispara a compactação física do banco sob demanda
+// ("limpar agora"). force=true ignora o limiar de freelist. O limiar padrão vem
+// do config.json (AEP-0074).
+func (c *SettingsController) RunDatabaseMaintenance(ctx context.Context, force bool) (database.CompactionResult, error) {
+	maint, err := config.GetMaintenance()
+	if err != nil {
+		maint = config.DefaultMaintenanceSettings()
+	}
+	return database.Compact(ctx, force, maint.VacuumMinFreeBytes)
+}
+
 // SendMessageSync envia uma mensagem sem streaming (para acessibilidade e testes).
 func (c *SettingsController) SendMessageSync(ctx context.Context, messages []llm.Message, params llm.ChatParams) (string, error) {
 	if c.profileMgr == nil {

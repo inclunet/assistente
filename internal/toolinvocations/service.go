@@ -68,11 +68,30 @@ func (s *Service) CanPersist() bool {
 	return s != nil && s.repo != nil
 }
 
-func (s *Service) CleanOld(ctx context.Context, maxAge time.Duration) (int, error) {
+// CleanOldDryRuns remove invocações dry-run operacionais (job_run/tool_catalog)
+// mais antigas que maxAge (AEP-0074).
+func (s *Service) CleanOldDryRuns(ctx context.Context, maxAge time.Duration) (int, error) {
 	if s == nil || s.repo == nil {
 		return 0, nil
 	}
-	return s.repo.CleanOld(ctx, maxAge)
+	return s.repo.CleanOldDryRuns(ctx, maxAge)
+}
+
+// CleanOldChat remove invocações de chat mais antigas que maxAge (cap de idade
+// OPCIONAL; só chamar quando o usuário configurar um limite explícito).
+func (s *Service) CleanOldChat(ctx context.Context, maxAge time.Duration) (int, error) {
+	if s == nil || s.repo == nil {
+		return 0, nil
+	}
+	return s.repo.CleanOldChat(ctx, maxAge)
+}
+
+// CleanOrphanChat remove invocações de chat sem turno/mensagem de origem.
+func (s *Service) CleanOrphanChat(ctx context.Context) (int, error) {
+	if s == nil || s.repo == nil {
+		return 0, nil
+	}
+	return s.repo.CleanOrphanChat(ctx)
 }
 
 func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult {

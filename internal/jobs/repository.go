@@ -56,6 +56,7 @@ type Repository interface {
 	GetRunEvents(ctx context.Context, runID string) ([]RunEvent, error)
 
 	CleanOldRuns(ctx context.Context, maxAge time.Duration) (int, error)
+	CleanRunsExceedingCount(ctx context.Context, keepPerJob int) (int, error)
 	CleanOldEvents(ctx context.Context, maxAge time.Duration) (int, error)
 	CleanOldRunEvents(ctx context.Context, maxAge time.Duration) (int, error)
 }
@@ -1233,6 +1234,35 @@ func (r *DBRepository) GetRunEvents(ctx context.Context, runID string) ([]RunEve
 	return out, nil
 }
 
+// deleteRunDependenciesByIDs remove em cascata os dados técnicos associados aos
+// runs informados (tool_invocations de origem job_run, eventos de timeline e
+// eventos de domínio), antes da remoção dos próprios job_runs. Escopado por
+// usuário do contexto. Não remove os job_runs em si — isso fica a cargo do
+// chamador, que define o critério (idade ou contagem).
+func (r *DBRepository) deleteRunDependenciesByIDs(ctx context.Context, runIDs []string) error {
+	if len(runIDs) == 0 {
+		return nil
+	}
+	// tool_invocations: remove execuções técnicas associadas aos runs purgados.
+	// Best-effort: pode não existir em migrações parciais.
+	if r.db.Migrator().HasTable(&database.ToolInvocation{}) {
+		if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+			Where("origin_type = ? AND origin_id IN ?", "job_run", runIDs).
+			Delete(&database.ToolInvocation{}).Error; err != nil {
+			return err
+		}
+	}
+	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+		Where("job_run_id IN ?", runIDs).Delete(&database.JobRunEvent{}).Error; err != nil {
+		return err
+	}
+	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+		Where("job_run_id IN ?", runIDs).Delete(&database.JobEvent{}).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (int, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return 0, err
@@ -1243,27 +1273,45 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 		Where("started_at < ?", cutoff).Pluck("id", &runIDs).Error; err != nil {
 		return 0, err
 	}
-	if len(runIDs) > 0 {
-		// tool_invocations: remove execuções técnicas associadas aos runs purgados.
-		// Best-effort: pode não existir em migrações parciais.
-		if r.db.Migrator().HasTable(&database.ToolInvocation{}) {
-			if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
-				Where("origin_type = ? AND origin_id IN ?", "job_run", runIDs).
-				Delete(&database.ToolInvocation{}).Error; err != nil {
-				return 0, err
-			}
-		}
-		if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-			Where("job_run_id IN ?", runIDs).Delete(&database.JobRunEvent{}).Error; err != nil {
-			return 0, err
-		}
-		if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-			Where("job_run_id IN ?", runIDs).Delete(&database.JobEvent{}).Error; err != nil {
-			return 0, err
-		}
+	if err := r.deleteRunDependenciesByIDs(ctx, runIDs); err != nil {
+		return 0, err
 	}
 	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
 		Where("started_at < ?", cutoff).Delete(&database.JobRun{})
+	return int(res.RowsAffected), res.Error
+}
+
+// CleanRunsExceedingCount mantém apenas os `keepPerJob` runs mais recentes por
+// job (do usuário do contexto), removendo o excedente em cascata. Complementa a
+// retenção por idade para conter jobs de alta frequência (AEP-0074, D4).
+// keepPerJob <= 0 desativa a limpeza.
+func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob int) (int, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return 0, err
+	}
+	if keepPerJob <= 0 {
+		return 0, nil
+	}
+	// Seleciona os runs que têm pelo menos `keepPerJob` runs mais novos no mesmo
+	// job — ou seja, tudo além dos N mais recentes. O desempate por id evita
+	// ambiguidade quando started_at é idêntico.
+	const newerSiblings = "(SELECT COUNT(*) FROM job_runs r2 WHERE r2.user_id = job_runs.user_id " +
+		"AND r2.job_id = job_runs.job_id AND (r2.started_at > job_runs.started_at " +
+		"OR (r2.started_at = job_runs.started_at AND r2.id > job_runs.id)))"
+	var runIDs []string
+	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.JobRun{}), "user_id").
+		Where(newerSiblings+" >= ?", keepPerJob).
+		Pluck("id", &runIDs).Error; err != nil {
+		return 0, err
+	}
+	if len(runIDs) == 0 {
+		return 0, nil
+	}
+	if err := r.deleteRunDependenciesByIDs(ctx, runIDs); err != nil {
+		return 0, err
+	}
+	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+		Where("id IN ?", runIDs).Delete(&database.JobRun{})
 	return int(res.RowsAffected), res.Error
 }
 

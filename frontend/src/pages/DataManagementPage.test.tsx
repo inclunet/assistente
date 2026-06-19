@@ -10,6 +10,10 @@ const mockGetLLMProvidersWithStatus = vi.fn();
 const mockImportData = vi.fn();
 const mockListMCPServers = vi.fn();
 const mockListMemoryRecords = vi.fn();
+const mockGetMaintenanceSettings = vi.fn();
+const mockGetDatabaseStats = vi.fn();
+const mockSaveMaintenanceSettings = vi.fn();
+const mockRunDatabaseMaintenance = vi.fn();
 const mockDownloadJSON = vi.fn();
 const mockOpenImportFileDialog = vi.fn();
 const mockAnnounce = vi.fn();
@@ -26,6 +30,10 @@ vi.mock('@wailsjs/go/app/App', () => ({
   ImportData: (payload: string, password: string) => mockImportData(payload, password),
   ListMCPServers: () => mockListMCPServers(),
   ListMemoryRecords: (filter: unknown) => mockListMemoryRecords(filter),
+  GetMaintenanceSettings: () => mockGetMaintenanceSettings(),
+  GetDatabaseStats: () => mockGetDatabaseStats(),
+  SaveMaintenanceSettings: (settings: unknown) => mockSaveMaintenanceSettings(settings),
+  RunDatabaseMaintenance: (force: boolean) => mockRunDatabaseMaintenance(force),
 }));
 
 vi.mock('../lib/exportImport', async () => {
@@ -84,6 +92,32 @@ describe('DataManagementPage', () => {
     });
     mockListMCPServers.mockReset().mockResolvedValue([]);
     mockListMemoryRecords.mockReset().mockResolvedValue({ records: [], total: 0 });
+    mockGetMaintenanceSettings.mockReset().mockResolvedValue({
+      job_retention_hours: 24,
+      runs_per_job_keep: 200,
+      chat_tool_calls_retention_days: 0,
+      vacuum_min_free_bytes: 16 * 1024 * 1024,
+    });
+    mockGetDatabaseStats.mockReset().mockResolvedValue({
+      path: '/tmp/conversations.db',
+      fileSizeBytes: 1024,
+      walSizeBytes: 0,
+      totalSizeBytes: 1024,
+      pageSize: 4096,
+      pageCount: 1,
+      freelistCount: 0,
+      freeBytes: 0,
+      autoVacuumMode: 'incremental',
+    });
+    mockSaveMaintenanceSettings.mockReset().mockResolvedValue(undefined);
+    mockRunDatabaseMaintenance.mockReset().mockResolvedValue({
+      mode: 'incremental',
+      walCheckpointed: true,
+      freeBytesBefore: 0,
+      totalSizeBefore: 1024,
+      totalSizeAfter: 1024,
+      reclaimedBytes: 0,
+    });
     mockDownloadJSON.mockReset();
     mockOpenImportFileDialog.mockReset();
     mockAnnounce.mockReset();

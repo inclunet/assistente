@@ -2,7 +2,7 @@ import { logger } from '../utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ExportOutlined, ImportOutlined } from '@ant-design/icons';
-import { AnalyzeImportData, ExportData, GetAllTaskLists, GetConversations, GetLLMProvidersWithStatus, ImportData, ListMCPServers, ListMemoryRecords } from '@wailsjs/go/app/App';
+import { AnalyzeImportData, ExportData, GetAllTaskLists, GetConversations, GetDatabaseStats, GetLLMProvidersWithStatus, GetMaintenanceSettings, ImportData, ListMCPServers, ListMemoryRecords, RunDatabaseMaintenance, SaveMaintenanceSettings } from '@wailsjs/go/app/App';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../components/ui/Button';
 import { Checkbox } from '../components/ui/Checkbox';
@@ -12,8 +12,23 @@ import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import { downloadJSON, generateFilename, ImportFileError, IMPORT_FILE_ERROR_CODES, openImportFileDialog } from '../lib/exportImport';
 import { formatRelativeTime } from '../lib/dateUtils';
-import { memory, portability } from '../../wailsjs/go/models';
+import { config, database, memory, portability } from '../../wailsjs/go/models';
 import './DataManagementPage.css';
+
+const BYTES_PER_MIB = 1024 * 1024;
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const rounded = unitIndex === 0 ? value : Math.round(value * 10) / 10;
+  return `${rounded} ${units[unitIndex]}`;
+}
 
 interface ConversationRecord {
   id: string;
@@ -209,6 +224,83 @@ export default function DataManagementPage() {
   const activeImportAnalysisKeyRef = useRef<string | null>(null);
   const handledActionSearchRef = useRef<string | null>(null);
 
+  const [maintenance, setMaintenance] = useState<config.MaintenanceSettings | null>(null);
+  const [dbStats, setDbStats] = useState<database.DatabaseStats | null>(null);
+  const [isLoadingMaintenance, setIsLoadingMaintenance] = useState(true);
+  const [isSavingMaintenance, setIsSavingMaintenance] = useState(false);
+  const [isCompacting, setIsCompacting] = useState(false);
+
+  const loadMaintenance = useCallback(async () => {
+    setIsLoadingMaintenance(true);
+    // Carrega política e estatísticas de forma independente: uma falha ao ler
+    // o tamanho do banco não deve impedir a edição/salvamento da política.
+    const [settingsResult, statsResult] = await Promise.allSettled([
+      GetMaintenanceSettings(),
+      GetDatabaseStats(),
+    ]);
+    if (settingsResult.status === 'fulfilled') {
+      setMaintenance(config.MaintenanceSettings.createFrom(settingsResult.value));
+    } else {
+      logger.error('Erro ao carregar política de manutenção:', settingsResult.reason);
+    }
+    if (statsResult.status === 'fulfilled') {
+      setDbStats(database.DatabaseStats.createFrom(statsResult.value));
+    } else {
+      logger.error('Erro ao carregar estatísticas do banco:', statsResult.reason);
+    }
+    setIsLoadingMaintenance(false);
+  }, []);
+
+  const updateMaintenanceField = useCallback(
+    (field: keyof config.MaintenanceSettings, value: number) => {
+      setMaintenance((prev) => {
+        if (!prev) return prev;
+        const next = config.MaintenanceSettings.createFrom(prev);
+        next[field] = Number.isFinite(value) && value >= 0 ? value : 0;
+        return next;
+      });
+    },
+    [],
+  );
+
+  const handleSaveMaintenance = useCallback(async () => {
+    if (!maintenance) return;
+    setIsSavingMaintenance(true);
+    try {
+      await SaveMaintenanceSettings(maintenance);
+      // Recarrega do backend: SaveMaintenance aplica normalização (ex.: 0 vira
+      // default), então a UI deve refletir os valores efetivamente persistidos.
+      const persisted = await GetMaintenanceSettings();
+      setMaintenance(config.MaintenanceSettings.createFrom(persisted));
+      announce(t('dataManagement.maintenanceSaved', 'Política de manutenção salva.'));
+    } catch (error) {
+      logger.error('Erro ao salvar manutenção do banco:', error);
+      announce(t('dataManagement.maintenanceSaveError', 'Erro ao salvar a política de manutenção.'), 'assertive');
+    } finally {
+      setIsSavingMaintenance(false);
+    }
+  }, [announce, maintenance, t]);
+
+  const handleRunMaintenance = useCallback(async () => {
+    setIsCompacting(true);
+    try {
+      const result = await RunDatabaseMaintenance(true);
+      const stats = await GetDatabaseStats();
+      setDbStats(database.DatabaseStats.createFrom(stats));
+      announce(
+        t('dataManagement.maintenanceRunDone', {
+          defaultValue: 'Manutenção concluída. Espaço liberado: {{reclaimed}}.',
+          reclaimed: formatBytes(result.reclaimedBytes),
+        }),
+      );
+    } catch (error) {
+      logger.error('Erro ao executar manutenção do banco:', error);
+      announce(t('dataManagement.maintenanceRunError', 'Erro ao executar a manutenção do banco.'), 'assertive');
+    } finally {
+      setIsCompacting(false);
+    }
+  }, [announce, t]);
+
   const loadConversations = useCallback(async () => {
     setLoadingConversations(true);
     try {
@@ -232,6 +324,14 @@ export default function DataManagementPage() {
     }
     void loadConversations();
   }, [loadConversations, location.pathname]);
+
+  useEffect(() => {
+    if (location.pathname !== '/settings/data') {
+      setIsLoadingMaintenance(false);
+      return;
+    }
+    void loadMaintenance();
+  }, [loadMaintenance, location.pathname]);
 
   const loadExportProviderIds = useCallback(async () => {
     const providers = await GetLLMProvidersWithStatus() as ProviderRecord[];
@@ -923,6 +1023,99 @@ export default function DataManagementPage() {
               {lastImportResult ? t('common.close', 'Fechar') : t('history.importConfirm', 'Importar agora')}
             </Button>
           </div>
+        )}
+      </section>
+
+      <section className="data-management-card" aria-labelledby="data-maintenance-title">
+        <div className="data-management-card__header">
+          <div>
+            <h2 id="data-maintenance-title">{t('dataManagement.maintenanceTitle', 'Manutenção e retenção do banco')}</h2>
+            <p>{t('dataManagement.maintenanceDescription', 'Controle por quanto tempo os dados de jobs ficam no banco e recupere espaço em disco. Tool calls de chat seguem o ciclo de vida da conversa.')}</p>
+          </div>
+        </div>
+
+        {isLoadingMaintenance && !maintenance ? (
+          <p className="data-management__note" aria-busy="true">{t('common.loading', 'Carregando...')}</p>
+        ) : maintenance ? (
+          <>
+            <div className="data-management__maintenance-fields">
+              <FormField
+                label={t('dataManagement.jobRetentionHoursLabel', 'Retenção de dados de jobs (horas)')}
+                description={t('dataManagement.jobRetentionHoursDescription', 'Runs e eventos de jobs mais antigos que isto são removidos. Padrão: 24h.')}
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  value={String(maintenance.job_retention_hours)}
+                  onChange={(event) => updateMaintenanceField('job_retention_hours', Number(event.target.value))}
+                />
+              </FormField>
+              <FormField
+                label={t('dataManagement.runsPerJobKeepLabel', 'Execuções mantidas por job')}
+                description={t('dataManagement.runsPerJobKeepDescription', 'Teto de execuções recentes preservadas por job, além da janela por idade. 0 desativa o limite.')}
+              >
+                <Input
+                  type="number"
+                  min={0}
+                  value={String(maintenance.runs_per_job_keep)}
+                  onChange={(event) => updateMaintenanceField('runs_per_job_keep', Number(event.target.value))}
+                />
+              </FormField>
+              <FormField
+                label={t('dataManagement.chatRetentionDaysLabel', 'Limite de idade de tool calls de chat (dias)')}
+                description={t('dataManagement.chatRetentionDaysDescription', '0 = sem limite (seguem a conversa). Um valor maior que 0 remove tool calls de chat mais antigos que isso.')}
+              >
+                <Input
+                  type="number"
+                  min={0}
+                  value={String(maintenance.chat_tool_calls_retention_days)}
+                  onChange={(event) => updateMaintenanceField('chat_tool_calls_retention_days', Number(event.target.value))}
+                />
+              </FormField>
+              <FormField
+                label={t('dataManagement.vacuumThresholdLabel', 'Limiar para compactação completa (MiB)')}
+                description={t('dataManagement.vacuumThresholdDescription', 'Espaço livre acumulado no banco a partir do qual uma compactação completa (VACUUM) é disparada automaticamente.')}
+              >
+                <Input
+                  type="number"
+                  min={0}
+                  value={String(Math.round(maintenance.vacuum_min_free_bytes / BYTES_PER_MIB))}
+                  onChange={(event) => updateMaintenanceField('vacuum_min_free_bytes', Number(event.target.value) * BYTES_PER_MIB)}
+                />
+              </FormField>
+            </div>
+
+            {dbStats && (
+              <dl className="data-management__summary">
+                <div><dt>{t('dataManagement.dbTotalSizeLabel', 'Tamanho total do banco')}</dt><dd>{formatBytes(dbStats.totalSizeBytes)}</dd></div>
+                <div><dt>{t('dataManagement.dbFreeSpaceLabel', 'Espaço recuperável')}</dt><dd>{formatBytes(dbStats.freeBytes)}</dd></div>
+                <div><dt>{t('dataManagement.dbAutoVacuumLabel', 'Modo de auto_vacuum')}</dt><dd>{dbStats.autoVacuumMode}</dd></div>
+              </dl>
+            )}
+
+            <div className="data-management-card__actions data-management-card__actions--start">
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => void handleSaveMaintenance()}
+                loading={isSavingMaintenance}
+                disabled={isLoadingMaintenance || isCompacting}
+              >
+                {t('dataManagement.maintenanceSave', 'Salvar política')}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void handleRunMaintenance()}
+                loading={isCompacting}
+                disabled={isLoadingMaintenance || isSavingMaintenance}
+              >
+                {t('dataManagement.maintenanceRunNow', 'Limpar agora')}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <p className="data-management__note">{t('dataManagement.maintenanceUnavailable', 'Não foi possível carregar as configurações de manutenção.')}</p>
         )}
       </section>
     </div>

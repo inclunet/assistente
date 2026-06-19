@@ -60,6 +60,12 @@
   gap: 10px;
 }
 
+.data-management__maintenance-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
 .data-management__summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

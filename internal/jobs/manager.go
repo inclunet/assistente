@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"assistente/internal/config"
 	"assistente/internal/database"
 	"assistente/internal/eventctx"
 	"assistente/internal/hotkey"
@@ -60,6 +61,9 @@ type Manager struct {
 	retentionStop  chan struct{}
 	mu             sync.Mutex
 	started        bool
+	compactMu      sync.Mutex
+	lastCompaction time.Time
+	compacting     bool
 }
 
 // NewManager cria um Manager com todas as dependencias.
@@ -1536,29 +1540,103 @@ func (m *Manager) logSkippedUnavailableTool(ctx context.Context, job *Job, trigC
 	}
 }
 
-const (
-	jobRetentionAge      = 30 * 24 * time.Hour
-	jobRetentionInterval = 24 * time.Hour
-)
+// jobRetentionInterval é a cadência do loop de retenção e o teto de frequência
+// da compactação física. A janela de retenção em si vem do config.json.
+const jobRetentionInterval = 24 * time.Hour
+
+// maintenanceSettings carrega a política de manutenção do config.json (AEP-0074),
+// caindo para os defaults se a leitura falhar. Não há variáveis de ambiente.
+func maintenanceSettings() config.MaintenanceSettings {
+	if maint, err := config.GetMaintenance(); err == nil {
+		return maint
+	}
+	return config.DefaultMaintenanceSettings()
+}
 
 func (m *Manager) runRetention(ctx context.Context) {
 	if m.cfg.Repository == nil {
 		return
 	}
-	if deleted, err := m.cfg.Repository.CleanOldRunEvents(ctx, jobRetentionAge); err != nil {
+	maint := maintenanceSettings()
+	// Dados de jobs são efêmeros: janela curta (horas), configurável (AEP-0074).
+	jobsAge := time.Duration(maint.JobRetentionHours) * time.Hour
+	if deleted, err := m.cfg.Repository.CleanOldRunEvents(ctx, jobsAge); err != nil {
 		log.Printf("[Jobs] retention run events failed: %v", err)
 	} else if deleted > 0 {
 		log.Printf("[Jobs] retention removed %d run event(s)", deleted)
 	}
-	if deleted, err := m.cfg.Repository.CleanOldEvents(ctx, jobRetentionAge); err != nil {
+	if deleted, err := m.cfg.Repository.CleanOldEvents(ctx, jobsAge); err != nil {
 		log.Printf("[Jobs] retention events failed: %v", err)
 	} else if deleted > 0 {
 		log.Printf("[Jobs] retention removed %d event(s)", deleted)
 	}
-	if deleted, err := m.cfg.Repository.CleanOldRuns(ctx, jobRetentionAge); err != nil {
+	if deleted, err := m.cfg.Repository.CleanOldRuns(ctx, jobsAge); err != nil {
 		log.Printf("[Jobs] retention runs failed: %v", err)
 	} else if deleted > 0 {
 		log.Printf("[Jobs] retention removed %d run(s)", deleted)
+	}
+	// Cap por contagem: complementa a retenção por idade para jobs de alta
+	// frequência que acumulam muitos runs dentro da janela (AEP-0074, D4).
+	if deleted, err := m.cfg.Repository.CleanRunsExceedingCount(ctx, maint.RunsPerJobKeep); err != nil {
+		log.Printf("[Jobs] retention count-cap failed: %v", err)
+	} else if deleted > 0 {
+		log.Printf("[Jobs] retention removed %d run(s) over per-job cap", deleted)
+	}
+	if m.cfg.ToolInvocations != nil {
+		// Dry-runs operacionais (job_run/tool_catalog): janela curta de jobs.
+		if deleted, err := m.cfg.ToolInvocations.CleanOldDryRuns(ctx, jobsAge); err != nil {
+			log.Printf("[Jobs] retention dry-run tool invocations failed: %v", err)
+		} else if deleted > 0 {
+			log.Printf("[Jobs] retention removed %d dry-run tool invocation(s)", deleted)
+		}
+		// Tool calls de chat: retenção = ciclo de vida da conversa. Aqui só
+		// varremos órfãos; o cap de idade opcional roda no login (AEP-0074, D5).
+		if deleted, err := m.cfg.ToolInvocations.CleanOrphanChat(ctx); err != nil {
+			log.Printf("[Jobs] retention orphan chat tool invocations failed: %v", err)
+		} else if deleted > 0 {
+			log.Printf("[Jobs] retention removed %d orphan chat tool invocation(s)", deleted)
+		}
+		if maint.ChatToolCallsRetentionDays > 0 {
+			chatAge := time.Duration(maint.ChatToolCallsRetentionDays) * 24 * time.Hour
+			if deleted, err := m.cfg.ToolInvocations.CleanOldChat(ctx, chatAge); err != nil {
+				log.Printf("[Jobs] retention chat tool invocations age-cap failed: %v", err)
+			} else if deleted > 0 {
+				log.Printf("[Jobs] retention removed %d chat tool invocation(s) over age cap", deleted)
+			}
+		}
+	}
+	// Compactação física do arquivo: devolve espaço ao SO após as deleções
+	// acima. Throttled e global (AEP-0074, D3).
+	m.maybeCompact(ctx, maint.VacuumMinFreeBytes)
+}
+
+// maybeCompact dispara a compactação física do banco no máximo uma vez por
+// intervalo de retenção. É global ao arquivo .db (não escopada por usuário) e
+// best-effort: qualquer erro é apenas logado.
+func (m *Manager) maybeCompact(ctx context.Context, minFreeBytes int64) {
+	m.compactMu.Lock()
+	if m.compacting || (!m.lastCompaction.IsZero() && time.Since(m.lastCompaction) < jobRetentionInterval) {
+		m.compactMu.Unlock()
+		return
+	}
+	m.compacting = true
+	m.compactMu.Unlock()
+
+	res, err := database.Compact(ctx, false, minFreeBytes)
+
+	m.compactMu.Lock()
+	m.compacting = false
+	// Só arma o throttle de 24h quando houve compactação real. Falhas (ex.:
+	// SQLITE_BUSY) e no-ops gated por limiar (mode="skipped"/"noop") NÃO devem
+	// bloquear novas tentativas: após purgas de retenção o freelist pode cruzar
+	// o limiar e merecer um VACUUM antes das 24h.
+	if err == nil && res.Mode != "skipped" && res.Mode != "noop" {
+		m.lastCompaction = time.Now()
+	}
+	m.compactMu.Unlock()
+
+	if err != nil {
+		log.Printf("[Jobs] retention compaction failed: %v", err)
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 
 	"assistente/internal/agent"
 	"assistente/internal/chat"
-	"assistente/internal/config"
 	"assistente/internal/core/ports"
 	"assistente/internal/core/usecases"
 	"assistente/internal/llm"
@@ -28,7 +27,6 @@ type ChatControllerConfig struct {
 	AgentSvc         *agent.Service
 	StreamMgr        *chat.StreamingManager
 	SpeechSvc        *speech.Service
-	SettingsSvc      *config.SettingsService
 	ConvRepo         chat.ConversationRepository
 	MsgGateway       *messaging.Gateway
 	ResponseNotifier *messaging.ResponseNotifier
@@ -63,7 +61,6 @@ func NewChatController(cfg ChatControllerConfig) *ChatController {
 			AgentSvc:        cfg.AgentSvc,
 			StreamMgr:       cfg.StreamMgr,
 			SpeechSvc:       cfg.SpeechSvc,
-			SettingsSvc:     cfg.SettingsSvc,
 			Emitter:         cfg.Emitter,
 			OnSpeechRequest: cfg.OnSpeechRequest,
 			OpenEditorPaths: cfg.OpenEditorPaths,

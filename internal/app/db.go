@@ -1177,18 +1177,15 @@ func (a *App) SetConversationModel(conversationID string, model string) error {
 	return database.UpdateConversationWithContext(ctx, conversationID, "", model)
 }
 
-// GetEffectiveModel retorna o modelo efetivo (perfil ativo > config padrão)
+// GetEffectiveModel retorna o modelo efetivo a partir do perfil ativo.
+// Não há fallback para config.json legado (AEP-0074): o modelo vem do perfil.
 func (a *App) GetEffectiveModel() (string, error) {
-	// Tenta obter do perfil ativo
 	activeProfile, err := a.profileManager.GetActive()
-	if err == nil && activeProfile != nil && activeProfile.Chat.Model != "" {
-		return activeProfile.Chat.Model, nil
-	}
-
-	// Fallback para config
-	cfg, err := a.settingsSvc.GetConfig()
 	if err != nil {
 		return "", err
 	}
-	return cfg.DefaultModel, nil
+	if activeProfile == nil {
+		return "", nil
+	}
+	return activeProfile.Chat.Model, nil
 }

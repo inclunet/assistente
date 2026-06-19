@@ -458,6 +458,10 @@ export function GetConversations() {
   return window['go']['app']['App']['GetConversations']();
 }
 
+export function GetDatabaseStats() {
+  return window['go']['app']['App']['GetDatabaseStats']();
+}
+
 export function GetEffectiveModel() {
   return window['go']['app']['App']['GetEffectiveModel']();
 }
@@ -524,6 +528,10 @@ export function GetMCPServerTools(arg1) {
 
 export function GetMCPWorkspaceRoots() {
   return window['go']['app']['App']['GetMCPWorkspaceRoots']();
+}
+
+export function GetMaintenanceSettings() {
+  return window['go']['app']['App']['GetMaintenanceSettings']();
 }
 
 export function GetMemoryPolicySummary() {
@@ -874,6 +882,10 @@ export function RetryUserRuntimeInit() {
   return window['go']['app']['App']['RetryUserRuntimeInit']();
 }
 
+export function RunDatabaseMaintenance(arg1) {
+  return window['go']['app']['App']['RunDatabaseMaintenance'](arg1);
+}
+
 export function RunJob(arg1) {
   return window['go']['app']['App']['RunJob'](arg1);
 }
@@ -900,6 +912,10 @@ export function SaveMCPServer(arg1, arg2) {
 
 export function SaveMCPServerAuth(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['app']['App']['SaveMCPServerAuth'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
+export function SaveMaintenanceSettings(arg1) {
+  return window['go']['app']['App']['SaveMaintenanceSettings'](arg1);
 }
 
 export function SaveMessageAudio(arg1, arg2, arg3) {

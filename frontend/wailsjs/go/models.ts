@@ -1011,6 +1011,24 @@ export namespace chat {
 
 export namespace config {
 	
+	export class MaintenanceSettings {
+	    job_retention_hours: number;
+	    runs_per_job_keep: number;
+	    chat_tool_calls_retention_days: number;
+	    vacuum_min_free_bytes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MaintenanceSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.job_retention_hours = source["job_retention_hours"];
+	        this.runs_per_job_keep = source["runs_per_job_keep"];
+	        this.chat_tool_calls_retention_days = source["chat_tool_calls_retention_days"];
+	        this.vacuum_min_free_bytes = source["vacuum_min_free_bytes"];
+	    }
+	}
 	export class STTParams {
 	    provider?: string;
 	    recording_mode?: string;
@@ -1051,6 +1069,7 @@ export namespace config {
 	    active_profile?: string;
 	    chat_params?: ModelParams;
 	    stt_params?: STTParams;
+	    maintenance: MaintenanceSettings;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -1065,6 +1084,7 @@ export namespace config {
 	        this.active_profile = source["active_profile"];
 	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
 	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
+	        this.maintenance = this.convertValues(source["maintenance"], MaintenanceSettings);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1085,6 +1105,7 @@ export namespace config {
 		    return a;
 		}
 	}
+	
 	
 
 }
@@ -1563,6 +1584,28 @@ export namespace database {
 		    return a;
 		}
 	}
+	export class CompactionResult {
+	    mode: string;
+	    walCheckpointed: boolean;
+	    freeBytesBefore: number;
+	    totalSizeBefore: number;
+	    totalSizeAfter: number;
+	    reclaimedBytes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CompactionResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.walCheckpointed = source["walCheckpointed"];
+	        this.freeBytesBefore = source["freeBytesBefore"];
+	        this.totalSizeBefore = source["totalSizeBefore"];
+	        this.totalSizeAfter = source["totalSizeAfter"];
+	        this.reclaimedBytes = source["reclaimedBytes"];
+	    }
+	}
 	export class Conversation {
 	    id: string;
 	    // Go type: time
@@ -1651,6 +1694,34 @@ export namespace database {
 	        this.when = source["when"];
 	        this.danger = source["danger"];
 	        this.confirm = source["confirm"];
+	    }
+	}
+	export class DatabaseStats {
+	    path: string;
+	    fileSizeBytes: number;
+	    walSizeBytes: number;
+	    totalSizeBytes: number;
+	    pageSize: number;
+	    pageCount: number;
+	    freelistCount: number;
+	    freeBytes: number;
+	    autoVacuumMode: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DatabaseStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.fileSizeBytes = source["fileSizeBytes"];
+	        this.walSizeBytes = source["walSizeBytes"];
+	        this.totalSizeBytes = source["totalSizeBytes"];
+	        this.pageSize = source["pageSize"];
+	        this.pageCount = source["pageCount"];
+	        this.freelistCount = source["freelistCount"];
+	        this.freeBytes = source["freeBytes"];
+	        this.autoVacuumMode = source["autoVacuumMode"];
 	    }
 	}
 	export class MemoryRecord {
