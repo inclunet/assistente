@@ -1,42 +1,60 @@
-# AEP-0074 — Prompt Cache, Custo de LLM e Contexto Dinâmico
+# AEP-0074 — Prompt Cache, Custo de LLM e Layout da Request
 
 Status: Proposta
 Criado em: 2026-06-16
+Atualizado em: 2026-06-19
 Depende de: AEP-0075 (Context Providers), AEP-0072 revisada (Skill Loading Runtime)
 Relacionado: AEP-0012, AEP-0059, AEP-0051, AEP-0039
 
 ## Resumo
 
-O Assistente deve passar a tratar prompt/context caching como uma capacidade arquitetural explícita, não como um detalhe invisível de providers. Muitos providers modernos reduzem custo e latência quando requisições consecutivas compartilham um prefixo idêntico, mas a montagem atual do prompt mistura conteúdo estável com conteúdo dinâmico no início da request, o que reduz cache hits.
+O Assistente deve tratar prompt/context caching como uma capacidade arquitetural explícita da request inteira, não apenas do system prompt. Providers modernos reduzem custo e latência quando chamadas consecutivas compartilham um prefixo idêntico; por isso, a request deve ser montada sempre em uma ordem previsível: conteúdo estável primeiro, conteúdo de conversa depois, e conteúdo do turno atual no fim.
 
 Esta AEP define:
 
-- uma matriz de providers com suporte a cache;
-- uma política de layout do prompt em blocos estáveis e dinâmicos;
-- uma estratégia específica para memórias e skills, que hoje podem mudar a cada turno;
-- normalização de métricas de cache para custo real;
-- fases incrementais para implementar observabilidade antes de otimizações comportamentais.
+- normalização simples das métricas de cache reportadas pelos providers;
+- layout cache-friendly sempre ativo para system prompt, ferramentas, resumo, histórico e contexto dinâmico;
+- controles ativos de cache controlados pelo perfil, não inferidos magicamente pelo provider;
+- uso dos controles de histórico e orçamento que já existem no código;
+- uma sequência enxuta de PRs para implementar cache sem refazer o subsistema de contexto.
 
-Ordem arquitetural obrigatória:
+Ordem arquitetural atual:
 
-1. AEP-0075 separa memória, workspace e outros estados dinâmicos em Context Providers.
-2. AEP-0072 revisada redefine skills como módulos de instrução/workflow com carregamento explícito.
-3. Esta AEP otimiza prompt cache sobre essa separação.
+1. AEP-0075 separou memória, workspace, tasklists e outros estados dinâmicos em Context Providers.
+2. AEP-0072 revisada definiu skills como módulos estáticos de instrução/workflow, com modos `base`, `on_demand` e `disabled`.
+3. Esta AEP otimiza cache sobre essa base: skills estáticas no prefixo, contexto dinâmico no sufixo, e controles ativos partindo do perfil.
+
+## Estado atual do código
+
+Esta AEP parte do estado atual do runtime, não de uma arquitetura hipotética.
+
+Já existe:
+
+- `profiles.Profile.Chat.ContextWindow` / `profiles.ChatConfig.ContextWindow`, que define a janela de contexto do modelo;
+- `profiles.Profile.Chat.MaxContextMessages` / `profiles.ChatConfig.MaxContextMessages`, com default efetivo de 50 mensagens;
+- `profiles.Profile.Chat.MinContextMessages` / `profiles.ChatConfig.MinContextMessages`, com default efetivo de 10 mensagens preservadas após sumarização;
+- resumo incremental persistido em `Conversation.Summary` e `SummaryUpToMessageID`;
+- `HistoryLoader`, que remove do contexto mensagens já cobertas pelo resumo;
+- truncamento por quantidade de mensagens, preservando turns a partir de mensagens `user`;
+- `MediaHistoryLoader`, que remove mensagens antigas de `tool` e placeholders de tool calling para economizar tokens;
+- trigger de sumarização baseado em orçamento: `context_window - max_tokens - margem de segurança`;
+- proteção contra sumarizações concorrentes via `SummarizingInProgress`;
+- estatística de uso da janela baseada no último usage reportado pelo provider;
+- Context Providers com `ProviderBudgets`, incluindo `tasklist` com budget e truncamento.
+
+Portanto, esta AEP não propõe reimplementar janela deslizante, trigger de resumo, mínimo de mensagens preservadas, nem budget básico de contexto. O foco é organizar e instrumentar o que já existe para favorecer cache.
 
 ## Motivação
 
-DeepSeek, OpenAI, Anthropic, Gemini, xAI, Qwen, Mistral e Kimi já oferecem alguma forma de prompt/context caching. O mecanismo varia, mas a regra prática converge: conteúdo repetido e idêntico no início da request tende a ser cacheável; conteúdo dinâmico no início invalida o cache do restante.
+DeepSeek, OpenAI, Anthropic, Gemini, xAI, Qwen, Mistral, Kimi, LiteLLM e OpenRouter oferecem alguma forma de prompt/context caching. O mecanismo varia, mas a regra prática converge: conteúdo repetido e idêntico no começo da request tende a ser cacheável; conteúdo dinâmico cedo demais reduz cache hits.
 
-Hoje o Assistente reconstrói o prompt completo a cada envio. Isso é correto funcionalmente, mas tem riscos de custo:
+Hoje o Assistente já economiza tokens com resumo, janela de mensagens e remoção de tool messages antigas. Isso é correto e deve ser preservado. O problema restante é que a request inteira ainda precisa ficar mais previsível e observável:
 
-- skills `auto_load` entram cedo no system prompt;
-- templates de skill podem incluir `{{ now }}`;
-- a skill `memory` injeta memória do usuário e data/hora no prompt;
-- resumo, arquivos abertos, superfície ativa e tasklists vinculadas entram como contexto dinâmico;
-- tool definitions e lista de skills podem mudar de ordem se não houver ordenação determinística;
-- o uso de tokens salvo no banco não distingue tokens cacheados de tokens processados a custo cheio.
-
-Mesmo que DeepSeek seja barato, o mesmo padrão afeta OpenAI, Claude, Gemini, Grok, Qwen, Mistral, Kimi e rotas via LiteLLM/OpenRouter. O objetivo é reduzir custo sem degradar qualidade, tool calling, MCP nativo, memória ou skills.
+- métricas de cache reportadas pelos providers ainda não são normalizadas;
+- custo estimado ainda trata todos os prompt tokens como custo cheio;
+- o layout do system prompt ainda mistura alguns blocos estáveis e dinâmicos;
+- a ordem e o tamanho dos blocos devem ser fáceis de auditar;
+- hints e cache control precisam partir do perfil, junto da configuração de modelo/parâmetros, porque a decisão de política depende do modelo/rota usados naquele perfil.
 
 ## Providers com cache relevante
 
@@ -63,165 +81,93 @@ Mesmo que DeepSeek seja barato, o mesmo padrão afeta OpenAI, Claude, Gemini, Gr
 
 ## Decisões
 
-### D1. O prompt passa a ter blocos com classe de volatilidade
+### D1. Layout cache-friendly é arquitetura base
 
-Todo conteúdo injetado no prompt deve ser classificado em uma destas classes:
+O prompt deve ser montado sempre em ordem cache-friendly, mesmo quando o perfil não habilita hints ou cache control explícito.
 
-- `stable`: muda apenas em deploy, edição explícita de skill/regra ou alteração de provider/profile.
-- `session`: muda pouco, por sessão/conversa, mas não a cada turno.
-- `conversation`: muda conforme a conversa evolui, por exemplo resumo.
-- `turn`: muda em cada envio, por exemplo input do usuário, slash skill, superfície ativa.
-- `volatile`: muda por relógio, aleatoriedade, estado externo não versionado ou leitura dinâmica.
+Isso não é uma feature toggle. É uma simplificação da arquitetura:
 
-Regra de layout:
+1. conteúdo estável primeiro;
+2. contexto de conversa depois;
+3. contexto dinâmico e turno atual no fim.
 
-1. Blocos `stable` vêm primeiro.
-2. Blocos `session` vêm depois.
-3. Blocos `conversation`, `turn` e `volatile` ficam no sufixo.
+O perfil controla se o runtime envia hints ou usa cache control explícito. Diagnósticos de cache devem ser coletados sempre que disponíveis. Budgets e ativação de Context Providers pertencem à AEP-0075, não a esta AEP. O perfil não deve controlar se a request é montada de forma organizada.
 
-O prefixo cacheável é formado apenas por blocos `stable` e, quando seguro, por blocos `session`.
+### D2. A unidade cacheável é a request inteira
 
-### D2. Memória deixa de ser parte do prefixo estável
-
-Memória de usuário é importante, mas é dinâmica. Ela não deve ficar misturada ao corpo cacheável da skill `memory`.
-
-Decisão:
-
-- a skill `memory` deve conter apenas instruções estáveis sobre como usar memória;
-- o conteúdo de memória (`memory.md`, facts, preferências, FAQs importadas ou equivalentes) deve ser injetado por um provedor de contexto dedicado, em bloco próprio e depois do prefixo estável;
-- `{{ now }}` não deve aparecer em bloco cacheável;
-- data/hora, quando necessária, deve ser inserida em bloco dinâmico curto, preferencialmente com granularidade diária ou apenas sob demanda.
-
-Forma alvo:
+O cache não depende só do system prompt. A request enviada ao provider inclui system, tools, histórico, resumo, contexto dinâmico e mensagem atual. A ordem alvo é:
 
 ```text
-<stable_instructions>
-...
-</stable_instructions>
+prefixo estável:
+  - prompt base
+  - instruções estáticas do perfil
+  - skill base completa, quando houver
+  - catálogo compacto de skills on_demand
+  - definições estáveis de tools/MCP
 
-<skill_catalog>
-...
-</skill_catalog>
+prefixo de conversa:
+  - resumo acumulado da conversa, quando existir
+  - mensagens preservadas após summary_up_to_message_id
 
-<dynamic_memory>
-...
-</dynamic_memory>
-
-<conversation_context>
-...
-</conversation_context>
+sufixo dinâmico:
+  - context providers dinâmicos (memory, workspace, tasklist, surface)
+  - conteúdo específico do turno
+  - mensagem atual do usuário
 ```
 
-Isso preserva qualidade da memória sem invalidar o cache das instruções e catálogos estáveis.
+Essa ordem deve respeitar os controles já existentes de `MaxContextMessages`, `MinContextMessages`, `ContextWindow` e sumarização. Esta AEP não substitui esses controles.
 
-### D3. Skills entram via Skill Loading Runtime
+### D3. Skills são estáticas por contrato
 
-AEP-0072 revisada define Skill Loading Runtime. Esta AEP só define como esse runtime participa do layout cacheável.
+Skills no runtime novo são Markdown estático e não usam templates. Não existe mais política de cache para templates de skills, nem classificação de skill dinâmica.
+
+Regras:
+
+- a primeira skill habilitada no perfil é `base` e pode entrar completa no prefixo estável;
+- skills `on_demand` aparecem no catálogo compacto até serem carregadas;
+- skills `disabled` não aparecem nem carregam;
+- conteúdo completo de skill `on_demand` carregado por ferramenta entra no fluxo daquele turno, não no prompt inicial cacheável;
+- argumentos de invocação explícita de skill pertencem ao turno atual, não ao corpo estável da skill;
+- qualquer resquício de template em skill é bug e deve ser removido, não compatibilizado.
+
+### D4. Context Providers são o lugar do dinamismo
+
+Memória, workspace, tasklists, superfície ativa e outros estados do app entram por Context Providers. Eles ficam fora do prefixo estável.
+
+Política:
+
+- `memory` pode ter instruções estáveis curtas, mas records/memórias carregadas são dinâmicas;
+- `workspace` e `surface` são dinâmicos;
+- `tasklist` é dinâmico e respeita budget;
+- providers devem produzir blocos pequenos, ordenados e com budget;
+- budgets default são parte do runtime, e overrides por perfil são definidos pela configuração de Context Providers da AEP-0075.
+
+### D5. Histórico atual é preservado
+
+O sistema já controla quantidade de mensagens, budget de contexto e momento de sumarizar. Esta AEP não propõe uma nova estratégia de histórico como pré-requisito.
 
 Decisão:
 
-- o catálogo compacto de skills deve ser `stable` quando derivado de metadados ordenados deterministicamente;
-- skills `base` do perfil entram no prefixo estável quando forem estáticas;
-- skills `on_demand` aparecem apenas no catálogo até serem carregadas;
-- skills `disabled` não aparecem nem carregam;
-- contexto dinâmico não pertence a skills, e sim a Context Providers da AEP-0075;
-- Go templates em skills são legado e não devem ser usados para produzir contexto dinâmico no caminho novo.
+- manter `HistoryLoader` e `MediaHistoryLoader` como fonte canônica da janela enviada ao modelo;
+- manter remoção de mensagens antigas de `tool` e placeholders de tool calling;
+- manter `summary_up_to_message_id` como limite entre resumo e mensagens recentes;
+- manter trigger de resumo por budget;
+- só fazer ajustes pontuais se uma medição real mostrar problema.
 
-Exemplo:
+### D6. Ordenação determinística é obrigatória
 
-- `coding`: majoritariamente estável; pode ficar no prefixo se auto-load for inevitável.
-- `memory`: não é skill no caminho novo; vira Context Provider.
-- `workspace`: não é skill no caminho novo; vira Context Provider.
-- `tasklist-manager`: instruções estáveis no prefixo; tasklists vinculadas fora do prefixo.
+Qualquer lista que entra na request deve ter ordem estável:
 
-### D3.1. Modelo operacional de carregamento de skills
-
-"Carregar uma skill" significa tornar algum conteúdo dela visível para o LLM. Existem quatro caminhos distintos, e a implementação deve tratá-los separadamente.
-
-#### 1. Catálogo inicial
-
-O prompt inicial contém apenas um catálogo compacto de skills: nome, descrição, quando usar e referência de leitura. Este catálogo é cacheável quando ordenado deterministicamente e quando seus metadados não mudam.
-
-Este caminho não carrega o corpo completo da skill. Ele só dá ao modelo informação suficiente para decidir se precisa dela.
-
-#### 2. Auto-load
-
-Skills `auto_load` são carregadas automaticamente no prompt inicial. Como isso aumenta custo e reduz cache, `auto_load` deve ser exceção.
-
-Regra nova:
-
-- se o corpo da skill é estável, ele pode entrar no prefixo cacheável;
-- se o corpo mistura instruções estáveis e contexto dinâmico, a skill deve ser dividida em dois blocos;
-- se o corpo depende de template dinâmico, memória, workspace, surface, tasklists, relógio ou include mutável, ele não entra no prefixo cacheável.
-
-#### 3. Invocação explícita por slash
-
-Quando o usuário chama uma skill explicitamente (`/skill ...`), o conteúdo renderizado da skill entra no turno atual como contexto dinâmico. Esse conteúdo não é parte do prefixo cacheável, porque depende da intenção e dos argumentos daquele envio.
-
-Este caminho é apropriado para skills longas ou específicas, pois evita inflar todo turno.
-
-#### 4. Carregamento sob demanda pelo modelo
-
-Quando uma skill aparece apenas no catálogo, o modelo pode decidir ler o corpo completo usando a ferramenta de leitura indicada. O resultado dessa leitura entra no contexto como resultado de tool, não como system prompt inicial.
-
-No estado atual do código, esse caminho usa arquivos `SKILL.md`/supporting files resolvidos pelo sistema de skills. No alvo da AEP-0072 revisada, o runtime pode continuar lendo arquivos no primeiro momento; se AEP-0051 for retomada, o banco pode virar fonte canônica. Esta AEP não exige banco para otimizar cache.
-
-#### Fluxo alvo
-
-```mermaid
-flowchart TD
-  userTurn["Novo turno"] --> buildCatalog["Catálogo compacto de skills"]
-  buildCatalog --> stablePrefix["Prefixo estável cacheável"]
-  stablePrefix --> dynamicContext["Contexto dinâmico"]
-  dynamicContext --> modelCall["Chamada ao LLM"]
-  modelCall --> needsSkill{"Modelo precisa de skill?"}
-  needsSkill -->|"Não"| answer["Resposta"]
-  needsSkill -->|"Sim"| readSkill["read_file da skill"]
-  readSkill --> modelCall2["Nova iteração com conteúdo da skill"]
-  modelCall2 --> answer
-```
-
-#### Consequência para cache
-
-O cache ideal reaproveita o prefixo até o catálogo estável. Conteúdo lido sob demanda, memórias, surface, arquivos abertos e slash skills ficam depois desse prefixo e podem mudar sem invalidar as instruções estáveis.
-
-### D4. Templates passam a ter política de cache
-
-O sistema de templates deve ganhar uma política de cache, explícita ou inferida.
-
-Inferência inicial:
-
-- contém `{{ now }}` ou função equivalente: `volatile`;
-- contém `include "memory/...": `conversation` ou `turn`, conforme origem;
-- usa `.Surface`, `.Tabs`, `.TaskLists`, `.ConversationID`: `turn` ou `conversation`;
-- conteúdo sem template: `stable`.
-
-Campos futuros no frontmatter de skill:
-
-```yaml
-cache:
-  volatility: stable | session | conversation | turn | volatile
-  split_dynamic_context: true
-```
-
-Antes de depender desses campos, a implementação deve usar inferência conservadora: se há dúvida, o bloco é dinâmico.
-
-### D5. Ordenação determinística é obrigatória
-
-Qualquer lista que entra no prompt ou no payload de tools deve ter ordem estável:
-
-- skills descobertas;
-- skills disponíveis;
-- supporting files;
-- tools;
-- MCP tools;
-- arquivos abertos;
+- skill base e catálogo de skills;
+- tools e MCP tools;
+- context blocks;
 - tasklists e tasks;
-- mapas serializados em JSON.
+- mapas serializados em JSON que entrem no prompt;
+- mensagens conforme ordem persistida pelo banco.
 
 Se a ordem semântica importa, ela deve ser persistida. Se não importa, ordenar por chave estável.
 
-### D6. Métricas de cache devem ser normalizadas sem perder semântica
+### D7. Métricas de cache devem ser normalizadas
 
 `llm.Usage` deve distinguir:
 
@@ -230,117 +176,165 @@ Se a ordem semântica importa, ela deve ser persistida. Se não importa, ordenar
 - cache hit/read tokens;
 - cache miss tokens;
 - cache write/creation tokens;
-- provider shape original.
+- provider shape original quando necessário para auditoria.
 
 Mapeamento:
 
-- OpenAI-style: `cached_tokens` é hit/read; miss = `prompt_tokens - cached_tokens`.
-- DeepSeek: `prompt_cache_hit_tokens` e `prompt_cache_miss_tokens` são campos diretos.
-- Anthropic: preservar `cache_creation_input_tokens`, `cache_read_input_tokens` e `input_tokens`; não reinterpretar `input_tokens` como total.
-- Gemini: `cachedContentTokenCount` é hit/read.
-- Kimi: `usage.cached_tokens` é hit/read.
+- OpenAI-style: `cached_tokens` é hit/read; miss = `prompt_tokens - cached_tokens`;
+- DeepSeek: `prompt_cache_hit_tokens` e `prompt_cache_miss_tokens` são campos diretos;
+- Anthropic: preservar `cache_creation_input_tokens`, `cache_read_input_tokens` e `input_tokens`;
+- Gemini: `cachedContentTokenCount` é hit/read;
+- Kimi/Qwen/OpenRouter/LiteLLM: best-effort por campos reportados.
 
-O custo estimado deve usar tokens billable por classe, não apenas `prompt_tokens` bruto.
+O custo estimado deve usar tokens billable por classe quando o provider reportar os dados. Quando não reportar, o cálculo antigo permanece como fallback.
 
-### D7. Cache hints devem ser opt-in/auto e sem dados sensíveis
+### D8. Controles ativos de cache partem do perfil
 
-Quando o provider suportar:
+Provider informa capacidade técnica; perfil decide política. Em gateways como LiteLLM e OpenRouter, essa política não pode ser decidida apenas pelo provider cadastrado, porque o mesmo gateway pode rotear modelos com capacidades de cache diferentes. Por isso, os controles ativos de cache pertencem ao perfil, na mesma área conceitual em que o usuário ajusta modelo e parâmetros do modelo.
 
-- `prompt_cache_key` pode ser derivado de `providerID + profileSlug + conversationID`;
-- headers como `x-grok-conv-id` podem usar o mesmo identificador estável;
-- a chave não deve conter conteúdo de mensagem, email, ticket, nome de usuário ou secrets;
-- a política padrão deve ser `auto`, com fallback silencioso quando o provider/gateway ignorar o campo.
+Configuração conceitual no perfil:
 
-### D8. Não reverter economia de tokens sem medir
+```json
+{
+  "chat": {
+    "prompt_cache": {
+      "enabled": true,
+      "provider_hints": true,
+      "explicit_cache_control": false
+    }
+  }
+}
+```
 
-`MediaHistoryLoader` hoje remove mensagens antigas de `tool` e alguns placeholders de tool calling. Isso reduz tokens, mas pode reduzir cache em providers que esperam histórico append-only byte-identical.
+Utilidade dos campos:
 
-Decisão:
+- `enabled`: permite que o perfil use mecanismos ativos de cache quando o modelo/rota suportar. `false` desliga hints e cache control explícito, mas não muda o layout cache-friendly nem impede coleta de métricas reportadas pelo provider. Métricas e diagnósticos continuam sempre ativos.
+- `provider_hints`: controla se o runtime pode enviar hints simples e semanticamente neutros, como `prompt_cache_key` ou headers equivalentes. Esses hints ajudam providers/gateways a associar chamadas consecutivas ao mesmo prefixo/conversa, mas não devem conter conteúdo sensível nem mudar a resposta esperada. O uso efetivo depende da capability resolvida para o modelo/rota.
+- `explicit_cache_control`: controla mecanismos que alteram o payload em blocos, como `cache_control` da Anthropic. É separado de `provider_hints` porque é mais específico e tem maior risco de incompatibilidade em gateways. O default deve ser conservador, especialmente em LiteLLM/OpenRouter, até haver capability explícita para o modelo/rota.
 
-- não reverter essa otimização na primeira fase;
-- medir cache hit/miss antes;
-- se houver evidência de perda relevante, comparar duas estratégias por perfil/provider:
-  - `compact_history`: menor prompt;
-  - `append_only_cache_friendly`: maior prompt, maior cache hit.
+Regras:
 
-## Fases
+- diagnósticos e métricas de cache reportadas pelo provider são coletados sempre; não há configuração de perfil para "não diagnosticar";
+- a UI deve expor estes campos na guia ou seção de modelo e parâmetros do modelo do perfil, não na aba de Context Providers;
+- configurações de Context Providers, incluindo `enabled`, budgets e settings próprios, ficam na AEP-0075 e não dentro de `prompt_cache`;
+- modelo/rota sem suporte deve ignorar/falhar de forma auditável, sem alterar a resposta;
+- chaves de cache não podem conter conteúdo de mensagens, email, nomes de usuário, tickets ou secrets.
 
-### Fase 0 — Esta AEP
+## Fases / PRs
 
-- Criar esta AEP antes de qualquer implementação.
-- Validar com o usuário a dependência 0075 → 0072 revisada → 0074.
-- Registrar a matriz inicial de providers.
+### PR 1 — Atualizar esta AEP
 
-### Fase 0.1 — Dependências arquiteturais
+Atualizar a AEP-0074 para refletir o estado atual após AEP-0072 e AEP-0075.
 
-- Implementar AEP-0075 para retirar `memory` e `workspace` de skills.
-- Implementar AEP-0072 revisada para skill modes (`base`, `on_demand`, `disabled`) e carregamento explícito.
-- Só depois aplicar otimizações de cache desta AEP.
+Entrega:
 
-### Fase 1 — Observabilidade
+- remover premissas antigas sobre templates de skills;
+- documentar controles existentes de contexto e resumo;
+- definir o plano enxuto abaixo.
 
-- Estender `llm.Usage` para métricas de cache.
-- Capturar campos de cache em OpenAI-compatible, Responses, Anthropic e Gemini.
-- Persistir métricas em `chat_messages` ou estrutura JSON de usage.
-- Mostrar/logar cache hit rate por resposta.
-- Não alterar layout de prompt ainda.
+### PR 2 — Métricas de cache, persistência e stats
 
-### Fase 2 — Determinismo
+Estender `llm.Usage`, providers, persistência e estatísticas para capturar métricas de cache quando reportadas.
 
-- Ordenar deterministicamente skills, tools, supporting files e blocos de prompt.
-- Adicionar testes snapshot para `internal/prompt/builder.go`.
-- Adicionar teste que duas chamadas com o mesmo estado geram bytes idênticos no prefixo.
+Escopo:
 
-### Fase 3 — Contexto dinâmico fora do prefixo
+- `CacheReadTokens`;
+- `CacheWriteTokens`;
+- `CacheMissTokens`;
+- mapeamento OpenAI-compatible/DeepSeek, Anthropic e Gemini;
+- salvar métricas em mensagem ou estrutura JSON compatível;
+- propagar nos eventos finais de resposta;
+- atualizar estatísticas de token;
+- manter compatibilidade com mensagens antigas;
+- testes com payloads de usage e persistência.
 
-- Consumir os Context Providers da AEP-0075.
-- Garantir que memória, workspace, surface, tasklists, arquivos abertos e resumo fiquem fora do prefixo estável.
-- Remover `{{ now }}` do caminho novo de skills.
-- Garantir que o bloco dinâmico fica depois do catálogo/instruções estáveis.
+Não muda layout de prompt.
 
-### Fase 4 — Skills cache-aware
+### PR 3 — Layout cache-friendly e determinismo da request
 
-- Integrar com a direção da AEP-0072:
-  - catálogo compacto estável;
-  - corpos de skill sob demanda;
-  - auto-load auditado.
-- Inferir volatilidade de templates.
-- Adicionar validação/log para skills auto-load que invalidam cache.
+Reorganizar o system prompt e garantir ordenação estável do que já entra na request.
 
-### Fase 5 — Cache hints por provider
+Escopo:
 
-- Adicionar `PromptCachePolicy` em provider/perfil.
-- Enviar `prompt_cache_key` ou headers quando suportado.
-- Começar por OpenAI-compatible seguro: DeepSeek, Mistral, xAI, Kimi, Qwen e LiteLLM.
-- Só depois implementar `cache_control` explícito para Anthropic/Gemini/Qwen.
+- prompt base e instruções estáveis primeiro;
+- skill base e catálogo de skills no prefixo;
+- resumo depois do prefixo estável;
+- Context Providers dinâmicos depois do resumo;
+- conteúdo específico do turno no fim;
+- skills e catálogo com ordem estável;
+- tools e MCP tools com ordem estável;
+- context blocks com ordem estável;
+- serialização JSON que entra no prompt com ordem determinística;
+- testes de regressão do builder;
+- testes focados em duas chamadas com mesmo estado produzindo prefixo estável.
 
-### Fase 6 — Custo e UX
+Não muda a estratégia de histórico.
 
-- Atualizar estatísticas de tokens para mostrar:
-  - prompt bruto;
-  - tokens cache hit;
-  - tokens cache miss;
-  - tokens cache write;
-  - hit rate;
-  - custo estimado com desconto.
-- Expor avisos quando cache hit rate estiver consistentemente zero em conversas longas.
+### PR 4 — Configuração de cache no perfil
+
+Adicionar configuração de cache no perfil.
+
+Escopo:
+
+- `prompt_cache.enabled`;
+- `prompt_cache.provider_hints`;
+- `prompt_cache.explicit_cache_control`;
+- validação;
+- defaults conservadores;
+- tipos Wails/frontend quando necessário.
+
+O layout cache-friendly continua sempre ativo.
+
+### PR 5 — Cache hints controlados pelo perfil
+
+Enviar hints apenas quando perfil e capability do modelo/rota permitirem.
+
+Escopo:
+
+- capability técnica resolvida para provider, gateway, modelo e rota;
+- `prompt_cache_key` ou header equivalente em OpenAI-compatible/LiteLLM/DeepSeek-like;
+- chave segura derivada de provider, perfil e conversa, sem dados sensíveis;
+- fallback silencioso quando não suportado.
+
+### PR 6 — Cache control explícito
+
+Implementar cache control para providers que exigem marcação explícita.
+
+Escopo:
+
+- Anthropic `cache_control` em blocos estáveis;
+- Gemini/Vertex apenas se o caminho estiver claro;
+- só quando `prompt_cache.enabled=true` e `explicit_cache_control=true`;
+- nunca aplicar genericamente em gateways sem capability resolvida para o modelo/rota.
+
+### PR 7 — Custo e UX básicos
+
+Expor os resultados de cache para o usuário.
+
+Escopo:
+
+- tokens cache read/write/miss;
+- hit rate;
+- custo estimado quando possível;
+- fallback claro quando provider não reporta cache;
+- avisos simples quando cache está habilitado no perfil mas provider não suporta ou não reporta.
 
 ## Riscos
 
-- Mover memória para outro bloco pode alterar comportamento se o modelo der menos prioridade a ela.
-- `cache_control` explícito pode quebrar providers/gateways se aplicado genericamente.
-- Tool definitions e MCP native tools podem variar por perfil e invalidar cache.
-- Gateways podem omitir métricas de cache, tornando custo estimado incompleto.
-- Prefixo muito estável, mas grande demais, pode aumentar custo em providers sem cache efetivo.
-- Skills com templates podem depender da posição atual no prompt; a separação deve ser coberta por testes.
+- Provider/gateway pode reportar métricas incompletas ou inconsistentes.
+- Cache hints podem ser ignorados silenciosamente por gateways.
+- `cache_control` explícito pode quebrar chamadas se aplicado em provider incompatível.
+- Reordenar o system prompt pode alterar ligeiramente a prioridade percebida pelo modelo.
+- Prefixo estável grande demais pode aumentar custo em providers sem cache efetivo; por isso layout cache-friendly não deve significar despejar mais conteúdo.
 
 ## Critérios de aceitação
 
-- Existe matriz documentada de providers com campos de cache e knobs suportados.
-- `llm.Usage` e persistência registram cache hits/misses/read/write quando o provider reporta.
-- O system prompt tem testes de determinismo.
-- `{{ now }}` não aparece em bloco cacheável.
-- Memória do usuário é preservada funcionalmente, mas injetada em bloco dinâmico fora do prefixo estável.
-- Skills auto-load são classificadas por volatilidade ou tratadas como dinâmicas por default.
-- Pelo menos DeepSeek ou LiteLLM com DeepSeek mostra cache hit > 0 em teste manual repetindo prefixo.
-- Estatísticas de custo não tratam tokens cacheados como custo cheio quando métricas estão disponíveis.
+- AEP reflete que skills são estáticas e sem templates.
+- Métricas de cache são capturadas quando o provider reporta.
+- Métricas são persistidas e aparecem nas estatísticas.
+- System prompt é montado com conteúdo estável antes de conteúdo dinâmico.
+- Controles de contexto existentes continuam funcionando: `ContextWindow`, `MaxContextMessages`, `MinContextMessages`, resumo e `summary_up_to_message_id`.
+- Provider hints e cache control dependem da configuração de cache do perfil.
+- Ativação, budgets e settings de Context Providers são configurados pela AEP-0075.
+- Nenhuma chave de cache contém conteúdo sensível.
+- Pelo menos um provider compatível mostra cache read/hit em uso real ou manual.

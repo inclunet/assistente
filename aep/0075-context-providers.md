@@ -247,20 +247,21 @@ Implementação atual:
 
 ### D5. Skills deixam de depender de Go templates
 
-Com memória/workspace/tasklists fora das skills, Go templates deixam de ser requisito do runtime de skills.
+Com memória/workspace/tasklists fora das skills, Go templates deixam de fazer parte do runtime de skills.
 
 Decisão:
 
-- skills novas devem ser Markdown estático com frontmatter declarativo;
+- skills são Markdown estático com frontmatter declarativo;
 - argumentos de `/skill` podem ser passados como bloco separado, não por substituição textual no corpo;
 - includes dinâmicos devem ser substituídos por context providers ou supporting files lidos sob demanda;
 - `{{ now }}` não pertence a skill; data/hora é contexto dinâmico produzido por provider quando necessário.
 
 Compatibilidade:
 
-- templates existentes podem continuar funcionando temporariamente em modo legado;
-- o modo novo de skills deve desencorajar templates e emitir aviso quando uma skill usa template dinâmico;
-- a remoção completa de templates deve acontecer só após migração dos builtins afetados.
+- não há compatibilidade de runtime para templates em skills;
+- templates executáveis ou dependentes de dados dinâmicos em skills são bug de migração e devem ser removidos;
+- sequências como `{{ ... }}` podem existir como texto literal em exemplos Markdown, sem interpretação pelo runtime;
+- Context Providers e supporting files são as formas aceitas de fornecer contexto dinâmico.
 
 ### D6. Prompt passa a ser montado por blocos
 
@@ -295,7 +296,19 @@ Esta AEP não implementa otimização de cache diretamente; ela prepara o terren
 
 ### D7. Perfil controla context providers
 
-Perfis devem poder configurar providers habilitados e orçamento.
+Perfis devem poder configurar quais Context Providers estão disponíveis naquele perfil, quanto contexto cada um pode injetar automaticamente e quais opções específicas daquele provider se aplicam.
+
+Essa configuração não é uma configuração de cache. Ela existe porque Context Providers são fontes de contexto/estado com custo, relevância e risco diferentes conforme o perfil. Um perfil de programação pode querer mais workspace; um perfil de gestão pode querer mais tasklists; um perfil enxuto pode desligar providers que não fazem sentido para aquele fluxo.
+
+Regras:
+
+- cada provider pode estar habilitado ou desabilitado por perfil;
+- providers habilitados podem ter budget próprio em caracteres/runes do bloco produzido, não em tokens;
+- providers podem ter settings específicos, validados pelo próprio provider ou por um contrato registrado;
+- defaults por provider continuam existindo para perfis antigos ou campos omitidos;
+- a UI de perfil deve ter uma aba própria de Context Providers, separada de skills e separada de cache;
+- a configuração resolvida deve alimentar `contextprovider.BuildRequest.ProviderBudgets` e futuras opções do provider;
+- desabilitar um provider remove seus blocos automáticos do prompt, mas não necessariamente remove tools de ação relacionadas se elas forem habilitadas por outro mecanismo do perfil.
 
 Exemplo conceitual:
 
@@ -304,19 +317,63 @@ Exemplo conceitual:
   "context_providers": {
     "memory": {
       "enabled": true,
-      "mode": "pinned_plus_retrievable",
-      "budget_tokens": 800
+      "budget": 1200,
+      "settings": {
+        "mode": "pinned_plus_auto"
+      }
     },
     "workspace": {
       "enabled": true,
-      "mode": "minimal",
-      "budget_tokens": 300
+      "budget": 500,
+      "settings": {
+        "mode": "minimal"
+      }
+    },
+    "tasklist": {
+      "enabled": true,
+      "budget": 4000,
+      "settings": {}
     }
   }
 }
 ```
 
-O formato final pode ser mais simples no primeiro PR, mas a arquitetura deve permitir isso.
+Formato conceitual no Go:
+
+```go
+type ContextProviderProfileConfig struct {
+    Enabled  *bool          `json:"enabled,omitempty"`
+    Budget   int            `json:"budget,omitempty"` // caracteres/runes, não tokens
+    Settings map[string]any `json:"settings,omitempty"`
+}
+```
+
+Semântica:
+
+- `enabled == nil`: usar default do provider/perfil legado;
+- `enabled == false`: não montar blocos automáticos daquele provider;
+- `enabled == true`: provider pode montar blocos, respeitando budget/defaults;
+- `budget <= 0`: usar default do provider;
+- `budget > 0`: limite máximo em caracteres/runes do bloco final produzido pelo provider; não é orçamento em tokens;
+- `settings`: espaço namespaced para opções específicas, sem transformar `ChatConfig` em uma lista de campos por provider.
+
+Responsabilidade de implementação:
+
+- resolver defaults, overrides, `enabled`, `budget` e `settings` por perfil é responsabilidade da implementação de Context Providers;
+- o resultado resolvido deve ser aplicado antes da montagem dos blocos, alimentando `contextprovider.BuildRequest` e a decisão de quais providers automáticos podem contribuir;
+- esta resolução é independente da AEP-0074: prompt cache consome os blocos já produzidos e ordenados, sem conhecer detalhes de budget/settings de cada provider.
+
+UI:
+
+- criar uma aba "Context Providers" no editor de perfil;
+- listar providers registrados com nome, descrição, estado e budget efetivo;
+- permitir habilitar/desabilitar provider por perfil;
+- permitir editar budget quando aplicável;
+- mostrar settings específicas só quando o provider declarar suporte;
+- usar i18n e componentes acessíveis existentes (`DataGrid`, `Toolbar`, `Modal`, `Button`, `ConfirmDialog`);
+- não usar cores hardcoded; usar tokens do tema.
+
+Esta seção é pré-requisito funcional para controlar budgets por perfil, mas não é pré-requisito para a AEP-0074 reorganizar o layout cache-friendly da request. A AEP-0074 pode usar defaults até esta configuração estar implementada.
 
 ## Fases
 
@@ -350,11 +407,24 @@ O formato final pode ser mais simples no primeiro PR, mas a arquitetura deve per
 - Classificar cada bloco por volatilidade.
 - Adicionar testes snapshot para ordem e conteúdo.
 
-### Fase 5 — Remover templates de skills
+### Fase 5 — Configuração de providers por perfil
 
-- Remover templates do runtime de skills.
-- Migrar builtins que dependem de `include`, `now`, `.Surface`, `.TaskLists`.
-- Atualizar editor/validação de skills.
+- Adicionar `context_providers` ao perfil.
+- Resolver defaults por provider.
+- Preencher `contextprovider.BuildRequest.ProviderBudgets` a partir do perfil.
+- Respeitar `enabled=false` para blocos automáticos.
+- Criar aba "Context Providers" no editor de perfil.
+- Permitir edição de budget e settings específicas declaradas pelo provider.
+
+### Fase 6 — Auditar skills estáticas
+
+Esta fase é uma auditoria de segurança da migração: confirmar que o runtime novo não executa templates em skills e que os builtins migrados usam Context Providers/supporting files para conteúdo dinâmico, sem degradar o conteúdo instrucional das skills.
+
+- Remover apenas dependências reais de execução de templates em skill.
+- Garantir que builtins não dependem de `include`, `now`, `.Surface`, `.TaskLists`.
+- Atualizar editor/validação de skills para tratar templates executáveis como inválidos, preservando exemplos literais em Markdown.
+- Não invalidar skills apenas por conterem marcações parecidas com templates, como `{{ ... }}`, quando forem exemplos ou texto literal.
+- Não remover blocos inteiros de instrução só por conterem sintaxe parecida com template; revisar o propósito do bloco e preservar instruções úteis sempre que elas não dependem de renderização dinâmica.
 
 ## Riscos
 
@@ -376,7 +446,7 @@ O formato final pode ser mais simples no primeiro PR, mas a arquitetura deve per
 - A tela deixa claro quais memórias impactam automaticamente o prompt.
 - APIs Wails permitem CRUD, busca e arquivamento de records de memória.
 - Existe pelo menos um bloco estável e um bloco dinâmico produzido por context provider.
-- Skills novas não precisam de Go templates para acessar memória/workspace/tasklists.
+- Skills não usam Go templates para acessar memória/workspace/tasklists.
 - Prompt builder tem ordem testável: stable → slow_dynamic → rolling_history → fast_dynamic.
 - AEP-0072 revisada pode focar apenas em Skill Loading Runtime.
 - AEP-0074 passa a depender desta AEP para otimização de cache.
