@@ -144,7 +144,11 @@ export function ProfileContextProvidersSection({
       format: (_value: unknown, row: ProviderRow) => {
         const localizedName = t(`profiles.contextProviderNames.${row.name}`, row.displayName);
         return (
-          <label className="profiles-context-provider__budget">
+          <label
+            className="profiles-context-provider__budget"
+            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <span className="sr-only">
               {t('profiles.contextProviderBudgetLabel', 'Budget em caracteres para {{name}}', { name: localizedName })}
             </span>
