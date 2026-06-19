@@ -1,6 +1,6 @@
 # AEP-0075 — Context Providers
 
-Status: Implementada
+Status: Implementada pelo PR #297
 Criado em: 2026-06-16
 Implementada em: 2026-06-19
 Relacionado: AEP-0072, AEP-0074, AEP-0059, AEP-0042, AEP-0057
@@ -19,7 +19,7 @@ Esta AEP cria a arquitetura de `Context Providers`, responsáveis por produzir b
 - o prompt passa a ter uma ordem clara por volatilidade;
 - a AEP-0074 de prompt cache pode otimizar um contexto já bem separado.
 
-Resultado da implementação:
+Resultado da implementação no merge do PR #297:
 
 - `memory`, `workspace` e `tasklist` são registrados como Context Providers no runtime;
 - `memory` usa records estruturados em banco no caminho novo, com fallback legado somente como compatibilidade de leitura;
@@ -397,7 +397,7 @@ Esta seção é pré-requisito funcional para controlar budgets por perfil, mas 
 
 ### Fase 1 — Contrato e separação conceitual
 
-Status: concluída.
+Status: concluída pelo PR #297.
 
 - Criar abstrações internas de context block/provider.
 - Identificar os trechos atuais de `memory` e `workspace` que são instrução estável vs. dados dinâmicos.
@@ -405,7 +405,7 @@ Status: concluída.
 
 ### Fase 2 — Memory provider
 
-Status: concluída no caminho novo, mantendo fallback legado de leitura conforme previsto.
+Status: concluída no caminho novo pelo PR #297 e PRs anteriores, mantendo fallback legado de leitura conforme previsto.
 
 - Extrair a skill `memory` para provider.
 - Criar bloco de instruções estáveis de memória.
@@ -418,7 +418,7 @@ Status: concluída no caminho novo, mantendo fallback legado de leitura conforme
 
 ### Fase 3 — Workspace provider
 
-Status: concluída.
+Status: concluída pelo PR #297 e PRs anteriores.
 
 - Extrair a skill `workspace` para provider.
 - Produzir contexto mínimo de workspace.
@@ -435,7 +435,7 @@ Status: concluída como base de Context Providers; a AEP-0074 aprofunda o layout
 
 ### Fase 5 — Configuração de providers por perfil
 
-Status: concluída.
+Status: concluída pelo PR #297.
 
 Implementada com `profiles.Profile.ContextProviders`, validação em `profiles.Profile.Validate`, resolução em `chat.buildDynamicContext` para `contextprovider.BuildRequest.ProviderBudgets`, `ProviderEnabled` e `ProviderSettings`, e aba `contextProviders` no editor de perfil.
 
