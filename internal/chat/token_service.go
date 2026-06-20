@@ -106,9 +106,9 @@ func applyCacheDerivedStats(stats *TokenStats) {
 	}
 }
 
-func (s *TokenStats) withCacheDerivedStats() *TokenStats {
-	applyCacheDerivedStats(s)
-	return s
+func (stats *TokenStats) withCacheDerivedStats() *TokenStats {
+	applyCacheDerivedStats(stats)
+	return stats
 }
 
 // GetRecentTokenCount retorna o total de tokens das N mensagens mais recentes.
