@@ -30,8 +30,11 @@ func (m *mockConfigBackend) GetActiveProfile() (*profiles.Profile, error) {
 	return m.profile, m.profileErr
 }
 
-func (m *mockConfigBackend) GetActiveProfileAndSlug() (*profiles.Profile, string, error) {
-	return m.profile, m.activeSlug, m.profileErr
+func (m *mockConfigBackend) GetActiveProfileAndSlug() (*profiles.ActiveProfile, error) {
+	if m.profileErr != nil {
+		return nil, m.profileErr
+	}
+	return &profiles.ActiveProfile{Profile: m.profile, Slug: m.activeSlug}, nil
 }
 
 func (m *mockConfigBackend) GetLLMProviders() []*llm.ProviderConfig {

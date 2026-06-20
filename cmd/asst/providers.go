@@ -24,7 +24,7 @@ type providersBackend interface {
 	CreateDefaultLLMProvider(providerType, apiKey string) error
 	CreateLLMProvider(req controllers.CreateLLMProviderRequest) (map[string]interface{}, error)
 	SetDefaultProvider(id string) error
-	GetActiveProfileAndSlug() (*profiles.Profile, string, error)
+	GetActiveProfileAndSlug() (*profiles.ActiveProfile, error)
 	UpdateProfile(slug string, p profiles.Profile) error
 	DeleteLLMProvider(ctx context.Context, id string) error
 }

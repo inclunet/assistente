@@ -198,7 +198,7 @@ export function GenerateAndSaveMessageAudio(arg1:string,arg2:string):Promise<spe
 
 export function GetActiveProfile():Promise<profiles.Profile>;
 
-export function GetActiveProfileAndSlug():Promise<profiles.Profile>;
+export function GetActiveProfileAndSlug():Promise<profiles.ActiveProfile>;
 
 export function GetActiveProfileSlug():Promise<string>;
 

@@ -15,7 +15,7 @@ import (
 // configBackend abstracts the app methods used by config commands.
 type configBackend interface {
 	GetActiveProfile() (*profiles.Profile, error)
-	GetActiveProfileAndSlug() (*profiles.Profile, string, error)
+	GetActiveProfileAndSlug() (*profiles.ActiveProfile, error)
 	GetLLMProviders() []*llm.ProviderConfig
 	UpdateProfile(slug string, p profiles.Profile) error
 }
@@ -24,7 +24,7 @@ type configBackend interface {
 // perfil ativo. Substitui o antigo config.SetChatModel legado (#299): o modelo
 // passa a viver no perfil (profiles), não mais no config.json.
 type chatModelUpdater interface {
-	GetActiveProfileAndSlug() (*profiles.Profile, string, error)
+	GetActiveProfileAndSlug() (*profiles.ActiveProfile, error)
 	UpdateProfile(slug string, p profiles.Profile) error
 }
 
@@ -36,15 +36,15 @@ type chatModelUpdater interface {
 // onde a 2ª chamada, tolerante a erro, poderia cair silenciosamente em "padrao"
 // e gravar no perfil errado.)
 func setActiveProfileChatModel(svc chatModelUpdater, model string) error {
-	profile, slug, err := svc.GetActiveProfileAndSlug()
+	active, err := svc.GetActiveProfileAndSlug()
 	if err != nil {
 		return err
 	}
-	if profile == nil || slug == "" {
+	if active == nil || active.Profile == nil || active.Slug == "" {
 		return fmt.Errorf("nenhum perfil ativo")
 	}
-	profile.Chat.Model = model
-	return svc.UpdateProfile(slug, *profile)
+	active.Profile.Chat.Model = model
+	return svc.UpdateProfile(active.Slug, *active.Profile)
 }
 
 var configCmd = &cobra.Command{

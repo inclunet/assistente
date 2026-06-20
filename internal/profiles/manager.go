@@ -258,8 +258,12 @@ func (m *Manager) GetActive() (*Profile, error) {
 // resolução e garante que perfil e slug vêm da mesma passada, evitando gravar no
 // slug errado caso uma segunda resolução tolerante caísse silenciosamente em
 // "padrao".
-func (m *Manager) GetActiveAndSlug() (*Profile, string, error) {
-	return m.resolveActive()
+func (m *Manager) GetActiveAndSlug() (*ActiveProfile, error) {
+	profile, slug, err := m.resolveActive()
+	if err != nil {
+		return nil, err
+	}
+	return &ActiveProfile{Profile: profile, Slug: slug}, nil
 }
 
 // resolveActive é a resolução canônica do perfil ativo: retorna o perfil e o

@@ -25,7 +25,7 @@ type setupBackend interface {
 	ListModelsRaw(req controllers.TestLLMProviderRequest) ([]string, error)
 	CreateDefaultLLMProvider(providerType, apiKey string) error
 	SetDefaultProvider(id string) error
-	GetActiveProfileAndSlug() (*profiles.Profile, string, error)
+	GetActiveProfileAndSlug() (*profiles.ActiveProfile, error)
 	UpdateProfile(slug string, p profiles.Profile) error
 }
 

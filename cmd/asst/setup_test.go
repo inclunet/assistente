@@ -63,8 +63,8 @@ func (m *mockSetupBackend) SetDefaultProvider(id string) error {
 	return m.defaultProvErr
 }
 
-func (m *mockSetupBackend) GetActiveProfileAndSlug() (*profiles.Profile, string, error) {
-	return &profiles.Profile{}, "padrao", nil
+func (m *mockSetupBackend) GetActiveProfileAndSlug() (*profiles.ActiveProfile, error) {
+	return &profiles.ActiveProfile{Profile: &profiles.Profile{}, Slug: "padrao"}, nil
 }
 
 func (m *mockSetupBackend) UpdateProfile(_ string, p profiles.Profile) error {
