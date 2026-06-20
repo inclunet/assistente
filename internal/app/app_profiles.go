@@ -18,7 +18,10 @@ func (a *App) GetProfile(slug string) (*profiles.Profile, error) {
 func (a *App) GetActiveProfile() (*profiles.Profile, error) {
 	return a.profilesCtrl.GetActiveProfile()
 }
-func (a *App) GetActiveProfileSlug() string       { return a.profilesCtrl.GetActiveProfileSlug() }
+func (a *App) GetActiveProfileSlug() string { return a.profilesCtrl.GetActiveProfileSlug() }
+func (a *App) GetActiveProfileAndSlug() (*profiles.ActiveProfile, error) {
+	return a.profilesCtrl.GetActiveProfileAndSlug()
+}
 func (a *App) SetActiveProfile(slug string) error { return a.profilesCtrl.SetActiveProfile(slug) }
 func (a *App) CreateProfile(p profiles.Profile) (string, error) {
 	return a.profilesCtrl.CreateProfile(p)

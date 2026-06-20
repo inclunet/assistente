@@ -6,36 +6,26 @@ import (
 	"log"
 
 	"assistente/internal/chat"
-	"assistente/internal/config"
 	"assistente/internal/profiles"
 )
 
-// LLMSettings contém configurações da API LLM (DTO para o frontend).
-type LLMSettings struct {
-	APIKey  string
-	BaseURL string
-}
-
 // TokensControllerConfig agrupa dependências do TokensController.
 type TokensControllerConfig struct {
-	ProfileMgr  *profiles.Manager
-	TokenSvc    *chat.TokenService
-	SettingsSvc *config.SettingsService
+	ProfileMgr *profiles.Manager
+	TokenSvc   *chat.TokenService
 }
 
 // TokensController expõe operações de contagem e estatísticas de tokens.
 type TokensController struct {
-	profileMgr  *profiles.Manager
-	tokenSvc    *chat.TokenService
-	settingsSvc *config.SettingsService
+	profileMgr *profiles.Manager
+	tokenSvc   *chat.TokenService
 }
 
 // NewTokensController cria um TokensController com as dependências fornecidas.
 func NewTokensController(cfg TokensControllerConfig) *TokensController {
 	return &TokensController{
-		profileMgr:  cfg.ProfileMgr,
-		tokenSvc:    cfg.TokenSvc,
-		settingsSvc: cfg.SettingsSvc,
+		profileMgr: cfg.ProfileMgr,
+		tokenSvc:   cfg.TokenSvc,
 	}
 }
 
@@ -103,16 +93,4 @@ func (c *TokensController) CheckContextWindowThreshold(ctx context.Context, conv
 
 	log.Printf("[TokenStats] Conversa %s: %.1f%% de %d tokens", conversationID, percentage, contextLimit)
 	return above, percentage, nil
-}
-
-// GetLLMSettings retorna as configurações atuais da API LLM.
-func (c *TokensController) GetLLMSettings() (*LLMSettings, error) {
-	cfg, err := c.settingsSvc.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("erro ao carregar config: %w", err)
-	}
-	return &LLMSettings{
-		APIKey:  cfg.APIKey,
-		BaseURL: cfg.APIBaseURL,
-	}, nil
 }

@@ -1037,84 +1037,6 @@ export namespace config {
 	        this.vacuum_min_free_bytes = source["vacuum_min_free_bytes"];
 	    }
 	}
-	export class STTParams {
-	    provider?: string;
-	    recording_mode?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new STTParams(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.provider = source["provider"];
-	        this.recording_mode = source["recording_mode"];
-	    }
-	}
-	export class ModelParams {
-	    model?: string;
-	    temperature?: number;
-	    max_tokens?: number;
-	    top_p?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new ModelParams(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.model = source["model"];
-	        this.temperature = source["temperature"];
-	        this.max_tokens = source["max_tokens"];
-	        this.top_p = source["top_p"];
-	    }
-	}
-	export class Config {
-	    api_key?: string;
-	    api_base_url?: string;
-	    default_model?: string;
-	    response_timeout?: number;
-	    active_profile?: string;
-	    chat_params?: ModelParams;
-	    stt_params?: STTParams;
-	    maintenance: MaintenanceSettings;
-	
-	    static createFrom(source: any = {}) {
-	        return new Config(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.api_key = source["api_key"];
-	        this.api_base_url = source["api_base_url"];
-	        this.default_model = source["default_model"];
-	        this.response_timeout = source["response_timeout"];
-	        this.active_profile = source["active_profile"];
-	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
-	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
-	        this.maintenance = this.convertValues(source["maintenance"], MaintenanceSettings);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
-	
 
 }
 
@@ -1136,6 +1058,33 @@ export namespace contacts {
 	        this.display_name = source["display_name"];
 	        this.username = source["username"];
 	        this.authorized_at = source["authorized_at"];
+	    }
+	}
+
+}
+
+export namespace contextprovider {
+	
+	export class ProviderMetadata {
+	    name: string;
+	    display_name: string;
+	    description: string;
+	    default_enabled: boolean;
+	    default_budget: number;
+	    supports_settings: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderMetadata(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.display_name = source["display_name"];
+	        this.description = source["description"];
+	        this.default_enabled = source["default_enabled"];
+	        this.default_budget = source["default_budget"];
+	        this.supports_settings = source["supports_settings"];
 	    }
 	}
 
@@ -1258,58 +1207,6 @@ export namespace controllers {
 	        this.value = source["value"];
 	        this.label = source["label"];
 	    }
-	}
-	export class LLMSettings {
-	    APIKey: string;
-	    BaseURL: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new LLMSettings(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.APIKey = source["APIKey"];
-	        this.BaseURL = source["BaseURL"];
-	    }
-	}
-	export class SettingsInput {
-	    apiKey: string;
-	    apiBaseUrl: string;
-	    responseTimeout: number;
-	    chatParams: config.ModelParams;
-	    sttParams: config.STTParams;
-	
-	    static createFrom(source: any = {}) {
-	        return new SettingsInput(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.apiKey = source["apiKey"];
-	        this.apiBaseUrl = source["apiBaseUrl"];
-	        this.responseTimeout = source["responseTimeout"];
-	        this.chatParams = this.convertValues(source["chatParams"], config.ModelParams);
-	        this.sttParams = this.convertValues(source["sttParams"], config.STTParams);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class SkillCreateRequest {
 	    name: string;
@@ -3077,35 +2974,6 @@ export namespace llm {
 
 }
 
-export namespace contextprovider {
-	
-	export class ProviderMetadata {
-	    name: string;
-	    display_name: string;
-	    description: string;
-	    default_enabled: boolean;
-	    default_budget: number;
-	    supports_settings: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ProviderMetadata(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.display_name = source["display_name"];
-	        this.description = source["description"];
-	        this.default_enabled = source["default_enabled"];
-	        this.default_budget = source["default_budget"];
-	        this.supports_settings = source["supports_settings"];
-	    }
-	}
-	
-	
-
-}
-
 export namespace mcp {
 	
 	export class MCPPromptArgument {
@@ -3814,6 +3682,40 @@ export namespace portability {
 
 export namespace profiles {
 	
+	export class MediaSupport {
+	    audio?: boolean;
+	    image?: boolean;
+	    document?: boolean;
+	    video?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MediaSupport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.audio = source["audio"];
+	        this.image = source["image"];
+	        this.document = source["document"];
+	        this.video = source["video"];
+	    }
+	}
+	export class ContextProviderProfileConfig {
+	    enabled?: boolean;
+	    budget?: number;
+	    settings?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContextProviderProfileConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.budget = source["budget"];
+	        this.settings = source["settings"];
+	    }
+	}
 	export class ChannelsConfig {
 	    response_mode?: string;
 	
@@ -3825,6 +3727,146 @@ export namespace profiles {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.response_mode = source["response_mode"];
 	    }
+	}
+	export class TriggerConfig {
+	    type: string;
+	    enabled: boolean;
+	    auto_stop?: boolean;
+	    hotkey?: string;
+	    hotkey_global?: boolean;
+	    hotkey_bring_to_front?: boolean;
+	    wakeword_keyword?: string;
+	    wakeword_provider?: string;
+	    wakeword_sensitivity?: number;
+	    vad_silence_threshold?: number;
+	    vad_silence_duration?: number;
+	    vad_activity_threshold?: number;
+	    vad_activity_duration?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TriggerConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.enabled = source["enabled"];
+	        this.auto_stop = source["auto_stop"];
+	        this.hotkey = source["hotkey"];
+	        this.hotkey_global = source["hotkey_global"];
+	        this.hotkey_bring_to_front = source["hotkey_bring_to_front"];
+	        this.wakeword_keyword = source["wakeword_keyword"];
+	        this.wakeword_provider = source["wakeword_provider"];
+	        this.wakeword_sensitivity = source["wakeword_sensitivity"];
+	        this.vad_silence_threshold = source["vad_silence_threshold"];
+	        this.vad_silence_duration = source["vad_silence_duration"];
+	        this.vad_activity_threshold = source["vad_activity_threshold"];
+	        this.vad_activity_duration = source["vad_activity_duration"];
+	    }
+	}
+	export class InputConfig {
+	    enabled: boolean;
+	    stt_provider: string;
+	    llm_provider_id?: string;
+	    stt_model?: string;
+	    language: string;
+	    feedback_sounds: boolean;
+	    triggers?: TriggerConfig[];
+	
+	    static createFrom(source: any = {}) {
+	        return new InputConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.stt_provider = source["stt_provider"];
+	        this.llm_provider_id = source["llm_provider_id"];
+	        this.stt_model = source["stt_model"];
+	        this.language = source["language"];
+	        this.feedback_sounds = source["feedback_sounds"];
+	        this.triggers = this.convertValues(source["triggers"], TriggerConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class VoiceRoleConfig {
+	    enabled: boolean;
+	    provider: string;
+	    llm_provider_id?: string;
+	    voice_id?: string;
+	    model?: string;
+	    selection_mode?: string;
+	    rate: number;
+	    pitch: number;
+	    volume: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceRoleConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.provider = source["provider"];
+	        this.llm_provider_id = source["llm_provider_id"];
+	        this.voice_id = source["voice_id"];
+	        this.model = source["model"];
+	        this.selection_mode = source["selection_mode"];
+	        this.rate = source["rate"];
+	        this.pitch = source["pitch"];
+	        this.volume = source["volume"];
+	    }
+	}
+	export class VoiceConfig {
+	    assistant: VoiceRoleConfig;
+	    user: VoiceRoleConfig;
+	    system: VoiceRoleConfig;
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.assistant = this.convertValues(source["assistant"], VoiceRoleConfig);
+	        this.user = this.convertValues(source["user"], VoiceRoleConfig);
+	        this.system = this.convertValues(source["system"], VoiceRoleConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class PromptCacheConfig {
 	    enabled?: boolean;
@@ -3916,180 +3958,6 @@ export namespace profiles {
 		    return a;
 		}
 	}
-	export class ContextProviderProfileConfig {
-	    enabled?: boolean;
-	    budget?: number;
-	    settings?: Record<string, any>;
-	
-	    static createFrom(source: any = {}) {
-	        return new ContextProviderProfileConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.enabled = source["enabled"];
-	        this.budget = source["budget"];
-	        this.settings = source["settings"];
-	    }
-	}
-	export class TriggerConfig {
-	    type: string;
-	    enabled: boolean;
-	    auto_stop?: boolean;
-	    hotkey?: string;
-	    hotkey_global?: boolean;
-	    hotkey_bring_to_front?: boolean;
-	    wakeword_keyword?: string;
-	    wakeword_provider?: string;
-	    wakeword_sensitivity?: number;
-	    vad_silence_threshold?: number;
-	    vad_silence_duration?: number;
-	    vad_activity_threshold?: number;
-	    vad_activity_duration?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new TriggerConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.type = source["type"];
-	        this.enabled = source["enabled"];
-	        this.auto_stop = source["auto_stop"];
-	        this.hotkey = source["hotkey"];
-	        this.hotkey_global = source["hotkey_global"];
-	        this.hotkey_bring_to_front = source["hotkey_bring_to_front"];
-	        this.wakeword_keyword = source["wakeword_keyword"];
-	        this.wakeword_provider = source["wakeword_provider"];
-	        this.wakeword_sensitivity = source["wakeword_sensitivity"];
-	        this.vad_silence_threshold = source["vad_silence_threshold"];
-	        this.vad_silence_duration = source["vad_silence_duration"];
-	        this.vad_activity_threshold = source["vad_activity_threshold"];
-	        this.vad_activity_duration = source["vad_activity_duration"];
-	    }
-	}
-	export class InputConfig {
-	    enabled: boolean;
-	    stt_provider: string;
-	    llm_provider_id?: string;
-	    stt_model?: string;
-	    language: string;
-	    feedback_sounds: boolean;
-	    triggers?: TriggerConfig[];
-	
-	    static createFrom(source: any = {}) {
-	        return new InputConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.enabled = source["enabled"];
-	        this.stt_provider = source["stt_provider"];
-	        this.llm_provider_id = source["llm_provider_id"];
-	        this.stt_model = source["stt_model"];
-	        this.language = source["language"];
-	        this.feedback_sounds = source["feedback_sounds"];
-	        this.triggers = this.convertValues(source["triggers"], TriggerConfig);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class MediaSupport {
-	    audio?: boolean;
-	    image?: boolean;
-	    document?: boolean;
-	    video?: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new MediaSupport(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.audio = source["audio"];
-	        this.image = source["image"];
-	        this.document = source["document"];
-	        this.video = source["video"];
-	    }
-	}
-	export class VoiceRoleConfig {
-	    enabled: boolean;
-	    provider: string;
-	    llm_provider_id?: string;
-	    voice_id?: string;
-	    model?: string;
-	    selection_mode?: string;
-	    rate: number;
-	    pitch: number;
-	    volume: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new VoiceRoleConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.enabled = source["enabled"];
-	        this.provider = source["provider"];
-	        this.llm_provider_id = source["llm_provider_id"];
-	        this.voice_id = source["voice_id"];
-	        this.model = source["model"];
-	        this.selection_mode = source["selection_mode"];
-	        this.rate = source["rate"];
-	        this.pitch = source["pitch"];
-	        this.volume = source["volume"];
-	    }
-	}
-	export class VoiceConfig {
-	    assistant: VoiceRoleConfig;
-	    user: VoiceRoleConfig;
-	    system: VoiceRoleConfig;
-	
-	    static createFrom(source: any = {}) {
-	        return new VoiceConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.assistant = this.convertValues(source["assistant"], VoiceRoleConfig);
-	        this.user = this.convertValues(source["user"], VoiceRoleConfig);
-	        this.system = this.convertValues(source["system"], VoiceRoleConfig);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class Profile {
 	    _builtin_version?: string;
 	    name: string;
@@ -4140,6 +4008,44 @@ export namespace profiles {
 		    return a;
 		}
 	}
+	export class ActiveProfile {
+	    profile?: Profile;
+	    slug: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ActiveProfile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.profile = this.convertValues(source["profile"], Profile);
+	        this.slug = source["slug"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
+	
+	
+	
 	export class ProfileInfo {
 	    name: string;
 	    slug: string;

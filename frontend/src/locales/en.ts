@@ -3205,10 +3205,6 @@ const en = {
         success: 'Setup completed successfully!',
         error: 'Setup error. Check Settings.',
       },
-      config: {
-        loaded: 'Configuration loaded!',
-        loadError: 'Error loading configuration',
-      },
       summary: {
         started: 'Summarizing conversation ({{count}} messages)...',
         completed: 'Conversation summary updated ({{count}} messages summarized)',

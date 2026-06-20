@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"assistente/controllers"
+	"assistente/internal/profiles"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -24,7 +25,8 @@ type setupBackend interface {
 	ListModelsRaw(req controllers.TestLLMProviderRequest) ([]string, error)
 	CreateDefaultLLMProvider(providerType, apiKey string) error
 	SetDefaultProvider(id string) error
-	SetChatModel(model string) error
+	GetActiveProfileAndSlug() (*profiles.ActiveProfile, error)
+	UpdateProfile(slug string, p profiles.Profile) error
 }
 
 // passwordReader abstracts password reading for testing.
@@ -231,15 +233,23 @@ func runSetup(svc setupBackend, readPwd passwordReader, out io.Writer) error {
 		_ = svc.SetDefaultProvider(info.ID)
 	}
 
-	// Aplicar modelo selecionado
+	// Aplicar modelo selecionado ao perfil ativo
+	modelApplied := model != ""
 	if model != "" {
-		_ = svc.SetChatModel(model)
+		if mErr := setActiveProfileChatModel(svc, model); mErr != nil {
+			modelApplied = false
+			_, _ = fmt.Fprintln(out)
+			_, _ = fmt.Fprintf(out, "Aviso: provedor criado, mas não foi possível aplicar o modelo %q ao perfil ativo: %v\n", model, mErr)
+			_, _ = fmt.Fprintln(out, "Defina o modelo depois com: asst config model <modelo>")
+		}
 	}
 
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintf(out, "Assistente configurado com sucesso!\n")
 	_, _ = fmt.Fprintf(out, "  Provedor: %s\n", providerChoice)
-	_, _ = fmt.Fprintf(out, "  Modelo:   %s\n", model)
+	if modelApplied {
+		_, _ = fmt.Fprintf(out, "  Modelo:   %s\n", model)
+	}
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintln(out, "Use 'asst chat' para começar a conversar.")
 

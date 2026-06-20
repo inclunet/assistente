@@ -8,7 +8,6 @@ import {context} from '../models';
 import {app} from '../models';
 import {allowlist} from '../models';
 import {controllers} from '../models';
-import {contextprovider} from '../models';
 import {memory} from '../models';
 import {profiles} from '../models';
 import {terminal} from '../models';
@@ -17,9 +16,10 @@ import {jobs} from '../models';
 import {speech} from '../models';
 import {channels} from '../models';
 import {contacts} from '../models';
-import {config} from '../models';
+import {contextprovider} from '../models';
 import {chat} from '../models';
 import {llm} from '../models';
+import {config} from '../models';
 import {skills} from '../models';
 import {credentials} from '../models';
 import {ports} from '../models';
@@ -198,6 +198,8 @@ export function GenerateAndSaveMessageAudio(arg1:string,arg2:string):Promise<spe
 
 export function GetActiveProfile():Promise<profiles.Profile>;
 
+export function GetActiveProfileAndSlug():Promise<profiles.ActiveProfile>;
+
 export function GetActiveProfileSlug():Promise<string>;
 
 export function GetActiveProviderInfo():Promise<Record<string, any>>;
@@ -234,7 +236,7 @@ export function GetChannelConfigAsMap(arg1:string):Promise<Record<string, any>>;
 
 export function GetChannelTemplates():Promise<Array<channels.ChannelTemplate>>;
 
-export function GetConfig():Promise<config.Config>;
+export function GetContextProviders():Promise<Array<contextprovider.ProviderMetadata>>;
 
 export function GetConversation(arg1:string):Promise<database.Conversation>;
 
@@ -249,8 +251,6 @@ export function GetConversationSummary(arg1:string):Promise<app.ConversationSumm
 export function GetConversationTokenStats(arg1:string):Promise<chat.TokenStats>;
 
 export function GetConversationWithThreads(arg1:string):Promise<chat.ConversationWithThreads>;
-
-export function GetContextProviders():Promise<Array<contextprovider.ProviderMetadata>>;
 
 export function GetConversations():Promise<Array<database.Conversation>>;
 
@@ -275,8 +275,6 @@ export function GetLLMProvider(arg1:string):Promise<llm.ProviderConfig>;
 export function GetLLMProviders():Promise<Array<llm.ProviderConfig>>;
 
 export function GetLLMProvidersWithStatus():Promise<Array<Record<string, any>>>;
-
-export function GetLLMSettings():Promise<controllers.LLMSettings>;
 
 export function GetMCPPrompt(arg1:string,arg2:string,arg3:Record<string, string>):Promise<Array<string>>;
 
@@ -486,8 +484,6 @@ export function SaveMaintenanceSettings(arg1:config.MaintenanceSettings):Promise
 
 export function SaveMessageAudio(arg1:string,arg2:string,arg3:string):Promise<void>;
 
-export function SaveSettings(arg1:controllers.SettingsInput):Promise<void>;
-
 export function SaveWorkspace():Promise<void>;
 
 export function SearchConversationHistory(arg1:string,arg2:number):Promise<Array<database.MessageSearchResult>>;
@@ -504,11 +500,7 @@ export function SetActiveProfile(arg1:string):Promise<void>;
 
 export function SetActiveWorkspaceTab(arg1:string):Promise<void>;
 
-export function SetChatModel(arg1:string):Promise<void>;
-
 export function SetConversationModel(arg1:string,arg2:string):Promise<void>;
-
-export function SetDefaultModel(arg1:string):Promise<void>;
 
 export function SetDefaultProvider(arg1:string):Promise<void>;
 

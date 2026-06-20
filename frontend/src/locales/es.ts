@@ -3204,10 +3204,6 @@ const es = {
         success: '¡Configuración completada con éxito!',
         error: 'Error al configurar. Verifica en Ajustes.',
       },
-      config: {
-        loaded: '¡Configuración cargada!',
-        loadError: 'Error al cargar la configuración',
-      },
       summary: {
         started: 'Resumiendo conversación ({{count}} mensajes)...',
         completed: 'Resumen de conversación actualizado ({{count}} mensajes resumidos)',

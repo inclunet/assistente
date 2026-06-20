@@ -1,7 +1,6 @@
 package app
 
 import (
-	"assistente/controllers"
 	"assistente/internal/chat"
 )
 
@@ -49,9 +48,4 @@ func (a *App) CheckContextWindowThreshold(conversationID string, threshold float
 		return false, 0, err
 	}
 	return a.tokensCtrl.CheckContextWindowThreshold(ctx, conversationID, threshold)
-}
-
-// GetLLMSettings retorna as configurações atuais da API LLM.
-func (a *App) GetLLMSettings() (*controllers.LLMSettings, error) {
-	return a.tokensCtrl.GetLLMSettings()
 }

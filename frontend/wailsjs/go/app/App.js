@@ -350,6 +350,10 @@ export function GetActiveProfile() {
   return window['go']['app']['App']['GetActiveProfile']();
 }
 
+export function GetActiveProfileAndSlug() {
+  return window['go']['app']['App']['GetActiveProfileAndSlug']();
+}
+
 export function GetActiveProfileSlug() {
   return window['go']['app']['App']['GetActiveProfileSlug']();
 }
@@ -422,8 +426,8 @@ export function GetChannelTemplates() {
   return window['go']['app']['App']['GetChannelTemplates']();
 }
 
-export function GetConfig() {
-  return window['go']['app']['App']['GetConfig']();
+export function GetContextProviders() {
+  return window['go']['app']['App']['GetContextProviders']();
 }
 
 export function GetConversation(arg1) {
@@ -452,10 +456,6 @@ export function GetConversationTokenStats(arg1) {
 
 export function GetConversationWithThreads(arg1) {
   return window['go']['app']['App']['GetConversationWithThreads'](arg1);
-}
-
-export function GetContextProviders() {
-  return window['go']['app']['App']['GetContextProviders']();
 }
 
 export function GetConversations() {
@@ -504,10 +504,6 @@ export function GetLLMProviders() {
 
 export function GetLLMProvidersWithStatus() {
   return window['go']['app']['App']['GetLLMProvidersWithStatus']();
-}
-
-export function GetLLMSettings() {
-  return window['go']['app']['App']['GetLLMSettings']();
 }
 
 export function GetMCPPrompt(arg1, arg2, arg3) {
@@ -926,10 +922,6 @@ export function SaveMessageAudio(arg1, arg2, arg3) {
   return window['go']['app']['App']['SaveMessageAudio'](arg1, arg2, arg3);
 }
 
-export function SaveSettings(arg1) {
-  return window['go']['app']['App']['SaveSettings'](arg1);
-}
-
 export function SaveWorkspace() {
   return window['go']['app']['App']['SaveWorkspace']();
 }
@@ -962,16 +954,8 @@ export function SetActiveWorkspaceTab(arg1) {
   return window['go']['app']['App']['SetActiveWorkspaceTab'](arg1);
 }
 
-export function SetChatModel(arg1) {
-  return window['go']['app']['App']['SetChatModel'](arg1);
-}
-
 export function SetConversationModel(arg1, arg2) {
   return window['go']['app']['App']['SetConversationModel'](arg1, arg2);
-}
-
-export function SetDefaultModel(arg1) {
-  return window['go']['app']['App']['SetDefaultModel'](arg1);
 }
 
 export function SetDefaultProvider(arg1) {

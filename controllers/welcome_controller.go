@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"assistente/internal/config"
 	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/providers"
@@ -107,7 +106,6 @@ type WelcomeControllerConfig struct {
 	CredMgr          *credentials.Manager
 	ProviderSvc      *providers.Service
 	LLMRegistry      *llm.ProviderRegistry
-	SettingsSvc      *config.SettingsService
 	Updater          *updater.Updater
 	UpdaterCtrl      *UpdaterController
 
@@ -123,7 +121,6 @@ type WelcomeController struct {
 	credMgr                    *credentials.Manager
 	providerSvc                *providers.Service
 	llmRegistry                *llm.ProviderRegistry
-	settingsSvc                *config.SettingsService
 	updater                    *updater.Updater
 	updaterCtrl                *UpdaterController
 	configureCredentialManager func(dek []byte, persist bool)
@@ -138,7 +135,6 @@ func NewWelcomeController(cfg WelcomeControllerConfig) *WelcomeController {
 		credMgr:                    cfg.CredMgr,
 		providerSvc:                cfg.ProviderSvc,
 		llmRegistry:                cfg.LLMRegistry,
-		settingsSvc:                cfg.SettingsSvc,
 		updater:                    cfg.Updater,
 		updaterCtrl:                cfg.UpdaterCtrl,
 		configureCredentialManager: cfg.ConfigureCredentialManager,
@@ -542,10 +538,6 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 				return false, fmt.Errorf("erro ao criar provedor: %w", err)
 			}
 
-			if err := c.SaveWelcomeConfig(baseURL, apiKey, defaultModel); err != nil {
-				return false, err
-			}
-
 			if c.initLLMClient != nil {
 				c.initLLMClient()
 			}
@@ -645,20 +637,6 @@ func (c *WelcomeController) CreateWizardProvider(ctx context.Context, providerCh
 
 	log.Printf("[Wizard] Provedor '%s' (%s) criado como default, modelo padrão: %s", info.ID, info.Name, defaultModel)
 	return info.ID, nil
-}
-
-// SaveWelcomeConfig salva a configuração do wizard via settingsSvc.
-func (c *WelcomeController) SaveWelcomeConfig(baseURL, apiKey, defaultModel string) error {
-	if c.settingsSvc == nil {
-		return nil
-	}
-	return c.settingsSvc.SaveSettings(config.SettingsInput{
-		APIKey:     apiKey,
-		APIBaseURL: baseURL,
-		ChatParams: config.SettingsModelParams{
-			Model: defaultModel,
-		},
-	})
 }
 
 // checkForUpdatesAfterWizard verifica atualizações após o wizard de configuração.
