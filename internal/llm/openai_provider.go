@@ -160,7 +160,7 @@ func (p *OpenAIProvider) sendChatCompletions(ctx context.Context, model string, 
 
 	completion, err := p.client.Chat.Completions.New(ctx, sdkParams)
 	if err != nil {
-		if params.PromptCacheKey != "" && looksLikePromptCacheHintUnsupported(err.Error()) {
+		if effectivePromptCacheKey(params) != "" && looksLikePromptCacheHintUnsupported(err.Error()) {
 			params.PromptCacheHintFallback.Disable()
 			if params.OnPromptCacheHintUnsupported != nil {
 				params.OnPromptCacheHintUnsupported()
@@ -196,7 +196,7 @@ func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, me
 
 	resp, err := p.client.Responses.New(ctx, respParams)
 	if err != nil {
-		if params.PromptCacheKey != "" && looksLikePromptCacheHintUnsupported(err.Error()) {
+		if effectivePromptCacheKey(params) != "" && looksLikePromptCacheHintUnsupported(err.Error()) {
 			params.PromptCacheHintFallback.Disable()
 			if params.OnPromptCacheHintUnsupported != nil {
 				params.OnPromptCacheHintUnsupported()
@@ -683,17 +683,19 @@ func makeToolChoice(choice string) openai.ChatCompletionToolChoiceOptionUnionPar
 }
 
 func applyPromptCacheKeyToChatCompletions(sdkParams *openai.ChatCompletionNewParams, params ChatParams) {
-	if sdkParams == nil || effectivePromptCacheKey(params) == "" {
+	key := effectivePromptCacheKey(params)
+	if sdkParams == nil || key == "" {
 		return
 	}
-	sdkParams.PromptCacheKey = param.NewOpt(effectivePromptCacheKey(params))
+	sdkParams.PromptCacheKey = param.NewOpt(key)
 }
 
 func applyPromptCacheKeyToResponses(respParams *responses.ResponseNewParams, params ChatParams) {
-	if respParams == nil || effectivePromptCacheKey(params) == "" {
+	key := effectivePromptCacheKey(params)
+	if respParams == nil || key == "" {
 		return
 	}
-	respParams.PromptCacheKey = param.NewOpt(effectivePromptCacheKey(params))
+	respParams.PromptCacheKey = param.NewOpt(key)
 }
 
 func effectivePromptCacheKey(params ChatParams) string {
