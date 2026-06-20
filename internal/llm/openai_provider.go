@@ -156,9 +156,18 @@ func (p *OpenAIProvider) sendChatCompletions(ctx context.Context, model string, 
 	} else if params.MaxTokens > 0 {
 		sdkParams.MaxTokens = param.NewOpt(int64(params.MaxTokens))
 	}
+	applyPromptCacheKeyToChatCompletions(&sdkParams, params)
 
 	completion, err := p.client.Chat.Completions.New(ctx, sdkParams)
 	if err != nil {
+		if effectivePromptCacheKey(params) != "" && looksLikePromptCacheHintUnsupported(err.Error()) {
+			params.PromptCacheHintFallback.Disable()
+			if params.OnPromptCacheHintUnsupported != nil {
+				params.OnPromptCacheHintUnsupported()
+			}
+			params.PromptCacheKey = ""
+			return p.sendChatCompletions(ctx, model, messages, params)
+		}
 		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
 	}
 	if len(completion.Choices) == 0 {
@@ -183,9 +192,18 @@ func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, me
 	if params.MaxTokens > 0 {
 		respParams.MaxOutputTokens = param.NewOpt(int64(params.MaxTokens))
 	}
+	applyPromptCacheKeyToResponses(&respParams, params)
 
 	resp, err := p.client.Responses.New(ctx, respParams)
 	if err != nil {
+		if effectivePromptCacheKey(params) != "" && looksLikePromptCacheHintUnsupported(err.Error()) {
+			params.PromptCacheHintFallback.Disable()
+			if params.OnPromptCacheHintUnsupported != nil {
+				params.OnPromptCacheHintUnsupported()
+			}
+			params.PromptCacheKey = ""
+			return p.sendChatResponses(ctx, model, messages, params)
+		}
 		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
 	}
 	return resp.OutputText(), nil
@@ -342,6 +360,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, par
 	} else if params.MaxTokens > 0 {
 		sdkParams.MaxTokens = param.NewOpt(int64(params.MaxTokens))
 	}
+	applyPromptCacheKeyToChatCompletions(&sdkParams, params)
 
 	if params.TopP > 0 && params.TopP != 1.0 {
 		sdkParams.TopP = param.NewOpt(params.TopP)
@@ -375,7 +394,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, par
 		default:
 		}
 
-		done := p.doStream(ctx, sdkParams, handler, &sdkParams)
+		done := p.doStream(ctx, sdkParams, handler, &sdkParams, params.OnPromptCacheHintUnsupported, params.PromptCacheHintFallback)
 		if done {
 			return
 		}
@@ -391,7 +410,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, par
 }
 
 // doStream executa uma tentativa de streaming. Retorna true se concluiu (sucesso ou erro terminal).
-func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatCompletionNewParams, handler StreamHandler, origParams *openai.ChatCompletionNewParams) bool {
+func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatCompletionNewParams, handler StreamHandler, origParams *openai.ChatCompletionNewParams, onPromptCacheHintUnsupported func(), promptCacheFallback *PromptCacheHintFallback) bool {
 	stream := p.client.Chat.Completions.NewStreaming(ctx, params)
 	acc := openai.ChatCompletionAccumulator{}
 
@@ -451,6 +470,15 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				}
 			}
 
+			if origParams.PromptCacheKey.Valid() && looksLikePromptCacheHintUnsupported(errStr) {
+				promptCacheFallback.Disable()
+				if onPromptCacheHintUnsupported != nil {
+					onPromptCacheHintUnsupported()
+				}
+				origParams.PromptCacheKey = param.Opt[string]{}
+				return false
+			}
+
 			if isRetryableError(errStr) {
 				return false
 			}
@@ -495,6 +523,37 @@ func isRetryableError(errStr string) bool {
 		strings.Contains(lower, "502") ||
 		strings.Contains(lower, "503") ||
 		strings.Contains(lower, "429")
+}
+
+func looksLikePromptCacheHintUnsupported(errStr string) bool {
+	lower := strings.ToLower(errStr)
+	hasPromptCacheKey := strings.Contains(lower, "prompt_cache_key") ||
+		strings.Contains(lower, "prompt cache key") ||
+		strings.Contains(lower, "prompt-cache-key")
+	if !hasPromptCacheKey {
+		return false
+	}
+	return strings.Contains(lower, "unsupported parameter") ||
+		strings.Contains(lower, "unsupported field") ||
+		strings.Contains(lower, "unknown parameter") ||
+		strings.Contains(lower, "unknown field") ||
+		strings.Contains(lower, "unknown argument") ||
+		strings.Contains(lower, "unrecognized parameter") ||
+		strings.Contains(lower, "unrecognized field") ||
+		strings.Contains(lower, "unrecognized argument") ||
+		strings.Contains(lower, "unrecognized request argument") ||
+		strings.Contains(lower, "unrecognised parameter") ||
+		strings.Contains(lower, "unrecognised field") ||
+		strings.Contains(lower, "unrecognised argument") ||
+		strings.Contains(lower, "unrecognised request argument") ||
+		strings.Contains(lower, "invalid parameter") ||
+		strings.Contains(lower, "invalid field") ||
+		strings.Contains(lower, "extra_forbidden") ||
+		strings.Contains(lower, "extra inputs") ||
+		strings.Contains(lower, "not permitted") ||
+		strings.Contains(lower, "not allowed") ||
+		strings.Contains(lower, "not supported") ||
+		strings.Contains(lower, "does not support")
 }
 
 // convertMessages converte nossas mensagens internas para o formato SDK.
@@ -623,6 +682,29 @@ func makeToolChoice(choice string) openai.ChatCompletionToolChoiceOptionUnionPar
 	}
 }
 
+func applyPromptCacheKeyToChatCompletions(sdkParams *openai.ChatCompletionNewParams, params ChatParams) {
+	key := effectivePromptCacheKey(params)
+	if sdkParams == nil || key == "" {
+		return
+	}
+	sdkParams.PromptCacheKey = param.NewOpt(key)
+}
+
+func applyPromptCacheKeyToResponses(respParams *responses.ResponseNewParams, params ChatParams) {
+	key := effectivePromptCacheKey(params)
+	if respParams == nil || key == "" {
+		return
+	}
+	respParams.PromptCacheKey = param.NewOpt(key)
+}
+
+func effectivePromptCacheKey(params ChatParams) string {
+	if params.PromptCacheHintFallback != nil && params.PromptCacheHintFallback.Disabled() {
+		return ""
+	}
+	return params.PromptCacheKey
+}
+
 // streamChatResponses usa a Responses API como caminho padrão.
 // Se há MCP servers configurados, eles são incluídos como tools type:mcp.
 // Function tools locais coexistem normalmente.
@@ -683,6 +765,19 @@ func (p *OpenAIProvider) streamChatResponses(
 			currentServers = nil
 			continue
 		}
+		if result.promptCacheHintUnsupported {
+			if effectivePromptCacheKey(params) != "" {
+				log.Printf("[PromptCache] provider=openai action=disable_provider_hint reason=prompt_cache_key_rejected")
+				params.PromptCacheHintFallback.Disable()
+				if params.OnPromptCacheHintUnsupported != nil {
+					params.OnPromptCacheHintUnsupported()
+				}
+				params.PromptCacheKey = ""
+				continue
+			}
+			handler.OnError("provider rejeitou prompt_cache_key, mas o hint já estava desativado neste turno; verifique se o gateway/proxy está injetando esse parâmetro ou desative chat.prompt_cache.provider_hints no perfil")
+			return
+		}
 		if result.mcpFailure != nil {
 			if degradeRetries < maxDegradeRetries {
 				if remaining, ok := planMCPDegradationRetry(ctx, "openai", attempt, currentServers, result.mcpFailure); ok {
@@ -735,6 +830,7 @@ func (p *OpenAIProvider) buildResponsesParams(
 	if params.TopP > 0 && params.TopP != 1.0 {
 		respParams.TopP = param.NewOpt(params.TopP)
 	}
+	applyPromptCacheKeyToResponses(&respParams, params)
 
 	switch params.ReasoningEffort {
 	case "low", "medium", "high":
@@ -1063,8 +1159,14 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errMsg) {
 				return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 			}
+			if !emittedAnything && looksLikePromptCacheHintUnsupported(errMsg) {
+				return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
+			}
 			if failure := inferMCPFailure(MCPFailureStageHandshake, errMsg, ev.RawJSON(), "", mcpServers); failure != nil && !emittedAnything {
 				return mcpStreamAttemptResult{mcpFailure: failure}
+			}
+			if !emittedAnything && isRetryableError(errMsg) {
+				return mcpStreamAttemptResult{retry: true}
 			}
 			handler.OnError(errMsg)
 			return mcpStreamAttemptResult{done: true}
@@ -1079,6 +1181,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		log.Printf("[OpenAIProvider] Responses stream error: %s", errStr)
 		if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errStr) {
 			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
+		}
+		if !emittedAnything && looksLikePromptCacheHintUnsupported(errStr) {
+			return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 		}
 		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedAnything {
 			return mcpStreamAttemptResult{mcpFailure: failure}

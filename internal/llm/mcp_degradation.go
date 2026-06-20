@@ -34,7 +34,8 @@ type mcpStreamAttemptResult struct {
 	// nativeMCPUnsupported indica que a request falhou porque o modelo/endpoint
 	// rejeita tools type:"mcp" (ver looksLikeNativeMCPUnsupported). Dispara a
 	// degradação nativo→adapter no mesmo turno + auto-ajuste persistido do perfil.
-	nativeMCPUnsupported bool
+	nativeMCPUnsupported       bool
+	promptCacheHintUnsupported bool
 }
 
 func maxMCPDegradationRetries(serverCount int) int {

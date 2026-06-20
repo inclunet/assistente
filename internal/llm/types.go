@@ -235,6 +235,7 @@ type ChatParams struct {
 	SurfaceID              string `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
 	SurfaceType            string `json:"surfaceType,omitempty"`          // page | embedded | modal | external
 	SurfaceTabID           string `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
+	PromptCacheKey         string `json:"-"`                              // Hint seguro derivado pelo backend para prompt_cache_key
 
 	// OnNativeMCPUnsupported é um hook opcional, definido pelo backend (use case),
 	// chamado quando uma request com MCP nativo falha com erro de não-suporte
@@ -250,6 +251,38 @@ type ChatParams struct {
 	// modo adapter e re-tentar — assim as tools MCP continuam disponíveis já neste
 	// turno. Não é serializado. Ver AEP-0021.
 	NativeMCPFallback *NativeMCPAdapterFallback `json:"-"`
+
+	// OnPromptCacheHintUnsupported é chamado quando o provider rejeita
+	// explicitamente prompt_cache_key. Permite degradar este turno sem o hint e
+	// persistir Profile.Chat.PromptCache.ProviderHints=false sem acoplar provider
+	// à camada de perfis.
+	OnPromptCacheHintUnsupported func() `json:"-"`
+	// PromptCacheHintFallback é compartilhado entre cópias de ChatParams durante o
+	// mesmo turno/loop agêntico para impedir reenvio do hint após rejeição explícita.
+	PromptCacheHintFallback *PromptCacheHintFallback `json:"-"`
+}
+
+type PromptCacheHintFallback struct {
+	mu       sync.Mutex
+	disabled bool
+}
+
+func (f *PromptCacheHintFallback) Disable() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	f.disabled = true
+	f.mu.Unlock()
+}
+
+func (f *PromptCacheHintFallback) Disabled() bool {
+	if f == nil {
+		return false
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.disabled
 }
 
 // NativeMCPAdapterFallback carrega as alternativas em modo ADAPTER (provider sem
