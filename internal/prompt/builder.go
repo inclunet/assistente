@@ -225,6 +225,7 @@ func (b *Builder) build(
 		}
 		parts = append(parts, "\n\n"+strings.TrimSpace(contextBlock))
 	}
+	stablePromptLen := len(strings.Join(parts, ""))
 
 	// 4. Resumo da conversa (rolling context)
 	if conversationSummary != "" {
@@ -277,7 +278,7 @@ func (b *Builder) build(
 		parts = append(parts, "\n\n"+slashSkillContent)
 	}
 
-	return chat.InjectSystemPrompt(messages, strings.Join(parts, ""))
+	return chat.InjectSystemPromptWithCachePrefix(messages, strings.Join(parts, ""), stablePromptLen)
 }
 
 func sortContextBlocks(blocks []contextprovider.Block) {

@@ -461,7 +461,7 @@ func TestConvertToAnthropicMessages_SystemExtraction(t *testing.T) {
 		{Role: "assistant", Content: "Hi!"},
 	}
 
-	system, result := convertToAnthropicMessages(msgs)
+	system, result := convertToAnthropicMessages(msgs, false)
 
 	if len(system) != 1 {
 		t.Fatalf("Expected 1 system block, got %d", len(system))
@@ -471,6 +471,60 @@ func TestConvertToAnthropicMessages_SystemExtraction(t *testing.T) {
 	}
 	if len(result) != 2 {
 		t.Fatalf("Expected 2 messages (user+assistant), got %d", len(result))
+	}
+}
+
+func TestConvertToAnthropicMessages_ExplicitCacheControlSplitsStableSystemPrefix(t *testing.T) {
+	const stable = "stable instructions"
+	const dynamic = "\n\n<conversation_summary>\ndynamic summary\n</conversation_summary>"
+	msgs := []Message{
+		{
+			Role:                        "system",
+			Content:                     stable + dynamic,
+			SystemCacheControlPrefixLen: len(stable),
+		},
+		{Role: "user", Content: "Hello"},
+	}
+
+	system, result := convertToAnthropicMessages(msgs, true)
+
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 non-system message, got %d", len(result))
+	}
+	if len(system) != 2 {
+		t.Fatalf("Expected 2 system blocks, got %d", len(system))
+	}
+	if system[0].Text != stable {
+		t.Fatalf("stable system block = %q, want %q", system[0].Text, stable)
+	}
+	if system[0].CacheControl.Type == "" {
+		t.Fatal("expected cache_control on stable system block")
+	}
+	if system[1].Text != dynamic {
+		t.Fatalf("dynamic system block = %q, want %q", system[1].Text, dynamic)
+	}
+	if system[1].CacheControl.Type != "" {
+		t.Fatal("dynamic system block should not have cache_control")
+	}
+}
+
+func TestConvertToAnthropicMessages_ExplicitCacheControlDisabledOmitsMarker(t *testing.T) {
+	msgs := []Message{
+		{
+			Role:                        "system",
+			Content:                     "stable\n\ndynamic",
+			SystemCacheControlPrefixLen: len("stable"),
+		},
+		{Role: "user", Content: "Hello"},
+	}
+
+	system, _ := convertToAnthropicMessages(msgs, false)
+
+	if len(system) != 1 {
+		t.Fatalf("Expected 1 system block, got %d", len(system))
+	}
+	if system[0].CacheControl.Type != "" {
+		t.Fatal("cache_control should be omitted when explicit cache control is disabled")
 	}
 }
 
@@ -487,7 +541,7 @@ func TestConvertToAnthropicMessages_ToolResults(t *testing.T) {
 		{Role: "tool", Content: `{"temp": 25}`, ToolCallID: "call_1"},
 	}
 
-	system, result := convertToAnthropicMessages(msgs)
+	system, result := convertToAnthropicMessages(msgs, false)
 
 	if len(system) != 0 {
 		t.Fatalf("Expected 0 system blocks, got %d", len(system))
@@ -525,7 +579,7 @@ func TestConvertToAnthropicMessages_MultipleToolResults(t *testing.T) {
 		{Role: "tool", Content: "result_b", ToolCallID: "call_b"},
 	}
 
-	_, result := convertToAnthropicMessages(msgs)
+	_, result := convertToAnthropicMessages(msgs, false)
 
 	// user + assistant + user(2 tool_results merged)
 	if len(result) != 3 {
@@ -1011,7 +1065,7 @@ func TestConvertToBetaMessages_PreservesStructure(t *testing.T) {
 		{Role: "user", Content: "Hello"},
 		{Role: "assistant", Content: "Hi!"},
 	}
-	_, anthropicMsgs := convertToAnthropicMessages(msgs)
+	_, anthropicMsgs := convertToAnthropicMessages(msgs, false)
 	betaMsgs := convertToBetaMessages(anthropicMsgs)
 
 	if len(betaMsgs) != 2 {

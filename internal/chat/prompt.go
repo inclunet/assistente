@@ -34,8 +34,21 @@ Never call a tool that has not been provided to you yet — such a call will fai
 //   - Se não existir mensagem de sistema, prepend uma nova.
 //   - Se existir, combina: fullSystemPrompt + "\n\n" + conteúdo existente.
 func InjectSystemPrompt(messages []llm.Message, fullSystemPrompt string) []llm.Message {
+	return InjectSystemPromptWithCachePrefix(messages, fullSystemPrompt, 0)
+}
+
+// InjectSystemPromptWithCachePrefix insere o system prompt e, quando
+// cachePrefixLen > 0, marca o prefixo estável para providers que suportam
+// cache_control explícito. O metadado é interno e não muda o texto do prompt.
+func InjectSystemPromptWithCachePrefix(messages []llm.Message, fullSystemPrompt string, cachePrefixLen int) []llm.Message {
 	if fullSystemPrompt == "" {
 		return messages
+	}
+	if cachePrefixLen < 0 {
+		cachePrefixLen = 0
+	}
+	if cachePrefixLen > len(fullSystemPrompt) {
+		cachePrefixLen = len(fullSystemPrompt)
 	}
 
 	systemIndex := -1
@@ -48,8 +61,9 @@ func InjectSystemPrompt(messages []llm.Message, fullSystemPrompt string) []llm.M
 
 	if systemIndex == -1 {
 		systemMsg := llm.Message{
-			Role:    "system",
-			Content: fullSystemPrompt,
+			Role:                        "system",
+			Content:                     fullSystemPrompt,
+			SystemCacheControlPrefixLen: cachePrefixLen,
 		}
 		return append([]llm.Message{systemMsg}, messages...)
 	}
@@ -60,9 +74,11 @@ func InjectSystemPrompt(messages []llm.Message, fullSystemPrompt string) []llm.M
 	switch content := messages[systemIndex].Content.(type) {
 	case string:
 		newMessages[systemIndex].Content = fullSystemPrompt + "\n\n" + content
+		newMessages[systemIndex].SystemCacheControlPrefixLen = cachePrefixLen
 	default:
 		// Conteúdo não-string (multimodal): substitui integralmente
 		newMessages[systemIndex].Content = fullSystemPrompt
+		newMessages[systemIndex].SystemCacheControlPrefixLen = cachePrefixLen
 	}
 
 	return newMessages

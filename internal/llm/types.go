@@ -16,6 +16,10 @@ type Message struct {
 	Thinking   string      `json:"thinking,omitempty"`     // Ollama thinking/reasoning
 	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`   // Tool calls solicitadas pelo assistant
 	ToolCallID string      `json:"tool_call_id,omitempty"` // Para role="tool": vincula ao call
+	// SystemCacheControlPrefixLen marca quantos bytes iniciais do system prompt
+	// formam o prefixo estável elegível a cache_control explícito. É metadado
+	// interno do backend e só providers com suporte físico devem consumi-lo.
+	SystemCacheControlPrefixLen int `json:"-"`
 }
 
 // ToolCall representa uma chamada de ferramenta solicitada pelo LLM
@@ -236,6 +240,7 @@ type ChatParams struct {
 	SurfaceType            string `json:"surfaceType,omitempty"`          // page | embedded | modal | external
 	SurfaceTabID           string `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
 	PromptCacheKey         string `json:"-"`                              // Hint seguro derivado pelo backend para prompt_cache_key
+	ExplicitCacheControl   bool   `json:"-"`                              // Permite cache_control explícito em providers compatíveis
 
 	// OnNativeMCPUnsupported é um hook opcional, definido pelo backend (use case),
 	// chamado quando uma request com MCP nativo falha com erro de não-suporte

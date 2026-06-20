@@ -113,6 +113,45 @@ func TestBuild_WithSummary_InjectsSummaryTag(t *testing.T) {
 	}
 }
 
+func TestBuild_MarksOnlyStableSystemPrefixForExplicitCacheControl(t *testing.T) {
+	b := &prompt.Builder{}
+	msgs := []llm.Message{{Role: "user", Content: "oi"}}
+	result := buildPromptForTest(
+		b,
+		msgs,
+		nil,
+		false,
+		false,
+		nil,
+		"slash content",
+		"Resumo antigo.",
+		"<user_memory>\n- prefere pt-BR\n</user_memory>",
+	)
+	if len(result) == 0 || result[0].Role != "system" {
+		t.Fatalf("expected system message first, got %#v", result)
+	}
+	sys, ok := result[0].Content.(string)
+	if !ok {
+		t.Fatalf("system content type = %T, want string", result[0].Content)
+	}
+	prefixLen := result[0].SystemCacheControlPrefixLen
+	if prefixLen <= 0 || prefixLen >= len(sys) {
+		t.Fatalf("SystemCacheControlPrefixLen = %d, system len = %d", prefixLen, len(sys))
+	}
+	stablePrefix := sys[:prefixLen]
+	dynamicSuffix := sys[prefixLen:]
+	if strings.Contains(stablePrefix, "<conversation_summary>") ||
+		strings.Contains(stablePrefix, "<user_memory>") ||
+		strings.Contains(stablePrefix, "slash content") {
+		t.Fatalf("stable prefix contains dynamic content: %q", stablePrefix)
+	}
+	for _, want := range []string{"<conversation_summary>", "<user_memory>", "slash content"} {
+		if !strings.Contains(dynamicSuffix, want) {
+			t.Fatalf("dynamic suffix missing %q: %q", want, dynamicSuffix)
+		}
+	}
+}
+
 func TestBuild_InjectsDynamicContextAfterSummary(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}

@@ -78,7 +78,7 @@ func (p *AnthropicProvider) SendChat(ctx context.Context, messages []Message, pa
 		maxTokens = 4096
 	}
 
-	system, anthropicMsgs := convertToAnthropicMessages(messages)
+	system, anthropicMsgs := convertToAnthropicMessages(messages, params.ExplicitCacheControl)
 
 	sdkParams := anthropic.MessageNewParams{
 		Model:     anthropic.Model(model),
@@ -150,7 +150,7 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 		maxTokens = 4096
 	}
 
-	system, anthropicMsgs := convertToAnthropicMessages(messages)
+	system, anthropicMsgs := convertToAnthropicMessages(messages, params.ExplicitCacheControl)
 
 	// Se há MCP servers configurados, usa Beta Messages API com MCP connector
 	if len(p.mcpServers) > 0 {
@@ -315,6 +315,12 @@ func (p *AnthropicProvider) buildBetaMCPParams(
 		betaSystem := make([]anthropic.BetaTextBlockParam, len(system))
 		for i, s := range system {
 			betaSystem[i] = anthropic.BetaTextBlockParam{Text: s.Text}
+			if s.CacheControl.Type != "" {
+				betaSystem[i].CacheControl = anthropic.BetaCacheControlEphemeralParam{
+					Type: "ephemeral",
+					TTL:  anthropic.BetaCacheControlEphemeralTTL(s.CacheControl.TTL),
+				}
+			}
 		}
 		betaParams.System = betaSystem
 	}
@@ -739,7 +745,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 // convertToAnthropicMessages converte mensagens internas para o formato Anthropic.
 // Retorna o system prompt separado (Anthropic não usa role "system" nas mensagens)
 // e a lista de mensagens user/assistant com content blocks.
-func convertToAnthropicMessages(msgs []Message) ([]anthropic.TextBlockParam, []anthropic.MessageParam) {
+func convertToAnthropicMessages(msgs []Message, explicitCacheControl bool) ([]anthropic.TextBlockParam, []anthropic.MessageParam) {
 	var system []anthropic.TextBlockParam
 	var result []anthropic.MessageParam
 
@@ -762,7 +768,7 @@ func convertToAnthropicMessages(msgs []Message) ([]anthropic.TextBlockParam, []a
 
 		switch msg.Role {
 		case "system":
-			system = append(system, anthropic.TextBlockParam{Text: content})
+			system = append(system, anthropicSystemBlocks(msg, content, explicitCacheControl)...)
 
 		case "user":
 			flushToolResults()
@@ -800,6 +806,32 @@ func convertToAnthropicMessages(msgs []Message) ([]anthropic.TextBlockParam, []a
 	flushToolResults()
 
 	return system, result
+}
+
+func anthropicSystemBlocks(msg Message, content string, explicitCacheControl bool) []anthropic.TextBlockParam {
+	if content == "" {
+		return nil
+	}
+	prefixLen := msg.SystemCacheControlPrefixLen
+	if !explicitCacheControl || prefixLen <= 0 {
+		return []anthropic.TextBlockParam{{Text: content}}
+	}
+	if prefixLen > len(content) {
+		prefixLen = len(content)
+	}
+	prefix := content[:prefixLen]
+	suffix := content[prefixLen:]
+	if strings.TrimSpace(prefix) == "" {
+		return []anthropic.TextBlockParam{{Text: content}}
+	}
+	block := anthropic.TextBlockParam{
+		Text:         prefix,
+		CacheControl: anthropic.NewCacheControlEphemeralParam(),
+	}
+	if suffix == "" {
+		return []anthropic.TextBlockParam{block}
+	}
+	return []anthropic.TextBlockParam{block, anthropic.TextBlockParam{Text: suffix}}
 }
 
 // convertAnthropicTools converte definições de ferramentas para o formato Anthropic.

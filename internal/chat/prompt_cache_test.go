@@ -194,6 +194,56 @@ func TestPrepareContextAppliesPromptCacheKeyFromProfile(t *testing.T) {
 	}
 }
 
+func TestPrepareContextAppliesExplicitCacheControlFromProfile(t *testing.T) {
+	spy := &spyEmitter{}
+	profileMgr := setupProfileTestEnv(t)
+
+	profile := profiles.DefaultProfile()
+	profile.Name = "Cache Control"
+	profile.Active = true
+	profile.Chat.PromptCache.Enabled = true
+	profile.Chat.PromptCache.ExplicitCacheControl = true
+	slug, err := profileMgr.Create(profile)
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+	if err := profileMgr.SetActive(slug); err != nil {
+		t.Fatalf("set active: %v", err)
+	}
+
+	inter := NewInteractor(InteractorConfig{
+		Emitter:    spy,
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+	})
+
+	resp, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		UserContent:    "oi",
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext: %v", err)
+	}
+	if !resp.Params.ExplicitCacheControl {
+		t.Fatal("ExplicitCacheControl = false, want true")
+	}
+
+	profile.Chat.PromptCache.ExplicitCacheControl = false
+	if err := profileMgr.Update(slug, profile); err != nil {
+		t.Fatalf("update profile: %v", err)
+	}
+	resp, err = inter.PrepareContext(context.Background(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		UserContent:    "oi",
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext disabled: %v", err)
+	}
+	if resp.Params.ExplicitCacheControl {
+		t.Fatal("ExplicitCacheControl = true, want false")
+	}
+}
+
 func TestHandlePromptCacheHintUnsupportedPersistsProviderHintsFalse(t *testing.T) {
 	mgr := setupProfileTestEnv(t)
 	profile := profiles.DefaultProfile()
