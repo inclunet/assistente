@@ -48,6 +48,12 @@ func (c *ProfilesController) GetActiveProfileSlug() string {
 	return c.profileMgr.GetActiveSlug()
 }
 
+// GetActiveProfileAndSlug resolve perfil ativo e slug numa única passada. Usado
+// por operações de escrita (ex.: CLI fixando o modelo no perfil ativo).
+func (c *ProfilesController) GetActiveProfileAndSlug() (*profiles.Profile, string, error) {
+	return c.profileMgr.GetActiveAndSlug()
+}
+
 func (c *ProfilesController) SetActiveProfile(slug string) error {
 	if err := c.profileMgr.SetActive(slug); err != nil {
 		return err

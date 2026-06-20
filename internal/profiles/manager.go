@@ -252,9 +252,24 @@ func (m *Manager) GetActive() (*Profile, error) {
 	return profile, err
 }
 
-// resolveActive é a resolução canônica do perfil ativo: retorna tanto o perfil
-// quanto o slug do arquivo correspondente, usando UMA única regra (active=true →
-// auto-cura por mtime → "padrao" → primeiro perfil legível → DefaultProfile).
+// GetActiveAndSlug retorna o perfil ativo e seu slug numa única resolução
+// (ver resolveActive). Para operações de ESCRITA no perfil ativo, prefira este
+// método em vez de combinar GetActive + GetActiveSlug: ele propaga o erro de
+// resolução e garante que perfil e slug vêm da mesma passada, evitando gravar no
+// slug errado caso uma segunda resolução tolerante caísse silenciosamente em
+// "padrao".
+func (m *Manager) GetActiveAndSlug() (*Profile, string, error) {
+	return m.resolveActive()
+}
+
+// resolveActive é a resolução canônica do perfil ativo: retorna o perfil e o
+// slug correspondente, usando UMA única regra (active=true → auto-cura por mtime
+// → "padrao" → primeiro perfil legível → DefaultProfile).
+//
+// O slug normalmente é o do arquivo de onde o perfil veio. EXCEÇÃO: no fallback
+// final (nenhum perfil legível no disco) retorna DefaultProfile() com slug
+// "padrao", que NÃO corresponde a um arquivo existente — gravar nele criaria
+// padrao.json.
 //
 // EFEITO COLATERAL: NÃO é read-only. Quando detecta múltiplos perfis com
 // active=true, escolhe o vencedor (mtime) e REGRAVA os demais no disco com

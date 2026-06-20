@@ -15,7 +15,7 @@ import (
 // configBackend abstracts the app methods used by config commands.
 type configBackend interface {
 	GetActiveProfile() (*profiles.Profile, error)
-	GetActiveProfileSlug() string
+	GetActiveProfileAndSlug() (*profiles.Profile, string, error)
 	GetLLMProviders() []*llm.ProviderConfig
 	UpdateProfile(slug string, p profiles.Profile) error
 }
@@ -24,31 +24,23 @@ type configBackend interface {
 // perfil ativo. Substitui o antigo config.SetChatModel legado (#299): o modelo
 // passa a viver no perfil (profiles), não mais no config.json.
 type chatModelUpdater interface {
-	GetActiveProfile() (*profiles.Profile, error)
-	GetActiveProfileSlug() string
+	GetActiveProfileAndSlug() (*profiles.Profile, string, error)
 	UpdateProfile(slug string, p profiles.Profile) error
 }
 
 // setActiveProfileChatModel grava o modelo escolhido no perfil ativo.
 //
-// Lê o perfil via GetActiveProfile (que PROPAGA erro de resolução) e só então
-// obtém o slug via GetActiveProfileSlug. Ambos aplicam a MESMA regra de
-// resolução (resolveActive), então o slug aponta para o mesmo perfil lido — são
-// duas chamadas independentes, sem atomicidade, mas para um comando de CLI uma
-// alteração concorrente do filesystem entre elas é desprezível. Gatear pela
-// versão que propaga erro evita gravar o modelo em "padrao.json" quando a
-// resolução do perfil ativo, na verdade, falhou (GetActiveProfileSlug silencia
-// o erro e cai em "padrao" para uso de leitura/display).
+// Usa GetActiveProfileAndSlug, que resolve perfil e slug numa ÚNICA passada e
+// PROPAGA erro — assim a escrita sempre atinge o slug do perfil efetivamente
+// resolvido. (Evita o risco de combinar GetActiveProfile + GetActiveProfileSlug,
+// onde a 2ª chamada, tolerante a erro, poderia cair silenciosamente em "padrao"
+// e gravar no perfil errado.)
 func setActiveProfileChatModel(svc chatModelUpdater, model string) error {
-	profile, err := svc.GetActiveProfile()
+	profile, slug, err := svc.GetActiveProfileAndSlug()
 	if err != nil {
 		return err
 	}
-	if profile == nil {
-		return fmt.Errorf("nenhum perfil ativo")
-	}
-	slug := svc.GetActiveProfileSlug()
-	if slug == "" {
+	if profile == nil || slug == "" {
 		return fmt.Errorf("nenhum perfil ativo")
 	}
 	profile.Chat.Model = model

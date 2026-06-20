@@ -350,6 +350,10 @@ export function GetActiveProfile() {
   return window['go']['app']['App']['GetActiveProfile']();
 }
 
+export function GetActiveProfileAndSlug() {
+  return window['go']['app']['App']['GetActiveProfileAndSlug']();
+}
+
 export function GetActiveProfileSlug() {
   return window['go']['app']['App']['GetActiveProfileSlug']();
 }
