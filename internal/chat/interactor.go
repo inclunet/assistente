@@ -261,7 +261,10 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		if activeProfile.Chat.ContextWindow > 0 {
 			params.ContextWindow = activeProfile.Chat.ContextWindow
 		}
-		params.ExplicitCacheControl = activeProfile.Chat.PromptCache.Enabled && activeProfile.Chat.PromptCache.ExplicitCacheControl
+		params.ExplicitCacheControl = activeProfile.Chat.PromptCache.Enabled &&
+			activeProfile.Chat.PromptCache.ExplicitCacheControl &&
+			i.providerSvc != nil &&
+			i.providerSvc.SupportsExplicitCacheControl(ctx, activeProfile)
 	}
 
 	// 8. Fall back to config default model if still empty

@@ -5,8 +5,26 @@ import (
 	"strings"
 	"testing"
 
+	"assistente/internal/llm"
 	"assistente/internal/profiles"
+	"assistente/internal/providers"
 )
+
+func setupPromptCacheProviderService(t *testing.T, provider *llm.ProviderConfig) *providers.Service {
+	t.Helper()
+	registry := llm.NewProviderRegistry()
+	if err := registry.Register(provider); err != nil {
+		t.Fatalf("register provider: %v", err)
+	}
+	store := providers.NewMemoryStore()
+	if err := store.Save(context.Background(), []*llm.ProviderConfig{provider}); err != nil {
+		t.Fatalf("save provider: %v", err)
+	}
+	return providers.NewService(providers.ServiceConfig{
+		Registry: registry,
+		Store:    store,
+	})
+}
 
 func TestResolvePromptCacheHintKeyRequiresEnabledProviderHints(t *testing.T) {
 	profile := profiles.DefaultProfile()
@@ -195,52 +213,71 @@ func TestPrepareContextAppliesPromptCacheKeyFromProfile(t *testing.T) {
 }
 
 func TestPrepareContextAppliesExplicitCacheControlFromProfile(t *testing.T) {
-	spy := &spyEmitter{}
-	profileMgr := setupProfileTestEnv(t)
+	tests := []struct {
+		name     string
+		provider *llm.ProviderConfig
+		want     bool
+	}{
+		{
+			name: "anthropic official supports explicit cache control",
+			provider: &llm.ProviderConfig{
+				ID:        "anthropic",
+				Name:      "Anthropic",
+				Type:      llm.ProviderClaude,
+				APIFormat: llm.APIFormatAnthropic,
+				BaseURL:   "https://api.anthropic.com/v1",
+			},
+			want: true,
+		},
+		{
+			name: "anthropic proxy needs explicit capability",
+			provider: &llm.ProviderConfig{
+				ID:        "anthropic-proxy",
+				Name:      "Anthropic Proxy",
+				Type:      llm.ProviderCustom,
+				APIFormat: llm.APIFormatAnthropic,
+				BaseURL:   "https://litellm.example.com/anthropic",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spy := &spyEmitter{}
+			profileMgr := setupProfileTestEnv(t)
+			providerSvc := setupPromptCacheProviderService(t, tt.provider)
 
-	profile := profiles.DefaultProfile()
-	profile.Name = "Cache Control"
-	profile.Active = true
-	profile.Chat.PromptCache.Enabled = true
-	profile.Chat.PromptCache.ExplicitCacheControl = true
-	slug, err := profileMgr.Create(profile)
-	if err != nil {
-		t.Fatalf("create profile: %v", err)
-	}
-	if err := profileMgr.SetActive(slug); err != nil {
-		t.Fatalf("set active: %v", err)
-	}
+			profile := profiles.DefaultProfile()
+			profile.Name = "Cache Control"
+			profile.Active = true
+			profile.Chat.LLMProvider = tt.provider.ID
+			profile.Chat.PromptCache.Enabled = true
+			profile.Chat.PromptCache.ExplicitCacheControl = true
+			slug, err := profileMgr.Create(profile)
+			if err != nil {
+				t.Fatalf("create profile: %v", err)
+			}
+			if err := profileMgr.SetActive(slug); err != nil {
+				t.Fatalf("set active: %v", err)
+			}
 
-	inter := NewInteractor(InteractorConfig{
-		Emitter:    spy,
-		ConvRepo:   noopConvRepo{},
-		ProfileMgr: profileMgr,
-	})
+			inter := NewInteractor(InteractorConfig{
+				Emitter:     spy,
+				ConvRepo:    noopConvRepo{},
+				ProfileMgr:  profileMgr,
+				ProviderSvc: providerSvc,
+			})
 
-	resp, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
-		ConversationID: "conv-1",
-		UserContent:    "oi",
-	})
-	if err != nil {
-		t.Fatalf("PrepareContext: %v", err)
-	}
-	if !resp.Params.ExplicitCacheControl {
-		t.Fatal("ExplicitCacheControl = false, want true")
-	}
-
-	profile.Chat.PromptCache.ExplicitCacheControl = false
-	if err := profileMgr.Update(slug, profile); err != nil {
-		t.Fatalf("update profile: %v", err)
-	}
-	resp, err = inter.PrepareContext(context.Background(), PrepareContextRequest{
-		ConversationID: "conv-1",
-		UserContent:    "oi",
-	})
-	if err != nil {
-		t.Fatalf("PrepareContext disabled: %v", err)
-	}
-	if resp.Params.ExplicitCacheControl {
-		t.Fatal("ExplicitCacheControl = true, want false")
+			resp, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
+				ConversationID: "conv-1",
+				UserContent:    "oi",
+			})
+			if err != nil {
+				t.Fatalf("PrepareContext: %v", err)
+			}
+			if resp.Params.ExplicitCacheControl != tt.want {
+				t.Fatalf("ExplicitCacheControl = %v, want %v", resp.Params.ExplicitCacheControl, tt.want)
+			}
+		})
 	}
 }
 

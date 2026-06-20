@@ -604,7 +604,7 @@ func TestConvertAnthropicTools(t *testing.T) {
 		},
 	}
 
-	result := convertAnthropicTools(tools)
+	result := convertAnthropicTools(tools, false)
 	if len(result) != 1 {
 		t.Fatalf("Expected 1 tool, got %d", len(result))
 	}
@@ -613,6 +613,25 @@ func TestConvertAnthropicTools(t *testing.T) {
 	}
 	if result[0].OfTool.Name != "get_time" {
 		t.Errorf("Tool name = %q, want %q", result[0].OfTool.Name, "get_time")
+	}
+}
+
+func TestConvertAnthropicTools_ExplicitCacheControlMarksLastTool(t *testing.T) {
+	tools := []ToolDefinition{
+		{Function: FunctionDefinition{Name: "first", Description: "First", Parameters: []byte(`{"type":"object"}`)}},
+		{Function: FunctionDefinition{Name: "last", Description: "Last", Parameters: []byte(`{"type":"object"}`)}},
+	}
+
+	result := convertAnthropicTools(tools, true)
+
+	if len(result) != 2 {
+		t.Fatalf("Expected 2 tools, got %d", len(result))
+	}
+	if result[0].OfTool.CacheControl.Type != "" {
+		t.Fatal("first tool should not have cache_control")
+	}
+	if result[1].OfTool.CacheControl.Type == "" {
+		t.Fatal("last tool should have cache_control")
 	}
 }
 
@@ -1076,6 +1095,53 @@ func TestConvertToBetaMessages_PreservesStructure(t *testing.T) {
 	}
 	if string(betaMsgs[1].Role) != "assistant" {
 		t.Errorf("Role[1] = %q, want assistant", betaMsgs[1].Role)
+	}
+}
+
+func TestAnthropicProvider_BetaMCPParams_ExplicitCacheControlMarksLastTool(t *testing.T) {
+	provider := &AnthropicProvider{}
+	tools := []ToolDefinition{
+		{Function: FunctionDefinition{Name: "local_tool", Description: "Local tool", Parameters: []byte(`{"type":"object"}`)}},
+	}
+	params := provider.buildBetaMCPParams(
+		context.Background(),
+		"claude-sonnet",
+		1024,
+		nil,
+		nil,
+		ChatParams{ExplicitCacheControl: true},
+		[]MCPServerConfig{{Name: "remote", URL: "https://mcp.example.com"}},
+		tools...,
+	)
+
+	if len(params.Tools) != 2 {
+		t.Fatalf("Tools len = %d, want 2", len(params.Tools))
+	}
+	if params.Tools[0].GetCacheControl().Type != "" {
+		t.Fatal("MCP toolset should not be marked when a later local tool exists")
+	}
+	if params.Tools[1].GetCacheControl().Type == "" {
+		t.Fatal("last beta tool should have cache_control")
+	}
+}
+
+func TestAnthropicProvider_BetaMCPParams_ExplicitCacheControlMarksMCPToolsetWhenLast(t *testing.T) {
+	provider := &AnthropicProvider{}
+	params := provider.buildBetaMCPParams(
+		context.Background(),
+		"claude-sonnet",
+		1024,
+		nil,
+		nil,
+		ChatParams{ExplicitCacheControl: true},
+		[]MCPServerConfig{{Name: "remote", URL: "https://mcp.example.com"}},
+	)
+
+	if len(params.Tools) != 1 {
+		t.Fatalf("Tools len = %d, want 1", len(params.Tools))
+	}
+	if params.Tools[0].GetCacheControl().Type == "" {
+		t.Fatal("MCP toolset should have cache_control when it is the last stable tool")
 	}
 }
 

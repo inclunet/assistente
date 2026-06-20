@@ -72,6 +72,7 @@ func (p *AnthropicProvider) SendChat(ctx context.Context, messages []Message, pa
 	if model == "" {
 		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrão configurado")
 	}
+	params.ExplicitCacheControl = params.ExplicitCacheControl && SupportsExplicitCacheControl(p.provider)
 
 	maxTokens := int64(params.MaxTokens)
 	if maxTokens <= 0 {
@@ -144,6 +145,7 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 		handler.OnError("Nenhum modelo especificado e nenhum modelo padrão configurado")
 		return
 	}
+	params.ExplicitCacheControl = params.ExplicitCacheControl && SupportsExplicitCacheControl(p.provider)
 
 	maxTokens := int64(params.MaxTokens)
 	if maxTokens <= 0 {
@@ -177,7 +179,7 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 	}
 
 	if len(tools) > 0 {
-		sdkParams.Tools = convertAnthropicTools(tools)
+		sdkParams.Tools = convertAnthropicTools(tools, params.ExplicitCacheControl)
 		toolChoice := "auto"
 		if choice, ok := toolChoiceFromContext(ctx); ok {
 			if s, ok := choice.(string); ok {
@@ -390,6 +392,9 @@ func (p *AnthropicProvider) buildBetaMCPParams(
 		betaParams.ToolChoice = makeBetaAnthropicToolChoice(toolChoice)
 	}
 
+	if params.ExplicitCacheControl {
+		applyBetaAnthropicToolCacheControl(betaTools)
+	}
 	betaParams.Tools = betaTools
 	return betaParams
 }
@@ -835,7 +840,7 @@ func anthropicSystemBlocks(msg Message, content string, explicitCacheControl boo
 }
 
 // convertAnthropicTools converte definições de ferramentas para o formato Anthropic.
-func convertAnthropicTools(tools []ToolDefinition) []anthropic.ToolUnionParam {
+func convertAnthropicTools(tools []ToolDefinition, explicitCacheControl bool) []anthropic.ToolUnionParam {
 	result := make([]anthropic.ToolUnionParam, 0, len(tools))
 
 	for _, tool := range tools {
@@ -855,8 +860,29 @@ func convertAnthropicTools(tools []ToolDefinition) []anthropic.ToolUnionParam {
 			},
 		})
 	}
+	if explicitCacheControl {
+		applyAnthropicToolCacheControl(result)
+	}
 
 	return result
+}
+
+func applyAnthropicToolCacheControl(tools []anthropic.ToolUnionParam) {
+	for i := len(tools) - 1; i >= 0; i-- {
+		if cacheControl := tools[i].GetCacheControl(); cacheControl != nil {
+			*cacheControl = anthropic.NewCacheControlEphemeralParam()
+			return
+		}
+	}
+}
+
+func applyBetaAnthropicToolCacheControl(tools []anthropic.BetaToolUnionParam) {
+	for i := len(tools) - 1; i >= 0; i-- {
+		if cacheControl := tools[i].GetCacheControl(); cacheControl != nil {
+			*cacheControl = anthropic.NewBetaCacheControlEphemeralParam()
+			return
+		}
+	}
 }
 
 func makeAnthropicToolChoice(choice string) anthropic.ToolChoiceUnionParam {
