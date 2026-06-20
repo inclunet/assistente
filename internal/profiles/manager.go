@@ -256,6 +256,11 @@ func (m *Manager) GetActive() (*Profile, error) {
 // quanto o slug do arquivo correspondente, usando UMA única regra (active=true →
 // auto-cura por mtime → "padrao" → primeiro perfil legível → DefaultProfile).
 //
+// EFEITO COLATERAL: NÃO é read-only. Quando detecta múltiplos perfis com
+// active=true, escolhe o vencedor (mtime) e REGRAVA os demais no disco com
+// active=false (auto-cura), gerando I/O e logs. Em estado saudável (0 ou 1
+// ativo) é apenas leitura.
+//
 // GetActive e GetActiveSlug delegam para cá para aplicarem a MESMA regra de
 // resolução: o slug retornado é o do arquivo de onde o perfil veio. São chamadas
 // independentes (não atômicas entre si), então sob alteração concorrente do
@@ -423,6 +428,11 @@ func (m *Manager) SetActive(slug string) error {
 // (não atômicas entre si), uma alteração concorrente do filesystem ainda pode
 // fazer com que observem estados diferentes; o que garantimos é a regra de
 // resolução comum, não atomicidade.
+//
+// ATENÇÃO: apesar do nome de getter, NÃO é estritamente read-only — delega para
+// resolveActive, que pode regravar perfis no disco para auto-curar múltiplos
+// active=true (ver o efeito colateral documentado lá). Em estado saudável é só
+// leitura, mas callers em caminhos quentes devem estar cientes do I/O eventual.
 func (m *Manager) GetActiveSlug() string {
 	_, slug, err := m.resolveActive()
 	if err != nil || slug == "" {
