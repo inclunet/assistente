@@ -2,9 +2,8 @@ import { logger } from './utils/logger';
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { GetConfig, RespondQuestionnaire, NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/app/App";
+import { RespondQuestionnaire, NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/app/App";
 import { EventsOn } from "@wailsjs/runtime/runtime";
-import { useSettingsStore } from './store/settingsStore';
 import { useAuthStore } from './store/authStore';
 import { useUIStore } from './store/uiStore';
 import { useChatStore } from './store/chatStore';
@@ -44,7 +43,6 @@ function App() {
     const { t, i18n } = useTranslation();
     const navigate = useNavigate();
     const antLocale = useAntdLocale(i18n.language);
-    const { setConfig, setLoading, setError } = useSettingsStore();
     const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
     const authUser = useAuthStore((s) => s.user);
     const addToast = useUIStore((s) => s.addToast);
@@ -76,74 +74,42 @@ function App() {
     useEffect(() => {
         const controller = new AbortController();
 
-        const loadConfig = async () => {
+        const runBoot = async () => {
             await waitForWailsBridge({ signal: controller.signal });
             if (controller.signal.aborted) return;
-            if (!isAuthenticated || !authUser) {
-                setLoading(false);
-                return;
-            }
+            if (!isAuthenticated || !authUser) return;
 
-            setLoading(true);
+            // Verifica se precisa do wizard de boas-vindas. Toda a configuração
+            // de LLM/modelo/voz vive em profiles + provider registry; não há mais
+            // config legado para carregar no boot (#299).
+            //
+            // A própria checagem (NeedsWelcomeWizard) também roda dentro do try:
+            // se a ponte/IPC falhar, o usuário recebe feedback (app.wizard.error)
+            // em vez de a falha cair silenciosamente só no .catch externo.
             try {
-                // Verifica se precisa do wizard de boas-vindas
                 const needsWizard = await NeedsWelcomeWizard();
                 if (needsWizard) {
-                    try {
-                        const completed = await RunWelcomeWizard();
-                        if (!completed) {
-                            addToast(t('app.wizard.cancelled'), 'warning');
-                        } else {
-                            addToast(t('app.wizard.success'), 'success', 5000);
-                        }
-                    } catch (error) {
-                        logger.error('[App] Erro ao executar wizard:', error);
-                        addToast(t('app.wizard.error'), 'error');
+                    const completed = await RunWelcomeWizard();
+                    if (!completed) {
+                        addToast(t('app.wizard.cancelled'), 'warning');
+                    } else {
+                        addToast(t('app.wizard.success'), 'success', 5000);
                     }
                 }
-
-                const config = await GetConfig() as {
-                    api_key?: string;
-                    api_base_url?: string;
-                    chat_params?: {
-                        model?: string;
-                        temperature?: number;
-                        max_tokens?: number;
-                        stream?: boolean;
-                    };
-                    default_model?: string;
-                };
-                const current = useSettingsStore.getState();
-                setConfig({
-                    apiKey: config.api_key || '',
-                    baseURL: config.api_base_url || 'https://api.openai.com/v1',
-                    defaultModel: config.chat_params?.model || config.default_model || 'gpt-4',
-                    temperature: config.chat_params?.temperature || 0.7,
-                    maxTokens: config.chat_params?.max_tokens || 2000,
-                    streamEnabled: config.chat_params?.stream ?? true,
-                    theme: current.config?.theme || 'assistente',
-                    language: current.config?.language || 'pt-BR',
-                });
-                addToast(t('app.config.loaded'), 'success', 3000);
             } catch (error) {
-                logger.error('Erro ao carregar configuração:', error);
-                setError(t('app.config.loadError'));
-                addToast(t('app.config.loadError'), 'error');
-            } finally {
-                if (!controller.signal.aborted) {
-                    setLoading(false);
-                }
+                logger.error('[App] Erro no wizard de boas-vindas:', error);
+                addToast(t('app.wizard.error'), 'error');
             }
         };
 
-        void loadConfig().catch((error) => {
+        void runBoot().catch((error) => {
             if (error instanceof DOMException && error.name === 'AbortError') {
                 return;
             }
-            logger.error('Erro ao carregar configuração:', error);
+            logger.error('[App] Erro no boot:', error);
         });
         return () => controller.abort();
-    }, [setConfig, setLoading, setError, addToast, isAuthenticated, authUser]);
+    }, [addToast, isAuthenticated, authUser, t]);
 
     // Escuta eventos de conversa deletada/limpa
     useEffect(() => {

@@ -11,6 +11,7 @@ import (
 	"text/tabwriter"
 
 	"assistente/controllers"
+	"assistente/internal/profiles"
 
 	"github.com/spf13/cobra"
 )
@@ -23,7 +24,8 @@ type providersBackend interface {
 	CreateDefaultLLMProvider(providerType, apiKey string) error
 	CreateLLMProvider(req controllers.CreateLLMProviderRequest) (map[string]interface{}, error)
 	SetDefaultProvider(id string) error
-	SetChatModel(model string) error
+	GetActiveProfileAndSlug() (*profiles.ActiveProfile, error)
+	UpdateProfile(slug string, p profiles.Profile) error
 	DeleteLLMProvider(ctx context.Context, id string) error
 }
 
@@ -236,8 +238,12 @@ func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, 
 		// Provedor padrão — usar template
 		err = svc.CreateDefaultLLMProvider(providerType, apiKey)
 		if err == nil && model != "" && model != info.DefaultModel {
-			// Aplica o modelo selecionado (CreateDefaultLLMProvider usa o default do template)
-			_ = svc.SetChatModel(model)
+			// Aplica o modelo selecionado ao perfil ativo
+			// (CreateDefaultLLMProvider usa o default do template).
+			if mErr := setActiveProfileChatModel(svc, model); mErr != nil {
+				_, _ = fmt.Fprintf(out, "Aviso: provedor criado, mas não foi possível aplicar o modelo %q ao perfil ativo: %v\n", model, mErr)
+				_, _ = fmt.Fprintln(out, "Defina o modelo depois com: asst config model <modelo>")
+			}
 		}
 	}
 

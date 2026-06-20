@@ -248,12 +248,54 @@ func (m *Manager) Delete(slug string) error {
 // Fallback (nenhum Active=true): prefere "padrao" sobre o primeiro perfil
 // arbitrário (a ordem de iteração de filesystem não é determinística).
 func (m *Manager) GetActive() (*Profile, error) {
+	profile, _, err := m.resolveActive()
+	return profile, err
+}
+
+// GetActiveAndSlug retorna o perfil ativo e seu slug numa única resolução
+// (ver resolveActive). Para operações de ESCRITA no perfil ativo, prefira este
+// método em vez de combinar GetActive + GetActiveSlug: ele propaga o erro de
+// resolução e garante que perfil e slug vêm da mesma passada, evitando gravar no
+// slug errado caso uma segunda resolução tolerante caísse silenciosamente em
+// "padrao".
+func (m *Manager) GetActiveAndSlug() (*ActiveProfile, error) {
+	profile, slug, err := m.resolveActive()
+	if err != nil {
+		return nil, err
+	}
+	return &ActiveProfile{Profile: profile, Slug: slug}, nil
+}
+
+// resolveActive é a resolução canônica do perfil ativo: retorna o perfil e o
+// slug correspondente, usando UMA única regra (active=true → auto-cura por mtime
+// → "padrao" → primeiro perfil legível → DefaultProfile).
+//
+// O slug normalmente é o do arquivo de onde o perfil veio. EXCEÇÃO: no fallback
+// final (nenhum perfil legível no disco) retorna DefaultProfile() com slug
+// "padrao", que NÃO corresponde a um arquivo existente — gravar nele criaria
+// padrao.json.
+//
+// EFEITO COLATERAL: NÃO é read-only. Quando detecta múltiplos perfis com
+// active=true, escolhe o vencedor (mtime) e REGRAVA os demais no disco com
+// active=false (auto-cura), gerando I/O e logs. Em estado saudável (0 ou 1
+// ativo) é apenas leitura.
+//
+// GetActive e GetActiveSlug delegam para cá para aplicarem a MESMA regra de
+// resolução: o slug retornado é o do arquivo de onde o perfil veio. São chamadas
+// independentes (não atômicas entre si), então sob alteração concorrente do
+// filesystem ainda podem observar estados diferentes; o objetivo aqui é eliminar
+// a divergência de *regra* — antes cada uma desempatava de um jeito (auto-cura
+// por mtime vs. ordem de listagem), o que fazia gravar/ler atingir slugs
+// diferentes mesmo sem concorrência, quando havia múltiplos active=true ou
+// arquivos corrompidos.
+func (m *Manager) resolveActive() (*Profile, string, error) {
 	files, err := m.resolver.List()
 	if err != nil {
-		return nil, fmt.Errorf("erro ao listar perfis: %w", err)
+		return nil, "", fmt.Errorf("erro ao listar perfis: %w", err)
 	}
 
 	var firstProfile *Profile
+	var firstSlug string
 	var padraoProfile *Profile
 	var actives []activeCandidate
 
@@ -270,6 +312,7 @@ func (m *Manager) GetActive() (*Profile, error) {
 
 		if firstProfile == nil {
 			firstProfile = profile
+			firstSlug = slug
 		}
 
 		if profile.Active {
@@ -282,7 +325,7 @@ func (m *Manager) GetActive() (*Profile, error) {
 	}
 
 	if len(actives) == 1 {
-		return actives[0].profile, nil
+		return actives[0].profile, actives[0].slug, nil
 	}
 	if len(actives) > 1 {
 		winner := pickMostRecentActive(actives)
@@ -302,17 +345,17 @@ func (m *Manager) GetActive() (*Profile, error) {
 				log.Printf("[Profiles] auto-cura: erro ao desativar %q: %v", c.slug, err)
 			}
 		}
-		return winner.profile, nil
+		return winner.profile, winner.slug, nil
 	}
 
 	if padraoProfile != nil {
-		return padraoProfile, nil
+		return padraoProfile, "padrao", nil
 	}
 	if firstProfile != nil {
-		return firstProfile, nil
+		return firstProfile, firstSlug, nil
 	}
 
-	return DefaultProfile(), nil
+	return DefaultProfile(), "padrao", nil
 }
 
 // activeCandidate descreve um perfil candidato a "ativo" durante a
@@ -399,46 +442,22 @@ func (m *Manager) SetActive(slug string) error {
 	return nil
 }
 
-// GetActiveSlug retorna o slug do perfil ativo
+// GetActiveSlug retorna o slug do perfil ativo aplicando a MESMA regra de
+// resolução de GetActive (ver resolveActive). Como são chamadas independentes
+// (não atômicas entre si), uma alteração concorrente do filesystem ainda pode
+// fazer com que observem estados diferentes; o que garantimos é a regra de
+// resolução comum, não atomicidade.
+//
+// ATENÇÃO: apesar do nome de getter, NÃO é estritamente read-only — delega para
+// resolveActive, que pode regravar perfis no disco para auto-curar múltiplos
+// active=true (ver o efeito colateral documentado lá). Em estado saudável é só
+// leitura, mas callers em caminhos quentes devem estar cientes do I/O eventual.
 func (m *Manager) GetActiveSlug() string {
-	files, err := m.resolver.List()
-	if err != nil {
+	_, slug, err := m.resolveActive()
+	if err != nil || slug == "" {
 		return "padrao"
 	}
-
-	var firstSlug string
-	hasPadrao := false
-
-	for _, f := range files {
-		if !strings.HasSuffix(f.Filename, ".json") {
-			continue
-		}
-
-		slug := strings.TrimSuffix(f.Filename, ".json")
-		if firstSlug == "" {
-			firstSlug = slug
-		}
-		if slug == "padrao" {
-			hasPadrao = true
-		}
-
-		profile, err := m.Get(slug)
-		if err != nil {
-			continue
-		}
-		if profile.Active {
-			return slug
-		}
-	}
-
-	if hasPadrao {
-		return "padrao"
-	}
-	if firstSlug != "" {
-		return firstSlug
-	}
-
-	return "padrao"
+	return slug
 }
 
 // GetSearchPaths retorna os caminhos de busca do resolver

@@ -197,6 +197,16 @@ type TriggerConfig struct {
 	VADActivityDuration  int     `json:"vad_activity_duration,omitempty"`  // ms
 }
 
+// ActiveProfile agrega o perfil ativo e seu slug numa resolução única.
+// Existe para que a API exposta (controller/App/Wails) carregue AMBOS os campos
+// num único valor de retorno — diferente de (*Profile, string, error), cujos
+// bindings Wails só serializariam o primeiro retorno (slug ficaria inacessível
+// ao frontend). Usado por operações de escrita no perfil ativo.
+type ActiveProfile struct {
+	Profile *Profile `json:"profile"`
+	Slug    string   `json:"slug"`
+}
+
 // ProfileInfo é um resumo leve de um perfil para listagem
 type ProfileInfo struct {
 	Name        string `json:"name"`

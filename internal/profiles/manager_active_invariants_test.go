@@ -61,6 +61,53 @@ func TestGetActive_AutoCuraMultiplosActive(t *testing.T) {
 	}
 }
 
+// GetActiveSlug delega para resolveActive (mesma resolução de GetActive),
+// inclusive a auto-cura por mtime. Este teste garante que: (1) o slug retornado
+// é o do vencedor determinístico (mais recente) e (2) a auto-cura persiste os
+// demais perfis como inativos no disco — o efeito colateral de I/O documentado.
+func TestGetActiveSlug_AutoCuraMultiplosActive(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+
+	older := DefaultProfile()
+	older.Name = "Padrão"
+	older.Active = true
+	if _, err := manager.Create(older); err != nil {
+		t.Fatalf("create older: %v", err)
+	}
+
+	newer := DefaultProfile()
+	newer.Name = "Programação"
+	newer.Active = true
+	if _, err := manager.Create(newer); err != nil {
+		t.Fatalf("create newer: %v", err)
+	}
+
+	// Garante mtime distinto: padrao.json fica mais antigo que programacao.json.
+	homeDir := manager.resolver.GetHomeDir()
+	older2hAgo := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(filepath.Join(homeDir, "padrao.json"), older2hAgo, older2hAgo); err != nil {
+		t.Fatalf("chtimes padrao: %v", err)
+	}
+
+	slug := manager.GetActiveSlug()
+	if slug != "programacao" {
+		t.Errorf("GetActiveSlug devolveu %q; esperado %q (mais recente)", slug, "programacao")
+	}
+
+	// Auto-cura: o perdedor (padrao) deve ter sido regravado como inativo.
+	loserData, err := os.ReadFile(filepath.Join(homeDir, "padrao.json"))
+	if err != nil {
+		t.Fatalf("re-read padrao: %v", err)
+	}
+	var loser Profile
+	if err := json.Unmarshal(loserData, &loser); err != nil {
+		t.Fatalf("unmarshal loser: %v", err)
+	}
+	if loser.Active {
+		t.Error("padrao.json deveria ter sido desativado pela auto-cura via GetActiveSlug")
+	}
+}
+
 // Bug 3: Update com Active=true deve enforçar unicidade desativando os outros.
 func TestUpdate_AtivarUmDesativaOutros(t *testing.T) {
 	manager := setupProfileTestEnv(t)

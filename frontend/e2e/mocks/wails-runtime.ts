@@ -73,17 +73,6 @@ export function buildWailsMockScript(): string {
     },
   };
 
-  const defaultConfig = {
-    api_key: 'test-key',
-    api_base_url: 'https://api.openai.com/v1',
-    default_model: 'gpt-4',
-    chat_params: {
-      model: 'gpt-4',
-      temperature: 0.7,
-      max_tokens: 2000,
-    },
-  };
-
   const defaultProfile = {
     slug: 'default',
     name: 'Default',
@@ -101,7 +90,6 @@ export function buildWailsMockScript(): string {
 
   const defaults = {
     /* App init */
-    GetConfig: defaultConfig,
     NeedsWelcomeWizard: false,
     RunWelcomeWizard: true,
     GetAppVersion: '1.0.0-test',
@@ -225,12 +213,8 @@ export function buildWailsMockScript(): string {
     GetAllChannelConfigs: {},
 
     /* Settings */
-    SaveSettings: undefined,
     ResetConfig: undefined,
-    GetLLMSettings: {},
-    SetDefaultModel: undefined,
     SetDefaultProvider: undefined,
-    SetChatModel: undefined,
 
     /* Misc */
     RespondQuestionnaire: undefined,

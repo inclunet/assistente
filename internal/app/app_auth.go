@@ -648,8 +648,8 @@ func (a *App) requireAdminContext() (context.Context, error) {
 }
 
 // reloadUserScopedRuntimeTimeout é o teto agregado para o
-// reload do runtime (registerEnvCredentials + migrateLegacyConfig +
-// runPostLoginLegacyImports + initLLMProviders + initLLMClient). 10s é generoso para DB local
+// reload do runtime (registerEnvCredentials + runPostLoginLegacyImports +
+// initLLMProviders + initLLMClient). 10s é generoso para DB local
 // + provider init em ambiente saudável; acima disso o caminho
 // crítico do Login fica preso em UX-critical e o usuário força quit
 // deixando estado parcial. P1-2 do re-review do PR #94.
@@ -765,7 +765,6 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 		a.jobMgr.Stop()
 	}
 	a.registerEnvCredentials(ctx, a.credMgr)
-	a.migrateLegacyConfig(ctx)
 	a.runPostLoginLegacyImports(ctx)
 	if a.toolInvocationSvc != nil {
 		// Retenção de tool calls de chat segue o ciclo de vida da conversa

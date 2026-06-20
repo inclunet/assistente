@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"assistente/controllers"
+	"assistente/internal/profiles"
 )
 
 // ---------------------------------------------------------------------------
@@ -24,15 +25,15 @@ type mockSetupBackend struct {
 	testProviderErr error
 	listModels      []string
 	listModelsErr   error
-	createErr       error
-	defaultProvErr  error
-	setChatModelErr error
+	createErr        error
+	defaultProvErr   error
+	updateProfileErr error
 
-	setupPwdCalled   string
-	createdType      string
-	createdKey       string
-	defaultProvID    string
-	chatModelSet     string
+	setupPwdCalled string
+	createdType    string
+	createdKey     string
+	defaultProvID  string
+	chatModelSet   string
 }
 
 func (m *mockSetupBackend) NeedsWelcomeWizard() bool { return m.needsWizard }
@@ -62,9 +63,13 @@ func (m *mockSetupBackend) SetDefaultProvider(id string) error {
 	return m.defaultProvErr
 }
 
-func (m *mockSetupBackend) SetChatModel(model string) error {
-	m.chatModelSet = model
-	return m.setChatModelErr
+func (m *mockSetupBackend) GetActiveProfileAndSlug() (*profiles.ActiveProfile, error) {
+	return &profiles.ActiveProfile{Profile: &profiles.Profile{}, Slug: "padrao"}, nil
+}
+
+func (m *mockSetupBackend) UpdateProfile(_ string, p profiles.Profile) error {
+	m.chatModelSet = p.Chat.Model
+	return m.updateProfileErr
 }
 
 // ---------------------------------------------------------------------------
@@ -447,6 +452,37 @@ func TestRunSetup_ModelSelectionByNumber(t *testing.T) {
 	}
 	if mock.chatModelSet != "gpt-4o-mini" {
 		t.Errorf("expected model 'gpt-4o-mini', got %q", mock.chatModelSet)
+	}
+}
+
+func TestRunSetup_ModelApplyFailsWarns(t *testing.T) {
+	// Provider "1" + select model "2"; aplicar ao perfil falha
+	cleanup := withStdin(t, "1\n2\n")
+	defer cleanup()
+
+	mock := &mockSetupBackend{
+		needsWizard:      true,
+		hasMasterKey:     true,
+		testProviderOK:   true,
+		listModels:       []string{"gpt-4o", "gpt-4o-mini"},
+		updateProfileErr: fmt.Errorf("perfil corrompido"),
+	}
+
+	readPwd := fakePasswordReader("sk-key")
+	var out bytes.Buffer
+
+	err := runSetup(mock, readPwd, &out)
+	if err != nil {
+		t.Fatalf("provedor foi criado; setup não deveria falhar, got: %v", err)
+	}
+
+	output := out.String()
+	if !strings.Contains(output, "não foi possível aplicar o modelo") {
+		t.Errorf("esperava aviso de falha ao aplicar modelo, got: %s", output)
+	}
+	// Sem o modelo aplicado, a linha "Modelo:" não deve ser exibida como sucesso.
+	if strings.Contains(output, "Modelo:   gpt-4o-mini") {
+		t.Errorf("não deveria exibir o modelo como aplicado, got: %s", output)
 	}
 }
 

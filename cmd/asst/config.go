@@ -15,8 +15,36 @@ import (
 // configBackend abstracts the app methods used by config commands.
 type configBackend interface {
 	GetActiveProfile() (*profiles.Profile, error)
+	GetActiveProfileAndSlug() (*profiles.ActiveProfile, error)
 	GetLLMProviders() []*llm.ProviderConfig
-	SetChatModel(model string) error
+	UpdateProfile(slug string, p profiles.Profile) error
+}
+
+// chatModelUpdater agrupa os métodos necessários para fixar o modelo de chat no
+// perfil ativo. Substitui o antigo config.SetChatModel legado (#299): o modelo
+// passa a viver no perfil (profiles), não mais no config.json.
+type chatModelUpdater interface {
+	GetActiveProfileAndSlug() (*profiles.ActiveProfile, error)
+	UpdateProfile(slug string, p profiles.Profile) error
+}
+
+// setActiveProfileChatModel grava o modelo escolhido no perfil ativo.
+//
+// Usa GetActiveProfileAndSlug, que resolve perfil e slug numa ÚNICA passada e
+// PROPAGA erro — assim a escrita sempre atinge o slug do perfil efetivamente
+// resolvido. (Evita o risco de combinar GetActiveProfile + GetActiveProfileSlug,
+// onde a 2ª chamada, tolerante a erro, poderia cair silenciosamente em "padrao"
+// e gravar no perfil errado.)
+func setActiveProfileChatModel(svc chatModelUpdater, model string) error {
+	active, err := svc.GetActiveProfileAndSlug()
+	if err != nil {
+		return err
+	}
+	if active == nil || active.Profile == nil || active.Slug == "" {
+		return fmt.Errorf("nenhum perfil ativo")
+	}
+	active.Profile.Chat.Model = model
+	return svc.UpdateProfile(active.Slug, *active.Profile)
 }
 
 var configCmd = &cobra.Command{
@@ -87,10 +115,10 @@ var configModelCmd = &cobra.Command{
 }
 
 func runConfigModel(svc configBackend, out io.Writer, model string) error {
-	if err := svc.SetChatModel(model); err != nil {
+	if err := setActiveProfileChatModel(svc, model); err != nil {
 		return fmt.Errorf("erro ao definir modelo: %w", err)
 	}
-	_, err := fmt.Fprintf(out, "Modelo alterado para '%s'.\n", model)
+	_, err := fmt.Fprintf(out, "Modelo alterado para '%s' no perfil ativo.\n", model)
 	return err
 }
 

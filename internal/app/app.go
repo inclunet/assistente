@@ -13,7 +13,6 @@ import (
 	"assistente/internal/allowlist"
 	"assistente/internal/auth"
 	"assistente/internal/chat"
-	"assistente/internal/config"
 	"assistente/internal/connstatus"
 	"assistente/internal/contextprovider"
 	"assistente/internal/core/ports"
@@ -151,9 +150,6 @@ type App struct {
 
 	// Context Providers (AEP-0075): blocos dinâmicos separados de skills.
 	contextProviders *contextprovider.Registry
-
-	// Settings service (config CRUD e reset de dados — sem Wails)
-	settingsSvc *config.SettingsService
 
 	// Speech service (TTS/STT business logic — sem Wails)
 	speechSvc *speech.Service
@@ -369,15 +365,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		workspace.NewContextProvider(),
 	)
 
-	// Inicializa o Settings Service (config CRUD e reset de dados)
-	a.settingsSvc = config.NewSettingsService(config.SettingsServiceConfig{
-		Emitter:        a.emitter,
-		CredCleaner:    credentialCleanerAdapter{mgr: a.credMgr},
-		ProfileCleaner: profileCleanerAdapter{app: a},
-		SkillCleaner:   skillCleanerAdapter{app: a},
-		ReloadLLM:      a.initLLMClient,
-	})
-
 	// Inicializa o ChatInteractor (após skillMgr e promptBuilder estarem prontos)
 	a.chatInteractor = chat.NewInteractor(chat.InteractorConfig{
 		Emitter:          a.emitter,
@@ -452,7 +439,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		GetModels: func() ([]string, error) {
 			return a.GetModels()
 		},
-		InitLLMClient: a.initLLMClient,
 	})
 
 	a.chatCtrl = controllers.NewChatController(controllers.ChatControllerConfig{
@@ -521,9 +507,8 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		JobMgr: a.jobMgr,
 	})
 	a.tokensCtrl = controllers.NewTokensController(controllers.TokensControllerConfig{
-		ProfileMgr:  a.profileManager,
-		TokenSvc:    a.tokenSvc,
-		SettingsSvc: a.settingsSvc,
+		ProfileMgr: a.profileManager,
+		TokenSvc:   a.tokenSvc,
 	})
 	a.toolsCtrl = controllers.NewToolsController(controllers.ToolsControllerConfig{
 		ToolRegistry: a.toolRegistry,
@@ -544,7 +529,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		CredMgr:                    a.credMgr,
 		ProviderSvc:                a.providerSvc,
 		LLMRegistry:                a.llmRegistry,
-		SettingsSvc:                a.settingsSvc,
 		Updater:                    a.updater,
 		UpdaterCtrl:                a.updaterCtrl,
 		ConfigureCredentialManager: a.configureCredentialManager,
