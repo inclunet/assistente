@@ -2,6 +2,7 @@ package llm
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -201,6 +202,29 @@ func PrefillCapability(p *ProviderConfig) AssistantPrefillCapability {
 // vez de injetar um trailing assistant.
 func SupportsAssistantPrefill(p *ProviderConfig) bool {
 	return PrefillCapability(p) == PrefillWithThinking
+}
+
+// SupportsExplicitCacheControl informa se é seguro alterar o payload com
+// mecanismos explícitos de cache_control para este provider concreto.
+//
+// OpenAI-compatible, Mistral, Qwen/DashScope e gateways ficam fora daqui porque
+// o suporte ativo deles já é tratado como provider hint (prompt_cache_key) ou
+// exige contrato/capability específico do gateway. Gemini/Vertex expõe
+// cachedContent, mas isso requer ciclo de vida persistido do recurso de cache,
+// não uma marcação stateless na request.
+func SupportsExplicitCacheControl(p *ProviderConfig) bool {
+	if p == nil || p.GetAPIFormat() != APIFormatAnthropic {
+		return false
+	}
+	return isAnthropicOfficialURL(p.BaseURL)
+}
+
+func isAnthropicOfficialURL(baseURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(parsed.Hostname(), "api.anthropic.com")
 }
 
 // GetAPIFormat retorna o api_format efetivo.

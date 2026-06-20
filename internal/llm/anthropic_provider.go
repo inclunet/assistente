@@ -72,13 +72,14 @@ func (p *AnthropicProvider) SendChat(ctx context.Context, messages []Message, pa
 	if model == "" {
 		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrão configurado")
 	}
+	params.ExplicitCacheControl = params.ExplicitCacheControl && SupportsExplicitCacheControl(p.provider)
 
 	maxTokens := int64(params.MaxTokens)
 	if maxTokens <= 0 {
 		maxTokens = 4096
 	}
 
-	system, anthropicMsgs := convertToAnthropicMessages(messages)
+	system, anthropicMsgs := convertToAnthropicMessages(messages, params.ExplicitCacheControl)
 
 	sdkParams := anthropic.MessageNewParams{
 		Model:     anthropic.Model(model),
@@ -144,13 +145,14 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 		handler.OnError("Nenhum modelo especificado e nenhum modelo padrão configurado")
 		return
 	}
+	params.ExplicitCacheControl = params.ExplicitCacheControl && SupportsExplicitCacheControl(p.provider)
 
 	maxTokens := int64(params.MaxTokens)
 	if maxTokens <= 0 {
 		maxTokens = 4096
 	}
 
-	system, anthropicMsgs := convertToAnthropicMessages(messages)
+	system, anthropicMsgs := convertToAnthropicMessages(messages, params.ExplicitCacheControl)
 
 	// Se há MCP servers configurados, usa Beta Messages API com MCP connector
 	if len(p.mcpServers) > 0 {
@@ -177,7 +179,7 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 	}
 
 	if len(tools) > 0 {
-		sdkParams.Tools = convertAnthropicTools(tools)
+		sdkParams.Tools = convertAnthropicTools(tools, params.ExplicitCacheControl)
 		toolChoice := "auto"
 		if choice, ok := toolChoiceFromContext(ctx); ok {
 			if s, ok := choice.(string); ok {
@@ -315,6 +317,12 @@ func (p *AnthropicProvider) buildBetaMCPParams(
 		betaSystem := make([]anthropic.BetaTextBlockParam, len(system))
 		for i, s := range system {
 			betaSystem[i] = anthropic.BetaTextBlockParam{Text: s.Text}
+			if s.CacheControl.Type != "" {
+				betaSystem[i].CacheControl = anthropic.BetaCacheControlEphemeralParam{
+					Type: "ephemeral",
+					TTL:  anthropic.BetaCacheControlEphemeralTTL(s.CacheControl.TTL),
+				}
+			}
 		}
 		betaParams.System = betaSystem
 	}
@@ -384,6 +392,9 @@ func (p *AnthropicProvider) buildBetaMCPParams(
 		betaParams.ToolChoice = makeBetaAnthropicToolChoice(toolChoice)
 	}
 
+	if params.ExplicitCacheControl {
+		applyBetaAnthropicToolCacheControl(betaTools)
+	}
 	betaParams.Tools = betaTools
 	return betaParams
 }
@@ -739,7 +750,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 // convertToAnthropicMessages converte mensagens internas para o formato Anthropic.
 // Retorna o system prompt separado (Anthropic não usa role "system" nas mensagens)
 // e a lista de mensagens user/assistant com content blocks.
-func convertToAnthropicMessages(msgs []Message) ([]anthropic.TextBlockParam, []anthropic.MessageParam) {
+func convertToAnthropicMessages(msgs []Message, explicitCacheControl bool) ([]anthropic.TextBlockParam, []anthropic.MessageParam) {
 	var system []anthropic.TextBlockParam
 	var result []anthropic.MessageParam
 
@@ -762,7 +773,7 @@ func convertToAnthropicMessages(msgs []Message) ([]anthropic.TextBlockParam, []a
 
 		switch msg.Role {
 		case "system":
-			system = append(system, anthropic.TextBlockParam{Text: content})
+			system = append(system, anthropicSystemBlocks(msg, content, explicitCacheControl)...)
 
 		case "user":
 			flushToolResults()
@@ -802,8 +813,34 @@ func convertToAnthropicMessages(msgs []Message) ([]anthropic.TextBlockParam, []a
 	return system, result
 }
 
+func anthropicSystemBlocks(msg Message, content string, explicitCacheControl bool) []anthropic.TextBlockParam {
+	if content == "" {
+		return nil
+	}
+	prefixLen := msg.SystemCacheControlPrefixLen
+	if !explicitCacheControl || prefixLen <= 0 {
+		return []anthropic.TextBlockParam{{Text: content}}
+	}
+	if prefixLen > len(content) {
+		prefixLen = len(content)
+	}
+	prefix := content[:prefixLen]
+	suffix := content[prefixLen:]
+	if strings.TrimSpace(prefix) == "" {
+		return []anthropic.TextBlockParam{{Text: content}}
+	}
+	block := anthropic.TextBlockParam{
+		Text:         prefix,
+		CacheControl: anthropic.NewCacheControlEphemeralParam(),
+	}
+	if suffix == "" {
+		return []anthropic.TextBlockParam{block}
+	}
+	return []anthropic.TextBlockParam{block, anthropic.TextBlockParam{Text: suffix}}
+}
+
 // convertAnthropicTools converte definições de ferramentas para o formato Anthropic.
-func convertAnthropicTools(tools []ToolDefinition) []anthropic.ToolUnionParam {
+func convertAnthropicTools(tools []ToolDefinition, explicitCacheControl bool) []anthropic.ToolUnionParam {
 	result := make([]anthropic.ToolUnionParam, 0, len(tools))
 
 	for _, tool := range tools {
@@ -823,8 +860,29 @@ func convertAnthropicTools(tools []ToolDefinition) []anthropic.ToolUnionParam {
 			},
 		})
 	}
+	if explicitCacheControl {
+		applyAnthropicToolCacheControl(result)
+	}
 
 	return result
+}
+
+func applyAnthropicToolCacheControl(tools []anthropic.ToolUnionParam) {
+	for i := len(tools) - 1; i >= 0; i-- {
+		if cacheControl := tools[i].GetCacheControl(); cacheControl != nil {
+			*cacheControl = anthropic.NewCacheControlEphemeralParam()
+			return
+		}
+	}
+}
+
+func applyBetaAnthropicToolCacheControl(tools []anthropic.BetaToolUnionParam) {
+	for i := len(tools) - 1; i >= 0; i-- {
+		if cacheControl := tools[i].GetCacheControl(); cacheControl != nil {
+			*cacheControl = anthropic.NewBetaCacheControlEphemeralParam()
+			return
+		}
+	}
 }
 
 func makeAnthropicToolChoice(choice string) anthropic.ToolChoiceUnionParam {
