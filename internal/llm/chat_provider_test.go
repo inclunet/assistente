@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"assistente/internal/database"
 	mcplib "assistente/internal/mcp"
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/responses"
 	"google.golang.org/genai"
 )
@@ -869,6 +871,60 @@ func TestBuildResponsesParams_EmitsMCPToolWhenServersPresent(t *testing.T) {
 	noParams := proxy.buildResponsesParams(ctx, "deepseek-v4-flash", msgs, ChatParams{}, proxy.mcpServers)
 	if hasMCPTool(noParams.Tools) {
 		t.Error("sem servers anexados, a request NÃO deve conter tool type:mcp")
+	}
+}
+
+func TestPromptCacheKeyAppliedToOpenAIParams(t *testing.T) {
+	params := ChatParams{PromptCacheKey: "asst-123"}
+
+	chatParams := openai.ChatCompletionNewParams{}
+	applyPromptCacheKeyToChatCompletions(&chatParams, params)
+	if !chatParams.PromptCacheKey.Valid() || chatParams.PromptCacheKey.Value != "asst-123" {
+		t.Fatalf("ChatCompletion PromptCacheKey = %#v, want asst-123", chatParams.PromptCacheKey)
+	}
+
+	respParams := responses.ResponseNewParams{}
+	applyPromptCacheKeyToResponses(&respParams, params)
+	if !respParams.PromptCacheKey.Valid() || respParams.PromptCacheKey.Value != "asst-123" {
+		t.Fatalf("Responses PromptCacheKey = %#v, want asst-123", respParams.PromptCacheKey)
+	}
+
+	params.PromptCacheHintFallback = &PromptCacheHintFallback{}
+	params.PromptCacheHintFallback.Disable()
+	chatParams = openai.ChatCompletionNewParams{}
+	applyPromptCacheKeyToChatCompletions(&chatParams, params)
+	if chatParams.PromptCacheKey.Valid() {
+		t.Fatalf("ChatCompletion PromptCacheKey = %#v, want omitted after fallback disable", chatParams.PromptCacheKey)
+	}
+}
+
+func TestLooksLikePromptCacheHintUnsupportedRequiresExplicitRejection(t *testing.T) {
+	if !looksLikePromptCacheHintUnsupported("400 invalid parameter: prompt_cache_key is not supported") {
+		t.Fatal("expected explicit prompt_cache_key rejection")
+	}
+	if !looksLikePromptCacheHintUnsupported("Unrecognized request argument supplied: prompt_cache_key") {
+		t.Fatal("expected LiteLLM/OpenAI unrecognized request argument rejection")
+	}
+	if looksLikePromptCacheHintUnsupported("503 timeout while sending prompt_cache_key") {
+		t.Fatal("retryable transport error should not look like explicit prompt_cache_key rejection")
+	}
+	if looksLikePromptCacheHintUnsupported("prompt_cache_key returned zero cache hits") {
+		t.Fatal("cache miss/zero hit should not disable provider hints")
+	}
+}
+
+func TestBuildResponsesParams_EmitsPromptCacheKeyWhenProvided(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	ctx := context.Background()
+	msgs := []Message{{Role: "user", Content: "oi"}}
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "o", Name: "OpenAI", Type: ProviderOpenAI,
+		APIFormat: APIFormatOpenAIResponses, BaseURL: "https://api.openai.com/v1",
+	}, credMgr)
+
+	got := provider.buildResponsesParams(ctx, "gpt-4o-mini", msgs, ChatParams{PromptCacheKey: "asst-abc"}, nil)
+	if !got.PromptCacheKey.Valid() || got.PromptCacheKey.Value != "asst-abc" {
+		t.Fatalf("PromptCacheKey = %#v, want asst-abc", got.PromptCacheKey)
 	}
 }
 
@@ -1829,6 +1885,83 @@ func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedFallsBackToAdapt
 	}
 	if handler.done != 1 {
 		t.Fatalf("OnDone = %d, want 1", handler.done)
+	}
+}
+
+func TestOpenAIProvider_StreamChatResponses_PromptCacheHintUnsupportedRetriesWithoutHint(t *testing.T) {
+	attempts := 0
+	hookCalls := 0
+	seenKeys := make([]string, 0, 2)
+
+	provider := &OpenAIProvider{
+		provider:     &ProviderConfig{ID: "o", Name: "Proxy", BaseURL: "http://proxy.local/v1"},
+		useResponses: true,
+	}
+	provider.responsesAttemptFn = func(_ context.Context, params responses.ResponseNewParams, handler StreamHandler, _ []MCPServerConfig) mcpStreamAttemptResult {
+		attempts++
+		if params.PromptCacheKey.Valid() {
+			seenKeys = append(seenKeys, params.PromptCacheKey.Value)
+		} else {
+			seenKeys = append(seenKeys, "")
+		}
+		if attempts == 1 {
+			return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
+		}
+		handler.OnChunk("ok")
+		handler.OnDone("ok", Usage{}, "gpt-test")
+		return mcpStreamAttemptResult{done: true}
+	}
+
+	handler := &providerRetryHandler{}
+	params := ChatParams{
+		PromptCacheKey:          "asst-key",
+		PromptCacheHintFallback: &PromptCacheHintFallback{},
+		OnPromptCacheHintUnsupported: func() {
+			hookCalls++
+		},
+	}
+	provider.streamChatResponses(context.Background(), "gpt-test", []Message{{Role: "user", Content: "oi"}}, params, handler)
+
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if len(seenKeys) != 2 || seenKeys[0] != "asst-key" || seenKeys[1] != "" {
+		t.Fatalf("seenKeys = %#v, want [asst-key, empty]", seenKeys)
+	}
+	if hookCalls != 1 {
+		t.Fatalf("OnPromptCacheHintUnsupported chamado %d vezes, want 1", hookCalls)
+	}
+	if !params.PromptCacheHintFallback.Disabled() {
+		t.Fatal("PromptCacheHintFallback should be disabled after explicit rejection")
+	}
+	if len(handler.errors) != 0 {
+		t.Fatalf("não deveria emitir erro ao usuário (fallback transparente): %v", handler.errors)
+	}
+	if handler.done != 1 {
+		t.Fatalf("OnDone = %d, want 1", handler.done)
+	}
+}
+
+func TestOpenAIProvider_StreamChatResponses_PromptCacheHintUnsupportedWithoutKeyEmitsError(t *testing.T) {
+	provider := &OpenAIProvider{
+		provider:     &ProviderConfig{ID: "o", Name: "Proxy", BaseURL: "http://proxy.local/v1"},
+		useResponses: true,
+	}
+	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, _ StreamHandler, _ []MCPServerConfig) mcpStreamAttemptResult {
+		return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
+	}
+
+	handler := &providerRetryHandler{}
+	provider.streamChatResponses(context.Background(), "gpt-test", []Message{{Role: "user", Content: "oi"}}, ChatParams{}, handler)
+
+	if len(handler.errors) != 1 {
+		t.Fatalf("errors = %v, want one explicit error", handler.errors)
+	}
+	if !strings.Contains(handler.errors[0], "provider_hints") || !strings.Contains(handler.errors[0], "gateway/proxy") {
+		t.Fatalf("erro = %q, want actionable provider_hints + gateway/proxy guidance", handler.errors[0])
+	}
+	if handler.done != 0 {
+		t.Fatalf("OnDone = %d, want 0", handler.done)
 	}
 }
 
