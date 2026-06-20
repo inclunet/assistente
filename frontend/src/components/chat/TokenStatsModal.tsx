@@ -111,6 +111,12 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   const getCacheClassifiedTokens = (value: TokenStats): number =>
     (value.cacheReadTokens ?? 0) + (value.cacheWriteTokens ?? 0) + (value.cacheMissTokens ?? 0);
 
+  const formatCachePercentage = (value: number, total: number): string =>
+    stats?.cacheTokensReported ? `${calculatePercentage(value, total)}%` : '—';
+
+  const formatCacheHitRate = (): string =>
+    stats?.cacheTokensReported ? `${(stats.cacheHitRate ?? 0).toFixed(1)}%` : '—';
+
   const estimatedCost = stats ? {
     input: (Math.max(0, stats.promptTokens - (stats.cacheReadTokens ?? 0)) / 1000000) * 0.5, // estimativa genérica
     output: (stats.completionTokens / 1000000) * 1.5, // $1.50 por 1M tokens
@@ -304,21 +310,21 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                     <tr>
                       <th scope="row">{t('tokenStats.cacheReadTokens')}</th>
                       <td>{formatNumber(stats.cacheReadTokens ?? 0)}</td>
-                      <td>{calculatePercentage(stats.cacheReadTokens ?? 0, getCacheClassifiedTokens(stats))}%</td>
+                      <td>{formatCachePercentage(stats.cacheReadTokens ?? 0, getCacheClassifiedTokens(stats))}</td>
                     </tr>
                     <tr>
                       <th scope="row">{t('tokenStats.cacheWriteTokens')}</th>
                       <td>{formatNumber(stats.cacheWriteTokens ?? 0)}</td>
-                      <td>{calculatePercentage(stats.cacheWriteTokens ?? 0, getCacheClassifiedTokens(stats))}%</td>
+                      <td>{formatCachePercentage(stats.cacheWriteTokens ?? 0, getCacheClassifiedTokens(stats))}</td>
                     </tr>
                     <tr>
                       <th scope="row">{t('tokenStats.cacheMissTokens')}</th>
                       <td>{formatNumber(stats.cacheMissTokens ?? 0)}</td>
-                      <td>{calculatePercentage(stats.cacheMissTokens ?? 0, getCacheClassifiedTokens(stats))}%</td>
+                      <td>{formatCachePercentage(stats.cacheMissTokens ?? 0, getCacheClassifiedTokens(stats))}</td>
                     </tr>
                     <tr className="token-stats-table__total">
                       <th scope="row">{t('tokenStats.cacheHitRate')}</th>
-                      <td>{(stats.cacheHitRate ?? 0).toFixed(1)}%</td>
+                      <td>{formatCacheHitRate()}</td>
                       <td>—</td>
                     </tr>
                   </tbody>

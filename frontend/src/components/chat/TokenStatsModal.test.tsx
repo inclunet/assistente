@@ -156,5 +156,6 @@ describe('TokenStatsModal', () => {
 
     expect(screen.getByText('tokenStats.cacheNotReportedWarning')).toBeInTheDocument();
     expect(screen.getByText('tokenStats.cacheUnavailableNote')).toBeInTheDocument();
+    expect(screen.queryByText('0.0%')).not.toBeInTheDocument();
   });
 });
