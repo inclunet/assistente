@@ -901,6 +901,9 @@ func TestLooksLikePromptCacheHintUnsupportedRequiresExplicitRejection(t *testing
 	if !looksLikePromptCacheHintUnsupported("400 invalid parameter: prompt_cache_key is not supported") {
 		t.Fatal("expected explicit prompt_cache_key rejection")
 	}
+	if !looksLikePromptCacheHintUnsupported("Unrecognized request argument supplied: prompt_cache_key") {
+		t.Fatal("expected LiteLLM/OpenAI unrecognized request argument rejection")
+	}
 	if looksLikePromptCacheHintUnsupported("503 timeout while sending prompt_cache_key") {
 		t.Fatal("retryable transport error should not look like explicit prompt_cache_key rejection")
 	}

@@ -537,10 +537,15 @@ func looksLikePromptCacheHintUnsupported(errStr string) bool {
 		strings.Contains(lower, "unsupported field") ||
 		strings.Contains(lower, "unknown parameter") ||
 		strings.Contains(lower, "unknown field") ||
+		strings.Contains(lower, "unknown argument") ||
 		strings.Contains(lower, "unrecognized parameter") ||
 		strings.Contains(lower, "unrecognized field") ||
+		strings.Contains(lower, "unrecognized argument") ||
+		strings.Contains(lower, "unrecognized request argument") ||
 		strings.Contains(lower, "unrecognised parameter") ||
 		strings.Contains(lower, "unrecognised field") ||
+		strings.Contains(lower, "unrecognised argument") ||
+		strings.Contains(lower, "unrecognised request argument") ||
 		strings.Contains(lower, "invalid parameter") ||
 		strings.Contains(lower, "invalid field") ||
 		strings.Contains(lower, "extra_forbidden") ||
