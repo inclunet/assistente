@@ -261,7 +261,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                     </tbody>
                   </table>
                   <p className="token-stats-cost__note">
-                    {stats.cacheReadTokens
+                    {stats.cacheTokensReported
                       ? t('tokenStats.costDisclaimerWithCache')
                       : t('tokenStats.costDisclaimer')}
                   </p>
