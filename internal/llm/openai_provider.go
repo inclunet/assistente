@@ -775,7 +775,7 @@ func (p *OpenAIProvider) streamChatResponses(
 				params.PromptCacheKey = ""
 				continue
 			}
-			handler.OnError("prompt_cache_key rejeitado pelo provider, mas nenhum hint estava ativo no retry")
+			handler.OnError("provider rejeitou prompt_cache_key, mas o hint já estava desativado neste turno; verifique se o gateway/proxy está injetando esse parâmetro ou desative chat.prompt_cache.provider_hints no perfil")
 			return
 		}
 		if result.mcpFailure != nil {
