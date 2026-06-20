@@ -460,6 +460,10 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		log.Printf("[OpenAIProvider] Stream error: %s", errStr)
 
 		if !emittedAnything {
+			if isRetryableError(errStr) {
+				return false
+			}
+
 			if origParams.PromptCacheKey.Valid() && looksLikePromptCacheHintUnsupported(errStr) {
 				if onPromptCacheHintUnsupported != nil {
 					onPromptCacheHintUnsupported()
@@ -476,9 +480,6 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				}
 			}
 
-			if isRetryableError(errStr) {
-				return false
-			}
 		}
 
 		handler.OnError(errStr)
@@ -1133,14 +1134,14 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				errMsg = ev.Response.Error.Message
 			}
 			log.Printf("[OpenAIProvider] Response FAILED: %s", errMsg)
-			if !emittedAnything && isRetryableError(errMsg) {
-				return mcpStreamAttemptResult{retry: true}
+			if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errMsg) {
+				return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 			}
 			if !emittedAnything && looksLikePromptCacheHintUnsupported(errMsg) {
 				return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 			}
-			if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errMsg) {
-				return mcpStreamAttemptResult{nativeMCPUnsupported: true}
+			if !emittedAnything && isRetryableError(errMsg) {
+				return mcpStreamAttemptResult{retry: true}
 			}
 			if failure := inferMCPFailure(MCPFailureStageHandshake, errMsg, ev.RawJSON(), "", mcpServers); failure != nil && !emittedAnything {
 				return mcpStreamAttemptResult{mcpFailure: failure}
