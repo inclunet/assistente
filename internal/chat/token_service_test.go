@@ -1,6 +1,9 @@
 package chat
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestApplyCacheDerivedStats(t *testing.T) {
 	stats := &TokenStats{
@@ -14,7 +17,7 @@ func TestApplyCacheDerivedStats(t *testing.T) {
 	if !stats.CacheTokensReported {
 		t.Fatal("expected cache metrics to be marked as reported")
 	}
-	if stats.CacheHitRate != 30 {
+	if math.Abs(stats.CacheHitRate-30) > 0.0001 {
 		t.Fatalf("unexpected hit rate: got %.1f want 30.0", stats.CacheHitRate)
 	}
 }
