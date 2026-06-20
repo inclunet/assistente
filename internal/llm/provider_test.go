@@ -388,3 +388,36 @@ func TestProviderConfig_SupportsSTT(t *testing.T) {
 		})
 	}
 }
+
+func TestProviderConfig_SupportsExplicitCacheControl(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *ProviderConfig
+		want bool
+	}{
+		{
+			name: "anthropic official",
+			cfg:  &ProviderConfig{APIFormat: APIFormatAnthropic, BaseURL: "https://api.anthropic.com/v1"},
+			want: true,
+		},
+		{
+			name: "anthropic proxy no capability",
+			cfg:  &ProviderConfig{APIFormat: APIFormatAnthropic, BaseURL: "https://litellm.example.com/anthropic"},
+		},
+		{
+			name: "openai compatible uses provider hints instead",
+			cfg:  &ProviderConfig{APIFormat: APIFormatOpenAI, BaseURL: "https://api.openai.com/v1"},
+		},
+		{
+			name: "google cachedContent needs lifecycle",
+			cfg:  &ProviderConfig{APIFormat: APIFormatGoogle, BaseURL: "https://generativelanguage.googleapis.com/v1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SupportsExplicitCacheControl(tt.cfg); got != tt.want {
+				t.Fatalf("SupportsExplicitCacheControl() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
