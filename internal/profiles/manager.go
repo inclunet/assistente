@@ -256,10 +256,14 @@ func (m *Manager) GetActive() (*Profile, error) {
 // quanto o slug do arquivo correspondente, usando UMA única regra (active=true →
 // auto-cura por mtime → "padrao" → primeiro perfil legível → DefaultProfile).
 //
-// GetActive e GetActiveSlug delegam para cá para que nunca divirjam: o slug
-// retornado é sempre o do arquivo de onde o perfil veio. Sem isso, gravar o
-// perfil ativo via um e ler via outro poderia atingir slugs diferentes quando
-// há múltiplos active=true ou arquivos corrompidos.
+// GetActive e GetActiveSlug delegam para cá para aplicarem a MESMA regra de
+// resolução: o slug retornado é o do arquivo de onde o perfil veio. São chamadas
+// independentes (não atômicas entre si), então sob alteração concorrente do
+// filesystem ainda podem observar estados diferentes; o objetivo aqui é eliminar
+// a divergência de *regra* — antes cada uma desempatava de um jeito (auto-cura
+// por mtime vs. ordem de listagem), o que fazia gravar/ler atingir slugs
+// diferentes mesmo sem concorrência, quando havia múltiplos active=true ou
+// arquivos corrompidos.
 func (m *Manager) resolveActive() (*Profile, string, error) {
 	files, err := m.resolver.List()
 	if err != nil {

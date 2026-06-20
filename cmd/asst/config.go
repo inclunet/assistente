@@ -32,8 +32,10 @@ type chatModelUpdater interface {
 // setActiveProfileChatModel grava o modelo escolhido no perfil ativo.
 //
 // Lê o perfil via GetActiveProfile (que PROPAGA erro de resolução) e só então
-// obtém o slug via GetActiveProfileSlug. Como ambos delegam para o mesmo
-// resolveActive, o slug corresponde exatamente ao perfil lido. Gatear pela
+// obtém o slug via GetActiveProfileSlug. Ambos aplicam a MESMA regra de
+// resolução (resolveActive), então o slug aponta para o mesmo perfil lido — são
+// duas chamadas independentes, sem atomicidade, mas para um comando de CLI uma
+// alteração concorrente do filesystem entre elas é desprezível. Gatear pela
 // versão que propaga erro evita gravar o modelo em "padrao.json" quando a
 // resolução do perfil ativo, na verdade, falhou (GetActiveProfileSlug silencia
 // o erro e cai em "padrao" para uso de leitura/display).
