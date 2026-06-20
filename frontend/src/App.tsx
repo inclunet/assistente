@@ -82,19 +82,23 @@ function App() {
             // Verifica se precisa do wizard de boas-vindas. Toda a configuração
             // de LLM/modelo/voz vive em profiles + provider registry; não há mais
             // config legado para carregar no boot (#299).
-            const needsWizard = await NeedsWelcomeWizard();
-            if (needsWizard) {
-                try {
+            //
+            // A própria checagem (NeedsWelcomeWizard) também roda dentro do try:
+            // se a ponte/IPC falhar, o usuário recebe feedback (app.wizard.error)
+            // em vez de a falha cair silenciosamente só no .catch externo.
+            try {
+                const needsWizard = await NeedsWelcomeWizard();
+                if (needsWizard) {
                     const completed = await RunWelcomeWizard();
                     if (!completed) {
                         addToast(t('app.wizard.cancelled'), 'warning');
                     } else {
                         addToast(t('app.wizard.success'), 'success', 5000);
                     }
-                } catch (error) {
-                    logger.error('[App] Erro ao executar wizard:', error);
-                    addToast(t('app.wizard.error'), 'error');
                 }
+            } catch (error) {
+                logger.error('[App] Erro no wizard de boas-vindas:', error);
+                addToast(t('app.wizard.error'), 'error');
             }
         };
 
