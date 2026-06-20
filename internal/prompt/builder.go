@@ -225,7 +225,10 @@ func (b *Builder) build(
 		}
 		parts = append(parts, "\n\n"+strings.TrimSpace(contextBlock))
 	}
-	stablePromptLen := len(strings.Join(parts, ""))
+	stablePromptLen := 0
+	for _, part := range parts {
+		stablePromptLen += len(part)
+	}
 
 	// 4. Resumo da conversa (rolling context)
 	if conversationSummary != "" {
