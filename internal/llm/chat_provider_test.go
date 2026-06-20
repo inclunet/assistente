@@ -887,6 +887,14 @@ func TestPromptCacheKeyAppliedToOpenAIParams(t *testing.T) {
 	if !respParams.PromptCacheKey.Valid() || respParams.PromptCacheKey.Value != "asst-123" {
 		t.Fatalf("Responses PromptCacheKey = %#v, want asst-123", respParams.PromptCacheKey)
 	}
+
+	params.PromptCacheHintFallback = &PromptCacheHintFallback{}
+	params.PromptCacheHintFallback.Disable()
+	chatParams = openai.ChatCompletionNewParams{}
+	applyPromptCacheKeyToChatCompletions(&chatParams, params)
+	if chatParams.PromptCacheKey.Valid() {
+		t.Fatalf("ChatCompletion PromptCacheKey = %#v, want omitted after fallback disable", chatParams.PromptCacheKey)
+	}
 }
 
 func TestLooksLikePromptCacheHintUnsupportedRequiresExplicitRejection(t *testing.T) {
@@ -1902,7 +1910,8 @@ func TestOpenAIProvider_StreamChatResponses_PromptCacheHintUnsupportedRetriesWit
 
 	handler := &providerRetryHandler{}
 	params := ChatParams{
-		PromptCacheKey: "asst-key",
+		PromptCacheKey:          "asst-key",
+		PromptCacheHintFallback: &PromptCacheHintFallback{},
 		OnPromptCacheHintUnsupported: func() {
 			hookCalls++
 		},
@@ -1917,6 +1926,9 @@ func TestOpenAIProvider_StreamChatResponses_PromptCacheHintUnsupportedRetriesWit
 	}
 	if hookCalls != 1 {
 		t.Fatalf("OnPromptCacheHintUnsupported chamado %d vezes, want 1", hookCalls)
+	}
+	if !params.PromptCacheHintFallback.Disabled() {
+		t.Fatal("PromptCacheHintFallback should be disabled after explicit rejection")
 	}
 	if len(handler.errors) != 0 {
 		t.Fatalf("não deveria emitir erro ao usuário (fallback transparente): %v", handler.errors)

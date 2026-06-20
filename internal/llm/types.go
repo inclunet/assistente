@@ -257,6 +257,32 @@ type ChatParams struct {
 	// persistir Profile.Chat.PromptCache.ProviderHints=false sem acoplar provider
 	// à camada de perfis.
 	OnPromptCacheHintUnsupported func() `json:"-"`
+	// PromptCacheHintFallback é compartilhado entre cópias de ChatParams durante o
+	// mesmo turno/loop agêntico para impedir reenvio do hint após rejeição explícita.
+	PromptCacheHintFallback *PromptCacheHintFallback `json:"-"`
+}
+
+type PromptCacheHintFallback struct {
+	mu       sync.Mutex
+	disabled bool
+}
+
+func (f *PromptCacheHintFallback) Disable() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	f.disabled = true
+	f.mu.Unlock()
+}
+
+func (f *PromptCacheHintFallback) Disabled() bool {
+	if f == nil {
+		return false
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.disabled
 }
 
 // NativeMCPAdapterFallback carrega as alternativas em modo ADAPTER (provider sem

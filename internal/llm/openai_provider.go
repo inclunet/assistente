@@ -161,6 +161,7 @@ func (p *OpenAIProvider) sendChatCompletions(ctx context.Context, model string, 
 	completion, err := p.client.Chat.Completions.New(ctx, sdkParams)
 	if err != nil {
 		if params.PromptCacheKey != "" && looksLikePromptCacheHintUnsupported(err.Error()) {
+			params.PromptCacheHintFallback.Disable()
 			if params.OnPromptCacheHintUnsupported != nil {
 				params.OnPromptCacheHintUnsupported()
 			}
@@ -196,6 +197,7 @@ func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, me
 	resp, err := p.client.Responses.New(ctx, respParams)
 	if err != nil {
 		if params.PromptCacheKey != "" && looksLikePromptCacheHintUnsupported(err.Error()) {
+			params.PromptCacheHintFallback.Disable()
 			if params.OnPromptCacheHintUnsupported != nil {
 				params.OnPromptCacheHintUnsupported()
 			}
@@ -392,7 +394,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, par
 		default:
 		}
 
-		done := p.doStream(ctx, sdkParams, handler, &sdkParams, params.OnPromptCacheHintUnsupported)
+		done := p.doStream(ctx, sdkParams, handler, &sdkParams, params.OnPromptCacheHintUnsupported, params.PromptCacheHintFallback)
 		if done {
 			return
 		}
@@ -408,7 +410,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, par
 }
 
 // doStream executa uma tentativa de streaming. Retorna true se concluiu (sucesso ou erro terminal).
-func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatCompletionNewParams, handler StreamHandler, origParams *openai.ChatCompletionNewParams, onPromptCacheHintUnsupported func()) bool {
+func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatCompletionNewParams, handler StreamHandler, origParams *openai.ChatCompletionNewParams, onPromptCacheHintUnsupported func(), promptCacheFallback *PromptCacheHintFallback) bool {
 	stream := p.client.Chat.Completions.NewStreaming(ctx, params)
 	acc := openai.ChatCompletionAccumulator{}
 
@@ -469,6 +471,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			}
 
 			if origParams.PromptCacheKey.Valid() && looksLikePromptCacheHintUnsupported(errStr) {
+				promptCacheFallback.Disable()
 				if onPromptCacheHintUnsupported != nil {
 					onPromptCacheHintUnsupported()
 				}
@@ -675,17 +678,24 @@ func makeToolChoice(choice string) openai.ChatCompletionToolChoiceOptionUnionPar
 }
 
 func applyPromptCacheKeyToChatCompletions(sdkParams *openai.ChatCompletionNewParams, params ChatParams) {
-	if sdkParams == nil || params.PromptCacheKey == "" {
+	if sdkParams == nil || effectivePromptCacheKey(params) == "" {
 		return
 	}
-	sdkParams.PromptCacheKey = param.NewOpt(params.PromptCacheKey)
+	sdkParams.PromptCacheKey = param.NewOpt(effectivePromptCacheKey(params))
 }
 
 func applyPromptCacheKeyToResponses(respParams *responses.ResponseNewParams, params ChatParams) {
-	if respParams == nil || params.PromptCacheKey == "" {
+	if respParams == nil || effectivePromptCacheKey(params) == "" {
 		return
 	}
-	respParams.PromptCacheKey = param.NewOpt(params.PromptCacheKey)
+	respParams.PromptCacheKey = param.NewOpt(effectivePromptCacheKey(params))
+}
+
+func effectivePromptCacheKey(params ChatParams) string {
+	if params.PromptCacheHintFallback != nil && params.PromptCacheHintFallback.Disabled() {
+		return ""
+	}
+	return params.PromptCacheKey
 }
 
 // streamChatResponses usa a Responses API como caminho padrão.
@@ -749,8 +759,9 @@ func (p *OpenAIProvider) streamChatResponses(
 			continue
 		}
 		if result.promptCacheHintUnsupported {
-			if params.PromptCacheKey != "" {
+			if effectivePromptCacheKey(params) != "" {
 				log.Printf("[PromptCache] provider=openai action=disable_provider_hint reason=prompt_cache_key_rejected")
+				params.PromptCacheHintFallback.Disable()
 				if params.OnPromptCacheHintUnsupported != nil {
 					params.OnPromptCacheHintUnsupported()
 				}
@@ -1164,11 +1175,11 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errStr) {
 			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 		}
-		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedAnything {
-			return mcpStreamAttemptResult{mcpFailure: failure}
-		}
 		if !emittedAnything && looksLikePromptCacheHintUnsupported(errStr) {
 			return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
+		}
+		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedAnything {
+			return mcpStreamAttemptResult{mcpFailure: failure}
 		}
 		if !emittedAnything && isRetryableError(errStr) {
 			return mcpStreamAttemptResult{retry: true}
