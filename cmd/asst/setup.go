@@ -235,14 +235,22 @@ func runSetup(svc setupBackend, readPwd passwordReader, out io.Writer) error {
 	}
 
 	// Aplicar modelo selecionado ao perfil ativo
+	modelApplied := model != ""
 	if model != "" {
-		_ = setActiveProfileChatModel(svc, model)
+		if mErr := setActiveProfileChatModel(svc, model); mErr != nil {
+			modelApplied = false
+			_, _ = fmt.Fprintln(out)
+			_, _ = fmt.Fprintf(out, "Aviso: provedor criado, mas não foi possível aplicar o modelo %q ao perfil ativo: %v\n", model, mErr)
+			_, _ = fmt.Fprintln(out, "Defina o modelo depois com: asst config model <modelo>")
+		}
 	}
 
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintf(out, "Assistente configurado com sucesso!\n")
 	_, _ = fmt.Fprintf(out, "  Provedor: %s\n", providerChoice)
-	_, _ = fmt.Fprintf(out, "  Modelo:   %s\n", model)
+	if modelApplied {
+		_, _ = fmt.Fprintf(out, "  Modelo:   %s\n", model)
+	}
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintln(out, "Use 'asst chat' para começar a conversar.")
 

@@ -457,6 +457,37 @@ func TestRunSetup_ModelSelectionByNumber(t *testing.T) {
 	}
 }
 
+func TestRunSetup_ModelApplyFailsWarns(t *testing.T) {
+	// Provider "1" + select model "2"; aplicar ao perfil falha
+	cleanup := withStdin(t, "1\n2\n")
+	defer cleanup()
+
+	mock := &mockSetupBackend{
+		needsWizard:      true,
+		hasMasterKey:     true,
+		testProviderOK:   true,
+		listModels:       []string{"gpt-4o", "gpt-4o-mini"},
+		updateProfileErr: fmt.Errorf("perfil corrompido"),
+	}
+
+	readPwd := fakePasswordReader("sk-key")
+	var out bytes.Buffer
+
+	err := runSetup(mock, readPwd, &out)
+	if err != nil {
+		t.Fatalf("provedor foi criado; setup não deveria falhar, got: %v", err)
+	}
+
+	output := out.String()
+	if !strings.Contains(output, "não foi possível aplicar o modelo") {
+		t.Errorf("esperava aviso de falha ao aplicar modelo, got: %s", output)
+	}
+	// Sem o modelo aplicado, a linha "Modelo:" não deve ser exibida como sucesso.
+	if strings.Contains(output, "Modelo:   gpt-4o-mini") {
+		t.Errorf("não deveria exibir o modelo como aplicado, got: %s", output)
+	}
+}
+
 func TestRunSetup_ModelSelectionByName(t *testing.T) {
 	// Provider "1" + type model name directly
 	cleanup := withStdin(t, "1\nmy-custom-model\n")

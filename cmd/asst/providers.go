@@ -241,7 +241,10 @@ func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, 
 		if err == nil && model != "" && model != info.DefaultModel {
 			// Aplica o modelo selecionado ao perfil ativo
 			// (CreateDefaultLLMProvider usa o default do template).
-			_ = setActiveProfileChatModel(svc, model)
+			if mErr := setActiveProfileChatModel(svc, model); mErr != nil {
+				_, _ = fmt.Fprintf(out, "Aviso: provedor criado, mas não foi possível aplicar o modelo %q ao perfil ativo: %v\n", model, mErr)
+				_, _ = fmt.Fprintln(out, "Defina o modelo depois com: asst config model <modelo>")
+			}
 		}
 	}
 

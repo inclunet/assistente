@@ -469,6 +469,33 @@ func TestProvidersAdd_SelectModelByNumber(t *testing.T) {
 	}
 }
 
+func TestProvidersAdd_ModelApplyFailsWarns(t *testing.T) {
+	mock := &mockProvidersBackend{
+		testOK:           true,
+		models:           []string{"gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"},
+		updateProfileErr: fmt.Errorf("perfil corrompido"),
+	}
+
+	// OpenAI (1) + model 1 (gpt-4o) difere do default gpt-4o-mini → tenta aplicar
+	input := "1\n1\n"
+	reader := bufio.NewReader(strings.NewReader(input))
+	fakePwd := func(prompt string) (string, error) { return "sk-key", nil }
+
+	var out bytes.Buffer
+	err := runProvidersAdd(mock, &out, reader, fakePwd)
+	if err != nil {
+		t.Fatalf("provedor foi criado; comando não deveria falhar, got: %v", err)
+	}
+
+	output := out.String()
+	if !strings.Contains(output, "não foi possível aplicar o modelo") {
+		t.Errorf("esperava aviso de falha ao aplicar modelo, got: %s", output)
+	}
+	if !strings.Contains(output, "criado com sucesso") {
+		t.Errorf("provedor foi criado; esperava mensagem de sucesso, got: %s", output)
+	}
+}
+
 func TestProvidersAdd_CreateError(t *testing.T) {
 	mock := &mockProvidersBackend{
 		testOK:           true,
