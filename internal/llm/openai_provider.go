@@ -460,8 +460,12 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		log.Printf("[OpenAIProvider] Stream error: %s", errStr)
 
 		if !emittedAnything {
-			if isRetryableError(errStr) {
-				return false
+			// tool_choice downgrade
+			if origParams.ToolChoice.OfAuto.Valid() && origParams.ToolChoice.OfAuto.Value == "required" {
+				if strings.Contains(strings.ToLower(errStr), "tool_choice") || strings.Contains(strings.ToLower(errStr), "tool choice") {
+					origParams.ToolChoice = makeToolChoice("auto")
+					return false
+				}
 			}
 
 			if origParams.PromptCacheKey.Valid() && looksLikePromptCacheHintUnsupported(errStr) {
@@ -472,14 +476,9 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				return false
 			}
 
-			// tool_choice downgrade
-			if origParams.ToolChoice.OfAuto.Valid() && origParams.ToolChoice.OfAuto.Value == "required" {
-				if strings.Contains(strings.ToLower(errStr), "tool_choice") || strings.Contains(strings.ToLower(errStr), "tool choice") {
-					origParams.ToolChoice = makeToolChoice("auto")
-					return false
-				}
+			if isRetryableError(errStr) {
+				return false
 			}
-
 		}
 
 		handler.OnError(errStr)
@@ -531,17 +530,22 @@ func looksLikePromptCacheHintUnsupported(errStr string) bool {
 	if !hasPromptCacheKey {
 		return false
 	}
-	return strings.Contains(lower, "unsupported") ||
-		strings.Contains(lower, "not support") ||
-		strings.Contains(lower, "unknown") ||
-		strings.Contains(lower, "unrecognized") ||
-		strings.Contains(lower, "unrecognised") ||
+	return strings.Contains(lower, "unsupported parameter") ||
+		strings.Contains(lower, "unsupported field") ||
+		strings.Contains(lower, "unknown parameter") ||
+		strings.Contains(lower, "unknown field") ||
+		strings.Contains(lower, "unrecognized parameter") ||
+		strings.Contains(lower, "unrecognized field") ||
+		strings.Contains(lower, "unrecognised parameter") ||
+		strings.Contains(lower, "unrecognised field") ||
 		strings.Contains(lower, "invalid parameter") ||
-		strings.Contains(lower, "unexpected") ||
+		strings.Contains(lower, "invalid field") ||
 		strings.Contains(lower, "extra_forbidden") ||
 		strings.Contains(lower, "extra inputs") ||
 		strings.Contains(lower, "not permitted") ||
-		strings.Contains(lower, "not allowed")
+		strings.Contains(lower, "not allowed") ||
+		strings.Contains(lower, "not supported") ||
+		strings.Contains(lower, "does not support")
 }
 
 // convertMessages converte nossas mensagens internas para o formato SDK.
@@ -1140,11 +1144,11 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			if !emittedAnything && looksLikePromptCacheHintUnsupported(errMsg) {
 				return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 			}
-			if !emittedAnything && isRetryableError(errMsg) {
-				return mcpStreamAttemptResult{retry: true}
-			}
 			if failure := inferMCPFailure(MCPFailureStageHandshake, errMsg, ev.RawJSON(), "", mcpServers); failure != nil && !emittedAnything {
 				return mcpStreamAttemptResult{mcpFailure: failure}
+			}
+			if !emittedAnything && isRetryableError(errMsg) {
+				return mcpStreamAttemptResult{retry: true}
 			}
 			handler.OnError(errMsg)
 			return mcpStreamAttemptResult{done: true}
@@ -1163,11 +1167,11 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		if failure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers); failure != nil && !emittedAnything {
 			return mcpStreamAttemptResult{mcpFailure: failure}
 		}
-		if !emittedAnything && isRetryableError(errStr) {
-			return mcpStreamAttemptResult{retry: true}
-		}
 		if !emittedAnything && looksLikePromptCacheHintUnsupported(errStr) {
 			return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
+		}
+		if !emittedAnything && isRetryableError(errStr) {
+			return mcpStreamAttemptResult{retry: true}
 		}
 		handler.OnError(errStr)
 		return mcpStreamAttemptResult{done: true}
