@@ -937,6 +937,10 @@ export namespace chat {
 	    cacheReadTokens: number;
 	    cacheWriteTokens: number;
 	    cacheMissTokens: number;
+	    cacheHitRate: number;
+	    cacheTokensReported: boolean;
+	    promptCacheEnabled: boolean;
+	    promptCacheNotice?: string;
 	    messageCount: number;
 	    model: string;
 	    mostUsedModel: string;
@@ -967,6 +971,10 @@ export namespace chat {
 	        this.cacheReadTokens = source["cacheReadTokens"];
 	        this.cacheWriteTokens = source["cacheWriteTokens"];
 	        this.cacheMissTokens = source["cacheMissTokens"];
+	        this.cacheHitRate = source["cacheHitRate"];
+	        this.cacheTokensReported = source["cacheTokensReported"];
+	        this.promptCacheEnabled = source["promptCacheEnabled"];
+	        this.promptCacheNotice = source["promptCacheNotice"];
 	        this.messageCount = source["messageCount"];
 	        this.model = source["model"];
 	        this.mostUsedModel = source["mostUsedModel"];

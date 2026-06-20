@@ -63,6 +63,7 @@ func (s *TokenService) GetConversationStats(ctx context.Context, conversationID 
 		ToolsUsedCount:              detailedStats.ToolsUsedCount,
 		ToolBreakdown:               toolBreakdown,
 	}
+	applyCacheDerivedStats(result)
 
 	if contextLimit > 0 {
 		percentage, _, err := s.msgRepo.GetContextWindowUsage(ctx, conversationID, contextLimit)
@@ -83,7 +84,7 @@ func (s *TokenService) GetTurnStats(ctx context.Context, conversationID, turnID 
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar estatísticas do turno: %w", err)
 	}
-	return &TokenStats{
+	return (&TokenStats{
 		PromptTokens:     stats.PromptTokens,
 		CompletionTokens: stats.CompletionTokens,
 		TotalTokens:      stats.TotalTokens,
@@ -91,7 +92,23 @@ func (s *TokenService) GetTurnStats(ctx context.Context, conversationID, turnID 
 		CacheWriteTokens: stats.CacheWriteTokens,
 		CacheMissTokens:  stats.CacheMissTokens,
 		MessageCount:     stats.MessageCount,
-	}, nil
+	}).withCacheDerivedStats(), nil
+}
+
+func applyCacheDerivedStats(stats *TokenStats) {
+	if stats == nil {
+		return
+	}
+	stats.CacheTokensReported = stats.CacheReadTokens > 0 || stats.CacheWriteTokens > 0 || stats.CacheMissTokens > 0
+	denominator := stats.CacheReadTokens + stats.CacheWriteTokens + stats.CacheMissTokens
+	if denominator > 0 {
+		stats.CacheHitRate = (float64(stats.CacheReadTokens) / float64(denominator)) * 100
+	}
+}
+
+func (s *TokenStats) withCacheDerivedStats() *TokenStats {
+	applyCacheDerivedStats(s)
+	return s
 }
 
 // GetRecentTokenCount retorna o total de tokens das N mensagens mais recentes.

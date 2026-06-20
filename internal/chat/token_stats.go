@@ -3,21 +3,25 @@ package chat
 // TokenStats representa estatísticas de tokens de uma conversa ou turno — usada como
 // resposta da API Wails para o frontend.
 type TokenStats struct {
-	ConversationID   string  `json:"conversationId"`
-	PromptTokens     int     `json:"promptTokens"`
-	CompletionTokens int     `json:"completionTokens"`
-	TotalTokens      int     `json:"totalTokens"`
-	CacheReadTokens  int     `json:"cacheReadTokens"`
-	CacheWriteTokens int     `json:"cacheWriteTokens"`
-	CacheMissTokens  int     `json:"cacheMissTokens"`
-	MessageCount     int     `json:"messageCount"`
-	Model            string  `json:"model"`
-	MostUsedModel    string  `json:"mostUsedModel"`
-	ContextTokens    int     `json:"contextTokens"` // Ocupação ATUAL da janela (usage do último turno), base do percentual
-	ContextUsage     float64 `json:"contextUsage"`  // Percentual de uso da janela de contexto (0-100)
-	ContextLimit     int     `json:"contextLimit"`  // Limite de tokens do modelo
-	IsNearLimit      bool    `json:"isNearLimit"`   // true se >= 80%
-	IsCritical       bool    `json:"isCritical"`    // true se >= 95%
+	ConversationID      string  `json:"conversationId"`
+	PromptTokens        int     `json:"promptTokens"`
+	CompletionTokens    int     `json:"completionTokens"`
+	TotalTokens         int     `json:"totalTokens"`
+	CacheReadTokens     int     `json:"cacheReadTokens"`
+	CacheWriteTokens    int     `json:"cacheWriteTokens"`
+	CacheMissTokens     int     `json:"cacheMissTokens"`
+	CacheHitRate        float64 `json:"cacheHitRate"`
+	CacheTokensReported bool    `json:"cacheTokensReported"`
+	PromptCacheEnabled  bool    `json:"promptCacheEnabled"`
+	PromptCacheNotice   string  `json:"promptCacheNotice,omitempty"`
+	MessageCount        int     `json:"messageCount"`
+	Model               string  `json:"model"`
+	MostUsedModel       string  `json:"mostUsedModel"`
+	ContextTokens       int     `json:"contextTokens"` // Ocupação ATUAL da janela (usage do último turno), base do percentual
+	ContextUsage        float64 `json:"contextUsage"`  // Percentual de uso da janela de contexto (0-100)
+	ContextLimit        int     `json:"contextLimit"`  // Limite de tokens do modelo
+	IsNearLimit         bool    `json:"isNearLimit"`   // true se >= 80%
+	IsCritical          bool    `json:"isCritical"`    // true se >= 95%
 
 	// Breakdown detalhado
 	SystemPromptEstimatedTokens int                  `json:"systemPromptEstimatedTokens"`

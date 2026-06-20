@@ -18,6 +18,13 @@ interface ToolBreakdownEntry {
 
 interface TokenStats {
   totalTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cacheMissTokens?: number;
+  cacheHitRate?: number;
+  cacheTokensReported?: boolean;
+  promptCacheEnabled?: boolean;
+  promptCacheNotice?: string;
   contextTokens: number;
   promptTokens: number;
   completionTokens: number;
@@ -101,8 +108,11 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     return 'normal';
   };
 
+  const getCacheClassifiedTokens = (value: TokenStats): number =>
+    (value.cacheReadTokens ?? 0) + (value.cacheWriteTokens ?? 0) + (value.cacheMissTokens ?? 0);
+
   const estimatedCost = stats ? {
-    input: (stats.promptTokens / 1000000) * 0.5, // $0.50 por 1M tokens (exemplo GPT-4)
+    input: (Math.max(0, stats.promptTokens - (stats.cacheReadTokens ?? 0)) / 1000000) * 0.5, // estimativa genérica
     output: (stats.completionTokens / 1000000) * 1.5, // $1.50 por 1M tokens
   } : null;
 
@@ -125,6 +135,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabList ariaLabel={t('tokenStats.title')}>
               <Tab value="overview">{t('tokenStats.tabOverview')}</Tab>
+              <Tab value="cache">{t('tokenStats.tabPromptCache')}</Tab>
               <Tab value="context">{t('tokenStats.tabContextDetails')}</Tab>
               <Tab value="tools">{t('tokenStats.tabToolCalling')}</Tab>
               <Tab value="loop">{t('tokenStats.tabAgenticLoop')}</Tab>
@@ -244,7 +255,9 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                     </tbody>
                   </table>
                   <p className="token-stats-cost__note">
-                    {t('tokenStats.costDisclaimer')}
+                    {stats.cacheReadTokens
+                      ? t('tokenStats.costDisclaimerWithCache')
+                      : t('tokenStats.costDisclaimer')}
                   </p>
                 </section>
               )}
@@ -257,6 +270,59 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                   <li>{t('tokenStats.tip3')}</li>
                   <li>{t('tokenStats.tip4')}</li>
                 </ul>
+              </section>
+            </TabPanel>
+
+            {/* TAB: Prompt Cache */}
+            <TabPanel value="cache">
+              <section className="token-stats-section">
+                <h3>{t('tokenStats.promptCache')}</h3>
+                {stats.promptCacheNotice === 'not_reported' && (
+                  <div className="token-stats-warning">
+                    <span><WarningOutlined aria-hidden="true" style={{ color: 'var(--color-warning)' }} /> {t('tokenStats.cacheNotReportedWarning')}</span>
+                  </div>
+                )}
+                {!stats.promptCacheEnabled && (
+                  <p className="token-stats-info">
+                    {t('tokenStats.cacheDisabledNote')}
+                  </p>
+                )}
+                <p className="token-stats-cost__note">
+                  {stats.cacheTokensReported
+                    ? t('tokenStats.cacheReportedNote')
+                    : t('tokenStats.cacheUnavailableNote')}
+                </p>
+                <table className="token-stats-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('tokenStats.category')}</th>
+                      <th scope="col">{t('tokenStats.quantity')}</th>
+                      <th scope="col">{t('tokenStats.percentage')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th scope="row">{t('tokenStats.cacheReadTokens')}</th>
+                      <td>{formatNumber(stats.cacheReadTokens ?? 0)}</td>
+                      <td>{calculatePercentage(stats.cacheReadTokens ?? 0, getCacheClassifiedTokens(stats))}%</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">{t('tokenStats.cacheWriteTokens')}</th>
+                      <td>{formatNumber(stats.cacheWriteTokens ?? 0)}</td>
+                      <td>{calculatePercentage(stats.cacheWriteTokens ?? 0, getCacheClassifiedTokens(stats))}%</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">{t('tokenStats.cacheMissTokens')}</th>
+                      <td>{formatNumber(stats.cacheMissTokens ?? 0)}</td>
+                      <td>{calculatePercentage(stats.cacheMissTokens ?? 0, getCacheClassifiedTokens(stats))}%</td>
+                    </tr>
+                    <tr className="token-stats-table__total">
+                      <th scope="row">{t('tokenStats.cacheHitRate')}</th>
+                      <td>{(stats.cacheHitRate ?? 0).toFixed(1)}%</td>
+                      <td>—</td>
+                    </tr>
+                  </tbody>
+                </table>
               </section>
             </TabPanel>
 

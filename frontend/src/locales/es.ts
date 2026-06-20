@@ -261,6 +261,7 @@ const es = {
       
       // Tabs
       tabOverview: 'Descripción General',
+      tabPromptCache: 'Cache',
       tabContextDetails: 'Detalles del Contexto',
       tabToolCalling: 'Herramientas',
       tabAgenticLoop: 'Iteraciones de Procesamiento',
@@ -288,11 +289,23 @@ const es = {
       output: 'Salida',
       totalEstimated: 'Total estimado',
       costDisclaimer: '* Valores aproximados basados en GPT-4',
+      costDisclaimerWithCache: '* Valores aproximados basados en GPT-4; los tokens leídos del cache se restan de la entrada estimada.',
       managementTips: 'Consejos de gestión',
       tip1: 'Los mensajes más antiguos consumen más contexto',
       tip2: 'Considera resumir conversaciones largas',
       tip3: 'Elimina mensajes innecesarios del historial',
       tip4: 'Los modelos diferentes tienen límites diferentes',
+
+      // Prompt Cache tab
+      promptCache: 'Prompt Cache',
+      cacheReadTokens: 'Tokens leídos del cache',
+      cacheWriteTokens: 'Tokens escritos en el cache',
+      cacheMissTokens: 'Tokens fuera del cache',
+      cacheHitRate: 'Hit rate',
+      cacheReportedNote: 'El proveedor reportó métricas de cache para esta conversación.',
+      cacheUnavailableNote: 'Aún no hay métricas de cache reportadas para esta conversación.',
+      cacheDisabledNote: 'El prompt cache no está habilitado en el perfil activo.',
+      cacheNotReportedWarning: 'El prompt cache está habilitado en el perfil, pero el proveedor no reportó métricas de cache. Puede que no soporte cache en esta ruta/modelo o que omita esas métricas.',
 
       // Context Details tab (new)
       contextComposition: 'Composición del Contexto',

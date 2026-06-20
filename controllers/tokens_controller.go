@@ -42,15 +42,41 @@ func NewTokensController(cfg TokensControllerConfig) *TokensController {
 // GetConversationTokenStats retorna estatísticas de tokens de uma conversa.
 func (c *TokensController) GetConversationTokenStats(ctx context.Context, conversationID string) (*chat.TokenStats, error) {
 	contextLimit := 0
+	promptCacheEnabled := false
 	if profile, err := c.profileMgr.GetActive(); err == nil && profile != nil {
 		contextLimit = profile.Chat.ContextWindow
+		promptCacheEnabled = profile.Chat.PromptCache.Enabled
 	}
-	return c.tokenSvc.GetConversationStats(ctx, conversationID, contextLimit)
+	stats, err := c.tokenSvc.GetConversationStats(ctx, conversationID, contextLimit)
+	if err != nil {
+		return nil, err
+	}
+	applyPromptCacheNotice(stats, promptCacheEnabled)
+	return stats, nil
 }
 
 // GetTurnTokenStats retorna estatísticas de tokens para um turno específico.
 func (c *TokensController) GetTurnTokenStats(ctx context.Context, conversationID string, turnID string) (*chat.TokenStats, error) {
-	return c.tokenSvc.GetTurnStats(ctx, conversationID, turnID)
+	stats, err := c.tokenSvc.GetTurnStats(ctx, conversationID, turnID)
+	if err != nil {
+		return nil, err
+	}
+	promptCacheEnabled := false
+	if profile, err := c.profileMgr.GetActive(); err == nil && profile != nil {
+		promptCacheEnabled = profile.Chat.PromptCache.Enabled
+	}
+	applyPromptCacheNotice(stats, promptCacheEnabled)
+	return stats, nil
+}
+
+func applyPromptCacheNotice(stats *chat.TokenStats, promptCacheEnabled bool) {
+	if stats == nil {
+		return
+	}
+	stats.PromptCacheEnabled = promptCacheEnabled
+	if promptCacheEnabled && !stats.CacheTokensReported && stats.PromptTokens > 0 {
+		stats.PromptCacheNotice = "not_reported"
+	}
 }
 
 // GetRecentMessagesTokenCount retorna o total de tokens das N mensagens mais recentes.

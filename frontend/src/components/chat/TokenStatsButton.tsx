@@ -11,6 +11,13 @@ interface TokenStats {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cacheMissTokens?: number;
+  cacheHitRate?: number;
+  cacheTokensReported?: boolean;
+  promptCacheEnabled?: boolean;
+  promptCacheNotice?: string;
   contextTokens: number;
   messageCount: number;
   mostUsedModel: string;
