@@ -418,9 +418,11 @@ func (m *Manager) SetActive(slug string) error {
 	return nil
 }
 
-// GetActiveSlug retorna o slug do perfil ativo, usando a MESMA resolução de
-// GetActive (ver resolveActive). Garante que o slug devolvido aqui é sempre o do
-// perfil que GetActive retornaria — leitura e escrita nunca divergem.
+// GetActiveSlug retorna o slug do perfil ativo aplicando a MESMA regra de
+// resolução de GetActive (ver resolveActive). Como são chamadas independentes
+// (não atômicas entre si), uma alteração concorrente do filesystem ainda pode
+// fazer com que observem estados diferentes; o que garantimos é a regra de
+// resolução comum, não atomicidade.
 func (m *Manager) GetActiveSlug() string {
 	_, slug, err := m.resolveActive()
 	if err != nil || slug == "" {
