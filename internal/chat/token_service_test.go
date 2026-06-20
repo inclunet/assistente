@@ -23,7 +23,7 @@ func TestApplyCacheDerivedStats(t *testing.T) {
 }
 
 func TestApplyCacheDerivedStatsWithoutReportedCache(t *testing.T) {
-	stats := &TokenStats{}
+	stats := &TokenStats{CacheHitRate: 42}
 
 	applyCacheDerivedStats(stats)
 

@@ -301,7 +301,7 @@ const es = {
       cacheReadTokens: 'Tokens leídos del cache',
       cacheWriteTokens: 'Tokens escritos en el cache',
       cacheMissTokens: 'Tokens fuera del cache',
-      cacheHitRate: 'Hit rate',
+      cacheHitRate: 'Tasa de aciertos',
       cacheReportedNote: 'El proveedor reportó métricas de cache para esta conversación.',
       cacheUnavailableNote: 'Aún no hay métricas de cache reportadas para esta conversación.',
       cacheDisabledNote: 'El prompt cache no está habilitado en el perfil activo.',

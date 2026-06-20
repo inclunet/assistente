@@ -100,6 +100,7 @@ func applyCacheDerivedStats(stats *TokenStats) {
 		return
 	}
 	stats.CacheTokensReported = stats.CacheReadTokens > 0 || stats.CacheWriteTokens > 0 || stats.CacheMissTokens > 0
+	stats.CacheHitRate = 0
 	denominator := stats.CacheReadTokens + stats.CacheWriteTokens + stats.CacheMissTokens
 	if denominator > 0 {
 		stats.CacheHitRate = (float64(stats.CacheReadTokens) / float64(denominator)) * 100

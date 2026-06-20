@@ -302,7 +302,7 @@ const ptBR = {
       cacheReadTokens: 'Tokens lidos do cache',
       cacheWriteTokens: 'Tokens gravados no cache',
       cacheMissTokens: 'Tokens fora do cache',
-      cacheHitRate: 'Hit rate',
+      cacheHitRate: 'Taxa de acerto',
       cacheReportedNote: 'O provedor reportou métricas de cache para esta conversa.',
       cacheUnavailableNote: 'Ainda não há métricas de cache reportadas para esta conversa.',
       cacheDisabledNote: 'O prompt cache não está habilitado no perfil ativo.',
