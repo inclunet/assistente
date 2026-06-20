@@ -11,7 +11,7 @@ import (
 // ResolvePromptCacheHintKey resolve a política de provider hints de cache para
 // o turno. A chave nunca contém conteúdo da conversa; só um hash de
 // identificadores estáveis e não sensíveis.
-func ResolvePromptCacheHintKey(profile *profiles.Profile, profileSlug, conversationID string) string {
+func ResolvePromptCacheHintKey(profile *profiles.Profile, profileSlug, conversationID, model string) string {
 	if profile == nil {
 		return ""
 	}
@@ -23,7 +23,7 @@ func ResolvePromptCacheHintKey(profile *profiles.Profile, profileSlug, conversat
 	parts := []string{
 		"assistente-v1",
 		strings.TrimSpace(profile.Chat.LLMProvider),
-		strings.TrimSpace(profile.Chat.Model),
+		strings.TrimSpace(model),
 		strings.TrimSpace(profileSlug),
 		strings.TrimSpace(conversationID),
 	}

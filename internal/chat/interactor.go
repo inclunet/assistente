@@ -257,17 +257,19 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		if activeProfile.Chat.ContextWindow > 0 {
 			params.ContextWindow = activeProfile.Chat.ContextWindow
 		}
-		cacheProfileSlug := strings.TrimSpace(params.ProfileSlug)
-		if cacheProfileSlug == "" && i.profileMgr != nil {
-			cacheProfileSlug = i.profileMgr.GetActiveSlug()
-		}
-		params.PromptCacheKey = ResolvePromptCacheHintKey(activeProfile, cacheProfileSlug, req.ConversationID)
 	}
 
 	// 8. Fall back to config default model if still empty
 	if params.Model == "" && req.DefaultModel != "" {
 		params.Model = req.DefaultModel
 		log.Printf("[PrepareContext] Usando modelo padrão: %s", params.Model)
+	}
+	if activeProfile != nil {
+		cacheProfileSlug := strings.TrimSpace(params.ProfileSlug)
+		if cacheProfileSlug == "" && i.profileMgr != nil {
+			cacheProfileSlug = i.profileMgr.GetActiveSlug()
+		}
+		params.PromptCacheKey = ResolvePromptCacheHintKey(activeProfile, cacheProfileSlug, req.ConversationID, params.Model)
 	}
 
 	return &PrepareContextResponse{

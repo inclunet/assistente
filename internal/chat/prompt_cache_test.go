@@ -13,17 +13,17 @@ func TestResolvePromptCacheHintKeyRequiresEnabledProviderHints(t *testing.T) {
 	profile.Chat.LLMProvider = "openai-default"
 	profile.Chat.Model = "gpt-4o-mini"
 
-	if got := ResolvePromptCacheHintKey(profile, "dev", "conv-1"); got != "" {
+	if got := ResolvePromptCacheHintKey(profile, "dev", "conv-1", "gpt-4o-mini"); got != "" {
 		t.Fatalf("key with cache disabled = %q, want empty", got)
 	}
 
 	profile.Chat.PromptCache.Enabled = true
-	if got := ResolvePromptCacheHintKey(profile, "dev", "conv-1"); got != "" {
+	if got := ResolvePromptCacheHintKey(profile, "dev", "conv-1", "gpt-4o-mini"); got != "" {
 		t.Fatalf("key with hints disabled = %q, want empty", got)
 	}
 
 	profile.Chat.PromptCache.ProviderHints = true
-	got := ResolvePromptCacheHintKey(profile, "dev", "conv-1")
+	got := ResolvePromptCacheHintKey(profile, "dev", "conv-1", "gpt-4o-mini")
 	if got == "" {
 		t.Fatal("key with prompt cache + hints enabled is empty")
 	}
@@ -34,6 +34,67 @@ func TestResolvePromptCacheHintKeyRequiresEnabledProviderHints(t *testing.T) {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("key %q leaked %q", got, forbidden)
 		}
+	}
+}
+
+func TestPrepareContextPromptCacheKeyUsesEffectiveModel(t *testing.T) {
+	spy := &spyEmitter{}
+	profileMgr := setupProfileTestEnv(t)
+
+	profile := profiles.DefaultProfile()
+	profile.Name = "Cache"
+	profile.Active = true
+	profile.Chat.LLMProvider = "openai-default"
+	profile.Chat.Model = ""
+	profile.Chat.PromptCache.Enabled = true
+	profile.Chat.PromptCache.ProviderHints = true
+	slug, err := profileMgr.Create(profile)
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+	if err := profileMgr.SetActive(slug); err != nil {
+		t.Fatalf("set active: %v", err)
+	}
+
+	inter := NewInteractor(InteractorConfig{
+		Emitter:    spy,
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+	})
+
+	resp, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		UserContent:    "oi",
+		DefaultModel:   "fallback-model",
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext fallback: %v", err)
+	}
+	wantFallbackKey := ResolvePromptCacheHintKey(resp.ActiveProfile, slug, "conv-1", resp.Params.Model)
+	if resp.Params.PromptCacheKey != wantFallbackKey {
+		t.Fatalf("fallback PromptCacheKey = %q, want %q", resp.Params.PromptCacheKey, wantFallbackKey)
+	}
+	if resp.Params.Model == "" {
+		t.Fatal("expected effective model to be resolved")
+	}
+
+	resp, err = inter.PrepareContext(context.Background(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		UserContent:    "oi",
+		DefaultModel:   "fallback-model",
+		Params: ChatParams{
+			Model: "override-model",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext override: %v", err)
+	}
+	wantOverrideKey := ResolvePromptCacheHintKey(resp.ActiveProfile, slug, "conv-1", "override-model")
+	if resp.Params.PromptCacheKey != wantOverrideKey {
+		t.Fatalf("override PromptCacheKey = %q, want %q", resp.Params.PromptCacheKey, wantOverrideKey)
+	}
+	if wantFallbackKey == wantOverrideKey {
+		t.Fatal("fallback and override keys should differ")
 	}
 }
 
