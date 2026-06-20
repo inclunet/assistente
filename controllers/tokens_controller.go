@@ -74,9 +74,6 @@ func applyPromptCacheNotice(stats *chat.TokenStats, promptCacheEnabled bool) {
 		return
 	}
 	stats.PromptCacheEnabled = promptCacheEnabled
-	if promptCacheEnabled && !stats.CacheTokensReported && stats.PromptTokens > 0 {
-		stats.PromptCacheNotice = "not_reported"
-	}
 }
 
 // GetRecentMessagesTokenCount retorna o total de tokens das N mensagens mais recentes.

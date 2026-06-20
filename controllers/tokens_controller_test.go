@@ -6,7 +6,7 @@ import (
 	"assistente/internal/chat"
 )
 
-func TestApplyPromptCacheNoticeWhenEnabledButNotReported(t *testing.T) {
+func TestApplyPromptCacheNoticeMarksProfileStateWithoutInferringProviderReporting(t *testing.T) {
 	stats := &chat.TokenStats{
 		PromptTokens: 100,
 	}
@@ -16,8 +16,8 @@ func TestApplyPromptCacheNoticeWhenEnabledButNotReported(t *testing.T) {
 	if !stats.PromptCacheEnabled {
 		t.Fatal("expected prompt cache to be marked as enabled")
 	}
-	if stats.PromptCacheNotice != "not_reported" {
-		t.Fatalf("unexpected prompt cache notice: got %q want not_reported", stats.PromptCacheNotice)
+	if stats.PromptCacheNotice != "" {
+		t.Fatalf("unexpected prompt cache notice: got %q want empty", stats.PromptCacheNotice)
 	}
 }
 

@@ -113,7 +113,7 @@ describe('TokenStatsModal', () => {
     expect(screen.getByText('tokenStats.cacheReportedNote')).toBeInTheDocument();
   });
 
-  it('mostra fallback quando cache está habilitado mas provider não reporta métricas', async () => {
+  it('mostra fallback sem inferir warning quando métricas de cache estão ausentes', async () => {
     getStatsSpy.mockResolvedValue({
       conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
       promptTokens: 1000,
@@ -122,7 +122,6 @@ describe('TokenStatsModal', () => {
       cacheHitRate: 0,
       cacheTokensReported: false,
       promptCacheEnabled: true,
-      promptCacheNotice: 'not_reported',
       contextTokens: 900,
       messageCount: 2,
       mostUsedModel: 'claude',
@@ -154,7 +153,7 @@ describe('TokenStatsModal', () => {
     const cacheTab = screen.getByRole('tab', { name: 'tokenStats.tabPromptCache' });
     fireEvent.click(cacheTab);
 
-    expect(screen.getByText('tokenStats.cacheNotReportedWarning')).toBeInTheDocument();
+    expect(screen.queryByText('tokenStats.cacheNotReportedWarning')).not.toBeInTheDocument();
     expect(screen.getByText('tokenStats.cacheUnavailableNote')).toBeInTheDocument();
     expect(screen.queryByText('0.0%')).not.toBeInTheDocument();
   });
