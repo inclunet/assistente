@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"testing"
 )
@@ -78,11 +79,19 @@ func TestGetMaintenance_ExplicitZeroIsRespected(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	// Usa diretório temporário para config durante testes
-	tmpDir, _ := os.MkdirTemp("", "config-test-*")
+	// Usa diretório temporário para config durante testes. Trata o erro
+	// explicitamente: sem isso, tmpDir vazio faria os testes escreverem config
+	// num caminho inesperado. Limpeza é feita inline (os.Exit não roda defers).
+	tmpDir, err := os.MkdirTemp("", "config-test-*")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "erro ao criar diretório temporário de teste: %v\n", err)
+		os.Exit(1)
+	}
 	_ = os.Setenv("ASSISTENTE_HOME", tmpDir)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-	defer func() { _ = os.Unsetenv("ASSISTENTE_HOME") }()
 
-	os.Exit(m.Run())
+	code := m.Run()
+
+	_ = os.RemoveAll(tmpDir)
+	_ = os.Unsetenv("ASSISTENTE_HOME")
+	os.Exit(code)
 }
