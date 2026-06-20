@@ -215,6 +215,10 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		if err != nil {
 			log.Printf("[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", resolvedProfileSlug, err)
 			activeProfile, err = i.profileMgr.GetActive()
+			if err == nil && activeProfile != nil {
+				resolvedProfileSlug = i.profileMgr.GetActiveSlug()
+				req.Params.ProfileSlug = resolvedProfileSlug
+			}
 		}
 	} else {
 		activeProfile, err = i.profileMgr.GetActive()

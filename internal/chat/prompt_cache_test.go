@@ -98,6 +98,50 @@ func TestPrepareContextPromptCacheKeyUsesEffectiveModel(t *testing.T) {
 	}
 }
 
+func TestPrepareContextPromptCacheKeyUsesFallbackActiveProfileSlug(t *testing.T) {
+	spy := &spyEmitter{}
+	profileMgr := setupProfileTestEnv(t)
+
+	profile := profiles.DefaultProfile()
+	profile.Name = "Ativo"
+	profile.Active = true
+	profile.Chat.LLMProvider = "openai-default"
+	profile.Chat.Model = "gpt-4o-mini"
+	profile.Chat.PromptCache.Enabled = true
+	profile.Chat.PromptCache.ProviderHints = true
+	activeSlug, err := profileMgr.Create(profile)
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+	if err := profileMgr.SetActive(activeSlug); err != nil {
+		t.Fatalf("set active: %v", err)
+	}
+
+	inter := NewInteractor(InteractorConfig{
+		Emitter:    spy,
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+	})
+
+	resp, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		UserContent:    "oi",
+		Params: ChatParams{
+			ProfileSlug: "slug-inexistente",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext: %v", err)
+	}
+	if resp.Params.ProfileSlug != activeSlug {
+		t.Fatalf("ProfileSlug = %q, want fallback active slug %q", resp.Params.ProfileSlug, activeSlug)
+	}
+	wantKey := ResolvePromptCacheHintKey(resp.ActiveProfile, activeSlug, "conv-1", resp.Params.Model)
+	if resp.Params.PromptCacheKey != wantKey {
+		t.Fatalf("PromptCacheKey = %q, want %q", resp.Params.PromptCacheKey, wantKey)
+	}
+}
+
 func TestPrepareContextAppliesPromptCacheKeyFromProfile(t *testing.T) {
 	spy := &spyEmitter{}
 	profileMgr := setupProfileTestEnv(t)
