@@ -524,9 +524,23 @@ func isRetryableError(errStr string) bool {
 
 func looksLikePromptCacheHintUnsupported(errStr string) bool {
 	lower := strings.ToLower(errStr)
-	return strings.Contains(lower, "prompt_cache_key") ||
+	hasPromptCacheKey := strings.Contains(lower, "prompt_cache_key") ||
 		strings.Contains(lower, "prompt cache key") ||
 		strings.Contains(lower, "prompt-cache-key")
+	if !hasPromptCacheKey {
+		return false
+	}
+	return strings.Contains(lower, "unsupported") ||
+		strings.Contains(lower, "not support") ||
+		strings.Contains(lower, "unknown") ||
+		strings.Contains(lower, "unrecognized") ||
+		strings.Contains(lower, "unrecognised") ||
+		strings.Contains(lower, "invalid parameter") ||
+		strings.Contains(lower, "unexpected") ||
+		strings.Contains(lower, "extra_forbidden") ||
+		strings.Contains(lower, "extra inputs") ||
+		strings.Contains(lower, "not permitted") ||
+		strings.Contains(lower, "not allowed")
 }
 
 // convertMessages converte nossas mensagens internas para o formato SDK.
@@ -738,6 +752,8 @@ func (p *OpenAIProvider) streamChatResponses(
 				params.PromptCacheKey = ""
 				continue
 			}
+			handler.OnError("prompt_cache_key rejeitado pelo provider, mas nenhum hint estava ativo no retry")
+			return
 		}
 		if result.mcpFailure != nil {
 			if degradeRetries < maxDegradeRetries {
@@ -1117,6 +1133,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				errMsg = ev.Response.Error.Message
 			}
 			log.Printf("[OpenAIProvider] Response FAILED: %s", errMsg)
+			if !emittedAnything && isRetryableError(errMsg) {
+				return mcpStreamAttemptResult{retry: true}
+			}
 			if !emittedAnything && looksLikePromptCacheHintUnsupported(errMsg) {
 				return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 			}
@@ -1137,9 +1156,6 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
 		log.Printf("[OpenAIProvider] Responses stream error: %s", errStr)
-		if !emittedAnything && looksLikePromptCacheHintUnsupported(errStr) {
-			return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
-		}
 		if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errStr) {
 			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 		}
@@ -1148,6 +1164,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		}
 		if !emittedAnything && isRetryableError(errStr) {
 			return mcpStreamAttemptResult{retry: true}
+		}
+		if !emittedAnything && looksLikePromptCacheHintUnsupported(errStr) {
+			return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 		}
 		handler.OnError(errStr)
 		return mcpStreamAttemptResult{done: true}

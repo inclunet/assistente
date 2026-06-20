@@ -889,6 +889,18 @@ func TestPromptCacheKeyAppliedToOpenAIParams(t *testing.T) {
 	}
 }
 
+func TestLooksLikePromptCacheHintUnsupportedRequiresExplicitRejection(t *testing.T) {
+	if !looksLikePromptCacheHintUnsupported("400 invalid parameter: prompt_cache_key is not supported") {
+		t.Fatal("expected explicit prompt_cache_key rejection")
+	}
+	if looksLikePromptCacheHintUnsupported("503 timeout while sending prompt_cache_key") {
+		t.Fatal("retryable transport error should not look like explicit prompt_cache_key rejection")
+	}
+	if looksLikePromptCacheHintUnsupported("prompt_cache_key returned zero cache hits") {
+		t.Fatal("cache miss/zero hit should not disable provider hints")
+	}
+}
+
 func TestBuildResponsesParams_EmitsPromptCacheKeyWhenProvided(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 	ctx := context.Background()
@@ -1911,6 +1923,26 @@ func TestOpenAIProvider_StreamChatResponses_PromptCacheHintUnsupportedRetriesWit
 	}
 	if handler.done != 1 {
 		t.Fatalf("OnDone = %d, want 1", handler.done)
+	}
+}
+
+func TestOpenAIProvider_StreamChatResponses_PromptCacheHintUnsupportedWithoutKeyEmitsError(t *testing.T) {
+	provider := &OpenAIProvider{
+		provider:     &ProviderConfig{ID: "o", Name: "Proxy", BaseURL: "http://proxy.local/v1"},
+		useResponses: true,
+	}
+	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, _ StreamHandler, _ []MCPServerConfig) mcpStreamAttemptResult {
+		return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
+	}
+
+	handler := &providerRetryHandler{}
+	provider.streamChatResponses(context.Background(), "gpt-test", []Message{{Role: "user", Content: "oi"}}, ChatParams{}, handler)
+
+	if len(handler.errors) != 1 {
+		t.Fatalf("errors = %v, want one explicit error", handler.errors)
+	}
+	if handler.done != 0 {
+		t.Fatalf("OnDone = %d, want 0", handler.done)
 	}
 }
 
