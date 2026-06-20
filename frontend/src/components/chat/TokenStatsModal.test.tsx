@@ -153,7 +153,6 @@ describe('TokenStatsModal', () => {
     const cacheTab = screen.getByRole('tab', { name: 'tokenStats.tabPromptCache' });
     fireEvent.click(cacheTab);
 
-    expect(screen.queryByText('tokenStats.cacheNotReportedWarning')).not.toBeInTheDocument();
     expect(screen.getByText('tokenStats.cacheUnavailableNote')).toBeInTheDocument();
     expect(screen.queryByText('0.0%')).not.toBeInTheDocument();
   });

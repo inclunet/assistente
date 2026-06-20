@@ -13,7 +13,6 @@ type TokenStats struct {
 	CacheHitRate        float64 `json:"cacheHitRate"`
 	CacheTokensReported bool    `json:"cacheTokensReported"`
 	PromptCacheEnabled  bool    `json:"promptCacheEnabled"`
-	PromptCacheNotice   string  `json:"promptCacheNotice,omitempty"`
 	MessageCount        int     `json:"messageCount"`
 	Model               string  `json:"model"`
 	MostUsedModel       string  `json:"mostUsedModel"`

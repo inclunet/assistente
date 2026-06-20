@@ -41,7 +41,7 @@ func (c *TokensController) GetConversationTokenStats(ctx context.Context, conver
 	if err != nil {
 		return nil, err
 	}
-	applyPromptCacheNotice(stats, promptCacheEnabled)
+	applyPromptCacheProfileState(stats, promptCacheEnabled)
 	return stats, nil
 }
 
@@ -55,11 +55,11 @@ func (c *TokensController) GetTurnTokenStats(ctx context.Context, conversationID
 	if profile, err := c.profileMgr.GetActive(); err == nil && profile != nil {
 		promptCacheEnabled = profile.Chat.PromptCache.Enabled
 	}
-	applyPromptCacheNotice(stats, promptCacheEnabled)
+	applyPromptCacheProfileState(stats, promptCacheEnabled)
 	return stats, nil
 }
 
-func applyPromptCacheNotice(stats *chat.TokenStats, promptCacheEnabled bool) {
+func applyPromptCacheProfileState(stats *chat.TokenStats, promptCacheEnabled bool) {
 	if stats == nil {
 		return
 	}

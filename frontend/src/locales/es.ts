@@ -305,7 +305,6 @@ const es = {
       cacheReportedNote: 'El proveedor reportó métricas de cache para esta conversación.',
       cacheUnavailableNote: 'Aún no hay métricas de cache reportadas para esta conversación.',
       cacheDisabledNote: 'El prompt cache no está habilitado en el perfil activo.',
-      cacheNotReportedWarning: 'El prompt cache está habilitado en el perfil, pero el proveedor no reportó métricas de cache. Puede que no soporte cache en esta ruta/modelo o que omita esas métricas.',
 
       // Context Details tab (new)
       contextComposition: 'Composición del Contexto',

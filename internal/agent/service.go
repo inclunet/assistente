@@ -645,7 +645,6 @@ func (s *Service) RunAgenticLoop(
 					CacheHitRate:                stats.CacheHitRate,
 					CacheTokensReported:         stats.CacheTokensReported,
 					PromptCacheEnabled:          stats.PromptCacheEnabled,
-					PromptCacheNotice:           stats.PromptCacheNotice,
 					ContextTokens:               stats.ContextTokens,
 					ContextUsage:                stats.ContextUsage,
 					ContextLimit:                stats.ContextLimit,
@@ -878,7 +877,6 @@ func (s *Service) emitTokenStats(conversationID string) {
 		CacheHitRate:        stats.CacheHitRate,
 		CacheTokensReported: stats.CacheTokensReported,
 		PromptCacheEnabled:  stats.PromptCacheEnabled,
-		PromptCacheNotice:   stats.PromptCacheNotice,
 		MessageCount:        stats.MessageCount,
 	})
 	if stats.IsCritical {

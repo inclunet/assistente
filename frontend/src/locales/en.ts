@@ -306,7 +306,6 @@ const en = {
       cacheReportedNote: 'The provider reported cache metrics for this conversation.',
       cacheUnavailableNote: 'No cache metrics have been reported for this conversation yet.',
       cacheDisabledNote: 'Prompt cache is not enabled in the active profile.',
-      cacheNotReportedWarning: 'Prompt cache is enabled in the profile, but the provider did not report cache metrics. It may not support cache on this route/model, or it may omit those metrics.',
 
       // Context Details tab (new)
       contextComposition: 'Context Composition',

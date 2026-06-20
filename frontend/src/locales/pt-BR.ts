@@ -306,7 +306,6 @@ const ptBR = {
       cacheReportedNote: 'O provedor reportou métricas de cache para esta conversa.',
       cacheUnavailableNote: 'Ainda não há métricas de cache reportadas para esta conversa.',
       cacheDisabledNote: 'O prompt cache não está habilitado no perfil ativo.',
-      cacheNotReportedWarning: 'O prompt cache está habilitado no perfil, mas o provedor não reportou métricas de cache. Ele pode não suportar cache nesta rota/modelo ou pode omitir essas métricas.',
 
       // Context Details tab (new)
       contextComposition: 'Composição do Contexto',

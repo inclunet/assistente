@@ -17,7 +17,6 @@ interface TokenStats {
   cacheHitRate?: number;
   cacheTokensReported?: boolean;
   promptCacheEnabled?: boolean;
-  promptCacheNotice?: string;
   contextTokens: number;
   messageCount: number;
   mostUsedModel: string;

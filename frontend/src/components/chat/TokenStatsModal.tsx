@@ -24,7 +24,6 @@ interface TokenStats {
   cacheHitRate?: number;
   cacheTokensReported?: boolean;
   promptCacheEnabled?: boolean;
-  promptCacheNotice?: string;
   contextTokens: number;
   promptTokens: number;
   completionTokens: number;
@@ -283,11 +282,6 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
             <TabPanel value="cache">
               <section className="token-stats-section">
                 <h3>{t('tokenStats.promptCache')}</h3>
-                {stats.promptCacheNotice === 'not_reported' && (
-                  <div className="token-stats-warning">
-                    <span><WarningOutlined aria-hidden="true" style={{ color: 'var(--color-warning)' }} /> {t('tokenStats.cacheNotReportedWarning')}</span>
-                  </div>
-                )}
                 {!stats.promptCacheEnabled && (
                   <p className="token-stats-info">
                     {t('tokenStats.cacheDisabledNote')}
