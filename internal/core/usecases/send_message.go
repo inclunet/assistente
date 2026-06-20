@@ -316,6 +316,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	params.OnNativeMCPUnsupported = func() {
 		uc.chatInteractor.HandleNativeMCPUnsupported(resolvedProfileSlug, resolvedModel, nativeMCPOverride)
 	}
+	params.OnPromptCacheHintUnsupported = func() {
+		uc.chatInteractor.HandlePromptCacheHintUnsupported(resolvedProfileSlug, resolvedModel)
+	}
 
 	// Só há o que degradar quando ApplyNativeMCP de fato anexou MCP servers nativos
 	// (requestStreamer trocado). Prepara o fallback adapter para o mesmo turno.

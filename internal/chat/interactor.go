@@ -83,6 +83,9 @@ type Interactor struct {
 	// do perfil (nil→false), garantindo idempotência sob concorrência (vários runs
 	// do mesmo perfil falhando ao mesmo tempo). Ver HandleNativeMCPUnsupported.
 	nativeMCPAdjustMu sync.Mutex
+	// promptCacheAdjustMu serializa o auto-ajuste de provider_hints=false quando
+	// um provider rejeita explicitamente prompt_cache_key.
+	promptCacheAdjustMu sync.Mutex
 }
 
 // NewInteractor creates an Interactor with its required dependencies.
@@ -254,6 +257,11 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		if activeProfile.Chat.ContextWindow > 0 {
 			params.ContextWindow = activeProfile.Chat.ContextWindow
 		}
+		cacheProfileSlug := strings.TrimSpace(params.ProfileSlug)
+		if cacheProfileSlug == "" && i.profileMgr != nil {
+			cacheProfileSlug = i.profileMgr.GetActiveSlug()
+		}
+		params.PromptCacheKey = ResolvePromptCacheHintKey(activeProfile, cacheProfileSlug, req.ConversationID)
 	}
 
 	// 8. Fall back to config default model if still empty
@@ -333,6 +341,44 @@ func (i *Interactor) HandleNativeMCPUnsupported(profileSlug, model string, overr
 		return
 	}
 	log.Printf("[MCP] perfil %q (modelo %s) ajustado para adapter automaticamente após erro de MCP nativo não suportado", slug, model)
+}
+
+// HandlePromptCacheHintUnsupported é chamado quando um provider/gateway rejeita
+// explicitamente o hint prompt_cache_key. Diferente de cache miss ou ausência de
+// métricas, isso indica incompatibilidade de payload para o modelo/rota atual.
+// O turno já degradou sem hint; aqui persistimos provider_hints=false para evitar
+// repetir o erro.
+func (i *Interactor) HandlePromptCacheHintUnsupported(profileSlug, model string) {
+	if i.profileMgr == nil {
+		return
+	}
+
+	slug := strings.TrimSpace(profileSlug)
+	if slug == "" {
+		slug = i.profileMgr.GetActiveSlug()
+	}
+	if slug == "" {
+		return
+	}
+
+	i.promptCacheAdjustMu.Lock()
+	defer i.promptCacheAdjustMu.Unlock()
+
+	profile, err := i.profileMgr.Get(slug)
+	if err != nil {
+		log.Printf("[PromptCache] auto-ajuste abortado: erro ao ler perfil %q: %v", slug, err)
+		return
+	}
+	if !profile.Chat.PromptCache.ProviderHints {
+		return
+	}
+
+	profile.Chat.PromptCache.ProviderHints = false
+	if err := i.profileMgr.Update(slug, profile); err != nil {
+		log.Printf("[PromptCache] auto-ajuste abortado: erro ao persistir perfil %q: %v", slug, err)
+		return
+	}
+	log.Printf("[PromptCache] perfil %q (modelo %s) ajustado para provider_hints=false após rejeição explícita de prompt_cache_key", slug, model)
 }
 
 // RecordUserMessageRequest contém a entrada do usuário já processada (incluindo STT) pronta para ser persistida.

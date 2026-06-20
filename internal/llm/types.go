@@ -235,6 +235,7 @@ type ChatParams struct {
 	SurfaceID              string `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
 	SurfaceType            string `json:"surfaceType,omitempty"`          // page | embedded | modal | external
 	SurfaceTabID           string `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
+	PromptCacheKey         string `json:"-"`                              // Hint seguro derivado pelo backend para prompt_cache_key
 
 	// OnNativeMCPUnsupported é um hook opcional, definido pelo backend (use case),
 	// chamado quando uma request com MCP nativo falha com erro de não-suporte
@@ -250,6 +251,12 @@ type ChatParams struct {
 	// modo adapter e re-tentar — assim as tools MCP continuam disponíveis já neste
 	// turno. Não é serializado. Ver AEP-0021.
 	NativeMCPFallback *NativeMCPAdapterFallback `json:"-"`
+
+	// OnPromptCacheHintUnsupported é chamado quando o provider rejeita
+	// explicitamente prompt_cache_key. Permite degradar este turno sem o hint e
+	// persistir Profile.Chat.PromptCache.ProviderHints=false sem acoplar provider
+	// à camada de perfis.
+	OnPromptCacheHintUnsupported func() `json:"-"`
 }
 
 // NativeMCPAdapterFallback carrega as alternativas em modo ADAPTER (provider sem

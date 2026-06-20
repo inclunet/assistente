@@ -11,6 +11,7 @@ import (
 	"assistente/internal/database"
 	mcplib "assistente/internal/mcp"
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/responses"
 	"google.golang.org/genai"
 )
@@ -869,6 +870,37 @@ func TestBuildResponsesParams_EmitsMCPToolWhenServersPresent(t *testing.T) {
 	noParams := proxy.buildResponsesParams(ctx, "deepseek-v4-flash", msgs, ChatParams{}, proxy.mcpServers)
 	if hasMCPTool(noParams.Tools) {
 		t.Error("sem servers anexados, a request NÃO deve conter tool type:mcp")
+	}
+}
+
+func TestPromptCacheKeyAppliedToOpenAIParams(t *testing.T) {
+	params := ChatParams{PromptCacheKey: "asst-123"}
+
+	chatParams := openai.ChatCompletionNewParams{}
+	applyPromptCacheKeyToChatCompletions(&chatParams, params)
+	if !chatParams.PromptCacheKey.Valid() || chatParams.PromptCacheKey.Value != "asst-123" {
+		t.Fatalf("ChatCompletion PromptCacheKey = %#v, want asst-123", chatParams.PromptCacheKey)
+	}
+
+	respParams := responses.ResponseNewParams{}
+	applyPromptCacheKeyToResponses(&respParams, params)
+	if !respParams.PromptCacheKey.Valid() || respParams.PromptCacheKey.Value != "asst-123" {
+		t.Fatalf("Responses PromptCacheKey = %#v, want asst-123", respParams.PromptCacheKey)
+	}
+}
+
+func TestBuildResponsesParams_EmitsPromptCacheKeyWhenProvided(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	ctx := context.Background()
+	msgs := []Message{{Role: "user", Content: "oi"}}
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "o", Name: "OpenAI", Type: ProviderOpenAI,
+		APIFormat: APIFormatOpenAIResponses, BaseURL: "https://api.openai.com/v1",
+	}, credMgr)
+
+	got := provider.buildResponsesParams(ctx, "gpt-4o-mini", msgs, ChatParams{PromptCacheKey: "asst-abc"}, nil)
+	if !got.PromptCacheKey.Valid() || got.PromptCacheKey.Value != "asst-abc" {
+		t.Fatalf("PromptCacheKey = %#v, want asst-abc", got.PromptCacheKey)
 	}
 }
 
@@ -1823,6 +1855,56 @@ func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedFallsBackToAdapt
 	}
 	if hookCalls != 1 {
 		t.Fatalf("OnNativeMCPUnsupported chamado %d vezes, want 1", hookCalls)
+	}
+	if len(handler.errors) != 0 {
+		t.Fatalf("não deveria emitir erro ao usuário (fallback transparente): %v", handler.errors)
+	}
+	if handler.done != 1 {
+		t.Fatalf("OnDone = %d, want 1", handler.done)
+	}
+}
+
+func TestOpenAIProvider_StreamChatResponses_PromptCacheHintUnsupportedRetriesWithoutHint(t *testing.T) {
+	attempts := 0
+	hookCalls := 0
+	seenKeys := make([]string, 0, 2)
+
+	provider := &OpenAIProvider{
+		provider:     &ProviderConfig{ID: "o", Name: "Proxy", BaseURL: "http://proxy.local/v1"},
+		useResponses: true,
+	}
+	provider.responsesAttemptFn = func(_ context.Context, params responses.ResponseNewParams, handler StreamHandler, _ []MCPServerConfig) mcpStreamAttemptResult {
+		attempts++
+		if params.PromptCacheKey.Valid() {
+			seenKeys = append(seenKeys, params.PromptCacheKey.Value)
+		} else {
+			seenKeys = append(seenKeys, "")
+		}
+		if attempts == 1 {
+			return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
+		}
+		handler.OnChunk("ok")
+		handler.OnDone("ok", Usage{}, "gpt-test")
+		return mcpStreamAttemptResult{done: true}
+	}
+
+	handler := &providerRetryHandler{}
+	params := ChatParams{
+		PromptCacheKey: "asst-key",
+		OnPromptCacheHintUnsupported: func() {
+			hookCalls++
+		},
+	}
+	provider.streamChatResponses(context.Background(), "gpt-test", []Message{{Role: "user", Content: "oi"}}, params, handler)
+
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if len(seenKeys) != 2 || seenKeys[0] != "asst-key" || seenKeys[1] != "" {
+		t.Fatalf("seenKeys = %#v, want [asst-key, empty]", seenKeys)
+	}
+	if hookCalls != 1 {
+		t.Fatalf("OnPromptCacheHintUnsupported chamado %d vezes, want 1", hookCalls)
 	}
 	if len(handler.errors) != 0 {
 		t.Fatalf("não deveria emitir erro ao usuário (fallback transparente): %v", handler.errors)
