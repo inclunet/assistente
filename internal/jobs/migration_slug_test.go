@@ -330,6 +330,23 @@ func TestRenormalizeLegacySlugs_CollisionSpanningPages(t *testing.T) {
 	// Inserido por último -> id maior, cai numa página posterior à do legado.
 	canonicalID := insertJob(t, db, "user-a", "cafe-report")
 
+	// Pré-requisito do teste: o canônico PRECISA cair numa página posterior à
+	// do legado. Lê a 1ª página exatamente como a migração varre (ORDER BY
+	// user_id, id; LIMIT = page size) e falha se o canônico já estiver nela —
+	// senão o teste viraria falso positivo, cobrindo só o caso "mesma página".
+	var firstPageIDs []string
+	if err := db.Table("jobs").
+		Order("user_id, id").
+		Limit(slugRenormalizationPageSize).
+		Pluck("id", &firstPageIDs).Error; err != nil {
+		t.Fatalf("ler 1ª página: %v", err)
+	}
+	for _, id := range firstPageIDs {
+		if id == canonicalID {
+			t.Fatalf("setup inválido: canonicalID está na 1ª página (%v); o teste exige que ele caia numa página posterior à do legado", firstPageIDs)
+		}
+	}
+
 	if err := RenormalizeLegacySlugs(db); err != nil {
 		t.Fatalf("renormalize: %v", err)
 	}
