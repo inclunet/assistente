@@ -31,11 +31,11 @@ describe('TokenStatsModal', () => {
       promptTokens: 10,
       completionTokens: 20,
       totalTokens: 30,
-      contextTokens: 18,
+      contextTokens: 63942,
       messageCount: 1,
       mostUsedModel: 'x',
-      contextUsage: 10,
-      contextLimit: 100,
+      contextUsage: 31.971,
+      contextLimit: 200000,
       isNearLimit: false,
       isCritical: false,
       systemPromptEstimatedTokens: 5,
@@ -62,6 +62,9 @@ describe('TokenStatsModal', () => {
     await waitFor(() => {
       expect(screen.getByText('tokenStats.contextUsage')).toBeInTheDocument();
     });
+    const progress = screen.getByRole('progressbar', { name: 'tokenStats.contextUsage' });
+    expect(progress).toHaveAttribute('aria-valuenow', '32');
+    expect(progress).toHaveAttribute('aria-valuetext', '32.0%');
   });
 
   it('renderiza métricas e aviso de prompt cache', async () => {

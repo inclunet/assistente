@@ -119,6 +119,9 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   const formatCacheHitRate = (): string =>
     stats?.cacheTokensReported ? `${(stats.cacheHitRate ?? 0).toFixed(1)}%` : '—';
 
+  const roundedContextUsage = stats ? Number(stats.contextUsage.toFixed(1)) : 0;
+  const contextUsageText = `${roundedContextUsage.toFixed(1)}%`;
+
   const estimatedCost = stats ? {
     input: (Math.max(0, stats.promptTokens - (stats.cacheReadTokens ?? 0)) / 1000000) * 0.5, // estimativa genérica
     output: (stats.completionTokens / 1000000) * 1.5, // $1.50 por 1M tokens
@@ -163,7 +166,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                       {formatNumber(stats.contextLimit)}
                     </span>
                     <span className="token-stats-context__percentage">
-                      ({stats.contextUsage.toFixed(1)}%)
+                      ({contextUsageText})
                     </span>
                   </div>
                   <p className="token-stats-cost__note">
@@ -174,9 +177,11 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                       className={`token-stats-progress__bar token-stats-progress__bar--${getProgressBarColor(stats.contextUsage)}`}
                       style={{ width: `${Math.min(stats.contextUsage, 100)}%` }}
                       role="progressbar"
-                      aria-valuenow={stats.contextUsage}
+                      aria-label={t('tokenStats.contextUsage')}
+                      aria-valuenow={roundedContextUsage}
                       aria-valuemin={0}
                       aria-valuemax={100}
+                      aria-valuetext={contextUsageText}
                     />
                   </div>
                   {stats.isNearLimit && (
