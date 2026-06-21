@@ -155,5 +155,6 @@ describe('TokenStatsModal', () => {
     expect(screen.getByText('tokenStats.cacheUnavailableNote')).toBeInTheDocument();
     expect(screen.queryByText('tokenStats.cacheDisabledNote')).not.toBeInTheDocument();
     expect(screen.queryByText('0.0%')).not.toBeInTheDocument();
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(7);
   });
 });

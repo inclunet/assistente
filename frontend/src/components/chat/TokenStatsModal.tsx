@@ -113,6 +113,9 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   const formatCachePercentage = (value: number, total: number): string =>
     stats?.cacheTokensReported ? `${calculatePercentage(value, total)}%` : '—';
 
+  const formatCacheNumber = (value?: number): string =>
+    stats?.cacheTokensReported ? formatNumber(value ?? 0) : '—';
+
   const formatCacheHitRate = (): string =>
     stats?.cacheTokensReported ? `${(stats.cacheHitRate ?? 0).toFixed(1)}%` : '—';
 
@@ -303,17 +306,17 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                   <tbody>
                     <tr>
                       <th scope="row">{t('tokenStats.cacheReadTokens')}</th>
-                      <td>{formatNumber(stats.cacheReadTokens ?? 0)}</td>
+                      <td>{formatCacheNumber(stats.cacheReadTokens)}</td>
                       <td>{formatCachePercentage(stats.cacheReadTokens ?? 0, getCacheClassifiedTokens(stats))}</td>
                     </tr>
                     <tr>
                       <th scope="row">{t('tokenStats.cacheWriteTokens')}</th>
-                      <td>{formatNumber(stats.cacheWriteTokens ?? 0)}</td>
+                      <td>{formatCacheNumber(stats.cacheWriteTokens)}</td>
                       <td>{formatCachePercentage(stats.cacheWriteTokens ?? 0, getCacheClassifiedTokens(stats))}</td>
                     </tr>
                     <tr>
                       <th scope="row">{t('tokenStats.cacheMissTokens')}</th>
-                      <td>{formatNumber(stats.cacheMissTokens ?? 0)}</td>
+                      <td>{formatCacheNumber(stats.cacheMissTokens)}</td>
                       <td>{formatCachePercentage(stats.cacheMissTokens ?? 0, getCacheClassifiedTokens(stats))}</td>
                     </tr>
                     <tr className="token-stats-table__total">
