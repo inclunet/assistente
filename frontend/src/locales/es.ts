@@ -305,7 +305,6 @@ const es = {
       cacheHitRate: 'Tasa de aciertos',
       cacheReportedNote: 'El proveedor reportó métricas de cache para esta conversación.',
       cacheUnavailableNote: 'Aún no hay métricas de cache reportadas para esta conversación.',
-      cacheDisabledNote: 'El prompt cache no está habilitado en el perfil activo.',
 
       // Context Details tab (new)
       contextComposition: 'Composición del Contexto',

@@ -306,7 +306,6 @@ const en = {
       cacheHitRate: 'Hit rate',
       cacheReportedNote: 'The provider reported cache metrics for this conversation.',
       cacheUnavailableNote: 'No cache metrics have been reported for this conversation yet.',
-      cacheDisabledNote: 'Prompt cache is not enabled in the active profile.',
 
       // Context Details tab (new)
       contextComposition: 'Context Composition',
