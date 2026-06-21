@@ -32,10 +32,11 @@ func NewTokensController(cfg TokensControllerConfig) *TokensController {
 // GetConversationTokenStats retorna estatísticas de tokens de uma conversa.
 func (c *TokensController) GetConversationTokenStats(ctx context.Context, conversationID string) (*chat.TokenStats, error) {
 	contextLimit := 0
-	promptCacheEnabled := false
+	var promptCacheEnabled *bool
 	if profile, err := c.profileMgr.GetActive(); err == nil && profile != nil {
 		contextLimit = profile.Chat.ContextWindow
-		promptCacheEnabled = profile.Chat.PromptCache.Enabled
+		enabled := profile.Chat.PromptCache.Enabled
+		promptCacheEnabled = &enabled
 	}
 	stats, err := c.tokenSvc.GetConversationStats(ctx, conversationID, contextLimit)
 	if err != nil {
@@ -51,15 +52,16 @@ func (c *TokensController) GetTurnTokenStats(ctx context.Context, conversationID
 	if err != nil {
 		return nil, err
 	}
-	promptCacheEnabled := false
+	var promptCacheEnabled *bool
 	if profile, err := c.profileMgr.GetActive(); err == nil && profile != nil {
-		promptCacheEnabled = profile.Chat.PromptCache.Enabled
+		enabled := profile.Chat.PromptCache.Enabled
+		promptCacheEnabled = &enabled
 	}
 	applyPromptCacheProfileState(stats, promptCacheEnabled)
 	return stats, nil
 }
 
-func applyPromptCacheProfileState(stats *chat.TokenStats, promptCacheEnabled bool) {
+func applyPromptCacheProfileState(stats *chat.TokenStats, promptCacheEnabled *bool) {
 	if stats == nil {
 		return
 	}

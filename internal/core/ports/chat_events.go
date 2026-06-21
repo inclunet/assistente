@@ -166,7 +166,7 @@ type TokenStatsEvent struct {
 	CacheMissTokens     int     `json:"cacheMissTokens,omitempty"`
 	CacheHitRate        float64 `json:"cacheHitRate"`
 	CacheTokensReported bool    `json:"cacheTokensReported"`
-	PromptCacheEnabled  bool    `json:"promptCacheEnabled"`
+	PromptCacheEnabled  *bool   `json:"promptCacheEnabled,omitempty"`
 	MessageCount        int     `json:"messageCount"`
 }
 
@@ -181,7 +181,7 @@ type TokenStatsUpdateEvent struct {
 	CacheMissTokens             int     `json:"cacheMissTokens,omitempty"`
 	CacheHitRate                float64 `json:"cacheHitRate"`
 	CacheTokensReported         bool    `json:"cacheTokensReported"`
-	PromptCacheEnabled          bool    `json:"promptCacheEnabled"`
+	PromptCacheEnabled          *bool   `json:"promptCacheEnabled,omitempty"`
 	ContextTokens               int     `json:"contextTokens"`
 	ContextUsage                float64 `json:"contextUsage"`
 	ContextLimit                int     `json:"contextLimit"`

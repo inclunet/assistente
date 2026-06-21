@@ -10,10 +10,11 @@ func TestApplyPromptCacheProfileStateMarksProfileState(t *testing.T) {
 	stats := &chat.TokenStats{
 		PromptTokens: 100,
 	}
+	enabled := true
 
-	applyPromptCacheProfileState(stats, true)
+	applyPromptCacheProfileState(stats, &enabled)
 
-	if !stats.PromptCacheEnabled {
+	if stats.PromptCacheEnabled == nil || !*stats.PromptCacheEnabled {
 		t.Fatal("expected prompt cache to be marked as enabled")
 	}
 }
@@ -24,10 +25,23 @@ func TestApplyPromptCacheProfileStateHandlesReportedMetrics(t *testing.T) {
 		CacheTokensReported: true,
 		CacheReadTokens:     40,
 	}
+	enabled := true
 
-	applyPromptCacheProfileState(stats, true)
+	applyPromptCacheProfileState(stats, &enabled)
 
-	if !stats.PromptCacheEnabled {
+	if stats.PromptCacheEnabled == nil || !*stats.PromptCacheEnabled {
 		t.Fatal("expected prompt cache to be marked as enabled")
+	}
+}
+
+func TestApplyPromptCacheProfileStateKeepsUnknownState(t *testing.T) {
+	stats := &chat.TokenStats{
+		PromptTokens: 100,
+	}
+
+	applyPromptCacheProfileState(stats, nil)
+
+	if stats.PromptCacheEnabled != nil {
+		t.Fatal("expected prompt cache state to remain unknown")
 	}
 }

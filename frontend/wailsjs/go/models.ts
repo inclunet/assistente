@@ -939,7 +939,7 @@ export namespace chat {
 	    cacheMissTokens: number;
 	    cacheHitRate: number;
 	    cacheTokensReported: boolean;
-	    promptCacheEnabled: boolean;
+	    promptCacheEnabled?: boolean;
 	    messageCount: number;
 	    model: string;
 	    mostUsedModel: string;
