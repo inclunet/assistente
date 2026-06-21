@@ -1,4 +1,11 @@
-# AEP-0028: Speech/TTS Refactor — Auditoria Completa
+# AEP-0024 (apêndice): Speech/TTS Refactor — Auditoria Completa
+
+> **Nota de governança (2026-06-21).** Este documento foi originalmente numerado
+> como "AEP-0028", colidindo com a série de Componentização Frontend (AEP-0028).
+> Para eliminar a ambiguidade, ele foi renumerado como **apêndice do AEP-0024
+> (Arquitetura de Voz / TTS-STT)**, ao qual pertence tematicamente. Referências
+> antigas a "AEP-0028: Speech/TTS Refactor" devem ser lidas como
+> **AEP-0024 (apêndice): Speech/TTS Refactor**.
 
 ## Contexto
 
