@@ -16,7 +16,7 @@
     ],
     "declaration-property-value-disallowed-list": [
       {
-        "/^(color|background|background-color|border|border-color|border-top|border-right|border-bottom|border-left|border-top-color|border-right-color|border-bottom-color|border-left-color|outline|outline-color|fill|stroke|box-shadow|text-shadow|caret-color|text-decoration-color|column-rule-color)$/": [
+        "/^(color|background|background-color|border|border-color|border-top|border-right|border-bottom|border-left|border-top-color|border-right-color|border-bottom-color|border-left-color|outline|outline-color|fill|stroke|box-shadow|text-shadow|caret-color|text-decoration-color|column-rule-color|accent-color|scrollbar-color)$/": [
           "/#[0-9a-fA-F]{3,8}\\b/",
           "/(?:^|[^a-z-])(?:rgba?|hsla?)\\(/",
           "/(?:^|[^a-z-])(?:aqua|black|blue|fuchsia|gray|grey|green|lime|maroon|navy|olive|orange|purple|red|silver|teal|white|yellow)(?:$|[^a-z-])/"
