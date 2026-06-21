@@ -14,6 +14,7 @@ type TokenStats struct {
 	CacheTokensReported bool    `json:"cacheTokensReported"`
 	PromptCacheEnabled  *bool   `json:"promptCacheEnabled,omitempty"`
 	MessageCount        int     `json:"messageCount"`
+	ModelCallCount      int     `json:"modelCallCount"`
 	Model               string  `json:"model"`
 	MostUsedModel       string  `json:"mostUsedModel"`
 	ContextTokens       int     `json:"contextTokens"` // Ocupação ATUAL da janela (usage do último turno), base do percentual

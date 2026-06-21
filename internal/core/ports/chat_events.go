@@ -168,6 +168,7 @@ type TokenStatsEvent struct {
 	CacheTokensReported bool    `json:"cacheTokensReported"`
 	PromptCacheEnabled  *bool   `json:"promptCacheEnabled,omitempty"`
 	MessageCount        int     `json:"messageCount"`
+	ModelCallCount      int     `json:"modelCallCount"`
 }
 
 // TokenStatsUpdateEvent is the payload for chat:token_stats_update (realtime during agentic loop).
@@ -188,6 +189,7 @@ type TokenStatsUpdateEvent struct {
 	IsNearLimit                 bool    `json:"isNearLimit"`
 	IsCritical                  bool    `json:"isCritical"`
 	MessageCount                int     `json:"messageCount"`
+	ModelCallCount              int     `json:"modelCallCount"`
 	SystemPromptEstimatedTokens int     `json:"systemPromptEstimatedTokens"`
 	SummaryTokens               int     `json:"summaryTokens"`
 	MessagesInContextCount      int     `json:"messagesInContextCount"`

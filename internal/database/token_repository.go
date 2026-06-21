@@ -103,6 +103,7 @@ type TokenStats struct {
 	CacheWriteTokens int    `json:"cache_write_tokens"`
 	CacheMissTokens  int    `json:"cache_miss_tokens"`
 	MessageCount     int    `json:"message_count"`
+	ModelCallCount   int    `json:"model_call_count"`
 	Model            string `json:"model,omitempty"`
 }
 
@@ -125,6 +126,7 @@ type DetailedTokenStats struct {
 	CacheWriteTokens int    `json:"cache_write_tokens"`
 	CacheMissTokens  int    `json:"cache_miss_tokens"`
 	MessageCount     int    `json:"message_count"`
+	ModelCallCount   int    `json:"model_call_count"`
 	Model            string `json:"model,omitempty"`
 
 	// ContextTokens é a ocupação ATUAL da janela de contexto, derivada do
@@ -169,10 +171,11 @@ func (r *TokenRepository) GetTurnTokenStatsWithContext(ctx context.Context, conv
 		TotalCacheWriteTokens int
 		TotalCacheMissTokens  int
 		MessageCount          int
+		ModelCallCount        int
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id = ?", conversationID, turnID).
-		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens, COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count").
+		Select("SUM(chat_messages.prompt_tokens) as total_prompt_tokens, SUM(chat_messages.completion_tokens) as total_completion_tokens, SUM(chat_messages.total_tokens) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND chat_messages.total_tokens > 0 THEN 1 ELSE 0 END), 0) as model_call_count").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -185,6 +188,7 @@ func (r *TokenRepository) GetTurnTokenStatsWithContext(ctx context.Context, conv
 		CacheWriteTokens: result.TotalCacheWriteTokens,
 		CacheMissTokens:  result.TotalCacheMissTokens,
 		MessageCount:     result.MessageCount,
+		ModelCallCount:   result.ModelCallCount,
 	}, nil
 }
 
@@ -210,10 +214,11 @@ func (r *TokenRepository) GetConversationDetailedTokenStatsWithContext(ctx conte
 		TotalCacheWriteTokens int
 		TotalCacheMissTokens  int
 		MessageCount          int
+		ModelCallCount        int
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ?", conversationID).
-		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens, COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count").
+		Select("SUM(chat_messages.prompt_tokens) as total_prompt_tokens, SUM(chat_messages.completion_tokens) as total_completion_tokens, SUM(chat_messages.total_tokens) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND chat_messages.total_tokens > 0 THEN 1 ELSE 0 END), 0) as model_call_count").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -236,6 +241,7 @@ func (r *TokenRepository) GetConversationDetailedTokenStatsWithContext(ctx conte
 		CacheWriteTokens: result.TotalCacheWriteTokens,
 		CacheMissTokens:  result.TotalCacheMissTokens,
 		MessageCount:     result.MessageCount,
+		ModelCallCount:   result.ModelCallCount,
 		Model:            mostUsedModel,
 	}, nil
 }
@@ -342,6 +348,7 @@ func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, 
 		CacheWriteTokens:            basicStats.CacheWriteTokens,
 		CacheMissTokens:             basicStats.CacheMissTokens,
 		MessageCount:                basicStats.MessageCount,
+		ModelCallCount:              basicStats.ModelCallCount,
 		Model:                       basicStats.Model,
 		ContextTokens:               contextTokens,
 		SystemPromptEstimatedTokens: systemPromptEstimatedTokens,

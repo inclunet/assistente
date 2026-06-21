@@ -51,6 +51,7 @@ func (s *TokenService) GetConversationStats(ctx context.Context, conversationID 
 		CacheWriteTokens:            detailedStats.CacheWriteTokens,
 		CacheMissTokens:             detailedStats.CacheMissTokens,
 		MessageCount:                detailedStats.MessageCount,
+		ModelCallCount:              detailedStats.ModelCallCount,
 		Model:                       detailedStats.Model,
 		MostUsedModel:               detailedStats.Model,
 		ContextTokens:               detailedStats.ContextTokens,
@@ -92,6 +93,7 @@ func (s *TokenService) GetTurnStats(ctx context.Context, conversationID, turnID 
 		CacheWriteTokens: stats.CacheWriteTokens,
 		CacheMissTokens:  stats.CacheMissTokens,
 		MessageCount:     stats.MessageCount,
+		ModelCallCount:   stats.ModelCallCount,
 	}).withCacheDerivedStats(), nil
 }
 

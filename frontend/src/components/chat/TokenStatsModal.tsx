@@ -32,6 +32,7 @@ interface TokenStats {
   isNearLimit: boolean;
   isCritical: boolean;
   messageCount: number;
+  modelCallCount?: number;
   mostUsedModel: string;
   systemPromptEstimatedTokens: number;
   summaryTokens: number;
@@ -121,6 +122,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
 
   const roundedContextUsage = stats ? Number(stats.contextUsage.toFixed(1)) : 0;
   const contextUsageText = `${roundedContextUsage.toFixed(1)}%`;
+  const modelCallCount = stats?.modelCallCount ?? 0;
 
   const estimatedCost = stats ? {
     input: (Math.max(0, stats.promptTokens - (stats.cacheReadTokens ?? 0)) / 1000000) * 0.5, // estimativa genérica
@@ -228,9 +230,14 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                     <tr>
                       <th scope="row">{t('tokenStats.messages')}</th>
                       <td>{formatNumber(stats.messageCount)}</td>
+                      <td>—</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">{t('tokenStats.modelCalls')}</th>
+                      <td>{formatNumber(modelCallCount)}</td>
                       <td>
-                        {stats.messageCount > 0
-                          ? `${Math.round(stats.totalTokens / stats.messageCount)} ${t('tokenStats.tokensPerMsg')}`
+                        {modelCallCount > 0
+                          ? `${formatNumber(Math.round(stats.totalTokens / modelCallCount))} ${t('tokenStats.tokensPerCall')}`
                           : '—'}
                       </td>
                     </tr>

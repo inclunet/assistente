@@ -92,6 +92,9 @@ func TestGetDetailedTokenStats_ContextVsCumulative(t *testing.T) {
 	if stats.TotalTokens != 3000 {
 		t.Errorf("TotalTokens acumulado: esperado 3000, obtido %d", stats.TotalTokens)
 	}
+	if stats.ModelCallCount != 2 {
+		t.Errorf("ModelCallCount: esperado 2 chamadas ao modelo, obtido %d", stats.ModelCallCount)
+	}
 	if stats.ContextTokens != 1800 {
 		t.Errorf("ContextTokens (turno atual): esperado 1800, obtido %d", stats.ContextTokens)
 	}

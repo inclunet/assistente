@@ -651,6 +651,7 @@ func (s *Service) RunAgenticLoop(
 					IsNearLimit:                 stats.IsNearLimit,
 					IsCritical:                  stats.IsCritical,
 					MessageCount:                stats.MessageCount,
+					ModelCallCount:              stats.ModelCallCount,
 					SystemPromptEstimatedTokens: stats.SystemPromptEstimatedTokens,
 					SummaryTokens:               stats.SummaryTokens,
 					MessagesInContextCount:      stats.MessagesInContextCount,
@@ -878,6 +879,7 @@ func (s *Service) emitTokenStats(conversationID string) {
 		CacheTokensReported: stats.CacheTokensReported,
 		PromptCacheEnabled:  stats.PromptCacheEnabled,
 		MessageCount:        stats.MessageCount,
+		ModelCallCount:      stats.ModelCallCount,
 	})
 	if stats.IsCritical {
 		log.Printf("[Context] conversa %s em CRÍTICO: %0.1f%% (%d/%d tokens)",

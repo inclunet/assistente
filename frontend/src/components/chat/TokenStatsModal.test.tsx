@@ -28,11 +28,12 @@ describe('TokenStatsModal', () => {
   it('renderiza stats quando aberto', async () => {
     getStatsSpy.mockResolvedValue({
       conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
-      promptTokens: 10,
-      completionTokens: 20,
-      totalTokens: 30,
+      promptTokens: 185170,
+      completionTokens: 2912,
+      totalTokens: 188082,
       contextTokens: 63942,
-      messageCount: 1,
+      messageCount: 6,
+      modelCallCount: 3,
       mostUsedModel: 'x',
       contextUsage: 31.971,
       contextLimit: 200000,
@@ -65,6 +66,9 @@ describe('TokenStatsModal', () => {
     const progress = screen.getByRole('progressbar', { name: 'tokenStats.contextUsage' });
     expect(progress).toHaveAttribute('aria-valuenow', '32');
     expect(progress).toHaveAttribute('aria-valuetext', '32.0%');
+    expect(screen.getByText('tokenStats.modelCalls')).toBeInTheDocument();
+    expect(screen.getByText('62.694 tokenStats.tokensPerCall')).toBeInTheDocument();
+    expect(screen.queryByText('31.347 tokenStats.tokensPerMsg')).not.toBeInTheDocument();
   });
 
   it('renderiza métricas e aviso de prompt cache', async () => {

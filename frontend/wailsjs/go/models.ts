@@ -941,6 +941,7 @@ export namespace chat {
 	    cacheTokensReported: boolean;
 	    promptCacheEnabled?: boolean;
 	    messageCount: number;
+	    modelCallCount: number;
 	    model: string;
 	    mostUsedModel: string;
 	    contextTokens: number;
@@ -974,6 +975,7 @@ export namespace chat {
 	        this.cacheTokensReported = source["cacheTokensReported"];
 	        this.promptCacheEnabled = source["promptCacheEnabled"];
 	        this.messageCount = source["messageCount"];
+	        this.modelCallCount = source["modelCallCount"];
 	        this.model = source["model"];
 	        this.mostUsedModel = source["mostUsedModel"];
 	        this.contextTokens = source["contextTokens"];
