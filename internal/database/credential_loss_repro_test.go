@@ -101,7 +101,9 @@ func TestCredentialLossRepro_PreAEP0052BootPreservesAllCredentials(t *testing.T)
 	assertCredentialCount(t, len(seeds), "após AutoMigrate")
 
 	// 3. Garante o índice unique (ux_credential_entries_user_pattern).
-	ensureCredentialEntryUserPatternIndex()
+	if err := ensureCredentialEntryUserPatternIndex(); err != nil {
+		t.Fatalf("ensureCredentialEntryUserPatternIndex: %v", err)
+	}
 	assertCredentialCount(t, len(seeds), "após ensureCredentialEntryUserPatternIndex")
 
 	// Confere que os tokens não foram zerados pelo AutoMigrate (defesa
@@ -297,7 +299,9 @@ func openMultiUserDB(t *testing.T) {
 	); err != nil {
 		t.Fatalf("auto-migrate: %v", err)
 	}
-	ensureCredentialEntryUserPatternIndex()
+	if err := ensureCredentialEntryUserPatternIndex(); err != nil {
+		t.Fatalf("ensureCredentialEntryUserPatternIndex: %v", err)
+	}
 
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()

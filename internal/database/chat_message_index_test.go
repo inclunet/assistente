@@ -28,7 +28,9 @@ func setupChatMessageIndexTestDB(t *testing.T) *sql.DB {
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	ensureChatMessageWindowIndex()
+	if err := ensureChatMessageWindowIndex(); err != nil {
+		t.Fatalf("ensureChatMessageWindowIndex: %v", err)
+	}
 
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -105,8 +107,12 @@ func TestChatMessageIndexesExist(t *testing.T) {
 func TestChatMessageIndexCreationIsIdempotent(t *testing.T) {
 	sqlDB := setupChatMessageIndexTestDB(t)
 
-	ensureChatMessageWindowIndex()
-	ensureChatMessageWindowIndex()
+	if err := ensureChatMessageWindowIndex(); err != nil {
+		t.Fatalf("ensureChatMessageWindowIndex (1ª): %v", err)
+	}
+	if err := ensureChatMessageWindowIndex(); err != nil {
+		t.Fatalf("ensureChatMessageWindowIndex (2ª): %v", err)
+	}
 
 	got := chatMessageIndexNames(t, sqlDB)
 	for _, name := range []string{

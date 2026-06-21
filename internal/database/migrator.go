@@ -21,6 +21,18 @@ import (
 // precisa preceder um índice unique) — nesses casos retorne o erro real.
 var errMigrationDeferred = errors.New("migração adiada para o próximo boot")
 
+// deferIfErr converte um erro de passo best-effort (ex.: criação/limpeza de
+// índice, que NÃO deve abortar o boot) num adiamento: a migração não é
+// registrada e é retentada no próximo startup, preservando o comportamento
+// pré-versionamento desses passos (rodavam a cada boot até ter sucesso).
+// Retorna nil quando não há erro.
+func deferIfErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%v: %w", err, errMigrationDeferred)
+}
+
 // Versionamento de schema (AEP-0076).
 //
 // Este arquivo implementa o mecanismo de migrações versionadas do banco.
@@ -110,37 +122,25 @@ var schemaMigrations = []migration{
 		Version: 3,
 		Name:    "task_note_external_unique_index",
 		Phase:   phasePostAutoMigrate,
-		Run: func(*gorm.DB) error {
-			ensureTaskNoteExternalUniqueIndex()
-			return nil
-		},
+		Run:     func(*gorm.DB) error { return deferIfErr(ensureTaskNoteExternalUniqueIndex()) },
 	},
 	{
 		Version: 4,
 		Name:    "task_list_user_slug_unique_index",
 		Phase:   phasePostAutoMigrate,
-		Run: func(*gorm.DB) error {
-			ensureTaskListSlugUniqueIndex()
-			return nil
-		},
+		Run:     func(*gorm.DB) error { return deferIfErr(ensureTaskListSlugUniqueIndex()) },
 	},
 	{
 		Version: 5,
 		Name:    "chat_message_window_indexes",
 		Phase:   phasePostAutoMigrate,
-		Run: func(*gorm.DB) error {
-			ensureChatMessageWindowIndex()
-			return nil
-		},
+		Run:     func(*gorm.DB) error { return deferIfErr(ensureChatMessageWindowIndex()) },
 	},
 	{
 		Version: 6,
 		Name:    "credential_entry_legacy_index_cleanup",
 		Phase:   phasePostAutoMigrate,
-		Run: func(*gorm.DB) error {
-			ensureCredentialEntryUserPatternIndex()
-			return nil
-		},
+		Run:     func(*gorm.DB) error { return deferIfErr(ensureCredentialEntryUserPatternIndex()) },
 	},
 	{
 		Version: 7,

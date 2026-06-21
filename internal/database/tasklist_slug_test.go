@@ -17,7 +17,9 @@ func setupTaskListSlugTestDB(t *testing.T) {
 	if err := db.AutoMigrate(&TaskListWorkflow{}, &TaskList{}, &Task{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	ensureTaskListSlugUniqueIndex()
+	if err := ensureTaskListSlugUniqueIndex(); err != nil {
+		t.Fatalf("ensureTaskListSlugUniqueIndex: %v", err)
+	}
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
 		if sqlDB != nil {

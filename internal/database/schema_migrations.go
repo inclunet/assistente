@@ -15,11 +15,14 @@ import (
 //
 // Se a mesma referência externa for associada a outra task local, UpsertTaskNoteByExternal
 // retorna erro explícito em vez de duplicar linhas.
-func ensureTaskNoteExternalUniqueIndex() {
+func ensureTaskNoteExternalUniqueIndex() error {
 	if db == nil {
-		return
+		return nil
 	}
-	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_task_notes_external_source_id ON task_notes (external_source, external_id) WHERE external_source <> '' AND external_id <> ''`)
+	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_task_notes_external_source_id ON task_notes (external_source, external_id) WHERE external_source <> '' AND external_id <> ''`).Error; err != nil {
+		return fmt.Errorf("criar índice ux_task_notes_external_source_id: %w", err)
+	}
+	return nil
 }
 
 // ensureChatMessageWindowIndex cria os índices de ordenação/paginação de
@@ -48,9 +51,9 @@ func ensureTaskNoteExternalUniqueIndex() {
 // Falhas de criação de índice são logadas como aviso e não abortam o boot: o
 // app ainda funciona sem o índice (apenas com queries mais lentas), e abortar a
 // inicialização por causa de um índice seria pior do que degradar performance.
-func ensureChatMessageWindowIndex() {
+func ensureChatMessageWindowIndex() error {
 	if db == nil {
-		return
+		return nil
 	}
 	indexStmts := []string{
 		`CREATE INDEX IF NOT EXISTS idx_chat_messages_window ON chat_messages (conversation_id, parent_id, created_at, id)`,
@@ -58,11 +61,16 @@ func ensureChatMessageWindowIndex() {
 		`CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages (conversation_id, created_at, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_messages_updated_at ON chat_messages (conversation_id, updated_at)`,
 	}
+	var firstErr error
 	for _, stmt := range indexStmts {
 		if err := db.Exec(stmt).Error; err != nil {
 			log.Printf("[Database] AVISO: falha ao criar índice de chat_messages: %v (stmt: %s)", err, stmt)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("criar índice chat_messages: %w", err)
+			}
 		}
 	}
+	return firstErr
 }
 
 // dedupCredentialEntriesBeforeMigrate remove duplicatas em
@@ -124,12 +132,15 @@ func dedupCredentialEntriesBeforeMigrate() error {
 // `credentials/db_store.go` funcione — SQLite só aceita ON CONFLICT contra
 // índices unique sem `WHERE`. Em prática o app sempre grava patterns
 // não-vazios.
-func ensureCredentialEntryUserPatternIndex() {
+func ensureCredentialEntryUserPatternIndex() error {
 	if db == nil {
-		return
+		return nil
 	}
 
-	db.Exec(`DROP INDEX IF EXISTS idx_credential_entries_pattern`)
+	if err := db.Exec(`DROP INDEX IF EXISTS idx_credential_entries_pattern`).Error; err != nil {
+		return fmt.Errorf("limpar índice legado idx_credential_entries_pattern: %w", err)
+	}
+	return nil
 }
 
 // ensureUsernameCaseInsensitive normaliza usernames legados para lowercase e
