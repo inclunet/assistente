@@ -183,7 +183,7 @@
 }
 
 .task-detail__add-note-btn:hover {
-  background: var(--bg-surface);
+  background: var(--bg-hover);
 }
 
 /* Notes list */
@@ -274,7 +274,7 @@
 }
 
 .task-detail__note-action:hover {
-  background: var(--bg-surface);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
@@ -313,7 +313,7 @@
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-surface);
+  background: var(--bg-input);
   color: var(--text-primary);
   font-size: 0.8rem;
   min-width: 150px;
@@ -324,7 +324,7 @@
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-surface);
+  background: var(--bg-input);
   color: var(--text-primary);
   font-size: 0.8rem;
 }
@@ -335,7 +335,7 @@
   padding: 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-surface);
+  background: var(--bg-input);
   color: var(--text-primary);
   font-size: 0.85rem;
   font-family: inherit;
@@ -360,7 +360,7 @@
 }
 
 .task-detail__note-form-actions button:hover {
-  background: var(--bg-surface);
+  background: var(--bg-hover);
 }
 
 .task-detail__note-form-actions button[data-primary] {
