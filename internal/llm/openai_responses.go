@@ -439,7 +439,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 		case "response.failed":
 			ev := event.AsResponseFailed()
-			errMsg := "Responses API error"
+			errMsg := "erro na Responses API"
 			if ev.Response.Error.Message != "" {
 				errMsg = ev.Response.Error.Message
 			}
