@@ -95,6 +95,7 @@ export function useEditorMerge() {
 
   const setExternalConflictLocked = (tabId: string, locked: boolean) => {
     const id = String(tabId || '');
+    if (!id) return;
     const next = !!locked;
     const prev = !!externalConflictLockedByTabRef.current[id];
     externalConflictLockedByTabRef.current[id] = next;

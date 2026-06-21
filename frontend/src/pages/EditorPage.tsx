@@ -1282,7 +1282,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   };
 
   const fileMenuItems = useMemo(() => {
-    const canSave = !!activeTab && (!activeTab.filePath || isExternalConflictLocked(activeTab.id));
+    // "Salvar" funciona em qualquer aba ativa: grava o arquivo quando há
+    // filePath, pede destino quando é rascunho sem path, ou resolve o conflito
+    // externo quando está locked (ver saveFile). Por isso fica habilitado
+    // sempre que houver aba ativa — não só nos casos sem path/locked.
+    const canSave = !!activeTab;
     const canSaveAs = !!activeTab?.filePath;
     const hasMergeSession = !!activeTab && !!getMergeSession(activeTab.id);
 
@@ -1297,9 +1301,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     ];
 
     return items;
-    // `mergeStateRevision` força recomputo quando o lock externo ou a merge
-    // session mudam (lidos via refs em `isExternalConflictLocked`/`getMergeSession`),
-    // já que esses valores não derivam de `activeTab`.
+    // `mergeStateRevision` força recomputo quando a merge session muda (lida
+    // via ref em `getMergeSession` para o item "Abortar merge"), já que esse
+    // estado não deriva de `activeTab`.
   }, [activeTab, mergeStateRevision]);
 
   const onFileMenuSelect = useCallback(
