@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:css": "stylelint \"src/**/*.css\"",
+    "lint:tokens": "node scripts/check-css-tokens.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

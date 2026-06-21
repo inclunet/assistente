@@ -1,5 +1,5 @@
 .markdown-content {
-  line-height: var(--line-height);
+  line-height: 1.6;
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
@@ -13,7 +13,7 @@
 }
 
 .markdown-content a {
-  color: var(--color-link);
+  color: var(--color-info);
   text-decoration: underline;
 }
 

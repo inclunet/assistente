@@ -100,7 +100,7 @@
   color: var(--text-secondary);
   border-radius: calc(var(--border-radius) * 0.5);
   cursor: pointer;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-base);
   line-height: 1;
   transition:
     background-color var(--duration-fast) var(--ease-default),
@@ -114,7 +114,7 @@
 }
 
 .media-remove:focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
