@@ -305,6 +305,7 @@ const en = {
       cacheMissTokens: 'Cache miss tokens',
       cacheHitRate: 'Hit rate',
       cacheReportedNote: 'The provider reported cache metrics for this conversation.',
+      cacheEnabledNotReportedNote: 'Prompt cache is enabled in the profile, but the provider has not reported cache metrics for this conversation yet.',
       cacheUnavailableNote: 'No cache metrics have been reported for this conversation yet.',
 
       // Context Details tab (new)

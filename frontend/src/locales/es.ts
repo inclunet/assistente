@@ -304,6 +304,7 @@ const es = {
       cacheMissTokens: 'Tokens fuera del cache',
       cacheHitRate: 'Tasa de aciertos',
       cacheReportedNote: 'El proveedor reportó métricas de cache para esta conversación.',
+      cacheEnabledNotReportedNote: 'El prompt cache está habilitado en el perfil, pero el proveedor aún no reportó métricas de cache para esta conversación.',
       cacheUnavailableNote: 'Aún no hay métricas de cache reportadas para esta conversación.',
 
       // Context Details tab (new)

@@ -120,6 +120,16 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   const formatCacheHitRate = (): string =>
     stats?.cacheTokensReported ? `${(stats.cacheHitRate ?? 0).toFixed(1)}%` : '—';
 
+  const getCacheStatusNote = (): string => {
+    if (stats?.cacheTokensReported) {
+      return t('tokenStats.cacheReportedNote');
+    }
+    if (stats?.promptCacheEnabled === true) {
+      return t('tokenStats.cacheEnabledNotReportedNote');
+    }
+    return t('tokenStats.cacheUnavailableNote');
+  };
+
   const roundedContextUsage = stats ? Number(stats.contextUsage.toFixed(1)) : 0;
   const contextUsageText = `${roundedContextUsage.toFixed(1)}%`;
   const modelCallCount = stats?.modelCallCount ?? 0;
@@ -298,9 +308,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
               <section className="token-stats-section">
                 <h3>{t('tokenStats.promptCache')}</h3>
                 <p className="token-stats-cost__note">
-                  {stats.cacheTokensReported
-                    ? t('tokenStats.cacheReportedNote')
-                    : t('tokenStats.cacheUnavailableNote')}
+                  {getCacheStatusNote()}
                 </p>
                 <table className="token-stats-table">
                   <thead>

@@ -305,6 +305,7 @@ const ptBR = {
       cacheMissTokens: 'Tokens fora do cache',
       cacheHitRate: 'Taxa de acerto',
       cacheReportedNote: 'O provedor reportou métricas de cache para esta conversa.',
+      cacheEnabledNotReportedNote: 'O prompt cache está habilitado no perfil, mas o provedor ainda não reportou métricas de cache para esta conversa.',
       cacheUnavailableNote: 'Ainda não há métricas de cache reportadas para esta conversa.',
 
       // Context Details tab (new)
