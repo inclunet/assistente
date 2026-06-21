@@ -175,7 +175,7 @@ func (r *TokenRepository) GetTurnTokenStatsWithContext(ctx context.Context, conv
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id = ?", conversationID, turnID).
-		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND (chat_messages.total_tokens > 0 OR (chat_messages.tool_calls IS NOT NULL AND chat_messages.tool_calls != '')) THEN 1 ELSE 0 END), 0) as model_call_count").
+		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND (chat_messages.total_tokens > 0 OR (chat_messages.tool_calls IS NOT NULL AND TRIM(chat_messages.tool_calls) NOT IN ('', '[]', 'null'))) THEN 1 ELSE 0 END), 0) as model_call_count").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -218,7 +218,7 @@ func (r *TokenRepository) GetConversationDetailedTokenStatsWithContext(ctx conte
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ?", conversationID).
-		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND (chat_messages.total_tokens > 0 OR (chat_messages.tool_calls IS NOT NULL AND chat_messages.tool_calls != '')) THEN 1 ELSE 0 END), 0) as model_call_count").
+		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND (chat_messages.total_tokens > 0 OR (chat_messages.tool_calls IS NOT NULL AND TRIM(chat_messages.tool_calls) NOT IN ('', '[]', 'null'))) THEN 1 ELSE 0 END), 0) as model_call_count").
 		Scan(&result).Error
 	if err != nil {
 		return nil, err

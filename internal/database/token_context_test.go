@@ -21,23 +21,22 @@ func createConvWithReportedUsage(t *testing.T) (convID string) {
 
 	base := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
 	type msg struct {
-		id     string
-		role   string
-		prompt int
-		compl  int
+		id        string
+		role      string
+		prompt    int
+		compl     int
+		toolCalls string
 	}
 	rows := []msg{
-		{"01972000-0000-7000-8000-000000000001", "user", 0, 0},
-		{"01972000-0000-7000-8000-000000000002", "assistant", 1000, 200}, // turno 1
-		{"01972000-0000-7000-8000-000000000003", "user", 0, 0},
-		{"01972000-0000-7000-8000-000000000004", "assistant", 1500, 300}, // turno 2 (mais recente)
-		{"01972000-0000-7000-8000-000000000005", "assistant", 0, 0},      // iteração com tool_calls sem usage persistido
+		{id: "01972000-0000-7000-8000-000000000001", role: "user"},
+		{id: "01972000-0000-7000-8000-000000000002", role: "assistant", prompt: 1000, compl: 200}, // turno 1
+		{id: "01972000-0000-7000-8000-000000000003", role: "user"},
+		{id: "01972000-0000-7000-8000-000000000004", role: "assistant", prompt: 1500, compl: 300},                                                                       // turno 2 (mais recente)
+		{id: "01972000-0000-7000-8000-000000000005", role: "assistant", toolCalls: `[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{}"}}]`}, // iteração com tool_calls sem usage persistido
+		{id: "01972000-0000-7000-8000-000000000006", role: "assistant", toolCalls: "[]"},
+		{id: "01972000-0000-7000-8000-000000000007", role: "assistant", toolCalls: " null "},
 	}
 	for i, r := range rows {
-		toolCalls := ""
-		if r.id == "01972000-0000-7000-8000-000000000005" {
-			toolCalls = `[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{}"}}]`
-		}
 		m := ChatMessage{
 			UUIDModel: UUIDModel{
 				ID:        r.id,
@@ -49,7 +48,7 @@ func createConvWithReportedUsage(t *testing.T) (convID string) {
 			PromptTokens:     r.prompt,
 			CompletionTokens: r.compl,
 			TotalTokens:      r.prompt + r.compl,
-			ToolCalls:        toolCalls,
+			ToolCalls:        r.toolCalls,
 		}
 		if err := db.Create(&m).Error; err != nil {
 			t.Fatalf("failed to create message %d: %v", i, err)
