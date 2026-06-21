@@ -3,7 +3,7 @@
 | Campo | Valor |
 |-------|-------|
 | Status | ✅ Done |
-| Issue | [#247](https://github.com/) |
+| Issue | [#247](https://github.com/inclunet/assistente/issues/247) |
 | Relacionados | AEP-0046 (UUIDv7), AEP-0052 (Multi-user), AEP-0074 (Compaction) |
 
 ## Resumo

@@ -104,7 +104,8 @@ func TestCredentialLossRepro_PreAEP0052BootPreservesAllCredentials(t *testing.T)
 	}
 	assertCredentialCount(t, len(seeds), "após AutoMigrate")
 
-	// 3. Garante o índice unique (ux_credential_entries_user_pattern).
+	// 3. Remove o índice legado idx_credential_entries_pattern (o índice unique
+	// ux_credential_entries_user_pattern é criado pelo AutoMigrate).
 	if err := ensureCredentialEntryUserPatternIndex(); err != nil {
 		t.Fatalf("ensureCredentialEntryUserPatternIndex: %v", err)
 	}

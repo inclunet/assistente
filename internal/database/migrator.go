@@ -26,11 +26,15 @@ var errMigrationDeferred = errors.New("migração adiada para o próximo boot")
 // registrada e é retentada no próximo startup, preservando o comportamento
 // pré-versionamento desses passos (rodavam a cada boot até ter sucesso).
 // Retorna nil quando não há erro.
+//
+// Usa errors.Join para preservar TANTO o sentinela `errMigrationDeferred`
+// (para `errors.Is`) QUANTO o erro original na cadeia de unwrap (para
+// inspeção/`errors.As`).
 func deferIfErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("%v: %w", err, errMigrationDeferred)
+	return errors.Join(err, errMigrationDeferred)
 }
 
 // Versionamento de schema (AEP-0076).
