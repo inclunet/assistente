@@ -106,6 +106,26 @@ func TestGetDetailedTokenStats_ContextVsCumulative(t *testing.T) {
 	}
 }
 
+func TestGetDetailedTokenStats_EmptyConversationReturnsZeroes(t *testing.T) {
+	setupOrderingTestDB(t)
+	conv := &Conversation{Title: "empty", UserID: testUserID}
+	if err := db.Create(conv).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+
+	stats, err := GetDetailedTokenStatsWithContext(testCtx(), conv.ID, "")
+	if err != nil {
+		t.Fatalf("GetDetailedTokenStats: %v", err)
+	}
+
+	if stats.TotalTokens != 0 || stats.PromptTokens != 0 || stats.CompletionTokens != 0 {
+		t.Fatalf("expected zero token totals, got prompt=%d completion=%d total=%d", stats.PromptTokens, stats.CompletionTokens, stats.TotalTokens)
+	}
+	if stats.MessageCount != 0 || stats.ModelCallCount != 0 {
+		t.Fatalf("expected zero counts, got messages=%d calls=%d", stats.MessageCount, stats.ModelCallCount)
+	}
+}
+
 // TestGetLatestReportedContextTokens_NoUsage retorna 0 quando ainda não há
 // usage reportado (conversa só com mensagem de usuário).
 func TestGetLatestReportedContextTokens_NoUsage(t *testing.T) {
