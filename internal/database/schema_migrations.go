@@ -75,15 +75,15 @@ func ensureChatMessageWindowIndex() {
 // partir da tag `uniqueIndex` no model, e bases pré-AEP-0052 podiam ter
 // `pattern` repetido entre registros legacy sem dono — sem dedup prévio o
 // AutoMigrate falha e o app não sobe (review do AEP-0052, Bloco 6, B31).
-func dedupCredentialEntriesBeforeMigrate() {
+func dedupCredentialEntriesBeforeMigrate() error {
 	if db == nil {
-		return
+		return nil
 	}
 	if !db.Migrator().HasTable("credential_entries") {
-		return
+		return nil
 	}
 	if !legacyColumnExists("credential_entries", "user_id") {
-		return
+		return nil
 	}
 	res := db.Exec(`
 		DELETE FROM credential_entries
@@ -100,10 +100,17 @@ func dedupCredentialEntriesBeforeMigrate() {
 		)
 	`)
 	if res.Error != nil {
-		log.Printf("[Database] AVISO: dedup de credential_entries falhou: %v", res.Error)
-	} else if res.RowsAffected > 0 {
+		// Propaga o erro: o dedup PRECISA preceder a criação do índice unique
+		// (user_id, pattern) pelo AutoMigrate. Se falhar e a migração fosse
+		// registrada mesmo assim, o índice continuaria quebrando em todo boot
+		// e o app ficaria permanentemente sem subir. Retornando erro, a v2 não
+		// é registrada e é retentada no próximo startup.
+		return fmt.Errorf("dedup de credential_entries: %w", res.Error)
+	}
+	if res.RowsAffected > 0 {
 		log.Printf("[Database] dedup de credential_entries: %d duplicatas removidas (user_id, pattern)", res.RowsAffected)
 	}
+	return nil
 }
 
 // ensureCredentialEntryUserPatternIndex limpa índices legados que possam
@@ -243,7 +250,14 @@ func migrateRefreshURLToEnc() error {
 	}
 
 	if err := db.Exec(`ALTER TABLE credential_entries DROP COLUMN refresh_url`).Error; err != nil {
-		log.Printf("[Database] AVISO: falha ao dropar coluna legacy refresh_url: %v", err)
+		// Os dados já foram copiados para refresh_token_enc acima; só o DROP da
+		// coluna legada falhou (ex.: SQLite sem suporte a DROP COLUMN). Sinaliza
+		// adiamento: não aborta o boot e NÃO registra a v9, para que o drop seja
+		// retentado no próximo startup — preservando o comportamento anterior ao
+		// versionamento (rodava a cada boot até a coluna sumir) e evitando deixar
+		// a coluna em texto plano gravada como "migrada".
+		log.Printf("[Database] AVISO: falha ao dropar coluna legacy refresh_url (será retentado no próximo boot): %v", err)
+		return fmt.Errorf("dropar coluna legacy refresh_url (%v): %w", err, errMigrationDeferred)
 	}
 	return nil
 }

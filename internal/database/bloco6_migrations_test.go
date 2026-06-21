@@ -54,7 +54,9 @@ func TestDedupCredentialEntriesBeforeMigrate(t *testing.T) {
 	newer1 := mustCreate(users[0].ID, "api.openai.com", "bearer-new", newer)
 	keptDifferentUser := mustCreate(users[1].ID, "api.openai.com", "bearer-other", now)
 
-	dedupCredentialEntriesBeforeMigrate()
+	if err := dedupCredentialEntriesBeforeMigrate(); err != nil {
+		t.Fatalf("dedup: %v", err)
+	}
 
 	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_credential_entries_user_pattern ON credential_entries (user_id, pattern)`).Error; err != nil {
 		t.Fatalf("após dedup, recriação do índice unique deveria funcionar: %v", err)

@@ -1,12 +1,25 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"time"
 
 	"gorm.io/gorm"
 )
+
+// errMigrationDeferred sinaliza que uma migração não conseguiu concluir seu
+// efeito neste boot mas é SEGURA para retentar: ela NÃO é registrada em
+// `schema_migrations` e NÃO aborta o boot — roda de novo no próximo startup.
+//
+// Usada por passos de limpeza tolerantes a falha que, antes do versionamento,
+// rodavam a cada boot até ter sucesso (ex.: `ALTER TABLE ... DROP COLUMN` de
+// uma coluna legada num SQLite sem suporte ao comando). Sem este sinal, a
+// migração seria gravada na primeira execução e o efeito pendente nunca mais
+// seria tentado. Não use para falhas que exigem abortar o boot (ex.: dedup que
+// precisa preceder um índice unique) — nesses casos retorne o erro real.
+var errMigrationDeferred = errors.New("migração adiada para o próximo boot")
 
 // Versionamento de schema (AEP-0076).
 //
@@ -91,10 +104,7 @@ var schemaMigrations = []migration{
 		Version: 2,
 		Name:    "dedup_credential_entries_pre_unique",
 		Phase:   phasePreAutoMigrate,
-		Run: func(*gorm.DB) error {
-			dedupCredentialEntriesBeforeMigrate()
-			return nil
-		},
+		Run:     func(*gorm.DB) error { return dedupCredentialEntriesBeforeMigrate() },
 	},
 	{
 		Version: 3,
@@ -208,6 +218,13 @@ func runMigrationList(database *gorm.DB, phase migrationPhase, migrations []migr
 
 		if m.Run != nil {
 			if rerr := m.Run(database); rerr != nil {
+				// Adiamento: efeito incompleto mas seguro para retentar. NÃO
+				// registra nem aborta o boot — a migração roda de novo no
+				// próximo startup.
+				if errors.Is(rerr, errMigrationDeferred) {
+					log.Printf("[Migration] v%d %q adiada — será retentada no próximo boot: %v", m.Version, m.Name, rerr)
+					continue
+				}
 				return fmt.Errorf("aplicar migração %d (%s): %w", m.Version, m.Name, rerr)
 			}
 		}

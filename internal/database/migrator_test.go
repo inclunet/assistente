@@ -2,6 +2,7 @@ package database
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/glebarez/sqlite"
@@ -203,6 +204,50 @@ func TestRunMigrations_StopsOnError(t *testing.T) {
 	got := schemaMigrationRows(t, database)
 	if len(got) != 1 || got[0] != 1 {
 		t.Fatalf("apenas v1 deveria estar registrada, tenho %v", got)
+	}
+}
+
+// TestRunMigrations_DeferredNotRecordedAndRetries valida o caminho de
+// adiamento: uma migração que retorna errMigrationDeferred NÃO aborta o boot,
+// NÃO é registrada e as migrações seguintes continuam rodando — e numa
+// execução posterior ela é retentada (e registrada quando finalmente sucede).
+func TestRunMigrations_DeferredNotRecordedAndRetries(t *testing.T) {
+	database := newMigratorTestDB(t)
+
+	attempts := 0
+	ranAfter := false
+	drop := func(*gorm.DB) error {
+		attempts++
+		if attempts == 1 {
+			return fmt.Errorf("drop falhou (%v): %w", errors.New("no such feature"), errMigrationDeferred)
+		}
+		return nil
+	}
+	migs := []migration{
+		{Version: 1, Name: "deferred", Phase: phasePostAutoMigrate, Run: drop},
+		{Version: 2, Name: "after", Phase: phasePostAutoMigrate, Run: func(*gorm.DB) error { ranAfter = true; return nil }},
+	}
+
+	// 1ª execução: v1 adia (não registra) mas não aborta; v2 segue normalmente.
+	if err := runMigrationList(database, phasePostAutoMigrate, migs); err != nil {
+		t.Fatalf("adiamento não deveria abortar o boot: %v", err)
+	}
+	if !ranAfter {
+		t.Fatal("migração seguinte deveria rodar mesmo com a anterior adiada")
+	}
+	if got := schemaMigrationRows(t, database); len(got) != 1 || got[0] != 2 {
+		t.Fatalf("apenas v2 deveria estar registrada após adiamento, tenho %v", got)
+	}
+
+	// 2ª execução: v1 é retentada (agora sucede) e registrada.
+	if err := runMigrationList(database, phasePostAutoMigrate, migs); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("v1 deveria ter sido retentada (2 tentativas), tenho %d", attempts)
+	}
+	if got := schemaMigrationRows(t, database); len(got) != 2 || got[0] != 1 || got[1] != 2 {
+		t.Fatalf("v1 e v2 deveriam estar registradas após o retry, tenho %v", got)
 	}
 }
 

@@ -77,7 +77,9 @@ func TestCredentialLossRepro_PreAEP0052BootPreservesAllCredentials(t *testing.T)
 	}
 
 	// 1. dedup pré-migrate (deve ser noop sem user_id na tabela).
-	dedupCredentialEntriesBeforeMigrate()
+	if err := dedupCredentialEntriesBeforeMigrate(); err != nil {
+		t.Fatalf("dedup pré-migrate: %v", err)
+	}
 	assertCredentialCount(t, len(seeds), "após dedup pré-migrate")
 
 	// 2. AutoMigrate completo (mesmas tabelas que internal/app/db.go inicializa).
