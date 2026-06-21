@@ -100,7 +100,7 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 - 📋 **Open** — aprovada, aguardando implementação
 - 🚧 **In Progress** — sendo implementada
 - ✅ **Done** — implementada (inclui "Concluído"/"Implementado")
-- ✔️ **Accepted** — aceita como contrato/decisão vigente, mesmo sem 100% implementada
+- ✔️ **Accepted** — aceita como contrato/decisão vigente, mesmo sem 100% implementada (inclui o rótulo em português "Aceito", ex.: 0040 e 0061)
 - 🗄️ **Superseded** — substituída/obsoleta (mantida como registro histórico)
 - ❌ **Deprecated** — desprezada/cancelada
 
