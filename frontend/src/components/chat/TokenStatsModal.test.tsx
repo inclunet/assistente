@@ -121,7 +121,6 @@ describe('TokenStatsModal', () => {
       totalTokens: 1200,
       cacheHitRate: 0,
       cacheTokensReported: false,
-      promptCacheEnabled: true,
       contextTokens: 900,
       messageCount: 2,
       mostUsedModel: 'claude',
@@ -154,6 +153,7 @@ describe('TokenStatsModal', () => {
     fireEvent.click(cacheTab);
 
     expect(screen.getByText('tokenStats.cacheUnavailableNote')).toBeInTheDocument();
+    expect(screen.queryByText('tokenStats.cacheDisabledNote')).not.toBeInTheDocument();
     expect(screen.queryByText('0.0%')).not.toBeInTheDocument();
   });
 });

@@ -282,7 +282,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
             <TabPanel value="cache">
               <section className="token-stats-section">
                 <h3>{t('tokenStats.promptCache')}</h3>
-                {!stats.promptCacheEnabled && (
+                {stats.promptCacheEnabled === false && (
                   <p className="token-stats-info">
                     {t('tokenStats.cacheDisabledNote')}
                   </p>
