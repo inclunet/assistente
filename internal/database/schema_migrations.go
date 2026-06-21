@@ -230,7 +230,9 @@ func ensureUsernameCaseInsensitive() error {
 		log.Printf("[Database] usernames legacy normalizados para lowercase: %d", len(legacyMixedCase))
 	}
 
-	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_unique ON users (LOWER(username))`)
+	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_unique ON users (LOWER(username))`).Error; err != nil {
+		return fmt.Errorf("criar índice users_username_lower_unique: %w", err)
+	}
 	return nil
 }
 

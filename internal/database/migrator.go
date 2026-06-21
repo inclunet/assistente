@@ -146,7 +146,7 @@ var schemaMigrations = []migration{
 		Version: 7,
 		Name:    "username_case_insensitive",
 		Phase:   phasePostAutoMigrate,
-		Run:     func(*gorm.DB) error { return ensureUsernameCaseInsensitive() },
+		Run:     func(*gorm.DB) error { return deferIfErr(ensureUsernameCaseInsensitive()) },
 	},
 	{
 		Version: 8,
