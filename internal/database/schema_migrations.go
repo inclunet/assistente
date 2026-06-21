@@ -83,6 +83,15 @@ func ensureChatMessageWindowIndex() error {
 // partir da tag `uniqueIndex` no model, e bases pré-AEP-0052 podiam ter
 // `pattern` repetido entre registros legacy sem dono — sem dedup prévio o
 // AutoMigrate falha e o app não sobe (review do AEP-0052, Bloco 6, B31).
+//
+// Retorno (sob o versionamento de schema, AEP-0076):
+//   - nil quando não há nada a fazer de forma definitiva (sem tabela ou já
+//     deduplicado) ou após deduplicar com sucesso — a v2 é registrada;
+//   - erro real quando o DELETE falha — a v2 NÃO é registrada e o boot aborta
+//     (o índice unique quebraria de qualquer forma); retentada no próximo boot;
+//   - errMigrationDeferred quando a tabela existe mas ainda não tem `user_id`
+//     (base pré-AEP-0052): adia sem registrar, pois o dedup por (user_id,
+//     pattern) só é possível depois que o AutoMigrate adicionar a coluna.
 func dedupCredentialEntriesBeforeMigrate() error {
 	if db == nil {
 		return nil
@@ -91,7 +100,15 @@ func dedupCredentialEntriesBeforeMigrate() error {
 		return nil
 	}
 	if !legacyColumnExists("credential_entries", "user_id") {
-		return nil
+		// Base legada pré-AEP-0052: a tabela existe mas ainda NÃO tem a coluna
+		// user_id (será adicionada pelo AutoMigrate). O dedup por (user_id,
+		// pattern) só é possível depois disso, então adia para o próximo boot
+		// em vez de registrar a v2 prematuramente. No boot seguinte (já com
+		// user_id) o dedup roda de fato — inclusive recuperando o caso em que o
+		// AutoMigrate falhou ao criar o índice unique por duplicatas recém-
+		// expostas (a coluna user_id é adicionada mesmo quando a criação do
+		// índice falha, então o retry consegue deduplicar e destravar o boot).
+		return fmt.Errorf("credential_entries ainda sem coluna user_id (pré-AutoMigrate): %w", errMigrationDeferred)
 	}
 	res := db.Exec(`
 		DELETE FROM credential_entries

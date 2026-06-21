@@ -251,6 +251,48 @@ func TestRunMigrations_DeferredNotRecordedAndRetries(t *testing.T) {
 	}
 }
 
+// TestDedupCredentialEntries_DefersUntilUserIDExists valida que o dedup da v2
+// NÃO é dado como aplicado quando a tabela legada ainda não tem a coluna
+// user_id (pré-AEP-0052): ele se adia, e só deduplica de fato depois que o
+// AutoMigrate adiciona a coluna — destravando o caso em que o índice unique
+// falharia por duplicatas recém-expostas.
+func TestDedupCredentialEntries_DefersUntilUserIDExists(t *testing.T) {
+	prev := db
+	database := newMigratorTestDB(t)
+	db = database
+	t.Cleanup(func() { db = prev })
+
+	// Tabela legada pré-AEP-0052: sem user_id, com pattern duplicado.
+	if err := db.Exec(`CREATE TABLE credential_entries (id TEXT PRIMARY KEY, pattern TEXT, updated_at DATETIME)`).Error; err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO credential_entries (id, pattern, updated_at) VALUES ('a','api.openai.com','2026-01-01'),('b','api.openai.com','2026-01-02')`).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Sem user_id → adia (não deduplica e não deve ser registrada).
+	if err := dedupCredentialEntriesBeforeMigrate(); !errors.Is(err, errMigrationDeferred) {
+		t.Fatalf("esperava errMigrationDeferred sem user_id, tenho %v", err)
+	}
+
+	// Simula o AutoMigrate adicionando user_id (todas as linhas no mesmo dono).
+	if err := db.Exec(`ALTER TABLE credential_entries ADD COLUMN user_id TEXT DEFAULT ''`).Error; err != nil {
+		t.Fatalf("add user_id: %v", err)
+	}
+
+	// Agora com user_id → dedup real, sem erro.
+	if err := dedupCredentialEntriesBeforeMigrate(); err != nil {
+		t.Fatalf("dedup com user_id: %v", err)
+	}
+	var count int64
+	if err := db.Raw(`SELECT count(*) FROM credential_entries`).Scan(&count).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("dedup deveria manter 1 linha por (user_id, pattern), tenho %d", count)
+	}
+}
+
 // TestSchemaMigrationsRegistry_IsConsistent guarda contra erros de edição da
 // lista global: versões estritamente crescentes/únicas, nomes não vazios e Run
 // não-nil.

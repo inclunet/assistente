@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -76,8 +77,11 @@ func TestCredentialLossRepro_PreAEP0052BootPreservesAllCredentials(t *testing.T)
 		}
 	}
 
-	// 1. dedup pré-migrate (deve ser noop sem user_id na tabela).
-	if err := dedupCredentialEntriesBeforeMigrate(); err != nil {
+	// 1. dedup pré-migrate: base legada sem user_id ainda — o dedup por
+	// (user_id, pattern) só se aplica após o AutoMigrate criar a coluna, então
+	// aqui ele se ADIA (errMigrationDeferred) sem deduplicar nada. Qualquer
+	// outro erro é fatal.
+	if err := dedupCredentialEntriesBeforeMigrate(); err != nil && !errors.Is(err, errMigrationDeferred) {
 		t.Fatalf("dedup pré-migrate: %v", err)
 	}
 	assertCredentialCount(t, len(seeds), "após dedup pré-migrate")
