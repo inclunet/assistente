@@ -265,7 +265,7 @@ Auditoria e remoção de dead code, código legacy e práticas questionáveis no
 | Latência: backend resolve perfil a cada mensagem | Perfil já é resolvido no handler; cache por conversa se necessário |
 | Race: `chat:speak` chega depois do cleanup | `dispatchSpeechEvent` é chamado **antes** de `chat:done`, de forma síncrona |
 | Regressão no play button (on-demand) | Path separado do `chat:speak`; `triggerAutoRead` mantida para on-demand |
-| SAPI5 `isSpeaking` stale data | Fix do isSpeaking (AEP-0028 Fase 2B) já aplicado |
+| SAPI5 `isSpeaking` stale data | Fix do isSpeaking (AEP-0024 apêndice Speech/TTS Refactor, Fase 2B) já aplicado |
 | Latência SAPI5 via WAV (Fase 7) | ~50-200ms para escrita WAV + leitura + base64 — imperceptível na prática |
 
 ### Fase 7 — Unificação SAPI5 → backend_audio
@@ -338,7 +338,7 @@ O frontend não precisa de alterações:
 
 ## Referências
 
-- AEP-0028: Speech/TTS Refactor (auditoria + correções estruturais)
+- AEP-0024 (apêndice): Speech/TTS Refactor (auditoria + correções estruturais)
 - AEP-0040: Backend-Driven Messaging (padrão de eventos backend → frontend)
 - `app_speech_events.go` — dispatcher e event builder
 - `internal/messaging/tts_broker.go` — coordenador de áudio para canais
