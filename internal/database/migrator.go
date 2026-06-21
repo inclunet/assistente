@@ -146,7 +146,11 @@ var schemaMigrations = []migration{
 		Version: 7,
 		Name:    "username_case_insensitive",
 		Phase:   phasePostAutoMigrate,
-		Run:     func(*gorm.DB) error { return deferIfErr(ensureUsernameCaseInsensitive()) },
+		// A função decide a severidade: erros de NORMALIZAÇÃO de dados (scan,
+		// colisão, UPDATE) são reais e abortam o boot (não registram → retry);
+		// apenas a falha de CREATE INDEX vem como errMigrationDeferred (adia
+		// sem abortar). Por isso NÃO usamos deferIfErr aqui.
+		Run: func(*gorm.DB) error { return ensureUsernameCaseInsensitive() },
 	},
 	{
 		Version: 8,

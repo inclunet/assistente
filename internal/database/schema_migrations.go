@@ -231,7 +231,10 @@ func ensureUsernameCaseInsensitive() error {
 	}
 
 	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_unique ON users (LOWER(username))`).Error; err != nil {
-		return fmt.Errorf("criar índice users_username_lower_unique: %w", err)
+		// Só o índice é best-effort: adia (não aborta o boot) e retenta no
+		// próximo startup. As normalizações de dados acima, se falharem,
+		// retornam erro real e abortam o boot (não são adiadas).
+		return fmt.Errorf("criar índice users_username_lower_unique (%v): %w", err, errMigrationDeferred)
 	}
 	return nil
 }
