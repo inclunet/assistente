@@ -31,8 +31,13 @@ func createConvWithReportedUsage(t *testing.T) (convID string) {
 		{"01972000-0000-7000-8000-000000000002", "assistant", 1000, 200}, // turno 1
 		{"01972000-0000-7000-8000-000000000003", "user", 0, 0},
 		{"01972000-0000-7000-8000-000000000004", "assistant", 1500, 300}, // turno 2 (mais recente)
+		{"01972000-0000-7000-8000-000000000005", "assistant", 0, 0},      // iteração com tool_calls sem usage persistido
 	}
 	for i, r := range rows {
+		toolCalls := ""
+		if r.id == "01972000-0000-7000-8000-000000000005" {
+			toolCalls = `[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{}"}}]`
+		}
 		m := ChatMessage{
 			UUIDModel: UUIDModel{
 				ID:        r.id,
@@ -44,6 +49,7 @@ func createConvWithReportedUsage(t *testing.T) (convID string) {
 			PromptTokens:     r.prompt,
 			CompletionTokens: r.compl,
 			TotalTokens:      r.prompt + r.compl,
+			ToolCalls:        toolCalls,
 		}
 		if err := db.Create(&m).Error; err != nil {
 			t.Fatalf("failed to create message %d: %v", i, err)
@@ -92,8 +98,8 @@ func TestGetDetailedTokenStats_ContextVsCumulative(t *testing.T) {
 	if stats.TotalTokens != 3000 {
 		t.Errorf("TotalTokens acumulado: esperado 3000, obtido %d", stats.TotalTokens)
 	}
-	if stats.ModelCallCount != 2 {
-		t.Errorf("ModelCallCount: esperado 2 chamadas ao modelo, obtido %d", stats.ModelCallCount)
+	if stats.ModelCallCount != 3 {
+		t.Errorf("ModelCallCount: esperado 3 chamadas ao modelo, obtido %d", stats.ModelCallCount)
 	}
 	if stats.ContextTokens != 1800 {
 		t.Errorf("ContextTokens (turno atual): esperado 1800, obtido %d", stats.ContextTokens)

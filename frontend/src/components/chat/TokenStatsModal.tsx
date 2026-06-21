@@ -127,6 +127,9 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     if (stats?.promptCacheEnabled === true) {
       return t('tokenStats.cacheEnabledNotReportedNote');
     }
+    if (stats?.promptCacheEnabled === false) {
+      return t('tokenStats.cacheProfileControlsDisabledNote');
+    }
     return t('tokenStats.cacheUnavailableNote');
   };
 
