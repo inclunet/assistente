@@ -101,26 +101,50 @@ func RenormalizeLegacySlugs(db *gorm.DB) error {
 	return nil
 }
 
+// slugRenormalizationPageSize é o tamanho da página (keyset) usada ao varrer as
+// tabelas em renormalizeSlugsForTable. É uma variável (e não constante) apenas
+// para permitir que os testes a reduzam e exercitem o caminho de múltiplas
+// páginas sem precisar inserir milhares de linhas.
+var slugRenormalizationPageSize = 1000
+
+// slugRow é uma linha mínima (id, user_id, slug) lida das tabelas alvo.
+type slugRow struct {
+	ID     string `gorm:"column:id"`
+	UserID string `gorm:"column:user_id"`
+	Slug   string `gorm:"column:slug"`
+}
+
 // renormalizeSlugsForTable re-normaliza os slugs de uma única tabela. Retorna a
 // contagem de linhas atualizadas e quantas delas precisaram de sufixo numérico
 // por colisão de slug canônico. Todas as queries usam o tx recebido para que a
 // operação seja atômica: o chamador a invoca dentro de db.Transaction(...).
+//
+// Estratégia de leitura (issue #287): a tabela é varrida em PÁGINAS por keyset
+// (cursor por (user_id, id)), nunca materializando todas as linhas de uma vez —
+// cada página carrega no máximo slugRenormalizationPageSize linhas. São feitas
+// duas passadas paginadas sobre a mesma ordenação:
+//
+//   - 1ª passada: registra em `taken` os slugs já-canônicos (ou que normalizam
+//     para vazio), que têm precedência e permanecem inalterados.
+//   - 2ª passada: aplica as mudanças nas linhas legadas, resolvendo colisões.
+//
+// Duas passadas são necessárias (em vez de uma só) porque um slug legado em uma
+// página inicial pode colidir com um slug já-canônico em uma página posterior;
+// só após conhecer TODOS os slugs canônicos do usuário podemos atribuir com
+// segurança a forma final (e o eventual sufixo) das linhas legadas.
+//
+// Trade-off explícito: `taken` continua sendo um set de slugs por usuário em
+// memória. Isso é inerente à correção da detecção de colisão escopada por
+// (user_id, slug) — não dá para decidir o slug final de uma linha sem saber
+// quais formas canônicas daquele usuário já estão ocupadas. O que esta versão
+// elimina é a materialização de TODAS as linhas das três tabelas de uma vez no
+// boot: agora só uma página de linhas e o set de slugs vivem na memória. Uma
+// alternativa (consultar o banco slug-a-slug com WHERE user_id = ? AND slug = ?)
+// foi descartada por trocar memória por N round-trips e tender a ser MAIS lenta
+// na base pequena típica (single-user local); ver issue #287.
 func renormalizeSlugsForTable(tx *gorm.DB, target slugRenormalizationTarget) (updated, suffixed int, err error) {
 	if !tx.Migrator().HasTable(target.table) {
 		return 0, 0, nil
-	}
-
-	type slugRow struct {
-		ID     string `gorm:"column:id"`
-		UserID string `gorm:"column:user_id"`
-		Slug   string `gorm:"column:slug"`
-	}
-	var rows []slugRow
-	if err := tx.Table(target.table).
-		Select("id", "user_id", "slug").
-		Order("user_id, id").
-		Scan(&rows).Error; err != nil {
-		return 0, 0, err
 	}
 
 	// taken modela os slugs que estarão ocupados por usuário ao fim da migração
@@ -137,37 +161,31 @@ func renormalizeSlugsForTable(tx *gorm.DB, target slugRenormalizationTarget) (up
 		return taken[userID] != nil && taken[userID][s]
 	}
 
-	type pendingChange struct {
-		id        string
-		userID    string
-		oldSlug   string
-		canonical string
-	}
-	var toChange []pendingChange
-
-	// 1ª passada: linhas já canônicas (ou que normalizam para vazio) ocupam seu
-	// slug atual; as demais entram na fila de mudança.
-	for _, row := range rows {
+	// 1ª passada (paginada): linhas já canônicas (ou que normalizam para vazio)
+	// ocupam seu slug atual; as demais são ignoradas aqui e reprocessadas na 2ª.
+	if err := forEachSlugRowPaged(tx, target.table, func(row slugRow) error {
 		canonical := normalizeSlug(row.Slug)
 		if canonical == "" || canonical == row.Slug {
 			occupy(row.UserID, row.Slug)
-			continue
 		}
-		toChange = append(toChange, pendingChange{
-			id:        row.ID,
-			userID:    row.UserID,
-			oldSlug:   row.Slug,
-			canonical: canonical,
-		})
+		return nil
+	}); err != nil {
+		return 0, 0, err
 	}
 
-	// 2ª passada: aplica as mudanças. Em colisão, deriva um slug canônico único
-	// com sufixo numérico para manter a linha endereçável (ver doc da função).
-	for _, change := range toChange {
-		finalSlug := change.canonical
-		if isTaken(change.userID, finalSlug) {
-			finalSlug = uniqueCanonicalSlug(change.canonical, func(s string) bool {
-				return isTaken(change.userID, s)
+	// 2ª passada (paginada): aplica as mudanças. Em colisão, deriva um slug
+	// canônico único com sufixo numérico para manter a linha endereçável (ver
+	// doc da função). A atualização só muda `slug`, então o cursor de keyset por
+	// (user_id, id) permanece estável durante a varredura.
+	if err := forEachSlugRowPaged(tx, target.table, func(row slugRow) error {
+		canonical := normalizeSlug(row.Slug)
+		if canonical == "" || canonical == row.Slug {
+			return nil
+		}
+		finalSlug := canonical
+		if isTaken(row.UserID, finalSlug) {
+			finalSlug = uniqueCanonicalSlug(canonical, func(s string) bool {
+				return isTaken(row.UserID, s)
 			})
 			// WARN: renomeação com sufixo é o caso de risco descrito na
 			// "Limitação conhecida" da docstring (referências textuais antigas ao
@@ -175,18 +193,64 @@ func renormalizeSlugsForTable(tx *gorm.DB, target slugRenormalizationTarget) (up
 			// completo (user, tabela, slug antigo → slug novo) para auditoria e
 			// rollback manual.
 			log.Printf("[WARN][Jobs] slug legado renomeado com sufixo por colisão (auditar referências textuais): user=%s tabela=%s slug antigo=%q -> slug novo=%q (forma canônica %q já estava ocupada)",
-				change.userID, target.table, change.oldSlug, finalSlug, change.canonical)
+				row.UserID, target.table, row.Slug, finalSlug, canonical)
 			suffixed++
 		}
-		res := tx.Table(target.table).Where("id = ?", change.id).Update("slug", finalSlug)
+		res := tx.Table(target.table).Where("id = ?", row.ID).Update("slug", finalSlug)
 		if res.Error != nil {
-			return updated, suffixed, res.Error
+			return res.Error
 		}
-		occupy(change.userID, finalSlug)
+		occupy(row.UserID, finalSlug)
 		updated++
+		return nil
+	}); err != nil {
+		return updated, suffixed, err
 	}
 
 	return updated, suffixed, nil
+}
+
+// forEachSlugRowPaged itera todas as linhas (id, user_id, slug) de table em
+// páginas ordenadas por (user_id, id), usando paginação por KEYSET (cursor) em
+// vez de OFFSET. Com keyset o custo não cresce com o número de páginas já lidas
+// e a leitura nunca materializa a tabela inteira: no máximo
+// slugRenormalizationPageSize linhas ficam na memória por vez. fn é chamada para
+// cada linha em ordem; se retornar erro, a iteração para e o erro é propagado.
+//
+// A página é totalmente lida (Scan) antes de fn ser chamada, de modo que não há
+// cursor aberto enquanto fn eventualmente escreve no mesmo tx — importante para
+// SQLite, que serializa leitura/escrita na conexão.
+func forEachSlugRowPaged(tx *gorm.DB, table string, fn func(slugRow) error) error {
+	var lastUser, lastID string
+	first := true
+	for {
+		var page []slugRow
+		q := tx.Table(table).
+			Select("id", "user_id", "slug").
+			Order("user_id, id").
+			Limit(slugRenormalizationPageSize)
+		if !first {
+			// Keyset sobre a chave composta (user_id, id), coerente com o ORDER BY.
+			q = q.Where("user_id > ? OR (user_id = ? AND id > ?)", lastUser, lastUser, lastID)
+		}
+		if err := q.Scan(&page).Error; err != nil {
+			return err
+		}
+		if len(page) == 0 {
+			return nil
+		}
+		for i := range page {
+			if err := fn(page[i]); err != nil {
+				return err
+			}
+		}
+		if len(page) < slugRenormalizationPageSize {
+			return nil
+		}
+		last := page[len(page)-1]
+		lastUser, lastID = last.UserID, last.ID
+		first = false
+	}
 }
 
 // uniqueCanonicalSlug retorna a forma canônica base quando livre; caso contrário

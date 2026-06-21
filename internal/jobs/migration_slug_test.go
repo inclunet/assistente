@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"fmt"
 	"testing"
 
 	"assistente/internal/database"
@@ -276,6 +277,68 @@ func TestRenormalizeLegacySlugs_Idempotent(t *testing.T) {
 	}
 	if got := jobSlugByID(t, db, legacyID); got != "cafe-job" {
 		t.Errorf("após 2ª execução slug = %q, quero %q", got, "cafe-job")
+	}
+}
+
+// TestRenormalizeLegacySlugs_PaginatesAcrossPages exercita o caminho de múltiplas
+// páginas (keyset): reduz o tamanho de página para um valor pequeno e insere mais
+// linhas do que cabem em uma página, garantindo que todas as linhas legadas são
+// re-normalizadas mesmo varrendo a tabela em vários lotes.
+func TestRenormalizeLegacySlugs_PaginatesAcrossPages(t *testing.T) {
+	db := setupSlugMigrationDB(t)
+
+	orig := slugRenormalizationPageSize
+	slugRenormalizationPageSize = 2
+	t.Cleanup(func() { slugRenormalizationPageSize = orig })
+
+	const total = 7 // > 3 páginas com page size 2
+	ids := make([]string, 0, total)
+	for i := 0; i < total; i++ {
+		// Cada slug legado normaliza para "café-job-N" -> "cafe-job-N", todos distintos.
+		ids = append(ids, insertJob(t, db, "user-a", fmt.Sprintf("Café Job %d", i)))
+	}
+
+	if err := RenormalizeLegacySlugs(db); err != nil {
+		t.Fatalf("renormalize: %v", err)
+	}
+
+	for i, id := range ids {
+		want := fmt.Sprintf("cafe-job-%d", i)
+		if got := jobSlugByID(t, db, id); got != want {
+			t.Errorf("linha %d: slug = %q, quero %q", i, got, want)
+		}
+	}
+}
+
+// TestRenormalizeLegacySlugs_CollisionSpanningPages garante a correção das duas
+// passadas paginadas: um slug legado em uma página inicial colide com um slug
+// já-canônico que só aparece em uma página posterior. O canônico tem precedência
+// e o legado deve receber sufixo, mesmo estando em páginas diferentes.
+func TestRenormalizeLegacySlugs_CollisionSpanningPages(t *testing.T) {
+	db := setupSlugMigrationDB(t)
+
+	orig := slugRenormalizationPageSize
+	slugRenormalizationPageSize = 2
+	t.Cleanup(func() { slugRenormalizationPageSize = orig })
+
+	// Inserido primeiro (id/UUIDv7 menor) -> aparece numa página anterior.
+	legacyID := insertJob(t, db, "user-a", "Café Report")
+	// Linhas de enchimento para empurrar o canônico para uma página posterior.
+	insertJob(t, db, "user-a", "filler-1")
+	insertJob(t, db, "user-a", "filler-2")
+	insertJob(t, db, "user-a", "filler-3")
+	// Inserido por último -> id maior, cai numa página posterior à do legado.
+	canonicalID := insertJob(t, db, "user-a", "cafe-report")
+
+	if err := RenormalizeLegacySlugs(db); err != nil {
+		t.Fatalf("renormalize: %v", err)
+	}
+
+	if got := jobSlugByID(t, db, canonicalID); got != "cafe-report" {
+		t.Errorf("canônico = %q, quero %q (precedência mesmo em página posterior)", got, "cafe-report")
+	}
+	if got := jobSlugByID(t, db, legacyID); got != "cafe-report-2" {
+		t.Errorf("legado = %q, quero %q (sufixo por colisão entre páginas)", got, "cafe-report-2")
 	}
 }
 
