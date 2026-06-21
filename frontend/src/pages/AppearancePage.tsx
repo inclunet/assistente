@@ -51,12 +51,25 @@ export default function AppearancePage() {
     onChange: handleLanguageChange,
   });
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // EXCEÇÃO OFICIAL ao sistema de tokens (issue #243).
+  //
+  // Estes previews precisam mostrar, lado a lado, as cores REAIS de cada tema
+  // — inclusive dos temas que NÃO estão ativos no momento. Usar as variáveis CSS
+  // do tema (`var(--bg-base)` etc.) faria todos os cards exibirem a paleta do
+  // tema atual, tornando o preview inútil. Por isso, e somente aqui, os valores
+  // são literais.
+  //
+  // Cada linha espelha os tokens do `theme.css` na ordem
+  // [--bg-base, --bg-surface, --accent, --text-primary]. Ao alterar uma cor de
+  // tema no `theme.css`, atualize o valor correspondente abaixo.
+  // ─────────────────────────────────────────────────────────────────────────
   const THEME_SWATCHES: Record<ThemeId, string[]> = {
-    assistente:      ['#0a1628', '#0f1f3a', '#2b7ef4', '#eef2f9'],
+    assistente:      ['#0a1628', '#0f1f3a', '#a78bfa', '#eef2f9'],
     amethyst:        ['#12082a', '#1c1040', '#a78bfa', '#f0ecf9'],
-    midnight:        ['#0c0f14', '#151921', '#60a5fa', '#e8ecf2'],
-    light:           ['#f0f4fa', '#ffffff', '#2b7ef4', '#0a1628'],
-    'high-contrast': ['#000000', '#1a1a1a', '#5babff', '#ffffff'],
+    midnight:        ['#0c0f14', '#151921', '#a78bfa', '#e8ecf2'],
+    light:           ['#f0f4fa', '#ffffff', '#820AD1', '#0a1628'],
+    'high-contrast': ['#000000', '#0a0a0a', '#c084fc', '#ffffff'],
   };
 
   return (

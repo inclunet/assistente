@@ -3123,6 +3123,15 @@ const ptBR = {
         confirmRemoveStatus: 'Remover status "{{label}}"?',
         moveUp: 'Mover acima',
         moveDown: 'Mover abaixo',
+        colorGroup: 'Cor do status',
+        color: {
+          blue: 'Azul',
+          green: 'Verde',
+          amber: 'Âmbar',
+          red: 'Vermelho',
+          purple: 'Roxo',
+          gray: 'Cinza',
+        },
       },
       // Custom actions (AEP-0067)
       customActions: {

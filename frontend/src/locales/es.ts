@@ -3147,6 +3147,15 @@ const es = {
         confirmRemoveStatus: '¿Eliminar estado "{{label}}"?',
         moveUp: 'Mover arriba',
         moveDown: 'Mover abajo',
+        colorGroup: 'Color del estado',
+        color: {
+          blue: 'Azul',
+          green: 'Verde',
+          amber: 'Ámbar',
+          red: 'Rojo',
+          purple: 'Morado',
+          gray: 'Gris',
+        },
       },
       // Custom actions (AEP-0067)
       customActions: {

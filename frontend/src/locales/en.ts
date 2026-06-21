@@ -3148,6 +3148,15 @@ const en = {
         confirmRemoveStatus: 'Remove status "{{label}}"?',
         moveUp: 'Move up',
         moveDown: 'Move down',
+        colorGroup: 'Status color',
+        color: {
+          blue: 'Blue',
+          green: 'Green',
+          amber: 'Amber',
+          red: 'Red',
+          purple: 'Purple',
+          gray: 'Gray',
+        },
       },
       // Custom actions (AEP-0067)
       customActions: {
