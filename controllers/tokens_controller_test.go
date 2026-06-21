@@ -24,6 +24,7 @@ func TestApplyPromptCacheProfileStateHandlesReportedMetrics(t *testing.T) {
 		PromptTokens:        100,
 		CacheTokensReported: true,
 		CacheReadTokens:     40,
+		CacheHitRate:        25,
 	}
 	enabled := true
 
@@ -31,6 +32,9 @@ func TestApplyPromptCacheProfileStateHandlesReportedMetrics(t *testing.T) {
 
 	if stats.PromptCacheEnabled == nil || !*stats.PromptCacheEnabled {
 		t.Fatal("expected prompt cache to be marked as enabled")
+	}
+	if !stats.CacheTokensReported || stats.CacheReadTokens != 40 || stats.CacheHitRate != 25 {
+		t.Fatal("expected existing cache metrics to be preserved")
 	}
 }
 

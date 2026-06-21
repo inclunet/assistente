@@ -157,4 +157,49 @@ describe('TokenStatsModal', () => {
     expect(screen.queryByText('0.0%')).not.toBeInTheDocument();
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(7);
   });
+
+  it('mostra apenas nota de cache desabilitado quando perfil desabilita prompt cache', async () => {
+    getStatsSpy.mockResolvedValue({
+      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
+      promptTokens: 1000,
+      completionTokens: 200,
+      totalTokens: 1200,
+      cacheHitRate: 0,
+      cacheTokensReported: false,
+      promptCacheEnabled: false,
+      contextTokens: 900,
+      messageCount: 2,
+      mostUsedModel: 'claude',
+      contextUsage: 10,
+      contextLimit: 10000,
+      isNearLimit: false,
+      isCritical: false,
+      systemPromptEstimatedTokens: 5,
+      summaryTokens: 3,
+      messagesInContextTokens: 15,
+      messagesOutOfContextTokens: 7,
+      messagesInContextCount: 1,
+      messagesOutOfContextCount: 0,
+      toolsUsedCount: 0,
+      toolBreakdown: [],
+    });
+
+    render(
+      <TokenStatsModal
+        conversationId={"01926b90-7a5a-7c4e-8d3f-000000000001"}
+        isOpen={true}
+        onClose={() => {}}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('tokenStats.contextUsage')).toBeInTheDocument();
+    });
+    const cacheTab = screen.getByRole('tab', { name: 'tokenStats.tabPromptCache' });
+    fireEvent.click(cacheTab);
+
+    expect(screen.getByText('tokenStats.cacheDisabledNote')).toBeInTheDocument();
+    expect(screen.queryByText('tokenStats.cacheUnavailableNote')).not.toBeInTheDocument();
+    expect(screen.queryByText('tokenStats.cacheReportedNote')).not.toBeInTheDocument();
+  });
 });

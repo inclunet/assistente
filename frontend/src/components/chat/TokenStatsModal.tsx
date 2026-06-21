@@ -290,11 +290,13 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                     {t('tokenStats.cacheDisabledNote')}
                   </p>
                 )}
-                <p className="token-stats-cost__note">
-                  {stats.cacheTokensReported
-                    ? t('tokenStats.cacheReportedNote')
-                    : t('tokenStats.cacheUnavailableNote')}
-                </p>
+                {stats.promptCacheEnabled !== false && (
+                  <p className="token-stats-cost__note">
+                    {stats.cacheTokensReported
+                      ? t('tokenStats.cacheReportedNote')
+                      : t('tokenStats.cacheUnavailableNote')}
+                  </p>
+                )}
                 <table className="token-stats-table">
                   <thead>
                     <tr>
