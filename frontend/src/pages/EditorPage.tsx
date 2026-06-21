@@ -134,6 +134,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   // ----- Hooks de lógica extraída -----
   const merge = useEditorMerge();
   const {
+    mergeStateRevision,
     getMergeSession,
     getCachedMarkdownForTab,
     updateLatestMarkdownForTab,
@@ -1296,7 +1297,10 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     ];
 
     return items;
-  }, [activeTab]);
+    // `mergeStateRevision` força recomputo quando o lock externo ou a merge
+    // session mudam (lidos via refs em `isExternalConflictLocked`/`getMergeSession`),
+    // já que esses valores não derivam de `activeTab`.
+  }, [activeTab, mergeStateRevision]);
 
   const onFileMenuSelect = useCallback(
     async (value: string) => {

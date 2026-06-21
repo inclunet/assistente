@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { logger } from '../utils/logger';
@@ -58,6 +58,17 @@ export function useEditorMerge() {
   const mergeSessionByTabRef = useRef<Record<string, MergeSession>>({});
   const externalPromptInFlightByTabRef = useRef<Record<string, boolean>>({});
 
+  // O estado de lock externo e de merge session vive em refs (lidos de forma
+  // síncrona dentro de efeitos/timers sem recriar dependências). Refs não
+  // disparam re-render, então mantemos um contador reativo que é incrementado
+  // sempre que esse estado muda. Consumidores de UI (ex.: menu Arquivo) podem
+  // incluí-lo nas dependências de useMemo para recomputar quando lock/merge
+  // mudarem sem que `activeTab` tenha mudado.
+  const [mergeStateRevision, setMergeStateRevision] = useState(0);
+  const bumpMergeStateRevision = useCallback(() => {
+    setMergeStateRevision((r) => r + 1);
+  }, []);
+
   const getMergeSession = (tabId: string): MergeSession | null => {
     const id = String(tabId || '');
     if (!id) return null;
@@ -83,7 +94,11 @@ export function useEditorMerge() {
   };
 
   const setExternalConflictLocked = (tabId: string, locked: boolean) => {
-    externalConflictLockedByTabRef.current[String(tabId || '')] = !!locked;
+    const id = String(tabId || '');
+    const next = !!locked;
+    const prev = !!externalConflictLockedByTabRef.current[id];
+    externalConflictLockedByTabRef.current[id] = next;
+    if (prev !== next) bumpMergeStateRevision();
   };
 
   const isExternalPromptInFlight = (tabId: string) => {
@@ -140,6 +155,7 @@ export function useEditorMerge() {
       conflictDraftId,
       createdAt: stamp,
     };
+    bumpMergeStateRevision();
 
     // Garante travamento mesmo se o fluxo tiver sido iniciado fora do questionário.
     setExternalConflictLocked(tabId, true);
@@ -155,6 +171,7 @@ export function useEditorMerge() {
     const sess = getMergeSession(tabId);
     if (!sess) return;
     delete mergeSessionByTabRef.current[String(tabId || '')];
+    bumpMergeStateRevision();
     const ids = [sess.mineDraftId, sess.diskDraftId, sess.conflictDraftId].filter(Boolean);
     await Promise.all(ids.map((id) => EditorDeleteDraft(id).catch(() => null)));
   };
@@ -348,6 +365,9 @@ export function useEditorMerge() {
   };
 
   return {
+    // Contador reativo que muda quando o lock externo ou a merge session mudam.
+    mergeStateRevision,
+
     // Refs compartilhadas (somente leitura/escrita pontual por outros hooks).
     latestMarkdownByTabRef,
     diskInfoByTabRef,
