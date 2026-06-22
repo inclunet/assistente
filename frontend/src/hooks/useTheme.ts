@@ -7,7 +7,7 @@ export const THEMES: { id: ThemeId; label: string; description: string }[] = [
   { id: 'assistente',     label: 'Assistente',     description: 'Tema escuro azul vibrante (padrão)' },
   { id: 'amethyst',       label: 'Ametista',       description: 'Tema escuro violeta' },
   { id: 'midnight',       label: 'Meia-Noite',     description: 'Tema escuro cinza-azulado' },
-  { id: 'light',          label: 'Claro',           description: 'Tema claro com acentos azuis' },
+  { id: 'light',          label: 'Claro',           description: 'Tema claro com acentos roxos' },
   { id: 'high-contrast',  label: 'Alto Contraste',  description: 'Máximo contraste para acessibilidade' },
 ];
 

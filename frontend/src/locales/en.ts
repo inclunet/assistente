@@ -467,6 +467,13 @@ const en = {
       languageDescription: 'Select the interface language. The change is applied immediately.',
       aria: { selectTheme: 'Select theme', selectLanguage: 'Select language' },
       announce: { themeChanged: 'Theme changed to {{label}}', languageChanged: 'Language changed to {{label}}' },
+      themes: {
+        assistente: { label: 'Assistant', desc: 'Vibrant dark blue theme (default)' },
+        amethyst: { label: 'Amethyst', desc: 'Dark violet theme' },
+        midnight: { label: 'Midnight', desc: 'Grayish-blue dark theme' },
+        light: { label: 'Light', desc: 'Light theme with purple accents' },
+        'high-contrast': { label: 'High Contrast', desc: 'Maximum contrast for accessibility' },
+      },
     },
 
     contacts: {
@@ -3148,6 +3155,15 @@ const en = {
         confirmRemoveStatus: 'Remove status "{{label}}"?',
         moveUp: 'Move up',
         moveDown: 'Move down',
+        colorGroup: 'Status color',
+        color: {
+          blue: 'Blue',
+          green: 'Green',
+          amber: 'Amber',
+          red: 'Red',
+          purple: 'Purple',
+          gray: 'Gray',
+        },
       },
       // Custom actions (AEP-0067)
       customActions: {

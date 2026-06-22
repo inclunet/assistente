@@ -1,6 +1,13 @@
 # Backend-Driven Messaging — Desacoplamento Frontend↔Mensagens
 
-## Status: Proposto
+## Status: Aceito (contrato vigente)
+
+> Tratado como contrato arquitetural em vigor pelo `CLAUDE.md` e pelas instruções
+> de agentes (`.github/copilot-instructions.md`). As invariantes desta AEP
+> (backend como fonte de verdade, `SendMessage`/`RetryMessage` únicos, eventos
+> tipados com `conversationId`, serviços globais arbitrados) são de cumprimento
+> obrigatório. Decisões factuais ainda em aberto (ex.: IDs `streaming-*`) são
+> rastreadas separadamente e não invalidam o contrato.
 
 ## Estratégia de entrega
 

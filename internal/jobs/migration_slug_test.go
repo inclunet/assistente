@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"fmt"
 	"testing"
 
 	"assistente/internal/database"
@@ -42,6 +43,27 @@ func insertJob(t *testing.T, db *gorm.DB, userID, slug string) string {
 	}
 	if err := db.Create(&row).Error; err != nil {
 		t.Fatalf("insert job %q: %v", slug, err)
+	}
+	return row.ID
+}
+
+// insertJobWithID insere um job com ID explícito. Como o BeforeCreate só gera
+// UUIDv7 quando o ID está vazio, isso torna a ordenação por (user_id, id)
+// determinística nos testes de paginação — sem depender de o UUIDv7 ser
+// estritamente monotônico entre inserções no mesmo milissegundo.
+func insertJobWithID(t *testing.T, db *gorm.DB, id, userID, slug string) string {
+	t.Helper()
+	row := database.Job{
+		UUIDModel:     database.UUIDModel{ID: id},
+		UserID:        userID,
+		Slug:          slug,
+		Name:          slug,
+		ToolCatalogID: "tool",
+		ToolName:      "tool",
+		Enabled:       true,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("insert job %q (id=%s): %v", slug, id, err)
 	}
 	return row.ID
 }
@@ -276,6 +298,71 @@ func TestRenormalizeLegacySlugs_Idempotent(t *testing.T) {
 	}
 	if got := jobSlugByID(t, db, legacyID); got != "cafe-job" {
 		t.Errorf("após 2ª execução slug = %q, quero %q", got, "cafe-job")
+	}
+}
+
+// TestRenormalizeLegacySlugs_PaginatesAcrossPages exercita o caminho de múltiplas
+// páginas (keyset): reduz o tamanho de página para um valor pequeno e insere mais
+// linhas do que cabem em uma página, garantindo que todas as linhas legadas são
+// re-normalizadas mesmo varrendo a tabela em vários lotes.
+func TestRenormalizeLegacySlugs_PaginatesAcrossPages(t *testing.T) {
+	db := setupSlugMigrationDB(t)
+
+	orig := slugRenormalizationPageSize
+	slugRenormalizationPageSize = 2
+	t.Cleanup(func() { slugRenormalizationPageSize = orig })
+
+	const total = 7 // > 3 páginas com page size 2
+	ids := make([]string, 0, total)
+	for i := 0; i < total; i++ {
+		// Cada slug legado normaliza para "café-job-N" -> "cafe-job-N", todos distintos.
+		ids = append(ids, insertJob(t, db, "user-a", fmt.Sprintf("Café Job %d", i)))
+	}
+
+	if err := RenormalizeLegacySlugs(db); err != nil {
+		t.Fatalf("renormalize: %v", err)
+	}
+
+	for i, id := range ids {
+		want := fmt.Sprintf("cafe-job-%d", i)
+		if got := jobSlugByID(t, db, id); got != want {
+			t.Errorf("linha %d: slug = %q, quero %q", i, got, want)
+		}
+	}
+}
+
+// TestRenormalizeLegacySlugs_CollisionSpanningPages garante a correção das duas
+// passadas paginadas: um slug legado em uma página inicial colide com um slug
+// já-canônico que só aparece em uma página posterior. O canônico tem precedência
+// e o legado deve receber sufixo, mesmo estando em páginas diferentes.
+func TestRenormalizeLegacySlugs_CollisionSpanningPages(t *testing.T) {
+	db := setupSlugMigrationDB(t)
+
+	orig := slugRenormalizationPageSize
+	slugRenormalizationPageSize = 2
+	t.Cleanup(func() { slugRenormalizationPageSize = orig })
+
+	// IDs explícitos e lexicograficamente ordenáveis tornam a ordenação por
+	// (user_id, id) determinística: o legado fica na 1ª página e o canônico
+	// numa posterior, independentemente de o UUIDv7 ser monotônico entre
+	// inserções no mesmo milissegundo (evita flakiness). Com page size 2:
+	// página 1 = [0001 legado, 0002 filler-1]; canônico (0005) cai depois.
+	const idBase = "00000000-0000-7000-8000-00000000000"
+	legacyID := insertJobWithID(t, db, idBase+"1", "user-a", "Café Report")
+	insertJobWithID(t, db, idBase+"2", "user-a", "filler-1")
+	insertJobWithID(t, db, idBase+"3", "user-a", "filler-2")
+	insertJobWithID(t, db, idBase+"4", "user-a", "filler-3")
+	canonicalID := insertJobWithID(t, db, idBase+"5", "user-a", "cafe-report")
+
+	if err := RenormalizeLegacySlugs(db); err != nil {
+		t.Fatalf("renormalize: %v", err)
+	}
+
+	if got := jobSlugByID(t, db, canonicalID); got != "cafe-report" {
+		t.Errorf("canônico = %q, quero %q (precedência mesmo em página posterior)", got, "cafe-report")
+	}
+	if got := jobSlugByID(t, db, legacyID); got != "cafe-report-2" {
+		t.Errorf("legado = %q, quero %q (sufixo por colisão entre páginas)", got, "cafe-report-2")
 	}
 }
 

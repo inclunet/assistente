@@ -8,17 +8,19 @@ import type {
 } from '../../types/tasklist';
 import './WorkflowEditor.css';
 
-const COLOR_PRESETS = [
-  'var(--color-warning)',
-  'var(--color-info)',
-  'var(--color-success)',
-  'var(--color-danger)',
-  'var(--accent)',
-  '#6366f1',
-  '#8b5cf6',
-  '#ec4899',
-  '#f97316',
-  '#64748b',
+/**
+ * Presets de cor para status definidos exclusivamente como tokens do tema
+ * (`theme.css`). Cada token tem par claro/escuro com contraste validado por tema,
+ * então as cores funcionam em todos os temas sem hex hardcoded. O nome é
+ * internacionalizado para servir de rótulo acessível dos botões (icon-only).
+ */
+const COLOR_PRESETS: { token: string; nameKey: string }[] = [
+  { token: 'var(--color-info)', nameKey: 'tasklist.workflow.color.blue' },
+  { token: 'var(--color-success)', nameKey: 'tasklist.workflow.color.green' },
+  { token: 'var(--color-warning)', nameKey: 'tasklist.workflow.color.amber' },
+  { token: 'var(--color-danger)', nameKey: 'tasklist.workflow.color.red' },
+  { token: 'var(--accent)', nameKey: 'tasklist.workflow.color.purple' },
+  { token: 'var(--text-muted)', nameKey: 'tasklist.workflow.color.gray' },
 ];
 
 interface WorkflowEditorProps {
@@ -67,7 +69,7 @@ export default function WorkflowEditor({
         id: newId,
         order: prev.length,
         label: '',
-        color: COLOR_PRESETS[prev.length % COLOR_PRESETS.length],
+        color: COLOR_PRESETS[prev.length % COLOR_PRESETS.length].token,
         icon: '⬜',
       },
     ]);
@@ -230,18 +232,28 @@ export default function WorkflowEditor({
                 maxLength={50}
               />
 
-              <div className="workflow-color-presets">
-                {COLOR_PRESETS.slice(0, 5).map((color) => (
-                  <button
-                    key={color}
-                    className={`workflow-color-preset ${status.color === color ? 'workflow-color-preset--active' : ''}`}
-                    style={{ backgroundColor: color.startsWith('var(') ? undefined : color }}
-                    data-color={color}
-                    onClick={() => handleUpdateStatus(status.id, 'color', color)}
-                    title={color}
-                    type="button"
-                  />
-                ))}
+              <div
+                className="workflow-color-presets"
+                role="group"
+                aria-label={t('tasklist.workflow.colorGroup', 'Cor do status')}
+              >
+                {COLOR_PRESETS.map(({ token, nameKey }) => {
+                  const name = t(nameKey);
+                  const isActive = status.color === token;
+                  return (
+                    <button
+                      key={token}
+                      className={`workflow-color-preset ${isActive ? 'workflow-color-preset--active' : ''}`}
+                      style={{ backgroundColor: token }}
+                      onClick={() => handleUpdateStatus(status.id, 'color', token)}
+                      title={name}
+                      aria-label={name}
+                      aria-pressed={isActive}
+                      type="button"
+                      disabled={isSaving}
+                    />
+                  );
+                })}
               </div>
 
               <input
