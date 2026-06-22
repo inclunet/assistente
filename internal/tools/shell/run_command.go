@@ -70,6 +70,11 @@ func (rc *RunCommand) Name() string {
 	return "run_command"
 }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (rc *RunCommand) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "shell", Class: "run_commands", Package: "coding_edit", Risk: "shell"}
+}
+
 func (rc *RunCommand) Description() string {
 	return `Runs a shell command in a persistent PTY session. Use for builds, tests, file inspection, git, etc. Respects allowlist and may require user confirmation. working_directory is project-relative; timeout_seconds max is 300.`
 }

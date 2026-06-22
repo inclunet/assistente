@@ -68,6 +68,11 @@ func NewWebSearchWithProvider(credMgr *credentials.Manager, provider SearchProvi
 
 func (t *WebSearch) Name() string { return "web_search" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *WebSearch) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "web", Class: "web_lookup", Package: "web", Risk: "network"}
+}
+
 func (t *WebSearch) Description() string {
 	return "Searches the web and returns a JSON object {query, provider, offset, count, has_more, results[{title, url, snippet}]}. For the next page, call again with offset = previous offset + count while has_more is true. Use to discover relevant links; to read content, call web_fetch on a chosen URL."
 }

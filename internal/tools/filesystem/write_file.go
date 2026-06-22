@@ -23,6 +23,11 @@ func NewWriteFile(workDir string) *WriteFile {
 
 func (t *WriteFile) Name() string { return "write_file" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *WriteFile) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"}
+}
+
 func (t *WriteFile) Description() string {
 	return "Creates or overwrites a file with full content (no partial edits). Creates intermediate directories. Use for new files or full rewrites; for small edits, use edit_file."
 }

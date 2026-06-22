@@ -51,6 +51,11 @@ func NewFeedRead(credMgr *credentials.Manager) *FeedRead {
 
 func (t *FeedRead) Name() string { return "feed_read" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *FeedRead) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "web", Class: "web_lookup", Package: "web", Risk: "network"}
+}
+
 func (t *FeedRead) Description() string {
 	return "Fetches a feed URL (RSS, Atom, JSON Feed, or podcast) and returns it as canonical JSON: feed metadata plus a normalized list of items (title, link, dates in RFC3339 when parseable - otherwise the raw feed string is kept, summary, enclosures). Podcast feeds include iTunes metadata (duration, episode/season, audio enclosures). Authentication is applied automatically per domain when a credential is registered. Use this instead of web_fetch when the URL is a feed and you want structured items to process with other tools/LLM."
 }

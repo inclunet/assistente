@@ -25,6 +25,11 @@ func NewReadFile(workDir string) *ReadFile {
 
 func (t *ReadFile) Name() string { return "read_file" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *ReadFile) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"}
+}
+
 func (t *ReadFile) Description() string {
 	return "Reads a file and returns line-numbered content. Use offset (1-indexed; negative counts from end) and limit (number of lines). Without offset/limit, returns the whole file."
 }

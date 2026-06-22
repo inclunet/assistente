@@ -51,6 +51,11 @@ func NewTaskList(mgr TaskListManager) *TaskListTool {
 
 func (t *TaskListTool) Name() string { return "task_list" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *TaskListTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"}
+}
+
 func (t *TaskListTool) Description() string {
 	return `Full CRUD for task lists. Without params → lists all. Identify a list by task_list_id and/or task_list_slug (at least one for read/update/duplicate/summary); if both are sent, they must refer to the same list. With id or slug only → full details. With summary_only → lightweight status counts. Optional slug (create/duplicate: initial slug for the new list; update: set or clear — use empty string to remove slug). With title and no existing list reference → create. With id or slug → update (title may be omitted to keep current). With duplicate + title → copy (tasks NOT copied). validation_policy: task_code_regex, allowed_note_sources, note_external_id_regex, note_external_parent_id_regex; {} clears. custom_actions: optional per-list context-menu items/buttons (publish a domain event and/or open a link); [] clears, omit to keep. Workflow updates with removed statuses need status_migration.`
 }

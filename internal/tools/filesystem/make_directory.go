@@ -21,6 +21,11 @@ func NewMakeDirectory(workDir string) *MakeDirectory {
 
 func (t *MakeDirectory) Name() string { return "make_directory" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *MakeDirectory) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"}
+}
+
 func (t *MakeDirectory) Description() string {
 	return "Creates a directory on disk. Validates paths, respects skill filesystem scope, and blocks sensitive paths. Uses MkdirAll by default."
 }

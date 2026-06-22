@@ -22,6 +22,11 @@ func NewMoveFile(workDir string) *MoveFileTool {
 
 func (t *MoveFileTool) Name() string { return "move_file" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *MoveFileTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"}
+}
+
 func (t *MoveFileTool) Description() string {
 	return "Moves or renames a file on disk. Renaming is just moving within the same directory. By default it fails if destination exists unless overwrite=true."
 }

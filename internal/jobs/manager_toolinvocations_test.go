@@ -40,6 +40,12 @@ func (testToolWrite) Execute(_ context.Context, _ json.RawMessage) (tools.ToolRe
 	return tools.ToolResult{Content: `{"wrote":true}`}, nil
 }
 
+// CatalogMetadata declara o risco "write" junto da definição da tool (AEP-0077,
+// Fase 1), substituindo a antiga derivação por nome no mapa central.
+func (testToolWrite) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"}
+}
+
 type testToolMCPNative struct{}
 
 func (testToolMCPNative) Name() string                { return "mcp_native__create_issue" }

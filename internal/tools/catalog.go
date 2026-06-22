@@ -70,7 +70,7 @@ func CatalogEntryFromTool(tool Tool) ToolCatalogEntry {
 	}
 	name := tool.Name()
 	schema := tool.Parameters()
-	metadata := builtinToolCatalogMetadata(name)
+	metadata := catalogMetadataForTool(tool)
 	return ToolCatalogEntry{
 		Name:               name,
 		DisplayName:        name,
@@ -80,6 +80,7 @@ func CatalogEntryFromTool(tool Tool) ToolCatalogEntry {
 		Class:              metadata.Class,
 		Package:            metadata.Package,
 		Risk:               metadata.Risk,
+		Tags:               metadata.Tags,
 		Schema:             schema,
 		SchemaHash:         SchemaHash(schema),
 		SchemaBytes:        len(schema),
@@ -95,44 +96,36 @@ func SchemaHash(schema json.RawMessage) string {
 	return fmt.Sprintf("%x", sum[:])
 }
 
-type builtinToolMetadata struct {
+// CatalogMetadata agrupa os metadados de catálogo declarados por uma builtin
+// junto da sua própria definição (AEP-0077, Fase 1). Substitui o antigo mapa
+// central name→metadata: agora cada tool é a fonte autoritativa dos seus
+// próprios metadados, evitando uma fonte paralela fácil de esquecer.
+type CatalogMetadata struct {
 	Category string
 	Class    string
 	Package  string
 	Risk     string
+	Tags     []string
 }
 
-var builtinToolMetadataByName = map[string]builtinToolMetadata{
-	"read_file":            {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
-	"list_directory":       {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
-	"search_files":         {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
-	"grep_search":          {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
-	"write_file":           {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
-	"edit_file":            {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
-	"move_file":            {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
-	"copy_file":            {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
-	"delete_file":          {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "destructive"},
-	"make_directory":       {Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"},
-	"run_command":          {Category: "shell", Class: "run_commands", Package: "coding_edit", Risk: "shell"},
-	"web_search":           {Category: "web", Class: "web_lookup", Package: "web", Risk: "network"},
-	"web_fetch":            {Category: "web", Class: "web_lookup", Package: "web", Risk: "network"},
-	"http_request":         {Category: "http", Class: "http_api", Package: "web", Risk: "network"},
-	"feed_read":            {Category: "web", Class: "web_lookup", Package: "web", Risk: "network"},
-	"search_conversations": {Category: "history", Class: "read_context", Package: "history", Risk: "read"},
-	"collect_responses":    {Category: "questionnaire", Class: "app_tool", Package: "basic", Risk: "read"},
-	"task_list":            {Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"},
-	"task":                 {Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"},
-	"task_note":            {Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"},
-	"job":                  {Category: "jobs", Class: "automation_management", Package: "jobs", Risk: "write"},
-	"job_pipeline":         {Category: "jobs", Class: "automation_management", Package: "jobs", Risk: "write"},
-	"open_deep_link":       {Category: "app", Class: "app_tool", Package: "basic", Risk: "read"},
-	"load_skill":           {Category: "skills", Class: "runtime_control", Package: "skills", Risk: "read"},
-	"subagent":             {Category: "agents", Class: "agent_delegation", Package: "agents", Risk: "write"},
+// CatalogMetadataProvider é implementada pelas builtins que declaram seus
+// próprios metadados de catálogo. Tools que não a implementam (ex.: as pontes
+// MCP, cujos metadados são montados em internal/mcp) recebem os metadados
+// padrão de builtin via DefaultBuiltinCatalogMetadata.
+type CatalogMetadataProvider interface {
+	CatalogMetadata() CatalogMetadata
 }
 
-func builtinToolCatalogMetadata(name string) builtinToolMetadata {
-	if metadata, ok := builtinToolMetadataByName[name]; ok {
-		return metadata
+// DefaultBuiltinCatalogMetadata é o fallback aplicado a builtins que não
+// declaram metadados próprios, preservando o comportamento histórico do mapa
+// central para tools genéricas de aplicação.
+func DefaultBuiltinCatalogMetadata() CatalogMetadata {
+	return CatalogMetadata{Category: "app", Class: "app_tool", Package: "basic", Risk: "read"}
+}
+
+func catalogMetadataForTool(tool Tool) CatalogMetadata {
+	if provider, ok := tool.(CatalogMetadataProvider); ok {
+		return provider.CatalogMetadata()
 	}
-	return builtinToolMetadata{Category: "app", Class: "app_tool", Package: "basic", Risk: "read"}
+	return DefaultBuiltinCatalogMetadata()
 }
