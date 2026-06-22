@@ -375,6 +375,7 @@ const ptBR = {
       maintenanceSaveError: 'Erro ao salvar a política de manutenção.',
       maintenanceRunDone: 'Manutenção concluída. Espaço liberado: {{reclaimed}}.',
       maintenanceRunError: 'Erro ao executar a manutenção do banco.',
+      maintenanceRunErrorWithReason: 'Erro ao executar a manutenção do banco: {{reason}}',
       maintenanceUnavailable: 'Não foi possível carregar as configurações de manutenção.',
     },
 

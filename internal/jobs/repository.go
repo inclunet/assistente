@@ -68,6 +68,23 @@ type DBRepository struct {
 	now func() time.Time
 }
 
+const sqliteDeleteBatchSize = 500
+
+func stringBatches(values []string, size int) [][]string {
+	if size <= 0 {
+		size = sqliteDeleteBatchSize
+	}
+	batches := make([][]string, 0, (len(values)+size-1)/size)
+	for start := 0; start < len(values); start += size {
+		end := start + size
+		if end > len(values) {
+			end = len(values)
+		}
+		batches = append(batches, values[start:end])
+	}
+	return batches
+}
+
 func NewDBRepository(db *gorm.DB) *DBRepository {
 	return &DBRepository{db: db, now: time.Now}
 }
@@ -1244,22 +1261,25 @@ func (r *DBRepository) deleteRunDependenciesByIDs(ctx context.Context, runIDs []
 	if len(runIDs) == 0 {
 		return nil
 	}
-	// tool_invocations: remove execuções técnicas associadas aos runs purgados.
-	// Best-effort: pode não existir em migrações parciais.
-	if r.db.Migrator().HasTable(&database.ToolInvocation{}) {
-		if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
-			Where("origin_type = ? AND origin_id IN ?", toolinvocations.OriginJobRun, runIDs).
-			Delete(&database.ToolInvocation{}).Error; err != nil {
+	hasToolInvocations := r.db.Migrator().HasTable(&database.ToolInvocation{})
+	for _, batch := range stringBatches(runIDs, sqliteDeleteBatchSize) {
+		// tool_invocations: remove execuções técnicas associadas aos runs purgados.
+		// Best-effort: pode não existir em migrações parciais.
+		if hasToolInvocations {
+			if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+				Where("origin_type = ? AND origin_id IN ?", toolinvocations.OriginJobRun, batch).
+				Delete(&database.ToolInvocation{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+			Where("job_run_id IN ?", batch).Delete(&database.JobRunEvent{}).Error; err != nil {
 			return err
 		}
-	}
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("job_run_id IN ?", runIDs).Delete(&database.JobRunEvent{}).Error; err != nil {
-		return err
-	}
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("job_run_id IN ?", runIDs).Delete(&database.JobEvent{}).Error; err != nil {
-		return err
+		if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+			Where("job_run_id IN ?", batch).Delete(&database.JobEvent{}).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1277,9 +1297,16 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 	if err := r.deleteRunDependenciesByIDs(ctx, runIDs); err != nil {
 		return 0, err
 	}
-	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("started_at < ?", cutoff).Delete(&database.JobRun{})
-	return int(res.RowsAffected), res.Error
+	deleted := int64(0)
+	for _, batch := range stringBatches(runIDs, sqliteDeleteBatchSize) {
+		res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+			Where("id IN ?", batch).Delete(&database.JobRun{})
+		if res.Error != nil {
+			return int(deleted), res.Error
+		}
+		deleted += res.RowsAffected
+	}
+	return int(deleted), nil
 }
 
 // CleanRunsExceedingCount mantém apenas os `keepPerJob` runs mais recentes por
@@ -1315,9 +1342,16 @@ func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob i
 	if err := r.deleteRunDependenciesByIDs(ctx, runIDs); err != nil {
 		return 0, err
 	}
-	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("id IN ?", runIDs).Delete(&database.JobRun{})
-	return int(res.RowsAffected), res.Error
+	deleted := int64(0)
+	for _, batch := range stringBatches(runIDs, sqliteDeleteBatchSize) {
+		res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+			Where("id IN ?", batch).Delete(&database.JobRun{})
+		if res.Error != nil {
+			return int(deleted), res.Error
+		}
+		deleted += res.RowsAffected
+	}
+	return int(deleted), nil
 }
 
 func (r *DBRepository) CleanOldEvents(ctx context.Context, maxAge time.Duration) (int, error) {

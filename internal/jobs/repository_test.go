@@ -1004,6 +1004,63 @@ func TestDBRepositoryCleanRunsExceedingCount(t *testing.T) {
 	}
 }
 
+func TestDBRepositoryCleanRunsExceedingCountBatchesDeletes(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+
+	if err := repo.SaveJob(userA, testRepositoryJob("freq-job", "Freq")); err != nil {
+		t.Fatalf("save freq-job: %v", err)
+	}
+
+	base := time.Now().Add(-time.Hour)
+	const totalRuns = sqliteDeleteBatchSize*2 + 25
+	for i := 0; i < totalRuns; i++ {
+		runID := fmt.Sprintf("batch-run-%04d", i)
+		if err := repo.LogRun(userA, &RunLog{
+			RunID:     runID,
+			JobID:     "freq-job",
+			Status:    "completed",
+			Trigger:   TriggerInfo{Type: TriggerManual},
+			StartedAt: base.Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatalf("log run %s: %v", runID, err)
+		}
+		if err := repo.db.Create(&database.JobRunEvent{
+			UserID:     "user-a",
+			JobRunID:   runID,
+			Sequence:   1,
+			OccurredAt: base.Add(time.Duration(i) * time.Second),
+			Type:       "completed",
+			Message:    "done",
+		}).Error; err != nil {
+			t.Fatalf("seed run event %s: %v", runID, err)
+		}
+	}
+
+	deleted, err := repo.CleanRunsExceedingCount(userA, 2)
+	if err != nil {
+		t.Fatalf("clean batched runs: %v", err)
+	}
+	if deleted != totalRuns-2 {
+		t.Fatalf("deleted = %d, want %d", deleted, totalRuns-2)
+	}
+
+	runs, err := repo.GetRuns(userA, "freq-job", totalRuns)
+	if err != nil {
+		t.Fatalf("get remaining runs: %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("remaining runs = %d, want 2", len(runs))
+	}
+
+	var remainingEvents int64
+	if err := repo.db.Model(&database.JobRunEvent{}).Count(&remainingEvents).Error; err != nil {
+		t.Fatalf("count run events: %v", err)
+	}
+	if remainingEvents != 2 {
+		t.Fatalf("remaining run events = %d, want 2", remainingEvents)
+	}
+}
+
 func testRepositoryJob(id, name string) *Job {
 	return &Job{
 		ID:      id,
