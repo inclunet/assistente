@@ -467,6 +467,13 @@ const ptBR = {
       languageDescription: 'Selecione o idioma da interface. A alteração é aplicada imediatamente.',
       aria: { selectTheme: 'Selecionar tema', selectLanguage: 'Selecionar idioma' },
       announce: { themeChanged: 'Tema alterado para {{label}}', languageChanged: 'Idioma alterado para {{label}}' },
+      themes: {
+        assistente: { label: 'Assistente', desc: 'Tema escuro azul vibrante (padrão)' },
+        amethyst: { label: 'Ametista', desc: 'Tema escuro violeta' },
+        midnight: { label: 'Meia-Noite', desc: 'Tema escuro cinza-azulado' },
+        light: { label: 'Claro', desc: 'Tema claro com acentos roxos' },
+        'high-contrast': { label: 'Alto Contraste', desc: 'Máximo contraste para acessibilidade' },
+      },
     },
 
     contacts: {

@@ -23,7 +23,8 @@ export default function AppearancePage() {
   const handleThemeChange = useCallback(
     (id: ThemeId) => {
       setTheme(id);
-      const label = THEMES.find((th) => th.id === id)?.label ?? id;
+      const fallbackLabel = THEMES.find((th) => th.id === id)?.label ?? id;
+      const label = t(`appearance.themes.${id}.label`, fallbackLabel);
       announce(t('appearance.announce.themeChanged', { label }));
     },
     [setTheme, announce, t],
@@ -102,8 +103,8 @@ export default function AppearancePage() {
                     <div key={idx} className="theme-card__swatch" style={{ background: color }} />
                   ))}
                 </div>
-                <span className="theme-card__name">{theme.label}</span>
-                <span className="theme-card__desc">{theme.description}</span>
+                <span className="theme-card__name">{t(`appearance.themes.${theme.id}.label`, theme.label)}</span>
+                <span className="theme-card__desc">{t(`appearance.themes.${theme.id}.desc`, theme.description)}</span>
               </button>
             ))}
           </div>
