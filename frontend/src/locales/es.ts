@@ -481,6 +481,13 @@ const es = {
       languageDescription: 'Selecciona el idioma de la interfaz. El cambio se aplica inmediatamente.',
       aria: { selectTheme: 'Seleccionar tema', selectLanguage: 'Seleccionar idioma' },
       announce: { themeChanged: 'Tema cambiado a {{label}}', languageChanged: 'Idioma cambiado a {{label}}' },
+      themes: {
+        assistente: { label: 'Asistente', desc: 'Tema oscuro azul vibrante (predeterminado)' },
+        amethyst: { label: 'Amatista', desc: 'Tema oscuro violeta' },
+        midnight: { label: 'Medianoche', desc: 'Tema oscuro gris azulado' },
+        light: { label: 'Claro', desc: 'Tema claro con acentos morados' },
+        'high-contrast': { label: 'Alto Contraste', desc: 'Máximo contraste para accesibilidad' },
+      },
     },
 
     contacts: {
@@ -3162,6 +3169,15 @@ const es = {
         confirmRemoveStatus: '¿Eliminar estado "{{label}}"?',
         moveUp: 'Mover arriba',
         moveDown: 'Mover abajo',
+        colorGroup: 'Color del estado',
+        color: {
+          blue: 'Azul',
+          green: 'Verde',
+          amber: 'Ámbar',
+          red: 'Rojo',
+          purple: 'Morado',
+          gray: 'Gris',
+        },
       },
       // Custom actions (AEP-0067)
       customActions: {

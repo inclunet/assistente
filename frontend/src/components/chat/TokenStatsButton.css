@@ -19,7 +19,7 @@
 
 .token-stats-button:hover {
   background: var(--bg-elevated);
-  border-color: var(--border-hover);
+  border-color: var(--border-strong);
   transform: translateY(-1px);
 }
 
