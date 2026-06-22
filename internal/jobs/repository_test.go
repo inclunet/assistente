@@ -1061,6 +1061,87 @@ func TestDBRepositoryCleanRunsExceedingCountBatchesDeletes(t *testing.T) {
 	}
 }
 
+func TestDBRepositoryCleanOldRunsBatchesDeletes(t *testing.T) {
+	repo, userA, _ := setupJobsRepositoryTest(t)
+
+	if err := repo.SaveJob(userA, testRepositoryJob("old-job", "Old")); err != nil {
+		t.Fatalf("save old-job: %v", err)
+	}
+
+	base := time.Now().Add(-48 * time.Hour)
+	const oldRuns = sqliteDeleteBatchSize*2 + 25
+	for i := 0; i < oldRuns; i++ {
+		runID := fmt.Sprintf("old-batch-run-%04d", i)
+		if err := repo.LogRun(userA, &RunLog{
+			RunID:     runID,
+			JobID:     "old-job",
+			Status:    "completed",
+			Trigger:   TriggerInfo{Type: TriggerManual},
+			StartedAt: base.Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatalf("log old run %s: %v", runID, err)
+		}
+		if err := repo.db.Create(&database.JobRunEvent{
+			UserID:     "user-a",
+			JobRunID:   runID,
+			Sequence:   1,
+			OccurredAt: base.Add(time.Duration(i) * time.Second),
+			Type:       "completed",
+			Message:    "done",
+		}).Error; err != nil {
+			t.Fatalf("seed old run event %s: %v", runID, err)
+		}
+	}
+
+	const recentRuns = 2
+	for i := 0; i < recentRuns; i++ {
+		runID := fmt.Sprintf("recent-run-%d", i)
+		if err := repo.LogRun(userA, &RunLog{
+			RunID:     runID,
+			JobID:     "old-job",
+			Status:    "completed",
+			Trigger:   TriggerInfo{Type: TriggerManual},
+			StartedAt: time.Now().Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatalf("log recent run %s: %v", runID, err)
+		}
+		if err := repo.db.Create(&database.JobRunEvent{
+			UserID:     "user-a",
+			JobRunID:   runID,
+			Sequence:   1,
+			OccurredAt: time.Now().Add(time.Duration(i) * time.Second),
+			Type:       "completed",
+			Message:    "done",
+		}).Error; err != nil {
+			t.Fatalf("seed recent run event %s: %v", runID, err)
+		}
+	}
+
+	deleted, err := repo.CleanOldRuns(userA, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("clean old runs in batches: %v", err)
+	}
+	if deleted != oldRuns {
+		t.Fatalf("deleted = %d, want %d", deleted, oldRuns)
+	}
+
+	runs, err := repo.GetRuns(userA, "old-job", oldRuns+recentRuns)
+	if err != nil {
+		t.Fatalf("get remaining runs: %v", err)
+	}
+	if len(runs) != recentRuns {
+		t.Fatalf("remaining runs = %d, want %d", len(runs), recentRuns)
+	}
+
+	var remainingEvents int64
+	if err := repo.db.Model(&database.JobRunEvent{}).Where("user_id = ?", "user-a").Count(&remainingEvents).Error; err != nil {
+		t.Fatalf("count run events: %v", err)
+	}
+	if remainingEvents != recentRuns {
+		t.Fatalf("remaining run events = %d, want %d", remainingEvents, recentRuns)
+	}
+}
+
 func testRepositoryJob(id, name string) *Job {
 	return &Job{
 		ID:      id,

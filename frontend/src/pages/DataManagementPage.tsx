@@ -1119,7 +1119,7 @@ export default function DataManagementPage() {
               </dl>
             )}
             {maintenanceRunError && (
-              <p className="data-management__note" role="alert">{maintenanceRunError}</p>
+              <p className="data-management__note">{maintenanceRunError}</p>
             )}
 
             <div className="data-management-card__actions data-management-card__actions--start">
