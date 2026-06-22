@@ -261,6 +261,7 @@ const es = {
       
       // Tabs
       tabOverview: 'Descripción General',
+      tabPromptCache: 'Cache',
       tabContextDetails: 'Detalles del Contexto',
       tabToolCalling: 'Herramientas',
       tabAgenticLoop: 'Iteraciones de Procesamiento',
@@ -279,7 +280,9 @@ const es = {
       outputTokens: 'Tokens de salida',
       totalTokens: 'Total de tokens',
       messages: 'Mensajes',
-      tokensPerMsg: 'tokens/msg',
+      modelCalls: 'Llamadas al modelo',
+      tokensPerCall: 'tokens/llamada',
+      placeholder: '—',
       mainModel: 'Modelo principal',
       costEstimate: 'Estimación de costo',
       type: 'Tipo',
@@ -288,11 +291,23 @@ const es = {
       output: 'Salida',
       totalEstimated: 'Total estimado',
       costDisclaimer: '* Valores aproximados basados en GPT-4',
+      costDisclaimerWithCache: '* Valores aproximados basados en GPT-4; los tokens leídos del cache se restan de la entrada estimada.',
       managementTips: 'Consejos de gestión',
       tip1: 'Los mensajes más antiguos consumen más contexto',
       tip2: 'Considera resumir conversaciones largas',
       tip3: 'Elimina mensajes innecesarios del historial',
       tip4: 'Los modelos diferentes tienen límites diferentes',
+
+      // Prompt Cache tab
+      promptCache: 'Prompt Cache',
+      cacheReadTokens: 'Tokens leídos del cache',
+      cacheWriteTokens: 'Tokens escritos en el cache',
+      cacheMissTokens: 'Tokens fuera del cache',
+      cacheHitRate: 'Tasa de aciertos',
+      cacheReportedNote: 'El proveedor reportó métricas de cache para esta conversación.',
+      cacheEnabledNotReportedNote: 'El prompt cache está habilitado en el perfil, pero el proveedor aún no reportó métricas de cache para esta conversación.',
+      cacheProfileControlsDisabledNote: 'Los controles explícitos de prompt cache no están habilitados en el perfil; las métricas del proveedor aparecerán cuando se reporten.',
+      cacheUnavailableNote: 'Aún no hay métricas de cache reportadas para esta conversación.',
 
       // Context Details tab (new)
       contextComposition: 'Composición del Contexto',
