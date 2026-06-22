@@ -31,8 +31,10 @@ func createConvWithReportedUsage(t *testing.T) (convID string) {
 		{id: "01972000-0000-7000-8000-000000000001", role: "user"},
 		{id: "01972000-0000-7000-8000-000000000002", role: "assistant", prompt: 1000, compl: 200}, // turno 1
 		{id: "01972000-0000-7000-8000-000000000003", role: "user"},
-		{id: "01972000-0000-7000-8000-000000000004", role: "assistant", prompt: 1500, compl: 300},                                                                       // turno 2 (mais recente)
-		{id: "01972000-0000-7000-8000-000000000005", role: "assistant", toolCalls: `[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{}"}}]`}, // iteração com tool_calls sem usage persistido
+		// turno 2 (mais recente)
+		{id: "01972000-0000-7000-8000-000000000004", role: "assistant", prompt: 1500, compl: 300},
+		// iteração com tool_calls sem usage persistido
+		{id: "01972000-0000-7000-8000-000000000005", role: "assistant", toolCalls: `[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{}"}}]`},
 		{id: "01972000-0000-7000-8000-000000000006", role: "assistant", toolCalls: "[]"},
 		{id: "01972000-0000-7000-8000-000000000007", role: "assistant", toolCalls: " null "},
 	}
