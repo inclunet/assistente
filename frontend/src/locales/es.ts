@@ -282,6 +282,7 @@ const es = {
       messages: 'Mensajes',
       modelCalls: 'Llamadas al modelo',
       tokensPerCall: 'tokens/llamada',
+      placeholder: '—',
       mainModel: 'Modelo principal',
       costEstimate: 'Estimación de costo',
       type: 'Tipo',

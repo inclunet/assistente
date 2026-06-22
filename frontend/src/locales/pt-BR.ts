@@ -283,6 +283,7 @@ const ptBR = {
       messages: 'Mensagens',
       modelCalls: 'Chamadas ao modelo',
       tokensPerCall: 'tokens/chamada',
+      placeholder: '—',
       mainModel: 'Modelo Principal',
       costEstimate: 'Estimativa de Custo',
       type: 'Tipo',

@@ -111,14 +111,16 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   const getCacheClassifiedTokens = (value: TokenStats): number =>
     (value.cacheReadTokens ?? 0) + (value.cacheWriteTokens ?? 0) + (value.cacheMissTokens ?? 0);
 
+  const placeholder = t('tokenStats.placeholder');
+
   const formatCachePercentage = (value: number, total: number): string =>
-    stats?.cacheTokensReported ? `${calculatePercentage(value, total)}%` : '—';
+    stats?.cacheTokensReported ? `${calculatePercentage(value, total)}%` : placeholder;
 
   const formatCacheNumber = (value?: number): string =>
-    stats?.cacheTokensReported ? formatNumber(value ?? 0) : '—';
+    stats?.cacheTokensReported ? formatNumber(value ?? 0) : placeholder;
 
   const formatCacheHitRate = (): string =>
-    stats?.cacheTokensReported ? `${(stats.cacheHitRate ?? 0).toFixed(1)}%` : '—';
+    stats?.cacheTokensReported ? `${(stats.cacheHitRate ?? 0).toFixed(1)}%` : placeholder;
 
   const getCacheStatusNote = (): string => {
     if (stats?.cacheTokensReported) {
@@ -243,7 +245,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                     <tr>
                       <th scope="row">{t('tokenStats.messages')}</th>
                       <td>{formatNumber(stats.messageCount)}</td>
-                      <td>—</td>
+                      <td>{placeholder}</td>
                     </tr>
                     <tr>
                       <th scope="row">{t('tokenStats.modelCalls')}</th>
@@ -251,7 +253,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                       <td>
                         {modelCallCount > 0
                           ? `${formatNumber(Math.round(stats.totalTokens / modelCallCount))} ${t('tokenStats.tokensPerCall')}`
-                          : '—'}
+                          : placeholder}
                       </td>
                     </tr>
                     <tr>
@@ -340,7 +342,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                     <tr className="token-stats-table__total">
                       <th scope="row">{t('tokenStats.cacheHitRate')}</th>
                       <td>{formatCacheHitRate()}</td>
-                      <td>—</td>
+                      <td>{placeholder}</td>
                     </tr>
                   </tbody>
                 </table>

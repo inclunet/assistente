@@ -283,6 +283,7 @@ const en = {
       messages: 'Messages',
       modelCalls: 'Model calls',
       tokensPerCall: 'tokens/call',
+      placeholder: '—',
       mainModel: 'Main Model',
       costEstimate: 'Cost Estimate',
       type: 'Type',

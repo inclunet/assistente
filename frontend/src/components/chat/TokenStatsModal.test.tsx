@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { TokenStatsModal } from './TokenStatsModal';
 
 const getStatsSpy = vi.fn();
-const tMock = (key: string) => key;
+const tMock = (key: string) => (key === 'tokenStats.placeholder' ? '—' : key);
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: tMock, i18n: { language: 'pt-BR' } }),
