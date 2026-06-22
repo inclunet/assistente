@@ -238,6 +238,61 @@ describe('TokenStatsModal', () => {
     expect(screen.getByText('claude')).toBeInTheDocument();
   });
 
+  it('limpa contadores de cache omitidos em evento em tempo real', async () => {
+    getStatsSpy.mockResolvedValue({
+      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
+      promptTokens: 1000,
+      completionTokens: 200,
+      totalTokens: 1200,
+      cacheReadTokens: 300,
+      cacheWriteTokens: 100,
+      cacheMissTokens: 600,
+      cacheHitRate: 30,
+      cacheTokensReported: true,
+      promptCacheEnabled: true,
+      contextTokens: 900,
+      messageCount: 2,
+      mostUsedModel: 'claude',
+      contextUsage: 10,
+      contextLimit: 10000,
+      isNearLimit: false,
+      isCritical: false,
+      systemPromptEstimatedTokens: 5,
+      summaryTokens: 3,
+      messagesInContextTokens: 15,
+      messagesOutOfContextTokens: 7,
+      messagesInContextCount: 1,
+      messagesOutOfContextCount: 0,
+      toolsUsedCount: 0,
+      toolBreakdown: [],
+    });
+
+    render(
+      <TokenStatsModal
+        conversationId={"01926b90-7a5a-7c4e-8d3f-000000000001"}
+        isOpen={true}
+        onClose={() => {}}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('tokenStats.costDisclaimerWithCache')).toBeInTheDocument();
+    });
+
+    act(() => {
+      eventCallbacks['chat:token_stats_update']?.forEach((callback) => callback({
+        conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
+        cacheTokensReported: false,
+        promptCacheEnabled: true,
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('tokenStats.costDisclaimer')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('tokenStats.costDisclaimerWithCache')).not.toBeInTheDocument();
+  });
+
   it('ignora evento parcial antes do snapshot inicial', async () => {
     let resolveStats!: (value: Record<string, unknown>) => void;
     getStatsSpy.mockReturnValue(new Promise((resolve) => {

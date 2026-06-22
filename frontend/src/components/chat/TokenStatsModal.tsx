@@ -50,6 +50,22 @@ interface TokenStatsModalProps {
   onClose: () => void;
 }
 
+const mergeRealtimeTokenStats = (
+  current: TokenStats,
+  update: Partial<TokenStats> & { conversationId: string },
+): TokenStats => {
+  const merged = { ...current, ...update };
+
+  if (update.cacheTokensReported !== undefined) {
+    merged.cacheReadTokens = update.cacheReadTokens ?? 0;
+    merged.cacheWriteTokens = update.cacheWriteTokens ?? 0;
+    merged.cacheMissTokens = update.cacheMissTokens ?? 0;
+    merged.cacheHitRate = update.cacheHitRate ?? 0;
+  }
+
+  return merged;
+};
+
 export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   conversationId,
   isOpen,
@@ -92,7 +108,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
 
     const unsubscribeRealtime = EventsOn('chat:token_stats_update', (data: Partial<TokenStats> & { conversationId: string }) => {
       if (data.conversationId === conversationId) {
-        setStats((current) => current ? { ...current, ...data } : current);
+        setStats((current) => current ? mergeRealtimeTokenStats(current, data) : current);
       }
     });
 
