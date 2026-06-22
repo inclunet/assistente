@@ -92,7 +92,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
 
     const unsubscribeRealtime = EventsOn('chat:token_stats_update', (data: Partial<TokenStats> & { conversationId: string }) => {
       if (data.conversationId === conversationId) {
-        setStats((current) => current ? { ...current, ...data } : data as TokenStats);
+        setStats((current) => current ? { ...current, ...data } : current);
       }
     });
 
