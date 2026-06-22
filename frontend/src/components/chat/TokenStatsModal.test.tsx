@@ -221,30 +221,12 @@ describe('TokenStatsModal', () => {
     act(() => {
       eventCallbacks['chat:token_stats_update']?.forEach((callback) => callback({
         conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
-        promptTokens: 1000,
-        completionTokens: 200,
-        totalTokens: 1200,
         cacheReadTokens: 300,
         cacheWriteTokens: 100,
         cacheMissTokens: 600,
         cacheHitRate: 30,
         cacheTokensReported: true,
         promptCacheEnabled: true,
-        contextTokens: 900,
-        messageCount: 2,
-        mostUsedModel: 'claude',
-        contextUsage: 10,
-        contextLimit: 10000,
-        isNearLimit: false,
-        isCritical: false,
-        systemPromptEstimatedTokens: 5,
-        summaryTokens: 3,
-        messagesInContextTokens: 15,
-        messagesOutOfContextTokens: 7,
-        messagesInContextCount: 1,
-        messagesOutOfContextCount: 0,
-        toolsUsedCount: 0,
-        toolBreakdown: [],
       }));
     });
 
@@ -252,6 +234,8 @@ describe('TokenStatsModal', () => {
       expect(screen.getByText('tokenStats.cacheReportedNote')).toBeInTheDocument();
     });
     expect(screen.queryByText('tokenStats.cacheEnabledNotReportedNote')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'tokenStats.tabOverview' }));
+    expect(screen.getByText('claude')).toBeInTheDocument();
   });
 
   it('mostra fallback sem inferir warning quando métricas de cache estão ausentes', async () => {
