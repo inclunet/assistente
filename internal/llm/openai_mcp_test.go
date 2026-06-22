@@ -107,15 +107,15 @@ func TestNativeMCP_ToolDeduplication(t *testing.T) {
 	// Quando MCP nativo está ativo, bridge tools dos servidores nativos devem ser removidas.
 	allTools := []ToolDefinition{
 		{Function: FunctionDefinition{Name: "internal_search"}},
-		{Function: FunctionDefinition{Name: "mcp__github__list_repos"}},
-		{Function: FunctionDefinition{Name: "mcp__github__create_issue"}},
-		{Function: FunctionDefinition{Name: "mcp__slack__send_message"}},
+		{Function: FunctionDefinition{Name: "mcp_github__list_repos"}},
+		{Function: FunctionDefinition{Name: "mcp_github__create_issue"}},
+		{Function: FunctionDefinition{Name: "mcp_slack__send_message"}},
 		{Function: FunctionDefinition{Name: "internal_calc"}},
 	}
 
 	nativeToolNames := map[string]bool{
-		"mcp__github__list_repos":   true,
-		"mcp__github__create_issue": true,
+		"mcp_github__list_repos":   true,
+		"mcp_github__create_issue": true,
 	}
 
 	var filtered []ToolDefinition
@@ -128,7 +128,7 @@ func TestNativeMCP_ToolDeduplication(t *testing.T) {
 	if len(filtered) != 3 {
 		t.Fatalf("Expected 3 tools after dedup, got %d", len(filtered))
 	}
-	expectedNames := []string{"internal_search", "mcp__slack__send_message", "internal_calc"}
+	expectedNames := []string{"internal_search", "mcp_slack__send_message", "internal_calc"}
 	for i, name := range expectedNames {
 		if filtered[i].Function.Name != name {
 			t.Errorf("filtered[%d] = %q, want %q", i, filtered[i].Function.Name, name)
