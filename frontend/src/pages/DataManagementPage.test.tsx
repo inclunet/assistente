@@ -62,7 +62,7 @@ vi.mock('react-i18next', () => ({
       let value = fallbackOrOptions?.defaultValue ?? _key;
       for (const [placeholder, replacement] of Object.entries(fallbackOrOptions ?? {})) {
         if (placeholder !== 'defaultValue') {
-          value = value.replaceAll(`{{${placeholder}}}`, String(replacement));
+          value = value.split(`{{${placeholder}}}`).join(String(replacement));
         }
       }
       return value;
