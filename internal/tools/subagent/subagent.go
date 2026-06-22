@@ -41,6 +41,11 @@ func NewWithProvider(provider RunnerProvider) *Tool {
 
 func (t *Tool) Name() string { return "subagent" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "agents", Class: "agent_delegation", Package: "agents", Risk: "write"}
+}
+
 func (t *Tool) Description() string {
 	return "Delegate work to a sub-agent running in its own persisted sub-conversation. Modes (driven by parameters): (1) send — provide 'prompt' to start a sub-agent. Without 'conversation_id' it creates a new sub-conversation; with 'conversation_id' it resumes an existing one, preserving its full context (like resuming by agent id). Add 'clear':true to reset that sub-conversation's history before sending. With 'background':false (default) it waits and returns the result; with 'background':true it returns a handle (conversation_id/run_id) immediately and the result is delivered back into this conversation when it completes. (2) status — omit 'prompt' (and 'cancel') and pass either 'conversation_id' (queries its most recent run) OR 'run_id' alone (the run is resolved by its id) to query the current state of a run. (3) cancel — pass 'cancel':true with 'conversation_id' (optionally 'run_id') to cancel a running sub-agent. Optional 'profile' (defaults to the parent's profile), 'title' and 'model'. 'cancel' is mutually exclusive with 'prompt' and 'clear'."
 }

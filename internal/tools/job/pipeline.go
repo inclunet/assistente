@@ -35,6 +35,11 @@ func NewPipelineWithProvider(provider ManagerProvider) *PipelineTool {
 
 func (t *PipelineTool) Name() string { return "job_pipeline" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *PipelineTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "jobs", Class: "automation_management", Package: "jobs", Risk: "write"}
+}
+
 func (t *PipelineTool) Description() string {
 	return "Composite DB-backed job pipeline manager. No params lists persisted pipelines. slug reads a pipeline. With slug plus fields updates, or creates that explicit slug when not found and name is present. Without slug plus name creates with a generated slug. enabled toggles scheduling for jobs in the pipeline. delete removes a pipeline."
 }

@@ -11,6 +11,7 @@ import (
 
 type catalogTestTool struct {
 	name string
+	meta tools.CatalogMetadata
 }
 
 func (t catalogTestTool) Name() string { return t.name }
@@ -23,6 +24,10 @@ func (t catalogTestTool) Parameters() json.RawMessage {
 func (t catalogTestTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: "ok"}, nil
 }
+
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1):
+// cada builtin é a fonte autoritativa dos próprios metadados.
+func (t catalogTestTool) CatalogMetadata() tools.CatalogMetadata { return t.meta }
 
 func TestSyncBuiltinToolsCatalogsGlobalToolsOnly(t *testing.T) {
 	repo, userA, userB := setupRepositoryTest(t)
@@ -61,9 +66,10 @@ func TestSyncBuiltinToolsCatalogsGlobalToolsOnly(t *testing.T) {
 
 func TestCatalogToolQueriesPersistedRepository(t *testing.T) {
 	repo, userA, _ := setupRepositoryTest(t)
+	readonlyMeta := tools.CatalogMetadata{Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"}
 	registry := tools.NewRegistry()
-	registry.MustRegister(catalogTestTool{name: "read_file"})
-	registry.MustRegister(catalogTestTool{name: "grep_search"})
+	registry.MustRegister(catalogTestTool{name: "read_file", meta: readonlyMeta})
+	registry.MustRegister(catalogTestTool{name: "grep_search", meta: readonlyMeta})
 
 	m := NewManager(registry, nil, nil)
 	m.SetRepository(repo)

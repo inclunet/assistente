@@ -56,6 +56,11 @@ func (t *HTTPRequest) SetConfirmFunc(fn func(ctx context.Context, method, url, b
 
 func (t *HTTPRequest) Name() string { return "http_request" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *HTTPRequest) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "http", Class: "http_api", Package: "web", Risk: "network"}
+}
+
 func (t *HTTPRequest) Description() string {
 	return "Makes complete HTTP requests supporting all methods (GET/POST/PUT/DELETE/PATCH), custom headers, request body, and authentication. Blocks local/private hosts by default. Use for API calls, REST endpoints, and data submission."
 }

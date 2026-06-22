@@ -23,6 +23,11 @@ func NewSearchFiles(workDir string) *SearchFiles {
 
 func (t *SearchFiles) Name() string { return "search_files" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *SearchFiles) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"}
+}
+
 func (t *SearchFiles) Description() string {
 	return "Finds files by glob pattern. Use **/ for recursive search (e.g., '**/test_*.py'). Without **/, it searches only the base directory."
 }

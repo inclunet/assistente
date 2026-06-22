@@ -42,6 +42,11 @@ func NewTask(mgr TaskListManager) *TaskTool {
 
 func (t *TaskTool) Name() string { return "task" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *TaskTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"}
+}
+
 func (t *TaskTool) Description() string {
 	return `Full CRUD for tasks. Read/delete/duplicate source: task_id and/or (task_list_id/task_list_slug + code). With task_id and code only (no new title semantics): code must match that task. With list+code only: finds the task in that list. With task_id only, list ref is not used to locate the task — on update/duplicate, task_list_id/slug is the destination list for move/copy. Create: task_list_id and/or task_list_slug + title; optional code (dedup updates existing task with that code). Update by task_id + title: code field is the new task code, not for resolution. Duplicate by task_id: optional code sets the new copy's code. Use task_list for status IDs.`
 }

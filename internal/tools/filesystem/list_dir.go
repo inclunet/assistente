@@ -24,6 +24,11 @@ func NewListDirectory(workDir string) *ListDirectory {
 
 func (t *ListDirectory) Name() string { return "list_directory" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *ListDirectory) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"}
+}
+
 func (t *ListDirectory) Description() string {
 	return "Lists files and directories for a path (default: working directory). Returns name, type, and size. Not recursive by default; use recursive=true and max_depth."
 }

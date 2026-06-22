@@ -26,6 +26,11 @@ func NewGrepSearch(workDir string) *GrepSearch {
 
 func (t *GrepSearch) Name() string { return "grep_search" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *GrepSearch) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"}
+}
+
 func (t *GrepSearch) Description() string {
 	return "Searches file contents by pattern (Go regex or literal). Returns matching lines with line numbers and context. Use include to filter files and case_sensitive=false for case-insensitive search."
 }

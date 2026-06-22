@@ -39,6 +39,11 @@ func New(skillMgr SkillManager, profileMgr ProfileManager) *Tool {
 
 func (t *Tool) Name() string { return ToolName }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "skills", Class: "runtime_control", Package: "skills", Risk: "read"}
+}
+
 func (t *Tool) Description() string {
 	return "Load an enabled on-demand skill into the current turn. Use this when the task matches a skill from the prompt's skill catalog and you need the full skill instructions before continuing. Only profile-enabled on-demand skills can be loaded. This is a runtime control tool with ordering semantics: when load_skill appears in the same tool batch as other tool calls, the runtime executes load_skill first and applies the loaded skill's permissions/context before running the remaining calls, while preserving the original result order in the conversation."
 }

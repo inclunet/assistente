@@ -22,6 +22,11 @@ func NewDeleteFile(workDir string) *DeleteFile {
 
 func (t *DeleteFile) Name() string { return "delete_file" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *DeleteFile) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "destructive"}
+}
+
 func (t *DeleteFile) Description() string {
 	return "Deletes a file on disk (not directories). Validates paths, respects skill filesystem scope, and blocks sensitive files."
 }

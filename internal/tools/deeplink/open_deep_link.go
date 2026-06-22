@@ -29,6 +29,11 @@ func NewOpenDeepLink(emitter DeepLinkEmitter) *OpenDeepLinkTool {
 
 func (t *OpenDeepLinkTool) Name() string { return "open_deep_link" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *OpenDeepLinkTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "app", Class: "app_tool", Package: "basic", Risk: "read"}
+}
+
 func (t *OpenDeepLinkTool) Description() string {
 	return `Opens a deep link in the application. Supported URIs:
 - Conversations: assistente://conversation/{id}, assistente://conversation/new?message=...&title=..., assistente://conversation/{id}/send?message=...

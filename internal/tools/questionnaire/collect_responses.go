@@ -40,6 +40,11 @@ func (t *CollectResponsesTool) Name() string {
 	return "collect_responses"
 }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *CollectResponsesTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "questionnaire", Class: "app_tool", Package: "basic", Risk: "read"}
+}
+
 func (t *CollectResponsesTool) Description() string {
 	return "Collects structured answers via an in-app questionnaire. Prefer this whenever you need to ask the user questions, clarify requirements, compare alternatives, run quizzes/tests/simulations, or validate a plan before acting. Supports multiple questions and formats (text, long_text, number, boolean, single_choice, multiple_choice, scale, date); returns machine-readable answers."
 }
