@@ -138,6 +138,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   const roundedContextUsage = stats ? Number(stats.contextUsage.toFixed(1)) : 0;
   const contextUsageText = `${roundedContextUsage.toFixed(1)}%`;
   const modelCallCount = stats?.modelCallCount ?? 0;
+  const hasCacheReadTokens = (stats?.cacheReadTokens ?? 0) > 0;
 
   const estimatedCost = stats ? {
     input: (Math.max(0, stats.promptTokens - (stats.cacheReadTokens ?? 0)) / 1000000) * 0.5, // estimativa genérica
@@ -290,7 +291,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                     </tbody>
                   </table>
                   <p className="token-stats-cost__note">
-                    {stats.cacheTokensReported
+                    {hasCacheReadTokens
                       ? t('tokenStats.costDisclaimerWithCache')
                       : t('tokenStats.costDisclaimer')}
                   </p>
