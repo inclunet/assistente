@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { GetConversationTokenStats } from '@wailsjs/go/app/App';
@@ -76,11 +76,13 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const pendingFinalStatsRef = useRef<(Partial<TokenStats> & { conversationId: string }) | null>(null);
 
   useEffect(() => {
     if (!isOpen || !conversationId) {
       return;
     }
+    pendingFinalStatsRef.current = null;
 
     // Carrega estatísticas iniciais
     const loadStats = async () => {
@@ -88,7 +90,13 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
         setLoading(true);
         setError(null);
         const result = await GetConversationTokenStats(conversationId);
-        setStats(result);
+        const pendingFinalStats = pendingFinalStatsRef.current;
+        if (pendingFinalStats?.conversationId === conversationId) {
+          setStats(mergeRealtimeTokenStats(result, pendingFinalStats));
+          pendingFinalStatsRef.current = null;
+        } else {
+          setStats(result);
+        }
       } catch (err) {
         logger.error('[TokenStatsModal] Erro ao carregar estatísticas:', err);
         setError(t('tokenStats.loadError'));
@@ -100,9 +108,15 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     loadStats();
 
     // Escuta atualizações em tempo real
-    const unsubscribe = EventsOn('chat:token_stats', (data: TokenStats & { conversationId: string }) => {
+    const unsubscribe = EventsOn('chat:token_stats', (data: Partial<TokenStats> & { conversationId: string }) => {
       if (data.conversationId === conversationId) {
-        setStats((current) => current ? mergeRealtimeTokenStats(current, data) : current);
+        setStats((current) => {
+          if (current) {
+            return mergeRealtimeTokenStats(current, data);
+          }
+          pendingFinalStatsRef.current = data;
+          return current;
+        });
       }
     });
 
