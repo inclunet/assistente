@@ -1,8 +1,9 @@
 # AEP-0075 — Context Providers
 
-Status: Implementada pelo PR #297
+Status: Concluída
 Criado em: 2026-06-16
 Implementada em: 2026-06-19
+Implementada por: PR #297
 Relacionado: AEP-0072, AEP-0074, AEP-0059, AEP-0042, AEP-0057
 
 ## Resumo

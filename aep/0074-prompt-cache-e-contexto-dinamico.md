@@ -1,8 +1,10 @@
 # AEP-0074 — Prompt Cache, Custo de LLM e Layout da Request
 
-Status: Proposta
+Status: Concluída
 Criado em: 2026-06-16
-Atualizado em: 2026-06-19
+Atualizado em: 2026-06-22
+Implementada em: 2026-06-22
+Implementada por: PR #296, PR #298, PR #301, PR #302, PR #304, PR #305, PR #306
 Depende de: AEP-0075 (Context Providers), AEP-0072 revisada (Skill Loading Runtime)
 Relacionado: AEP-0012, AEP-0059, AEP-0051, AEP-0039
 
