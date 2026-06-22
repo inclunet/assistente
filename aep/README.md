@@ -90,10 +90,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0074-B](0074-database-compaction-and-retention.md) | Compactação e Retenção do Banco de Dados ⚠️ | ✅ Done |
 | [0075](0075-context-providers.md) | Context Providers | ✅ Done |
 | [0076](0076-schema-versioning-migrations.md) | Versionamento de Schema do Banco (schema_migrations) | ✅ Done |
+| [0077](0077-tool-planner-and-tools-subsystem-evolution.md) | ToolPlanner e Evolução do Subsistema de Tools | 📝 Draft |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0076 → próximo
-> 0077), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0077 → próximo
+> 0078), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 
