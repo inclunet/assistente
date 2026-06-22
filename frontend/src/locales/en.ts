@@ -375,6 +375,8 @@ const en = {
       maintenanceSaveError: 'Failed to save the maintenance policy.',
       maintenanceRunDone: 'Maintenance complete. Space reclaimed: {{reclaimed}}.',
       maintenanceRunError: 'Failed to run database maintenance.',
+      maintenanceRunErrorWithReason: 'Failed to run database maintenance: {{reason}}',
+      maintenanceRunUnknownReason: 'unknown error',
       maintenanceUnavailable: 'Could not load the maintenance settings.',
     },
 

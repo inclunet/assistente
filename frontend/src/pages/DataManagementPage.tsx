@@ -30,6 +30,16 @@ function formatBytes(bytes: number): string {
   return `${rounded} ${units[unitIndex]}`;
 }
 
+function getErrorReason(error: unknown): string | null {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'string' && error.trim()) return error;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return null;
+}
+
 interface ConversationRecord {
   id: string;
 }
@@ -229,6 +239,7 @@ export default function DataManagementPage() {
   const [isLoadingMaintenance, setIsLoadingMaintenance] = useState(true);
   const [isSavingMaintenance, setIsSavingMaintenance] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
+  const [maintenanceRunError, setMaintenanceRunError] = useState('');
 
   const loadMaintenance = useCallback(async () => {
     setIsLoadingMaintenance(true);
@@ -287,6 +298,7 @@ export default function DataManagementPage() {
 
   const handleRunMaintenance = useCallback(async () => {
     setIsCompacting(true);
+    setMaintenanceRunError('');
     try {
       const result = await RunDatabaseMaintenance(true);
       const stats = await GetDatabaseStats();
@@ -299,7 +311,12 @@ export default function DataManagementPage() {
       );
     } catch (error) {
       logger.error('Erro ao executar manutenção do banco:', error);
-      announce(t('dataManagement.maintenanceRunError', 'Erro ao executar a manutenção do banco.'), 'assertive');
+      const message = t('dataManagement.maintenanceRunErrorWithReason', {
+        defaultValue: 'Erro ao executar a manutenção do banco: {{reason}}',
+        reason: getErrorReason(error) ?? t('dataManagement.maintenanceRunUnknownReason', 'erro desconhecido'),
+      });
+      setMaintenanceRunError(message);
+      announce(message, 'assertive');
     } finally {
       setIsCompacting(false);
     }
@@ -1104,6 +1121,9 @@ export default function DataManagementPage() {
                 <div><dt>{t('dataManagement.dbFreeSpaceLabel', 'Espaço recuperável')}</dt><dd>{formatBytes(dbStats.freeBytes)}</dd></div>
                 <div><dt>{t('dataManagement.dbAutoVacuumLabel', 'Modo de auto_vacuum')}</dt><dd>{dbStats.autoVacuumMode}</dd></div>
               </dl>
+            )}
+            {maintenanceRunError && (
+              <p className="data-management__note">{maintenanceRunError}</p>
             )}
 
             <div className="data-management-card__actions data-management-card__actions--start">

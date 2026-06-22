@@ -68,6 +68,23 @@ type DBRepository struct {
 	now func() time.Time
 }
 
+const sqliteDeleteBatchSize = 500
+
+func stringBatches(values []string, size int) [][]string {
+	if size <= 0 {
+		size = sqliteDeleteBatchSize
+	}
+	batches := make([][]string, 0, (len(values)+size-1)/size)
+	for start := 0; start < len(values); start += size {
+		end := start + size
+		if end > len(values) {
+			end = len(values)
+		}
+		batches = append(batches, values[start:end])
+	}
+	return batches
+}
+
 func NewDBRepository(db *gorm.DB) *DBRepository {
 	return &DBRepository{db: db, now: time.Now}
 }
@@ -1240,28 +1257,43 @@ func (r *DBRepository) GetRunEvents(ctx context.Context, runID string) ([]RunEve
 // eventos de domínio), antes da remoção dos próprios job_runs. Escopado por
 // usuário do contexto. Não remove os job_runs em si — isso fica a cargo do
 // chamador, que define o critério (idade ou contagem).
-func (r *DBRepository) deleteRunDependenciesByIDs(ctx context.Context, runIDs []string) error {
+func (r *DBRepository) deleteRunDependenciesByIDsTx(ctx context.Context, tx *gorm.DB, runIDs []string, hasToolInvocations bool) error {
 	if len(runIDs) == 0 {
 		return nil
 	}
-	// tool_invocations: remove execuções técnicas associadas aos runs purgados.
-	// Best-effort: pode não existir em migrações parciais.
-	if r.db.Migrator().HasTable(&database.ToolInvocation{}) {
-		if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
-			Where("origin_type = ? AND origin_id IN ?", toolinvocations.OriginJobRun, runIDs).
-			Delete(&database.ToolInvocation{}).Error; err != nil {
+	for _, batch := range stringBatches(runIDs, sqliteDeleteBatchSize) {
+		// tool_invocations: remove execuções técnicas associadas aos runs purgados.
+		// Best-effort: pode não existir em migrações parciais.
+		if hasToolInvocations {
+			if err := database.ScopeByUser(ctx, tx.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+				Where("origin_type = ? AND origin_id IN ?", toolinvocations.OriginJobRun, batch).
+				Delete(&database.ToolInvocation{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := database.ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
+			Where("job_run_id IN ?", batch).Delete(&database.JobRunEvent{}).Error; err != nil {
+			return err
+		}
+		if err := database.ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
+			Where("job_run_id IN ?", batch).Delete(&database.JobEvent{}).Error; err != nil {
 			return err
 		}
 	}
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("job_run_id IN ?", runIDs).Delete(&database.JobRunEvent{}).Error; err != nil {
-		return err
-	}
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("job_run_id IN ?", runIDs).Delete(&database.JobEvent{}).Error; err != nil {
-		return err
-	}
 	return nil
+}
+
+func (r *DBRepository) deleteRunsByIDsTx(ctx context.Context, tx *gorm.DB, runIDs []string) (int64, error) {
+	deleted := int64(0)
+	for _, batch := range stringBatches(runIDs, sqliteDeleteBatchSize) {
+		res := database.ScopeByUser(ctx, tx.WithContext(ctx), "user_id").
+			Where("id IN ?", batch).Delete(&database.JobRun{})
+		if res.Error != nil {
+			return deleted, res.Error
+		}
+		deleted += res.RowsAffected
+	}
+	return deleted, nil
 }
 
 func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (int, error) {
@@ -1274,12 +1306,20 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 		Where("started_at < ?", cutoff).Pluck("id", &runIDs).Error; err != nil {
 		return 0, err
 	}
-	if err := r.deleteRunDependenciesByIDs(ctx, runIDs); err != nil {
+	deleted := int64(0)
+	hasToolInvocations := r.db.Migrator().HasTable(&database.ToolInvocation{})
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := r.deleteRunDependenciesByIDsTx(ctx, tx, runIDs, hasToolInvocations); err != nil {
+			return err
+		}
+		var err error
+		deleted, err = r.deleteRunsByIDsTx(ctx, tx, runIDs)
+		return err
+	})
+	if err != nil {
 		return 0, err
 	}
-	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("started_at < ?", cutoff).Delete(&database.JobRun{})
-	return int(res.RowsAffected), res.Error
+	return int(deleted), nil
 }
 
 // CleanRunsExceedingCount mantém apenas os `keepPerJob` runs mais recentes por
@@ -1312,12 +1352,20 @@ func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob i
 	if len(runIDs) == 0 {
 		return 0, nil
 	}
-	if err := r.deleteRunDependenciesByIDs(ctx, runIDs); err != nil {
+	deleted := int64(0)
+	hasToolInvocations := r.db.Migrator().HasTable(&database.ToolInvocation{})
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := r.deleteRunDependenciesByIDsTx(ctx, tx, runIDs, hasToolInvocations); err != nil {
+			return err
+		}
+		var err error
+		deleted, err = r.deleteRunsByIDsTx(ctx, tx, runIDs)
+		return err
+	})
+	if err != nil {
 		return 0, err
 	}
-	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("id IN ?", runIDs).Delete(&database.JobRun{})
-	return int(res.RowsAffected), res.Error
+	return int(deleted), nil
 }
 
 func (r *DBRepository) CleanOldEvents(ctx context.Context, maxAge time.Duration) (int, error) {

@@ -59,7 +59,13 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (_key: string, fallbackOrOptions?: string | { defaultValue?: string }) => {
       if (typeof fallbackOrOptions === 'string') return fallbackOrOptions;
-      return fallbackOrOptions?.defaultValue ?? _key;
+      let value = fallbackOrOptions?.defaultValue ?? _key;
+      for (const [placeholder, replacement] of Object.entries(fallbackOrOptions ?? {})) {
+        if (placeholder !== 'defaultValue') {
+          value = value.split(`{{${placeholder}}}`).join(String(replacement));
+        }
+      }
+      return value;
     },
   }),
 }));
@@ -764,6 +770,19 @@ describe('DataManagementPage', () => {
         expect(mockGetDatabaseStats).toHaveBeenCalledTimes(2);
       });
       expect(mockAnnounce).toHaveBeenCalledWith(expect.stringContaining('Manutenção concluída'));
+    });
+
+    it('mostra e anuncia o motivo quando a manutencao manual falha', async () => {
+      const user = userEvent.setup();
+      mockRunDatabaseMaintenance.mockRejectedValue({ message: 'vacuum: database or disk is full' });
+
+      render(<DataManagementPage />);
+
+      await user.click(await screen.findByRole('button', { name: 'Limpar agora' }));
+
+      const message = 'Erro ao executar a manutenção do banco: vacuum: database or disk is full';
+      expect(await screen.findByText(message)).toBeInTheDocument();
+      expect(mockAnnounce).toHaveBeenCalledWith(message, 'assertive');
     });
 
     it('mantem a politica editavel mesmo se as estatisticas do banco falharem', async () => {

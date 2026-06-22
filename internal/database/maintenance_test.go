@@ -155,3 +155,44 @@ func TestCompactIncrementalMode(t *testing.T) {
 		t.Fatalf("incremental_vacuum não reduziu a freelist: antes=%d depois=%d", before.FreeBytes, after.FreeBytes)
 	}
 }
+
+func TestCompactForceRunsFullVacuumForIncrementalDB(t *testing.T) {
+	setupMaintenanceDB(t, true)
+	ctx := context.Background()
+
+	before, err := DatabaseStatsSnapshot(ctx)
+	if err != nil {
+		t.Fatalf("stats antes: %v", err)
+	}
+	if before.AutoVacuumMode != "incremental" {
+		t.Fatalf("banco deveria nascer incremental, got %q", before.AutoVacuumMode)
+	}
+	if before.FreeBytes <= 0 {
+		t.Fatalf("esperava freelist > 0 após DELETE, got %d", before.FreeBytes)
+	}
+
+	res, err := Compact(ctx, true, 0)
+	if err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if res.Mode != "full" {
+		t.Fatalf("mode = %q, want full", res.Mode)
+	}
+
+	after, err := DatabaseStatsSnapshot(ctx)
+	if err != nil {
+		t.Fatalf("stats depois: %v", err)
+	}
+	if after.AutoVacuumMode != "incremental" {
+		t.Fatalf("VACUUM forçado deve preservar incremental, got %q", after.AutoVacuumMode)
+	}
+	if after.FreeBytes >= before.FreeBytes {
+		t.Fatalf("VACUUM forçado não reduziu a freelist: antes=%d depois=%d", before.FreeBytes, after.FreeBytes)
+	}
+	if after.TotalSizeBytes >= before.TotalSizeBytes {
+		t.Fatalf("VACUUM forçado não encolheu o banco: antes=%d depois=%d", before.TotalSizeBytes, after.TotalSizeBytes)
+	}
+	if res.ReclaimedBytes <= 0 {
+		t.Fatalf("ReclaimedBytes = %d, want > 0", res.ReclaimedBytes)
+	}
+}

@@ -111,7 +111,8 @@ func DatabaseStatsSnapshot(ctx context.Context) (DatabaseStats, error) {
 // Compact executa a manutenção física do arquivo SQLite (AEP-0074):
 //
 //   - wal_checkpoint(TRUNCATE) para limitar o arquivo -wal;
-//   - em bancos no modo incremental: PRAGMA incremental_vacuum (barato);
+//   - em bancos no modo incremental: PRAGMA incremental_vacuum (barato), salvo
+//     quando force=true, que executa VACUUM completo;
 //   - em bancos legados (auto_vacuum=none/full): VACUUM completo, gated por
 //     limiar de páginas livres (a menos que force=true). O VACUUM também
 //     converte o banco para o modo incremental dali em diante.
@@ -172,8 +173,22 @@ func Compact(ctx context.Context, force bool, minFreeBytes int64) (CompactionRes
 			res.WALCheckpointed = true
 		}
 
+		runFullVacuum := func() error {
+			if _, err := conn.ExecContext(ctx, "PRAGMA auto_vacuum=INCREMENTAL"); err != nil {
+				log.Printf("[Database] manutenção: set auto_vacuum=INCREMENTAL falhou: %v", err)
+			}
+			if _, err := conn.ExecContext(ctx, "VACUUM"); err != nil {
+				return fmt.Errorf("vacuum: %w", err)
+			}
+			res.Mode = "full"
+			return nil
+		}
+
 		switch before.AutoVacuumMode {
 		case "incremental":
+			if force {
+				return runFullVacuum()
+			}
 			// Devolve todas as páginas livres ao SO. Sem argumento = todas.
 			if _, err := conn.ExecContext(ctx, "PRAGMA incremental_vacuum"); err != nil {
 				return fmt.Errorf("incremental_vacuum: %w", err)
@@ -187,13 +202,7 @@ func Compact(ctx context.Context, force bool, minFreeBytes int64) (CompactionRes
 				res.Mode = "skipped"
 				return nil
 			}
-			if _, err := conn.ExecContext(ctx, "PRAGMA auto_vacuum=INCREMENTAL"); err != nil {
-				log.Printf("[Database] manutenção: set auto_vacuum=INCREMENTAL falhou: %v", err)
-			}
-			if _, err := conn.ExecContext(ctx, "VACUUM"); err != nil {
-				return fmt.Errorf("vacuum: %w", err)
-			}
-			res.Mode = "full"
+			return runFullVacuum()
 		}
 		return nil
 	}(); err != nil {
