@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { GetConversationTokenStats } from '@wailsjs/go/app/App';
@@ -18,6 +18,12 @@ interface ToolBreakdownEntry {
 
 interface TokenStats {
   totalTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cacheMissTokens?: number;
+  cacheHitRate?: number;
+  cacheTokensReported?: boolean;
+  promptCacheEnabled?: boolean;
   contextTokens: number;
   promptTokens: number;
   completionTokens: number;
@@ -26,6 +32,7 @@ interface TokenStats {
   isNearLimit: boolean;
   isCritical: boolean;
   messageCount: number;
+  modelCallCount?: number;
   mostUsedModel: string;
   systemPromptEstimatedTokens: number;
   summaryTokens: number;
@@ -43,6 +50,22 @@ interface TokenStatsModalProps {
   onClose: () => void;
 }
 
+const mergeRealtimeTokenStats = (
+  current: TokenStats,
+  update: Partial<TokenStats> & { conversationId: string },
+): TokenStats => {
+  const merged = { ...current, ...update };
+
+  if (update.cacheTokensReported !== undefined) {
+    merged.cacheReadTokens = update.cacheReadTokens ?? 0;
+    merged.cacheWriteTokens = update.cacheWriteTokens ?? 0;
+    merged.cacheMissTokens = update.cacheMissTokens ?? 0;
+    merged.cacheHitRate = update.cacheHitRate ?? 0;
+  }
+
+  return merged;
+};
+
 export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   conversationId,
   isOpen,
@@ -53,11 +76,13 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const pendingFinalStatsRef = useRef<(Partial<TokenStats> & { conversationId: string }) | null>(null);
 
   useEffect(() => {
     if (!isOpen || !conversationId) {
       return;
     }
+    pendingFinalStatsRef.current = null;
 
     // Carrega estatísticas iniciais
     const loadStats = async () => {
@@ -65,7 +90,13 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
         setLoading(true);
         setError(null);
         const result = await GetConversationTokenStats(conversationId);
-        setStats(result);
+        const pendingFinalStats = pendingFinalStatsRef.current;
+        if (pendingFinalStats?.conversationId === conversationId) {
+          setStats(mergeRealtimeTokenStats(result, pendingFinalStats));
+          pendingFinalStatsRef.current = null;
+        } else {
+          setStats(result);
+        }
       } catch (err) {
         logger.error('[TokenStatsModal] Erro ao carregar estatísticas:', err);
         setError(t('tokenStats.loadError'));
@@ -77,13 +108,28 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     loadStats();
 
     // Escuta atualizações em tempo real
-    const unsubscribe = EventsOn('chat:token_stats', (data: TokenStats & { conversationId: string }) => {
+    const unsubscribe = EventsOn('chat:token_stats', (data: Partial<TokenStats> & { conversationId: string }) => {
       if (data.conversationId === conversationId) {
-        setStats(data);
+        setStats((current) => {
+          if (current) {
+            return mergeRealtimeTokenStats(current, data);
+          }
+          pendingFinalStatsRef.current = data;
+          return current;
+        });
       }
     });
 
-    return () => unsubscribe();
+    const unsubscribeRealtime = EventsOn('chat:token_stats_update', (data: Partial<TokenStats> & { conversationId: string }) => {
+      if (data.conversationId === conversationId) {
+        setStats((current) => current ? mergeRealtimeTokenStats(current, data) : current);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeRealtime();
+    };
   }, [conversationId, isOpen, t]);
 
   const formatNumber = (num: number): string => {
@@ -101,8 +147,40 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     return 'normal';
   };
 
+  const getCacheClassifiedTokens = (value: TokenStats): number =>
+    (value.cacheReadTokens ?? 0) + (value.cacheWriteTokens ?? 0) + (value.cacheMissTokens ?? 0);
+
+  const placeholder = t('tokenStats.placeholder');
+
+  const formatCachePercentage = (value: number, total: number): string =>
+    stats?.cacheTokensReported ? `${calculatePercentage(value, total)}%` : placeholder;
+
+  const formatCacheNumber = (value?: number): string =>
+    stats?.cacheTokensReported ? formatNumber(value ?? 0) : placeholder;
+
+  const formatCacheHitRate = (): string =>
+    stats?.cacheTokensReported ? `${(stats.cacheHitRate ?? 0).toFixed(1)}%` : placeholder;
+
+  const getCacheStatusNote = (): string => {
+    if (stats?.cacheTokensReported) {
+      return t('tokenStats.cacheReportedNote');
+    }
+    if (stats?.promptCacheEnabled === true) {
+      return t('tokenStats.cacheEnabledNotReportedNote');
+    }
+    if (stats?.promptCacheEnabled === false) {
+      return t('tokenStats.cacheProfileControlsDisabledNote');
+    }
+    return t('tokenStats.cacheUnavailableNote');
+  };
+
+  const roundedContextUsage = stats ? Number(stats.contextUsage.toFixed(1)) : 0;
+  const contextUsageText = `${roundedContextUsage.toFixed(1)}%`;
+  const modelCallCount = stats?.modelCallCount ?? 0;
+  const hasCacheReadTokens = (stats?.cacheReadTokens ?? 0) > 0;
+
   const estimatedCost = stats ? {
-    input: (stats.promptTokens / 1000000) * 0.5, // $0.50 por 1M tokens (exemplo GPT-4)
+    input: (Math.max(0, stats.promptTokens - (stats.cacheReadTokens ?? 0)) / 1000000) * 0.5, // estimativa genérica
     output: (stats.completionTokens / 1000000) * 1.5, // $1.50 por 1M tokens
   } : null;
 
@@ -125,6 +203,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabList ariaLabel={t('tokenStats.title')}>
               <Tab value="overview">{t('tokenStats.tabOverview')}</Tab>
+              <Tab value="cache">{t('tokenStats.tabPromptCache')}</Tab>
               <Tab value="context">{t('tokenStats.tabContextDetails')}</Tab>
               <Tab value="tools">{t('tokenStats.tabToolCalling')}</Tab>
               <Tab value="loop">{t('tokenStats.tabAgenticLoop')}</Tab>
@@ -144,7 +223,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                       {formatNumber(stats.contextLimit)}
                     </span>
                     <span className="token-stats-context__percentage">
-                      ({stats.contextUsage.toFixed(1)}%)
+                      ({contextUsageText})
                     </span>
                   </div>
                   <p className="token-stats-cost__note">
@@ -155,9 +234,11 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                       className={`token-stats-progress__bar token-stats-progress__bar--${getProgressBarColor(stats.contextUsage)}`}
                       style={{ width: `${Math.min(stats.contextUsage, 100)}%` }}
                       role="progressbar"
-                      aria-valuenow={stats.contextUsage}
+                      aria-label={t('tokenStats.contextUsage')}
+                      aria-valuenow={roundedContextUsage}
                       aria-valuemin={0}
                       aria-valuemax={100}
+                      aria-valuetext={contextUsageText}
                     />
                   </div>
                   {stats.isNearLimit && (
@@ -204,11 +285,12 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                     <tr>
                       <th scope="row">{t('tokenStats.messages')}</th>
                       <td>{formatNumber(stats.messageCount)}</td>
-                      <td>
-                        {stats.messageCount > 0
-                          ? `${Math.round(stats.totalTokens / stats.messageCount)} ${t('tokenStats.tokensPerMsg')}`
-                          : '—'}
-                      </td>
+                      <td>{placeholder}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">{t('tokenStats.modelCalls')}</th>
+                      <td>{formatNumber(modelCallCount)}</td>
+                      <td>{placeholder}</td>
                     </tr>
                     <tr>
                       <th scope="row">{t('tokenStats.mainModel')}</th>
@@ -244,7 +326,9 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                     </tbody>
                   </table>
                   <p className="token-stats-cost__note">
-                    {t('tokenStats.costDisclaimer')}
+                    {hasCacheReadTokens
+                      ? t('tokenStats.costDisclaimerWithCache')
+                      : t('tokenStats.costDisclaimer')}
                   </p>
                 </section>
               )}
@@ -257,6 +341,47 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                   <li>{t('tokenStats.tip3')}</li>
                   <li>{t('tokenStats.tip4')}</li>
                 </ul>
+              </section>
+            </TabPanel>
+
+            {/* TAB: Prompt Cache */}
+            <TabPanel value="cache">
+              <section className="token-stats-section">
+                <h3>{t('tokenStats.promptCache')}</h3>
+                <p className="token-stats-cost__note">
+                  {getCacheStatusNote()}
+                </p>
+                <table className="token-stats-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">{t('tokenStats.category')}</th>
+                      <th scope="col">{t('tokenStats.quantity')}</th>
+                      <th scope="col">{t('tokenStats.percentage')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th scope="row">{t('tokenStats.cacheReadTokens')}</th>
+                      <td>{formatCacheNumber(stats.cacheReadTokens)}</td>
+                      <td>{formatCachePercentage(stats.cacheReadTokens ?? 0, getCacheClassifiedTokens(stats))}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">{t('tokenStats.cacheWriteTokens')}</th>
+                      <td>{formatCacheNumber(stats.cacheWriteTokens)}</td>
+                      <td>{formatCachePercentage(stats.cacheWriteTokens ?? 0, getCacheClassifiedTokens(stats))}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">{t('tokenStats.cacheMissTokens')}</th>
+                      <td>{formatCacheNumber(stats.cacheMissTokens)}</td>
+                      <td>{formatCachePercentage(stats.cacheMissTokens ?? 0, getCacheClassifiedTokens(stats))}</td>
+                    </tr>
+                    <tr className="token-stats-table__total">
+                      <th scope="row">{t('tokenStats.cacheHitRate')}</th>
+                      <td>{formatCacheHitRate()}</td>
+                      <td>{placeholder}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </section>
             </TabPanel>
 

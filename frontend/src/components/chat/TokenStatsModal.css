@@ -101,6 +101,15 @@
   color: var(--text-primary);
 }
 
+.token-stats-info {
+  padding: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
 /* Grid de cards */
 .token-stats-grid {
   display: grid;

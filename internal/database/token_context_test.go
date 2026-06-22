@@ -21,16 +21,22 @@ func createConvWithReportedUsage(t *testing.T) (convID string) {
 
 	base := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
 	type msg struct {
-		id     string
-		role   string
-		prompt int
-		compl  int
+		id        string
+		role      string
+		prompt    int
+		compl     int
+		toolCalls string
 	}
 	rows := []msg{
-		{"01972000-0000-7000-8000-000000000001", "user", 0, 0},
-		{"01972000-0000-7000-8000-000000000002", "assistant", 1000, 200}, // turno 1
-		{"01972000-0000-7000-8000-000000000003", "user", 0, 0},
-		{"01972000-0000-7000-8000-000000000004", "assistant", 1500, 300}, // turno 2 (mais recente)
+		{id: "01972000-0000-7000-8000-000000000001", role: "user"},
+		{id: "01972000-0000-7000-8000-000000000002", role: "assistant", prompt: 1000, compl: 200}, // turno 1
+		{id: "01972000-0000-7000-8000-000000000003", role: "user"},
+		// turno 2 (mais recente)
+		{id: "01972000-0000-7000-8000-000000000004", role: "assistant", prompt: 1500, compl: 300},
+		// iteração com tool_calls sem usage persistido
+		{id: "01972000-0000-7000-8000-000000000005", role: "assistant", toolCalls: `[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{}"}}]`},
+		{id: "01972000-0000-7000-8000-000000000006", role: "assistant", toolCalls: "[]"},
+		{id: "01972000-0000-7000-8000-000000000007", role: "assistant", toolCalls: " null "},
 	}
 	for i, r := range rows {
 		m := ChatMessage{
@@ -44,6 +50,7 @@ func createConvWithReportedUsage(t *testing.T) (convID string) {
 			PromptTokens:     r.prompt,
 			CompletionTokens: r.compl,
 			TotalTokens:      r.prompt + r.compl,
+			ToolCalls:        r.toolCalls,
 		}
 		if err := db.Create(&m).Error; err != nil {
 			t.Fatalf("failed to create message %d: %v", i, err)
@@ -92,8 +99,31 @@ func TestGetDetailedTokenStats_ContextVsCumulative(t *testing.T) {
 	if stats.TotalTokens != 3000 {
 		t.Errorf("TotalTokens acumulado: esperado 3000, obtido %d", stats.TotalTokens)
 	}
+	if stats.ModelCallCount != 3 {
+		t.Errorf("ModelCallCount: esperado 3 chamadas ao modelo, obtido %d", stats.ModelCallCount)
+	}
 	if stats.ContextTokens != 1800 {
 		t.Errorf("ContextTokens (turno atual): esperado 1800, obtido %d", stats.ContextTokens)
+	}
+}
+
+func TestGetDetailedTokenStats_EmptyConversationReturnsZeroes(t *testing.T) {
+	setupOrderingTestDB(t)
+	conv := &Conversation{Title: "empty", UserID: testUserID}
+	if err := db.Create(conv).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+
+	stats, err := GetDetailedTokenStatsWithContext(testCtx(), conv.ID, "")
+	if err != nil {
+		t.Fatalf("GetDetailedTokenStats: %v", err)
+	}
+
+	if stats.TotalTokens != 0 || stats.PromptTokens != 0 || stats.CompletionTokens != 0 {
+		t.Fatalf("expected zero token totals, got prompt=%d completion=%d total=%d", stats.PromptTokens, stats.CompletionTokens, stats.TotalTokens)
+	}
+	if stats.MessageCount != 0 || stats.ModelCallCount != 0 {
+		t.Fatalf("expected zero counts, got messages=%d calls=%d", stats.MessageCount, stats.ModelCallCount)
 	}
 }
 

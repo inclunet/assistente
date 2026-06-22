@@ -262,6 +262,7 @@ const ptBR = {
       
       // Tabs
       tabOverview: 'Visão Geral',
+      tabPromptCache: 'Cache',
       tabContextDetails: 'Contexto Detalhado',
       tabToolCalling: 'Ferramentas',
       tabAgenticLoop: 'Iterações de Processamento',
@@ -280,7 +281,9 @@ const ptBR = {
       outputTokens: 'Tokens de Saída',
       totalTokens: 'Total de Tokens',
       messages: 'Mensagens',
-      tokensPerMsg: 'tokens/msg',
+      modelCalls: 'Chamadas ao modelo',
+      tokensPerCall: 'tokens/chamada',
+      placeholder: '—',
       mainModel: 'Modelo Principal',
       costEstimate: 'Estimativa de Custo',
       type: 'Tipo',
@@ -289,11 +292,23 @@ const ptBR = {
       output: 'Saída',
       totalEstimated: 'Total estimado',
       costDisclaimer: '* Valores aproximados baseados em GPT-4',
+      costDisclaimerWithCache: '* Valores aproximados baseados em GPT-4; tokens lidos do cache são abatidos da entrada estimada.',
       managementTips: 'Dicas de Gerenciamento',
       tip1: 'Mensagens mais antigas consomem mais contexto',
       tip2: 'Considere resumir conversas longas',
       tip3: 'Remova mensagens desnecessárias do histórico',
       tip4: 'Modelos diferentes têm limites diferentes',
+
+      // Prompt Cache tab
+      promptCache: 'Prompt Cache',
+      cacheReadTokens: 'Tokens lidos do cache',
+      cacheWriteTokens: 'Tokens gravados no cache',
+      cacheMissTokens: 'Tokens fora do cache',
+      cacheHitRate: 'Taxa de acerto',
+      cacheReportedNote: 'O provedor reportou métricas de cache para esta conversa.',
+      cacheEnabledNotReportedNote: 'O prompt cache está habilitado no perfil, mas o provedor ainda não reportou métricas de cache para esta conversa.',
+      cacheProfileControlsDisabledNote: 'Os controles explícitos de prompt cache não estão habilitados no perfil; métricas do provedor aparecerão quando forem reportadas.',
+      cacheUnavailableNote: 'Ainda não há métricas de cache reportadas para esta conversa.',
 
       // Context Details tab (new)
       contextComposition: 'Composição do Contexto',

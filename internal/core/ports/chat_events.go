@@ -152,19 +152,23 @@ type SegmentDoneEvent struct {
 
 // TokenStatsEvent is the payload for chat:token_stats.
 type TokenStatsEvent struct {
-	ConversationID   string  `json:"conversationId"`
-	TotalTokens      int     `json:"totalTokens"`
-	ContextTokens    int     `json:"contextTokens"`
-	ContextLimit     int     `json:"contextLimit"`
-	ContextUsage     float64 `json:"contextUsage"`
-	IsNearLimit      bool    `json:"isNearLimit"`
-	IsCritical       bool    `json:"isCritical"`
-	PromptTokens     int     `json:"promptTokens"`
-	CompletionTokens int     `json:"completionTokens"`
-	CacheReadTokens  int     `json:"cacheReadTokens,omitempty"`
-	CacheWriteTokens int     `json:"cacheWriteTokens,omitempty"`
-	CacheMissTokens  int     `json:"cacheMissTokens,omitempty"`
-	MessageCount     int     `json:"messageCount"`
+	ConversationID      string  `json:"conversationId"`
+	TotalTokens         int     `json:"totalTokens"`
+	ContextTokens       int     `json:"contextTokens"`
+	ContextLimit        int     `json:"contextLimit"`
+	ContextUsage        float64 `json:"contextUsage"`
+	IsNearLimit         bool    `json:"isNearLimit"`
+	IsCritical          bool    `json:"isCritical"`
+	PromptTokens        int     `json:"promptTokens"`
+	CompletionTokens    int     `json:"completionTokens"`
+	CacheReadTokens     int     `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens    int     `json:"cacheWriteTokens,omitempty"`
+	CacheMissTokens     int     `json:"cacheMissTokens,omitempty"`
+	CacheHitRate        float64 `json:"cacheHitRate"`
+	CacheTokensReported bool    `json:"cacheTokensReported"`
+	PromptCacheEnabled  *bool   `json:"promptCacheEnabled,omitempty"`
+	MessageCount        int     `json:"messageCount"`
+	ModelCallCount      int     `json:"modelCallCount"`
 }
 
 // TokenStatsUpdateEvent is the payload for chat:token_stats_update (realtime during agentic loop).
@@ -176,16 +180,22 @@ type TokenStatsUpdateEvent struct {
 	CacheReadTokens             int     `json:"cacheReadTokens,omitempty"`
 	CacheWriteTokens            int     `json:"cacheWriteTokens,omitempty"`
 	CacheMissTokens             int     `json:"cacheMissTokens,omitempty"`
+	CacheHitRate                float64 `json:"cacheHitRate"`
+	CacheTokensReported         bool    `json:"cacheTokensReported"`
+	PromptCacheEnabled          *bool   `json:"promptCacheEnabled,omitempty"`
 	ContextTokens               int     `json:"contextTokens"`
 	ContextUsage                float64 `json:"contextUsage"`
 	ContextLimit                int     `json:"contextLimit"`
 	IsNearLimit                 bool    `json:"isNearLimit"`
 	IsCritical                  bool    `json:"isCritical"`
 	MessageCount                int     `json:"messageCount"`
+	ModelCallCount              int     `json:"modelCallCount"`
 	SystemPromptEstimatedTokens int     `json:"systemPromptEstimatedTokens"`
 	SummaryTokens               int     `json:"summaryTokens"`
 	MessagesInContextCount      int     `json:"messagesInContextCount"`
 	MessagesInContextTokens     int     `json:"messagesInContextTokens"`
+	MessagesOutOfContextCount   int     `json:"messagesOutOfContextCount"`
+	MessagesOutOfContextTokens  int     `json:"messagesOutOfContextTokens"`
 	ToolsUsedCount              int     `json:"toolsUsedCount"`
 	ToolBreakdown               any     `json:"toolBreakdown,omitempty"`
 }

@@ -262,6 +262,7 @@ const en = {
       
       // Tabs
       tabOverview: 'Overview',
+      tabPromptCache: 'Cache',
       tabContextDetails: 'Context Details',
       tabToolCalling: 'Tools',
       tabAgenticLoop: 'Processing Iterations',
@@ -280,7 +281,9 @@ const en = {
       outputTokens: 'Output Tokens',
       totalTokens: 'Total Tokens',
       messages: 'Messages',
-      tokensPerMsg: 'tokens/msg',
+      modelCalls: 'Model calls',
+      tokensPerCall: 'tokens/call',
+      placeholder: '—',
       mainModel: 'Main Model',
       costEstimate: 'Cost Estimate',
       type: 'Type',
@@ -289,11 +292,23 @@ const en = {
       output: 'Output',
       totalEstimated: 'Total estimated',
       costDisclaimer: '* Approximate values based on GPT-4',
+      costDisclaimerWithCache: '* Approximate values based on GPT-4; cache-read tokens are subtracted from the estimated input.',
       managementTips: 'Management Tips',
       tip1: 'Older messages consume more context',
       tip2: 'Consider summarizing long conversations',
       tip3: 'Remove unnecessary messages from history',
       tip4: 'Different models have different limits',
+
+      // Prompt Cache tab
+      promptCache: 'Prompt Cache',
+      cacheReadTokens: 'Cache read tokens',
+      cacheWriteTokens: 'Cache write tokens',
+      cacheMissTokens: 'Cache miss tokens',
+      cacheHitRate: 'Hit rate',
+      cacheReportedNote: 'The provider reported cache metrics for this conversation.',
+      cacheEnabledNotReportedNote: 'Prompt cache is enabled in the profile, but the provider has not reported cache metrics for this conversation yet.',
+      cacheProfileControlsDisabledNote: 'Explicit prompt cache controls are not enabled in the profile; provider metrics will appear when reported.',
+      cacheUnavailableNote: 'No cache metrics have been reported for this conversation yet.',
 
       // Context Details tab (new)
       contextComposition: 'Context Composition',
