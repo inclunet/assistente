@@ -69,6 +69,11 @@ func NewJobWithProvider(provider ManagerProvider) *Tool {
 
 func (t *Tool) Name() string { return "job" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "jobs", Class: "automation_management", Package: "jobs", Risk: "write"}
+}
+
 func (t *Tool) Description() string {
 	return "Composite DB-backed job manager. No params lists jobs. job_id reads a job. With job_id plus fields updates, or creates that stable job_id when not found and required create fields are present. Without job_id plus name/tool/triggers creates using a generated id. delete, run, dry_run, list_runs, list_events and run_id (get one run with timeline+domain events) are mutually exclusive actions. list_runs accepts status/started_after/started_before/include_dry_run filters; list_events accepts date or start_at/end_at, event_type, event_name, optional job_id."
 }

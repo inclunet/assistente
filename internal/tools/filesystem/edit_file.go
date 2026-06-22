@@ -40,6 +40,11 @@ func NewEditFile(workDir string, questMgr QuestionnaireRequester) *EditFile {
 
 func (t *EditFile) Name() string { return "edit_file" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *EditFile) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"}
+}
+
 func (t *EditFile) Description() string {
 	return "Edits an existing file by replacing an exact string (old_string) with another (new_string). old_string should be unique (include context/indentation). If multiple occurrences exist, it fails unless replace_all=true."
 }

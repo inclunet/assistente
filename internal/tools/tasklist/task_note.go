@@ -38,6 +38,11 @@ func NewTaskNote(mgr TaskListManager) *TaskNoteTool {
 
 func (t *TaskNoteTool) Name() string { return "task_note" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *TaskNoteTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "tasklist", Class: "task_management", Package: "tasks", Risk: "write"}
+}
+
 func (t *TaskNoteTool) Description() string {
 	return "Creates or updates a note on a task. Identify the task with task_id, or task_code (Task.Code across lists; optional task_list_id/slug to disambiguate), or (task_list_id or task_list_slug + code), same rules as the task tool for list+code. If task_id and task_code are both sent, task_id wins; task_code must match that task's code. (1) note_id → update content; optional task ref must match the note's task. (2) source + external_id → idempotent upsert for synced comments (works with task_id or task_code). (3) else manual create (requires type). Types: 1=internal, 2=customer, 3=agent, 4=system."
 }

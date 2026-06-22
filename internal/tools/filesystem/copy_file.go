@@ -21,6 +21,11 @@ func NewCopyFile(workDir string) *CopyFile {
 
 func (t *CopyFile) Name() string { return "copy_file" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *CopyFile) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "filesystem", Class: "edit_files", Package: "coding_edit", Risk: "write"}
+}
+
 func (t *CopyFile) Description() string {
 	return "Copies a file on disk. Validates paths, respects skill filesystem scope, and blocks sensitive files. Fails if destination exists unless overwrite=true."
 }

@@ -58,6 +58,11 @@ func (t *SearchConversationsTool) Name() string {
 	return "search_conversations"
 }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *SearchConversationsTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "history", Class: "read_context", Package: "history", Risk: "read"}
+}
+
 func (t *SearchConversationsTool) Description() string {
 	return "Searches the full message history across ALL conversations using full-text search. Use this to find if a topic was already discussed, what was concluded, or to recall past context. Supports words, \"exact phrases\", prefix* matching, and OR/AND/NOT operators. Returns results ranked by relevance (BM25)."
 }

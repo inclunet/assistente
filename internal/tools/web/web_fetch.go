@@ -51,6 +51,11 @@ func NewWebFetch(credMgr *credentials.Manager) *WebFetch {
 
 func (t *WebFetch) Name() string { return "web_fetch" }
 
+// CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
+func (t *WebFetch) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{Category: "web", Class: "web_lookup", Package: "web", Risk: "network"}
+}
+
 func (t *WebFetch) Description() string {
 	return "Fetches a URL (http/https) and extracts readable content. Strips HTML/scripts/styles and returns text (or raw/markdown). Blocks local/private hosts. Use after finding a specific link."
 }
