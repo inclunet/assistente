@@ -203,7 +203,7 @@
 
 .kanban-card__creator {
   font-size: 11px;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -121,6 +121,9 @@ jobs:
       - name: Stylelint (design tokens)
         run: npm run lint:css
 
+      - name: Validação de tokens CSS (var() × theme.css)
+        run: npm run lint:tokens
+
       - name: Tests (includes axe-core a11y)
         run: npm run test
 

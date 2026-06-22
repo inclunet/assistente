@@ -102,12 +102,12 @@
 
 .task-detail__badge--assignee {
   color: var(--text-secondary);
-  border-color: var(--border-color);
+  border-color: var(--border-default);
 }
 
 .task-detail__badge--creator {
-  color: var(--text-tertiary);
-  border-color: var(--border-color);
+  color: var(--text-muted);
+  border-color: var(--border-default);
   font-style: italic;
 }
 
@@ -175,7 +175,7 @@
   padding: 4px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-default);
+  background: var(--bg-surface);
   color: var(--text-primary);
   font-size: 0.8rem;
   cursor: pointer;
@@ -183,7 +183,7 @@
 }
 
 .task-detail__add-note-btn:hover {
-  background: var(--bg-surface);
+  background: var(--bg-hover);
 }
 
 /* Notes list */
@@ -206,7 +206,7 @@
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   padding: 10px 12px;
-  background: var(--bg-default);
+  background: var(--bg-surface);
 }
 
 .task-detail__note-header {
@@ -221,7 +221,7 @@
   align-items: center;
   gap: 3px;
   padding: 1px 6px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   font-size: 0.7rem;
   font-weight: 600;
 }
@@ -270,11 +270,11 @@
   font-size: 0.75rem;
   cursor: pointer;
   padding: 1px 4px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
 }
 
 .task-detail__note-action:hover {
-  background: var(--bg-surface);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
@@ -313,7 +313,7 @@
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-default);
+  background: var(--bg-input);
   color: var(--text-primary);
   font-size: 0.8rem;
   min-width: 150px;
@@ -324,7 +324,7 @@
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-default);
+  background: var(--bg-input);
   color: var(--text-primary);
   font-size: 0.8rem;
 }
@@ -335,7 +335,7 @@
   padding: 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-default);
+  background: var(--bg-input);
   color: var(--text-primary);
   font-size: 0.85rem;
   font-family: inherit;
@@ -353,19 +353,19 @@
   padding: 4px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  background: var(--bg-default);
+  background: var(--bg-surface);
   color: var(--text-primary);
   font-size: 0.8rem;
   cursor: pointer;
 }
 
 .task-detail__note-form-actions button:hover {
-  background: var(--bg-surface);
+  background: var(--bg-hover);
 }
 
 .task-detail__note-form-actions button[data-primary] {
   background: var(--accent);
-  color: var(--text-on-accent);
+  color: var(--text-inverse);
   border-color: var(--accent);
 }
 
