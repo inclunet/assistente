@@ -656,6 +656,8 @@ func (s *Service) RunAgenticLoop(
 					SummaryTokens:               stats.SummaryTokens,
 					MessagesInContextCount:      stats.MessagesInContextCount,
 					MessagesInContextTokens:     stats.MessagesInContextTokens,
+					MessagesOutOfContextCount:   stats.MessagesOutOfContextCount,
+					MessagesOutOfContextTokens:  stats.MessagesOutOfContextTokens,
 					ToolsUsedCount:              stats.ToolsUsedCount,
 					ToolBreakdown:               stats.ToolBreakdown,
 				})

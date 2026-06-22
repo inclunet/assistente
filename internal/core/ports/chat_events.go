@@ -194,6 +194,8 @@ type TokenStatsUpdateEvent struct {
 	SummaryTokens               int     `json:"summaryTokens"`
 	MessagesInContextCount      int     `json:"messagesInContextCount"`
 	MessagesInContextTokens     int     `json:"messagesInContextTokens"`
+	MessagesOutOfContextCount   int     `json:"messagesOutOfContextCount"`
+	MessagesOutOfContextTokens  int     `json:"messagesOutOfContextTokens"`
 	ToolsUsedCount              int     `json:"toolsUsedCount"`
 	ToolBreakdown               any     `json:"toolBreakdown,omitempty"`
 }
