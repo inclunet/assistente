@@ -373,6 +373,13 @@ func (r *agenticLoopRunner) turnStillValid(ctx context.Context) bool {
 		log.Printf("[Agent] turn message %s não existe mais antes de executar tools: %v", r.turnID, err)
 		return false
 	}
+	if turnMsg == nil {
+		// Defesa: um repo/mock pode devolver (nil, nil). Tratamos como turno
+		// inexistente e abortamos a execução de tools (mesmo efeito do erro),
+		// evitando panic ao acessar turnMsg.ConversationID.
+		log.Printf("[Agent] turn message %s retornou nil sem erro antes de executar tools; abortando", r.turnID)
+		return false
+	}
 	turnConv := strings.TrimSpace(turnMsg.ConversationID)
 	conv := strings.TrimSpace(r.conversationID)
 	// Se o repo não popula ConversationID, não temos como validar; segue o fluxo.
