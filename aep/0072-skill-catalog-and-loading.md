@@ -1,8 +1,10 @@
 # AEP-0072 — Skill Loading Runtime
 
-**Status**: Proposta revisada
+**Status**: Concluída
 **Criado em**: 2026-06-08
 **Revisado em**: 2026-06-19
+**Implementada em**: 2026-06-18
+**Implementada por**: PR #293
 **Substitui**: versão anterior da AEP-0072 (Skill Catalog & Loading amplo)
 **Pré-requisito atendido**: AEP-0075 (Context Providers)
 **Relacionado**: AEP-0074 (Prompt Cache), AEP-0051 (Skills DB, opcional/futura), AEP-0063 (Tool Invocations e Executor Comum)
