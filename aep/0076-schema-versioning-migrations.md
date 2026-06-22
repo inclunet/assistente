@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 );
 ```
 
-Cada migração aplicada insere uma linha. `version` é a chave primária (sequencial, única, estritamente crescente). A maior `version` aplicada é **espelhada** em `PRAGMA user_version` como atalho de inspeção (`PRAGMA user_version` sem ler a tabela), mas a **fonte de verdade é a tabela**.
+Cada migração aplicada insere uma linha. `version` é a chave primária (sequencial, única, estritamente crescente). A maior `version` **contígua** aplicada (o maior `N` tal que `1..N` estão todos registrados, sem buracos) é **espelhada** em `PRAGMA user_version` como atalho de inspeção (`PRAGMA user_version` sem ler a tabela), mas a **fonte de verdade é a tabela**. Usa-se o prefixo contíguo (e não `MAX(version)`) porque uma migração adiada (`errMigrationDeferred`) não é registrada enquanto versões posteriores podem ser; espelhar o contíguo evita que `user_version` salte à frente de uma migração anterior ainda pendente. Buracos eventuais permanecem visíveis e auditáveis na tabela.
 
 ### D2 — Migração como struct registrada
 
@@ -100,7 +100,7 @@ As demais migrações (v2–v9) são **idempotentes e baratas** (índices `IF NO
 
 ## Critérios de aceitação
 
-- [x] Tabela `schema_migrations` criada no boot e `PRAGMA user_version` espelhando a maior versão.
+- [x] Tabela `schema_migrations` criada no boot e `PRAGMA user_version` espelhando a maior versão contígua aplicada (prefixo 1..N sem buracos).
 - [x] Migrações custom existentes migradas para o mecanismo (v1..v9), preservando ordem e fases.
 - [x] Bancos já migrados **não** reexecutam a conversão UUIDv7 (marcada via `DetectApplied`).
 - [x] `AutoMigrate` mantido para adição de colunas.
