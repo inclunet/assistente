@@ -293,6 +293,73 @@ describe('TokenStatsModal', () => {
     expect(screen.queryByText('tokenStats.costDisclaimerWithCache')).not.toBeInTheDocument();
   });
 
+  it('preserva campos detalhados ao receber evento final de tokens', async () => {
+    getStatsSpy.mockResolvedValue({
+      conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
+      promptTokens: 1000,
+      completionTokens: 200,
+      totalTokens: 1200,
+      contextTokens: 900,
+      messageCount: 2,
+      mostUsedModel: 'claude',
+      contextUsage: 10,
+      contextLimit: 10000,
+      isNearLimit: false,
+      isCritical: false,
+      systemPromptEstimatedTokens: 5,
+      summaryTokens: 3,
+      messagesInContextTokens: 15,
+      messagesOutOfContextTokens: 7,
+      messagesInContextCount: 1,
+      messagesOutOfContextCount: 0,
+      toolsUsedCount: 1,
+      toolBreakdown: [{
+        toolName: 'search',
+        callCount: 1,
+        totalPromptTokens: 10,
+        totalCompletionTokens: 5,
+        totalTokens: 15,
+      }],
+    });
+
+    render(
+      <TokenStatsModal
+        conversationId={"01926b90-7a5a-7c4e-8d3f-000000000001"}
+        isOpen={true}
+        onClose={() => {}}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('claude')).toBeInTheDocument();
+    });
+
+    act(() => {
+      eventCallbacks['chat:token_stats']?.forEach((callback) => callback({
+        conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",
+        promptTokens: 1300,
+        completionTokens: 300,
+        totalTokens: 1600,
+        contextTokens: 1200,
+        contextUsage: 12,
+        contextLimit: 10000,
+        isNearLimit: false,
+        isCritical: false,
+        messageCount: 3,
+        modelCallCount: 2,
+        cacheTokensReported: false,
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('1.600').length).toBeGreaterThan(0);
+    });
+    expect(screen.getByText('claude')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'tokenStats.tabToolCalling' }));
+    expect(screen.getByText('search')).toBeInTheDocument();
+  });
+
   it('ignora evento parcial antes do snapshot inicial', async () => {
     let resolveStats!: (value: Record<string, unknown>) => void;
     getStatsSpy.mockReturnValue(new Promise((resolve) => {

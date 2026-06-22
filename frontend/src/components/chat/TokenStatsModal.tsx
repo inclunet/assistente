@@ -102,7 +102,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     // Escuta atualizações em tempo real
     const unsubscribe = EventsOn('chat:token_stats', (data: TokenStats & { conversationId: string }) => {
       if (data.conversationId === conversationId) {
-        setStats(data);
+        setStats((current) => current ? mergeRealtimeTokenStats(current, data) : current);
       }
     });
 
