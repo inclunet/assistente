@@ -47,6 +47,27 @@ func insertJob(t *testing.T, db *gorm.DB, userID, slug string) string {
 	return row.ID
 }
 
+// insertJobWithID insere um job com ID explícito. Como o BeforeCreate só gera
+// UUIDv7 quando o ID está vazio, isso torna a ordenação por (user_id, id)
+// determinística nos testes de paginação — sem depender de o UUIDv7 ser
+// estritamente monotônico entre inserções no mesmo milissegundo.
+func insertJobWithID(t *testing.T, db *gorm.DB, id, userID, slug string) string {
+	t.Helper()
+	row := database.Job{
+		UUIDModel:     database.UUIDModel{ID: id},
+		UserID:        userID,
+		Slug:          slug,
+		Name:          slug,
+		ToolCatalogID: "tool",
+		ToolName:      "tool",
+		Enabled:       true,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("insert job %q (id=%s): %v", slug, id, err)
+	}
+	return row.ID
+}
+
 func jobSlugByID(t *testing.T, db *gorm.DB, id string) string {
 	t.Helper()
 	var slug string
@@ -321,31 +342,17 @@ func TestRenormalizeLegacySlugs_CollisionSpanningPages(t *testing.T) {
 	slugRenormalizationPageSize = 2
 	t.Cleanup(func() { slugRenormalizationPageSize = orig })
 
-	// Inserido primeiro (id/UUIDv7 menor) -> aparece numa página anterior.
-	legacyID := insertJob(t, db, "user-a", "Café Report")
-	// Linhas de enchimento para empurrar o canônico para uma página posterior.
-	insertJob(t, db, "user-a", "filler-1")
-	insertJob(t, db, "user-a", "filler-2")
-	insertJob(t, db, "user-a", "filler-3")
-	// Inserido por último -> id maior, cai numa página posterior à do legado.
-	canonicalID := insertJob(t, db, "user-a", "cafe-report")
-
-	// Pré-requisito do teste: o canônico PRECISA cair numa página posterior à
-	// do legado. Lê a 1ª página exatamente como a migração varre (ORDER BY
-	// user_id, id; LIMIT = page size) e falha se o canônico já estiver nela —
-	// senão o teste viraria falso positivo, cobrindo só o caso "mesma página".
-	var firstPageIDs []string
-	if err := db.Table("jobs").
-		Order("user_id, id").
-		Limit(slugRenormalizationPageSize).
-		Pluck("id", &firstPageIDs).Error; err != nil {
-		t.Fatalf("ler 1ª página: %v", err)
-	}
-	for _, id := range firstPageIDs {
-		if id == canonicalID {
-			t.Fatalf("setup inválido: canonicalID está na 1ª página (%v); o teste exige que ele caia numa página posterior à do legado", firstPageIDs)
-		}
-	}
+	// IDs explícitos e lexicograficamente ordenáveis tornam a ordenação por
+	// (user_id, id) determinística: o legado fica na 1ª página e o canônico
+	// numa posterior, independentemente de o UUIDv7 ser monotônico entre
+	// inserções no mesmo milissegundo (evita flakiness). Com page size 2:
+	// página 1 = [0001 legado, 0002 filler-1]; canônico (0005) cai depois.
+	const idBase = "00000000-0000-7000-8000-00000000000"
+	legacyID := insertJobWithID(t, db, idBase+"1", "user-a", "Café Report")
+	insertJobWithID(t, db, idBase+"2", "user-a", "filler-1")
+	insertJobWithID(t, db, idBase+"3", "user-a", "filler-2")
+	insertJobWithID(t, db, idBase+"4", "user-a", "filler-3")
+	canonicalID := insertJobWithID(t, db, idBase+"5", "user-a", "cafe-report")
 
 	if err := RenormalizeLegacySlugs(db); err != nil {
 		t.Fatalf("renormalize: %v", err)

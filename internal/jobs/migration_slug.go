@@ -221,6 +221,12 @@ func renormalizeSlugsForTable(tx *gorm.DB, target slugRenormalizationTarget) (up
 // cursor aberto enquanto fn eventualmente escreve no mesmo tx — importante para
 // SQLite, que serializa leitura/escrita na conexão.
 func forEachSlugRowPaged(tx *gorm.DB, table string, fn func(slugRow) error) error {
+	// Falha cedo se o tamanho de página for inválido: com LIMIT <= 0 a varredura
+	// viraria um noop silencioso (LIMIT 0) ou leria a tabela inteira numa única
+	// página (dependendo do dialeto), mascarando bugs em vez de paginar.
+	if slugRenormalizationPageSize <= 0 {
+		return fmt.Errorf("slugRenormalizationPageSize inválido (%d): deve ser > 0", slugRenormalizationPageSize)
+	}
 	var lastUser, lastID string
 	first := true
 	for {
