@@ -228,7 +228,10 @@ func runMigrationList(database *gorm.DB, phase migrationPhase, migrations []migr
 			if rerr := m.Run(database); rerr != nil {
 				// Adiamento: efeito incompleto mas seguro para retentar. NÃO
 				// registra nem aborta o boot — a migração roda de novo no
-				// próximo startup.
+				// próximo startup. Versões seguintes ainda rodam (continue), o
+				// que pode deixar um buraco no prefixo registrado; por isso
+				// user_version reflete a maior versão CONTÍGUA (ver
+				// syncUserVersion), não saltando à frente da pendente.
 				if errors.Is(rerr, errMigrationDeferred) {
 					log.Printf("[Migration] v%d %q adiada — será retentada no próximo boot: %v", m.Version, m.Name, rerr)
 					continue
@@ -271,7 +274,7 @@ func appliedMigrationVersions(database *gorm.DB) (map[int]bool, error) {
 }
 
 // recordMigration registra a migração como aplicada e espelha a maior versão
-// em PRAGMA user_version (inspeção rápida via `sqlite3 ... 'PRAGMA
+// CONTÍGUA em PRAGMA user_version (inspeção rápida via `sqlite3 ... 'PRAGMA
 // user_version'` sem precisar ler a tabela). INSERT OR IGNORE torna o registro
 // idempotente caso a versão já exista.
 func recordMigration(database *gorm.DB, m migration) error {
@@ -284,17 +287,36 @@ func recordMigration(database *gorm.DB, m migration) error {
 	return syncUserVersion(database)
 }
 
-// syncUserVersion ajusta PRAGMA user_version para a maior versão registrada em
-// schema_migrations. user_version é um espelho informativo; a fonte de verdade
-// é a tabela schema_migrations.
+// syncUserVersion ajusta PRAGMA user_version para a maior versão CONTÍGUA
+// aplicada (o maior N tal que 1..N estão todos registrados em
+// schema_migrations, sem buracos). user_version é um espelho informativo; a
+// fonte de verdade é a tabela schema_migrations.
+//
+// Por que contíguo (e não MAX): uma migração adiada (errMigrationDeferred) não
+// é registrada, mas as versões seguintes seguem rodando e SÃO registradas — o
+// que pode deixar um buraco (ex.: v4 registrada com v3 pendente). Espelhar
+// MAX(version) faria user_version "pular" à frente de uma migração anterior
+// ainda pendente, enfraquecendo a leitura rápida de "schema está na versão N".
+// Refletindo apenas o prefixo contíguo, user_version trava na maior versão sem
+// buraco, sinalizando que há migração anterior pendente; ele avança assim que o
+// adiamento é resolvido no próximo boot. Buracos permanecem visíveis (e
+// auditáveis) na tabela schema_migrations.
 func syncUserVersion(database *gorm.DB) error {
-	var maxVersion int
-	if err := database.Raw(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&maxVersion).Error; err != nil {
-		return fmt.Errorf("calcular max(version): %w", err)
+	var versions []int
+	if err := database.Raw(`SELECT version FROM schema_migrations ORDER BY version`).Scan(&versions).Error; err != nil {
+		return fmt.Errorf("ler versões aplicadas: %w", err)
 	}
-	// user_version não aceita placeholder; maxVersion é int controlado por nós,
+	contiguous := 0
+	for _, v := range versions {
+		if v == contiguous+1 {
+			contiguous = v
+		} else if v > contiguous+1 {
+			break // buraco: para no fim do prefixo contíguo
+		}
+	}
+	// user_version não aceita placeholder; contiguous é int controlado por nós,
 	// então a interpolação é segura.
-	if err := database.Exec(fmt.Sprintf("PRAGMA user_version = %d", maxVersion)).Error; err != nil {
+	if err := database.Exec(fmt.Sprintf("PRAGMA user_version = %d", contiguous)).Error; err != nil {
 		return fmt.Errorf("atualizar user_version: %w", err)
 	}
 	return nil

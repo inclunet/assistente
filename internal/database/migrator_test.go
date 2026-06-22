@@ -238,6 +238,11 @@ func TestRunMigrations_DeferredNotRecordedAndRetries(t *testing.T) {
 	if got := schemaMigrationRows(t, database); len(got) != 1 || got[0] != 2 {
 		t.Fatalf("apenas v2 deveria estar registrada após adiamento, tenho %v", got)
 	}
+	// Com v1 pendente e v2 registrada há um buraco no prefixo: user_version
+	// reflete a maior versão CONTÍGUA (0), não MAX(version)=2.
+	if uv := userVersion(t, database); uv != 0 {
+		t.Fatalf("user_version deveria ser 0 (v1 pendente cria buraco), tenho %d", uv)
+	}
 
 	// 2ª execução: v1 é retentada (agora sucede) e registrada.
 	if err := runMigrationList(database, phasePostAutoMigrate, migs); err != nil {
@@ -248,6 +253,10 @@ func TestRunMigrations_DeferredNotRecordedAndRetries(t *testing.T) {
 	}
 	if got := schemaMigrationRows(t, database); len(got) != 2 || got[0] != 1 || got[1] != 2 {
 		t.Fatalf("v1 e v2 deveriam estar registradas após o retry, tenho %v", got)
+	}
+	// Buraco resolvido: prefixo contíguo agora é 1..2, user_version avança p/ 2.
+	if uv := userVersion(t, database); uv != 2 {
+		t.Fatalf("user_version deveria ser 2 após resolver o adiamento, tenho %d", uv)
 	}
 }
 

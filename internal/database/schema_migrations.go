@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -48,9 +49,12 @@ func ensureTaskNoteExternalUniqueIndex() error {
 //     deixa pronto o caminho para listagens incrementais por "modificadas
 //     recentemente" sem custo relevante de manutenção.
 //
-// Falhas de criação de índice são logadas como aviso e não abortam o boot: o
-// app ainda funciona sem o índice (apenas com queries mais lentas), e abortar a
-// inicialização por causa de um índice seria pior do que degradar performance.
+// Falhas de criação de índice são logadas como aviso e a função retorna o
+// primeiro erro encontrado. No boot, o wrapper da migração trata esse erro como
+// adiamento (errMigrationDeferred via deferIfErr): NÃO aborta a inicialização e
+// retenta no próximo startup — o app ainda funciona sem o índice (apenas com
+// queries mais lentas), e abortar o boot por causa de um índice seria pior do
+// que degradar performance. (Os call sites em testes tratam o erro como fatal.)
 func ensureChatMessageWindowIndex() error {
 	if db == nil {
 		return nil
@@ -234,7 +238,9 @@ func ensureUsernameCaseInsensitive() error {
 		// Só o índice é best-effort: adia (não aborta o boot) e retenta no
 		// próximo startup. As normalizações de dados acima, se falharem,
 		// retornam erro real e abortam o boot (não são adiadas).
-		return fmt.Errorf("criar índice users_username_lower_unique (%v): %w", err, errMigrationDeferred)
+		// errors.Join preserva o erro original do SQLite na cadeia de unwrap
+		// (inspeção via errors.As) além do sentinela errMigrationDeferred.
+		return errors.Join(fmt.Errorf("criar índice users_username_lower_unique: %w", err), errMigrationDeferred)
 	}
 	return nil
 }
@@ -290,7 +296,9 @@ func migrateRefreshURLToEnc() error {
 		// versionamento (rodava a cada boot até a coluna sumir) e evitando deixar
 		// a coluna em texto plano gravada como "migrada".
 		log.Printf("[Database] AVISO: falha ao dropar coluna legacy refresh_url (será retentado no próximo boot): %v", err)
-		return fmt.Errorf("dropar coluna legacy refresh_url (%v): %w", err, errMigrationDeferred)
+		// errors.Join preserva o erro original na cadeia de unwrap além do
+		// sentinela errMigrationDeferred (mesmo padrão de deferIfErr).
+		return errors.Join(fmt.Errorf("dropar coluna legacy refresh_url: %w", err), errMigrationDeferred)
 	}
 	return nil
 }
