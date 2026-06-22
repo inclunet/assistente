@@ -133,10 +133,15 @@ func ResolveTaskListIDWithContext(ctx context.Context, taskListID *string, taskL
 	return byID.ID, nil
 }
 
-func ensureTaskListSlugUniqueIndex() {
+func ensureTaskListSlugUniqueIndex() error {
 	if db == nil {
-		return
+		return nil
 	}
-	db.Exec(`DROP INDEX IF EXISTS ux_task_lists_slug`)
-	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_task_lists_user_slug ON task_lists (user_id, slug) WHERE slug <> ''`)
+	if err := db.Exec(`DROP INDEX IF EXISTS ux_task_lists_slug`).Error; err != nil {
+		return fmt.Errorf("limpar índice legado ux_task_lists_slug: %w", err)
+	}
+	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_task_lists_user_slug ON task_lists (user_id, slug) WHERE slug <> ''`).Error; err != nil {
+		return fmt.Errorf("criar índice ux_task_lists_user_slug: %w", err)
+	}
+	return nil
 }

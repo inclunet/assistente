@@ -31,7 +31,9 @@ func setupMultiUserTestDB(t *testing.T) *sql.DB {
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	ensureCredentialEntryUserPatternIndex()
+	if err := ensureCredentialEntryUserPatternIndex(); err != nil {
+		t.Fatalf("ensureCredentialEntryUserPatternIndex: %v", err)
+	}
 
 	sqlDB, err := db.DB()
 	if err != nil {

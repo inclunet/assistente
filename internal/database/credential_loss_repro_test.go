@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -76,8 +77,13 @@ func TestCredentialLossRepro_PreAEP0052BootPreservesAllCredentials(t *testing.T)
 		}
 	}
 
-	// 1. dedup pré-migrate (deve ser noop sem user_id na tabela).
-	dedupCredentialEntriesBeforeMigrate()
+	// 1. dedup pré-migrate: base legada sem user_id ainda — o dedup por
+	// (user_id, pattern) só se aplica após o AutoMigrate criar a coluna, então
+	// aqui ele se ADIA (errMigrationDeferred) sem deduplicar nada. Qualquer
+	// outro erro é fatal.
+	if err := dedupCredentialEntriesBeforeMigrate(); err != nil && !errors.Is(err, errMigrationDeferred) {
+		t.Fatalf("dedup pré-migrate: %v", err)
+	}
 	assertCredentialCount(t, len(seeds), "após dedup pré-migrate")
 
 	// 2. AutoMigrate completo (mesmas tabelas que internal/app/db.go inicializa).
@@ -98,8 +104,11 @@ func TestCredentialLossRepro_PreAEP0052BootPreservesAllCredentials(t *testing.T)
 	}
 	assertCredentialCount(t, len(seeds), "após AutoMigrate")
 
-	// 3. Garante o índice unique (ux_credential_entries_user_pattern).
-	ensureCredentialEntryUserPatternIndex()
+	// 3. Remove o índice legado idx_credential_entries_pattern (o índice unique
+	// ux_credential_entries_user_pattern é criado pelo AutoMigrate).
+	if err := ensureCredentialEntryUserPatternIndex(); err != nil {
+		t.Fatalf("ensureCredentialEntryUserPatternIndex: %v", err)
+	}
 	assertCredentialCount(t, len(seeds), "após ensureCredentialEntryUserPatternIndex")
 
 	// Confere que os tokens não foram zerados pelo AutoMigrate (defesa
@@ -295,7 +304,9 @@ func openMultiUserDB(t *testing.T) {
 	); err != nil {
 		t.Fatalf("auto-migrate: %v", err)
 	}
-	ensureCredentialEntryUserPatternIndex()
+	if err := ensureCredentialEntryUserPatternIndex(); err != nil {
+		t.Fatalf("ensureCredentialEntryUserPatternIndex: %v", err)
+	}
 
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()

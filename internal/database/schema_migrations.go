@@ -1,6 +1,7 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -15,11 +16,14 @@ import (
 //
 // Se a mesma referência externa for associada a outra task local, UpsertTaskNoteByExternal
 // retorna erro explícito em vez de duplicar linhas.
-func ensureTaskNoteExternalUniqueIndex() {
+func ensureTaskNoteExternalUniqueIndex() error {
 	if db == nil {
-		return
+		return nil
 	}
-	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_task_notes_external_source_id ON task_notes (external_source, external_id) WHERE external_source <> '' AND external_id <> ''`)
+	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_task_notes_external_source_id ON task_notes (external_source, external_id) WHERE external_source <> '' AND external_id <> ''`).Error; err != nil {
+		return fmt.Errorf("criar índice ux_task_notes_external_source_id: %w", err)
+	}
+	return nil
 }
 
 // ensureChatMessageWindowIndex cria os índices de ordenação/paginação de
@@ -45,12 +49,15 @@ func ensureTaskNoteExternalUniqueIndex() {
 //     deixa pronto o caminho para listagens incrementais por "modificadas
 //     recentemente" sem custo relevante de manutenção.
 //
-// Falhas de criação de índice são logadas como aviso e não abortam o boot: o
-// app ainda funciona sem o índice (apenas com queries mais lentas), e abortar a
-// inicialização por causa de um índice seria pior do que degradar performance.
-func ensureChatMessageWindowIndex() {
+// Falhas de criação de índice são logadas como aviso e a função retorna o
+// primeiro erro encontrado. No boot, o wrapper da migração trata esse erro como
+// adiamento (errMigrationDeferred via deferIfErr): NÃO aborta a inicialização e
+// retenta no próximo startup — o app ainda funciona sem o índice (apenas com
+// queries mais lentas), e abortar o boot por causa de um índice seria pior do
+// que degradar performance. (Os call sites em testes tratam o erro como fatal.)
+func ensureChatMessageWindowIndex() error {
 	if db == nil {
-		return
+		return nil
 	}
 	indexStmts := []string{
 		`CREATE INDEX IF NOT EXISTS idx_chat_messages_window ON chat_messages (conversation_id, parent_id, created_at, id)`,
@@ -58,11 +65,16 @@ func ensureChatMessageWindowIndex() {
 		`CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages (conversation_id, created_at, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_messages_updated_at ON chat_messages (conversation_id, updated_at)`,
 	}
+	var firstErr error
 	for _, stmt := range indexStmts {
 		if err := db.Exec(stmt).Error; err != nil {
 			log.Printf("[Database] AVISO: falha ao criar índice de chat_messages: %v (stmt: %s)", err, stmt)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("criar índice chat_messages: %w", err)
+			}
 		}
 	}
+	return firstErr
 }
 
 // dedupCredentialEntriesBeforeMigrate remove duplicatas em
@@ -75,15 +87,32 @@ func ensureChatMessageWindowIndex() {
 // partir da tag `uniqueIndex` no model, e bases pré-AEP-0052 podiam ter
 // `pattern` repetido entre registros legacy sem dono — sem dedup prévio o
 // AutoMigrate falha e o app não sobe (review do AEP-0052, Bloco 6, B31).
-func dedupCredentialEntriesBeforeMigrate() {
+//
+// Retorno (sob o versionamento de schema, AEP-0076):
+//   - nil quando não há nada a fazer de forma definitiva (sem tabela ou já
+//     deduplicado) ou após deduplicar com sucesso — a v2 é registrada;
+//   - erro real quando o DELETE falha — a v2 NÃO é registrada e o boot aborta
+//     (o índice unique quebraria de qualquer forma); retentada no próximo boot;
+//   - errMigrationDeferred quando a tabela existe mas ainda não tem `user_id`
+//     (base pré-AEP-0052): adia sem registrar, pois o dedup por (user_id,
+//     pattern) só é possível depois que o AutoMigrate adicionar a coluna.
+func dedupCredentialEntriesBeforeMigrate() error {
 	if db == nil {
-		return
+		return nil
 	}
 	if !db.Migrator().HasTable("credential_entries") {
-		return
+		return nil
 	}
 	if !legacyColumnExists("credential_entries", "user_id") {
-		return
+		// Base legada pré-AEP-0052: a tabela existe mas ainda NÃO tem a coluna
+		// user_id (será adicionada pelo AutoMigrate). O dedup por (user_id,
+		// pattern) só é possível depois disso, então adia para o próximo boot
+		// em vez de registrar a v2 prematuramente. No boot seguinte (já com
+		// user_id) o dedup roda de fato — inclusive recuperando o caso em que o
+		// AutoMigrate falhou ao criar o índice unique por duplicatas recém-
+		// expostas (a coluna user_id é adicionada mesmo quando a criação do
+		// índice falha, então o retry consegue deduplicar e destravar o boot).
+		return fmt.Errorf("credential_entries ainda sem coluna user_id (pré-AutoMigrate): %w", errMigrationDeferred)
 	}
 	res := db.Exec(`
 		DELETE FROM credential_entries
@@ -100,10 +129,17 @@ func dedupCredentialEntriesBeforeMigrate() {
 		)
 	`)
 	if res.Error != nil {
-		log.Printf("[Database] AVISO: dedup de credential_entries falhou: %v", res.Error)
-	} else if res.RowsAffected > 0 {
+		// Propaga o erro: o dedup PRECISA preceder a criação do índice unique
+		// (user_id, pattern) pelo AutoMigrate. Se falhar e a migração fosse
+		// registrada mesmo assim, o índice continuaria quebrando em todo boot
+		// e o app ficaria permanentemente sem subir. Retornando erro, a v2 não
+		// é registrada e é retentada no próximo startup.
+		return fmt.Errorf("dedup de credential_entries: %w", res.Error)
+	}
+	if res.RowsAffected > 0 {
 		log.Printf("[Database] dedup de credential_entries: %d duplicatas removidas (user_id, pattern)", res.RowsAffected)
 	}
+	return nil
 }
 
 // ensureCredentialEntryUserPatternIndex limpa índices legados que possam
@@ -117,12 +153,15 @@ func dedupCredentialEntriesBeforeMigrate() {
 // `credentials/db_store.go` funcione — SQLite só aceita ON CONFLICT contra
 // índices unique sem `WHERE`. Em prática o app sempre grava patterns
 // não-vazios.
-func ensureCredentialEntryUserPatternIndex() {
+func ensureCredentialEntryUserPatternIndex() error {
 	if db == nil {
-		return
+		return nil
 	}
 
-	db.Exec(`DROP INDEX IF EXISTS idx_credential_entries_pattern`)
+	if err := db.Exec(`DROP INDEX IF EXISTS idx_credential_entries_pattern`).Error; err != nil {
+		return fmt.Errorf("limpar índice legado idx_credential_entries_pattern: %w", err)
+	}
+	return nil
 }
 
 // ensureUsernameCaseInsensitive normaliza usernames legados para lowercase e
@@ -195,7 +234,14 @@ func ensureUsernameCaseInsensitive() error {
 		log.Printf("[Database] usernames legacy normalizados para lowercase: %d", len(legacyMixedCase))
 	}
 
-	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_unique ON users (LOWER(username))`)
+	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_unique ON users (LOWER(username))`).Error; err != nil {
+		// Só o índice é best-effort: adia (não aborta o boot) e retenta no
+		// próximo startup. As normalizações de dados acima, se falharem,
+		// retornam erro real e abortam o boot (não são adiadas).
+		// errors.Join preserva o erro original do SQLite na cadeia de unwrap
+		// (inspeção via errors.As) além do sentinela errMigrationDeferred.
+		return errors.Join(fmt.Errorf("criar índice users_username_lower_unique: %w", err), errMigrationDeferred)
+	}
 	return nil
 }
 
@@ -243,7 +289,16 @@ func migrateRefreshURLToEnc() error {
 	}
 
 	if err := db.Exec(`ALTER TABLE credential_entries DROP COLUMN refresh_url`).Error; err != nil {
-		log.Printf("[Database] AVISO: falha ao dropar coluna legacy refresh_url: %v", err)
+		// Os dados já foram copiados para refresh_token_enc acima; só o DROP da
+		// coluna legada falhou (ex.: SQLite sem suporte a DROP COLUMN). Sinaliza
+		// adiamento: não aborta o boot e NÃO registra a v9, para que o drop seja
+		// retentado no próximo startup — preservando o comportamento anterior ao
+		// versionamento (rodava a cada boot até a coluna sumir) e evitando deixar
+		// a coluna em texto plano gravada como "migrada".
+		log.Printf("[Database] AVISO: falha ao dropar coluna legacy refresh_url (será retentado no próximo boot): %v", err)
+		// errors.Join preserva o erro original na cadeia de unwrap além do
+		// sentinela errMigrationDeferred (mesmo padrão de deferIfErr).
+		return errors.Join(fmt.Errorf("dropar coluna legacy refresh_url: %w", err), errMigrationDeferred)
 	}
 	return nil
 }

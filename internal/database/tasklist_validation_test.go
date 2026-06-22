@@ -17,7 +17,9 @@ func setupValidationPolicyTestDB(t *testing.T) {
 	if err := db.AutoMigrate(&TaskListWorkflow{}, &TaskList{}, &Task{}, &TaskNote{}); err != nil {
 		t.Fatal(err)
 	}
-	ensureTaskNoteExternalUniqueIndex()
+	if err := ensureTaskNoteExternalUniqueIndex(); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
 		if sqlDB != nil {

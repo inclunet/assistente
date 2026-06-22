@@ -23,7 +23,9 @@ func setupTaskNoteExternalTestDB(t *testing.T) {
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	ensureTaskNoteExternalUniqueIndex()
+	if err := ensureTaskNoteExternalUniqueIndex(); err != nil {
+		t.Fatalf("ensureTaskNoteExternalUniqueIndex: %v", err)
+	}
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
 		if sqlDB != nil {

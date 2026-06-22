@@ -100,17 +100,19 @@ func Init() error {
 	// como VACUUM aguardam o lock em vez de falhar com SQLITE_BUSY (AEP-0074).
 	db.Exec("PRAGMA busy_timeout=5000")
 
-	// Migração: converter IDs INTEGER → UUIDv7 (AEP-0046)
-	if err := migrateToUUIDv7(); err != nil {
-		return fmt.Errorf("erro na migração UUIDv7: %w", err)
+	// Versionamento de schema (AEP-0076): migrações da fase PRÉ-AutoMigrate.
+	// Inclui a conversão de IDs INTEGER → UUIDv7 (AEP-0046) e o dedup de
+	// credential_entries (que precisa preceder a criação do índice unique
+	// (user_id, pattern) pelo AutoMigrate). Em bancos já migrados estas são
+	// apenas marcadas como aplicadas, sem reexecutar trabalho pesado.
+	if err := runMigrations(db, phasePreAutoMigrate); err != nil {
+		return fmt.Errorf("erro nas migrações pré-AutoMigrate: %w", err)
 	}
-
-	// Bases legadas pré-AEP-0052 podem ter (user_id, pattern) duplicado em
-	// credential_entries; dedup antes do AutoMigrate criar o índice unique.
-	dedupCredentialEntriesBeforeMigrate()
 
 	// Auto migrate das tabelas persistidas no SQLite; perfis continuam
 	// gerenciados via arquivos JSON em .assistente/profiles/.
+	// AutoMigrate permanece responsável por ADIÇÃO de colunas/tabelas; mudanças
+	// estruturais são versionadas via runMigrations (AEP-0076).
 	if err := db.AutoMigrate(
 		&User{},
 		&Session{},
@@ -141,20 +143,13 @@ func Init() error {
 		return err
 	}
 
-	ensureTaskNoteExternalUniqueIndex()
-	ensureTaskListSlugUniqueIndex()
-	ensureChatMessageWindowIndex()
-	ensureCredentialEntryUserPatternIndex()
-	if err := ensureUsernameCaseInsensitive(); err != nil {
-		return err
-	}
-
-	// Normalizar campos booleanos: SQLite armazena bool como INTEGER 0/1,
-	// mas valores corrompidos (ex: 4) causam erro no GORM Scan.
-	db.Exec(`UPDATE conversations SET summarizing_in_progress = CASE WHEN summarizing_in_progress > 0 THEN 1 ELSE 0 END WHERE summarizing_in_progress NOT IN (0, 1)`)
-
-	if err := migrateRefreshURLToEnc(); err != nil {
-		return err
+	// Versionamento de schema (AEP-0076): migrações da fase PÓS-AutoMigrate.
+	// Criação de índices auxiliares/unique, limpeza de índices legados,
+	// normalização de usernames case-insensitive, normalização de booleanos e
+	// migração refresh_url → refresh_token_enc. Cada uma roda no máximo uma vez
+	// por banco.
+	if err := runMigrations(db, phasePostAutoMigrate); err != nil {
+		return fmt.Errorf("erro nas migrações pós-AutoMigrate: %w", err)
 	}
 
 	// Inicializa FTS5 (full-text search) para busca em mensagens
