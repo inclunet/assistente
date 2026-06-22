@@ -276,11 +276,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                     <tr>
                       <th scope="row">{t('tokenStats.modelCalls')}</th>
                       <td>{formatNumber(modelCallCount)}</td>
-                      <td>
-                        {modelCallCount > 0
-                          ? `${formatNumber(Math.round(stats.totalTokens / modelCallCount))} ${t('tokenStats.tokensPerCall')}`
-                          : placeholder}
-                      </td>
+                      <td>{placeholder}</td>
                     </tr>
                     <tr>
                       <th scope="row">{t('tokenStats.mainModel')}</th>

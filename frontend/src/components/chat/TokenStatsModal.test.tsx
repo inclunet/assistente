@@ -76,7 +76,7 @@ describe('TokenStatsModal', () => {
     expect(progress).toHaveAttribute('aria-valuenow', '32');
     expect(progress).toHaveAttribute('aria-valuetext', '32.0%');
     expect(screen.getByText('tokenStats.modelCalls')).toBeInTheDocument();
-    expect(screen.getByText('62.694 tokenStats.tokensPerCall')).toBeInTheDocument();
+    expect(screen.queryByText('62.694 tokenStats.tokensPerCall')).not.toBeInTheDocument();
     expect(screen.queryByText('31.347 tokenStats.tokensPerMsg')).not.toBeInTheDocument();
   });
 
