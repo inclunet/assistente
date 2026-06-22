@@ -90,7 +90,16 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
       }
     });
 
-    return () => unsubscribe();
+    const unsubscribeRealtime = EventsOn('chat:token_stats_update', (data: TokenStats & { conversationId: string }) => {
+      if (data.conversationId === conversationId) {
+        setStats(data);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeRealtime();
+    };
   }, [conversationId, isOpen, t]);
 
   const formatNumber = (num: number): string => {
