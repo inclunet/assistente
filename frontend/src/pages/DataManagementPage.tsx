@@ -30,10 +30,14 @@ function formatBytes(bytes: number): string {
   return `${rounded} ${units[unitIndex]}`;
 }
 
-function getErrorReason(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === 'string') return error;
-  return String(error);
+function getErrorReason(error: unknown): string | null {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'string' && error.trim()) return error;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return null;
 }
 
 interface ConversationRecord {
@@ -309,7 +313,7 @@ export default function DataManagementPage() {
       logger.error('Erro ao executar manutenção do banco:', error);
       const message = t('dataManagement.maintenanceRunErrorWithReason', {
         defaultValue: 'Erro ao executar a manutenção do banco: {{reason}}',
-        reason: getErrorReason(error),
+        reason: getErrorReason(error) ?? t('dataManagement.maintenanceRunUnknownReason', 'erro desconhecido'),
       });
       setMaintenanceRunError(message);
       announce(message, 'assertive');

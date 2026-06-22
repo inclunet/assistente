@@ -375,6 +375,7 @@ const es = {
       maintenanceRunDone: 'Mantenimiento completado. Espacio liberado: {{reclaimed}}.',
       maintenanceRunError: 'Error al ejecutar el mantenimiento de la base de datos.',
       maintenanceRunErrorWithReason: 'Error al ejecutar el mantenimiento de la base de datos: {{reason}}',
+      maintenanceRunUnknownReason: 'error desconocido',
       maintenanceUnavailable: 'No se pudieron cargar las configuraciones de mantenimiento.',
     },
 

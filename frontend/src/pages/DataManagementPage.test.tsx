@@ -774,7 +774,7 @@ describe('DataManagementPage', () => {
 
     it('mostra e anuncia o motivo quando a manutencao manual falha', async () => {
       const user = userEvent.setup();
-      mockRunDatabaseMaintenance.mockRejectedValue(new Error('vacuum: database or disk is full'));
+      mockRunDatabaseMaintenance.mockRejectedValue({ message: 'vacuum: database or disk is full' });
 
       render(<DataManagementPage />);
 
