@@ -74,6 +74,33 @@ func TestRunMigrations_AppliesInOrder(t *testing.T) {
 	}
 }
 
+// TestRunMigrationList_RejectsOutOfOrder valida a checagem de ordem: listas com
+// Version não estritamente crescente (fora de ordem ou duplicada) são rejeitadas
+// antes de aplicar qualquer migração.
+func TestRunMigrationList_RejectsOutOfOrder(t *testing.T) {
+	database := newMigratorTestDB(t)
+
+	ran := false
+	outOfOrder := []migration{
+		{Version: 2, Name: "two", Phase: phasePreAutoMigrate, Run: func(*gorm.DB) error { ran = true; return nil }},
+		{Version: 1, Name: "one", Phase: phasePreAutoMigrate, Run: func(*gorm.DB) error { ran = true; return nil }},
+	}
+	if err := runMigrationList(database, phasePreAutoMigrate, outOfOrder); err == nil {
+		t.Fatal("esperava erro para lista fora de ordem")
+	}
+	if ran {
+		t.Fatal("nenhuma migração deveria rodar quando a lista é inválida")
+	}
+
+	dup := []migration{
+		{Version: 1, Name: "one", Phase: phasePreAutoMigrate, Run: func(*gorm.DB) error { return nil }},
+		{Version: 1, Name: "dup", Phase: phasePreAutoMigrate, Run: func(*gorm.DB) error { return nil }},
+	}
+	if err := runMigrationList(database, phasePreAutoMigrate, dup); err == nil {
+		t.Fatal("esperava erro para versão duplicada")
+	}
+}
+
 // TestRunMigrations_Idempotent valida que rodar de novo não reexecuta
 // migrações já registradas.
 func TestRunMigrations_Idempotent(t *testing.T) {

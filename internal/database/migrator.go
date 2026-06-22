@@ -194,6 +194,17 @@ func runMigrationList(database *gorm.DB, phase migrationPhase, migrations []migr
 	if database == nil {
 		return nil
 	}
+	// Validação barata: a lista DEVE estar com Version estritamente crescente
+	// (logo, sem duplicatas). O loop aplica na ordem do slice; sem esta checagem,
+	// editar `schemaMigrations` fora de ordem (ou passar uma lista arbitrária)
+	// aplicaria versões fora de sequência silenciosamente, quebrando a premissa
+	// de aplicação sequencial (e a contiguidade de user_version).
+	for i := 1; i < len(migrations); i++ {
+		if migrations[i].Version <= migrations[i-1].Version {
+			return fmt.Errorf("lista de migrações fora de ordem ou com versão duplicada: v%d (índice %d) não é maior que v%d (índice %d)",
+				migrations[i].Version, i, migrations[i-1].Version, i-1)
+		}
+	}
 	if err := ensureSchemaMigrationsTable(database); err != nil {
 		return err
 	}
