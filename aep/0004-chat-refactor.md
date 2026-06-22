@@ -1,5 +1,12 @@
 # Plano de Refatoração do Chat
 
+> **Status: 🗄️ Superseded / Obsoleto (2026-06-21).** Este plano foi escrito para a
+> stack **Svelte** (`Chat.svelte`, `message-service.js`), abandonada na migração
+> para **React + TypeScript**. O documento é mantido apenas como registro
+> histórico. As decisões vigentes sobre arquitetura de chat estão nas AEPs
+> posteriores (ex.: AEP-0010 Streaming, AEP-0037 SDK/ChatProvider,
+> AEP-0040 Backend-Driven Messaging).
+
 Objetivo
 - Garantir atualização de UI em tempo real, sem espelhos reativos conflitantes.
 - Simplificar fluxo de streaming e de threads com snapshots imutáveis.
