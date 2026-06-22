@@ -6,6 +6,7 @@ import (
 
 	"assistente/internal/database"
 	mcpmgr "assistente/internal/mcp"
+	"assistente/internal/toolcatalog"
 	toolpkg "assistente/internal/tools"
 )
 
@@ -88,8 +89,12 @@ func (a *App) initMCP() {
 	if database.DB() != nil {
 		repo := mcpmgr.NewDBRepository(database.DB())
 		a.mcpMgr.SetRepository(repo)
+		// O catálogo de tools tem dono dedicado (internal/toolcatalog); o MCP e a
+		// tool de catálogo apenas o consomem (AEP-0077, Fase 2 / #120).
+		catalog := toolcatalog.NewService(toolcatalog.NewDBRepository(database.DB()))
+		a.mcpMgr.SetCatalog(catalog)
 		if a.toolRegistry != nil && !a.toolRegistry.Has(toolpkg.ToolCatalogName) {
-			a.toolRegistry.MustRegister(toolpkg.NewCatalogTool(repo))
+			a.toolRegistry.MustRegister(toolpkg.NewCatalogTool(catalog))
 		}
 		a.mcpMgr.StartLogRetention(24*time.Hour, 30*24*time.Hour)
 		if err := a.mcpMgr.SyncBuiltinTools(database.WithBootstrap(a.internalBootstrapCtx())); err != nil {

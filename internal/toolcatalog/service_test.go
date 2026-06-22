@@ -1,4 +1,4 @@
-package mcp
+package toolcatalog
 
 import (
 	"context"
@@ -29,18 +29,17 @@ func (t catalogTestTool) Execute(context.Context, json.RawMessage) (tools.ToolRe
 // cada builtin é a fonte autoritativa dos próprios metadados.
 func (t catalogTestTool) CatalogMetadata() tools.CatalogMetadata { return t.meta }
 
-func TestSyncBuiltinToolsCatalogsGlobalToolsOnly(t *testing.T) {
-	repo, userA, userB := setupRepositoryTest(t)
+func TestServiceSyncBuiltinsCatalogsGlobalToolsOnly(t *testing.T) {
+	repo, userA, userB := setupCatalogTest(t)
 	registry := tools.NewRegistry()
 	registry.MustRegister(catalogTestTool{name: "read_file"})
 	registry.MustRegisterOptIn(catalogTestTool{name: "job"})
 	registry.MustRegisterDiscoverableOptIn(catalogTestTool{name: "job_pipeline"})
 	registry.MustRegister(catalogTestTool{name: "mcp_jira__create_issue"})
 
-	m := NewManager(registry, nil, nil)
-	m.SetRepository(repo)
-	if err := m.SyncBuiltinTools(context.Background()); err != nil {
-		t.Fatalf("SyncBuiltinTools: %v", err)
+	svc := NewService(repo)
+	if err := svc.SyncBuiltins(context.Background(), registry); err != nil {
+		t.Fatalf("SyncBuiltins: %v", err)
 	}
 
 	for _, ctx := range []context.Context{userA, userB} {
@@ -64,17 +63,16 @@ func TestSyncBuiltinToolsCatalogsGlobalToolsOnly(t *testing.T) {
 	}
 }
 
-func TestCatalogToolQueriesPersistedRepository(t *testing.T) {
-	repo, userA, _ := setupRepositoryTest(t)
+func TestServiceCatalogToolQueriesPersistedCatalog(t *testing.T) {
+	repo, userA, _ := setupCatalogTest(t)
 	readonlyMeta := tools.CatalogMetadata{Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"}
 	registry := tools.NewRegistry()
 	registry.MustRegister(catalogTestTool{name: "read_file", meta: readonlyMeta})
 	registry.MustRegister(catalogTestTool{name: "grep_search", meta: readonlyMeta})
 
-	m := NewManager(registry, nil, nil)
-	m.SetRepository(repo)
-	if err := m.SyncBuiltinTools(context.Background()); err != nil {
-		t.Fatalf("SyncBuiltinTools: %v", err)
+	svc := NewService(repo)
+	if err := svc.SyncBuiltins(context.Background(), registry); err != nil {
+		t.Fatalf("SyncBuiltins: %v", err)
 	}
 	if err := repo.UpsertTool(context.Background(), &tools.ToolCatalogEntry{
 		Name:               "old_search",
@@ -92,7 +90,9 @@ func TestCatalogToolQueriesPersistedRepository(t *testing.T) {
 		t.Fatalf("upsert unavailable builtin: %v", err)
 	}
 
-	result, err := tools.NewCatalogTool(repo).Execute(userA, json.RawMessage(`{"package":"coding_readonly","limit":10}`))
+	// A tool de catálogo (em internal/tools) consome este serviço via a interface
+	// CatalogToolStore (ListTools), confirmando o desacoplamento do MCP.
+	result, err := tools.NewCatalogTool(svc).Execute(userA, json.RawMessage(`{"package":"coding_readonly","limit":10}`))
 	if err != nil {
 		t.Fatalf("catalog execute: %v", err)
 	}
@@ -117,37 +117,19 @@ func TestCatalogToolQueriesPersistedRepository(t *testing.T) {
 	}
 }
 
-func TestSyncMCPToolsCatalogsServerScopedAvailability(t *testing.T) {
-	repo, userA, _ := setupRepositoryTest(t)
-	server := &ServerConfig{
-		Slug:        "jira",
-		Name:        "Jira",
-		Transport:   TransportStreamable,
-		URL:         "https://jira.example/mcp",
-		Enabled:     true,
-		AutoConnect: true,
-	}
-	if err := repo.SaveServer(userA, server); err != nil {
-		t.Fatalf("SaveServer: %v", err)
-	}
+func TestServiceSyncMCPServerToolsServerScopedAvailability(t *testing.T) {
+	repo, userA, _ := setupCatalogTest(t)
+	serverID := seedServer(t, repo, "user-a", "jira")
+	svc := NewService(repo)
 
-	m := NewManager(tools.NewRegistry(), nil, nil)
-	m.SetRepository(repo)
-	m.servers["jira"] = &ServerStatus{
-		ID:     server.ID,
-		Slug:   "jira",
-		Config: *server,
-		Status: StatusConnected,
+	initial := []MCPToolDescriptor{
+		{Name: "create_issue", FullName: "mcp_jira__create_issue", Description: "Create", Schema: json.RawMessage(`{"type":"object"}`)},
+		{Name: "search_issue", FullName: "mcp_jira__search_issue", Description: "Search", Schema: json.RawMessage(`{"type":"object"}`)},
 	}
-
-	initial := []MCPToolInfo{
-		{Name: "create_issue", FullName: "mcp_jira__create_issue", Description: "Create", Schema: json.RawMessage(`{"type":"object"}`), ServerSlug: "jira"},
-		{Name: "search_issue", FullName: "mcp_jira__search_issue", Description: "Search", Schema: json.RawMessage(`{"type":"object"}`), ServerSlug: "jira"},
-	}
-	if err := m.syncMCPTools(userA, "jira", initial); err != nil {
+	if err := svc.SyncMCPServerTools(userA, "jira", serverID, "user-a", initial); err != nil {
 		t.Fatalf("sync initial: %v", err)
 	}
-	if err := m.syncMCPTools(userA, "jira", initial[:1]); err != nil {
+	if err := svc.SyncMCPServerTools(userA, "jira", serverID, "user-a", initial[:1]); err != nil {
 		t.Fatalf("sync second: %v", err)
 	}
 
@@ -157,8 +139,8 @@ func TestSyncMCPToolsCatalogsServerScopedAvailability(t *testing.T) {
 	}
 	statusByName := map[string]string{}
 	for _, entry := range entries {
-		if entry.MCPServerID != server.ID {
-			t.Fatalf("MCPServerID = %q, want %q", entry.MCPServerID, server.ID)
+		if entry.MCPServerID != serverID {
+			t.Fatalf("MCPServerID = %q, want %q", entry.MCPServerID, serverID)
 		}
 		statusByName[entry.Name] = entry.AvailabilityStatus
 	}
@@ -170,19 +152,16 @@ func TestSyncMCPToolsCatalogsServerScopedAvailability(t *testing.T) {
 	}
 }
 
-func TestSyncMCPToolsRequiresUserScope(t *testing.T) {
-	repo, userA, _ := setupRepositoryTest(t)
-	server := &ServerConfig{Slug: "jira", Name: "Jira", Transport: TransportStreamable, URL: "https://jira.example/mcp", Enabled: true, AutoConnect: true}
-	if err := repo.SaveServer(userA, server); err != nil {
-		t.Fatalf("SaveServer: %v", err)
-	}
+func TestServiceSyncMCPServerToolsRequiresUserScope(t *testing.T) {
+	repo, userA, _ := setupCatalogTest(t)
+	serverID := seedServer(t, repo, "user-a", "jira")
+	svc := NewService(repo)
 
-	m := NewManager(tools.NewRegistry(), nil, nil)
-	m.SetRepository(repo)
-	m.servers["jira"] = &ServerStatus{ID: server.ID, Slug: "jira", Config: *server}
-
-	err := m.syncMCPTools(context.Background(), "jira", []MCPToolInfo{{Name: "create_issue", FullName: "mcp_jira__create_issue"}})
+	err := svc.SyncMCPServerTools(context.Background(), "jira", serverID, "user-a", []MCPToolDescriptor{
+		{Name: "create_issue", FullName: "mcp_jira__create_issue"},
+	})
 	if err != database.ErrUserScopeRequired {
 		t.Fatalf("sync without user = %v, want ErrUserScopeRequired", err)
 	}
+	_ = userA
 }

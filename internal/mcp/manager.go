@@ -18,6 +18,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/portability"
+	"assistente/internal/toolcatalog"
 	"assistente/internal/tools"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -67,6 +68,18 @@ const (
 // emitFunc é a callback para emitir eventos Wails
 type emitFunc func(event string, data any)
 
+// ToolCatalog é o contrato do catálogo de tools que o MCP CONSOME (não possui).
+// A persistência/sync do tool_catalog vive em internal/toolcatalog (AEP-0077,
+// Fase 2 / #120); o MCP delega builtins/bridge a esse serviço.
+type ToolCatalog interface {
+	ListTools(ctx context.Context, filter tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error)
+	MarkServerToolsUnavailable(ctx context.Context, serverID string, seenNames []string, reason string) (int, error)
+	RecordToolTest(ctx context.Context, toolName, status, errorMessage string) error
+	RecordToolTestByID(ctx context.Context, toolCatalogID, status, errorMessage string) error
+	SyncBuiltins(ctx context.Context, registry *tools.Registry) error
+	SyncMCPServerTools(ctx context.Context, slug, serverID, ownerUserID string, descriptors []toolcatalog.MCPToolDescriptor) error
+}
+
 // serverConnection mantém o estado runtime de um servidor MCP conectado.
 type serverConnection struct {
 	client             *mcpsdk.Client
@@ -85,6 +98,7 @@ type Manager struct {
 	mu             sync.RWMutex
 	resolver       *configdir.Resolver
 	repo           Repository
+	catalog        ToolCatalog
 	credMgr        *credentials.Manager
 	registry       *tools.Registry
 	emitEvent      emitFunc
@@ -171,40 +185,54 @@ func (m *Manager) repository() Repository {
 	return m.repo
 }
 
+// SetCatalog injeta o catálogo de tools que o Manager consome. A persistência/
+// sync do tool_catalog é de responsabilidade do pacote internal/toolcatalog.
+func (m *Manager) SetCatalog(catalog ToolCatalog) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.catalog = catalog
+}
+
+func (m *Manager) toolCatalog() ToolCatalog {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.catalog
+}
+
 func (m *Manager) RecordToolTest(ctx context.Context, toolName string, success bool, errorMessage string) error {
-	repo := m.repository()
-	if repo == nil {
+	catalog := m.toolCatalog()
+	if catalog == nil {
 		return nil
 	}
 	status := tools.ToolTestStatusOK
 	if !success {
 		status = tools.ToolTestStatusError
 	}
-	return repo.RecordToolTest(ctx, toolName, status, errorMessage)
+	return catalog.RecordToolTest(ctx, toolName, status, errorMessage)
 }
 
 func (m *Manager) RecordToolTestStatus(ctx context.Context, toolName, status, errorMessage string) error {
-	repo := m.repository()
-	if repo == nil {
+	catalog := m.toolCatalog()
+	if catalog == nil {
 		return nil
 	}
-	return repo.RecordToolTest(ctx, toolName, status, errorMessage)
+	return catalog.RecordToolTest(ctx, toolName, status, errorMessage)
 }
 
 func (m *Manager) RecordToolTestStatusByID(ctx context.Context, toolCatalogID, status, errorMessage string) error {
-	repo := m.repository()
-	if repo == nil {
+	catalog := m.toolCatalog()
+	if catalog == nil {
 		return nil
 	}
-	return repo.RecordToolTestByID(ctx, toolCatalogID, status, errorMessage)
+	return catalog.RecordToolTestByID(ctx, toolCatalogID, status, errorMessage)
 }
 
 func (m *Manager) ListToolCatalog(ctx context.Context, filter tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error) {
-	repo := m.repository()
-	if repo == nil {
+	catalog := m.toolCatalog()
+	if catalog == nil {
 		return []tools.ToolCatalogEntry{}, nil
 	}
-	return repo.ListTools(ctx, filter)
+	return catalog.ListTools(ctx, filter)
 }
 
 func (m *Manager) GetLogs(slug string, limit int) ([]MCPServerLog, error) {
@@ -216,8 +244,8 @@ func (m *Manager) GetLogs(slug string, limit int) ([]MCPServerLog, error) {
 }
 
 func (m *Manager) markServerToolsUnavailable(slug, reason string) {
-	repo := m.repository()
-	if repo == nil {
+	catalog := m.toolCatalog()
+	if catalog == nil {
 		return
 	}
 	m.mu.RLock()
@@ -240,7 +268,7 @@ func (m *Manager) markServerToolsUnavailable(slug, reason string) {
 		}
 		ctx = database.WithUserID(context.Background(), ownerUserID)
 	}
-	if _, err := repo.MarkServerToolsUnavailable(ctx, serverID, nil, reason); err != nil {
+	if _, err := catalog.MarkServerToolsUnavailable(ctx, serverID, nil, reason); err != nil {
 		log.Printf("[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", slug, err)
 	}
 }
