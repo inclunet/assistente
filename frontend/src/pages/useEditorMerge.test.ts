@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 import { EditorGetFileInfo, EditorWriteDraft } from '@wailsjs/go/app/App';
 
 vi.mock('react-i18next', () => ({
@@ -65,10 +65,14 @@ describe('useEditorMerge', () => {
     const { result } = setup();
     expect(result.current.isExternalConflictLocked('t1')).toBe(false);
 
-    result.current.setExternalConflictLocked('t1', true);
+    act(() => {
+      result.current.setExternalConflictLocked('t1', true);
+    });
     expect(result.current.isExternalConflictLocked('t1')).toBe(true);
 
-    result.current.setExternalConflictLocked('t1', false);
+    act(() => {
+      result.current.setExternalConflictLocked('t1', false);
+    });
     expect(result.current.isExternalConflictLocked('t1')).toBe(false);
   });
 
@@ -103,11 +107,50 @@ describe('useEditorMerge', () => {
 
   it('startMergeSessionForTab grava os três drafts e registra a sessão', async () => {
     const { result } = setup();
-    await result.current.startMergeSessionForTab('t1', '/tmp/doc.md', 'disco', 'minha');
+    await act(async () => {
+      await result.current.startMergeSessionForTab('t1', '/tmp/doc.md', 'disco', 'minha');
+    });
 
     expect(EditorWriteDraft).toHaveBeenCalledTimes(3);
     expect(result.current.getMergeSession('t1')).not.toBeNull();
     expect(result.current.isExternalConflictLocked('t1')).toBe(true);
     expect(editorStoreState.setDocMarkdown).toHaveBeenCalled();
+  });
+
+  it('mergeStateRevision muda quando o lock externo muda (e não muda se o valor for igual)', () => {
+    const { result } = setup();
+    const initial = result.current.mergeStateRevision;
+
+    act(() => {
+      result.current.setExternalConflictLocked('t1', true);
+    });
+    expect(result.current.mergeStateRevision).not.toBe(initial);
+
+    const afterLock = result.current.mergeStateRevision;
+    act(() => {
+      result.current.setExternalConflictLocked('t1', true);
+    });
+    expect(result.current.mergeStateRevision).toBe(afterLock);
+
+    act(() => {
+      result.current.setExternalConflictLocked('t1', false);
+    });
+    expect(result.current.mergeStateRevision).not.toBe(afterLock);
+  });
+
+  it('mergeStateRevision muda ao iniciar e ao limpar a merge session', async () => {
+    const { result } = setup();
+    const initial = result.current.mergeStateRevision;
+
+    await act(async () => {
+      await result.current.startMergeSessionForTab('t1', '/tmp/doc.md', 'disco', 'minha');
+    });
+    const afterStart = result.current.mergeStateRevision;
+    expect(afterStart).not.toBe(initial);
+
+    await act(async () => {
+      await result.current.cleanupMergeSessionForTab('t1');
+    });
+    expect(result.current.mergeStateRevision).not.toBe(afterStart);
   });
 });
