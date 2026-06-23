@@ -91,10 +91,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0075](0075-context-providers.md) | Context Providers | ✅ Done |
 | [0076](0076-schema-versioning-migrations.md) | Versionamento de Schema do Banco (schema_migrations) | ✅ Done |
 | [0077](0077-tool-planner-and-tools-subsystem-evolution.md) | ToolPlanner e Evolução do Subsistema de Tools | ✅ Done |
+| [0078](0078-deprecacao-toolcalls-em-mensagens.md) | Deprecação de `tool_calls` em Mensagens | 📝 Draft |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0077 → próximo
-> 0078), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0078 → próximo
+> 0079), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 

@@ -50,22 +50,25 @@ type slugRenormalizationTarget struct {
 //     transação daquela tabela; se a transação falhar, o banco não fica com
 //     slugs parcialmente migrados naquela tabela.
 //
-// Limitação conhecida (IMPORTANTE):
+// Escopo auditado (issue #288):
 //
 //	Esta migração re-normaliza APENAS a coluna `slug` das tabelas `jobs`,
-//	`job_pipelines` e `tags`. Slugs também aparecem como TEXTO em outros lugares
-//	que NÃO são tocados aqui — por exemplo: `Inputs`, `OutputConfig` e
-//	`EventsConfig` de jobs/pipelines, payloads de eventos e mensagens de log.
-//	Essas referências textuais ao slug NÃO são re-normalizadas.
+//	`job_pipelines` e `tags`.
 //
-//	Isso é especialmente perigoso no caso de COLISÃO com sufixo: quando um slug
-//	legado é re-normalizado para uma forma canônica com sufixo (ex.: a forma
-//	canônica "cafe-job" já existia e a linha legada vira "cafe-job-2"), qualquer
-//	referência textual antiga que ainda aponte para "cafe-job" passa a resolver
-//	SILENCIOSAMENTE para o outro job (o que ocupava a forma canônica base), e
-//	não para a linha originalmente pretendida. Para auditoria/rollback manual,
-//	cada renomeação com sufixo é registrada em log no nível WARN com o
-//	mapeamento completo (user, tabela, slug antigo → slug novo); ver loop abaixo.
+//	A auditoria confirmou que os vínculos estruturais entre jobs, pipelines e tags
+//	não dependem de slugs textuais em JSON: jobs referenciam pipelines por
+//	`pipeline_id`, tags usam `tag_assignments.tag_id` e runs/events persistem
+//	`job_id`/`job_run_id`. As colunas `Inputs`, `OutputConfig`, `EventsConfig`,
+//	payloads de eventos e mensagens de log são payloads/templates opacos do
+//	usuário ou dados derivados de execução; podem conter strings iguais a slugs,
+//	mas não há contrato estrutural que permita reescrevê-las por regex/JSONPath
+//	sem risco de corromper conteúdo do usuário.
+//
+//	No caso raro de colisão com sufixo (ex.: a forma canônica "cafe-job" já
+//	existia e a linha legada vira "cafe-job-2"), cada renomeação é registrada em
+//	log no nível WARN com o mapeamento completo (user, tabela, slug antigo → slug
+//	novo). Se algum payload opaco depender semanticamente de um slug literal, a
+//	correção deve ser manual e guiada por esse log, não automática nesta migração.
 func RenormalizeLegacySlugs(db *gorm.DB) error {
 	if db == nil {
 		return nil
