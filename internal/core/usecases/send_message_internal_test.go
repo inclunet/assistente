@@ -35,12 +35,12 @@ func TestDynamicExpansionDropsOptInOnlyForDynamicProfile(t *testing.T) {
 
 	names := []string{"regular_tool", "text_edit"}
 
-	dynamic := policy.ResolveExpandedToolDefs(nil, nil, names, chat.ProfileToolConfig{EnabledTools: nil})
+	dynamic := policy.ResolveExpandedToolDefs(nil, nil, nil, names, chat.ProfileToolConfig{EnabledTools: nil})
 	if len(dynamic) != 1 || dynamic[0].Function.Name != "regular_tool" {
 		t.Fatalf("dynamic expansion should drop opt-in tools, got %#v", dynamic)
 	}
 
-	explicit := policy.ResolveExpandedToolDefs(nil, nil, names, chat.ProfileToolConfig{EnabledTools: []string{"text_edit"}})
+	explicit := policy.ResolveExpandedToolDefs(nil, nil, nil, names, chat.ProfileToolConfig{EnabledTools: []string{"text_edit"}})
 	if len(explicit) != 1 || explicit[0].Function.Name != "text_edit" {
 		t.Fatalf("explicit enabled_tools should allow opt-in tools, got %#v", explicit)
 	}

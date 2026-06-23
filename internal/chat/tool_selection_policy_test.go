@@ -36,7 +36,7 @@ func TestToolSelectionPolicy_ResolveExpandedToolDefs_MatchesLegacy(t *testing.T)
 			policy := NewToolSelectionPolicy(r)
 			cfg := ProfileToolConfig{EnabledTools: tc.enabled, DisableTools: tc.disable, NativeMCP: tc.override}
 
-			got := defNames(policy.ResolveExpandedToolDefs(streamer, mgr, tc.names, cfg))
+			got := defNames(policy.ResolveExpandedToolDefs(streamer, mgr, nil, tc.names, cfg))
 			assertNames(t, tc.name, got, tc.want)
 
 			legacy := defNames(legacyExpandedDefs(r, streamer, mgr, tc.names, tc.enabled, tc.disable, tc.override))
