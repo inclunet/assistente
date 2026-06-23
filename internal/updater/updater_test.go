@@ -229,6 +229,56 @@ func TestCheckForUpdates_UsesDesktopAssetNotCLIAsset(t *testing.T) {
 	}
 }
 
+func TestWindowsAssetPredicates_IgnoreCLIAssets(t *testing.T) {
+	tests := []struct {
+		name      string
+		assetName string
+		installer bool
+		portable  bool
+	}{
+		{
+			name:      "cli binary is not portable update",
+			assetName: "asst-windows-amd64.exe",
+		},
+		{
+			name:      "desktop executable is portable update",
+			assetName: "assistente-windows-amd64.exe",
+			portable:  true,
+		},
+		{
+			name:      "desktop installer is installer update",
+			assetName: "assistente-windows-amd64-installer.exe",
+			installer: true,
+		},
+		{
+			name:      "desktop setup is installer update",
+			assetName: "assistente-windows-amd64-setup.exe",
+			installer: true,
+		},
+		{
+			name:      "installer is not portable update",
+			assetName: "assistente-windows-amd64-installer.exe",
+			installer: true,
+		},
+		{
+			name:      "non-windows desktop asset is not portable update",
+			assetName: "assistente-linux-amd64",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assetName := strings.ToLower(tt.assetName)
+			if got := isWindowsInstallerAsset(assetName); got != tt.installer {
+				t.Errorf("isWindowsInstallerAsset(%q) = %v, want %v", tt.assetName, got, tt.installer)
+			}
+			if got := isWindowsPortableAsset(assetName); got != tt.portable {
+				t.Errorf("isWindowsPortableAsset(%q) = %v, want %v", tt.assetName, got, tt.portable)
+			}
+		})
+	}
+}
+
 // TestCheckForUpdates_NetworkError testa erro de rede
 func TestCheckForUpdates_NetworkError(t *testing.T) {
 	u := New("v1.0.0", &credentials.Manager{})

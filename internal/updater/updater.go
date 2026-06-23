@@ -317,13 +317,7 @@ func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, _ *Manifest) 
 
 		assetLower := strings.ToLower(asset.Name)
 
-		// Aceita: *installer*.exe, *windows*.exe, *setup*.exe
-		isInstaller := (strings.Contains(assetLower, "installer") ||
-			strings.Contains(assetLower, "setup") ||
-			strings.Contains(assetLower, "windows")) &&
-			strings.HasSuffix(assetLower, ".exe")
-
-		if isInstaller {
+		if isWindowsInstallerAsset(assetLower) {
 			installerURL = asset.BrowserDownloadURL
 			installerSize = asset.Size
 			log.Printf("[Updater] ✓ Instalador selecionado: %s (%d bytes)", asset.Name, asset.Size)
@@ -427,14 +421,7 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) e
 
 		assetLower := strings.ToLower(asset.Name)
 
-		// Aceita: *portable*.exe, *windows*.exe (mas não installer/setup)
-		isPortable := (strings.Contains(assetLower, "portable") ||
-			(strings.Contains(assetLower, "windows") &&
-				!strings.Contains(assetLower, "installer") &&
-				!strings.Contains(assetLower, "setup"))) &&
-			strings.HasSuffix(assetLower, ".exe")
-
-		if isPortable {
+		if isWindowsPortableAsset(assetLower) {
 			portableURL = asset.BrowserDownloadURL
 			portableSize = asset.Size
 			log.Printf("[Updater] ✓ Versão portátil selecionada: %s (%d bytes)", asset.Name, asset.Size)
@@ -775,11 +762,16 @@ func normalizeVersionForCompare(version string) string {
 	return version
 }
 
+func hasAssistenteAssetPrefix(assetNameLower string) bool {
+	return strings.HasPrefix(assetNameLower, "assistente-")
+}
+
 func isDesktopUpdateAsset(assetNameLower string) bool {
-	if !strings.HasPrefix(assetNameLower, "assistente-") {
+	if !hasAssistenteAssetPrefix(assetNameLower) {
 		return false
 	}
 	return !contains(assetNameLower, "installer") &&
+		!contains(assetNameLower, "setup") &&
 		!strings.HasSuffix(assetNameLower, ".dmg") &&
 		!strings.HasSuffix(assetNameLower, ".appimage") &&
 		!strings.HasSuffix(assetNameLower, ".deb") &&
@@ -790,6 +782,18 @@ func isDesktopUpdateAsset(assetNameLower string) bool {
 		!strings.HasSuffix(assetNameLower, ".tar.gz") &&
 		!strings.HasSuffix(assetNameLower, ".sha256") &&
 		!strings.HasSuffix(assetNameLower, "checksums.txt")
+}
+
+func isWindowsInstallerAsset(assetNameLower string) bool {
+	return hasAssistenteAssetPrefix(assetNameLower) &&
+		strings.HasSuffix(assetNameLower, ".exe") &&
+		(strings.Contains(assetNameLower, "installer") || strings.Contains(assetNameLower, "setup"))
+}
+
+func isWindowsPortableAsset(assetNameLower string) bool {
+	return isDesktopUpdateAsset(assetNameLower) &&
+		strings.HasSuffix(assetNameLower, ".exe") &&
+		strings.Contains(assetNameLower, "windows")
 }
 
 // contains verifica se uma string contém outra (helper)
