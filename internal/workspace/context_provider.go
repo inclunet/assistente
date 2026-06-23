@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -57,7 +58,7 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 
 func workspaceInstructionsBlock() string {
 	return `<workspace_instructions>
-Use link= values as app deep links for any workspace resource. open_editor_file[...] paths may be used with filesystem tools outside the workspace, subject to normal restrictions.
+Use link= values as app deep links for any workspace resource. open_editor_file[...] entries are exact editor-open file paths; only read_file, write_file, edit_file, and grep_search may use those exact paths outside the workspace, subject to normal restrictions.
 </workspace_instructions>`
 }
 
@@ -81,7 +82,7 @@ func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string
 		required.WriteString(strconv.Itoa(req.TabCount))
 		required.WriteString("\n")
 	}
-	openEditorFileCount := writeOpenEditorFiles(&required, req.Tabs)
+	writeOpenEditorFiles(&required, req.Tabs)
 	writeSurfaceIdentity(&required, req.Surface)
 
 	var optional strings.Builder
@@ -110,10 +111,10 @@ func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string
 		}
 		optional.WriteString("\n")
 	}
-	return trimContextBlockWithRequiredPrefix(required.String(), optional.String(), budgetChars, openEditorFileCount > 0)
+	return trimContextBlock(required.String(), optional.String(), budgetChars)
 }
 
-func writeOpenEditorFiles(sb *strings.Builder, tabs []contextprovider.Tab) int {
+func writeOpenEditorFiles(sb *strings.Builder, tabs []contextprovider.Tab) {
 	idx := 0
 	for _, tab := range tabs {
 		if strings.TrimSpace(tab.Type) != "editor" {
@@ -134,7 +135,6 @@ func writeOpenEditorFiles(sb *strings.Builder, tabs []contextprovider.Tab) int {
 		sb.WriteString("\n")
 		idx++
 	}
-	return idx
 }
 
 func writeSurfaceIdentity(sb *strings.Builder, surface *contextprovider.Surface) {
@@ -173,22 +173,18 @@ func writeSurfaceTransientContext(sb *strings.Builder, surface *contextprovider.
 	writeSurfaceValue(sb, "tasks_preview", surface.Context, "tasksPreview")
 }
 
-func trimContextBlock(content string, budgetChars int) string {
-	return trimContextBlockWithRequiredPrefix(content, "", budgetChars, false)
-}
-
-func trimContextBlockWithRequiredPrefix(requiredContent string, optionalContent string, budgetChars int, preserveRequired bool) string {
-	content := requiredContent + optionalContent
+func trimContextBlock(requiredContent string, optionalContent string, budgetChars int) string {
+	requiredContent = strings.TrimRight(requiredContent, "\n")
+	optionalContent = strings.TrimSpace(optionalContent)
+	content := requiredContent
+	if optionalContent != "" {
+		content += "\n" + optionalContent
+	}
 	content = strings.TrimRight(content, "\n")
 	if runeLen(content)+runeLen(workspaceContextSuffix) <= budgetChars {
 		return content + workspaceContextSuffix
 	}
-	requiredContent = strings.TrimRight(requiredContent, "\n")
-	requiredLen := runeLen(requiredContent)
 	suffixLen := runeLen(workspaceContextTruncationNotice) + runeLen(workspaceContextSuffix)
-	if preserveRequired && requiredLen+suffixLen >= budgetChars {
-		return requiredContent + workspaceContextTruncationNotice + workspaceContextSuffix
-	}
 	if suffixLen >= budgetChars {
 		return ""
 	}
@@ -196,30 +192,23 @@ func trimContextBlockWithRequiredPrefix(requiredContent string, optionalContent 
 	if contentBudget <= runeLen(workspaceContextPrefix) {
 		return ""
 	}
-	if !preserveRequired && requiredLen >= contentBudget {
-		runes := []rune(content)
-		if len(runes) > contentBudget {
-			content = strings.TrimSpace(string(runes[:contentBudget]))
-		}
-		if content == "" {
-			return ""
-		}
-		return content + workspaceContextTruncationNotice + workspaceContextSuffix
-	}
-	optionalBudget := contentBudget - requiredLen
-	if optionalBudget > 0 {
-		optionalRunes := []rune(optionalContent)
-		if len(optionalRunes) > optionalBudget {
-			optionalContent = string(optionalRunes[:optionalBudget])
-		}
-		content = strings.TrimSpace(requiredContent + optionalContent)
-	} else {
-		content = requiredContent
-	}
+	content = trimToWholeLines(content, contentBudget)
 	if content == "" {
 		return ""
 	}
 	return content + workspaceContextTruncationNotice + workspaceContextSuffix
+}
+
+func trimToWholeLines(content string, budgetChars int) string {
+	content = strings.TrimRight(content, "\n")
+	for content != "" && runeLen(content) > budgetChars {
+		idx := strings.LastIndex(content, "\n")
+		if idx < 0 {
+			return ""
+		}
+		content = strings.TrimRight(content[:idx], "\n")
+	}
+	return strings.TrimSpace(content)
 }
 
 func deepLinkForTab(tabType, contentID string) string {
@@ -231,7 +220,7 @@ func deepLinkForTab(tabType, contentID string) string {
 	case "terminal":
 		return "assistente://terminal/" + sanitizeContextLine(contentID)
 	case "editor":
-		return "assistente://editor/" + sanitizeContextLine(contentID)
+		return "assistente://editor/open?file=" + url.QueryEscape(strings.TrimSpace(contentID))
 	default:
 		return sanitizeContextLine(contentID)
 	}

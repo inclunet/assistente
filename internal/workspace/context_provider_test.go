@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,7 +65,7 @@ func TestContextProviderBuildsFastDynamicBlock(t *testing.T) {
 		"assistente://conversation/conv-1",
 		"conversation=conv-1",
 		"open_editor_file[0]: " + editorPath,
-		"assistente://editor/" + editorPath,
+		"assistente://editor/open?file=" + url.QueryEscape(editorPath),
 		"file=" + editorPath,
 		"assistente://tasklist/tl-1",
 		"tasklist=tl-1",
@@ -129,7 +130,7 @@ func TestContextProviderPreservesOpenEditorFilesWhenTruncated(t *testing.T) {
 		WorkspaceName: "Workspace",
 		TabCount:      2,
 		ProviderBudgets: map[string]int{
-			"workspace": 180,
+			"workspace": 500,
 		},
 		Tabs: []contextprovider.Tab{
 			{Title: "Arquivo", Type: "editor", ContentID: filePath, State: map[string]any{"filePath": filePath}},
@@ -145,31 +146,11 @@ func TestContextProviderPreservesOpenEditorFilesWhenTruncated(t *testing.T) {
 	if !strings.Contains(blocks[1].Content, "open_editor_file[0]: "+filePath) {
 		t.Fatalf("expected open editor path to survive truncation, got %q", blocks[1].Content)
 	}
+	if got := len([]rune(blocks[1].Content)); got > 500 {
+		t.Fatalf("workspace block length = %d, want <= 500: %q", got, blocks[1].Content)
+	}
 	if !strings.Contains(blocks[1].Content, "omitted due to context budget") {
 		t.Fatalf("expected truncation notice, got %q", blocks[1].Content)
-	}
-}
-
-func TestContextProviderPreservesOpenEditorFilesWithTinyBudget(t *testing.T) {
-	filePath := mustAbsPath(t, "arquivo.md")
-	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
-		WorkspaceName: "Workspace",
-		TabCount:      1,
-		ProviderBudgets: map[string]int{
-			"workspace": 1,
-		},
-		Tabs: []contextprovider.Tab{
-			{Title: "Arquivo", Type: "editor", ContentID: filePath, State: map[string]any{"filePath": filePath}},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	if len(blocks) != 2 {
-		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
-	}
-	if !strings.Contains(blocks[1].Content, "open_editor_file[0]: "+filePath) {
-		t.Fatalf("expected open editor path to survive tiny budget, got %q", blocks[1].Content)
 	}
 }
 
@@ -197,6 +178,32 @@ func TestContextProviderOpenEditorFilesSkipRelativePaths(t *testing.T) {
 	}
 	if !strings.Contains(blocks[1].Content, "open_editor_file[0]: "+absolutePath) {
 		t.Fatalf("absolute editor path should be listed, got %q", blocks[1].Content)
+	}
+}
+
+func TestContextProviderDoesNotEmitPartialOpenEditorFileWhenBudgetIsTiny(t *testing.T) {
+	filePath := mustAbsPath(t, strings.Repeat("arquivo-longo-", 20)+".md")
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace",
+		TabCount:      1,
+		ProviderBudgets: map[string]int{
+			"workspace": 220,
+		},
+		Tabs: []contextprovider.Tab{
+			{Title: "Arquivo", Type: "editor", ContentID: filePath, State: map[string]any{"filePath": filePath}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
+	}
+	if strings.Contains(blocks[1].Content, "open_editor_fil") && !strings.Contains(blocks[1].Content, "open_editor_file[0]: "+filePath) {
+		t.Fatalf("workspace block contains partial open_editor_file entry: %q", blocks[1].Content)
+	}
+	if got := len([]rune(blocks[1].Content)); got > 220 {
+		t.Fatalf("workspace block length = %d, want <= 220: %q", got, blocks[1].Content)
 	}
 }
 
