@@ -30,7 +30,7 @@ Este AEP **estende** AEP-0039 e AEP-0063 (não os substitui). O registry runtime
 | Catálogo (tipos + metadata builtin) | `internal/tools/catalog.go` | `ToolCatalogEntry` (`category/class/package/risk/schema_bytes`) + mapa central de builtins |
 | Tool de listagem do catálogo | `internal/tools/catalog_tool.go` | Lista/filtra capabilities (exposta ao modelo) |
 | Persistência do catálogo | `internal/toolcatalog/repository.go`, `internal/toolcatalog/service.go` | Sync/storage do catálogo (pacote dedicado; F2/#120 concluída — MCP consome via `Manager.SetCatalog`) |
-| Política de seleção | `internal/chat/tool_defs.go` (+ callback no use case de envio) | Resolve enabled tools, filtra por perfil, aplica MCP nativo |
+| Política de seleção | `internal/chat/tool_selection_policy.go` (`ToolSelectionPolicy`); `tool_defs.go` são wrappers finos (F3/#119 concluída) | Resolve enabled tools, filtra por perfil, aplica MCP nativo e expansão dinâmica num ponto único |
 | Loop agêntico | `internal/agent/service.go` (`RunAgenticLoop`) | Consome tool defs/política; streaming, loop, MCP nativo, recovery |
 | Storage de resultados | `internal/toolinvocations/*` (AEP-0063) | `tool_invocations` canônico via `tool_catalog_id` |
 
@@ -67,7 +67,7 @@ Este AEP **estende** AEP-0039 e AEP-0063 (não os substitui). O registry runtime
 - [ ] **F0/#245**: `RunAgenticLoop` decomposto em unidades testáveis; cobertura do loop agêntico elevada; comportamento idêntico (sem mudança de contrato de eventos AEP-0040).
 - [ ] **F1/#122**: metadados de catálogo declarados junto de cada builtin; mapa central removido; catálogo de builtins idêntico ao anterior (teste de equivalência).
 - [x] **F2/#120**: `tool_catalog` num pacote próprio fora de `internal/mcp` (`internal/toolcatalog`); mesma tabela/migrações; MCP, builtins e demais call sites consumindo o novo serviço.
-- [ ] **F3/#119**: um único contrato de política de seleção por perfil/superfície; `tool_defs.go` e expansão dinâmica delegando a ele; testes de caracterização garantindo paridade.
+- [x] **F3/#119**: um único contrato de política de seleção por perfil/superfície (`internal/chat.ToolSelectionPolicy`); `tool_defs.go` e a expansão dinâmica do use case de envio delegando a ele (callbacks duplicados eliminados); testes de caracterização (snapshots por perfil/cenário) garantindo paridade.
 - [ ] **F4/#121**: ToolPlanner com budget de schema bytes, ranking por perfil/superfície, pacotes preferenciais e resolução bridge×native; telemetria de seleção (incluído/cortado + motivo); budget configurável.
 - [ ] AEP atualizado para **Accepted/Done** conforme as fases forem entregues, com PRs referenciados.
 
