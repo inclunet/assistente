@@ -291,18 +291,26 @@ stable:
   - catálogo de skills on-demand
 
 slow_dynamic:
-  - resumo da conversa
   - memórias pinned/essenciais
+
+rolling_dynamic:
+  - resumo da conversa
 
 rolling_history:
   - janela recente de mensagens
 
 fast_dynamic:
-  - workspace/surface atual
+  - surface atual e resultados recuperados por providers/tools
   - slash skill do turno
-  - resultados recuperados por tools/context providers
   - mensagem atual do usuário
 ```
+
+Refinamento implementado após a issue #329:
+
+- `workspace` e `tasklist` usam `low_dynamic`, por mudarem menos que o resumo em conversas longas;
+- `memory` usa `mid_dynamic`, depois de `workspace/tasklist` e antes do resumo;
+- `conversation_summary` é produzido por Context Provider próprio e usa `rolling_dynamic`;
+- `fast_dynamic`/`turn_dynamic` ficam reservados para contexto recuperado, superfície ativa transitória e conteúdo específico do turno.
 
 Esta AEP não implementa otimização de cache diretamente; ela prepara o terreno para a AEP-0074.
 
@@ -471,6 +479,6 @@ Status: concluída para os builtins atuais. O runtime novo trata `SKILL.md` como
 - [x] APIs Wails permitem CRUD, busca e arquivamento de records de memória.
 - [x] Existe pelo menos um bloco estável e um bloco dinâmico produzido por context provider.
 - [x] Skills não usam Go templates para acessar memória/workspace/tasklists.
-- [x] Prompt builder tem ordem testável: blocos estáveis antes do resumo; blocos não-estáveis de Context Providers depois do resumo, preservando a janela recente de mensagens fora do system prompt.
+- [x] Prompt builder tem ordem testável por volatilidade: blocos estáveis primeiro; depois `workspace/tasklist`, `memory`, `conversation_summary` como Context Provider e blocos mais voláteis do turno, preservando a janela recente de mensagens fora do system prompt.
 - [x] AEP-0072 revisada pode focar apenas em Skill Loading Runtime.
 - [x] AEP-0074 passa a depender desta AEP para otimização de cache.

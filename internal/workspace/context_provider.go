@@ -49,7 +49,7 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 	blocks = append(blocks, contextprovider.Block{
 		Provider:   p.Name(),
 		Name:       "workspace_context",
-		Volatility: contextprovider.VolatilityFastDynamic,
+		Volatility: contextprovider.VolatilityLowDynamic,
 		Priority:   100,
 		Content:    content,
 	})

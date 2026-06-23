@@ -122,10 +122,18 @@ func volatilityRank(value Volatility) int {
 	switch value {
 	case VolatilityStable:
 		return 0
-	case VolatilitySlowDynamic:
+	case VolatilityLowDynamic:
 		return 1
-	case VolatilityFastDynamic:
+	case VolatilitySlowDynamic:
 		return 2
+	case VolatilityMidDynamic:
+		return 3
+	case VolatilityRolling:
+		return 4
+	case VolatilityFastDynamic:
+		return 5
+	case VolatilityTurnDynamic:
+		return 6
 	default:
 		return 9
 	}

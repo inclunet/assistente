@@ -15,7 +15,6 @@ func buildFullSystemPromptForTest(app *App, messages []Message, enabledSkills []
 		disableOnDemand,
 		skillTplData,
 		slashSkillContent,
-		conversationSummary,
 		[]contextprovider.Block{},
 	)
 }

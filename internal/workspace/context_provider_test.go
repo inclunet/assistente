@@ -55,7 +55,7 @@ func TestContextProviderBuildsFastDynamicBlock(t *testing.T) {
 		t.Fatalf("unexpected instructions block: %+v", blocks[0])
 	}
 	block := blocks[1]
-	if block.Provider != "workspace" || block.Volatility != contextprovider.VolatilityFastDynamic {
+	if block.Provider != "workspace" || block.Volatility != contextprovider.VolatilityLowDynamic {
 		t.Fatalf("unexpected block metadata: %+v", block)
 	}
 	for _, needle := range []string{

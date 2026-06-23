@@ -9,6 +9,7 @@ import (
 
 	"assistente/internal/configdir"
 	"assistente/internal/contextprovider"
+	"assistente/internal/conversation"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/events"
@@ -136,7 +137,7 @@ func (b *capturingPromptBuilder) Build(messages []llm.Message, _ []string, _ boo
 	return messages
 }
 
-func (b *capturingPromptBuilder) BuildWithContextBlocks(messages []llm.Message, _ []string, _ bool, _ bool, _ any, slashSkillContent string, _ string, blocks []contextprovider.Block) []llm.Message {
+func (b *capturingPromptBuilder) BuildWithContextBlocks(messages []llm.Message, _ []string, _ bool, _ bool, _ any, slashSkillContent string, blocks []contextprovider.Block) []llm.Message {
 	b.slashSkillContent = slashSkillContent
 	b.contextBlocks = append([]contextprovider.Block{}, blocks...)
 	return messages
@@ -770,6 +771,39 @@ func TestPrepareMessagesInjectsLinkedTaskListsAsDynamicContext(t *testing.T) {
 		!strings.Contains(block.Content, "Sprint (ID: list-1)") ||
 		!strings.Contains(block.Content, "| * Doing | Fix login | task-1 |") {
 		t.Fatalf("linked task list context missing expected content: %q", block.Content)
+	}
+}
+
+func TestPrepareMessagesInjectsConversationSummaryContextProvider(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(conversation.NewContextProvider()),
+	})
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:            []llm.Message{{Role: "user", Content: "continue"}},
+		UserContent:         "continue",
+		ConversationID:      "conv-1",
+		ConversationSummary: "O usuário quer migrar conversation_summary para provider.",
+		ActiveProfile:       &profiles.Profile{},
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.contextBlocks) != 1 {
+		t.Fatalf("expected one conversation context block, got %#v", promptBuilder.contextBlocks)
+	}
+	block := promptBuilder.contextBlocks[0]
+	if block.Provider != "conversation" || block.Name != "conversation_summary" {
+		t.Fatalf("unexpected context block: %+v", block)
+	}
+	if block.Volatility != contextprovider.VolatilityRolling {
+		t.Fatalf("block volatility = %q, want %q", block.Volatility, contextprovider.VolatilityRolling)
+	}
+	if !strings.Contains(block.Content, "migrar conversation_summary") {
+		t.Fatalf("summary content missing from block: %q", block.Content)
 	}
 }
 

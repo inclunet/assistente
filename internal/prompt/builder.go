@@ -186,13 +186,12 @@ func (b *Builder) BuildWithContextBlocks(
 	disableOnDemand bool,
 	tplData any,
 	slashSkillContent string,
-	conversationSummary string,
 	contextBlocks []contextprovider.Block,
 ) []llm.Message {
 	contextBlocks = append([]contextprovider.Block(nil), contextBlocks...)
 	sortContextBlocks(contextBlocks)
 	stableContext, dynamicContext := splitRenderedContextBlocks(contextBlocks)
-	return b.build(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, stableContext, dynamicContext)
+	return b.build(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, stableContext, dynamicContext)
 }
 
 func (b *Builder) build(
@@ -202,7 +201,6 @@ func (b *Builder) build(
 	disableOnDemand bool,
 	tplData any,
 	slashSkillContent string,
-	conversationSummary string,
 	stableContext []string,
 	dynamicContext []string,
 ) []llm.Message {
@@ -237,12 +235,7 @@ func (b *Builder) build(
 		stablePromptLen += len(part)
 	}
 
-	// 4. Resumo da conversa (rolling context)
-	if conversationSummary != "" {
-		parts = append(parts, "\n\n<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n"+conversationSummary+"\n</conversation_summary>")
-	}
-
-	// 5. Context Providers dinâmicos (memória, workspace/surface, etc.)
+	// 4. Context Providers dinâmicos (workspace, tasklists, memória, summary, etc.)
 	for _, contextBlock := range dynamicContext {
 		if strings.TrimSpace(contextBlock) == "" {
 			continue
@@ -250,7 +243,7 @@ func (b *Builder) build(
 		parts = append(parts, "\n\n"+strings.TrimSpace(contextBlock))
 	}
 
-	// 6. Skill invocado via /slash é conteúdo específico do turno e fica no fim.
+	// 5. Skill invocado via /slash é conteúdo específico do turno e fica no fim.
 	if slashSkillContent != "" {
 		parts = append(parts, "\n\n"+slashSkillContent)
 	}
@@ -280,10 +273,18 @@ func contextVolatilityRank(value contextprovider.Volatility) int {
 	switch value {
 	case contextprovider.VolatilityStable:
 		return 0
-	case contextprovider.VolatilitySlowDynamic:
+	case contextprovider.VolatilityLowDynamic:
 		return 1
-	case contextprovider.VolatilityFastDynamic:
+	case contextprovider.VolatilitySlowDynamic:
 		return 2
+	case contextprovider.VolatilityMidDynamic:
+		return 3
+	case contextprovider.VolatilityRolling:
+		return 4
+	case contextprovider.VolatilityFastDynamic:
+		return 5
+	case contextprovider.VolatilityTurnDynamic:
+		return 6
 	default:
 		return 9
 	}

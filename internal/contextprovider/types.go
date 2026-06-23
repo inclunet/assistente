@@ -6,8 +6,12 @@ type Volatility string
 
 const (
 	VolatilityStable      Volatility = "stable"
+	VolatilityLowDynamic  Volatility = "low_dynamic"
 	VolatilitySlowDynamic Volatility = "slow_dynamic"
+	VolatilityMidDynamic  Volatility = "mid_dynamic"
+	VolatilityRolling     Volatility = "rolling_dynamic"
 	VolatilityFastDynamic Volatility = "fast_dynamic"
+	VolatilityTurnDynamic Volatility = "turn_dynamic"
 )
 
 type Surface struct {
@@ -40,20 +44,21 @@ type LinkedTask struct {
 }
 
 type BuildRequest struct {
-	ConversationID   string
-	WorkspaceID      string
-	ProjectID        string
-	WorkspaceName    string
-	WorkspaceProfile string
-	TabCount         int
-	ActiveTabTitle   string
-	ActiveTabType    string
-	Tabs             []Tab
-	CurrentUserText  string
-	Surface          *Surface
-	ProviderBudgets  map[string]int
-	ProviderEnabled  map[string]bool
-	ProviderSettings map[string]map[string]any
+	ConversationID      string
+	WorkspaceID         string
+	ProjectID           string
+	WorkspaceName       string
+	WorkspaceProfile    string
+	TabCount            int
+	ActiveTabTitle      string
+	ActiveTabType       string
+	Tabs                []Tab
+	CurrentUserText     string
+	ConversationSummary string
+	Surface             *Surface
+	ProviderBudgets     map[string]int
+	ProviderEnabled     map[string]bool
+	ProviderSettings    map[string]map[string]any
 
 	// TaskListContextEnabled carries the chat skill policy decision into the
 	// tasklist provider. It should only be true when tasklist-manager is enabled

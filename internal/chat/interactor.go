@@ -35,7 +35,7 @@ type ChatParams = llm.ChatParams
 // Implemented by *prompt.Builder. Defined as an interface here so that internal/chat
 // does not need to import internal/prompt (which already imports internal/chat).
 type SystemPromptBuilder interface {
-	BuildWithContextBlocks(messages []llm.Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string, contextBlocks []contextprovider.Block) []llm.Message
+	BuildWithContextBlocks(messages []llm.Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any, slashSkillContent string, contextBlocks []contextprovider.Block) []llm.Message
 	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData
 }
 
@@ -667,7 +667,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 
 	var messages []llm.Message
 	if i.promptBuilder != nil {
-		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary, i.buildDynamicContext(ctx, skillTplData, req.UserContent, linkedTaskLists, taskListContextEnabled, req.ActiveProfile))
+		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableSkills, disableOnDemand, skillTplData, slashSkillContent, i.buildDynamicContext(ctx, skillTplData, req.UserContent, req.ConversationSummary, linkedTaskLists, taskListContextEnabled, req.ActiveProfile))
 	} else {
 		messages = req.Messages
 	}
@@ -778,7 +778,7 @@ func (i *Interactor) ValidateSkillInvocation(activeProfile *profiles.Profile, us
 	return nil
 }
 
-func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string, linkedTaskLists []contextprovider.LinkedTaskList, taskListContextEnabled bool, activeProfile *profiles.Profile) []contextprovider.Block {
+func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string, conversationSummary string, linkedTaskLists []contextprovider.LinkedTaskList, taskListContextEnabled bool, activeProfile *profiles.Profile) []contextprovider.Block {
 	if i.contextProviders == nil {
 		return nil
 	}
@@ -794,6 +794,7 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 		ActiveTabType:          data.ActiveTabType,
 		Tabs:                   make([]contextprovider.Tab, 0, len(data.Tabs)),
 		CurrentUserText:        currentUserText,
+		ConversationSummary:    conversationSummary,
 		ProviderBudgets:        providerBudgets,
 		ProviderEnabled:        providerEnabled,
 		ProviderSettings:       providerSettings,

@@ -15,6 +15,7 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/connstatus"
 	"assistente/internal/contextprovider"
+	"assistente/internal/conversation"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
@@ -359,6 +360,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		Tools:     a.toolRegistry,
 	}
 	a.contextProviders = contextprovider.NewRegistry(
+		conversation.NewContextProvider(),
 		a.memorySvc,
 		tasklist.NewContextProvider(),
 		workspace.NewContextProvider(),

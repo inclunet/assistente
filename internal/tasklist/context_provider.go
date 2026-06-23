@@ -45,7 +45,7 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 	return []contextprovider.Block{{
 		Provider:   p.Name(),
 		Name:       "linked_task_lists",
-		Volatility: contextprovider.VolatilityFastDynamic,
+		Volatility: contextprovider.VolatilityLowDynamic,
 		Priority:   40,
 		Content:    content,
 	}}, nil

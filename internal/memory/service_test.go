@@ -78,7 +78,7 @@ func TestServiceImplementsContextProvider(t *testing.T) {
 	if block == nil {
 		t.Fatalf("user_memory block not found: %+v", blocks)
 	}
-	if block.Provider != "memory" || block.Volatility != contextprovider.VolatilitySlowDynamic {
+	if block.Provider != "memory" || block.Volatility != contextprovider.VolatilityMidDynamic {
 		t.Fatalf("unexpected block metadata: %+v", block)
 	}
 	if !strings.Contains(block.Content, "Sempre responder em pt-BR.") {

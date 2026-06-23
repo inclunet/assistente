@@ -107,12 +107,16 @@ prefixo estável:
   - catálogo compacto de skills on_demand
   - definições estáveis de tools/MCP
 
-prefixo de conversa:
-  - resumo acumulado da conversa, quando existir
+contexto por volatilidade:
+  - workspace/tasklist: estado do app que muda quando abas/listas mudam
+  - memory: fatos importantes selecionados para entrar no prompt
+  - conversation_summary: resumo acumulado da conversa, quando existir
+  - context providers fast/turn, resultados recuperados e contexto da superfície ativa
+
+histórico recente:
   - mensagens preservadas após summary_up_to_message_id
 
-sufixo dinâmico:
-  - context providers dinâmicos (memory, workspace, tasklist, surface)
+sufixo do turno:
   - conteúdo específico do turno
   - mensagem atual do usuário
 ```
@@ -134,13 +138,15 @@ Regras:
 
 ### D4. Context Providers são o lugar do dinamismo
 
-Memória, workspace, tasklists, superfície ativa e outros estados do app entram por Context Providers. Eles ficam fora do prefixo estável.
+Memória, workspace, tasklists, resumo da conversa, superfície ativa e outros estados do app entram por Context Providers. Eles ficam fora do prefixo estável, mas não são igualmente voláteis.
 
 Política:
 
 - `memory` pode ter instruções estáveis curtas, mas records/memórias carregadas são dinâmicas;
-- `workspace` e `surface` são dinâmicos;
-- `tasklist` é dinâmico e respeita budget;
+- `workspace` e `tasklist` tendem a ser menos voláteis que memória e resumo, porque mudam quando o estado do app/conversa vinculada muda;
+- `memory` tende a ser menos volátil que `conversation_summary`, porque só records selecionados para contexto automático entram no prompt;
+- `conversation_summary` é rolling context e muda conforme a conversa é compactada;
+- `surface` e dados específicos do turno são os blocos mais voláteis;
 - providers devem produzir blocos pequenos, ordenados e com budget;
 - budgets default são parte do runtime, e overrides por perfil são definidos pela configuração de Context Providers da AEP-0075.
 

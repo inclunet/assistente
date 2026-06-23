@@ -34,7 +34,7 @@ func TestContextProviderBuildsLinkedTaskListsBlock(t *testing.T) {
 	if block.Provider != "tasklist" || block.Name != "linked_task_lists" {
 		t.Fatalf("unexpected block identity: %+v", block)
 	}
-	if block.Volatility != contextprovider.VolatilityFastDynamic || block.Priority != 40 {
+	if block.Volatility != contextprovider.VolatilityLowDynamic || block.Priority != 40 {
 		t.Fatalf("unexpected block ordering metadata: %+v", block)
 	}
 	for _, needle := range []string{
