@@ -56,7 +56,7 @@ GitHub Actions vai:
 - Gerar checksums
 - Anexar os assets ao GitHub Release criado
 
-Para o auto-update, os assets desktop precisam manter o prefixo `assistente-`, como `assistente-windows-amd64.exe` e `assistente-linux-amd64`. Assets da CLI usam `asst-*` e não são selecionados pelo updater.
+Para o auto-update, os executáveis desktop precisam manter o prefixo `assistente-`, como `assistente-windows-amd64.exe` e `assistente-linux-amd64`. Assets da CLI usam `asst-*`, e pacotes como `.deb`, `.rpm`, `.msi`, `.pkg`, `.dmg` e `.AppImage` não são selecionados pelo updater in-place.
 
 Aguarde ~10-15 minutos para builds completarem.
 

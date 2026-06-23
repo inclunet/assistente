@@ -205,6 +205,11 @@ func TestCheckForUpdates_UsesDesktopAssetNotCLIAsset(t *testing.T) {
 					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/assistente-" + key + ".exe",
 					"size":                 int64(444),
 				},
+				{
+					"name":                 "assistente-" + key + ".deb",
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/assistente-" + key + ".deb",
+					"size":                 int64(555),
+				},
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")

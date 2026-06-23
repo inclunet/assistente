@@ -782,6 +782,12 @@ func isDesktopUpdateAsset(assetNameLower string) bool {
 	return !contains(assetNameLower, "installer") &&
 		!strings.HasSuffix(assetNameLower, ".dmg") &&
 		!strings.HasSuffix(assetNameLower, ".appimage") &&
+		!strings.HasSuffix(assetNameLower, ".deb") &&
+		!strings.HasSuffix(assetNameLower, ".rpm") &&
+		!strings.HasSuffix(assetNameLower, ".msi") &&
+		!strings.HasSuffix(assetNameLower, ".pkg") &&
+		!strings.HasSuffix(assetNameLower, ".zip") &&
+		!strings.HasSuffix(assetNameLower, ".tar.gz") &&
 		!strings.HasSuffix(assetNameLower, ".sha256") &&
 		!strings.HasSuffix(assetNameLower, "checksums.txt")
 }
