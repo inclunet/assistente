@@ -806,6 +806,7 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 			Type:      tab.Type,
 			ContentID: tab.ContentID,
 			IsActive:  tab.IsActive,
+			State:     tab.State,
 		})
 	}
 	if data.Surface != nil {

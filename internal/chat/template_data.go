@@ -33,6 +33,7 @@ type TabInfo struct {
 	Type      string
 	ContentID string
 	IsActive  bool
+	State     map[string]any
 }
 
 // SurfaceInfo contém o contexto estruturado da superfície ativa para skills/templates.

@@ -2,24 +2,36 @@ package workspace
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"assistente/internal/contextprovider"
 )
 
+func mustAbsPath(t *testing.T, name string) string {
+	t.Helper()
+	path, err := filepath.Abs(name)
+	if err != nil {
+		t.Fatalf("Abs: %v", err)
+	}
+	return filepath.Clean(path)
+}
+
 func TestContextProviderBuildsFastDynamicBlock(t *testing.T) {
 	provider := NewContextProvider()
+	editorPath := mustAbsPath(t, "main.go")
 	blocks, err := provider.Build(context.Background(), contextprovider.BuildRequest{
 		WorkspaceName: "Workspace <Atual>",
-		TabCount:      3,
+		TabCount:      4,
 		ProviderBudgets: map[string]int{
 			"workspace": 2000,
 		},
 		Tabs: []contextprovider.Tab{
 			{Title: "Chat", Type: "chat", ContentID: "conv-1"},
-			{Title: "Tarefas", Type: "tasklist", ContentID: "tl-1", IsActive: true},
-			{Title: "Terminal", Type: "terminal", ContentID: "term-1"},
+			{Title: "main.go", Type: "editor", ContentID: editorPath, State: map[string]any{"filePath": editorPath}},
+			{Title: "Tarefas", Type: "tasklist", ContentID: "tl-1", State: map[string]any{"tasklistId": "tl-1"}, IsActive: true},
+			{Title: "Terminal", Type: "terminal", ContentID: "term-1", State: map[string]any{"sessionId": "term-1"}},
 		},
 		Surface: &contextprovider.Surface{
 			Type:  "editor",
@@ -48,10 +60,16 @@ func TestContextProviderBuildsFastDynamicBlock(t *testing.T) {
 	for _, needle := range []string{
 		"<workspace_context>",
 		"Workspace Atual",
-		"tab_count: 3",
+		"tab_count: 4",
 		"assistente://conversation/conv-1",
+		"conversation=conv-1",
+		"open_editor_file[0]: " + editorPath,
+		"assistente://editor/" + editorPath,
+		"file=" + editorPath,
 		"assistente://tasklist/tl-1",
+		"tasklist=tl-1",
 		"assistente://terminal/term-1",
+		"session=term-1",
 		"active_file: C:/tmp/readme.md",
 		"active_tasklist: tl-1",
 		"active_terminal_session: term-1",
@@ -102,6 +120,83 @@ func TestContextProviderRespectsProfileBudget(t *testing.T) {
 	}
 	if !strings.Contains(blocks[1].Content, "omitted due to context budget") {
 		t.Fatalf("expected truncation notice, got %q", blocks[1].Content)
+	}
+}
+
+func TestContextProviderPreservesOpenEditorFilesWhenTruncated(t *testing.T) {
+	filePath := mustAbsPath(t, "arquivo.md")
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace",
+		TabCount:      2,
+		ProviderBudgets: map[string]int{
+			"workspace": 180,
+		},
+		Tabs: []contextprovider.Tab{
+			{Title: "Arquivo", Type: "editor", ContentID: filePath, State: map[string]any{"filePath": filePath}},
+			{Title: strings.Repeat("aba longa ", 30), Type: "chat", ContentID: "conv-1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
+	}
+	if !strings.Contains(blocks[1].Content, "open_editor_file[0]: "+filePath) {
+		t.Fatalf("expected open editor path to survive truncation, got %q", blocks[1].Content)
+	}
+	if !strings.Contains(blocks[1].Content, "omitted due to context budget") {
+		t.Fatalf("expected truncation notice, got %q", blocks[1].Content)
+	}
+}
+
+func TestContextProviderPreservesOpenEditorFilesWithTinyBudget(t *testing.T) {
+	filePath := mustAbsPath(t, "arquivo.md")
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace",
+		TabCount:      1,
+		ProviderBudgets: map[string]int{
+			"workspace": 1,
+		},
+		Tabs: []contextprovider.Tab{
+			{Title: "Arquivo", Type: "editor", ContentID: filePath, State: map[string]any{"filePath": filePath}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
+	}
+	if !strings.Contains(blocks[1].Content, "open_editor_file[0]: "+filePath) {
+		t.Fatalf("expected open editor path to survive tiny budget, got %q", blocks[1].Content)
+	}
+}
+
+func TestContextProviderOpenEditorFilesSkipRelativePaths(t *testing.T) {
+	absolutePath := mustAbsPath(t, "absoluto.md")
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace",
+		TabCount:      2,
+		ProviderBudgets: map[string]int{
+			"workspace": 1000,
+		},
+		Tabs: []contextprovider.Tab{
+			{Title: "Relativo", Type: "editor", ContentID: "docs/relativo.md", State: map[string]any{"filePath": "docs/relativo.md"}},
+			{Title: "Absoluto", Type: "editor", ContentID: absolutePath, State: map[string]any{"filePath": absolutePath}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
+	}
+	if strings.Contains(blocks[1].Content, "open_editor_file[0]: docs/relativo.md") {
+		t.Fatalf("relative editor path should not be listed as tool-allowed open editor file: %q", blocks[1].Content)
+	}
+	if !strings.Contains(blocks[1].Content, "open_editor_file[0]: "+absolutePath) {
+		t.Fatalf("absolute editor path should be listed, got %q", blocks[1].Content)
 	}
 }
 
