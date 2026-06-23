@@ -164,15 +164,15 @@ func TestBuild_MarksOnlyStableSystemPrefixForExplicitCacheControl(t *testing.T) 
 func TestBuild_InjectsDynamicContextAfterSummary(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
-	result := buildPromptForTest(b, msgs, nil, false, false, nil, "slash", "Resumo antigo.", "<user_memory>\n- prefere pt-BR\n</user_memory>")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "slash", "Resumo antigo.", "<retrieved_context>\n- dado recuperado\n</retrieved_context>")
 	sys := result[0].Content.(string)
 	summaryIdx := strings.Index(sys, "<conversation_summary>")
-	memoryIdx := strings.Index(sys, "<user_memory>")
-	if summaryIdx < 0 || memoryIdx < 0 {
-		t.Fatalf("expected summary and memory blocks in system prompt: %s", sys)
+	retrievedIdx := strings.Index(sys, "<retrieved_context>")
+	if summaryIdx < 0 || retrievedIdx < 0 {
+		t.Fatalf("expected summary and retrieved context blocks in system prompt: %s", sys)
 	}
-	if memoryIdx < summaryIdx {
-		t.Fatalf("memory block should come after summary")
+	if retrievedIdx < summaryIdx {
+		t.Fatalf("retrieved context block should come after summary")
 	}
 }
 

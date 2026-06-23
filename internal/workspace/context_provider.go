@@ -45,7 +45,8 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 		Priority:   10,
 		Content:    workspaceInstructionsBlock(),
 	}}
-	content := buildContextBlock(req, req.Budget(p.Name(), defaultPromptBudget))
+	budget := req.Budget(p.Name(), defaultPromptBudget)
+	content := buildContextBlock(req, budget)
 	if content != "" {
 		blocks = append(blocks, contextprovider.Block{
 			Provider:   p.Name(),
@@ -55,7 +56,11 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 			Content:    content,
 		})
 	}
-	surfaceContent := buildSurfaceContextBlock(req.Surface, req.Budget(p.Name(), defaultPromptBudget))
+	surfaceBudget := budget - runeLen(content)
+	if surfaceBudget < 0 {
+		surfaceBudget = 0
+	}
+	surfaceContent := buildSurfaceContextBlock(req.Surface, surfaceBudget)
 	if surfaceContent != "" {
 		blocks = append(blocks, contextprovider.Block{
 			Provider:   p.Name(),
@@ -83,7 +88,7 @@ func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string
 	}
 	var required strings.Builder
 	required.WriteString(workspaceContextPrefix)
-	required.WriteString("Current workspace and active surface context. Treat this as dynamic state, not stable instructions.\n")
+	required.WriteString("Current workspace and tab context. Treat this as dynamic state, not stable instructions.\n")
 	if req.WorkspaceName != "" {
 		required.WriteString("- workspace: ")
 		required.WriteString(sanitizeContextLine(req.WorkspaceName))
@@ -126,7 +131,7 @@ func buildSurfaceContextBlock(surface *contextprovider.Surface, budgetChars int)
 		return ""
 	}
 	if budgetChars <= 0 {
-		budgetChars = defaultPromptBudget
+		return ""
 	}
 	var body strings.Builder
 	writeSurfaceIdentity(&body, surface)

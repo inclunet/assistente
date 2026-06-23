@@ -187,10 +187,11 @@ func TestContextProviderTabLinkFallsBackToStateReference(t *testing.T) {
 }
 
 func TestContextProviderRespectsProfileBudget(t *testing.T) {
+	const budget = 420
 	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
 		WorkspaceName: "Workspace",
 		ProviderBudgets: map[string]int{
-			"workspace": 220,
+			"workspace": budget,
 		},
 		Surface: &contextprovider.Surface{
 			Type: "editor",
@@ -205,11 +206,8 @@ func TestContextProviderRespectsProfileBudget(t *testing.T) {
 	if len(blocks) != 3 {
 		t.Fatalf("len(blocks) = %d, want instructions, workspace context and surface context", len(blocks))
 	}
-	if got := len([]rune(blocks[1].Content)); got > 220 {
-		t.Fatalf("workspace block length = %d, want <= 220: %q", got, blocks[1].Content)
-	}
-	if got := len([]rune(blocks[2].Content)); got > 220 {
-		t.Fatalf("surface block length = %d, want <= 220: %q", got, blocks[2].Content)
+	if got := runeLen(blocks[1].Content) + runeLen(blocks[2].Content); got > budget {
+		t.Fatalf("workspace provider dynamic block length = %d, want <= %d: workspace=%q surface=%q", got, budget, blocks[1].Content, blocks[2].Content)
 	}
 	if blocks[2].Name != "surface_context" || !strings.Contains(blocks[2].Content, "omitted due to context budget") {
 		t.Fatalf("expected truncated surface context, got %+v", blocks[2])

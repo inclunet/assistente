@@ -321,6 +321,7 @@ Refinamento implementado após a issue #329:
 - `memory` usa `mid_dynamic`, depois de `workspace/tasklist` e antes do resumo;
 - `conversation_summary` é produzido por Context Provider próprio e usa `rolling_dynamic`;
 - o provider `workspace` separa `workspace_context` (`low_dynamic`) de `surface_context` (`turn_dynamic`) quando houver dados transitórios da superfície ativa;
+- quando um provider emite múltiplos blocos dinâmicos, o budget configurado para aquele provider é um teto combinado para a soma desses blocos, não um budget independente por bloco;
 - `fast_dynamic`/`turn_dynamic` ficam reservados para contexto recuperado, superfície ativa transitória e conteúdo específico do turno.
 
 Esta AEP não implementa otimização de cache diretamente; ela prepara o terreno para a AEP-0074.
@@ -335,6 +336,7 @@ Regras:
 
 - cada provider pode estar habilitado ou desabilitado por perfil;
 - providers habilitados podem ter budget próprio em caracteres/runes do bloco produzido, não em tokens;
+- quando um provider produzir múltiplos blocos automáticos, esse budget deve limitar a soma dos blocos dinâmicos emitidos pelo provider;
 - providers podem ter settings específicos, validados pelo próprio provider ou por um contrato registrado;
 - defaults por provider continuam existindo para perfis antigos ou campos omitidos;
 - a UI de perfil deve ter uma aba própria de Context Providers, separada de skills e separada de cache;
