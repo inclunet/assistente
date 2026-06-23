@@ -320,6 +320,7 @@ Refinamento implementado após a issue #329:
 - `workspace` e `tasklist` usam `low_dynamic`, por mudarem menos que o resumo em conversas longas;
 - `memory` usa `mid_dynamic`, depois de `workspace/tasklist` e antes do resumo;
 - `conversation_summary` é produzido por Context Provider próprio e usa `rolling_dynamic`;
+- o provider `workspace` separa `workspace_context` (`low_dynamic`) de `surface_context` (`turn_dynamic`) quando houver dados transitórios da superfície ativa;
 - `fast_dynamic`/`turn_dynamic` ficam reservados para contexto recuperado, superfície ativa transitória e conteúdo específico do turno.
 
 Esta AEP não implementa otimização de cache diretamente; ela prepara o terreno para a AEP-0074.

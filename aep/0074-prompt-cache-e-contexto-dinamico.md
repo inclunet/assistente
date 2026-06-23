@@ -146,7 +146,7 @@ Política:
 - `workspace` e `tasklist` tendem a ser menos voláteis que memória e resumo, porque mudam quando o estado do app/conversa vinculada muda;
 - `memory` tende a ser menos volátil que `conversation_summary`, porque só records selecionados para contexto automático entram no prompt;
 - `conversation_summary` é rolling context e muda conforme a conversa é compactada;
-- `surface` e dados específicos do turno são os blocos mais voláteis;
+- `surface_context` e dados específicos do turno são os blocos mais voláteis;
 - providers devem produzir blocos pequenos, ordenados e com budget;
 - budgets default são parte do runtime, e overrides por perfil são definidos pela configuração de Context Providers da AEP-0075.
 

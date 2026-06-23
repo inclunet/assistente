@@ -242,7 +242,7 @@ func TestBuildWithContextBlocksSortsCacheFriendlyLayout(t *testing.T) {
 func TestBuildWithContextBlocksDoesNotMutateContextBlocks(t *testing.T) {
 	b := &prompt.Builder{}
 	blocks := []contextprovider.Block{
-		{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityFastDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
+		{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityLowDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
 		{Provider: "memory", Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<memory_instructions>stable memory</memory_instructions>"},
 	}
 
@@ -277,7 +277,7 @@ func TestBuildWithContextBlocksSameStateProducesStablePrefix(t *testing.T) {
 		{Provider: "workspace", Name: "workspace_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<workspace_instructions>stable workspace</workspace_instructions>"},
 		{Provider: "memory", Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<memory_instructions>stable memory</memory_instructions>"},
 		{Provider: "conversation", Name: "conversation_summary", Volatility: contextprovider.VolatilityRolling, Priority: 100, Content: "<conversation_summary>Resumo antigo.</conversation_summary>"},
-		{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityFastDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
+		{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityLowDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
 	}
 	build := func() string {
 		result := b.BuildWithContextBlocks(
