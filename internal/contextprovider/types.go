@@ -22,6 +22,7 @@ type Tab struct {
 	Type      string
 	ContentID string
 	IsActive  bool
+	State     map[string]any
 }
 
 type LinkedTaskList struct {
