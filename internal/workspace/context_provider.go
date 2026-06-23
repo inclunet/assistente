@@ -63,7 +63,7 @@ Use link= values as app deep links for any workspace resource. open_editor_file[
 }
 
 func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string {
-	if req.WorkspaceName == "" && req.Surface == nil && req.TabCount == 0 {
+	if req.WorkspaceName == "" && req.Surface == nil && req.TabCount == 0 && len(req.Tabs) == 0 {
 		return ""
 	}
 	if budgetChars <= 0 {
@@ -99,9 +99,9 @@ func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string
 			optional.WriteString(" ")
 			optional.WriteString(sanitizeContextLine(tab.Title))
 		}
-		if tab.ContentID != "" {
+		if linkTarget := tabLinkTarget(tab); linkTarget != "" {
 			optional.WriteString(" link=")
-			optional.WriteString(deepLinkForTab(tab.Type, tab.ContentID))
+			optional.WriteString(deepLinkForTab(tab.Type, linkTarget))
 		}
 		if label, value := tabStateReference(tab); label != "" && value != "" {
 			optional.WriteString(" ")
@@ -203,7 +203,19 @@ func trimContextBlock(requiredContent string, optionalContent string, budgetChar
 	if content == "" {
 		return ""
 	}
+	if !hasWorkspaceContextLine(content) {
+		return ""
+	}
 	return content + workspaceContextTruncationNotice + workspaceContextSuffix
+}
+
+func hasWorkspaceContextLine(content string) bool {
+	content = strings.TrimSpace(content)
+	if !strings.HasPrefix(content, strings.TrimSpace(workspaceContextPrefix)) {
+		return false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(content, strings.TrimSpace(workspaceContextPrefix)))
+	return rest != ""
 }
 
 func trimToWholeLines(content string, budgetChars int) string {
@@ -246,6 +258,14 @@ func tabStateReference(tab contextprovider.Tab) (string, string) {
 	default:
 		return "", ""
 	}
+}
+
+func tabLinkTarget(tab contextprovider.Tab) string {
+	if trimmed := strings.TrimSpace(tab.ContentID); trimmed != "" {
+		return trimmed
+	}
+	_, value := tabStateReference(tab)
+	return value
 }
 
 func firstNonEmpty(values ...string) string {

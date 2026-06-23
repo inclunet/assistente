@@ -97,11 +97,62 @@ func TestContextProviderReturnsNoBlockWithoutWorkspaceState(t *testing.T) {
 	}
 }
 
+func TestContextProviderBuildsBlockWhenTabsProvidedWithoutTabCount(t *testing.T) {
+	editorPath := mustAbsPath(t, "sem-tab-count.md")
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		ProviderBudgets: map[string]int{
+			"workspace": 1000,
+		},
+		Tabs: []contextprovider.Tab{
+			{Title: "Arquivo", Type: "editor", State: map[string]any{"filePath": editorPath}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want workspace context block", len(blocks))
+	}
+	if !strings.Contains(blocks[1].Content, "open_editor_file[0]: "+editorPath) {
+		t.Fatalf("expected editor file from tabs even without TabCount, got %q", blocks[1].Content)
+	}
+}
+
+func TestContextProviderTabLinkFallsBackToStateReference(t *testing.T) {
+	editorPath := mustAbsPath(t, "link-state.md")
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace",
+		ProviderBudgets: map[string]int{
+			"workspace": 1200,
+		},
+		Tabs: []contextprovider.Tab{
+			{Title: "Editor", Type: "editor", State: map[string]any{"filePath": editorPath}},
+			{Title: "Terminal", Type: "terminal", State: map[string]any{"sessionId": "term-state"}},
+			{Title: "Tasks", Type: "tasklist", State: map[string]any{"tasklistId": "tl-state"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want workspace context block", len(blocks))
+	}
+	for _, needle := range []string{
+		"link=assistente://editor/open?file=" + url.QueryEscape(editorPath),
+		"link=assistente://terminal/term-state",
+		"link=assistente://tasklist/tl-state",
+	} {
+		if !strings.Contains(blocks[1].Content, needle) {
+			t.Fatalf("workspace block missing %q: %s", needle, blocks[1].Content)
+		}
+	}
+}
+
 func TestContextProviderRespectsProfileBudget(t *testing.T) {
 	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
 		WorkspaceName: "Workspace",
 		ProviderBudgets: map[string]int{
-			"workspace": 160,
+			"workspace": 220,
 		},
 		Surface: &contextprovider.Surface{
 			Type: "editor",
@@ -116,8 +167,8 @@ func TestContextProviderRespectsProfileBudget(t *testing.T) {
 	if len(blocks) != 2 {
 		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
 	}
-	if got := len([]rune(blocks[1].Content)); got > 160 {
-		t.Fatalf("workspace block length = %d, want <= 160: %q", got, blocks[1].Content)
+	if got := len([]rune(blocks[1].Content)); got > 220 {
+		t.Fatalf("workspace block length = %d, want <= 220: %q", got, blocks[1].Content)
 	}
 	if !strings.Contains(blocks[1].Content, "omitted due to context budget") {
 		t.Fatalf("expected truncation notice, got %q", blocks[1].Content)
@@ -257,6 +308,21 @@ func TestContextProviderOmitsBlockWhenBudgetFitsOnlyOpeningTagAndNotice(t *testi
 		WorkspaceName: "Workspace",
 		ProviderBudgets: map[string]int{
 			"workspace": runeLen(workspaceContextPrefix) + runeLen(workspaceContextTruncationNotice) + runeLen(workspaceContextSuffix),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want only stable instructions block", len(blocks))
+	}
+}
+
+func TestContextProviderOmitsBlockWhenOnlyOpeningTagSurvives(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace",
+		ProviderBudgets: map[string]int{
+			"workspace": runeLen(workspaceContextPrefix) + runeLen(workspaceContextTruncationNotice) + runeLen(workspaceContextSuffix) + 1,
 		},
 	})
 	if err != nil {
