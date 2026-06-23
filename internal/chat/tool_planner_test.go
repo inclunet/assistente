@@ -10,7 +10,10 @@ import (
 )
 
 // toolWithSchema cria uma mock tool cujo JSON Schema tem EXATAMENTE schemaLen
-// bytes, para exercitar o budget do ToolPlanner de forma previsível.
+// bytes QUANDO schemaLen >= len(prefix)+len(suffix) (o overhead mínimo). Abaixo
+// desse mínimo o padding é truncado em 0 e o schema fica com o tamanho mínimo
+// (len(prefix)+len(suffix)). Os testes usam valores acima do overhead, então o
+// tamanho é previsível para exercitar o budget do ToolPlanner.
 func toolWithSchema(name string, schemaLen int) *mockToolDef {
 	const prefix = `{"x":"`
 	const suffix = `"}`

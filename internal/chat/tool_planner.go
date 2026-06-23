@@ -117,10 +117,19 @@ func (p *ToolSelectionPolicy) planAccumulatedToolDefs(active, newDefs []llm.Tool
 		c.Locked = true
 		candidates = append(candidates, c)
 	}
+	// activeNames serve como conjunto "já visto": além das ativas, vai
+	// acumulando os nomes das novas defs anexadas, para que duplicatas DENTRO de
+	// newDefs (ex.: FilterByNames preserva nomes repetidos) não entrem duas vezes
+	// no conjunto acumulado — o que quebraria o tool calling e distorceria o budget.
 	for _, d := range newDefs {
-		if _, dup := activeNames[d.Function.Name]; dup {
-			continue // já travada como ativa; evita duplicar
+		name := d.Function.Name
+		if name == "" {
+			continue // ignora nomes vazios
 		}
+		if _, dup := activeNames[name]; dup {
+			continue // já ativa ou já incluída nesta passada; evita duplicar
+		}
+		activeNames[name] = struct{}{}
 		combined = append(combined, d)
 		candidates = append(candidates, p.plannerCandidate(d, pinned, nil))
 	}
