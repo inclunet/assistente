@@ -48,6 +48,14 @@ type ProfileToolConfig struct {
 	// RuntimeTools são tools disponibilizadas em runtime (ex.: load_skill quando
 	// há skills sob demanda) que devem ser anexadas à seleção inicial.
 	RuntimeTools []string
+	// SchemaBytesBudget é o teto de bytes de schema injetados por turno usado
+	// pelo ToolPlanner (AEP-0077 F4, #121). <= 0 → ilimitado (default seguro:
+	// não corta nenhum fluxo atual). > 0 → corta deterministicamente pela ordem
+	// de ranking quando a seleção excede o teto.
+	SchemaBytesBudget int
+	// PreferredPackages lista pacotes (ToolCatalogEntry.Package) priorizados no
+	// ranking do planner para este perfil/superfície.
+	PreferredPackages []string
 }
 
 // ---------------------------------------------------------------------------
@@ -60,10 +68,48 @@ func (p *ToolSelectionPolicy) InitialEnabledToolNames(cfg ProfileToolConfig) []s
 	return p.resolveInitialEnabledToolsWithRuntime(cfg.EnabledTools, cfg.DisableTools, cfg.RuntimeTools)
 }
 
-// InitialToolDefs monta as tool definitions iniciais do turno para o LLM.
-func (p *ToolSelectionPolicy) InitialToolDefs(cfg ProfileToolConfig) []llm.ToolDefinition {
+// rawInitialToolDefs monta as tool definitions iniciais do turno SEM aplicar o
+// ToolPlanner. É a base usada pela resolução native/adapter (PlanTurnToolDefs):
+// o budget precisa ser aplicado ao conjunto FINAL de cada caminho, e não antes
+// da remoção das bridges servidas via MCP nativo.
+func (p *ToolSelectionPolicy) rawInitialToolDefs(cfg ProfileToolConfig) []llm.ToolDefinition {
 	initial := p.resolveInitialEnabledToolsWithRuntime(cfg.EnabledTools, cfg.DisableTools, cfg.RuntimeTools)
 	return p.buildLLMToolDefs(initial, cfg.DisableTools)
+}
+
+// InitialToolDefs monta as tool definitions iniciais do turno para o LLM na
+// visão ADAPTER (bridge tools presentes), já com o ToolPlanner aplicado
+// (budget/ranking; AEP-0077 F4, #121).
+//
+// Para o pipeline de envio, prefira PlanTurnToolDefs, que resolve native×adapter
+// e aplica o planner ao conjunto FINAL de cada caminho na ordem correta.
+func (p *ToolSelectionPolicy) InitialToolDefs(cfg ProfileToolConfig) []llm.ToolDefinition {
+	return p.applyPlanner(p.rawInitialToolDefs(cfg), cfg, "inicial")
+}
+
+// PlanTurnToolDefs resolve os conjuntos FINAIS de tools do turno aplicando a
+// resolução bridge×native (AEP-0021) e o ToolPlanner (AEP-0077 F4, #121) na
+// ordem correta, mantendo a policy como ponto único:
+//
+//   - caminho NATIVO: ApplyNativeMCP anexa os servidores MCP HTTP ao streamer e
+//     remove as bridge tools servidas nativamente; só DEPOIS o planner orça o
+//     conjunto restante — essas bridges vão por passthrough e NÃO consomem
+//     schema bytes, então não podem deslocar builtins fixadas pelo perfil;
+//   - caminho ADAPTER: as bridge tools permanecem (são enviadas como função) e
+//     são contadas no budget.
+//
+// Retorna o streamer nativo (com servidores MCP anexados quando aplicável), o
+// conjunto nativo final (lista primária do turno) e o conjunto adapter final
+// (usado no fallback nativo→adapter do mesmo turno). O streamer adapter é o
+// próprio streamer recebido, inalterado.
+func (p *ToolSelectionPolicy) PlanTurnToolDefs(streamer llm.ChatProvider, mcpMgr NativeMCPManager, cfg ProfileToolConfig) (nativeStreamer llm.ChatProvider, nativeDefs, adapterDefs []llm.ToolDefinition) {
+	raw := p.rawInitialToolDefs(cfg)
+	// Adapter: bridges contam no budget (são enviadas como function schemas).
+	adapterDefs = p.applyPlanner(raw, cfg, "adapter")
+	// Nativo: remove as bridges nativas ANTES de orçar (passthrough não consome budget).
+	nativeStreamer, reduced := applyNativeMCP(streamer, raw, mcpMgr, cfg.EnabledTools, cfg.DisableTools, cfg.NativeMCP)
+	nativeDefs = p.applyPlanner(reduced, cfg, "nativo")
+	return nativeStreamer, nativeDefs, adapterDefs
 }
 
 // ApplyNativeMCP resolve bridge×native (AEP-0021): configura os servidores MCP
@@ -75,15 +121,25 @@ func (p *ToolSelectionPolicy) ApplyNativeMCP(streamer llm.ChatProvider, toolDefs
 }
 
 // ResolveExpandedToolDefs é o ponto único da EXPANSÃO DINÂMICA: dada a lista de
-// tools selecionadas em runtime (ex.: retorno do tool_catalog), aplica o
-// allowlist do perfil, remove opt-ins quando o perfil não fixa tools, resolve
-// bridge×native e devolve as tool definitions resultantes. Substitui o callback
-// que antes era duplicado no use case de envio (caminho principal e fallback
-// adapter), diferindo apenas no streamer e no override de MCP nativo.
-func (p *ToolSelectionPolicy) ResolveExpandedToolDefs(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, cfg ProfileToolConfig) []llm.ToolDefinition {
+// tools já ATIVAS no turno (active) e a lista de tools selecionadas em runtime
+// (names, ex.: retorno do tool_catalog), aplica o allowlist do perfil, remove
+// opt-ins quando o perfil não fixa tools, resolve bridge×native e devolve o
+// conjunto ACUMULADO final de tool definitions (ativas preservadas + novas que
+// couberam no budget). Substitui o callback que antes era duplicado no use case
+// de envio (caminho principal e fallback adapter), diferindo apenas no streamer
+// e no override de MCP nativo.
+//
+// O budget de schema bytes (AEP-0077 F4) vale para o conjunto ACUMULADO — as
+// ativas são travadas (preservadas e consumindo budget primeiro) e as novas só
+// entram no orçamento remanescente. O loop agêntico passa aqui as activeToolDefs
+// correntes e usa o retorno como novo conjunto acumulado.
+func (p *ToolSelectionPolicy) ResolveExpandedToolDefs(streamer llm.ChatProvider, mcpMgr NativeMCPManager, active []llm.ToolDefinition, names []string, cfg ProfileToolConfig) []llm.ToolDefinition {
 	names = p.filterExpandedToolNames(names, cfg.EnabledTools, cfg.DisableTools)
+	// O filtro nativo já remove aqui as bridges servidas via passthrough, então o
+	// planner orça apenas os schemas realmente enviados como função.
 	names = filterToolNamesForNativeMCP(streamer, mcpMgr, names, cfg.DisableTools, cfg.NativeMCP)
-	return p.buildLLMToolDefsByNames(names, cfg.DisableTools)
+	newDefs := p.buildLLMToolDefsByNames(names, cfg.DisableTools)
+	return p.planAccumulatedToolDefs(active, newDefs, cfg)
 }
 
 // ---------------------------------------------------------------------------

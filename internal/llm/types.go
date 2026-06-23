@@ -299,9 +299,11 @@ type NativeMCPAdapterFallback struct {
 	Streamer Streamer
 	// ToolDefs são as tools iniciais COM as bridge tools MCP (não removidas).
 	ToolDefs []ToolDefinition
-	// ResolveToolDefs reconstrói as tools por nome em modo adapter (mantém bridges),
-	// usado nas iterações seguintes do loop agêntico após expansão de catálogo.
-	ResolveToolDefs func([]string) []ToolDefinition
+	// ResolveToolDefs reconstrói o conjunto ACUMULADO de tools em modo adapter
+	// (mantém bridges), usado nas iterações seguintes do loop agêntico após
+	// expansão de catálogo. Recebe as tools já ATIVAS no turno e os novos nomes
+	// selecionados, e devolve o conjunto acumulado final (orçado pelo ToolPlanner).
+	ResolveToolDefs func(active []ToolDefinition, names []string) []ToolDefinition
 
 	mu        sync.Mutex
 	triggered bool

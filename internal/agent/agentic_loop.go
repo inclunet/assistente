@@ -49,7 +49,7 @@ type agenticLoopRunner struct {
 	messages       []llm.Message
 	activeStreamer llm.Streamer
 	activeToolDefs []llm.ToolDefinition
-	activeResolve  func([]string) []llm.ToolDefinition
+	activeResolve  func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition
 
 	// Acumuladores de estatísticas do loop (AEP-0039 Fase 2).
 	totalToolCallCount int
