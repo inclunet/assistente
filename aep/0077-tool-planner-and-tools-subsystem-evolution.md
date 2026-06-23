@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |-------|-------|
-| Status | 📝 Draft |
+| Status | ✅ Done |
 | Issues | [#122](https://github.com/inclunet/assistente/issues/122), [#120](https://github.com/inclunet/assistente/issues/120), [#119](https://github.com/inclunet/assistente/issues/119), [#121](https://github.com/inclunet/assistente/issues/121); rede de segurança: [#245](https://github.com/inclunet/assistente/issues/245) |
 | Relacionados | AEP-0039 (Tool Calling Revamp), AEP-0063 (Tool Invocations & Executor Comum), AEP-0021 (MCP Native Mode), AEP-0040 (Backend-Driven Messaging), AEP-0071 (Structured Tool Output Size), AEP-0072 (Skill Loading Runtime), AEP-0075 (Context Providers) |
 
@@ -64,12 +64,12 @@ Este AEP **estende** AEP-0039 e AEP-0063 (não os substitui). O registry runtime
 
 ## Critérios de Aceitação
 
-- [ ] **F0/#245**: `RunAgenticLoop` decomposto em unidades testáveis; cobertura do loop agêntico elevada; comportamento idêntico (sem mudança de contrato de eventos AEP-0040).
-- [ ] **F1/#122**: metadados de catálogo declarados junto de cada builtin; mapa central removido; catálogo de builtins idêntico ao anterior (teste de equivalência).
-- [x] **F2/#120**: `tool_catalog` num pacote próprio fora de `internal/mcp` (`internal/toolcatalog`); mesma tabela/migrações; MCP, builtins e demais call sites consumindo o novo serviço.
-- [x] **F3/#119**: um único contrato de política de seleção por perfil/superfície (`internal/chat.ToolSelectionPolicy`); `tool_defs.go` e a expansão dinâmica do use case de envio delegando a ele (callbacks duplicados eliminados); testes de caracterização (snapshots por perfil/cenário) garantindo paridade.
-- [x] **F4/#121**: ToolPlanner com budget de schema bytes, ranking por perfil/superfície, pacotes preferenciais e resolução bridge×native; telemetria de seleção (incluído/cortado + motivo); budget configurável. Implementado em `internal/toolcatalog/planner.go` (planner determinístico puro) e plugado em `internal/chat.ToolSelectionPolicy` (`InitialToolDefs`/`ResolveExpandedToolDefs`); budget e pacotes preferenciais configuráveis por perfil (`ChatConfig.ToolSchemaBudgetBytes`/`PreferredToolPackages`); default seguro (budget `0` = ilimitado, sem regressão); resolução bridge×native consome a decisão tri-state existente (AEP-0021) sem duplicá-la.
-- [ ] AEP atualizado para **Accepted/Done** conforme as fases forem entregues, com PRs referenciados.
+- [x] **F0/#245** (PR #318): `RunAgenticLoop` decomposto em unidades testáveis (`internal/agent/agentic_loop.go`); cobertura do loop agêntico elevada; comportamento idêntico (sem mudança de contrato de eventos AEP-0040).
+- [x] **F1/#122** (PR #317): metadados de catálogo declarados junto de cada builtin (interface `CatalogMetadataProvider`); mapa central removido; catálogo de builtins idêntico ao anterior (teste de equivalência `golden`).
+- [x] **F2/#120** (PR #320): `tool_catalog` num pacote próprio fora de `internal/mcp` (`internal/toolcatalog`); mesma tabela/migrações; MCP, builtins e demais call sites consumindo o novo serviço.
+- [x] **F3/#119** (PR #321): um único contrato de política de seleção por perfil/superfície (`internal/chat.ToolSelectionPolicy`); `tool_defs.go` e a expansão dinâmica do use case de envio delegando a ele (callbacks duplicados eliminados); testes de caracterização (snapshots por perfil/cenário) garantindo paridade.
+- [x] **F4/#121** (PR #322): ToolPlanner com budget de schema bytes, ranking por perfil/superfície, pacotes preferenciais e resolução bridge×native; telemetria de seleção (incluído/cortado + motivo); budget configurável. Implementado em `internal/toolcatalog/planner.go` (planner determinístico puro) e plugado em `internal/chat.ToolSelectionPolicy` (`PlanTurnToolDefs`/`ResolveExpandedToolDefs`); budget e pacotes preferenciais configuráveis por perfil (`ChatConfig.ToolSchemaBudgetBytes`/`PreferredToolPackages`); default seguro (budget `0` = ilimitado, sem regressão); o budget é orçado sobre o conjunto final/acumulado de cada caminho (nativo×adapter, expansão dinâmica) e a resolução bridge×native consome a decisão tri-state existente (AEP-0021) sem duplicá-la.
+- [x] AEP marcado **Done** com as fases entregues e PRs referenciados (#317, #318, #320, #321, #322).
 
 ## Relações
 
