@@ -277,7 +277,8 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	}
 	// Política única de seleção de tools por perfil/superfície (AEP-0077 F3, #119).
 	// O override de MCP nativo (toolCfg.NativeMCP) é preenchido abaixo, após
-	// resolver o provider/override do perfil — não afeta a montagem inicial.
+	// resolver o provider/override do perfil; a montagem final dos conjuntos
+	// native/adapter (com ToolPlanner) é feita por PlanTurnToolDefs.
 	toolPolicy := chat.NewToolSelectionPolicy(uc.toolRegistry)
 	toolCfg := chat.ProfileToolConfig{
 		EnabledTools:      profileEnabledTools,
@@ -286,7 +287,6 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		SchemaBytesBudget: toolSchemaBudgetBytes,
 		PreferredPackages: preferredToolPackages,
 	}
-	llmToolDefs := toolPolicy.InitialToolDefs(toolCfg)
 
 	// Resolve o ChatProvider para o provedor do perfil ativo.
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
@@ -311,15 +311,17 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	nativeMCPOverride := activeProfile.Chat.NativeMCP
 	toolCfg.NativeMCP = nativeMCPOverride
 
-	// Alternativas em modo ADAPTER, capturadas ANTES de ApplyNativeMCP (que, no
-	// caminho nativo, anexa MCP servers ao streamer e remove as bridge tools):
-	//   - adapterStreamer: provider BASE, sem MCP servers nativos.
-	//   - adapterToolDefs: tools COM as bridges MCP (não removidas).
+	// Resolução coesa native/adapter + ToolPlanner (AEP-0077 F4, #121). O budget
+	// é aplicado ao conjunto FINAL de cada caminho: o nativo só conta os schemas
+	// realmente enviados como função (bridges nativas vão por passthrough e são
+	// removidas ANTES de orçar), evitando que bridges descartadas desloquem
+	// builtins fixadas pelo perfil. As alternativas em modo ADAPTER:
+	//   - adapterStreamer: provider BASE, sem MCP servers nativos;
+	//   - adapterToolDefs: tools COM as bridges MCP (não removidas), já orçadas.
 	// Usadas pelo fallback nativo→adapter no MESMO turno (ver NativeMCPFallback).
 	adapterStreamer := requestStreamer
-	adapterToolDefs := llmToolDefs
-
-	requestStreamer, llmToolDefs = toolPolicy.ApplyNativeMCP(requestStreamer, llmToolDefs, uc.mcpMgr, toolCfg)
+	var llmToolDefs, adapterToolDefs []llm.ToolDefinition
+	requestStreamer, llmToolDefs, adapterToolDefs = toolPolicy.PlanTurnToolDefs(requestStreamer, uc.mcpMgr, toolCfg)
 
 	// Auto-degradação otimista (AEP-0021): no modo AUTO tentamos MCP nativo; se o
 	// modelo/endpoint rejeitar type:"mcp", o provider dispara este hook (auto-ajusta e

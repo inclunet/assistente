@@ -68,12 +68,48 @@ func (p *ToolSelectionPolicy) InitialEnabledToolNames(cfg ProfileToolConfig) []s
 	return p.resolveInitialEnabledToolsWithRuntime(cfg.EnabledTools, cfg.DisableTools, cfg.RuntimeTools)
 }
 
-// InitialToolDefs monta as tool definitions iniciais do turno para o LLM,
-// aplicando ao final o ToolPlanner (budget/ranking; AEP-0077 F4, #121).
-func (p *ToolSelectionPolicy) InitialToolDefs(cfg ProfileToolConfig) []llm.ToolDefinition {
+// rawInitialToolDefs monta as tool definitions iniciais do turno SEM aplicar o
+// ToolPlanner. É a base usada pela resolução native/adapter (PlanTurnToolDefs):
+// o budget precisa ser aplicado ao conjunto FINAL de cada caminho, e não antes
+// da remoção das bridges servidas via MCP nativo.
+func (p *ToolSelectionPolicy) rawInitialToolDefs(cfg ProfileToolConfig) []llm.ToolDefinition {
 	initial := p.resolveInitialEnabledToolsWithRuntime(cfg.EnabledTools, cfg.DisableTools, cfg.RuntimeTools)
-	defs := p.buildLLMToolDefs(initial, cfg.DisableTools)
-	return p.applyPlanner(defs, cfg, nil)
+	return p.buildLLMToolDefs(initial, cfg.DisableTools)
+}
+
+// InitialToolDefs monta as tool definitions iniciais do turno para o LLM na
+// visão ADAPTER (bridge tools presentes), já com o ToolPlanner aplicado
+// (budget/ranking; AEP-0077 F4, #121).
+//
+// Para o pipeline de envio, prefira PlanTurnToolDefs, que resolve native×adapter
+// e aplica o planner ao conjunto FINAL de cada caminho na ordem correta.
+func (p *ToolSelectionPolicy) InitialToolDefs(cfg ProfileToolConfig) []llm.ToolDefinition {
+	return p.applyPlanner(p.rawInitialToolDefs(cfg), cfg, nil, "inicial")
+}
+
+// PlanTurnToolDefs resolve os conjuntos FINAIS de tools do turno aplicando a
+// resolução bridge×native (AEP-0021) e o ToolPlanner (AEP-0077 F4, #121) na
+// ordem correta, mantendo a policy como ponto único:
+//
+//   - caminho NATIVO: ApplyNativeMCP anexa os servidores MCP HTTP ao streamer e
+//     remove as bridge tools servidas nativamente; só DEPOIS o planner orça o
+//     conjunto restante — essas bridges vão por passthrough e NÃO consomem
+//     schema bytes, então não podem deslocar builtins fixadas pelo perfil;
+//   - caminho ADAPTER: as bridge tools permanecem (são enviadas como função) e
+//     são contadas no budget.
+//
+// Retorna o streamer nativo (com servidores MCP anexados quando aplicável), o
+// conjunto nativo final (lista primária do turno) e o conjunto adapter final
+// (usado no fallback nativo→adapter do mesmo turno). O streamer adapter é o
+// próprio streamer recebido, inalterado.
+func (p *ToolSelectionPolicy) PlanTurnToolDefs(streamer llm.ChatProvider, mcpMgr NativeMCPManager, cfg ProfileToolConfig) (nativeStreamer llm.ChatProvider, nativeDefs, adapterDefs []llm.ToolDefinition) {
+	raw := p.rawInitialToolDefs(cfg)
+	// Adapter: bridges contam no budget (são enviadas como function schemas).
+	adapterDefs = p.applyPlanner(raw, cfg, nil, "adapter")
+	// Nativo: remove as bridges nativas ANTES de orçar (passthrough não consome budget).
+	nativeStreamer, reduced := applyNativeMCP(streamer, raw, mcpMgr, cfg.EnabledTools, cfg.DisableTools, cfg.NativeMCP)
+	nativeDefs = p.applyPlanner(reduced, cfg, nil, "nativo")
+	return nativeStreamer, nativeDefs, adapterDefs
 }
 
 // ApplyNativeMCP resolve bridge×native (AEP-0021): configura os servidores MCP
@@ -92,9 +128,11 @@ func (p *ToolSelectionPolicy) ApplyNativeMCP(streamer llm.ChatProvider, toolDefs
 // adapter), diferindo apenas no streamer e no override de MCP nativo.
 func (p *ToolSelectionPolicy) ResolveExpandedToolDefs(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, cfg ProfileToolConfig) []llm.ToolDefinition {
 	names = p.filterExpandedToolNames(names, cfg.EnabledTools, cfg.DisableTools)
+	// O filtro nativo já remove aqui as bridges servidas via passthrough, então o
+	// planner orça apenas os schemas realmente enviados como função.
 	names = filterToolNamesForNativeMCP(streamer, mcpMgr, names, cfg.DisableTools, cfg.NativeMCP)
 	defs := p.buildLLMToolDefsByNames(names, cfg.DisableTools)
-	return p.applyPlanner(defs, cfg, nil)
+	return p.applyPlanner(defs, cfg, nil, "expansão")
 }
 
 // ---------------------------------------------------------------------------

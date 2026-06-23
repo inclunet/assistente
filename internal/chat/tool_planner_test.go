@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	mcplib "assistente/internal/mcp"
 	"assistente/internal/tools"
 )
 
@@ -87,4 +88,42 @@ func TestPolicyPlanner_ExpansaoComBudget(t *testing.T) {
 	names := []string{"read_file", "write_file", "grep_search"}
 	got := defNames(policy.ResolveExpandedToolDefs(nil, nil, names, ProfileToolConfig{SchemaBytesBudget: 60}))
 	assertNames(t, "expansão sob budget", got, []string{"grep_search", "read_file"})
+}
+
+// TestPolicyPlanner_NativeBridgeNaoConsomeBudget é a regressão do bug de ALTA
+// severidade do PR #322: com budget configurado E MCP nativo ativo, uma builtin
+// fixada no perfil NÃO pode ser cortada para acomodar uma bridge tool que será
+// removida pelo native passthrough (ela não é enviada como function schema).
+//
+// Antes da correção, o planner rodava ANTES de ApplyNativeMCP contando a bridge
+// no budget; a bridge (alfabeticamente primeira, mesmo tier) ficava e a builtin
+// era cortada — então, após remover a bridge nativa, o modelo ficava sem a
+// builtin que deveria estar disponível.
+func TestPolicyPlanner_NativeBridgeNaoConsomeBudget(t *testing.T) {
+	r := tools.NewRegistry()
+	r.MustRegister(toolWithSchema("read_file", 30))
+	r.MustRegister(toolWithSchema("mcp_srv__do", 30))
+	policy := NewToolSelectionPolicy(r)
+
+	capable := &mockChatProvider{nativeCapable: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
+	}}
+	cfg := ProfileToolConfig{
+		EnabledTools:      []string{"read_file", "mcp_srv__do"},
+		NativeMCP:         boolPtr(true),
+		SchemaBytesBudget: 50, // cabe só 1 dos 2 schemas de 30 bytes
+	}
+
+	_, nativeDefs, adapterDefs := policy.PlanTurnToolDefs(capable, mgr, cfg)
+
+	// Caminho NATIVO: a bridge é removida (passthrough) antes de orçar, então a
+	// builtin fixada sobrevive sem competir pelo budget com a bridge descartada.
+	assertNames(t, "nativo preserva builtin fixada", defNames(nativeDefs), []string{"read_file"})
+
+	// Caminho ADAPTER: a bridge É enviada como função e legitimamente conta no
+	// budget; o corte determinístico aqui é comportamento esperado do adapter.
+	if len(adapterDefs) != 1 {
+		t.Fatalf("adapter deveria orçar com a bridge presente (1 tool sob budget 50), got %#v", defNames(adapterDefs))
+	}
 }

@@ -25,7 +25,17 @@ import (
 // resolvida pela política. Com budget ilimitado (default seguro) e sem conflito
 // nativo, o planner não corta nada e a saída é idêntica à entrada — garantindo
 // não-regressão para os perfis cujos schemas já cabem.
-func (p *ToolSelectionPolicy) applyPlanner(defs []llm.ToolDefinition, cfg ProfileToolConfig, nativeServed map[string]struct{}) []llm.ToolDefinition {
+//
+// IMPORTANTE (AEP-0077 F4 / bugfix): o budget deve refletir os schemas de função
+// REALMENTE enviados ao LLM. Tools servidas via MCP nativo NÃO são enviadas como
+// function schemas (vão por passthrough), então o planner precisa ser aplicado
+// ao conjunto FINAL de cada caminho — depois de remover as bridges nativas no
+// caminho nativo (ver PlanTurnToolDefs) e antes do planner na expansão dinâmica
+// (onde o filtro nativo já ocorreu).
+//
+// surface rotula o caminho/superfície para a telemetria (ex.: "inicial",
+// "nativo", "adapter", "expansão").
+func (p *ToolSelectionPolicy) applyPlanner(defs []llm.ToolDefinition, cfg ProfileToolConfig, nativeServed map[string]struct{}, surface string) []llm.ToolDefinition {
 	if len(defs) == 0 {
 		return defs
 	}
@@ -39,7 +49,7 @@ func (p *ToolSelectionPolicy) applyPlanner(defs []llm.ToolDefinition, cfg Profil
 		return defs
 	}
 
-	log.Printf("[chat] ToolPlanner: %s", plan.LogLine())
+	log.Printf("[chat] ToolPlanner (%s): %s", surface, plan.LogLine())
 	selected := plan.SelectedSet()
 	out := make([]llm.ToolDefinition, 0, len(plan.Selected))
 	for _, d := range defs {
