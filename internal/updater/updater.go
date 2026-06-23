@@ -736,6 +736,8 @@ func (u *Updater) fetchManifest(ctx context.Context) (*Manifest, error) {
 			buildKey = "darwin-arm64"
 		case contains(assetLower, "linux-amd64"):
 			buildKey = "linux-amd64"
+		case contains(assetLower, "linux-arm64"):
+			buildKey = "linux-arm64"
 		default:
 			continue // Skip instaladores e outros arquivos
 		}

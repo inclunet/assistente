@@ -229,6 +229,45 @@ func TestCheckForUpdates_UsesDesktopAssetNotCLIAsset(t *testing.T) {
 	}
 }
 
+func TestFetchManifest_MapsLinuxArm64Asset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"tag_name":     "v2.0.0",
+			"published_at": "2024-03-18T10:30:00Z",
+			"body":         "",
+			"assets": []map[string]interface{}{
+				{
+					"name":                 "assistente-linux-amd64",
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/assistente-linux-amd64",
+					"size":                 int64(111),
+				},
+				{
+					"name":                 "assistente-linux-arm64",
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/assistente-linux-arm64",
+					"size":                 int64(222),
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	u := New("v1.0.0", &credentials.Manager{})
+	u.githubAPIURL = server.URL + "/releases/latest"
+
+	manifest, err := u.fetchManifest(context.Background())
+	if err != nil {
+		t.Fatalf("esperado sucesso, got erro: %v", err)
+	}
+	if got := manifest.Builds["linux-amd64"].Size; got != 111 {
+		t.Errorf("esperado linux-amd64 size 111, got %d", got)
+	}
+	if got := manifest.Builds["linux-arm64"].Size; got != 222 {
+		t.Errorf("esperado linux-arm64 size 222, got %d", got)
+	}
+}
+
 func TestWindowsAssetPredicates_IgnoreCLIAssets(t *testing.T) {
 	tests := []struct {
 		name      string
