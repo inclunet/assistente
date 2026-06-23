@@ -18,9 +18,9 @@ A arquitetura original previa publicar um manifest estático em GitHub Pages. A 
 - O workflow `.github/workflows/release.yml` é acionado por `release.created`, executa testes/builds, consolida assets e anexa os arquivos ao release existente.
 - `fetchManifest()` adapta `tag_name`, `published_at`, `body` e `assets` da API para o `Manifest` interno usado por `CheckForUpdates()` e `ApplyUpdate()`.
 - A comparação de versão normaliza o prefixo `v` apenas para comparação, permitindo tag `v1.0.1` e `AppVersion` `1.0.1` sem falso positivo de update.
-- O app detecta a plataforma com `getBuildKey()` e seleciona apenas executáveis desktop com prefixo `assistente-`, como `assistente-windows-amd64.exe`, `assistente-linux-amd64`, `assistente-darwin-amd64` e `assistente-darwin-arm64`. Assets CLI `asst-*`, checksums, instaladores, pacotes (`.deb`, `.rpm`, `.msi`, `.pkg`), arquivos compactados, `.dmg` e `.AppImage` não entram no manifest interno de atualização in-place.
+- O app detecta a plataforma com `getBuildKey()` e seleciona apenas executáveis desktop publicados pelo workflow atual com prefixo `assistente-`, como `assistente-windows-amd64.exe` e `assistente-linux-amd64`. Assets CLI `asst-*`, checksums, instaladores, pacotes (`.deb`, `.rpm`, `.msi`, `.pkg`), arquivos compactados, `.dmg` e `.AppImage` não entram no manifest interno de atualização in-place.
 - No Windows instalado em `Program Files`, a atualização usa o instalador NSIS publicado no release e solicita elevação via UAC.
-- No Windows portátil, Linux e macOS, a atualização in-place ainda usa `github.com/inconshreveable/go-update`.
+- No Windows portátil e Linux, a atualização in-place ainda usa `github.com/inconshreveable/go-update`.
 - Checksums são publicados como assets (`checksums.txt`), mas a verificação automática só ocorre quando o campo `Checksum` do `Manifest` interno estiver preenchido. A integração automática com `checksums.txt` permanece como melhoria futura.
 - A dependência `go-update` é mantida por enquanto para os fluxos portátil/in-place. Como ela não é mantida há anos, a troca por uma alternativa mantida, como `minio/selfupdate`, deve ser avaliada antes de ampliar o escopo do updater.
 
