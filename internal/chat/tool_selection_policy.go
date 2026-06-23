@@ -48,6 +48,14 @@ type ProfileToolConfig struct {
 	// RuntimeTools são tools disponibilizadas em runtime (ex.: load_skill quando
 	// há skills sob demanda) que devem ser anexadas à seleção inicial.
 	RuntimeTools []string
+	// SchemaBytesBudget é o teto de bytes de schema injetados por turno usado
+	// pelo ToolPlanner (AEP-0077 F4, #121). <= 0 → ilimitado (default seguro:
+	// não corta nenhum fluxo atual). > 0 → corta determinÍsticamente pela ordem
+	// de ranking quando a seleção excede o teto.
+	SchemaBytesBudget int
+	// PreferredPackages lista pacotes (ToolCatalogEntry.Package) priorizados no
+	// ranking do planner para este perfil/superfície.
+	PreferredPackages []string
 }
 
 // ---------------------------------------------------------------------------
@@ -60,10 +68,12 @@ func (p *ToolSelectionPolicy) InitialEnabledToolNames(cfg ProfileToolConfig) []s
 	return p.resolveInitialEnabledToolsWithRuntime(cfg.EnabledTools, cfg.DisableTools, cfg.RuntimeTools)
 }
 
-// InitialToolDefs monta as tool definitions iniciais do turno para o LLM.
+// InitialToolDefs monta as tool definitions iniciais do turno para o LLM,
+// aplicando ao final o ToolPlanner (budget/ranking; AEP-0077 F4, #121).
 func (p *ToolSelectionPolicy) InitialToolDefs(cfg ProfileToolConfig) []llm.ToolDefinition {
 	initial := p.resolveInitialEnabledToolsWithRuntime(cfg.EnabledTools, cfg.DisableTools, cfg.RuntimeTools)
-	return p.buildLLMToolDefs(initial, cfg.DisableTools)
+	defs := p.buildLLMToolDefs(initial, cfg.DisableTools)
+	return p.applyPlanner(defs, cfg, nil)
 }
 
 // ApplyNativeMCP resolve bridge×native (AEP-0021): configura os servidores MCP
@@ -83,7 +93,8 @@ func (p *ToolSelectionPolicy) ApplyNativeMCP(streamer llm.ChatProvider, toolDefs
 func (p *ToolSelectionPolicy) ResolveExpandedToolDefs(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, cfg ProfileToolConfig) []llm.ToolDefinition {
 	names = p.filterExpandedToolNames(names, cfg.EnabledTools, cfg.DisableTools)
 	names = filterToolNamesForNativeMCP(streamer, mcpMgr, names, cfg.DisableTools, cfg.NativeMCP)
-	return p.buildLLMToolDefsByNames(names, cfg.DisableTools)
+	defs := p.buildLLMToolDefsByNames(names, cfg.DisableTools)
+	return p.applyPlanner(defs, cfg, nil)
 }
 
 // ---------------------------------------------------------------------------

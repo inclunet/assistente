@@ -264,8 +264,12 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// Constrói tool definitions para o LLM.
 	disableTools := activeProfile != nil && activeProfile.Chat.DisableTools
 	var profileEnabledTools []string
+	var toolSchemaBudgetBytes int
+	var preferredToolPackages []string
 	if activeProfile != nil {
 		profileEnabledTools = activeProfile.Chat.EnabledTools
+		toolSchemaBudgetBytes = activeProfile.Chat.ToolSchemaBudgetBytes
+		preferredToolPackages = activeProfile.Chat.PreferredToolPackages
 	}
 	var runtimeTools []string
 	if prepResult.ModelOnDemandSkillAvailable {
@@ -276,9 +280,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// resolver o provider/override do perfil — não afeta a montagem inicial.
 	toolPolicy := chat.NewToolSelectionPolicy(uc.toolRegistry)
 	toolCfg := chat.ProfileToolConfig{
-		EnabledTools: profileEnabledTools,
-		DisableTools: disableTools,
-		RuntimeTools: runtimeTools,
+		EnabledTools:      profileEnabledTools,
+		DisableTools:      disableTools,
+		RuntimeTools:      runtimeTools,
+		SchemaBytesBudget: toolSchemaBudgetBytes,
+		PreferredPackages: preferredToolPackages,
 	}
 	llmToolDefs := toolPolicy.InitialToolDefs(toolCfg)
 

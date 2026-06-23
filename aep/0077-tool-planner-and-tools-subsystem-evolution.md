@@ -68,7 +68,7 @@ Este AEP **estende** AEP-0039 e AEP-0063 (não os substitui). O registry runtime
 - [ ] **F1/#122**: metadados de catálogo declarados junto de cada builtin; mapa central removido; catálogo de builtins idêntico ao anterior (teste de equivalência).
 - [x] **F2/#120**: `tool_catalog` num pacote próprio fora de `internal/mcp` (`internal/toolcatalog`); mesma tabela/migrações; MCP, builtins e demais call sites consumindo o novo serviço.
 - [x] **F3/#119**: um único contrato de política de seleção por perfil/superfície (`internal/chat.ToolSelectionPolicy`); `tool_defs.go` e a expansão dinâmica do use case de envio delegando a ele (callbacks duplicados eliminados); testes de caracterização (snapshots por perfil/cenário) garantindo paridade.
-- [ ] **F4/#121**: ToolPlanner com budget de schema bytes, ranking por perfil/superfície, pacotes preferenciais e resolução bridge×native; telemetria de seleção (incluído/cortado + motivo); budget configurável.
+- [x] **F4/#121**: ToolPlanner com budget de schema bytes, ranking por perfil/superfície, pacotes preferenciais e resolução bridge×native; telemetria de seleção (incluído/cortado + motivo); budget configurável. Implementado em `internal/toolcatalog/planner.go` (planner determinístico puro) e plugado em `internal/chat.ToolSelectionPolicy` (`InitialToolDefs`/`ResolveExpandedToolDefs`); budget e pacotes preferenciais configuráveis por perfil (`ChatConfig.ToolSchemaBudgetBytes`/`PreferredToolPackages`); default seguro (budget `0` = ilimitado, sem regressão); resolução bridge×native consome a decisão tri-state existente (AEP-0021) sem duplicá-la.
 - [ ] AEP atualizado para **Accepted/Done** conforme as fases forem entregues, com PRs referenciados.
 
 ## Relações

@@ -89,6 +89,18 @@ type ChatConfig struct {
 	//             "unknown variant `mcp`, expected `function`" a cada turno.
 	NativeMCP *bool `json:"native_mcp,omitempty"`
 
+	// ToolSchemaBudgetBytes é o teto de bytes de JSON Schema de tools injetados
+	// no contexto por turno, usado pelo ToolPlanner (AEP-0077 Fase 4, #121).
+	//   - 0 (default) → ILIMITADO: o planner não corta nenhuma tool (sem
+	//     regressão para perfis cujos schemas já cabem).
+	//   - >0 → quando a seleção excede o teto, o planner corta determinÍsticamente
+	//     pela ordem de ranking (essenciais > perfil > pacote preferencial >
+	//     builtins > MCP), preservando essenciais (tool_catalog/load_skill).
+	ToolSchemaBudgetBytes int `json:"tool_schema_budget_bytes,omitempty"`
+	// PreferredToolPackages prioriza, no ranking do ToolPlanner, as tools cujos
+	// pacotes (ToolCatalogEntry.Package) constam aqui (ex.: "coding_readonly").
+	PreferredToolPackages []string `json:"preferred_tool_packages,omitempty"`
+
 	// MaxAgenticIterations define o limite máximo de iterações do loop de agentes
 	// Cada tool call conta como uma iteração
 	// 0 = usar padrão (25 iterações)
