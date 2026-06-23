@@ -46,7 +46,7 @@ func (s *Service) Build(ctx context.Context, req contextprovider.BuildRequest) (
 	blocks = append(blocks, contextprovider.Block{
 		Provider:   s.Name(),
 		Name:       "user_memory",
-		Volatility: contextprovider.VolatilitySlowDynamic,
+		Volatility: contextprovider.VolatilityMidDynamic,
 		Priority:   100,
 		Content:    block,
 	})

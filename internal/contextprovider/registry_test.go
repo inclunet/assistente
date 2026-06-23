@@ -23,8 +23,10 @@ func (p testProvider) Build(context.Context, BuildRequest) ([]Block, error) {
 
 func TestRegistryBuildSortsByVolatilityPriorityAndProvider(t *testing.T) {
 	registry := NewRegistry(
-		testProvider{name: "workspace", blocks: []Block{{Name: "workspace", Volatility: VolatilityFastDynamic, Priority: 100, Content: "workspace"}}},
-		testProvider{name: "memory", blocks: []Block{{Name: "memory", Volatility: VolatilitySlowDynamic, Priority: 100, Content: "memory"}}},
+		testProvider{name: "surface", blocks: []Block{{Name: "surface", Volatility: VolatilityTurnDynamic, Priority: 100, Content: "surface"}}},
+		testProvider{name: "summary", blocks: []Block{{Name: "summary", Volatility: VolatilityRolling, Priority: 100, Content: "summary"}}},
+		testProvider{name: "workspace", blocks: []Block{{Name: "workspace", Volatility: VolatilityLowDynamic, Priority: 100, Content: "workspace"}}},
+		testProvider{name: "memory", blocks: []Block{{Name: "memory", Volatility: VolatilityMidDynamic, Priority: 100, Content: "memory"}}},
 		testProvider{name: "stable", blocks: []Block{{Name: "instructions", Volatility: VolatilityStable, Priority: 100, Content: "stable"}}},
 	)
 
@@ -33,7 +35,7 @@ func TestRegistryBuildSortsByVolatilityPriorityAndProvider(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	rendered := RenderBlocks(blocks)
-	want := []string{"stable", "memory", "workspace"}
+	want := []string{"stable", "workspace", "memory", "summary", "surface"}
 	if len(rendered) != len(want) {
 		t.Fatalf("rendered len = %d, want %d: %#v", len(rendered), len(want), rendered)
 	}
@@ -47,7 +49,7 @@ func TestRegistryBuildSortsByVolatilityPriorityAndProvider(t *testing.T) {
 func TestRegistryBuildSkipsFailedProvider(t *testing.T) {
 	registry := NewRegistry(
 		testProvider{name: "memory", err: errors.New("boom")},
-		testProvider{name: "workspace", blocks: []Block{{Name: "workspace", Volatility: VolatilityFastDynamic, Priority: 100, Content: "workspace"}}},
+		testProvider{name: "workspace", blocks: []Block{{Name: "workspace", Volatility: VolatilityLowDynamic, Priority: 100, Content: "workspace"}}},
 	)
 
 	blocks, err := registry.Build(context.Background(), BuildRequest{})
@@ -63,7 +65,7 @@ func TestRegistryBuildSkipsFailedProvider(t *testing.T) {
 func TestRegistryBuildKeepsPartialBlocksFromFailedProvider(t *testing.T) {
 	registry := NewRegistry(
 		testProvider{name: "memory", blocks: []Block{{Name: "instructions", Volatility: VolatilityStable, Priority: 10, Content: "stable memory instructions"}}, err: errors.New("boom")},
-		testProvider{name: "workspace", blocks: []Block{{Name: "workspace", Volatility: VolatilityFastDynamic, Priority: 100, Content: "workspace"}}},
+		testProvider{name: "workspace", blocks: []Block{{Name: "workspace", Volatility: VolatilityLowDynamic, Priority: 100, Content: "workspace"}}},
 	)
 
 	blocks, err := registry.Build(context.Background(), BuildRequest{})
@@ -84,8 +86,8 @@ func TestRegistryBuildKeepsPartialBlocksFromFailedProvider(t *testing.T) {
 
 func TestRegistryBuildSkipsDisabledProvider(t *testing.T) {
 	registry := NewRegistry(
-		testProvider{name: "memory", blocks: []Block{{Name: "memory", Volatility: VolatilitySlowDynamic, Content: "memory"}}},
-		testProvider{name: "workspace", blocks: []Block{{Name: "workspace", Volatility: VolatilityFastDynamic, Content: "workspace"}}},
+		testProvider{name: "memory", blocks: []Block{{Name: "memory", Volatility: VolatilityMidDynamic, Content: "memory"}}},
+		testProvider{name: "workspace", blocks: []Block{{Name: "workspace", Volatility: VolatilityLowDynamic, Content: "workspace"}}},
 	)
 
 	blocks, err := registry.Build(context.Background(), BuildRequest{

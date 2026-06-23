@@ -7,7 +7,7 @@ import (
 	"assistente/internal/profiles"
 )
 
-func buildFullSystemPromptForTest(app *App, messages []Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, skillTplData any, slashSkillContent string, conversationSummary string) []Message {
+func buildFullSystemPromptForTest(app *App, messages []Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, skillTplData any, slashSkillContent string) []Message {
 	return app.effectivePromptBuilder().BuildWithContextBlocks(
 		messages,
 		enabledSkills,
@@ -15,7 +15,6 @@ func buildFullSystemPromptForTest(app *App, messages []Message, enabledSkills []
 		disableOnDemand,
 		skillTplData,
 		slashSkillContent,
-		conversationSummary,
 		[]contextprovider.Block{},
 	)
 }
@@ -33,7 +32,7 @@ func TestBuildFullSystemPrompt_DisableSkills_DefaultSystemMessage(t *testing.T) 
 	// Simular: DisableSkills=true
 	enabledSkills := []string{}
 
-	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "", "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "")
 
 	if len(result) != len(messages)+1 {
 		t.Fatalf("expected system+user messages, got %d", len(result))
@@ -58,7 +57,7 @@ func TestBuildFullSystemPrompt_WithoutSkillManager_AddsDefaultSystemMessage(t *t
 
 	enabledSkills := []string(nil)
 
-	result := buildFullSystemPromptForTest(app, messages, enabledSkills, false, false, nil, "", "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, false, false, nil, "")
 
 	if len(result) != len(messages)+1 {
 		t.Fatalf("expected system+user messages, got %d", len(result))
@@ -82,7 +81,7 @@ func TestBuildFullSystemPrompt_WithSlashSkill_AddsSystemMessage(t *testing.T) {
 	enabledSkills := []string{}
 	slashSkillContent := "# Skill invocado via /slash"
 
-	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, slashSkillContent, "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, slashSkillContent)
 
 	// Verificar: primeiro message é system (por causa do slash skill)
 	if len(result) < 1 {
@@ -122,7 +121,7 @@ func TestBuildFullSystemPrompt_ExistingSystemMessage_Combines(t *testing.T) {
 	// Simular: skills desabilitados
 	enabledSkills := []string{}
 
-	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "", "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "")
 
 	// Verificar: nenhum novo system message foi criado
 	// O system message original é mantido
@@ -154,7 +153,7 @@ func TestBuildFullSystemPrompt_NoEmptySystemMessage(t *testing.T) {
 	// Cenário: DisableSkills=true, sem slash skill
 	enabledSkills := []string{}
 
-	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "", "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "")
 
 	// Validação crítica: nenhum message com role=system E content=""
 	for i, msg := range result {
@@ -193,7 +192,7 @@ func TestProfile_DisableSkills_Integration(t *testing.T) {
 		enabledSkills = []string{}
 	}
 
-	result := buildFullSystemPromptForTest(app, messages, enabledSkills, profile.Chat.DisableSkills, profile.Chat.DisableOnDemandSkills, nil, "", "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, profile.Chat.DisableSkills, profile.Chat.DisableOnDemandSkills, nil, "")
 
 	if len(result) != 2 {
 		t.Errorf("expected system+user messages, got %d", len(result))
@@ -226,7 +225,7 @@ func TestBuildFullSystemPrompt_ConversationHistory(t *testing.T) {
 	// DisableSkills=true, sem slash skill
 	enabledSkills := []string{}
 
-	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "", "")
+	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "")
 
 	// Verificar: histórico preservado após o system prompt base.
 	if len(result) != len(messages)+1 {

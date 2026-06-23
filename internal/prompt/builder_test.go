@@ -51,6 +51,15 @@ func makeSkill(slug, name, desc, content string, autoLoad, modelInvocable bool) 
 
 func buildPromptForTest(b *prompt.Builder, messages []llm.Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string, dynamicContext ...string) []llm.Message {
 	blocks := make([]contextprovider.Block, 0, len(dynamicContext))
+	if strings.TrimSpace(conversationSummary) != "" {
+		blocks = append(blocks, contextprovider.Block{
+			Provider:   "conversation",
+			Name:       "conversation_summary",
+			Volatility: contextprovider.VolatilityRolling,
+			Priority:   100,
+			Content:    "<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n" + conversationSummary + "\n</conversation_summary>",
+		})
+	}
 	for _, content := range dynamicContext {
 		blocks = append(blocks, contextprovider.Block{
 			Provider:   "test",
@@ -59,7 +68,7 @@ func buildPromptForTest(b *prompt.Builder, messages []llm.Message, enabledSkills
 			Content:    content,
 		})
 	}
-	return b.BuildWithContextBlocks(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, conversationSummary, blocks)
+	return b.BuildWithContextBlocks(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, blocks)
 }
 
 func buildSystemPromptForSkills(b *prompt.Builder, enabledSkills []string, disableOnDemand bool, tplData any) string {
@@ -155,19 +164,19 @@ func TestBuild_MarksOnlyStableSystemPrefixForExplicitCacheControl(t *testing.T) 
 func TestBuild_InjectsDynamicContextAfterSummary(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
-	result := buildPromptForTest(b, msgs, nil, false, false, nil, "slash", "Resumo antigo.", "<user_memory>\n- prefere pt-BR\n</user_memory>")
+	result := buildPromptForTest(b, msgs, nil, false, false, nil, "slash", "Resumo antigo.", "<retrieved_context>\n- dado recuperado\n</retrieved_context>")
 	sys := result[0].Content.(string)
 	summaryIdx := strings.Index(sys, "<conversation_summary>")
-	memoryIdx := strings.Index(sys, "<user_memory>")
-	if summaryIdx < 0 || memoryIdx < 0 {
-		t.Fatalf("expected summary and memory blocks in system prompt: %s", sys)
+	retrievedIdx := strings.Index(sys, "<retrieved_context>")
+	if summaryIdx < 0 || retrievedIdx < 0 {
+		t.Fatalf("expected summary and retrieved context blocks in system prompt: %s", sys)
 	}
-	if memoryIdx < summaryIdx {
-		t.Fatalf("memory block should come after summary")
+	if retrievedIdx < summaryIdx {
+		t.Fatalf("retrieved context block should come after summary")
 	}
 }
 
-func TestBuildWithContextBlocksInjectsStableContextBeforeSummary(t *testing.T) {
+func TestBuildWithContextBlocksOrdersStableMemoryAndSummary(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
 	result := b.BuildWithContextBlocks(
@@ -177,24 +186,24 @@ func TestBuildWithContextBlocksInjectsStableContextBeforeSummary(t *testing.T) {
 		false,
 		nil,
 		"slash",
-		"Resumo antigo.",
 		[]contextprovider.Block{
 			{Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Content: "<memory_instructions>use memory</memory_instructions>"},
-			{Name: "user_memory", Volatility: contextprovider.VolatilitySlowDynamic, Content: "<user_memory>prefere pt-BR</user_memory>"},
+			{Name: "user_memory", Volatility: contextprovider.VolatilityMidDynamic, Content: "<user_memory>prefere pt-BR</user_memory>"},
+			{Name: "conversation_summary", Volatility: contextprovider.VolatilityRolling, Content: "<conversation_summary>Resumo antigo.</conversation_summary>"},
 		},
 	)
 	sys := result[0].Content.(string)
 	stableIdx := strings.Index(sys, "<memory_instructions>")
-	summaryIdx := strings.Index(sys, "<conversation_summary>")
 	dynamicIdx := strings.Index(sys, "<user_memory>")
-	if stableIdx < 0 || summaryIdx < 0 || dynamicIdx < 0 {
+	summaryIdx := strings.Index(sys, "<conversation_summary>")
+	if stableIdx < 0 || dynamicIdx < 0 || summaryIdx < 0 {
 		t.Fatalf("expected stable, summary and dynamic blocks: %s", sys)
 	}
-	if stableIdx > summaryIdx {
-		t.Fatalf("stable context should come before summary: %s", sys)
+	if stableIdx > dynamicIdx {
+		t.Fatalf("stable context should come before memory: %s", sys)
 	}
-	if dynamicIdx < summaryIdx {
-		t.Fatalf("dynamic context should come after summary: %s", sys)
+	if summaryIdx < dynamicIdx {
+		t.Fatalf("conversation summary should come after memory: %s", sys)
 	}
 }
 
@@ -208,11 +217,12 @@ func TestBuildWithContextBlocksSortsCacheFriendlyLayout(t *testing.T) {
 		false,
 		nil,
 		"<slash_skill>turno atual</slash_skill>",
-		"Resumo antigo.",
 		[]contextprovider.Block{
-			{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityFastDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
+			{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityLowDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
 			{Provider: "memory", Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<memory_instructions>stable memory</memory_instructions>"},
-			{Provider: "tasklist", Name: "linked_task_lists", Volatility: contextprovider.VolatilityFastDynamic, Priority: 40, Content: "<linked_task_lists>dynamic tasks</linked_task_lists>"},
+			{Provider: "tasklist", Name: "linked_task_lists", Volatility: contextprovider.VolatilityLowDynamic, Priority: 40, Content: "<linked_task_lists>dynamic tasks</linked_task_lists>"},
+			{Provider: "memory", Name: "user_memory", Volatility: contextprovider.VolatilityMidDynamic, Priority: 100, Content: "<user_memory>dynamic memory</user_memory>"},
+			{Provider: "conversation", Name: "conversation_summary", Volatility: contextprovider.VolatilityRolling, Priority: 100, Content: "<conversation_summary>Resumo antigo.</conversation_summary>"},
 			{Provider: "workspace", Name: "workspace_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<workspace_instructions>stable workspace</workspace_instructions>"},
 		},
 	)
@@ -221,9 +231,10 @@ func TestBuildWithContextBlocksSortsCacheFriendlyLayout(t *testing.T) {
 		"helpful, intelligent assistant",
 		"<memory_instructions>",
 		"<workspace_instructions>",
-		"<conversation_summary>",
 		"<linked_task_lists>",
 		"<workspace_context>",
+		"<user_memory>",
+		"<conversation_summary>",
 		"<slash_skill>",
 	)
 }
@@ -231,7 +242,7 @@ func TestBuildWithContextBlocksSortsCacheFriendlyLayout(t *testing.T) {
 func TestBuildWithContextBlocksDoesNotMutateContextBlocks(t *testing.T) {
 	b := &prompt.Builder{}
 	blocks := []contextprovider.Block{
-		{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityFastDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
+		{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityLowDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
 		{Provider: "memory", Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<memory_instructions>stable memory</memory_instructions>"},
 	}
 
@@ -242,7 +253,6 @@ func TestBuildWithContextBlocksDoesNotMutateContextBlocks(t *testing.T) {
 		false,
 		nil,
 		"",
-		"Resumo antigo.",
 		blocks,
 	)
 
@@ -266,7 +276,8 @@ func TestBuildWithContextBlocksSameStateProducesStablePrefix(t *testing.T) {
 	blocks := []contextprovider.Block{
 		{Provider: "workspace", Name: "workspace_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<workspace_instructions>stable workspace</workspace_instructions>"},
 		{Provider: "memory", Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<memory_instructions>stable memory</memory_instructions>"},
-		{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityFastDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
+		{Provider: "conversation", Name: "conversation_summary", Volatility: contextprovider.VolatilityRolling, Priority: 100, Content: "<conversation_summary>Resumo antigo.</conversation_summary>"},
+		{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityLowDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
 	}
 	build := func() string {
 		result := b.BuildWithContextBlocks(
@@ -276,7 +287,6 @@ func TestBuildWithContextBlocksSameStateProducesStablePrefix(t *testing.T) {
 			false,
 			nil,
 			"",
-			"Resumo antigo.",
 			append([]contextprovider.Block(nil), blocks...),
 		)
 		return result[0].Content.(string)
@@ -521,7 +531,6 @@ func TestBuildWithContextBlocks_DisableSkillsOmitsSkillsSection(t *testing.T) {
 		true,
 		false,
 		nil,
-		"",
 		"",
 		nil,
 	)

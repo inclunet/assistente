@@ -290,19 +290,39 @@ stable:
   - tool schemas estáveis
   - catálogo de skills on-demand
 
+low_dynamic:
+  - workspace atual
+  - tasklists vinculadas
+
 slow_dynamic:
-  - resumo da conversa
+  - reservado para providers dinâmicos mais estáveis que memória
+
+mid_dynamic:
   - memórias pinned/essenciais
+
+rolling_dynamic:
+  - resumo da conversa
 
 rolling_history:
   - janela recente de mensagens
 
 fast_dynamic:
-  - workspace/surface atual
+  - resultados recuperados por providers/tools
+
+turn_dynamic:
+  - surface atual transitória
   - slash skill do turno
-  - resultados recuperados por tools/context providers
   - mensagem atual do usuário
 ```
+
+Refinamento implementado após a issue #329:
+
+- `workspace` e `tasklist` usam `low_dynamic`, por mudarem menos que o resumo em conversas longas;
+- `memory` usa `mid_dynamic`, depois de `workspace/tasklist` e antes do resumo;
+- `conversation_summary` é produzido por Context Provider próprio e usa `rolling_dynamic`;
+- o provider `workspace` separa `workspace_context` (`low_dynamic`) de `surface_context` (`turn_dynamic`) quando houver dados transitórios da superfície ativa;
+- quando um provider emite múltiplos blocos dinâmicos, o budget configurado para aquele provider é um teto combinado para a soma desses blocos, não um budget independente por bloco;
+- `fast_dynamic`/`turn_dynamic` ficam reservados para contexto recuperado, superfície ativa transitória e conteúdo específico do turno.
 
 Esta AEP não implementa otimização de cache diretamente; ela prepara o terreno para a AEP-0074.
 
@@ -316,6 +336,7 @@ Regras:
 
 - cada provider pode estar habilitado ou desabilitado por perfil;
 - providers habilitados podem ter budget próprio em caracteres/runes do bloco produzido, não em tokens;
+- quando um provider produzir múltiplos blocos automáticos, esse budget deve limitar a soma dos blocos dinâmicos emitidos pelo provider;
 - providers podem ter settings específicos, validados pelo próprio provider ou por um contrato registrado;
 - defaults por provider continuam existindo para perfis antigos ou campos omitidos;
 - a UI de perfil deve ter uma aba própria de Context Providers, separada de skills e separada de cache;
@@ -471,6 +492,6 @@ Status: concluída para os builtins atuais. O runtime novo trata `SKILL.md` como
 - [x] APIs Wails permitem CRUD, busca e arquivamento de records de memória.
 - [x] Existe pelo menos um bloco estável e um bloco dinâmico produzido por context provider.
 - [x] Skills não usam Go templates para acessar memória/workspace/tasklists.
-- [x] Prompt builder tem ordem testável: blocos estáveis antes do resumo; blocos não-estáveis de Context Providers depois do resumo, preservando a janela recente de mensagens fora do system prompt.
+- [x] Prompt builder tem ordem testável por volatilidade: blocos estáveis primeiro; depois `workspace/tasklist`, `memory`, `conversation_summary` como Context Provider e blocos mais voláteis do turno, preservando a janela recente de mensagens fora do system prompt.
 - [x] AEP-0072 revisada pode focar apenas em Skill Loading Runtime.
 - [x] AEP-0074 passa a depender desta AEP para otimização de cache.

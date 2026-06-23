@@ -19,7 +19,7 @@ func mustAbsPath(t *testing.T, name string) string {
 	return filepath.Clean(path)
 }
 
-func TestContextProviderBuildsFastDynamicBlock(t *testing.T) {
+func TestContextProviderBuildsLowDynamicWorkspaceAndTurnDynamicSurfaceBlocks(t *testing.T) {
 	provider := NewContextProvider()
 	editorPath := mustAbsPath(t, "main.go")
 	blocks, err := provider.Build(context.Background(), contextprovider.BuildRequest{
@@ -48,14 +48,14 @@ func TestContextProviderBuildsFastDynamicBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(blocks) != 2 {
-		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
+	if len(blocks) != 3 {
+		t.Fatalf("len(blocks) = %d, want 3", len(blocks))
 	}
 	if blocks[0].Name != "workspace_instructions" || blocks[0].Volatility != contextprovider.VolatilityStable {
 		t.Fatalf("unexpected instructions block: %+v", blocks[0])
 	}
 	block := blocks[1]
-	if block.Provider != "workspace" || block.Volatility != contextprovider.VolatilityFastDynamic {
+	if block.Provider != "workspace" || block.Volatility != contextprovider.VolatilityLowDynamic {
 		t.Fatalf("unexpected block metadata: %+v", block)
 	}
 	for _, needle := range []string{
@@ -71,6 +71,13 @@ func TestContextProviderBuildsFastDynamicBlock(t *testing.T) {
 		"tasklist=tl-1",
 		"assistente://terminal/term-1",
 		"session=term-1",
+	} {
+		if !strings.Contains(block.Content, needle) {
+			t.Fatalf("workspace block missing %q: %s", needle, block.Content)
+		}
+	}
+	for _, needle := range []string{
+		"<surface_context>",
 		"active_file: C:/tmp/readme.md",
 		"active_tasklist: tl-1",
 		"active_terminal_session: term-1",
@@ -78,9 +85,12 @@ func TestContextProviderBuildsFastDynamicBlock(t *testing.T) {
 		"history_preview: histórico",
 		"tasks_preview: tarefas",
 	} {
-		if !strings.Contains(block.Content, needle) {
-			t.Fatalf("workspace block missing %q: %s", needle, block.Content)
+		if !strings.Contains(blocks[2].Content, needle) {
+			t.Fatalf("surface block missing %q: %s", needle, blocks[2].Content)
 		}
+	}
+	if blocks[2].Provider != "workspace" || blocks[2].Name != "surface_context" || blocks[2].Volatility != contextprovider.VolatilityTurnDynamic {
+		t.Fatalf("unexpected surface block metadata: %+v", blocks[2])
 	}
 	if strings.Contains(block.Content, "\n\n</workspace_context>") {
 		t.Fatalf("workspace block has extra blank line before closing tag: %q", block.Content)
@@ -94,6 +104,34 @@ func TestContextProviderReturnsNoBlockWithoutWorkspaceState(t *testing.T) {
 	}
 	if len(blocks) != 1 || blocks[0].Name != "workspace_instructions" {
 		t.Fatalf("expected only stable instructions block, got %+v", blocks)
+	}
+}
+
+func TestContextProviderBuildsSurfaceBlockWithoutWorkspaceBlock(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		ProviderBudgets: map[string]int{
+			"workspace": 1000,
+		},
+		Surface: &contextprovider.Surface{
+			Type:    "editor",
+			Title:   "Arquivo",
+			Context: map[string]any{"selectedText": "seleção"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want instructions and surface context", len(blocks))
+	}
+	if blocks[1].Name != "surface_context" || blocks[1].Volatility != contextprovider.VolatilityTurnDynamic {
+		t.Fatalf("unexpected surface block: %+v", blocks[1])
+	}
+	if strings.Contains(blocks[1].Content, "<workspace_context>") {
+		t.Fatalf("surface-only request should not emit workspace context: %q", blocks[1].Content)
+	}
+	if !strings.Contains(blocks[1].Content, "selected_text: seleção") {
+		t.Fatalf("surface block missing selected text: %q", blocks[1].Content)
 	}
 }
 
@@ -149,10 +187,11 @@ func TestContextProviderTabLinkFallsBackToStateReference(t *testing.T) {
 }
 
 func TestContextProviderRespectsProfileBudget(t *testing.T) {
+	const budget = 420
 	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
 		WorkspaceName: "Workspace",
 		ProviderBudgets: map[string]int{
-			"workspace": 220,
+			"workspace": budget,
 		},
 		Surface: &contextprovider.Surface{
 			Type: "editor",
@@ -164,14 +203,14 @@ func TestContextProviderRespectsProfileBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(blocks) != 2 {
-		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
+	if len(blocks) != 3 {
+		t.Fatalf("len(blocks) = %d, want instructions, workspace context and surface context", len(blocks))
 	}
-	if got := len([]rune(blocks[1].Content)); got > 220 {
-		t.Fatalf("workspace block length = %d, want <= 220: %q", got, blocks[1].Content)
+	if got := runeLen(blocks[1].Content) + runeLen(blocks[2].Content); got > budget {
+		t.Fatalf("workspace provider dynamic block length = %d, want <= %d: workspace=%q surface=%q", got, budget, blocks[1].Content, blocks[2].Content)
 	}
-	if !strings.Contains(blocks[1].Content, "omitted due to context budget") {
-		t.Fatalf("expected truncation notice, got %q", blocks[1].Content)
+	if blocks[2].Name != "surface_context" || !strings.Contains(blocks[2].Content, "omitted due to context budget") {
+		t.Fatalf("expected truncated surface context, got %+v", blocks[2])
 	}
 }
 

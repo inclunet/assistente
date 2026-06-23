@@ -106,7 +106,7 @@ func RenderBlocks(blocks []Block) []string {
 func sortBlocks(blocks []Block) {
 	sort.SliceStable(blocks, func(i, j int) bool {
 		if blocks[i].Volatility != blocks[j].Volatility {
-			return volatilityRank(blocks[i].Volatility) < volatilityRank(blocks[j].Volatility)
+			return VolatilityRank(blocks[i].Volatility) < VolatilityRank(blocks[j].Volatility)
 		}
 		if blocks[i].Priority != blocks[j].Priority {
 			return blocks[i].Priority < blocks[j].Priority
@@ -118,14 +118,22 @@ func sortBlocks(blocks []Block) {
 	})
 }
 
-func volatilityRank(value Volatility) int {
+func VolatilityRank(value Volatility) int {
 	switch value {
 	case VolatilityStable:
 		return 0
-	case VolatilitySlowDynamic:
+	case VolatilityLowDynamic:
 		return 1
-	case VolatilityFastDynamic:
+	case VolatilitySlowDynamic:
 		return 2
+	case VolatilityMidDynamic:
+		return 3
+	case VolatilityRolling:
+		return 4
+	case VolatilityFastDynamic:
+		return 5
+	case VolatilityTurnDynamic:
+		return 6
 	default:
 		return 9
 	}

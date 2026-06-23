@@ -14,6 +14,9 @@ const defaultPromptBudget = 500
 const workspaceContextPrefix = "<workspace_context>\n"
 const workspaceContextSuffix = "\n</workspace_context>"
 const workspaceContextTruncationNotice = "\n... Additional workspace context omitted due to context budget."
+const surfaceContextPrefix = "<surface_context>\n"
+const surfaceContextSuffix = "\n</surface_context>"
+const surfaceContextTruncationNotice = "\n... Additional surface context omitted due to context budget."
 
 type ContextProvider struct{}
 
@@ -42,17 +45,31 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 		Priority:   10,
 		Content:    workspaceInstructionsBlock(),
 	}}
-	content := buildContextBlock(req, req.Budget(p.Name(), defaultPromptBudget))
-	if content == "" {
-		return blocks, nil
+	budget := req.Budget(p.Name(), defaultPromptBudget)
+	content := buildContextBlock(req, budget)
+	if content != "" {
+		blocks = append(blocks, contextprovider.Block{
+			Provider:   p.Name(),
+			Name:       "workspace_context",
+			Volatility: contextprovider.VolatilityLowDynamic,
+			Priority:   100,
+			Content:    content,
+		})
 	}
-	blocks = append(blocks, contextprovider.Block{
-		Provider:   p.Name(),
-		Name:       "workspace_context",
-		Volatility: contextprovider.VolatilityFastDynamic,
-		Priority:   100,
-		Content:    content,
-	})
+	surfaceBudget := budget - runeLen(content)
+	if surfaceBudget < 0 {
+		surfaceBudget = 0
+	}
+	surfaceContent := buildSurfaceContextBlock(req.Surface, surfaceBudget)
+	if surfaceContent != "" {
+		blocks = append(blocks, contextprovider.Block{
+			Provider:   p.Name(),
+			Name:       "surface_context",
+			Volatility: contextprovider.VolatilityTurnDynamic,
+			Priority:   100,
+			Content:    surfaceContent,
+		})
+	}
 	return blocks, nil
 }
 
@@ -63,7 +80,7 @@ Use link= values as app deep links for any workspace resource. open_editor_file[
 }
 
 func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string {
-	if req.WorkspaceName == "" && req.Surface == nil && req.TabCount == 0 && len(req.Tabs) == 0 {
+	if req.WorkspaceName == "" && req.TabCount == 0 && len(req.Tabs) == 0 {
 		return ""
 	}
 	if budgetChars <= 0 {
@@ -71,7 +88,7 @@ func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string
 	}
 	var required strings.Builder
 	required.WriteString(workspaceContextPrefix)
-	required.WriteString("Current workspace and active surface context. Treat this as dynamic state, not stable instructions.\n")
+	required.WriteString("Current workspace and tab context. Treat this as dynamic state, not stable instructions.\n")
 	if req.WorkspaceName != "" {
 		required.WriteString("- workspace: ")
 		required.WriteString(sanitizeContextLine(req.WorkspaceName))
@@ -83,10 +100,8 @@ func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string
 		required.WriteString("\n")
 	}
 	writeOpenEditorFiles(&required, req.Tabs)
-	writeSurfaceIdentity(&required, req.Surface)
 
 	var optional strings.Builder
-	writeSurfaceTransientContext(&optional, req.Surface)
 	for idx, tab := range req.Tabs {
 		optional.WriteString("- tab[")
 		optional.WriteString(strconv.Itoa(idx))
@@ -109,6 +124,23 @@ func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string
 		optional.WriteString("\n")
 	}
 	return trimContextBlock(required.String(), optional.String(), budgetChars)
+}
+
+func buildSurfaceContextBlock(surface *contextprovider.Surface, budgetChars int) string {
+	if surface == nil {
+		return ""
+	}
+	if budgetChars <= 0 {
+		return ""
+	}
+	var body strings.Builder
+	writeSurfaceIdentity(&body, surface)
+	writeSurfaceTransientContext(&body, surface)
+	if strings.TrimSpace(body.String()) == "" {
+		return ""
+	}
+	content := surfaceContextPrefix + "Current active surface context. Treat this as turn-specific dynamic state.\n" + strings.TrimRight(body.String(), "\n")
+	return trimSurfaceContextBlock(content, budgetChars)
 }
 
 func writeOpenEditorFiles(sb *strings.Builder, tabs []contextprovider.Tab) {
@@ -217,6 +249,26 @@ func trimContextBlock(requiredContent string, optionalContent string, budgetChar
 	return content + workspaceContextTruncationNotice + workspaceContextSuffix
 }
 
+func trimSurfaceContextBlock(content string, budgetChars int) string {
+	content = strings.TrimRight(content, "\n")
+	if runeLen(content)+runeLen(surfaceContextSuffix) <= budgetChars {
+		return content + surfaceContextSuffix
+	}
+	suffixLen := runeLen(surfaceContextTruncationNotice) + runeLen(surfaceContextSuffix)
+	if suffixLen >= budgetChars {
+		return ""
+	}
+	contentBudget := budgetChars - suffixLen
+	if contentBudget <= runeLen(surfaceContextPrefix) {
+		return ""
+	}
+	content = trimToWholeLines(content, contentBudget)
+	if content == "" || !hasSurfaceContextLine(content) {
+		return ""
+	}
+	return content + surfaceContextTruncationNotice + surfaceContextSuffix
+}
+
 func hasWorkspaceContextLine(content string) bool {
 	content = strings.TrimSpace(content)
 	if !strings.HasPrefix(content, strings.TrimSpace(workspaceContextPrefix)) {
@@ -224,6 +276,15 @@ func hasWorkspaceContextLine(content string) bool {
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(content, strings.TrimSpace(workspaceContextPrefix)))
 	return rest != ""
+}
+
+func hasSurfaceContextLine(content string) bool {
+	content = strings.TrimSpace(content)
+	if !strings.HasPrefix(content, strings.TrimSpace(surfaceContextPrefix)) {
+		return false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(content, strings.TrimSpace(surfaceContextPrefix)))
+	return rest != "" && rest != "Current active surface context. Treat this as turn-specific dynamic state."
 }
 
 func trimToWholeLines(content string, budgetChars int) string {
