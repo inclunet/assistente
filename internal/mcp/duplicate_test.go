@@ -7,6 +7,7 @@ import (
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/toolcatalog"
 	"assistente/internal/tools"
 )
 
@@ -179,8 +180,10 @@ func TestDeleteConfigNormalizesSlugForRuntimeState(t *testing.T) {
 func TestDisconnectMarksCatalogToolsUnavailable(t *testing.T) {
 	mgr := NewManager(tools.NewRegistry(), credentials.NewManager(nil), func(string, any) {})
 	repo, _, _ := setupRepositoryTest(t)
+	catalog := toolcatalog.NewService(toolcatalog.NewDBRepository(repo.db))
 	ctx := database.WithUserID(context.Background(), "user-a")
 	mgr.SetRepository(repo)
+	mgr.SetCatalog(catalog)
 	mgr.SetAuthContextProvider(func() context.Context { return ctx })
 	if err := mgr.SaveConfig("server", ServerConfig{
 		Name:        "Servidor MCP",
@@ -195,7 +198,7 @@ func TestDisconnectMarksCatalogToolsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConfig falhou: %v", err)
 	}
-	if err := repo.UpsertTool(ctx, &tools.ToolCatalogEntry{
+	if err := catalog.UpsertTool(ctx, &tools.ToolCatalogEntry{
 		Name:               "mcp_server__do",
 		DisplayName:        "do",
 		Origin:             tools.ToolOriginMCPBridge,
@@ -215,7 +218,7 @@ func TestDisconnectMarksCatalogToolsUnavailable(t *testing.T) {
 		t.Fatalf("Disconnect falhou: %v", err)
 	}
 
-	entries, err := repo.ListTools(ctx, tools.ToolCatalogFilter{IncludeUnavailable: true})
+	entries, err := catalog.ListTools(ctx, tools.ToolCatalogFilter{IncludeUnavailable: true})
 	if err != nil {
 		t.Fatalf("ListTools falhou: %v", err)
 	}

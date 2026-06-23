@@ -9,6 +9,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/jobs"
 	"assistente/internal/mcp"
+	"assistente/internal/toolcatalog"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 
@@ -56,7 +57,8 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister(appDryRunMCPTool{})
 	mcpRepo := mcp.NewDBRepository(db)
-	if err := mcpRepo.UpsertTool(ctx, &tools.ToolCatalogEntry{
+	catalog := toolcatalog.NewService(toolcatalog.NewDBRepository(db))
+	if err := catalog.UpsertTool(ctx, &tools.ToolCatalogEntry{
 		MCPServerID:        "srv-1",
 		Name:               "mcp_jira__create_issue",
 		DisplayName:        "create_issue",
@@ -76,6 +78,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	})
 	mcpMgr := mcp.NewManager(registry, nil, nil)
 	mcpMgr.SetRepository(mcpRepo)
+	mcpMgr.SetCatalog(catalog)
 	app := &App{
 		currentUserID: userID,
 		jobsCtrl:      controllers.NewJobsController(controllers.JobsControllerConfig{JobMgr: jobMgr}),
@@ -102,7 +105,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 		t.Fatalf("expected one dry-run invocation, got %d", len(invocations))
 	}
 
-	entries, err := mcpRepo.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
+	entries, err := catalog.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
@@ -118,7 +121,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 		t.Fatalf("expected unresolved MCP bridge dry-run to be blocked, got %#v", unresolved)
 	}
 
-	if err := mcpRepo.UpsertTool(ctx, &tools.ToolCatalogEntry{
+	if err := catalog.UpsertTool(ctx, &tools.ToolCatalogEntry{
 		MCPServerID:        "srv-1",
 		Name:               "mcp_jira__delete_issue",
 		DisplayName:        "delete_issue",
@@ -137,7 +140,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	if unavailable == nil || unavailable.Success || unavailable.Blocked {
 		t.Fatalf("expected unavailable tool to return operational error, got %#v", unavailable)
 	}
-	entries, err = mcpRepo.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
+	entries, err = catalog.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
 	if err != nil {
 		t.Fatalf("list tools after unavailable test: %v", err)
 	}
@@ -154,7 +157,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 		t.Fatalf("expected unavailable tool entry in catalog, got %#v", entries)
 	}
 
-	if err := mcpRepo.UpsertTool(ctx, &tools.ToolCatalogEntry{
+	if err := catalog.UpsertTool(ctx, &tools.ToolCatalogEntry{
 		MCPServerID:        "srv-1",
 		Name:               "mcp_native__filesystem",
 		DisplayName:        "filesystem",
@@ -173,7 +176,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("seed second server: %v", err)
 	}
-	if err := mcpRepo.UpsertTool(ctx, &tools.ToolCatalogEntry{
+	if err := catalog.UpsertTool(ctx, &tools.ToolCatalogEntry{
 		MCPServerID:        "srv-2",
 		Name:               "mcp_native__filesystem",
 		DisplayName:        "filesystem",
@@ -189,7 +192,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	if nativeBlocked == nil || !nativeBlocked.Blocked || nativeBlocked.ToolCatalogID == "" {
 		t.Fatalf("expected resolved native dry-run to be blocked with catalog id, got %#v", nativeBlocked)
 	}
-	entries, err = mcpRepo.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
+	entries, err = catalog.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
 	if err != nil {
 		t.Fatalf("list tools after native blocked test: %v", err)
 	}
@@ -205,7 +208,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	if !foundNativeBlocked {
 		t.Fatalf("expected native tool entry in catalog, got %#v", entries)
 	}
-	otherEntries, err := mcpRepo.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-2", IncludeUnavailable: true})
+	otherEntries, err := catalog.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-2", IncludeUnavailable: true})
 	if err != nil {
 		t.Fatalf("list second server native tool after blocked test: %v", err)
 	}
@@ -213,7 +216,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 		t.Fatalf("expected second server native status unchanged, got %#v", otherEntries)
 	}
 
-	if err := mcpRepo.UpsertTool(ctx, &tools.ToolCatalogEntry{
+	if err := catalog.UpsertTool(ctx, &tools.ToolCatalogEntry{
 		MCPServerID:        "srv-1",
 		Name:               "mcp_native__offline",
 		DisplayName:        "offline",
@@ -230,7 +233,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	if nativeUnavailable == nil || nativeUnavailable.Success || nativeUnavailable.Blocked {
 		t.Fatalf("expected unavailable native tool to return operational error, got %#v", nativeUnavailable)
 	}
-	entries, err = mcpRepo.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
+	entries, err = catalog.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
 	if err != nil {
 		t.Fatalf("list tools after unavailable native test: %v", err)
 	}
@@ -247,7 +250,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 		t.Fatalf("expected unavailable native tool entry in catalog, got %#v", entries)
 	}
 
-	if err := mcpRepo.UpsertTool(ctx, &tools.ToolCatalogEntry{
+	if err := catalog.UpsertTool(ctx, &tools.ToolCatalogEntry{
 		MCPServerID:        "srv-1",
 		Name:               "mcp_jira__missing_tool",
 		DisplayName:        "missing_tool",
@@ -264,7 +267,7 @@ func TestAppTestToolDryRun_ResolvesMCPByServerAndToolName(t *testing.T) {
 	if missingRuntime == nil || missingRuntime.Success || missingRuntime.Error == "" {
 		t.Fatalf("expected missing runtime tool to return error result, got %#v", missingRuntime)
 	}
-	entries, err = mcpRepo.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
+	entries, err = catalog.ListTools(ctx, tools.ToolCatalogFilter{MCPServerID: "srv-1", IncludeUnavailable: true})
 	if err != nil {
 		t.Fatalf("list tools after missing runtime test: %v", err)
 	}
