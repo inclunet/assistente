@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"context"
+	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -56,99 +58,184 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 
 func workspaceInstructionsBlock() string {
 	return `<workspace_instructions>
-Use workspace deep links when referring to app resources that can be opened by the user.
-Supported forms include assistente://conversation/{id}, assistente://tasklist/{id}, assistente://terminal/{id}, assistente://editor/{id}, and assistente://navigate/{route}.
-When a deep link is useful, present it directly instead of inventing another navigation format.
+Use link= values as app deep links for any workspace resource. open_editor_file[...] entries are exact editor-open files: only read_file, write_file, edit_file, and grep_search may use those exact paths outside the workspace; structural operations, sensitive files, denylisted files, and active skill restrictions still apply.
 </workspace_instructions>`
 }
 
 func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string {
-	if req.WorkspaceName == "" && req.Surface == nil && req.TabCount == 0 {
+	if req.WorkspaceName == "" && req.Surface == nil && req.TabCount == 0 && len(req.Tabs) == 0 {
 		return ""
 	}
 	if budgetChars <= 0 {
 		budgetChars = defaultPromptBudget
 	}
-	var sb strings.Builder
-	sb.WriteString(workspaceContextPrefix)
-	sb.WriteString("Current workspace and active surface context. Treat this as dynamic state, not stable instructions.\n")
+	var required strings.Builder
+	required.WriteString(workspaceContextPrefix)
+	required.WriteString("Current workspace and active surface context. Treat this as dynamic state, not stable instructions.\n")
 	if req.WorkspaceName != "" {
-		sb.WriteString("- workspace: ")
-		sb.WriteString(sanitizeContextLine(req.WorkspaceName))
-		sb.WriteString("\n")
+		required.WriteString("- workspace: ")
+		required.WriteString(sanitizeContextLine(req.WorkspaceName))
+		required.WriteString("\n")
 	}
 	if req.TabCount > 0 {
-		sb.WriteString("- tab_count: ")
-		sb.WriteString(strconv.Itoa(req.TabCount))
-		sb.WriteString("\n")
+		required.WriteString("- tab_count: ")
+		required.WriteString(strconv.Itoa(req.TabCount))
+		required.WriteString("\n")
 	}
+	writeOpenEditorFiles(&required, req.Tabs)
+	writeSurfaceIdentity(&required, req.Surface)
+
+	var optional strings.Builder
+	writeSurfaceTransientContext(&optional, req.Surface)
 	for idx, tab := range req.Tabs {
-		sb.WriteString("- tab[")
-		sb.WriteString(strconv.Itoa(idx))
-		sb.WriteString("]: ")
+		optional.WriteString("- tab[")
+		optional.WriteString(strconv.Itoa(idx))
+		optional.WriteString("]: ")
 		if tab.IsActive {
-			sb.WriteString("active ")
+			optional.WriteString("active ")
 		}
-		sb.WriteString(sanitizeContextLine(tab.Type))
+		optional.WriteString(sanitizeContextLine(tab.Type))
 		if tab.Title != "" {
-			sb.WriteString(" ")
-			sb.WriteString(sanitizeContextLine(tab.Title))
+			optional.WriteString(" ")
+			optional.WriteString(sanitizeContextLine(tab.Title))
 		}
-		if tab.ContentID != "" {
-			sb.WriteString(" link=")
-			sb.WriteString(deepLinkForTab(tab.Type, tab.ContentID))
+		if linkTarget := tabLinkTarget(tab); linkTarget != "" {
+			optional.WriteString(" link=")
+			optional.WriteString(deepLinkForTab(tab.Type, linkTarget))
 		}
-		sb.WriteString("\n")
+		if label, value := tabStateReference(tab); label != "" && value != "" {
+			writeSafeMachineReference(&optional, label, value)
+		}
+		optional.WriteString("\n")
 	}
-	if req.Surface != nil {
-		if req.Surface.Type != "" {
-			sb.WriteString("- surface_type: ")
-			sb.WriteString(sanitizeContextLine(req.Surface.Type))
-			sb.WriteString("\n")
-		}
-		if req.Surface.Title != "" {
-			sb.WriteString("- surface_title: ")
-			sb.WriteString(sanitizeContextLine(req.Surface.Title))
-			sb.WriteString("\n")
-		}
-		if value := stringFromMap(req.Surface.State, "filePath"); value != "" {
-			sb.WriteString("- active_file: ")
-			sb.WriteString(sanitizeContextLine(value))
-			sb.WriteString("\n")
-		}
-		if value := stringFromMap(req.Surface.State, "tasklistId"); value != "" {
-			sb.WriteString("- active_tasklist: ")
-			sb.WriteString(sanitizeContextLine(value))
-			sb.WriteString("\n")
-		}
-		writeSurfaceValue(&sb, "active_terminal_session", req.Surface.State, "sessionId")
-		writeSurfaceValue(&sb, "selected_text", req.Surface.Context, "selectedText")
-		writeSurfaceValue(&sb, "history_preview", req.Surface.Context, "historyPreview")
-		writeSurfaceValue(&sb, "tasks_preview", req.Surface.Context, "tasksPreview")
-	}
-	return trimContextBlock(sb.String(), budgetChars)
+	return trimContextBlock(required.String(), optional.String(), budgetChars)
 }
 
-func trimContextBlock(content string, budgetChars int) string {
+func writeOpenEditorFiles(sb *strings.Builder, tabs []contextprovider.Tab) {
+	idx := 0
+	for _, tab := range tabs {
+		if strings.TrimSpace(tab.Type) != "editor" {
+			continue
+		}
+		filePath := firstNonEmpty(stringFromMap(tab.State, "filePath"), tab.ContentID)
+		if filePath == "" {
+			continue
+		}
+		filePath = filepath.Clean(filePath)
+		if !filepath.IsAbs(filePath) {
+			continue
+		}
+		if containsPromptStructureChars(filePath) {
+			continue
+		}
+		sb.WriteString("- open_editor_file[")
+		sb.WriteString(strconv.Itoa(idx))
+		sb.WriteString("]: ")
+		sb.WriteString(filePath)
+		sb.WriteString("\n")
+		idx++
+	}
+}
+
+func containsPromptStructureChars(value string) bool {
+	return strings.ContainsAny(value, "<>`\n\r")
+}
+
+func writeSurfaceIdentity(sb *strings.Builder, surface *contextprovider.Surface) {
+	if surface == nil {
+		return
+	}
+	if surface.Type != "" {
+		sb.WriteString("- surface_type: ")
+		sb.WriteString(sanitizeContextLine(surface.Type))
+		sb.WriteString("\n")
+	}
+	if surface.Title != "" {
+		sb.WriteString("- surface_title: ")
+		sb.WriteString(sanitizeContextLine(surface.Title))
+		sb.WriteString("\n")
+	}
+	if value := stringFromMap(surface.State, "filePath"); value != "" {
+		sb.WriteString("- active_file: ")
+		sb.WriteString(sanitizeContextLine(value))
+		sb.WriteString("\n")
+	}
+	if value := stringFromMap(surface.State, "tasklistId"); value != "" {
+		sb.WriteString("- active_tasklist: ")
+		sb.WriteString(sanitizeContextLine(value))
+		sb.WriteString("\n")
+	}
+	writeSurfaceValue(sb, "active_terminal_session", surface.State, "sessionId")
+}
+
+func writeSurfaceTransientContext(sb *strings.Builder, surface *contextprovider.Surface) {
+	if surface == nil {
+		return
+	}
+	writeSurfaceValue(sb, "selected_text", surface.Context, "selectedText")
+	writeSurfaceValue(sb, "history_preview", surface.Context, "historyPreview")
+	writeSurfaceValue(sb, "tasks_preview", surface.Context, "tasksPreview")
+}
+
+func writeSafeMachineReference(sb *strings.Builder, label string, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" || containsPromptStructureChars(value) {
+		return
+	}
+	sb.WriteString(" ")
+	sb.WriteString(label)
+	sb.WriteString("=")
+	sb.WriteString(value)
+}
+
+func trimContextBlock(requiredContent string, optionalContent string, budgetChars int) string {
+	requiredContent = strings.TrimRight(requiredContent, "\n")
+	optionalContent = strings.TrimSpace(optionalContent)
+	content := requiredContent
+	if optionalContent != "" {
+		content += "\n" + optionalContent
+	}
 	content = strings.TrimRight(content, "\n")
 	if runeLen(content)+runeLen(workspaceContextSuffix) <= budgetChars {
 		return content + workspaceContextSuffix
 	}
-	if runeLen(workspaceContextTruncationNotice)+runeLen(workspaceContextSuffix) >= budgetChars {
+	suffixLen := runeLen(workspaceContextTruncationNotice) + runeLen(workspaceContextSuffix)
+	if suffixLen >= budgetChars {
 		return ""
 	}
-	contentBudget := budgetChars - runeLen(workspaceContextTruncationNotice) - runeLen(workspaceContextSuffix)
+	contentBudget := budgetChars - suffixLen
 	if contentBudget <= runeLen(workspaceContextPrefix) {
 		return ""
 	}
-	runes := []rune(content)
-	if len(runes) > contentBudget {
-		content = strings.TrimSpace(string(runes[:contentBudget]))
-	}
+	content = trimToWholeLines(content, contentBudget)
 	if content == "" {
 		return ""
 	}
+	if !hasWorkspaceContextLine(content) {
+		return ""
+	}
 	return content + workspaceContextTruncationNotice + workspaceContextSuffix
+}
+
+func hasWorkspaceContextLine(content string) bool {
+	content = strings.TrimSpace(content)
+	if !strings.HasPrefix(content, strings.TrimSpace(workspaceContextPrefix)) {
+		return false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(content, strings.TrimSpace(workspaceContextPrefix)))
+	return rest != ""
+}
+
+func trimToWholeLines(content string, budgetChars int) string {
+	content = strings.TrimRight(content, "\n")
+	for content != "" && runeLen(content) > budgetChars {
+		idx := strings.LastIndex(content, "\n")
+		if idx < 0 {
+			return ""
+		}
+		content = strings.TrimRight(content[:idx], "\n")
+	}
+	return strings.TrimSpace(content)
 }
 
 func deepLinkForTab(tabType, contentID string) string {
@@ -160,10 +247,42 @@ func deepLinkForTab(tabType, contentID string) string {
 	case "terminal":
 		return "assistente://terminal/" + sanitizeContextLine(contentID)
 	case "editor":
-		return "assistente://editor/" + sanitizeContextLine(contentID)
+		return "assistente://editor/open?file=" + url.QueryEscape(strings.TrimSpace(contentID))
 	default:
 		return sanitizeContextLine(contentID)
 	}
+}
+
+func tabStateReference(tab contextprovider.Tab) (string, string) {
+	switch strings.TrimSpace(tab.Type) {
+	case "chat":
+		return "conversation", strings.TrimSpace(tab.ContentID)
+	case "editor":
+		return "file", firstNonEmpty(stringFromMap(tab.State, "filePath"), tab.ContentID)
+	case "terminal":
+		return "session", firstNonEmpty(stringFromMap(tab.State, "sessionId"), tab.ContentID)
+	case "tasklist":
+		return "tasklist", firstNonEmpty(stringFromMap(tab.State, "tasklistId"), tab.ContentID)
+	default:
+		return "", ""
+	}
+}
+
+func tabLinkTarget(tab contextprovider.Tab) string {
+	if trimmed := strings.TrimSpace(tab.ContentID); trimmed != "" {
+		return trimmed
+	}
+	_, value := tabStateReference(tab)
+	return value
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func writeSurfaceValue(sb *strings.Builder, label string, values map[string]any, key string) {
@@ -177,7 +296,7 @@ func writeSurfaceValue(sb *strings.Builder, label string, values map[string]any,
 }
 
 func sanitizeContextLine(value string) string {
-	return strings.NewReplacer("\n", " ", "\r", " ", "<", "", ">", "").Replace(strings.TrimSpace(value))
+	return strings.NewReplacer("\n", " ", "\r", " ", "<", "", ">", "", "`", "").Replace(strings.TrimSpace(value))
 }
 
 func stringFromMap(values map[string]any, key string) string {
