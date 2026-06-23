@@ -170,3 +170,20 @@ func TestPolicyPlanner_BudgetAcumuladoMultiplasIteracoes(t *testing.T) {
 		t.Fatalf("conjunto acumulado estourou o budget: %dB > %dB", total, cfg.SchemaBytesBudget)
 	}
 }
+
+// TestPolicyPlanner_DeduplicaDefsPorNome garante que defs com Function.Name
+// repetido (ex.: enabled_tools com nomes duplicados → FilterByNames preserva as
+// repetições) são deduplicadas pela 1ª ocorrência antes de orçar e de retornar.
+// Nomes repetidos no payload distorceriam o budget do planner e tendem a quebrar
+// o tool calling. Vale mesmo com budget ilimitado (caminho sem corte).
+func TestPolicyPlanner_DeduplicaDefsPorNome(t *testing.T) {
+	r := plannerRegistry()
+	policy := NewToolSelectionPolicy(r)
+
+	// read_file aparece duas vezes na seleção do perfil.
+	enabled := []string{"read_file", "read_file", "write_file"}
+
+	// Budget ilimitado (default): nada é cortado, mas a saída ainda é deduplicada.
+	got := defNames(policy.InitialToolDefs(ProfileToolConfig{EnabledTools: enabled}))
+	assertNames(t, "dedup com budget ilimitado", got, []string{"read_file", "write_file"})
+}

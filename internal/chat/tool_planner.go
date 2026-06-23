@@ -17,14 +17,20 @@ import (
 // candidatas a partir do registry/catálogo, invocamos o planner e remapeamos a
 // saída para []llm.ToolDefinition preservando a ordem de entrada.
 //
-// A resolução de conflito bridge×native (AEP-0021) permanece nos helpers
-// existentes (ApplyNativeMCP / filterToolNamesForNativeMCP); o planner apenas a
-// CONSOME via ToolCandidate.NativeServed e nunca a duplica.
+// A resolução de conflito bridge×native (AEP-0021) é feita UPSTREAM pelos
+// helpers existentes (ApplyNativeMCP no caminho nativo de PlanTurnToolDefs;
+// filterToolNamesForNativeMCP na expansão dinâmica): as bridges servidas via MCP
+// nativo são REMOVIDAS antes de o planner rodar. Por isso a integração do chat
+// não marca ToolCandidate.NativeServed (o planner nunca vê essas bridges aqui) e
+// não duplica a decisão tri-state. O planner mantém o suporte a NativeServed como
+// capacidade de biblioteca (coberta por testes em internal/toolcatalog).
 
 // applyPlanner aplica o ToolPlanner sobre uma lista de tool definitions já
-// resolvida pela política. Com budget ilimitado (default seguro) e sem conflito
-// nativo, o planner não corta nada e a saída é idêntica à entrada — garantindo
-// não-regressão para os perfis cujos schemas já cabem.
+// resolvida pela política. Antes de orçar, deduplica as defs por nome
+// (preservando a 1ª ocorrência): nomes repetidos distorceriam o budget e
+// tenderiam a quebrar o tool calling. Com budget ilimitado (default seguro) o
+// planner não corta nada e a saída preserva a ordem de entrada (deduplicada) —
+// garantindo não-regressão para os perfis cujos schemas já cabem.
 //
 // IMPORTANTE (AEP-0077 F4 / bugfix): o budget deve refletir os schemas de função
 // REALMENTE enviados ao LLM. Tools servidas via MCP nativo NÃO são enviadas como
@@ -35,16 +41,17 @@ import (
 //
 // surface rotula o caminho/superfície para a telemetria (ex.: "inicial",
 // "nativo", "adapter", "expansão").
-func (p *ToolSelectionPolicy) applyPlanner(defs []llm.ToolDefinition, cfg ProfileToolConfig, nativeServed map[string]struct{}, surface string) []llm.ToolDefinition {
+func (p *ToolSelectionPolicy) applyPlanner(defs []llm.ToolDefinition, cfg ProfileToolConfig, surface string) []llm.ToolDefinition {
 	if len(defs) == 0 {
 		return defs
 	}
+	defs = dedupToolDefs(defs)
 	plan := toolcatalog.PlannerConfig{
 		SchemaBytesBudget: cfg.SchemaBytesBudget,
 		PreferredPackages: cfg.PreferredPackages,
-	}.Plan(p.buildPlannerCandidates(defs, cfg, nativeServed))
+	}.Plan(p.buildPlannerCandidates(defs, cfg))
 
-	// Nada cortado: preserva identidade/ordem e evita log ruidoso.
+	// Nada cortado: preserva a ordem (deduplicada) e evita log ruidoso.
 	if plan.DroppedCount == 0 {
 		return defs
 	}
@@ -60,19 +67,40 @@ func (p *ToolSelectionPolicy) applyPlanner(defs []llm.ToolDefinition, cfg Profil
 	return out
 }
 
+// dedupToolDefs remove definições duplicadas por Function.Name preservando a
+// PRIMEIRA ocorrência (e a ordem de entrada). É necessário porque a montagem das
+// defs (ex.: Registry.FilterByNames) pode preservar nomes repetidos quando a
+// entrada tem duplicatas; nomes repetidos no payload distorceriam o budget do
+// planner e tendem a quebrar o tool calling.
+func dedupToolDefs(defs []llm.ToolDefinition) []llm.ToolDefinition {
+	seen := make(map[string]struct{}, len(defs))
+	out := make([]llm.ToolDefinition, 0, len(defs))
+	for _, d := range defs {
+		name := d.Function.Name
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, d)
+	}
+	return out
+}
+
 // buildPlannerCandidates monta as candidatas neutras do planner a partir das
 // tool definitions e dos metadados de catálogo (origem/pacote) do registry.
-func (p *ToolSelectionPolicy) buildPlannerCandidates(defs []llm.ToolDefinition, cfg ProfileToolConfig, nativeServed map[string]struct{}) []toolcatalog.ToolCandidate {
+func (p *ToolSelectionPolicy) buildPlannerCandidates(defs []llm.ToolDefinition, cfg ProfileToolConfig) []toolcatalog.ToolCandidate {
 	pinned := pinnedToolSet(cfg.EnabledTools)
 	cands := make([]toolcatalog.ToolCandidate, 0, len(defs))
 	for _, d := range defs {
-		cands = append(cands, p.plannerCandidate(d, pinned, nativeServed))
+		cands = append(cands, p.plannerCandidate(d, pinned))
 	}
 	return cands
 }
 
-// plannerCandidate monta a candidata neutra de uma única tool definition.
-func (p *ToolSelectionPolicy) plannerCandidate(d llm.ToolDefinition, pinned, nativeServed map[string]struct{}) toolcatalog.ToolCandidate {
+// plannerCandidate monta a candidata neutra de uma única tool definition. A
+// resolução bridge×native (AEP-0021) acontece upstream (ver comentário do
+// arquivo), então NativeServed não é marcado aqui.
+func (p *ToolSelectionPolicy) plannerCandidate(d llm.ToolDefinition, pinned map[string]struct{}) toolcatalog.ToolCandidate {
 	name := d.Function.Name
 	origin, pkg := p.toolOriginPackage(name)
 	c := toolcatalog.ToolCandidate{
@@ -84,9 +112,6 @@ func (p *ToolSelectionPolicy) plannerCandidate(d llm.ToolDefinition, pinned, nat
 	}
 	if _, ok := pinned[name]; ok {
 		c.ProfilePinned = true
-	}
-	if _, ok := nativeServed[name]; ok {
-		c.NativeServed = true
 	}
 	return c
 }
@@ -113,7 +138,7 @@ func (p *ToolSelectionPolicy) planAccumulatedToolDefs(active, newDefs []llm.Tool
 	combined = append(combined, active...)
 	candidates := make([]toolcatalog.ToolCandidate, 0, len(active)+len(newDefs))
 	for _, d := range active {
-		c := p.plannerCandidate(d, pinned, nil)
+		c := p.plannerCandidate(d, pinned)
 		c.Locked = true
 		candidates = append(candidates, c)
 	}
@@ -131,7 +156,7 @@ func (p *ToolSelectionPolicy) planAccumulatedToolDefs(active, newDefs []llm.Tool
 		}
 		activeNames[name] = struct{}{}
 		combined = append(combined, d)
-		candidates = append(candidates, p.plannerCandidate(d, pinned, nil))
+		candidates = append(candidates, p.plannerCandidate(d, pinned))
 	}
 
 	plan := toolcatalog.PlannerConfig{

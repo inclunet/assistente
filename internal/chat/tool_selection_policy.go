@@ -84,7 +84,7 @@ func (p *ToolSelectionPolicy) rawInitialToolDefs(cfg ProfileToolConfig) []llm.To
 // Para o pipeline de envio, prefira PlanTurnToolDefs, que resolve native×adapter
 // e aplica o planner ao conjunto FINAL de cada caminho na ordem correta.
 func (p *ToolSelectionPolicy) InitialToolDefs(cfg ProfileToolConfig) []llm.ToolDefinition {
-	return p.applyPlanner(p.rawInitialToolDefs(cfg), cfg, nil, "inicial")
+	return p.applyPlanner(p.rawInitialToolDefs(cfg), cfg, "inicial")
 }
 
 // PlanTurnToolDefs resolve os conjuntos FINAIS de tools do turno aplicando a
@@ -105,10 +105,10 @@ func (p *ToolSelectionPolicy) InitialToolDefs(cfg ProfileToolConfig) []llm.ToolD
 func (p *ToolSelectionPolicy) PlanTurnToolDefs(streamer llm.ChatProvider, mcpMgr NativeMCPManager, cfg ProfileToolConfig) (nativeStreamer llm.ChatProvider, nativeDefs, adapterDefs []llm.ToolDefinition) {
 	raw := p.rawInitialToolDefs(cfg)
 	// Adapter: bridges contam no budget (são enviadas como function schemas).
-	adapterDefs = p.applyPlanner(raw, cfg, nil, "adapter")
+	adapterDefs = p.applyPlanner(raw, cfg, "adapter")
 	// Nativo: remove as bridges nativas ANTES de orçar (passthrough não consome budget).
 	nativeStreamer, reduced := applyNativeMCP(streamer, raw, mcpMgr, cfg.EnabledTools, cfg.DisableTools, cfg.NativeMCP)
-	nativeDefs = p.applyPlanner(reduced, cfg, nil, "nativo")
+	nativeDefs = p.applyPlanner(reduced, cfg, "nativo")
 	return nativeStreamer, nativeDefs, adapterDefs
 }
 
