@@ -121,18 +121,25 @@ func (p *ToolSelectionPolicy) ApplyNativeMCP(streamer llm.ChatProvider, toolDefs
 }
 
 // ResolveExpandedToolDefs é o ponto único da EXPANSÃO DINÂMICA: dada a lista de
-// tools selecionadas em runtime (ex.: retorno do tool_catalog), aplica o
-// allowlist do perfil, remove opt-ins quando o perfil não fixa tools, resolve
-// bridge×native e devolve as tool definitions resultantes. Substitui o callback
-// que antes era duplicado no use case de envio (caminho principal e fallback
-// adapter), diferindo apenas no streamer e no override de MCP nativo.
-func (p *ToolSelectionPolicy) ResolveExpandedToolDefs(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, cfg ProfileToolConfig) []llm.ToolDefinition {
+// tools já ATIVAS no turno (active) e a lista de tools selecionadas em runtime
+// (names, ex.: retorno do tool_catalog), aplica o allowlist do perfil, remove
+// opt-ins quando o perfil não fixa tools, resolve bridge×native e devolve o
+// conjunto ACUMULADO final de tool definitions (ativas preservadas + novas que
+// couberam no budget). Substitui o callback que antes era duplicado no use case
+// de envio (caminho principal e fallback adapter), diferindo apenas no streamer
+// e no override de MCP nativo.
+//
+// O budget de schema bytes (AEP-0077 F4) vale para o conjunto ACUMULADO — as
+// ativas são travadas (preservadas e consumindo budget primeiro) e as novas só
+// entram no orçamento remanescente. O loop agêntico passa aqui as activeToolDefs
+// correntes e usa o retorno como novo conjunto acumulado.
+func (p *ToolSelectionPolicy) ResolveExpandedToolDefs(streamer llm.ChatProvider, mcpMgr NativeMCPManager, active []llm.ToolDefinition, names []string, cfg ProfileToolConfig) []llm.ToolDefinition {
 	names = p.filterExpandedToolNames(names, cfg.EnabledTools, cfg.DisableTools)
 	// O filtro nativo já remove aqui as bridges servidas via passthrough, então o
 	// planner orça apenas os schemas realmente enviados como função.
 	names = filterToolNamesForNativeMCP(streamer, mcpMgr, names, cfg.DisableTools, cfg.NativeMCP)
-	defs := p.buildLLMToolDefsByNames(names, cfg.DisableTools)
-	return p.applyPlanner(defs, cfg, nil, "expansão")
+	newDefs := p.buildLLMToolDefsByNames(names, cfg.DisableTools)
+	return p.planAccumulatedToolDefs(active, newDefs, cfg)
 }
 
 // ---------------------------------------------------------------------------

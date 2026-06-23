@@ -66,24 +66,84 @@ func (p *ToolSelectionPolicy) buildPlannerCandidates(defs []llm.ToolDefinition, 
 	pinned := pinnedToolSet(cfg.EnabledTools)
 	cands := make([]toolcatalog.ToolCandidate, 0, len(defs))
 	for _, d := range defs {
-		name := d.Function.Name
-		origin, pkg := p.toolOriginPackage(name)
-		c := toolcatalog.ToolCandidate{
-			Name:        name,
-			SchemaBytes: len(d.Function.Parameters),
-			Origin:      origin,
-			Package:     pkg,
-			Essential:   name == tools.ToolCatalogName || name == tools.LoadSkillName,
-		}
-		if _, ok := pinned[name]; ok {
-			c.ProfilePinned = true
-		}
-		if _, ok := nativeServed[name]; ok {
-			c.NativeServed = true
-		}
-		cands = append(cands, c)
+		cands = append(cands, p.plannerCandidate(d, pinned, nativeServed))
 	}
 	return cands
+}
+
+// plannerCandidate monta a candidata neutra de uma única tool definition.
+func (p *ToolSelectionPolicy) plannerCandidate(d llm.ToolDefinition, pinned, nativeServed map[string]struct{}) toolcatalog.ToolCandidate {
+	name := d.Function.Name
+	origin, pkg := p.toolOriginPackage(name)
+	c := toolcatalog.ToolCandidate{
+		Name:        name,
+		SchemaBytes: len(d.Function.Parameters),
+		Origin:      origin,
+		Package:     pkg,
+		Essential:   name == tools.ToolCatalogName || name == tools.LoadSkillName,
+	}
+	if _, ok := pinned[name]; ok {
+		c.ProfilePinned = true
+	}
+	if _, ok := nativeServed[name]; ok {
+		c.NativeServed = true
+	}
+	return c
+}
+
+// planAccumulatedToolDefs aplica o ToolPlanner ao conjunto ACUMULADO do turno:
+// as tools já ATIVAS (enviadas em iterações anteriores) são travadas — sempre
+// preservadas e consumindo budget primeiro — e as NOVAS candidatas (delta da
+// expansão via tool_catalog) só entram no orçamento REMANESCENTE, de forma
+// determinística. Assim o teto de schema bytes vale para o total realmente
+// enviado ao LLM, e não apenas para o delta recém-expandido.
+//
+// Retorna o conjunto acumulado final (ativas preservadas em ordem + novas que
+// couberam, na ordem de entrada). Com budget ilimitado (default), o resultado é
+// idêntico ao append determinístico anterior (ativas + novas deduplicadas).
+func (p *ToolSelectionPolicy) planAccumulatedToolDefs(active, newDefs []llm.ToolDefinition, cfg ProfileToolConfig) []llm.ToolDefinition {
+	pinned := pinnedToolSet(cfg.EnabledTools)
+
+	activeNames := make(map[string]struct{}, len(active))
+	for _, d := range active {
+		activeNames[d.Function.Name] = struct{}{}
+	}
+
+	combined := make([]llm.ToolDefinition, 0, len(active)+len(newDefs))
+	combined = append(combined, active...)
+	candidates := make([]toolcatalog.ToolCandidate, 0, len(active)+len(newDefs))
+	for _, d := range active {
+		c := p.plannerCandidate(d, pinned, nil)
+		c.Locked = true
+		candidates = append(candidates, c)
+	}
+	for _, d := range newDefs {
+		if _, dup := activeNames[d.Function.Name]; dup {
+			continue // já travada como ativa; evita duplicar
+		}
+		combined = append(combined, d)
+		candidates = append(candidates, p.plannerCandidate(d, pinned, nil))
+	}
+
+	plan := toolcatalog.PlannerConfig{
+		SchemaBytesBudget: cfg.SchemaBytesBudget,
+		PreferredPackages: cfg.PreferredPackages,
+	}.Plan(candidates)
+
+	// Nada cortado (inclui budget ilimitado): preserva o acumulado deduplicado.
+	if plan.DroppedCount == 0 {
+		return combined
+	}
+
+	log.Printf("[chat] ToolPlanner (acumulado): %s", plan.LogLine())
+	selected := plan.SelectedSet()
+	out := make([]llm.ToolDefinition, 0, len(plan.Selected))
+	for _, d := range combined {
+		if _, ok := selected[d.Function.Name]; ok {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // toolOriginPackage resolve origem e pacote de catálogo de uma tool pelo nome.

@@ -41,12 +41,13 @@ const (
 
 // Tiers de ranking (quanto MENOR, mais relevante e mais protegido do corte).
 const (
-	rankEssential     = 0 // tool_catalog, load_skill: nunca cortadas
-	rankProfilePinned = 1 // listadas explicitamente no enabled_tools do perfil
-	rankPreferredPkg  = 2 // pacotes marcados como preferenciais para o perfil
-	rankBuiltin       = 3 // demais builtins essenciais da aplicação
-	rankMCPBridge     = 4 // tools de pontes MCP
-	rankOther         = 5 // origem desconhecida / fallback
+	rankLocked        = -1 // já ativas no turno (reservam budget antes das novas)
+	rankEssential     = 0  // tool_catalog, load_skill: nunca cortadas
+	rankProfilePinned = 1  // listadas explicitamente no enabled_tools do perfil
+	rankPreferredPkg  = 2  // pacotes marcados como preferenciais para o perfil
+	rankBuiltin       = 3  // demais builtins essenciais da aplicação
+	rankMCPBridge     = 4  // tools de pontes MCP
+	rankOther         = 5  // origem desconhecida / fallback
 )
 
 // ToolCandidate descreve, de forma neutra (sem depender de llm/chat), uma tool
@@ -67,6 +68,12 @@ type ToolCandidate struct {
 	// nativo elegível (AEP-0021). A DECISÃO de habilitar nativo é tomada upstream;
 	// aqui apenas deduplicamos de forma determinística.
 	NativeServed bool
+	// Locked indica que a tool JÁ ESTÁ ativa no turno (já foi enviada ao LLM em
+	// iterações anteriores). Tools travadas são sempre mantidas e consumem budget
+	// ANTES das novas candidatas, de modo que o teto valha para o conjunto
+	// ACUMULADO do turno (e não só para o delta recém-expandido). Nunca são
+	// cortadas nem reordenadas para fora da seleção.
+	Locked bool
 }
 
 // PlannerConfig parametriza a decisão do planner por perfil/superfície.
@@ -203,12 +210,14 @@ func (cfg PlannerConfig) Plan(candidates []ToolCandidate) Plan {
 		}
 
 		switch {
-		case rc.cand.NativeServed && !rc.cand.Essential:
+		case rc.cand.NativeServed && !rc.cand.Essential && !rc.cand.Locked:
 			// Conflito bridge×native: nativo prevalece (AEP-0021).
 			item.Included = false
 			item.Reason = PlanReasonNativeConflict
-		case rc.cand.Essential || unlimited:
-			// Essenciais nunca são cortadas; budget ilimitado inclui tudo.
+		case rc.cand.Locked || rc.cand.Essential || unlimited:
+			// Travadas (já ativas) e essenciais nunca são cortadas; ordenadas
+			// antes das novas (rankLocked/rankEssential), reservam o budget que
+			// consomem. Budget ilimitado inclui tudo.
 			item.Included = true
 			item.Reason = PlanReasonSelected
 			used += rc.cand.SchemaBytes
@@ -244,6 +253,9 @@ func (cfg PlannerConfig) Plan(candidates []ToolCandidate) Plan {
 
 // rankFor calcula o tier de relevância de uma candidata (determinístico).
 func rankFor(c ToolCandidate, preferred map[string]struct{}) int {
+	if c.Locked {
+		return rankLocked
+	}
 	if c.Essential {
 		return rankEssential
 	}

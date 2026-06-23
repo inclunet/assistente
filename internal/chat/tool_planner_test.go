@@ -86,7 +86,7 @@ func TestPolicyPlanner_ExpansaoComBudget(t *testing.T) {
 	// enabled nil (catálogo dinâmico) → tools não-pinned; budget 60 cabe 2 (tier
 	// builtin, alfabético): grep_search e read_file entram, write_file corta.
 	names := []string{"read_file", "write_file", "grep_search"}
-	got := defNames(policy.ResolveExpandedToolDefs(nil, nil, names, ProfileToolConfig{SchemaBytesBudget: 60}))
+	got := defNames(policy.ResolveExpandedToolDefs(nil, nil, nil, names, ProfileToolConfig{SchemaBytesBudget: 60}))
 	assertNames(t, "expansão sob budget", got, []string{"grep_search", "read_file"})
 }
 
@@ -125,5 +125,45 @@ func TestPolicyPlanner_NativeBridgeNaoConsomeBudget(t *testing.T) {
 	// budget; o corte determinístico aqui é comportamento esperado do adapter.
 	if len(adapterDefs) != 1 {
 		t.Fatalf("adapter deveria orçar com a bridge presente (1 tool sob budget 50), got %#v", defNames(adapterDefs))
+	}
+}
+
+// TestPolicyPlanner_BudgetAcumuladoMultiplasIteracoes é a regressão do 2º bug de
+// ALTA severidade do PR #322: o budget deve valer para o conjunto ACUMULADO de
+// tool defs do turno (que o loop agêntico acumula a cada expansão do
+// tool_catalog), não só para o delta recém-expandido. Tools já ativas são
+// preservadas (consumindo budget) e só as novas candidatas competem pelo
+// orçamento remanescente.
+func TestPolicyPlanner_BudgetAcumuladoMultiplasIteracoes(t *testing.T) {
+	r := tools.NewRegistry()
+	r.MustRegister(toolWithSchema(tools.ToolCatalogName, 30))
+	for _, n := range []string{"read_file", "write_file", "grep_search", "list_dir"} {
+		r.MustRegister(toolWithSchema(n, 30))
+	}
+	policy := NewToolSelectionPolicy(r)
+	cfg := ProfileToolConfig{SchemaBytesBudget: 120} // cabe 4 schemas de 30 bytes
+
+	// Início do turno: só o tool_catalog (gateado pelo catálogo).
+	active := policy.InitialToolDefs(cfg)
+	assertNames(t, "inicial", defNames(active), []string{tools.ToolCatalogName})
+
+	// Iteração 1: expande read_file + write_file — total 90B, cabe.
+	active = policy.ResolveExpandedToolDefs(nil, nil, active, []string{"read_file", "write_file"}, cfg)
+	assertNames(t, "iter1", defNames(active), []string{tools.ToolCatalogName, "read_file", "write_file"})
+
+	// Iteração 2: tenta grep_search + list_dir. Acumulado já em 90B; só 1 nova
+	// cabe (120B). grep_search vence (alfabético); list_dir é cortada por budget.
+	active = policy.ResolveExpandedToolDefs(nil, nil, active, []string{"grep_search", "list_dir"}, cfg)
+	assertNames(t, "iter2 respeita budget acumulado", defNames(active),
+		[]string{tools.ToolCatalogName, "read_file", "write_file", "grep_search"})
+
+	// O conjunto ACUMULADO total nunca estoura o teto, e as já-ativas/essenciais
+	// foram preservadas.
+	total := 0
+	for _, d := range active {
+		total += len(d.Function.Parameters)
+	}
+	if total > cfg.SchemaBytesBudget {
+		t.Fatalf("conjunto acumulado estourou o budget: %dB > %dB", total, cfg.SchemaBytesBudget)
 	}
 }

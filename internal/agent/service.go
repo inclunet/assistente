@@ -158,7 +158,7 @@ func (s *Service) RunAgenticLoop(
 	streamer llm.Streamer,
 	surfaceOrigin *ports.ChatSurfaceOrigin,
 	newHandler func(conversationID string, iteration int) IterationHandler,
-	resolveToolDefs func([]string) []llm.ToolDefinition,
+	resolveToolDefs func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition,
 	streamingRecoveryEnabled bool,
 	streamingRecoveryMaxAttempts int,
 ) {
@@ -773,12 +773,14 @@ func appendUniqueToolDefs(existing []llm.ToolDefinition, additions ...llm.ToolDe
 func expandToolDefsFromCatalogResults(
 	existing []llm.ToolDefinition,
 	results []tools.ToolExecutionResult,
-	resolveToolDefs func([]string) []llm.ToolDefinition,
+	resolveToolDefs func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition,
 ) []llm.ToolDefinition {
 	if resolveToolDefs == nil {
 		return existing
 	}
-	return appendUniqueToolDefs(existing, resolveToolDefs(selectedToolsFromCatalog(results))...)
+	// resolveToolDefs orça o conjunto ACUMULADO (ativas + novas) via ToolPlanner e
+	// já devolve o resultado final do turno — sem novo append/dedup aqui.
+	return resolveToolDefs(existing, selectedToolsFromCatalog(results))
 }
 
 func applyLoadedSkillExecutionContext(ctx context.Context, results []tools.ToolExecutionResult, emitter events.Emitter, conversationID, turnID string, surfaceOrigin *ports.ChatSurfaceOrigin) context.Context {

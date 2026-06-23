@@ -351,8 +351,8 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		params.NativeMCPFallback = &llm.NativeMCPAdapterFallback{
 			Streamer: adapterStreamer,
 			ToolDefs: adapterToolDefs,
-			ResolveToolDefs: func(names []string) []llm.ToolDefinition {
-				return toolPolicy.ResolveExpandedToolDefs(adapterStreamer, uc.mcpMgr, names, adapterToolCfg)
+			ResolveToolDefs: func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition {
+				return toolPolicy.ResolveExpandedToolDefs(adapterStreamer, uc.mcpMgr, active, names, adapterToolCfg)
 			},
 		}
 	}
@@ -392,8 +392,8 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				func(convID string, iter int) agent.IterationHandler {
 					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter, surfaceOrigin, userMsg.ID)
 				},
-				func(names []string) []llm.ToolDefinition {
-					return toolPolicy.ResolveExpandedToolDefs(requestStreamer, uc.mcpMgr, names, toolCfg)
+				func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition {
+					return toolPolicy.ResolveExpandedToolDefs(requestStreamer, uc.mcpMgr, active, names, toolCfg)
 				},
 				recoveryEnabled,
 				recoveryMaxAttempts,

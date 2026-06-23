@@ -44,14 +44,16 @@ func TestExpandToolDefsFromCatalogResults(t *testing.T) {
 			},
 		},
 	}
-	expanded := expandToolDefsFromCatalogResults(existing, results, func(names []string) []llm.ToolDefinition {
+	expanded := expandToolDefsFromCatalogResults(existing, results, func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition {
 		if len(names) != 2 || names[0] != "read_file" || names[1] != "grep_search" {
 			t.Fatalf("resolver received names = %#v", names)
 		}
-		return []llm.ToolDefinition{
-			{Function: llm.FunctionDefinition{Name: "read_file"}},
-			{Function: llm.FunctionDefinition{Name: "grep_search"}},
-		}
+		// O resolver agora devolve o conjunto ACUMULADO (ativas + novas).
+		out := append([]llm.ToolDefinition{}, active...)
+		return append(out,
+			llm.ToolDefinition{Function: llm.FunctionDefinition{Name: "read_file"}},
+			llm.ToolDefinition{Function: llm.FunctionDefinition{Name: "grep_search"}},
+		)
 	})
 	if len(expanded) != 3 {
 		t.Fatalf("expanded len = %d, want 3: %#v", len(expanded), expanded)
