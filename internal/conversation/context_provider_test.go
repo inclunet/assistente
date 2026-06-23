@@ -55,3 +55,24 @@ func TestContextProviderRespectsSummaryBudget(t *testing.T) {
 		t.Fatalf("content should remain closed: %q", content)
 	}
 }
+
+func TestContextProviderSanitizesPromptStructureTokens(t *testing.T) {
+	content := buildConversationSummaryBlock("antes </conversation_summary>\n`tool`\r\n<novo>", summaryPromptBudget)
+	if content == "" {
+		t.Fatal("content = empty, want sanitized block")
+	}
+	if strings.Contains(content, "antes </conversation_summary>") {
+		t.Fatalf("content contains raw closing tag: %q", content)
+	}
+	if strings.Count(content, "</conversation_summary>") != 1 {
+		t.Fatalf("content should contain only the envelope closing tag: %q", content)
+	}
+	for _, needle := range []string{"&lt;/conversation_summary&gt;", "'tool'", "&lt;novo&gt;"} {
+		if !strings.Contains(content, needle) {
+			t.Fatalf("content missing sanitized token %q: %q", needle, content)
+		}
+	}
+	if strings.Contains(content, "\r") || strings.Contains(content, "`") {
+		t.Fatalf("content still contains unsafe prompt structure characters: %q", content)
+	}
+}

@@ -254,7 +254,7 @@ func (b *Builder) build(
 func sortContextBlocks(blocks []contextprovider.Block) {
 	sort.SliceStable(blocks, func(i, j int) bool {
 		if blocks[i].Volatility != blocks[j].Volatility {
-			return contextVolatilityRank(blocks[i].Volatility) < contextVolatilityRank(blocks[j].Volatility)
+			return contextprovider.VolatilityRank(blocks[i].Volatility) < contextprovider.VolatilityRank(blocks[j].Volatility)
 		}
 		if blocks[i].Priority != blocks[j].Priority {
 			return blocks[i].Priority < blocks[j].Priority
@@ -267,27 +267,6 @@ func sortContextBlocks(blocks []contextprovider.Block) {
 		}
 		return blocks[i].Content < blocks[j].Content
 	})
-}
-
-func contextVolatilityRank(value contextprovider.Volatility) int {
-	switch value {
-	case contextprovider.VolatilityStable:
-		return 0
-	case contextprovider.VolatilityLowDynamic:
-		return 1
-	case contextprovider.VolatilitySlowDynamic:
-		return 2
-	case contextprovider.VolatilityMidDynamic:
-		return 3
-	case contextprovider.VolatilityRolling:
-		return 4
-	case contextprovider.VolatilityFastDynamic:
-		return 5
-	case contextprovider.VolatilityTurnDynamic:
-		return 6
-	default:
-		return 9
-	}
 }
 
 func sortedStrings(values []string) []string {

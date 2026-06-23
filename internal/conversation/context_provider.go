@@ -9,6 +9,13 @@ import (
 
 const summaryPromptBudget = 12000
 
+var summaryContentReplacer = strings.NewReplacer(
+	"<", "&lt;",
+	">", "&gt;",
+	"`", "'",
+	"\r", "",
+)
+
 type ContextProvider struct{}
 
 func NewContextProvider() *ContextProvider {
@@ -43,7 +50,7 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 }
 
 func buildConversationSummaryBlock(summary string, budgetChars int) string {
-	summary = strings.TrimSpace(summary)
+	summary = sanitizeConversationSummary(summary)
 	if summary == "" {
 		return ""
 	}
@@ -64,6 +71,10 @@ func buildConversationSummaryBlock(summary string, budgetChars int) string {
 		return ""
 	}
 	return prefix + summary + suffix
+}
+
+func sanitizeConversationSummary(summary string) string {
+	return strings.TrimSpace(summaryContentReplacer.Replace(strings.TrimSpace(summary)))
 }
 
 func runeLen(value string) int {
