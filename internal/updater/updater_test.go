@@ -149,6 +149,81 @@ func TestCheckForUpdates_AlreadyUpToDate(t *testing.T) {
 	}
 }
 
+func TestCheckForUpdates_NormalizesTagPrefixForComparison(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := getBuildKeyForTest()
+		response := createGitHubReleaseResponse(
+			"v1.0.0",
+			"",
+			[]string{key},
+		)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	u := New("1.0.0", &credentials.Manager{})
+	u.githubAPIURL = server.URL + "/releases/latest"
+
+	info, err := u.CheckForUpdates(context.Background())
+	if err != nil {
+		t.Fatalf("esperado sucesso, got erro: %v", err)
+	}
+	if info.Available {
+		t.Error("esperado Available=false quando tag v1.0.0 e AppVersion 1.0.0 representam a mesma versão")
+	}
+	if info.LatestVersion != "v1.0.0" {
+		t.Errorf("LatestVersion deve preservar tag_name original, got %q", info.LatestVersion)
+	}
+}
+
+func TestCheckForUpdates_UsesDesktopAssetNotCLIAsset(t *testing.T) {
+	key := getBuildKeyForTest()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"tag_name":     "v2.0.0",
+			"published_at": "2024-03-18T10:30:00Z",
+			"body":         "",
+			"assets": []map[string]interface{}{
+				{
+					"name":                 "asst-" + key,
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/asst-" + key,
+					"size":                 int64(111),
+				},
+				{
+					"name":                 "assistente-" + key + "-installer.exe",
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/assistente-" + key + "-installer.exe",
+					"size":                 int64(222),
+				},
+				{
+					"name":                 "assistente-" + key + ".sha256",
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/assistente-" + key + ".sha256",
+					"size":                 int64(333),
+				},
+				{
+					"name":                 "assistente-" + key + ".exe",
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/assistente-" + key + ".exe",
+					"size":                 int64(444),
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	u := New("v1.0.0", &credentials.Manager{})
+	u.githubAPIURL = server.URL + "/releases/latest"
+
+	info, err := u.CheckForUpdates(context.Background())
+	if err != nil {
+		t.Fatalf("esperado sucesso, got erro: %v", err)
+	}
+	if info.DownloadSize != 444 {
+		t.Errorf("esperado asset desktop assistente-* com size 444, got %d", info.DownloadSize)
+	}
+}
+
 // TestCheckForUpdates_NetworkError testa erro de rede
 func TestCheckForUpdates_NetworkError(t *testing.T) {
 	u := New("v1.0.0", &credentials.Manager{})
@@ -327,17 +402,17 @@ func TestVerifyChecksum_ValidSHA256(t *testing.T) {
 	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
-	
+
 	// Calcula SHA256 correto do conteúdo
 	hash := sha256.Sum256(content)
 	correctHash := "sha256:" + hex.EncodeToString(hash[:])
-	
+
 	file, err := os.Open(tmpfile.Name())
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
 	defer func() { _ = file.Close() }()
-	
+
 	err = u.verifyChecksum(file, correctHash)
 
 	if err != nil {
@@ -357,13 +432,13 @@ func TestVerifyChecksum_MismatchedHash(t *testing.T) {
 	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
-	
+
 	file, err := os.Open(tmpfile.Name())
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
 	defer func() { _ = file.Close() }()
-	
+
 	err = u.verifyChecksum(file, "sha256:0000000000000000000000000000000000000000000000000000000000000000")
 
 	if err == nil {
@@ -386,13 +461,13 @@ func TestVerifyChecksum_InvalidFormat(t *testing.T) {
 	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
-	
+
 	file, err := os.Open(tmpfile.Name())
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
 	defer func() { _ = file.Close() }()
-	
+
 	err = u.verifyChecksum(file, "invalid-format-no-colon")
 
 	if err == nil {
@@ -412,13 +487,13 @@ func TestVerifyChecksum_UnsupportedAlgorithm(t *testing.T) {
 	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
-	
+
 	file, err := os.Open(tmpfile.Name())
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
 	defer func() { _ = file.Close() }()
-	
+
 	err = u.verifyChecksum(file, "md5:abcdef123456")
 
 	if err == nil {
@@ -438,13 +513,13 @@ func TestVerifyChecksum_NoChecksum(t *testing.T) {
 	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
-	
+
 	file, err := os.Open(tmpfile.Name())
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
 	defer func() { _ = file.Close() }()
-	
+
 	err = u.verifyChecksum(file, "")
 
 	// Checksum vazio não deve erro (opcional)
@@ -468,7 +543,7 @@ func TestIsInstalledVersion(t *testing.T) {
 	if err != nil {
 		t.Skipf("não foi possível obter caminho do executável: %v", err)
 	}
-	
+
 	result := u.isInstalledVersion()
 	// Em ambiente de teste, raramente será em Program Files
 	// Apenas validar que retorna bool
@@ -635,7 +710,7 @@ func TestApplyUpdate_NoCompatibleBuild(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Retorna release com versão igual (não há update)
 		response := createGitHubReleaseResponse(
-			"v1.0.0",  // mesma versão, sem update
+			"v1.0.0", // mesma versão, sem update
 			"",
 			[]string{"windows-amd64"},
 		)
@@ -703,12 +778,12 @@ func createGitHubReleaseResponse(version, notes string, platforms []string) map[
 	assets := make([]map[string]interface{}, len(platforms))
 	for i, platform := range platforms {
 		assets[i] = map[string]interface{}{
-			"name":                   "assistente-" + platform + ".exe",
-			"browser_download_url":   "https://github.com/inclunet/assistente/releases/download/" + version + "/assistente-" + platform + ".exe",
-			"size":                   int64(50000000),
+			"name":                 "assistente-" + platform + ".exe",
+			"browser_download_url": "https://github.com/inclunet/assistente/releases/download/" + version + "/assistente-" + platform + ".exe",
+			"size":                 int64(50000000),
 		}
 	}
-	
+
 	return map[string]interface{}{
 		"tag_name":     version,
 		"published_at": "2024-03-18T10:30:00Z",

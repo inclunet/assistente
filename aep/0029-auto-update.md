@@ -17,7 +17,8 @@ A arquitetura original previa publicar um manifest estático em GitHub Pages. A 
 - A fonte de atualização é a API de GitHub Releases, via `GitHubAPIURL`.
 - O workflow `.github/workflows/release.yml` é acionado por `release.created`, executa testes/builds, consolida assets e anexa os arquivos ao release existente.
 - `fetchManifest()` adapta `tag_name`, `published_at`, `body` e `assets` da API para o `Manifest` interno usado por `CheckForUpdates()` e `ApplyUpdate()`.
-- O app detecta a plataforma com `getBuildKey()` e seleciona assets por nomes como `assistente-windows-amd64.exe`, `assistente-linux-amd64`, `assistente-darwin-amd64` e `assistente-darwin-arm64`.
+- A comparação de versão normaliza o prefixo `v` apenas para comparação, permitindo tag `v1.0.1` e `AppVersion` `1.0.1` sem falso positivo de update.
+- O app detecta a plataforma com `getBuildKey()` e seleciona apenas assets desktop com prefixo `assistente-`, como `assistente-windows-amd64.exe`, `assistente-linux-amd64`, `assistente-darwin-amd64` e `assistente-darwin-arm64`. Assets CLI `asst-*`, checksums, instaladores, `.dmg` e `.AppImage` não entram no manifest interno de atualização in-place.
 - No Windows instalado em `Program Files`, a atualização usa o instalador NSIS publicado no release e solicita elevação via UAC.
 - No Windows portátil, Linux e macOS, a atualização in-place ainda usa `github.com/inconshreveable/go-update`.
 - Checksums são publicados como assets (`checksums.txt`), mas a verificação automática só ocorre quando o campo `Checksum` do `Manifest` interno estiver preenchido. A integração automática com `checksums.txt` permanece como melhoria futura.
@@ -25,7 +26,7 @@ A arquitetura original previa publicar um manifest estático em GitHub Pages. A 
 
 ## Fases
 
-1. Criar ou publicar um GitHub Release com tag semântica (`vX.Y.Z`).
+1. Criar ou publicar um GitHub Release com tag semântica (`vX.Y.Z` é aceito; o updater normaliza `v` na comparação).
 2. O workflow `Release` roda testes, builds desktop/CLI e geração de checksums.
 3. O job final faz upload dos assets consolidados para o GitHub Release existente.
 4. O aplicativo consulta periodicamente o release mais recente pela API do GitHub.
@@ -56,7 +57,7 @@ flowchart TD
 
 ## Riscos
 
-- A seleção de assets depende de convenções de nome; mudanças no workflow precisam preservar os padrões usados por `fetchManifest()`, `applyUpdateWindowsInstaller()` e `applyUpdateWindowsPortable()`.
+- A seleção de assets depende de convenções de nome; mudanças no workflow precisam preservar os padrões usados por `fetchManifest()`, `applyUpdateWindowsInstaller()` e `applyUpdateWindowsPortable()`, especialmente o prefixo desktop `assistente-`.
 - Releases privadas exigem token configurado via `SetGitHubToken()`.
 - A ausência de checksum automático no `Manifest` interno reduz a validação de integridade nos fluxos in-place até que `checksums.txt` seja consumido pelo updater.
 - `go-update` é uma dependência antiga e deve ser substituída se o updater passar por uma revisão funcional maior.

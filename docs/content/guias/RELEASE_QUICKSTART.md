@@ -26,6 +26,8 @@ gh auth login
 
 Se preferir, o release também pode ser criado pela interface web do GitHub.
 
+Use tags semânticas como `v1.0.1`. O workflow injeta `AppVersion` sem o prefixo `v`, e o updater normaliza esse prefixo apenas na comparação para evitar falso update na mesma versão.
+
 ### 4. Commitar alterações da versão
 ```bash
 git checkout main
@@ -53,6 +55,8 @@ GitHub Actions vai:
 - Buildar CLI e app desktop
 - Gerar checksums
 - Anexar os assets ao GitHub Release criado
+
+Para o auto-update, os assets desktop precisam manter o prefixo `assistente-`, como `assistente-windows-amd64.exe` e `assistente-linux-amd64`. Assets da CLI usam `asst-*` e não são selecionados pelo updater.
 
 Aguarde ~10-15 minutos para builds completarem.
 
@@ -89,7 +93,8 @@ Automaticamente no próximo startup do app:
 
 **Auto-update não funciona?**
 - Teste a API: `gh api repos/inclunet/assistente/releases/latest`
-- Confira se os assets seguem os nomes esperados pelo updater, como `assistente-windows-amd64.exe` e `assistente-linux-amd64`
+- Confira se os assets desktop seguem os nomes esperados pelo updater, como `assistente-windows-amd64.exe` e `assistente-linux-amd64`
+- Confira se a tag do release e o `AppVersion` representam a mesma versão sem depender do prefixo `v`
 - Veja logs do app: procure "[Updater]"
 
 ## Documentação Completa
