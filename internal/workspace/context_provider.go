@@ -58,7 +58,7 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 
 func workspaceInstructionsBlock() string {
 	return `<workspace_instructions>
-Use link= values as app deep links for any workspace resource. open_editor_file[...] entries are exact editor-open file paths; only read_file, write_file, edit_file, and grep_search may use those exact paths outside the workspace, subject to normal restrictions.
+Use link= values as app deep links for any workspace resource. open_editor_file[...] entries are exact editor-open files: only read_file, write_file, edit_file, and grep_search may use those exact paths outside the workspace; structural operations, sensitive files, denylisted files, and active skill restrictions still apply.
 </workspace_instructions>`
 }
 
@@ -104,10 +104,7 @@ func buildContextBlock(req contextprovider.BuildRequest, budgetChars int) string
 			optional.WriteString(deepLinkForTab(tab.Type, linkTarget))
 		}
 		if label, value := tabStateReference(tab); label != "" && value != "" {
-			optional.WriteString(" ")
-			optional.WriteString(label)
-			optional.WriteString("=")
-			optional.WriteString(sanitizeContextLine(value))
+			writeSafeMachineReference(&optional, label, value)
 		}
 		optional.WriteString("\n")
 	}
@@ -178,6 +175,17 @@ func writeSurfaceTransientContext(sb *strings.Builder, surface *contextprovider.
 	writeSurfaceValue(sb, "selected_text", surface.Context, "selectedText")
 	writeSurfaceValue(sb, "history_preview", surface.Context, "historyPreview")
 	writeSurfaceValue(sb, "tasks_preview", surface.Context, "tasksPreview")
+}
+
+func writeSafeMachineReference(sb *strings.Builder, label string, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" || containsPromptStructureChars(value) {
+		return
+	}
+	sb.WriteString(" ")
+	sb.WriteString(label)
+	sb.WriteString("=")
+	sb.WriteString(value)
 }
 
 func trimContextBlock(requiredContent string, optionalContent string, budgetChars int) string {

@@ -262,6 +262,31 @@ func TestContextProviderOpenEditorFilesSkipUnsafePathsInsteadOfMutating(t *testi
 	}
 }
 
+func TestContextProviderOmitsUnsafeTabStateReferenceInsteadOfMutating(t *testing.T) {
+	unsafePath := mustAbsPath(t, "arquivo<injetado>.md")
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace",
+		ProviderBudgets: map[string]int{
+			"workspace": 1000,
+		},
+		Tabs: []contextprovider.Tab{
+			{Title: "Unsafe", Type: "editor", ContentID: unsafePath, State: map[string]any{"filePath": unsafePath}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
+	}
+	if strings.Contains(blocks[1].Content, " file=") {
+		t.Fatalf("unsafe state-derived file reference should be omitted, got %q", blocks[1].Content)
+	}
+	if !strings.Contains(blocks[1].Content, "link=assistente://editor/open?file="+url.QueryEscape(unsafePath)) {
+		t.Fatalf("safe URL-encoded editor deep link should remain, got %q", blocks[1].Content)
+	}
+}
+
 func TestContextProviderDoesNotEmitPartialOpenEditorFileWhenBudgetIsTiny(t *testing.T) {
 	filePath := mustAbsPath(t, strings.Repeat("arquivo-longo-", 20)+".md")
 	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
