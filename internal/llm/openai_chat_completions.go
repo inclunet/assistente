@@ -125,6 +125,8 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatCompletionNewParams, handler StreamHandler, origParams *openai.ChatCompletionNewParams, onPromptCacheHintUnsupported func(), promptCacheFallback *PromptCacheHintFallback) bool {
 	stream := p.client.Chat.Completions.NewStreaming(ctx, params)
 	acc := openai.ChatCompletionAccumulator{}
+	var promptTokensDetails openai.CompletionUsagePromptTokensDetails
+	var usageRawJSON string
 
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
@@ -138,6 +140,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	for stream.Next() {
 		chunk := stream.Current()
 		acc.AddChunk(chunk)
+		accumulateChatCompletionStreamUsageExtras(&promptTokensDetails, chunk, &usageRawJSON)
 
 		if tool, ok := acc.JustFinishedToolCall(); ok {
 			finishedToolCalls = append(finishedToolCalls, ToolCall{
@@ -206,12 +209,16 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 	usage := Usage{}
 	if acc.Usage.TotalTokens > 0 {
+		cachedTokens := acc.Usage.PromptTokensDetails.CachedTokens
+		if cachedTokens == 0 {
+			cachedTokens = promptTokensDetails.CachedTokens
+		}
 		usage = UsageFromOpenAICompletion(
 			int(acc.Usage.PromptTokens),
 			int(acc.Usage.CompletionTokens),
 			int(acc.Usage.TotalTokens),
-			int(acc.Usage.PromptTokensDetails.CachedTokens),
-			acc.Usage.RawJSON(),
+			int(cachedTokens),
+			usageRawJSON,
 		)
 	}
 
@@ -224,6 +231,25 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 	handler.OnDone(fullResponse.String(), usage, model)
 	return true
+}
+
+func accumulateChatCompletionStreamUsageExtras(promptTokensDetails *openai.CompletionUsagePromptTokensDetails, chunk openai.ChatCompletionChunk, usageRawJSON *string) {
+	// openai.ChatCompletionAccumulator.AddChunk currently accumulates only the
+	// top-level usage counters. Preserve the detailed usage fields needed for
+	// prompt-cache stats in the UI.
+	if promptTokensDetails != nil {
+		promptTokensDetails.AudioTokens += chunk.Usage.PromptTokensDetails.AudioTokens
+		promptTokensDetails.CachedTokens += chunk.Usage.PromptTokensDetails.CachedTokens
+	}
+
+	if usageRawJSON == nil {
+		return
+	}
+	raw := strings.TrimSpace(chunk.Usage.RawJSON())
+	if raw == "" || raw == "null" {
+		return
+	}
+	*usageRawJSON = raw
 }
 
 func makeToolChoice(choice string) openai.ChatCompletionToolChoiceOptionUnionParam {

@@ -1,9 +1,12 @@
 package llm
 
 import (
+	"encoding/json"
 	"testing"
 
 	"assistente/internal/credentials"
+
+	"github.com/openai/openai-go"
 )
 
 func TestOpenAIProvider_ChatCompletions_NoNativeMCP(t *testing.T) {
@@ -60,5 +63,59 @@ func TestOpenAICompatProvider_UsesChatCompletions(t *testing.T) {
 	}
 	if provider.NativeMCPCapable() {
 		t.Error("Compatible provider should NOT be native MCP capable")
+	}
+}
+
+func TestChatCompletionStreamUsageExtras_PreservesCacheMetrics(t *testing.T) {
+	var chunk openai.ChatCompletionChunk
+	raw := `{
+		"id": "chatcmpl-test",
+		"object": "chat.completion.chunk",
+		"created": 1710000000,
+		"model": "gpt-test",
+		"choices": [],
+		"usage": {
+			"prompt_tokens": 1000,
+			"completion_tokens": 120,
+			"total_tokens": 1120,
+			"prompt_tokens_details": {
+				"cached_tokens": 400
+			},
+			"cache_write_tokens": 80
+		}
+	}`
+	if err := json.Unmarshal([]byte(raw), &chunk); err != nil {
+		t.Fatalf("json.Unmarshal chunk: %v", err)
+	}
+
+	acc := openai.ChatCompletionAccumulator{}
+	if ok := acc.AddChunk(chunk); !ok {
+		t.Fatal("AddChunk returned false")
+	}
+
+	var promptDetails openai.CompletionUsagePromptTokensDetails
+	var usageRawJSON string
+	accumulateChatCompletionStreamUsageExtras(&promptDetails, chunk, &usageRawJSON)
+
+	cachedTokens := acc.Usage.PromptTokensDetails.CachedTokens
+	if cachedTokens == 0 {
+		cachedTokens = promptDetails.CachedTokens
+	}
+	usage := UsageFromOpenAICompletion(
+		int(acc.Usage.PromptTokens),
+		int(acc.Usage.CompletionTokens),
+		int(acc.Usage.TotalTokens),
+		int(cachedTokens),
+		usageRawJSON,
+	)
+
+	if usage.CacheReadTokens != 400 {
+		t.Fatalf("CacheReadTokens=%d, want 400", usage.CacheReadTokens)
+	}
+	if usage.CacheWriteTokens != 80 {
+		t.Fatalf("CacheWriteTokens=%d, want 80", usage.CacheWriteTokens)
+	}
+	if usage.CacheMissTokens != 600 {
+		t.Fatalf("CacheMissTokens=%d, want 600", usage.CacheMissTokens)
 	}
 }
