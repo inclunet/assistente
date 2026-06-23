@@ -149,6 +149,179 @@ func TestCheckForUpdates_AlreadyUpToDate(t *testing.T) {
 	}
 }
 
+func TestCheckForUpdates_NormalizesTagPrefixForComparison(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := getBuildKeyForTest()
+		response := createGitHubReleaseResponse(
+			"v1.0.0",
+			"",
+			[]string{key},
+		)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	u := New("1.0.0", &credentials.Manager{})
+	u.githubAPIURL = server.URL + "/releases/latest"
+
+	info, err := u.CheckForUpdates(context.Background())
+	if err != nil {
+		t.Fatalf("esperado sucesso, got erro: %v", err)
+	}
+	if info.Available {
+		t.Error("esperado Available=false quando tag v1.0.0 e AppVersion 1.0.0 representam a mesma versão")
+	}
+	if info.LatestVersion != "v1.0.0" {
+		t.Errorf("LatestVersion deve preservar tag_name original, got %q", info.LatestVersion)
+	}
+}
+
+func TestCheckForUpdates_UsesDesktopAssetNotCLIAsset(t *testing.T) {
+	key := getBuildKeyForTest()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"tag_name":     "v2.0.0",
+			"published_at": "2024-03-18T10:30:00Z",
+			"body":         "",
+			"assets": []map[string]interface{}{
+				{
+					"name":                 "asst-" + key,
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/asst-" + key,
+					"size":                 int64(111),
+				},
+				{
+					"name":                 "assistente-" + key + "-installer.exe",
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/assistente-" + key + "-installer.exe",
+					"size":                 int64(222),
+				},
+				{
+					"name":                 "assistente-" + key + ".sha256",
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/assistente-" + key + ".sha256",
+					"size":                 int64(333),
+				},
+				{
+					"name":                 "assistente-" + key + ".exe",
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/assistente-" + key + ".exe",
+					"size":                 int64(444),
+				},
+				{
+					"name":                 "assistente-" + key + ".deb",
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/assistente-" + key + ".deb",
+					"size":                 int64(555),
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	u := New("v1.0.0", &credentials.Manager{})
+	u.githubAPIURL = server.URL + "/releases/latest"
+
+	info, err := u.CheckForUpdates(context.Background())
+	if err != nil {
+		t.Fatalf("esperado sucesso, got erro: %v", err)
+	}
+	if info.DownloadSize != 444 {
+		t.Errorf("esperado asset desktop assistente-* com size 444, got %d", info.DownloadSize)
+	}
+}
+
+func TestFetchManifest_MapsLinuxArm64Asset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"tag_name":     "v2.0.0",
+			"published_at": "2024-03-18T10:30:00Z",
+			"body":         "",
+			"assets": []map[string]interface{}{
+				{
+					"name":                 "assistente-linux-amd64",
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/assistente-linux-amd64",
+					"size":                 int64(111),
+				},
+				{
+					"name":                 "assistente-linux-arm64",
+					"browser_download_url": "https://github.com/inclunet/assistente/releases/download/v2.0.0/assistente-linux-arm64",
+					"size":                 int64(222),
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	u := New("v1.0.0", &credentials.Manager{})
+	u.githubAPIURL = server.URL + "/releases/latest"
+
+	manifest, err := u.fetchManifest(context.Background())
+	if err != nil {
+		t.Fatalf("esperado sucesso, got erro: %v", err)
+	}
+	if got := manifest.Builds["linux-amd64"].Size; got != 111 {
+		t.Errorf("esperado linux-amd64 size 111, got %d", got)
+	}
+	if got := manifest.Builds["linux-arm64"].Size; got != 222 {
+		t.Errorf("esperado linux-arm64 size 222, got %d", got)
+	}
+}
+
+func TestWindowsAssetPredicates_IgnoreCLIAssets(t *testing.T) {
+	tests := []struct {
+		name      string
+		assetName string
+		installer bool
+		portable  bool
+	}{
+		{
+			name:      "cli binary is not portable update",
+			assetName: "asst-windows-amd64.exe",
+		},
+		{
+			name:      "desktop executable is portable update",
+			assetName: "assistente-windows-amd64.exe",
+			portable:  true,
+		},
+		{
+			name:      "desktop installer is installer update",
+			assetName: "assistente-windows-amd64-installer.exe",
+			installer: true,
+		},
+		{
+			name:      "desktop setup is installer update",
+			assetName: "assistente-windows-amd64-setup.exe",
+			installer: true,
+		},
+		{
+			name:      "installer is not portable update",
+			assetName: "assistente-windows-amd64-installer.exe",
+			installer: true,
+		},
+		{
+			name:      "non-windows desktop asset is not portable update",
+			assetName: "assistente-linux-amd64",
+		},
+		{
+			name:      "non-windows installer exe is not Windows installer update",
+			assetName: "assistente-linux-amd64-installer.exe",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assetName := strings.ToLower(tt.assetName)
+			if got := isWindowsInstallerAsset(assetName); got != tt.installer {
+				t.Errorf("isWindowsInstallerAsset(%q) = %v, want %v", tt.assetName, got, tt.installer)
+			}
+			if got := isWindowsPortableAsset(assetName); got != tt.portable {
+				t.Errorf("isWindowsPortableAsset(%q) = %v, want %v", tt.assetName, got, tt.portable)
+			}
+		})
+	}
+}
+
 // TestCheckForUpdates_NetworkError testa erro de rede
 func TestCheckForUpdates_NetworkError(t *testing.T) {
 	u := New("v1.0.0", &credentials.Manager{})
@@ -327,17 +500,17 @@ func TestVerifyChecksum_ValidSHA256(t *testing.T) {
 	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
-	
+
 	// Calcula SHA256 correto do conteúdo
 	hash := sha256.Sum256(content)
 	correctHash := "sha256:" + hex.EncodeToString(hash[:])
-	
+
 	file, err := os.Open(tmpfile.Name())
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
 	defer func() { _ = file.Close() }()
-	
+
 	err = u.verifyChecksum(file, correctHash)
 
 	if err != nil {
@@ -357,13 +530,13 @@ func TestVerifyChecksum_MismatchedHash(t *testing.T) {
 	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
-	
+
 	file, err := os.Open(tmpfile.Name())
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
 	defer func() { _ = file.Close() }()
-	
+
 	err = u.verifyChecksum(file, "sha256:0000000000000000000000000000000000000000000000000000000000000000")
 
 	if err == nil {
@@ -386,13 +559,13 @@ func TestVerifyChecksum_InvalidFormat(t *testing.T) {
 	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
-	
+
 	file, err := os.Open(tmpfile.Name())
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
 	defer func() { _ = file.Close() }()
-	
+
 	err = u.verifyChecksum(file, "invalid-format-no-colon")
 
 	if err == nil {
@@ -412,13 +585,13 @@ func TestVerifyChecksum_UnsupportedAlgorithm(t *testing.T) {
 	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
-	
+
 	file, err := os.Open(tmpfile.Name())
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
 	defer func() { _ = file.Close() }()
-	
+
 	err = u.verifyChecksum(file, "md5:abcdef123456")
 
 	if err == nil {
@@ -438,13 +611,13 @@ func TestVerifyChecksum_NoChecksum(t *testing.T) {
 	_ = tmpfile.Close()
 
 	u := New("v1.0.0", &credentials.Manager{})
-	
+
 	file, err := os.Open(tmpfile.Name())
 	if err != nil {
 		t.Fatalf("erro ao abrir arquivo: %v", err)
 	}
 	defer func() { _ = file.Close() }()
-	
+
 	err = u.verifyChecksum(file, "")
 
 	// Checksum vazio não deve erro (opcional)
@@ -468,7 +641,7 @@ func TestIsInstalledVersion(t *testing.T) {
 	if err != nil {
 		t.Skipf("não foi possível obter caminho do executável: %v", err)
 	}
-	
+
 	result := u.isInstalledVersion()
 	// Em ambiente de teste, raramente será em Program Files
 	// Apenas validar que retorna bool
@@ -635,7 +808,7 @@ func TestApplyUpdate_NoCompatibleBuild(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Retorna release com versão igual (não há update)
 		response := createGitHubReleaseResponse(
-			"v1.0.0",  // mesma versão, sem update
+			"v1.0.0", // mesma versão, sem update
 			"",
 			[]string{"windows-amd64"},
 		)
@@ -702,13 +875,17 @@ func TestBuild_AllFields(t *testing.T) {
 func createGitHubReleaseResponse(version, notes string, platforms []string) map[string]interface{} {
 	assets := make([]map[string]interface{}, len(platforms))
 	for i, platform := range platforms {
+		assetName := "assistente-" + platform
+		if strings.HasPrefix(platform, "windows-") {
+			assetName += ".exe"
+		}
 		assets[i] = map[string]interface{}{
-			"name":                   "assistente-" + platform + ".exe",
-			"browser_download_url":   "https://github.com/inclunet/assistente/releases/download/" + version + "/assistente-" + platform + ".exe",
-			"size":                   int64(50000000),
+			"name":                 assetName,
+			"browser_download_url": "https://github.com/inclunet/assistente/releases/download/" + version + "/" + assetName,
+			"size":                 int64(50000000),
 		}
 	}
-	
+
 	return map[string]interface{}{
 		"tag_name":     version,
 		"published_at": "2024-03-18T10:30:00Z",

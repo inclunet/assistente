@@ -152,6 +152,46 @@ func TestRenormalizeLegacySlugs_RenamesOnCollision(t *testing.T) {
 	}
 }
 
+func TestRenormalizeLegacySlugs_DoesNotRewriteOpaqueJSONConfig(t *testing.T) {
+	db := setupSlugMigrationDB(t)
+
+	row := database.Job{
+		UserID:        "user-a",
+		Slug:          "Café Report",
+		Name:          "Café Report",
+		ToolCatalogID: "tool",
+		ToolName:      "tool",
+		Enabled:       true,
+		Inputs:        `{"literal_job_slug":"Café Report","query":"find Café Report"}`,
+		OutputConfig:  `{"map":{"title":"Café Report"}}`,
+		EventsConfig:  `{"on_success":"done","payload_template":"{\"job\":\"Café Report\"}"}`,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("insert job with opaque config: %v", err)
+	}
+
+	if err := RenormalizeLegacySlugs(db); err != nil {
+		t.Fatalf("renormalize: %v", err)
+	}
+
+	var got database.Job
+	if err := db.First(&got, "id = ?", row.ID).Error; err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if got.Slug != "cafe-report" {
+		t.Fatalf("slug = %q, quero %q", got.Slug, "cafe-report")
+	}
+	if got.Inputs != row.Inputs {
+		t.Errorf("inputs foram reescritos: got %q want %q", got.Inputs, row.Inputs)
+	}
+	if got.OutputConfig != row.OutputConfig {
+		t.Errorf("output_config foi reescrito: got %q want %q", got.OutputConfig, row.OutputConfig)
+	}
+	if got.EventsConfig != row.EventsConfig {
+		t.Errorf("events_config foi reescrito: got %q want %q", got.EventsConfig, row.EventsConfig)
+	}
+}
+
 // TestRenormalizeLegacySlugs_CollisionRowsRemainAddressable é a reprodução direta
 // do bug do Bugbot: duas linhas do mesmo usuário cujos slugs normalizam para o
 // mesmo canônico. Após a migração, AMBAS devem ser encontráveis por um WHERE
