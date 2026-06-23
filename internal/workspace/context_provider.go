@@ -128,13 +128,20 @@ func writeOpenEditorFiles(sb *strings.Builder, tabs []contextprovider.Tab) {
 		if !filepath.IsAbs(filePath) {
 			continue
 		}
+		if containsPromptStructureChars(filePath) {
+			continue
+		}
 		sb.WriteString("- open_editor_file[")
 		sb.WriteString(strconv.Itoa(idx))
 		sb.WriteString("]: ")
-		sb.WriteString(sanitizeContextLine(filePath))
+		sb.WriteString(filePath)
 		sb.WriteString("\n")
 		idx++
 	}
+}
+
+func containsPromptStructureChars(value string) bool {
+	return strings.ContainsAny(value, "<>`\n\r")
 }
 
 func writeSurfaceIdentity(sb *strings.Builder, surface *contextprovider.Surface) {

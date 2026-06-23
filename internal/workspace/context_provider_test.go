@@ -181,6 +181,36 @@ func TestContextProviderOpenEditorFilesSkipRelativePaths(t *testing.T) {
 	}
 }
 
+func TestContextProviderOpenEditorFilesSkipUnsafePathsInsteadOfMutating(t *testing.T) {
+	safePath := mustAbsPath(t, "seguro.md")
+	unsafePath := mustAbsPath(t, "arquivo<injetado>.md")
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace",
+		TabCount:      2,
+		ProviderBudgets: map[string]int{
+			"workspace": 1000,
+		},
+		Tabs: []contextprovider.Tab{
+			{Title: "Unsafe", Type: "editor", ContentID: unsafePath, State: map[string]any{"filePath": unsafePath}},
+			{Title: "Safe", Type: "editor", ContentID: safePath, State: map[string]any{"filePath": safePath}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
+	}
+	for _, line := range strings.Split(blocks[1].Content, "\n") {
+		if strings.Contains(line, "open_editor_file") && strings.Contains(line, "arquivo") && line != "- open_editor_file[0]: "+safePath {
+			t.Fatalf("unsafe open editor path should be omitted from open_editor_file entries, got line %q in %q", line, blocks[1].Content)
+		}
+	}
+	if !strings.Contains(blocks[1].Content, "open_editor_file[0]: "+safePath) {
+		t.Fatalf("safe open editor path should still be listed, got %q", blocks[1].Content)
+	}
+}
+
 func TestContextProviderDoesNotEmitPartialOpenEditorFileWhenBudgetIsTiny(t *testing.T) {
 	filePath := mustAbsPath(t, strings.Repeat("arquivo-longo-", 20)+".md")
 	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
