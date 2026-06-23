@@ -30,10 +30,8 @@ func (m *Manager) syncMCPTools(ctx context.Context, slug string, toolInfos []MCP
 	m.mu.RLock()
 	status := m.servers[slug]
 	serverID := ""
-	ownerUserID := ""
 	if status != nil {
 		serverID = strings.TrimSpace(status.ID)
-		ownerUserID = status.Config.UserID
 	}
 	m.mu.RUnlock()
 	if serverID == "" {
@@ -48,7 +46,7 @@ func (m *Manager) syncMCPTools(ctx context.Context, slug string, toolInfos []MCP
 			Schema:      info.Schema,
 		})
 	}
-	return catalog.SyncMCPServerTools(ctx, slug, serverID, ownerUserID, descriptors)
+	return catalog.SyncMCPServerTools(ctx, slug, serverID, descriptors)
 }
 
 func (m *Manager) syncMCPToolsBestEffort(ctx context.Context, slug string, toolInfos []MCPToolInfo) {

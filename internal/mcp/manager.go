@@ -77,7 +77,7 @@ type ToolCatalog interface {
 	RecordToolTest(ctx context.Context, toolName, status, errorMessage string) error
 	RecordToolTestByID(ctx context.Context, toolCatalogID, status, errorMessage string) error
 	SyncBuiltins(ctx context.Context, registry *tools.Registry) error
-	SyncMCPServerTools(ctx context.Context, slug, serverID, ownerUserID string, descriptors []toolcatalog.MCPToolDescriptor) error
+	SyncMCPServerTools(ctx context.Context, slug, serverID string, descriptors []toolcatalog.MCPToolDescriptor) error
 }
 
 // serverConnection mantém o estado runtime de um servidor MCP conectado.

@@ -126,10 +126,10 @@ func TestServiceSyncMCPServerToolsServerScopedAvailability(t *testing.T) {
 		{Name: "create_issue", FullName: "mcp_jira__create_issue", Description: "Create", Schema: json.RawMessage(`{"type":"object"}`)},
 		{Name: "search_issue", FullName: "mcp_jira__search_issue", Description: "Search", Schema: json.RawMessage(`{"type":"object"}`)},
 	}
-	if err := svc.SyncMCPServerTools(userA, "jira", serverID, "user-a", initial); err != nil {
+	if err := svc.SyncMCPServerTools(userA, "jira", serverID, initial); err != nil {
 		t.Fatalf("sync initial: %v", err)
 	}
-	if err := svc.SyncMCPServerTools(userA, "jira", serverID, "user-a", initial[:1]); err != nil {
+	if err := svc.SyncMCPServerTools(userA, "jira", serverID, initial[:1]); err != nil {
 		t.Fatalf("sync second: %v", err)
 	}
 
@@ -157,7 +157,7 @@ func TestServiceSyncMCPServerToolsRequiresUserScope(t *testing.T) {
 	serverID := seedServer(t, repo, "user-a", "jira")
 	svc := NewService(repo)
 
-	err := svc.SyncMCPServerTools(context.Background(), "jira", serverID, "user-a", []MCPToolDescriptor{
+	err := svc.SyncMCPServerTools(context.Background(), "jira", serverID, []MCPToolDescriptor{
 		{Name: "create_issue", FullName: "mcp_jira__create_issue"},
 	})
 	if err != database.ErrUserScopeRequired {

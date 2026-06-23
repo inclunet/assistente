@@ -79,19 +79,22 @@ type MCPToolDescriptor struct {
 
 // SyncMCPServerTools cataloga as tools de um servidor MCP (origem bridge) e
 // marca como indisponíveis as que não foram mais vistas na descoberta atual.
-// Requer contexto autenticado.
-func (s *Service) SyncMCPServerTools(ctx context.Context, slug, serverID, ownerUserID string, descriptors []MCPToolDescriptor) error {
+// Requer contexto autenticado: o user_id das entries vem do usuário do contexto
+// (mesmo que o repositório usa para escopo/ownership em normalizeToolEntry),
+// garantindo consistência entre o struct em memória e o que é persistido.
+func (s *Service) SyncMCPServerTools(ctx context.Context, slug, serverID string, descriptors []MCPToolDescriptor) error {
 	if s == nil || s.repo == nil {
 		return nil
 	}
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return err
 	}
 	seen := make([]string, 0, len(descriptors))
 	for _, info := range descriptors {
 		seen = append(seen, info.FullName)
 		entry := tools.ToolCatalogEntry{
-			UserID:             ownerUserID,
+			UserID:             userID,
 			MCPServerID:        serverID,
 			Name:               info.FullName,
 			DisplayName:        info.Name,
