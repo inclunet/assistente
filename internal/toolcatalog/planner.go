@@ -22,8 +22,10 @@ import (
 // Garantias:
 //   - Determinismo: mesmas entradas → mesma saída e mesma telemetria. A ordem de
 //     ranking é total (tier + nome), sem iteração de mapas sem ordenação.
-//   - Default seguro: budget <= 0 significa ILIMITADO; nesse caso nada é cortado
-//     e a ordem de entrada é preservada na íntegra (sem regressão).
+//   - Default seguro: budget <= 0 significa ILIMITADO; nesse caso o orçamento
+//     não corta nenhuma candidata e a ordem de entrada é preservada na íntegra
+//     (sem regressão). Outros motivos de política, como conflito bridge×native,
+//     ainda podem remover candidatas.
 
 // PlanReason classifica o destino de uma candidata no relatório de telemetria.
 type PlanReason string
@@ -79,7 +81,7 @@ type ToolCandidate struct {
 // PlannerConfig parametriza a decisão do planner por perfil/superfície.
 type PlannerConfig struct {
 	// SchemaBytesBudget é o teto de bytes de schema injetados por turno.
-	//   - <= 0 → ILIMITADO (default seguro: nunca corta, preserva ordem de entrada).
+	//   - <= 0 → ILIMITADO (default seguro: não corta por budget, preserva ordem de entrada).
 	//   - >  0 → corta deterministicamente pela ordem de ranking quando excedido.
 	SchemaBytesBudget int
 	// PreferredPackages lista pacotes priorizados no ranking para este perfil.
