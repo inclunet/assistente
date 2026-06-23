@@ -18,11 +18,13 @@ Save
 
 O auto-update usa GitHub Releases. O workflow `.github/workflows/release.yml` roda quando um release é criado e anexa os assets ao próprio release.
 
-### 3. Instalar GitHub CLI
+### 3. Autenticar GitHub CLI
 
 ```bash
 gh auth login
 ```
+
+Se ainda não tiver o GitHub CLI instalado, siga a documentação oficial: https://cli.github.com/.
 
 Se preferir, o release também pode ser criado pela interface web do GitHub.
 

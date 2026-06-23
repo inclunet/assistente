@@ -41,9 +41,9 @@ flowchart TD
     tests --> assets["Upload de assets no release"]
     app["Aplicativo"] --> latest["GET releases/latest"]
     latest --> manifest["Manifest interno"]
-    manifest --> decision{"Versao nova?"}
-    decision -->|"Nao"| keepRunning["Continua"]
-    decision -->|"Sim"| userConfirm["Usuario confirma"]
+    manifest --> decision{"Versão nova?"}
+    decision -->|"Não"| keepRunning["Continua"]
+    decision -->|"Sim"| userConfirm["Usuário confirma"]
     userConfirm --> download["Download do asset"]
     download --> apply["Aplicar update"]
 ```
