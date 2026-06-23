@@ -28,6 +28,8 @@ Se preferir, o release também pode ser criado pela interface web do GitHub.
 
 ### 4. Commitar alterações da versão
 ```bash
+git checkout main
+git pull
 git add .
 git commit -m "chore: prepare release v1.0.1"
 git push
@@ -38,7 +40,7 @@ git push
 ## Release Nova Versão (30 segundos)
 
 ```bash
-# 1. Garanta que main está atualizada
+# 1. Garanta que o release será criado a partir de main
 git checkout main
 git pull
 

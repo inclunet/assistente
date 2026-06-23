@@ -26,8 +26,11 @@ Enquanto o L3 permanecer necessário para leitura, não é seguro parar de grav�
 Leitores novos associam chamada e resultado por `tool_invocations.tool_call_id`, filtrando por origem de chat:
 
 - `origin_type = chat`;
-- `origin_id = turn_id`;
+- `origin_id = turn_id` para invocações novas;
+- `origin_id = assistant_message_id` como fallback legado para dados já gravados nesse formato;
 - `tool_call_id = call_id`.
+
+Durante a transição, consultas de hidratação devem aceitar os dois formatos de `origin_id`. A implementação pode preferir `turn_id` e, quando não houver resultado, buscar por IDs de mensagens assistant do mesmo turno antes de cair para `chat_messages.tool_calls`.
 
 `parent_invocation_id` fica reservado para chamadas aninhadas, encadeadas ou executadas por MCP quando houver relação técnica entre invocações.
 
@@ -90,7 +93,7 @@ Não haverá backfill destrutivo obrigatório. Leituras de conversas antigas dev
 
 ### Fase 2 — APIs de leitura por turno
 
-1. Criar função de repository para listar invocações de chat por `turn_id`, ordenadas por iteração/tempo.
+1. Criar função de repository para listar invocações de chat por `turn_id`, aceitando também `assistant_message_id` legado como `origin_id`, ordenadas por iteração/tempo.
 2. Retornar DTO de exibição contendo `tool_call_id`, nome, argumentos redigidos, output, status, erro, duração e metadados MCP.
 3. Cobrir ausência de invocações com fallback para `chat_messages.tool_calls`.
 
@@ -121,6 +124,7 @@ Não haverá backfill destrutivo obrigatório. Leituras de conversas antigas dev
 | Retenção de `tool_invocations` apagar dados necessários para conversas antigas | UI/export/sumarização ficariam incompletos | Enquanto L3 for removido de mensagens novas, retenção de invocações de chat deve acompanhar ciclo de vida da conversa ou manter snapshot suficiente |
 | Divergência entre input técnico e argumentos exibíveis | UI pode mostrar dados redigidos demais ou sensíveis demais | Definir redaction única para snapshot exibível |
 | Migração quebrar export de conversas antigas | Perda de portabilidade | Fallback explícito para `chat_messages.tool_calls` e `role=tool` |
+| Leitores novos ignorarem invocações legadas por `assistant_message_id` | Resultados antigos podem sumir da timeline/export | Consultas de transição aceitam `turn_id` e IDs de mensagens assistant do turno |
 | Chamadas aninhadas/MCP ficarem sem ordenação clara | Timeline incorreta | Usar `parent_invocation_id`, iteração e timestamps como ordenação determinística |
 
 ## Critérios de aceitação
