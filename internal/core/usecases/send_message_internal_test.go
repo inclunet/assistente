@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"assistente/internal/chat"
 	"assistente/internal/tools"
 )
 
@@ -22,18 +23,25 @@ func (t testTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, e
 	return tools.ToolResult{Content: "ok"}, nil
 }
 
-func TestFilterExpandedToolNamesDropsOptInOnlyForDynamicProfile(t *testing.T) {
+// A expansão dinâmica do use case delega agora a chat.ToolSelectionPolicy
+// (AEP-0077 F3, #119). Este teste fixa a regra de opt-in via a API pública que
+// o pipeline de envio consome: perfil sem tools fixas (enabled nil) descarta
+// tools opt-in; perfil com allowlist explícito pode selecioná-las.
+func TestDynamicExpansionDropsOptInOnlyForDynamicProfile(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister(testTool{name: "regular_tool"})
 	registry.MustRegisterOptIn(testTool{name: "text_edit"})
+	policy := chat.NewToolSelectionPolicy(registry)
 
-	dynamic := filterExpandedToolNames(registry, []string{"regular_tool", "text_edit"}, nil, false)
-	if len(dynamic) != 1 || dynamic[0] != "regular_tool" {
+	names := []string{"regular_tool", "text_edit"}
+
+	dynamic := policy.ResolveExpandedToolDefs(nil, nil, names, chat.ProfileToolConfig{EnabledTools: nil})
+	if len(dynamic) != 1 || dynamic[0].Function.Name != "regular_tool" {
 		t.Fatalf("dynamic expansion should drop opt-in tools, got %#v", dynamic)
 	}
 
-	explicit := filterExpandedToolNames(registry, []string{"regular_tool", "text_edit"}, []string{"text_edit"}, false)
-	if len(explicit) != 1 || explicit[0] != "text_edit" {
+	explicit := policy.ResolveExpandedToolDefs(nil, nil, names, chat.ProfileToolConfig{EnabledTools: []string{"text_edit"}})
+	if len(explicit) != 1 || explicit[0].Function.Name != "text_edit" {
 		t.Fatalf("explicit enabled_tools should allow opt-in tools, got %#v", explicit)
 	}
 }

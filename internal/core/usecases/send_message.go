@@ -271,8 +271,16 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if prepResult.ModelOnDemandSkillAvailable {
 		runtimeTools = append(runtimeTools, tools.LoadSkillName)
 	}
-	initialEnabledTools := chat.ResolveInitialEnabledToolsWithRuntime(uc.toolRegistry, profileEnabledTools, disableTools, runtimeTools)
-	llmToolDefs := chat.BuildLLMToolDefs(uc.toolRegistry, initialEnabledTools, disableTools)
+	// Política única de seleção de tools por perfil/superfície (AEP-0077 F3, #119).
+	// O override de MCP nativo (toolCfg.NativeMCP) é preenchido abaixo, após
+	// resolver o provider/override do perfil — não afeta a montagem inicial.
+	toolPolicy := chat.NewToolSelectionPolicy(uc.toolRegistry)
+	toolCfg := chat.ProfileToolConfig{
+		EnabledTools: profileEnabledTools,
+		DisableTools: disableTools,
+		RuntimeTools: runtimeTools,
+	}
+	llmToolDefs := toolPolicy.InitialToolDefs(toolCfg)
 
 	// Resolve o ChatProvider para o provedor do perfil ativo.
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
@@ -295,6 +303,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// já que ambos resolvem o mesmo activeProfile neste pipeline. Aqui activeProfile
 	// já é não-nil (validado acima, onde LLMProvider vazio/nil retorna erro).
 	nativeMCPOverride := activeProfile.Chat.NativeMCP
+	toolCfg.NativeMCP = nativeMCPOverride
 
 	// Alternativas em modo ADAPTER, capturadas ANTES de ApplyNativeMCP (que, no
 	// caminho nativo, anexa MCP servers ao streamer e remove as bridge tools):
@@ -304,7 +313,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	adapterStreamer := requestStreamer
 	adapterToolDefs := llmToolDefs
 
-	requestStreamer, llmToolDefs = chat.ApplyNativeMCP(requestStreamer, llmToolDefs, uc.mcpMgr, profileEnabledTools, disableTools, nativeMCPOverride)
+	requestStreamer, llmToolDefs = toolPolicy.ApplyNativeMCP(requestStreamer, llmToolDefs, uc.mcpMgr, toolCfg)
 
 	// Auto-degradação otimista (AEP-0021): no modo AUTO tentamos MCP nativo; se o
 	// modelo/endpoint rejeitar type:"mcp", o provider dispara este hook (auto-ajusta e
@@ -326,14 +335,16 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// Só há o que degradar quando ApplyNativeMCP de fato anexou MCP servers nativos
 	// (requestStreamer trocado). Prepara o fallback adapter para o mesmo turno.
 	if requestStreamer != adapterStreamer {
+		// Fallback adapter: mesma política de expansão, porém forçando MCP nativo
+		// desligado (as bridges voltam a ser function tools neste turno).
 		adapterFalse := false
+		adapterToolCfg := toolCfg
+		adapterToolCfg.NativeMCP = &adapterFalse
 		params.NativeMCPFallback = &llm.NativeMCPAdapterFallback{
 			Streamer: adapterStreamer,
 			ToolDefs: adapterToolDefs,
 			ResolveToolDefs: func(names []string) []llm.ToolDefinition {
-				names = filterExpandedToolNames(uc.toolRegistry, names, profileEnabledTools, disableTools)
-				names = chat.FilterToolNamesForNativeMCP(adapterStreamer, uc.mcpMgr, names, disableTools, &adapterFalse)
-				return chat.BuildLLMToolDefsByNames(uc.toolRegistry, names, disableTools)
+				return toolPolicy.ResolveExpandedToolDefs(adapterStreamer, uc.mcpMgr, names, adapterToolCfg)
 			},
 		}
 	}
@@ -374,9 +385,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter, surfaceOrigin, userMsg.ID)
 				},
 				func(names []string) []llm.ToolDefinition {
-					names = filterExpandedToolNames(uc.toolRegistry, names, profileEnabledTools, disableTools)
-					names = chat.FilterToolNamesForNativeMCP(requestStreamer, uc.mcpMgr, names, disableTools, nativeMCPOverride)
-					return chat.BuildLLMToolDefsByNames(uc.toolRegistry, names, disableTools)
+					return toolPolicy.ResolveExpandedToolDefs(requestStreamer, uc.mcpMgr, names, toolCfg)
 				},
 				recoveryEnabled,
 				recoveryMaxAttempts,
@@ -394,14 +403,6 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		}()
 	}
 	return req.ConversationID, nil
-}
-
-func filterExpandedToolNames(registry *tools.Registry, names []string, profileEnabledTools []string, disableTools bool) []string {
-	names = chat.FilterToolNamesByEnabledTools(names, profileEnabledTools, disableTools)
-	if profileEnabledTools == nil && registry != nil {
-		names = registry.FilterOutOptInNames(names)
-	}
-	return names
 }
 
 // whisperTranscribeFunc cria o callback de transcrição STT para o pipeline.
