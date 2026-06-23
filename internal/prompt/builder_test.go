@@ -56,6 +56,7 @@ func buildPromptForTest(b *prompt.Builder, messages []llm.Message, enabledSkills
 			Provider:   "conversation",
 			Name:       "conversation_summary",
 			Volatility: contextprovider.VolatilityRolling,
+			Priority:   100,
 			Content:    "<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n" + conversationSummary + "\n</conversation_summary>",
 		})
 	}

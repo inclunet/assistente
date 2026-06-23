@@ -290,7 +290,14 @@ stable:
   - tool schemas estáveis
   - catálogo de skills on-demand
 
+low_dynamic:
+  - workspace atual
+  - tasklists vinculadas
+
 slow_dynamic:
+  - reservado para providers dinâmicos mais estáveis que memória
+
+mid_dynamic:
   - memórias pinned/essenciais
 
 rolling_dynamic:
@@ -300,7 +307,10 @@ rolling_history:
   - janela recente de mensagens
 
 fast_dynamic:
-  - surface atual e resultados recuperados por providers/tools
+  - resultados recuperados por providers/tools
+
+turn_dynamic:
+  - surface atual transitória
   - slash skill do turno
   - mensagem atual do usuário
 ```
