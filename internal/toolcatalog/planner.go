@@ -80,7 +80,7 @@ type ToolCandidate struct {
 type PlannerConfig struct {
 	// SchemaBytesBudget é o teto de bytes de schema injetados por turno.
 	//   - <= 0 → ILIMITADO (default seguro: nunca corta, preserva ordem de entrada).
-	//   - >  0 → corta determinÍsticamente pela ordem de ranking quando excedido.
+	//   - >  0 → corta deterministicamente pela ordem de ranking quando excedido.
 	SchemaBytesBudget int
 	// PreferredPackages lista pacotes priorizados no ranking para este perfil.
 	// Tools cujo Package consta aqui sobem para o tier de pacote preferencial.

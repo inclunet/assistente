@@ -50,7 +50,7 @@ type ProfileToolConfig struct {
 	RuntimeTools []string
 	// SchemaBytesBudget é o teto de bytes de schema injetados por turno usado
 	// pelo ToolPlanner (AEP-0077 F4, #121). <= 0 → ilimitado (default seguro:
-	// não corta nenhum fluxo atual). > 0 → corta determinÍsticamente pela ordem
+	// não corta nenhum fluxo atual). > 0 → corta deterministicamente pela ordem
 	// de ranking quando a seleção excede o teto.
 	SchemaBytesBudget int
 	// PreferredPackages lista pacotes (ToolCatalogEntry.Package) priorizados no

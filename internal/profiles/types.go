@@ -93,7 +93,7 @@ type ChatConfig struct {
 	// no contexto por turno, usado pelo ToolPlanner (AEP-0077 Fase 4, #121).
 	//   - 0 (default) → ILIMITADO: o planner não corta nenhuma tool (sem
 	//     regressão para perfis cujos schemas já cabem).
-	//   - >0 → quando a seleção excede o teto, o planner corta determinÍsticamente
+	//   - >0 → quando a seleção excede o teto, o planner corta deterministicamente
 	//     pela ordem de ranking (essenciais > perfil > pacote preferencial >
 	//     builtins > MCP), preservando essenciais (tool_catalog/load_skill).
 	ToolSchemaBudgetBytes int `json:"tool_schema_budget_bytes,omitempty"`
