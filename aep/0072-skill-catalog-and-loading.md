@@ -129,6 +129,12 @@ O corpo completo não entra no prompt inicial.
 
 O catálogo deve respeitar a ordem definida pelo perfil. Essa ordem é a principal regra de prioridade: skills mais acima entram primeiro; skills mais abaixo são candidatas a omissão se houver orçamento. A aplicação de orçamento é desejável, mas o algoritmo exato de corte/encurtamento será definido na implementação. O requisito mínimo é manter a ordenação e não promover skills menos relevantes acima das mais relevantes.
 
+Refinamento implementado após a issue #331:
+
+- a skill `base` e o catálogo de skills `on_demand` são emitidos por um Context Provider `skills`;
+- o prompt base hardcoded deixa de ser o caminho normal e passa a ser fallback quando nenhuma `base_skill` é emitida;
+- o protocolo catalog-first de tools é emitido por Context Provider separado (`tool_protocol`), sem misturar catálogo de skills com protocolo de ferramentas.
+
 ### D5. `/skill` é uma ativação explícita e observável
 
 Quando o usuário digita `/skill args`, o backend deve:

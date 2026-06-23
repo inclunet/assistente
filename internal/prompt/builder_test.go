@@ -13,6 +13,7 @@ import (
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
 	"assistente/internal/skills"
+	"assistente/internal/toolprotocol"
 	"assistente/internal/tools"
 	"assistente/internal/workspace"
 )
@@ -51,6 +52,13 @@ func makeSkill(slug, name, desc, content string, autoLoad, modelInvocable bool) 
 
 func buildPromptForTest(b *prompt.Builder, messages []llm.Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string, dynamicContext ...string) []llm.Message {
 	blocks := make([]contextprovider.Block, 0, len(dynamicContext))
+	req := providerBuildRequestForTest(enabledSkills, disableSkills, disableOnDemand, tplData)
+	if b.Skills != nil {
+		skillBlocks, _ := skills.NewContextProvider(b.Skills).Build(context.Background(), req)
+		blocks = append(blocks, skillBlocks...)
+	}
+	toolProtocolBlocks, _ := toolprotocol.NewContextProvider().Build(context.Background(), req)
+	blocks = append(blocks, toolProtocolBlocks...)
 	if strings.TrimSpace(conversationSummary) != "" {
 		blocks = append(blocks, contextprovider.Block{
 			Provider:   "conversation",
@@ -69,6 +77,27 @@ func buildPromptForTest(b *prompt.Builder, messages []llm.Message, enabledSkills
 		})
 	}
 	return b.BuildWithContextBlocks(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, blocks)
+}
+
+func providerBuildRequestForTest(enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any) contextprovider.BuildRequest {
+	req := contextprovider.BuildRequest{
+		EnabledSkills:   enabledSkills,
+		DisableSkills:   disableSkills,
+		DisableOnDemand: disableOnDemand,
+	}
+	switch data := tplData.(type) {
+	case chat.TemplateData:
+		req.ToolCallingEnabled = data.ToolCallingEnabled
+		req.EnabledTools = append([]string(nil), data.EnabledTools...)
+	case *chat.TemplateData:
+		if data != nil {
+			req.ToolCallingEnabled = data.ToolCallingEnabled
+			req.EnabledTools = append([]string(nil), data.EnabledTools...)
+		}
+	default:
+		req.ToolCallingEnabled = true
+	}
+	return req
 }
 
 func buildSystemPromptForSkills(b *prompt.Builder, enabledSkills []string, disableOnDemand bool, tplData any) string {
@@ -122,8 +151,50 @@ func TestBuild_WithSummary_InjectsSummaryTag(t *testing.T) {
 	}
 }
 
-func TestBuild_MarksOnlyStableSystemPrefixForExplicitCacheControl(t *testing.T) {
+func TestBuild_BaseSkillReplacesDefaultSystemPrompt(t *testing.T) {
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		allSkillsFull: []skills.Skill{makeSkill("base", "Base", "Base desc", "Base identity.", true, true)},
+	}}
+	result := buildPromptForTest(b, []llm.Message{{Role: "user", Content: "oi"}}, nil, false, false, nil, "", "")
+	sys := result[0].Content.(string)
+	if !strings.Contains(sys, "<base_skill>") || !strings.Contains(sys, "Base identity.") {
+		t.Fatalf("expected base skill in system prompt: %q", sys)
+	}
+	if strings.Contains(sys, "You are a helpful, intelligent assistant") {
+		t.Fatalf("default system prompt should be replaced by base skill: %q", sys)
+	}
+}
+
+func TestBuild_FallbacksToDefaultPromptWhenProvidersEmitBlocksWithoutBaseSkill(t *testing.T) {
 	b := &prompt.Builder{}
+	result := b.BuildWithContextBlocks(
+		[]llm.Message{{Role: "user", Content: "oi"}},
+		nil,
+		false,
+		false,
+		nil,
+		"",
+		[]contextprovider.Block{{
+			Provider:   "memory",
+			Name:       "memory_instructions",
+			Volatility: contextprovider.VolatilityStable,
+			Priority:   10,
+			Content:    "<memory_instructions>stable memory</memory_instructions>",
+		}},
+	)
+	sys := result[0].Content.(string)
+	if !strings.Contains(sys, "You are a helpful, intelligent assistant") {
+		t.Fatalf("default system prompt should be injected when base_skill is missing: %q", sys)
+	}
+	if !strings.Contains(sys, "<memory_instructions>") {
+		t.Fatalf("expected provider block to remain: %q", sys)
+	}
+}
+
+func TestBuild_MarksOnlyStableSystemPrefixForExplicitCacheControl(t *testing.T) {
+	b := &prompt.Builder{Skills: &mockSkillReader{
+		allSkillsFull: []skills.Skill{makeSkill("base", "Base", "Base desc", "Base identity.", true, true)},
+	}}
 	msgs := []llm.Message{{Role: "user", Content: "oi"}}
 	result := buildPromptForTest(
 		b,
@@ -218,6 +289,7 @@ func TestBuildWithContextBlocksSortsCacheFriendlyLayout(t *testing.T) {
 		nil,
 		"<slash_skill>turno atual</slash_skill>",
 		[]contextprovider.Block{
+			{Provider: "skills", Name: "base_skill", Volatility: contextprovider.VolatilityStable, Priority: 0, Content: "<base_skill>Base identity.</base_skill>"},
 			{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityLowDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
 			{Provider: "memory", Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<memory_instructions>stable memory</memory_instructions>"},
 			{Provider: "tasklist", Name: "linked_task_lists", Volatility: contextprovider.VolatilityLowDynamic, Priority: 40, Content: "<linked_task_lists>dynamic tasks</linked_task_lists>"},
@@ -228,7 +300,7 @@ func TestBuildWithContextBlocksSortsCacheFriendlyLayout(t *testing.T) {
 	)
 	sys := result[0].Content.(string)
 	assertOrder(t, sys,
-		"helpful, intelligent assistant",
+		"<base_skill>",
 		"<memory_instructions>",
 		"<workspace_instructions>",
 		"<linked_task_lists>",
@@ -274,6 +346,8 @@ func TestBuildWithContextBlocksSameStateProducesStablePrefix(t *testing.T) {
 		},
 	}
 	blocks := []contextprovider.Block{
+		{Provider: "skills", Name: "base_skill", Volatility: contextprovider.VolatilityStable, Priority: 0, Content: "<base_skill>\n## Base\nBase content.\n\nSupporting files (use read_file to access when needed):\n- `/skills/base/a.md`\n- `/skills/base/z.md`\n</base_skill>"},
+		{Provider: "skills", Name: "available_skills", Volatility: contextprovider.VolatilityStable, Priority: 5, Content: "<available_skills>\n- **Review** (`z-review`): Review desc\n  Identifier: `z-review`\n</available_skills>"},
 		{Provider: "workspace", Name: "workspace_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<workspace_instructions>stable workspace</workspace_instructions>"},
 		{Provider: "memory", Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<memory_instructions>stable memory</memory_instructions>"},
 		{Provider: "conversation", Name: "conversation_summary", Volatility: contextprovider.VolatilityRolling, Priority: 100, Content: "<conversation_summary>Resumo antigo.</conversation_summary>"},
@@ -336,7 +410,7 @@ func TestBuildSkillsSectionPreservesLegacyBaseSkillSelectionOrder(t *testing.T) 
 
 	sys := buildSystemPromptForSkills(b, nil, false, nil)
 	assertOrder(t, sys, "First autoload content.", "Identifier: `a-base`")
-	if strings.Contains(sys, "<base_skills>\n## Zulu Base") {
+	if strings.Contains(sys, "<base_skill>\n## Zulu Base") {
 		t.Fatalf("base skill selection should preserve manager order, got: %s", sys)
 	}
 }
@@ -501,15 +575,15 @@ func TestBuild_CatalogFirst_CoexistsWithSkills(t *testing.T) {
 	if !strings.Contains(sys, "<tool_selection_protocol>") {
 		t.Error("Expected catalog-first protocol alongside skills")
 	}
-	if !strings.Contains(sys, "<base_skills>") {
-		t.Error("Expected base_skills section to still be present")
+	if !strings.Contains(sys, "<base_skill>") {
+		t.Error("Expected base_skill section to still be present")
 	}
 }
 
 func TestBuildSkillsSection_NilSkillReader_ReturnsEmpty(t *testing.T) {
 	b := &prompt.Builder{}
 	got := buildSystemPromptForSkills(b, nil, false, nil)
-	if strings.Contains(got, "<base_skills>") || strings.Contains(got, "<available_skills>") {
+	if strings.Contains(got, "<base_skill>") || strings.Contains(got, "<available_skills>") {
 		t.Errorf("Expected no skills section, got %q", got)
 	}
 }
@@ -517,7 +591,7 @@ func TestBuildSkillsSection_NilSkillReader_ReturnsEmpty(t *testing.T) {
 func TestBuildSkillsSection_EmptyListReturnsEmpty(t *testing.T) {
 	s := makeSkill("manual", "Manual", "Manual desc", "Manual content.", true, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s}}}
-	if got := buildSystemPromptForSkills(b, []string{}, false, nil); strings.Contains(got, "<base_skills>") || strings.Contains(got, "<available_skills>") {
+	if got := buildSystemPromptForSkills(b, []string{}, false, nil); strings.Contains(got, "<base_skill>") || strings.Contains(got, "<available_skills>") {
 		t.Fatalf("empty enabled_skills should omit skills section, got %q", got)
 	}
 }
@@ -535,7 +609,7 @@ func TestBuildWithContextBlocks_DisableSkillsOmitsSkillsSection(t *testing.T) {
 		nil,
 	)
 	sys := result[0].Content.(string)
-	if strings.Contains(sys, "<base_skills>") || strings.Contains(sys, "<available_skills>") || strings.Contains(sys, "Manual content.") {
+	if strings.Contains(sys, "<base_skill>") || strings.Contains(sys, "<available_skills>") || strings.Contains(sys, "Manual content.") {
 		t.Fatalf("disableSkills should omit all skill sections: %q", sys)
 	}
 }
@@ -544,8 +618,8 @@ func TestBuildSkillsSection_LegacyAutoLoad_ContainsBaseSkillsTag(t *testing.T) {
 	s := makeSkill("dev", "Dev", "Dev desc", "Conteúdo de dev.", true, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s}}}
 	result := buildSystemPromptForSkills(b, nil, false, nil)
-	if !strings.Contains(result, "<base_skills>") {
-		t.Error("Expected <base_skills> tag")
+	if !strings.Contains(result, "<base_skill>") {
+		t.Error("Expected <base_skill> tag")
 	}
 	if !strings.Contains(result, "Conteúdo de dev.") {
 		t.Error("Expected skill content")
@@ -557,7 +631,7 @@ func TestBuildSkillsSection_ExplicitList_FirstBaseRestOnDemand(t *testing.T) {
 	s2 := makeSkill("beta", "Beta", "B", "Conteúdo B.", true, true)
 	b := &prompt.Builder{Skills: &mockSkillReader{allSkillsFull: []skills.Skill{s1, s2}}}
 	result := buildSystemPromptForSkills(b, []string{"beta", "alpha"}, false, nil)
-	if !strings.Contains(result, "<base_skills>") || !strings.Contains(result, "Conteúdo B.") {
+	if !strings.Contains(result, "<base_skill>") || !strings.Contains(result, "Conteúdo B.") {
 		t.Fatalf("first enabled skill should be base: %q", result)
 	}
 	if strings.Contains(result, "Conteúdo A.") {
