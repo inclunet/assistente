@@ -264,6 +264,10 @@ func TestWindowsAssetPredicates_IgnoreCLIAssets(t *testing.T) {
 			name:      "non-windows desktop asset is not portable update",
 			assetName: "assistente-linux-amd64",
 		},
+		{
+			name:      "non-windows installer exe is not Windows installer update",
+			assetName: "assistente-linux-amd64-installer.exe",
+		},
 	}
 
 	for _, tt := range tests {
@@ -832,9 +836,13 @@ func TestBuild_AllFields(t *testing.T) {
 func createGitHubReleaseResponse(version, notes string, platforms []string) map[string]interface{} {
 	assets := make([]map[string]interface{}, len(platforms))
 	for i, platform := range platforms {
+		assetName := "assistente-" + platform
+		if strings.HasPrefix(platform, "windows-") {
+			assetName += ".exe"
+		}
 		assets[i] = map[string]interface{}{
-			"name":                 "assistente-" + platform + ".exe",
-			"browser_download_url": "https://github.com/inclunet/assistente/releases/download/" + version + "/assistente-" + platform + ".exe",
+			"name":                 assetName,
+			"browser_download_url": "https://github.com/inclunet/assistente/releases/download/" + version + "/" + assetName,
 			"size":                 int64(50000000),
 		}
 	}

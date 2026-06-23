@@ -787,6 +787,7 @@ func isDesktopUpdateAsset(assetNameLower string) bool {
 func isWindowsInstallerAsset(assetNameLower string) bool {
 	return hasAssistenteAssetPrefix(assetNameLower) &&
 		strings.HasSuffix(assetNameLower, ".exe") &&
+		strings.Contains(assetNameLower, "windows") &&
 		(strings.Contains(assetNameLower, "installer") || strings.Contains(assetNameLower, "setup"))
 }
 
