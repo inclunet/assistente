@@ -54,6 +54,12 @@ func TestContextProviderBuildsLowDynamicWorkspaceAndTurnDynamicSurfaceBlocks(t *
 	if blocks[0].Name != "workspace_instructions" || blocks[0].Volatility != contextprovider.VolatilityStable {
 		t.Fatalf("unexpected instructions block: %+v", blocks[0])
 	}
+	if strings.Contains(blocks[0].Content, "link= values") || strings.Contains(blocks[0].Content, "app deep links") {
+		t.Fatalf("workspace instructions should not include generic deeplink protocol: %q", blocks[0].Content)
+	}
+	if !strings.Contains(blocks[0].Content, "open_editor_file") {
+		t.Fatalf("workspace instructions should keep open editor file guidance: %q", blocks[0].Content)
+	}
 	block := blocks[1]
 	if block.Provider != "workspace" || block.Volatility != contextprovider.VolatilityLowDynamic {
 		t.Fatalf("unexpected block metadata: %+v", block)

@@ -286,6 +286,7 @@ stable:
   - base_skill emitida pelo provider `skills`
   - catálogo de skills on-demand emitido pelo provider `skills`
   - tool_selection_protocol emitido pelo provider `tool_protocol`
+  - deeplink_protocol emitido pelo provider `deeplink_protocol`
   - instruções estáveis de context providers
   - tool schemas estáveis
 
@@ -323,6 +324,7 @@ Refinamento implementado após a issue #329:
 - quando um provider emite múltiplos blocos dinâmicos, o budget configurado para aquele provider é um teto combinado para a soma desses blocos, não um budget independente por bloco;
 - o provider `skills` emite `base_skill` e `available_skills` no prefixo estável, substituindo a montagem especial de skills no `prompt.Builder`;
 - o provider `tool_protocol` emite `tool_selection_protocol` quando catalog-first estiver ativo;
+- o provider `deeplink_protocol` emite a instrução transversal de uso de deep links (`link=`/`assistente://...`), removendo essa responsabilidade de providers de domínio como `workspace`;
 - `fast_dynamic`/`turn_dynamic` ficam reservados para contexto recuperado, superfície ativa transitória e conteúdo específico do turno.
 
 Esta AEP não implementa otimização de cache diretamente; ela prepara o terreno para a AEP-0074.
