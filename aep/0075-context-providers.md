@@ -311,7 +311,7 @@ fast_dynamic:
 
 turn_dynamic:
   - surface atual transitória
-  - slash skill do turno
+  - slash skill do turno emitida pelo provider `slash_skill`
   - mensagem atual do usuário
 ```
 
@@ -325,6 +325,7 @@ Refinamento implementado após a issue #329:
 - o provider `skills` emite `base_skill` e `available_skills` no prefixo estável, substituindo a montagem especial de skills no `prompt.Builder`;
 - o provider `tool_protocol` emite `tool_selection_protocol` quando catalog-first estiver ativo;
 - o provider `deeplink_protocol` emite a instrução transversal de uso de deep links (`link=`/`assistente://...`), removendo essa responsabilidade de providers de domínio como `workspace`;
+- o provider `slash_skill` emite o conteúdo de skill invocado explicitamente no turno atual, substituindo a injeção especial de slash skill no `prompt.Builder`;
 - `fast_dynamic`/`turn_dynamic` ficam reservados para contexto recuperado, superfície ativa transitória e conteúdo específico do turno.
 
 Esta AEP não implementa otimização de cache diretamente; ela prepara o terreno para a AEP-0074.

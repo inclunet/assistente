@@ -112,7 +112,7 @@ contexto por volatilidade:
   - workspace/tasklist: estado do app que muda quando abas/listas mudam
   - memory: fatos importantes selecionados para entrar no prompt
   - conversation_summary: resumo acumulado da conversa, quando existir
-  - context providers fast/turn, resultados recuperados e contexto da superfície ativa
+  - context providers fast/turn, resultados recuperados, contexto da superfície ativa e slash skill emitida pelo Context Provider `slash_skill`
 
 histórico recente:
   - mensagens preservadas após summary_up_to_message_id

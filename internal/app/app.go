@@ -31,6 +31,7 @@ import (
 	"assistente/internal/providers"
 	"assistente/internal/questionnaire"
 	"assistente/internal/skills"
+	"assistente/internal/slashskill"
 	"assistente/internal/speech"
 	"assistente/internal/subagent"
 	"assistente/internal/summarization"
@@ -365,6 +366,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		conversation.NewContextProvider(),
 		a.memorySvc,
 		skills.NewContextProvider(a.skillMgr),
+		slashskill.NewContextProvider(),
 		tasklist.NewContextProvider(),
 		toolprotocol.NewContextProvider(),
 		deeplinkprotocol.NewContextProvider(),

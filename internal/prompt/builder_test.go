@@ -14,6 +14,7 @@ import (
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
 	"assistente/internal/skills"
+	"assistente/internal/slashskill"
 	"assistente/internal/toolprotocol"
 	"assistente/internal/tools"
 	"assistente/internal/workspace"
@@ -71,6 +72,10 @@ func buildPromptForTest(b *prompt.Builder, messages []llm.Message, enabledSkills
 			Content:    "<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n" + conversationSummary + "\n</conversation_summary>",
 		})
 	}
+	if strings.TrimSpace(slashSkillContent) != "" {
+		slashSkillBlocks, _ := slashskill.NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{SlashSkillContent: slashSkillContent})
+		blocks = append(blocks, slashSkillBlocks...)
+	}
 	for _, content := range dynamicContext {
 		blocks = append(blocks, contextprovider.Block{
 			Provider:   "test",
@@ -79,7 +84,7 @@ func buildPromptForTest(b *prompt.Builder, messages []llm.Message, enabledSkills
 			Content:    content,
 		})
 	}
-	return b.BuildWithContextBlocks(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, blocks)
+	return b.BuildWithContextBlocks(messages, enabledSkills, disableSkills, disableOnDemand, tplData, blocks)
 }
 
 func providerBuildRequestForTest(enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any) contextprovider.BuildRequest {
@@ -115,7 +120,7 @@ func buildSystemPromptForSkills(b *prompt.Builder, enabledSkills []string, disab
 func TestBuild_NoProvidersNoSlash_DoesNotInjectDefaultSystemPrompt(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "olá"}}
-	result := b.BuildWithContextBlocks(msgs, []string{}, false, false, nil, "", nil)
+	result := b.BuildWithContextBlocks(msgs, []string{}, false, false, nil, nil)
 	if len(result) != 1 || result[0].Role != "user" {
 		t.Fatalf("expected original user messages without hardcoded prompt, got %v", result)
 	}
@@ -172,7 +177,6 @@ func TestBuild_DoesNotInjectDefaultPromptWhenProvidersEmitBlocksWithoutBaseSkill
 		false,
 		false,
 		nil,
-		"",
 		[]contextprovider.Block{{
 			Provider:   "memory",
 			Name:       "memory_instructions",
@@ -255,7 +259,6 @@ func TestBuildWithContextBlocksOrdersStableMemoryAndSummary(t *testing.T) {
 		false,
 		false,
 		nil,
-		"slash",
 		[]contextprovider.Block{
 			{Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Content: "<memory_instructions>use memory</memory_instructions>"},
 			{Name: "user_memory", Volatility: contextprovider.VolatilityMidDynamic, Content: "<user_memory>prefere pt-BR</user_memory>"},
@@ -286,7 +289,6 @@ func TestBuildWithContextBlocksSortsCacheFriendlyLayout(t *testing.T) {
 		false,
 		false,
 		nil,
-		"<slash_skill>turno atual</slash_skill>",
 		[]contextprovider.Block{
 			{Provider: "skills", Name: "base_skill", Volatility: contextprovider.VolatilityStable, Priority: 0, Content: "<base_skill>Base identity.</base_skill>"},
 			{Provider: "deeplink_protocol", Name: "deeplink_protocol", Volatility: contextprovider.VolatilityStable, Priority: 9, Content: "<deeplink_protocol>stable deeplink</deeplink_protocol>"},
@@ -296,6 +298,7 @@ func TestBuildWithContextBlocksSortsCacheFriendlyLayout(t *testing.T) {
 			{Provider: "memory", Name: "user_memory", Volatility: contextprovider.VolatilityMidDynamic, Priority: 100, Content: "<user_memory>dynamic memory</user_memory>"},
 			{Provider: "conversation", Name: "conversation_summary", Volatility: contextprovider.VolatilityRolling, Priority: 100, Content: "<conversation_summary>Resumo antigo.</conversation_summary>"},
 			{Provider: "workspace", Name: "workspace_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<workspace_instructions>stable workspace</workspace_instructions>"},
+			{Provider: "slash_skill", Name: "slash_skill", Volatility: contextprovider.VolatilityTurnDynamic, Priority: 200, Content: "<slash_skill>turno atual</slash_skill>"},
 		},
 	)
 	sys := result[0].Content.(string)
@@ -328,7 +331,6 @@ func TestBuildWithContextBlocksDoesNotMutateContextBlocks(t *testing.T) {
 		false,
 		false,
 		nil,
-		"",
 		blocks,
 	)
 
@@ -364,7 +366,6 @@ func TestBuildWithContextBlocksSameStateProducesStablePrefix(t *testing.T) {
 			false,
 			false,
 			nil,
-			"",
 			append([]contextprovider.Block(nil), blocks...),
 		)
 		return result[0].Content.(string)
@@ -609,7 +610,6 @@ func TestBuildWithContextBlocks_DisableSkillsOmitsSkillsSection(t *testing.T) {
 		true,
 		false,
 		nil,
-		"",
 		nil,
 	)
 	sys := result[0].Content.(string)

@@ -16,6 +16,7 @@ import (
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
+	"assistente/internal/slashskill"
 	"assistente/internal/tasklist"
 	"assistente/internal/workspace"
 	"gorm.io/gorm"
@@ -128,23 +129,29 @@ func (failingSkillRuntimeManager) GetAllSkillsFull() ([]skills.Skill, error) {
 }
 
 type capturingPromptBuilder struct {
-	slashSkillContent string
-	contextBlocks     []contextprovider.Block
+	contextBlocks []contextprovider.Block
 }
 
-func (b *capturingPromptBuilder) Build(messages []llm.Message, _ []string, _ bool, _ any, slashSkillContent string, _ string, _ ...string) []llm.Message {
-	b.slashSkillContent = slashSkillContent
+func (b *capturingPromptBuilder) Build(messages []llm.Message, _ []string, _ bool, _ any, _ string, _ string, _ ...string) []llm.Message {
 	return messages
 }
 
-func (b *capturingPromptBuilder) BuildWithContextBlocks(messages []llm.Message, _ []string, _ bool, _ bool, _ any, slashSkillContent string, blocks []contextprovider.Block) []llm.Message {
-	b.slashSkillContent = slashSkillContent
+func (b *capturingPromptBuilder) BuildWithContextBlocks(messages []llm.Message, _ []string, _ bool, _ bool, _ any, blocks []contextprovider.Block) []llm.Message {
 	b.contextBlocks = append([]contextprovider.Block{}, blocks...)
 	return messages
 }
 
 func (b *capturingPromptBuilder) BuildTemplateData(_ *profiles.Profile, _ llm.ChatParams, conversationID string) TemplateData {
 	return TemplateData{ConversationID: conversationID}
+}
+
+func (b *capturingPromptBuilder) slashSkillContent() string {
+	for _, block := range b.contextBlocks {
+		if block.Provider == "slash_skill" && block.Name == "slash_skill" {
+			return block.Content
+		}
+	}
+	return ""
 }
 
 func (r *retryMessageRepoStub) CreateMessage(_ context.Context, _ MessageOptions) (*Message, error) {
@@ -519,6 +526,7 @@ func TestPrepareContext_ResolvePerfilDoWorkspaceQuandoParamsNaoTrazemSlug(t *tes
 
 func TestPrepareMessagesEmitsSkillLoadedForOnDemandSkill(t *testing.T) {
 	em := &spyEmitter{}
+	promptBuilder := &capturingPromptBuilder{}
 	skill := &skills.Skill{
 		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
 		Slug:          "helper",
@@ -530,7 +538,9 @@ func TestPrepareMessagesEmitsSkillLoadedForOnDemandSkill(t *testing.T) {
 		Content:       "base instructions",
 	}
 	interactor := NewInteractor(InteractorConfig{
-		Emitter: em,
+		Emitter:          em,
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(slashskill.NewContextProvider()),
 		SkillMgr: staticSkillRuntimeManager{
 			skills: map[string]*skills.Skill{"base": baseSkill, "helper": skill},
 		},
@@ -559,6 +569,9 @@ func TestPrepareMessagesEmitsSkillLoadedForOnDemandSkill(t *testing.T) {
 	if result.InvokedSkillSlug != "helper" {
 		t.Fatalf("expected invoked skill helper, got %q", result.InvokedSkillSlug)
 	}
+	if !strings.Contains(promptBuilder.slashSkillContent(), "<invoked_skill>") {
+		t.Fatalf("expected slash skill block to be injected, got %q", promptBuilder.slashSkillContent())
+	}
 }
 
 func TestPrepareMessagesPreservesSlashSkillExecutionContext(t *testing.T) {
@@ -585,7 +598,10 @@ func TestPrepareMessagesPreservesSlashSkillExecutionContext(t *testing.T) {
 		Slug:          "base",
 		Content:       "base instructions",
 	}
+	promptBuilder := &capturingPromptBuilder{}
 	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(slashskill.NewContextProvider()),
 		SkillMgr: staticSkillRuntimeManager{
 			skills: map[string]*skills.Skill{"base": baseSkill, "helper": skill},
 		},
@@ -653,6 +669,9 @@ func TestPrepareMessagesDoesNotDuplicateBaseSkillOnSlashInvocation(t *testing.T)
 	interactor := NewInteractor(InteractorConfig{
 		Emitter:       em,
 		PromptBuilder: promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(
+			slashskill.NewContextProvider(),
+		),
 		SkillMgr: staticSkillRuntimeManager{
 			skills: map[string]*skills.Skill{"base": baseSkill},
 		},
@@ -673,8 +692,8 @@ func TestPrepareMessagesDoesNotDuplicateBaseSkillOnSlashInvocation(t *testing.T)
 	if result.InvokedSkillSlug != "base" {
 		t.Fatalf("expected invoked base skill, got %q", result.InvokedSkillSlug)
 	}
-	if promptBuilder.slashSkillContent != "" {
-		t.Fatalf("base skill should not be appended again as slash content: %q", promptBuilder.slashSkillContent)
+	if content := promptBuilder.slashSkillContent(); content != "" {
+		t.Fatalf("base skill should not be appended again as slash content: %q", content)
 	}
 	if em.findSkillLoaded() != nil {
 		t.Fatal("base skill without arguments should not emit skill_loaded")
@@ -690,6 +709,9 @@ func TestPrepareMessagesPreservesBaseSkillSlashArguments(t *testing.T) {
 	promptBuilder := &capturingPromptBuilder{}
 	interactor := NewInteractor(InteractorConfig{
 		PromptBuilder: promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(
+			slashskill.NewContextProvider(),
+		),
 		SkillMgr: staticSkillRuntimeManager{
 			skills: map[string]*skills.Skill{"base": baseSkill},
 		},
@@ -707,13 +729,98 @@ func TestPrepareMessagesPreservesBaseSkillSlashArguments(t *testing.T) {
 	if result.Err != nil {
 		t.Fatalf("PrepareMessages returned error: %v", result.Err)
 	}
-	if !strings.Contains(promptBuilder.slashSkillContent, "<invoked_skill_arguments>") ||
-		!strings.Contains(promptBuilder.slashSkillContent, "revisar login") ||
-		!strings.Contains(promptBuilder.slashSkillContent, "$ARGUMENTS") {
-		t.Fatalf("base skill arguments should be appended as a lightweight argument block: %q", promptBuilder.slashSkillContent)
+	slashSkillContent := promptBuilder.slashSkillContent()
+	if !strings.Contains(slashSkillContent, "<invoked_skill_arguments>") ||
+		!strings.Contains(slashSkillContent, "revisar login") ||
+		!strings.Contains(slashSkillContent, "$ARGUMENTS") {
+		t.Fatalf("base skill arguments should be appended as a lightweight argument block: %q", slashSkillContent)
 	}
-	if strings.Contains(promptBuilder.slashSkillContent, "base instructions") {
-		t.Fatalf("base skill body should not be duplicated: %q", promptBuilder.slashSkillContent)
+	if strings.Contains(slashSkillContent, "base instructions") {
+		t.Fatalf("base skill body should not be duplicated: %q", slashSkillContent)
+	}
+}
+
+func TestPrepareMessagesDoesNotReportSlashSkillLoadedWhenProviderDisabled(t *testing.T) {
+	em := &spyEmitter{}
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
+		Slug:          "helper",
+		Content:       "help instructions",
+	}
+	skill.Tools = &skills.ToolPermissions{Allowed: []string{"web_fetch"}}
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:          em,
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(slashskill.NewContextProvider()),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"helper": skill},
+		},
+	})
+	disabled := false
+	profile := &profiles.Profile{
+		ContextProviders: map[string]profiles.ContextProviderProfileConfig{
+			"slash_skill": {Enabled: &disabled},
+		},
+	}
+	profile.Chat.EnabledSkills = []string{"helper"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/helper now"}},
+		UserContent:    "/helper now",
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if result.InvokedSkillSlug != "" || result.InvokedExecutionContext != nil || result.InvokedScope != nil {
+		t.Fatalf("slash skill should not be reported/applied without provider block: slug=%q ec=%+v scope=%+v", result.InvokedSkillSlug, result.InvokedExecutionContext, result.InvokedScope)
+	}
+	if em.findSkillLoaded() != nil {
+		t.Fatal("skill_loaded should not be emitted when slash_skill provider omits the block")
+	}
+	if content := promptBuilder.slashSkillContent(); content != "" {
+		t.Fatalf("slash skill block should be omitted when provider is disabled: %q", content)
+	}
+}
+
+func TestPrepareMessagesDoesNotReportSlashSkillLoadedWithoutPromptBuilder(t *testing.T) {
+	em := &spyEmitter{}
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
+		Slug:          "helper",
+		Content:       "help instructions",
+	}
+	skill.Tools = &skills.ToolPermissions{Allowed: []string{"web_fetch"}}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:          em,
+		ContextProviders: contextprovider.NewRegistry(slashskill.NewContextProvider()),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"helper": skill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"helper"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/helper now"}},
+		UserContent:    "/helper now",
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if result.InvokedSkillSlug != "" || result.InvokedExecutionContext != nil || result.InvokedScope != nil {
+		t.Fatalf("slash skill should not be reported/applied without prompt builder: slug=%q ec=%+v scope=%+v", result.InvokedSkillSlug, result.InvokedExecutionContext, result.InvokedScope)
+	}
+	if em.findSkillLoaded() != nil {
+		t.Fatal("skill_loaded should not be emitted when prompt builder cannot inject slash_skill")
 	}
 }
 
