@@ -106,8 +106,8 @@ func TestContextProviderTruncatesBaseSkillInsteadOfDroppingIt(t *testing.T) {
 	if blocks[0].Name != "base_skill" {
 		t.Fatalf("unexpected block: %+v", blocks[0])
 	}
-	if runeLen(blocks[0].Content) > 180 {
-		t.Fatalf("base block length = %d, want <= 180: %q", runeLen(blocks[0].Content), blocks[0].Content)
+	if contextprovider.RuneLen(blocks[0].Content) > 180 {
+		t.Fatalf("base block length = %d, want <= 180: %q", contextprovider.RuneLen(blocks[0].Content), blocks[0].Content)
 	}
 	if !strings.Contains(blocks[0].Content, "omitted due to context budget") {
 		t.Fatalf("expected truncation notice: %q", blocks[0].Content)
@@ -152,7 +152,7 @@ func TestContextProviderTruncatesAvailableSkillsInsteadOfDroppingCatalog(t *test
 	if blocks[1].Name != "available_skills" {
 		t.Fatalf("unexpected catalog block: %+v", blocks[1])
 	}
-	total := runeLen(blocks[0].Content) + runeLen(blocks[1].Content)
+	total := contextprovider.RuneLen(blocks[0].Content) + contextprovider.RuneLen(blocks[1].Content)
 	if total > 260 {
 		t.Fatalf("skills blocks length = %d, want <= 260: base=%q catalog=%q", total, blocks[0].Content, blocks[1].Content)
 	}

@@ -2,7 +2,6 @@ package deeplinkprotocol
 
 import (
 	"context"
-	"strings"
 
 	"assistente/internal/contextprovider"
 )
@@ -34,7 +33,7 @@ func (p *ContextProvider) Metadata() contextprovider.ProviderMetadata {
 }
 
 func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
-	content := trimTaggedBlockToBudget(protocolBlock, "deeplink_protocol", protocolTruncationNotice, req.Budget(p.Name(), defaultPromptBudget))
+	content := contextprovider.TrimTaggedBlockToBudget(protocolBlock, "deeplink_protocol", protocolTruncationNotice, req.Budget(p.Name(), defaultPromptBudget))
 	if content == "" {
 		return nil, nil
 	}
@@ -45,55 +44,4 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 		Priority:   9,
 		Content:    content,
 	}}, nil
-}
-
-func trimTaggedBlockToBudget(content string, tag string, truncationNotice string, budgetChars int) string {
-	if budgetChars <= 0 {
-		return ""
-	}
-	if runeLen(content) <= budgetChars {
-		return content
-	}
-	prefix := "<" + tag + ">\n"
-	suffix := "\n</" + tag + ">"
-	if !strings.HasPrefix(content, prefix) || !strings.HasSuffix(content, suffix) {
-		return truncateRunes(content, budgetChars)
-	}
-	notice := "\n" + truncationNotice
-	minimal := prefix + truncationNotice + suffix
-	if runeLen(minimal) > budgetChars {
-		return ""
-	}
-	bodyBudget := budgetChars - runeLen(prefix) - runeLen(notice) - runeLen(suffix)
-	if bodyBudget <= 0 {
-		return minimal
-	}
-	body := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(content, prefix), suffix))
-	bodyRunes := []rune(body)
-	if len(bodyRunes) > bodyBudget {
-		body = strings.TrimSpace(string(bodyRunes[:bodyBudget]))
-	}
-	if body == "" {
-		return minimal
-	}
-	return prefix + body + notice + suffix
-}
-
-func truncateRunes(value string, budgetChars int) string {
-	if budgetChars <= 0 {
-		return ""
-	}
-	runes := []rune(value)
-	if len(runes) <= budgetChars {
-		return value
-	}
-	return strings.TrimSpace(string(runes[:budgetChars]))
-}
-
-func runeLen(value string) int {
-	count := 0
-	for range value {
-		count++
-	}
-	return count
 }

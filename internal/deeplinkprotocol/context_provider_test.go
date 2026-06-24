@@ -40,8 +40,8 @@ func TestContextProviderTruncatesProtocolInsteadOfDroppingIt(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("len(blocks) = %d, want truncated protocol", len(blocks))
 	}
-	if runeLen(blocks[0].Content) > 170 {
-		t.Fatalf("protocol length = %d, want <= 170: %q", runeLen(blocks[0].Content), blocks[0].Content)
+	if contextprovider.RuneLen(blocks[0].Content) > 170 {
+		t.Fatalf("protocol length = %d, want <= 170: %q", contextprovider.RuneLen(blocks[0].Content), blocks[0].Content)
 	}
 	if !strings.Contains(blocks[0].Content, "omitted due to context budget") {
 		t.Fatalf("expected truncation notice: %q", blocks[0].Content)
