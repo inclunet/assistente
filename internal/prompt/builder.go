@@ -208,30 +208,29 @@ func (b *Builder) build(
 
 	// 1. Context Providers estáveis (base skill, catálogos, protocolos e instruções)
 	for _, contextBlock := range stableContext {
-		if strings.TrimSpace(contextBlock) == "" {
+		trimmed := strings.TrimSpace(contextBlock)
+		if trimmed == "" {
 			continue
 		}
-		parts = append(parts, "\n\n"+strings.TrimSpace(contextBlock))
+		parts = append(parts, trimmed)
 	}
-	stablePromptLen := 0
-	for _, part := range parts {
-		stablePromptLen += len(part)
-	}
+	stablePromptLen := len(strings.Join(parts, "\n\n"))
 
 	// 2. Context Providers dinâmicos (workspace, tasklists, memória, summary, etc.)
 	for _, contextBlock := range dynamicContext {
-		if strings.TrimSpace(contextBlock) == "" {
+		trimmed := strings.TrimSpace(contextBlock)
+		if trimmed == "" {
 			continue
 		}
-		parts = append(parts, "\n\n"+strings.TrimSpace(contextBlock))
+		parts = append(parts, trimmed)
 	}
 
 	// 3. Skill invocado via /slash é conteúdo específico do turno e fica no fim.
-	if slashSkillContent != "" {
-		parts = append(parts, "\n\n"+slashSkillContent)
+	if strings.TrimSpace(slashSkillContent) != "" {
+		parts = append(parts, strings.TrimSpace(slashSkillContent))
 	}
 
-	return chat.InjectSystemPromptWithCachePrefix(messages, strings.Join(parts, ""), stablePromptLen)
+	return chat.InjectSystemPromptWithCachePrefix(messages, strings.Join(parts, "\n\n"), stablePromptLen)
 }
 
 func sortContextBlocks(blocks []contextprovider.Block) {

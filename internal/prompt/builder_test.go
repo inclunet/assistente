@@ -295,6 +295,9 @@ func TestBuildWithContextBlocksSortsCacheFriendlyLayout(t *testing.T) {
 		},
 	)
 	sys := result[0].Content.(string)
+	if strings.HasPrefix(sys, "\n") {
+		t.Fatalf("system prompt should not start with leading blank lines: %q", sys)
+	}
 	assertOrder(t, sys,
 		"<base_skill>",
 		"<memory_instructions>",

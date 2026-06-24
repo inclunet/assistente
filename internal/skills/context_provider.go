@@ -2,7 +2,6 @@ package skills
 
 import (
 	"context"
-	"log"
 	"sort"
 	"strings"
 
@@ -45,7 +44,6 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 	}
 	allSkills, err := p.source.GetAllSkillsFull()
 	if err != nil {
-		log.Printf("[context/skills] erro ao carregar skills: %v", err)
 		return nil, err
 	}
 	baseSkills, onDemandSkills := selectPromptSkills(allSkills, req)
