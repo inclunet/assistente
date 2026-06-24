@@ -185,18 +185,16 @@ func (b *Builder) BuildWithContextBlocks(
 	disableSkills bool,
 	disableOnDemand bool,
 	tplData any,
-	slashSkillContent string,
 	contextBlocks []contextprovider.Block,
 ) []llm.Message {
 	contextBlocks = append([]contextprovider.Block(nil), contextBlocks...)
 	sortContextBlocks(contextBlocks)
 	stableContext, dynamicContext := splitRenderedContextBlocks(contextBlocks)
-	return b.build(messages, slashSkillContent, stableContext, dynamicContext)
+	return b.build(messages, stableContext, dynamicContext)
 }
 
 func (b *Builder) build(
 	messages []llm.Message,
-	slashSkillContent string,
 	stableContext []string,
 	dynamicContext []string,
 ) []llm.Message {
@@ -223,11 +221,6 @@ func (b *Builder) build(
 			continue
 		}
 		parts = append(parts, trimmed)
-	}
-
-	// 3. Skill invocado via /slash é conteúdo específico do turno e fica no fim.
-	if strings.TrimSpace(slashSkillContent) != "" {
-		parts = append(parts, strings.TrimSpace(slashSkillContent))
 	}
 
 	return chat.InjectSystemPromptWithCachePrefix(messages, strings.Join(parts, "\n\n"), stablePromptLen)

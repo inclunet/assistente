@@ -35,7 +35,7 @@ type ChatParams = llm.ChatParams
 // Implemented by *prompt.Builder. Defined as an interface here so that internal/chat
 // does not need to import internal/prompt (which already imports internal/chat).
 type SystemPromptBuilder interface {
-	BuildWithContextBlocks(messages []llm.Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any, slashSkillContent string, contextBlocks []contextprovider.Block) []llm.Message
+	BuildWithContextBlocks(messages []llm.Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any, contextBlocks []contextprovider.Block) []llm.Message
 	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData
 }
 
@@ -579,9 +579,11 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	}
 
 	var slashSkillContent string
-	var invokedSkillSlug string
-	var invokedScope *tools.FilesystemScope
-	var invokedExecutionContext *tools.ExecutionContext
+	var pendingInvokedSkillSlug string
+	var pendingInvokedDisplayName string
+	var pendingInvokedMode string
+	var pendingInvokedScope *tools.FilesystemScope
+	var pendingInvokedExecutionContext *tools.ExecutionContext
 	var taskListContextEnabled bool
 	_, _, isSlashCommand := skills.ParseSlashCommand(req.UserContent)
 	skillPolicy, policyReady, policyErr := i.BuildSkillSelectionPolicy(req.ActiveProfile)
@@ -630,20 +632,12 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		} else {
 			slashSkillContent = inv.Content
 		}
-		invokedSkillSlug = inv.SkillSlug
-		invokedExecutionContext = executionContextFromInvocation(inv)
-		if slashSkillContent != "" && i.emitter != nil {
-			i.emitter.Emit("chat:skill_loaded", ports.SkillLoadedEvent{
-				ConversationID: req.ConversationID,
-				TurnID:         req.TurnID,
-				Slug:           inv.SkillSlug,
-				DisplayName:    inv.DisplayName,
-				Mode:           string(inv.Mode),
-				SurfaceOrigin:  req.SurfaceOrigin,
-			})
-		}
+		pendingInvokedSkillSlug = inv.SkillSlug
+		pendingInvokedDisplayName = inv.DisplayName
+		pendingInvokedMode = string(inv.Mode)
+		pendingInvokedExecutionContext = executionContextFromInvocation(inv)
 		if inv.Filesystem != nil {
-			invokedScope = &tools.FilesystemScope{
+			pendingInvokedScope = &tools.FilesystemScope{
 				Read:  append([]string{}, inv.Filesystem.Read...),
 				Write: append([]string{}, inv.Filesystem.Write...),
 				Deny:  append([]string{}, inv.Filesystem.Deny...),
@@ -665,9 +659,31 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		disableSkills = req.ActiveProfile.Chat.DisableSkills
 	}
 
+	contextBlocks := i.buildDynamicContext(ctx, skillTplData, req.UserContent, req.ConversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, req.ActiveProfile)
+	slashSkillInjected := strings.TrimSpace(slashSkillContent) == "" || hasContextBlock(contextBlocks, "slash_skill", "slash_skill")
+
+	var invokedSkillSlug string
+	var invokedScope *tools.FilesystemScope
+	var invokedExecutionContext *tools.ExecutionContext
+	if slashSkillInjected {
+		invokedSkillSlug = pendingInvokedSkillSlug
+		invokedScope = pendingInvokedScope
+		invokedExecutionContext = pendingInvokedExecutionContext
+		if strings.TrimSpace(slashSkillContent) != "" && i.emitter != nil {
+			i.emitter.Emit("chat:skill_loaded", ports.SkillLoadedEvent{
+				ConversationID: req.ConversationID,
+				TurnID:         req.TurnID,
+				Slug:           pendingInvokedSkillSlug,
+				DisplayName:    pendingInvokedDisplayName,
+				Mode:           pendingInvokedMode,
+				SurfaceOrigin:  req.SurfaceOrigin,
+			})
+		}
+	}
+
 	var messages []llm.Message
 	if i.promptBuilder != nil {
-		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableSkills, disableOnDemand, skillTplData, slashSkillContent, i.buildDynamicContext(ctx, skillTplData, req.UserContent, req.ConversationSummary, linkedTaskLists, taskListContextEnabled, req.ActiveProfile))
+		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableSkills, disableOnDemand, skillTplData, contextBlocks)
 	} else {
 		messages = req.Messages
 	}
@@ -778,7 +794,7 @@ func (i *Interactor) ValidateSkillInvocation(activeProfile *profiles.Profile, us
 	return nil
 }
 
-func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string, conversationSummary string, linkedTaskLists []contextprovider.LinkedTaskList, taskListContextEnabled bool, activeProfile *profiles.Profile) []contextprovider.Block {
+func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData, currentUserText string, conversationSummary string, slashSkillContent string, linkedTaskLists []contextprovider.LinkedTaskList, taskListContextEnabled bool, activeProfile *profiles.Profile) []contextprovider.Block {
 	if i.contextProviders == nil {
 		return nil
 	}
@@ -795,6 +811,7 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 		Tabs:                   make([]contextprovider.Tab, 0, len(data.Tabs)),
 		CurrentUserText:        currentUserText,
 		ConversationSummary:    conversationSummary,
+		SlashSkillContent:      slashSkillContent,
 		EnabledSkills:          enabledSkillList(activeProfile),
 		DisableSkills:          activeProfile != nil && activeProfile.Chat.DisableSkills,
 		DisableOnDemand:        activeProfile != nil && activeProfile.Chat.DisableOnDemandSkills,
@@ -836,6 +853,15 @@ func enabledSkillList(activeProfile *profiles.Profile) []string {
 		return nil
 	}
 	return activeProfile.Chat.EnabledSkills
+}
+
+func hasContextBlock(blocks []contextprovider.Block, provider string, name string) bool {
+	for _, block := range blocks {
+		if block.Provider == provider && block.Name == name && strings.TrimSpace(block.Content) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveContextProviderProfileConfig(metadata []contextprovider.ProviderMetadata, activeProfile *profiles.Profile) (map[string]int, map[string]bool, map[string]map[string]any) {

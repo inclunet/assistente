@@ -55,6 +55,7 @@ type BuildRequest struct {
 	Tabs                []Tab
 	CurrentUserText     string
 	ConversationSummary string
+	SlashSkillContent   string
 	Surface             *Surface
 	EnabledSkills       []string
 	DisableSkills       bool

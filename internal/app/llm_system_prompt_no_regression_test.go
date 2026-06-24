@@ -1,21 +1,27 @@
 package app
 
 import (
+	"context"
 	"testing"
 
 	"assistente/internal/contextprovider"
 	"assistente/internal/profiles"
+	"assistente/internal/slashskill"
 )
 
 func buildFullSystemPromptForTest(app *App, messages []Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, skillTplData any, slashSkillContent string) []Message {
+	blocks := []contextprovider.Block{}
+	if slashSkillContent != "" {
+		slashBlocks, _ := slashskill.NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{SlashSkillContent: slashSkillContent})
+		blocks = append(blocks, slashBlocks...)
+	}
 	return app.effectivePromptBuilder().BuildWithContextBlocks(
 		messages,
 		enabledSkills,
 		disableSkills,
 		disableOnDemand,
 		skillTplData,
-		slashSkillContent,
-		[]contextprovider.Block{},
+		blocks,
 	)
 }
 
