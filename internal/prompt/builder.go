@@ -201,6 +201,7 @@ func (b *Builder) build(
 	dynamicContext []string,
 ) []llm.Message {
 	var parts []string
+	stablePromptLen := 0
 
 	// 1. Context Providers estáveis (base skill, catálogos, protocolos e instruções)
 	for _, contextBlock := range stableContext {
@@ -208,9 +209,12 @@ func (b *Builder) build(
 		if trimmed == "" {
 			continue
 		}
+		if stablePromptLen > 0 {
+			stablePromptLen += len("\n\n")
+		}
+		stablePromptLen += len(trimmed)
 		parts = append(parts, trimmed)
 	}
-	stablePromptLen := len(strings.Join(parts, "\n\n"))
 
 	// 2. Context Providers dinâmicos (workspace, tasklists, memória, summary, etc.)
 	for _, contextBlock := range dynamicContext {

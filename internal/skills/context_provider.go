@@ -154,19 +154,19 @@ func buildAvailableSkillsBlock(availableSkills []Skill, source ContextProviderSo
 	sb.WriteString("Do not assume disabled or unlisted skills are available.\n\n")
 	for _, skill := range modelInvocable {
 		sb.WriteString("- **")
-		sb.WriteString(skill.GetDisplayName())
+		sb.WriteString(sanitizePromptMetadata(skill.GetDisplayName()))
 		sb.WriteString("** (`")
-		sb.WriteString(skill.Slug)
+		sb.WriteString(sanitizePromptMetadata(skill.Slug))
 		sb.WriteString("`)")
 		if skill.Type != "" {
 			sb.WriteString(" [")
-			sb.WriteString(skill.Type)
+			sb.WriteString(sanitizePromptMetadata(skill.Type))
 			sb.WriteString("]")
 		}
 		sb.WriteString(": ")
-		sb.WriteString(skill.Description)
+		sb.WriteString(sanitizePromptMetadata(skill.Description))
 		sb.WriteString("\n  Identifier: `")
-		sb.WriteString(skill.Slug)
+		sb.WriteString(sanitizePromptMetadata(skill.Slug))
 		sb.WriteString("`\n")
 		writeSupportingFiles(&sb, source, skill.Slug, "  Supporting files:", "    - `", "`")
 	}
@@ -176,10 +176,10 @@ func buildAvailableSkillsBlock(availableSkills []Skill, source ContextProviderSo
 
 func writeSkillHeading(sb *strings.Builder, skill Skill) {
 	sb.WriteString("## ")
-	sb.WriteString(skill.GetDisplayName())
+	sb.WriteString(sanitizePromptMetadata(skill.GetDisplayName()))
 	if skill.Type != "" {
 		sb.WriteString(" [")
-		sb.WriteString(skill.Type)
+		sb.WriteString(sanitizePromptMetadata(skill.Type))
 		sb.WriteString("]")
 	}
 	sb.WriteString("\n")
@@ -203,6 +203,10 @@ func writeSupportingFiles(sb *strings.Builder, source ContextProviderSource, slu
 }
 
 func sanitizeSupportingFilePath(path string) string {
+	return sanitizePromptMetadata(path)
+}
+
+func sanitizePromptMetadata(value string) string {
 	replacer := strings.NewReplacer(
 		"\r", " ",
 		"\n", " ",
@@ -210,7 +214,7 @@ func sanitizeSupportingFilePath(path string) string {
 		"<", "&lt;",
 		">", "&gt;",
 	)
-	return strings.TrimSpace(replacer.Replace(path))
+	return strings.TrimSpace(replacer.Replace(value))
 }
 
 func sortedStrings(values []string) []string {

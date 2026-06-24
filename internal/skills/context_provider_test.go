@@ -187,6 +187,46 @@ func TestContextProviderSanitizesSupportingFilePaths(t *testing.T) {
 	}
 }
 
+func TestContextProviderSanitizesSkillMetadata(t *testing.T) {
+	base := providerSkill("base\n`<slug>`", "Base instructions.", false)
+	base.Name = "Base\n`<name>`"
+	base.Type = "base\n`<type>`"
+
+	later := providerSkill("later\n`<slug>`", "Later instructions.", false)
+	later.Name = "Later\n`<name>`"
+	later.Type = "later\n`<type>`"
+	later.Description = "desc\n`<inject>`"
+
+	provider := NewContextProvider(contextProviderSourceStub{
+		skills: []Skill{base, later},
+	})
+	blocks, err := provider.Build(context.Background(), contextprovider.BuildRequest{
+		EnabledSkills:      []string{base.Slug, later.Slug},
+		ToolCallingEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want base and catalog blocks", len(blocks))
+	}
+	combined := blocks[0].Content + "\n" + blocks[1].Content
+	for _, bad := range []string{"Base\n", "Later\n", "<name>", "<type>", "<slug>", "<inject>"} {
+		if strings.Contains(combined, bad) {
+			t.Fatalf("metadata was not sanitized; found %q in %q", bad, combined)
+		}
+	}
+	for _, want := range []string{
+		"Base \\`&lt;name&gt;\\` [base \\`&lt;type&gt;\\`]",
+		"Later \\`&lt;name&gt;\\`** (`later \\`&lt;slug&gt;\\``)",
+		"desc \\`&lt;inject&gt;\\`",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("expected sanitized metadata %q in %q", want, combined)
+		}
+	}
+}
+
 func TestContextProviderToolCallingDisabledKeepsOnlyCompatibleBase(t *testing.T) {
 	toolDependent := providerSkill("tool-dependent", "Tool dependent.", true)
 	toolDependent.Tools = &ToolPermissions{Allowed: []string{"read_file"}}
