@@ -23,7 +23,17 @@ func TestContextProviderBuildsDeeplinkProtocol(t *testing.T) {
 	if block.Volatility != contextprovider.VolatilityStable || block.Priority != 9 {
 		t.Fatalf("unexpected block ordering metadata: %+v", block)
 	}
-	for _, needle := range []string{"<deeplink_protocol>", "link= values", "Markdown links", "does not grant content access", "assistente://", "open_deep_link"} {
+	for _, needle := range []string{
+		"<deeplink_protocol>",
+		"link= values",
+		"[label](assistente://...)",
+		"assistente://conversation/{id}",
+		"assistente://editor/open?file=...",
+		"profile={slug}",
+		"do not invent resource IDs",
+		"does not grant content access",
+		"open_deep_link",
+	} {
 		if !strings.Contains(block.Content, needle) {
 			t.Fatalf("protocol block missing %q: %q", needle, block.Content)
 		}
