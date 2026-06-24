@@ -210,7 +210,7 @@ func sanitizePromptMetadata(value string) string {
 	replacer := strings.NewReplacer(
 		"\r", " ",
 		"\n", " ",
-		"`", "\\`",
+		"`", "'",
 		"<", "&lt;",
 		">", "&gt;",
 	)

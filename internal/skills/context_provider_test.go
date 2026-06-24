@@ -179,10 +179,10 @@ func TestContextProviderSanitizesSupportingFilePaths(t *testing.T) {
 		t.Fatalf("len(blocks) = %d, want base block", len(blocks))
 	}
 	content := blocks[0].Content
-	if strings.Contains(content, "bad\n") || strings.Contains(content, "<inject>") {
+	if strings.Contains(content, "bad\n") || strings.Contains(content, "<inject>") || strings.Contains(content, "`&lt;inject&gt;`") {
 		t.Fatalf("supporting file path was not sanitized: %q", content)
 	}
-	if !strings.Contains(content, "bad \\`&lt;inject&gt;\\`.md") {
+	if !strings.Contains(content, "bad '&lt;inject&gt;'.md") {
 		t.Fatalf("expected escaped path in supporting files: %q", content)
 	}
 }
@@ -211,15 +211,15 @@ func TestContextProviderSanitizesSkillMetadata(t *testing.T) {
 		t.Fatalf("len(blocks) = %d, want base and catalog blocks", len(blocks))
 	}
 	combined := blocks[0].Content + "\n" + blocks[1].Content
-	for _, bad := range []string{"Base\n", "Later\n", "<name>", "<type>", "<slug>", "<inject>"} {
+	for _, bad := range []string{"Base\n", "Later\n", "<name>", "<type>", "<slug>", "<inject>", "`&lt;name&gt;`", "`&lt;type&gt;`", "`&lt;slug&gt;`", "`&lt;inject&gt;`"} {
 		if strings.Contains(combined, bad) {
 			t.Fatalf("metadata was not sanitized; found %q in %q", bad, combined)
 		}
 	}
 	for _, want := range []string{
-		"Base \\`&lt;name&gt;\\` [base \\`&lt;type&gt;\\`]",
-		"Later \\`&lt;name&gt;\\`** (`later \\`&lt;slug&gt;\\``)",
-		"desc \\`&lt;inject&gt;\\`",
+		"Base '&lt;name&gt;' [base '&lt;type&gt;']",
+		"Later '&lt;name&gt;'** (`later '&lt;slug&gt;'`)",
+		"desc '&lt;inject&gt;'",
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("expected sanitized metadata %q in %q", want, combined)
