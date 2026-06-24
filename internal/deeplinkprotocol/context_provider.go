@@ -11,7 +11,7 @@ const defaultPromptBudget = 1200
 const protocolTruncationNotice = "... Additional deeplink protocol content omitted due to context budget."
 
 const protocolBlock = `<deeplink_protocol>
-link= values are app deep links for navigating or opening Assistente resources. Treat assistente://... URIs as opaque app resource identifiers, not filesystem paths. When the ` + "`open_deep_link`" + ` tool is available and the user asks to open a resource, call it with the exact URI.
+link= values and assistente://... URIs are app deep links that identify Assistente resources, such as conversations, task lists, editor or terminal tabs, app routes, and editable resources. Reuse exact link= values as stable resource references in responses, including Markdown links when useful. Treat deep link URIs as opaque app identifiers, not filesystem paths; opening them navigates, opens, sends, or creates according to the URI, but does not grant content access by itself. When the ` + "`open_deep_link`" + ` tool is available and the user asks to open or navigate to a resource, call it with the exact assistente:// URI.
 </deeplink_protocol>`
 
 type ContextProvider struct{}
