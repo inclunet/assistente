@@ -787,6 +787,43 @@ func TestPrepareMessagesDoesNotReportSlashSkillLoadedWhenProviderDisabled(t *tes
 	}
 }
 
+func TestPrepareMessagesDoesNotReportSlashSkillLoadedWithoutPromptBuilder(t *testing.T) {
+	em := &spyEmitter{}
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
+		Slug:          "helper",
+		Content:       "help instructions",
+	}
+	skill.Tools = &skills.ToolPermissions{Allowed: []string{"web_fetch"}}
+	interactor := NewInteractor(InteractorConfig{
+		Emitter:          em,
+		ContextProviders: contextprovider.NewRegistry(slashskill.NewContextProvider()),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"helper": skill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"helper"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/helper now"}},
+		UserContent:    "/helper now",
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if result.InvokedSkillSlug != "" || result.InvokedExecutionContext != nil || result.InvokedScope != nil {
+		t.Fatalf("slash skill should not be reported/applied without prompt builder: slug=%q ec=%+v scope=%+v", result.InvokedSkillSlug, result.InvokedExecutionContext, result.InvokedScope)
+	}
+	if em.findSkillLoaded() != nil {
+		t.Fatal("skill_loaded should not be emitted when prompt builder cannot inject slash_skill")
+	}
+}
+
 func TestPrepareMessagesInjectsLinkedTaskListsAsDynamicContext(t *testing.T) {
 	promptBuilder := &capturingPromptBuilder{}
 	taskListSkill := &skills.Skill{

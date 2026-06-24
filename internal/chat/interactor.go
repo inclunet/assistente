@@ -660,7 +660,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	}
 
 	contextBlocks := i.buildDynamicContext(ctx, skillTplData, req.UserContent, req.ConversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, req.ActiveProfile)
-	slashSkillInjected := strings.TrimSpace(slashSkillContent) == "" || hasContextBlock(contextBlocks, "slash_skill", "slash_skill")
+	slashSkillInjected := strings.TrimSpace(slashSkillContent) == "" || (i.promptBuilder != nil && hasContextBlock(contextBlocks, "slash_skill", "slash_skill"))
 
 	var invokedSkillSlug string
 	var invokedScope *tools.FilesystemScope
