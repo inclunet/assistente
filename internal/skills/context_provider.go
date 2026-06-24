@@ -57,13 +57,13 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 	blocks := make([]contextprovider.Block, 0, 2)
 	baseBudget := budget
 	if catalogContent != "" {
-		reserve := minimalTaggedBlockLen("available_skills", availableSkillsTruncationNotice)
+		reserve := contextprovider.MinimalTaggedBlockLen("available_skills", availableSkillsTruncationNotice)
 		if budget > reserve {
 			baseBudget = budget - reserve
 		}
 	}
 	if baseContent != "" {
-		baseContent = trimTaggedBlockToBudget(baseContent, "base_skill", baseSkillTruncationNotice, baseBudget)
+		baseContent = contextprovider.TrimTaggedBlockToBudget(baseContent, "base_skill", baseSkillTruncationNotice, baseBudget)
 		if baseContent != "" {
 			blocks = append(blocks, contextprovider.Block{
 				Provider:   p.Name(),
@@ -75,12 +75,12 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 		}
 	}
 
-	remainingBudget := budget - runeLen(baseContent)
+	remainingBudget := budget - contextprovider.RuneLen(baseContent)
 	if remainingBudget <= 0 {
 		return blocks, nil
 	}
 	if catalogContent != "" {
-		catalogContent = trimTaggedBlockToBudget(catalogContent, "available_skills", availableSkillsTruncationNotice, remainingBudget)
+		catalogContent = contextprovider.TrimTaggedBlockToBudget(catalogContent, "available_skills", availableSkillsTruncationNotice, remainingBudget)
 		if catalogContent != "" {
 			blocks = append(blocks, contextprovider.Block{
 				Provider:   p.Name(),
@@ -223,54 +223,6 @@ func sortedStrings(values []string) []string {
 	return out
 }
 
-func trimBlockToBudget(content string, budgetChars int) string {
-	if budgetChars <= 0 {
-		return ""
-	}
-	content = strings.TrimSpace(content)
-	if runeLen(content) <= budgetChars {
-		return content
-	}
-	return ""
-}
-
-func trimTaggedBlockToBudget(content string, tag string, truncationNotice string, budgetChars int) string {
-	if budgetChars <= 0 {
-		return ""
-	}
-	content = strings.TrimSpace(content)
-	if runeLen(content) <= budgetChars {
-		return content
-	}
-	prefix := "<" + tag + ">\n"
-	suffix := "\n</" + tag + ">"
-	if !strings.HasPrefix(content, prefix) || !strings.HasSuffix(content, suffix) {
-		return trimBlockToBudget(content, budgetChars)
-	}
-	notice := "\n" + truncationNotice
-	minimal := prefix + truncationNotice + suffix
-	if runeLen(minimal) > budgetChars {
-		return ""
-	}
-	bodyBudget := budgetChars - runeLen(prefix) - runeLen(notice) - runeLen(suffix)
-	if bodyBudget <= 0 {
-		return minimal
-	}
-	body := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(content, prefix), suffix))
-	bodyRunes := []rune(body)
-	if len(bodyRunes) > bodyBudget {
-		body = strings.TrimSpace(string(bodyRunes[:bodyBudget]))
-	}
-	if body == "" {
-		return minimal
-	}
-	return prefix + body + notice + suffix
-}
-
-func minimalTaggedBlockLen(tag string, truncationNotice string) int {
-	return runeLen("<"+tag+">\n") + runeLen(truncationNotice) + runeLen("\n</"+tag+">")
-}
-
 func filterSkillsWithoutToolDependencies(input []Skill) []Skill {
 	if len(input) == 0 {
 		return input
@@ -302,12 +254,4 @@ func skillDependsOnTools(skill Skill) bool {
 		}
 	}
 	return skill.MCP != nil
-}
-
-func runeLen(value string) int {
-	count := 0
-	for range value {
-		count++
-	}
-	return count
 }

@@ -104,6 +104,7 @@ prefixo estável:
   - base_skill emitida pelo Context Provider `skills`
   - catálogo compacto de skills on_demand emitido pelo Context Provider `skills`
   - protocolo catalog-first emitido pelo Context Provider `tool_protocol`, quando aplicável
+  - protocolo de deep links emitido pelo Context Provider `deeplink_protocol`
   - instruções estáveis de outros Context Providers
   - definições estáveis de tools/MCP
 

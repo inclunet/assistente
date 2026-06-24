@@ -9,6 +9,7 @@ import (
 
 	"assistente/internal/chat"
 	"assistente/internal/contextprovider"
+	"assistente/internal/deeplinkprotocol"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
@@ -59,6 +60,8 @@ func buildPromptForTest(b *prompt.Builder, messages []llm.Message, enabledSkills
 	}
 	toolProtocolBlocks, _ := toolprotocol.NewContextProvider().Build(context.Background(), req)
 	blocks = append(blocks, toolProtocolBlocks...)
+	deeplinkProtocolBlocks, _ := deeplinkprotocol.NewContextProvider().Build(context.Background(), req)
+	blocks = append(blocks, deeplinkProtocolBlocks...)
 	if strings.TrimSpace(conversationSummary) != "" {
 		blocks = append(blocks, contextprovider.Block{
 			Provider:   "conversation",
@@ -112,7 +115,7 @@ func buildSystemPromptForSkills(b *prompt.Builder, enabledSkills []string, disab
 func TestBuild_NoProvidersNoSlash_DoesNotInjectDefaultSystemPrompt(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "olá"}}
-	result := buildPromptForTest(b, msgs, []string{}, false, false, nil, "", "")
+	result := b.BuildWithContextBlocks(msgs, []string{}, false, false, nil, "", nil)
 	if len(result) != 1 || result[0].Role != "user" {
 		t.Fatalf("expected original user messages without hardcoded prompt, got %v", result)
 	}
@@ -286,6 +289,7 @@ func TestBuildWithContextBlocksSortsCacheFriendlyLayout(t *testing.T) {
 		"<slash_skill>turno atual</slash_skill>",
 		[]contextprovider.Block{
 			{Provider: "skills", Name: "base_skill", Volatility: contextprovider.VolatilityStable, Priority: 0, Content: "<base_skill>Base identity.</base_skill>"},
+			{Provider: "deeplink_protocol", Name: "deeplink_protocol", Volatility: contextprovider.VolatilityStable, Priority: 9, Content: "<deeplink_protocol>stable deeplink</deeplink_protocol>"},
 			{Provider: "workspace", Name: "workspace_context", Volatility: contextprovider.VolatilityLowDynamic, Priority: 100, Content: "<workspace_context>dynamic workspace</workspace_context>"},
 			{Provider: "memory", Name: "memory_instructions", Volatility: contextprovider.VolatilityStable, Priority: 10, Content: "<memory_instructions>stable memory</memory_instructions>"},
 			{Provider: "tasklist", Name: "linked_task_lists", Volatility: contextprovider.VolatilityLowDynamic, Priority: 40, Content: "<linked_task_lists>dynamic tasks</linked_task_lists>"},
@@ -300,6 +304,7 @@ func TestBuildWithContextBlocksSortsCacheFriendlyLayout(t *testing.T) {
 	}
 	assertOrder(t, sys,
 		"<base_skill>",
+		"<deeplink_protocol>",
 		"<memory_instructions>",
 		"<workspace_instructions>",
 		"<linked_task_lists>",

@@ -19,6 +19,7 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/deeplinkprotocol"
 	"assistente/internal/events"
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
@@ -366,6 +367,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		skills.NewContextProvider(a.skillMgr),
 		tasklist.NewContextProvider(),
 		toolprotocol.NewContextProvider(),
+		deeplinkprotocol.NewContextProvider(),
 		workspace.NewContextProvider(),
 	)
 

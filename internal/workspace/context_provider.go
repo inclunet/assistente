@@ -75,7 +75,7 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 
 func workspaceInstructionsBlock() string {
 	return `<workspace_instructions>
-Use link= values as app deep links for any workspace resource. open_editor_file[...] entries are exact editor-open files: only read_file, write_file, edit_file, and grep_search may use those exact paths outside the workspace; structural operations, sensitive files, denylisted files, and active skill restrictions still apply.
+open_editor_file[...] entries are exact editor-open files: only read_file, write_file, edit_file, and grep_search may use those exact paths outside the workspace; structural operations, sensitive files, denylisted files, and active skill restrictions still apply.
 </workspace_instructions>`
 }
 
