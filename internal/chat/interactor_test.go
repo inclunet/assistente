@@ -130,6 +130,7 @@ func (failingSkillRuntimeManager) GetAllSkillsFull() ([]skills.Skill, error) {
 
 type capturingPromptBuilder struct {
 	contextBlocks []contextprovider.Block
+	messages      []llm.Message
 }
 
 func (b *capturingPromptBuilder) Build(messages []llm.Message, _ []string, _ bool, _ any, _ string, _ string, _ ...string) []llm.Message {
@@ -137,6 +138,7 @@ func (b *capturingPromptBuilder) Build(messages []llm.Message, _ []string, _ boo
 }
 
 func (b *capturingPromptBuilder) BuildWithContextBlocks(messages []llm.Message, _ []string, _ bool, _ bool, _ any, blocks []contextprovider.Block) []llm.Message {
+	b.messages = append([]llm.Message{}, messages...)
 	b.contextBlocks = append([]contextprovider.Block{}, blocks...)
 	return messages
 }
@@ -821,6 +823,39 @@ func TestPrepareMessagesDoesNotReportSlashSkillLoadedWithoutPromptBuilder(t *tes
 	}
 	if em.findSkillLoaded() != nil {
 		t.Fatal("skill_loaded should not be emitted when prompt builder cannot inject slash_skill")
+	}
+}
+
+func TestPrepareMessagesMarksTurnContextTargetByTurnID(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(slashskill.NewContextProvider()),
+	})
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages: []llm.Message{
+			{Role: "user", MessageID: "retry-target", Content: "retry this"},
+			{Role: "assistant", Content: "old answer"},
+			{Role: "user", MessageID: "later", Content: "newer message"},
+		},
+		UserContent:    "retry this",
+		ConversationID: "conv-1",
+		TurnID:         "retry-target",
+		ActiveProfile:  &profiles.Profile{},
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.messages) != 3 {
+		t.Fatalf("len(messages) = %d, want 3", len(promptBuilder.messages))
+	}
+	if !promptBuilder.messages[0].TurnContextTarget {
+		t.Fatalf("retry target should be marked: %+v", promptBuilder.messages[0])
+	}
+	if promptBuilder.messages[2].TurnContextTarget {
+		t.Fatalf("later user message should not be marked: %+v", promptBuilder.messages[2])
 	}
 }
 

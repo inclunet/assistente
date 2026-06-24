@@ -90,6 +90,7 @@ func (l *MediaHistoryLoader) Load(ctx context.Context, conversationID string) ([
 		}
 
 		msg := llm.Message{
+			MessageID:  m.ID,
 			Role:       m.Role,
 			ToolCallID: m.ToolCallID,
 		}

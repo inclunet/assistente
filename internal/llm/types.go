@@ -16,6 +16,11 @@ type Message struct {
 	Thinking   string      `json:"thinking,omitempty"`     // Ollama thinking/reasoning
 	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`   // Tool calls solicitadas pelo assistant
 	ToolCallID string      `json:"tool_call_id,omitempty"` // Para role="tool": vincula ao call
+	// MessageID e TurnContextTarget são metadados internos da request LLM.
+	// Eles não são enviados ao provider nem persistidos; servem para associar
+	// contexto transitório ao turno correto mesmo em retries/branches.
+	MessageID         string `json:"-"`
+	TurnContextTarget bool   `json:"-"`
 	// SystemCacheControlPrefixLen marca quantos bytes iniciais do system prompt
 	// formam o prefixo estável elegível a cache_control explícito. É metadado
 	// interno do backend e só providers com suporte físico devem consumi-lo.

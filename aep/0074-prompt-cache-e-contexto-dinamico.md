@@ -108,21 +108,22 @@ prefixo estável:
   - instruções estáveis de outros Context Providers
   - definições estáveis de tools/MCP
 
-contexto por volatilidade:
+contexto de system prompt por volatilidade:
   - workspace/tasklist: estado do app que muda quando abas/listas mudam
   - memory: fatos importantes selecionados para entrar no prompt
   - conversation_summary: resumo acumulado da conversa, quando existir
-  - context providers fast/turn, resultados recuperados, contexto da superfície ativa e slash skill emitida pelo Context Provider `slash_skill`
 
 histórico recente:
   - mensagens preservadas após summary_up_to_message_id
 
 sufixo do turno:
-  - conteúdo específico do turno
-  - mensagem atual do usuário
+  - context providers fast/turn serializados como `<turn_context>` na mensagem user atual
+  - mensagem atual do usuário, preservada em `<user_request>`
 ```
 
 Essa ordem deve respeitar os controles já existentes de `MaxContextMessages`, `MinContextMessages`, `ContextWindow` e sumarização. Esta AEP não substitui esses controles.
+
+Contexto `fast_dynamic` e `turn_dynamic` não deve ser inserido no system prompt antes do histórico recente, pois provedores com cache automático por prefixo (sem cache markers explícitos) deixariam de reaproveitar o histórico que vem depois de um bloco volátil. Esses blocos são renderizados apenas na request LLM do turno, antes do texto da mensagem atual, sem persistir no banco.
 
 ### D3. Skills são estáticas por contrato
 
