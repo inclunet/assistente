@@ -109,16 +109,12 @@ func buildSystemPromptForSkills(b *prompt.Builder, enabledSkills []string, disab
 	return sys
 }
 
-func TestBuild_NoSkillsNoSlash_IncludesDefaultSystemPrompt(t *testing.T) {
+func TestBuild_NoProvidersNoSlash_DoesNotInjectDefaultSystemPrompt(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "olá"}}
 	result := buildPromptForTest(b, msgs, []string{}, false, false, nil, "", "")
-	if len(result) != 2 || result[0].Role != "system" || result[1].Role != "user" {
-		t.Fatalf("expected system+user messages, got %v", result)
-	}
-	sys, ok := result[0].Content.(string)
-	if !ok || !strings.Contains(sys, "helpful, intelligent assistant") {
-		t.Fatalf("expected default system prompt, got %v", result[0].Content)
+	if len(result) != 1 || result[0].Role != "user" {
+		t.Fatalf("expected original user messages without hardcoded prompt, got %v", result)
 	}
 }
 
@@ -165,7 +161,7 @@ func TestBuild_BaseSkillReplacesDefaultSystemPrompt(t *testing.T) {
 	}
 }
 
-func TestBuild_FallbacksToDefaultPromptWhenProvidersEmitBlocksWithoutBaseSkill(t *testing.T) {
+func TestBuild_DoesNotInjectDefaultPromptWhenProvidersEmitBlocksWithoutBaseSkill(t *testing.T) {
 	b := &prompt.Builder{}
 	result := b.BuildWithContextBlocks(
 		[]llm.Message{{Role: "user", Content: "oi"}},
@@ -183,8 +179,8 @@ func TestBuild_FallbacksToDefaultPromptWhenProvidersEmitBlocksWithoutBaseSkill(t
 		}},
 	)
 	sys := result[0].Content.(string)
-	if !strings.Contains(sys, "You are a helpful, intelligent assistant") {
-		t.Fatalf("default system prompt should be injected when base_skill is missing: %q", sys)
+	if strings.Contains(sys, "You are a helpful, intelligent assistant") {
+		t.Fatalf("default system prompt should not be injected when base_skill is missing: %q", sys)
 	}
 	if !strings.Contains(sys, "<memory_instructions>") {
 		t.Fatalf("expected provider block to remain: %q", sys)

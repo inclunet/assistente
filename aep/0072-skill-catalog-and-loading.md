@@ -132,7 +132,7 @@ O catálogo deve respeitar a ordem definida pelo perfil. Essa ordem é a princip
 Refinamento implementado após a issue #331:
 
 - a skill `base` e o catálogo de skills `on_demand` são emitidos por um Context Provider `skills`;
-- o prompt base hardcoded deixa de ser o caminho normal e passa a ser fallback quando nenhuma `base_skill` é emitida;
+- o prompt base hardcoded não participa do caminho novo; a identidade/instrução inicial deve vir da `base_skill` resolvida pelo perfil/provider;
 - o protocolo catalog-first de tools é emitido por Context Provider separado (`tool_protocol`), sem misturar catálogo de skills com protocolo de ferramentas.
 
 ### D5. `/skill` é uma ativação explícita e observável

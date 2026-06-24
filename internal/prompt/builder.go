@@ -190,9 +190,8 @@ func (b *Builder) BuildWithContextBlocks(
 ) []llm.Message {
 	contextBlocks = append([]contextprovider.Block(nil), contextBlocks...)
 	sortContextBlocks(contextBlocks)
-	hasBaseSkill := hasContextBlock(contextBlocks, "skills", "base_skill")
 	stableContext, dynamicContext := splitRenderedContextBlocks(contextBlocks)
-	return b.build(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, stableContext, dynamicContext, !hasBaseSkill)
+	return b.build(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, stableContext, dynamicContext)
 }
 
 func (b *Builder) build(
@@ -204,15 +203,8 @@ func (b *Builder) build(
 	slashSkillContent string,
 	stableContext []string,
 	dynamicContext []string,
-	includeBaseFallback bool,
 ) []llm.Message {
 	var parts []string
-
-	// Fallback mínimo: no caminho normal, a identidade/instrução base vem do
-	// Context Provider de skills (`base_skill`).
-	if includeBaseFallback {
-		parts = append(parts, chat.DefaultSystemPrompt)
-	}
 
 	// 1. Context Providers estáveis (base skill, catálogos, protocolos e instruções)
 	for _, contextBlock := range stableContext {
@@ -275,15 +267,6 @@ func splitRenderedContextBlocks(blocks []contextprovider.Block) ([]string, []str
 		dynamic = append(dynamic, content)
 	}
 	return stable, dynamic
-}
-
-func hasContextBlock(blocks []contextprovider.Block, provider string, name string) bool {
-	for _, block := range blocks {
-		if block.Provider == provider && block.Name == name && strings.TrimSpace(block.Content) != "" {
-			return true
-		}
-	}
-	return false
 }
 
 // ComputeEnabledToolNames retorna a lista de nomes de tools habilitadas pelo perfil.

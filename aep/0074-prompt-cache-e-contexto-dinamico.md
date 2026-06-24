@@ -101,7 +101,7 @@ O cache não depende só do system prompt. A request enviada ao provider inclui 
 
 ```text
 prefixo estável:
-  - base_skill emitida pelo Context Provider `skills` (fallback para prompt base hardcoded apenas quando não existir base skill)
+  - base_skill emitida pelo Context Provider `skills`
   - catálogo compacto de skills on_demand emitido pelo Context Provider `skills`
   - protocolo catalog-first emitido pelo Context Provider `tool_protocol`, quando aplicável
   - instruções estáveis de outros Context Providers
