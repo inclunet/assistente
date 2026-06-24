@@ -114,6 +114,23 @@ func TestContextProviderTruncatesBaseSkillInsteadOfDroppingIt(t *testing.T) {
 	}
 }
 
+func TestContextProviderOmitsTaggedBlocksWhenEnvelopeCannotFit(t *testing.T) {
+	provider := NewContextProvider(contextProviderSourceStub{
+		skills: []Skill{providerSkill("base", strings.Repeat("Base instructions. ", 40), false)},
+	})
+	blocks, err := provider.Build(context.Background(), contextprovider.BuildRequest{
+		EnabledSkills:      []string{"base"},
+		ToolCallingEnabled: true,
+		ProviderBudgets:    map[string]int{"skills": 10},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 0 {
+		t.Fatalf("len(blocks) = %d, want omitted block when tagged envelope cannot fit: %+v", len(blocks), blocks)
+	}
+}
+
 func TestContextProviderTruncatesAvailableSkillsInsteadOfDroppingCatalog(t *testing.T) {
 	provider := NewContextProvider(contextProviderSourceStub{
 		skills: []Skill{
@@ -141,6 +158,32 @@ func TestContextProviderTruncatesAvailableSkillsInsteadOfDroppingCatalog(t *test
 	}
 	if !strings.Contains(blocks[1].Content, "omitted due to context budget") {
 		t.Fatalf("expected catalog truncation notice: %q", blocks[1].Content)
+	}
+}
+
+func TestContextProviderSanitizesSupportingFilePaths(t *testing.T) {
+	provider := NewContextProvider(contextProviderSourceStub{
+		skills: []Skill{providerSkill("base", "Base instructions.", false)},
+		files: map[string][]string{
+			"base": {"safe.md", "bad\n`<inject>`.md"},
+		},
+	})
+	blocks, err := provider.Build(context.Background(), contextprovider.BuildRequest{
+		EnabledSkills:      []string{"base"},
+		ToolCallingEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want base block", len(blocks))
+	}
+	content := blocks[0].Content
+	if strings.Contains(content, "bad\n") || strings.Contains(content, "<inject>") {
+		t.Fatalf("supporting file path was not sanitized: %q", content)
+	}
+	if !strings.Contains(content, "bad \\`&lt;inject&gt;\\`.md") {
+		t.Fatalf("expected escaped path in supporting files: %q", content)
 	}
 }
 

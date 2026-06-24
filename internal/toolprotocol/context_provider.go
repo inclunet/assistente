@@ -82,7 +82,7 @@ func trimTaggedBlockToBudget(content string, tag string, truncationNotice string
 	notice := "\n" + truncationNotice
 	minimal := prefix + truncationNotice + suffix
 	if runeLen(minimal) > budgetChars {
-		return truncateRunes(truncationNotice, budgetChars)
+		return ""
 	}
 	bodyBudget := budgetChars - runeLen(prefix) - runeLen(notice) - runeLen(suffix)
 	if bodyBudget <= 0 {

@@ -71,3 +71,17 @@ func TestContextProviderTruncatesProtocolInsteadOfDroppingIt(t *testing.T) {
 		t.Fatalf("expected truncation notice: %q", blocks[0].Content)
 	}
 }
+
+func TestContextProviderOmitsProtocolWhenTaggedEnvelopeCannotFit(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		ToolCallingEnabled: true,
+		EnabledTools:       []string{tools.ToolCatalogName},
+		ProviderBudgets:    map[string]int{"tool_protocol": 10},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 0 {
+		t.Fatalf("len(blocks) = %d, want omitted protocol when tagged envelope cannot fit: %+v", len(blocks), blocks)
+	}
+}

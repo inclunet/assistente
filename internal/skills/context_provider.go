@@ -196,10 +196,21 @@ func writeSupportingFiles(sb *strings.Builder, source ContextProviderSource, slu
 	sb.WriteString("\n")
 	for _, file := range supplementary {
 		sb.WriteString(prefix)
-		sb.WriteString(file)
+		sb.WriteString(sanitizeSupportingFilePath(file))
 		sb.WriteString(suffix)
 		sb.WriteString("\n")
 	}
+}
+
+func sanitizeSupportingFilePath(path string) string {
+	replacer := strings.NewReplacer(
+		"\r", " ",
+		"\n", " ",
+		"`", "\\`",
+		"<", "&lt;",
+		">", "&gt;",
+	)
+	return strings.TrimSpace(replacer.Replace(path))
 }
 
 func sortedStrings(values []string) []string {
@@ -235,7 +246,7 @@ func trimTaggedBlockToBudget(content string, tag string, truncationNotice string
 	notice := "\n" + truncationNotice
 	minimal := prefix + truncationNotice + suffix
 	if runeLen(minimal) > budgetChars {
-		return truncateRunes(truncationNotice, budgetChars)
+		return ""
 	}
 	bodyBudget := budgetChars - runeLen(prefix) - runeLen(notice) - runeLen(suffix)
 	if bodyBudget <= 0 {
