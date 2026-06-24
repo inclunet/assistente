@@ -191,15 +191,11 @@ func (b *Builder) BuildWithContextBlocks(
 	contextBlocks = append([]contextprovider.Block(nil), contextBlocks...)
 	sortContextBlocks(contextBlocks)
 	stableContext, dynamicContext := splitRenderedContextBlocks(contextBlocks)
-	return b.build(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, stableContext, dynamicContext)
+	return b.build(messages, slashSkillContent, stableContext, dynamicContext)
 }
 
 func (b *Builder) build(
 	messages []llm.Message,
-	enabledSkills []string,
-	disableSkills bool,
-	disableOnDemand bool,
-	tplData any,
 	slashSkillContent string,
 	stableContext []string,
 	dynamicContext []string,
