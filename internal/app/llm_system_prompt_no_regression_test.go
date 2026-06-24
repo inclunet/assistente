@@ -19,9 +19,9 @@ func buildFullSystemPromptForTest(app *App, messages []Message, enabledSkills []
 	)
 }
 
-// TestBuildFullSystemPrompt_DisableSkills_DefaultSystemMessage valida que
-// skills desabilitados não removem a identidade base do assistente.
-func TestBuildFullSystemPrompt_DisableSkills_DefaultSystemMessage(t *testing.T) {
+// TestBuildFullSystemPrompt_DisableSkills_DoesNotInjectHardcodedPrompt valida que
+// o prompt base hardcoded não volta quando skills estão desabilitadas.
+func TestBuildFullSystemPrompt_DisableSkills_DoesNotInjectHardcodedPrompt(t *testing.T) {
 	messages := []Message{
 		{Role: "user", Content: "oi"},
 	}
@@ -34,20 +34,17 @@ func TestBuildFullSystemPrompt_DisableSkills_DefaultSystemMessage(t *testing.T) 
 
 	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "")
 
-	if len(result) != len(messages)+1 {
-		t.Fatalf("expected system+user messages, got %d", len(result))
+	if len(result) != len(messages) {
+		t.Fatalf("expected original messages only, got %d", len(result))
 	}
-	if result[0].Role != "system" {
-		t.Fatalf("expected first message to be system, got %s", result[0].Role)
-	}
-	if !contains(result[0].Content.(string), "helpful, intelligent assistant") {
-		t.Fatalf("expected default system prompt, got %s", result[0].Content)
+	if result[0].Role != "user" {
+		t.Fatalf("expected first message to remain user, got %s", result[0].Role)
 	}
 }
 
-// TestBuildFullSystemPrompt_WithoutSkillManager_AddsDefaultSystemMessage valida que
-// a ausência do skill manager não remove o prompt base.
-func TestBuildFullSystemPrompt_WithoutSkillManager_AddsDefaultSystemMessage(t *testing.T) {
+// TestBuildFullSystemPrompt_WithoutSkillManager_DoesNotAddDefaultSystemMessage valida
+// que a ausência do provider de skills não aciona fallback hardcoded.
+func TestBuildFullSystemPrompt_WithoutSkillManager_DoesNotAddDefaultSystemMessage(t *testing.T) {
 	messages := []Message{
 		{Role: "user", Content: "oi"},
 	}
@@ -59,11 +56,11 @@ func TestBuildFullSystemPrompt_WithoutSkillManager_AddsDefaultSystemMessage(t *t
 
 	result := buildFullSystemPromptForTest(app, messages, enabledSkills, false, false, nil, "")
 
-	if len(result) != len(messages)+1 {
-		t.Fatalf("expected system+user messages, got %d", len(result))
+	if len(result) != len(messages) {
+		t.Fatalf("expected original messages only, got %d", len(result))
 	}
-	if result[0].Role != "system" {
-		t.Fatalf("expected system message, got %s", result[0].Role)
+	if result[0].Role != "user" {
+		t.Fatalf("expected first message to remain user, got %s", result[0].Role)
 	}
 }
 
@@ -133,10 +130,10 @@ func TestBuildFullSystemPrompt_ExistingSystemMessage_Combines(t *testing.T) {
 		t.Errorf("Expected first message to be 'system', got '%s'", result[0].Role)
 	}
 
-	// Conteúdo do system message original é preservado junto do prompt base.
+	// Conteúdo do system message original é preservado sem prompt hardcoded.
 	systemContent := result[0].Content.(string)
-	if !contains(systemContent, existingSystemContent) || !contains(systemContent, "helpful, intelligent assistant") {
-		t.Errorf("System message should combine default and existing content, got: %s", systemContent)
+	if systemContent != existingSystemContent {
+		t.Errorf("System message should be preserved unchanged, got: %s", systemContent)
 	}
 }
 
@@ -194,12 +191,12 @@ func TestProfile_DisableSkills_Integration(t *testing.T) {
 
 	result := buildFullSystemPromptForTest(app, messages, enabledSkills, profile.Chat.DisableSkills, profile.Chat.DisableOnDemandSkills, nil, "")
 
-	if len(result) != 2 {
-		t.Errorf("expected system+user messages, got %d", len(result))
+	if len(result) != 1 {
+		t.Errorf("expected original user message only, got %d", len(result))
 	}
 
-	if result[0].Role != "system" || result[1].Role != "user" {
-		t.Errorf("expected system then user, got %+v", result)
+	if result[0].Role != "user" {
+		t.Errorf("expected user message, got %+v", result)
 	}
 
 	for i, msg := range result {
@@ -227,12 +224,12 @@ func TestBuildFullSystemPrompt_ConversationHistory(t *testing.T) {
 
 	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, "")
 
-	// Verificar: histórico preservado após o system prompt base.
-	if len(result) != len(messages)+1 {
-		t.Errorf("Expected %d messages, got %d", len(messages)+1, len(result))
+	// Verificar: histórico preservado sem system prompt hardcoded.
+	if len(result) != len(messages) {
+		t.Errorf("Expected %d messages, got %d", len(messages), len(result))
 	}
 
-	expectedRoles := []string{"system", "user", "assistant", "user"}
+	expectedRoles := []string{"user", "assistant", "user"}
 	for i, expectedRole := range expectedRoles {
 		if result[i].Role != expectedRole {
 			t.Errorf("Message %d: expected role '%s', got '%s'", i, expectedRole, result[i].Role)

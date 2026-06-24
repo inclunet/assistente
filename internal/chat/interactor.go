@@ -795,6 +795,11 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 		Tabs:                   make([]contextprovider.Tab, 0, len(data.Tabs)),
 		CurrentUserText:        currentUserText,
 		ConversationSummary:    conversationSummary,
+		EnabledSkills:          enabledSkillList(activeProfile),
+		DisableSkills:          activeProfile != nil && activeProfile.Chat.DisableSkills,
+		DisableOnDemand:        activeProfile != nil && activeProfile.Chat.DisableOnDemandSkills,
+		ToolCallingEnabled:     data.ToolCallingEnabled,
+		EnabledTools:           append([]string(nil), data.EnabledTools...),
 		ProviderBudgets:        providerBudgets,
 		ProviderEnabled:        providerEnabled,
 		ProviderSettings:       providerSettings,
@@ -824,6 +829,13 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 		return nil
 	}
 	return blocks
+}
+
+func enabledSkillList(activeProfile *profiles.Profile) []string {
+	if activeProfile == nil {
+		return nil
+	}
+	return activeProfile.Chat.EnabledSkills
 }
 
 func resolveContextProviderProfileConfig(metadata []contextprovider.ProviderMetadata, activeProfile *profiles.Profile) (map[string]int, map[string]bool, map[string]map[string]any) {

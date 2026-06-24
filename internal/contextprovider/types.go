@@ -56,6 +56,11 @@ type BuildRequest struct {
 	CurrentUserText     string
 	ConversationSummary string
 	Surface             *Surface
+	EnabledSkills       []string
+	DisableSkills       bool
+	DisableOnDemand     bool
+	ToolCallingEnabled  bool
+	EnabledTools        []string
 	ProviderBudgets     map[string]int
 	ProviderEnabled     map[string]bool
 	ProviderSettings    map[string]map[string]any

@@ -1,6 +1,6 @@
-// Package prompt constrói o system prompt completo para o pipeline de chat.
+// Package prompt ordena blocos de prompt e constrói o system prompt final.
 // É puro — sem dependência de Wails, sem acesso a banco, sem I/O direto.
-// As dependências externas (skills, workspace) são injetadas via interfaces.
+// Fontes de conteúdo estável/dinâmico entram por Context Providers.
 package prompt
 
 import (
@@ -45,7 +45,7 @@ func workspaceReaderIsUsable(r WorkspaceReader) bool {
 	}
 }
 
-// Builder monta o system prompt final a partir de skills, resumo e contexto de workspace.
+// Builder monta o system prompt final a partir dos blocos já resolvidos.
 type Builder struct {
 	Skills    SkillReader
 	Workspace WorkspaceReader
@@ -191,64 +191,46 @@ func (b *Builder) BuildWithContextBlocks(
 	contextBlocks = append([]contextprovider.Block(nil), contextBlocks...)
 	sortContextBlocks(contextBlocks)
 	stableContext, dynamicContext := splitRenderedContextBlocks(contextBlocks)
-	return b.build(messages, enabledSkills, disableSkills, disableOnDemand, tplData, slashSkillContent, stableContext, dynamicContext)
+	return b.build(messages, slashSkillContent, stableContext, dynamicContext)
 }
 
 func (b *Builder) build(
 	messages []llm.Message,
-	enabledSkills []string,
-	disableSkills bool,
-	disableOnDemand bool,
-	tplData any,
 	slashSkillContent string,
 	stableContext []string,
 	dynamicContext []string,
 ) []llm.Message {
 	var parts []string
-
-	// 1. Base prompt — independente de skills. Context providers substituem
-	// algumas skills legadas, mas não substituem a identidade base do assistente.
-	parts = append(parts, chat.DefaultSystemPrompt)
-
-	// 1b. Protocolo catalog-first (AEP-0049, D16): incluído SEMPRE que o gating por
-	// catálogo está ativo (tool_catalog é a única tool inicial), independentemente de
-	// haver skills ou slash skill, para forçar a ordem "consultar catálogo → usar tools".
-	if catalogFirstActive(tplData) {
-		parts = append(parts, joinPrefix(parts)+chat.CatalogFirstToolPrompt)
-	}
-
-	// 2. Seção de skills (base + catálogo on-demand)
-	skillsSection := b.buildSkillsSection(enabledSkills, disableSkills, disableOnDemand, tplData)
-	if skillsSection != "" {
-		parts = append(parts, "\n\n"+skillsSection)
-	}
-
-	// 3. Context Providers estáveis (instruções cacheáveis)
-	for _, contextBlock := range stableContext {
-		if strings.TrimSpace(contextBlock) == "" {
-			continue
-		}
-		parts = append(parts, "\n\n"+strings.TrimSpace(contextBlock))
-	}
 	stablePromptLen := 0
-	for _, part := range parts {
-		stablePromptLen += len(part)
-	}
 
-	// 4. Context Providers dinâmicos (workspace, tasklists, memória, summary, etc.)
-	for _, contextBlock := range dynamicContext {
-		if strings.TrimSpace(contextBlock) == "" {
+	// 1. Context Providers estáveis (base skill, catálogos, protocolos e instruções)
+	for _, contextBlock := range stableContext {
+		trimmed := strings.TrimSpace(contextBlock)
+		if trimmed == "" {
 			continue
 		}
-		parts = append(parts, "\n\n"+strings.TrimSpace(contextBlock))
+		if stablePromptLen > 0 {
+			stablePromptLen += len("\n\n")
+		}
+		stablePromptLen += len(trimmed)
+		parts = append(parts, trimmed)
 	}
 
-	// 5. Skill invocado via /slash é conteúdo específico do turno e fica no fim.
-	if slashSkillContent != "" {
-		parts = append(parts, "\n\n"+slashSkillContent)
+	// 2. Context Providers dinâmicos (workspace, tasklists, memória, summary, etc.)
+	for _, contextBlock := range dynamicContext {
+		trimmed := strings.TrimSpace(contextBlock)
+		if trimmed == "" {
+			continue
+		}
+		parts = append(parts, trimmed)
 	}
 
-	return chat.InjectSystemPromptWithCachePrefix(messages, strings.Join(parts, ""), stablePromptLen)
+	// 3. Skill invocado via /slash é conteúdo específico do turno e fica no fim.
+	if strings.TrimSpace(slashSkillContent) != "" {
+		parts = append(parts, strings.TrimSpace(slashSkillContent))
+	}
+
+	return chat.InjectSystemPromptWithCachePrefix(messages, strings.Join(parts, "\n\n"), stablePromptLen)
 }
 
 func sortContextBlocks(blocks []contextprovider.Block) {
@@ -269,12 +251,6 @@ func sortContextBlocks(blocks []contextprovider.Block) {
 	})
 }
 
-func sortedStrings(values []string) []string {
-	out := append([]string(nil), values...)
-	sort.Strings(out)
-	return out
-}
-
 func splitRenderedContextBlocks(blocks []contextprovider.Block) ([]string, []string) {
 	stable := make([]string, 0)
 	dynamic := make([]string, 0)
@@ -290,218 +266,6 @@ func splitRenderedContextBlocks(blocks []contextprovider.Block) ([]string, []str
 		dynamic = append(dynamic, content)
 	}
 	return stable, dynamic
-}
-
-func (b *Builder) buildSkillsSection(enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any) string {
-	if b.Skills == nil {
-		return ""
-	}
-
-	allSkills, err := b.Skills.GetAllSkillsFull()
-	if err != nil {
-		log.Printf("[prompt] Erro ao carregar skills: %v", err)
-		return ""
-	}
-	policy := skills.ResolveSelectionPolicy(allSkills, enabledSkills, disableSkills, disableOnDemand)
-	baseSkills := policy.Base
-	availableSkills := policy.OnDemand
-
-	if toolCallingDisabled(tplData) {
-		if enabledSkills == nil {
-			compatible := filterSkillsWithoutToolDependencies(append(append([]skills.Skill{}, baseSkills...), availableSkills...))
-			baseSkills = nil
-			if len(compatible) > 0 {
-				baseSkills = compatible[:1]
-			}
-		} else {
-			baseSkills = filterSkillsWithoutToolDependencies(baseSkills)
-		}
-		availableSkills = nil
-	}
-	if len(baseSkills) == 0 && len(availableSkills) == 0 {
-		return ""
-	}
-
-	var sb strings.Builder
-
-	// <base_skills>: conteúdo completo da skill base do perfil.
-	if len(baseSkills) > 0 {
-		sb.WriteString("<base_skills>\n")
-		for i, s := range baseSkills {
-			if i > 0 {
-				sb.WriteString("\n")
-			}
-			sb.WriteString("## ")
-			sb.WriteString(s.GetDisplayName())
-			if s.Type != "" {
-				sb.WriteString(" [")
-				sb.WriteString(s.Type)
-				sb.WriteString("]")
-			}
-			sb.WriteString("\n")
-
-			content := s.Content
-			var allowedBash []string
-			if s.Tools != nil && s.Tools.BashCommands != nil {
-				allowedBash = s.Tools.BashCommands.Allowed
-			}
-			content = skills.PreprocessCommands(content, allowedBash)
-			sb.WriteString(content)
-			sb.WriteString("\n")
-
-			supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
-			supplementary = sortedStrings(supplementary)
-			if len(supplementary) > 0 {
-				sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
-				for _, f := range supplementary {
-					sb.WriteString("- `")
-					sb.WriteString(f)
-					sb.WriteString("`\n")
-				}
-			}
-		}
-		sb.WriteString("</base_skills>")
-	}
-
-	// <available_skills>: referências para leitura lazy pelo modelo
-	var modelInvocable []skills.Skill
-	for _, s := range availableSkills {
-		if s.IsModelInvocable() {
-			modelInvocable = append(modelInvocable, s)
-		}
-	}
-
-	if len(modelInvocable) > 0 {
-		if sb.Len() > 0 {
-			sb.WriteString("\n\n")
-		}
-		sb.WriteString("<available_skills>\n")
-		sb.WriteString("The user can invoke these on-demand skills with slash commands; you can invoke them by calling `load_skill` when tool calling is available.\n")
-		sb.WriteString("Treat this as a lightweight catalog of available workflows; do not assume the full instructions are loaded until a skill is invoked or `load_skill` succeeds.\n")
-		sb.WriteString("Do not assume disabled or unlisted skills are available.\n\n")
-		for _, s := range modelInvocable {
-			sb.WriteString("- **")
-			sb.WriteString(s.GetDisplayName())
-			sb.WriteString("** (`")
-			sb.WriteString(s.Slug)
-			sb.WriteString("`)")
-			if s.Type != "" {
-				sb.WriteString(" [")
-				sb.WriteString(s.Type)
-				sb.WriteString("]")
-			}
-			sb.WriteString(": ")
-			sb.WriteString(s.Description)
-			sb.WriteString("\n  Identifier: `")
-			sb.WriteString(s.Slug)
-			sb.WriteString("`\n")
-
-			supplementary, _ := b.Skills.GetSkillFiles(s.Slug)
-			supplementary = sortedStrings(supplementary)
-			if len(supplementary) > 0 {
-				sb.WriteString("  Supporting files:\n")
-				for _, f := range supplementary {
-					sb.WriteString("    - `")
-					sb.WriteString(f)
-					sb.WriteString("`\n")
-				}
-			}
-		}
-		sb.WriteString("</available_skills>")
-	}
-
-	return sb.String()
-}
-
-// joinPrefix retorna o separador adequado para anexar uma nova seção: vazio quando
-// ainda não há partes (a seção será a primeira) e "\n\n" caso contrário.
-func joinPrefix(parts []string) string {
-	if len(parts) == 0 {
-		return ""
-	}
-	return "\n\n"
-}
-
-// catalogFirstActive informa se o gating por catálogo está ativo, ou seja, se o
-// tool calling está habilitado e as únicas tools iniciais expostas ao modelo são
-// tools de controle do runtime (`tool_catalog` e, opcionalmente, `load_skill`).
-// Quando o perfil fixa EnabledTools com tool_catalog + outras tools, essas outras
-// já ficam disponíveis de imediato, então o protocolo catalog-first não deve ser
-// injetado para não enganar o modelo.
-func catalogFirstActive(tplData any) bool {
-	var data chat.TemplateData
-	switch d := tplData.(type) {
-	case chat.TemplateData:
-		data = d
-	case *chat.TemplateData:
-		if d == nil {
-			return false
-		}
-		data = *d
-	default:
-		return false
-	}
-	if !data.ToolCallingEnabled {
-		return false
-	}
-	hasCatalog := false
-	for _, name := range data.EnabledTools {
-		if name == tools.ToolCatalogName {
-			hasCatalog = true
-			continue
-		}
-		if name == tools.LoadSkillName {
-			continue
-		}
-		// Qualquer outra tool inicial significa que o gating não restringe o modelo
-		// apenas a tools de controle — o protocolo catalog-first seria enganoso.
-		return false
-	}
-	return hasCatalog
-}
-
-func toolCallingDisabled(tplData any) bool {
-	switch data := tplData.(type) {
-	case chat.TemplateData:
-		return !data.ToolCallingEnabled
-	case *chat.TemplateData:
-		return data != nil && !data.ToolCallingEnabled
-	default:
-		return false
-	}
-}
-
-func filterSkillsWithoutToolDependencies(input []skills.Skill) []skills.Skill {
-	if len(input) == 0 {
-		return input
-	}
-	filtered := make([]skills.Skill, 0, len(input))
-	for _, s := range input {
-		if skillDependsOnTools(s) {
-			continue
-		}
-		filtered = append(filtered, s)
-	}
-	return filtered
-}
-
-func skillDependsOnTools(s skills.Skill) bool {
-	if s.Tools != nil {
-		if len(s.Tools.Allowed) > 0 || len(s.Tools.Denied) > 0 || s.Tools.BashCommands != nil {
-			return true
-		}
-	}
-	if s.Filesystem != nil {
-		if len(s.Filesystem.Read) > 0 || len(s.Filesystem.Write) > 0 || len(s.Filesystem.Deny) > 0 {
-			return true
-		}
-	}
-	if s.Network != nil {
-		if len(s.Network.AllowedHosts) > 0 || len(s.Network.DeniedHosts) > 0 {
-			return true
-		}
-	}
-	return s.MCP != nil
 }
 
 // ComputeEnabledToolNames retorna a lista de nomes de tools habilitadas pelo perfil.

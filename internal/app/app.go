@@ -36,6 +36,7 @@ import (
 	"assistente/internal/tasklist"
 	"assistente/internal/terminal"
 	"assistente/internal/toolinvocations"
+	"assistente/internal/toolprotocol"
 	"assistente/internal/tools"
 	"assistente/internal/updater"
 	"assistente/internal/workspace"
@@ -362,7 +363,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.contextProviders = contextprovider.NewRegistry(
 		conversation.NewContextProvider(),
 		a.memorySvc,
+		skills.NewContextProvider(a.skillMgr),
 		tasklist.NewContextProvider(),
+		toolprotocol.NewContextProvider(),
 		workspace.NewContextProvider(),
 	)
 

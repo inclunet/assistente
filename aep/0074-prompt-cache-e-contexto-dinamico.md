@@ -101,10 +101,10 @@ O cache não depende só do system prompt. A request enviada ao provider inclui 
 
 ```text
 prefixo estável:
-  - prompt base
-  - instruções estáticas do perfil
-  - skill base completa, quando houver
-  - catálogo compacto de skills on_demand
+  - base_skill emitida pelo Context Provider `skills`
+  - catálogo compacto de skills on_demand emitido pelo Context Provider `skills`
+  - protocolo catalog-first emitido pelo Context Provider `tool_protocol`, quando aplicável
+  - instruções estáveis de outros Context Providers
   - definições estáveis de tools/MCP
 
 contexto por volatilidade:
@@ -131,6 +131,7 @@ Regras:
 
 - a primeira skill habilitada no perfil é `base` e pode entrar completa no prefixo estável;
 - skills `on_demand` aparecem no catálogo compacto até serem carregadas;
+- `base` e catálogo `on_demand` são blocos do Context Provider `skills`, não montagem especial do `prompt.Builder`;
 - skills `disabled` não aparecem nem carregam;
 - conteúdo completo de skill `on_demand` carregado por ferramenta entra no fluxo daquele turno, não no prompt inicial cacheável;
 - argumentos de invocação explícita de skill pertencem ao turno atual, não ao corpo estável da skill;
