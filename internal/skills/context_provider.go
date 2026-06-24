@@ -267,17 +267,6 @@ func minimalTaggedBlockLen(tag string, truncationNotice string) int {
 	return runeLen("<"+tag+">\n") + runeLen(truncationNotice) + runeLen("\n</"+tag+">")
 }
 
-func truncateRunes(value string, budgetChars int) string {
-	if budgetChars <= 0 {
-		return ""
-	}
-	runes := []rune(value)
-	if len(runes) <= budgetChars {
-		return value
-	}
-	return strings.TrimSpace(string(runes[:budgetChars]))
-}
-
 func filterSkillsWithoutToolDependencies(input []Skill) []Skill {
 	if len(input) == 0 {
 		return input
