@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -163,7 +164,10 @@ func ensurePrivateDebugDir(path string) error {
 	if err := os.MkdirAll(path, 0700); err != nil {
 		return err
 	}
-	return os.Chmod(path, 0700)
+	if err := os.Chmod(path, 0700); err != nil {
+		log.Printf("[LLMDebugDump] aviso: não foi possível aplicar permissão 0700 em %s: %v", path, err)
+	}
+	return nil
 }
 
 func writeJSON(path string, value any) {
