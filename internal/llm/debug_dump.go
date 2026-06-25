@@ -113,6 +113,7 @@ func dumpLLMRequest(provider *ProviderConfig, model string, params ChatParams, p
 	writeJSON(filepath.Join(runDir, "meta.json"), meta)
 	if !params.DebugDump.DumpResponses {
 		pruneDebugDumps(conversationDir, params.DebugDump.MaxFiles)
+		return nil
 	}
 	return &DebugDumpHandle{Dir: runDir, ConversationDir: conversationDir, MaxFiles: params.DebugDump.MaxFiles}
 }

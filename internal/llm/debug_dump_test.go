@@ -101,6 +101,7 @@ func TestDebugDumpDirectoriesArePrivate(t *testing.T) {
 	handle := dumpLLMRequest(nil, "gpt-test", ChatParams{DebugDump: DebugDumpConfig{
 		Enabled:        true,
 		DumpRequests:   true,
+		DumpResponses:  true,
 		MaxFiles:       10,
 		ProfileSlug:    "dev",
 		ConversationID: "conv-1",
@@ -128,6 +129,7 @@ func TestDumpLLMRequestWritesPrefixDiffAgainstPreviousDump(t *testing.T) {
 	params := ChatParams{DebugDump: DebugDumpConfig{
 		Enabled:        true,
 		DumpRequests:   true,
+		DumpResponses:  true,
 		MaxFiles:       10,
 		ProfileSlug:    "dev",
 		ConversationID: "conv-1",
@@ -263,8 +265,8 @@ func TestDumpLLMRequestPrunesOldDumps(t *testing.T) {
 		TurnID:         "turn",
 	}}
 	for i := 0; i < 4; i++ {
-		if dumpLLMRequest(nil, "gpt-test", params, map[string]any{"n": i}) == nil {
-			t.Fatalf("dump %d não criado", i)
+		if handle := dumpLLMRequest(nil, "gpt-test", params, map[string]any{"n": i}); handle != nil {
+			t.Fatalf("request-only dump %d retornou handle %#v, want nil", i, handle)
 		}
 	}
 	entries, err := os.ReadDir(filepath.Join(baseDir, "dev", "conv-1"))
