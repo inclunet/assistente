@@ -138,6 +138,8 @@ type ChatDebugConfig struct {
 	MaxFiles      int  `json:"max_files,omitempty"`
 }
 
+const ChatDebugMaxFilesLimit = 10000
+
 func DefaultChatDebugConfig() ChatDebugConfig {
 	return ChatDebugConfig{
 		Enabled:       false,
@@ -365,8 +367,8 @@ func (p *Profile) Validate() error {
 	if !p.Chat.PromptCache.Enabled && p.Chat.PromptCache.ExplicitCacheControl {
 		return fmt.Errorf("chat.prompt_cache.explicit_cache_control requires chat.prompt_cache.enabled")
 	}
-	if p.Chat.Debug != nil && p.Chat.Debug.MaxFiles < 0 {
-		return fmt.Errorf("chat.debug.max_files must be 0 (default) or a positive number")
+	if p.Chat.Debug != nil && (p.Chat.Debug.MaxFiles < 0 || p.Chat.Debug.MaxFiles > ChatDebugMaxFilesLimit) {
+		return fmt.Errorf("chat.debug.max_files must be between 0 (default) and %d", ChatDebugMaxFilesLimit)
 	}
 	if p.Chat.ResponseTimeout < 10 {
 		return fmt.Errorf("chat.response_timeout must be at least 10 seconds")

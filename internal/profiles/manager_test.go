@@ -243,6 +243,27 @@ func TestProfileValidateRejectsNegativeContextProviderBudget(t *testing.T) {
 	}
 }
 
+func TestProfileValidateRejectsDebugMaxFilesOutOfRange(t *testing.T) {
+	cases := []struct {
+		name     string
+		maxFiles int
+	}{
+		{name: "negative", maxFiles: -1},
+		{name: "above limit", maxFiles: ChatDebugMaxFilesLimit + 1},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := DefaultProfile()
+			p.Chat.Debug = &ChatDebugConfig{MaxFiles: tc.maxFiles}
+
+			if err := p.Validate(); err == nil {
+				t.Fatal("Validate succeeded, want debug.max_files range error")
+			}
+		})
+	}
+}
+
 func TestProfileValidateRejectsPromptCacheControlsWhenDisabled(t *testing.T) {
 	cases := []struct {
 		name string
