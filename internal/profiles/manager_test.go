@@ -2,6 +2,7 @@ package profiles
 
 import (
 	"assistente/internal/configdir"
+	"encoding/json"
 	"os"
 	"testing"
 )
@@ -169,7 +170,7 @@ func TestManagerLLMDebugPersistsProfileConfig(t *testing.T) {
 
 	p := DefaultProfile()
 	p.Name = "Perfil Debug"
-	p.Chat.Debug = ChatDebugConfig{
+	p.Chat.Debug = &ChatDebugConfig{
 		Enabled:       true,
 		DumpRequests:  false,
 		DumpResponses: false,
@@ -184,6 +185,9 @@ func TestManagerLLMDebugPersistsProfileConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
+	if got.Chat.Debug == nil {
+		t.Fatal("Debug = nil, want persisted config")
+	}
 	if !got.Chat.Debug.Enabled {
 		t.Fatal("Debug.Enabled = false, want true")
 	}
@@ -195,6 +199,36 @@ func TestManagerLLMDebugPersistsProfileConfig(t *testing.T) {
 	}
 	if got.Chat.Debug.MaxFiles != 25 {
 		t.Fatalf("Debug.MaxFiles = %d, want 25", got.Chat.Debug.MaxFiles)
+	}
+}
+
+func TestChatConfigEffectiveDebugUsesDefaultsWhenLegacyMissing(t *testing.T) {
+	var profile Profile
+	if err := json.Unmarshal([]byte(`{
+		"name": "Legacy",
+		"chat": {
+			"llm_provider": "$default",
+			"model": "$default",
+			"temperature": 0.7,
+			"max_tokens": 4096,
+			"top_p": 1,
+			"response_timeout": 180
+		}
+	}`), &profile); err != nil {
+		t.Fatalf("unmarshal legacy profile: %v", err)
+	}
+	if profile.Chat.Debug != nil {
+		t.Fatalf("Debug = %#v, want nil before effective default", profile.Chat.Debug)
+	}
+	got := profile.Chat.EffectiveDebug()
+	if got.Enabled {
+		t.Fatal("EffectiveDebug.Enabled = true, want false")
+	}
+	if !got.DumpRequests || !got.DumpResponses {
+		t.Fatalf("EffectiveDebug = %#v, want request/response defaults enabled", got)
+	}
+	if got.MaxFiles != 200 {
+		t.Fatalf("EffectiveDebug.MaxFiles = %d, want 200", got.MaxFiles)
 	}
 }
 

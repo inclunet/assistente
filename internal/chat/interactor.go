@@ -265,11 +265,12 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 			activeProfile.Chat.PromptCache.ExplicitCacheControl &&
 			i.providerSvc != nil &&
 			i.providerSvc.SupportsExplicitCacheControl(ctx, activeProfile)
+		debug := activeProfile.Chat.EffectiveDebug()
 		params.DebugDump = llm.DebugDumpConfig{
-			Enabled:        activeProfile.Chat.Debug.Enabled,
-			DumpRequests:   activeProfile.Chat.Debug.DumpRequests,
-			DumpResponses:  activeProfile.Chat.Debug.DumpResponses,
-			MaxFiles:       activeProfile.Chat.Debug.MaxFiles,
+			Enabled:        debug.Enabled,
+			DumpRequests:   debug.DumpRequests,
+			DumpResponses:  debug.DumpResponses,
+			MaxFiles:       debug.MaxFiles,
 			ProfileSlug:    strings.TrimSpace(params.ProfileSlug),
 			ConversationID: req.ConversationID,
 		}

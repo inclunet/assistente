@@ -290,10 +290,12 @@ func TestPrepareContextAppliesLLMDebugDumpConfigFromProfile(t *testing.T) {
 	profile.Active = true
 	profile.Chat.LLMProvider = "openai-default"
 	profile.Chat.Model = "gpt-4o-mini"
-	profile.Chat.Debug.Enabled = true
-	profile.Chat.Debug.DumpRequests = true
-	profile.Chat.Debug.DumpResponses = true
-	profile.Chat.Debug.MaxFiles = 42
+	profile.Chat.Debug = &profiles.ChatDebugConfig{
+		Enabled:       true,
+		DumpRequests:  true,
+		DumpResponses: true,
+		MaxFiles:      42,
+	}
 	slug, err := profileMgr.Create(profile)
 	if err != nil {
 		t.Fatalf("create profile: %v", err)

@@ -69,6 +69,17 @@ func TestDebugDumpDirectoriesArePrivate(t *testing.T) {
 		t.Skip("Windows does not expose POSIX mode bits consistently")
 	}
 	baseDir := t.TempDir()
+	profileDir := filepath.Join(baseDir, "dev")
+	conversationDir := filepath.Join(profileDir, "conv-1")
+	if err := os.MkdirAll(conversationDir, 0755); err != nil {
+		t.Fatalf("precreate permissive dirs: %v", err)
+	}
+	if err := os.Chmod(profileDir, 0755); err != nil {
+		t.Fatalf("chmod profile dir: %v", err)
+	}
+	if err := os.Chmod(conversationDir, 0755); err != nil {
+		t.Fatalf("chmod conversation dir: %v", err)
+	}
 	debugDumpBaseDirOverride = baseDir
 	t.Cleanup(func() { debugDumpBaseDirOverride = "" })
 
@@ -83,7 +94,7 @@ func TestDebugDumpDirectoriesArePrivate(t *testing.T) {
 	if handle == nil {
 		t.Fatal("dump não criado")
 	}
-	for _, dir := range []string{baseDir, handle.Dir} {
+	for _, dir := range []string{baseDir, profileDir, conversationDir, handle.Dir} {
 		info, err := os.Stat(dir)
 		if err != nil {
 			t.Fatalf("stat %s: %v", dir, err)

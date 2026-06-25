@@ -65,10 +65,13 @@ func dumpLLMRequest(provider *ProviderConfig, model string, params ChatParams, p
 	conversationID := safePathSegment(firstNonEmpty(params.DebugDump.ConversationID, "unknown-conversation"))
 	turnID := safePathSegment(firstNonEmpty(params.DebugDump.TurnID, "unknown-turn"))
 	runName := uniqueDebugDumpRunName(turnID)
-	conversationDir := filepath.Join(baseDir, profile, conversationID)
+	profileDir := filepath.Join(baseDir, profile)
+	conversationDir := filepath.Join(profileDir, conversationID)
 	runDir := filepath.Join(conversationDir, runName)
-	if err := ensurePrivateDebugDir(runDir); err != nil {
-		return nil
+	for _, dir := range []string{profileDir, conversationDir, runDir} {
+		if err := ensurePrivateDebugDir(dir); err != nil {
+			return nil
+		}
 	}
 
 	meta := debugDumpMeta{

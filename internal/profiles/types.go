@@ -119,7 +119,7 @@ type ChatConfig struct {
 	StreamingRecoveryShowContinue *bool `json:"streaming_recovery_show_continue,omitempty"`
 
 	PromptCache PromptCacheConfig `json:"prompt_cache,omitempty"`
-	Debug       ChatDebugConfig   `json:"debug"`
+	Debug       *ChatDebugConfig  `json:"debug,omitempty"`
 }
 
 // PromptCacheConfig controla mecanismos ativos de prompt/context cache por
@@ -138,8 +138,25 @@ type ChatDebugConfig struct {
 	MaxFiles      int  `json:"max_files,omitempty"`
 }
 
-func boolPtr(v bool) *bool { return &v }
-func intPtr(v int) *int    { return &v }
+func DefaultChatDebugConfig() ChatDebugConfig {
+	return ChatDebugConfig{
+		Enabled:       false,
+		DumpRequests:  true,
+		DumpResponses: true,
+		MaxFiles:      200,
+	}
+}
+
+func (c ChatConfig) EffectiveDebug() ChatDebugConfig {
+	if c.Debug == nil {
+		return DefaultChatDebugConfig()
+	}
+	return *c.Debug
+}
+
+func boolPtr(v bool) *bool                            { return &v }
+func intPtr(v int) *int                               { return &v }
+func chatDebugPtr(v ChatDebugConfig) *ChatDebugConfig { return &v }
 
 // VoiceRoleConfig configura TTS para uma role específica (assistant, user ou system).
 type VoiceRoleConfig struct {
@@ -274,12 +291,7 @@ func DefaultProfile() *Profile {
 				Enabled:       false,
 				ProviderHints: false,
 			},
-			Debug: ChatDebugConfig{
-				Enabled:       false,
-				DumpRequests:  true,
-				DumpResponses: true,
-				MaxFiles:      200,
-			},
+			Debug: chatDebugPtr(DefaultChatDebugConfig()),
 		},
 		Voice: VoiceConfig{
 			Assistant: VoiceRoleConfig{
@@ -353,7 +365,7 @@ func (p *Profile) Validate() error {
 	if !p.Chat.PromptCache.Enabled && p.Chat.PromptCache.ExplicitCacheControl {
 		return fmt.Errorf("chat.prompt_cache.explicit_cache_control requires chat.prompt_cache.enabled")
 	}
-	if p.Chat.Debug.MaxFiles < 0 {
+	if p.Chat.Debug != nil && p.Chat.Debug.MaxFiles < 0 {
 		return fmt.Errorf("chat.debug.max_files must be 0 (default) or a positive number")
 	}
 	if p.Chat.ResponseTimeout < 10 {
