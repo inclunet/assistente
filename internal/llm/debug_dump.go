@@ -163,7 +163,7 @@ func ensurePrivateDebugDir(path string) error {
 		return err
 	}
 	if err := os.Chmod(path, 0700); err != nil {
-		log.Printf("[LLMDebugDump] aviso: não foi possível aplicar permissão 0700 em %s: %v", path, err)
+		log.Printf("[LLMDebugDump] erro: dumps desabilitados porque não foi possível garantir permissão 0700 em %s: %v", path, err)
 		return err
 	}
 	return nil

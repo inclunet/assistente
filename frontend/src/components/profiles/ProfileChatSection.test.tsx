@@ -289,12 +289,13 @@ describe('ProfileChatSection', () => {
     expect(handleChange).not.toHaveBeenCalled();
   });
 
-  it('habilita dumps LLM e mantém requests/responses ligados por padrão', () => {
+  it('habilita dumps LLM sem sobrescrever preferências de requests/responses', () => {
     const handleChange = vi.fn();
     const handleMultiChange = vi.fn();
     render(
       <ProfileChatSection
         {...defaultProps}
+        debug={{ enabled: false, dump_requests: false, dump_responses: true, max_files: 200 }}
         onChange={handleChange}
         onMultiChange={handleMultiChange}
       />
@@ -304,8 +305,6 @@ describe('ProfileChatSection', () => {
 
     expect(handleMultiChange).toHaveBeenCalledWith({
       'debug.enabled': true,
-      'debug.dump_requests': true,
-      'debug.dump_responses': true,
       'debug.max_files': 200,
     });
     expect(handleChange).not.toHaveBeenCalled();

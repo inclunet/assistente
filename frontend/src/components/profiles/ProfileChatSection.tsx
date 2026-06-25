@@ -130,21 +130,14 @@ export function ProfileChatSection({
     if (onMultiChange) {
       onMultiChange({
         'debug.enabled': enabled,
-        'debug.dump_requests': enabled,
-        'debug.dump_responses': enabled,
         'debug.max_files': debugMaxFilesValue,
       });
       return;
     }
     onChange('debug.enabled', enabled);
-    if (!enabled) {
-      onChange('debug.dump_requests', false);
-      onChange('debug.dump_responses', false);
-      return;
+    if (enabled) {
+      onChange('debug.max_files', debugMaxFilesValue);
     }
-    onChange('debug.dump_requests', true);
-    onChange('debug.dump_responses', true);
-    onChange('debug.max_files', debugMaxFilesValue);
   };
 
   return (
