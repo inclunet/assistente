@@ -232,6 +232,69 @@ func TestChatConfigEffectiveDebugUsesDefaultsWhenLegacyMissing(t *testing.T) {
 	}
 }
 
+func TestChatConfigEffectiveDebugMergesPartialDebugBlock(t *testing.T) {
+	var profile Profile
+	if err := json.Unmarshal([]byte(`{
+		"name": "Partial Debug",
+		"chat": {
+			"llm_provider": "$default",
+			"model": "$default",
+			"temperature": 0.7,
+			"max_tokens": 4096,
+			"top_p": 1,
+			"response_timeout": 180,
+			"debug": { "enabled": true }
+		}
+	}`), &profile); err != nil {
+		t.Fatalf("unmarshal partial debug profile: %v", err)
+	}
+
+	got := profile.Chat.EffectiveDebug()
+	if !got.Enabled {
+		t.Fatal("EffectiveDebug.Enabled = false, want true")
+	}
+	if !got.DumpRequests || !got.DumpResponses {
+		t.Fatalf("EffectiveDebug = %#v, want request/response defaults merged", got)
+	}
+	if got.MaxFiles != 200 {
+		t.Fatalf("EffectiveDebug.MaxFiles = %d, want 200", got.MaxFiles)
+	}
+}
+
+func TestChatConfigEffectiveDebugPreservesExplicitDebugFalseValues(t *testing.T) {
+	var profile Profile
+	if err := json.Unmarshal([]byte(`{
+		"name": "Explicit Debug",
+		"chat": {
+			"llm_provider": "$default",
+			"model": "$default",
+			"temperature": 0.7,
+			"max_tokens": 4096,
+			"top_p": 1,
+			"response_timeout": 180,
+			"debug": {
+				"enabled": true,
+				"dump_requests": false,
+				"dump_responses": false,
+				"max_files": 0
+			}
+		}
+	}`), &profile); err != nil {
+		t.Fatalf("unmarshal explicit debug profile: %v", err)
+	}
+
+	got := profile.Chat.EffectiveDebug()
+	if !got.Enabled {
+		t.Fatal("EffectiveDebug.Enabled = false, want true")
+	}
+	if got.DumpRequests || got.DumpResponses {
+		t.Fatalf("EffectiveDebug = %#v, want explicit request/response false preserved", got)
+	}
+	if got.MaxFiles != 0 {
+		t.Fatalf("EffectiveDebug.MaxFiles = %d, want explicit 0 preserved", got.MaxFiles)
+	}
+}
+
 func TestProfileValidateRejectsNegativeContextProviderBudget(t *testing.T) {
 	p := DefaultProfile()
 	p.ContextProviders = map[string]ContextProviderProfileConfig{

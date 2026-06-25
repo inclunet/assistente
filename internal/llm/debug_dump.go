@@ -170,9 +170,12 @@ func ensurePrivateDebugDir(path string) error {
 func writeJSON(path string, value any) {
 	data, err := redactedJSON(value)
 	if err != nil {
+		log.Printf("[LLMDebugDump] aviso: não foi possível serializar dump %s: %v", path, err)
 		return
 	}
-	_ = os.WriteFile(path, data, 0600)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		log.Printf("[LLMDebugDump] aviso: não foi possível escrever dump %s: %v", path, err)
+	}
 }
 
 func redactedJSON(value any) ([]byte, error) {

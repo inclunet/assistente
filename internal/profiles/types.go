@@ -1,6 +1,7 @@
 package profiles
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -136,6 +137,10 @@ type ChatDebugConfig struct {
 	DumpRequests  bool `json:"dump_requests"`
 	DumpResponses bool `json:"dump_responses"`
 	MaxFiles      int  `json:"max_files,omitempty"`
+
+	dumpRequestsSet  bool
+	dumpResponsesSet bool
+	maxFilesSet      bool
 }
 
 const ChatDebugMaxFilesLimit = 10000
@@ -153,7 +158,47 @@ func (c ChatConfig) EffectiveDebug() ChatDebugConfig {
 	if c.Debug == nil {
 		return DefaultChatDebugConfig()
 	}
-	return *c.Debug
+	effective := DefaultChatDebugConfig()
+	effective.Enabled = c.Debug.Enabled
+	if c.Debug.dumpRequestsSet {
+		effective.DumpRequests = c.Debug.DumpRequests
+	}
+	if c.Debug.dumpResponsesSet {
+		effective.DumpResponses = c.Debug.DumpResponses
+	}
+	if c.Debug.maxFilesSet {
+		effective.MaxFiles = c.Debug.MaxFiles
+	}
+	return effective
+}
+
+func (c *ChatDebugConfig) UnmarshalJSON(data []byte) error {
+	type debugConfigJSON struct {
+		Enabled       *bool `json:"enabled"`
+		DumpRequests  *bool `json:"dump_requests"`
+		DumpResponses *bool `json:"dump_responses"`
+		MaxFiles      *int  `json:"max_files"`
+	}
+	var decoded debugConfigJSON
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if decoded.Enabled != nil {
+		c.Enabled = *decoded.Enabled
+	}
+	if decoded.DumpRequests != nil {
+		c.DumpRequests = *decoded.DumpRequests
+		c.dumpRequestsSet = true
+	}
+	if decoded.DumpResponses != nil {
+		c.DumpResponses = *decoded.DumpResponses
+		c.dumpResponsesSet = true
+	}
+	if decoded.MaxFiles != nil {
+		c.MaxFiles = *decoded.MaxFiles
+		c.maxFilesSet = true
+	}
+	return nil
 }
 
 func boolPtr(v bool) *bool                            { return &v }
