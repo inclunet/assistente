@@ -257,6 +257,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		return "", prepResult.Err
 	}
 	messages = prepResult.Messages
+	params.DebugDump.ConversationID = req.ConversationID
+	params.DebugDump.TurnID = userMsg.ID
+	if params.DebugDump.ProfileSlug == "" {
+		params.DebugDump.ProfileSlug = params.ProfileSlug
+	}
 	invokedSkillSlug := prepResult.InvokedSkillSlug
 	invokedFilesystemScope := prepResult.InvokedScope
 	invokedExecutionContext := prepResult.InvokedExecutionContext

@@ -3884,6 +3884,24 @@ export namespace profiles {
 	        this.explicit_cache_control = source["explicit_cache_control"];
 	    }
 	}
+	export class ChatDebugConfig {
+	    enabled?: boolean;
+	    dump_requests?: boolean;
+	    dump_responses?: boolean;
+	    max_files?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatDebugConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.dump_requests = source["dump_requests"];
+	        this.dump_responses = source["dump_responses"];
+	        this.max_files = source["max_files"];
+	    }
+	}
 	export class ChatConfig {
 	    llm_provider: string;
 	    model?: string;
@@ -3903,11 +3921,14 @@ export namespace profiles {
 	    disable_on_demand_skills?: boolean;
 	    command_allowlist?: string;
 	    native_mcp?: boolean;
+	    tool_schema_budget_bytes?: number;
+	    preferred_tool_packages?: string[];
 	    max_agentic_iterations?: number;
 	    streaming_recovery_enabled?: boolean;
 	    streaming_recovery_max_attempts?: number;
 	    streaming_recovery_show_continue?: boolean;
 	    prompt_cache?: PromptCacheConfig;
+	    debug?: ChatDebugConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatConfig(source);
@@ -3933,11 +3954,14 @@ export namespace profiles {
 	        this.disable_on_demand_skills = source["disable_on_demand_skills"];
 	        this.command_allowlist = source["command_allowlist"];
 	        this.native_mcp = source["native_mcp"];
+	        this.tool_schema_budget_bytes = source["tool_schema_budget_bytes"];
+	        this.preferred_tool_packages = source["preferred_tool_packages"];
 	        this.max_agentic_iterations = source["max_agentic_iterations"];
 	        this.streaming_recovery_enabled = source["streaming_recovery_enabled"];
 	        this.streaming_recovery_max_attempts = source["streaming_recovery_max_attempts"];
 	        this.streaming_recovery_show_continue = source["streaming_recovery_show_continue"];
 	        this.prompt_cache = this.convertValues(source["prompt_cache"], PromptCacheConfig);
+	        this.debug = this.convertValues(source["debug"], ChatDebugConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

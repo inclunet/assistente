@@ -119,6 +119,7 @@ type ChatConfig struct {
 	StreamingRecoveryShowContinue *bool `json:"streaming_recovery_show_continue,omitempty"`
 
 	PromptCache PromptCacheConfig `json:"prompt_cache,omitempty"`
+	Debug       ChatDebugConfig   `json:"debug,omitempty"`
 }
 
 // PromptCacheConfig controla mecanismos ativos de prompt/context cache por
@@ -128,6 +129,13 @@ type PromptCacheConfig struct {
 	Enabled              bool `json:"enabled,omitempty"`
 	ProviderHints        bool `json:"provider_hints,omitempty"`
 	ExplicitCacheControl bool `json:"explicit_cache_control,omitempty"`
+}
+
+type ChatDebugConfig struct {
+	Enabled       bool `json:"enabled"`
+	DumpRequests  bool `json:"dump_requests"`
+	DumpResponses bool `json:"dump_responses"`
+	MaxFiles      int  `json:"max_files,omitempty"`
 }
 
 func boolPtr(v bool) *bool { return &v }
@@ -266,6 +274,12 @@ func DefaultProfile() *Profile {
 				Enabled:       false,
 				ProviderHints: false,
 			},
+			Debug: ChatDebugConfig{
+				Enabled:       false,
+				DumpRequests:  true,
+				DumpResponses: true,
+				MaxFiles:      200,
+			},
 		},
 		Voice: VoiceConfig{
 			Assistant: VoiceRoleConfig{
@@ -338,6 +352,9 @@ func (p *Profile) Validate() error {
 	}
 	if !p.Chat.PromptCache.Enabled && p.Chat.PromptCache.ExplicitCacheControl {
 		return fmt.Errorf("chat.prompt_cache.explicit_cache_control requires chat.prompt_cache.enabled")
+	}
+	if p.Chat.Debug.MaxFiles < 0 {
+		return fmt.Errorf("chat.debug.max_files must be 0 (default) or a positive number")
 	}
 	if p.Chat.ResponseTimeout < 10 {
 		return fmt.Errorf("chat.response_timeout must be at least 10 seconds")

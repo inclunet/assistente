@@ -164,6 +164,40 @@ func TestManagerPromptCachePersistsProfileConfig(t *testing.T) {
 	}
 }
 
+func TestManagerLLMDebugPersistsProfileConfig(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+
+	p := DefaultProfile()
+	p.Name = "Perfil Debug"
+	p.Chat.Debug = ChatDebugConfig{
+		Enabled:       true,
+		DumpRequests:  false,
+		DumpResponses: false,
+		MaxFiles:      25,
+	}
+	slug, err := manager.Create(p)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got, err := manager.Get(slug)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !got.Chat.Debug.Enabled {
+		t.Fatal("Debug.Enabled = false, want true")
+	}
+	if got.Chat.Debug.DumpRequests {
+		t.Fatal("Debug.DumpRequests = true, want false")
+	}
+	if got.Chat.Debug.DumpResponses {
+		t.Fatal("Debug.DumpResponses = true, want false")
+	}
+	if got.Chat.Debug.MaxFiles != 25 {
+		t.Fatalf("Debug.MaxFiles = %d, want 25", got.Chat.Debug.MaxFiles)
+	}
+}
+
 func TestProfileValidateRejectsNegativeContextProviderBudget(t *testing.T) {
 	p := DefaultProfile()
 	p.ContextProviders = map[string]ContextProviderProfileConfig{

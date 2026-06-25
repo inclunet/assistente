@@ -54,7 +54,7 @@ type OpenAIProvider struct {
 	credMgr            *credentials.Manager
 	useResponses       bool              // true = Responses API first; false = Chat Completions only
 	mcpServers         []MCPServerConfig // MCP servers HTTP (só efetivo quando useResponses=true)
-	responsesAttemptFn func(context.Context, responses.ResponseNewParams, StreamHandler, []MCPServerConfig) mcpStreamAttemptResult
+	responsesAttemptFn func(context.Context, responses.ResponseNewParams, StreamHandler, []MCPServerConfig, ChatParams, *DebugDumpHandle) mcpStreamAttemptResult
 }
 
 // NewOpenAIProvider cria um provider Chat Completions-only (OpenAI-compatible).

@@ -265,6 +265,14 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 			activeProfile.Chat.PromptCache.ExplicitCacheControl &&
 			i.providerSvc != nil &&
 			i.providerSvc.SupportsExplicitCacheControl(ctx, activeProfile)
+		params.DebugDump = llm.DebugDumpConfig{
+			Enabled:        activeProfile.Chat.Debug.Enabled,
+			DumpRequests:   activeProfile.Chat.Debug.DumpRequests,
+			DumpResponses:  activeProfile.Chat.Debug.DumpResponses,
+			MaxFiles:       activeProfile.Chat.Debug.MaxFiles,
+			ProfileSlug:    strings.TrimSpace(params.ProfileSlug),
+			ConversationID: req.ConversationID,
+		}
 	}
 
 	// 8. Fall back to config default model if still empty
@@ -276,6 +284,9 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		cacheProfileSlug := strings.TrimSpace(params.ProfileSlug)
 		if cacheProfileSlug == "" && i.profileMgr != nil {
 			cacheProfileSlug = i.profileMgr.GetActiveSlug()
+		}
+		if params.DebugDump.ProfileSlug == "" {
+			params.DebugDump.ProfileSlug = cacheProfileSlug
 		}
 		params.PromptCacheKey = ResolvePromptCacheHintKey(activeProfile, cacheProfileSlug, req.ConversationID, params.Model)
 	}

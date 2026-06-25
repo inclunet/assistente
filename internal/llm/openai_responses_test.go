@@ -176,7 +176,7 @@ func TestOpenAIProvider_StreamChatResponses_DegradesFailedMCPServer(t *testing.T
 			{Name: "Slack", Slug: "slack", URL: "https://mcp.slack.com/mcp"},
 		},
 	}
-	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, handler StreamHandler, servers []MCPServerConfig) mcpStreamAttemptResult {
+	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, handler StreamHandler, servers []MCPServerConfig, _ ChatParams, _ *DebugDumpHandle) mcpStreamAttemptResult {
 		attempts++
 		slugs := make([]string, 0, len(servers))
 		for _, srv := range servers {
@@ -240,7 +240,7 @@ func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedFallsBackToAdapt
 			{Name: "Atlassian", Slug: "atlassian", URL: "https://mcp.atlassian.com/v1/sse"},
 		},
 	}
-	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, handler StreamHandler, servers []MCPServerConfig) mcpStreamAttemptResult {
+	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, handler StreamHandler, servers []MCPServerConfig, _ ChatParams, _ *DebugDumpHandle) mcpStreamAttemptResult {
 		attempts++
 		slugs := make([]string, 0, len(servers))
 		for _, srv := range servers {
@@ -285,7 +285,7 @@ func TestOpenAIProvider_StreamChatResponses_PromptCacheHintUnsupportedRetriesWit
 		provider:     &ProviderConfig{ID: "o", Name: "Proxy", BaseURL: "http://proxy.local/v1"},
 		useResponses: true,
 	}
-	provider.responsesAttemptFn = func(_ context.Context, params responses.ResponseNewParams, handler StreamHandler, _ []MCPServerConfig) mcpStreamAttemptResult {
+	provider.responsesAttemptFn = func(_ context.Context, params responses.ResponseNewParams, handler StreamHandler, _ []MCPServerConfig, _ ChatParams, _ *DebugDumpHandle) mcpStreamAttemptResult {
 		attempts++
 		if params.PromptCacheKey.Valid() {
 			seenKeys = append(seenKeys, params.PromptCacheKey.Value)
@@ -335,7 +335,7 @@ func TestOpenAIProvider_StreamChatResponses_PromptCacheHintUnsupportedWithoutKey
 		provider:     &ProviderConfig{ID: "o", Name: "Proxy", BaseURL: "http://proxy.local/v1"},
 		useResponses: true,
 	}
-	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, _ StreamHandler, _ []MCPServerConfig) mcpStreamAttemptResult {
+	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, _ StreamHandler, _ []MCPServerConfig, _ ChatParams, _ *DebugDumpHandle) mcpStreamAttemptResult {
 		return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 	}
 
@@ -368,7 +368,7 @@ func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedAbortsWhenFallba
 			{Name: "Atlassian", Slug: "atlassian", URL: "https://mcp.atlassian.com/v1/sse"},
 		},
 	}
-	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, _ StreamHandler, _ []MCPServerConfig) mcpStreamAttemptResult {
+	provider.responsesAttemptFn = func(_ context.Context, _ responses.ResponseNewParams, _ StreamHandler, _ []MCPServerConfig, _ ChatParams, _ *DebugDumpHandle) mcpStreamAttemptResult {
 		attempts++
 		return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 	}

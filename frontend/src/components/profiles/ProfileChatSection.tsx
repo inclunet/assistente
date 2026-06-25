@@ -9,6 +9,13 @@ interface PromptCacheValue {
   explicit_cache_control?: boolean;
 }
 
+interface DebugValue {
+  enabled?: boolean;
+  dump_requests?: boolean;
+  dump_responses?: boolean;
+  max_files?: number;
+}
+
 export interface ProfileChatSectionProps {
   llmProvider: string;
   model: string;
@@ -22,6 +29,7 @@ export interface ProfileChatSectionProps {
   responseTimeout: number;
   reasoningEffort: string;
   promptCache?: PromptCacheValue;
+  debug?: DebugValue;
   streamingRecoveryEnabled?: boolean;
   streamingRecoveryMaxAttempts?: number;
   streamingRecoveryShowContinue?: boolean;
@@ -41,6 +49,10 @@ export interface ProfileChatSectionProps {
       | 'prompt_cache.enabled'
       | 'prompt_cache.provider_hints'
       | 'prompt_cache.explicit_cache_control'
+      | 'debug.enabled'
+      | 'debug.dump_requests'
+      | 'debug.dump_responses'
+      | 'debug.max_files'
       | 'streaming_recovery_enabled'
       | 'streaming_recovery_max_attempts'
       | 'streaming_recovery_show_continue',
@@ -67,6 +79,7 @@ export function ProfileChatSection({
   responseTimeout,
   reasoningEffort,
   promptCache,
+  debug,
   streamingRecoveryEnabled,
   streamingRecoveryMaxAttempts,
   streamingRecoveryShowContinue,
@@ -87,6 +100,10 @@ export function ProfileChatSection({
   const promptCacheEnabledValue = promptCache?.enabled ?? false;
   const promptCacheProviderHintsValue = promptCache?.provider_hints ?? false;
   const promptCacheExplicitCacheControlValue = promptCache?.explicit_cache_control ?? false;
+  const debugEnabledValue = debug?.enabled ?? false;
+  const debugDumpRequestsValue = debug?.dump_requests ?? true;
+  const debugDumpResponsesValue = debug?.dump_responses ?? true;
+  const debugMaxFilesValue = debug?.max_files ?? 200;
   const streamingRecoveryEnabledValue = streamingRecoveryEnabled ?? true;
   const streamingRecoveryMaxAttemptsValue = streamingRecoveryMaxAttempts ?? 3;
   const streamingRecoveryShowContinueValue = streamingRecoveryShowContinue ?? true;
@@ -107,6 +124,27 @@ export function ProfileChatSection({
       return;
     }
     onChange('prompt_cache.enabled', enabled);
+  };
+
+  const handleDebugEnabledChange = (enabled: boolean) => {
+    if (onMultiChange) {
+      onMultiChange({
+        'debug.enabled': enabled,
+        'debug.dump_requests': enabled,
+        'debug.dump_responses': enabled,
+        'debug.max_files': debugMaxFilesValue,
+      });
+      return;
+    }
+    onChange('debug.enabled', enabled);
+    if (!enabled) {
+      onChange('debug.dump_requests', false);
+      onChange('debug.dump_responses', false);
+      return;
+    }
+    onChange('debug.dump_requests', true);
+    onChange('debug.dump_responses', true);
+    onChange('debug.max_files', debugMaxFilesValue);
   };
 
   return (
@@ -300,6 +338,74 @@ export function ProfileChatSection({
         <span className="profiles-field__hint">
           {t('profiles.chatSection.promptCacheExplicitCacheControlHint')}
         </span>
+      </fieldset>
+
+      {/* ── Debug LLM ── */}
+      <fieldset className="profiles-field-group">
+        <legend className="profiles-field-group__title">
+          {t('profiles.chatSection.groupDebug')}
+        </legend>
+
+        <div className="profiles-field profiles-field--checkbox">
+          <label className="profiles-field__label" htmlFor="chat-debug-dumps-enabled">
+            <input
+              id="chat-debug-dumps-enabled"
+              type="checkbox"
+              checked={debugEnabledValue}
+              onChange={(e) => handleDebugEnabledChange(e.target.checked)}
+              disabled={disabled}
+            />
+            {t('profiles.chatSection.debugDumpsEnabled')}
+          </label>
+        </div>
+        <span className="profiles-field__hint">
+          {t('profiles.chatSection.debugDumpsEnabledHint')}
+        </span>
+
+        <div className="profiles-field profiles-field--checkbox">
+          <label className="profiles-field__label" htmlFor="chat-debug-dump-requests">
+            <input
+              id="chat-debug-dump-requests"
+              type="checkbox"
+              checked={debugDumpRequestsValue}
+              onChange={(e) => onChange('debug.dump_requests', e.target.checked)}
+              disabled={disabled || !debugEnabledValue}
+            />
+            {t('profiles.chatSection.debugDumpRequests')}
+          </label>
+        </div>
+
+        <div className="profiles-field profiles-field--checkbox">
+          <label className="profiles-field__label" htmlFor="chat-debug-dump-responses">
+            <input
+              id="chat-debug-dump-responses"
+              type="checkbox"
+              checked={debugDumpResponsesValue}
+              onChange={(e) => onChange('debug.dump_responses', e.target.checked)}
+              disabled={disabled || !debugEnabledValue}
+            />
+            {t('profiles.chatSection.debugDumpResponses')}
+          </label>
+        </div>
+
+        <div className="profiles-field">
+          <label htmlFor="chat-debug-max-files" className="profiles-field__label">
+            {t('profiles.chatSection.debugMaxFiles')}
+          </label>
+          <input
+            id="chat-debug-max-files"
+            type="number"
+            className="profiles-field__input"
+            min={1}
+            max={10000}
+            value={debugMaxFilesValue}
+            onChange={(e) => onChange('debug.max_files', parseInt(e.target.value) || 200)}
+            disabled={disabled || !debugEnabledValue}
+          />
+          <span className="profiles-field__hint">
+            {t('profiles.chatSection.debugMaxFilesHint')}
+          </span>
+        </div>
       </fieldset>
 
       {/* ── Contexto e Limites ── */}

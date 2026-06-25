@@ -232,20 +232,21 @@ type ChatParams struct {
 	// "continue a partir deste texto: ...". É definido pelo backend (use case) quando
 	// a continuação está habilitada no perfil mas o provider não suporta prefill.
 	// Mutuamente exclusivo com AllowAssistantPrefill.
-	ContinueViaUserMessage bool   `json:"continueViaUserMessage,omitempty"`
-	MaxAgenticIterations   int    `json:"maxAgenticIterations,omitempty"` // 0 = usar default (25), >0 = limite customizado
-	ResponseTimeout        int    `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
-	ContextWindow          int    `json:"contextWindow,omitempty"`        // Tamanho da janela de contexto do modelo (0 = sem limite). AEP-0039 Fase 4.
-	TabType                string `json:"tabType,omitempty"`              // Tipo da aba de origem ("editor", "chat", etc.)
-	ActiveFilePath         string `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
-	SurfaceStateJSON       string `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
-	SurfaceContextJSON     string `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
-	SurfaceSessionKey      string `json:"surfaceSessionKey,omitempty"`    // Identidade explícita da sessão visual que originou o turno
-	SurfaceID              string `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
-	SurfaceType            string `json:"surfaceType,omitempty"`          // page | embedded | modal | external
-	SurfaceTabID           string `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
-	PromptCacheKey         string `json:"-"`                              // Hint seguro derivado pelo backend para prompt_cache_key
-	ExplicitCacheControl   bool   `json:"-"`                              // Permite cache_control explícito em providers compatíveis
+	ContinueViaUserMessage bool            `json:"continueViaUserMessage,omitempty"`
+	MaxAgenticIterations   int             `json:"maxAgenticIterations,omitempty"` // 0 = usar default (25), >0 = limite customizado
+	ResponseTimeout        int             `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
+	ContextWindow          int             `json:"contextWindow,omitempty"`        // Tamanho da janela de contexto do modelo (0 = sem limite). AEP-0039 Fase 4.
+	TabType                string          `json:"tabType,omitempty"`              // Tipo da aba de origem ("editor", "chat", etc.)
+	ActiveFilePath         string          `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
+	SurfaceStateJSON       string          `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
+	SurfaceContextJSON     string          `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
+	SurfaceSessionKey      string          `json:"surfaceSessionKey,omitempty"`    // Identidade explícita da sessão visual que originou o turno
+	SurfaceID              string          `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
+	SurfaceType            string          `json:"surfaceType,omitempty"`          // page | embedded | modal | external
+	SurfaceTabID           string          `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
+	PromptCacheKey         string          `json:"-"`                              // Hint seguro derivado pelo backend para prompt_cache_key
+	ExplicitCacheControl   bool            `json:"-"`                              // Permite cache_control explícito em providers compatíveis
+	DebugDump              DebugDumpConfig `json:"-"`                              // Dump local de requests/responses LLM para diagnóstico
 
 	// OnNativeMCPUnsupported é um hook opcional, definido pelo backend (use case),
 	// chamado quando uma request com MCP nativo falha com erro de não-suporte
@@ -270,6 +271,16 @@ type ChatParams struct {
 	// PromptCacheHintFallback é compartilhado entre cópias de ChatParams durante o
 	// mesmo turno/loop agêntico para impedir reenvio do hint após rejeição explícita.
 	PromptCacheHintFallback *PromptCacheHintFallback `json:"-"`
+}
+
+type DebugDumpConfig struct {
+	Enabled        bool
+	DumpRequests   bool
+	DumpResponses  bool
+	MaxFiles       int
+	ProfileSlug    string
+	ConversationID string
+	TurnID         string
 }
 
 type PromptCacheHintFallback struct {

@@ -142,6 +142,12 @@ export default function ProfilesPage() {
               provider_hints: false,
               explicit_cache_control: false,
             },
+            debug: {
+              enabled: false,
+              dump_requests: true,
+              dump_responses: true,
+              max_files: 200,
+            },
             streaming_recovery_enabled: true,
             streaming_recovery_max_attempts: 3,
             streaming_recovery_show_continue: true,

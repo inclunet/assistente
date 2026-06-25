@@ -31,6 +31,7 @@ func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, me
 		respParams.MaxOutputTokens = param.NewOpt(int64(params.MaxTokens))
 	}
 	applyPromptCacheKeyToResponses(&respParams, params)
+	dumpHandle := dumpLLMRequest(p.provider, model, params, respParams)
 
 	resp, err := p.client.Responses.New(ctx, respParams)
 	if err != nil {
@@ -44,6 +45,11 @@ func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, me
 		}
 		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
 	}
+	dumpLLMResponse(dumpHandle, params, map[string]any{
+		"output_text": resp.OutputText(),
+		"model":       string(resp.Model),
+		"usage":       resp.Usage,
+	})
 	return resp.OutputText(), nil
 }
 
@@ -89,11 +95,15 @@ func (p *OpenAIProvider) streamChatResponses(
 		}
 
 		respParams := p.buildResponsesParams(ctx, model, messages, params, currentServers, tools...)
+		dumpHandle := dumpLLMRequest(p.provider, model, params, respParams)
 		attemptFn := p.responsesAttemptFn
 		if attemptFn == nil {
 			attemptFn = p.doStreamResponses
 		}
-		result := attemptFn(ctx, respParams, handler, currentServers)
+		result := attemptFn(ctx, respParams, handler, currentServers, params, dumpHandle)
+		if !result.done {
+			pruneDebugDumpHandle(dumpHandle)
+		}
 		if result.done {
 			return
 		}
@@ -233,7 +243,9 @@ func (p *OpenAIProvider) buildResponsesParams(
 
 // doStreamResponses executa streaming via Responses API.
 // Trata eventos de texto, function calls locais e MCP (transparente/server-side).
-func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses.ResponseNewParams, handler StreamHandler, mcpServers []MCPServerConfig) mcpStreamAttemptResult {
+func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses.ResponseNewParams, handler StreamHandler, mcpServers []MCPServerConfig, chatParams ChatParams, dumpHandle *DebugDumpHandle) mcpStreamAttemptResult {
+	defer pruneDebugDumpHandle(dumpHandle)
+
 	stream := p.client.Responses.NewStreaming(ctx, params)
 
 	var fullResponse strings.Builder
@@ -497,10 +509,23 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	}
 
 	if len(finishedToolCalls) > 0 {
+		dumpLLMResponse(dumpHandle, chatParams, map[string]any{
+			"content":    fullResponse.String(),
+			"reasoning":  fullReasoning.String(),
+			"tool_calls": finishedToolCalls,
+			"usage":      lastUsage,
+			"model":      lastModel,
+		})
 		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), lastUsage, lastModel)
 		return mcpStreamAttemptResult{done: true}
 	}
 
+	dumpLLMResponse(dumpHandle, chatParams, map[string]any{
+		"content":   fullResponse.String(),
+		"reasoning": fullReasoning.String(),
+		"usage":     lastUsage,
+		"model":     lastModel,
+	})
 	handler.OnDone(fullResponse.String(), lastUsage, lastModel)
 	return mcpStreamAttemptResult{done: true}
 }
