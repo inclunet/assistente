@@ -683,7 +683,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 
 	var messages []llm.Message
 	if i.promptBuilder != nil {
-		messages = i.promptBuilder.BuildWithContextBlocks(req.Messages, enabledSkills, disableSkills, disableOnDemand, skillTplData, contextBlocks)
+		messages = i.promptBuilder.BuildWithContextBlocks(markTurnContextTarget(req.Messages, req.TurnID), enabledSkills, disableSkills, disableOnDemand, skillTplData, contextBlocks)
 	} else {
 		messages = req.Messages
 	}
@@ -703,6 +703,21 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		ModelOnDemandSkillAvailable: modelOnDemandSkillAvailable,
 		Err:                         nil,
 	}
+}
+
+func markTurnContextTarget(messages []llm.Message, turnID string) []llm.Message {
+	out := append([]llm.Message(nil), messages...)
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return out
+	}
+	for idx := range out {
+		out[idx].TurnContextTarget = false
+		if out[idx].MessageID == turnID {
+			out[idx].TurnContextTarget = true
+		}
+	}
+	return out
 }
 
 func executionContextFromInvocation(inv *skills.InvocationResult) *tools.ExecutionContext {

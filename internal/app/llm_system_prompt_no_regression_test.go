@@ -70,9 +70,9 @@ func TestBuildFullSystemPrompt_WithoutSkillManager_DoesNotAddDefaultSystemMessag
 	}
 }
 
-// TestBuildFullSystemPrompt_WithSlashSkill_AddsSystemMessage valida que
-// quando há slash skill, um system message é adicionado mesmo que skills desabilitadas
-func TestBuildFullSystemPrompt_WithSlashSkill_AddsSystemMessage(t *testing.T) {
+// TestBuildFullSystemPrompt_WithSlashSkill_AddsTurnContext valida que
+// quando há slash skill, o conteúdo entra na mensagem user do turno, não no system.
+func TestBuildFullSystemPrompt_WithSlashSkill_AddsTurnContext(t *testing.T) {
 	messages := []Message{
 		{Role: "user", Content: "oi"},
 	}
@@ -86,26 +86,25 @@ func TestBuildFullSystemPrompt_WithSlashSkill_AddsSystemMessage(t *testing.T) {
 
 	result := buildFullSystemPromptForTest(app, messages, enabledSkills, true, false, nil, slashSkillContent)
 
-	// Verificar: primeiro message é system (por causa do slash skill)
 	if len(result) < 1 {
 		t.Fatal("Expected at least one message")
 	}
 
-	if result[0].Role != "system" {
-		t.Errorf("Expected first message to be 'system' when slash skill invoked, got '%s'", result[0].Role)
+	if result[0].Role != "user" {
+		t.Errorf("Expected first message to remain 'user' when only slash turn context exists, got '%s'", result[0].Role)
 	}
 
-	systemContent, ok := result[0].Content.(string)
+	userContent, ok := result[0].Content.(string)
 	if !ok {
-		t.Fatal("System content should be a string")
+		t.Fatal("User content should be a string")
 	}
 
-	if systemContent == "" {
-		t.Error("System message should not be empty when slash skill is invoked")
+	if userContent == "" {
+		t.Error("User message should not be empty when slash skill is invoked")
 	}
 
-	if !contains(systemContent, "Skill invocado via /slash") {
-		t.Error("System message should contain slash skill content")
+	if !contains(userContent, "<turn_context>") || !contains(userContent, "Skill invocado via /slash") || !contains(userContent, "<user_request>") {
+		t.Errorf("User message should contain turn context and original request, got %q", userContent)
 	}
 }
 

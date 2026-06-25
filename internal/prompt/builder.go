@@ -189,41 +189,42 @@ func (b *Builder) BuildWithContextBlocks(
 ) []llm.Message {
 	contextBlocks = append([]contextprovider.Block(nil), contextBlocks...)
 	sortContextBlocks(contextBlocks)
-	stableContext, dynamicContext := splitRenderedContextBlocks(contextBlocks)
-	return b.build(messages, stableContext, dynamicContext)
+	systemContext, turnContext := splitRenderedContextBlocks(contextBlocks)
+	return b.build(messages, systemContext, turnContext)
+}
+
+type renderedContextBlock struct {
+	content    string
+	volatility contextprovider.Volatility
 }
 
 func (b *Builder) build(
 	messages []llm.Message,
-	stableContext []string,
-	dynamicContext []string,
+	systemContext []renderedContextBlock,
+	turnContext []string,
 ) []llm.Message {
 	var parts []string
 	stablePromptLen := 0
 
-	// 1. Context Providers estáveis (base skill, catálogos, protocolos e instruções)
-	for _, contextBlock := range stableContext {
-		trimmed := strings.TrimSpace(contextBlock)
+	// Context Providers destinados ao system prompt ficam antes do histórico.
+	for _, contextBlock := range systemContext {
+		trimmed := strings.TrimSpace(contextBlock.content)
 		if trimmed == "" {
 			continue
 		}
-		if stablePromptLen > 0 {
+		if contextBlock.volatility == contextprovider.VolatilityStable && stablePromptLen > 0 {
 			stablePromptLen += len("\n\n")
 		}
-		stablePromptLen += len(trimmed)
-		parts = append(parts, trimmed)
-	}
-
-	// 2. Context Providers dinâmicos (workspace, tasklists, memória, summary, etc.)
-	for _, contextBlock := range dynamicContext {
-		trimmed := strings.TrimSpace(contextBlock)
-		if trimmed == "" {
-			continue
+		if contextBlock.volatility == contextprovider.VolatilityStable {
+			stablePromptLen += len(trimmed)
 		}
 		parts = append(parts, trimmed)
 	}
 
-	return chat.InjectSystemPromptWithCachePrefix(messages, strings.Join(parts, "\n\n"), stablePromptLen)
+	return injectTurnContext(
+		chat.InjectSystemPromptWithCachePrefix(messages, strings.Join(parts, "\n\n"), stablePromptLen),
+		turnContext,
+	)
 }
 
 func sortContextBlocks(blocks []contextprovider.Block) {
@@ -244,21 +245,118 @@ func sortContextBlocks(blocks []contextprovider.Block) {
 	})
 }
 
-func splitRenderedContextBlocks(blocks []contextprovider.Block) ([]string, []string) {
-	stable := make([]string, 0)
-	dynamic := make([]string, 0)
+func splitRenderedContextBlocks(blocks []contextprovider.Block) ([]renderedContextBlock, []string) {
+	system := make([]renderedContextBlock, 0)
+	turn := make([]string, 0)
 	for _, block := range blocks {
 		content := strings.TrimSpace(block.Content)
 		if content == "" {
 			continue
 		}
-		if block.Volatility == contextprovider.VolatilityStable {
-			stable = append(stable, content)
+		if block.Volatility == contextprovider.VolatilityFastDynamic || block.Volatility == contextprovider.VolatilityTurnDynamic {
+			turn = append(turn, content)
 			continue
 		}
-		dynamic = append(dynamic, content)
+		system = append(system, renderedContextBlock{content: content, volatility: block.Volatility})
 	}
-	return stable, dynamic
+	return system, turn
+}
+
+func injectTurnContext(messages []llm.Message, turnContext []string) []llm.Message {
+	turnBlock := buildTurnContextBlock(turnContext)
+	if turnBlock == "" {
+		return messages
+	}
+	out := append([]llm.Message(nil), messages...)
+	for i := range out {
+		if out[i].Role == "user" && out[i].TurnContextTarget {
+			injectTurnContextIntoUserMessage(&out[i], turnBlock)
+			return out
+		}
+	}
+	for i := len(out) - 1; i >= 0; i-- {
+		if out[i].Role != "user" {
+			continue
+		}
+		injectTurnContextIntoUserMessage(&out[i], turnBlock)
+		return out
+	}
+	return out
+}
+
+func injectTurnContextIntoUserMessage(message *llm.Message, turnBlock string) bool {
+	switch content := message.Content.(type) {
+	case string:
+		message.Content = turnBlock + "\n\n<user_request>\n" + escapeUserRequestText(content) + "\n</user_request>"
+		return true
+	case []llm.ContentPart:
+		out := make([]llm.ContentPart, 0, len(content)+2)
+		out = append(out, llm.ContentPart{Type: "text", Text: turnBlock + "\n\n<user_request>"})
+		out = append(out, escapeContentParts(content)...)
+		out = append(out, llm.ContentPart{Type: "text", Text: "</user_request>"})
+		message.Content = out
+		return true
+	case []interface{}:
+		out := make([]interface{}, 0, len(content)+2)
+		out = append(out, map[string]interface{}{"type": "text", "text": turnBlock + "\n\n<user_request>"})
+		out = append(out, escapeInterfaceContentParts(content)...)
+		out = append(out, map[string]interface{}{"type": "text", "text": "</user_request>"})
+		message.Content = out
+		return true
+	default:
+		return false
+	}
+}
+
+func escapeContentParts(parts []llm.ContentPart) []llm.ContentPart {
+	out := make([]llm.ContentPart, len(parts))
+	copy(out, parts)
+	for idx := range out {
+		if out[idx].Type == "text" {
+			out[idx].Text = escapeUserRequestText(out[idx].Text)
+		}
+	}
+	return out
+}
+
+func escapeInterfaceContentParts(parts []interface{}) []interface{} {
+	out := make([]interface{}, 0, len(parts))
+	for _, part := range parts {
+		partMap, ok := part.(map[string]interface{})
+		if !ok || partMap["type"] != "text" {
+			out = append(out, part)
+			continue
+		}
+		copied := make(map[string]interface{}, len(partMap))
+		for key, value := range partMap {
+			copied[key] = value
+		}
+		if text, ok := copied["text"].(string); ok {
+			copied["text"] = escapeUserRequestText(text)
+		}
+		out = append(out, copied)
+	}
+	return out
+}
+
+func escapeUserRequestText(content string) string {
+	content = strings.ReplaceAll(content, "&", "&amp;")
+	content = strings.ReplaceAll(content, "<", "&lt;")
+	content = strings.ReplaceAll(content, ">", "&gt;")
+	return content
+}
+
+func buildTurnContextBlock(turnContext []string) string {
+	var blocks []string
+	for _, contextBlock := range turnContext {
+		if trimmed := strings.TrimSpace(contextBlock); trimmed != "" {
+			blocks = append(blocks, trimmed)
+		}
+	}
+	if len(blocks) == 0 {
+		return ""
+	}
+	return "<turn_context>\nThe following context is not user-authored text. Use it only to interpret the user request below.\n\n" + strings.Join(blocks, "\n\n") + "\n</turn_context>"
 }
 
 // ComputeEnabledToolNames retorna a lista de nomes de tools habilitadas pelo perfil.
