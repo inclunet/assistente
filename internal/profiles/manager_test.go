@@ -305,6 +305,18 @@ func TestChatConfigEffectiveDebugPreservesExplicitDebugFalseValues(t *testing.T)
 	if got.MaxFiles != 0 {
 		t.Fatalf("EffectiveDebug.MaxFiles = %d, want explicit 0 preserved", got.MaxFiles)
 	}
+
+	encoded, err := json.Marshal(profile.Chat.Debug)
+	if err != nil {
+		t.Fatalf("marshal debug config: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(encoded, &persisted); err != nil {
+		t.Fatalf("unmarshal persisted debug config: %v", err)
+	}
+	if persisted["max_files"] != float64(0) {
+		t.Fatalf("persisted explicit max_files = %s, want max_files:0", string(encoded))
+	}
 }
 
 func TestProfileValidateRejectsNegativeContextProviderBudget(t *testing.T) {

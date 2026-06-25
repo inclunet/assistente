@@ -136,7 +136,7 @@ type ChatDebugConfig struct {
 	Enabled       bool `json:"enabled"`
 	DumpRequests  bool `json:"dump_requests"`
 	DumpResponses bool `json:"dump_responses"`
-	MaxFiles      int  `json:"max_files,omitempty"`
+	MaxFiles      int  `json:"max_files"`
 }
 
 const ChatDebugMaxFilesLimit = 10000
