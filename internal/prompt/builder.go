@@ -4,7 +4,6 @@
 package prompt
 
 import (
-	"html"
 	"log"
 	"reflect"
 	"sort"
@@ -341,7 +340,10 @@ func escapeInterfaceContentParts(parts []interface{}) []interface{} {
 }
 
 func escapeUserRequestText(content string) string {
-	return html.EscapeString(content)
+	content = strings.ReplaceAll(content, "&", "&amp;")
+	content = strings.ReplaceAll(content, "<", "&lt;")
+	content = strings.ReplaceAll(content, ">", "&gt;")
+	return content
 }
 
 func buildTurnContextBlock(turnContext []string) string {

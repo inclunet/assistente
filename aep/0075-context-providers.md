@@ -327,7 +327,7 @@ Refinamento implementado após a issue #329:
 - o provider `deeplink_protocol` emite a instrução transversal de uso de deep links (`link=`/`assistente://...`), removendo essa responsabilidade de providers de domínio como `workspace`;
 - o provider `slash_skill` emite o conteúdo de skill invocado explicitamente no turno atual, substituindo a injeção especial de slash skill no `prompt.Builder`;
 - blocos `fast_dynamic`/`turn_dynamic` são roteados para `<turn_context>` na mensagem user atual, não para o system prompt, para preservar cache por prefixo do histórico recente;
-- `<turn_context>` é montado dinamicamente apenas na request LLM e não é persistido no banco; a mensagem real do usuário fica preservada dentro de `<user_request>`.
+- `<turn_context>` é montado dinamicamente apenas na request LLM e não é persistido no banco; a mensagem real do usuário é serializada dentro de `<user_request>` com escape de `&`, `<` e `>` para segurança de tags, preservando whitespace e aspas.
 
 Esta AEP não implementa otimização de cache diretamente; ela prepara o terreno para a AEP-0074.
 

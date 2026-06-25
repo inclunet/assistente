@@ -118,12 +118,12 @@ histórico recente:
 
 sufixo do turno:
   - context providers fast/turn serializados como `<turn_context>` na mensagem user atual
-  - mensagem atual do usuário, preservada em `<user_request>`
+  - mensagem atual do usuário, serializada em `<user_request>` com escape de `&`, `<` e `>` para segurança de tags
 ```
 
 Essa ordem deve respeitar os controles já existentes de `MaxContextMessages`, `MinContextMessages`, `ContextWindow` e sumarização. Esta AEP não substitui esses controles.
 
-Contexto `fast_dynamic` e `turn_dynamic` não deve ser inserido no system prompt antes do histórico recente, pois provedores com cache automático por prefixo (sem cache markers explícitos) deixariam de reaproveitar o histórico que vem depois de um bloco volátil. Esses blocos são renderizados apenas na request LLM do turno, antes do texto da mensagem atual, sem persistir no banco.
+Contexto `fast_dynamic` e `turn_dynamic` não deve ser inserido no system prompt antes do histórico recente, pois provedores com cache automático por prefixo (sem cache markers explícitos) deixariam de reaproveitar o histórico que vem depois de um bloco volátil. Esses blocos são renderizados apenas na request LLM do turno, antes do texto da mensagem atual, sem persistir no banco. O texto do usuário mantém whitespace e aspas, mas `&`, `<` e `>` são escapados dentro de `<user_request>` para impedir fechamento/injeção de tags de prompt.
 
 ### D3. Skills são estáticas por contrato
 
