@@ -126,12 +126,15 @@ func TestBuild_NoProvidersNoSlash_DoesNotInjectDefaultSystemPrompt(t *testing.T)
 	}
 }
 
-func TestBuild_WithSlashSkill_AddsSystemMessage(t *testing.T) {
+func TestBuild_WithSlashSkill_AddsTurnContextAfterSystemMessage(t *testing.T) {
 	b := &prompt.Builder{}
 	msgs := []llm.Message{{Role: "user", Content: "olá"}}
 	result := buildPromptForTest(b, msgs, []string{}, false, false, nil, "slash content", "")
 	if len(result) != 2 {
 		t.Fatalf("Expected system+user, got %d", len(result))
+	}
+	if result[0].Role != "system" {
+		t.Errorf("Expected first message to remain system, got %q", result[0].Role)
 	}
 	if result[1].Role != "user" {
 		t.Errorf("Expected user, got %q", result[1].Role)
@@ -139,6 +142,26 @@ func TestBuild_WithSlashSkill_AddsSystemMessage(t *testing.T) {
 	user, ok := result[1].Content.(string)
 	if !ok || !strings.Contains(user, "<turn_context>") || !strings.Contains(user, "slash content") || !strings.Contains(user, "<user_request>\nolá\n</user_request>") {
 		t.Fatalf("user message should contain turn context and original request: %q", user)
+	}
+}
+
+func TestBuildWithContextBlocksPreservesUserRequestWhitespace(t *testing.T) {
+	b := &prompt.Builder{}
+	userText := "\n```markdown\n  keep leading space\n```\n"
+	result := b.BuildWithContextBlocks(
+		[]llm.Message{{Role: "user", Content: userText}},
+		nil,
+		false,
+		false,
+		nil,
+		[]contextprovider.Block{
+			{Provider: "workspace", Name: "surface_context", Volatility: contextprovider.VolatilityTurnDynamic, Content: "<surface_context>selection</surface_context>"},
+		},
+	)
+
+	user := result[len(result)-1].Content.(string)
+	if !strings.Contains(user, "<user_request>\n"+userText+"\n</user_request>") {
+		t.Fatalf("user request whitespace should be preserved verbatim: %q", user)
 	}
 }
 

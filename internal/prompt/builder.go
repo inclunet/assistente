@@ -287,7 +287,7 @@ func injectTurnContext(messages []llm.Message, turnContext []string) []llm.Messa
 func injectTurnContextIntoUserMessage(message *llm.Message, turnBlock string) bool {
 	switch content := message.Content.(type) {
 	case string:
-		message.Content = turnBlock + "\n\n<user_request>\n" + strings.TrimSpace(content) + "\n</user_request>"
+		message.Content = turnBlock + "\n\n<user_request>\n" + content + "\n</user_request>"
 		return true
 	case []interface{}:
 		out := make([]interface{}, 0, len(content)+2)
