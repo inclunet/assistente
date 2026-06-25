@@ -259,6 +259,18 @@ func TestChatConfigEffectiveDebugMergesPartialDebugBlock(t *testing.T) {
 	if got.MaxFiles != 200 {
 		t.Fatalf("EffectiveDebug.MaxFiles = %d, want 200", got.MaxFiles)
 	}
+
+	encoded, err := json.Marshal(profile.Chat.Debug)
+	if err != nil {
+		t.Fatalf("marshal debug config: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(encoded, &persisted); err != nil {
+		t.Fatalf("unmarshal persisted debug config: %v", err)
+	}
+	if persisted["dump_requests"] != true || persisted["dump_responses"] != true {
+		t.Fatalf("persisted partial debug config = %s, want default true dump toggles", string(encoded))
+	}
 }
 
 func TestChatConfigEffectiveDebugPreservesExplicitDebugFalseValues(t *testing.T) {

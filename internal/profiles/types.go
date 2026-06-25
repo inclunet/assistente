@@ -137,10 +137,6 @@ type ChatDebugConfig struct {
 	DumpRequests  bool `json:"dump_requests"`
 	DumpResponses bool `json:"dump_responses"`
 	MaxFiles      int  `json:"max_files,omitempty"`
-
-	dumpRequestsSet  bool
-	dumpResponsesSet bool
-	maxFilesSet      bool
 }
 
 const ChatDebugMaxFilesLimit = 10000
@@ -158,18 +154,7 @@ func (c ChatConfig) EffectiveDebug() ChatDebugConfig {
 	if c.Debug == nil {
 		return DefaultChatDebugConfig()
 	}
-	effective := DefaultChatDebugConfig()
-	effective.Enabled = c.Debug.Enabled
-	if c.Debug.dumpRequestsSet {
-		effective.DumpRequests = c.Debug.DumpRequests
-	}
-	if c.Debug.dumpResponsesSet {
-		effective.DumpResponses = c.Debug.DumpResponses
-	}
-	if c.Debug.maxFilesSet {
-		effective.MaxFiles = c.Debug.MaxFiles
-	}
-	return effective
+	return *c.Debug
 }
 
 func (c *ChatDebugConfig) UnmarshalJSON(data []byte) error {
@@ -183,21 +168,20 @@ func (c *ChatDebugConfig) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
+	effective := DefaultChatDebugConfig()
 	if decoded.Enabled != nil {
-		c.Enabled = *decoded.Enabled
+		effective.Enabled = *decoded.Enabled
 	}
 	if decoded.DumpRequests != nil {
-		c.DumpRequests = *decoded.DumpRequests
-		c.dumpRequestsSet = true
+		effective.DumpRequests = *decoded.DumpRequests
 	}
 	if decoded.DumpResponses != nil {
-		c.DumpResponses = *decoded.DumpResponses
-		c.dumpResponsesSet = true
+		effective.DumpResponses = *decoded.DumpResponses
 	}
 	if decoded.MaxFiles != nil {
-		c.MaxFiles = *decoded.MaxFiles
-		c.maxFilesSet = true
+		effective.MaxFiles = *decoded.MaxFiles
 	}
+	*c = effective
 	return nil
 }
 
