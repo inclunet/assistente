@@ -211,13 +211,18 @@ func redactSensitiveKeys(value any) any {
 
 func isSensitiveDumpKey(key string) bool {
 	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(key, "-", "_"), " ", "_"))
+	compact := strings.ReplaceAll(normalized, "_", "")
 	switch normalized {
-	case "authorization", "proxy_authorization", "api_key", "apikey", "x_api_key", "access_token", "refresh_token", "id_token", "token", "secret", "client_secret", "password":
+	case "authorization", "proxy_authorization", "api_key", "apikey", "x_api_key", "access_token", "refresh_token", "id_token", "token", "secret", "client_secret", "password", "cookie", "set_cookie":
 		return true
 	default:
 		return strings.HasSuffix(normalized, "_api_key") ||
 			strings.HasSuffix(normalized, "_token") ||
-			strings.HasSuffix(normalized, "_secret")
+			strings.HasSuffix(normalized, "_secret") ||
+			strings.HasSuffix(compact, "apikey") ||
+			strings.HasSuffix(compact, "token") ||
+			strings.HasSuffix(compact, "secret") ||
+			strings.HasSuffix(compact, "cookie")
 	}
 }
 

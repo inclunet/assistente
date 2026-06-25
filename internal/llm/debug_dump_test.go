@@ -34,7 +34,12 @@ func TestDumpLLMRequestWritesRequestMetaAndRedactsSecrets(t *testing.T) {
 			"headers": map[string]any{
 				"Authorization": "Bearer secret",
 				"x-api-key":     "secret-key",
+				"Cookie":        "session=secret-cookie",
 			},
+			"accessToken":  "access-token-secret",
+			"refreshToken": "refresh-token-secret",
+			"clientSecret": "client-secret-value",
+			"setCookie":    "set-cookie-secret",
 		},
 	)
 	if handle == nil || handle.Dir == "" {
@@ -48,8 +53,18 @@ func TestDumpLLMRequestWritesRequestMetaAndRedactsSecrets(t *testing.T) {
 	if string(requestBytes) == "" {
 		t.Fatal("request.json vazio")
 	}
-	if containsString(requestBytes, "Bearer secret") || containsString(requestBytes, "secret-key") {
-		t.Fatalf("request.json contém segredo: %s", string(requestBytes))
+	for _, leaked := range []string{
+		"Bearer secret",
+		"secret-key",
+		"session=secret-cookie",
+		"access-token-secret",
+		"refresh-token-secret",
+		"client-secret-value",
+		"set-cookie-secret",
+	} {
+		if containsString(requestBytes, leaked) {
+			t.Fatalf("request.json contém segredo %q: %s", leaked, string(requestBytes))
+		}
 	}
 	if !containsString(requestBytes, "[redacted]") {
 		t.Fatalf("request.json não redigiu segredo: %s", string(requestBytes))
