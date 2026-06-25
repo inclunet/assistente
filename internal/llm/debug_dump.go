@@ -153,7 +153,9 @@ func debugDumpBaseDir() string {
 		return ""
 	}
 	baseDir := resolver.GetHomeDir()
-	_ = os.Chmod(baseDir, 0700)
+	if err := ensurePrivateDebugDir(baseDir); err != nil {
+		return ""
+	}
 	return baseDir
 }
 

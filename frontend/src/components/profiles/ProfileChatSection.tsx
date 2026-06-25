@@ -401,7 +401,8 @@ export function ProfileChatSection({
             value={debugMaxFilesValue}
             onChange={(e) => {
               const parsed = parseInt(e.target.value, 10);
-              onChange('debug.max_files', Number.isNaN(parsed) ? 200 : parsed);
+              const nextValue = Number.isNaN(parsed) ? 200 : Math.min(10000, Math.max(0, parsed));
+              onChange('debug.max_files', nextValue);
             }}
             disabled={disabled || !debugEnabledValue}
           />
