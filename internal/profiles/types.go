@@ -136,7 +136,9 @@ type ChatDebugConfig struct {
 	Enabled       bool `json:"enabled"`
 	DumpRequests  bool `json:"dump_requests"`
 	DumpResponses bool `json:"dump_responses"`
-	MaxFiles      int  `json:"max_files"`
+	// MaxFiles retém até N dumps/runs por conversa (diretórios de snapshot), não arquivos individuais.
+	// Zero preserva o sentinel "usar default do backend".
+	MaxFiles int `json:"max_files"`
 }
 
 const ChatDebugMaxFilesLimit = 10000

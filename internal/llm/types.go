@@ -274,9 +274,11 @@ type ChatParams struct {
 }
 
 type DebugDumpConfig struct {
-	Enabled        bool
-	DumpRequests   bool
-	DumpResponses  bool
+	Enabled       bool
+	DumpRequests  bool
+	DumpResponses bool
+	// MaxFiles retém até N dumps/runs por conversa (diretórios de snapshot), não arquivos individuais.
+	// Zero ou negativo usa o default interno.
 	MaxFiles       int
 	ProfileSlug    string
 	ConversationID string

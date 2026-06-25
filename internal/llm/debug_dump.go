@@ -17,7 +17,7 @@ import (
 	"assistente/internal/configdir"
 )
 
-const defaultDebugDumpMaxFiles = 200
+const defaultDebugDumpMaxRuns = 200
 
 var debugDumpBaseDirOverride string
 
@@ -290,7 +290,7 @@ func previousRequestPath(conversationDir, currentRunDir string) string {
 
 func pruneDebugDumps(conversationDir string, maxFiles int) {
 	if maxFiles <= 0 {
-		maxFiles = defaultDebugDumpMaxFiles
+		maxFiles = defaultDebugDumpMaxRuns
 	}
 	entries, err := os.ReadDir(conversationDir)
 	if err != nil {
