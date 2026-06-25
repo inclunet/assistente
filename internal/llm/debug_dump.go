@@ -130,9 +130,6 @@ func dumpLLMResponse(handle *DebugDumpHandle, params ChatParams, payload any) {
 		return
 	}
 	writeJSON(filepath.Join(handle.Dir, "response.json"), payload)
-	if handle.ConversationDir != "" {
-		pruneDebugDumpHandle(handle)
-	}
 }
 
 func pruneDebugDumpHandle(handle *DebugDumpHandle) {

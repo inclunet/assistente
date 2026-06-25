@@ -47,9 +47,10 @@ func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, me
 		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
 	}
 	dumpLLMResponse(dumpHandle, params, map[string]any{
-		"content": resp.OutputText(),
-		"model":   string(resp.Model),
-		"usage":   resp.Usage,
+		"content":   resp.OutputText(),
+		"model":     string(resp.Model),
+		"usage":     resp.Usage,
+		"usage_raw": rawJSONDump(resp.Usage.RawJSON()),
 	})
 	return resp.OutputText(), nil
 }
@@ -102,9 +103,7 @@ func (p *OpenAIProvider) streamChatResponses(
 			attemptFn = p.doStreamResponses
 		}
 		result := attemptFn(ctx, respParams, handler, currentServers, params, dumpHandle)
-		if !result.done {
-			pruneDebugDumpHandle(dumpHandle)
-		}
+		pruneDebugDumpHandle(dumpHandle)
 		if result.done {
 			return
 		}
@@ -245,14 +244,13 @@ func (p *OpenAIProvider) buildResponsesParams(
 // doStreamResponses executa streaming via Responses API.
 // Trata eventos de texto, function calls locais e MCP (transparente/server-side).
 func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses.ResponseNewParams, handler StreamHandler, mcpServers []MCPServerConfig, chatParams ChatParams, dumpHandle *DebugDumpHandle) mcpStreamAttemptResult {
-	defer pruneDebugDumpHandle(dumpHandle)
-
 	stream := p.client.Responses.NewStreaming(ctx, params)
 
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
 	var emittedAnything bool
 	var lastUsage Usage
+	var lastUsageRaw any
 	var lastModel string
 	var isThinking bool
 	var thinkingBuffer strings.Builder
@@ -436,6 +434,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		case "response.completed":
 			ev := event.AsResponseCompleted()
 			if ev.Response.Usage.TotalTokens > 0 {
+				lastUsageRaw = rawJSONDump(ev.Response.Usage.RawJSON())
 				lastUsage = UsageFromOpenAIResponses(
 					int(ev.Response.Usage.InputTokens),
 					int(ev.Response.Usage.OutputTokens),
@@ -515,6 +514,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			"reasoning":  fullReasoning.String(),
 			"tool_calls": finishedToolCalls,
 			"usage":      lastUsage,
+			"usage_raw":  lastUsageRaw,
 			"model":      lastModel,
 		})
 		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), lastUsage, lastModel)
@@ -525,8 +525,20 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		"content":   fullResponse.String(),
 		"reasoning": fullReasoning.String(),
 		"usage":     lastUsage,
+		"usage_raw": lastUsageRaw,
 		"model":     lastModel,
 	})
 	handler.OnDone(fullResponse.String(), lastUsage, lastModel)
 	return mcpStreamAttemptResult{done: true}
+}
+
+func rawJSONDump(raw string) any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if !json.Valid([]byte(raw)) {
+		return raw
+	}
+	return json.RawMessage(raw)
 }

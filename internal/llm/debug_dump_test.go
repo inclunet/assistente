@@ -304,12 +304,13 @@ func TestDumpLLMRequestDefersPruneUntilResponseWhenResponsesEnabled(t *testing.T
 	}
 
 	dumpLLMResponse(second, params, map[string]any{"content": "ok"})
+	pruneDebugDumpHandle(second)
 	entries, err = os.ReadDir(filepath.Join(baseDir, "dev", "conv-1"))
 	if err != nil {
-		t.Fatalf("falha lendo diretório de dumps após response: %v", err)
+		t.Fatalf("falha lendo diretório de dumps após prune: %v", err)
 	}
 	if len(entries) != 1 {
-		t.Fatalf("prune após response reteve %d dumps, want 1", len(entries))
+		t.Fatalf("prune centralizado reteve %d dumps, want 1", len(entries))
 	}
 }
 
