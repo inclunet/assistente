@@ -4,6 +4,7 @@
 package prompt
 
 import (
+	"html"
 	"log"
 	"reflect"
 	"sort"
@@ -287,18 +288,60 @@ func injectTurnContext(messages []llm.Message, turnContext []string) []llm.Messa
 func injectTurnContextIntoUserMessage(message *llm.Message, turnBlock string) bool {
 	switch content := message.Content.(type) {
 	case string:
-		message.Content = turnBlock + "\n\n<user_request>\n" + content + "\n</user_request>"
+		message.Content = turnBlock + "\n\n<user_request>\n" + escapeUserRequestText(content) + "\n</user_request>"
+		return true
+	case []llm.ContentPart:
+		out := make([]llm.ContentPart, 0, len(content)+2)
+		out = append(out, llm.ContentPart{Type: "text", Text: turnBlock + "\n\n<user_request>"})
+		out = append(out, escapeContentParts(content)...)
+		out = append(out, llm.ContentPart{Type: "text", Text: "</user_request>"})
+		message.Content = out
 		return true
 	case []interface{}:
 		out := make([]interface{}, 0, len(content)+2)
 		out = append(out, map[string]interface{}{"type": "text", "text": turnBlock + "\n\n<user_request>"})
-		out = append(out, content...)
+		out = append(out, escapeInterfaceContentParts(content)...)
 		out = append(out, map[string]interface{}{"type": "text", "text": "</user_request>"})
 		message.Content = out
 		return true
 	default:
 		return false
 	}
+}
+
+func escapeContentParts(parts []llm.ContentPart) []llm.ContentPart {
+	out := make([]llm.ContentPart, len(parts))
+	copy(out, parts)
+	for idx := range out {
+		if out[idx].Type == "text" {
+			out[idx].Text = escapeUserRequestText(out[idx].Text)
+		}
+	}
+	return out
+}
+
+func escapeInterfaceContentParts(parts []interface{}) []interface{} {
+	out := make([]interface{}, 0, len(parts))
+	for _, part := range parts {
+		partMap, ok := part.(map[string]interface{})
+		if !ok || partMap["type"] != "text" {
+			out = append(out, part)
+			continue
+		}
+		copied := make(map[string]interface{}, len(partMap))
+		for key, value := range partMap {
+			copied[key] = value
+		}
+		if text, ok := copied["text"].(string); ok {
+			copied["text"] = escapeUserRequestText(text)
+		}
+		out = append(out, copied)
+	}
+	return out
+}
+
+func escapeUserRequestText(content string) string {
+	return html.EscapeString(content)
 }
 
 func buildTurnContextBlock(turnContext []string) string {
