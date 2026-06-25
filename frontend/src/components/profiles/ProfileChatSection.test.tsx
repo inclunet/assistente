@@ -13,6 +13,7 @@ vi.mock('react-i18next', () => ({
         'profiles.chatSection.groupContext': 'Contexto e Limites',
         'profiles.chatSection.groupRecovery': 'Recuperação de Streaming',
         'profiles.chatSection.groupPromptCache': 'Prompt Cache',
+        'profiles.chatSection.groupDebug': 'Debug LLM',
         'profiles.chatSection.provider': 'Provedor LLM',
         'profiles.chatSection.model': 'Modelo',
         'profiles.chatSection.temperature': 'Temperatura',
@@ -44,6 +45,12 @@ vi.mock('react-i18next', () => ({
         'profiles.chatSection.promptCacheProviderHintsHint': 'Permite hints neutros como prompt_cache_key quando suportado.',
         'profiles.chatSection.promptCacheExplicitCacheControl': 'Usar cache control explícito',
         'profiles.chatSection.promptCacheExplicitCacheControlHint': 'Permite marcação explícita de blocos para providers compatíveis.',
+        'profiles.chatSection.debugDumpsEnabled': 'Salvar dumps OpenAI Responses para debug',
+        'profiles.chatSection.debugDumpsEnabledHint': 'Grava dados do caminho OpenAI Responses localmente em ~/.assistente/debug/llm-dumps com campos sensíveis redigidos.',
+        'profiles.chatSection.debugDumpRequests': 'Salvar requests completas',
+        'profiles.chatSection.debugDumpResponses': 'Salvar responses finais',
+        'profiles.chatSection.debugMaxFiles': 'Máximo de dumps por conversa',
+        'profiles.chatSection.debugMaxFilesHint': 'Limita snapshots retidos por conversa.',
         'profiles.chatSection.streamingRecoveryEnabled': 'Tentar recuperar respostas interrompidas automaticamente',
         'profiles.chatSection.streamingRecoveryEnabledHint': 'Quando uma resposta falha ou é interrompida, tenta retomar automaticamente antes de marcar como falha.',
         'profiles.chatSection.streamingRecoveryMaxAttempts': 'Máximo de tentativas de recuperação',
@@ -95,6 +102,12 @@ describe('ProfileChatSection', () => {
       enabled: false,
       provider_hints: false,
       explicit_cache_control: false,
+    },
+    debug: {
+      enabled: false,
+      dump_requests: true,
+      dump_responses: true,
+      max_files: 200,
     },
     streamingRecoveryEnabled: true,
     streamingRecoveryMaxAttempts: 3,
@@ -276,6 +289,69 @@ describe('ProfileChatSection', () => {
     expect(handleChange).not.toHaveBeenCalled();
   });
 
+  it('habilita dumps LLM sem sobrescrever preferências de requests/responses', () => {
+    const handleChange = vi.fn();
+    const handleMultiChange = vi.fn();
+    render(
+      <ProfileChatSection
+        {...defaultProps}
+        debug={{ enabled: false, dump_requests: false, dump_responses: true, max_files: 200 }}
+        onChange={handleChange}
+        onMultiChange={handleMultiChange}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText('Salvar dumps OpenAI Responses para debug'));
+
+    expect(handleMultiChange).toHaveBeenCalledWith({
+      'debug.enabled': true,
+      'debug.max_files': 200,
+    });
+    expect(handleChange).not.toHaveBeenCalled();
+  });
+
+  it('desabilita controles dependentes quando debug LLM está desligado', () => {
+    render(<ProfileChatSection {...defaultProps} />);
+
+    expect(screen.getByLabelText('Salvar requests completas')).toBeDisabled();
+    expect(screen.getByLabelText('Salvar responses finais')).toBeDisabled();
+    expect(screen.getByLabelText('Máximo de dumps por conversa')).toBeDisabled();
+  });
+
+  it('preserva zero no máximo de dumps para usar o default do backend', () => {
+    const handleChange = vi.fn();
+    render(
+      <ProfileChatSection
+        {...defaultProps}
+        debug={{ enabled: true, dump_requests: true, dump_responses: true, max_files: 200 }}
+        onChange={handleChange}
+      />
+    );
+
+    const input = screen.getByLabelText('Máximo de dumps por conversa');
+    fireEvent.change(input, { target: { value: '0' } });
+
+    expect(handleChange).toHaveBeenCalledWith('debug.max_files', 0);
+  });
+
+  it('limita máximo de dumps ao intervalo aceito pelo backend', () => {
+    const handleChange = vi.fn();
+    render(
+      <ProfileChatSection
+        {...defaultProps}
+        debug={{ enabled: true, dump_requests: true, dump_responses: true, max_files: 200 }}
+        onChange={handleChange}
+      />
+    );
+
+    const input = screen.getByLabelText('Máximo de dumps por conversa');
+    fireEvent.change(input, { target: { value: '-1' } });
+    fireEvent.change(input, { target: { value: '10001' } });
+
+    expect(handleChange).toHaveBeenCalledWith('debug.max_files', 0);
+    expect(handleChange).toHaveBeenCalledWith('debug.max_files', 10000);
+  });
+
   it('chama onChange ao alternar auto-recuperação de streaming', () => {
     const handleChange = vi.fn();
     render(<ProfileChatSection {...defaultProps} onChange={handleChange} />);
@@ -337,6 +413,8 @@ describe('ProfileChatSection', () => {
     expect(screen.getByLabelText('Habilitar mecanismos ativos de cache')).toBeDisabled();
     expect(screen.getByLabelText('Enviar provider hints')).toBeDisabled();
     expect(screen.getByLabelText('Usar cache control explícito')).toBeDisabled();
+    expect(screen.getByLabelText('Salvar dumps OpenAI Responses para debug')).toBeDisabled();
+    expect(screen.getByLabelText('Salvar requests completas')).toBeDisabled();
 
     const modelPickerButton = screen.getByTestId('model-picker-mock').querySelector('button');
     expect(modelPickerButton).toBeDisabled();

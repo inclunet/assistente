@@ -281,6 +281,51 @@ func TestPrepareContextAppliesExplicitCacheControlFromProfile(t *testing.T) {
 	}
 }
 
+func TestPrepareContextAppliesLLMDebugDumpConfigFromProfile(t *testing.T) {
+	spy := &spyEmitter{}
+	profileMgr := setupProfileTestEnv(t)
+
+	profile := profiles.DefaultProfile()
+	profile.Name = "Debug Dumps"
+	profile.Active = true
+	profile.Chat.LLMProvider = "openai-default"
+	profile.Chat.Model = "gpt-4o-mini"
+	profile.Chat.Debug = &profiles.ChatDebugConfig{
+		Enabled:       true,
+		DumpRequests:  true,
+		DumpResponses: true,
+		MaxFiles:      42,
+	}
+	slug, err := profileMgr.Create(profile)
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+	if err := profileMgr.SetActive(slug); err != nil {
+		t.Fatalf("set active: %v", err)
+	}
+
+	inter := NewInteractor(InteractorConfig{
+		Emitter:    spy,
+		ConvRepo:   noopConvRepo{},
+		ProfileMgr: profileMgr,
+	})
+
+	resp, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
+		ConversationID: "conv-1",
+		UserContent:    "oi",
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext: %v", err)
+	}
+	got := resp.Params.DebugDump
+	if !got.Enabled || !got.DumpRequests || !got.DumpResponses {
+		t.Fatalf("DebugDump flags = %#v, want enabled requests responses", got)
+	}
+	if got.MaxFiles != 42 || got.ProfileSlug != slug || got.ConversationID != "conv-1" {
+		t.Fatalf("DebugDump metadata = %#v", got)
+	}
+}
+
 func TestHandlePromptCacheHintUnsupportedPersistsProviderHintsFalse(t *testing.T) {
 	mgr := setupProfileTestEnv(t)
 	profile := profiles.DefaultProfile()

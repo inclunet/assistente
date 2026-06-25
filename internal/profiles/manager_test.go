@@ -2,6 +2,7 @@ package profiles
 
 import (
 	"assistente/internal/configdir"
+	"encoding/json"
 	"os"
 	"testing"
 )
@@ -164,6 +165,160 @@ func TestManagerPromptCachePersistsProfileConfig(t *testing.T) {
 	}
 }
 
+func TestManagerLLMDebugPersistsProfileConfig(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+
+	p := DefaultProfile()
+	p.Name = "Perfil Debug"
+	p.Chat.Debug = &ChatDebugConfig{
+		Enabled:       true,
+		DumpRequests:  false,
+		DumpResponses: false,
+		MaxFiles:      25,
+	}
+	slug, err := manager.Create(p)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got, err := manager.Get(slug)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Chat.Debug == nil {
+		t.Fatal("Debug = nil, want persisted config")
+	}
+	if !got.Chat.Debug.Enabled {
+		t.Fatal("Debug.Enabled = false, want true")
+	}
+	if got.Chat.Debug.DumpRequests {
+		t.Fatal("Debug.DumpRequests = true, want false")
+	}
+	if got.Chat.Debug.DumpResponses {
+		t.Fatal("Debug.DumpResponses = true, want false")
+	}
+	if got.Chat.Debug.MaxFiles != 25 {
+		t.Fatalf("Debug.MaxFiles = %d, want 25", got.Chat.Debug.MaxFiles)
+	}
+}
+
+func TestChatConfigEffectiveDebugUsesDefaultsWhenLegacyMissing(t *testing.T) {
+	var profile Profile
+	if err := json.Unmarshal([]byte(`{
+		"name": "Legacy",
+		"chat": {
+			"llm_provider": "$default",
+			"model": "$default",
+			"temperature": 0.7,
+			"max_tokens": 4096,
+			"top_p": 1,
+			"response_timeout": 180
+		}
+	}`), &profile); err != nil {
+		t.Fatalf("unmarshal legacy profile: %v", err)
+	}
+	if profile.Chat.Debug != nil {
+		t.Fatalf("Debug = %#v, want nil before effective default", profile.Chat.Debug)
+	}
+	got := profile.Chat.EffectiveDebug()
+	if got.Enabled {
+		t.Fatal("EffectiveDebug.Enabled = true, want false")
+	}
+	if !got.DumpRequests || !got.DumpResponses {
+		t.Fatalf("EffectiveDebug = %#v, want request/response defaults enabled", got)
+	}
+	if got.MaxFiles != 200 {
+		t.Fatalf("EffectiveDebug.MaxFiles = %d, want 200", got.MaxFiles)
+	}
+}
+
+func TestChatConfigEffectiveDebugMergesPartialDebugBlock(t *testing.T) {
+	var profile Profile
+	if err := json.Unmarshal([]byte(`{
+		"name": "Partial Debug",
+		"chat": {
+			"llm_provider": "$default",
+			"model": "$default",
+			"temperature": 0.7,
+			"max_tokens": 4096,
+			"top_p": 1,
+			"response_timeout": 180,
+			"debug": { "enabled": true }
+		}
+	}`), &profile); err != nil {
+		t.Fatalf("unmarshal partial debug profile: %v", err)
+	}
+
+	got := profile.Chat.EffectiveDebug()
+	if !got.Enabled {
+		t.Fatal("EffectiveDebug.Enabled = false, want true")
+	}
+	if !got.DumpRequests || !got.DumpResponses {
+		t.Fatalf("EffectiveDebug = %#v, want request/response defaults merged", got)
+	}
+	if got.MaxFiles != 200 {
+		t.Fatalf("EffectiveDebug.MaxFiles = %d, want 200", got.MaxFiles)
+	}
+
+	encoded, err := json.Marshal(profile.Chat.Debug)
+	if err != nil {
+		t.Fatalf("marshal debug config: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(encoded, &persisted); err != nil {
+		t.Fatalf("unmarshal persisted debug config: %v", err)
+	}
+	if persisted["dump_requests"] != true || persisted["dump_responses"] != true {
+		t.Fatalf("persisted partial debug config = %s, want default true dump toggles", string(encoded))
+	}
+}
+
+func TestChatConfigEffectiveDebugPreservesExplicitDebugFalseValues(t *testing.T) {
+	var profile Profile
+	if err := json.Unmarshal([]byte(`{
+		"name": "Explicit Debug",
+		"chat": {
+			"llm_provider": "$default",
+			"model": "$default",
+			"temperature": 0.7,
+			"max_tokens": 4096,
+			"top_p": 1,
+			"response_timeout": 180,
+			"debug": {
+				"enabled": true,
+				"dump_requests": false,
+				"dump_responses": false,
+				"max_files": 0
+			}
+		}
+	}`), &profile); err != nil {
+		t.Fatalf("unmarshal explicit debug profile: %v", err)
+	}
+
+	got := profile.Chat.EffectiveDebug()
+	if !got.Enabled {
+		t.Fatal("EffectiveDebug.Enabled = false, want true")
+	}
+	if got.DumpRequests || got.DumpResponses {
+		t.Fatalf("EffectiveDebug = %#v, want explicit request/response false preserved", got)
+	}
+	if got.MaxFiles != 0 {
+		t.Fatalf("EffectiveDebug.MaxFiles = %d, want explicit 0 preserved", got.MaxFiles)
+	}
+
+	encoded, err := json.Marshal(profile.Chat.Debug)
+	if err != nil {
+		t.Fatalf("marshal debug config: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(encoded, &persisted); err != nil {
+		t.Fatalf("unmarshal persisted debug config: %v", err)
+	}
+	if persisted["max_files"] != float64(0) {
+		t.Fatalf("persisted explicit max_files = %s, want max_files:0", string(encoded))
+	}
+}
+
 func TestProfileValidateRejectsNegativeContextProviderBudget(t *testing.T) {
 	p := DefaultProfile()
 	p.ContextProviders = map[string]ContextProviderProfileConfig{
@@ -172,6 +327,27 @@ func TestProfileValidateRejectsNegativeContextProviderBudget(t *testing.T) {
 
 	if err := p.Validate(); err == nil {
 		t.Fatal("Validate succeeded, want negative context provider budget error")
+	}
+}
+
+func TestProfileValidateRejectsDebugMaxFilesOutOfRange(t *testing.T) {
+	cases := []struct {
+		name     string
+		maxFiles int
+	}{
+		{name: "negative", maxFiles: -1},
+		{name: "above limit", maxFiles: ChatDebugMaxFilesLimit + 1},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := DefaultProfile()
+			p.Chat.Debug = &ChatDebugConfig{MaxFiles: tc.maxFiles}
+
+			if err := p.Validate(); err == nil {
+				t.Fatal("Validate succeeded, want debug.max_files range error")
+			}
+		})
 	}
 }
 

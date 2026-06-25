@@ -139,6 +139,7 @@ export function ProfileEditorTabs({
             responseTimeout={editingProfile.chat?.response_timeout ?? 180}
             reasoningEffort={editingProfile.chat?.reasoning_effort || ''}
             promptCache={editingProfile.chat?.prompt_cache}
+            debug={editingProfile.chat?.debug}
             streamingRecoveryEnabled={editingProfile.chat?.streaming_recovery_enabled ?? true}
             streamingRecoveryMaxAttempts={editingProfile.chat?.streaming_recovery_max_attempts ?? 3}
             streamingRecoveryShowContinue={editingProfile.chat?.streaming_recovery_show_continue ?? true}

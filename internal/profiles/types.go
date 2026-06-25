@@ -1,6 +1,7 @@
 package profiles
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -119,6 +120,7 @@ type ChatConfig struct {
 	StreamingRecoveryShowContinue *bool `json:"streaming_recovery_show_continue,omitempty"`
 
 	PromptCache PromptCacheConfig `json:"prompt_cache,omitempty"`
+	Debug       *ChatDebugConfig  `json:"debug,omitempty"`
 }
 
 // PromptCacheConfig controla mecanismos ativos de prompt/context cache por
@@ -130,8 +132,64 @@ type PromptCacheConfig struct {
 	ExplicitCacheControl bool `json:"explicit_cache_control,omitempty"`
 }
 
-func boolPtr(v bool) *bool { return &v }
-func intPtr(v int) *int    { return &v }
+type ChatDebugConfig struct {
+	Enabled       bool `json:"enabled"`
+	DumpRequests  bool `json:"dump_requests"`
+	DumpResponses bool `json:"dump_responses"`
+	// MaxFiles retém até N dumps/runs por conversa (diretórios de snapshot), não arquivos individuais.
+	// Zero preserva o sentinel "usar default do backend".
+	MaxFiles int `json:"max_files"`
+}
+
+const ChatDebugMaxFilesLimit = 10000
+
+func DefaultChatDebugConfig() ChatDebugConfig {
+	return ChatDebugConfig{
+		Enabled:       false,
+		DumpRequests:  true,
+		DumpResponses: true,
+		MaxFiles:      200,
+	}
+}
+
+func (c ChatConfig) EffectiveDebug() ChatDebugConfig {
+	if c.Debug == nil {
+		return DefaultChatDebugConfig()
+	}
+	return *c.Debug
+}
+
+func (c *ChatDebugConfig) UnmarshalJSON(data []byte) error {
+	type debugConfigJSON struct {
+		Enabled       *bool `json:"enabled"`
+		DumpRequests  *bool `json:"dump_requests"`
+		DumpResponses *bool `json:"dump_responses"`
+		MaxFiles      *int  `json:"max_files"`
+	}
+	var decoded debugConfigJSON
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	effective := DefaultChatDebugConfig()
+	if decoded.Enabled != nil {
+		effective.Enabled = *decoded.Enabled
+	}
+	if decoded.DumpRequests != nil {
+		effective.DumpRequests = *decoded.DumpRequests
+	}
+	if decoded.DumpResponses != nil {
+		effective.DumpResponses = *decoded.DumpResponses
+	}
+	if decoded.MaxFiles != nil {
+		effective.MaxFiles = *decoded.MaxFiles
+	}
+	*c = effective
+	return nil
+}
+
+func boolPtr(v bool) *bool                            { return &v }
+func intPtr(v int) *int                               { return &v }
+func chatDebugPtr(v ChatDebugConfig) *ChatDebugConfig { return &v }
 
 // VoiceRoleConfig configura TTS para uma role específica (assistant, user ou system).
 type VoiceRoleConfig struct {
@@ -266,6 +324,7 @@ func DefaultProfile() *Profile {
 				Enabled:       false,
 				ProviderHints: false,
 			},
+			Debug: chatDebugPtr(DefaultChatDebugConfig()),
 		},
 		Voice: VoiceConfig{
 			Assistant: VoiceRoleConfig{
@@ -338,6 +397,9 @@ func (p *Profile) Validate() error {
 	}
 	if !p.Chat.PromptCache.Enabled && p.Chat.PromptCache.ExplicitCacheControl {
 		return fmt.Errorf("chat.prompt_cache.explicit_cache_control requires chat.prompt_cache.enabled")
+	}
+	if p.Chat.Debug != nil && (p.Chat.Debug.MaxFiles < 0 || p.Chat.Debug.MaxFiles > ChatDebugMaxFilesLimit) {
+		return fmt.Errorf("chat.debug.max_files must be between 0 (default) and %d", ChatDebugMaxFilesLimit)
 	}
 	if p.Chat.ResponseTimeout < 10 {
 		return fmt.Errorf("chat.response_timeout must be at least 10 seconds")
