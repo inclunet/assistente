@@ -67,7 +67,7 @@ func dumpLLMRequest(provider *ProviderConfig, model string, params ChatParams, p
 	runName := uniqueDebugDumpRunName(turnID)
 	conversationDir := filepath.Join(baseDir, profile, conversationID)
 	runDir := filepath.Join(conversationDir, runName)
-	if err := os.MkdirAll(runDir, 0755); err != nil {
+	if err := ensurePrivateDebugDir(runDir); err != nil {
 		return nil
 	}
 
@@ -140,7 +140,7 @@ func pruneDebugDumpHandle(handle *DebugDumpHandle) {
 
 func debugDumpBaseDir() string {
 	if debugDumpBaseDirOverride != "" {
-		if err := os.MkdirAll(debugDumpBaseDirOverride, 0755); err != nil {
+		if err := ensurePrivateDebugDir(debugDumpBaseDirOverride); err != nil {
 			return ""
 		}
 		return debugDumpBaseDirOverride
@@ -149,7 +149,16 @@ func debugDumpBaseDir() string {
 	if err := resolver.EnsureHomeDir(); err != nil {
 		return ""
 	}
-	return resolver.GetHomeDir()
+	baseDir := resolver.GetHomeDir()
+	_ = os.Chmod(baseDir, 0700)
+	return baseDir
+}
+
+func ensurePrivateDebugDir(path string) error {
+	if err := os.MkdirAll(path, 0700); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0700)
 }
 
 func writeJSON(path string, value any) {

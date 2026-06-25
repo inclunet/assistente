@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -60,6 +61,36 @@ func TestDumpLLMRequestWritesRequestMetaAndRedactsSecrets(t *testing.T) {
 	}
 	if meta.ProviderID != "openai" || meta.Model != "gpt-test" || meta.ProfileSlug != "dev" || meta.ConversationID != "conv-1" || meta.TurnID != "turn-1" {
 		t.Fatalf("meta inesperado: %#v", meta)
+	}
+}
+
+func TestDebugDumpDirectoriesArePrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose POSIX mode bits consistently")
+	}
+	baseDir := t.TempDir()
+	debugDumpBaseDirOverride = baseDir
+	t.Cleanup(func() { debugDumpBaseDirOverride = "" })
+
+	handle := dumpLLMRequest(nil, "gpt-test", ChatParams{DebugDump: DebugDumpConfig{
+		Enabled:        true,
+		DumpRequests:   true,
+		MaxFiles:       10,
+		ProfileSlug:    "dev",
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+	}}, map[string]any{"input": "oi"})
+	if handle == nil {
+		t.Fatal("dump não criado")
+	}
+	for _, dir := range []string{baseDir, handle.Dir} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatalf("stat %s: %v", dir, err)
+		}
+		if got := info.Mode().Perm(); got != 0700 {
+			t.Fatalf("mode %s = %o, want 0700", dir, got)
+		}
 	}
 }
 

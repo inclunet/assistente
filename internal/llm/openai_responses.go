@@ -32,6 +32,7 @@ func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, me
 	}
 	applyPromptCacheKeyToResponses(&respParams, params)
 	dumpHandle := dumpLLMRequest(p.provider, model, params, respParams)
+	defer pruneDebugDumpHandle(dumpHandle)
 
 	resp, err := p.client.Responses.New(ctx, respParams)
 	if err != nil {
