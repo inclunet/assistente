@@ -225,7 +225,7 @@ func writePrefixDiff(path string, previousPath string, current []byte) {
 	if previousPath != "" {
 		if previous, err := os.ReadFile(previousPath); err == nil {
 			prefix := commonPrefixLen(previous, current)
-			diff.ComparedWith = previousPath
+			diff.ComparedWith = previousRequestID(previousPath)
 			diff.PreviousRequestBytes = len(previous)
 			diff.CommonPrefixBytes = prefix
 			diff.CurrentSuffixBytes = len(current) - prefix
@@ -242,6 +242,10 @@ func writePrefixDiff(path string, previousPath string, current []byte) {
 		diff.CurrentSuffixBytes = 0
 	}
 	writeJSON(path, diff)
+}
+
+func previousRequestID(previousPath string) string {
+	return filepath.Base(filepath.Dir(previousPath))
 }
 
 func previousRequestPath(conversationDir, currentRunDir string) string {

@@ -124,6 +124,9 @@ func TestDumpLLMRequestWritesPrefixDiffAgainstPreviousDump(t *testing.T) {
 	if diff.ComparedWith == "" || diff.FirstDifferentByte < 0 || diff.CommonPrefixBytes == 0 {
 		t.Fatalf("prefix-diff incompleto: %#v", diff)
 	}
+	if strings.Contains(diff.ComparedWith, baseDir) || filepath.IsAbs(diff.ComparedWith) {
+		t.Fatalf("ComparedWith vazou caminho absoluto: %q", diff.ComparedWith)
+	}
 	if diff.FirstDifferentJSONPath == "" {
 		t.Fatalf("prefix-diff sem path JSON aproximado: %#v", diff)
 	}

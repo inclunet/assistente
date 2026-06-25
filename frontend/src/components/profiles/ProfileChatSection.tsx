@@ -396,10 +396,13 @@ export function ProfileChatSection({
             id="chat-debug-max-files"
             type="number"
             className="profiles-field__input"
-            min={1}
+            min={0}
             max={10000}
             value={debugMaxFilesValue}
-            onChange={(e) => onChange('debug.max_files', parseInt(e.target.value) || 200)}
+            onChange={(e) => {
+              const parsed = parseInt(e.target.value, 10);
+              onChange('debug.max_files', Number.isNaN(parsed) ? 200 : parsed);
+            }}
             disabled={disabled || !debugEnabledValue}
           />
           <span className="profiles-field__hint">

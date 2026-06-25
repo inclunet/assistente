@@ -319,6 +319,22 @@ describe('ProfileChatSection', () => {
     expect(screen.getByLabelText('Máximo de dumps por conversa')).toBeDisabled();
   });
 
+  it('preserva zero no máximo de dumps para usar o default do backend', () => {
+    const handleChange = vi.fn();
+    render(
+      <ProfileChatSection
+        {...defaultProps}
+        debug={{ enabled: true, dump_requests: true, dump_responses: true, max_files: 200 }}
+        onChange={handleChange}
+      />
+    );
+
+    const input = screen.getByLabelText('Máximo de dumps por conversa');
+    fireEvent.change(input, { target: { value: '0' } });
+
+    expect(handleChange).toHaveBeenCalledWith('debug.max_files', 0);
+  });
+
   it('chama onChange ao alternar auto-recuperação de streaming', () => {
     const handleChange = vi.fn();
     render(<ProfileChatSection {...defaultProps} onChange={handleChange} />);

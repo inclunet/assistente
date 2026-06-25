@@ -119,7 +119,7 @@ type ChatConfig struct {
 	StreamingRecoveryShowContinue *bool `json:"streaming_recovery_show_continue,omitempty"`
 
 	PromptCache PromptCacheConfig `json:"prompt_cache,omitempty"`
-	Debug       ChatDebugConfig   `json:"debug,omitempty"`
+	Debug       ChatDebugConfig   `json:"debug"`
 }
 
 // PromptCacheConfig controla mecanismos ativos de prompt/context cache por
