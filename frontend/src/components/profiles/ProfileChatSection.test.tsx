@@ -46,7 +46,7 @@ vi.mock('react-i18next', () => ({
         'profiles.chatSection.promptCacheExplicitCacheControl': 'Usar cache control explícito',
         'profiles.chatSection.promptCacheExplicitCacheControlHint': 'Permite marcação explícita de blocos para providers compatíveis.',
         'profiles.chatSection.debugDumpsEnabled': 'Salvar dumps OpenAI Responses para debug',
-        'profiles.chatSection.debugDumpsEnabledHint': 'Grava dados do caminho OpenAI Responses localmente em .assistente/debug/llm-dumps com campos sensíveis redigidos.',
+        'profiles.chatSection.debugDumpsEnabledHint': 'Grava dados do caminho OpenAI Responses localmente em ~/.assistente/debug/llm-dumps com campos sensíveis redigidos.',
         'profiles.chatSection.debugDumpRequests': 'Salvar requests completas',
         'profiles.chatSection.debugDumpResponses': 'Salvar responses finais',
         'profiles.chatSection.debugMaxFiles': 'Máximo de dumps por conversa',

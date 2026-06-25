@@ -1190,7 +1190,7 @@ const es = {
         promptCacheExplicitCacheControlHint: 'Permite marcar explícitamente bloques estables en providers compatibles. Usar con cautela en gateways.',
         groupDebug: 'Debug LLM',
         debugDumpsEnabled: 'Guardar dumps OpenAI Responses para debug',
-        debugDumpsEnabledHint: 'Guarda prompts, historial, schemas de tools y responses finales del camino OpenAI Responses localmente en .assistente/debug/llm-dumps. Los campos sensibles, como headers, tokens y claves de API, se redactan cuando aparecen.',
+        debugDumpsEnabledHint: 'Guarda prompts, historial, schemas de tools y responses finales del camino OpenAI Responses localmente en ~/.assistente/debug/llm-dumps. Los campos sensibles, como headers, tokens y claves de API, se redactan cuando aparecen.',
         debugDumpRequests: 'Guardar requests completas',
         debugDumpResponses: 'Guardar responses finales',
         debugMaxFiles: 'Máximo de dumps por conversación',

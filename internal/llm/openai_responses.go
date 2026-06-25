@@ -47,9 +47,9 @@ func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, me
 		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
 	}
 	dumpLLMResponse(dumpHandle, params, map[string]any{
-		"output_text": resp.OutputText(),
-		"model":       string(resp.Model),
-		"usage":       resp.Usage,
+		"content": resp.OutputText(),
+		"model":   string(resp.Model),
+		"usage":   resp.Usage,
 	})
 	return resp.OutputText(), nil
 }

@@ -1191,7 +1191,7 @@ const en = {
         promptCacheExplicitCacheControlHint: 'Allows explicit marking of stable blocks on compatible providers. Use carefully with gateways.',
         groupDebug: 'LLM Debug',
         debugDumpsEnabled: 'Save OpenAI Responses dumps for debugging',
-        debugDumpsEnabledHint: 'Saves prompts, history, tool schemas, and final responses from the OpenAI Responses path locally in .assistente/debug/llm-dumps. Sensitive fields, such as headers, tokens, and API keys, are redacted when present.',
+        debugDumpsEnabledHint: 'Saves prompts, history, tool schemas, and final responses from the OpenAI Responses path locally in ~/.assistente/debug/llm-dumps. Sensitive fields, such as headers, tokens, and API keys, are redacted when present.',
         debugDumpRequests: 'Save complete requests',
         debugDumpResponses: 'Save final responses',
         debugMaxFiles: 'Maximum dumps per conversation',

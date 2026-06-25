@@ -1191,7 +1191,7 @@ const ptBR = {
         promptCacheExplicitCacheControlHint: 'Permite marcação explícita de blocos estáveis em providers compatíveis. Use com cautela em gateways.',
         groupDebug: 'Debug LLM',
         debugDumpsEnabled: 'Salvar dumps OpenAI Responses para debug',
-        debugDumpsEnabledHint: 'Grava prompts, histórico, schemas de tools e responses finais do caminho OpenAI Responses localmente em .assistente/debug/llm-dumps. Campos sensíveis, como headers, tokens e chaves de API, são redigidos quando aparecem.',
+        debugDumpsEnabledHint: 'Grava prompts, histórico, schemas de tools e responses finais do caminho OpenAI Responses localmente em ~/.assistente/debug/llm-dumps. Campos sensíveis, como headers, tokens e chaves de API, são redigidos quando aparecem.',
         debugDumpRequests: 'Salvar requests completas',
         debugDumpResponses: 'Salvar responses finais',
         debugMaxFiles: 'Máximo de dumps por conversa',
