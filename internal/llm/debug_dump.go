@@ -164,6 +164,7 @@ func ensurePrivateDebugDir(path string) error {
 	}
 	if err := os.Chmod(path, 0700); err != nil {
 		log.Printf("[LLMDebugDump] aviso: não foi possível aplicar permissão 0700 em %s: %v", path, err)
+		return err
 	}
 	return nil
 }
