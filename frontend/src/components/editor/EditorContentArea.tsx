@@ -7,7 +7,12 @@ import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor';
 import { RevealRenderer } from './RevealRenderer';
 import type { EditorDocument } from '../../store/editorStore';
 import type { TipTapEditor } from '../../pages/editorTypes';
-import { parseRevealMarkdown, replaceRevealSlide } from '../../lib/revealMarkdown';
+import {
+  getRevealSlideEditableMarkdown,
+  mergeRevealSlideEditableMarkdown,
+  parseRevealMarkdown,
+  replaceRevealSlide,
+} from '../../lib/revealMarkdown';
 
 interface RichMermaidRequestContext {
   mermaidBlockId?: string;
@@ -61,6 +66,9 @@ export function EditorContentArea({
   const activeRevealSlide = isRevealDocument
     ? revealDeck.slides[Math.min(activeRevealSlideIndex, revealDeck.slides.length - 1)] ?? revealDeck.slides[0]
     : null;
+  const activeRevealSlideEditableMarkdown = activeRevealSlide
+    ? getRevealSlideEditableMarkdown(activeRevealSlide.markdown)
+    : null;
 
   useEffect(() => {
     setActiveRevealSlideIndex(0);
@@ -84,7 +92,7 @@ export function EditorContentArea({
   const createRevealSlide = () => {
     richEditorHandleRef.current?.flushMarkdown?.();
     const base = activeTab?.markdown || '';
-    const nextMarkdown = `${base.trimEnd()}\n\n---\n\n## ${t('editor.presentation.newSlideTitle')}\n`;
+    const nextMarkdown = `${base.trimEnd()}\n\n---\n\n<!-- .slide: class="content-slide" -->\n\n## ${t('editor.presentation.newSlideTitle')}\n`;
     onMarkdownChange(nextMarkdown);
     setActiveRevealSlideIndex(revealDeck.slides.length);
   };
@@ -94,7 +102,13 @@ export function EditorContentArea({
       onRichMarkdownChange(markdown);
       return;
     }
-    onRichMarkdownChange(replaceRevealSlide(activeTab.markdown, activeRevealSlide, markdown));
+    onRichMarkdownChange(
+      replaceRevealSlide(
+        activeTab.markdown,
+        activeRevealSlide,
+        mergeRevealSlideEditableMarkdown(activeRevealSlide.markdown, markdown)
+      )
+    );
   };
 
   return (
@@ -220,7 +234,7 @@ export function EditorContentArea({
               <RichTextEditor
                 ref={richEditorHandleRef as Ref<RichTextEditorHandle>}
                 ariaLabel={t('editor.richText.label')}
-                markdown={activeRevealSlide?.markdown ?? activeTab.markdown}
+                markdown={activeRevealSlideEditableMarkdown ?? activeTab.markdown}
                 onMarkdownChange={handleRichMarkdownChange}
                 readOnly={isAsking}
                 placeholder={t('editor.placeholders.rich')}

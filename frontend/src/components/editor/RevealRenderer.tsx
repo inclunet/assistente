@@ -115,19 +115,19 @@ function renderSlide(slide: RevealSlide) {
 export function RevealRenderer({ markdown }: RevealRendererProps) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const revealApiRef = useRef<RevealApi | null>(null);
   const deck = useMemo(() => parseRevealMarkdown(markdown, 'reveal'), [markdown]);
-  const slides = deck.slides.length > 0 ? deck.slides : parseRevealMarkdown(markdown, 'reveal').slides;
+  const slides = deck.slides;
 
   useEffect(() => {
     let disposed = false;
-    let api: RevealApi | null = null;
 
     async function start() {
       if (!rootRef.current) return;
       const mod = await import('reveal.js');
       if (disposed || !rootRef.current) return;
       const Reveal = (mod.default ?? mod) as unknown as RevealCtor;
-      api = new Reveal(rootRef.current, {
+      const api = new Reveal(rootRef.current, {
         embedded: true,
         hash: false,
         controls: true,
@@ -137,6 +137,11 @@ export function RevealRenderer({ markdown }: RevealRendererProps) {
         center: true,
       });
       await api.initialize();
+      if (disposed) {
+        api.destroy();
+        return;
+      }
+      revealApiRef.current = api;
     }
 
     void start();
@@ -144,13 +149,21 @@ export function RevealRenderer({ markdown }: RevealRendererProps) {
     return () => {
       disposed = true;
       try {
-        api?.destroy();
+        revealApiRef.current?.destroy();
       } catch {
         // Reveal pode lançar se o ciclo de vida for interrompido durante inicialização.
       }
-      api = null;
+      revealApiRef.current = null;
     };
-  }, [markdown]);
+  }, []);
+
+  useEffect(() => {
+    try {
+      revealApiRef.current?.sync();
+    } catch {
+      // Best-effort: o renderer continua mostrando o HTML mesmo se o sync falhar.
+    }
+  }, [slides]);
 
   return (
     <div className="reveal-renderer" role="region" aria-label={t('editor.presentation.aria')}>

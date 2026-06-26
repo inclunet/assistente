@@ -29,10 +29,12 @@ export type ParsedRevealDeck = {
 
 const SLIDE_ATTRIBUTE_RE = /<!--\s*\.(?:slide|element)\s*:/i;
 const SLIDE_DIRECTIVE_RE = /<!--\s*\.slide\s*:\s*([^>]*?)-->/i;
+const LEADING_SLIDE_DIRECTIVES_RE = /^(\s*<!--\s*\.slide\s*:[\s\S]*?-->\s*)+/i;
 const ATTRIBUTE_RE = /([a-zA-Z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const HORIZONTAL_SEPARATOR_RE = /^\s*---\s*$/;
 const VERTICAL_SEPARATOR_RE = /^\s*----\s*$/;
 const NOTE_RE = /^\s*Note:\s*$/im;
+const FENCE_START_RE = /^(\s*)(`{3,}|~{3,})/;
 
 function isHorizontalSeparator(line: string): boolean {
   return HORIZONTAL_SEPARATOR_RE.test(line);
@@ -57,6 +59,42 @@ function stripYamlFrontmatter(markdown: string): string {
   return text.slice(match[0].length);
 }
 
+function getFenceMarker(line: string): { char: '`' | '~'; length: number } | null {
+  const match = line.match(FENCE_START_RE);
+  if (!match) return null;
+  const marker = match[2] || '';
+  const char = marker[0] as '`' | '~';
+  return { char, length: marker.length };
+}
+
+function isClosingFence(line: string, fence: { char: '`' | '~'; length: number }): boolean {
+  const trimmed = line.trimStart();
+  const re = new RegExp(`^${fence.char === '`' ? '`' : '~'}{${fence.length},}\\s*$`);
+  return re.test(trimmed);
+}
+
+function hasSlideAttributeOutsideFences(markdown: string): boolean {
+  const lines = String(markdown || '').split(/\r?\n/);
+  let fence: { char: '`' | '~'; length: number } | null = null;
+
+  for (const line of lines) {
+    if (fence) {
+      if (isClosingFence(line, fence)) fence = null;
+      continue;
+    }
+
+    const nextFence = getFenceMarker(line);
+    if (nextFence) {
+      fence = nextFence;
+      continue;
+    }
+
+    if (SLIDE_ATTRIBUTE_RE.test(line)) return true;
+  }
+
+  return false;
+}
+
 export function detectRevealMarkdown(markdown: string, manualMode?: 'markdown' | 'reveal'): RevealDetection {
   if (manualMode === 'reveal') {
     return { kind: 'reveal', confidence: 'manual', reason: 'manual' };
@@ -66,7 +104,7 @@ export function detectRevealMarkdown(markdown: string, manualMode?: 'markdown' |
   }
 
   const text = String(markdown || '');
-  if (SLIDE_ATTRIBUTE_RE.test(text)) {
+  if (hasSlideAttributeOutsideFences(text)) {
     return { kind: 'reveal', confidence: 'strong', reason: 'slideAttribute' };
   }
 
@@ -96,10 +134,20 @@ export function splitRevealSlides(markdown: string): RevealSlide[] {
   let currentSeparator: RevealSlide['separatorBefore'] = '';
   let cursor = 0;
   let slideIndex = 0;
+  let fence: { char: '`' | '~'; length: number } | null = null;
 
   for (const line of normalizedLines) {
     const lineWithoutNewline = line.replace(/\r?\n$/, '');
-    if (isSlideSeparator(lineWithoutNewline)) {
+    if (fence) {
+      if (isClosingFence(lineWithoutNewline, fence)) fence = null;
+    } else {
+      const nextFence = getFenceMarker(lineWithoutNewline);
+      if (nextFence) {
+        fence = nextFence;
+      }
+    }
+
+    if (!fence && isSlideSeparator(lineWithoutNewline)) {
       const endOffset = cursor;
       slides.push({
         index: slideIndex,
@@ -181,5 +229,17 @@ export function extractRevealSlideAttributes(markdown: string): RevealSlideAttri
 
 export function stripRevealDirectives(markdown: string): string {
   return String(markdown || '').replace(SLIDE_DIRECTIVE_RE, '').trim();
+}
+
+export function getRevealSlideEditableMarkdown(markdown: string): string {
+  return String(markdown || '').replace(LEADING_SLIDE_DIRECTIVES_RE, '').trim();
+}
+
+export function mergeRevealSlideEditableMarkdown(originalMarkdown: string, nextEditableMarkdown: string): string {
+  const original = String(originalMarkdown || '');
+  const match = original.match(LEADING_SLIDE_DIRECTIVES_RE);
+  const prefix = match?.[0]?.trimEnd();
+  const body = String(nextEditableMarkdown || '').trim();
+  return prefix ? `${prefix}\n\n${body}`.trim() : body;
 }
 

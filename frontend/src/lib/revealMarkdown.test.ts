@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   detectRevealMarkdown,
   extractRevealSlideAttributes,
+  getRevealSlideEditableMarkdown,
+  mergeRevealSlideEditableMarkdown,
   parseRevealMarkdown,
   replaceRevealSlide,
   splitRevealSlides,
@@ -82,6 +84,16 @@ Conclusão.`;
     expect(detectRevealMarkdown(markdown).kind).toBe('markdown');
   });
 
+  it('ignora atributos Reveal dentro de blocos fenced', () => {
+    const markdown = `# Exemplo
+
+\`\`\`md
+<!-- .slide: class="title-slide" -->
+\`\`\``;
+
+    expect(detectRevealMarkdown(markdown).kind).toBe('markdown');
+  });
+
   it('respeita override manual', () => {
     expect(detectRevealMarkdown('# Texto', 'reveal')).toEqual({
       kind: 'reveal',
@@ -121,6 +133,26 @@ describe('splitRevealSlides', () => {
     expect(next).toContain('### Slide 2.1');
     expect(next).not.toContain('## Slide 2\n\n----');
   });
+
+  it('não divide slides em separadores dentro de blocos fenced', () => {
+    const markdown = `# Slide 1
+
+\`\`\`yaml
+---
+key: value
+---
+\`\`\`
+
+---
+
+## Slide 2`;
+
+    const slides = splitRevealSlides(markdown);
+
+    expect(slides).toHaveLength(2);
+    expect(slides[0].markdown).toContain('```yaml\n---\nkey: value\n---\n```');
+    expect(slides[1].markdown).toBe('## Slide 2');
+  });
 });
 
 describe('parseRevealMarkdown', () => {
@@ -143,6 +175,21 @@ describe('extractRevealSlideAttributes', () => {
       },
     });
     expect(stripRevealDirectives(markdown)).toBe('# Slide');
+  });
+});
+
+describe('editable slide markdown', () => {
+  it('remove diretivas .slide do corpo editável e restaura ao mesclar', () => {
+    const slide = `<!-- .slide: class="title-slide" -->
+
+# Título
+
+Subtítulo`;
+
+    expect(getRevealSlideEditableMarkdown(slide)).toBe('# Título\n\nSubtítulo');
+    expect(mergeRevealSlideEditableMarkdown(slide, '# Novo')).toBe(`<!-- .slide: class="title-slide" -->
+
+# Novo`);
   });
 });
 

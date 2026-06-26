@@ -42,13 +42,8 @@ export function buildInsertMenuItemsForContextMenu(args: { ctx: InsertMenuContex
   };
 
   const insertRevealSlide = async (content: string) => {
-    const snippet = `\n\n${content.trim()}\n\n`;
-    if (activeTab?.mode === 'rich') {
-      appendMarkdownToDocument(snippet);
-      focusEditorSoon();
-      return;
-    }
-    await insertMarkdownSnippet(snippet);
+    appendMarkdownToDocument(`\n\n---\n\n${content.trim()}\n`);
+    focusEditorSoon();
   };
 
   const insertRichTable = (rows: number, cols: number, withHeaderRow: boolean) => {
@@ -115,9 +110,7 @@ export function buildInsertMenuItemsForContextMenu(args: { ctx: InsertMenuContex
         id: 'ins-slide-basic',
         label: i18next.t('editor.presentation.insert.basic'),
         action: () => {
-          void insertRevealSlide(`---
-
-<!-- .slide: class="content-slide" -->
+          void insertRevealSlide(`<!-- .slide: class="content-slide" -->
 
 ## ${i18next.t('editor.presentation.newSlideTitle')}`);
         },
@@ -126,9 +119,7 @@ export function buildInsertMenuItemsForContextMenu(args: { ctx: InsertMenuContex
         id: 'ins-slide-title',
         label: i18next.t('editor.presentation.insert.title'),
         action: () => {
-          void insertRevealSlide(`---
-
-<!-- .slide: class="title-slide" -->
+          void insertRevealSlide(`<!-- .slide: class="title-slide" -->
 
 # ${i18next.t('editor.presentation.insert.titlePlaceholder')}
 
@@ -139,9 +130,7 @@ ${i18next.t('editor.presentation.insert.subtitlePlaceholder')}`);
         id: 'ins-slide-two-columns',
         label: i18next.t('editor.presentation.insert.twoColumns'),
         action: () => {
-          void insertRevealSlide(`---
-
-<!-- .slide: class="two-columns" -->
+          void insertRevealSlide(`<!-- .slide: class="two-columns" -->
 
 ## ${i18next.t('editor.presentation.insert.titlePlaceholder')}
 
@@ -167,9 +156,7 @@ ${i18next.t('editor.presentation.insert.subtitlePlaceholder')}`);
         id: 'ins-slide-image-right',
         label: i18next.t('editor.presentation.insert.imageRight'),
         action: () => {
-          void insertRevealSlide(`---
-
-<!-- .slide: class="image-right" -->
+          void insertRevealSlide(`<!-- .slide: class="image-right" -->
 
 ## ${i18next.t('editor.presentation.insert.titlePlaceholder')}
 
