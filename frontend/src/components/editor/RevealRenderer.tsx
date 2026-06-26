@@ -25,6 +25,7 @@ type MermaidApi = typeof import('mermaid')['default'];
 
 interface RevealRendererProps {
   markdown: string;
+  fullscreenRequestNonce?: number;
 }
 
 const md = new MarkdownIt({
@@ -236,11 +237,12 @@ function renderSlides(slides: RevealSlide[]) {
   return rendered;
 }
 
-export function RevealRenderer({ markdown }: RevealRendererProps) {
+export function RevealRenderer({ markdown, fullscreenRequestNonce = 0 }: RevealRendererProps) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const revealApiRef = useRef<RevealApi | null>(null);
   const mermaidApiRef = useRef<MermaidApi | null>(null);
+  const lastFullscreenRequestNonceRef = useRef(fullscreenRequestNonce);
   const deck = useMemo(() => parseRevealMarkdown(markdown, 'reveal'), [markdown]);
   const slides = deck.slides;
 
@@ -294,6 +296,29 @@ export function RevealRenderer({ markdown }: RevealRendererProps) {
       // Best-effort: o renderer continua mostrando o HTML mesmo se o sync falhar.
     }
   }, [slides]);
+
+  useEffect(() => {
+    if (fullscreenRequestNonce === lastFullscreenRequestNonceRef.current) return;
+    lastFullscreenRequestNonceRef.current = fullscreenRequestNonce;
+    const root = rootRef.current;
+    if (!root) return;
+    const fullscreenRoot = root;
+
+    async function toggleFullscreen() {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen?.();
+          return;
+        }
+        await fullscreenRoot.requestFullscreen?.();
+        revealApiRef.current?.sync();
+      } catch {
+        // Fullscreen pode não estar disponível em todos os WebViews; a apresentação permanece embutida.
+      }
+    }
+
+    void toggleFullscreen();
+  }, [fullscreenRequestNonce]);
 
   useEffect(() => {
     let disposed = false;

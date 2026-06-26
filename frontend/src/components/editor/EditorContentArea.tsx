@@ -1,4 +1,4 @@
-import { type Ref, type RefObject, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { type Ref, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { CodeEditor, type CodeEditorProps } from '../ui/CodeEditor';
@@ -75,6 +75,8 @@ export interface EditorContentAreaProps {
   onRichEditorReady: (editor: TipTapEditor | null) => void;
   onRevealSlideIndexChange?: (index: number) => void;
   revealAppendNonce?: number;
+  revealSlideNavigationRequest?: { index: number; nonce: number } | null;
+  revealFullscreenRequestNonce?: number;
   richEditorHandleRef: RefObject<RichTextEditorHandle | null>;
   onRequestEditMermaid: (ctx: RichMermaidRequestContext) => void;
   onOpenMermaid: (index: number, opts?: { insertText?: string }) => void;
@@ -97,16 +99,17 @@ export function EditorContentArea({
   onRichEditorReady,
   onRevealSlideIndexChange,
   revealAppendNonce = 0,
+  revealSlideNavigationRequest = null,
+  revealFullscreenRequestNonce = 0,
   richEditorHandleRef,
   onRequestEditMermaid,
   onOpenMermaid,
   onRemoveMermaid,
 }: EditorContentAreaProps) {
   const { t } = useTranslation();
-  const slideSelectId = useId();
   const [activeRevealSlideIndex, setActiveRevealSlideIndex] = useState(0);
-  const [pendingRevealSlideIndex, setPendingRevealSlideIndex] = useState<number | null>(null);
   const lastRevealAppendNonceRef = useRef(revealAppendNonce);
+  const lastRevealSlideNavigationNonceRef = useRef(revealSlideNavigationRequest?.nonce ?? 0);
   const revealDeck = useMemo(
     () => parseRevealMarkdown(activeTab?.markdown || ''),
     [activeTab?.markdown]
@@ -146,8 +149,8 @@ export function EditorContentArea({
 
   useEffect(() => {
     setActiveRevealSlideIndex(0);
-    setPendingRevealSlideIndex(null);
     lastRevealAppendNonceRef.current = revealAppendNonce;
+    lastRevealSlideNavigationNonceRef.current = revealSlideNavigationRequest?.nonce ?? 0;
   }, [activeTab?.id]);
 
   useEffect(() => {
@@ -155,17 +158,8 @@ export function EditorContentArea({
   }, [activeRevealSlide?.index, onRevealSlideIndexChange]);
 
   useEffect(() => {
-    if (pendingRevealSlideIndex === null || !isRevealDocument) return;
-    if (pendingRevealSlideIndex < revealDeck.slides.length) {
-      setActiveRevealSlideIndex(pendingRevealSlideIndex);
-      setPendingRevealSlideIndex(null);
-    }
-  }, [isRevealDocument, pendingRevealSlideIndex, revealDeck.slides.length]);
-
-  useEffect(() => {
     if (!isRevealDocument) {
       setActiveRevealSlideIndex(0);
-      setPendingRevealSlideIndex(null);
       return;
     }
     if (activeRevealSlideIndex >= revealDeck.slides.length) {
@@ -211,14 +205,13 @@ export function EditorContentArea({
     setActiveRevealSlideIndex(clampedIndex);
   };
 
-  const createRevealSlide = () => {
-    const base = getMarkdownWithCurrentRevealSlide();
-    if (base === null) return;
-    const nextMarkdown = `${base.trimEnd()}\n\n---\n\n<!-- .slide: class="content-slide" -->\n\n## ${t('editor.presentation.newSlideTitle')}\n`;
-    const nextDeck = parseRevealMarkdown(nextMarkdown, 'reveal');
-    onMarkdownChange(nextMarkdown);
-    setPendingRevealSlideIndex(Math.max(0, nextDeck.slides.length - 1));
-  };
+  useEffect(() => {
+    if (!revealSlideNavigationRequest) return;
+    if (revealSlideNavigationRequest.nonce === lastRevealSlideNavigationNonceRef.current) return;
+    lastRevealSlideNavigationNonceRef.current = revealSlideNavigationRequest.nonce;
+    if (!isRevealDocument || revealDeck.slides.length === 0) return;
+    switchRevealSlide(revealSlideNavigationRequest.index);
+  }, [isRevealDocument, revealDeck.slides.length, revealSlideNavigationRequest]);
 
   const handleRichMarkdownChange = (markdown: string) => {
     if (!activeTab) return;
@@ -318,7 +311,10 @@ export function EditorContentArea({
             <div className="editor-page__pane-title">{t('editor.panes.preview')}</div>
             <div className="editor-page__preview">
               {isRevealPreviewDocument ? (
-                <RevealRenderer markdown={debouncedMarkdownForPreview} />
+                <RevealRenderer
+                  markdown={debouncedMarkdownForPreview}
+                  fullscreenRequestNonce={revealFullscreenRequestNonce}
+                />
               ) : (
                 <>
                   <div className="editor-page__preview-hint">{t('editor.hints.previewMermaid')}</div>
@@ -338,35 +334,11 @@ export function EditorContentArea({
             <div className="editor-page__pane-title">{t('editor.panes.rich')}</div>
             <div className="editor-page__pane-body">
               {isRevealDocument && activeRevealSlide ? (
-                <div className="editor-page__presentation-nav" role="group" aria-label={t('editor.presentation.navAria')}>
-                  <label className="editor-page__presentation-label" htmlFor={slideSelectId}>
-                    {t('editor.presentation.slideLabel', {
-                      current: activeRevealSlide.index + 1,
-                      total: revealDeck.slides.length,
-                    })}
-                  </label>
-                  <select
-                    id={slideSelectId}
-                    className="editor-page__presentation-select"
-                    value={String(activeRevealSlide.index)}
-                    onChange={(e) => switchRevealSlide(Number(e.target.value))}
-                    disabled={isAsking}
-                    aria-label={t('editor.presentation.goToSlide')}
-                  >
-                    {revealDeck.slides.map((slide) => (
-                      <option key={slide.index} value={String(slide.index)}>
-                        {t('editor.presentation.slideOption', { index: slide.index + 1 })}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="editor-page__presentation-button"
-                    onClick={createRevealSlide}
-                    disabled={isAsking}
-                  >
-                    {t('editor.presentation.newSlide')}
-                  </button>
+                <div className="editor-page__presentation-current" role="status">
+                  {t('editor.presentation.slideLabel', {
+                    current: activeRevealSlide.index + 1,
+                    total: revealDeck.slides.length,
+                  })}
                 </div>
               ) : null}
               <RichTextEditor

@@ -110,6 +110,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   const currentRevealSlideIndexRef = useRef(0);
 
   const [isAsking, setIsAsking] = useState(false);
+  const [currentRevealSlideIndex, setCurrentRevealSlideIndex] = useState(0);
+  const [revealSlideNavigationRequest, setRevealSlideNavigationRequest] = useState<{ index: number; nonce: number } | null>(null);
+  const [revealFullscreenRequestNonce, setRevealFullscreenRequestNonce] = useState(0);
 
   const [activeMermaidIndex, setActiveMermaidIndex] = useState<number | null>(null);
   const [mermaidInitialCode, setMermaidInitialCode] = useState('');
@@ -184,6 +187,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   useRichEditorFlushEvents({ flushNow: flushActiveRichMarkdownNow });
 
   const debouncedMarkdownForPreview = useDebouncedValue(activeTab?.markdown || '', 120);
+  const revealToolbarDeck = useMemo(
+    () => parseRevealMarkdown(activeTab?.markdown || ''),
+    [activeTab?.markdown]
+  );
+  const isRevealToolbarDocument = revealToolbarDeck.detection.kind === 'reveal' && revealToolbarDeck.slides.length > 0;
 
   // Ao entrar no Editor (e ao trocar de aba/modo), foca automaticamente a área de texto.
   // Não rouba foco de modais nem de campos de digitação.
@@ -1386,6 +1394,23 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     setRevealAppendNonce((n) => n + 1);
   }, [activeTab, flushActiveRichMarkdownNow, setDocMarkdown, updateLatestMarkdownForTab, schedulePersistForTab]);
 
+  const requestRevealSlideNavigation = useCallback((index: number) => {
+    setRevealSlideNavigationRequest((prev) => ({
+      index,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
+  }, []);
+
+  const createRevealSlideFromToolbar = useCallback(() => {
+    appendMarkdownToDocument(`<!-- .slide: class="content-slide" -->
+
+## ${t('editor.presentation.newSlideTitle')}`);
+  }, [appendMarkdownToDocument, t]);
+
+  const requestRevealFullscreen = useCallback(() => {
+    setRevealFullscreenRequestNonce((nonce) => nonce + 1);
+  }, []);
+
   const {
     menu: toolbarMenu,
     openForTrigger: openToolbarMenu,
@@ -1487,6 +1512,12 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     const onKeyDown = async (e: KeyboardEvent) => {
       if (isModalOpen()) return;
 
+      if (e.key === 'F5' && activeTab?.mode === 'view' && isRevealToolbarDocument) {
+        e.preventDefault();
+        requestRevealFullscreen();
+        return;
+      }
+
       if (e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S') && !e.altKey) {
         e.preventDefault();
         await saveFile();
@@ -1508,7 +1539,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [activeTab?.id, isPanelActive]);
+  }, [activeTab?.id, activeTab?.mode, isPanelActive, isRevealToolbarDocument, requestRevealFullscreen]);
 
   return (
     <div className="editor-page" ref={pageRootRef}>
@@ -1522,6 +1553,17 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         formatMenuItems={formatMenuItemsForContextMenu}
         insertMenuItems={insertMenuItemsForContextMenu}
         modeMenuItems={modeMenuItemsForContextMenu}
+        revealSlidePicker={{
+          enabled: !!activeTab && activeTab.mode === 'rich' && isRevealToolbarDocument,
+          slideCount: revealToolbarDeck.slides.length,
+          currentSlideIndex: Math.min(currentRevealSlideIndex, Math.max(0, revealToolbarDeck.slides.length - 1)),
+          onSelectSlide: requestRevealSlideNavigation,
+          onCreateSlide: createRevealSlideFromToolbar,
+        }}
+        revealFullscreen={{
+          enabled: !!activeTab && activeTab.mode === 'view' && isRevealToolbarDocument,
+          onRequest: requestRevealFullscreen,
+        }}
       />
 
       <EditorContentArea
@@ -1551,8 +1593,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         }}
         onRevealSlideIndexChange={(index) => {
           currentRevealSlideIndexRef.current = index;
+          setCurrentRevealSlideIndex(index);
         }}
         revealAppendNonce={revealAppendNonce}
+        revealSlideNavigationRequest={revealSlideNavigationRequest}
+        revealFullscreenRequestNonce={revealFullscreenRequestNonce}
         richEditorHandleRef={richEditorHandleRef}
         onRequestEditMermaid={(ctx) => {
           const mermaidBlockId = String(ctx.mermaidBlockId || '').trim();

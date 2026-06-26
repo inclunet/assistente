@@ -924,6 +924,8 @@ const ptBR = {
         slideLabel: 'Slide {{current}} de {{total}}',
         goToSlide: 'Ir para slide',
         slideOption: 'Slide {{index}}',
+        slidePickerLabel: 'Slide',
+        fullscreen: 'Tela cheia',
         newSlide: 'Novo slide',
         newSlideTitle: 'Novo slide',
         insert: {

@@ -923,6 +923,8 @@ const es = {
         slideLabel: 'Diapositiva {{current}} de {{total}}',
         goToSlide: 'Ir a la diapositiva',
         slideOption: 'Diapositiva {{index}}',
+        slidePickerLabel: 'Diapositiva',
+        fullscreen: 'Pantalla completa',
         newSlide: 'Nueva diapositiva',
         newSlideTitle: 'Nueva diapositiva',
         insert: {

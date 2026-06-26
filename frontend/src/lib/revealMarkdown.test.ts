@@ -208,6 +208,29 @@ author: Assistente
     expect(next).toContain('# Slide atualizado');
     expect(next).not.toContain('# Slide 1');
   });
+
+  it('não cria slide vazio quando o deck começa com separador', () => {
+    const markdown = `---
+
+<!-- .slide: class="title-slide" -->
+
+# Slide inicial
+
+---
+
+## Slide 2`;
+
+    const slides = splitRevealSlides(markdown);
+
+    expect(slides).toHaveLength(2);
+    expect(slides[0]).toMatchObject({
+      index: 0,
+      level: 'horizontal',
+      markdown: '<!-- .slide: class="title-slide" -->\n\n# Slide inicial',
+      separatorBefore: '---',
+    });
+    expect(slides[1]).toMatchObject({ index: 1, markdown: '## Slide 2' });
+  });
 });
 
 describe('parseRevealMarkdown', () => {

@@ -50,6 +50,10 @@ export function useRichMarkdownSync({ markdown, onMarkdownChange, debounceMs = 3
   );
 
   useEffect(() => {
+    disposeOnMarkdownChangeRef.current = onMarkdownChange;
+  }, [onMarkdownChange]);
+
+  useEffect(() => {
     return () => {
       disposeRichMarkdownSync(refs.current, undefined, disposeOnMarkdownChangeRef.current);
     };

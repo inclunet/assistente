@@ -23,8 +23,7 @@ Criar uma nova superfície `slides` duplicaria capacidades já existentes no Edi
 3. Markdown comum mantém o comportamento atual. A detecção automática deve ser conservadora:
    - `<!-- .slide: ... -->` e `<!-- .element: ... -->` são sinais fortes.
    - múltiplos separadores `---`/`----` em linha isolada, com conteúdo entre slides, são sinais fortes.
-   - `Note:` associado a separadores é sinal provável.
-   - um único `---`, frontmatter YAML, régua horizontal, imagens, headings ou listas não bastam para ativar apresentação.
+   - um único `---`, `Note:`, frontmatter YAML, régua horizontal, imagens, headings ou listas não bastam para ativar apresentação.
 
 4. Deve haver caminho para override manual em evolução futura: “tratar como apresentação” e “tratar como Markdown comum”. Essa preferência pertence ao estado da aba/editor, não ao conteúdo do arquivo.
 

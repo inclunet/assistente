@@ -53,8 +53,10 @@ function hasMeaningfulContent(value: string): boolean {
 
 function getYamlFrontmatterRange(markdown: string): { start: number; end: number } | null {
   const text = String(markdown || '');
-  const match = text.match(/^\s*---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n|$)/);
+  const match = text.match(/^\s*---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
   if (!match) return null;
+  const body = String(match[1] || '');
+  if (!/^\s*[A-Za-z0-9_.-]+\s*:/m.test(body)) return null;
   return { start: 0, end: match[0].length };
 }
 
@@ -158,15 +160,18 @@ export function splitRevealSlides(markdown: string): RevealSlide[] {
 
     if (!fence && isSlideSeparator(lineWithoutNewline)) {
       const endOffset = cursor;
-      slides.push({
-        index: slideIndex,
-        level: currentSeparator.trim() === '----' ? 'vertical' : 'horizontal',
-        markdown: text.slice(currentStart, endOffset).trim(),
-        separatorBefore: currentSeparator,
-        startOffset: currentStart,
-        endOffset,
-      });
-      slideIndex += 1;
+      const currentMarkdown = text.slice(currentStart, endOffset).trim();
+      if (currentMarkdown || currentSeparator) {
+        slides.push({
+          index: slideIndex,
+          level: currentSeparator.trim() === '----' ? 'vertical' : 'horizontal',
+          markdown: currentMarkdown,
+          separatorBefore: currentSeparator,
+          startOffset: currentStart,
+          endOffset,
+        });
+        slideIndex += 1;
+      }
       currentSeparator = lineWithoutNewline.trim();
       currentStart = cursor + line.length;
     }

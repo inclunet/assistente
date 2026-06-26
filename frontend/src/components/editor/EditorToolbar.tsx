@@ -1,6 +1,6 @@
-import { type RefObject } from 'react';
+import { type RefObject, useId } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CompassOutlined, FileOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
+import { CompassOutlined, FileOutlined, FullscreenOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
 
 import { Toolbar, ToolbarButton, type ToolbarAction } from '../ui/Toolbar';
 import type { MenuItem } from '../menu';
@@ -17,6 +17,17 @@ export interface EditorToolbarProps {
   formatMenuItems: MenuItem[];
   insertMenuItems: MenuItem[];
   modeMenuItems: MenuItem[];
+  revealSlidePicker?: {
+    enabled: boolean;
+    slideCount: number;
+    currentSlideIndex: number;
+    onSelectSlide: (index: number) => void;
+    onCreateSlide: () => void;
+  };
+  revealFullscreen?: {
+    enabled: boolean;
+    onRequest: () => void;
+  };
 }
 
 /** Barra de ferramentas do editor (Arquivo, Formatar, Inserir, Modo + ações). */
@@ -30,15 +41,60 @@ export function EditorToolbar({
   formatMenuItems,
   insertMenuItems,
   modeMenuItems,
+  revealSlidePicker,
+  revealFullscreen,
 }: EditorToolbarProps) {
   const { t } = useTranslation();
+  const slidePickerId = useId();
+  const showRevealSlidePicker = !!revealSlidePicker?.enabled && revealSlidePicker.slideCount > 0;
+  const showRevealFullscreen = !!revealFullscreen?.enabled;
 
   return (
     <Toolbar
       className="editor-page__toolbar ws-content-toolbar"
       left={<div className="editor-page__title">{activeTab?.title || t('editor.fallback.title')}</div>}
+      center={
+        showRevealSlidePicker ? (
+          <div className="editor-page__toolbar-presentation" role="group" aria-label={t('editor.presentation.navAria')}>
+            <label className="editor-page__toolbar-presentation-label" htmlFor={slidePickerId}>
+              {t('editor.presentation.slidePickerLabel')}
+            </label>
+            <select
+              id={slidePickerId}
+              className="editor-page__toolbar-presentation-select"
+              value={String(revealSlidePicker.currentSlideIndex)}
+              onChange={(e) => {
+                if (e.target.value === 'new') {
+                  revealSlidePicker.onCreateSlide();
+                  return;
+                }
+                revealSlidePicker.onSelectSlide(Number(e.target.value));
+              }}
+              disabled={isAsking}
+              aria-label={t('editor.presentation.goToSlide')}
+            >
+              {Array.from({ length: revealSlidePicker.slideCount }, (_, index) => (
+                <option key={index} value={String(index)}>
+                  {t('editor.presentation.slideOption', { index: index + 1 })}
+                </option>
+              ))}
+              <option value="new">{t('editor.presentation.newSlide')}</option>
+            </select>
+          </div>
+        ) : null
+      }
       right={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {showRevealFullscreen ? (
+            <ToolbarButton
+              label={t('editor.presentation.fullscreen')}
+              icon={<FullscreenOutlined />}
+              shortcut="F5"
+              disabled={isAsking}
+              onClick={revealFullscreen.onRequest}
+            />
+          ) : null}
+
           <ToolbarButton
             label={t('editor.buttons.file')}
             icon={<FileOutlined />}

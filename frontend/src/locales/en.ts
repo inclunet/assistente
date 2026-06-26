@@ -924,6 +924,8 @@ const en = {
         slideLabel: 'Slide {{current}} of {{total}}',
         goToSlide: 'Go to slide',
         slideOption: 'Slide {{index}}',
+        slidePickerLabel: 'Slide',
+        fullscreen: 'Fullscreen',
         newSlide: 'New slide',
         newSlideTitle: 'New slide',
         insert: {
