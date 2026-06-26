@@ -91,6 +91,20 @@ texto do exemplo
     expect(container.querySelector('code')).toHaveTextContent('Note:');
   });
 
+  it('preserva indentação significativa ao separar speaker notes', () => {
+    const { container } = render(
+      <RevealRenderer
+        markdown={`    code block
+
+Note:
+    nota indentada`}
+      />
+    );
+
+    expect(container.querySelector('pre code')).toHaveTextContent('code block');
+    expect(container.querySelector('aside.notes pre code')).toHaveTextContent('nota indentada');
+  });
+
   it('remove atributos data de URL inseguros nos slides', () => {
     const { container } = render(
       <RevealRenderer

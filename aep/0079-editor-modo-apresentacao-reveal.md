@@ -21,7 +21,7 @@ Criar uma nova superfície `slides` duplicaria capacidades já existentes no Edi
 2. O `tabType` enviado ao chat continua sendo `editor`. O contexto de apresentação viaja em `surfaceContextJson`, por exemplo: modo `reveal`, quantidade de slides, índice do slide atual e Markdown do slide atual quando aplicável.
 
 3. Markdown comum mantém o comportamento atual. A detecção automática deve ser conservadora:
-   - `<!-- .slide: ... -->` e `<!-- .element: ... -->` são sinais fortes.
+   - `<!-- .slide: ... -->` é sinal forte.
    - múltiplos separadores `---`/`----` em linha isolada, com conteúdo entre slides, são sinais fortes.
    - um único `---`, `Note:`, frontmatter YAML, régua horizontal, imagens, headings ou listas não bastam para ativar apresentação.
 

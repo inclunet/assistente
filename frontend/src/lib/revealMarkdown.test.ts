@@ -108,6 +108,14 @@ Continuação do texto.`;
     expect(detectRevealMarkdown(markdown).kind).toBe('markdown');
   });
 
+  it('não usa .element como sinal forte sem suporte de renderização', () => {
+    const markdown = `# Exemplo
+
+<!-- .element: class="fragment" -->`;
+
+    expect(detectRevealMarkdown(markdown).kind).toBe('markdown');
+  });
+
   it('ignora Note dentro de blocos fenced na detecção', () => {
     const markdown = `# Exemplo
 

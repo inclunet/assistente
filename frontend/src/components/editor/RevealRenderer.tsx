@@ -80,6 +80,10 @@ const URL_DATA_ATTR_RE = /^data-background-(?:image|video|iframe)$/i;
 const FENCE_START_RE = /^(\s*)(`{3,}|~{3,})/;
 const NOTE_RE = /^\s*Note:\s*$/i;
 
+function trimBoundaryNewlines(value: string): string {
+  return String(value || '').replace(/^(?:\r?\n)+|(?:\r?\n)+$/g, '');
+}
+
 function getFenceMarker(line: string): { char: '`' | '~'; length: number } | null {
   const match = line.match(FENCE_START_RE);
   if (!match) return null;
@@ -111,8 +115,8 @@ function splitSpeakerNotes(markdown: string): { body: string; notes: string } {
         fence = nextFence;
       } else if (NOTE_RE.test(lineWithoutNewline)) {
         return {
-          body: text.slice(0, cursor).trim(),
-          notes: text.slice(cursor + line.length).trim(),
+          body: trimBoundaryNewlines(text.slice(0, cursor)),
+          notes: trimBoundaryNewlines(text.slice(cursor + line.length)),
         };
       }
     }
