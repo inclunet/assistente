@@ -85,6 +85,22 @@ function renderMarkdownHtml(markdown: string): string {
   return DOMPurify.sanitize(md.render(markdown || ''), purifyConfig);
 }
 
+function enhanceImageAccessibility(html: string): string {
+  if (typeof document === 'undefined') return html;
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  template.content.querySelectorAll('img').forEach((img) => {
+    const alt = img.getAttribute('alt')?.trim();
+    if (!alt) return;
+    img.setAttribute('role', 'img');
+    img.setAttribute('aria-label', alt);
+    if (!img.getAttribute('title')) {
+      img.setAttribute('title', alt);
+    }
+  });
+  return template.innerHTML;
+}
+
 function revealDataProps(data: Record<string, string>) {
   return Object.fromEntries(
     Object.entries(data).filter(([key]) => /^data-[\w-]+$/.test(key))
@@ -95,7 +111,7 @@ function renderSlide(slide: RevealSlide) {
   const attrs = extractRevealSlideAttributes(slide.markdown);
   const markdownWithoutDirectives = stripRevealDirectives(slide.markdown);
   const { body, notes } = splitSpeakerNotes(markdownWithoutDirectives);
-  const html = renderMarkdownHtml(body);
+  const html = enhanceImageAccessibility(renderMarkdownHtml(body));
   const notesHtml = notes ? renderMarkdownHtml(notes) : '';
 
   return (

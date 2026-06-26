@@ -160,11 +160,7 @@ ${i18next.t('editor.presentation.insert.subtitlePlaceholder')}`);
 
 ## ${i18next.t('editor.presentation.insert.titlePlaceholder')}
 
-<div>
-
 ${i18next.t('editor.presentation.insert.textPlaceholder')}
-
-</div>
 
 ![${i18next.t('editor.presentation.insert.altPlaceholder')}](assets/imagem.png)`);
         },

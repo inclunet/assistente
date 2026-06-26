@@ -77,6 +77,33 @@
   align-items: center;
 }
 
+.reveal-renderer .reveal .image-right h1,
+.reveal-renderer .reveal .image-right h2,
+.reveal-renderer .reveal .image-right h3,
+.reveal-renderer .reveal .image-left h1,
+.reveal-renderer .reveal .image-left h2,
+.reveal-renderer .reveal .image-left h3 {
+  grid-column: 1 / -1;
+}
+
+.reveal-renderer .reveal .image-right p:has(img) {
+  grid-column: 2;
+  grid-row: 2 / span 4;
+}
+
+.reveal-renderer .reveal .image-left p:has(img) {
+  grid-column: 1;
+  grid-row: 2 / span 4;
+}
+
+.reveal-renderer .reveal .image-right p:not(:has(img)) {
+  grid-column: 1;
+}
+
+.reveal-renderer .reveal .image-left p:not(:has(img)) {
+  grid-column: 2;
+}
+
 .reveal-renderer .reveal .image-left img {
   order: -1;
 }
