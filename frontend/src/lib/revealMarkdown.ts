@@ -28,7 +28,7 @@ export type ParsedRevealDeck = {
 };
 
 const SLIDE_ATTRIBUTE_RE = /<!--\s*\.(?:slide|element)\s*:/i;
-const SLIDE_DIRECTIVE_RE = /<!--\s*\.slide\s*:\s*([^>]*?)-->/i;
+const SLIDE_DIRECTIVE_RE = /^\s*<!--\s*\.slide\s*:\s*([^>]*?)-->/i;
 const LEADING_SLIDE_DIRECTIVES_RE = /^(\s*<!--\s*\.slide\s*:[\s\S]*?-->\s*)+/i;
 const ATTRIBUTE_RE = /([a-zA-Z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const HORIZONTAL_SEPARATOR_RE = /^\s*---\s*$/;
@@ -242,7 +242,7 @@ export function extractRevealSlideAttributes(markdown: string): RevealSlideAttri
 }
 
 export function stripRevealDirectives(markdown: string): string {
-  return String(markdown || '').replace(SLIDE_DIRECTIVE_RE, '').trim();
+  return String(markdown || '').replace(LEADING_SLIDE_DIRECTIVES_RE, '').trim();
 }
 
 export function getRevealSlideEditableMarkdown(markdown: string): string {

@@ -254,6 +254,26 @@ describe('extractRevealSlideAttributes', () => {
     });
     expect(stripRevealDirectives(markdown)).toBe('# Slide');
   });
+
+  it('ignora diretivas .slide que não estejam no início do slide', () => {
+    const markdown = `# Slide
+
+\`\`\`md
+<!-- .slide: class="fake-slide" -->
+\`\`\``;
+
+    expect(extractRevealSlideAttributes(markdown)).toEqual({ data: {} });
+    expect(stripRevealDirectives(markdown)).toContain('<!-- .slide: class="fake-slide" -->');
+  });
+
+  it('remove todas as diretivas .slide iniciais ao renderizar o corpo', () => {
+    const markdown = `<!-- .slide: class="section-slide" -->
+<!-- .slide: data-transition="fade" -->
+
+# Slide`;
+
+    expect(stripRevealDirectives(markdown)).toBe('# Slide');
+  });
 });
 
 describe('editable slide markdown', () => {
