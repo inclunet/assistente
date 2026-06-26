@@ -5,7 +5,7 @@ import type { InsertMenuContext } from './menuContext';
 
 export function buildInsertMenuItemsForContextMenu(args: { ctx: InsertMenuContext }): MenuItem[] {
   const { ctx } = args;
-  const { activeTab, isAsking, applyInsertRequest, focusEditorSoon, richEditorRef, addToast } = ctx;
+  const { activeTab, isAsking, applyInsertRequest, appendMarkdownToDocument, focusEditorSoon, richEditorRef, addToast } = ctx;
 
   const canInsert = !!activeTab && !isAsking && activeTab.mode !== 'view';
 
@@ -42,7 +42,13 @@ export function buildInsertMenuItemsForContextMenu(args: { ctx: InsertMenuContex
   };
 
   const insertRevealSlide = async (content: string) => {
-    await insertMarkdownSnippet(`\n\n${content.trim()}\n\n`);
+    const snippet = `\n\n${content.trim()}\n\n`;
+    if (activeTab?.mode === 'rich') {
+      appendMarkdownToDocument(snippet);
+      focusEditorSoon();
+      return;
+    }
+    await insertMarkdownSnippet(snippet);
   };
 
   const insertRichTable = (rows: number, cols: number, withHeaderRow: boolean) => {

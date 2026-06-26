@@ -1355,6 +1355,20 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     [createDocument, addWorkspaceTab, openFile, saveFile, abortMerge, saveFileAsCopy, activeTab]
   );
 
+  const appendMarkdownToDocument = useCallback((content: string) => {
+    if (!activeTab) return;
+    if (activeTab.mode === 'rich') {
+      flushActiveRichMarkdownNow();
+    }
+
+    const latestTab = useEditorStore.getState().documents[activeTab.id] ?? activeTab;
+    const current = String(latestTab.markdown ?? '');
+    const nextMarkdown = `${current.trimEnd()}${String(content || '')}`;
+    setDocMarkdown(activeTab.id, nextMarkdown);
+    updateLatestMarkdownForTab(activeTab.id, nextMarkdown);
+    schedulePersistForTab(activeTab.id);
+  }, [activeTab, flushActiveRichMarkdownNow, setDocMarkdown, updateLatestMarkdownForTab, schedulePersistForTab]);
+
   const {
     menu: toolbarMenu,
     openForTrigger: openToolbarMenu,
@@ -1399,11 +1413,12 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         editorReadyNonce,
         richEditorRef,
         applyInsertRequest,
+        appendMarkdownToDocument,
         focusEditorSoon,
         addToast,
       },
     });
-  }, [activeTab, isAsking, editorReadyNonce, addToast, applyInsertRequest]);
+  }, [activeTab, isAsking, editorReadyNonce, addToast, applyInsertRequest, appendMarkdownToDocument]);
 
   const formatMenuItemsForContextMenu = useMemo((): MenuItem[] => {
     return buildFormatMenuItemsForContextMenu({
