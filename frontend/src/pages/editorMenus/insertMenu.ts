@@ -153,7 +153,7 @@ ${i18next.t('editor.presentation.insert.subtitlePlaceholder')}`);
 
 ${i18next.t('editor.presentation.insert.textPlaceholder')}
 
-![${i18next.t('editor.presentation.insert.altPlaceholder')}](assets/imagem.png)`);
+![${i18next.t('editor.presentation.insert.altPlaceholder')}](assets/image.png)`);
         },
       },
       {
@@ -166,7 +166,7 @@ ${i18next.t('editor.presentation.insert.textPlaceholder')}
 
 ${i18next.t('editor.presentation.insert.textPlaceholder')}
 
-![${i18next.t('editor.presentation.insert.altPlaceholder')}](assets/imagem.png)`);
+![${i18next.t('editor.presentation.insert.altPlaceholder')}](assets/image.png)`);
         },
       },
       {
@@ -231,7 +231,7 @@ ${i18next.t('editor.presentation.insert.subtitlePlaceholder')}`);
 
 \`\`\`ts
 // ${i18next.t('editor.presentation.insert.codePlaceholder')}
-function exemplo() {
+function example() {
   return true;
 }
 \`\`\``);
