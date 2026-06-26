@@ -75,6 +75,36 @@ export function buildRichTextExtensions(args: {
   });
 
   const AccessibleImage = Image.extend({
+    addProseMirrorPlugins() {
+      return [
+        new Plugin({
+          appendTransaction: (transactions, _oldState, newState) => {
+            if (!transactions.some((transaction) => transaction.docChanged)) {
+              return null;
+            }
+
+            const tr = newState.tr;
+            let changed = false;
+
+            newState.doc.descendants((node, pos) => {
+              if (node.type.name !== this.name) {
+                return;
+              }
+
+              const src = String(node.attrs.src || '');
+              if (!src || isSafeImageSrc(src)) {
+                return;
+              }
+
+              tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: '' });
+              changed = true;
+            });
+
+            return changed ? tr : null;
+          },
+        }),
+      ];
+    },
     addNodeView() {
       return ({ node }) => {
         const src = String(node.attrs.src || '');

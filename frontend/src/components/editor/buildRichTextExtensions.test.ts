@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Editor } from '@tiptap/core';
 import { buildRichTextExtensions } from './buildRichTextExtensions';
+import type { TipTapMarkdownStorage } from '../../pages/editorTypes';
 
 describe('buildRichTextExtensions', () => {
   it('retorna lista de extensoes', () => {
@@ -59,6 +60,9 @@ describe('buildRichTextExtensions', () => {
     expect(img).not.toHaveAttribute('src');
     expect(editor.getHTML()).not.toContain('javascript:');
     expect(editor.getHTML()).not.toContain('src=""');
+    const markdownStorage = (editor.storage as { markdown?: TipTapMarkdownStorage }).markdown;
+    expect(markdownStorage?.getMarkdown).toBeTypeOf('function');
+    expect(markdownStorage?.getMarkdown?.()).not.toContain('javascript:');
 
     editor.destroy();
   });
