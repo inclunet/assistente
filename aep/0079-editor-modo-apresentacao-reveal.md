@@ -35,9 +35,11 @@ Criar uma nova superfície `slides` duplicaria capacidades já existentes no Edi
 
 8. Layouts devem usar padrões Reveal-native, como `<!-- .slide: class="two-columns" -->`, `data-background-image` e HTML/CSS compatível. O Assistente não deve inventar metadados proprietários de layout no arquivo.
 
-9. Imagens continuam em Markdown/HTML padrão. A UI deve incentivar texto alternativo e não depender apenas de cor para transmitir informação.
+9. Títulos e rótulos acessíveis devem ser derivados do Markdown compatível com Reveal, sem formato proprietário: título do deck por `title` no frontmatter, primeiro H1 ou título do documento como fallback; rótulo do slide por primeiro heading, `title`/`data-title` em diretiva `.slide` ou fallback traduzido “Slide N”.
 
-10. Alterações por LLM continuam no contrato do Editor: `SendMessage`/`RetryMessage`, contexto estruturado de superfície e patch revisável antes de aplicar. Não deve existir `SendSlidesMessage`.
+10. Imagens continuam em Markdown/HTML padrão. A UI deve incentivar texto alternativo e não depender apenas de cor para transmitir informação.
+
+11. Alterações por LLM continuam no contrato do Editor: `SendMessage`/`RetryMessage`, contexto estruturado de superfície e patch revisável antes de aplicar. Não deve existir `SendSlidesMessage`.
 
 ## Fases
 
@@ -76,6 +78,8 @@ Criar uma nova superfície `slides` duplicaria capacidades já existentes no Edi
 - No modo rico, apresentações exibem um slide por vez com navegação acessível.
 
 - No modo renderizado, apresentações são exibidas com Reveal.js.
+
+- A apresentação e cada slide expõem nomes acessíveis derivados do conteúdo quando possível, e a navegação de slides usa esses rótulos.
 
 - O chat do Editor envia contexto de apresentação sem criar fluxo paralelo de mensagens.
 

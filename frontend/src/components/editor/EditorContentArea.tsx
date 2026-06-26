@@ -338,6 +338,7 @@ export function EditorContentArea({
               {isRevealPreviewDocument ? (
                 <RevealRenderer
                   markdown={debouncedMarkdownForPreview}
+                  documentTitle={activeTab.title}
                   fullscreenRequestNonce={revealFullscreenRequestNonce}
                 />
               ) : (

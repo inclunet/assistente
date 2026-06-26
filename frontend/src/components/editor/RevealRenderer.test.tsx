@@ -8,7 +8,18 @@ vi.mock('react-i18next', () => ({
     type: '3rdParty',
     init: vi.fn(),
   },
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, string | number>) =>
+      values?.title
+        ? `${key}: ${values.title}`
+        : values?.index
+          ? `${key}: ${values.index}`
+          : key,
+  }),
+}));
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => vi.fn(),
 }));
 
 vi.mock('reveal.js', () => ({
@@ -27,6 +38,51 @@ vi.mock('mermaid', () => ({
 }));
 
 describe('RevealRenderer', () => {
+  it('expõe título do deck e rótulos acessíveis por slide', () => {
+    const { container } = render(
+      <RevealRenderer
+        markdown={`---
+title: Deck acessível
+---
+
+<!-- .slide: data-title="Abertura" -->
+
+Boas-vindas
+
+---
+
+## Agenda`}
+      />
+    );
+
+    expect(container.querySelector('.reveal-renderer')).toHaveAttribute(
+      'aria-label',
+      'editor.presentation.ariaWithTitle: Deck acessível'
+    );
+
+    const slides = container.querySelectorAll('.slides > section');
+    expect(slides[0]).toHaveAttribute('aria-label', 'Abertura');
+    expect(slides[1]).toHaveAttribute('aria-label', 'Agenda');
+  });
+
+  it('usa o título do documento como fallback acessível do deck', () => {
+    const { container } = render(
+      <RevealRenderer
+        markdown={`Intro
+
+---
+
+Conteúdo`}
+        documentTitle="Apresentação sem heading"
+      />
+    );
+
+    expect(container.querySelector('.reveal-renderer')).toHaveAttribute(
+      'aria-label',
+      'editor.presentation.ariaWithTitle: Apresentação sem heading'
+    );
+  });
+
   it('renderiza slides verticais como pilha aninhada do Reveal', () => {
     const { container } = render(
       <RevealRenderer
@@ -130,6 +186,20 @@ Note:
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     expect(link).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('mantém metadados acessíveis de deep links no preview Reveal', () => {
+    const { container } = render(
+      <RevealRenderer markdown={'# Slide\n\n[Abrir](assistente://navigate/history)'} />
+    );
+
+    const link = container.querySelector('a');
+
+    expect(link).toHaveClass('deep-link', 'deep-link--navigate');
+    expect(link).toHaveAttribute('data-deep-link', 'assistente://navigate/history');
+    expect(link).toHaveAttribute('role', 'link');
+    expect(link).toHaveAttribute('aria-label');
+    expect(link).toHaveAttribute('tabindex', '0');
   });
 
   it('renderiza Mermaid dentro do preview Reveal preservando o alvo editável', async () => {

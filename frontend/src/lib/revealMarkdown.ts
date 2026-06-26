@@ -12,6 +12,7 @@ export type RevealSlide = {
   index: number;
   level: RevealSlideLevel;
   markdown: string;
+  label?: string;
   separatorBefore: string;
   startOffset: number;
   endOffset: number;
@@ -19,12 +20,14 @@ export type RevealSlide = {
 
 export type RevealSlideAttributes = {
   className?: string;
+  title?: string;
   data: Record<string, string>;
 };
 
 export type ParsedRevealDeck = {
   slides: RevealSlide[];
   detection: RevealDetection;
+  title?: string;
 };
 
 const SLIDE_ATTRIBUTE_RE = /<!--\s*\.slide\s*:/i;
@@ -55,6 +58,25 @@ function trimBoundaryNewlines(value: string): string {
   return String(value || '').replace(/^(?:\r?\n)+|(?:\r?\n)+$/g, '');
 }
 
+function normalizeDerivedText(value: string): string {
+  return String(value || '')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/[`*_~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getYamlFrontmatterBody(markdown: string): string | null {
+  const text = String(markdown || '');
+  const match = text.match(/^\s*---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
+  if (!match) return null;
+  const body = String(match[1] || '');
+  if (!/^\s*[A-Za-z0-9_.-]+\s*:/m.test(body)) return null;
+  return body;
+}
+
 function getYamlFrontmatterRange(markdown: string): { start: number; end: number } | null {
   const text = String(markdown || '');
   const match = text.match(/^\s*---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
@@ -69,6 +91,16 @@ function stripYamlFrontmatter(markdown: string): string {
   const range = getYamlFrontmatterRange(text);
   if (!range) return text;
   return text.slice(range.end);
+}
+
+function extractFrontmatterTitle(markdown: string): string | undefined {
+  const body = getYamlFrontmatterBody(markdown);
+  if (!body) return undefined;
+  const match = body.match(/^\s*title\s*:\s*(.+?)\s*$/im);
+  const rawValue = String(match?.[1] || '').trim();
+  if (!rawValue) return undefined;
+  const unquoted = rawValue.replace(/^['"](.+)['"]$/, '$1');
+  return normalizeDerivedText(unquoted) || undefined;
 }
 
 function getFenceMarker(line: string): { char: '`' | '~'; length: number } | null {
@@ -105,6 +137,53 @@ function hasSlideAttributeOutsideFences(markdown: string): boolean {
   }
 
   return false;
+}
+
+function extractFirstMarkdownHeading(markdown: string, level?: 1): string | undefined {
+  const lines = String(markdown || '').split(/\r?\n/);
+  let fence: { char: '`' | '~'; length: number } | null = null;
+
+  for (const line of lines) {
+    if (fence) {
+      if (isClosingFence(line, fence)) fence = null;
+      continue;
+    }
+
+    const nextFence = getFenceMarker(line);
+    if (nextFence) {
+      fence = nextFence;
+      continue;
+    }
+
+    const match = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (!match) continue;
+    if (level && match[1].length !== level) continue;
+
+    const heading = normalizeDerivedText(match[2] || '');
+    if (heading) return heading;
+  }
+
+  return undefined;
+}
+
+export function deriveRevealDeckTitle(markdown: string, fallbackTitle?: string): string | undefined {
+  const frontmatterTitle = extractFrontmatterTitle(markdown);
+  if (frontmatterTitle) return frontmatterTitle;
+
+  const h1 = extractFirstMarkdownHeading(stripYamlFrontmatter(markdown), 1);
+  if (h1) return h1;
+
+  const fallback = normalizeDerivedText(fallbackTitle || '');
+  return fallback || undefined;
+}
+
+export function deriveRevealSlideLabel(markdown: string): string | undefined {
+  const markdownWithoutDirectives = stripRevealDirectives(markdown);
+  const heading = extractFirstMarkdownHeading(markdownWithoutDirectives);
+  if (heading) return heading;
+
+  const attrs = extractRevealSlideAttributes(markdown);
+  return normalizeDerivedText(attrs.title || attrs.data['data-title'] || '') || undefined;
 }
 
 export function detectRevealMarkdown(markdown: string, manualMode?: 'markdown' | 'reveal'): RevealDetection {
@@ -170,6 +249,7 @@ export function splitRevealSlides(markdown: string): RevealSlide[] {
           index: slideIndex,
           level: currentSeparator.trim() === '----' ? 'vertical' : 'horizontal',
           markdown: currentMarkdown,
+          label: deriveRevealSlideLabel(currentMarkdown),
           separatorBefore: currentSeparator,
           startOffset: currentStart,
           endOffset,
@@ -182,10 +262,12 @@ export function splitRevealSlides(markdown: string): RevealSlide[] {
     cursor += line.length;
   }
 
+  const finalMarkdown = trimBoundaryNewlines(text.slice(currentStart));
   slides.push({
     index: slideIndex,
     level: currentSeparator.trim() === '----' ? 'vertical' : 'horizontal',
-    markdown: trimBoundaryNewlines(text.slice(currentStart)),
+    markdown: finalMarkdown,
+    label: deriveRevealSlideLabel(finalMarkdown),
     separatorBefore: currentSeparator,
     startOffset: currentStart,
     endOffset: text.length,
@@ -198,6 +280,7 @@ export function parseRevealMarkdown(markdown: string, manualMode?: 'markdown' | 
   const detection = detectRevealMarkdown(markdown, manualMode);
   return {
     detection,
+    title: detection.kind === 'reveal' ? deriveRevealDeckTitle(markdown) : undefined,
     slides: detection.kind === 'reveal' ? splitRevealSlides(markdown) : [],
   };
 }
@@ -219,6 +302,7 @@ export function extractRevealSlideAttributes(markdown: string): RevealSlideAttri
   const attrs = String(match[1] || '');
   const data: Record<string, string> = {};
   let className = '';
+  let title = '';
 
   for (const attrMatch of attrs.matchAll(ATTRIBUTE_RE)) {
     const rawName = String(attrMatch[1] || '').trim();
@@ -234,13 +318,19 @@ export function extractRevealSlideAttributes(markdown: string): RevealSlideAttri
       continue;
     }
 
+    if (rawName === 'title') {
+      title = normalizeDerivedText(value);
+      continue;
+    }
+
     if (rawName.startsWith('data-')) {
       data[rawName] = value;
     }
   }
 
   return {
-    className: className || undefined,
+    ...(className ? { className } : {}),
+    ...(title ? { title } : {}),
     data,
   };
 }

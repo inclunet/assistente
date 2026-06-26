@@ -10,6 +10,7 @@ import {
   stripRevealDirectives,
   type RevealSlide,
 } from '../../lib/revealMarkdown';
+import { markdownItDeepLink } from '../../lib/markdownItDeepLink';
 import { isSafeLinkHref } from '../../lib/safeLink';
 import { executeDeepLink, isDeepLink, parseDeepLink } from '../../lib/deepLinks';
 import 'reveal.js/reveal.css';
@@ -26,6 +27,7 @@ type MermaidApi = typeof import('mermaid')['default'];
 
 interface RevealRendererProps {
   markdown: string;
+  documentTitle?: string;
   fullscreenRequestNonce?: number;
 }
 
@@ -36,6 +38,8 @@ const md = new MarkdownIt({
   linkify: true,
   typographer: true,
 });
+
+md.use(markdownItDeepLink);
 
 const purifyConfig = {
   ALLOWED_TAGS: [
@@ -73,7 +77,7 @@ const purifyConfig = {
     'span',
     'aside',
   ],
-  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'target', 'rel', 'tabindex', 'role', 'aria-label'],
+  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'target', 'rel', 'tabindex', 'data-deep-link', 'role', 'aria-label'],
   ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|assistente):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
 };
 
@@ -177,16 +181,18 @@ function revealDataProps(data: Record<string, string>) {
   );
 }
 
-function renderSlide(slide: RevealSlide) {
+function renderSlide(slide: RevealSlide, getSlideLabel: (slide: RevealSlide) => string) {
   const attrs = extractRevealSlideAttributes(slide.markdown);
   const markdownWithoutDirectives = stripRevealDirectives(slide.markdown);
   const { body, notes } = splitSpeakerNotes(markdownWithoutDirectives);
   const html = enhanceLinkSecurity(enhanceImageAccessibility(renderMarkdownHtml(body)));
   const notesHtml = notes ? enhanceLinkSecurity(renderMarkdownHtml(notes)) : '';
+  const label = getSlideLabel(slide);
 
   return (
     <section
       key={slide.index}
+      aria-label={label}
       className={attrs.className}
       {...revealDataProps(attrs.data)}
       dangerouslySetInnerHTML={{
@@ -198,7 +204,7 @@ function renderSlide(slide: RevealSlide) {
   );
 }
 
-function renderSlides(slides: RevealSlide[]) {
+function renderSlides(slides: RevealSlide[], getSlideLabel: (slide: RevealSlide) => string) {
   const rendered = [];
   for (let index = 0; index < slides.length; index += 1) {
     const slide = slides[index];
@@ -211,7 +217,7 @@ function renderSlides(slides: RevealSlide[]) {
       }
       rendered.push(
         <section key={`orphan-vertical-stack-${slide.index}`}>
-          {verticalSlides.map(renderSlide)}
+          {verticalSlides.map((verticalSlide) => renderSlide(verticalSlide, getSlideLabel))}
         </section>
       );
       index = nextIndex - 1;
@@ -229,14 +235,14 @@ function renderSlides(slides: RevealSlide[]) {
       const stackSlides = slide.markdown.trim() ? [slide, ...verticalSlides] : verticalSlides;
       rendered.push(
         <section key={`vertical-stack-${slide.index}`}>
-          {stackSlides.map(renderSlide)}
+          {stackSlides.map((stackSlide) => renderSlide(stackSlide, getSlideLabel))}
         </section>
       );
       index = nextIndex - 1;
       continue;
     }
 
-    rendered.push(renderSlide(slide));
+    rendered.push(renderSlide(slide, getSlideLabel));
   }
 
   return rendered;
@@ -256,7 +262,8 @@ const navigateWithinApp: NavigateFunction = (to) => {
   window.history.pushState(null, '', path || '/');
   window.dispatchEvent(new PopStateEvent('popstate'));
 };
-export function RevealRenderer({ markdown, fullscreenRequestNonce = 0 }: RevealRendererProps) {
+
+export function RevealRenderer({ markdown, documentTitle, fullscreenRequestNonce = 0 }: RevealRendererProps) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const revealApiRef = useRef<RevealApi | null>(null);
@@ -264,13 +271,21 @@ export function RevealRenderer({ markdown, fullscreenRequestNonce = 0 }: RevealR
   const lastFullscreenRequestNonceRef = useRef(fullscreenRequestNonce);
   const deck = useMemo(() => parseRevealMarkdown(markdown, 'reveal'), [markdown]);
   const slides = deck.slides;
+  const deckTitle = useMemo(
+    () => deck.title || String(documentTitle || '').trim() || undefined,
+    [deck.title, documentTitle]
+  );
+  const getSlideLabel = useCallback(
+    (slide: RevealSlide) => slide.label || t('editor.presentation.slideOption', { index: slide.index + 1 }),
+    [t]
+  );
 
   const handleDeepLinkClick = useCallback(
     (event: MouseEvent) => {
       const target = event.target instanceof Element
         ? event.target.closest('a[href]') as HTMLAnchorElement | null
         : null;
-      const uri = target?.getAttribute('href') || '';
+      const uri = target?.getAttribute('data-deep-link') || target?.getAttribute('href') || '';
       if (!isDeepLink(uri)) return;
 
       const action = parseDeepLink(uri);
@@ -290,7 +305,7 @@ export function RevealRenderer({ markdown, fullscreenRequestNonce = 0 }: RevealR
       const target = event.target instanceof Element
         ? event.target.closest('a[href]') as HTMLAnchorElement | null
         : null;
-      const uri = target?.getAttribute('href') || '';
+      const uri = target?.getAttribute('data-deep-link') || target?.getAttribute('href') || '';
       if (!isDeepLink(uri)) return;
 
       const action = parseDeepLink(uri);
@@ -462,13 +477,21 @@ export function RevealRenderer({ markdown, fullscreenRequestNonce = 0 }: RevealR
   }, [slides, t]);
 
   return (
-    <div className="reveal-renderer" role="region" aria-label={t('editor.presentation.aria')}>
+    <div
+      className="reveal-renderer"
+      role="region"
+      aria-label={
+        deckTitle
+          ? t('editor.presentation.ariaWithTitle', { title: deckTitle })
+          : t('editor.presentation.aria')
+      }
+    >
       <div className="reveal-renderer__hint">
         {t('editor.presentation.hint')}
       </div>
       <div ref={rootRef} className="reveal">
         <div className="slides">
-          {renderSlides(slides)}
+          {renderSlides(slides, getSlideLabel)}
         </div>
       </div>
     </div>

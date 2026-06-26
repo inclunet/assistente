@@ -917,6 +917,7 @@ const ptBR = {
       hints: { previewMermaid: 'Conteúdo renderizado para navegação. Dê duplo clique (ou Enter) em Mermaid para editar.' },
       presentation: {
         aria: 'Apresentação Reveal.js renderizada',
+        ariaWithTitle: 'Apresentação Reveal.js renderizada: {{title}}',
         hint: 'Apresentação Reveal.js. Use as setas para navegar entre os slides.',
         mermaidDiagramLabel: 'Diagrama Mermaid',
         mermaidRenderError: 'Erro ao renderizar Mermaid',

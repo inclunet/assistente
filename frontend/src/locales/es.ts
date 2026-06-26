@@ -916,6 +916,7 @@ const es = {
       hints: { previewMermaid: 'Contenido renderizado para navegación. Haz doble clic (o Enter) en Mermaid para editar.' },
       presentation: {
         aria: 'Presentación Reveal.js renderizada',
+        ariaWithTitle: 'Presentación Reveal.js renderizada: {{title}}',
         hint: 'Presentación Reveal.js. Usa las flechas para navegar entre diapositivas.',
         mermaidDiagramLabel: 'Diagrama Mermaid',
         mermaidRenderError: 'Error al renderizar Mermaid',

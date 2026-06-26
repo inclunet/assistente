@@ -21,6 +21,7 @@ export interface EditorToolbarProps {
     enabled: boolean;
     slideCount: number;
     currentSlideIndex: number;
+    slideLabels?: Array<string | undefined>;
     onSelectSlide: (index: number) => void;
     onCreateSlide: () => void;
   };
@@ -48,11 +49,13 @@ export function EditorToolbar({
   const slidePickerMenuLabelId = useId();
   const showRevealSlidePicker = !!revealSlidePicker?.enabled && revealSlidePicker.slideCount > 0;
   const showRevealFullscreen = !!revealFullscreen?.enabled;
+  const getRevealSlideLabel = (index: number) =>
+    revealSlidePicker?.slideLabels?.[index] || t('editor.presentation.slideOption', { index: index + 1 });
   const revealSlideMenuItems: MenuItem[] = showRevealSlidePicker
     ? [
         ...Array.from({ length: revealSlidePicker.slideCount }, (_, index) => ({
           id: `reveal-slide-${index}`,
-          label: t('editor.presentation.slideOption', { index: index + 1 }),
+          label: getRevealSlideLabel(index),
           checked: index === revealSlidePicker.currentSlideIndex,
           action: () => revealSlidePicker.onSelectSlide(index),
         })),
@@ -70,7 +73,7 @@ export function EditorToolbar({
         {t('editor.presentation.slidePickerLabel')}
       </span>
       <ToolbarButton
-        label={t('editor.presentation.slideOption', { index: revealSlidePicker.currentSlideIndex + 1 })}
+        label={getRevealSlideLabel(revealSlidePicker.currentSlideIndex)}
         endIcon={<DownOutlined />}
         disabled={isAsking}
         onClick={(e) => onOpenMenu(e.currentTarget, t('editor.presentation.goToSlide'), revealSlideMenuItems)}

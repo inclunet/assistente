@@ -1563,6 +1563,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           enabled: !!activeTab && activeTab.mode === 'rich' && isRevealToolbarDocument,
           slideCount: revealToolbarDeck.slides.length,
           currentSlideIndex: Math.min(currentRevealSlideIndex, Math.max(0, revealToolbarDeck.slides.length - 1)),
+          slideLabels: revealToolbarDeck.slides.map((slide) => slide.label),
           onSelectSlide: requestRevealSlideNavigation,
           onCreateSlide: createRevealSlideFromToolbar,
         }}

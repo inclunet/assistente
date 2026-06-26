@@ -917,6 +917,7 @@ const en = {
       hints: { previewMermaid: 'Rendered content for navigation. Double-click (or Enter) on Mermaid to edit.' },
       presentation: {
         aria: 'Rendered Reveal.js presentation',
+        ariaWithTitle: 'Rendered Reveal.js presentation: {{title}}',
         hint: 'Reveal.js presentation. Use the arrow keys to navigate between slides.',
         mermaidDiagramLabel: 'Mermaid diagram',
         mermaidRenderError: 'Error rendering Mermaid',

@@ -263,6 +263,37 @@ describe('parseRevealMarkdown', () => {
     expect(parseRevealMarkdown('# Documento').slides).toHaveLength(0);
     expect(parseRevealMarkdown('# A\n\n---\n\n# B\n\n---\n\n# C').slides).toHaveLength(3);
   });
+
+  it('deriva título do deck e rótulos dos slides do Markdown compatível com Reveal', () => {
+    const markdown = `---
+title: "Deck acessível"
+---
+
+<!-- .slide: data-title="Abertura" -->
+
+Boas-vindas
+
+---
+
+## Agenda
+
+---
+
+<!-- .slide: title="Encerramento" data-transition="fade" -->
+
+Obrigada`;
+
+    const deck = parseRevealMarkdown(markdown, 'reveal');
+
+    expect(deck.title).toBe('Deck acessível');
+    expect(deck.slides.map((slide) => slide.label)).toEqual(['Abertura', 'Agenda', 'Encerramento']);
+  });
+
+  it('usa o primeiro H1 como título do deck quando não há frontmatter title', () => {
+    const deck = parseRevealMarkdown('# Título principal\n\n---\n\n## Segundo\n\n---\n\n## Terceiro');
+
+    expect(deck.title).toBe('Título principal');
+  });
 });
 
 describe('extractRevealSlideAttributes', () => {
@@ -278,6 +309,19 @@ describe('extractRevealSlideAttributes', () => {
       },
     });
     expect(stripRevealDirectives(markdown)).toBe('# Slide');
+  });
+
+  it('extrai title sem descartar atributos data do comentário .slide', () => {
+    const markdown = `<!-- .slide: title="Rótulo" data-transition="fade" -->
+
+Conteúdo`;
+
+    expect(extractRevealSlideAttributes(markdown)).toEqual({
+      title: 'Rótulo',
+      data: {
+        'data-transition': 'fade',
+      },
+    });
   });
 
   it('ignora diretivas .slide que não estejam no início do slide', () => {
