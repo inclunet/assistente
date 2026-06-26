@@ -31,6 +31,7 @@ import { markdownToHtml } from '../lib/markdownToHtml';
 import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
 import { buildChatSurfaceParams } from '../lib/chatSurface';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
+import { parseRevealMarkdown } from '../lib/revealMarkdown';
 import { getErrorMessage, getMaybeContent } from '../lib/editorContent';
 import { composePreviewText, hasConflictMarkers } from '../lib/editorMergeUtils';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
@@ -597,6 +598,19 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         draftId: activeTab.draftId ?? undefined,
       },
     };
+    const revealDeck = parseRevealMarkdown(activeTab.markdown);
+    const revealSlideForRichSelection = inlineChatSelection.mode === 'rich' && revealDeck.detection.kind === 'reveal'
+      ? revealDeck.slides.find((slide) => slide.markdown.trim() === String(inlineChatSelection.snapshot || '').trim()) ?? null
+      : null;
+    const presentationContext = revealDeck.detection.kind === 'reveal'
+      ? {
+          presentationMode: 'reveal',
+          presentationDetection: revealDeck.detection.confidence,
+          slideCount: revealDeck.slides.length,
+          currentSlideIndex: revealSlideForRichSelection?.index,
+          currentSlideMarkdown: revealSlideForRichSelection?.markdown,
+        }
+      : {};
     const surfaceContext = inlineChatSelection.mode === 'rich'
       ? {
           mode: 'rich',
@@ -606,6 +620,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           cursorContext: inlineChatSelection.cursorContext,
           from: inlineChatSelection.from,
           to: inlineChatSelection.to,
+          ...presentationContext,
         }
       : {
           mode: 'markdown',
@@ -614,6 +629,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           cursorContext: inlineChatSelection.cursorContext,
           startOffset: inlineChatSelection.startOffset,
           endOffset: inlineChatSelection.endOffset,
+          ...presentationContext,
         };
 
     const runId = (inlineChatRunIdRef.current += 1);

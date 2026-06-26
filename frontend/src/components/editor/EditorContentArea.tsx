@@ -1,11 +1,13 @@
-import { type Ref } from 'react';
+import { type Ref, type RefObject, useEffect, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { CodeEditor, type CodeEditorProps } from '../ui/CodeEditor';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor';
+import { RevealRenderer } from './RevealRenderer';
 import type { EditorDocument } from '../../store/editorStore';
 import type { TipTapEditor } from '../../pages/editorTypes';
+import { parseRevealMarkdown, replaceRevealSlide } from '../../lib/revealMarkdown';
 
 interface RichMermaidRequestContext {
   mermaidBlockId?: string;
@@ -23,7 +25,7 @@ export interface EditorContentAreaProps {
   onMonacoMount: NonNullable<CodeEditorProps['onMount']>;
   onRichMarkdownChange: (markdown: string) => void;
   onRichEditorReady: (editor: TipTapEditor | null) => void;
-  richEditorHandleRef: Ref<RichTextEditorHandle>;
+  richEditorHandleRef: RefObject<RichTextEditorHandle | null>;
   onRequestEditMermaid: (ctx: RichMermaidRequestContext) => void;
   onOpenMermaid: (index: number, opts?: { insertText?: string }) => void;
   onRemoveMermaid: (index: number) => void;
@@ -49,6 +51,51 @@ export function EditorContentArea({
   onRemoveMermaid,
 }: EditorContentAreaProps) {
   const { t } = useTranslation();
+  const slideSelectId = useId();
+  const [activeRevealSlideIndex, setActiveRevealSlideIndex] = useState(0);
+  const revealDeck = useMemo(
+    () => parseRevealMarkdown(activeTab?.markdown || ''),
+    [activeTab?.markdown]
+  );
+  const isRevealDocument = revealDeck.detection.kind === 'reveal' && revealDeck.slides.length > 0;
+  const activeRevealSlide = isRevealDocument
+    ? revealDeck.slides[Math.min(activeRevealSlideIndex, revealDeck.slides.length - 1)] ?? revealDeck.slides[0]
+    : null;
+
+  useEffect(() => {
+    setActiveRevealSlideIndex(0);
+  }, [activeTab?.id]);
+
+  useEffect(() => {
+    if (!isRevealDocument) {
+      setActiveRevealSlideIndex(0);
+      return;
+    }
+    if (activeRevealSlideIndex >= revealDeck.slides.length) {
+      setActiveRevealSlideIndex(Math.max(0, revealDeck.slides.length - 1));
+    }
+  }, [activeRevealSlideIndex, isRevealDocument, revealDeck.slides.length]);
+
+  const switchRevealSlide = (nextIndex: number) => {
+    richEditorHandleRef.current?.flushMarkdown?.();
+    setActiveRevealSlideIndex(Math.max(0, Math.min(nextIndex, revealDeck.slides.length - 1)));
+  };
+
+  const createRevealSlide = () => {
+    richEditorHandleRef.current?.flushMarkdown?.();
+    const base = activeTab?.markdown || '';
+    const nextMarkdown = `${base.trimEnd()}\n\n---\n\n## ${t('editor.presentation.newSlideTitle')}\n`;
+    onMarkdownChange(nextMarkdown);
+    setActiveRevealSlideIndex(revealDeck.slides.length);
+  };
+
+  const handleRichMarkdownChange = (markdown: string) => {
+    if (!activeTab || !activeRevealSlide) {
+      onRichMarkdownChange(markdown);
+      return;
+    }
+    onRichMarkdownChange(replaceRevealSlide(activeTab.markdown, activeRevealSlide, markdown));
+  };
 
   return (
     <div className="editor-page__content ws-content-area">
@@ -118,12 +165,18 @@ export function EditorContentArea({
           >
             <div className="editor-page__pane-title">{t('editor.panes.preview')}</div>
             <div className="editor-page__preview">
-              <div className="editor-page__preview-hint">{t('editor.hints.previewMermaid')}</div>
-              <MarkdownRenderer
-                content={debouncedMarkdownForPreview}
-                interactiveButtons={false}
-                focusableMermaid={true}
-              />
+              {isRevealDocument ? (
+                <RevealRenderer markdown={debouncedMarkdownForPreview} />
+              ) : (
+                <>
+                  <div className="editor-page__preview-hint">{t('editor.hints.previewMermaid')}</div>
+                  <MarkdownRenderer
+                    content={debouncedMarkdownForPreview}
+                    interactiveButtons={false}
+                    focusableMermaid={true}
+                  />
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -132,11 +185,43 @@ export function EditorContentArea({
           <div className="editor-page__pane" role="region" aria-label={t('editor.aria.richEditor')}>
             <div className="editor-page__pane-title">{t('editor.panes.rich')}</div>
             <div className="editor-page__pane-body">
+              {isRevealDocument && activeRevealSlide ? (
+                <div className="editor-page__presentation-nav" role="group" aria-label={t('editor.presentation.navAria')}>
+                  <label className="editor-page__presentation-label" htmlFor={slideSelectId}>
+                    {t('editor.presentation.slideLabel', {
+                      current: activeRevealSlide.index + 1,
+                      total: revealDeck.slides.length,
+                    })}
+                  </label>
+                  <select
+                    id={slideSelectId}
+                    className="editor-page__presentation-select"
+                    value={String(activeRevealSlide.index)}
+                    onChange={(e) => switchRevealSlide(Number(e.target.value))}
+                    disabled={isAsking}
+                    aria-label={t('editor.presentation.goToSlide')}
+                  >
+                    {revealDeck.slides.map((slide) => (
+                      <option key={slide.index} value={String(slide.index)}>
+                        {t('editor.presentation.slideOption', { index: slide.index + 1 })}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="editor-page__presentation-button"
+                    onClick={createRevealSlide}
+                    disabled={isAsking}
+                  >
+                    {t('editor.presentation.newSlide')}
+                  </button>
+                </div>
+              ) : null}
               <RichTextEditor
-                ref={richEditorHandleRef}
+                ref={richEditorHandleRef as Ref<RichTextEditorHandle>}
                 ariaLabel={t('editor.richText.label')}
-                markdown={activeTab.markdown}
-                onMarkdownChange={onRichMarkdownChange}
+                markdown={activeRevealSlide?.markdown ?? activeTab.markdown}
+                onMarkdownChange={handleRichMarkdownChange}
                 readOnly={isAsking}
                 placeholder={t('editor.placeholders.rich')}
                 onEditorReady={onRichEditorReady}
