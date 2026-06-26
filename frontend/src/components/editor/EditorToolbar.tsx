@@ -53,38 +53,37 @@ export function EditorToolbar({
     <Toolbar
       className="editor-page__toolbar ws-content-toolbar"
       left={<div className="editor-page__title">{activeTab?.title || t('editor.fallback.title')}</div>}
-      center={
-        showRevealSlidePicker ? (
-          <div className="editor-page__toolbar-presentation" role="group" aria-label={t('editor.presentation.navAria')}>
-            <label className="editor-page__toolbar-presentation-label" htmlFor={slidePickerId}>
-              {t('editor.presentation.slidePickerLabel')}
-            </label>
-            <select
-              id={slidePickerId}
-              className="editor-page__toolbar-presentation-select"
-              value={String(revealSlidePicker.currentSlideIndex)}
-              onChange={(e) => {
-                if (e.target.value === 'new') {
-                  revealSlidePicker.onCreateSlide();
-                  return;
-                }
-                revealSlidePicker.onSelectSlide(Number(e.target.value));
-              }}
-              disabled={isAsking}
-              aria-label={t('editor.presentation.goToSlide')}
-            >
-              {Array.from({ length: revealSlidePicker.slideCount }, (_, index) => (
-                <option key={index} value={String(index)}>
-                  {t('editor.presentation.slideOption', { index: index + 1 })}
-                </option>
-              ))}
-              <option value="new">{t('editor.presentation.newSlide')}</option>
-            </select>
-          </div>
-        ) : null
-      }
       right={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {showRevealSlidePicker ? (
+            <div className="editor-page__toolbar-presentation" role="group" aria-label={t('editor.presentation.navAria')}>
+              <label className="editor-page__toolbar-presentation-label" htmlFor={slidePickerId}>
+                {t('editor.presentation.slidePickerLabel')}
+              </label>
+              <select
+                id={slidePickerId}
+                className="editor-page__toolbar-presentation-select"
+                value={String(revealSlidePicker.currentSlideIndex)}
+                onChange={(e) => {
+                  if (e.target.value === 'new') {
+                    revealSlidePicker.onCreateSlide();
+                    return;
+                  }
+                  revealSlidePicker.onSelectSlide(Number(e.target.value));
+                }}
+                disabled={isAsking}
+                aria-label={t('editor.presentation.goToSlide')}
+              >
+                {Array.from({ length: revealSlidePicker.slideCount }, (_, index) => (
+                  <option key={index} value={String(index)}>
+                    {t('editor.presentation.slideOption', { index: index + 1 })}
+                  </option>
+                ))}
+                <option value="new">{t('editor.presentation.newSlide')}</option>
+              </select>
+            </div>
+          ) : null}
+
           {showRevealFullscreen ? (
             <ToolbarButton
               label={t('editor.presentation.fullscreen')}
