@@ -41,6 +41,10 @@ export function buildInsertMenuItemsForContextMenu(args: { ctx: InsertMenuContex
     await insertMarkdownSnippet([headerRow, sepRow, bodyRows].filter(Boolean).join('\n') + '\n');
   };
 
+  const insertRevealSlide = async (content: string) => {
+    await insertMarkdownSnippet(`\n\n${content.trim()}\n\n`);
+  };
+
   const insertRichTable = (rows: number, cols: number, withHeaderRow: boolean) => {
     richActions.run((rich) => {
       rich.chain?.().focus?.().insertTable?.({ rows, cols, withHeaderRow })?.run?.();
@@ -95,7 +99,88 @@ export function buildInsertMenuItemsForContextMenu(args: { ctx: InsertMenuContex
     };
   };
 
+  const makeSlideMenu = (): MenuItem => ({
+    id: 'ins-slide',
+    label: i18next.t('editor.presentation.insert.menu'),
+    icon: '▭',
+    disabled: !canInsert,
+    submenu: [
+      {
+        id: 'ins-slide-basic',
+        label: i18next.t('editor.presentation.insert.basic'),
+        action: () => {
+          void insertRevealSlide(`---
+
+<!-- .slide: class="content-slide" -->
+
+## ${i18next.t('editor.presentation.newSlideTitle')}`);
+        },
+      },
+      {
+        id: 'ins-slide-title',
+        label: i18next.t('editor.presentation.insert.title'),
+        action: () => {
+          void insertRevealSlide(`---
+
+<!-- .slide: class="title-slide" -->
+
+# ${i18next.t('editor.presentation.insert.titlePlaceholder')}
+
+${i18next.t('editor.presentation.insert.subtitlePlaceholder')}`);
+        },
+      },
+      {
+        id: 'ins-slide-two-columns',
+        label: i18next.t('editor.presentation.insert.twoColumns'),
+        action: () => {
+          void insertRevealSlide(`---
+
+<!-- .slide: class="two-columns" -->
+
+## ${i18next.t('editor.presentation.insert.titlePlaceholder')}
+
+<div class="columns">
+<div>
+
+### ${i18next.t('editor.presentation.insert.firstColumn')}
+
+- ${i18next.t('editor.presentation.insert.itemPlaceholder')}
+
+</div>
+<div>
+
+### ${i18next.t('editor.presentation.insert.secondColumn')}
+
+- ${i18next.t('editor.presentation.insert.itemPlaceholder')}
+
+</div>
+</div>`);
+        },
+      },
+      {
+        id: 'ins-slide-image-right',
+        label: i18next.t('editor.presentation.insert.imageRight'),
+        action: () => {
+          void insertRevealSlide(`---
+
+<!-- .slide: class="image-right" -->
+
+## ${i18next.t('editor.presentation.insert.titlePlaceholder')}
+
+<div>
+
+${i18next.t('editor.presentation.insert.textPlaceholder')}
+
+</div>
+
+![${i18next.t('editor.presentation.insert.altPlaceholder')}](assets/imagem.png)`);
+        },
+      },
+    ],
+  });
+
   return [
+    makeSlideMenu(),
     {
       id: 'ins-mermaid',
       label: 'Diagrama Mermaid',
