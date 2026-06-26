@@ -1,6 +1,6 @@
 import { type RefObject, useId } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CompassOutlined, FileOutlined, FullscreenOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
+import { CompassOutlined, DownOutlined, FileOutlined, FullscreenOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
 
 import { Toolbar, ToolbarButton, type ToolbarAction } from '../ui/Toolbar';
 import type { MenuItem } from '../menu';
@@ -45,35 +45,37 @@ export function EditorToolbar({
   revealFullscreen,
 }: EditorToolbarProps) {
   const { t } = useTranslation();
-  const slidePickerId = useId();
+  const slidePickerMenuLabelId = useId();
   const showRevealSlidePicker = !!revealSlidePicker?.enabled && revealSlidePicker.slideCount > 0;
   const showRevealFullscreen = !!revealFullscreen?.enabled;
+  const revealSlideMenuItems: MenuItem[] = showRevealSlidePicker
+    ? [
+        ...Array.from({ length: revealSlidePicker.slideCount }, (_, index) => ({
+          id: `reveal-slide-${index}`,
+          label: t('editor.presentation.slideOption', { index: index + 1 }),
+          checked: index === revealSlidePicker.currentSlideIndex,
+          action: () => revealSlidePicker.onSelectSlide(index),
+        })),
+        { id: 'reveal-slide-separator', separator: true },
+        {
+          id: 'reveal-slide-new',
+          label: t('editor.presentation.newSlide'),
+          action: revealSlidePicker.onCreateSlide,
+        },
+      ]
+    : [];
   const revealSlidePickerControl = showRevealSlidePicker ? (
-    <div className="editor-page__toolbar-presentation" role="group" aria-label={t('editor.presentation.navAria')}>
-      <label className="editor-page__toolbar-presentation-label" htmlFor={slidePickerId}>
+    <div className="editor-page__toolbar-presentation" role="group" aria-labelledby={slidePickerMenuLabelId}>
+      <span id={slidePickerMenuLabelId} className="editor-page__toolbar-presentation-label">
         {t('editor.presentation.slidePickerLabel')}
-      </label>
-      <select
-        id={slidePickerId}
-        className="editor-page__toolbar-presentation-select"
-        value={String(revealSlidePicker.currentSlideIndex)}
-        onChange={(e) => {
-          if (e.target.value === 'new') {
-            revealSlidePicker.onCreateSlide();
-            return;
-          }
-          revealSlidePicker.onSelectSlide(Number(e.target.value));
-        }}
+      </span>
+      <ToolbarButton
+        label={t('editor.presentation.slideOption', { index: revealSlidePicker.currentSlideIndex + 1 })}
+        endIcon={<DownOutlined />}
         disabled={isAsking}
-        aria-label={t('editor.presentation.goToSlide')}
-      >
-        {Array.from({ length: revealSlidePicker.slideCount }, (_, index) => (
-          <option key={index} value={String(index)}>
-            {t('editor.presentation.slideOption', { index: index + 1 })}
-          </option>
-        ))}
-        <option value="new">{t('editor.presentation.newSlide')}</option>
-      </select>
+        onClick={(e) => onOpenMenu(e.currentTarget, t('editor.presentation.goToSlide'), revealSlideMenuItems)}
+        aria-haspopup="menu"
+      />
     </div>
   ) : null;
 
