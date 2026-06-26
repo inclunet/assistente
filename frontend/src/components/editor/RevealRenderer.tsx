@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import type { NavigateFunction } from 'react-router-dom';
 import MarkdownIt from 'markdown-it';
 import DOMPurify from 'dompurify';
 
@@ -242,9 +242,22 @@ function renderSlides(slides: RevealSlide[]) {
   return rendered;
 }
 
+const navigateWithinApp: NavigateFunction = (to) => {
+  if (typeof window === 'undefined') return;
+
+  if (typeof to === 'number') {
+    window.history.go(to);
+    return;
+  }
+
+  const path = typeof to === 'string'
+    ? to
+    : `${to.pathname || ''}${to.search || ''}${to.hash || ''}`;
+  window.history.pushState(null, '', path || '/');
+  window.dispatchEvent(new PopStateEvent('popstate'));
+};
 export function RevealRenderer({ markdown, fullscreenRequestNonce = 0 }: RevealRendererProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const revealApiRef = useRef<RevealApi | null>(null);
   const mermaidApiRef = useRef<MermaidApi | null>(null);
@@ -265,9 +278,9 @@ export function RevealRenderer({ markdown, fullscreenRequestNonce = 0 }: RevealR
 
       event.preventDefault();
       event.stopPropagation();
-      void executeDeepLink(action, { navigate });
+      void executeDeepLink(action, { navigate: navigateWithinApp });
     },
-    [navigate]
+    []
   );
 
   const handleDeepLinkKeydown = useCallback(
@@ -285,9 +298,9 @@ export function RevealRenderer({ markdown, fullscreenRequestNonce = 0 }: RevealR
 
       event.preventDefault();
       event.stopPropagation();
-      void executeDeepLink(action, { navigate });
+      void executeDeepLink(action, { navigate: navigateWithinApp });
     },
-    [navigate]
+    []
   );
 
   useEffect(() => {
