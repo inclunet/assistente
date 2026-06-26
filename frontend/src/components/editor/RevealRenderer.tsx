@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import MarkdownIt from 'markdown-it';
 import DOMPurify from 'dompurify';
 
@@ -10,7 +11,7 @@ import {
   type RevealSlide,
 } from '../../lib/revealMarkdown';
 import { isSafeLinkHref } from '../../lib/safeLink';
-import { isDeepLink } from '../../lib/deepLinks';
+import { executeDeepLink, isDeepLink, parseDeepLink } from '../../lib/deepLinks';
 import 'reveal.js/reveal.css';
 import './RevealRenderer.css';
 
@@ -243,12 +244,51 @@ function renderSlides(slides: RevealSlide[]) {
 
 export function RevealRenderer({ markdown, fullscreenRequestNonce = 0 }: RevealRendererProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const revealApiRef = useRef<RevealApi | null>(null);
   const mermaidApiRef = useRef<MermaidApi | null>(null);
   const lastFullscreenRequestNonceRef = useRef(fullscreenRequestNonce);
   const deck = useMemo(() => parseRevealMarkdown(markdown, 'reveal'), [markdown]);
   const slides = deck.slides;
+
+  const handleDeepLinkClick = useCallback(
+    (event: MouseEvent) => {
+      const target = event.target instanceof Element
+        ? event.target.closest('a[href]') as HTMLAnchorElement | null
+        : null;
+      const uri = target?.getAttribute('href') || '';
+      if (!isDeepLink(uri)) return;
+
+      const action = parseDeepLink(uri);
+      if (!action) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      void executeDeepLink(action, { navigate });
+    },
+    [navigate]
+  );
+
+  const handleDeepLinkKeydown = useCallback(
+    (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+
+      const target = event.target instanceof Element
+        ? event.target.closest('a[href]') as HTMLAnchorElement | null
+        : null;
+      const uri = target?.getAttribute('href') || '';
+      if (!isDeepLink(uri)) return;
+
+      const action = parseDeepLink(uri);
+      if (!action) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      void executeDeepLink(action, { navigate });
+    },
+    [navigate]
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -292,6 +332,19 @@ export function RevealRenderer({ markdown, fullscreenRequestNonce = 0 }: RevealR
       revealApiRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    root.addEventListener('click', handleDeepLinkClick as EventListener);
+    root.addEventListener('keydown', handleDeepLinkKeydown as EventListener);
+
+    return () => {
+      root.removeEventListener('click', handleDeepLinkClick as EventListener);
+      root.removeEventListener('keydown', handleDeepLinkKeydown as EventListener);
+    };
+  }, [handleDeepLinkClick, handleDeepLinkKeydown]);
 
   useEffect(() => {
     try {

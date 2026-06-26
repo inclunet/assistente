@@ -258,7 +258,7 @@ flowchart TD
     makeSlideMenu(),
     {
       id: 'ins-mermaid',
-      label: 'Diagrama Mermaid',
+      label: i18next.t('editor.presentation.mermaidDiagramLabel'),
       icon: '🧩',
       disabled: !canInsert,
       action: () => {
