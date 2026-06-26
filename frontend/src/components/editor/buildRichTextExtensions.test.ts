@@ -56,8 +56,9 @@ describe('buildRichTextExtensions', () => {
     const img = editor.view.dom.querySelector('img');
 
     expect(img).not.toBeNull();
-    expect(img?.getAttribute('src') || '').not.toContain('javascript:');
+    expect(img).not.toHaveAttribute('src');
     expect(editor.getHTML()).not.toContain('javascript:');
+    expect(editor.getHTML()).not.toContain('src=""');
 
     editor.destroy();
   });

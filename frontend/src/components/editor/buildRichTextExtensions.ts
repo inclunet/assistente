@@ -114,13 +114,15 @@ export function buildRichTextExtensions(args: {
       const alt = String(HTMLAttributes.alt || '').trim();
       const title = String(HTMLAttributes.title || '').trim();
       const accessibleLabel = alt || title || imageFallbackLabel;
+      const safeAttributes = { ...HTMLAttributes };
+      delete safeAttributes.src;
+      const imageAttributes = safeSrc ? { ...safeAttributes, src: safeSrc } : safeAttributes;
       return [
         'img',
         mergeAttributes(
           this.options.HTMLAttributes,
-          HTMLAttributes,
+          imageAttributes,
           {
-            src: safeSrc,
             'aria-label': accessibleLabel,
             title: title || accessibleLabel,
           }
