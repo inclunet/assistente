@@ -9,6 +9,7 @@ import {
   stripRevealDirectives,
   type RevealSlide,
 } from '../../lib/revealMarkdown';
+import { isSafeLinkHref } from '../../lib/safeLink';
 import 'reveal.js/reveal.css';
 import './RevealRenderer.css';
 
@@ -19,6 +20,7 @@ type RevealApi = {
 };
 
 type RevealCtor = new (root: HTMLElement, options?: Record<string, unknown>) => RevealApi;
+type MermaidApi = typeof import('mermaid')['default'];
 
 interface RevealRendererProps {
   markdown: string;
@@ -72,13 +74,50 @@ const purifyConfig = {
   ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|assistente):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
 };
 
+const URL_DATA_ATTR_RE = /^data-background-(?:image|video|iframe)$/i;
+const FENCE_START_RE = /^(\s*)(`{3,}|~{3,})/;
+const NOTE_RE = /^\s*Note:\s*$/i;
+
+function getFenceMarker(line: string): { char: '`' | '~'; length: number } | null {
+  const match = line.match(FENCE_START_RE);
+  if (!match) return null;
+  const marker = match[2] || '';
+  const char = marker[0] as '`' | '~';
+  return { char, length: marker.length };
+}
+
+function isClosingFence(line: string, fence: { char: '`' | '~'; length: number }): boolean {
+  const trimmed = line.trimStart();
+  const re = new RegExp(`^${fence.char === '`' ? '`' : '~'}{${fence.length},}\\s*$`);
+  return re.test(trimmed);
+}
+
 function splitSpeakerNotes(markdown: string): { body: string; notes: string } {
-  const match = String(markdown || '').match(/^\s*Note:\s*$/im);
-  if (!match || match.index === undefined) return { body: markdown, notes: '' };
-  return {
-    body: markdown.slice(0, match.index).trim(),
-    notes: markdown.slice(match.index + match[0].length).trim(),
-  };
+  const text = String(markdown || '');
+  const lines = text.match(/[^\n]*(?:\n|$)/g) ?? [''];
+  const normalizedLines = lines.filter((line, index) => !(line === '' && index === lines.length - 1));
+  let cursor = 0;
+  let fence: { char: '`' | '~'; length: number } | null = null;
+
+  for (const line of normalizedLines) {
+    const lineWithoutNewline = line.replace(/\r?\n$/, '');
+    if (fence) {
+      if (isClosingFence(lineWithoutNewline, fence)) fence = null;
+    } else {
+      const nextFence = getFenceMarker(lineWithoutNewline);
+      if (nextFence) {
+        fence = nextFence;
+      } else if (NOTE_RE.test(lineWithoutNewline)) {
+        return {
+          body: text.slice(0, cursor).trim(),
+          notes: text.slice(cursor + line.length).trim(),
+        };
+      }
+    }
+    cursor += line.length;
+  }
+
+  return { body: markdown, notes: '' };
 }
 
 function renderMarkdownHtml(markdown: string): string {
@@ -103,7 +142,11 @@ function enhanceImageAccessibility(html: string): string {
 
 function revealDataProps(data: Record<string, string>) {
   return Object.fromEntries(
-    Object.entries(data).filter(([key]) => /^data-[\w-]+$/.test(key))
+    Object.entries(data).filter(([key, value]) => {
+      if (!/^data-[\w-]+$/.test(key)) return false;
+      if (!URL_DATA_ATTR_RE.test(key)) return true;
+      return isSafeLinkHref(value) && !/^mailto:/i.test(String(value || '').trim());
+    })
   );
 }
 
@@ -128,10 +171,55 @@ function renderSlide(slide: RevealSlide) {
   );
 }
 
+function renderSlides(slides: RevealSlide[]) {
+  const rendered = [];
+  for (let index = 0; index < slides.length; index += 1) {
+    const slide = slides[index];
+    if (slide.level === 'vertical') {
+      const verticalSlides: RevealSlide[] = [];
+      let nextIndex = index;
+      while (nextIndex < slides.length && slides[nextIndex].level === 'vertical') {
+        verticalSlides.push(slides[nextIndex]);
+        nextIndex += 1;
+      }
+      rendered.push(
+        <section key={`orphan-vertical-stack-${slide.index}`}>
+          {verticalSlides.map(renderSlide)}
+        </section>
+      );
+      index = nextIndex - 1;
+      continue;
+    }
+
+    const verticalSlides: RevealSlide[] = [];
+    let nextIndex = index + 1;
+    while (nextIndex < slides.length && slides[nextIndex].level === 'vertical') {
+      verticalSlides.push(slides[nextIndex]);
+      nextIndex += 1;
+    }
+
+    if (verticalSlides.length > 0) {
+      const stackSlides = slide.markdown.trim() ? [slide, ...verticalSlides] : verticalSlides;
+      rendered.push(
+        <section key={`vertical-stack-${slide.index}`}>
+          {stackSlides.map(renderSlide)}
+        </section>
+      );
+      index = nextIndex - 1;
+      continue;
+    }
+
+    rendered.push(renderSlide(slide));
+  }
+
+  return rendered;
+}
+
 export function RevealRenderer({ markdown }: RevealRendererProps) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const revealApiRef = useRef<RevealApi | null>(null);
+  const mermaidApiRef = useRef<MermaidApi | null>(null);
   const deck = useMemo(() => parseRevealMarkdown(markdown, 'reveal'), [markdown]);
   const slides = deck.slides;
 
@@ -158,6 +246,11 @@ export function RevealRenderer({ markdown }: RevealRendererProps) {
         return;
       }
       revealApiRef.current = api;
+      try {
+        api.sync();
+      } catch {
+        // Best-effort: o efeito de slides também tenta sincronizar depois.
+      }
     }
 
     void start();
@@ -181,6 +274,77 @@ export function RevealRenderer({ markdown }: RevealRendererProps) {
     }
   }, [slides]);
 
+  useEffect(() => {
+    let disposed = false;
+    const renderedWrappers: HTMLElement[] = [];
+
+    async function renderMermaid() {
+      if (!rootRef.current) return;
+      const mermaidBlocks = Array.from(rootRef.current.querySelectorAll('code.language-mermaid')) as HTMLElement[];
+      if (mermaidBlocks.length === 0) return;
+
+      if (!mermaidApiRef.current) {
+        const mod = await import('mermaid');
+        const api = (mod.default ?? mod) as MermaidApi;
+        api.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
+        mermaidApiRef.current = api;
+      }
+
+      const mermaid = mermaidApiRef.current;
+      if (!mermaid || disposed) return;
+
+      for (let index = 0; index < mermaidBlocks.length; index += 1) {
+        const codeBlock = mermaidBlocks[index];
+        const pre = codeBlock.parentElement as HTMLPreElement | null;
+        if (!pre || pre.dataset.mermaidRendered) continue;
+
+        const mermaidCode = (codeBlock.textContent || '').trimEnd();
+        const wrapper = document.createElement('div');
+        wrapper.className = 'mermaid-diagram';
+        wrapper.setAttribute('role', 'group');
+        wrapper.setAttribute('aria-label', t('editor.presentation.mermaidDiagramLabel'));
+        wrapper.dataset.mermaidIndex = String(index);
+        wrapper.dataset.mermaidCode = mermaidCode;
+        wrapper.tabIndex = -1;
+
+        try {
+          const { svg } = await mermaid.render(`reveal-mermaid-${Date.now()}-${index}`, mermaidCode);
+          if (disposed) return;
+          wrapper.innerHTML = svg;
+        } catch {
+          if (disposed) return;
+          wrapper.classList.add('mermaid-diagram--error');
+          wrapper.textContent = t('editor.presentation.mermaidRenderError');
+        }
+
+        pre.parentNode?.insertBefore(wrapper, pre);
+        pre.style.display = 'none';
+        pre.dataset.mermaidRendered = 'true';
+        renderedWrappers.push(wrapper);
+      }
+
+      try {
+        revealApiRef.current?.sync();
+      } catch {
+        // Best-effort: o deck continua utilizável mesmo se o sync pós-Mermaid falhar.
+      }
+    }
+
+    void renderMermaid();
+
+    return () => {
+      disposed = true;
+      renderedWrappers.forEach((wrapper) => {
+        const pre = wrapper.nextElementSibling as HTMLPreElement | null;
+        if (pre?.dataset.mermaidRendered) {
+          pre.style.display = '';
+          pre.removeAttribute('data-mermaid-rendered');
+        }
+        wrapper.remove();
+      });
+    };
+  }, [slides, t]);
+
   return (
     <div className="reveal-renderer" role="region" aria-label={t('editor.presentation.aria')}>
       <div className="reveal-renderer__hint">
@@ -188,7 +352,7 @@ export function RevealRenderer({ markdown }: RevealRendererProps) {
       </div>
       <div ref={rootRef} className="reveal">
         <div className="slides">
-          {slides.map(renderSlide)}
+          {renderSlides(slides)}
         </div>
       </div>
     </div>

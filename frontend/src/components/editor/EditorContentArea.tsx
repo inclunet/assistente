@@ -1,11 +1,11 @@
-import { type Ref, type RefObject, useEffect, useId, useMemo, useState } from 'react';
+import { type Ref, type RefObject, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { CodeEditor, type CodeEditorProps } from '../ui/CodeEditor';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor';
 import { RevealRenderer } from './RevealRenderer';
-import type { EditorDocument } from '../../store/editorStore';
+import { useEditorStore, type EditorDocument } from '../../store/editorStore';
 import type { TipTapEditor } from '../../pages/editorTypes';
 import {
   getRevealSlideEditableMarkdown,
@@ -13,6 +13,12 @@ import {
   parseRevealMarkdown,
   replaceRevealSlide,
 } from '../../lib/revealMarkdown';
+
+const RAW_HTML_RE = /<\/?[a-z][\w:-]*(?:\s|>|\/>)/i;
+
+function normalizeRevealEditableMarkdown(markdown: string): string {
+  return String(markdown || '').replace(/^\s*-{3,}\s*$/gm, '___');
+}
 
 interface RichMermaidRequestContext {
   mermaidBlockId?: string;
@@ -30,6 +36,8 @@ export interface EditorContentAreaProps {
   onMonacoMount: NonNullable<CodeEditorProps['onMount']>;
   onRichMarkdownChange: (markdown: string) => void;
   onRichEditorReady: (editor: TipTapEditor | null) => void;
+  onRevealSlideIndexChange?: (index: number) => void;
+  revealAppendNonce?: number;
   richEditorHandleRef: RefObject<RichTextEditorHandle | null>;
   onRequestEditMermaid: (ctx: RichMermaidRequestContext) => void;
   onOpenMermaid: (index: number, opts?: { insertText?: string }) => void;
@@ -50,6 +58,8 @@ export function EditorContentArea({
   onMonacoMount,
   onRichMarkdownChange,
   onRichEditorReady,
+  onRevealSlideIndexChange,
+  revealAppendNonce = 0,
   richEditorHandleRef,
   onRequestEditMermaid,
   onOpenMermaid,
@@ -58,25 +68,67 @@ export function EditorContentArea({
   const { t } = useTranslation();
   const slideSelectId = useId();
   const [activeRevealSlideIndex, setActiveRevealSlideIndex] = useState(0);
+  const [pendingRevealSlideIndex, setPendingRevealSlideIndex] = useState<number | null>(null);
+  const lastRevealAppendNonceRef = useRef(revealAppendNonce);
   const revealDeck = useMemo(
     () => parseRevealMarkdown(activeTab?.markdown || ''),
     [activeTab?.markdown]
   );
+  const previewRevealDeck = useMemo(
+    () => parseRevealMarkdown(debouncedMarkdownForPreview || ''),
+    [debouncedMarkdownForPreview]
+  );
   const isRevealDocument = revealDeck.detection.kind === 'reveal' && revealDeck.slides.length > 0;
+  const isRevealPreviewDocument = previewRevealDeck.detection.kind === 'reveal' && previewRevealDeck.slides.length > 0;
   const activeRevealSlide = isRevealDocument
     ? revealDeck.slides[Math.min(activeRevealSlideIndex, revealDeck.slides.length - 1)] ?? revealDeck.slides[0]
     : null;
   const activeRevealSlideEditableMarkdown = activeRevealSlide
     ? getRevealSlideEditableMarkdown(activeRevealSlide.markdown)
     : null;
+  const activeRevealSlideHasRawHtml = activeRevealSlideEditableMarkdown
+    ? RAW_HTML_RE.test(activeRevealSlideEditableMarkdown)
+    : false;
+  const richEditorKey = activeTab
+    ? isRevealDocument && activeRevealSlide
+      ? `${activeTab.id}:reveal-slide:${activeRevealSlide.index}`
+      : `${activeTab.id}:document`
+    : 'empty';
+
+  const getLatestMarkdown = () => {
+    if (!activeTab) return '';
+    return useEditorStore.getState().getDocument(activeTab.id)?.markdown ?? activeTab.markdown;
+  };
+
+  const getLatestSlideForCurrentIndex = (markdown: string) => {
+    if (!activeRevealSlide) return null;
+    const latestDeck = parseRevealMarkdown(markdown);
+    if (latestDeck.slides.length === 0) return null;
+    return latestDeck.slides[Math.min(activeRevealSlide.index, latestDeck.slides.length - 1)] ?? null;
+  };
 
   useEffect(() => {
     setActiveRevealSlideIndex(0);
+    setPendingRevealSlideIndex(null);
+    lastRevealAppendNonceRef.current = revealAppendNonce;
   }, [activeTab?.id]);
+
+  useEffect(() => {
+    onRevealSlideIndexChange?.(activeRevealSlide?.index ?? 0);
+  }, [activeRevealSlide?.index, onRevealSlideIndexChange]);
+
+  useEffect(() => {
+    if (pendingRevealSlideIndex === null || !isRevealDocument) return;
+    if (pendingRevealSlideIndex < revealDeck.slides.length) {
+      setActiveRevealSlideIndex(pendingRevealSlideIndex);
+      setPendingRevealSlideIndex(null);
+    }
+  }, [isRevealDocument, pendingRevealSlideIndex, revealDeck.slides.length]);
 
   useEffect(() => {
     if (!isRevealDocument) {
       setActiveRevealSlideIndex(0);
+      setPendingRevealSlideIndex(null);
       return;
     }
     if (activeRevealSlideIndex >= revealDeck.slides.length) {
@@ -84,29 +136,78 @@ export function EditorContentArea({
     }
   }, [activeRevealSlideIndex, isRevealDocument, revealDeck.slides.length]);
 
+  useEffect(() => {
+    if (revealAppendNonce === lastRevealAppendNonceRef.current) return;
+    if (!isRevealDocument || activeTab?.mode !== 'rich' || revealDeck.slides.length === 0) return;
+    lastRevealAppendNonceRef.current = revealAppendNonce;
+    setActiveRevealSlideIndex(revealDeck.slides.length - 1);
+  }, [activeTab?.mode, isRevealDocument, revealAppendNonce, revealDeck.slides.length]);
+
+  const getMarkdownWithCurrentRevealSlide = () => {
+    if (!activeTab || !activeRevealSlide) return activeTab?.markdown || null;
+    if (activeRevealSlideHasRawHtml) return getLatestMarkdown();
+    const richEditorHandle = richEditorHandleRef.current;
+    richEditorHandle?.flushMarkdown?.();
+    const currentEditableMarkdown = richEditorHandle?.getMarkdown?.();
+    const baseMarkdown = getLatestMarkdown();
+    const slideForBase = getLatestSlideForCurrentIndex(baseMarkdown);
+    if (typeof currentEditableMarkdown !== 'string') return baseMarkdown;
+    const normalizedEditableMarkdown = normalizeRevealEditableMarkdown(currentEditableMarkdown);
+    if (!slideForBase) return baseMarkdown;
+    return replaceRevealSlide(
+      baseMarkdown,
+      slideForBase,
+      mergeRevealSlideEditableMarkdown(slideForBase.markdown, normalizedEditableMarkdown)
+    );
+  };
+
   const switchRevealSlide = (nextIndex: number) => {
-    richEditorHandleRef.current?.flushMarkdown?.();
-    setActiveRevealSlideIndex(Math.max(0, Math.min(nextIndex, revealDeck.slides.length - 1)));
+    const clampedIndex = Math.max(0, Math.min(nextIndex, revealDeck.slides.length - 1));
+    const nextMarkdown = getMarkdownWithCurrentRevealSlide();
+    if (nextMarkdown === null) {
+      setActiveRevealSlideIndex(clampedIndex);
+      return;
+    }
+    if (nextMarkdown !== activeTab?.markdown) {
+      onRichMarkdownChange(nextMarkdown);
+    }
+    setActiveRevealSlideIndex(clampedIndex);
   };
 
   const createRevealSlide = () => {
-    richEditorHandleRef.current?.flushMarkdown?.();
-    const base = activeTab?.markdown || '';
+    const base = getMarkdownWithCurrentRevealSlide();
+    if (base === null) return;
     const nextMarkdown = `${base.trimEnd()}\n\n---\n\n<!-- .slide: class="content-slide" -->\n\n## ${t('editor.presentation.newSlideTitle')}\n`;
+    const nextDeck = parseRevealMarkdown(nextMarkdown, 'reveal');
     onMarkdownChange(nextMarkdown);
-    setActiveRevealSlideIndex(revealDeck.slides.length);
+    setPendingRevealSlideIndex(Math.max(0, nextDeck.slides.length - 1));
   };
 
   const handleRichMarkdownChange = (markdown: string) => {
-    if (!activeTab || !activeRevealSlide) {
+    if (!activeTab) return;
+    if (!activeRevealSlide) {
+      if (!isRevealDocument) {
+        onRichMarkdownChange(markdown);
+      }
+      return;
+    }
+    if (!isRevealDocument) {
       onRichMarkdownChange(markdown);
+      return;
+    }
+    if (activeRevealSlideHasRawHtml) return;
+    const baseMarkdown = getLatestMarkdown();
+    const slideForBase = getLatestSlideForCurrentIndex(baseMarkdown);
+    const normalizedMarkdown = normalizeRevealEditableMarkdown(markdown);
+    if (!slideForBase) {
+      onRichMarkdownChange(baseMarkdown);
       return;
     }
     onRichMarkdownChange(
       replaceRevealSlide(
-        activeTab.markdown,
-        activeRevealSlide,
-        mergeRevealSlideEditableMarkdown(activeRevealSlide.markdown, markdown)
+        baseMarkdown,
+        slideForBase,
+        mergeRevealSlideEditableMarkdown(slideForBase.markdown, normalizedMarkdown)
       )
     );
   };
@@ -179,7 +280,7 @@ export function EditorContentArea({
           >
             <div className="editor-page__pane-title">{t('editor.panes.preview')}</div>
             <div className="editor-page__preview">
-              {isRevealDocument ? (
+              {isRevealPreviewDocument ? (
                 <RevealRenderer markdown={debouncedMarkdownForPreview} />
               ) : (
                 <>
@@ -232,11 +333,12 @@ export function EditorContentArea({
                 </div>
               ) : null}
               <RichTextEditor
+                key={richEditorKey}
                 ref={richEditorHandleRef as Ref<RichTextEditorHandle>}
                 ariaLabel={t('editor.richText.label')}
                 markdown={activeRevealSlideEditableMarkdown ?? activeTab.markdown}
                 onMarkdownChange={handleRichMarkdownChange}
-                readOnly={isAsking}
+                readOnly={isAsking || activeRevealSlideHasRawHtml}
                 placeholder={t('editor.placeholders.rich')}
                 onEditorReady={onRichEditorReady}
                 onRequestEditMermaid={onRequestEditMermaid}

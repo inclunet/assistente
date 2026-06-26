@@ -918,6 +918,8 @@ const ptBR = {
       presentation: {
         aria: 'Apresentação Reveal.js renderizada',
         hint: 'Apresentação Reveal.js. Use as setas para navegar entre os slides.',
+        mermaidDiagramLabel: 'Diagrama Mermaid',
+        mermaidRenderError: 'Erro ao renderizar Mermaid',
         navAria: 'Navegação da apresentação',
         slideLabel: 'Slide {{current}} de {{total}}',
         goToSlide: 'Ir para slide',
@@ -1008,7 +1010,12 @@ const ptBR = {
         patchRejected: 'Alteração rejeitada',
         mermaidBlockNotFound: 'Não foi possível localizar o bloco Mermaid no Markdown.',
       },
-      richText: { placeholder: 'Escreva…', label: 'Editor de texto rico' },
+      richText: {
+        placeholder: 'Escreva…',
+        label: 'Editor de texto rico',
+        imageFallbackLabel: 'Imagem sem descrição',
+        imageLabelPrefix: 'Imagem',
+      },
     },
 
     terminal: {

@@ -105,12 +105,24 @@ export function syncFromExternal(args: {
   refs: RichMarkdownSyncRefs;
   editor: EditorLike | null;
   nextMarkdown: string;
+  onMarkdownChange?: (markdown: string) => void;
   timers?: Timers;
 }) {
-  const { refs, editor, nextMarkdown, timers = defaultTimers } = args;
+  const { refs, editor, nextMarkdown, onMarkdownChange, timers = defaultTimers } = args;
 
   if (!editor) return;
   if (nextMarkdown === refs.lastMarkdownRef.current) return;
+
+  if (refs.markdownEmitTimerRef.current) {
+    timers.clearTimeout(refs.markdownEmitTimerRef.current);
+    refs.markdownEmitTimerRef.current = null;
+  }
+  const pending = refs.pendingMarkdownRef.current;
+  refs.pendingMarkdownRef.current = null;
+  if (typeof pending === 'string' && pending !== refs.lastMarkdownRef.current) {
+    refs.lastMarkdownRef.current = pending;
+    onMarkdownChange?.(pending);
+  }
 
   refs.isApplyingExternalMarkdownRef.current = true;
   try {
@@ -123,7 +135,11 @@ export function syncFromExternal(args: {
   }
 }
 
-export function disposeRichMarkdownSync(refs: RichMarkdownSyncRefs, timers: Timers = defaultTimers) {
+export function disposeRichMarkdownSync(
+  refs: RichMarkdownSyncRefs,
+  timers: Timers = defaultTimers,
+  onMarkdownChange?: (markdown: string) => void
+) {
   if (refs.markdownEmitTimerRef.current) {
     try {
       timers.clearTimeout(refs.markdownEmitTimerRef.current);
@@ -133,5 +149,10 @@ export function disposeRichMarkdownSync(refs: RichMarkdownSyncRefs, timers: Time
   }
 
   refs.markdownEmitTimerRef.current = null;
+  const pending = refs.pendingMarkdownRef.current;
   refs.pendingMarkdownRef.current = null;
+  if (typeof pending === 'string' && pending !== refs.lastMarkdownRef.current) {
+    refs.lastMarkdownRef.current = pending;
+    onMarkdownChange?.(pending);
+  }
 }

@@ -84,12 +84,40 @@ Conclusão.`;
     expect(detectRevealMarkdown(markdown).kind).toBe('markdown');
   });
 
+  it('não trata Note comum com régua horizontal como apresentação', () => {
+    const markdown = `# Documento
+
+Note:
+
+Este é um bloco de observação do artigo.
+
+---
+
+Continuação do texto.`;
+
+    expect(detectRevealMarkdown(markdown).kind).toBe('markdown');
+  });
+
   it('ignora atributos Reveal dentro de blocos fenced', () => {
     const markdown = `# Exemplo
 
 \`\`\`md
 <!-- .slide: class="title-slide" -->
 \`\`\``;
+
+    expect(detectRevealMarkdown(markdown).kind).toBe('markdown');
+  });
+
+  it('ignora Note dentro de blocos fenced na detecção', () => {
+    const markdown = `# Exemplo
+
+\`\`\`md
+Note:
+\`\`\`
+
+---
+
+Texto comum.`;
 
     expect(detectRevealMarkdown(markdown).kind).toBe('markdown');
   });
@@ -152,6 +180,33 @@ key: value
     expect(slides).toHaveLength(2);
     expect(slides[0].markdown).toContain('```yaml\n---\nkey: value\n---\n```');
     expect(slides[1].markdown).toBe('## Slide 2');
+  });
+
+  it('ignora delimitadores de frontmatter YAML no split', () => {
+    const markdown = `---
+title: Deck
+author: Assistente
+---
+
+<!-- .slide: class="title-slide" -->
+
+# Slide 1
+
+---
+
+## Slide 2`;
+
+    const slides = splitRevealSlides(markdown);
+
+    expect(slides).toHaveLength(2);
+    expect(slides[0].markdown).toContain('# Slide 1');
+    expect(slides[0].markdown).not.toContain('title: Deck');
+    expect(slides[1].markdown).toBe('## Slide 2');
+
+    const next = replaceRevealSlide(markdown, slides[0], '# Slide atualizado');
+    expect(next).toContain('title: Deck');
+    expect(next).toContain('# Slide atualizado');
+    expect(next).not.toContain('# Slide 1');
   });
 });
 

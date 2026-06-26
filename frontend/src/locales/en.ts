@@ -918,6 +918,8 @@ const en = {
       presentation: {
         aria: 'Rendered Reveal.js presentation',
         hint: 'Reveal.js presentation. Use the arrow keys to navigate between slides.',
+        mermaidDiagramLabel: 'Mermaid diagram',
+        mermaidRenderError: 'Error rendering Mermaid',
         navAria: 'Presentation navigation',
         slideLabel: 'Slide {{current}} of {{total}}',
         goToSlide: 'Go to slide',
@@ -1008,7 +1010,12 @@ const en = {
         patchRejected: 'Change rejected',
         mermaidBlockNotFound: 'Could not locate the Mermaid block in Markdown.',
       },
-      richText: { placeholder: 'Write…', label: 'Rich text editor' },
+      richText: {
+        placeholder: 'Write…',
+        label: 'Rich text editor',
+        imageFallbackLabel: 'Image without description',
+        imageLabelPrefix: 'Image',
+      },
     },
 
     terminal: {

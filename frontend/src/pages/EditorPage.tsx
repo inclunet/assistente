@@ -31,7 +31,7 @@ import { markdownToHtml } from '../lib/markdownToHtml';
 import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
 import { buildChatSurfaceParams } from '../lib/chatSurface';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
-import { parseRevealMarkdown } from '../lib/revealMarkdown';
+import { getRevealSlideEditableMarkdown, parseRevealMarkdown } from '../lib/revealMarkdown';
 import { getErrorMessage, getMaybeContent } from '../lib/editorContent';
 import { composePreviewText, hasConflictMarkers } from '../lib/editorMergeUtils';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
@@ -107,6 +107,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   const monacoRef = useRef<MonacoNamespace | null>(null);
   const richEditorRef = useRef<TipTapEditor | null>(null);
   const richEditorHandleRef = useRef<RichTextEditorHandle | null>(null);
+  const currentRevealSlideIndexRef = useRef(0);
 
   const [isAsking, setIsAsking] = useState(false);
 
@@ -116,6 +117,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   const [richMermaidSession, setRichMermaidSession] = useState<RichMermaidSession | null>(null);
 
   const [editorReadyNonce, setEditorReadyNonce] = useState(0);
+  const [revealAppendNonce, setRevealAppendNonce] = useState(0);
   const [pendingInsert, setPendingInsert] = useState<EditorInsertRequest | null>(null);
 
   const inlineChatRunIdRef = useRef(0);
@@ -590,25 +592,37 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     if (!trimmed) return null;
 
     const prompt = trimmed;
+    if (activeTab.mode === 'rich') {
+      flushActiveRichMarkdownNow();
+    }
+    const latestActiveTab = useEditorStore.getState().documents[activeTab.id] ?? activeTab;
     const editorSurfaceTab = workspaceTab ?? {
       type: 'editor',
-      title: activeTab.title,
+      title: latestActiveTab.title,
       state: {
-        filePath: activeTab.filePath ?? undefined,
-        draftId: activeTab.draftId ?? undefined,
+        filePath: latestActiveTab.filePath ?? undefined,
+        draftId: latestActiveTab.draftId ?? undefined,
       },
     };
-    const revealDeck = parseRevealMarkdown(activeTab.markdown);
+    const revealDeck = parseRevealMarkdown(latestActiveTab.markdown);
     const revealSlideForRichSelection = inlineChatSelection.mode === 'rich' && revealDeck.detection.kind === 'reveal'
-      ? revealDeck.slides.find((slide) => slide.markdown.trim() === String(inlineChatSelection.snapshot || '').trim()) ?? null
+      ? revealDeck.slides.find(
+          (slide) => getRevealSlideEditableMarkdown(slide.markdown).trim() === String(inlineChatSelection.snapshot || '').trim()
+        ) ?? null
+      : null;
+    const fallbackRevealSlide = revealDeck.detection.kind === 'reveal'
+      ? revealDeck.slides[currentRevealSlideIndexRef.current] ?? revealDeck.slides[0] ?? null
+      : null;
+    const currentRevealSlide = inlineChatSelection.mode === 'rich'
+      ? revealSlideForRichSelection ?? fallbackRevealSlide
       : null;
     const presentationContext = revealDeck.detection.kind === 'reveal'
       ? {
           presentationMode: 'reveal',
           presentationDetection: revealDeck.detection.confidence,
           slideCount: revealDeck.slides.length,
-          currentSlideIndex: revealSlideForRichSelection?.index,
-          currentSlideMarkdown: revealSlideForRichSelection?.markdown,
+          currentSlideIndex: currentRevealSlide?.index,
+          currentSlideMarkdown: currentRevealSlide?.markdown,
         }
       : {};
     const surfaceContext = inlineChatSelection.mode === 'rich'
@@ -1363,10 +1377,13 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
     const latestTab = useEditorStore.getState().documents[activeTab.id] ?? activeTab;
     const current = String(latestTab.markdown ?? '');
-    const nextMarkdown = `${current.trimEnd()}${String(content || '')}`;
+    const trimmedContent = String(content || '').trim();
+    const separator = current.trim() ? '\n\n---\n\n' : '';
+    const nextMarkdown = `${current.trimEnd()}${separator}${trimmedContent}\n`;
     setDocMarkdown(activeTab.id, nextMarkdown);
     updateLatestMarkdownForTab(activeTab.id, nextMarkdown);
     schedulePersistForTab(activeTab.id);
+    setRevealAppendNonce((n) => n + 1);
   }, [activeTab, flushActiveRichMarkdownNow, setDocMarkdown, updateLatestMarkdownForTab, schedulePersistForTab]);
 
   const {
@@ -1532,6 +1549,10 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           richEditorRef.current = ed;
           setEditorReadyNonce((n) => n + 1);
         }}
+        onRevealSlideIndexChange={(index) => {
+          currentRevealSlideIndexRef.current = index;
+        }}
+        revealAppendNonce={revealAppendNonce}
         richEditorHandleRef={richEditorHandleRef}
         onRequestEditMermaid={(ctx) => {
           const mermaidBlockId = String(ctx.mermaidBlockId || '').trim();

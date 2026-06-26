@@ -29,6 +29,7 @@
     "@floating-ui/dom": "^1.7.6",
     "@monaco-editor/react": "^4.7.0",
     "@tanstack/react-virtual": "^3.13.26",
+    "@tiptap/extension-image": "^3.27.1",
     "@tiptap/extension-link": "^3.20.0",
     "@tiptap/extension-placeholder": "^3.20.0",
     "@tiptap/extension-table": "^3.20.0",

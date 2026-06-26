@@ -3,7 +3,7 @@ export type RevealDetectionKind = 'markdown' | 'reveal';
 export type RevealDetection = {
   kind: RevealDetectionKind;
   confidence: 'none' | 'probable' | 'strong' | 'manual';
-  reason?: 'manual' | 'slideAttribute' | 'multipleSeparators' | 'notesWithSeparators';
+  reason?: 'manual' | 'slideAttribute' | 'multipleSeparators';
 };
 
 export type RevealSlideLevel = 'horizontal' | 'vertical';
@@ -33,7 +33,6 @@ const LEADING_SLIDE_DIRECTIVES_RE = /^(\s*<!--\s*\.slide\s*:[\s\S]*?-->\s*)+/i;
 const ATTRIBUTE_RE = /([a-zA-Z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const HORIZONTAL_SEPARATOR_RE = /^\s*---\s*$/;
 const VERTICAL_SEPARATOR_RE = /^\s*----\s*$/;
-const NOTE_RE = /^\s*Note:\s*$/im;
 const FENCE_START_RE = /^(\s*)(`{3,}|~{3,})/;
 
 function isHorizontalSeparator(line: string): boolean {
@@ -52,11 +51,18 @@ function hasMeaningfulContent(value: string): boolean {
   return value.trim().length > 0;
 }
 
-function stripYamlFrontmatter(markdown: string): string {
+function getYamlFrontmatterRange(markdown: string): { start: number; end: number } | null {
   const text = String(markdown || '');
   const match = text.match(/^\s*---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n|$)/);
-  if (!match) return text;
-  return text.slice(match[0].length);
+  if (!match) return null;
+  return { start: 0, end: match[0].length };
+}
+
+function stripYamlFrontmatter(markdown: string): string {
+  const text = String(markdown || '');
+  const range = getYamlFrontmatterRange(text);
+  if (!range) return text;
+  return text.slice(range.end);
 }
 
 function getFenceMarker(line: string): { char: '`' | '~'; length: number } | null {
@@ -117,10 +123,6 @@ export function detectRevealMarkdown(markdown: string, manualMode?: 'markdown' |
     return { kind: 'reveal', confidence: 'strong', reason: 'multipleSeparators' };
   }
 
-  if (separatorCount >= 1 && nonEmptySlides.length >= 2 && NOTE_RE.test(text)) {
-    return { kind: 'reveal', confidence: 'probable', reason: 'notesWithSeparators' };
-  }
-
   return { kind: 'markdown', confidence: 'none' };
 }
 
@@ -128,15 +130,22 @@ export function splitRevealSlides(markdown: string): RevealSlide[] {
   const text = String(markdown || '');
   const lines = text.match(/[^\n]*(?:\n|$)/g) ?? [''];
   const normalizedLines = lines.filter((line, index) => !(line === '' && index === lines.length - 1));
+  const frontmatterRange = getYamlFrontmatterRange(text);
+  const contentStart = frontmatterRange?.end ?? 0;
 
   const slides: RevealSlide[] = [];
-  let currentStart = 0;
+  let currentStart = contentStart;
   let currentSeparator: RevealSlide['separatorBefore'] = '';
   let cursor = 0;
   let slideIndex = 0;
   let fence: { char: '`' | '~'; length: number } | null = null;
 
   for (const line of normalizedLines) {
+    if (cursor < contentStart) {
+      cursor += line.length;
+      continue;
+    }
+
     const lineWithoutNewline = line.replace(/\r?\n$/, '');
     if (fence) {
       if (isClosingFence(lineWithoutNewline, fence)) fence = null;

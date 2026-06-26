@@ -42,7 +42,7 @@ export function buildInsertMenuItemsForContextMenu(args: { ctx: InsertMenuContex
   };
 
   const insertRevealSlide = async (content: string) => {
-    appendMarkdownToDocument(`\n\n---\n\n${content.trim()}\n`);
+    appendMarkdownToDocument(content);
     focusEditorSoon();
   };
 
@@ -134,22 +134,13 @@ ${i18next.t('editor.presentation.insert.subtitlePlaceholder')}`);
 
 ## ${i18next.t('editor.presentation.insert.titlePlaceholder')}
 
-<div class="columns">
-<div>
-
 ### ${i18next.t('editor.presentation.insert.firstColumn')}
 
 - ${i18next.t('editor.presentation.insert.itemPlaceholder')}
 
-</div>
-<div>
-
 ### ${i18next.t('editor.presentation.insert.secondColumn')}
 
-- ${i18next.t('editor.presentation.insert.itemPlaceholder')}
-
-</div>
-</div>`);
+- ${i18next.t('editor.presentation.insert.itemPlaceholder')}`);
         },
       },
       {
