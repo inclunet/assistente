@@ -231,6 +231,23 @@ author: Assistente
     });
     expect(slides[1]).toMatchObject({ index: 1, markdown: '## Slide 2' });
   });
+
+  it('preserva espaços significativos ao extrair slides', () => {
+    const hardBreak = '  ';
+    const markdown = `# Slide 1
+
+    code block
+linha com dois espaços${hardBreak}
+
+---
+
+  ## Slide 2`;
+
+    const slides = splitRevealSlides(markdown);
+
+    expect(slides[0].markdown).toBe('# Slide 1\n\n    code block\nlinha com dois espaços  ');
+    expect(slides[1].markdown).toBe('  ## Slide 2');
+  });
 });
 
 describe('parseRevealMarkdown', () => {
@@ -288,6 +305,34 @@ Subtítulo`;
     expect(mergeRevealSlideEditableMarkdown(slide, '# Novo')).toBe(`<!-- .slide: class="title-slide" -->
 
 # Novo`);
+  });
+
+  it('preserva whitespace significativo ao remover e mesclar diretivas', () => {
+    const hardBreak = '  ';
+    const slide = `<!-- .slide: class="code-slide" -->
+
+    code block
+linha com dois espaços${hardBreak}`;
+
+    expect(stripRevealDirectives(slide)).toBe('    code block\nlinha com dois espaços  ');
+    expect(getRevealSlideEditableMarkdown(slide)).toBe('    code block\nlinha com dois espaços  ');
+    expect(mergeRevealSlideEditableMarkdown(slide, `\n    novo código\nfim${hardBreak}\n`)).toBe(`<!-- .slide: class="code-slide" -->
+
+    novo código
+fim${hardBreak}`);
+  });
+
+  it('preserva whitespace significativo ao substituir slide', () => {
+    const hardBreak = '  ';
+    const markdown = `# Slide 1
+
+---
+
+## Slide 2`;
+    const slides = splitRevealSlides(markdown);
+    const next = replaceRevealSlide(markdown, slides[0], `\n    code block\nlinha com dois espaços${hardBreak}\n`);
+
+    expect(next).toContain('    code block\nlinha com dois espaços  \n---');
   });
 });
 

@@ -29,7 +29,7 @@ export type ParsedRevealDeck = {
 
 const SLIDE_ATTRIBUTE_RE = /<!--\s*\.(?:slide|element)\s*:/i;
 const SLIDE_DIRECTIVE_RE = /^\s*<!--\s*\.slide\s*:\s*([^>]*?)-->/i;
-const LEADING_SLIDE_DIRECTIVES_RE = /^(\s*<!--\s*\.slide\s*:[\s\S]*?-->\s*)+/i;
+const LEADING_SLIDE_DIRECTIVES_RE = /^(?:[ \t]*<!--\s*\.slide\s*:[^\r\n]*?-->[ \t]*(?:\r?\n|$))+/i;
 const ATTRIBUTE_RE = /([a-zA-Z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const HORIZONTAL_SEPARATOR_RE = /^\s*---\s*$/;
 const VERTICAL_SEPARATOR_RE = /^\s*----\s*$/;
@@ -49,6 +49,10 @@ function isSlideSeparator(line: string): boolean {
 
 function hasMeaningfulContent(value: string): boolean {
   return value.trim().length > 0;
+}
+
+function trimBoundaryNewlines(value: string): string {
+  return String(value || '').replace(/^(?:\r?\n)+|(?:\r?\n)+$/g, '');
 }
 
 function getYamlFrontmatterRange(markdown: string): { start: number; end: number } | null {
@@ -160,7 +164,7 @@ export function splitRevealSlides(markdown: string): RevealSlide[] {
 
     if (!fence && isSlideSeparator(lineWithoutNewline)) {
       const endOffset = cursor;
-      const currentMarkdown = text.slice(currentStart, endOffset).trim();
+      const currentMarkdown = trimBoundaryNewlines(text.slice(currentStart, endOffset));
       if (currentMarkdown || currentSeparator) {
         slides.push({
           index: slideIndex,
@@ -181,7 +185,7 @@ export function splitRevealSlides(markdown: string): RevealSlide[] {
   slides.push({
     index: slideIndex,
     level: currentSeparator.trim() === '----' ? 'vertical' : 'horizontal',
-    markdown: text.slice(currentStart).trim(),
+    markdown: trimBoundaryNewlines(text.slice(currentStart)),
     separatorBefore: currentSeparator,
     startOffset: currentStart,
     endOffset: text.length,
@@ -202,7 +206,7 @@ export function replaceRevealSlide(markdown: string, slide: RevealSlide, nextSli
   const text = String(markdown || '');
   const before = text.slice(0, slide.startOffset);
   const after = text.slice(slide.endOffset);
-  const normalizedNext = String(nextSlideMarkdown || '').trim();
+  const normalizedNext = trimBoundaryNewlines(nextSlideMarkdown);
   const needsTrailingNewline = after.length > 0 && !normalizedNext.endsWith('\n') ? '\n' : '';
   return `${before}${normalizedNext}${needsTrailingNewline}${after}`;
 }
@@ -242,18 +246,18 @@ export function extractRevealSlideAttributes(markdown: string): RevealSlideAttri
 }
 
 export function stripRevealDirectives(markdown: string): string {
-  return String(markdown || '').replace(LEADING_SLIDE_DIRECTIVES_RE, '').trim();
+  return trimBoundaryNewlines(String(markdown || '').replace(LEADING_SLIDE_DIRECTIVES_RE, ''));
 }
 
 export function getRevealSlideEditableMarkdown(markdown: string): string {
-  return String(markdown || '').replace(LEADING_SLIDE_DIRECTIVES_RE, '').trim();
+  return trimBoundaryNewlines(String(markdown || '').replace(LEADING_SLIDE_DIRECTIVES_RE, ''));
 }
 
 export function mergeRevealSlideEditableMarkdown(originalMarkdown: string, nextEditableMarkdown: string): string {
   const original = String(originalMarkdown || '');
   const match = original.match(LEADING_SLIDE_DIRECTIVES_RE);
   const prefix = match?.[0]?.trimEnd();
-  const body = String(nextEditableMarkdown || '').trim();
-  return prefix ? `${prefix}\n\n${body}`.trim() : body;
+  const body = trimBoundaryNewlines(nextEditableMarkdown);
+  return prefix ? `${prefix}\n\n${body}` : body;
 }
 
