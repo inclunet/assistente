@@ -8,8 +8,28 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.editor-page__toolbar .toolbar__left {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.editor-page__toolbar .toolbar__right {
+  flex: 0 0 auto;
+}
+
+.editor-page__toolbar-left {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .editor-page__title {
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .editor-page__content {
