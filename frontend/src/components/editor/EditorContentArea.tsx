@@ -54,7 +54,32 @@ function hasRawHtmlOutsideFences(markdown: string): boolean {
 }
 
 function normalizeRevealEditableMarkdown(markdown: string): string {
-  return String(markdown || '').replace(/^\s*-{3,}\s*$/gm, '___');
+  const text = String(markdown || '');
+  const lines = text.match(/[^\n]*(?:\n|$)/g) ?? [''];
+  const normalizedLines = lines.filter((line, index) => !(line === '' && index === lines.length - 1));
+  let fence: { char: '`' | '~'; length: number } | null = null;
+
+  return normalizedLines
+    .map((line) => {
+      const lineWithoutNewline = line.replace(/\r?\n$/, '');
+      const newline = line.match(/\r?\n$/)?.[0] ?? '';
+
+      if (fence) {
+        if (isClosingFence(lineWithoutNewline, fence)) fence = null;
+        return line;
+      }
+
+      const nextFence = getFenceMarker(lineWithoutNewline);
+      if (nextFence) {
+        fence = nextFence;
+        return line;
+      }
+
+      const separatorMatch = lineWithoutNewline.match(/^(\s*)-{3,}\s*$/);
+      if (!separatorMatch) return line;
+      return `${separatorMatch[1] || ''}___${newline}`;
+    })
+    .join('');
 }
 
 interface RichMermaidRequestContext {

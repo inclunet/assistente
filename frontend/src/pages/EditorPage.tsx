@@ -1386,8 +1386,14 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     const latestTab = useEditorStore.getState().documents[activeTab.id] ?? activeTab;
     const current = String(latestTab.markdown ?? '');
     const trimmedContent = String(content || '').trim();
-    const separator = current.trim() ? '\n\n---\n\n' : '';
-    const nextMarkdown = `${current.trimEnd()}${separator}${trimmedContent}\n`;
+    const trimmedCurrent = current.trimEnd();
+    const hasTrailingSlideSeparator = /(^|\r?\n)\s*-{3,4}\s*$/.test(trimmedCurrent);
+    const separator = current.trim()
+      ? hasTrailingSlideSeparator
+        ? '\n\n'
+        : '\n\n---\n\n'
+      : '';
+    const nextMarkdown = `${trimmedCurrent}${separator}${trimmedContent}\n`;
     setDocMarkdown(activeTab.id, nextMarkdown);
     updateLatestMarkdownForTab(activeTab.id, nextMarkdown);
     schedulePersistForTab(activeTab.id);
