@@ -10,6 +10,7 @@ import {
   type RevealSlide,
 } from '../../lib/revealMarkdown';
 import { isSafeLinkHref } from '../../lib/safeLink';
+import { isDeepLink } from '../../lib/deepLinks';
 import 'reveal.js/reveal.css';
 import './RevealRenderer.css';
 
@@ -124,6 +125,26 @@ function renderMarkdownHtml(markdown: string): string {
   return DOMPurify.sanitize(md.render(markdown || ''), purifyConfig);
 }
 
+function enhanceLinkSecurity(html: string): string {
+  if (typeof document === 'undefined') return html;
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  template.content.querySelectorAll('a').forEach((link) => {
+    const href = link.getAttribute('href') || '';
+    if (isDeepLink(href)) {
+      link.setAttribute('tabindex', '0');
+      link.removeAttribute('target');
+      link.removeAttribute('rel');
+      return;
+    }
+
+    link.setAttribute('tabindex', '-1');
+    link.setAttribute('target', '_blank');
+    link.setAttribute('rel', 'noopener noreferrer');
+  });
+  return template.innerHTML;
+}
+
 function enhanceImageAccessibility(html: string): string {
   if (typeof document === 'undefined') return html;
   const template = document.createElement('template');
@@ -154,8 +175,8 @@ function renderSlide(slide: RevealSlide) {
   const attrs = extractRevealSlideAttributes(slide.markdown);
   const markdownWithoutDirectives = stripRevealDirectives(slide.markdown);
   const { body, notes } = splitSpeakerNotes(markdownWithoutDirectives);
-  const html = enhanceImageAccessibility(renderMarkdownHtml(body));
-  const notesHtml = notes ? renderMarkdownHtml(notes) : '';
+  const html = enhanceLinkSecurity(enhanceImageAccessibility(renderMarkdownHtml(body)));
+  const notesHtml = notes ? enhanceLinkSecurity(renderMarkdownHtml(notes)) : '';
 
   return (
     <section

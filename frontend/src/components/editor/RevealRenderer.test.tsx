@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { RevealRenderer } from './RevealRenderer';
 
 vi.mock('react-i18next', () => ({
+  initReactI18next: {
+    type: '3rdParty',
+    init: vi.fn(),
+  },
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
@@ -100,6 +104,18 @@ texto do exemplo
 
     expect(slide).toHaveAttribute('data-transition', 'fade');
     expect(slide).not.toHaveAttribute('data-background-image');
+  });
+
+  it('aplica hardening explícito em links externos', () => {
+    const { container } = render(
+      <RevealRenderer markdown={'# Slide\n\n[Exemplo](https://example.com)'} />
+    );
+
+    const link = container.querySelector('a');
+
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(link).toHaveAttribute('tabindex', '-1');
   });
 
   it('renderiza Mermaid dentro do preview Reveal preservando o alvo editável', async () => {

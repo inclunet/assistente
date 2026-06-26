@@ -15,6 +15,43 @@ import {
 } from '../../lib/revealMarkdown';
 
 const RAW_HTML_RE = /<\/?[a-z][\w:-]*(?:\s|>|\/>)/i;
+const FENCE_START_RE = /^(\s*)(`{3,}|~{3,})/;
+
+function getFenceMarker(line: string): { char: '`' | '~'; length: number } | null {
+  const match = line.match(FENCE_START_RE);
+  if (!match) return null;
+  const marker = match[2] || '';
+  const char = marker[0] as '`' | '~';
+  return { char, length: marker.length };
+}
+
+function isClosingFence(line: string, fence: { char: '`' | '~'; length: number }): boolean {
+  const trimmed = line.trimStart();
+  const re = new RegExp(`^${fence.char === '`' ? '`' : '~'}{${fence.length},}\\s*$`);
+  return re.test(trimmed);
+}
+
+function hasRawHtmlOutsideFences(markdown: string): boolean {
+  const lines = String(markdown || '').split(/\r?\n/);
+  let fence: { char: '`' | '~'; length: number } | null = null;
+
+  for (const line of lines) {
+    if (fence) {
+      if (isClosingFence(line, fence)) fence = null;
+      continue;
+    }
+
+    const nextFence = getFenceMarker(line);
+    if (nextFence) {
+      fence = nextFence;
+      continue;
+    }
+
+    if (RAW_HTML_RE.test(line)) return true;
+  }
+
+  return false;
+}
 
 function normalizeRevealEditableMarkdown(markdown: string): string {
   return String(markdown || '').replace(/^\s*-{3,}\s*$/gm, '___');
@@ -87,7 +124,7 @@ export function EditorContentArea({
     ? getRevealSlideEditableMarkdown(activeRevealSlide.markdown)
     : null;
   const activeRevealSlideHasRawHtml = activeRevealSlideEditableMarkdown
-    ? RAW_HTML_RE.test(activeRevealSlideEditableMarkdown)
+    ? hasRawHtmlOutsideFences(activeRevealSlideEditableMarkdown)
     : false;
   const richEditorKey = activeTab
     ? isRevealDocument && activeRevealSlide

@@ -156,6 +156,101 @@ ${i18next.t('editor.presentation.insert.textPlaceholder')}
 ![${i18next.t('editor.presentation.insert.altPlaceholder')}](assets/imagem.png)`);
         },
       },
+      {
+        id: 'ins-slide-image-left',
+        label: i18next.t('editor.presentation.insert.imageLeft'),
+        action: () => {
+          void insertRevealSlide(`<!-- .slide: class="image-left" -->
+
+## ${i18next.t('editor.presentation.insert.titlePlaceholder')}
+
+${i18next.t('editor.presentation.insert.textPlaceholder')}
+
+![${i18next.t('editor.presentation.insert.altPlaceholder')}](assets/imagem.png)`);
+        },
+      },
+      {
+        id: 'ins-slide-section',
+        label: i18next.t('editor.presentation.insert.section'),
+        action: () => {
+          void insertRevealSlide(`<!-- .slide: class="section-slide" -->
+
+# ${i18next.t('editor.presentation.insert.titlePlaceholder')}
+
+${i18next.t('editor.presentation.insert.subtitlePlaceholder')}`);
+        },
+      },
+      {
+        id: 'ins-slide-agenda',
+        label: i18next.t('editor.presentation.insert.agenda'),
+        action: () => {
+          void insertRevealSlide(`<!-- .slide: class="agenda-slide" -->
+
+## ${i18next.t('editor.presentation.insert.agenda')}
+
+1. ${i18next.t('editor.presentation.insert.firstTopic')}
+2. ${i18next.t('editor.presentation.insert.secondTopic')}
+3. ${i18next.t('editor.presentation.insert.thirdTopic')}`);
+        },
+      },
+      {
+        id: 'ins-slide-quote',
+        label: i18next.t('editor.presentation.insert.quote'),
+        action: () => {
+          void insertRevealSlide(`<!-- .slide: class="quote-slide" -->
+
+> ${i18next.t('editor.presentation.insert.quotePlaceholder')}
+
+- ${i18next.t('editor.presentation.insert.authorPlaceholder')}`);
+        },
+      },
+      {
+        id: 'ins-slide-comparison',
+        label: i18next.t('editor.presentation.insert.comparison'),
+        action: () => {
+          void insertRevealSlide(`<!-- .slide: class="comparison-slide two-columns" -->
+
+## ${i18next.t('editor.presentation.insert.titlePlaceholder')}
+
+### ${i18next.t('editor.presentation.insert.before')}
+
+- ${i18next.t('editor.presentation.insert.itemPlaceholder')}
+
+### ${i18next.t('editor.presentation.insert.after')}
+
+- ${i18next.t('editor.presentation.insert.itemPlaceholder')}`);
+        },
+      },
+      {
+        id: 'ins-slide-code',
+        label: i18next.t('editor.presentation.insert.code'),
+        action: () => {
+          void insertRevealSlide(`<!-- .slide: class="code-slide" -->
+
+## ${i18next.t('editor.presentation.insert.titlePlaceholder')}
+
+\`\`\`ts
+// ${i18next.t('editor.presentation.insert.codePlaceholder')}
+function exemplo() {
+  return true;
+}
+\`\`\``);
+        },
+      },
+      {
+        id: 'ins-slide-diagram',
+        label: i18next.t('editor.presentation.insert.diagram'),
+        action: () => {
+          void insertRevealSlide(`<!-- .slide: class="diagram-slide" -->
+
+## ${i18next.t('editor.presentation.insert.titlePlaceholder')}
+
+\`\`\`mermaid
+flowchart TD
+  A[${i18next.t('editor.presentation.insert.diagramStart')}] --> B[${i18next.t('editor.presentation.insert.diagramEnd')}]
+\`\`\``);
+        },
+      },
     ],
   });
 

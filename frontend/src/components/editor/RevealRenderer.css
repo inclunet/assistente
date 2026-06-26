@@ -87,6 +87,39 @@
   text-align: center;
 }
 
+.reveal-renderer .reveal .section-slide {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+.reveal-renderer .reveal .agenda-slide ol,
+.reveal-renderer .reveal .agenda-slide ul {
+  max-width: 70%;
+  margin-inline: auto;
+}
+
+.reveal-renderer .reveal .quote-slide blockquote {
+  margin: 0 auto 1.5rem auto;
+  padding: 1rem 1.25rem;
+  max-width: 80%;
+  border-left: 4px solid var(--accent);
+  background: var(--bg-muted);
+  border-radius: var(--radius-lg);
+}
+
+.reveal-renderer .reveal .quote-slide > p:last-child {
+  text-align: right;
+  color: var(--text-secondary);
+}
+
+.reveal-renderer .reveal .code-slide pre,
+.reveal-renderer .reveal .diagram-slide pre {
+  max-width: 90%;
+  margin-inline: auto;
+}
+
 .reveal-renderer .reveal .image-right,
 .reveal-renderer .reveal .image-left {
   display: grid;
