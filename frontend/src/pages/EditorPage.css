@@ -123,26 +123,6 @@
   background: var(--bg-muted);
 }
 
-.editor-page__toolbar-presentation-select {
-  height: 32px;
-  min-width: 160px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-size: var(--font-size-sm);
-}
-
-.editor-page__toolbar-presentation-select:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
-}
-
-.editor-page__toolbar-presentation-select:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 @media (max-width: 1024px) {
   .editor-page__split {
     grid-template-columns: 1fr;
