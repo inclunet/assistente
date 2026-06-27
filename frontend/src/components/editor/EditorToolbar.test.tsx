@@ -19,14 +19,15 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('EditorToolbar', () => {
+  const activeTab: EditorDocument = {
+    id: 'doc-1',
+    title: 'Deck',
+    markdown: '',
+    mode: 'rich',
+  };
+
   it('usa rótulos derivados no picker de slides Reveal', () => {
     const onOpenMenu = vi.fn<(anchor: HTMLElement, ariaLabel: string, items: MenuItem[]) => void>();
-    const activeTab: EditorDocument = {
-      id: 'doc-1',
-      title: 'Deck',
-      markdown: '',
-      mode: 'rich',
-    };
 
     render(
       <EditorToolbar
@@ -57,5 +58,52 @@ describe('EditorToolbar', () => {
     expect(items[0]).toMatchObject({ label: 'Abertura' });
     expect(items[1]).toMatchObject({ label: 'Agenda', checked: true });
     expect(items[2]).toMatchObject({ label: 'Slide 3' });
+  });
+
+  it('mantém Arquivo como primeiro controle e Chat como último na navegação', () => {
+    const richEditorRef = { current: {} as TipTapEditor };
+
+    render(
+      <EditorToolbar
+        activeTab={activeTab}
+        isAsking={false}
+        richEditorRef={richEditorRef}
+        actions={[{ key: 'chat', label: 'Chat' }]}
+        onOpenMenu={vi.fn()}
+        fileMenuItems={[]}
+        formatMenuItems={[]}
+        insertMenuItems={[]}
+        modeMenuItems={[]}
+        revealSlidePicker={{
+          enabled: true,
+          slideCount: 2,
+          currentSlideIndex: 0,
+          slideLabels: ['Abertura', 'Agenda'],
+          onSelectSlide: vi.fn(),
+          onCreateSlide: vi.fn(),
+        }}
+        revealFullscreen={{
+          enabled: true,
+          onRequest: vi.fn(),
+        }}
+      />
+    );
+
+    const buttons = screen.getAllByRole('button');
+    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+      'editor.buttons.file',
+      'editor.buttons.format',
+      'editor.buttons.insert',
+      'Abertura',
+      'editor.presentation.fullscreen, F5',
+      'editor.buttons.mode',
+      'Chat',
+    ]);
+
+    const toolbar = screen.getByRole('toolbar');
+    buttons[0].focus();
+    fireEvent.keyDown(toolbar, { key: 'End' });
+
+    expect(screen.getByRole('button', { name: 'Chat' })).toHaveFocus();
   });
 });

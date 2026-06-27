@@ -88,21 +88,10 @@ export function EditorToolbar({
       left={
         <div className="editor-page__toolbar-left">
           <div className="editor-page__title">{activeTab?.title || t('editor.fallback.title')}</div>
-          {revealSlidePickerControl}
         </div>
       }
       right={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {showRevealFullscreen ? (
-            <ToolbarButton
-              label={t('editor.presentation.fullscreen')}
-              icon={<FullscreenOutlined />}
-              shortcut="F5"
-              disabled={isAsking}
-              onClick={revealFullscreen.onRequest}
-            />
-          ) : null}
-
           <ToolbarButton
             label={t('editor.buttons.file')}
             icon={<FileOutlined />}
@@ -125,6 +114,18 @@ export function EditorToolbar({
             onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.insertMenu'), insertMenuItems)}
             aria-haspopup="menu"
           />
+
+          {revealSlidePickerControl}
+
+          {showRevealFullscreen ? (
+            <ToolbarButton
+              label={t('editor.presentation.fullscreen')}
+              icon={<FullscreenOutlined />}
+              shortcut="F5"
+              disabled={isAsking}
+              onClick={revealFullscreen.onRequest}
+            />
+          ) : null}
 
           <ToolbarButton
             label={t('editor.buttons.mode')}
