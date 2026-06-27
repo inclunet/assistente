@@ -1,3 +1,9 @@
+import {
+  getMarkdownFenceMarker,
+  isClosingMarkdownFence,
+  type MarkdownFenceMarker,
+} from './markdownFence';
+
 export type RevealDetectionKind = 'markdown' | 'reveal';
 
 export type RevealDetection = {
@@ -36,7 +42,6 @@ const LEADING_SLIDE_DIRECTIVES_RE = /^(?:[ \t]*<!--\s*\.slide\s*:[^\r\n]*?-->[ \
 const ATTRIBUTE_RE = /([a-zA-Z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const HORIZONTAL_SEPARATOR_RE = /^\s*---\s*$/;
 const VERTICAL_SEPARATOR_RE = /^\s*----\s*$/;
-const FENCE_START_RE = /^(\s*)(`{3,}|~{3,})/;
 
 function isHorizontalSeparator(line: string): boolean {
   return HORIZONTAL_SEPARATOR_RE.test(line);
@@ -103,31 +108,17 @@ function extractFrontmatterTitle(markdown: string): string | undefined {
   return normalizeDerivedText(unquoted) || undefined;
 }
 
-function getFenceMarker(line: string): { char: '`' | '~'; length: number } | null {
-  const match = line.match(FENCE_START_RE);
-  if (!match) return null;
-  const marker = match[2] || '';
-  const char = marker[0] as '`' | '~';
-  return { char, length: marker.length };
-}
-
-function isClosingFence(line: string, fence: { char: '`' | '~'; length: number }): boolean {
-  const trimmed = line.trimStart();
-  const re = new RegExp(`^${fence.char === '`' ? '`' : '~'}{${fence.length},}\\s*$`);
-  return re.test(trimmed);
-}
-
 function hasSlideAttributeOutsideFences(markdown: string): boolean {
   const lines = String(markdown || '').split(/\r?\n/);
-  let fence: { char: '`' | '~'; length: number } | null = null;
+  let fence: MarkdownFenceMarker | null = null;
 
   for (const line of lines) {
     if (fence) {
-      if (isClosingFence(line, fence)) fence = null;
+      if (isClosingMarkdownFence(line, fence)) fence = null;
       continue;
     }
 
-    const nextFence = getFenceMarker(line);
+    const nextFence = getMarkdownFenceMarker(line);
     if (nextFence) {
       fence = nextFence;
       continue;
@@ -141,15 +132,15 @@ function hasSlideAttributeOutsideFences(markdown: string): boolean {
 
 function extractFirstMarkdownHeading(markdown: string, level?: 1): string | undefined {
   const lines = String(markdown || '').split(/\r?\n/);
-  let fence: { char: '`' | '~'; length: number } | null = null;
+  let fence: MarkdownFenceMarker | null = null;
 
   for (const line of lines) {
     if (fence) {
-      if (isClosingFence(line, fence)) fence = null;
+      if (isClosingMarkdownFence(line, fence)) fence = null;
       continue;
     }
 
-    const nextFence = getFenceMarker(line);
+    const nextFence = getMarkdownFenceMarker(line);
     if (nextFence) {
       fence = nextFence;
       continue;
@@ -223,7 +214,7 @@ export function splitRevealSlides(markdown: string): RevealSlide[] {
   let currentSeparator: RevealSlide['separatorBefore'] = '';
   let cursor = 0;
   let slideIndex = 0;
-  let fence: { char: '`' | '~'; length: number } | null = null;
+  let fence: MarkdownFenceMarker | null = null;
 
   for (const line of normalizedLines) {
     if (cursor < contentStart) {
@@ -233,9 +224,9 @@ export function splitRevealSlides(markdown: string): RevealSlide[] {
 
     const lineWithoutNewline = line.replace(/\r?\n$/, '');
     if (fence) {
-      if (isClosingFence(lineWithoutNewline, fence)) fence = null;
+      if (isClosingMarkdownFence(lineWithoutNewline, fence)) fence = null;
     } else {
-      const nextFence = getFenceMarker(lineWithoutNewline);
+      const nextFence = getMarkdownFenceMarker(lineWithoutNewline);
       if (nextFence) {
         fence = nextFence;
       }

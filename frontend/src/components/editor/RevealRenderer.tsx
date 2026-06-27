@@ -11,6 +11,11 @@ import {
   type RevealSlide,
 } from '../../lib/revealMarkdown';
 import { markdownItDeepLink } from '../../lib/markdownItDeepLink';
+import {
+  getMarkdownFenceMarker,
+  isClosingMarkdownFence,
+  type MarkdownFenceMarker,
+} from '../../lib/markdownFence';
 import { isSafeLinkHref } from '../../lib/safeLink';
 import { executeDeepLink, isDeepLink, parseDeepLink } from '../../lib/deepLinks';
 import 'reveal.js/reveal.css';
@@ -82,25 +87,10 @@ const purifyConfig = {
 };
 
 const URL_DATA_ATTR_RE = /^data-background-(?:image|video|iframe)$/i;
-const FENCE_START_RE = /^(\s*)(`{3,}|~{3,})/;
 const NOTE_RE = /^\s*Note:\s*$/i;
 
 function trimBoundaryNewlines(value: string): string {
   return String(value || '').replace(/^(?:\r?\n)+|(?:\r?\n)+$/g, '');
-}
-
-function getFenceMarker(line: string): { char: '`' | '~'; length: number } | null {
-  const match = line.match(FENCE_START_RE);
-  if (!match) return null;
-  const marker = match[2] || '';
-  const char = marker[0] as '`' | '~';
-  return { char, length: marker.length };
-}
-
-function isClosingFence(line: string, fence: { char: '`' | '~'; length: number }): boolean {
-  const trimmed = line.trimStart();
-  const re = new RegExp(`^${fence.char === '`' ? '`' : '~'}{${fence.length},}\\s*$`);
-  return re.test(trimmed);
 }
 
 function splitSpeakerNotes(markdown: string): { body: string; notes: string } {
@@ -108,14 +98,14 @@ function splitSpeakerNotes(markdown: string): { body: string; notes: string } {
   const lines = text.match(/[^\n]*(?:\n|$)/g) ?? [''];
   const normalizedLines = lines.filter((line, index) => !(line === '' && index === lines.length - 1));
   let cursor = 0;
-  let fence: { char: '`' | '~'; length: number } | null = null;
+  let fence: MarkdownFenceMarker | null = null;
 
   for (const line of normalizedLines) {
     const lineWithoutNewline = line.replace(/\r?\n$/, '');
     if (fence) {
-      if (isClosingFence(lineWithoutNewline, fence)) fence = null;
+      if (isClosingMarkdownFence(lineWithoutNewline, fence)) fence = null;
     } else {
-      const nextFence = getFenceMarker(lineWithoutNewline);
+      const nextFence = getMarkdownFenceMarker(lineWithoutNewline);
       if (nextFence) {
         fence = nextFence;
       } else if (NOTE_RE.test(lineWithoutNewline)) {

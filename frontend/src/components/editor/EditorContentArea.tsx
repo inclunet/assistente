@@ -13,35 +13,25 @@ import {
   parseRevealMarkdown,
   replaceRevealSlide,
 } from '../../lib/revealMarkdown';
+import {
+  getMarkdownFenceMarker,
+  isClosingMarkdownFence,
+  type MarkdownFenceMarker,
+} from '../../lib/markdownFence';
 
 const RAW_HTML_RE = /<\/?[a-z][a-z0-9-]*(?:\s|>|\/>)/i;
-const FENCE_START_RE = /^(\s*)(`{3,}|~{3,})/;
-
-function getFenceMarker(line: string): { char: '`' | '~'; length: number } | null {
-  const match = line.match(FENCE_START_RE);
-  if (!match) return null;
-  const marker = match[2] || '';
-  const char = marker[0] as '`' | '~';
-  return { char, length: marker.length };
-}
-
-function isClosingFence(line: string, fence: { char: '`' | '~'; length: number }): boolean {
-  const trimmed = line.trimStart();
-  const re = new RegExp(`^${fence.char === '`' ? '`' : '~'}{${fence.length},}\\s*$`);
-  return re.test(trimmed);
-}
 
 function hasRawHtmlOutsideFences(markdown: string): boolean {
   const lines = String(markdown || '').split(/\r?\n/);
-  let fence: { char: '`' | '~'; length: number } | null = null;
+  let fence: MarkdownFenceMarker | null = null;
 
   for (const line of lines) {
     if (fence) {
-      if (isClosingFence(line, fence)) fence = null;
+      if (isClosingMarkdownFence(line, fence)) fence = null;
       continue;
     }
 
-    const nextFence = getFenceMarker(line);
+    const nextFence = getMarkdownFenceMarker(line);
     if (nextFence) {
       fence = nextFence;
       continue;
@@ -57,7 +47,7 @@ function normalizeRevealEditableMarkdown(markdown: string): string {
   const text = String(markdown || '');
   const lines = text.match(/[^\n]*(?:\n|$)/g) ?? [''];
   const normalizedLines = lines.filter((line, index) => !(line === '' && index === lines.length - 1));
-  let fence: { char: '`' | '~'; length: number } | null = null;
+  let fence: MarkdownFenceMarker | null = null;
 
   return normalizedLines
     .map((line) => {
@@ -65,11 +55,11 @@ function normalizeRevealEditableMarkdown(markdown: string): string {
       const newline = line.match(/\r?\n$/)?.[0] ?? '';
 
       if (fence) {
-        if (isClosingFence(lineWithoutNewline, fence)) fence = null;
+        if (isClosingMarkdownFence(lineWithoutNewline, fence)) fence = null;
         return line;
       }
 
-      const nextFence = getFenceMarker(lineWithoutNewline);
+      const nextFence = getMarkdownFenceMarker(lineWithoutNewline);
       if (nextFence) {
         fence = nextFence;
         return line;
