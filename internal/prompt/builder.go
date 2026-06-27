@@ -113,7 +113,11 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.
 		surfaceState = activeTab.State
 	}
 	surfaceContext := chat.DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[prompt] surface context json")
-	data.ProjectID = firstNonEmpty(stringFromMap(surfaceContext, "projectId"), stringFromMap(surfaceState, "projectId"))
+	data.ProjectID = firstNonEmpty(
+		stringFromMap(surfaceContext, "projectId"),
+		stringFromNestedMap(surfaceContext, "metadata", "projectId"),
+		stringFromMap(surfaceState, "projectId"),
+	)
 
 	if surfaceType != "" || surfaceTitle != "" || surfaceState != nil || surfaceContext != nil {
 		data.Surface = &chat.SurfaceInfo{
@@ -161,6 +165,17 @@ func stringFromAny(value any) string {
 		return strings.TrimSpace(raw)
 	}
 	return ""
+}
+
+func stringFromNestedMap(values map[string]any, key string, nestedKey string) string {
+	if values == nil {
+		return ""
+	}
+	nested, ok := values[key].(map[string]any)
+	if !ok {
+		return ""
+	}
+	return stringFromMap(nested, nestedKey)
 }
 
 func stringFromMap(values map[string]any, key string) string {

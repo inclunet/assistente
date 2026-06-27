@@ -57,6 +57,13 @@ export interface MarkdownSelectionSnapshot {
   displayText: string;
   startOffset: number;
   endOffset: number;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+  cursorLine: number;
+  cursorColumn: number;
+  cursorOffset: number;
 }
 
 /** Snapshot da seleção no editor rico (TipTap). */
@@ -86,6 +93,13 @@ export type InlineChatSelection =
       displayText?: string;
       startOffset: number;
       endOffset: number;
+      startLine: number;
+      startColumn: number;
+      endLine: number;
+      endColumn: number;
+      cursorLine: number;
+      cursorColumn: number;
+      cursorOffset: number;
       snapshot: string;
     }
   | {

@@ -30,9 +30,17 @@ describe('buildChatSurfaceParams', () => {
       filePath: '/tmp/readme.md',
       draftId: 'draft-1',
     });
-    expect(JSON.parse(String(params.surfaceContextJson))).toEqual({
-      selectedText: 'hello',
-      selectionEmpty: false,
+    expect(JSON.parse(String(params.surfaceContextJson))).toMatchObject({
+      surfaceType: 'editor',
+      surfaceId: 'draft-1',
+      title: 'README',
+      selection: {
+        kind: 'text',
+        text: 'hello',
+      },
+      metadata: {
+        legacySurfaceContext: true,
+      },
     });
   });
 
@@ -51,5 +59,27 @@ describe('buildChatSurfaceParams', () => {
     expect(params.surfaceStateJson).toBeUndefined();
     expect(params.surfaceContextJson).toBeUndefined();
     expect(params.activeFilePath).toBeUndefined();
+  });
+
+  it('preserva envelope SurfaceContext já normalizado', () => {
+    const params = buildChatSurfaceParams(
+      { id: 'tab-1', type: 'terminal', title: 'Terminal' },
+      {
+        context: {
+          surfaceType: 'terminal',
+          surfaceId: 'term-1',
+          mode: 'shell',
+          snapshotVersion: 'terminal:term-1:42',
+          content: { kind: 'terminal_output', recentOutput: 'ok' },
+        },
+      },
+    );
+
+    expect(JSON.parse(String(params.surfaceContextJson))).toMatchObject({
+      surfaceType: 'terminal',
+      surfaceId: 'term-1',
+      snapshotVersion: 'terminal:term-1:42',
+      content: { kind: 'terminal_output', recentOutput: 'ok' },
+    });
   });
 });

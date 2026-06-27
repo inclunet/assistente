@@ -11,7 +11,7 @@ import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
 import { useTabScrollState } from '../hooks/useTabScrollState';
-import { buildChatSurfaceParams } from '../lib/chatSurface';
+import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../lib/chatSurface';
 import './TerminalPage.css';
 
 interface TerminalPageProps {
@@ -121,7 +121,8 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
-        const contextDisplay = currentHistory.slice(-40)
+        const historySlice = currentHistory.slice(-20);
+        const contextDisplay = historySlice
           .map((e) => {
             const cmd = String(e.command || '').trim();
             const out = String(e.output || '').trimEnd();
@@ -129,20 +130,64 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
           })
           .filter(Boolean)
           .join('\n---\n') || t('terminal.chatModal.noHistory');
+        const selection = window.getSelection?.();
+        const selectedOutput = selection && historyContainerRef.current?.contains(selection.anchorNode)
+          ? selection.toString().trim()
+          : '';
+        const currentInput = inputRef.current?.value?.trim() || '';
+        const lastEntry = currentHistory[currentHistory.length - 1];
+        const surfaceContext: SurfaceContext = {
+          surfaceType: 'terminal',
+          surfaceId: panelTab.id,
+          title: activeSession?.name || t('terminal.pageTitle'),
+          mode: 'shell',
+          selection: selectedOutput
+            ? {
+                kind: 'terminal_output',
+                text: selectedOutput,
+                explicit: true,
+              }
+            : undefined,
+          focus: {
+            kind: 'terminal',
+            label: activeSession?.cwd || activeSession?.name || currentSessionId,
+            entity: {
+              sessionId: currentSessionId,
+              cwd: activeSession?.cwd,
+            },
+          },
+          content: {
+            kind: 'terminal_output',
+            recentOutput: contextDisplay,
+            currentInput,
+            truncated: currentHistory.length > historySlice.length,
+          },
+          metadata: {
+            sessionId: currentSessionId,
+            cwd: activeSession?.cwd,
+            shell: (activeSession as { shell?: string } | undefined)?.shell,
+            historyEntryCount: currentHistory.length,
+            lastExitCode: lastEntry?.exitCode,
+          },
+          snapshotVersion: createSurfaceSnapshotVersion(
+            'terminal',
+            panelTab.id,
+            `${currentSessionId}:${currentHistory.length}:${lastEntry?.id || ''}:${String(lastEntry?.output || '').length}:${currentInput}`,
+          ),
+          capturedAt: new Date().toISOString(),
+          staleAfterMs: 30000,
+        };
         return {
           content: instruction,
           mediaFiles: media,
           paramsOverride: buildChatSurfaceParams(panelTab, {
             profileSlug: effectiveProfileSlug || undefined,
-            context: {
-              historyPreview: contextDisplay,
-              historyEntryCount: currentHistory.length,
-            },
+            context: surfaceContext,
           }),
         };
       },
     };
-  }, [panelTab, currentHistory, effectiveProfileSlug, t]);
+  }, [panelTab, currentHistory, currentSessionId, activeSession, effectiveProfileSlug, t]);
 
   useRegisterWorkspaceChatAdapter(panelTab?.id, terminalChatModalAdapter);
 

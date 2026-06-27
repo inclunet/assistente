@@ -14,9 +14,12 @@ const defaultPromptBudget = 500
 const workspaceContextPrefix = "<workspace_context>\n"
 const workspaceContextSuffix = "\n</workspace_context>"
 const workspaceContextTruncationNotice = "\n... Additional workspace context omitted due to context budget."
-const surfaceContextPrefix = "<surface_context>\n"
+const surfaceContextPrefix = "<surface_context"
 const surfaceContextSuffix = "\n</surface_context>"
 const surfaceContextTruncationNotice = "\n... Additional surface context omitted due to context budget."
+const surfaceFieldTruncationNotice = "\n... field truncated ..."
+const maxSurfaceTextFieldChars = 1600
+const maxTerminalTextFieldChars = 900
 
 type ContextProvider struct{}
 
@@ -133,14 +136,242 @@ func buildSurfaceContextBlock(surface *contextprovider.Surface, budgetChars int)
 	if budgetChars <= 0 {
 		return ""
 	}
-	var body strings.Builder
-	writeSurfaceIdentity(&body, surface)
-	writeSurfaceTransientContext(&body, surface)
-	if strings.TrimSpace(body.String()) == "" {
+	normalized := normalizeSurfaceContext(surface)
+	if normalized == nil {
 		return ""
 	}
-	content := surfaceContextPrefix + "Current active surface context. Treat this as turn-specific dynamic state.\n" + strings.TrimRight(body.String(), "\n")
+	var body strings.Builder
+	writeStructuredSelection(&body, normalized)
+	writeStructuredFocus(&body, normalized)
+	writeStructuredContent(&body, normalized)
+	writeStructuredMetadata(&body, normalized)
+	if strings.TrimSpace(body.String()) == "" && normalized.Incomplete {
+		body.WriteString("<notice>surface context is incomplete and must not be used as a trusted mutation target</notice>\n")
+	}
+	content := buildSurfaceOpenTag(normalized) + "\nCurrent active surface context. Treat this as turn-specific dynamic state.\n" + strings.TrimRight(body.String(), "\n")
 	return trimSurfaceContextBlock(content, budgetChars)
+}
+
+type normalizedSurfaceContext struct {
+	SurfaceType     string
+	SurfaceID       string
+	Title           string
+	Mode            string
+	Selection       map[string]any
+	Focus           map[string]any
+	Content         map[string]any
+	Metadata        map[string]any
+	SnapshotVersion string
+	CapturedAt      string
+	StaleAfterMs    string
+	Incomplete      bool
+}
+
+func normalizeSurfaceContext(surface *contextprovider.Surface) *normalizedSurfaceContext {
+	if surface == nil {
+		return nil
+	}
+	ctx := surface.Context
+	surfaceType := firstNonEmpty(stringFromMap(ctx, "surfaceType"), surface.Type)
+	surfaceID := stringFromMap(ctx, "surfaceId")
+	snapshotVersion := stringFromMap(ctx, "snapshotVersion")
+	incomplete := surfaceType == "" || surfaceID == "" || snapshotVersion == ""
+
+	if surfaceType == "" {
+		return nil
+	}
+	if surfaceID == "" {
+		surfaceID = firstNonEmpty(
+			stringFromMap(surface.State, "sessionId"),
+			stringFromMap(surface.State, "tasklistId"),
+			stringFromMap(surface.State, "draftId"),
+			stringFromMap(surface.State, "filePath"),
+			surfaceType,
+		)
+	}
+	if snapshotVersion == "" {
+		snapshotVersion = "legacy:" + surfaceType + ":" + surfaceID
+	}
+
+	normalized := &normalizedSurfaceContext{
+		SurfaceType:     surfaceType,
+		SurfaceID:       surfaceID,
+		Title:           firstNonEmpty(stringFromMap(ctx, "title"), surface.Title),
+		Mode:            stringFromMap(ctx, "mode"),
+		Selection:       mapFromMap(ctx, "selection"),
+		Focus:           mapFromMap(ctx, "focus"),
+		Content:         mapFromMap(ctx, "content"),
+		Metadata:        mapFromMap(ctx, "metadata"),
+		SnapshotVersion: snapshotVersion,
+		CapturedAt:      stringFromMap(ctx, "capturedAt"),
+		StaleAfterMs:    numberStringFromMap(ctx, "staleAfterMs"),
+		Incomplete:      incomplete,
+	}
+
+	if incomplete {
+		adaptLegacySurfaceContext(surface, normalized)
+	}
+	return normalized
+}
+
+func adaptLegacySurfaceContext(surface *contextprovider.Surface, normalized *normalizedSurfaceContext) {
+	if normalized == nil || surface == nil {
+		return
+	}
+	if normalized.Mode == "" {
+		normalized.Mode = stringFromMap(surface.Context, "mode")
+	}
+	if normalized.Selection == nil {
+		if selectedText := stringFromMap(surface.Context, "selectedText"); selectedText != "" {
+			normalized.Selection = map[string]any{
+				"kind":     "text",
+				"text":     selectedText,
+				"explicit": true,
+			}
+		}
+	}
+	if normalized.Focus == nil {
+		if cursorContext := stringFromMap(surface.Context, "cursorContext"); cursorContext != "" {
+			normalized.Focus = map[string]any{
+				"kind": "cursor",
+				"text": cursorContext,
+			}
+		}
+	}
+	if normalized.Content == nil {
+		switch {
+		case stringFromMap(surface.Context, "historyPreview") != "":
+			normalized.Content = map[string]any{
+				"kind":         "terminal_output",
+				"recentOutput": stringFromMap(surface.Context, "historyPreview"),
+			}
+		case stringFromMap(surface.Context, "tasksPreview") != "":
+			normalized.Content = map[string]any{
+				"kind":    "tasklist_summary",
+				"summary": stringFromMap(surface.Context, "tasksPreview"),
+			}
+		}
+	}
+	if normalized.Metadata == nil {
+		normalized.Metadata = map[string]any{}
+	}
+	for _, key := range []string{"filePath", "draftId", "tasklistId", "sessionId"} {
+		if value := stringFromMap(surface.State, key); value != "" {
+			normalized.Metadata[key] = value
+		}
+	}
+	normalized.Metadata["legacySurfaceContext"] = true
+}
+
+func buildSurfaceOpenTag(surface *normalizedSurfaceContext) string {
+	attrs := []string{
+		xmlAttr("surface_type", surface.SurfaceType),
+		xmlAttr("surface_id", surface.SurfaceID),
+		xmlAttr("snapshot_version", surface.SnapshotVersion),
+	}
+	if surface.Title != "" {
+		attrs = append(attrs, xmlAttr("title", surface.Title))
+	}
+	if surface.Mode != "" {
+		attrs = append(attrs, xmlAttr("mode", surface.Mode))
+	}
+	if surface.CapturedAt != "" {
+		attrs = append(attrs, xmlAttr("captured_at", surface.CapturedAt))
+	}
+	if surface.StaleAfterMs != "" {
+		attrs = append(attrs, xmlAttr("stale_after_ms", surface.StaleAfterMs))
+	}
+	if surface.Incomplete {
+		attrs = append(attrs, `incomplete="true"`)
+	}
+	return "<surface_context " + strings.Join(attrs, " ") + ">"
+}
+
+func writeStructuredSelection(sb *strings.Builder, surface *normalizedSurfaceContext) {
+	if surface == nil || len(surface.Selection) == 0 {
+		return
+	}
+	attrs := []string{xmlAttr("kind", firstNonEmpty(stringFromMap(surface.Selection, "kind"), "unknown"))}
+	if value := boolStringFromMap(surface.Selection, "explicit"); value != "" {
+		attrs = append(attrs, xmlAttr("explicit", value))
+	}
+	if value := boolStringFromMap(surface.Selection, "isEmpty"); value != "" {
+		attrs = append(attrs, xmlAttr("is_empty", value))
+	}
+	if value := rangeString(mapFromMap(surface.Selection, "range")); value != "" {
+		attrs = append(attrs, xmlAttr("range", value))
+	}
+	text := firstNonEmpty(stringFromMap(surface.Selection, "markdown"), stringFromMap(surface.Selection, "text"))
+	if text == "" {
+		if items := arraySummary(surface.Selection["items"]); items != "" {
+			text = items
+		}
+	}
+	writeXMLTextElement(sb, "selection", attrs, text, surfaceTextLimit(surface.SurfaceType))
+}
+
+func writeStructuredFocus(sb *strings.Builder, surface *normalizedSurfaceContext) {
+	if surface == nil || len(surface.Focus) == 0 {
+		return
+	}
+	attrs := []string{xmlAttr("kind", firstNonEmpty(stringFromMap(surface.Focus, "kind"), "unknown"))}
+	if label := stringFromMap(surface.Focus, "label"); label != "" {
+		attrs = append(attrs, xmlAttr("label", label))
+	}
+	if value := rangeString(mapFromMap(surface.Focus, "range")); value != "" {
+		attrs = append(attrs, xmlAttr("range", value))
+	}
+	if value := cursorString(mapFromMap(surface.Focus, "cursor")); value != "" {
+		attrs = append(attrs, xmlAttr("cursor", value))
+	}
+	if entity := mapFromMap(surface.Focus, "entity"); len(entity) > 0 {
+		for _, key := range []string{"slideIndex", "taskListId", "taskId", "statusId", "statusLabel", "sessionId", "cwd"} {
+			if value := scalarString(entity[key]); value != "" {
+				attrs = append(attrs, xmlAttr(toSnakeCase(key), value))
+			}
+		}
+	}
+	writeXMLTextElement(sb, "focus", attrs, stringFromMap(surface.Focus, "text"), surfaceTextLimit(surface.SurfaceType))
+}
+
+func writeStructuredContent(sb *strings.Builder, surface *normalizedSurfaceContext) {
+	if surface == nil || len(surface.Content) == 0 {
+		return
+	}
+	attrs := []string{xmlAttr("kind", firstNonEmpty(stringFromMap(surface.Content, "kind"), "unknown"))}
+	if value := boolStringFromMap(surface.Content, "truncated"); value != "" {
+		attrs = append(attrs, xmlAttr("truncated", value))
+	}
+	text := firstNonEmpty(
+		stringFromMap(surface.Content, "markdown"),
+		stringFromMap(surface.Content, "recentOutput"),
+		stringFromMap(surface.Content, "summary"),
+		stringFromMap(surface.Content, "text"),
+	)
+	if currentInput := stringFromMap(surface.Content, "currentInput"); currentInput != "" {
+		attrs = append(attrs, xmlAttr("current_input", truncateText(currentInput, 240)))
+	}
+	writeXMLTextElement(sb, "content", attrs, text, surfaceTextLimit(surface.SurfaceType))
+}
+
+func writeStructuredMetadata(sb *strings.Builder, surface *normalizedSurfaceContext) {
+	if surface == nil || len(surface.Metadata) == 0 {
+		return
+	}
+	for _, key := range metadataAllowlist(surface.SurfaceType) {
+		raw, ok := surface.Metadata[key]
+		if !ok {
+			continue
+		}
+		value := scalarString(raw)
+		if value == "" {
+			value = arraySummary(raw)
+		}
+		if value == "" {
+			continue
+		}
+		writeXMLTextElement(sb, "metadata", []string{xmlAttr("key", toSnakeCase(key))}, value, 500)
+	}
 }
 
 func writeOpenEditorFiles(sb *strings.Builder, tabs []contextprovider.Tab) {
@@ -368,6 +599,200 @@ func stringFromMap(values map[string]any, key string) string {
 		return strings.TrimSpace(raw)
 	}
 	return ""
+}
+
+func mapFromMap(values map[string]any, key string) map[string]any {
+	if values == nil {
+		return nil
+	}
+	raw, ok := values[key]
+	if !ok {
+		return nil
+	}
+	if typed, ok := raw.(map[string]any); ok {
+		return typed
+	}
+	return nil
+}
+
+func scalarString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case bool:
+		if typed {
+			return "true"
+		}
+		return "false"
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(typed), 'f', -1, 64)
+	case int:
+		return strconv.Itoa(typed)
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	case int32:
+		return strconv.FormatInt(int64(typed), 10)
+	default:
+		return ""
+	}
+}
+
+func numberStringFromMap(values map[string]any, key string) string {
+	if values == nil {
+		return ""
+	}
+	return scalarString(values[key])
+}
+
+func boolStringFromMap(values map[string]any, key string) string {
+	if values == nil {
+		return ""
+	}
+	if raw, ok := values[key].(bool); ok {
+		if raw {
+			return "true"
+		}
+		return "false"
+	}
+	return ""
+}
+
+func rangeString(values map[string]any) string {
+	if len(values) == 0 {
+		return ""
+	}
+	startLine := scalarString(values["startLine"])
+	startColumn := scalarString(values["startColumn"])
+	endLine := scalarString(values["endLine"])
+	endColumn := scalarString(values["endColumn"])
+	startOffset := scalarString(values["startOffset"])
+	endOffset := scalarString(values["endOffset"])
+	if startLine != "" || startColumn != "" || endLine != "" || endColumn != "" {
+		return startLine + ":" + startColumn + "-" + endLine + ":" + endColumn
+	}
+	if startOffset != "" || endOffset != "" {
+		return "offset:" + startOffset + "-" + endOffset
+	}
+	return ""
+}
+
+func cursorString(values map[string]any) string {
+	if len(values) == 0 {
+		return ""
+	}
+	line := scalarString(values["line"])
+	column := scalarString(values["column"])
+	offset := scalarString(values["offset"])
+	parts := make([]string, 0, 3)
+	if line != "" || column != "" {
+		parts = append(parts, line+":"+column)
+	}
+	if offset != "" {
+		parts = append(parts, "offset:"+offset)
+	}
+	return strings.Join(parts, " ")
+}
+
+func arraySummary(value any) string {
+	values, ok := value.([]any)
+	if !ok || len(values) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(values))
+	for idx, item := range values {
+		if idx >= 12 {
+			parts = append(parts, "... additional items omitted")
+			break
+		}
+		if itemMap, ok := item.(map[string]any); ok {
+			label := firstNonEmpty(scalarString(itemMap["title"]), scalarString(itemMap["label"]), scalarString(itemMap["taskId"]))
+			if label != "" {
+				parts = append(parts, label)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func writeXMLTextElement(sb *strings.Builder, name string, attrs []string, text string, limit int) {
+	sb.WriteString("<")
+	sb.WriteString(name)
+	if len(attrs) > 0 {
+		sb.WriteString(" ")
+		sb.WriteString(strings.Join(attrs, " "))
+	}
+	if strings.TrimSpace(text) == "" {
+		sb.WriteString(" />\n")
+		return
+	}
+	sb.WriteString(">")
+	sb.WriteString(escapeXMLText(truncateText(text, limit)))
+	sb.WriteString("</")
+	sb.WriteString(name)
+	sb.WriteString(">\n")
+}
+
+func xmlAttr(name string, value string) string {
+	return name + `="` + escapeXMLAttr(value) + `"`
+}
+
+func escapeXMLText(value string) string {
+	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+	return replacer.Replace(value)
+}
+
+func escapeXMLAttr(value string) string {
+	replacer := strings.NewReplacer("&", "&amp;", `"`, "&quot;", "<", "&lt;", ">", "&gt;", "\n", " ", "\r", " ")
+	return replacer.Replace(strings.TrimSpace(value))
+}
+
+func truncateText(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if limit <= 0 || runeLen(value) <= limit {
+		return value
+	}
+	runes := []rune(value)
+	if limit <= runeLen(surfaceFieldTruncationNotice) {
+		return string(runes[:limit])
+	}
+	return strings.TrimRight(string(runes[:limit-runeLen(surfaceFieldTruncationNotice)]), "\n ") + surfaceFieldTruncationNotice
+}
+
+func surfaceTextLimit(surfaceType string) int {
+	if strings.TrimSpace(surfaceType) == "terminal" {
+		return maxTerminalTextFieldChars
+	}
+	return maxSurfaceTextFieldChars
+}
+
+func metadataAllowlist(surfaceType string) []string {
+	switch strings.TrimSpace(surfaceType) {
+	case "editor":
+		return []string{"documentId", "filePath", "draftId", "language", "presentationDetection", "slideCount", "currentSlideIndex", "currentSlideLabel", "projectId", "legacySurfaceContext"}
+	case "tasklist":
+		return []string{"taskListId", "slug", "taskCount", "statuses", "projectId", "legacySurfaceContext"}
+	case "terminal":
+		return []string{"sessionId", "cwd", "shell", "historyEntryCount", "lastExitCode", "projectId", "legacySurfaceContext"}
+	default:
+		return []string{"projectId", "legacySurfaceContext"}
+	}
+}
+
+func toSnakeCase(value string) string {
+	var sb strings.Builder
+	for idx, r := range value {
+		if r >= 'A' && r <= 'Z' {
+			if idx > 0 {
+				sb.WriteRune('_')
+			}
+			sb.WriteRune(r + ('a' - 'A'))
+			continue
+		}
+		sb.WriteRune(r)
+	}
+	return sb.String()
 }
 
 func runeLen(value string) int {

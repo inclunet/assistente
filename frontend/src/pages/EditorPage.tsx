@@ -29,9 +29,9 @@ import { applyRichTextInsert, applyRichTextInsertAtEnd, type RichTextEditorLike 
 import { validateRichTextSelectionSnapshot } from '../lib/richTextSelectionValidation';
 import { markdownToHtml } from '../lib/markdownToHtml';
 import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
-import { buildChatSurfaceParams } from '../lib/chatSurface';
+import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../lib/chatSurface';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
-import { getRevealSlideEditableMarkdown, parseRevealMarkdown } from '../lib/revealMarkdown';
+import { parseRevealMarkdown, type RevealSlide } from '../lib/revealMarkdown';
 import { getErrorMessage, getMaybeContent } from '../lib/editorContent';
 import { composePreviewText, hasConflictMarkers } from '../lib/editorMergeUtils';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
@@ -269,6 +269,13 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       displayText,
       startOffset,
       endOffset,
+      startLine: start.lineNumber,
+      startColumn: start.column,
+      endLine: end.lineNumber,
+      endColumn: end.column,
+      cursorLine: position.lineNumber,
+      cursorColumn: position.column,
+      cursorOffset,
     };
   };
 
@@ -608,6 +615,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     }
     const latestActiveTab = useEditorStore.getState().documents[activeTab.id] ?? activeTab;
     const editorSurfaceTab = workspaceTab ?? {
+      id: latestActiveTab.id,
       type: 'editor',
       title: latestActiveTab.title,
       state: {
@@ -616,46 +624,103 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       },
     };
     const revealDeck = parseRevealMarkdown(latestActiveTab.markdown);
-    const revealSlideForRichSelection = inlineChatSelection.mode === 'rich' && revealDeck.detection.kind === 'reveal'
-      ? revealDeck.slides.find(
-          (slide) => getRevealSlideEditableMarkdown(slide.markdown).trim() === String(inlineChatSelection.snapshot || '').trim()
-        ) ?? null
-      : null;
-    const fallbackRevealSlide = revealDeck.detection.kind === 'reveal'
-      ? revealDeck.slides[currentRevealSlideIndexRef.current] ?? revealDeck.slides[0] ?? null
-      : null;
-    const currentRevealSlide = inlineChatSelection.mode === 'rich'
-      ? revealSlideForRichSelection ?? fallbackRevealSlide
+    const findRevealSlideForMarkdownSelection = (): RevealSlide | null => {
+      if (revealDeck.detection.kind !== 'reveal' || inlineChatSelection.mode !== 'markdown') return null;
+      const start = Number(inlineChatSelection.startOffset);
+      const end = Number(inlineChatSelection.endOffset);
+      const cursor = Number(inlineChatSelection.cursorOffset);
+      return revealDeck.slides.find((slide) => {
+        if (end > start) return start < slide.endOffset && end > slide.startOffset;
+        return cursor >= slide.startOffset && cursor <= slide.endOffset;
+      }) ?? revealDeck.slides[currentRevealSlideIndexRef.current] ?? revealDeck.slides[0] ?? null;
+    };
+    const currentRevealSlide = revealDeck.detection.kind === 'reveal'
+      ? inlineChatSelection.mode === 'rich'
+        ? revealDeck.slides[currentRevealSlideIndexRef.current] ?? revealDeck.slides[0] ?? null
+        : findRevealSlideForMarkdownSelection()
       : null;
     const presentationContext = revealDeck.detection.kind === 'reveal'
       ? {
-          presentationMode: 'reveal',
-          presentationDetection: revealDeck.detection.confidence,
           slideCount: revealDeck.slides.length,
           currentSlideIndex: currentRevealSlide?.index,
+          currentSlideLabel: currentRevealSlide?.label,
           currentSlideMarkdown: currentRevealSlide?.markdown,
+          presentationDetection: revealDeck.detection.confidence,
         }
       : {};
-    const surfaceContext = inlineChatSelection.mode === 'rich'
-      ? {
-          mode: 'rich',
-          selectedText: inlineChatSelection.selectedText,
-          selectedMarkdown: inlineChatSelection.selectedMarkdown,
-          selectionIsEmpty: inlineChatSelection.selectionIsEmpty,
-          cursorContext: inlineChatSelection.cursorContext,
-          from: inlineChatSelection.from,
-          to: inlineChatSelection.to,
-          ...presentationContext,
-        }
-      : {
-          mode: 'markdown',
-          selectedText: inlineChatSelection.selectedText,
-          selectionIsEmpty: inlineChatSelection.selectionIsEmpty,
-          cursorContext: inlineChatSelection.cursorContext,
-          startOffset: inlineChatSelection.startOffset,
-          endOffset: inlineChatSelection.endOffset,
-          ...presentationContext,
-        };
+    const surfaceId = latestActiveTab.id;
+    const surfaceMode = revealDeck.detection.kind === 'reveal' ? 'reveal' : inlineChatSelection.mode;
+    const snapshotVersion = createSurfaceSnapshotVersion(
+      'editor',
+      surfaceId,
+      `${latestActiveTab.filePath || latestActiveTab.draftId || ''}:${inlineChatSelection.mode}:${inlineChatSelection.snapshot}`,
+    );
+    const surfaceContext: SurfaceContext = {
+      surfaceType: 'editor',
+      surfaceId,
+      title: latestActiveTab.title,
+      mode: surfaceMode,
+      selection: inlineChatSelection.mode === 'rich'
+        ? {
+            kind: 'text',
+            text: inlineChatSelection.selectedText,
+            markdown: inlineChatSelection.selectedMarkdown,
+            range: { startOffset: inlineChatSelection.from, endOffset: inlineChatSelection.to },
+            isEmpty: !!inlineChatSelection.selectionIsEmpty,
+            explicit: !inlineChatSelection.selectionIsEmpty,
+          }
+        : {
+            kind: 'text',
+            text: inlineChatSelection.selectedText,
+            range: {
+              startLine: inlineChatSelection.startLine,
+              startColumn: inlineChatSelection.startColumn,
+              endLine: inlineChatSelection.endLine,
+              endColumn: inlineChatSelection.endColumn,
+              startOffset: inlineChatSelection.startOffset,
+              endOffset: inlineChatSelection.endOffset,
+            },
+            isEmpty: !!inlineChatSelection.selectionIsEmpty,
+            explicit: !inlineChatSelection.selectionIsEmpty,
+          },
+      focus: inlineChatSelection.mode === 'rich'
+        ? {
+            kind: currentRevealSlide ? 'slide' : 'cursor',
+            label: currentRevealSlide?.label,
+            text: inlineChatSelection.cursorContext,
+            range: { startOffset: inlineChatSelection.from, endOffset: inlineChatSelection.to },
+            entity: currentRevealSlide ? { slideIndex: currentRevealSlide.index } : undefined,
+          }
+        : {
+            kind: currentRevealSlide ? 'slide' : 'cursor',
+            label: currentRevealSlide?.label,
+            text: inlineChatSelection.cursorContext,
+            cursor: {
+              line: inlineChatSelection.cursorLine,
+              column: inlineChatSelection.cursorColumn,
+              offset: inlineChatSelection.cursorOffset,
+            },
+            entity: currentRevealSlide ? { slideIndex: currentRevealSlide.index } : undefined,
+          },
+      content: currentRevealSlide
+        ? { kind: 'reveal_slide', markdown: currentRevealSlide.markdown }
+        : {
+            kind: 'document_window',
+            text: inlineChatSelection.mode === 'rich'
+              ? inlineChatSelection.displayMarkdown || inlineChatSelection.cursorContext
+              : inlineChatSelection.cursorContext,
+          },
+      metadata: {
+        documentId: latestActiveTab.id,
+        filePath: latestActiveTab.filePath ?? undefined,
+        draftId: latestActiveTab.draftId ?? undefined,
+        language: 'markdown',
+        ...presentationContext,
+      },
+      snapshotVersion,
+      capturedAt: new Date().toISOString(),
+      staleAfterMs: 120000,
+    };
 
     const runId = (inlineChatRunIdRef.current += 1);
     useWorkspaceChatModalStore.getState().setAdapterError(null);
@@ -1002,6 +1067,13 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
                   displayText: md.displayText,
                   startOffset: md.startOffset,
                   endOffset: md.endOffset,
+                  startLine: md.startLine,
+                  startColumn: md.startColumn,
+                  endLine: md.endLine,
+                  endColumn: md.endColumn,
+                  cursorLine: md.cursorLine,
+                  cursorColumn: md.cursorColumn,
+                  cursorOffset: md.cursorOffset,
                   snapshot,
                 };
               })()

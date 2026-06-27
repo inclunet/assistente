@@ -39,9 +39,39 @@ func TestContextProviderBuildsLowDynamicWorkspaceAndTurnDynamicSurfaceBlocks(t *
 			Title: "Arquivo",
 			State: map[string]any{"filePath": "C:/tmp/readme.md", "tasklistId": "tl-1", "sessionId": "term-1"},
 			Context: map[string]any{
-				"selectedText":   "seleção",
-				"historyPreview": "histórico",
-				"tasksPreview":   "tarefas",
+				"surfaceType":     "editor",
+				"surfaceId":       "tab-1",
+				"title":           "Arquivo",
+				"mode":            "reveal",
+				"snapshotVersion": "editor:tab-1:42",
+				"selection": map[string]any{
+					"kind":     "text",
+					"text":     "seleção",
+					"explicit": true,
+					"range": map[string]any{
+						"startLine":   float64(1),
+						"startColumn": float64(2),
+						"endLine":     float64(3),
+						"endColumn":   float64(4),
+					},
+				},
+				"focus": map[string]any{
+					"kind":  "slide",
+					"label": "Objetivo",
+					"entity": map[string]any{
+						"slideIndex": float64(2),
+					},
+				},
+				"content": map[string]any{
+					"kind":     "reveal_slide",
+					"markdown": "## Objetivo",
+				},
+				"metadata": map[string]any{
+					"filePath":          "C:/tmp/readme.md",
+					"tasklistId":        "tl-1",
+					"unsafeNested":      map[string]any{"secret": "do-not-render"},
+					"currentSlideIndex": float64(2),
+				},
 			},
 		},
 	})
@@ -83,17 +113,19 @@ func TestContextProviderBuildsLowDynamicWorkspaceAndTurnDynamicSurfaceBlocks(t *
 		}
 	}
 	for _, needle := range []string{
-		"<surface_context>",
-		"active_file: C:/tmp/readme.md",
-		"active_tasklist: tl-1",
-		"active_terminal_session: term-1",
-		"selected_text: seleção",
-		"history_preview: histórico",
-		"tasks_preview: tarefas",
+		`<surface_context surface_type="editor" surface_id="tab-1" snapshot_version="editor:tab-1:42" title="Arquivo" mode="reveal">`,
+		`<selection kind="text" explicit="true" range="1:2-3:4">seleção</selection>`,
+		`<focus kind="slide" label="Objetivo" slide_index="2" />`,
+		`<content kind="reveal_slide">## Objetivo</content>`,
+		`<metadata key="file_path">C:/tmp/readme.md</metadata>`,
+		`<metadata key="current_slide_index">2</metadata>`,
 	} {
 		if !strings.Contains(blocks[2].Content, needle) {
 			t.Fatalf("surface block missing %q: %s", needle, blocks[2].Content)
 		}
+	}
+	if strings.Contains(blocks[2].Content, "unsafeNested") || strings.Contains(blocks[2].Content, "do-not-render") || strings.Contains(blocks[2].Content, "tasklistId") {
+		t.Fatalf("surface block rendered metadata outside allowlist: %s", blocks[2].Content)
 	}
 	if blocks[2].Provider != "workspace" || blocks[2].Name != "surface_context" || blocks[2].Volatility != contextprovider.VolatilityTurnDynamic {
 		t.Fatalf("unexpected surface block metadata: %+v", blocks[2])
@@ -136,7 +168,7 @@ func TestContextProviderBuildsSurfaceBlockWithoutWorkspaceBlock(t *testing.T) {
 	if strings.Contains(blocks[1].Content, "<workspace_context>") {
 		t.Fatalf("surface-only request should not emit workspace context: %q", blocks[1].Content)
 	}
-	if !strings.Contains(blocks[1].Content, "selected_text: seleção") {
+	if !strings.Contains(blocks[1].Content, `incomplete="true"`) || !strings.Contains(blocks[1].Content, `<selection kind="text" explicit="true">seleção</selection>`) {
 		t.Fatalf("surface block missing selected text: %q", blocks[1].Content)
 	}
 }
