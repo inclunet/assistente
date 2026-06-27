@@ -31,6 +31,7 @@ import { markdownToHtml } from '../lib/markdownToHtml';
 import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
 import { buildChatSurfaceParams } from '../lib/chatSurface';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
+import { getRevealSlideEditableMarkdown, parseRevealMarkdown } from '../lib/revealMarkdown';
 import { getErrorMessage, getMaybeContent } from '../lib/editorContent';
 import { composePreviewText, hasConflictMarkers } from '../lib/editorMergeUtils';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
@@ -102,12 +103,19 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   const activeTab = currentDocumentId ? documents[currentDocumentId] ?? null : null;
 
   const pageRootRef = useRef<HTMLDivElement>(null);
+  const insertMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const modeMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const revealSlidePickerButtonRef = useRef<HTMLButtonElement | null>(null);
   const editorRef = useRef<MonacoCodeEditor | null>(null);
   const monacoRef = useRef<MonacoNamespace | null>(null);
   const richEditorRef = useRef<TipTapEditor | null>(null);
   const richEditorHandleRef = useRef<RichTextEditorHandle | null>(null);
+  const currentRevealSlideIndexRef = useRef(0);
 
   const [isAsking, setIsAsking] = useState(false);
+  const [currentRevealSlideIndex, setCurrentRevealSlideIndex] = useState(0);
+  const [revealSlideNavigationRequest, setRevealSlideNavigationRequest] = useState<{ index: number; nonce: number } | null>(null);
+  const [revealFullscreenRequestNonce, setRevealFullscreenRequestNonce] = useState(0);
 
   const [activeMermaidIndex, setActiveMermaidIndex] = useState<number | null>(null);
   const [mermaidInitialCode, setMermaidInitialCode] = useState('');
@@ -115,6 +123,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   const [richMermaidSession, setRichMermaidSession] = useState<RichMermaidSession | null>(null);
 
   const [editorReadyNonce, setEditorReadyNonce] = useState(0);
+  const [revealAppendNonce, setRevealAppendNonce] = useState(0);
   const [pendingInsert, setPendingInsert] = useState<EditorInsertRequest | null>(null);
 
   const inlineChatRunIdRef = useRef(0);
@@ -181,6 +190,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   useRichEditorFlushEvents({ flushNow: flushActiveRichMarkdownNow });
 
   const debouncedMarkdownForPreview = useDebouncedValue(activeTab?.markdown || '', 120);
+  const revealToolbarDeck = useMemo(
+    () => parseRevealMarkdown(activeTab?.markdown || ''),
+    [activeTab?.markdown]
+  );
+  const isRevealToolbarDocument = revealToolbarDeck.detection.kind === 'reveal' && revealToolbarDeck.slides.length > 0;
 
   // Ao entrar no Editor (e ao trocar de aba/modo), foca automaticamente a área de texto.
   // Não rouba foco de modais nem de campos de digitação.
@@ -589,14 +603,39 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     if (!trimmed) return null;
 
     const prompt = trimmed;
+    if (activeTab.mode === 'rich') {
+      flushActiveRichMarkdownNow();
+    }
+    const latestActiveTab = useEditorStore.getState().documents[activeTab.id] ?? activeTab;
     const editorSurfaceTab = workspaceTab ?? {
       type: 'editor',
-      title: activeTab.title,
+      title: latestActiveTab.title,
       state: {
-        filePath: activeTab.filePath ?? undefined,
-        draftId: activeTab.draftId ?? undefined,
+        filePath: latestActiveTab.filePath ?? undefined,
+        draftId: latestActiveTab.draftId ?? undefined,
       },
     };
+    const revealDeck = parseRevealMarkdown(latestActiveTab.markdown);
+    const revealSlideForRichSelection = inlineChatSelection.mode === 'rich' && revealDeck.detection.kind === 'reveal'
+      ? revealDeck.slides.find(
+          (slide) => getRevealSlideEditableMarkdown(slide.markdown).trim() === String(inlineChatSelection.snapshot || '').trim()
+        ) ?? null
+      : null;
+    const fallbackRevealSlide = revealDeck.detection.kind === 'reveal'
+      ? revealDeck.slides[currentRevealSlideIndexRef.current] ?? revealDeck.slides[0] ?? null
+      : null;
+    const currentRevealSlide = inlineChatSelection.mode === 'rich'
+      ? revealSlideForRichSelection ?? fallbackRevealSlide
+      : null;
+    const presentationContext = revealDeck.detection.kind === 'reveal'
+      ? {
+          presentationMode: 'reveal',
+          presentationDetection: revealDeck.detection.confidence,
+          slideCount: revealDeck.slides.length,
+          currentSlideIndex: currentRevealSlide?.index,
+          currentSlideMarkdown: currentRevealSlide?.markdown,
+        }
+      : {};
     const surfaceContext = inlineChatSelection.mode === 'rich'
       ? {
           mode: 'rich',
@@ -606,6 +645,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           cursorContext: inlineChatSelection.cursorContext,
           from: inlineChatSelection.from,
           to: inlineChatSelection.to,
+          ...presentationContext,
         }
       : {
           mode: 'markdown',
@@ -614,6 +654,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           cursorContext: inlineChatSelection.cursorContext,
           startOffset: inlineChatSelection.startOffset,
           endOffset: inlineChatSelection.endOffset,
+          ...presentationContext,
         };
 
     const runId = (inlineChatRunIdRef.current += 1);
@@ -1339,12 +1380,93 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     [createDocument, addWorkspaceTab, openFile, saveFile, abortMerge, saveFileAsCopy, activeTab]
   );
 
+  const appendMarkdownToDocument = useCallback((content: string) => {
+    if (!activeTab) return;
+    if (activeTab.mode === 'rich') {
+      flushActiveRichMarkdownNow();
+    }
+
+    const latestTab = useEditorStore.getState().documents[activeTab.id] ?? activeTab;
+    const current = String(latestTab.markdown ?? '');
+    const trimmedContent = String(content || '').trim();
+    const currentWithoutTrailingNewlines = current.replace(/[\r\n]+$/, '');
+    const hasTrailingSlideSeparator = /(^|\r?\n)\s*-{3,4}\s*$/.test(currentWithoutTrailingNewlines);
+    const separator = current.trim()
+      ? hasTrailingSlideSeparator
+        ? '\n\n'
+        : '\n\n---\n\n'
+      : '';
+    const nextMarkdown = `${currentWithoutTrailingNewlines}${separator}${trimmedContent}\n`;
+    setDocMarkdown(activeTab.id, nextMarkdown);
+    updateLatestMarkdownForTab(activeTab.id, nextMarkdown);
+    schedulePersistForTab(activeTab.id);
+    setRevealAppendNonce((n) => n + 1);
+  }, [activeTab, flushActiveRichMarkdownNow, setDocMarkdown, updateLatestMarkdownForTab, schedulePersistForTab]);
+
+  const requestRevealSlideNavigation = useCallback((index: number) => {
+    setRevealSlideNavigationRequest((prev) => ({
+      index,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
+  }, []);
+
+  const createRevealSlideFromToolbar = useCallback(() => {
+    appendMarkdownToDocument(`<!-- .slide: class="content-slide" -->
+
+## ${t('editor.presentation.newSlideTitle')}`);
+  }, [appendMarkdownToDocument, t]);
+
+  const requestRevealFullscreen = useCallback(() => {
+    setRevealFullscreenRequestNonce((nonce) => nonce + 1);
+  }, []);
+
+  const showRevealSlidePicker = !!activeTab && activeTab.mode === 'rich' && isRevealToolbarDocument;
+  const getRevealToolbarSlideLabel = useCallback(
+    (index: number) => revealToolbarDeck.slides[index]?.label || t('editor.presentation.slideOption', { index: index + 1 }),
+    [revealToolbarDeck.slides, t]
+  );
+  const revealSlideMenuItemsForShortcut = useMemo((): MenuItem[] => {
+    if (!showRevealSlidePicker) return [];
+    return [
+      ...revealToolbarDeck.slides.map((_, index) => ({
+        id: `reveal-slide-${index}`,
+        label: getRevealToolbarSlideLabel(index),
+        checked: index === Math.min(currentRevealSlideIndex, Math.max(0, revealToolbarDeck.slides.length - 1)),
+        action: () => requestRevealSlideNavigation(index),
+      })),
+      { id: 'reveal-slide-separator', separator: true },
+      {
+        id: 'reveal-slide-new',
+        label: t('editor.presentation.newSlide'),
+        action: createRevealSlideFromToolbar,
+      },
+    ];
+  }, [
+    createRevealSlideFromToolbar,
+    currentRevealSlideIndex,
+    getRevealToolbarSlideLabel,
+    requestRevealSlideNavigation,
+    revealToolbarDeck.slides,
+    showRevealSlidePicker,
+    t,
+  ]);
+
   const {
     menu: toolbarMenu,
     openForTrigger: openToolbarMenu,
     closeMenu: closeToolbarMenu,
     onSelectItem: handleToolbarMenuSelect,
   } = useAnchoredContextMenu();
+
+  const openToolbarMenuFromShortcut = useCallback(
+    (anchor: HTMLButtonElement | null, ariaLabel: string, items: MenuItem[]) => {
+      if (!anchor || anchor.disabled) return false;
+      anchor.focus();
+      openToolbarMenu(anchor, ariaLabel, items);
+      return true;
+    },
+    [openToolbarMenu]
+  );
 
   const setActiveTabMode = useCallback(
     (nextMode: EditorMode) => {
@@ -1383,11 +1505,12 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         editorReadyNonce,
         richEditorRef,
         applyInsertRequest,
+        appendMarkdownToDocument,
         focusEditorSoon,
         addToast,
       },
     });
-  }, [activeTab, isAsking, editorReadyNonce, addToast, applyInsertRequest]);
+  }, [activeTab, isAsking, editorReadyNonce, addToast, applyInsertRequest, appendMarkdownToDocument]);
 
   const formatMenuItemsForContextMenu = useMemo((): MenuItem[] => {
     return buildFormatMenuItemsForContextMenu({
@@ -1432,12 +1555,73 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     ];
   }, [activeTab, isAsking, addToast, t, workspaceTab?.id]);
 
-  // Atalhos de arquivos
+  // Atalhos do editor
   useEffect(() => {
     if (!isPanelActive || !activeTab?.id) return;
 
     const onKeyDown = async (e: KeyboardEvent) => {
       if (isModalOpen()) return;
+
+      if (
+        e.key === 'F5' &&
+        !e.ctrlKey &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !e.metaKey &&
+        activeTab?.mode === 'view' &&
+        isRevealToolbarDocument &&
+        !isAsking
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        requestRevealFullscreen();
+        return;
+      }
+
+      if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        const key = e.key.toLowerCase();
+
+        if (!e.shiftKey) {
+          const modesByShortcut: Record<string, EditorMode> = {
+            '1': 'markdown',
+            '2': 'rich',
+            '3': 'view',
+          };
+          const modeShortcut = modesByShortcut[key];
+          if (modeShortcut && !isAsking) {
+            e.preventDefault();
+            e.stopPropagation();
+            setActiveTabMode(modeShortcut);
+            return;
+          }
+
+          if (key === 'i') {
+            const didOpen = openToolbarMenuFromShortcut(
+              insertMenuButtonRef.current,
+              t('editor.aria.insertMenu'),
+              insertMenuItemsForContextMenu
+            );
+            if (didOpen) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+            return;
+          }
+
+          if (key === 's') {
+            const didOpen = openToolbarMenuFromShortcut(
+              revealSlidePickerButtonRef.current,
+              t('editor.presentation.goToSlide'),
+              showRevealSlidePicker ? revealSlideMenuItemsForShortcut : []
+            );
+            if (didOpen) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+            return;
+          }
+        }
+      }
 
       if (e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S') && !e.altKey) {
         e.preventDefault();
@@ -1460,7 +1644,23 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [activeTab?.id, isPanelActive]);
+  }, [
+    activeTab?.id,
+    activeTab?.mode,
+    isPanelActive,
+    isAsking,
+    isRevealToolbarDocument,
+    insertMenuItemsForContextMenu,
+    openFile,
+    openToolbarMenuFromShortcut,
+    requestRevealFullscreen,
+    saveFile,
+    saveFileAsCopy,
+    setActiveTabMode,
+    showRevealSlidePicker,
+    revealSlideMenuItemsForShortcut,
+    t,
+  ]);
 
   return (
     <div className="editor-page" ref={pageRootRef}>
@@ -1468,12 +1668,29 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         activeTab={activeTab}
         isAsking={isAsking}
         richEditorRef={richEditorRef}
+        shortcutRefs={{
+          insertMenu: insertMenuButtonRef,
+          modeMenu: modeMenuButtonRef,
+          revealSlidePicker: revealSlidePickerButtonRef,
+        }}
         actions={actions}
         onOpenMenu={openToolbarMenu}
         fileMenuItems={fileMenuItemsForContextMenu}
         formatMenuItems={formatMenuItemsForContextMenu}
         insertMenuItems={insertMenuItemsForContextMenu}
         modeMenuItems={modeMenuItemsForContextMenu}
+        revealSlidePicker={{
+          enabled: !!activeTab && activeTab.mode === 'rich' && isRevealToolbarDocument,
+          slideCount: revealToolbarDeck.slides.length,
+          currentSlideIndex: Math.min(currentRevealSlideIndex, Math.max(0, revealToolbarDeck.slides.length - 1)),
+          slideLabels: revealToolbarDeck.slides.map((slide) => slide.label),
+          onSelectSlide: requestRevealSlideNavigation,
+          onCreateSlide: createRevealSlideFromToolbar,
+        }}
+        revealFullscreen={{
+          enabled: !!activeTab && activeTab.mode === 'view' && isRevealToolbarDocument,
+          onRequest: requestRevealFullscreen,
+        }}
       />
 
       <EditorContentArea
@@ -1501,6 +1718,13 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           richEditorRef.current = ed;
           setEditorReadyNonce((n) => n + 1);
         }}
+        onRevealSlideIndexChange={(index) => {
+          currentRevealSlideIndexRef.current = index;
+          setCurrentRevealSlideIndex(index);
+        }}
+        revealAppendNonce={revealAppendNonce}
+        revealSlideNavigationRequest={revealSlideNavigationRequest}
+        revealFullscreenRequestNonce={revealFullscreenRequestNonce}
         richEditorHandleRef={richEditorHandleRef}
         onRequestEditMermaid={(ctx) => {
           const mermaidBlockId = String(ctx.mermaidBlockId || '').trim();

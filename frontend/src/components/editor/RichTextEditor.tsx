@@ -50,6 +50,8 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   const { t } = useTranslation();
   const resolvedPlaceholder = placeholder ?? t('editor.richText.placeholder');
   const resolvedAriaLabel = ariaLabel ?? t('editor.richText.label');
+  const imageFallbackLabel = t('editor.richText.imageFallbackLabel');
+  const imageLabelPrefix = t('editor.richText.imageLabelPrefix');
   const markdownSync = useRichMarkdownSync({
     markdown,
     onMarkdownChange,
@@ -59,9 +61,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   const extensions = useMemo(() => {
     return buildRichTextExtensions({
       placeholder: resolvedPlaceholder,
+      imageFallbackLabel,
+      imageLabelPrefix,
       onRequestEditMermaid,
     });
-  }, [resolvedPlaceholder, onRequestEditMermaid]);
+  }, [resolvedPlaceholder, imageFallbackLabel, imageLabelPrefix, onRequestEditMermaid]);
 
   const editor = useEditor({
     extensions,

@@ -35,6 +35,7 @@ function antDesignIconsStub() {
           'EditOutlined', 'ExclamationOutlined', 'ExportOutlined',
           'EyeInvisibleOutlined', 'EyeOutlined',
           'FileOutlined', 'FilePdfOutlined', 'FileTextOutlined', 'FilterOutlined',
+          'FullscreenOutlined',
           'FolderOpenOutlined', 'FolderOutlined',
           'HistoryOutlined',
           'ImportOutlined', 'InfoCircleOutlined', 'InfoOutlined',

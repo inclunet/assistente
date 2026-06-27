@@ -15,7 +15,9 @@ vi.mock('./richMarkdownSync', () => ({
     isApplyingExternalMarkdownRef: { current: false },
     lastMarkdownRef: { current: markdown },
   }),
-  disposeRichMarkdownSync: () => disposeSpy(),
+  disposeRichMarkdownSync: (_refs: unknown, _editor: unknown, onMarkdownChange: (markdown: string) => void) => {
+    disposeSpy(onMarkdownChange);
+  },
   flushNow: () => flushSpy(),
   getMarkdownNow: () => getMarkdownSpy(),
   onUpdate: () => onUpdateSpy(),
@@ -51,5 +53,19 @@ describe('useRichMarkdownSync', () => {
     expect(flushSpy).toHaveBeenCalled();
     expect(getMarkdownSpy).toHaveBeenCalled();
     expect(syncSpy).toHaveBeenCalled();
+  });
+
+  it('usa o callback mais recente ao desmontar', () => {
+    const firstOnChange = vi.fn();
+    const latestOnChange = vi.fn();
+
+    const { rerender, unmount } = render(
+      <TestComponent markdown="abc" onChange={firstOnChange} />
+    );
+
+    rerender(<TestComponent markdown="abc" onChange={latestOnChange} />);
+    unmount();
+
+    expect(disposeSpy).toHaveBeenCalledWith(latestOnChange);
   });
 });

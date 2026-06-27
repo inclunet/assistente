@@ -135,4 +135,59 @@ describe('richMarkdownSync', () => {
 
     disposeRichMarkdownSync(refs);
   });
+
+  it('syncFromExternal emite debounce pendente antes de aplicar conteúdo externo', () => {
+    vi.useFakeTimers();
+
+    const refs = createRichMarkdownSyncRefs('slide antigo');
+    const onMarkdownChange = vi.fn();
+    const setContent = vi.fn();
+
+    let current = 'edição pendente do slide antigo';
+    const editor: EditorLike = {
+      commands: {
+        setContent,
+      },
+      storage: {
+        markdown: {
+          getMarkdown: () => current,
+        },
+      },
+    };
+
+    onUpdate({ refs, ctx: { editor }, onMarkdownChange, debounceMs: 100 });
+    syncFromExternal({ refs, editor, nextMarkdown: 'slide novo', onMarkdownChange });
+
+    current = 'não deve emitir';
+    vi.advanceTimersByTime(150);
+
+    expect(onMarkdownChange).toHaveBeenCalledTimes(1);
+    expect(onMarkdownChange).toHaveBeenCalledWith('edição pendente do slide antigo');
+    expect(setContent).toHaveBeenCalledWith('slide novo');
+
+    disposeRichMarkdownSync(refs);
+  });
+
+  it('disposeRichMarkdownSync emite debounce pendente antes de descartar', () => {
+    vi.useFakeTimers();
+
+    const refs = createRichMarkdownSyncRefs('a');
+    const onMarkdownChange = vi.fn();
+    const editor: EditorLike = {
+      storage: {
+        markdown: {
+          getMarkdown: () => 'pendente',
+        },
+      },
+    };
+
+    onUpdate({ refs, ctx: { editor }, onMarkdownChange, debounceMs: 100 });
+    disposeRichMarkdownSync(refs, undefined, onMarkdownChange);
+
+    expect(onMarkdownChange).toHaveBeenCalledTimes(1);
+    expect(onMarkdownChange).toHaveBeenCalledWith('pendente');
+
+    vi.advanceTimersByTime(150);
+    expect(onMarkdownChange).toHaveBeenCalledTimes(1);
+  });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EditorWriteFile } from '@wailsjs/go/app/App';
 
@@ -144,9 +144,12 @@ vi.mock('../components/ui/CodeEditor', () => ({
   CodeEditor: () => <div>Editor</div>,
 }));
 
-vi.mock('../components/editor/RichTextEditor', () => ({
-  RichTextEditor: () => <div>Rich</div>,
-}));
+vi.mock('../components/editor/RichTextEditor', async () => {
+  const React = await import('react');
+  return {
+    RichTextEditor: React.forwardRef<HTMLDivElement>(() => <div>Rich</div>),
+  };
+});
 
 vi.mock('../components/ui/MarkdownRenderer', () => ({
   MarkdownRenderer: () => <div>Preview</div>,
@@ -200,6 +203,7 @@ describe('EditorPage', () => {
   beforeEach(() => {
     editorStoreState.documents = {};
     openToolbarMenuSpy.mockReset();
+    editorStoreState.setDocMode.mockReset();
     vi.mocked(EditorWriteFile).mockReset();
   });
 
@@ -229,6 +233,39 @@ describe('EditorPage', () => {
     render(<EditorPage documentId="tab-1" />);
 
     expect(screen.getByRole('button', { name: 'editor.buttons.insert' })).toBeDisabled();
+  });
+
+  it('abre menu Inserir com Alt+I quando disponível', () => {
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'markdown' },
+    };
+
+    render(<EditorPage documentId="tab-1" />);
+
+    const insertButton = screen.getByRole('button', { name: 'editor.buttons.insert' });
+    fireEvent.keyDown(window, { key: 'i', altKey: true });
+
+    expect(openToolbarMenuSpy).toHaveBeenCalledWith(
+      insertButton,
+      'editor.aria.insertMenu',
+      expect.any(Array)
+    );
+  });
+
+  it('alterna modos principais com Alt+1, Alt+2 e Alt+3', () => {
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'rich' },
+    };
+
+    render(<EditorPage documentId="tab-1" />);
+
+    fireEvent.keyDown(window, { key: '1', altKey: true });
+    fireEvent.keyDown(window, { key: '2', altKey: true });
+    fireEvent.keyDown(window, { key: '3', altKey: true });
+
+    expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(1, 'tab-1', 'markdown');
+    expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(2, 'tab-1', 'rich');
+    expect(editorStoreState.setDocMode).toHaveBeenNthCalledWith(3, 'tab-1', 'view');
   });
 
   it('não executa atalhos de arquivo quando o painel está inativo', async () => {

@@ -1,8 +1,9 @@
-import { Extension } from '@tiptap/core';
+import { Extension, mergeAttributes } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import CodeBlock, { type CodeBlockOptions } from '@tiptap/extension-code-block';
 import Placeholder from '@tiptap/extension-placeholder';
 import Link from '@tiptap/extension-link';
+import Image from '@tiptap/extension-image';
 import { Table } from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
 import TableHeader from '@tiptap/extension-table-header';
@@ -23,11 +24,18 @@ type MermaidRequestCtx = {
   remove: () => void;
 };
 
+function isSafeImageSrc(src: string): boolean {
+  const raw = String(src || '').trim();
+  return !!raw && isSafeLinkHref(raw) && !/^mailto:/i.test(raw);
+}
+
 export function buildRichTextExtensions(args: {
   placeholder: string;
+  imageFallbackLabel: string;
+  imageLabelPrefix: string;
   onRequestEditMermaid?: (ctx: MermaidRequestCtx) => void;
 }) {
-  const { placeholder, onRequestEditMermaid } = args;
+  const { placeholder, imageFallbackLabel, imageLabelPrefix, onRequestEditMermaid } = args;
 
   const PasteUrlAsLinkOnSelection = Extension.create({
     name: 'pasteUrlAsLinkOnSelection',
@@ -66,9 +74,97 @@ export function buildRichTextExtensions(args: {
     },
   });
 
+  const AccessibleImage = Image.extend({
+    addProseMirrorPlugins() {
+      return [
+        new Plugin({
+          appendTransaction: (transactions, _oldState, newState) => {
+            if (!transactions.some((transaction) => transaction.docChanged)) {
+              return null;
+            }
+
+            const tr = newState.tr;
+            let changed = false;
+
+            newState.doc.descendants((node, pos) => {
+              if (node.type.name !== this.name) {
+                return;
+              }
+
+              const src = String(node.attrs.src || '');
+              if (!src || isSafeImageSrc(src)) {
+                return;
+              }
+
+              tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: '' });
+              changed = true;
+            });
+
+            return changed ? tr : null;
+          },
+        }),
+      ];
+    },
+    addNodeView() {
+      return ({ node }) => {
+        const src = String(node.attrs.src || '');
+        const safeSrc = isSafeImageSrc(src) ? src : '';
+        const alt = String(node.attrs.alt || '').trim();
+        const title = String(node.attrs.title || '').trim();
+        const accessibleLabel = alt || title || imageFallbackLabel;
+        const describedLabel = `${imageLabelPrefix}: ${accessibleLabel}`;
+
+        const figure = document.createElement('figure');
+        figure.className = 'rich-text-editor__image-node';
+        figure.contentEditable = 'false';
+        figure.setAttribute('role', 'group');
+        figure.setAttribute('aria-label', describedLabel);
+        figure.setAttribute('tabindex', '0');
+        figure.dataset.richImageNode = 'true';
+
+        const image = document.createElement('img');
+        if (safeSrc) {
+          image.setAttribute('src', safeSrc);
+        }
+        image.alt = accessibleLabel;
+        image.title = title || accessibleLabel;
+
+        const caption = document.createElement('figcaption');
+        caption.className = 'rich-text-editor__image-description';
+        caption.textContent = describedLabel;
+
+        figure.append(image, caption);
+
+        return { dom: figure };
+      };
+    },
+    renderHTML({ HTMLAttributes }) {
+      const src = String(HTMLAttributes.src || '');
+      const safeSrc = isSafeImageSrc(src) ? src : '';
+      const alt = String(HTMLAttributes.alt || '').trim();
+      const title = String(HTMLAttributes.title || '').trim();
+      const accessibleLabel = alt || title || imageFallbackLabel;
+      const safeAttributes = { ...HTMLAttributes };
+      delete safeAttributes.src;
+      const imageAttributes = safeSrc ? { ...safeAttributes, src: safeSrc } : safeAttributes;
+      return [
+        'img',
+        mergeAttributes(
+          this.options.HTMLAttributes,
+          imageAttributes,
+          {
+            'aria-label': accessibleLabel,
+            title: title || accessibleLabel,
+          }
+        ),
+      ];
+    },
+  });
+
   return [
     StarterKit.configure({
       codeBlock: false,
+      link: false,
     }),
     Table.configure({
       resizable: true,
@@ -85,6 +181,10 @@ export function buildRichTextExtensions(args: {
         target: '_blank',
         rel: 'noopener noreferrer',
       },
+    }),
+    AccessibleImage.configure({
+      inline: false,
+      allowBase64: false,
     }),
     PasteUrlAsLinkOnSelection,
     MermaidAwareCodeBlock.configure({

@@ -8,8 +8,28 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.editor-page__toolbar .toolbar__left {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.editor-page__toolbar .toolbar__right {
+  flex: 0 0 auto;
+}
+
+.editor-page__toolbar-left {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .editor-page__title {
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .editor-page__content {
@@ -56,6 +76,8 @@
 .editor-page__pane-body {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .editor-page__preview {
@@ -80,6 +102,24 @@
   padding: 16px;
   border: 1px dashed var(--border-default);
   border-radius: var(--radius-xl);
+  background: var(--bg-muted);
+}
+
+.editor-page__toolbar-presentation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-page__toolbar-presentation-label,
+.editor-page__presentation-current {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.editor-page__presentation-current {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-muted);
 }
 
