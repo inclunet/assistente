@@ -5,7 +5,7 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
 (ver `CLAUDE.md`). Não criar outro diretório para AEPs — tudo fica em `aep/`.
 
-> **Inventário (2026-06-21):** este índice cobre **todos os documentos `.md` de
+> **Inventário (2026-06-27):** este índice cobre **todos os documentos `.md` de
 > `aep/`** (≈90 arquivos). Cada número de AEP tem **um documento principal**; séries
 > multi-arquivo têm o principal listado na tabela e os demais em
 > [Apêndices por AEP](#apêndices-por-aep). Convenção em
@@ -92,10 +92,12 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0076](0076-schema-versioning-migrations.md) | Versionamento de Schema do Banco (schema_migrations) | ✅ Done |
 | [0077](0077-tool-planner-and-tools-subsystem-evolution.md) | ToolPlanner e Evolução do Subsistema de Tools | ✅ Done |
 | [0078](0078-deprecacao-toolcalls-em-mensagens.md) | Deprecação de `tool_calls` em Mensagens | 📝 Draft |
+| [0079](0079-editor-modo-apresentacao-reveal.md) | Modo Apresentação Reveal.js no Editor | 📝 Draft |
+| [0080](0080-surface-context-unificado.md) | SurfaceContext Unificado | 📝 Draft |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0078 → próximo
-> 0079), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0080 → próximo
+> 0081), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 

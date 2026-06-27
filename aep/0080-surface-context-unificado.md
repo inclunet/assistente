@@ -35,8 +35,10 @@ O resultado é uma classe de bugs em que o assistente age sobre o arquivo, card,
 Toda surface que participa do envio ao chat deve produzir um envelope lógico com campos comuns:
 
 ```ts
+type SurfaceType = "editor" | "tasklist" | "terminal" | (string & {})
+
 type SurfaceContext = {
-  surfaceType: "editor" | "tasklist" | "terminal" | string
+  surfaceType: SurfaceType
   surfaceId: string
   title?: string
   mode?: string
@@ -44,7 +46,7 @@ type SurfaceContext = {
   focus?: SurfaceFocus
   content?: SurfaceContent
   metadata?: Record<string, unknown>
-  snapshotVersion: string | number
+  snapshotVersion: string
   capturedAt?: string
   staleAfterMs?: number
 }
@@ -52,7 +54,7 @@ type SurfaceContext = {
 
 Semântica:
 
-- `surfaceType` identifica o tipo canônico da surface, alinhado ao `WorkspaceTab.type` quando a origem for uma aba.
+- `surfaceType` identifica o tipo canônico da surface, alinhado ao `WorkspaceTab.type` quando a origem for uma aba. Extensões fora dos tipos canônicos devem usar um tipo aberto como `string & {}` para não degradar autocomplete e checagem dos literais conhecidos em TypeScript.
 - `surfaceId` identifica a instância de origem, como tab ID, session key ou ID estável equivalente.
 - `title` é rótulo humano para prompt e transparência.
 - `mode` descreve variação relevante de comportamento, como `markdown`, `rich`, `reveal`, `kanban`, `list` ou `shell`.
@@ -60,8 +62,8 @@ Semântica:
 - `focus` descreve o alvo atualmente focado quando diferente da seleção.
 - `content` contém snapshot limitado e permitido para o modelo.
 - `metadata` carrega dados auxiliares não essenciais para renderização.
-- `snapshotVersion` é obrigatório para validar staleness em tools e ações destrutivas.
-- `capturedAt` e `staleAfterMs` ajudam o backend a sinalizar contexto antigo, principalmente em terminal e edição concorrente.
+- `snapshotVersion` é obrigatório para validar staleness em tools e ações destrutivas. Deve ser sempre uma string opaca, estável para comparação e segura para transporte JSON, logs e tool targets.
+- `capturedAt`, quando presente, deve ser uma string ISO 8601/RFC3339 com timezone explícito. Ele e `staleAfterMs` ajudam o backend a sinalizar contexto antigo, principalmente em terminal e edição concorrente.
 
 Exemplo curto:
 
