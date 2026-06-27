@@ -112,7 +112,7 @@ O backend deve renderizar o contexto em bloco delimitado, preferencialmente dent
 Exemplo:
 
 ```xml
-<surface_context type="editor" id="tab-3" title="slides.md" mode="reveal" snapshot_version="editor:tab-3:42">
+<surface_context surface_type="editor" surface_id="tab-3" title="slides.md" mode="reveal" snapshot_version="editor:tab-3:42">
   <focus kind="slide" slide_index="2">Objetivo</focus>
   <selection kind="text" range="12:1-18:1">
 ## Objetivo
@@ -123,6 +123,7 @@ Exemplo:
 
 Regras de segurança:
 
+- atributos derivados do contrato devem usar `snake_case` previsível no XML do prompt, como `surface_type`, `surface_id` e `snapshot_version`;
 - renderizar por allowlist de `surfaceType` e campos permitidos;
 - escapar conteúdo textual para não quebrar tags do prompt;
 - truncar por campo e por bloco total, com limites configuráveis por provider/perfil;
