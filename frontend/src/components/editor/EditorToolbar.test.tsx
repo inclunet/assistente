@@ -51,7 +51,7 @@ describe('EditorToolbar', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Agenda' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Agenda, Alt+S' }));
 
     expect(onOpenMenu).toHaveBeenCalledTimes(1);
     const items = onOpenMenu.mock.calls[0][2];
@@ -93,8 +93,8 @@ describe('EditorToolbar', () => {
     expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
       'editor.buttons.file',
       'editor.buttons.format',
-      'editor.buttons.insert',
-      'Abertura',
+      'editor.buttons.insert, Alt+I',
+      'Abertura, Alt+S',
       'editor.presentation.fullscreen, F5',
       'editor.buttons.mode',
       'Chat',

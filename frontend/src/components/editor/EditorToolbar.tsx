@@ -1,4 +1,4 @@
-import { type RefObject, useId } from 'react';
+import { type Ref, type RefObject, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CompassOutlined, DownOutlined, FileOutlined, FullscreenOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
 
@@ -11,6 +11,11 @@ export interface EditorToolbarProps {
   activeTab: EditorDocument | null;
   isAsking: boolean;
   richEditorRef: RefObject<TipTapEditor | null>;
+  shortcutRefs?: {
+    insertMenu?: Ref<HTMLButtonElement>;
+    modeMenu?: Ref<HTMLButtonElement>;
+    revealSlidePicker?: Ref<HTMLButtonElement>;
+  };
   actions: ToolbarAction[];
   onOpenMenu: (anchor: HTMLElement, ariaLabel: string, items: MenuItem[]) => void;
   fileMenuItems: MenuItem[];
@@ -36,6 +41,7 @@ export function EditorToolbar({
   activeTab,
   isAsking,
   richEditorRef,
+  shortcutRefs,
   actions,
   onOpenMenu,
   fileMenuItems,
@@ -73,8 +79,10 @@ export function EditorToolbar({
         {t('editor.presentation.slidePickerLabel')}
       </span>
       <ToolbarButton
+        ref={shortcutRefs?.revealSlidePicker}
         label={getRevealSlideLabel(revealSlidePicker.currentSlideIndex)}
         endIcon={<DownOutlined />}
+        shortcut="Alt+S"
         disabled={isAsking}
         onClick={(e) => onOpenMenu(e.currentTarget, t('editor.presentation.goToSlide'), revealSlideMenuItems)}
         aria-haspopup="menu"
@@ -110,6 +118,8 @@ export function EditorToolbar({
           <ToolbarButton
             label={t('editor.buttons.insert')}
             icon={<PlusOutlined />}
+            ref={shortcutRefs?.insertMenu}
+            shortcut="Alt+I"
             disabled={!activeTab || isAsking || activeTab.mode === 'view'}
             onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.insertMenu'), insertMenuItems)}
             aria-haspopup="menu"
@@ -130,6 +140,7 @@ export function EditorToolbar({
           <ToolbarButton
             label={t('editor.buttons.mode')}
             icon={<CompassOutlined />}
+            ref={shortcutRefs?.modeMenu}
             disabled={!activeTab || isAsking}
             onClick={(e) => onOpenMenu(e.currentTarget, t('editor.aria.modeMenu'), modeMenuItems)}
             aria-haspopup="menu"

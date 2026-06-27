@@ -103,6 +103,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   const activeTab = currentDocumentId ? documents[currentDocumentId] ?? null : null;
 
   const pageRootRef = useRef<HTMLDivElement>(null);
+  const insertMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const modeMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const revealSlidePickerButtonRef = useRef<HTMLButtonElement | null>(null);
   const editorRef = useRef<MonacoCodeEditor | null>(null);
   const monacoRef = useRef<MonacoNamespace | null>(null);
   const richEditorRef = useRef<TipTapEditor | null>(null);
@@ -1417,12 +1420,53 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     setRevealFullscreenRequestNonce((nonce) => nonce + 1);
   }, []);
 
+  const showRevealSlidePicker = !!activeTab && activeTab.mode === 'rich' && isRevealToolbarDocument;
+  const getRevealToolbarSlideLabel = useCallback(
+    (index: number) => revealToolbarDeck.slides[index]?.label || t('editor.presentation.slideOption', { index: index + 1 }),
+    [revealToolbarDeck.slides, t]
+  );
+  const revealSlideMenuItemsForShortcut = useMemo((): MenuItem[] => {
+    if (!showRevealSlidePicker) return [];
+    return [
+      ...revealToolbarDeck.slides.map((_, index) => ({
+        id: `reveal-slide-${index}`,
+        label: getRevealToolbarSlideLabel(index),
+        checked: index === Math.min(currentRevealSlideIndex, Math.max(0, revealToolbarDeck.slides.length - 1)),
+        action: () => requestRevealSlideNavigation(index),
+      })),
+      { id: 'reveal-slide-separator', separator: true },
+      {
+        id: 'reveal-slide-new',
+        label: t('editor.presentation.newSlide'),
+        action: createRevealSlideFromToolbar,
+      },
+    ];
+  }, [
+    createRevealSlideFromToolbar,
+    currentRevealSlideIndex,
+    getRevealToolbarSlideLabel,
+    requestRevealSlideNavigation,
+    revealToolbarDeck.slides,
+    showRevealSlidePicker,
+    t,
+  ]);
+
   const {
     menu: toolbarMenu,
     openForTrigger: openToolbarMenu,
     closeMenu: closeToolbarMenu,
     onSelectItem: handleToolbarMenuSelect,
   } = useAnchoredContextMenu();
+
+  const openToolbarMenuFromShortcut = useCallback(
+    (anchor: HTMLButtonElement | null, ariaLabel: string, items: MenuItem[]) => {
+      if (!anchor || anchor.disabled) return false;
+      anchor.focus();
+      openToolbarMenu(anchor, ariaLabel, items);
+      return true;
+    },
+    [openToolbarMenu]
+  );
 
   const setActiveTabMode = useCallback(
     (nextMode: EditorMode) => {
@@ -1511,17 +1555,72 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     ];
   }, [activeTab, isAsking, addToast, t, workspaceTab?.id]);
 
-  // Atalhos de arquivos
+  // Atalhos do editor
   useEffect(() => {
     if (!isPanelActive || !activeTab?.id) return;
 
     const onKeyDown = async (e: KeyboardEvent) => {
       if (isModalOpen()) return;
 
-      if (e.key === 'F5' && activeTab?.mode === 'view' && isRevealToolbarDocument) {
+      if (
+        e.key === 'F5' &&
+        !e.ctrlKey &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !e.metaKey &&
+        activeTab?.mode === 'view' &&
+        isRevealToolbarDocument &&
+        !isAsking
+      ) {
         e.preventDefault();
+        e.stopPropagation();
         requestRevealFullscreen();
         return;
+      }
+
+      if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        const key = e.key.toLowerCase();
+
+        if (!e.shiftKey) {
+          const modesByShortcut: Record<string, EditorMode> = {
+            '1': 'markdown',
+            '2': 'rich',
+            '3': 'view',
+          };
+          const modeShortcut = modesByShortcut[key];
+          if (modeShortcut && !isAsking) {
+            e.preventDefault();
+            e.stopPropagation();
+            setActiveTabMode(modeShortcut);
+            return;
+          }
+
+          if (key === 'i') {
+            const didOpen = openToolbarMenuFromShortcut(
+              insertMenuButtonRef.current,
+              t('editor.aria.insertMenu'),
+              insertMenuItemsForContextMenu
+            );
+            if (didOpen) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+            return;
+          }
+
+          if (key === 's') {
+            const didOpen = openToolbarMenuFromShortcut(
+              revealSlidePickerButtonRef.current,
+              t('editor.presentation.goToSlide'),
+              showRevealSlidePicker ? revealSlideMenuItemsForShortcut : []
+            );
+            if (didOpen) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+            return;
+          }
+        }
       }
 
       if (e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S') && !e.altKey) {
@@ -1545,7 +1644,23 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [activeTab?.id, activeTab?.mode, isPanelActive, isRevealToolbarDocument, requestRevealFullscreen]);
+  }, [
+    activeTab?.id,
+    activeTab?.mode,
+    isPanelActive,
+    isAsking,
+    isRevealToolbarDocument,
+    insertMenuItemsForContextMenu,
+    openFile,
+    openToolbarMenuFromShortcut,
+    requestRevealFullscreen,
+    saveFile,
+    saveFileAsCopy,
+    setActiveTabMode,
+    showRevealSlidePicker,
+    revealSlideMenuItemsForShortcut,
+    t,
+  ]);
 
   return (
     <div className="editor-page" ref={pageRootRef}>
@@ -1553,6 +1668,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         activeTab={activeTab}
         isAsking={isAsking}
         richEditorRef={richEditorRef}
+        shortcutRefs={{
+          insertMenu: insertMenuButtonRef,
+          modeMenu: modeMenuButtonRef,
+          revealSlidePicker: revealSlidePickerButtonRef,
+        }}
         actions={actions}
         onOpenMenu={openToolbarMenu}
         fileMenuItems={fileMenuItemsForContextMenu}
