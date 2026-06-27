@@ -38,9 +38,9 @@ vi.mock('./RevealRenderer', () => ({
 }));
 
 vi.mock('./RichTextEditor', () => ({
-  RichTextEditor: forwardRef((props: { markdown: string }, ref: Ref<RichTextEditorHandle>) => {
+  RichTextEditor: forwardRef((props: { markdown: string; readOnly?: boolean }, ref: Ref<RichTextEditorHandle>) => {
     useImperativeHandle(ref, () => richEditorHandle);
-    return <div data-testid="rich-text-editor">{props.markdown}</div>;
+    return <div data-testid="rich-text-editor" data-readonly={props.readOnly ? 'true' : 'false'}>{props.markdown}</div>;
   }),
 }));
 
@@ -182,5 +182,39 @@ Texto depois`);
     const nextMarkdown = onRichMarkdownChange.mock.calls[onRichMarkdownChange.mock.calls.length - 1]?.[0] as string;
     expect(nextMarkdown).toContain('```yaml\n---\nkey: value\n---\n```');
     expect(nextMarkdown).toContain('\n___\n\nTexto depois');
+  });
+
+  it('não trata autolinks Markdown como HTML cru em slides Reveal', () => {
+    const markdown = `<!-- .slide: class="content-slide" -->
+
+Veja <https://example.com>`;
+    const activeTab: EditorDocument = {
+      id: 'doc-1',
+      title: 'Deck',
+      markdown,
+      mode: 'rich',
+    };
+    useEditorStore.getState().hydrate({ documents: { [activeTab.id]: activeTab } });
+
+    const { getByTestId } = renderContentArea(activeTab);
+
+    expect(getByTestId('rich-text-editor')).toHaveAttribute('data-readonly', 'false');
+  });
+
+  it('mantém slides com HTML cru em modo somente leitura', () => {
+    const markdown = `<!-- .slide: class="content-slide" -->
+
+<div>HTML bruto</div>`;
+    const activeTab: EditorDocument = {
+      id: 'doc-1',
+      title: 'Deck',
+      markdown,
+      mode: 'rich',
+    };
+    useEditorStore.getState().hydrate({ documents: { [activeTab.id]: activeTab } });
+
+    const { getByTestId } = renderContentArea(activeTab);
+
+    expect(getByTestId('rich-text-editor')).toHaveAttribute('data-readonly', 'true');
   });
 });

@@ -14,7 +14,7 @@ import {
   replaceRevealSlide,
 } from '../../lib/revealMarkdown';
 
-const RAW_HTML_RE = /<\/?[a-z][\w:-]*(?:\s|>|\/>)/i;
+const RAW_HTML_RE = /<\/?[a-z][a-z0-9-]*(?:\s|>|\/>)/i;
 const FENCE_START_RE = /^(\s*)(`{3,}|~{3,})/;
 
 function getFenceMarker(line: string): { char: '`' | '~'; length: number } | null {
