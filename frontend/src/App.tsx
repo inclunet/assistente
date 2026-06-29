@@ -64,6 +64,16 @@ function App() {
     const wasQuestionnaireOpenRef = useRef(false);
     const lastFocusedElementRef = useRef<HTMLElement | null>(null);
     const pendingLegacyImportSummaryRef = useRef<LegacyImportSummaryEvent | null>(null);
+    const authSnapshotRef = useRef({
+        isAuthenticated: false,
+        isLoading: false,
+        userId: undefined as string | undefined,
+    });
+    authSnapshotRef.current = {
+        isAuthenticated,
+        isLoading: authLoading,
+        userId: authUser?.userId,
+    };
 
     // Estado do dialog de questionário (tool: collect_responses e aprovações)
     const [questionnaireOpen, setQuestionnaireOpen] = useState(false);
@@ -83,7 +93,8 @@ function App() {
     usePartialRuntimeInitListener();
 
     const showLegacyImportSummary = useCallback((eventData: LegacyImportSummaryEvent) => {
-        if (eventData.userId && authUser?.userId && eventData.userId !== authUser.userId) return;
+        const currentUserId = authSnapshotRef.current.userId;
+        if (eventData.userId && currentUserId && eventData.userId !== currentUserId) return;
 
         const imported = eventData.imported ?? 0;
         const skipped = eventData.skipped ?? 0;
@@ -94,7 +105,7 @@ function App() {
 
         const toastType = failed > 0 || errors > 0 ? 'error' : warnings > 0 ? 'warning' : 'success';
         addToast(t('app.legacyImport.summary', { imported, skipped, failed, warnings }), toastType, 10000);
-    }, [addToast, authUser?.userId, t]);
+    }, [addToast, t]);
 
     useEffect(() => {
         if (!isAuthenticated || !authUser || !pendingLegacyImportSummaryRef.current) return;
@@ -208,8 +219,9 @@ function App() {
 
         unsubs.push(EventsOn('legacy:import_summary', (data: unknown) => {
             const eventData = data as LegacyImportSummaryEvent;
-            if (!isAuthenticated || !authUser) {
-                if (authLoading) {
+            const authSnapshot = authSnapshotRef.current;
+            if (!authSnapshot.isAuthenticated || !authSnapshot.userId) {
+                if (authSnapshot.isLoading) {
                     pendingLegacyImportSummaryRef.current = eventData;
                 }
                 return;
@@ -220,7 +232,7 @@ function App() {
         return () => {
             unsubs.forEach(fn => fn());
         };
-    }, [addToast, authLoading, authUser, handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, isAuthenticated, navigate, showLegacyImportSummary, t]);
+    }, [addToast, handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, navigate, showLegacyImportSummary, t]);
 
     // Listener para mensagens de canais externos (Signal, Telegram).
     // Quando messaging:incoming chega, delega ao chatStore que monta placeholders
