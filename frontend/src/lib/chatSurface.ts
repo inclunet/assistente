@@ -84,6 +84,10 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
 export function hashSurfaceValue(value: string): string {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i += 1) {
@@ -150,14 +154,16 @@ export function normalizeSurfaceContext(
   const cursorContext = stringValue(context.cursorContext);
   const historyPreview = stringValue(context.historyPreview);
   const tasksPreview = stringValue(context.tasksPreview);
+  const selectionIsEmpty =
+    booleanValue(context.selectionIsEmpty) ?? booleanValue(context.selectionEmpty);
 
   const selection = selectedText || selectedMarkdown
     ? {
         kind: 'text',
         text: selectedText,
         markdown: selectedMarkdown,
-        isEmpty: Boolean(context.selectionIsEmpty),
-        explicit: !context.selectionIsEmpty,
+        isEmpty: selectionIsEmpty,
+        explicit: selectionIsEmpty === undefined ? undefined : !selectionIsEmpty,
       }
     : undefined;
 

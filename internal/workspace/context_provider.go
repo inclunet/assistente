@@ -412,42 +412,6 @@ func containsPromptStructureChars(value string) bool {
 	return strings.ContainsAny(value, "<>`\n\r")
 }
 
-func writeSurfaceIdentity(sb *strings.Builder, surface *contextprovider.Surface) {
-	if surface == nil {
-		return
-	}
-	if surface.Type != "" {
-		sb.WriteString("- surface_type: ")
-		sb.WriteString(sanitizeContextLine(surface.Type))
-		sb.WriteString("\n")
-	}
-	if surface.Title != "" {
-		sb.WriteString("- surface_title: ")
-		sb.WriteString(sanitizeContextLine(surface.Title))
-		sb.WriteString("\n")
-	}
-	if value := stringFromMap(surface.State, "filePath"); value != "" {
-		sb.WriteString("- active_file: ")
-		sb.WriteString(sanitizeContextLine(value))
-		sb.WriteString("\n")
-	}
-	if value := stringFromMap(surface.State, "tasklistId"); value != "" {
-		sb.WriteString("- active_tasklist: ")
-		sb.WriteString(sanitizeContextLine(value))
-		sb.WriteString("\n")
-	}
-	writeSurfaceValue(sb, "active_terminal_session", surface.State, "sessionId")
-}
-
-func writeSurfaceTransientContext(sb *strings.Builder, surface *contextprovider.Surface) {
-	if surface == nil {
-		return
-	}
-	writeSurfaceValue(sb, "selected_text", surface.Context, "selectedText")
-	writeSurfaceValue(sb, "history_preview", surface.Context, "historyPreview")
-	writeSurfaceValue(sb, "tasks_preview", surface.Context, "tasksPreview")
-}
-
 func writeSafeMachineReference(sb *strings.Builder, label string, value string) {
 	value = strings.TrimSpace(value)
 	if value == "" || containsPromptStructureChars(value) {
@@ -606,16 +570,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func writeSurfaceValue(sb *strings.Builder, label string, values map[string]any, key string) {
-	if value := stringFromMap(values, key); value != "" {
-		sb.WriteString("- ")
-		sb.WriteString(label)
-		sb.WriteString(": ")
-		sb.WriteString(sanitizeContextLine(value))
-		sb.WriteString("\n")
-	}
 }
 
 func sanitizeContextLine(value string) string {

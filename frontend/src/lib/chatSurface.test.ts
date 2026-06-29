@@ -37,6 +37,8 @@ describe('buildChatSurfaceParams', () => {
       selection: {
         kind: 'text',
         text: 'hello',
+        isEmpty: false,
+        explicit: true,
       },
       metadata: {
         legacySurfaceContext: true,
@@ -81,6 +83,38 @@ describe('buildChatSurfaceParams', () => {
       snapshotVersion: 'terminal:term-1:42',
       content: { kind: 'terminal_output', recentOutput: 'ok' },
     });
+  });
+
+  it('suporta selectionEmpty legado sem inferir explicit quando ausente', () => {
+    const emptySelectionParams = buildChatSurfaceParams(
+      { type: 'editor', state: { draftId: 'draft-1' } },
+      {
+        context: {
+          selectedText: 'hello',
+          selectionEmpty: true,
+        },
+      },
+    );
+
+    expect(JSON.parse(String(emptySelectionParams.surfaceContextJson))).toMatchObject({
+      selection: {
+        isEmpty: true,
+        explicit: false,
+      },
+    });
+
+    const unknownSelectionParams = buildChatSurfaceParams(
+      { type: 'editor', state: { draftId: 'draft-1' } },
+      {
+        context: {
+          selectedText: 'hello',
+        },
+      },
+    );
+
+    const selection = JSON.parse(String(unknownSelectionParams.surfaceContextJson)).selection;
+    expect(selection).not.toHaveProperty('isEmpty');
+    expect(selection).not.toHaveProperty('explicit');
   });
 
   it('limita valores usados como seed de snapshot', () => {
