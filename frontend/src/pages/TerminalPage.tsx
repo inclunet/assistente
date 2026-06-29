@@ -11,7 +11,7 @@ import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
 import { useTabScrollState } from '../hooks/useTabScrollState';
-import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../lib/chatSurface';
+import { boundedSurfaceSnapshotValue, buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../lib/chatSurface';
 import './TerminalPage.css';
 
 const TERMINAL_CHAT_HISTORY_LIMIT = 40;
@@ -176,7 +176,7 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
           snapshotVersion: createSurfaceSnapshotVersion(
             'terminal',
             panelTab.id,
-            `${currentSessionId}:${currentHistory.length}:${lastEntry?.id || ''}:${String(lastEntry?.output || '').length}:${currentInput}`,
+            `${currentSessionId}:${currentHistory.length}:${lastEntry?.id || ''}:${String(lastEntry?.output || '').length}:${boundedSurfaceSnapshotValue(currentInput, 240)}`,
           ),
           capturedAt: new Date().toISOString(),
           staleAfterMs: 30000,

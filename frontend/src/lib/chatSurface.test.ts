@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChatSurfaceParams } from './chatSurface';
+import { boundedSurfaceSnapshotValue, buildChatSurfaceParams } from './chatSurface';
 
 describe('buildChatSurfaceParams', () => {
   it('serializa state e context e preserva activeFilePath do editor', () => {
@@ -81,5 +81,10 @@ describe('buildChatSurfaceParams', () => {
       snapshotVersion: 'terminal:term-1:42',
       content: { kind: 'terminal_output', recentOutput: 'ok' },
     });
+  });
+
+  it('limita valores usados como seed de snapshot', () => {
+    expect(boundedSurfaceSnapshotValue('abcdef', 6)).toBe('abcdef');
+    expect(boundedSurfaceSnapshotValue('abcdef', 3)).toBe('abc:len=6');
   });
 });

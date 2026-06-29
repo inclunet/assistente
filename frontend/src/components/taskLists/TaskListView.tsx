@@ -247,6 +247,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
         const body = previewTasks
           .map((x) => `- ${String(x.title || '').trim()}`)
           .join('\n');
+        const taskSnapshotSeed = previewTasks
+          .map((task) => `${task.id}:${task.updatedAt}:${task.statusId}`)
+          .join('|');
         const statuses = [...(taskList.workflow?.statuses ?? [])].sort((a, b) => a.order - b.order);
         const surfaceContext: SurfaceContext = {
           surfaceType: 'tasklist',
@@ -276,7 +279,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           snapshotVersion: createSurfaceSnapshotVersion(
             'tasklist',
             panelTab.id,
-            `${taskList.updatedAt}:${taskList.workflow?.updatedAt}:${tasks.map((task) => `${task.id}:${task.updatedAt}:${task.statusId}`).join('|')}`,
+            `${taskList.updatedAt}:${taskList.workflow?.updatedAt}:${tasks.length}:${taskSnapshotSeed}`,
           ),
           capturedAt: new Date().toISOString(),
           staleAfterMs: 60000,

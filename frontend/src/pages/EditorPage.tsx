@@ -29,7 +29,7 @@ import { applyRichTextInsert, applyRichTextInsertAtEnd, type RichTextEditorLike 
 import { validateRichTextSelectionSnapshot } from '../lib/richTextSelectionValidation';
 import { markdownToHtml } from '../lib/markdownToHtml';
 import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
-import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../lib/chatSurface';
+import { boundedSurfaceSnapshotValue, buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../lib/chatSurface';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
 import { parseRevealMarkdown, type RevealSlide } from '../lib/revealMarkdown';
 import { getErrorMessage, getMaybeContent } from '../lib/editorContent';
@@ -743,7 +743,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     const snapshotVersion = createSurfaceSnapshotVersion(
       'editor',
       surfaceId,
-      `${latestActiveTab.filePath || latestActiveTab.draftId || ''}:${inlineChatSelection.mode}:${inlineChatSelection.snapshot}`,
+      `${latestActiveTab.filePath || latestActiveTab.draftId || ''}:${inlineChatSelection.mode}:${boundedSurfaceSnapshotValue(inlineChatSelection.snapshot)}`,
     );
     const surfaceContext: SurfaceContext = {
       surfaceType: 'editor',

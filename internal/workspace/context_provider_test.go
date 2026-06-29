@@ -173,6 +173,57 @@ func TestContextProviderBuildsSurfaceBlockWithoutWorkspaceBlock(t *testing.T) {
 	}
 }
 
+func TestContextProviderOmitsEmptyStructuredSurfaceContext(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		ProviderBudgets: map[string]int{
+			"workspace": 1000,
+		},
+		Surface: &contextprovider.Surface{
+			Type:  "editor",
+			Title: "Arquivo",
+			Context: map[string]any{
+				"surfaceType":     "editor",
+				"surfaceId":       "tab-1",
+				"snapshotVersion": "editor:tab-1:empty",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want only instructions block", len(blocks))
+	}
+}
+
+func TestContextProviderMapsLegacyTasklistIDToAllowlistedMetadata(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		ProviderBudgets: map[string]int{
+			"workspace": 1000,
+		},
+		Surface: &contextprovider.Surface{
+			Type:  "tasklist",
+			Title: "Tarefas",
+			State: map[string]any{"tasklistId": "tl-legacy"},
+			Context: map[string]any{
+				"tasksPreview": "- Revisar PR",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want instructions and surface context", len(blocks))
+	}
+	if !strings.Contains(blocks[1].Content, `<metadata key="task_list_id">tl-legacy</metadata>`) {
+		t.Fatalf("legacy tasklist ID should render with allowlisted key: %q", blocks[1].Content)
+	}
+	if strings.Contains(blocks[1].Content, `key="tasklist_id"`) {
+		t.Fatalf("legacy tasklist ID should not render with non-allowlisted key: %q", blocks[1].Content)
+	}
+}
+
 func TestContextProviderPreservesSurfaceContextWhenOpeningTagIsLongUnderTightBudget(t *testing.T) {
 	surfaceID := "surface-" + strings.Repeat("x", 120)
 	preservedContent := "<surface_context\n  surface_type=\"editor\"\n  surface_id=\"" + surfaceID + "\"\n>"
@@ -190,6 +241,10 @@ func TestContextProviderPreservesSurfaceContextWhenOpeningTagIsLongUnderTightBud
 				"surfaceId":       surfaceID,
 				"snapshotVersion": "editor:" + surfaceID + ":" + strings.Repeat("v", 80),
 				"title":           strings.Repeat("Título longo ", 40),
+				"content": map[string]any{
+					"kind": "text",
+					"text": strings.Repeat("conteúdo ", 40),
+				},
 			},
 		},
 	})

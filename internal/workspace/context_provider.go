@@ -148,7 +148,11 @@ func buildSurfaceContextBlock(surface *contextprovider.Surface, budgetChars int)
 	if strings.TrimSpace(body.String()) == "" && normalized.Incomplete {
 		body.WriteString("<notice>surface context is incomplete and must not be used as a trusted mutation target</notice>\n")
 	}
-	content := buildSurfaceOpenTag(normalized) + "\nCurrent active surface context. Treat this as turn-specific dynamic state.\n" + strings.TrimRight(body.String(), "\n")
+	bodyContent := strings.TrimRight(body.String(), "\n")
+	if strings.TrimSpace(bodyContent) == "" {
+		return ""
+	}
+	content := buildSurfaceOpenTag(normalized) + "\nCurrent active surface context. Treat this as turn-specific dynamic state.\n" + bodyContent
 	return trimSurfaceContextBlock(content, budgetChars)
 }
 
@@ -257,7 +261,11 @@ func adaptLegacySurfaceContext(surface *contextprovider.Surface, normalized *nor
 	}
 	for _, key := range []string{"filePath", "draftId", "tasklistId", "sessionId"} {
 		if value := stringFromMap(surface.State, key); value != "" {
-			normalized.Metadata[key] = value
+			metadataKey := key
+			if key == "tasklistId" {
+				metadataKey = "taskListId"
+			}
+			normalized.Metadata[metadataKey] = value
 		}
 	}
 	normalized.Metadata["legacySurfaceContext"] = true

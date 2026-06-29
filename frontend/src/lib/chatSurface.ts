@@ -93,6 +93,11 @@ export function hashSurfaceValue(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
+export function boundedSurfaceSnapshotValue(value: string, maxLength = 512): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}:len=${value.length}`;
+}
+
 export function createSurfaceSnapshotVersion(
   surfaceType: string,
   surfaceId: string,
