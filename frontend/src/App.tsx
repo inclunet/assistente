@@ -182,7 +182,7 @@ function App() {
             const failed = eventData.failed ?? 0;
             const warnings = eventData.warningCount ?? 0;
             const errors = eventData.errorCount ?? 0;
-            if (imported === 0 && failed === 0 && warnings === 0 && errors === 0) return;
+            if (imported === 0 && skipped === 0 && failed === 0 && warnings === 0 && errors === 0) return;
 
             const toastType = failed > 0 || errors > 0 ? 'error' : warnings > 0 ? 'warning' : 'success';
             addToast(t('app.legacyImport.summary', { imported, skipped, failed, warnings }), toastType, 10000);
