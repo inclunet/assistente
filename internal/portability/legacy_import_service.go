@@ -26,6 +26,7 @@ type LegacyImportSummaryEntry struct {
 }
 
 type LegacyImportSummary struct {
+	UserID       string                     `json:"userId,omitempty"`
 	Entries      []LegacyImportSummaryEntry `json:"entries"`
 	Imported     int                        `json:"imported"`
 	Skipped      int                        `json:"skipped"`

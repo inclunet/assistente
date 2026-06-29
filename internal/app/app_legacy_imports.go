@@ -28,6 +28,9 @@ func (a *App) runPostLoginLegacyImports(ctx context.Context) {
 		}
 	}
 	summary := service.Run(ctx)
+	if userID, ok := database.UserIDFromContext(ctx); ok {
+		summary.UserID = userID
+	}
 	for _, entry := range summary.Entries {
 		for _, warning := range entry.Warnings {
 			log.Printf("[LegacyImport] %s: %s", entry.Name, warning)
@@ -54,15 +57,14 @@ func (a *App) shouldEmitLegacyImportSummary(ctx context.Context, summary portabi
 	if summary.Skipped == 0 {
 		return false
 	}
-	userID, ok := database.UserIDFromContext(ctx)
-	if !ok || userID == "" {
+	if summary.UserID == "" {
 		return true
 	}
 	a.legacyImportSummaryMu.Lock()
 	defer a.legacyImportSummaryMu.Unlock()
-	if a.legacyImportSkippedSummaryUserID == userID {
+	if a.legacyImportSkippedSummaryUserID == summary.UserID {
 		return false
 	}
-	a.legacyImportSkippedSummaryUserID = userID
+	a.legacyImportSkippedSummaryUserID = summary.UserID
 	return true
 }
