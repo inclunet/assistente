@@ -13,9 +13,13 @@ const storeMocks = vi.hoisted(() => ({
   setupEventListeners: vi.fn(() => () => {}),
 }));
 
+const terminalPageMocks = vi.hoisted(() => ({
+  registeredAdapter: null as unknown,
+}));
+
 const storeState = vi.hoisted(() => ({
   sessions: [{ id: 'term-1', name: 'Terminal 1', cwd: '/tmp' }],
-  historyBySession: { 'term-1': [] },
+  historyBySession: { 'term-1': [] as Array<{ id: string; command: string; output: string; exitCode?: number }> },
   isLoadingSessions: false,
   loadingHistoryBySession: {},
   loadSessions: storeMocks.loadSessions,
@@ -88,6 +92,12 @@ vi.mock('../store/workspaceStore', () => ({
   useActiveTab: () => undefined,
 }));
 
+vi.mock('../hooks/useRegisterWorkspaceChatAdapter', () => ({
+  useRegisterWorkspaceChatAdapter: vi.fn((_tabId: string | undefined, adapter: unknown) => {
+    terminalPageMocks.registeredAdapter = adapter;
+  }),
+}));
+
 vi.mock('../components/ui/Toolbar', () => ({
   Toolbar: ({ left, right }: { left?: ReactNode; right?: ReactNode }) => (
     <div>
@@ -126,6 +136,8 @@ describe('TerminalPage', () => {
     storeMocks.closeSession.mockReset();
     storeMocks.sendInput.mockReset();
     storeMocks.interrupt.mockReset();
+    terminalPageMocks.registeredAdapter = null;
+    storeState.historyBySession = { 'term-1': [] };
   });
 
   it('aciona acoes da toolbar', async () => {
@@ -155,5 +167,43 @@ describe('TerminalPage', () => {
     fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
 
     expect(storeMocks.interrupt).not.toHaveBeenCalled();
+  });
+
+  it('usa o mesmo histórico no preview e no envio do chat', async () => {
+    storeState.historyBySession = {
+      'term-1': Array.from({ length: 45 }, (_, index) => {
+        const entryNumber = index + 1;
+        return {
+          id: `entry-${entryNumber}`,
+          command: `cmd-${entryNumber}`,
+          output: `out-${entryNumber}`,
+          exitCode: 0,
+        };
+      }),
+    };
+
+    renderTerminalPage();
+
+    const adapter = terminalPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; contextDisplay: string }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ paramsOverride?: { surfaceContextJson?: string } } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const plan = await adapter.send('Resuma o terminal', undefined, null, {
+      tabId: 'terminal-tab',
+      conversationId: 'conv-1',
+    });
+    const surfaceContext = JSON.parse(String(plan?.paramsOverride?.surfaceContextJson || '{}'));
+
+    expect(surfaceContext.content.recentOutput).toBe(prepared.contextDisplay);
+    expect(surfaceContext.content.recentOutput).toContain('cmd-6');
+    expect(surfaceContext.content.recentOutput).toContain('cmd-45');
+    expect(surfaceContext.content.recentOutput).not.toContain('cmd-5');
+    expect(surfaceContext.content.truncated).toBe(true);
   });
 });

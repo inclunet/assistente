@@ -14,6 +14,24 @@ import { useTabScrollState } from '../hooks/useTabScrollState';
 import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../lib/chatSurface';
 import './TerminalPage.css';
 
+const TERMINAL_CHAT_HISTORY_LIMIT = 40;
+
+type TerminalHistoryEntry = {
+  command?: string;
+  output?: string;
+};
+
+function formatTerminalHistoryForChat(history: TerminalHistoryEntry[]) {
+  return history
+    .map((e) => {
+      const cmd = String(e.command || '').trim();
+      const out = String(e.output || '').trimEnd();
+      return [`$ ${cmd}`, out].filter(Boolean).join('\n');
+    })
+    .filter(Boolean)
+    .join('\n---\n');
+}
+
 interface TerminalPageProps {
   sessionId?: string;
 }
@@ -108,28 +126,14 @@ export default function TerminalPage({ sessionId: explicitSessionId }: TerminalP
 
     return {
       prepare: async () => {
-        const slice = currentHistory.slice(-40);
-        const lines = slice
-          .map((e) => {
-            const cmd = String(e.command || '').trim();
-            const out = String(e.output || '').trimEnd();
-            return [`$ ${cmd}`, out].filter(Boolean).join('\n');
-          })
-          .filter(Boolean)
-          .join('\n---\n');
+        const slice = currentHistory.slice(-TERMINAL_CHAT_HISTORY_LIMIT);
+        const lines = formatTerminalHistoryForChat(slice);
         const contextDisplay = lines || t('terminal.chatModal.noHistory');
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
-        const historySlice = currentHistory.slice(-20);
-        const contextDisplay = historySlice
-          .map((e) => {
-            const cmd = String(e.command || '').trim();
-            const out = String(e.output || '').trimEnd();
-            return [`$ ${cmd}`, out].filter(Boolean).join('\n');
-          })
-          .filter(Boolean)
-          .join('\n---\n') || t('terminal.chatModal.noHistory');
+        const historySlice = currentHistory.slice(-TERMINAL_CHAT_HISTORY_LIMIT);
+        const contextDisplay = formatTerminalHistoryForChat(historySlice) || t('terminal.chatModal.noHistory');
         const selection = window.getSelection?.();
         const selectedOutput = selection && historyContainerRef.current?.contains(selection.anchorNode)
           ? selection.toString().trim()

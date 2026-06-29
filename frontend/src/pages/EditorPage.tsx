@@ -624,6 +624,31 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       },
     };
     const revealDeck = parseRevealMarkdown(latestActiveTab.markdown);
+    const getRichRevealSlideSnapshot = (): RevealSlide | null => {
+      if (revealDeck.detection.kind !== 'reveal' || inlineChatSelection.mode !== 'rich') return null;
+      const frozenIndex = inlineChatSelection.revealSlideIndex;
+      if (!Number.isInteger(frozenIndex)) return null;
+
+      const currentSlide = revealDeck.slides[frozenIndex as number] ?? null;
+      const snapshotMarkdown = String(inlineChatSelection.revealSlideMarkdown || '');
+      if (currentSlide) {
+        const selectedMarkdown = String(inlineChatSelection.selectedMarkdown || inlineChatSelection.selectedText || '').trim();
+        const matchesSnapshot = !snapshotMarkdown || currentSlide.markdown === snapshotMarkdown;
+        const containsSelection = !selectedMarkdown || currentSlide.markdown.includes(selectedMarkdown);
+        if (matchesSnapshot || containsSelection) return currentSlide;
+      }
+
+      if (!snapshotMarkdown) return null;
+      return {
+        index: frozenIndex as number,
+        level: 'horizontal',
+        markdown: snapshotMarkdown,
+        label: inlineChatSelection.revealSlideLabel,
+        separatorBefore: '',
+        startOffset: 0,
+        endOffset: snapshotMarkdown.length,
+      };
+    };
     const findRevealSlideForMarkdownSelection = (): RevealSlide | null => {
       if (revealDeck.detection.kind !== 'reveal' || inlineChatSelection.mode !== 'markdown') return null;
       const start = Number(inlineChatSelection.startOffset);
@@ -636,7 +661,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     };
     const currentRevealSlide = revealDeck.detection.kind === 'reveal'
       ? inlineChatSelection.mode === 'rich'
-        ? revealDeck.slides[currentRevealSlideIndexRef.current] ?? revealDeck.slides[0] ?? null
+        ? getRichRevealSlideSnapshot()
         : findRevealSlideForMarkdownSelection()
       : null;
     const presentationContext = revealDeck.detection.kind === 'reveal'
@@ -1053,6 +1078,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           return { ok: false };
         }
 
+        const revealSelectionDeck = parseRevealMarkdown(activeTab.markdown);
+        const richRevealSlide = activeTab.mode === 'rich' && revealSelectionDeck.detection.kind === 'reveal'
+          ? revealSelectionDeck.slides[currentRevealSlideIndexRef.current] ?? revealSelectionDeck.slides[0] ?? null
+          : null;
+
         const selection: InlineChatSelection =
           activeTab.mode === 'markdown'
             ? (() => {
@@ -1091,6 +1121,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
                   from: rich.from,
                   to: rich.to,
                   snapshot: rich.snapshot ?? activeTab.markdown,
+                  revealSlideIndex: richRevealSlide?.index,
+                  revealSlideLabel: richRevealSlide?.label,
+                  revealSlideMarkdown: richRevealSlide?.markdown,
                 };
               })();
 

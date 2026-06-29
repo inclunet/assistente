@@ -115,4 +115,7 @@ export type InlineChatSelection =
       from: number;
       to: number;
       snapshot: string;
+      revealSlideIndex?: number;
+      revealSlideLabel?: string;
+      revealSlideMarkdown?: string;
     };

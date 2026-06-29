@@ -1,10 +1,45 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EditorWriteFile } from '@wailsjs/go/app/App';
 
 const openToolbarMenuSpy = vi.fn();
+const editorPageMocks = vi.hoisted(() => {
+  const revealSlideMarkdown = '## Slide 2\nselected rich text';
+  return {
+    registeredAdapter: null as unknown,
+    editorContentAreaProps: null as Record<string, unknown> | null,
+    initialRevealSlideIndex: 0,
+    richEditor: {
+      state: {
+        selection: {
+          from: 1,
+          to: 19,
+          empty: false,
+        },
+        doc: {
+          content: { size: revealSlideMarkdown.length },
+          textBetween: (from: number, to: number) => {
+            if (from === 1 && to === 19) return 'selected rich text';
+            return revealSlideMarkdown;
+          },
+          cut: () => ({ markdown: revealSlideMarkdown }),
+        },
+      },
+      storage: {
+        markdown: {
+          serializer: {
+            serialize: (node: { markdown?: string }) => node.markdown || '',
+          },
+          getMarkdown: () => revealSlideMarkdown,
+        },
+      },
+      commands: { focus: vi.fn() },
+      view: { focus: vi.fn() },
+    },
+  };
+});
 
 const editorStoreState = {
   documents: {} as Record<string, { id: string; title: string; markdown: string; mode: string; filePath?: string | null; draftId?: string | null }>,
@@ -136,6 +171,23 @@ vi.mock('../components/editor/EditorTabs', () => ({
   EditorTabs: () => <div>Tabs</div>,
 }));
 
+vi.mock('../components/editor/EditorContentArea', async () => {
+  const React = await import('react');
+  return {
+    EditorContentArea: (props: Record<string, unknown>) => {
+      editorPageMocks.editorContentAreaProps = props;
+      React.useEffect(() => {
+        (props.onRichEditorReady as ((editor: unknown) => void) | undefined)?.(editorPageMocks.richEditor);
+        (props.onRevealSlideIndexChange as ((index: number) => void) | undefined)?.(editorPageMocks.initialRevealSlideIndex);
+        return () => {
+          (props.onRichEditorReady as ((editor: unknown) => void) | undefined)?.(null);
+        };
+      }, []);
+      return <div>Content</div>;
+    },
+  };
+});
+
 vi.mock('../components/pickers/ProfilePicker', () => ({
   ProfilePicker: ({ label }: { label: string }) => <div>{label}</div>,
 }));
@@ -170,7 +222,9 @@ vi.mock('../store/workspaceChatModalStore', () => ({
 }));
 
 vi.mock('../hooks/useRegisterWorkspaceChatAdapter', () => ({
-  useRegisterWorkspaceChatAdapter: vi.fn(),
+  useRegisterWorkspaceChatAdapter: vi.fn((_tabId: string | undefined, adapter: unknown) => {
+    editorPageMocks.registeredAdapter = adapter;
+  }),
 }));
 
 vi.mock('../components/menu', () => ({
@@ -202,6 +256,9 @@ import EditorPage from './EditorPage';
 describe('EditorPage', () => {
   beforeEach(() => {
     editorStoreState.documents = {};
+    editorPageMocks.registeredAdapter = null;
+    editorPageMocks.editorContentAreaProps = null;
+    editorPageMocks.initialRevealSlideIndex = 0;
     openToolbarMenuSpy.mockReset();
     editorStoreState.setDocMode.mockReset();
     vi.mocked(EditorWriteFile).mockReset();
@@ -285,5 +342,62 @@ describe('EditorPage', () => {
     await user.keyboard('{Control>}s{/Control}');
 
     expect(EditorWriteFile).not.toHaveBeenCalled();
+  });
+
+  it('mantém o slide Reveal rico capturado no prepare ao enviar', async () => {
+    editorPageMocks.initialRevealSlideIndex = 1;
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Deck',
+        markdown: '# Slide 1\n\n---\n\n## Slide 2\nselected rich text\n\n---\n\n## Slide 3\noutro slide',
+        mode: 'rich',
+        filePath: 'deck.md',
+      },
+    };
+
+    render(
+      <EditorPage
+        workspaceTab={{
+          id: 'tab-1',
+          type: 'editor',
+          title: 'Deck',
+          position: 0,
+          conversationId: 'conv-1',
+          state: { filePath: 'deck.md' },
+        }}
+      />
+    );
+
+    const adapter = editorPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; meta: unknown }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ paramsOverride?: { surfaceContextJson?: string } } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const selection = prepared.meta as { revealSlideIndex?: number; revealSlideMarkdown?: string };
+
+    expect(selection.revealSlideIndex).toBe(1);
+    expect(selection.revealSlideMarkdown).toContain('Slide 2');
+
+    act(() => {
+      (editorPageMocks.editorContentAreaProps?.onRevealSlideIndexChange as (index: number) => void)(2);
+    });
+    const plan = await act(async () => {
+      return adapter.send('Explique este trecho', undefined, selection, {
+        tabId: 'tab-1',
+        conversationId: 'conv-1',
+      });
+    });
+    const surfaceContext = JSON.parse(String(plan?.paramsOverride?.surfaceContextJson || '{}'));
+
+    expect(surfaceContext.metadata.currentSlideIndex).toBe(1);
+    expect(surfaceContext.focus.entity.slideIndex).toBe(1);
+    expect(surfaceContext.content.markdown).toContain('Slide 2');
+    expect(surfaceContext.content.markdown).not.toContain('Slide 3');
   });
 });
