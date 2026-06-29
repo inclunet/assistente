@@ -650,29 +650,35 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       ? preparedMarkdownRevealDeck
       : liveRevealDeck;
     const getRichRevealSlideSnapshot = (): RevealSlide | null => {
-      if (revealDeck.detection.kind !== 'reveal' || inlineChatSelection.mode !== 'rich') return null;
+      if (inlineChatSelection.mode !== 'rich') return null;
       const frozenIndex = inlineChatSelection.revealSlideIndex;
       if (!Number.isInteger(frozenIndex)) return null;
 
-      const currentSlide = revealDeck.slides[frozenIndex as number] ?? null;
       const snapshotMarkdown = String(inlineChatSelection.revealSlideMarkdown || '');
-      if (currentSlide) {
+      const frozenSlide: RevealSlide | null = snapshotMarkdown
+        ? {
+            index: frozenIndex as number,
+            level: 'horizontal',
+            markdown: snapshotMarkdown,
+            label: inlineChatSelection.revealSlideLabel,
+            separatorBefore: '',
+            startOffset: 0,
+            endOffset: snapshotMarkdown.length,
+          }
+        : null;
+
+      const currentSlide = revealDeck.detection.kind === 'reveal'
+        ? revealDeck.slides[frozenIndex as number] ?? null
+        : null;
+      if (currentSlide && snapshotMarkdown && currentSlide.markdown === snapshotMarkdown) {
+        return currentSlide;
+      }
+      if (currentSlide && !snapshotMarkdown) {
         const selectedMarkdown = String(inlineChatSelection.selectedMarkdown || inlineChatSelection.selectedText || '').trim();
-        const matchesSnapshot = !snapshotMarkdown || currentSlide.markdown === snapshotMarkdown;
-        const containsSelection = !selectedMarkdown || currentSlide.markdown.includes(selectedMarkdown);
-        if (matchesSnapshot || containsSelection) return currentSlide;
+        if (selectedMarkdown && currentSlide.markdown.includes(selectedMarkdown)) return currentSlide;
       }
 
-      if (!snapshotMarkdown) return null;
-      return {
-        index: frozenIndex as number,
-        level: 'horizontal',
-        markdown: snapshotMarkdown,
-        label: inlineChatSelection.revealSlideLabel,
-        separatorBefore: '',
-        startOffset: 0,
-        endOffset: snapshotMarkdown.length,
-      };
+      return frozenSlide;
     };
     const findRevealSlideForMarkdownSelection = (): RevealSlide | null => {
       if (revealDeck.detection.kind !== 'reveal' || inlineChatSelection.mode !== 'markdown') return null;
@@ -704,14 +710,17 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         inlineChatSelection.cursorOffset,
       );
     };
-    const currentRevealSlide = revealDeck.detection.kind === 'reveal'
-      ? inlineChatSelection.mode === 'rich'
-        ? getRichRevealSlideSnapshot()
-        : findRevealSlideForMarkdownSelection()
-      : null;
-    const presentationContext = revealDeck.detection.kind === 'reveal'
+    const currentRevealSlide = inlineChatSelection.mode === 'rich'
+      ? getRichRevealSlideSnapshot()
+      : revealDeck.detection.kind === 'reveal'
+        ? findRevealSlideForMarkdownSelection()
+        : null;
+    const isRevealSurface = revealDeck.detection.kind === 'reveal' || !!currentRevealSlide;
+    const presentationContext = isRevealSurface
       ? {
-          slideCount: revealDeck.slides.length,
+          slideCount: revealDeck.detection.kind === 'reveal'
+            ? revealDeck.slides.length
+            : (currentRevealSlide?.index ?? 0) + 1,
           currentSlideIndex: currentRevealSlide?.index,
           currentSlideLabel: currentRevealSlide?.label,
           currentSlideMarkdown: currentRevealSlide?.markdown,
@@ -719,7 +728,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         }
       : {};
     const surfaceId = latestActiveTab.id;
-    const surfaceMode = revealDeck.detection.kind === 'reveal' ? 'reveal' : inlineChatSelection.mode;
+    const surfaceMode = isRevealSurface ? 'reveal' : inlineChatSelection.mode;
     const snapshotVersion = createSurfaceSnapshotVersion(
       'editor',
       surfaceId,

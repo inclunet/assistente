@@ -298,6 +298,12 @@ describe('EditorPage', () => {
     editorPageMocks.markdownSelectionStartOffset = 0;
     editorPageMocks.markdownSelectionEndOffset = 0;
     editorPageMocks.markdownCursorOffset = 0;
+    const richEditor = editorPageMocks.richEditor as {
+      state: { selection: { from: number; to: number; empty: boolean } };
+    };
+    richEditor.state.selection.from = 1;
+    richEditor.state.selection.to = 19;
+    richEditor.state.selection.empty = false;
     openToolbarMenuSpy.mockReset();
     editorStoreState.setDocMode.mockReset();
     vi.mocked(EditorWriteFile).mockReset();
@@ -385,6 +391,12 @@ describe('EditorPage', () => {
 
   it('mantém o slide Reveal rico capturado no prepare ao enviar', async () => {
     editorPageMocks.initialRevealSlideIndex = 1;
+    const richEditor = editorPageMocks.richEditor as {
+      state: { selection: { from: number; to: number; empty: boolean } };
+    };
+    richEditor.state.selection.from = 1;
+    richEditor.state.selection.to = 1;
+    richEditor.state.selection.empty = true;
     editorStoreState.documents = {
       'tab-1': {
         id: 'tab-1',
@@ -424,6 +436,7 @@ describe('EditorPage', () => {
     expect(selection.revealSlideMarkdown).toContain('Slide 2');
 
     act(() => {
+      editorStoreState.documents['tab-1'].markdown = '# Slide 1\n\n---\n\n## Slide vivo alterado\nconteudo atualizado\n\n---\n\n## Slide 3\noutro slide';
       (editorPageMocks.editorContentAreaProps?.onRevealSlideIndexChange as (index: number) => void)(2);
     });
     const plan = await act(async () => {
@@ -437,6 +450,7 @@ describe('EditorPage', () => {
     expect(surfaceContext.metadata.currentSlideIndex).toBe(1);
     expect(surfaceContext.focus.entity.slideIndex).toBe(1);
     expect(surfaceContext.content.markdown).toContain('Slide 2');
+    expect(surfaceContext.content.markdown).not.toContain('Slide vivo alterado');
     expect(surfaceContext.content.markdown).not.toContain('Slide 3');
   });
 
