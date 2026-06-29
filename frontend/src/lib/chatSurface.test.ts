@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChatSurfaceParams } from './chatSurface';
+import { boundedSurfaceSnapshotValue, buildChatSurfaceParams } from './chatSurface';
 
 describe('buildChatSurfaceParams', () => {
   it('serializa state e context e preserva activeFilePath do editor', () => {
@@ -30,9 +30,19 @@ describe('buildChatSurfaceParams', () => {
       filePath: '/tmp/readme.md',
       draftId: 'draft-1',
     });
-    expect(JSON.parse(String(params.surfaceContextJson))).toEqual({
-      selectedText: 'hello',
-      selectionEmpty: false,
+    expect(JSON.parse(String(params.surfaceContextJson))).toMatchObject({
+      surfaceType: 'editor',
+      surfaceId: 'draft-1',
+      title: 'README',
+      selection: {
+        kind: 'text',
+        text: 'hello',
+        isEmpty: false,
+        explicit: true,
+      },
+      metadata: {
+        legacySurfaceContext: true,
+      },
     });
   });
 
@@ -51,5 +61,64 @@ describe('buildChatSurfaceParams', () => {
     expect(params.surfaceStateJson).toBeUndefined();
     expect(params.surfaceContextJson).toBeUndefined();
     expect(params.activeFilePath).toBeUndefined();
+  });
+
+  it('preserva envelope SurfaceContext já normalizado', () => {
+    const params = buildChatSurfaceParams(
+      { id: 'tab-1', type: 'terminal', title: 'Terminal' },
+      {
+        context: {
+          surfaceType: 'terminal',
+          surfaceId: 'term-1',
+          mode: 'shell',
+          snapshotVersion: 'terminal:term-1:42',
+          content: { kind: 'terminal_output', recentOutput: 'ok' },
+        },
+      },
+    );
+
+    expect(JSON.parse(String(params.surfaceContextJson))).toMatchObject({
+      surfaceType: 'terminal',
+      surfaceId: 'term-1',
+      snapshotVersion: 'terminal:term-1:42',
+      content: { kind: 'terminal_output', recentOutput: 'ok' },
+    });
+  });
+
+  it('suporta selectionEmpty legado sem inferir explicit quando ausente', () => {
+    const emptySelectionParams = buildChatSurfaceParams(
+      { type: 'editor', state: { draftId: 'draft-1' } },
+      {
+        context: {
+          selectedText: 'hello',
+          selectionEmpty: true,
+        },
+      },
+    );
+
+    expect(JSON.parse(String(emptySelectionParams.surfaceContextJson))).toMatchObject({
+      selection: {
+        isEmpty: true,
+        explicit: false,
+      },
+    });
+
+    const unknownSelectionParams = buildChatSurfaceParams(
+      { type: 'editor', state: { draftId: 'draft-1' } },
+      {
+        context: {
+          selectedText: 'hello',
+        },
+      },
+    );
+
+    const selection = JSON.parse(String(unknownSelectionParams.surfaceContextJson)).selection;
+    expect(selection).not.toHaveProperty('isEmpty');
+    expect(selection).not.toHaveProperty('explicit');
+  });
+
+  it('limita valores usados como seed de snapshot', () => {
+    expect(boundedSurfaceSnapshotValue('abcdef', 6)).toBe('abcdef');
+    expect(boundedSurfaceSnapshotValue('abcdef', 3)).toBe('abc:len=6');
   });
 });

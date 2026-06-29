@@ -15,7 +15,7 @@ import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDef
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
 import { openTaskLink } from '../../lib/deepLinks';
-import { buildChatSurfaceParams } from '../../lib/chatSurface';
+import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
 import { useCustomActions } from './useCustomActions';
@@ -243,26 +243,58 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       send: async (instruction, media) => {
         const taskLabel = t('tasklist.chatModalContext.taskCount', { count: tasks.length });
         const header = `${taskList.title}\n${taskLabel}\n`;
-        const body = tasks
-          .slice(0, 40)
+        const previewTasks = tasks.slice(0, 40);
+        const body = previewTasks
           .map((x) => `- ${String(x.title || '').trim()}`)
           .join('\n');
+        const taskSnapshotSeed = previewTasks
+          .map((task) => `${task.id}:${task.updatedAt}:${task.statusId}`)
+          .join('|');
+        const statuses = [...(taskList.workflow?.statuses ?? [])].sort((a, b) => a.order - b.order);
+        const surfaceContext: SurfaceContext = {
+          surfaceType: 'tasklist',
+          surfaceId: panelTab.id,
+          title: taskList.title,
+          mode: currentViewMode,
+          focus: {
+            kind: 'tasklist',
+            label: taskList.title,
+            entity: { taskListId },
+          },
+          content: {
+            kind: 'tasklist_summary',
+            summary: `${header}${body || t('tasklist.chatModalContext.noTasks')}`,
+            truncated: tasks.length > previewTasks.length,
+          },
+          metadata: {
+            taskListId,
+            slug: taskList.slug,
+            taskCount: tasks.length,
+            statuses: statuses.map((status) => ({
+              id: status.id,
+              label: status.label,
+              order: status.order,
+            })),
+          },
+          snapshotVersion: createSurfaceSnapshotVersion(
+            'tasklist',
+            panelTab.id,
+            `${taskList.updatedAt}:${taskList.workflow?.updatedAt}:${tasks.length}:${taskSnapshotSeed}`,
+          ),
+          capturedAt: new Date().toISOString(),
+          staleAfterMs: 60000,
+        };
         return {
           content: instruction,
           mediaFiles: media,
           paramsOverride: buildChatSurfaceParams(panelTab, {
             profileSlug: effectiveProfileSlug || undefined,
-            context: {
-              taskListId,
-              taskListTitle: taskList.title,
-              taskCount: tasks.length,
-              tasksPreview: `${header}${body || t('tasklist.chatModalContext.noTasks')}`,
-            },
+            context: surfaceContext,
           }),
         };
       },
     };
-  }, [panelTab, taskList, tasks, effectiveProfileSlug, t]);
+  }, [panelTab, taskList, tasks, currentViewMode, effectiveProfileSlug, taskListId, t]);
 
   useRegisterWorkspaceChatAdapter(panelTab?.id, tasklistChatModalAdapter);
 

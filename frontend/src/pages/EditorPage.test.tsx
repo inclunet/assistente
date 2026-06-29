@@ -1,10 +1,79 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EditorWriteFile } from '@wailsjs/go/app/App';
 
 const openToolbarMenuSpy = vi.fn();
+const editorPageMocks = vi.hoisted(() => {
+  const revealSlideMarkdown = '## Slide 2\nselected rich text';
+  const offsetToPosition = (text: string, offset: number) => {
+    const safeOffset = Math.max(0, Math.min(offset, text.length));
+    const before = text.slice(0, safeOffset);
+    const lines = before.split('\n');
+    return { lineNumber: lines.length, column: lines[lines.length - 1].length + 1 };
+  };
+  const positionToOffset = (text: string, position: { lineNumber: number; column: number }) => {
+    const lines = text.split('\n');
+    let offset = 0;
+    for (let i = 0; i < Math.max(0, position.lineNumber - 1); i += 1) {
+      offset += (lines[i]?.length ?? 0) + 1;
+    }
+    return offset + Math.max(0, position.column - 1);
+  };
+  const state = {
+    registeredAdapter: null as unknown,
+    editorContentAreaProps: null as Record<string, unknown> | null,
+    initialRevealSlideIndex: 0,
+    markdownModelValue: '',
+    markdownSelectionStartOffset: 0,
+    markdownSelectionEndOffset: 0,
+    markdownCursorOffset: 0,
+    markdownEditor: null as unknown,
+    richEditor: null as unknown,
+  };
+  state.markdownEditor = {
+    getModel: () => ({
+      getValue: () => state.markdownModelValue,
+      getValueInRange: () => state.markdownModelValue.slice(state.markdownSelectionStartOffset, state.markdownSelectionEndOffset),
+      getOffsetAt: (position: { lineNumber: number; column: number }) => positionToOffset(state.markdownModelValue, position),
+    }),
+    getSelection: () => ({
+      getStartPosition: () => offsetToPosition(state.markdownModelValue, state.markdownSelectionStartOffset),
+      getEndPosition: () => offsetToPosition(state.markdownModelValue, state.markdownSelectionEndOffset),
+    }),
+    getPosition: () => offsetToPosition(state.markdownModelValue, state.markdownCursorOffset),
+    focus: vi.fn(),
+  };
+  state.richEditor = {
+    state: {
+      selection: {
+        from: 1,
+        to: 19,
+        empty: false,
+      },
+      doc: {
+        content: { size: revealSlideMarkdown.length },
+        textBetween: (from: number, to: number) => {
+          if (from === 1 && to === 19) return 'selected rich text';
+          return revealSlideMarkdown;
+        },
+        cut: () => ({ markdown: revealSlideMarkdown }),
+      },
+    },
+    storage: {
+      markdown: {
+        serializer: {
+          serialize: (node: { markdown?: string }) => node.markdown || '',
+        },
+        getMarkdown: () => revealSlideMarkdown,
+      },
+    },
+    commands: { focus: vi.fn() },
+    view: { focus: vi.fn() },
+  };
+  return state;
+});
 
 const editorStoreState = {
   documents: {} as Record<string, { id: string; title: string; markdown: string; mode: string; filePath?: string | null; draftId?: string | null }>,
@@ -136,6 +205,24 @@ vi.mock('../components/editor/EditorTabs', () => ({
   EditorTabs: () => <div>Tabs</div>,
 }));
 
+vi.mock('../components/editor/EditorContentArea', async () => {
+  const React = await import('react');
+  return {
+    EditorContentArea: (props: Record<string, unknown>) => {
+      editorPageMocks.editorContentAreaProps = props;
+      React.useEffect(() => {
+        (props.onMonacoMount as ((editor: unknown, monaco: unknown) => void) | undefined)?.(editorPageMocks.markdownEditor, {});
+        (props.onRichEditorReady as ((editor: unknown) => void) | undefined)?.(editorPageMocks.richEditor);
+        (props.onRevealSlideIndexChange as ((index: number) => void) | undefined)?.(editorPageMocks.initialRevealSlideIndex);
+        return () => {
+          (props.onRichEditorReady as ((editor: unknown) => void) | undefined)?.(null);
+        };
+      }, []);
+      return <div>Content</div>;
+    },
+  };
+});
+
 vi.mock('../components/pickers/ProfilePicker', () => ({
   ProfilePicker: ({ label }: { label: string }) => <div>{label}</div>,
 }));
@@ -170,7 +257,9 @@ vi.mock('../store/workspaceChatModalStore', () => ({
 }));
 
 vi.mock('../hooks/useRegisterWorkspaceChatAdapter', () => ({
-  useRegisterWorkspaceChatAdapter: vi.fn(),
+  useRegisterWorkspaceChatAdapter: vi.fn((_tabId: string | undefined, adapter: unknown) => {
+    editorPageMocks.registeredAdapter = adapter;
+  }),
 }));
 
 vi.mock('../components/menu', () => ({
@@ -202,6 +291,19 @@ import EditorPage from './EditorPage';
 describe('EditorPage', () => {
   beforeEach(() => {
     editorStoreState.documents = {};
+    editorPageMocks.registeredAdapter = null;
+    editorPageMocks.editorContentAreaProps = null;
+    editorPageMocks.initialRevealSlideIndex = 0;
+    editorPageMocks.markdownModelValue = '';
+    editorPageMocks.markdownSelectionStartOffset = 0;
+    editorPageMocks.markdownSelectionEndOffset = 0;
+    editorPageMocks.markdownCursorOffset = 0;
+    const richEditor = editorPageMocks.richEditor as {
+      state: { selection: { from: number; to: number; empty: boolean } };
+    };
+    richEditor.state.selection.from = 1;
+    richEditor.state.selection.to = 19;
+    richEditor.state.selection.empty = false;
     openToolbarMenuSpy.mockReset();
     editorStoreState.setDocMode.mockReset();
     vi.mocked(EditorWriteFile).mockReset();
@@ -285,5 +387,137 @@ describe('EditorPage', () => {
     await user.keyboard('{Control>}s{/Control}');
 
     expect(EditorWriteFile).not.toHaveBeenCalled();
+  });
+
+  it('mantém o slide Reveal rico e o total do deck capturados no prepare ao enviar', async () => {
+    editorPageMocks.initialRevealSlideIndex = 1;
+    const richEditor = editorPageMocks.richEditor as {
+      state: { selection: { from: number; to: number; empty: boolean } };
+    };
+    richEditor.state.selection.from = 1;
+    richEditor.state.selection.to = 1;
+    richEditor.state.selection.empty = true;
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Deck',
+        markdown: '# Slide 1\n\n---\n\n## Slide 2\nselected rich text\n\n---\n\n## Slide 3\noutro slide',
+        mode: 'rich',
+        filePath: 'deck.md',
+      },
+    };
+
+    render(
+      <EditorPage
+        workspaceTab={{
+          id: 'tab-1',
+          type: 'editor',
+          title: 'Deck',
+          position: 0,
+          conversationId: 'conv-1',
+          state: { filePath: 'deck.md' },
+        }}
+      />
+    );
+
+    const adapter = editorPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; meta: unknown }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ paramsOverride?: { surfaceContextJson?: string } } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const selection = prepared.meta as { revealSlideIndex?: number; revealSlideMarkdown?: string; revealSlideCount?: number };
+
+    expect(selection.revealSlideIndex).toBe(1);
+    expect(selection.revealSlideMarkdown).toContain('Slide 2');
+    expect(selection.revealSlideCount).toBe(3);
+
+    act(() => {
+      editorStoreState.documents['tab-1'].markdown = '# Documento comum\n\nO conteúdo vivo deixou de ser um deck Reveal.';
+      (editorPageMocks.editorContentAreaProps?.onRevealSlideIndexChange as (index: number) => void)(2);
+    });
+    const plan = await act(async () => {
+      return adapter.send('Explique este trecho', undefined, selection, {
+        tabId: 'tab-1',
+        conversationId: 'conv-1',
+      });
+    });
+    const surfaceContext = JSON.parse(String(plan?.paramsOverride?.surfaceContextJson || '{}'));
+
+    expect(surfaceContext.metadata.currentSlideIndex).toBe(1);
+    expect(surfaceContext.metadata.slideCount).toBe(3);
+    expect(surfaceContext.focus.entity.slideIndex).toBe(1);
+    expect(surfaceContext.content.markdown).toContain('Slide 2');
+    expect(surfaceContext.content.markdown).not.toContain('Documento comum');
+    expect(surfaceContext.content.markdown).not.toContain('Slide 3');
+  });
+
+  it('mantém o slide Reveal Markdown capturado no prepare ao enviar', async () => {
+    const initialDeck = '# Slide 1\n\n---\n\n## Slide 2\nselected markdown text\n\n---\n\n## Slide 3\noutro slide';
+    const selectedText = 'selected markdown text';
+    const selectionStart = initialDeck.indexOf(selectedText);
+    editorPageMocks.markdownModelValue = initialDeck;
+    editorPageMocks.markdownSelectionStartOffset = selectionStart;
+    editorPageMocks.markdownSelectionEndOffset = selectionStart + selectedText.length;
+    editorPageMocks.markdownCursorOffset = selectionStart;
+    editorPageMocks.initialRevealSlideIndex = 1;
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Deck',
+        markdown: initialDeck,
+        mode: 'markdown',
+        filePath: 'deck.md',
+      },
+    };
+
+    render(
+      <EditorPage
+        workspaceTab={{
+          id: 'tab-1',
+          type: 'editor',
+          title: 'Deck',
+          position: 0,
+          conversationId: 'conv-1',
+          state: { filePath: 'deck.md' },
+        }}
+      />
+    );
+
+    const adapter = editorPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; meta: unknown }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ paramsOverride?: { surfaceContextJson?: string } } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const selection = prepared.meta as { revealSlideIndex?: number; revealSlideMarkdown?: string };
+
+    expect(selection.revealSlideIndex).toBe(1);
+    expect(selection.revealSlideMarkdown).toContain('Slide 2');
+
+    act(() => {
+      editorStoreState.documents['tab-1'].markdown = '# Slide 1\n\n---\n\n## Slide 3\noutro slide alterado';
+      (editorPageMocks.editorContentAreaProps?.onRevealSlideIndexChange as (index: number) => void)(2);
+    });
+    const plan = await act(async () => {
+      return adapter.send('Explique este trecho', undefined, selection, {
+        tabId: 'tab-1',
+        conversationId: 'conv-1',
+      });
+    });
+    const surfaceContext = JSON.parse(String(plan?.paramsOverride?.surfaceContextJson || '{}'));
+
+    expect(surfaceContext.metadata.currentSlideIndex).toBe(1);
+    expect(surfaceContext.focus.entity.slideIndex).toBe(1);
+    expect(surfaceContext.content.markdown).toContain('Slide 2');
+    expect(surfaceContext.content.markdown).not.toContain('Slide 3');
   });
 });

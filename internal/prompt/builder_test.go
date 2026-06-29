@@ -1006,6 +1006,23 @@ func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
 	}
 }
 
+func TestBuildTemplateData_ReadsProjectIDFromSurfaceMetadata(t *testing.T) {
+	b := &prompt.Builder{}
+	data := b.BuildTemplateData(nil, llm.ChatParams{
+		TabType: "editor",
+		SurfaceContextJSON: `{
+			"surfaceType":"editor",
+			"surfaceId":"tab-1",
+			"snapshotVersion":"editor:tab-1:1",
+			"metadata":{"projectId":"project-from-metadata"}
+		}`,
+	}, "7")
+
+	if data.ProjectID != "project-from-metadata" {
+		t.Fatalf("ProjectID = %q, want project-from-metadata", data.ProjectID)
+	}
+}
+
 func TestBuildTemplateData_InvalidSurfaceLogsIdentifyField(t *testing.T) {
 	var output strings.Builder
 	logger := func(format string, args ...any) {

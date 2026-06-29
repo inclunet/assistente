@@ -29,9 +29,9 @@ import { applyRichTextInsert, applyRichTextInsertAtEnd, type RichTextEditorLike 
 import { validateRichTextSelectionSnapshot } from '../lib/richTextSelectionValidation';
 import { markdownToHtml } from '../lib/markdownToHtml';
 import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
-import { buildChatSurfaceParams } from '../lib/chatSurface';
+import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../lib/chatSurface';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
-import { getRevealSlideEditableMarkdown, parseRevealMarkdown } from '../lib/revealMarkdown';
+import { parseRevealMarkdown, type RevealSlide } from '../lib/revealMarkdown';
 import { getErrorMessage, getMaybeContent } from '../lib/editorContent';
 import { composePreviewText, hasConflictMarkers } from '../lib/editorMergeUtils';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
@@ -269,7 +269,33 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       displayText,
       startOffset,
       endOffset,
+      startLine: start.lineNumber,
+      startColumn: start.column,
+      endLine: end.lineNumber,
+      endColumn: end.column,
+      cursorLine: position.lineNumber,
+      cursorColumn: position.column,
+      cursorOffset,
     };
+  };
+
+  const findRevealSlideForMarkdownOffsets = (
+    markdown: string,
+    startOffset: number,
+    endOffset: number,
+    cursorOffset: number,
+  ): RevealSlide | null => {
+    const deck = parseRevealMarkdown(markdown);
+    if (deck.detection.kind !== 'reveal') return null;
+    const start = Number(startOffset);
+    const end = Number(endOffset);
+    const cursor = Number(cursorOffset);
+    return deck.slides.find((slide) => {
+      if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+        return start < slide.endOffset && end > slide.startOffset;
+      }
+      return Number.isFinite(cursor) && cursor >= slide.startOffset && cursor <= slide.endOffset;
+    }) ?? null;
   };
 
   const getRichSelectionSnapshot = (): RichSelectionSnapshot | null => {
@@ -608,6 +634,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     }
     const latestActiveTab = useEditorStore.getState().documents[activeTab.id] ?? activeTab;
     const editorSurfaceTab = workspaceTab ?? {
+      id: latestActiveTab.id,
       type: 'editor',
       title: latestActiveTab.title,
       state: {
@@ -615,47 +642,178 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         draftId: latestActiveTab.draftId ?? undefined,
       },
     };
-    const revealDeck = parseRevealMarkdown(latestActiveTab.markdown);
-    const revealSlideForRichSelection = inlineChatSelection.mode === 'rich' && revealDeck.detection.kind === 'reveal'
-      ? revealDeck.slides.find(
-          (slide) => getRevealSlideEditableMarkdown(slide.markdown).trim() === String(inlineChatSelection.snapshot || '').trim()
-        ) ?? null
+    const liveRevealDeck = parseRevealMarkdown(latestActiveTab.markdown);
+    const preparedMarkdownRevealDeck = inlineChatSelection.mode === 'markdown'
+      ? parseRevealMarkdown(inlineChatSelection.snapshot)
       : null;
-    const fallbackRevealSlide = revealDeck.detection.kind === 'reveal'
-      ? revealDeck.slides[currentRevealSlideIndexRef.current] ?? revealDeck.slides[0] ?? null
-      : null;
+    const revealDeck = preparedMarkdownRevealDeck?.detection.kind === 'reveal'
+      ? preparedMarkdownRevealDeck
+      : liveRevealDeck;
+    const getRichRevealSlideSnapshot = (): RevealSlide | null => {
+      if (inlineChatSelection.mode !== 'rich') return null;
+      const frozenIndex = inlineChatSelection.revealSlideIndex;
+      if (!Number.isInteger(frozenIndex)) return null;
+
+      const snapshotMarkdown = String(inlineChatSelection.revealSlideMarkdown || '');
+      const frozenSlide: RevealSlide | null = snapshotMarkdown
+        ? {
+            index: frozenIndex as number,
+            level: 'horizontal',
+            markdown: snapshotMarkdown,
+            label: inlineChatSelection.revealSlideLabel,
+            separatorBefore: '',
+            startOffset: 0,
+            endOffset: snapshotMarkdown.length,
+          }
+        : null;
+
+      const currentSlide = revealDeck.detection.kind === 'reveal'
+        ? revealDeck.slides[frozenIndex as number] ?? null
+        : null;
+      if (currentSlide && snapshotMarkdown && currentSlide.markdown === snapshotMarkdown) {
+        return currentSlide;
+      }
+      if (currentSlide && !snapshotMarkdown) {
+        const selectedMarkdown = String(inlineChatSelection.selectedMarkdown || inlineChatSelection.selectedText || '').trim();
+        if (selectedMarkdown && currentSlide.markdown.includes(selectedMarkdown)) return currentSlide;
+      }
+
+      return frozenSlide;
+    };
+    const findRevealSlideForMarkdownSelection = (): RevealSlide | null => {
+      if (revealDeck.detection.kind !== 'reveal' || inlineChatSelection.mode !== 'markdown') return null;
+      const snapshotMarkdown = String(inlineChatSelection.revealSlideMarkdown || '');
+      const frozenIndex = inlineChatSelection.revealSlideIndex;
+      if (Number.isInteger(frozenIndex)) {
+        const currentSlide = revealDeck.slides[frozenIndex as number] ?? null;
+        if (currentSlide && (!snapshotMarkdown || currentSlide.markdown === snapshotMarkdown)) {
+          return currentSlide;
+        }
+      }
+
+      if (snapshotMarkdown) {
+        return {
+          index: Number.isInteger(frozenIndex) ? frozenIndex as number : 0,
+          level: 'horizontal',
+          markdown: snapshotMarkdown,
+          label: inlineChatSelection.revealSlideLabel,
+          separatorBefore: '',
+          startOffset: 0,
+          endOffset: snapshotMarkdown.length,
+        };
+      }
+
+      return findRevealSlideForMarkdownOffsets(
+        inlineChatSelection.snapshot,
+        inlineChatSelection.startOffset,
+        inlineChatSelection.endOffset,
+        inlineChatSelection.cursorOffset,
+      );
+    };
     const currentRevealSlide = inlineChatSelection.mode === 'rich'
-      ? revealSlideForRichSelection ?? fallbackRevealSlide
-      : null;
-    const presentationContext = revealDeck.detection.kind === 'reveal'
+      ? getRichRevealSlideSnapshot()
+      : revealDeck.detection.kind === 'reveal'
+        ? findRevealSlideForMarkdownSelection()
+        : null;
+    const isRevealSurface = revealDeck.detection.kind === 'reveal' || !!currentRevealSlide;
+    const frozenRevealSlideCount = Number.isInteger(inlineChatSelection.revealSlideCount) && (inlineChatSelection.revealSlideCount ?? 0) > 0
+      ? inlineChatSelection.revealSlideCount
+      : undefined;
+    const hasPreparedRevealSnapshot = !!currentRevealSlide && (
+      Number.isInteger(inlineChatSelection.revealSlideIndex) ||
+      !!inlineChatSelection.revealSlideMarkdown
+    );
+    const revealSlideCount = frozenRevealSlideCount ??
+      (revealDeck.detection.kind === 'reveal'
+        ? revealDeck.slides.length
+        : hasPreparedRevealSnapshot
+          ? undefined
+          : 1);
+    const presentationContext = isRevealSurface
       ? {
-          presentationMode: 'reveal',
-          presentationDetection: revealDeck.detection.confidence,
-          slideCount: revealDeck.slides.length,
+          slideCount: revealSlideCount,
           currentSlideIndex: currentRevealSlide?.index,
+          currentSlideLabel: currentRevealSlide?.label,
           currentSlideMarkdown: currentRevealSlide?.markdown,
+          presentationDetection: revealDeck.detection.confidence,
         }
       : {};
-    const surfaceContext = inlineChatSelection.mode === 'rich'
-      ? {
-          mode: 'rich',
-          selectedText: inlineChatSelection.selectedText,
-          selectedMarkdown: inlineChatSelection.selectedMarkdown,
-          selectionIsEmpty: inlineChatSelection.selectionIsEmpty,
-          cursorContext: inlineChatSelection.cursorContext,
-          from: inlineChatSelection.from,
-          to: inlineChatSelection.to,
-          ...presentationContext,
-        }
-      : {
-          mode: 'markdown',
-          selectedText: inlineChatSelection.selectedText,
-          selectionIsEmpty: inlineChatSelection.selectionIsEmpty,
-          cursorContext: inlineChatSelection.cursorContext,
-          startOffset: inlineChatSelection.startOffset,
-          endOffset: inlineChatSelection.endOffset,
-          ...presentationContext,
-        };
+    const surfaceId = latestActiveTab.id;
+    const surfaceMode = isRevealSurface ? 'reveal' : inlineChatSelection.mode;
+    const selectionSnapshotSeed = inlineChatSelection.mode === 'rich'
+      ? `${inlineChatSelection.from}:${inlineChatSelection.to}:${inlineChatSelection.revealSlideIndex ?? ''}:${inlineChatSelection.revealSlideMarkdown?.length ?? 0}:${inlineChatSelection.selectedText.length}:${String(inlineChatSelection.selectedMarkdown || '').length}`
+      : `${inlineChatSelection.startOffset}:${inlineChatSelection.endOffset}:${inlineChatSelection.cursorOffset ?? ''}:${inlineChatSelection.revealSlideIndex ?? ''}:${inlineChatSelection.revealSlideMarkdown?.length ?? 0}:${inlineChatSelection.selectedText.length}`;
+    const snapshotVersion = createSurfaceSnapshotVersion(
+      'editor',
+      surfaceId,
+      `${latestActiveTab.filePath || latestActiveTab.draftId || ''}:${inlineChatSelection.mode}:${selectionSnapshotSeed}`,
+    );
+    const surfaceContext: SurfaceContext = {
+      surfaceType: 'editor',
+      surfaceId,
+      title: latestActiveTab.title,
+      mode: surfaceMode,
+      selection: inlineChatSelection.mode === 'rich'
+        ? {
+            kind: 'text',
+            text: inlineChatSelection.selectedText,
+            markdown: inlineChatSelection.selectedMarkdown,
+            range: { startOffset: inlineChatSelection.from, endOffset: inlineChatSelection.to },
+            isEmpty: !!inlineChatSelection.selectionIsEmpty,
+            explicit: !inlineChatSelection.selectionIsEmpty,
+          }
+        : {
+            kind: 'text',
+            text: inlineChatSelection.selectedText,
+            range: {
+              startLine: inlineChatSelection.startLine,
+              startColumn: inlineChatSelection.startColumn,
+              endLine: inlineChatSelection.endLine,
+              endColumn: inlineChatSelection.endColumn,
+              startOffset: inlineChatSelection.startOffset,
+              endOffset: inlineChatSelection.endOffset,
+            },
+            isEmpty: !!inlineChatSelection.selectionIsEmpty,
+            explicit: !inlineChatSelection.selectionIsEmpty,
+          },
+      focus: inlineChatSelection.mode === 'rich'
+        ? {
+            kind: currentRevealSlide ? 'slide' : 'cursor',
+            label: currentRevealSlide?.label,
+            text: inlineChatSelection.cursorContext,
+            range: { startOffset: inlineChatSelection.from, endOffset: inlineChatSelection.to },
+            entity: currentRevealSlide ? { slideIndex: currentRevealSlide.index } : undefined,
+          }
+        : {
+            kind: currentRevealSlide ? 'slide' : 'cursor',
+            label: currentRevealSlide?.label,
+            text: inlineChatSelection.cursorContext,
+            cursor: {
+              line: inlineChatSelection.cursorLine,
+              column: inlineChatSelection.cursorColumn,
+              offset: inlineChatSelection.cursorOffset,
+            },
+            entity: currentRevealSlide ? { slideIndex: currentRevealSlide.index } : undefined,
+          },
+      content: currentRevealSlide
+        ? { kind: 'reveal_slide', markdown: currentRevealSlide.markdown }
+        : {
+            kind: 'document_window',
+            text: inlineChatSelection.mode === 'rich'
+              ? inlineChatSelection.displayMarkdown || inlineChatSelection.cursorContext
+              : inlineChatSelection.cursorContext,
+          },
+      metadata: {
+        documentId: latestActiveTab.id,
+        filePath: latestActiveTab.filePath ?? undefined,
+        draftId: latestActiveTab.draftId ?? undefined,
+        language: 'markdown',
+        ...presentationContext,
+      },
+      snapshotVersion,
+      capturedAt: new Date().toISOString(),
+      staleAfterMs: 120000,
+    };
 
     const runId = (inlineChatRunIdRef.current += 1);
     useWorkspaceChatModalStore.getState().setAdapterError(null);
@@ -988,11 +1146,26 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           return { ok: false };
         }
 
+        const revealSelectionDeck = parseRevealMarkdown(activeTab.markdown);
+        const richRevealSlide = activeTab.mode === 'rich' && revealSelectionDeck.detection.kind === 'reveal'
+          ? revealSelectionDeck.slides[currentRevealSlideIndexRef.current] ?? revealSelectionDeck.slides[0] ?? null
+          : null;
+        const richRevealSlideCount = richRevealSlide ? revealSelectionDeck.slides.length : undefined;
+
         const selection: InlineChatSelection =
           activeTab.mode === 'markdown'
             ? (() => {
                 const md = selectionRaw as MarkdownSelectionSnapshot;
                 const snapshot = editorRef.current?.getModel?.()?.getValue?.() ?? activeTab.markdown;
+                const markdownRevealSlide = findRevealSlideForMarkdownOffsets(
+                  snapshot,
+                  md.startOffset,
+                  md.endOffset,
+                  md.cursorOffset,
+                );
+                const markdownRevealSlideCount = markdownRevealSlide
+                  ? parseRevealMarkdown(snapshot).slides.length
+                  : undefined;
                 return {
                   mode: 'markdown',
                   tabId: activeTab.id,
@@ -1002,7 +1175,18 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
                   displayText: md.displayText,
                   startOffset: md.startOffset,
                   endOffset: md.endOffset,
+                  startLine: md.startLine,
+                  startColumn: md.startColumn,
+                  endLine: md.endLine,
+                  endColumn: md.endColumn,
+                  cursorLine: md.cursorLine,
+                  cursorColumn: md.cursorColumn,
+                  cursorOffset: md.cursorOffset,
                   snapshot,
+                  revealSlideIndex: markdownRevealSlide?.index,
+                  revealSlideLabel: markdownRevealSlide?.label,
+                  revealSlideMarkdown: markdownRevealSlide?.markdown,
+                  revealSlideCount: markdownRevealSlideCount,
                 };
               })()
             : (() => {
@@ -1019,6 +1203,10 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
                   from: rich.from,
                   to: rich.to,
                   snapshot: rich.snapshot ?? activeTab.markdown,
+                  revealSlideIndex: richRevealSlide?.index,
+                  revealSlideLabel: richRevealSlide?.label,
+                  revealSlideMarkdown: richRevealSlide?.markdown,
+                  revealSlideCount: richRevealSlideCount,
                 };
               })();
 

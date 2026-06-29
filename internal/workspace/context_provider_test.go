@@ -39,9 +39,39 @@ func TestContextProviderBuildsLowDynamicWorkspaceAndTurnDynamicSurfaceBlocks(t *
 			Title: "Arquivo",
 			State: map[string]any{"filePath": "C:/tmp/readme.md", "tasklistId": "tl-1", "sessionId": "term-1"},
 			Context: map[string]any{
-				"selectedText":   "seleção",
-				"historyPreview": "histórico",
-				"tasksPreview":   "tarefas",
+				"surfaceType":     "editor",
+				"surfaceId":       "tab-1",
+				"title":           "Arquivo",
+				"mode":            "reveal",
+				"snapshotVersion": "editor:tab-1:42",
+				"selection": map[string]any{
+					"kind":     "text",
+					"text":     "seleção",
+					"explicit": true,
+					"range": map[string]any{
+						"startLine":   float64(1),
+						"startColumn": float64(2),
+						"endLine":     float64(3),
+						"endColumn":   float64(4),
+					},
+				},
+				"focus": map[string]any{
+					"kind":  "slide",
+					"label": "Objetivo",
+					"entity": map[string]any{
+						"slideIndex": float64(2),
+					},
+				},
+				"content": map[string]any{
+					"kind":     "reveal_slide",
+					"markdown": "## Objetivo",
+				},
+				"metadata": map[string]any{
+					"filePath":          "C:/tmp/readme.md",
+					"tasklistId":        "tl-1",
+					"unsafeNested":      map[string]any{"secret": "do-not-render"},
+					"currentSlideIndex": float64(2),
+				},
 			},
 		},
 	})
@@ -83,17 +113,19 @@ func TestContextProviderBuildsLowDynamicWorkspaceAndTurnDynamicSurfaceBlocks(t *
 		}
 	}
 	for _, needle := range []string{
-		"<surface_context>",
-		"active_file: C:/tmp/readme.md",
-		"active_tasklist: tl-1",
-		"active_terminal_session: term-1",
-		"selected_text: seleção",
-		"history_preview: histórico",
-		"tasks_preview: tarefas",
+		"<surface_context\n  surface_type=\"editor\"\n  surface_id=\"tab-1\"\n  snapshot_version=\"editor:tab-1:42\"\n  title=\"Arquivo\"\n  mode=\"reveal\"\n>",
+		`<selection kind="text" explicit="true" range="1:2-3:4">seleção</selection>`,
+		`<focus kind="slide" label="Objetivo" slide_index="2" />`,
+		`<content kind="reveal_slide">## Objetivo</content>`,
+		`<metadata key="file_path">C:/tmp/readme.md</metadata>`,
+		`<metadata key="current_slide_index">2</metadata>`,
 	} {
 		if !strings.Contains(blocks[2].Content, needle) {
 			t.Fatalf("surface block missing %q: %s", needle, blocks[2].Content)
 		}
+	}
+	if strings.Contains(blocks[2].Content, "unsafeNested") || strings.Contains(blocks[2].Content, "do-not-render") || strings.Contains(blocks[2].Content, "tasklistId") {
+		t.Fatalf("surface block rendered metadata outside allowlist: %s", blocks[2].Content)
 	}
 	if blocks[2].Provider != "workspace" || blocks[2].Name != "surface_context" || blocks[2].Volatility != contextprovider.VolatilityTurnDynamic {
 		t.Fatalf("unexpected surface block metadata: %+v", blocks[2])
@@ -136,8 +168,124 @@ func TestContextProviderBuildsSurfaceBlockWithoutWorkspaceBlock(t *testing.T) {
 	if strings.Contains(blocks[1].Content, "<workspace_context>") {
 		t.Fatalf("surface-only request should not emit workspace context: %q", blocks[1].Content)
 	}
-	if !strings.Contains(blocks[1].Content, "selected_text: seleção") {
+	if !strings.Contains(blocks[1].Content, `incomplete="true"`) || !strings.Contains(blocks[1].Content, `<selection kind="text" explicit="true">seleção</selection>`) {
 		t.Fatalf("surface block missing selected text: %q", blocks[1].Content)
+	}
+}
+
+func TestContextProviderOmitsEmptyStructuredSurfaceContext(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		ProviderBudgets: map[string]int{
+			"workspace": 1000,
+		},
+		Surface: &contextprovider.Surface{
+			Type:  "editor",
+			Title: "Arquivo",
+			Context: map[string]any{
+				"surfaceType":     "editor",
+				"surfaceId":       "tab-1",
+				"snapshotVersion": "editor:tab-1:empty",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want only instructions block", len(blocks))
+	}
+}
+
+func TestContextProviderMapsLegacyTasklistIDToAllowlistedMetadata(t *testing.T) {
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		ProviderBudgets: map[string]int{
+			"workspace": 1000,
+		},
+		Surface: &contextprovider.Surface{
+			Type:  "tasklist",
+			Title: "Tarefas",
+			State: map[string]any{"tasklistId": "tl-legacy"},
+			Context: map[string]any{
+				"tasksPreview": "- Revisar PR",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want instructions and surface context", len(blocks))
+	}
+	if !strings.Contains(blocks[1].Content, `<metadata key="task_list_id">tl-legacy</metadata>`) {
+		t.Fatalf("legacy tasklist ID should render with allowlisted key: %q", blocks[1].Content)
+	}
+	if strings.Contains(blocks[1].Content, `key="tasklist_id"`) {
+		t.Fatalf("legacy tasklist ID should not render with non-allowlisted key: %q", blocks[1].Content)
+	}
+}
+
+func TestContextProviderPreservesSurfaceContextWhenOpeningTagIsLongUnderTightBudget(t *testing.T) {
+	surfaceID := "surface-" + strings.Repeat("x", 120)
+	snapshotVersion := "editor:" + surfaceID + ":" + strings.Repeat("v", 80)
+	preservedContent := "<surface_context\n  surface_type=\"editor\"\n  surface_id=\"" + surfaceID + "\"\n  snapshot_version=\"" + snapshotVersion + "\"\n>"
+	budget := runeLen(preservedContent) + runeLen(surfaceContextTruncationNotice) + runeLen(surfaceContextSuffix)
+
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		ProviderBudgets: map[string]int{
+			"workspace": budget,
+		},
+		Surface: &contextprovider.Surface{
+			Type:  "editor",
+			Title: strings.Repeat("Título longo ", 40),
+			Context: map[string]any{
+				"surfaceType":     "editor",
+				"surfaceId":       surfaceID,
+				"snapshotVersion": snapshotVersion,
+				"title":           strings.Repeat("Título longo ", 40),
+				"content": map[string]any{
+					"kind": "text",
+					"text": strings.Repeat("conteúdo ", 40),
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want instructions and surface context", len(blocks))
+	}
+	if blocks[1].Name != "surface_context" {
+		t.Fatalf("unexpected surface block: %+v", blocks[1])
+	}
+	if !strings.Contains(blocks[1].Content, `surface_type="editor"`) || !strings.Contains(blocks[1].Content, `surface_id="`+surfaceID+`"`) {
+		t.Fatalf("surface context should preserve identity under tight budget, got %q", blocks[1].Content)
+	}
+	if !strings.Contains(blocks[1].Content, "omitted due to context budget") {
+		t.Fatalf("expected truncation notice, got %q", blocks[1].Content)
+	}
+	if got := runeLen(blocks[1].Content); got > budget {
+		t.Fatalf("surface block length = %d, want <= %d: %q", got, budget, blocks[1].Content)
+	}
+}
+
+func TestTrimSurfaceContextBlockOmitsUnclosedOpeningTagUnderTightBudget(t *testing.T) {
+	preservedContent := "<surface_context\n  surface_type=\"editor\""
+	content := preservedContent + "\n  surface_id=\"tab-1\"\n>\nCurrent active surface context. Treat this as turn-specific dynamic state.\n<selection kind=\"text\">seleção</selection>"
+	budget := runeLen(preservedContent) + runeLen(surfaceContextTruncationNotice) + runeLen(surfaceContextSuffix)
+
+	if got := trimSurfaceContextBlock(content, budget); got != "" {
+		t.Fatalf("expected no malformed surface context block, got %q", got)
+	}
+}
+
+func TestTrimSurfaceContextBlockOmitsOpeningTagWithoutRequiredAttrs(t *testing.T) {
+	content := "<surface_context\n  surface_type=\"editor\"\n  surface_id=\"tab-1\"\n  snapshot_version=\"editor:tab-1:1\"\n>\nCurrent active surface context. Treat this as turn-specific dynamic state.\n<selection kind=\"text\">seleção</selection>"
+	preservedContent := "<surface_context\n  surface_type=\"editor\"\n  surface_id=\"tab-1\""
+	budget := runeLen(preservedContent) + runeLen(surfaceContextTruncationNotice) + runeLen(surfaceContextSuffix)
+
+	if got := trimSurfaceContextBlock(content, budget); got != "" {
+		t.Fatalf("expected no surface context block without required attrs, got %q", got)
 	}
 }
 
