@@ -5,7 +5,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"assistente/internal/skills"
 )
 
 func TestRemoveLegacyContextProviderSkills(t *testing.T) {
@@ -124,5 +127,78 @@ func TestBuiltinProfilesDoNotEnableLegacyContextProviderSkills(t *testing.T) {
 				t.Fatalf("builtin profile %s enables legacy context provider skill %q", entry.Name(), skill)
 			}
 		}
+	}
+}
+
+func TestBuiltinSlidesRevealMarkdownSkillParses(t *testing.T) {
+	data, err := fs.ReadFile(builtinSkillsFS, "builtin/skills/slides-reveal-markdown/SKILL.md")
+	if err != nil {
+		t.Fatalf("read slides-reveal-markdown skill: %v", err)
+	}
+
+	meta, content, err := skills.Parse(string(data))
+	if err != nil {
+		t.Fatalf("parse slides-reveal-markdown skill: %v", err)
+	}
+	if meta.Name != "slides-reveal-markdown" {
+		t.Fatalf("unexpected skill name: %q", meta.Name)
+	}
+	if meta.Version != "1.0.0" {
+		t.Fatalf("unexpected skill version: %q", meta.Version)
+	}
+	if meta.Category != "editor" {
+		t.Fatalf("unexpected skill category: %q", meta.Category)
+	}
+	if tools := meta.GetToolsAllowed(); len(tools) != 1 || tools[0] != "text_edit" {
+		t.Fatalf("unexpected allowed tools: %#v", meta.GetToolsAllowed())
+	}
+	for _, required := range []string{
+		"surface_context",
+		"<selection",
+		`<content kind="reveal_slide">`,
+		`<metadata key="current_slide_index">`,
+		"Criação de deck completo",
+		"objetivo, audiência, duração",
+		"título, agenda ou contexto",
+		"Note:",
+		"----",
+		"texto alternativo",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("skill content should mention %q", required)
+		}
+	}
+	for _, forbidden := range []string{"currentSlideIndex", "currentSlideMarkdown"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("skill content should not mention legacy surface_context key %q", forbidden)
+		}
+	}
+}
+
+func TestEditorTextoProfileEnablesSlidesRevealMarkdownOnDemand(t *testing.T) {
+	data, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/editor-texto.json")
+	if err != nil {
+		t.Fatalf("read editor-texto profile: %v", err)
+	}
+	var profile struct {
+		BuiltinVersion string `json:"_builtin_version"`
+		Chat           struct {
+			EnabledSkills []string `json:"enabled_skills"`
+		} `json:"chat"`
+	}
+	if err := json.Unmarshal(data, &profile); err != nil {
+		t.Fatalf("parse editor-texto profile: %v", err)
+	}
+	if profile.BuiltinVersion != "4.1.0" {
+		t.Fatalf("unexpected builtin version: %q", profile.BuiltinVersion)
+	}
+	if len(profile.Chat.EnabledSkills) < 2 {
+		t.Fatalf("expected at least base and on-demand skills, got %#v", profile.Chat.EnabledSkills)
+	}
+	if profile.Chat.EnabledSkills[0] != "editor-texto" {
+		t.Fatalf("first skill should remain editor-texto base, got %#v", profile.Chat.EnabledSkills)
+	}
+	if profile.Chat.EnabledSkills[1] != "slides-reveal-markdown" {
+		t.Fatalf("second skill should be slides-reveal-markdown on-demand, got %#v", profile.Chat.EnabledSkills)
 	}
 }
