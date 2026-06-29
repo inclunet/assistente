@@ -157,6 +157,7 @@ func TestBuiltinSlidesRevealMarkdownSkillParses(t *testing.T) {
 		"<selection",
 		`<content kind="reveal_slide">`,
 		`<metadata key="current_slide_index">`,
+		"Criação de deck completo",
 		"objetivo, audiência, duração",
 		"título, agenda ou contexto",
 		"Note:",

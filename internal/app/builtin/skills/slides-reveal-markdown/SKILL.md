@@ -39,7 +39,7 @@ Respeite o `surface_context` recebido do editor:
 
 Quando for editar conteúdo existente e a ferramenta `text_edit` estiver disponível, use `text_edit`. Preencha `original` com o trecho de `<selection>` ou, se não houver seleção, com o conteúdo de `<content kind="reveal_slide">`; preencha `replacement` com o Markdown final, sem explicações dentro do conteúdo substituto.
 
-## Criacao de deck completo
+## Criação de deck completo
 
 Quando o usuário pedir para criar slides do zero ou transformar um material em apresentação:
 
