@@ -152,9 +152,24 @@ func TestBuiltinSlidesRevealMarkdownSkillParses(t *testing.T) {
 	if tools := meta.GetToolsAllowed(); len(tools) != 1 || tools[0] != "text_edit" {
 		t.Fatalf("unexpected allowed tools: %#v", meta.GetToolsAllowed())
 	}
-	for _, required := range []string{"surface_context", "currentSlideIndex", "currentSlideMarkdown", "----", "texto alternativo"} {
+	for _, required := range []string{
+		"surface_context",
+		"<selection",
+		`<content kind="reveal_slide">`,
+		`<metadata key="current_slide_index">`,
+		"objetivo, audiência, duração",
+		"título, agenda ou contexto",
+		"Note:",
+		"----",
+		"texto alternativo",
+	} {
 		if !strings.Contains(content, required) {
 			t.Fatalf("skill content should mention %q", required)
+		}
+	}
+	for _, forbidden := range []string{"currentSlideIndex", "currentSlideMarkdown"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("skill content should not mention legacy surface_context key %q", forbidden)
 		}
 	}
 }
