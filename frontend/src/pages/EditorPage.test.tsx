@@ -7,38 +7,72 @@ import { EditorWriteFile } from '@wailsjs/go/app/App';
 const openToolbarMenuSpy = vi.fn();
 const editorPageMocks = vi.hoisted(() => {
   const revealSlideMarkdown = '## Slide 2\nselected rich text';
-  return {
+  const offsetToPosition = (text: string, offset: number) => {
+    const safeOffset = Math.max(0, Math.min(offset, text.length));
+    const before = text.slice(0, safeOffset);
+    const lines = before.split('\n');
+    return { lineNumber: lines.length, column: lines[lines.length - 1].length + 1 };
+  };
+  const positionToOffset = (text: string, position: { lineNumber: number; column: number }) => {
+    const lines = text.split('\n');
+    let offset = 0;
+    for (let i = 0; i < Math.max(0, position.lineNumber - 1); i += 1) {
+      offset += (lines[i]?.length ?? 0) + 1;
+    }
+    return offset + Math.max(0, position.column - 1);
+  };
+  const state = {
     registeredAdapter: null as unknown,
     editorContentAreaProps: null as Record<string, unknown> | null,
     initialRevealSlideIndex: 0,
-    richEditor: {
-      state: {
-        selection: {
-          from: 1,
-          to: 19,
-          empty: false,
-        },
-        doc: {
-          content: { size: revealSlideMarkdown.length },
-          textBetween: (from: number, to: number) => {
-            if (from === 1 && to === 19) return 'selected rich text';
-            return revealSlideMarkdown;
-          },
-          cut: () => ({ markdown: revealSlideMarkdown }),
-        },
-      },
-      storage: {
-        markdown: {
-          serializer: {
-            serialize: (node: { markdown?: string }) => node.markdown || '',
-          },
-          getMarkdown: () => revealSlideMarkdown,
-        },
-      },
-      commands: { focus: vi.fn() },
-      view: { focus: vi.fn() },
-    },
+    markdownModelValue: '',
+    markdownSelectionStartOffset: 0,
+    markdownSelectionEndOffset: 0,
+    markdownCursorOffset: 0,
+    markdownEditor: null as unknown,
+    richEditor: null as unknown,
   };
+  state.markdownEditor = {
+    getModel: () => ({
+      getValue: () => state.markdownModelValue,
+      getValueInRange: () => state.markdownModelValue.slice(state.markdownSelectionStartOffset, state.markdownSelectionEndOffset),
+      getOffsetAt: (position: { lineNumber: number; column: number }) => positionToOffset(state.markdownModelValue, position),
+    }),
+    getSelection: () => ({
+      getStartPosition: () => offsetToPosition(state.markdownModelValue, state.markdownSelectionStartOffset),
+      getEndPosition: () => offsetToPosition(state.markdownModelValue, state.markdownSelectionEndOffset),
+    }),
+    getPosition: () => offsetToPosition(state.markdownModelValue, state.markdownCursorOffset),
+    focus: vi.fn(),
+  };
+  state.richEditor = {
+    state: {
+      selection: {
+        from: 1,
+        to: 19,
+        empty: false,
+      },
+      doc: {
+        content: { size: revealSlideMarkdown.length },
+        textBetween: (from: number, to: number) => {
+          if (from === 1 && to === 19) return 'selected rich text';
+          return revealSlideMarkdown;
+        },
+        cut: () => ({ markdown: revealSlideMarkdown }),
+      },
+    },
+    storage: {
+      markdown: {
+        serializer: {
+          serialize: (node: { markdown?: string }) => node.markdown || '',
+        },
+        getMarkdown: () => revealSlideMarkdown,
+      },
+    },
+    commands: { focus: vi.fn() },
+    view: { focus: vi.fn() },
+  };
+  return state;
 });
 
 const editorStoreState = {
@@ -177,6 +211,7 @@ vi.mock('../components/editor/EditorContentArea', async () => {
     EditorContentArea: (props: Record<string, unknown>) => {
       editorPageMocks.editorContentAreaProps = props;
       React.useEffect(() => {
+        (props.onMonacoMount as ((editor: unknown, monaco: unknown) => void) | undefined)?.(editorPageMocks.markdownEditor, {});
         (props.onRichEditorReady as ((editor: unknown) => void) | undefined)?.(editorPageMocks.richEditor);
         (props.onRevealSlideIndexChange as ((index: number) => void) | undefined)?.(editorPageMocks.initialRevealSlideIndex);
         return () => {
@@ -259,6 +294,10 @@ describe('EditorPage', () => {
     editorPageMocks.registeredAdapter = null;
     editorPageMocks.editorContentAreaProps = null;
     editorPageMocks.initialRevealSlideIndex = 0;
+    editorPageMocks.markdownModelValue = '';
+    editorPageMocks.markdownSelectionStartOffset = 0;
+    editorPageMocks.markdownSelectionEndOffset = 0;
+    editorPageMocks.markdownCursorOffset = 0;
     openToolbarMenuSpy.mockReset();
     editorStoreState.setDocMode.mockReset();
     vi.mocked(EditorWriteFile).mockReset();
@@ -385,6 +424,71 @@ describe('EditorPage', () => {
     expect(selection.revealSlideMarkdown).toContain('Slide 2');
 
     act(() => {
+      (editorPageMocks.editorContentAreaProps?.onRevealSlideIndexChange as (index: number) => void)(2);
+    });
+    const plan = await act(async () => {
+      return adapter.send('Explique este trecho', undefined, selection, {
+        tabId: 'tab-1',
+        conversationId: 'conv-1',
+      });
+    });
+    const surfaceContext = JSON.parse(String(plan?.paramsOverride?.surfaceContextJson || '{}'));
+
+    expect(surfaceContext.metadata.currentSlideIndex).toBe(1);
+    expect(surfaceContext.focus.entity.slideIndex).toBe(1);
+    expect(surfaceContext.content.markdown).toContain('Slide 2');
+    expect(surfaceContext.content.markdown).not.toContain('Slide 3');
+  });
+
+  it('mantém o slide Reveal Markdown capturado no prepare ao enviar', async () => {
+    const initialDeck = '# Slide 1\n\n---\n\n## Slide 2\nselected markdown text\n\n---\n\n## Slide 3\noutro slide';
+    const selectedText = 'selected markdown text';
+    const selectionStart = initialDeck.indexOf(selectedText);
+    editorPageMocks.markdownModelValue = initialDeck;
+    editorPageMocks.markdownSelectionStartOffset = selectionStart;
+    editorPageMocks.markdownSelectionEndOffset = selectionStart + selectedText.length;
+    editorPageMocks.markdownCursorOffset = selectionStart;
+    editorPageMocks.initialRevealSlideIndex = 1;
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Deck',
+        markdown: initialDeck,
+        mode: 'markdown',
+        filePath: 'deck.md',
+      },
+    };
+
+    render(
+      <EditorPage
+        workspaceTab={{
+          id: 'tab-1',
+          type: 'editor',
+          title: 'Deck',
+          position: 0,
+          conversationId: 'conv-1',
+          state: { filePath: 'deck.md' },
+        }}
+      />
+    );
+
+    const adapter = editorPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; meta: unknown }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ paramsOverride?: { surfaceContextJson?: string } } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const selection = prepared.meta as { revealSlideIndex?: number; revealSlideMarkdown?: string };
+
+    expect(selection.revealSlideIndex).toBe(1);
+    expect(selection.revealSlideMarkdown).toContain('Slide 2');
+
+    act(() => {
+      editorStoreState.documents['tab-1'].markdown = '# Slide 1\n\n---\n\n## Slide 3\noutro slide alterado';
       (editorPageMocks.editorContentAreaProps?.onRevealSlideIndexChange as (index: number) => void)(2);
     });
     const plan = await act(async () => {

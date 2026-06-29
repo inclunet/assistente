@@ -279,6 +279,25 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     };
   };
 
+  const findRevealSlideForMarkdownOffsets = (
+    markdown: string,
+    startOffset: number,
+    endOffset: number,
+    cursorOffset: number,
+  ): RevealSlide | null => {
+    const deck = parseRevealMarkdown(markdown);
+    if (deck.detection.kind !== 'reveal') return null;
+    const start = Number(startOffset);
+    const end = Number(endOffset);
+    const cursor = Number(cursorOffset);
+    return deck.slides.find((slide) => {
+      if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+        return start < slide.endOffset && end > slide.startOffset;
+      }
+      return Number.isFinite(cursor) && cursor >= slide.startOffset && cursor <= slide.endOffset;
+    }) ?? null;
+  };
+
   const getRichSelectionSnapshot = (): RichSelectionSnapshot | null => {
     const editor = richEditorRef.current;
     if (!editor) return null;
@@ -623,7 +642,13 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         draftId: latestActiveTab.draftId ?? undefined,
       },
     };
-    const revealDeck = parseRevealMarkdown(latestActiveTab.markdown);
+    const liveRevealDeck = parseRevealMarkdown(latestActiveTab.markdown);
+    const preparedMarkdownRevealDeck = inlineChatSelection.mode === 'markdown'
+      ? parseRevealMarkdown(inlineChatSelection.snapshot)
+      : null;
+    const revealDeck = preparedMarkdownRevealDeck?.detection.kind === 'reveal'
+      ? preparedMarkdownRevealDeck
+      : liveRevealDeck;
     const getRichRevealSlideSnapshot = (): RevealSlide | null => {
       if (revealDeck.detection.kind !== 'reveal' || inlineChatSelection.mode !== 'rich') return null;
       const frozenIndex = inlineChatSelection.revealSlideIndex;
@@ -651,13 +676,33 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     };
     const findRevealSlideForMarkdownSelection = (): RevealSlide | null => {
       if (revealDeck.detection.kind !== 'reveal' || inlineChatSelection.mode !== 'markdown') return null;
-      const start = Number(inlineChatSelection.startOffset);
-      const end = Number(inlineChatSelection.endOffset);
-      const cursor = Number(inlineChatSelection.cursorOffset);
-      return revealDeck.slides.find((slide) => {
-        if (end > start) return start < slide.endOffset && end > slide.startOffset;
-        return cursor >= slide.startOffset && cursor <= slide.endOffset;
-      }) ?? revealDeck.slides[currentRevealSlideIndexRef.current] ?? revealDeck.slides[0] ?? null;
+      const snapshotMarkdown = String(inlineChatSelection.revealSlideMarkdown || '');
+      const frozenIndex = inlineChatSelection.revealSlideIndex;
+      if (Number.isInteger(frozenIndex)) {
+        const currentSlide = revealDeck.slides[frozenIndex as number] ?? null;
+        if (currentSlide && (!snapshotMarkdown || currentSlide.markdown === snapshotMarkdown)) {
+          return currentSlide;
+        }
+      }
+
+      if (snapshotMarkdown) {
+        return {
+          index: Number.isInteger(frozenIndex) ? frozenIndex as number : 0,
+          level: 'horizontal',
+          markdown: snapshotMarkdown,
+          label: inlineChatSelection.revealSlideLabel,
+          separatorBefore: '',
+          startOffset: 0,
+          endOffset: snapshotMarkdown.length,
+        };
+      }
+
+      return findRevealSlideForMarkdownOffsets(
+        inlineChatSelection.snapshot,
+        inlineChatSelection.startOffset,
+        inlineChatSelection.endOffset,
+        inlineChatSelection.cursorOffset,
+      );
     };
     const currentRevealSlide = revealDeck.detection.kind === 'reveal'
       ? inlineChatSelection.mode === 'rich'
@@ -1088,6 +1133,12 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
             ? (() => {
                 const md = selectionRaw as MarkdownSelectionSnapshot;
                 const snapshot = editorRef.current?.getModel?.()?.getValue?.() ?? activeTab.markdown;
+                const markdownRevealSlide = findRevealSlideForMarkdownOffsets(
+                  snapshot,
+                  md.startOffset,
+                  md.endOffset,
+                  md.cursorOffset,
+                );
                 return {
                   mode: 'markdown',
                   tabId: activeTab.id,
@@ -1105,6 +1156,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
                   cursorColumn: md.cursorColumn,
                   cursorOffset: md.cursorOffset,
                   snapshot,
+                  revealSlideIndex: markdownRevealSlide?.index,
+                  revealSlideLabel: markdownRevealSlide?.label,
+                  revealSlideMarkdown: markdownRevealSlide?.markdown,
                 };
               })()
             : (() => {

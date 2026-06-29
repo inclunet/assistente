@@ -213,6 +213,16 @@ func TestContextProviderPreservesSurfaceContextWhenOpeningTagIsLongUnderTightBud
 	}
 }
 
+func TestTrimSurfaceContextBlockOmitsUnclosedOpeningTagUnderTightBudget(t *testing.T) {
+	preservedContent := "<surface_context\n  surface_type=\"editor\""
+	content := preservedContent + "\n  surface_id=\"tab-1\"\n>\nCurrent active surface context. Treat this as turn-specific dynamic state.\n<selection kind=\"text\">seleção</selection>"
+	budget := runeLen(preservedContent) + runeLen(surfaceContextTruncationNotice) + runeLen(surfaceContextSuffix)
+
+	if got := trimSurfaceContextBlock(content, budget); got != "" {
+		t.Fatalf("expected no malformed surface context block, got %q", got)
+	}
+}
+
 func TestContextProviderBuildsBlockWhenTabsProvidedWithoutTabCount(t *testing.T) {
 	editorPath := mustAbsPath(t, "sem-tab-count.md")
 	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{

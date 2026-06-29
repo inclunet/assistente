@@ -510,7 +510,7 @@ func closeSurfaceOpenTagForTruncation(content string, budgetChars int) string {
 	if runeLen(closed) <= budgetChars {
 		return closed
 	}
-	return content
+	return ""
 }
 
 func hasWorkspaceContextLine(content string) bool {

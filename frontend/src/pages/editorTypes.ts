@@ -101,6 +101,9 @@ export type InlineChatSelection =
       cursorColumn: number;
       cursorOffset: number;
       snapshot: string;
+      revealSlideIndex?: number;
+      revealSlideLabel?: string;
+      revealSlideMarkdown?: string;
     }
   | {
       mode: 'rich';
