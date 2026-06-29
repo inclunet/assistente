@@ -104,6 +104,7 @@ export type InlineChatSelection =
       revealSlideIndex?: number;
       revealSlideLabel?: string;
       revealSlideMarkdown?: string;
+      revealSlideCount?: number;
     }
   | {
       mode: 'rich';
@@ -121,4 +122,5 @@ export type InlineChatSelection =
       revealSlideIndex?: number;
       revealSlideLabel?: string;
       revealSlideMarkdown?: string;
+      revealSlideCount?: number;
     };

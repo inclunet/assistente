@@ -389,7 +389,7 @@ describe('EditorPage', () => {
     expect(EditorWriteFile).not.toHaveBeenCalled();
   });
 
-  it('mantém o slide Reveal rico capturado no prepare ao enviar', async () => {
+  it('mantém o slide Reveal rico e o total do deck capturados no prepare ao enviar', async () => {
     editorPageMocks.initialRevealSlideIndex = 1;
     const richEditor = editorPageMocks.richEditor as {
       state: { selection: { from: number; to: number; empty: boolean } };
@@ -430,13 +430,14 @@ describe('EditorPage', () => {
       ) => Promise<{ paramsOverride?: { surfaceContextJson?: string } } | null>;
     };
     const prepared = await adapter.prepare();
-    const selection = prepared.meta as { revealSlideIndex?: number; revealSlideMarkdown?: string };
+    const selection = prepared.meta as { revealSlideIndex?: number; revealSlideMarkdown?: string; revealSlideCount?: number };
 
     expect(selection.revealSlideIndex).toBe(1);
     expect(selection.revealSlideMarkdown).toContain('Slide 2');
+    expect(selection.revealSlideCount).toBe(3);
 
     act(() => {
-      editorStoreState.documents['tab-1'].markdown = '# Slide 1\n\n---\n\n## Slide vivo alterado\nconteudo atualizado\n\n---\n\n## Slide 3\noutro slide';
+      editorStoreState.documents['tab-1'].markdown = '# Documento comum\n\nO conteúdo vivo deixou de ser um deck Reveal.';
       (editorPageMocks.editorContentAreaProps?.onRevealSlideIndexChange as (index: number) => void)(2);
     });
     const plan = await act(async () => {
@@ -448,9 +449,10 @@ describe('EditorPage', () => {
     const surfaceContext = JSON.parse(String(plan?.paramsOverride?.surfaceContextJson || '{}'));
 
     expect(surfaceContext.metadata.currentSlideIndex).toBe(1);
+    expect(surfaceContext.metadata.slideCount).toBe(3);
     expect(surfaceContext.focus.entity.slideIndex).toBe(1);
     expect(surfaceContext.content.markdown).toContain('Slide 2');
-    expect(surfaceContext.content.markdown).not.toContain('Slide vivo alterado');
+    expect(surfaceContext.content.markdown).not.toContain('Documento comum');
     expect(surfaceContext.content.markdown).not.toContain('Slide 3');
   });
 

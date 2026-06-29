@@ -716,11 +716,22 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         ? findRevealSlideForMarkdownSelection()
         : null;
     const isRevealSurface = revealDeck.detection.kind === 'reveal' || !!currentRevealSlide;
+    const frozenRevealSlideCount = Number.isInteger(inlineChatSelection.revealSlideCount) && (inlineChatSelection.revealSlideCount ?? 0) > 0
+      ? inlineChatSelection.revealSlideCount
+      : undefined;
+    const hasPreparedRevealSnapshot = !!currentRevealSlide && (
+      Number.isInteger(inlineChatSelection.revealSlideIndex) ||
+      !!inlineChatSelection.revealSlideMarkdown
+    );
+    const revealSlideCount = frozenRevealSlideCount ??
+      (revealDeck.detection.kind === 'reveal'
+        ? revealDeck.slides.length
+        : hasPreparedRevealSnapshot
+          ? undefined
+          : 1);
     const presentationContext = isRevealSurface
       ? {
-          slideCount: revealDeck.detection.kind === 'reveal'
-            ? revealDeck.slides.length
-            : (currentRevealSlide?.index ?? 0) + 1,
+          slideCount: revealSlideCount,
           currentSlideIndex: currentRevealSlide?.index,
           currentSlideLabel: currentRevealSlide?.label,
           currentSlideMarkdown: currentRevealSlide?.markdown,
@@ -1136,6 +1147,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         const richRevealSlide = activeTab.mode === 'rich' && revealSelectionDeck.detection.kind === 'reveal'
           ? revealSelectionDeck.slides[currentRevealSlideIndexRef.current] ?? revealSelectionDeck.slides[0] ?? null
           : null;
+        const richRevealSlideCount = richRevealSlide ? revealSelectionDeck.slides.length : undefined;
 
         const selection: InlineChatSelection =
           activeTab.mode === 'markdown'
@@ -1148,6 +1160,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
                   md.endOffset,
                   md.cursorOffset,
                 );
+                const markdownRevealSlideCount = markdownRevealSlide
+                  ? parseRevealMarkdown(snapshot).slides.length
+                  : undefined;
                 return {
                   mode: 'markdown',
                   tabId: activeTab.id,
@@ -1168,6 +1183,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
                   revealSlideIndex: markdownRevealSlide?.index,
                   revealSlideLabel: markdownRevealSlide?.label,
                   revealSlideMarkdown: markdownRevealSlide?.markdown,
+                  revealSlideCount: markdownRevealSlideCount,
                 };
               })()
             : (() => {
@@ -1187,6 +1203,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
                   revealSlideIndex: richRevealSlide?.index,
                   revealSlideLabel: richRevealSlide?.label,
                   revealSlideMarkdown: richRevealSlide?.markdown,
+                  revealSlideCount: richRevealSlideCount,
                 };
               })();
 
