@@ -79,6 +79,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const profilePickerRef = useRef<ProfilePickerRef>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
   const profileContainerRef = useRef<HTMLDivElement>(null);
+  const previousQueuedTurnCountRef = useRef(queuedTurnCount);
 
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
   const [activeProfileSlug, setActiveProfileSlug] = useState<string>('padrao');
@@ -92,7 +93,10 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   }, []);
 
   useEffect(() => {
-    if (queuedTurnCount <= 0) return;
+    const previousQueuedTurnCount = previousQueuedTurnCountRef.current;
+    previousQueuedTurnCountRef.current = queuedTurnCount;
+    if (queuedTurnCount <= 0 || queuedTurnCount === previousQueuedTurnCount) return;
+
     announceRequest({
       message: t('chat.queue.pending', { count: queuedTurnCount }),
       origin: voiceOrigin,

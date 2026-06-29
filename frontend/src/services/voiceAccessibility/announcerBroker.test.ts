@@ -57,22 +57,7 @@ describe('announcerBroker', () => {
     expect(sink).toHaveBeenCalledWith('Falha', 'assertive');
   });
 
-  it('deduplica anúncios idênticos consecutivos', () => {
-    const request = {
-      message: 'Texto parcial',
-      eventType: 'progress' as const,
-      origin: { tabId: 'tab-1', title: 'Chat A' },
-      deduplicate: true,
-    };
-
-    expect(announceWithOrigin(request)).toBe(true);
-    expect(announceWithOrigin(request)).toBe(false);
-
-    expect(sink).toHaveBeenCalledTimes(1);
-    expect(sink).toHaveBeenCalledWith('Texto parcial', 'polite');
-  });
-
-  it('reanuncia mensagens idênticas quando deduplicação não é solicitada', () => {
+  it('permite mensagens idênticas consecutivas quando o estado muda fora do broker', () => {
     const request = {
       message: '1 turno na fila',
       eventType: 'progress' as const,

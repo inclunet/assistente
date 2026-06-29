@@ -142,7 +142,6 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
       message: interimText,
       origin: voiceOrigin,
       eventType: 'progress',
-      deduplicate: true,
     });
   }, [announceRequest, interimText, voiceOrigin]);
 
