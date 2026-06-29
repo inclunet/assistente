@@ -403,19 +403,20 @@ func (s *Service) emitTokenStats(conversationID string) {
 	}
 }
 
-func (s *Service) emitToolStarts(conversationID string, turnID string, calls []llm.ToolCall, surfaceOrigin *ports.ChatSurfaceOrigin) {
+func (s *Service) emitToolStarts(conversationID string, turnID string, assistantMessageID string, calls []llm.ToolCall, surfaceOrigin *ports.ChatSurfaceOrigin) {
 	for _, call := range calls {
 		origin, serverLabel := detectToolOrigin(call.Function.Name)
 		name := extractLogicalToolName(call.Function.Name)
 		EmitToolStart(s.emitter, ports.ToolStartEvent{
-			ConversationID: conversationID,
-			TurnID:         turnID,
-			Name:           name,
-			CallID:         call.ID,
-			Args:           call.Function.Arguments,
-			Origin:         origin,
-			ServerLabel:    serverLabel,
-			SurfaceOrigin:  surfaceOrigin,
+			ConversationID:     conversationID,
+			TurnID:             turnID,
+			AssistantMessageID: assistantMessageID,
+			Name:               name,
+			CallID:             call.ID,
+			Args:               call.Function.Arguments,
+			Origin:             origin,
+			ServerLabel:        serverLabel,
+			SurfaceOrigin:      surfaceOrigin,
 		})
 	}
 }

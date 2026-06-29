@@ -27,12 +27,13 @@ func NewChatSurfaceOrigin(conversationID, sessionKey, surfaceID, surfaceType, ta
 
 // ThinkingEvent is the payload for chat:thinking.
 type ThinkingEvent struct {
-	ConversationID string             `json:"conversationId"`
-	TurnID         string             `json:"turnId,omitempty"`
-	Content        string             `json:"content,omitempty"`
-	Done           bool               `json:"done"`
-	Started        bool               `json:"started,omitempty"`
-	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
+	ConversationID     string             `json:"conversationId"`
+	TurnID             string             `json:"turnId,omitempty"`
+	AssistantMessageID string             `json:"assistantMessageId,omitempty"`
+	Content            string             `json:"content,omitempty"`
+	Done               bool               `json:"done"`
+	Started            bool               `json:"started,omitempty"`
+	SurfaceOrigin      *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }
 
 // DoneEvent is the payload for chat:done.
@@ -83,49 +84,52 @@ type SkillLoadedEvent struct {
 
 // ToolStartEvent is the payload for chat:tool_start.
 type ToolStartEvent struct {
-	ConversationID string             `json:"conversationId"`
-	TurnID         string             `json:"turnId,omitempty"`
-	Name           string             `json:"name"`
-	CallID         string             `json:"callId"`
-	Args           string             `json:"args,omitempty"`
-	ServerLabel    string             `json:"serverLabel,omitempty"`
-	Origin         string             `json:"origin,omitempty"` // "builtin" | "mcp_bridge" | "mcp_native"
-	Attempt        int                `json:"attempt"`          // Tentativa (0=primeira, 1=retry)
-	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
+	ConversationID     string             `json:"conversationId"`
+	TurnID             string             `json:"turnId,omitempty"`
+	AssistantMessageID string             `json:"assistantMessageId,omitempty"`
+	Name               string             `json:"name"`
+	CallID             string             `json:"callId"`
+	Args               string             `json:"args,omitempty"`
+	ServerLabel        string             `json:"serverLabel,omitempty"`
+	Origin             string             `json:"origin,omitempty"` // "builtin" | "mcp_bridge" | "mcp_native"
+	Attempt            int                `json:"attempt"`          // Tentativa (0=primeira, 1=retry)
+	SurfaceOrigin      *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }
 
 // ToolEndEvent is the payload for chat:tool_end.
 type ToolEndEvent struct {
-	ConversationID string             `json:"conversationId"`
-	TurnID         string             `json:"turnId,omitempty"`
-	Name           string             `json:"name,omitempty"`
-	CallID         string             `json:"callId"`
-	Status         string             `json:"status"`
-	Summary        string             `json:"summary,omitempty"`
-	Error          string             `json:"error,omitempty"`
-	ServerLabel    string             `json:"serverLabel,omitempty"`
-	Origin         string             `json:"origin,omitempty"`     // "builtin" | "mcp_bridge" | "mcp_native"
-	DurationMs     int64              `json:"durationMs,omitempty"` // AEP-0039 Fase 3
-	Attempt        int                `json:"attempt"`              // Tentativa (0=primeira, 1=retry)
-	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
+	ConversationID     string             `json:"conversationId"`
+	TurnID             string             `json:"turnId,omitempty"`
+	AssistantMessageID string             `json:"assistantMessageId,omitempty"`
+	Name               string             `json:"name,omitempty"`
+	CallID             string             `json:"callId"`
+	Status             string             `json:"status"`
+	Summary            string             `json:"summary,omitempty"`
+	Error              string             `json:"error,omitempty"`
+	ServerLabel        string             `json:"serverLabel,omitempty"`
+	Origin             string             `json:"origin,omitempty"`     // "builtin" | "mcp_bridge" | "mcp_native"
+	DurationMs         int64              `json:"durationMs,omitempty"` // AEP-0039 Fase 3
+	Attempt            int                `json:"attempt"`              // Tentativa (0=primeira, 1=retry)
+	SurfaceOrigin      *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }
 
 // ToolFailureEvent is the payload for chat:tool_failure (AEP-0039 Fase 3).
 // Emitted when a tool execution fails with structured error classification.
 // Distinct from tool_end with status="error" — this carries retry context.
 type ToolFailureEvent struct {
-	ConversationID string             `json:"conversationId"`
-	TurnID         string             `json:"turnId,omitempty"`
-	Name           string             `json:"name"`
-	CallID         string             `json:"callId"`
-	ErrorKind      string             `json:"errorKind"` // "timeout" | "invalid_args" | "not_found" | "panic" | "cancelled" | "unknown"
-	Retryable      bool               `json:"retryable"`
-	Message        string             `json:"message,omitempty"`
-	DurationMs     int64              `json:"durationMs,omitempty"`
-	Origin         string             `json:"origin,omitempty"`    // "builtin" | "mcp_bridge" | "mcp_native"
-	WillRetry      bool               `json:"willRetry,omitempty"` // true se retry automático será tentado
-	Attempt        int                `json:"attempt"`             // Tentativa (0=primeira, 1=retry)
-	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
+	ConversationID     string             `json:"conversationId"`
+	TurnID             string             `json:"turnId,omitempty"`
+	AssistantMessageID string             `json:"assistantMessageId,omitempty"`
+	Name               string             `json:"name"`
+	CallID             string             `json:"callId"`
+	ErrorKind          string             `json:"errorKind"` // "timeout" | "invalid_args" | "not_found" | "panic" | "cancelled" | "unknown"
+	Retryable          bool               `json:"retryable"`
+	Message            string             `json:"message,omitempty"`
+	DurationMs         int64              `json:"durationMs,omitempty"`
+	Origin             string             `json:"origin,omitempty"`    // "builtin" | "mcp_bridge" | "mcp_native"
+	WillRetry          bool               `json:"willRetry,omitempty"` // true se retry automático será tentado
+	Attempt            int                `json:"attempt"`             // Tentativa (0=primeira, 1=retry)
+	SurfaceOrigin      *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }
 
 // ToolSummary describes a tool invocation within an iteration (AEP-0039 Fase 2+3).
@@ -140,11 +144,12 @@ type ToolSummary struct {
 
 // SegmentDoneEvent is the payload for chat:segment_done.
 type SegmentDoneEvent struct {
-	ConversationID string `json:"conversationId"`
-	TurnID         string `json:"turnId,omitempty"`
-	Content        string `json:"content,omitempty"`
-	Iteration      int    `json:"iteration"`
-	HasMore        bool   `json:"hasMore"`
+	ConversationID     string `json:"conversationId"`
+	TurnID             string `json:"turnId,omitempty"`
+	AssistantMessageID string `json:"assistantMessageId,omitempty"`
+	Content            string `json:"content,omitempty"`
+	Iteration          int    `json:"iteration"`
+	HasMore            bool   `json:"hasMore"`
 	// AEP-0039 Fase 2: tools executed in this iteration
 	ToolsInIteration []ToolSummary      `json:"toolsInIteration,omitempty"`
 	SurfaceOrigin    *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`

@@ -92,31 +92,33 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 		outputSummary := truncateString(event.Output, MaxResultDisplaySize)
 
 		EmitToolEnd(h.Emitter, ports.ToolEndEvent{
-			ConversationID: h.ConversationID,
-			TurnID:         h.TurnID,
-			Name:           event.Name,
-			CallID:         event.ID,
-			Status:         status,
-			Summary:        outputSummary,
-			Error:          errSummary,
-			ServerLabel:    event.ServerLabel,
-			Origin:         OriginMCPNative,
-			SurfaceOrigin:  h.SurfaceOrigin,
+			ConversationID:     h.ConversationID,
+			TurnID:             h.TurnID,
+			AssistantMessageID: h.AssistantMessageID,
+			Name:               event.Name,
+			CallID:             event.ID,
+			Status:             status,
+			Summary:            outputSummary,
+			Error:              errSummary,
+			ServerLabel:        event.ServerLabel,
+			Origin:             OriginMCPNative,
+			SurfaceOrigin:      h.SurfaceOrigin,
 		})
 
 		if event.Error != "" {
 			EmitToolFailure(h.Emitter, ports.ToolFailureEvent{
-				ConversationID: h.ConversationID,
-				TurnID:         h.TurnID,
-				Name:           event.Name,
-				CallID:         event.ID,
-				ErrorKind:      "unknown",
-				Retryable:      false,
-				Message:        errSummary,
-				WillRetry:      false,
-				Attempt:        0,
-				Origin:         OriginMCPNative,
-				SurfaceOrigin:  h.SurfaceOrigin,
+				ConversationID:     h.ConversationID,
+				TurnID:             h.TurnID,
+				AssistantMessageID: h.AssistantMessageID,
+				Name:               event.Name,
+				CallID:             event.ID,
+				ErrorKind:          "unknown",
+				Retryable:          false,
+				Message:            errSummary,
+				WillRetry:          false,
+				Attempt:            0,
+				Origin:             OriginMCPNative,
+				SurfaceOrigin:      h.SurfaceOrigin,
 			})
 		}
 
@@ -132,14 +134,15 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 			h.mu.Unlock()
 		}
 		EmitToolStart(h.Emitter, ports.ToolStartEvent{
-			ConversationID: h.ConversationID,
-			TurnID:         h.TurnID,
-			Name:           event.Name,
-			CallID:         event.ID,
-			Args:           event.Arguments,
-			ServerLabel:    event.ServerLabel,
-			Origin:         OriginMCPNative,
-			SurfaceOrigin:  h.SurfaceOrigin,
+			ConversationID:     h.ConversationID,
+			TurnID:             h.TurnID,
+			AssistantMessageID: h.AssistantMessageID,
+			Name:               event.Name,
+			CallID:             event.ID,
+			Args:               event.Arguments,
+			ServerLabel:        event.ServerLabel,
+			Origin:             OriginMCPNative,
+			SurfaceOrigin:      h.SurfaceOrigin,
 		})
 
 		log.Printf("[MCP Native] 🔧 %s (server=%s, id=%s)",

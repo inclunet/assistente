@@ -444,6 +444,48 @@ describe('chatEventController', () => {
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
 
+  it('mostra tool calls antes do primeiro chunk usando assistantMessageId persistido', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-tool',
+      name: 'buscar',
+      callId: 'call-1',
+      args: '{}',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages.map((node) => node.message.id)).toEqual(['assistant-db-tool']);
+    expect(sessions['conversation-1'].streamingMessageId).toBe('assistant-db-tool');
+    expect(sessions['conversation-1'].activeToolCalls[0]).toMatchObject({
+      name: 'buscar',
+      callId: 'call-1',
+      status: 'running',
+    });
+  });
+
+  it('preserva reasoning final antes do primeiro chunk usando assistantMessageId persistido', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-thinking',
+      content: 'raciocínio final',
+      done: true,
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages.map((node) => node.message.id)).toEqual(['assistant-db-thinking']);
+    expect(messages[0].message.reasoning).toBe('raciocínio final');
+  });
+
   it('toca som de erro em chat:error e chat:tool_failure final, respeitando arbitragem', () => {
     const { adapter } = createAdapter(['conversation-1']);
 

@@ -202,12 +202,13 @@ func (r *agenticLoopRunner) finishFinalResult(ctx context.Context, result Agenti
 
 	if result.FullResponse != "" {
 		r.svc.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
-			ConversationID: r.conversationID,
-			TurnID:         r.turnID,
-			Content:        result.FullResponse,
-			Iteration:      iteration,
-			HasMore:        false,
-			SurfaceOrigin:  r.surfaceOrigin,
+			ConversationID:     r.conversationID,
+			TurnID:             r.turnID,
+			AssistantMessageID: r.assistantMessageID,
+			Content:            result.FullResponse,
+			Iteration:          iteration,
+			HasMore:            false,
+			SurfaceOrigin:      r.surfaceOrigin,
 		})
 	}
 
@@ -243,7 +244,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	if !r.turnStillValid(ctx) {
 		return ctx, true
 	}
-	r.svc.emitToolStarts(r.conversationID, r.turnID, result.ToolCalls, r.surfaceOrigin)
+	r.svc.emitToolStarts(r.conversationID, r.turnID, r.assistantMessageID, result.ToolCalls, r.surfaceOrigin)
 	execBatch := r.svc.executeToolCallsWithRuntimeControls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: r.turnID}, r.conversationID, r.turnID, r.surfaceOrigin)
 	ctx = execBatch.Context
 	execResults := execBatch.Executions
@@ -321,13 +322,14 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	// 5g. Emite segment_done com resumo de tools da iteração (AEP-0039)
 	allIterTools := append(iterationNativeTools, iterationTools...)
 	r.svc.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
-		ConversationID:   r.conversationID,
-		TurnID:           r.turnID,
-		Content:          result.FullResponse,
-		Iteration:        iteration,
-		HasMore:          true,
-		ToolsInIteration: allIterTools,
-		SurfaceOrigin:    r.surfaceOrigin,
+		ConversationID:     r.conversationID,
+		TurnID:             r.turnID,
+		AssistantMessageID: r.assistantMessageID,
+		Content:            result.FullResponse,
+		Iteration:          iteration,
+		HasMore:            true,
+		ToolsInIteration:   allIterTools,
+		SurfaceOrigin:      r.surfaceOrigin,
 	})
 	return ctx, false
 }
@@ -403,45 +405,48 @@ func (r *agenticLoopRunner) retryRetryableTools(ctx context.Context, toolCalls [
 			retryName := extractLogicalToolName(execResult.ToolName)
 			// Emite tool_end para a tentativa que falhou (attempt=0)
 			EmitToolEnd(r.svc.emitter, ports.ToolEndEvent{
-				ConversationID: r.conversationID,
-				TurnID:         r.turnID,
-				Name:           retryName,
-				CallID:         execResult.CallID,
-				Status:         "error",
-				Summary:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
-				Origin:         retryOrigin,
-				ServerLabel:    retryServerLabel,
-				DurationMs:     execResult.DurationMs,
-				Attempt:        0,
-				SurfaceOrigin:  r.surfaceOrigin,
+				ConversationID:     r.conversationID,
+				TurnID:             r.turnID,
+				AssistantMessageID: r.assistantMessageID,
+				Name:               retryName,
+				CallID:             execResult.CallID,
+				Status:             "error",
+				Summary:            truncateString(execResult.Result.Content, MaxResultDisplaySize),
+				Origin:             retryOrigin,
+				ServerLabel:        retryServerLabel,
+				DurationMs:         execResult.DurationMs,
+				Attempt:            0,
+				SurfaceOrigin:      r.surfaceOrigin,
 			})
 			// Emite tool_failure com willRetry=true
 			EmitToolFailure(r.svc.emitter, ports.ToolFailureEvent{
-				ConversationID: r.conversationID,
-				TurnID:         r.turnID,
-				Name:           retryName,
-				CallID:         execResult.CallID,
-				ErrorKind:      string(execResult.ErrorKind),
-				Retryable:      true,
-				Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
-				DurationMs:     execResult.DurationMs,
-				Origin:         retryOrigin,
-				WillRetry:      true,
-				Attempt:        0,
-				SurfaceOrigin:  r.surfaceOrigin,
+				ConversationID:     r.conversationID,
+				TurnID:             r.turnID,
+				AssistantMessageID: r.assistantMessageID,
+				Name:               retryName,
+				CallID:             execResult.CallID,
+				ErrorKind:          string(execResult.ErrorKind),
+				Retryable:          true,
+				Message:            truncateString(execResult.Result.Content, MaxResultDisplaySize),
+				DurationMs:         execResult.DurationMs,
+				Origin:             retryOrigin,
+				WillRetry:          true,
+				Attempt:            0,
+				SurfaceOrigin:      r.surfaceOrigin,
 			})
 			log.Printf("[Agent] tool %s falhou (kind=%s), tentando retry...", retryName, execResult.ErrorKind)
 			// Emite tool_start para a nova tentativa (attempt=1)
 			EmitToolStart(r.svc.emitter, ports.ToolStartEvent{
-				ConversationID: r.conversationID,
-				TurnID:         r.turnID,
-				Name:           retryName,
-				CallID:         execResult.CallID,
-				Args:           toolCalls[i].Function.Arguments,
-				Origin:         retryOrigin,
-				ServerLabel:    retryServerLabel,
-				Attempt:        1,
-				SurfaceOrigin:  r.surfaceOrigin,
+				ConversationID:     r.conversationID,
+				TurnID:             r.turnID,
+				AssistantMessageID: r.assistantMessageID,
+				Name:               retryName,
+				CallID:             execResult.CallID,
+				Args:               toolCalls[i].Function.Arguments,
+				Origin:             retryOrigin,
+				ServerLabel:        retryServerLabel,
+				Attempt:            1,
+				SurfaceOrigin:      r.surfaceOrigin,
 			})
 			retried, retriedPersisted := r.svc.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: r.turnID})
 			execResults[i] = retried
@@ -468,33 +473,35 @@ func (r *agenticLoopRunner) emitToolEndsAndAccount(execResults []tools.ToolExecu
 			attempt = 1
 		}
 		EmitToolEnd(r.svc.emitter, ports.ToolEndEvent{
-			ConversationID: r.conversationID,
-			TurnID:         r.turnID,
-			Name:           logicalName,
-			CallID:         execResult.CallID,
-			Status:         status,
-			Summary:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
-			Origin:         origin,
-			ServerLabel:    serverLabel,
-			DurationMs:     execResult.DurationMs,
-			Attempt:        attempt,
-			SurfaceOrigin:  r.surfaceOrigin,
+			ConversationID:     r.conversationID,
+			TurnID:             r.turnID,
+			AssistantMessageID: r.assistantMessageID,
+			Name:               logicalName,
+			CallID:             execResult.CallID,
+			Status:             status,
+			Summary:            truncateString(execResult.Result.Content, MaxResultDisplaySize),
+			Origin:             origin,
+			ServerLabel:        serverLabel,
+			DurationMs:         execResult.DurationMs,
+			Attempt:            attempt,
+			SurfaceOrigin:      r.surfaceOrigin,
 		})
 
 		// AEP-0039 Fase 3: emite tool_failure para erros classificados (sem retry)
 		if execResult.Result.IsError && execResult.ErrorKind != "" {
 			EmitToolFailure(r.svc.emitter, ports.ToolFailureEvent{
-				ConversationID: r.conversationID,
-				TurnID:         r.turnID,
-				Name:           logicalName,
-				CallID:         execResult.CallID,
-				ErrorKind:      string(execResult.ErrorKind),
-				Retryable:      execResult.Retryable,
-				Message:        truncateString(execResult.Result.Content, MaxResultDisplaySize),
-				DurationMs:     execResult.DurationMs,
-				Origin:         origin,
-				Attempt:        attempt,
-				SurfaceOrigin:  r.surfaceOrigin,
+				ConversationID:     r.conversationID,
+				TurnID:             r.turnID,
+				AssistantMessageID: r.assistantMessageID,
+				Name:               logicalName,
+				CallID:             execResult.CallID,
+				ErrorKind:          string(execResult.ErrorKind),
+				Retryable:          execResult.Retryable,
+				Message:            truncateString(execResult.Result.Content, MaxResultDisplaySize),
+				DurationMs:         execResult.DurationMs,
+				Origin:             origin,
+				Attempt:            attempt,
+				SurfaceOrigin:      r.surfaceOrigin,
 			})
 		}
 
@@ -559,24 +566,26 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 	r.svc.emitter.Emit("chat:stream", events.StreamEvent{
 		Content:        "Limite de iterações do agente atingido. A resposta pode estar incompleta.",
 		Done:           true,
+		MessageID:      r.assistantMessageID,
 		ConversationId: r.conversationID,
 		TurnID:         r.turnID,
 		SurfaceOrigin:  r.surfaceOrigin,
 	})
 	r.svc.emitter.Emit("chat:done", ports.DoneEvent{
-		ConversationID:   r.conversationID,
-		TurnID:           r.turnID,
-		HadToolCalls:     r.totalToolCallCount > 0,
-		Reason:           "limit_reached",
-		IterationCount:   r.maxIterations,
-		ToolCallCount:    r.totalToolCallCount,
-		ToolsUsed:        sortedToolNames(r.toolsUsedSet),
-		PromptTokens:     r.lastUsage.PromptTokens,
-		CompletionTokens: r.lastUsage.CompletionTokens,
-		CacheReadTokens:  r.lastUsage.CacheReadTokens,
-		CacheWriteTokens: r.lastUsage.CacheWriteTokens,
-		CacheMissTokens:  r.lastUsage.CacheMissTokens,
-		SurfaceOrigin:    r.surfaceOrigin,
+		ConversationID:     r.conversationID,
+		TurnID:             r.turnID,
+		AssistantMessageID: r.assistantMessageID,
+		HadToolCalls:       r.totalToolCallCount > 0,
+		Reason:             "limit_reached",
+		IterationCount:     r.maxIterations,
+		ToolCallCount:      r.totalToolCallCount,
+		ToolsUsed:          sortedToolNames(r.toolsUsedSet),
+		PromptTokens:       r.lastUsage.PromptTokens,
+		CompletionTokens:   r.lastUsage.CompletionTokens,
+		CacheReadTokens:    r.lastUsage.CacheReadTokens,
+		CacheWriteTokens:   r.lastUsage.CacheWriteTokens,
+		CacheMissTokens:    r.lastUsage.CacheMissTokens,
+		SurfaceOrigin:      r.surfaceOrigin,
 	})
 
 	if r.svc.triggerSummarize != nil {

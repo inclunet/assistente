@@ -48,6 +48,7 @@ interface ChatStreamEvent {
 
 interface ChatThinkingEvent {
   conversationId: string;
+  assistantMessageId?: string;
   started?: boolean;
   done?: boolean;
   content?: string;
@@ -57,6 +58,7 @@ interface ChatThinkingEvent {
 
 interface ChatToolStartEvent {
   conversationId: string;
+  assistantMessageId?: string;
   name: string;
   callId: string;
   args?: string;
@@ -66,6 +68,7 @@ interface ChatToolStartEvent {
 
 interface ChatToolEndEvent {
   conversationId: string;
+  assistantMessageId?: string;
   callId: string;
   name?: string;
   status?: string;
@@ -77,6 +80,7 @@ interface ChatToolEndEvent {
 
 interface ChatToolFailureEvent {
   conversationId: string;
+  assistantMessageId?: string;
   name: string;
   callId: string;
   willRetry?: boolean;
@@ -86,6 +90,7 @@ interface ChatToolFailureEvent {
 
 interface ChatSegmentDoneEvent {
   conversationId: string;
+  assistantMessageId?: string;
   hasMore?: boolean;
   content?: string;
   turnId?: string;
@@ -466,6 +471,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    ensureAssistantNode(event.assistantMessageId);
     if (event.started) {
       patchCurrentSession({
         isThinking: true,
@@ -484,6 +490,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    ensureAssistantNode(event.assistantMessageId);
     const session = getCurrentSession();
     const existing = session.activeToolCalls.findIndex((tc) => tc.callId === event.callId);
     patchCurrentSession({
@@ -504,6 +511,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    ensureAssistantNode(event.assistantMessageId);
     const session = getCurrentSession();
     patchCurrentSession({
       activeToolCalls: session.activeToolCalls.map((tc) =>
@@ -526,6 +534,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    ensureAssistantNode(event.assistantMessageId);
     if (event.willRetry) {
       announceForActiveChatConversation(conversationId, i18next.t('chat.toolRetrying', { name: event.name }), 'polite', getEventOrigin(event));
       return;
@@ -538,6 +547,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    ensureAssistantNode(event.assistantMessageId);
     if (!event.hasMore) return;
 
     const session = getCurrentSession();
