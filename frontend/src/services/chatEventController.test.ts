@@ -277,7 +277,7 @@ describe('chatEventController', () => {
     expect(mockPlayChatReceiveSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
 
-  it('reiniciar a mesma conversa cancela o controller anterior', () => {
+  it('reiniciar a mesma conversa cancela o controller anterior sem criar assistant local sem messageId', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', initialUserContent: 'primeira', adapter });
@@ -289,8 +289,7 @@ describe('chatEventController', () => {
       done: false,
     });
 
-    expect(sessions['conversation-1'].conversation?.threadedMessages).toHaveLength(1);
-    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.id).toContain('streaming-conversation-1');
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
   });
 
   it('processa messages_ready, stream e done atualizando a sessão correta', () => {
@@ -327,7 +326,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceChatBackgroundResponseDone).toHaveBeenCalledWith('conversation-1', 'Conversa conversation-1', undefined);
   });
 
-  it('em erro no chat:done preserva conteúdo parcial e marca interrupção', () => {
+  it('em erro no chat:done sem assistantMessageId não cria mensagem assistant local', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
@@ -345,9 +344,6 @@ describe('chatEventController', () => {
       turnId: 'user-1',
     });
 
-    const assistantNode = sessions['conversation-1'].conversation?.threadedMessages[1];
-    const streamingId = String(assistantNode?.message.id || '');
-
     emitEvent('chat:done', {
       conversationId: 'conversation-1',
       hadToolCalls: false,
@@ -356,8 +352,9 @@ describe('chatEventController', () => {
     });
 
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[1].message.content).toBe('parcial');
-    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe(streamingId);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].message.id).toBe('user-1');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBeNull();
     expect(mockAnnounce).toHaveBeenCalledWith('boom', 'assertive');
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
@@ -516,6 +513,7 @@ describe('chatEventController', () => {
       conversationId: 'conversation-1',
       content: 'resposta',
       done: false,
+      messageId: 'assistant-1',
       surfaceOrigin,
     });
     emitEvent('chat:stream', {
@@ -598,7 +596,7 @@ describe('chatEventController', () => {
     });
   });
 
-  it('descarta update de streaming pendente ao limpar controller', () => {
+  it('ignora update de streaming sem messageId ao limpar controller', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
     const handle = startChatEventController({ conversationId: 'conversation-1', adapter });
@@ -611,8 +609,7 @@ describe('chatEventController', () => {
     handle.cleanup();
     vi.runOnlyPendingTimers();
 
-    const assistantMessage = sessions['conversation-1'].conversation?.threadedMessages[0]?.message;
-    expect(assistantMessage?.content).toBe('');
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
   });
 
   it('entrada externa anuncia origem e usa a sessão por conversationId', () => {
