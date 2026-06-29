@@ -503,7 +503,7 @@ func trimSurfaceContextBlock(content string, budgetChars int) string {
 	}
 	content = trimToWholeLines(content, contentBudget)
 	content = closeSurfaceOpenTagForTruncation(content, contentBudget)
-	if content == "" || !hasSurfaceContextLine(content) {
+	if content == "" || !hasSurfaceContextLine(content) || !hasRequiredSurfaceContextAttrs(content) {
 		return ""
 	}
 	return content + surfaceContextTruncationNotice + surfaceContextSuffix
@@ -537,6 +537,16 @@ func hasSurfaceContextLine(content string) bool {
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(content, strings.TrimSpace(surfaceContextPrefix)))
 	return rest != "" && rest != "Current active surface context. Treat this as turn-specific dynamic state."
+}
+
+func hasRequiredSurfaceContextAttrs(content string) bool {
+	openTag := content
+	if idx := strings.Index(openTag, ">"); idx >= 0 {
+		openTag = openTag[:idx]
+	}
+	return strings.Contains(openTag, `surface_type="`) &&
+		strings.Contains(openTag, `surface_id="`) &&
+		strings.Contains(openTag, `snapshot_version="`)
 }
 
 func trimToWholeLines(content string, budgetChars int) string {

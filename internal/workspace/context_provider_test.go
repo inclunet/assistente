@@ -226,7 +226,8 @@ func TestContextProviderMapsLegacyTasklistIDToAllowlistedMetadata(t *testing.T) 
 
 func TestContextProviderPreservesSurfaceContextWhenOpeningTagIsLongUnderTightBudget(t *testing.T) {
 	surfaceID := "surface-" + strings.Repeat("x", 120)
-	preservedContent := "<surface_context\n  surface_type=\"editor\"\n  surface_id=\"" + surfaceID + "\"\n>"
+	snapshotVersion := "editor:" + surfaceID + ":" + strings.Repeat("v", 80)
+	preservedContent := "<surface_context\n  surface_type=\"editor\"\n  surface_id=\"" + surfaceID + "\"\n  snapshot_version=\"" + snapshotVersion + "\"\n>"
 	budget := runeLen(preservedContent) + runeLen(surfaceContextTruncationNotice) + runeLen(surfaceContextSuffix)
 
 	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
@@ -239,7 +240,7 @@ func TestContextProviderPreservesSurfaceContextWhenOpeningTagIsLongUnderTightBud
 			Context: map[string]any{
 				"surfaceType":     "editor",
 				"surfaceId":       surfaceID,
-				"snapshotVersion": "editor:" + surfaceID + ":" + strings.Repeat("v", 80),
+				"snapshotVersion": snapshotVersion,
 				"title":           strings.Repeat("Título longo ", 40),
 				"content": map[string]any{
 					"kind": "text",
@@ -275,6 +276,16 @@ func TestTrimSurfaceContextBlockOmitsUnclosedOpeningTagUnderTightBudget(t *testi
 
 	if got := trimSurfaceContextBlock(content, budget); got != "" {
 		t.Fatalf("expected no malformed surface context block, got %q", got)
+	}
+}
+
+func TestTrimSurfaceContextBlockOmitsOpeningTagWithoutRequiredAttrs(t *testing.T) {
+	content := "<surface_context\n  surface_type=\"editor\"\n  surface_id=\"tab-1\"\n  snapshot_version=\"editor:tab-1:1\"\n>\nCurrent active surface context. Treat this as turn-specific dynamic state.\n<selection kind=\"text\">seleção</selection>"
+	preservedContent := "<surface_context\n  surface_type=\"editor\"\n  surface_id=\"tab-1\""
+	budget := runeLen(preservedContent) + runeLen(surfaceContextTruncationNotice) + runeLen(surfaceContextSuffix)
+
+	if got := trimSurfaceContextBlock(content, budget); got != "" {
+		t.Fatalf("expected no surface context block without required attrs, got %q", got)
 	}
 }
 

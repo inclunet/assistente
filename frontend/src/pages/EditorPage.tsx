@@ -29,7 +29,7 @@ import { applyRichTextInsert, applyRichTextInsertAtEnd, type RichTextEditorLike 
 import { validateRichTextSelectionSnapshot } from '../lib/richTextSelectionValidation';
 import { markdownToHtml } from '../lib/markdownToHtml';
 import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
-import { boundedSurfaceSnapshotValue, buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../lib/chatSurface';
+import { buildChatSurfaceParams, createSurfaceSnapshotVersion, type SurfaceContext } from '../lib/chatSurface';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
 import { parseRevealMarkdown, type RevealSlide } from '../lib/revealMarkdown';
 import { getErrorMessage, getMaybeContent } from '../lib/editorContent';
@@ -740,10 +740,13 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       : {};
     const surfaceId = latestActiveTab.id;
     const surfaceMode = isRevealSurface ? 'reveal' : inlineChatSelection.mode;
+    const selectionSnapshotSeed = inlineChatSelection.mode === 'rich'
+      ? `${inlineChatSelection.from}:${inlineChatSelection.to}:${inlineChatSelection.revealSlideIndex ?? ''}:${inlineChatSelection.revealSlideMarkdown?.length ?? 0}:${inlineChatSelection.selectedText.length}:${String(inlineChatSelection.selectedMarkdown || '').length}`
+      : `${inlineChatSelection.startOffset}:${inlineChatSelection.endOffset}:${inlineChatSelection.cursorOffset ?? ''}:${inlineChatSelection.revealSlideIndex ?? ''}:${inlineChatSelection.revealSlideMarkdown?.length ?? 0}:${inlineChatSelection.selectedText.length}`;
     const snapshotVersion = createSurfaceSnapshotVersion(
       'editor',
       surfaceId,
-      `${latestActiveTab.filePath || latestActiveTab.draftId || ''}:${inlineChatSelection.mode}:${boundedSurfaceSnapshotValue(inlineChatSelection.snapshot)}`,
+      `${latestActiveTab.filePath || latestActiveTab.draftId || ''}:${inlineChatSelection.mode}:${selectionSnapshotSeed}`,
     );
     const surfaceContext: SurfaceContext = {
       surfaceType: 'editor',
