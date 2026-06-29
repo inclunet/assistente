@@ -130,6 +130,7 @@ describe('VoiceButton', () => {
         title: 'Chat',
       },
       eventType: 'progress',
+      deduplicate: true,
     });
   });
 });

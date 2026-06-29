@@ -10,6 +10,7 @@ export type AnnouncePriority = 'polite' | 'assertive';
 export interface VoiceAnnounceRequest extends VoiceAccessibilityRequestBase {
   message: string;
   announcePriority?: AnnouncePriority;
+  deduplicate?: boolean;
 }
 
 type AnnounceSink = (message: string, priority: AnnouncePriority) => void;
@@ -77,6 +78,8 @@ function buildOriginKey(origin?: VoiceAccessibilityOrigin): string {
 }
 
 function isDuplicateAnnouncement(request: VoiceAnnounceRequest, message: string, priority: AnnouncePriority): boolean {
+  if (!request.deduplicate) return false;
+
   const now = Date.now();
   const key = [
     priority,

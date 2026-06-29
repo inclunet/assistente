@@ -62,6 +62,7 @@ describe('announcerBroker', () => {
       message: 'Texto parcial',
       eventType: 'progress' as const,
       origin: { tabId: 'tab-1', title: 'Chat A' },
+      deduplicate: true,
     };
 
     expect(announceWithOrigin(request)).toBe(true);
@@ -69,5 +70,18 @@ describe('announcerBroker', () => {
 
     expect(sink).toHaveBeenCalledTimes(1);
     expect(sink).toHaveBeenCalledWith('Texto parcial', 'polite');
+  });
+
+  it('reanuncia mensagens idênticas quando deduplicação não é solicitada', () => {
+    const request = {
+      message: '1 turno na fila',
+      eventType: 'progress' as const,
+      origin: { tabId: 'tab-1', title: 'Chat A' },
+    };
+
+    expect(announceWithOrigin(request)).toBe(true);
+    expect(announceWithOrigin(request)).toBe(true);
+
+    expect(sink).toHaveBeenCalledTimes(2);
   });
 });
