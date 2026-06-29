@@ -38,6 +38,14 @@ function useAntdLocale(lang: string): Locale | undefined {
     return locale;
 }
 
+type LegacyImportSummaryEvent = {
+    imported?: number;
+    skipped?: number;
+    failed?: number;
+    warningCount?: number;
+    errorCount?: number;
+};
+
 function App() {
     const { theme } = useTheme();
     const { t, i18n } = useTranslation();
@@ -167,10 +175,23 @@ function App() {
             addToast(t('app.summary.error', { error: eventData.error || '' }), 'error');
         }));
 
+        unsubs.push(EventsOn('legacy:import_summary', (data: unknown) => {
+            const eventData = data as LegacyImportSummaryEvent;
+            const imported = eventData.imported ?? 0;
+            const skipped = eventData.skipped ?? 0;
+            const failed = eventData.failed ?? 0;
+            const warnings = eventData.warningCount ?? 0;
+            const errors = eventData.errorCount ?? 0;
+            if (imported === 0 && failed === 0 && warnings === 0 && errors === 0) return;
+
+            const toastType = failed > 0 || errors > 0 ? 'error' : warnings > 0 ? 'warning' : 'success';
+            addToast(t('app.legacyImport.summary', { imported, skipped, failed, warnings }), toastType, 10000);
+        }));
+
         return () => {
             unsubs.forEach(fn => fn());
         };
-    }, [handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, navigate]);
+    }, [addToast, handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, navigate, t]);
 
     // Listener para mensagens de canais externos (Signal, Telegram).
     // Quando messaging:incoming chega, delega ao chatStore que monta placeholders

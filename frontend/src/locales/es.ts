@@ -3288,6 +3288,9 @@ const es = {
         completed: 'Resumen de conversación actualizado ({{count}} mensajes resumidos)',
         error: 'Error al resumir la conversación: {{error}}',
       },
+      legacyImport: {
+        summary: 'Importación legada: {{imported}} importados, {{skipped}} ya existentes, {{failed}} fallas, {{warnings}} avisos.',
+      },
       questionnaire: {
         submitError: 'Error al enviar el cuestionario',
       },

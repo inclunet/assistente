@@ -3289,6 +3289,9 @@ const en = {
         completed: 'Conversation summary updated ({{count}} messages summarized)',
         error: 'Error summarizing conversation: {{error}}',
       },
+      legacyImport: {
+        summary: 'Legacy import: {{imported}} imported, {{skipped}} already present, {{failed}} failures, {{warnings}} warnings.',
+      },
       questionnaire: {
         submitError: 'Error submitting questionnaire',
       },
