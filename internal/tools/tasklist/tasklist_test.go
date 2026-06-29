@@ -9,6 +9,10 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	tasklistsvc "assistente/internal/tasklist"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 // ==================== Fake Manager ====================
@@ -809,6 +813,60 @@ func mustMarshal(t *testing.T, v any) json.RawMessage {
 	return b
 }
 
+type noopTaskListEmitter struct{}
+
+func (noopTaskListEmitter) Emit(string, any) {}
+
+type realTaskListManager struct {
+	*tasklistsvc.Service
+}
+
+func (m *realTaskListManager) CreateTaskNote(ctx context.Context, taskID string, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
+	return m.Service.CreateTaskNote(ctx, taskID, int(noteType), content, authorName, authorID)
+}
+
+type realTaskListFixture struct {
+	ctx  context.Context
+	mgr  *realTaskListManager
+	tool *TaskListTool
+}
+
+func newRealTaskListFixture(t *testing.T) realTaskListFixture {
+	t.Helper()
+
+	previous := database.DB()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open tasklist test db: %v", err)
+	}
+	database.SetDB(db)
+	if err := db.AutoMigrate(
+		&database.TaskListWorkflow{},
+		&database.TaskList{},
+		&database.Task{},
+		&database.TaskNote{},
+	); err != nil {
+		t.Fatalf("migrate tasklist test db: %v", err)
+	}
+	t.Cleanup(func() {
+		sqlDB, _ := db.DB()
+		if sqlDB != nil {
+			_ = sqlDB.Close()
+		}
+		database.SetDB(previous)
+	})
+
+	mgr := &realTaskListManager{Service: tasklistsvc.NewService(tasklistsvc.ServiceConfig{
+		Store:   tasklistsvc.NewDBStore(),
+		Emitter: noopTaskListEmitter{},
+	})}
+	return realTaskListFixture{
+		ctx:  database.WithUserID(context.Background(), "tasklist-tool-test-user"),
+		mgr:  mgr,
+		tool: NewTaskList(mgr),
+	}
+}
+
 // ==================== GetTaskList Tests (consolidated: list all, full details, summary) ====================
 
 func TestGetTaskList_ParametersValidJSON(t *testing.T) {
@@ -831,10 +889,9 @@ func TestGetTaskList_Name(t *testing.T) {
 }
 
 func TestGetTaskList_ListAll_Empty(t *testing.T) {
-	mgr := newFakeManager()
-	tool := NewTaskList(mgr)
+	fixture := newRealTaskListFixture(t)
 
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{}))
+	result, err := fixture.tool.Execute(fixture.ctx, mustMarshal(t, map[string]any{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -847,12 +904,15 @@ func TestGetTaskList_ListAll_Empty(t *testing.T) {
 }
 
 func TestGetTaskList_ListAll_WithItems(t *testing.T) {
-	mgr := newFakeManager()
-	mgr.addTaskList("List 1", defaultStatuses())
-	mgr.addTaskList("List 2", defaultStatuses())
-	tool := NewTaskList(mgr)
+	fixture := newRealTaskListFixture(t)
+	if _, err := fixture.mgr.CreateTaskList(fixture.ctx, "List 1", "", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.mgr.CreateTaskList(fixture.ctx, "List 2", "", nil, ""); err != nil {
+		t.Fatal(err)
+	}
 
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{}))
+	result, err := fixture.tool.Execute(fixture.ctx, mustMarshal(t, map[string]any{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -865,13 +925,21 @@ func TestGetTaskList_ListAll_WithItems(t *testing.T) {
 }
 
 func TestGetTaskList_FullDetails(t *testing.T) {
-	mgr := newFakeManager()
-	tl := mgr.addTaskList("Test List", defaultStatuses())
-	mgr.addTask(tl.ID, "Task 1", 1)
-	mgr.addTask(tl.ID, "Task 2", 2)
-	tool := NewTaskList(mgr)
+	fixture := newRealTaskListFixture(t)
+	tl, err := fixture.mgr.CreateTaskList(fixture.ctx, "Test List", "", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.mgr.CreateTask(fixture.ctx, tl.ID, "Task 1", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if task, err := fixture.mgr.CreateTask(fixture.ctx, tl.ID, "Task 2", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	} else if err := fixture.mgr.UpdateTaskStatus(fixture.ctx, task.ID, 2); err != nil {
+		t.Fatal(err)
+	}
 
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_list_id": tl.ID}))
+	result, err := fixture.tool.Execute(fixture.ctx, mustMarshal(t, map[string]any{"task_list_id": tl.ID}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -903,11 +971,10 @@ func TestGetTaskList_NotFound(t *testing.T) {
 }
 
 func TestTaskList_ConversationLink(t *testing.T) {
-	mgr := newFakeManager()
-	tool := NewTaskList(mgr)
+	fixture := newRealTaskListFixture(t)
 
 	// Cria lista já vinculada a uma conversa, com descrição.
-	createRes, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+	createRes, err := fixture.tool.Execute(fixture.ctx, mustMarshal(t, map[string]any{
 		"title":           "Linked List",
 		"description":     "important desc",
 		"conversation_id": "conv-1",
@@ -922,22 +989,21 @@ func TestTaskList_ConversationLink(t *testing.T) {
 		t.Fatalf("expected conversation_id in create output, got: %s", createRes.Content)
 	}
 
-	var created *database.TaskList
-	for _, tl := range mgr.taskLists {
-		if tl.Title == "Linked List" {
-			created = tl
-		}
+	createdID, _ := createRes.Metadata["task_list_id"].(string)
+	if createdID == "" {
+		t.Fatalf("expected created task_list_id metadata, got: %#v", createRes.Metadata)
 	}
-	if created == nil {
-		t.Fatal("created list not found in fake manager")
+	created, err := fixture.mgr.GetTaskList(fixture.ctx, createdID)
+	if err != nil {
+		t.Fatalf("created list not found in real manager: %v", err)
 	}
 	if created.ConversationID == nil || *created.ConversationID != "conv-1" {
 		t.Fatalf("expected list linked to conv-1, got: %v", created.ConversationID)
 	}
 
 	// Update apenas-do-vínculo não pode sobrescrever title/description.
-	updRes, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
-		"task_list_id":    created.ID,
+	updRes, err := fixture.tool.Execute(fixture.ctx, mustMarshal(t, map[string]any{
+		"task_list_id":    createdID,
 		"conversation_id": "conv-2",
 	}))
 	if err != nil {
@@ -945,6 +1011,10 @@ func TestTaskList_ConversationLink(t *testing.T) {
 	}
 	if updRes.IsError {
 		t.Fatalf("unexpected error on conversation-only update: %s", updRes.Content)
+	}
+	created, err = fixture.mgr.GetTaskList(fixture.ctx, createdID)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if created.Title != "Linked List" || created.Description != "important desc" {
 		t.Fatalf("conversation-only update should preserve title/description, got: %q / %q", created.Title, created.Description)
@@ -954,8 +1024,8 @@ func TestTaskList_ConversationLink(t *testing.T) {
 	}
 
 	// Limpar o vínculo passando string vazia.
-	clrRes, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
-		"task_list_id":    created.ID,
+	clrRes, err := fixture.tool.Execute(fixture.ctx, mustMarshal(t, map[string]any{
+		"task_list_id":    createdID,
 		"conversation_id": "",
 	}))
 	if err != nil {
@@ -964,56 +1034,64 @@ func TestTaskList_ConversationLink(t *testing.T) {
 	if clrRes.IsError {
 		t.Fatalf("unexpected error clearing conversation link: %s", clrRes.Content)
 	}
+	created, err = fixture.mgr.GetTaskList(fixture.ctx, createdID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if created.ConversationID != nil {
 		t.Fatalf("expected conversation link cleared, got: %v", *created.ConversationID)
 	}
 }
 
 func TestTaskList_DuplicateConversationInheritance(t *testing.T) {
-	mgr := newFakeManager()
-	tool := NewTaskList(mgr)
+	fixture := newRealTaskListFixture(t)
 	conv := "conv-src"
-	src := mgr.addTaskList("Source", defaultStatuses())
-	src.ConversationID = &conv
+	src, err := fixture.mgr.CreateTaskList(fixture.ctx, "Source", "", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.mgr.SetTaskListConversation(fixture.ctx, src.ID, &conv); err != nil {
+		t.Fatal(err)
+	}
 
 	// Duplicação sem conversation_id herda o vínculo da origem.
-	if _, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+	inheritRes, err := fixture.tool.Execute(fixture.ctx, mustMarshal(t, map[string]any{
 		"task_list_id": src.ID,
 		"duplicate":    true,
 		"title":        "Copy Inherits",
-	})); err != nil {
+	}))
+	if err != nil {
 		t.Fatal(err)
 	}
-	var inherited *database.TaskList
-	for _, tl := range mgr.taskLists {
-		if tl.Title == "Copy Inherits" {
-			inherited = tl
-		}
+	if inheritRes.IsError {
+		t.Fatalf("unexpected duplicate error: %s", inheritRes.Content)
 	}
-	if inherited == nil {
-		t.Fatal("inherited copy not found")
+	inheritedID, _ := inheritRes.Metadata["task_list_id"].(string)
+	inherited, err := fixture.mgr.GetTaskList(fixture.ctx, inheritedID)
+	if err != nil {
+		t.Fatalf("inherited copy not found: %v", err)
 	}
 	if inherited.ConversationID == nil || *inherited.ConversationID != conv {
 		t.Fatalf("expected duplicate to inherit conv-src, got: %v", inherited.ConversationID)
 	}
 
 	// Duplicação com conversation_id explícito sobrescreve a herança.
-	if _, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+	overrideRes, err := fixture.tool.Execute(fixture.ctx, mustMarshal(t, map[string]any{
 		"task_list_id":    src.ID,
 		"duplicate":       true,
 		"title":           "Copy Override",
 		"conversation_id": "conv-other",
-	})); err != nil {
+	}))
+	if err != nil {
 		t.Fatal(err)
 	}
-	var override *database.TaskList
-	for _, tl := range mgr.taskLists {
-		if tl.Title == "Copy Override" {
-			override = tl
-		}
+	if overrideRes.IsError {
+		t.Fatalf("unexpected duplicate error: %s", overrideRes.Content)
 	}
-	if override == nil {
-		t.Fatal("override copy not found")
+	overrideID, _ := overrideRes.Metadata["task_list_id"].(string)
+	override, err := fixture.mgr.GetTaskList(fixture.ctx, overrideID)
+	if err != nil {
+		t.Fatalf("override copy not found: %v", err)
 	}
 	if override.ConversationID == nil || *override.ConversationID != "conv-other" {
 		t.Fatalf("expected duplicate to override with conv-other, got: %v", override.ConversationID)
