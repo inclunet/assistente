@@ -50,6 +50,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const pttTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const { announceRequest } = useAnnouncer();
+  const announceRequestRef = useRef(announceRequest);
 
   // Cascata de perfil: tab.profileOverride.slug → workspace.profile → null (global)
   const workspace = useWorkspaceStore((s) => s.workspace);
@@ -62,6 +63,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     () => (panelTab ? buildVoiceAccessibilityOriginFromTab(panelTab, workspace) : undefined),
     [panelTab, workspace],
   );
+  const voiceOriginRef = useRef(voiceOrigin);
 
   const {
     isActive,
@@ -137,13 +139,21 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   }, [cancelInteraction, isActive, isListeningState, isPTTActive, isPanelActive, voiceOrigin]);
 
   useEffect(() => {
+    announceRequestRef.current = announceRequest;
+  }, [announceRequest]);
+
+  useEffect(() => {
+    voiceOriginRef.current = voiceOrigin;
+  }, [voiceOrigin]);
+
+  useEffect(() => {
     if (!interimText.trim()) return;
-    announceRequest({
+    announceRequestRef.current({
       message: interimText,
-      origin: voiceOrigin,
+      origin: voiceOriginRef.current,
       eventType: 'progress',
     });
-  }, [announceRequest, interimText, voiceOrigin]);
+  }, [interimText]);
 
   const startInteractionWithGate = useCallback((): boolean => {
     if (!requestSTTStart({ origin: voiceOrigin, cancel: cancelInteraction })) return false;

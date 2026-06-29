@@ -61,6 +61,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const effectiveConversationId = sessionConversationId || conversationId || null;
   const queuedTurnCount = session?.queuedTurnCount ?? 0;
   const { announce, announceRequest } = useAnnouncer();
+  const announceRequestRef = useRef(announceRequest);
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
@@ -71,6 +72,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     () => buildVoiceAccessibilityOriginFromTab(panelTab, workspace),
     [panelTab, workspace],
   );
+  const voiceOriginRef = useRef(voiceOrigin);
 
   const tabProfileSlug = panelTab.profileOverride?.slug as string | undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
@@ -79,7 +81,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const profilePickerRef = useRef<ProfilePickerRef>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
   const profileContainerRef = useRef<HTMLDivElement>(null);
-  const previousQueuedTurnCountRef = useRef(queuedTurnCount);
+  const previousQueuedTurnCountRef = useRef<number | null>(null);
 
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
   const [activeProfileSlug, setActiveProfileSlug] = useState<string>('padrao');
@@ -93,16 +95,24 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   }, []);
 
   useEffect(() => {
+    announceRequestRef.current = announceRequest;
+  }, [announceRequest]);
+
+  useEffect(() => {
+    voiceOriginRef.current = voiceOrigin;
+  }, [voiceOrigin]);
+
+  useEffect(() => {
     const previousQueuedTurnCount = previousQueuedTurnCountRef.current;
     previousQueuedTurnCountRef.current = queuedTurnCount;
     if (queuedTurnCount <= 0 || queuedTurnCount === previousQueuedTurnCount) return;
 
-    announceRequest({
+    announceRequestRef.current({
       message: t('chat.queue.pending', { count: queuedTurnCount }),
-      origin: voiceOrigin,
+      origin: voiceOriginRef.current,
       eventType: 'progress',
     });
-  }, [announceRequest, queuedTurnCount, t, voiceOrigin]);
+  }, [queuedTurnCount, t]);
 
   const {
     menu: contextMenu,
