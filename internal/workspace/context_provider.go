@@ -284,7 +284,7 @@ func buildSurfaceOpenTag(surface *normalizedSurfaceContext) string {
 	if surface.Incomplete {
 		attrs = append(attrs, `incomplete="true"`)
 	}
-	return "<surface_context " + strings.Join(attrs, " ") + ">"
+	return "<surface_context\n  " + strings.Join(attrs, "\n  ") + "\n>"
 }
 
 func writeStructuredSelection(sb *strings.Builder, surface *normalizedSurfaceContext) {
@@ -494,10 +494,23 @@ func trimSurfaceContextBlock(content string, budgetChars int) string {
 		return ""
 	}
 	content = trimToWholeLines(content, contentBudget)
+	content = closeSurfaceOpenTagForTruncation(content, contentBudget)
 	if content == "" || !hasSurfaceContextLine(content) {
 		return ""
 	}
 	return content + surfaceContextTruncationNotice + surfaceContextSuffix
+}
+
+func closeSurfaceOpenTagForTruncation(content string, budgetChars int) string {
+	content = strings.TrimSpace(content)
+	if !strings.HasPrefix(content, surfaceContextPrefix) || strings.Contains(content, ">") {
+		return content
+	}
+	closed := content + "\n>"
+	if runeLen(closed) <= budgetChars {
+		return closed
+	}
+	return content
 }
 
 func hasWorkspaceContextLine(content string) bool {

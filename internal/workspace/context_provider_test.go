@@ -113,7 +113,7 @@ func TestContextProviderBuildsLowDynamicWorkspaceAndTurnDynamicSurfaceBlocks(t *
 		}
 	}
 	for _, needle := range []string{
-		`<surface_context surface_type="editor" surface_id="tab-1" snapshot_version="editor:tab-1:42" title="Arquivo" mode="reveal">`,
+		"<surface_context\n  surface_type=\"editor\"\n  surface_id=\"tab-1\"\n  snapshot_version=\"editor:tab-1:42\"\n  title=\"Arquivo\"\n  mode=\"reveal\"\n>",
 		`<selection kind="text" explicit="true" range="1:2-3:4">seleção</selection>`,
 		`<focus kind="slide" label="Objetivo" slide_index="2" />`,
 		`<content kind="reveal_slide">## Objetivo</content>`,
@@ -170,6 +170,46 @@ func TestContextProviderBuildsSurfaceBlockWithoutWorkspaceBlock(t *testing.T) {
 	}
 	if !strings.Contains(blocks[1].Content, `incomplete="true"`) || !strings.Contains(blocks[1].Content, `<selection kind="text" explicit="true">seleção</selection>`) {
 		t.Fatalf("surface block missing selected text: %q", blocks[1].Content)
+	}
+}
+
+func TestContextProviderPreservesSurfaceContextWhenOpeningTagIsLongUnderTightBudget(t *testing.T) {
+	surfaceID := "surface-" + strings.Repeat("x", 120)
+	preservedContent := "<surface_context\n  surface_type=\"editor\"\n  surface_id=\"" + surfaceID + "\"\n>"
+	budget := runeLen(preservedContent) + runeLen(surfaceContextTruncationNotice) + runeLen(surfaceContextSuffix)
+
+	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		ProviderBudgets: map[string]int{
+			"workspace": budget,
+		},
+		Surface: &contextprovider.Surface{
+			Type:  "editor",
+			Title: strings.Repeat("Título longo ", 40),
+			Context: map[string]any{
+				"surfaceType":     "editor",
+				"surfaceId":       surfaceID,
+				"snapshotVersion": "editor:" + surfaceID + ":" + strings.Repeat("v", 80),
+				"title":           strings.Repeat("Título longo ", 40),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want instructions and surface context", len(blocks))
+	}
+	if blocks[1].Name != "surface_context" {
+		t.Fatalf("unexpected surface block: %+v", blocks[1])
+	}
+	if !strings.Contains(blocks[1].Content, `surface_type="editor"`) || !strings.Contains(blocks[1].Content, `surface_id="`+surfaceID+`"`) {
+		t.Fatalf("surface context should preserve identity under tight budget, got %q", blocks[1].Content)
+	}
+	if !strings.Contains(blocks[1].Content, "omitted due to context budget") {
+		t.Fatalf("expected truncation notice, got %q", blocks[1].Content)
+	}
+	if got := runeLen(blocks[1].Content); got > budget {
+		t.Fatalf("surface block length = %d, want <= %d: %q", got, budget, blocks[1].Content)
 	}
 }
 

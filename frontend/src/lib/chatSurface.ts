@@ -68,7 +68,9 @@ export type SurfaceContext = {
 
 export type ChatSurfaceContext = SurfaceContext | Record<string, unknown>;
 
-function serializeRecord(value: Record<string, unknown> | undefined): string | undefined {
+function serializeRecord(value: Record<string, unknown> | undefined): string | undefined;
+function serializeRecord(value: SurfaceContext | undefined): string | undefined;
+function serializeRecord(value: Record<string, unknown> | SurfaceContext | undefined): string | undefined {
   if (!value) return undefined;
   if (Object.keys(value).length === 0) return undefined;
   return JSON.stringify(value);
