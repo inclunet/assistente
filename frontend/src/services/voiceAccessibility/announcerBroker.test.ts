@@ -56,4 +56,18 @@ describe('announcerBroker', () => {
 
     expect(sink).toHaveBeenCalledWith('Falha', 'assertive');
   });
+
+  it('deduplica anúncios idênticos consecutivos', () => {
+    const request = {
+      message: 'Texto parcial',
+      eventType: 'progress' as const,
+      origin: { tabId: 'tab-1', title: 'Chat A' },
+    };
+
+    expect(announceWithOrigin(request)).toBe(true);
+    expect(announceWithOrigin(request)).toBe(false);
+
+    expect(sink).toHaveBeenCalledTimes(1);
+    expect(sink).toHaveBeenCalledWith('Texto parcial', 'polite');
+  });
 });

@@ -9,7 +9,9 @@ const startInteractionSpy = vi.fn();
 const stopInteractionSpy = vi.fn();
 const requestSTTStartSpy: ReturnType<typeof vi.fn<(request: unknown) => boolean>> = vi.fn(() => true);
 const finishSTTSessionSpy: ReturnType<typeof vi.fn<(origin: unknown) => void>> = vi.fn();
+const announceRequestSpy = vi.fn();
 let triggerType = 'button_toggle';
+let interimText = '';
 
 const panelTab = {
   id: 'chat-tab',
@@ -38,7 +40,7 @@ vi.mock('../../hooks/useInteractionProfile', () => ({
     isRecording: false,
     isProcessing: false,
     volume: 0,
-    interimText: '',
+    interimText,
     activeProfile: {
       input: {
         triggers: [{ type: triggerType, enabled: true }],
@@ -52,6 +54,12 @@ vi.mock('../../hooks/useInteractionProfile', () => ({
   }),
 }));
 
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announceRequest: announceRequestSpy,
+  }),
+}));
+
 vi.mock('../../services/voiceAccessibility/sttGate', () => ({
   requestSTTStart: (request: unknown) => requestSTTStartSpy(request),
   finishSTTSession: (origin: unknown) => finishSTTSessionSpy(origin),
@@ -60,9 +68,11 @@ vi.mock('../../services/voiceAccessibility/sttGate', () => ({
 describe('VoiceButton', () => {
   beforeEach(() => {
     triggerType = 'button_toggle';
+    interimText = '';
     toggleInteractionSpy.mockClear();
     startInteractionSpy.mockClear();
     stopInteractionSpy.mockClear();
+    announceRequestSpy.mockClear();
     requestSTTStartSpy.mockReset();
     requestSTTStartSpy.mockReturnValue(true);
     finishSTTSessionSpy.mockClear();
@@ -101,5 +111,25 @@ describe('VoiceButton', () => {
 
     expect(startInteractionSpy).not.toHaveBeenCalled();
     expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('envia texto interim para o announcer global sem live region local', () => {
+    interimText = 'texto parcial';
+
+    renderVoiceButton();
+
+    expect(screen.getByText('texto parcial')).not.toHaveAttribute('aria-live');
+    expect(announceRequestSpy).toHaveBeenCalledWith({
+      message: 'texto parcial',
+      origin: {
+        tabId: 'chat-tab',
+        surfaceId: 'chat-tab',
+        conversationId: 'conversation-1',
+        surfaceType: 'chat',
+        profileSlug: null,
+        title: 'Chat',
+      },
+      eventType: 'progress',
+    });
   });
 });

@@ -15,6 +15,7 @@ import { logger } from '../../utils/logger';
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useInteractionProfile } from '../../hooks/useInteractionProfile';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { finishSTTSession, requestSTTStart } from '../../services/voiceAccessibility/sttGate';
 import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
@@ -48,6 +49,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const [isPTTActive, setIsPTTActive] = useState(false);
   const pttTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const { announceRequest } = useAnnouncer();
 
   // Cascata de perfil: tab.profileOverride.slug → workspace.profile → null (global)
   const workspace = useWorkspaceStore((s) => s.workspace);
@@ -133,6 +135,15 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     finishSTTSession(voiceOrigin);
     setIsPTTActive(false);
   }, [cancelInteraction, isActive, isListeningState, isPTTActive, isPanelActive, voiceOrigin]);
+
+  useEffect(() => {
+    if (!interimText.trim()) return;
+    announceRequest({
+      message: interimText,
+      origin: voiceOrigin,
+      eventType: 'progress',
+    });
+  }, [announceRequest, interimText, voiceOrigin]);
 
   const startInteractionWithGate = useCallback((): boolean => {
     if (!requestSTTStart({ origin: voiceOrigin, cancel: cancelInteraction })) return false;
@@ -400,7 +411,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     <div className={`voice-button-container ${className}`}>
       {/* Texto interim (preview da transcrição) */}
       {interimText && (
-        <div className="voice-button__interim" aria-live="polite">
+        <div className="voice-button__interim">
           {interimText}
         </div>
       )}

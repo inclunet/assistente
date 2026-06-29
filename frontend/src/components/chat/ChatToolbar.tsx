@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import React, { useEffect, useCallback, useRef, useState } from 'react';
+import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ClearOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
@@ -20,6 +20,7 @@ import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
 import { useChatSession } from './ChatSessionContext';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
+import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
 import './ChatToolbar.css';
 
 export type ChatToolbarConversationChangeHandler = (
@@ -59,12 +60,17 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const { tab: panelTab } = useWorkspacePanel();
   const effectiveConversationId = sessionConversationId || conversationId || null;
   const queuedTurnCount = session?.queuedTurnCount ?? 0;
-  const { announce } = useAnnouncer();
+  const { announce, announceRequest } = useAnnouncer();
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const workspace = useWorkspaceStore((s) => s.workspace);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
   const addToast = useUIStore((s) => s.addToast);
+  const voiceOrigin = useMemo(
+    () => buildVoiceAccessibilityOriginFromTab(panelTab, workspace),
+    [panelTab, workspace],
+  );
 
   const tabProfileSlug = panelTab.profileOverride?.slug as string | undefined;
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
@@ -84,6 +90,15 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (queuedTurnCount <= 0) return;
+    announceRequest({
+      message: t('chat.queue.pending', { count: queuedTurnCount }),
+      origin: voiceOrigin,
+      eventType: 'progress',
+    });
+  }, [announceRequest, queuedTurnCount, t, voiceOrigin]);
 
   const {
     menu: contextMenu,
@@ -255,7 +270,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
               {conversationTitle}
             </h2>
             {queuedTurnCount > 0 && (
-              <span className="chat-toolbar__queue-status" role="status" aria-live="polite">
+              <span className="chat-toolbar__queue-status">
                 {t('chat.queue.pending', { count: queuedTurnCount })}
               </span>
             )}
