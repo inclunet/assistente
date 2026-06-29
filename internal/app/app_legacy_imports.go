@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 
+	"assistente/internal/database"
 	"assistente/internal/portability"
 )
 
@@ -38,7 +39,30 @@ func (a *App) runPostLoginLegacyImports(ctx context.Context) {
 			log.Printf("[LegacyImport] %s: %d importados, %d já existentes, %d falhas", entry.Name, entry.Imported, entry.Skipped, entry.Failed)
 		}
 	}
-	if a.emitter != nil && len(summary.Entries) > 0 {
+	if a.emitter != nil && a.shouldEmitLegacyImportSummary(ctx, summary) {
 		a.emitter.Emit(portability.LegacyImportSummaryEvent, summary)
 	}
+}
+
+func (a *App) shouldEmitLegacyImportSummary(ctx context.Context, summary portability.LegacyImportSummary) bool {
+	if len(summary.Entries) == 0 {
+		return false
+	}
+	if summary.Imported > 0 || summary.Failed > 0 || summary.WarningCount > 0 || summary.ErrorCount > 0 {
+		return true
+	}
+	if summary.Skipped == 0 {
+		return false
+	}
+	userID, ok := database.UserIDFromContext(ctx)
+	if !ok || userID == "" {
+		return true
+	}
+	a.legacyImportSummaryMu.Lock()
+	defer a.legacyImportSummaryMu.Unlock()
+	if a.legacyImportSkippedSummaryUserID == userID {
+		return false
+	}
+	a.legacyImportSkippedSummaryUserID = userID
+	return true
 }

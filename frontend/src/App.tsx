@@ -176,6 +176,8 @@ function App() {
         }));
 
         unsubs.push(EventsOn('legacy:import_summary', (data: unknown) => {
+            if (!isAuthenticated) return;
+
             const eventData = data as LegacyImportSummaryEvent;
             const imported = eventData.imported ?? 0;
             const skipped = eventData.skipped ?? 0;
@@ -191,7 +193,7 @@ function App() {
         return () => {
             unsubs.forEach(fn => fn());
         };
-    }, [addToast, handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, navigate, t]);
+    }, [addToast, handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, isAuthenticated, navigate, t]);
 
     // Listener para mensagens de canais externos (Signal, Telegram).
     // Quando messaging:incoming chega, delega ao chatStore que monta placeholders
