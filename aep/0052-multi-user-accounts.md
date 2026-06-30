@@ -408,8 +408,9 @@ Etapa 7: Modelo                           ← exige sessão/user_id
 | `internal/database/database.go` | AutoMigrate de `UserModel`/`SessionModel` e migrações/backfill |
 | `internal/database/models.go` | `user_id` em LLMProvider/Conversation/CredentialEntry/TaskList |
 | `internal/credentials/*` | Mantém cofre global (DEK) + recovery + keyring (sem per-user) |
-| `controllers/welcome_controller.go` | Bootstrap cofre → criar admin → resto do wizard |
-| `frontend/src/App.tsx` | Gate de autenticação + fluxo VaultLocked/login |
+| `controllers/welcome_controller.go` | Separar `NeedsBootstrapWizard()` (cofre/admin) do onboarding pós-login de providers |
+| `frontend/src/App.tsx` | Gate de autenticação + fluxo VaultLocked/login + onboarding pós-login |
+| `cmd/*` / CLI | Usar a mesma separação: bootstrap pré-login, login/sessão e onboarding autenticado |
 | `frontend/src/locales/pt-BR.ts` | Strings de auth/vault |
 | `frontend/src/locales/en.ts` | Strings de auth/vault |
 | `frontend/src/locales/es.ts` | Strings de auth/vault |
@@ -445,16 +446,19 @@ Etapa 7: Modelo                           ← exige sessão/user_id
 
 1. **Bootstrap do cofre**: DEK global + wraps `master/recovery` + keyring é inicializado antes de qualquer usuário.
 2. **VaultLocked**: se a DEK não estiver disponível, `/vault/status` e `/vault/unlock` funcionam sem login.
-3. **Admin local**: criação do primeiro usuário admin ocorre após o cofre.
-4. **Login local**: login por username manual + senha (sem listagem de usuários) funciona.
-5. **Sessões**: `sessions` persiste refresh token hash; logout revoga a sessão.
-6. **Refresh rotation**: refresh rotaciona sempre; reuse revoga sessão inteira.
-7. **JWT access**: JWT tem claims mínimas (`iss/aud/sub/sid/iat/exp`, `jti` recomendado) e expiração curta.
-8. **Scoping por user_id**: providers, conversas, credenciais e task lists filtrados por `user_id` derivado do token.
-9. **API HTTP local**: endpoints `/vault/*`, `/auth/*`, `/.well-known/jwks.json` disponíveis.
-10. **TLS na LAN**: HTTPS obrigatório fora de localhost; HTTP puro só em localhost/dev explícito.
-11. **External mode**: valida JWT do IdP via JWKS e aplica scopes/roles do IdP.
-12. **Compatibilidade**: instalação existente migra sem perda (backfill de `user_id`).
+3. **Bootstrap gate**: `NeedsBootstrapWizard()` retorna true apenas para cofre ausente/bloqueado ou ausência de admin local; ausência de providers não bloqueia login.
+4. **Admin local**: criação do primeiro usuário admin ocorre após o cofre e emite sessão local antes de configurar providers.
+5. **Onboarding pós-login**: configuração de provider/API key/modelo roda somente com sessão autenticada e grava recursos com `user_id`.
+6. **CLI**: comandos/headless seguem os mesmos gates de bootstrap, login/sessão e onboarding autenticado.
+7. **Login local**: login por username manual + senha (sem listagem de usuários) funciona.
+8. **Sessões**: `sessions` persiste refresh token hash; logout revoga a sessão.
+9. **Refresh rotation**: refresh rotaciona sempre; reuse revoga sessão inteira.
+10. **JWT access**: JWT tem claims mínimas (`iss/aud/sub/sid/iat/exp`, `jti` recomendado) e expiração curta.
+11. **Scoping por user_id**: providers, conversas, credenciais e task lists filtrados por `user_id` derivado do token.
+12. **API HTTP local**: endpoints `/vault/*`, `/auth/*`, `/.well-known/jwks.json` disponíveis.
+13. **TLS na LAN**: HTTPS obrigatório fora de localhost; HTTP puro só em localhost/dev explícito.
+14. **External mode**: valida JWT do IdP via JWKS e aplica scopes/roles do IdP.
+15. **Compatibilidade**: instalação existente migra sem perda (backfill de `user_id`).
 
 ---
 
