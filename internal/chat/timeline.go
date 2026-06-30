@@ -68,7 +68,7 @@ func ParseToolCalls(messageID string, raw string) []map[string]interface{} {
 		return []map[string]interface{}{call}
 	}
 	if shouldLogInvalidToolCalls(messageID) {
-		log.Printf("[Chat] tool_calls JSON invalido descartado message_id=%s: array=%v object=%v", messageID, arrayErr, singleErr)
+		log.Printf("[Chat] tool_calls JSON inválido descartado message_id=%s: array=%v object=%v", messageID, arrayErr, singleErr)
 	}
 	return nil
 }

@@ -80,10 +80,6 @@ func (a *App) GetMessages(conversationID string, parentID *string) ([]chat.Messa
 	return buildMessageNodesWithInvocationFallback(ctx, messages, parentID), nil
 }
 
-func buildMessageNodes(ctx context.Context, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
-	return chat.BuildMessageNodes(messages, messageChildCounts(ctx, messages), parentID)
-}
-
 func messageChildCounts(ctx context.Context, messages []database.ChatMessage) map[string]int {
 	if len(messages) == 0 {
 		return map[string]int{}
