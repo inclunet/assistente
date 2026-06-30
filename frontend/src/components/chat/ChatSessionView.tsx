@@ -781,6 +781,7 @@ function ChatSessionViewContent({
       logger.error('[ChatSessionView] send error:', errorMessage);
       setLastFailedMessage({ content, media: mediaFiles });
       setSendError(ErrorMessages.CHAT.SEND_FAILED);
+      announce(ErrorMessages.CHAT.SEND_FAILED, 'assertive');
 
       handleError(error, {
         source: 'ChatSessionView.handleSendMessage',
@@ -802,6 +803,7 @@ function ChatSessionViewContent({
       await controller.sendMessage(effectiveFailedMessage.content, effectiveFailedMessage.media);
       setLastFailedMessage(null);
     } catch (error) {
+      announce(ErrorMessages.CHAT.SEND_FAILED, 'assertive');
       handleError(error, {
         source: 'ChatSessionView.handleRetry',
         userMessage: ErrorMessages.CHAT.SEND_FAILED,

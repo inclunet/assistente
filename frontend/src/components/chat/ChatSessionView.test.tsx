@@ -493,6 +493,7 @@ describe('ChatSessionView', () => {
 
     expect(await screen.findByText('Falha ao enviar')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('Falha ao enviar', 'assertive');
 
     onSend.mockResolvedValueOnce(undefined);
     await user.click(screen.getByRole('button', { name: 'chat.retryAriaLabel' }));
