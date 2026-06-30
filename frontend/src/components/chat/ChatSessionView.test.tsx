@@ -27,6 +27,7 @@ const activeConversation: { id: string; title: string; threadedMessages: MockThr
 const modalState = vi.hoisted(() => ({ open: false }));
 const contextMenuState = vi.hoisted(() => ({ visible: true }));
 const runtimeEventHandlers = vi.hoisted(() => new Map<string, (data: unknown) => void>());
+const handleErrorMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../ui/Modal', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../ui/Modal')>();
@@ -242,7 +243,7 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 vi.mock('../../utils/errorHandler', () => ({
   ErrorSeverity: { RECOVERABLE: 'recoverable' },
   ErrorMessages: { CHAT: { SEND_FAILED: 'Falha ao enviar', DELETE_FAILED: 'Falha ao deletar' } },
-  handleError: vi.fn(),
+  handleError: handleErrorMock,
 }));
 
 import { ChatSessionView } from './ChatSessionView';
@@ -300,6 +301,7 @@ describe('ChatSessionView', () => {
     chatStoreState.cancelStreaming.mockReset();
     chatStoreState.clearConversationSendFailure.mockReset();
     chatStoreState.surfaceSessionsByKey = {};
+    handleErrorMock.mockReset();
     modalState.open = false;
     contextMenuState.visible = true;
     runtimeEventHandlers.clear();
@@ -493,7 +495,10 @@ describe('ChatSessionView', () => {
 
     expect(await screen.findByText('Falha ao enviar')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(announce).toHaveBeenCalledWith('Falha ao enviar', 'assertive');
+    expect(handleErrorMock).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({
+      userMessage: 'Falha ao enviar',
+      announcePriority: 'assertive',
+    }));
 
     onSend.mockResolvedValueOnce(undefined);
     await user.click(screen.getByRole('button', { name: 'chat.retryAriaLabel' }));

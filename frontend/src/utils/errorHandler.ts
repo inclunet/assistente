@@ -5,6 +5,7 @@
 
 import { logger } from './logger';
 import { announce } from '../hooks/useAnnouncer';
+import type { AnnouncePriority } from '../services/voiceAccessibility/announcerBroker';
 
 export enum ErrorSeverity {
   /** User error - validation, bad input */
@@ -24,6 +25,8 @@ export interface ErrorContext {
   technicalMessage?: string;
   /** Error severity level */
   severity: ErrorSeverity;
+  /** Override announcement priority, or false to suppress announcement */
+  announcePriority?: AnnouncePriority | false;
   /** Retry callback if recoverable */
   onRetry?: () => void | Promise<void>;
   /** Additional context data */
@@ -45,7 +48,11 @@ export function handleError(error: unknown, context: ErrorContext): void {
   });
 
   // Announce to screen readers
-  announce(context.userMessage, context.severity === ErrorSeverity.FATAL ? 'assertive' : 'polite');
+  const priority = context.announcePriority
+    ?? (context.severity === ErrorSeverity.FATAL ? 'assertive' : 'polite');
+  if (priority) {
+    announce(context.userMessage, priority);
+  }
 
   // TODO: Send to error tracking service (Sentry, etc.)
   // if (context.severity === ErrorSeverity.FATAL) {
