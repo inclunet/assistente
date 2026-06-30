@@ -318,6 +318,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
         setTestOutput(result.output ?? {});
         setTestDuration(result.duration ?? null);
         setTestJustFinished(true);
+        announce(t('jobs.builder.testSuccess'));
         requestAnimationFrame(() => {
           testResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         });
@@ -329,7 +330,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
     } finally {
       setTesting(false);
     }
-  }, [draft.tool, draft.inputs, draft.triggers, testTool, eventSchema, hasEventTrigger, showError]);
+  }, [announce, draft.tool, draft.inputs, draft.triggers, testTool, eventSchema, hasEventTrigger, showError, t]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);

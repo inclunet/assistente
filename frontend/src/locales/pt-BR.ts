@@ -2949,6 +2949,7 @@ const ptBR = {
         treeCopiedTemplate: 'Copiado: {{path}}',
         testTool: 'Testar ferramenta',
         testing: 'Testando...',
+        testSuccess: 'Teste da ferramenta concluído com sucesso',
         testResult: 'Resultado do teste',
         lastTestOutput: 'Output do último teste',
         outputReference: 'Clique em um campo do output para usá-lo como for_each:',

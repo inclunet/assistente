@@ -2975,6 +2975,7 @@ const en = {
         treeCopiedTemplate: 'Copied: {{path}}',
         testTool: 'Test tool',
         testing: 'Testing...',
+        testSuccess: 'Tool test completed successfully',
         testResult: 'Test result',
         lastTestOutput: 'Last test output',
         outputReference: 'Click an output field to use it as for_each:',

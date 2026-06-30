@@ -2974,6 +2974,7 @@ const es = {
         treeCopiedTemplate: 'Copiado: {{path}}',
         testTool: 'Probar herramienta',
         testing: 'Probando...',
+        testSuccess: 'Prueba de herramienta completada con éxito',
         testResult: 'Resultado de la prueba',
         lastTestOutput: 'Salida de la última prueba',
         outputReference: 'Haga clic en un campo del output para usarlo como for_each:',
