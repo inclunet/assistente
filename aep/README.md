@@ -44,8 +44,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0043](0043-tts-stt-voices.md) | Evolução TTS/STT: Vozes (Assistant + User) | 📝 Draft |
 | [0044](0044-profile-settings-revamp.md) | Profile Settings Revamp (Tabbed Panels) | 📝 Draft |
 | [0045](0045-cli-interface.md) | Interface CLI como alternativa ao Wails | ✅ Done |
-| [0053](0053-mcp-graceful-degradation.md) | Degradação graciosa de MCP nativo no chat | 📝 Draft |
 | [0052](0052-multi-user-accounts.md) | Sistema de Contas de Usuário | 📝 Draft |
+| [0053](0053-mcp-graceful-degradation.md) | Degradação graciosa de MCP nativo no chat | 📝 Draft |
 | [0054](0054-split-server-client-agent.md) | Split Servidor/Cliente + Resource API + Agent Local | 📝 Draft |
 | [0056](0056-workspace-self-contained-tabs.md) | Workspace com Abas Autocontidas | 📝 Draft |
 | [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat | 📝 Draft |

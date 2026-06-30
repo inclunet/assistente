@@ -1,6 +1,6 @@
 # AEP-0052 — Sistema de Contas de Usuário
 
-**Status**: Proposta  
+**Status**: 📝 Draft  
 **Criado em**: 2026-04-21  
 **Depende de**: AEP-0047 (Import/Export)  
 **Precede**: AEP-0046 (UUIDv7 Migration)  

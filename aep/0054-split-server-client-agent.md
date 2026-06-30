@@ -21,7 +21,7 @@ Este split habilita três modos de distribuição/deploy:
 2. **Server-only (container/Kubernetes)**: binário headless que sobe apenas a Resource API + streaming + auth; sem frontend embutido.
 3. **Thin client (desktop leve)**: cliente Wails + Agent Local conectando a um servidor remoto; sem stack pesada de backend/DB/LLM no cliente.
 
-> Fora de escopo (mas explicitamente previsto): **cliente web + workspace mirroring via agent** (AEP-0055).
+> Fora de escopo (mas explicitamente previsto em PR separado): **cliente web + workspace mirroring via agent** (AEP-0055 planejada).
 
 ---
 
