@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Combobox, ComboboxItem } from './Combobox';
+
+const announceMock = vi.hoisted(() => vi.fn());
 
 const mockItems: ComboboxItem[] = [
   { value: 'gpt-4', label: 'GPT-4' },
@@ -9,7 +11,17 @@ const mockItems: ComboboxItem[] = [
   { value: 'claude-3', label: 'Claude 3' },
 ];
 
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announce: announceMock,
+  }),
+}));
+
 describe('Combobox - allowFreeInput', () => {
+  afterEach(() => {
+    announceMock.mockClear();
+  });
+
   it('renderiza com items normais mostrando label selecionado', () => {
     const onSelect = vi.fn();
     render(
@@ -133,6 +145,26 @@ describe('Combobox - allowFreeInput', () => {
     expect(screen.getByText('GPT-4')).toBeInTheDocument();
     expect(screen.getByText('GPT-3.5 Turbo')).toBeInTheDocument();
     expect(screen.queryByText('Claude 3')).not.toBeInTheDocument();
+  });
+
+  it('anuncia quando o filtro não retorna resultados', async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <Combobox
+        items={mockItems}
+        selected=""
+        onSelect={onSelect}
+        placeholder="Filtrar..."
+      />
+    );
+
+    await user.click(screen.getByRole('button'));
+    await user.type(screen.getByRole('combobox'), 'sem-match');
+
+    expect(screen.getByText('pickers.combobox.noResults')).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith('pickers.combobox.noResults', 'assertive');
   });
 
   it('fecha dropdown ao pressionar Escape', async () => {

@@ -55,6 +55,7 @@ export const Combobox = ({
     const buttonRef = useRef<HTMLButtonElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const listboxRef = useRef<HTMLUListElement>(null);
+    const previousEmptyResultsAnnouncementRef = useRef('');
     const uniqueId = useId();
 
     const filteredItems = items.filter(item =>
@@ -68,6 +69,13 @@ export const Combobox = ({
         ? selectedLabel.substring(0, 17) + '...'
         : selectedLabel;
     const hasSelectedItem = Boolean(selected);
+    const emptyResultsMessage = filteredItems.length === 0
+        ? allowFreeInput && filter.trim()
+            ? t('pickers.combobox.pressEnterToUse', { value: filter.trim() })
+            : allowFreeInput
+                ? t('pickers.combobox.typeToCreate')
+                : t('pickers.combobox.noResults')
+        : '';
 
     const announceMessage = useCallback((msg: string) => {
         if (onAnnounce) {
@@ -140,6 +148,17 @@ export const Combobox = ({
         const newIdx = currentIdx >= 0 ? currentIdx : 0;
         setHighlightIndex(newIdx);
     }, [filter]);
+
+    useEffect(() => {
+        if (!isOpen || !emptyResultsMessage) {
+            previousEmptyResultsAnnouncementRef.current = '';
+            return;
+        }
+        if (emptyResultsMessage === previousEmptyResultsAnnouncementRef.current) return;
+
+        announceMessage(emptyResultsMessage);
+        previousEmptyResultsAnnouncementRef.current = emptyResultsMessage;
+    }, [announceMessage, emptyResultsMessage, isOpen]);
 
     useEffect(() => {
         if (!isOpen) return;

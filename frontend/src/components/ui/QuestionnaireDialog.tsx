@@ -95,9 +95,11 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
 
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
-      const firstError = Object.values(nextErrors)[0];
-      if (firstError) {
-        announce(firstError, 'assertive');
+      const errorMessages = questions
+        .filter((q) => nextErrors[q.id])
+        .map((q) => `${q.prompt}: ${nextErrors[q.id]}`);
+      if (errorMessages.length > 0) {
+        announce(errorMessages.join('. '), 'assertive');
       }
       return;
     }
