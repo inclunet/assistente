@@ -711,6 +711,48 @@ func (s *Service) recoverFromPanic(conversationID string, source string) {
 	events.HandlePanic(s.emitter, conversationID, source, r)
 }
 
+func (s *Service) HandleRecoveredPanic(
+	ctx context.Context,
+	conversationID string,
+	turnID string,
+	source string,
+	r any,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+) {
+	if r == nil {
+		return
+	}
+	errMsg := fmt.Sprintf("Erro interno inesperado em %s: %v", source, r)
+	log.Printf("🔴 [PANIC RECOVERED] %s (conversa %s): %v", source, conversationID, r)
+
+	assistantMessageID := ""
+	if s.msgRepo != nil && turnID != "" {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		msgID, err := chat.EnsureAssistantPlaceholder(ctx, s.msgRepo, conversationID, turnID)
+		if errors.Is(err, chat.ErrConversationGone) {
+			return
+		}
+		if err != nil {
+			log.Printf("[Agent] falha ao criar/reusar placeholder assistant após panic (conversa %s, turno %s): %v", conversationID, turnID, err)
+		} else {
+			assistantMessageID = msgID
+		}
+	}
+
+	if s.emitter != nil {
+		s.emitter.Emit("chat:done", ports.DoneEvent{
+			ConversationID:     conversationID,
+			TurnID:             turnID,
+			AssistantMessageID: assistantMessageID,
+			SurfaceOrigin:      surfaceOrigin,
+			Reason:             "error",
+			ErrorMessage:       errMsg,
+		})
+	}
+}
+
 func convertToolCalls(llmCalls []llm.ToolCall) []tools.ToolCall {
 	result := make([]tools.ToolCall, len(llmCalls))
 	for i, c := range llmCalls {

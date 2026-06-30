@@ -251,9 +251,9 @@ export function startChatEventController({
   const ensureAssistantNode = (messageId?: string | null) => {
     const backendMessageId = messageId && messageId !== '' ? messageId : null;
     if (!backendMessageId) return false;
-    currentAssistantNodeId = backendMessageId;
     const session = getCurrentSession();
     if (!session.conversation) return false;
+    currentAssistantNodeId = backendMessageId;
     if (assistantNodeCreated) return true;
     if (hasMessageId(session.conversation.threadedMessages, backendMessageId)) {
       assistantNodeCreated = true;

@@ -9,7 +9,6 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
-	"assistente/internal/events"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/profiles"
@@ -390,7 +389,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		go func() {
 			defer func() {
 				r := recover()
-				events.HandlePanic(uc.emitter, req.ConversationID, "runAgenticLoop", r)
+				uc.agentSvc.HandleRecoveredPanic(agentCtx, req.ConversationID, userMsg.ID, "runAgenticLoop", r, surfaceOrigin)
 			}()
 			defer uc.streamMgr.Unregister(req.ConversationID)
 			uc.agentSvc.RunAgenticLoop(agentCtx, messages, params, req.ConversationID, userMsg.ID, llmToolDefs, requestStreamer, surfaceOrigin,
@@ -409,7 +408,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		go func() {
 			defer func() {
 				r := recover()
-				events.HandlePanic(uc.emitter, req.ConversationID, "StreamChat", r)
+				uc.agentSvc.HandleRecoveredPanic(convCtx, req.ConversationID, userMsg.ID, "StreamChat", r, surfaceOrigin)
 			}()
 			defer uc.streamMgr.Unregister(req.ConversationID)
 			uc.agentSvc.StreamSimpleWithRecovery(convCtx, requestStreamer, messages, params, req.ConversationID, userMsg.ID, params.ProfileSlug, surfaceOrigin, recoveryEnabled, recoveryMaxAttempts)

@@ -288,6 +288,32 @@ func TestRunAgenticLoop_StopsWhenAssistantPlaceholderFails(t *testing.T) {
 	}
 }
 
+func TestHandleRecoveredPanic_EmitsDoneWithAssistantMessageID(t *testing.T) {
+	em := &captureEmitter{}
+	repo := &inMemoryMsgRepo{}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+
+	svc.HandleRecoveredPanic(context.Background(), "conversation-1", "user-1", "StreamChat", "boom", nil)
+
+	if got := em.find("chat:stream"); len(got) != 0 {
+		t.Fatalf("expected no chat:stream for recovered panic, got %d", len(got))
+	}
+	doneEvents := em.find("chat:done")
+	if len(doneEvents) != 1 {
+		t.Fatalf("expected one chat:done, got %d", len(doneEvents))
+	}
+	done := doneEvents[0].data.(ports.DoneEvent)
+	if done.Reason != "error" || done.ErrorMessage == "" {
+		t.Fatalf("expected error chat:done, got %+v", done)
+	}
+	if done.AssistantMessageID == "" {
+		t.Fatalf("expected assistantMessageId in recovered panic chat:done")
+	}
+	if len(repo.messages) != 1 || repo.messages[0].ID != done.AssistantMessageID {
+		t.Fatalf("assistant placeholder mismatch: repo=%+v done=%s", repo.messages, done.AssistantMessageID)
+	}
+}
+
 func TestStreamSimpleWithRecovery_EmitsTerminalErrorWhenExhausted(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{}
