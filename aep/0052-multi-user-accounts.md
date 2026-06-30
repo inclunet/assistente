@@ -486,7 +486,7 @@ Etapa 7: Modelo                           ← exige sessão/user_id
 | **0050** (Profiles DB) | Sucede esta. Tabela `profiles` terá `user_id` desde o início |
 | **0051** (Skills DB) | Sucede esta. Tabela `skills` terá `user_id` desde o início |
 | **0014** (Credential Persistence) | Base do cofre global (DEK + wraps + keyring) |
-| **0022** (Welcome Wizard) | Wizard passa a: cofre → recovery → admin → provider |
+| **0022** (Welcome Wizard) | Divide bootstrap pré-login (cofre → recovery → admin → sessão) e onboarding pós-login de provider |
 
 ### Ordem de implementação atualizada
 
