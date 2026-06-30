@@ -1622,6 +1622,7 @@ const es = {
         counter: '{{current}} de {{total}}',
         defaultAlt: 'Imagen',
         openHint: 'Clic, Enter o Espacio para ampliar',
+        zoomLevel: 'Zoom {{percent}}%',
       },
       toast: { close: 'Cerrar notificación' },
       dataGrid: {

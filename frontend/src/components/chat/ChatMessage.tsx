@@ -16,6 +16,8 @@ import { isAgentMessage } from '../../lib/chatUtils';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './ChatMessage.css';
 
 const HEAVY_MARKDOWN_CONTENT_LENGTH = 8_000;
@@ -56,6 +58,7 @@ export interface ChatMessageProps {
   // Envio de blocos para o editor
   editorTargets?: EditorSendTargetOption[];
   onSendToEditor?: (payload: SendToEditorPayload) => void;
+  origin?: VoiceAccessibilityOrigin;
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
@@ -82,8 +85,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   isPlayingAudio = false,
   editorTargets,
   onSendToEditor,
+  origin,
 }) => {
   const { t } = useTranslation();
+  const { announceRequest } = useAnnouncer();
   const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
   const messageRef = useRef<HTMLDivElement>(null);
   const chainRegionId = useId();
@@ -94,6 +99,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const [isChainExpanded, setIsChainExpanded] = useState(true);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const previousShouldDeferHeavyContentRef = useRef(false);
+  const previousStreamingAnnouncementRef = useRef('');
+  const wasStreamingRef = useRef(false);
   const {
     liveContent,
     liveIsStreaming,
@@ -217,6 +224,45 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       ? JSON.stringify(names.map((name) => ({ function: { name } })))
       : null;
   }, [effectiveToolCallsRaw, shouldDeferHeavyContent]);
+
+  useEffect(() => {
+    if (role !== 'assistant') return;
+
+    const text = conclusionContent.trim();
+    if (effectiveIsStreaming) {
+      wasStreamingRef.current = true;
+      if (!text) return;
+
+      const previous = previousStreamingAnnouncementRef.current;
+      const progressedEnough = text.length - previous.length >= 80;
+      const reachedSentenceBoundary = /[.!?…]\s*$/.test(text);
+      if (previous && !progressedEnough && !reachedSentenceBoundary) return;
+      if (previous === text) return;
+
+      previousStreamingAnnouncementRef.current = text;
+      announceRequest({
+        message: text,
+        origin,
+        eventType: 'progress',
+      });
+      return;
+    }
+
+    if (!wasStreamingRef.current) {
+      if (!text) previousStreamingAnnouncementRef.current = '';
+      return;
+    }
+
+    wasStreamingRef.current = false;
+    previousStreamingAnnouncementRef.current = '';
+    if (!text) return;
+
+    announceRequest({
+      message: text,
+      origin,
+      eventType: 'completion',
+    });
+  }, [announceRequest, conclusionContent, effectiveIsStreaming, origin, role]);
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);

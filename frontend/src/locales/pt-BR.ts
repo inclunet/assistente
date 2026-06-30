@@ -1597,6 +1597,7 @@ const ptBR = {
         counter: '{{current}} de {{total}}',
         defaultAlt: 'Imagem',
         openHint: 'Clique, Enter ou Espaço para ampliar',
+        zoomLevel: 'Zoom {{percent}}%',
       },
       toast: { close: 'Fechar notificação' },
       dataGrid: {

@@ -1623,6 +1623,7 @@ const en = {
         counter: '{{current}} of {{total}}',
         defaultAlt: 'Image',
         openHint: 'Click, Enter or Space to enlarge',
+        zoomLevel: 'Zoom {{percent}}%',
       },
       toast: { close: 'Close notification' },
       dataGrid: {

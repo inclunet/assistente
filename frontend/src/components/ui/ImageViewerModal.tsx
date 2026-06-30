@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { Modal, useModalIsTopmost } from './Modal';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import './ImageViewerModal.css';
 
 export interface ImageViewerImage {
@@ -42,8 +43,10 @@ interface ImageViewerViewProps {
  */
 function ImageViewerView({ images, initialIndex, captionId }: ImageViewerViewProps) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const isTopmost = useModalIsTopmost();
   const stageRef = useRef<HTMLDivElement>(null);
+  const didMountRef = useRef(false);
   const [index, setIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(MIN_ZOOM);
 
@@ -67,6 +70,14 @@ function ImageViewerView({ images, initialIndex, captionId }: ImageViewerViewPro
   const zoomIn = useCallback(() => setZoom((z) => clampZoom(z + ZOOM_STEP)), []);
   const zoomOut = useCallback(() => setZoom((z) => clampZoom(z - ZOOM_STEP)), []);
   const resetZoom = useCallback(() => setZoom(MIN_ZOOM), []);
+
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    announce(t('ui.imageViewer.zoomLevel', { percent: Math.round(zoom * 100) }));
+  }, [announce, t, zoom]);
 
   // Navegação por setas e atalhos de zoom (ESC/Tab são tratados pelo Modal).
   // Só age quando este viewer é o modal do topo da stack, evitando controlar

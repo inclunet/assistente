@@ -7,6 +7,7 @@ const subscribeSpy = vi.fn();
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const originalIntersectionObserver = globalThis.IntersectionObserver;
 const buildAriaLabelMock = vi.hoisted(() => vi.fn((_args: unknown) => 'aria-label'));
+const announceRequestMock = vi.hoisted(() => vi.fn());
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -51,6 +52,12 @@ vi.mock('../../lib/chatMessageAriaLabel', () => ({
   buildChatMessageAriaLabel: (args: unknown) => buildAriaLabelMock(args),
 }));
 
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announceRequest: announceRequestMock,
+  }),
+}));
+
 vi.mock('../ui/MarkdownRenderer', () => ({
   MarkdownRenderer: ({ content }: { content: string }) => <div>{content}</div>,
 }));
@@ -73,6 +80,7 @@ describe('ChatMessage', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     buildAriaLabelMock.mockClear();
+    announceRequestMock.mockClear();
     if (originalIntersectionObserver) {
       vi.stubGlobal('IntersectionObserver', originalIntersectionObserver);
     }
@@ -128,6 +136,43 @@ describe('ChatMessage', () => {
     expect(textarea).toBeInTheDocument();
     const saveButton = screen.getByRole('button', { name: 'common.save' });
     expect(saveButton).toBeDisabled();
+  });
+
+  it('anuncia progresso e conclusão de streaming pelo broker global', () => {
+    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const streamingMessage = new chat.EnrichedMessage({
+      id: 'assistant-1',
+      conversationId,
+      role: 'assistant',
+      content: 'Resposta parcial com conteúdo suficiente para anunciar.',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+    const completedMessage = new chat.EnrichedMessage({
+      ...streamingMessage,
+      isStreaming: false,
+      content: 'Resposta final.',
+    });
+
+    const { rerender } = render(
+      <ChatMessage message={streamingMessage} origin={origin} />
+    );
+
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Resposta parcial com conteúdo suficiente para anunciar.',
+      origin,
+      eventType: 'progress',
+    });
+
+    rerender(<ChatMessage message={completedMessage} origin={origin} />);
+
+    expect(announceRequestMock).toHaveBeenLastCalledWith({
+      message: 'Resposta final.',
+      origin,
+      eventType: 'completion',
+    });
   });
 
   it('adia renderizacao de markdown grande ate entrar na area visivel', async () => {
