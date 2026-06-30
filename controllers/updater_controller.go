@@ -178,7 +178,7 @@ func (c *UpdaterController) applyUpdateWithProgress(ctx context.Context) {
 	applyCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	logging.Errorf(ctx, "controllers.updater-controller", "[Updater] Iniciando download e aplicação da atualização...")
+	logging.Infof(ctx, "controllers.updater-controller", "[Updater] Iniciando download e aplicação da atualização...")
 
 	err := c.updater.ApplyUpdate(applyCtx)
 	if err != nil {
