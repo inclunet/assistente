@@ -344,7 +344,8 @@ export default function McpPage() {
   const handleManualOverride = useCallback(() => {
     setDiscoveredFields(new Set());
     setDiscoveryStatus('not_found');
-  }, []);
+    announce(t('mcp.connection.oauthNotDetected'));
+  }, [announce, t]);
 
   // Dispara discovery quando transport muda para HTTP e URL já está preenchida
   useEffect(() => {
