@@ -51,7 +51,7 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat | 📝 Draft |
 | [0058](0058-global-accessibility-voice-arbitration.md) | Arbitragem Global de Acessibilidade e Voz | 📝 Draft |
 
-Nota de numeração: AEP-0054 está ocupada por `0054-split-server-client-agent.md`; AEP-0055 é prevista em PR próprio.
+Nota de numeração: AEP-0054 está ocupada por `0054-split-server-client-agent.md`; AEP-0055 é prevista em PR próprio. Portanto, 0054 não deve ser tratado como número livre para propostas futuras.
 
 ## Status Legend
 

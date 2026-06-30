@@ -73,7 +73,7 @@ As AEPs 0046 e 0047 estabelecem IDs estáveis e contratos portáveis. Esta AEP c
 
 Detecção: `NeedsWelcomeWizard()` retorna true se o cofre (DEK/wraps) não está inicializado OU não há providers.
 
-Após esta AEP, a detecção também deve retornar true quando não existir usuário admin local, para garantir o bootstrap obrigatório antes de login, providers e sessões.
+Após esta AEP, a detecção é dividida em dois gates: `NeedsBootstrapWizard()` cobre cofre e ausência de admin local antes de login; a ausência de providers vira onboarding pós-login, porque providers e credenciais passam a ser recursos do usuário autenticado.
 
 ---
 
@@ -178,7 +178,7 @@ Recursos em filesystem (profiles, skills, MCP) permanecem fora de escopo nesta A
 
 Todas as queries de recursos devem filtrar por `user_id`, implementado via helper/middleware no repository layer.
 
-Exceção explícita: segredos de instância sem owner ficam fora de `credential_entries` user-scoped e são armazenados em `instance_secrets`. Eles devem ser acessados somente por serviços internos do servidor, nunca por endpoints de recurso do usuário.
+Exceção explícita: segredos de instância usam `credential_entries` com `user_id = ''` como escopo reservado do servidor. Eles não passam pelo helper user-scoped e devem ser acessados somente por serviços internos, nunca por endpoints de recurso do usuário.
 
 ---
 
@@ -214,28 +214,19 @@ Exceção explícita: segredos de instância sem owner ficam fora de `credential
 | `revoked_at` | DATETIME | | Revogação (logout/reuse) |
 | `client_label` | TEXT | | Identificador amigável (opcional) |
 
-### `instance_secrets` (nova, segredos do servidor)
-
-| Coluna | Tipo | Constraints | Notas |
-|--------|------|-------------|-------|
-| `pattern` | TEXT | PK/UNIQUE | Prefixes internos como `internal-auth:*` e `internal-tls:*` |
-| `encrypted_value` | BLOB | NOT NULL | Criptografado com a DEK global |
-| `created_at` | DATETIME | | |
-| `updated_at` | DATETIME | | |
-
 ### Alterações em tabelas existentes
 
 | Tabela | Coluna adicionada | Tipo | Constraints |
 |--------|-------------------|------|-------------|
 | `llm_providers` | `user_id` | TEXT | FK→users.id, INDEX |
 | `conversations` | `user_id` | TEXT | FK→users.id, INDEX |
-| `credential_entries` | `user_id` | TEXT | FK→users.id |
+| `credential_entries` | `user_id` | TEXT | INDEX; FK→users.id quando não vazio |
 | `task_lists` | `user_id` | TEXT | FK→users.id, INDEX |
 
 **Mudanças de constraints**:
 - `llm_providers`: qualquer chave/índice único baseado no identificador do provider deixa de ser global e passa a ser escopado por usuário, por exemplo `(user_id, id)`/`(user_id, slug)`, para permitir providers com o mesmo identificador em contas diferentes.
-- `credential_entries`: unique muda de `(pattern)` para `(user_id, pattern)` para credenciais de usuário.
-- Segredos de instância não usam `credential_entries` nem o UPSERT `(user_id, pattern)`; usam `instance_secrets.pattern` como chave única simples.
+- `credential_entries`: unique muda de `(pattern)` para `(user_id, pattern)`.
+- `credential_entries`: segredos de instância usam `user_id = ''` (string vazia, nunca `NULL`) para preservar o UPSERT `(user_id, pattern)` e evitar duplicatas no SQLite.
 
 ---
 
@@ -264,8 +255,8 @@ Exceção explícita: segredos de instância sem owner ficam fora de `credential
    - `Refresh(refresh_token) -> (access_jwt, refresh_token_rotated)` (rotate always)
    - `Logout(refresh_token)` (revoga)
 9. Implementar assinatura de JWT com Ed25519 e publicação de JWKS (`/.well-known/jwks.json`).
-   - A chave de assinatura é segredo de instância persistido em `instance_secrets` como `internal-auth:jwt-signing-key`, criptografado pela DEK global.
-   - Instalações novas criam esse segredo durante o setup de auth; upgrades movem qualquer chave interna legada antes do backfill user-scoped.
+   - A chave de assinatura é segredo de instância persistido em `credential_entries` com `user_id = ''` e pattern `internal-auth:jwt-signing-key`, criptografado pela DEK global.
+   - Instalações novas criam esse segredo durante o setup de auth; upgrades normalizam qualquer chave interna legada para `user_id = ''` antes do backfill user-scoped.
 
 ### Fase 3 — Scoping por `user_id`
 
@@ -273,9 +264,9 @@ Exceção explícita: segredos de instância sem owner ficam fora de `credential
 11. Atualizar repositories/queries para enforcement central de `user_id`.
 12. Migração/backfill para instalações existentes:
    - criar/associar o admin local antes do backfill;
-   - mover segredos internos `internal-auth:*` e `internal-tls:*` para `instance_secrets`;
+   - normalizar segredos internos `internal-auth:*` e `internal-tls:*` para `credential_entries.user_id = ''`;
    - deduplicar `credential_entries` legadas por `pattern` antes de criar o unique `(user_id, pattern)`;
-   - criar índices únicos user-scoped somente após deduplicação e migração dos segredos internos.
+   - criar o índice único `(user_id, pattern)` somente após deduplicação e normalização dos segredos internos.
 
 ### Fase 4 — HTTP API local + TLS
 
@@ -313,10 +304,12 @@ Etapa 5: Modelo
   → single_choice ou input manual
 ```
 
-### Depois (Wizard com contas)
+### Depois (bootstrap + onboarding com contas)
 
 ```
-Etapa 0: Inicializar Cofre (DEK global)   ← NOVO / OBRIGATÓRIO
+Bootstrap pré-login:
+
+Etapa 0: Inicializar Cofre (DEK global)   ← NOVO / OBRIGATÓRIO no primeiro uso
   → input: senha mestre do cofre (2x)
   → ação: SetupMasterKey(...) → DEK global + wraps (master/recovery) + salva DEK no keyring
 
@@ -327,10 +320,14 @@ Etapa 2: Criar Admin Local                ← NOVO
   → input: username + password (2x)
   → ação: CreateUser(username, password) com is_admin=true
 
-Etapa 3: Escolher Provider                ← SEM MUDANÇA
-Etapa 4: URL Custom (se necessário)       ← SEM MUDANÇA
-Etapa 5: API Key                          ← SEM MUDANÇA
-Etapa 6: Modelo                           ← SEM MUDANÇA
+Etapa 3: Emitir sessão local para o admin recém-criado
+
+Onboarding pós-login (recursos user-scoped):
+
+Etapa 4: Escolher Provider                ← exige sessão/user_id
+Etapa 5: URL Custom (se necessário)       ← exige sessão/user_id
+Etapa 6: API Key                          ← salva credential_entries com user_id
+Etapa 7: Modelo                           ← exige sessão/user_id
 ```
 
 ---
@@ -384,9 +381,8 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
               └──────────────────────────────┘
                    ▲
                    │ antes do backfill:
-                   │ mover internal-auth:* e
-                   │ internal-tls:* para
-                   │ instance_secrets
+                   │ normalizar internal-auth:*
+                   │ e internal-tls:* para user_id=''
 ```
 
 ---
