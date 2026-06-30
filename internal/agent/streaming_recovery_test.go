@@ -53,7 +53,10 @@ type inMemoryMsgRepo struct {
 	canceledCtxUpdates int
 }
 
-func (r *inMemoryMsgRepo) CreateMessage(_ context.Context, opts chat.MessageOptions) (*chat.Message, error) {
+func (r *inMemoryMsgRepo) CreateMessage(ctx context.Context, opts chat.MessageOptions) (*chat.Message, error) {
+	if err := ctx.Err(); err != nil && r.rejectCanceledCtx {
+		return nil, err
+	}
 	if r.createErr != nil {
 		return nil, r.createErr
 	}
@@ -100,7 +103,10 @@ func (r *inMemoryMsgRepo) GetMessages(_ context.Context, _ string, _ *string) ([
 	return r.messages, nil
 }
 
-func (r *inMemoryMsgRepo) GetMessagesByTurnID(_ context.Context, _ string, _ *string, _ string, _ int) ([]chat.Message, error) {
+func (r *inMemoryMsgRepo) GetMessagesByTurnID(ctx context.Context, _ string, _ *string, _ string, _ int) ([]chat.Message, error) {
+	if err := ctx.Err(); err != nil && r.rejectCanceledCtx {
+		return nil, err
+	}
 	return r.messages, nil
 }
 
@@ -305,6 +311,31 @@ func TestHandleRecoveredPanic_EmitsDoneWithAssistantMessageID(t *testing.T) {
 	done := doneEvents[0].data.(ports.DoneEvent)
 	if done.Reason != "error" || done.ErrorMessage == "" {
 		t.Fatalf("expected error chat:done, got %+v", done)
+	}
+	if done.AssistantMessageID == "" {
+		t.Fatalf("expected assistantMessageId in recovered panic chat:done")
+	}
+	if len(repo.messages) != 1 || repo.messages[0].ID != done.AssistantMessageID {
+		t.Fatalf("assistant placeholder mismatch: repo=%+v done=%s", repo.messages, done.AssistantMessageID)
+	}
+}
+
+func TestHandleRecoveredPanic_EmitsGenericErrorAndIgnoresCanceledContext(t *testing.T) {
+	em := &captureEmitter{}
+	repo := &inMemoryMsgRepo{rejectCanceledCtx: true}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	svc.HandleRecoveredPanic(ctx, "conversation-1", "user-1", "StreamChat", "secret panic detail", nil)
+
+	doneEvents := em.find("chat:done")
+	if len(doneEvents) != 1 {
+		t.Fatalf("expected one chat:done, got %d", len(doneEvents))
+	}
+	done := doneEvents[0].data.(ports.DoneEvent)
+	if done.ErrorMessage != "Erro interno inesperado. Tente novamente." {
+		t.Fatalf("expected generic error message, got %q", done.ErrorMessage)
 	}
 	if done.AssistantMessageID == "" {
 		t.Fatalf("expected assistantMessageId in recovered panic chat:done")

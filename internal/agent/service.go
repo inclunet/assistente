@@ -722,7 +722,7 @@ func (s *Service) HandleRecoveredPanic(
 	if r == nil {
 		return
 	}
-	errMsg := fmt.Sprintf("Erro interno inesperado em %s: %v", source, r)
+	const uiErrorMessage = "Erro interno inesperado. Tente novamente."
 	log.Printf("🔴 [PANIC RECOVERED] %s (conversa %s): %v", source, conversationID, r)
 
 	assistantMessageID := ""
@@ -730,7 +730,7 @@ func (s *Service) HandleRecoveredPanic(
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		msgID, err := chat.EnsureAssistantPlaceholder(ctx, s.msgRepo, conversationID, turnID)
+		msgID, err := chat.EnsureAssistantPlaceholder(context.WithoutCancel(ctx), s.msgRepo, conversationID, turnID)
 		if errors.Is(err, chat.ErrConversationGone) {
 			return
 		}
@@ -748,7 +748,7 @@ func (s *Service) HandleRecoveredPanic(
 			AssistantMessageID: assistantMessageID,
 			SurfaceOrigin:      surfaceOrigin,
 			Reason:             "error",
-			ErrorMessage:       errMsg,
+			ErrorMessage:       uiErrorMessage,
 		})
 	}
 }
