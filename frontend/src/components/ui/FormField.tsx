@@ -27,13 +27,17 @@ export const FormField = ({
   const descId = description ? `${fieldId}-desc` : undefined;
   const errorId = error ? `${fieldId}-error` : undefined;
   const previousErrorRef = useRef<string | null | undefined>();
+  const childError = isValidElement<{ error?: string | null }>(children)
+    ? children.props.error
+    : undefined;
+  const childAnnouncesSameError = !!error && childError === error;
 
   useEffect(() => {
-    if (error && error !== previousErrorRef.current) {
+    if (error && !childAnnouncesSameError && error !== previousErrorRef.current) {
       announce(error, 'assertive');
     }
     previousErrorRef.current = error;
-  }, [announce, error]);
+  }, [announce, childAnnouncesSameError, error]);
 
   const childrenWithId = isValidElement(children)
     ? cloneElement(children as React.ReactElement<{ id?: string; 'aria-describedby'?: string }>, {

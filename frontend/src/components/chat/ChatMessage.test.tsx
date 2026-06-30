@@ -7,7 +7,7 @@ const subscribeSpy = vi.fn();
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const originalIntersectionObserver = globalThis.IntersectionObserver;
 const buildAriaLabelMock = vi.hoisted(() => vi.fn((_args: unknown) => 'aria-label'));
-const announceRequestMock = vi.hoisted(() => vi.fn());
+const announceRequestMock = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -228,6 +228,35 @@ describe('ChatMessage', () => {
     render(<ChatMessage message={streamingMessage} origin={origin} />);
 
     expect(announceRequestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reanuncia progresso quando o broker rejeitou a tentativa anterior', () => {
+    const streamingMessage = new chat.EnrichedMessage({
+      id: 'assistant-inactive-1',
+      conversationId,
+      role: 'assistant',
+      content: 'Resposta parcial com conteúdo suficiente para anunciar.',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+    const inactiveOrigin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const activeOrigin = { conversationId, surfaceId: 'chat-tab-active', surfaceType: 'chat' as const };
+
+    announceRequestMock.mockReturnValueOnce(false);
+
+    const { rerender } = render(
+      <ChatMessage message={streamingMessage} origin={inactiveOrigin} />
+    );
+    rerender(<ChatMessage message={streamingMessage} origin={activeOrigin} />);
+
+    expect(announceRequestMock).toHaveBeenCalledTimes(2);
+    expect(announceRequestMock).toHaveBeenLastCalledWith({
+      message: 'Resposta parcial com conteúdo suficiente para anunciar.',
+      origin: activeOrigin,
+      eventType: 'progress',
+    });
   });
 
   it('preserva anúncio de conclusão quando há render intermediário sem conteúdo final', () => {

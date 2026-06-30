@@ -258,12 +258,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       if (previous === message) return;
       if (previous && !replacedProgressMessage && !progressedEnough && !reachedSentenceBoundary) return;
 
-      announcementState.previous = message;
-      announceRequest({
+      const didAnnounce = announceRequest({
         message,
         origin,
         eventType: 'progress',
       });
+      if (didAnnounce) {
+        announcementState.previous = message;
+      }
       return;
     }
 
