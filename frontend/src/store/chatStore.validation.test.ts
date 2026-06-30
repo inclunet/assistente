@@ -248,7 +248,8 @@ describe('chatStore validation', () => {
       return Promise.reject(new Error('backend error'));
     });
 
-    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello');
+    await expect(useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello'))
+      .rejects.toThrow('backend error');
 
     expect(mockAnnounce).toHaveBeenCalledWith('Provedor LLM não disponível');
     expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.isLoading).toBe(false);
