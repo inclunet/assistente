@@ -47,6 +47,15 @@ type LegacyImportSummaryEvent = {
     errorCount?: number;
 };
 
+function getCurrentAuthSnapshot() {
+    const auth = useAuthStore.getState();
+    return {
+        isAuthenticated: auth.isAuthenticated,
+        isLoading: auth.isLoading,
+        userId: auth.user?.userId,
+    };
+}
+
 function App() {
     const { theme } = useTheme();
     const { t, i18n } = useTranslation();
@@ -64,16 +73,6 @@ function App() {
     const wasQuestionnaireOpenRef = useRef(false);
     const lastFocusedElementRef = useRef<HTMLElement | null>(null);
     const pendingLegacyImportSummaryRef = useRef<LegacyImportSummaryEvent | null>(null);
-    const authSnapshotRef = useRef({
-        isAuthenticated: false,
-        isLoading: false,
-        userId: undefined as string | undefined,
-    });
-    authSnapshotRef.current = {
-        isAuthenticated,
-        isLoading: authLoading,
-        userId: authUser?.userId,
-    };
 
     // Estado do dialog de questionário (tool: collect_responses e aprovações)
     const [questionnaireOpen, setQuestionnaireOpen] = useState(false);
@@ -93,7 +92,7 @@ function App() {
     usePartialRuntimeInitListener();
 
     const showLegacyImportSummary = useCallback((eventData: LegacyImportSummaryEvent) => {
-        const currentUserId = authSnapshotRef.current.userId;
+        const currentUserId = getCurrentAuthSnapshot().userId;
         if (eventData.userId && currentUserId && eventData.userId !== currentUserId) return;
 
         const imported = eventData.imported ?? 0;
@@ -219,7 +218,7 @@ function App() {
 
         unsubs.push(EventsOn('legacy:import_summary', (data: unknown) => {
             const eventData = data as LegacyImportSummaryEvent;
-            const authSnapshot = authSnapshotRef.current;
+            const authSnapshot = getCurrentAuthSnapshot();
             if (!authSnapshot.isAuthenticated || !authSnapshot.userId) {
                 if (authSnapshot.isLoading) {
                     pendingLegacyImportSummaryRef.current = eventData;
