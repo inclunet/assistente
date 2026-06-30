@@ -358,6 +358,7 @@ function ChatSessionViewContent({
       ? sessionSendFailureMessage
       : null
   );
+  const lastAnnouncedSessionSendFailureRef = useRef<string | null>(null);
   const effectiveFailedMessage = lastFailedMessage ?? (sessionSendFailureRetryable ? sessionSendFailureRetry : null);
   const canRetryEffectiveSendError = !!effectiveFailedMessage && (!!sendError || sessionSendFailureRetryable);
 
@@ -698,6 +699,21 @@ function ChatSessionViewContent({
   }, [effectiveSendError]);
 
   useEffect(() => {
+    const sessionFailureToAnnounce = sessionSendFailureMessage
+      && sessionSendFailureMessage !== dismissedSessionSendError
+      ? sessionSendFailureMessage
+      : null;
+    if (!sessionFailureToAnnounce) {
+      lastAnnouncedSessionSendFailureRef.current = null;
+      return;
+    }
+    if (!isInteractiveSurface || sendError || lastAnnouncedSessionSendFailureRef.current === sessionFailureToAnnounce) return;
+
+    lastAnnouncedSessionSendFailureRef.current = sessionFailureToAnnounce;
+    announce(sessionFailureToAnnounce, 'assertive');
+  }, [announce, dismissedSessionSendError, isInteractiveSurface, sendError, sessionSendFailureMessage]);
+
+  useEffect(() => {
     const windowState = session?.messageWindow;
     latestWindowKeyRef.current = windowState
       ? `${windowState.startIndex}:${windowState.endIndex}:${windowState.totalCount}`
@@ -757,6 +773,7 @@ function ChatSessionViewContent({
       setSendError(null);
       setLastFailedMessage(null);
       setDismissedSessionSendError(null);
+      lastAnnouncedSessionSendFailureRef.current = null;
       if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
       await controller.sendMessage(content, mediaFiles);
     } catch (error: unknown) {
@@ -781,6 +798,7 @@ function ChatSessionViewContent({
     try {
       setSendError(null);
       setDismissedSessionSendError(null);
+      lastAnnouncedSessionSendFailureRef.current = null;
       if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
       await controller.sendMessage(effectiveFailedMessage.content, effectiveFailedMessage.media);
       setLastFailedMessage(null);

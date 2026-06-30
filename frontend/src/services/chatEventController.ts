@@ -716,7 +716,6 @@ export function startChatEventController({
       logger.error('[Chat] Error sending message:', message);
       playChatErrorSoundIfActive(conversationId, origin);
       const sendFailureMessage = i18next.t('chat.sendErrorPrefix', { message });
-      announce(sendFailureMessage, 'assertive');
       cleanup();
       adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
       patchCurrentSession({

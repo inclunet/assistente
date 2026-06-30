@@ -31,6 +31,7 @@ interface StreamingAnnouncementState {
   previousOriginKey: string;
   wasStreaming: boolean;
   emptyCompletionAnnounced: boolean;
+  cleanupTimer?: number;
 }
 
 const streamingAnnouncementStates = new Map<string, StreamingAnnouncementState>();
@@ -40,6 +41,9 @@ function getStreamingAnnouncementState(messageId: string): StreamingAnnouncement
   if (!state) {
     state = { previous: '', previousOriginKey: '', wasStreaming: false, emptyCompletionAnnounced: false };
     streamingAnnouncementStates.set(messageId, state);
+  } else if (state.cleanupTimer !== undefined) {
+    window.clearTimeout(state.cleanupTimer);
+    state.cleanupTimer = undefined;
   }
   return state;
 }
@@ -324,7 +328,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   }, [announceRequest, conclusionContent, effectiveIsStreaming, hasAgenticSegments, isAgenticStreaming, message.id, origin, role, t]);
 
   useEffect(() => () => {
-    streamingAnnouncementStates.delete(message.id);
+    const announcementState = streamingAnnouncementStates.get(message.id);
+    if (!announcementState) return;
+    announcementState.cleanupTimer = window.setTimeout(() => {
+      if (streamingAnnouncementStates.get(message.id) === announcementState) {
+        streamingAnnouncementStates.delete(message.id);
+      }
+    }, EMPTY_STREAM_CLEANUP_MS);
   }, [message.id]);
 
   const formatTime = (timestamp: number) => {
