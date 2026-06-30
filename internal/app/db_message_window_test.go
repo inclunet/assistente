@@ -233,6 +233,9 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 	if err := database.DB().Save(finalAssistant).Error; err != nil {
 		t.Fatalf("save final assistant turn: %v", err)
 	}
+	if _, err := database.AddChildMessageWithContext(ctx, conv.ID, finalAssistant.ID, "assistant", "resposta filha", ""); err != nil {
+		t.Fatalf("create child for consolidated representative: %v", err)
+	}
 
 	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
 		ConversationID: conv.ID,
@@ -257,6 +260,9 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 	turnNode := window.Nodes[1]
 	if turnNode.Message.ID != finalAssistant.ID {
 		t.Fatalf("expected turn representative to be final assistant, got %s", turnNode.Message.ID)
+	}
+	if turnNode.ChildCount != 1 {
+		t.Fatalf("expected child count from consolidated representative only, got %d", turnNode.ChildCount)
 	}
 	if turnNode.OriginalIndex == nil || *turnNode.OriginalIndex != 1 {
 		t.Fatalf("expected canonical originalIndex=1 for turn item, got %v", turnNode.OriginalIndex)

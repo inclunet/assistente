@@ -44,6 +44,7 @@ func shouldLogInvalidToolCalls(messageID string) bool {
 	}
 	if len(invalidToolCallsLogState.order) >= invalidToolCallsLogLimit {
 		oldest := invalidToolCallsLogState.order[0]
+		invalidToolCallsLogState.order[0] = ""
 		invalidToolCallsLogState.order = invalidToolCallsLogState.order[1:]
 		delete(invalidToolCallsLogState.seen, oldest)
 	}
@@ -291,6 +292,8 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 		if encoded, err := json.Marshal(allToolCalls); err == nil {
 			consolidated.ToolCalls = string(encoded)
 		}
+	} else {
+		consolidated.ToolCalls = ""
 	}
 	if assistantCount <= 1 && len(allToolCalls) == 0 {
 		return ConsolidatedTurnResult{Message: consolidated, Segments: nil}

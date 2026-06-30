@@ -306,6 +306,25 @@ func TestParseToolCalls_InvalidJSONReturnsNil(t *testing.T) {
 	}
 }
 
+func TestConsolidateTimelineTurn_InvalidToolCallsClearsRepresentativeToolCalls(t *testing.T) {
+	resetInvalidToolCallsLogStateForTest(t)
+
+	turnID := "turn-1"
+	result := ConsolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-invalid-tool-calls"},
+			Role:      "assistant",
+			Content:   "resposta",
+			TurnID:    &turnID,
+			ToolCalls: "{invalid",
+		},
+	}, nil)
+
+	if result.Message.ToolCalls != "" {
+		t.Fatalf("expected invalid representative tool calls to be cleared, got %q", result.Message.ToolCalls)
+	}
+}
+
 func TestParseToolCalls_InvalidJSONLogsOncePerMessage(t *testing.T) {
 	resetInvalidToolCallsLogStateForTest(t)
 

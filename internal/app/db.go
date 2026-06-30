@@ -80,19 +80,22 @@ func (a *App) GetMessages(conversationID string, parentID *string) ([]chat.Messa
 	return buildMessageNodesWithInvocationFallback(ctx, messages, parentID), nil
 }
 
-func messageChildCounts(ctx context.Context, messages []database.ChatMessage) map[string]int {
-	if len(messages) == 0 {
-		return map[string]int{}
+func assignMessageNodeChildCounts(ctx context.Context, nodes []chat.MessageNode) []chat.MessageNode {
+	if len(nodes) == 0 {
+		return nodes
 	}
-	msgIDs := make([]string, len(messages))
-	for i, msg := range messages {
-		msgIDs[i] = msg.ID
+	msgIDs := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		msgIDs = append(msgIDs, node.Message.ID)
 	}
 	childCounts, err := database.CountChildrenWithContext(ctx, msgIDs)
 	if err != nil {
 		childCounts = make(map[string]int)
 	}
-	return childCounts
+	for i := range nodes {
+		nodes[i].ChildCount = childCounts[nodes[i].Message.ID]
+	}
+	return nodes
 }
 
 func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
@@ -101,12 +104,14 @@ func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []dat
 	}
 
 	invocationToolResults := loadChatToolInvocationResultsForTurnIDs(ctx, chat.CollectTurnIDsWithToolCalls(messages))
-	return chat.BuildNodesWithTimelineConsolidation(messages, parentID, messageChildCounts(ctx, messages), invocationToolResults)
+	nodes := chat.BuildNodesWithTimelineConsolidation(messages, parentID, map[string]int{}, invocationToolResults)
+	return assignMessageNodeChildCounts(ctx, nodes)
 }
 
 func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
 	invocationToolResults := loadChatToolInvocationResultsForTurnIDs(ctx, chat.CollectTurnIDsWithToolCalls(messages))
-	return chat.BuildTimelineMessageNodes(items, messages, parentID, messageChildCounts(ctx, messages), invocationToolResults)
+	nodes := chat.BuildTimelineMessageNodes(items, messages, parentID, map[string]int{}, invocationToolResults)
+	return assignMessageNodeChildCounts(ctx, nodes)
 }
 
 func loadChatToolInvocationResultsForTurnIDs(ctx context.Context, turnIDs []string) map[string]map[string]string {
