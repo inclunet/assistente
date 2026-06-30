@@ -222,7 +222,9 @@ Todas as queries de recursos devem filtrar por `user_id`, implementado via helpe
 | `task_lists` | `user_id` | TEXT | FK→users.id, INDEX |
 
 **Mudanças de constraints**:
-- `credential_entries`: unique muda de `(pattern)` para `(user_id, pattern)`
+- `llm_providers`: qualquer chave/índice único baseado no identificador do provider deixa de ser global e passa a ser escopado por usuário, por exemplo `(user_id, id)`/`(user_id, slug)`, para permitir providers com o mesmo identificador em contas diferentes.
+- `credential_entries`: unique muda de `(pattern)` para `(user_id, pattern)` para credenciais de usuário.
+- `credential_entries`: segredos de instância continuam sem owner (`user_id` nulo), com unique separado por `pattern` apenas para prefixes internos como `internal-auth:*` e `internal-tls:*`.
 
 ---
 
@@ -256,7 +258,11 @@ Todas as queries de recursos devem filtrar por `user_id`, implementado via helpe
 
 10. Adicionar `user_id` em `llm_providers`, `conversations`, `credential_entries`, `task_lists`.
 11. Atualizar repositories/queries para enforcement central de `user_id`.
-12. Migração/backfill para instalações existentes.
+12. Migração/backfill para instalações existentes:
+   - criar/associar o admin local antes do backfill;
+   - deduplicar `credential_entries` legadas por `pattern` antes de criar o unique `(user_id, pattern)`;
+   - manter `credential_entries` com prefixes `internal-auth:*` e `internal-tls:*` sem `user_id`, pois são segredos de instância;
+   - criar índices únicos user-scoped somente após deduplicação e exclusão dos segredos internos.
 
 ### Fase 4 — HTTP API local + TLS
 
@@ -392,6 +398,7 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
               │    - llm_providers           │
               │    - conversations           │
               │    - credential_entries      │
+              │      (exceto internos)       │
               │    - task_lists              │
               └──────────────────────────────┘
 ```
