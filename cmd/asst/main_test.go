@@ -31,3 +31,19 @@ func TestSilenceDefaultLogsAlsoSilencesSlog(t *testing.T) {
 		t.Fatalf("slog was not silenced: %q", slogBuf.String())
 	}
 }
+
+func TestEnableVerboseLogsEnablesSlogDebug(t *testing.T) {
+	var slogBuf bytes.Buffer
+	prevSlog := slog.Default()
+	t.Cleanup(func() {
+		slog.SetDefault(prevSlog)
+	})
+
+	enableVerboseLogs(&slogBuf)
+
+	slog.Debug("structured debug log")
+
+	if slogBuf.Len() == 0 {
+		t.Fatal("slog debug log was not emitted")
+	}
+}

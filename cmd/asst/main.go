@@ -55,6 +55,10 @@ var rootCmd = &cobra.Command{
 			}
 		}()
 
+		if verbose {
+			enableVerboseLogs(os.Stderr)
+		}
+
 		rootApp = app.NewApp()
 
 		cliEmitter = cliadapter.NewEmitterAdapter(
@@ -122,6 +126,13 @@ func init() {
 func silenceDefaultLogs() {
 	log.SetOutput(io.Discard)
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func enableVerboseLogs(w io.Writer) {
+	if w == nil {
+		w = os.Stderr
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug})))
 }
 
 var versionCmd = &cobra.Command{
