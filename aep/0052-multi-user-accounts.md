@@ -462,7 +462,7 @@ Etapa 7: Modelo                           ← exige sessão/user_id
 8. **Sessões**: `sessions` persiste refresh token hash; logout revoga a sessão.
 9. **Refresh rotation**: refresh rotaciona sempre; reuse revoga sessão inteira.
 10. **JWT access**: JWT tem claims mínimas (`iss/aud/sub/sid/iat/exp`, `jti` recomendado) e expiração curta.
-11. **Scoping por user_id**: providers, conversas, credenciais e task lists filtrados por `user_id` derivado do token.
+11. **Scoping por user_id**: providers, conversas, credenciais de usuário e task lists filtrados por `user_id` derivado do token; segredos de instância `internal-auth:*`/`internal-tls:*` permanecem no escopo reservado `user_id = ''` e só são acessados por serviços internos.
 12. **API HTTP local**: endpoints `/vault/*`, `/auth/*`, `/.well-known/jwks.json` disponíveis.
 13. **TLS na LAN**: HTTPS obrigatório fora de localhost; HTTP puro só em localhost/dev explícito.
 14. **External mode**: valida JWT do IdP via JWKS e aplica scopes/roles do IdP.
