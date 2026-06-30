@@ -44,7 +44,11 @@ export function SignalRegistrationFlow({
       || (regStep === 'done'
         ? `${account} ${t('channels.signalRegistration.registeredSuccess')}`
         : '');
-    if (!message || message === previousAnnouncementRef.current) return;
+    if (!message) {
+      previousAnnouncementRef.current = '';
+      return;
+    }
+    if (message === previousAnnouncementRef.current) return;
     announce(message, regError ? 'assertive' : 'polite');
     previousAnnouncementRef.current = message;
   }, [account, announce, regError, regStep, t]);
