@@ -839,7 +839,16 @@ func newRealTaskListFixture(t *testing.T) realTaskListFixture {
 	if err != nil {
 		t.Fatalf("open tasklist test db: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("open tasklist sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
 	database.SetDB(db)
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+		database.SetDB(previous)
+	})
 	if err := db.AutoMigrate(
 		&database.TaskListWorkflow{},
 		&database.TaskList{},
@@ -848,13 +857,6 @@ func newRealTaskListFixture(t *testing.T) realTaskListFixture {
 	); err != nil {
 		t.Fatalf("migrate tasklist test db: %v", err)
 	}
-	t.Cleanup(func() {
-		sqlDB, _ := db.DB()
-		if sqlDB != nil {
-			_ = sqlDB.Close()
-		}
-		database.SetDB(previous)
-	})
 
 	mgr := &realTaskListManager{Service: tasklistsvc.NewService(tasklistsvc.ServiceConfig{
 		Store:   tasklistsvc.NewDBStore(),
