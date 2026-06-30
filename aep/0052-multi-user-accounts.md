@@ -96,7 +96,7 @@ Após esta AEP, a detecção é dividida em dois gates: `NeedsBootstrapWizard()`
 Se a DEK não estiver disponível (keyring vazio + não houve unlock), o servidor entra em `VaultLocked` e expõe apenas endpoints mínimos (sem auth) para recuperar o cofre:
 
 - `GET /vault/status`
-- `POST /vault/unlock` (senha mestre do cofre ou recovery key)
+- `POST /vault/unlock` (senha mestre do cofre ou recovery key; loopback por padrão enquanto `VaultLocked`)
 - `POST /vault/setup` (apenas no primeiro uso, quando ainda não há wraps; restrito a loopback até o bootstrap concluir)
 
 ### D4. Dois modos de autenticação/autorização
@@ -153,6 +153,7 @@ Endpoints mínimos (local mode):
 Segurança:
 
 - Durante o primeiro uso, `/vault/setup` só aceita conexões loopback (`127.0.0.1`/localhost). Bind em rede só é permitido após cofre e admin local existirem.
+- Enquanto o servidor estiver em `VaultLocked`, `/vault/unlock` também só aceita loopback por padrão, com rate limit e backoff por origem. Desbloqueio remoto exige canal administrativo explicitamente configurado fora desta fase.
 - HTTPS é **obrigatório** quando o bind não for localhost.
 - HTTP puro só permitido em `127.0.0.1` e/ou modo dev explícito.
 

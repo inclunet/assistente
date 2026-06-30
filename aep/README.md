@@ -55,7 +55,7 @@ Nota de numeração: AEP-0054 está ocupada por `0054-split-server-client-agent.
 
 ## Números livres
 
-0054 não está livre. Próximas propostas devem consultar este índice e usar o próximo número realmente disponível após as AEPs já listadas ou reservadas.
+0054 e 0055 não são lacunas reutilizáveis. Próximas propostas devem consultar este índice e usar o próximo número realmente disponível após as AEPs já listadas ou reservadas.
 
 ## Status Legend
 
