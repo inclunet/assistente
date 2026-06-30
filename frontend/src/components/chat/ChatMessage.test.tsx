@@ -253,6 +253,50 @@ describe('ChatMessage', () => {
     });
   });
 
+  it('anuncia conclusão genérica quando streaming agêntico termina sem texto final', () => {
+    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const streamingMessage = new chat.EnrichedMessage({
+      id: 'assistant-empty-final-1',
+      conversationId,
+      role: 'assistant',
+      content: '',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+    const completedMessage = new chat.EnrichedMessage({
+      ...streamingMessage,
+      isStreaming: false,
+      turnSegments: [
+        {
+          type: 'tool_calls',
+          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+        },
+      ],
+    });
+
+    const { rerender } = render(
+      <ChatMessage
+        message={streamingMessage}
+        origin={origin}
+        completedSegments={[
+          {
+            type: 'tool_calls',
+            toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+          },
+        ]}
+      />
+    );
+    rerender(<ChatMessage message={completedMessage} origin={origin} />);
+
+    expect(announceRequestMock).toHaveBeenLastCalledWith({
+      message: 'chat.progressLabel',
+      origin,
+      eventType: 'completion',
+    });
+  });
+
   it('adia renderizacao de markdown grande ate entrar na area visivel', async () => {
     let observerCallback: IntersectionObserverCallback | null = null;
     class MockIntersectionObserver {

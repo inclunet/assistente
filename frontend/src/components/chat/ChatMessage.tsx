@@ -100,6 +100,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const previousShouldDeferHeavyContentRef = useRef(false);
   const previousStreamingAnnouncementRef = useRef('');
+  const emptyCompletionAnnouncementRef = useRef(false);
   const wasStreamingRef = useRef(false);
   const {
     liveContent,
@@ -231,6 +232,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     const text = conclusionContent.trim();
     if (effectiveIsStreaming) {
       wasStreamingRef.current = true;
+      emptyCompletionAnnouncementRef.current = false;
       const message = text || (isAgenticStreaming ? t('chat.progressLabel') : '');
       if (!message) return;
 
@@ -256,15 +258,26 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     }
 
     previousStreamingAnnouncementRef.current = '';
-    if (!text) return;
+    if (!text) {
+      if (hasAgenticSegments && !emptyCompletionAnnouncementRef.current) {
+        emptyCompletionAnnouncementRef.current = true;
+        announceRequest({
+          message: t('chat.progressLabel'),
+          origin,
+          eventType: 'completion',
+        });
+      }
+      return;
+    }
 
     wasStreamingRef.current = false;
+    emptyCompletionAnnouncementRef.current = false;
     announceRequest({
       message: text,
       origin,
       eventType: 'completion',
     });
-  }, [announceRequest, conclusionContent, effectiveIsStreaming, isAgenticStreaming, origin, role, t]);
+  }, [announceRequest, conclusionContent, effectiveIsStreaming, hasAgenticSegments, isAgenticStreaming, origin, role, t]);
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
