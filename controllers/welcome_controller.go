@@ -651,7 +651,7 @@ func (c *WelcomeController) checkForUpdatesAfterWizard() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	logging.Errorf(context.Background(), "controllers.welcome-controller", "[Wizard] Verificando atualizações disponíveis...")
+	logging.Infof(context.Background(), "controllers.welcome-controller", "[Wizard] Verificando atualizações disponíveis...")
 
 	info, err := c.updater.CheckForUpdates(ctx)
 	if err != nil {

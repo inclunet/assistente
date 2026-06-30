@@ -206,7 +206,7 @@ func (m *Manager) migrateDefaultRules() error {
 	al.CommandRules = append(al.CommandRules, added...)
 	if err := m.save(defaultSlug, al); err != nil {
 		// Nao falhamos o boot: logamos e seguimos como antes.
-		logging.Infof(context.Background(), "allowlist.manager", "[Allowlist] Migracao falhou ao salvar %s: %v", filename, err)
+		logging.Errorf(context.Background(), "allowlist.manager", "[Allowlist] Migracao falhou ao salvar %s: %v", filename, err)
 		return nil
 	}
 

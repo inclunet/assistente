@@ -91,8 +91,12 @@ func (c *UpdaterController) CheckForUpdatesOnStartup(ctx context.Context) {
 	time.Sleep(5 * time.Second)
 
 	provCount, countErr := c.providerSvc.Count(ctx)
-	if countErr != nil || provCount == 0 {
-		logging.Errorf(ctx, "controllers.updater-controller", "[Updater] Pulando verificação de atualizações: nenhum provider configurado")
+	if countErr != nil {
+		logging.Errorf(ctx, "controllers.updater-controller", "[Updater] Erro ao contar providers para verificação de atualizações: %v", countErr)
+		return
+	}
+	if provCount == 0 {
+		logging.Infof(ctx, "controllers.updater-controller", "[Updater] Pulando verificação de atualizações: nenhum provider configurado")
 		return
 	}
 
