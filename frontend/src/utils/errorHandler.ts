@@ -5,14 +5,13 @@
 
 import { logger } from './logger';
 import { announce } from '../hooks/useAnnouncer';
+import type { AnnouncePriority } from '../services/voiceAccessibility/announcerBroker';
 
 export enum ErrorSeverity {
   /** User error - validation, bad input */
   USER = 'user',
   /** Recoverable error - can retry */
   RECOVERABLE = 'recoverable',
-  /** Recoverable error that should interrupt screen readers */
-  RECOVERABLE_ASSERTIVE = 'recoverable_assertive',
   /** Fatal error - requires app restart or navigation */
   FATAL = 'fatal',
 }
@@ -26,6 +25,8 @@ export interface ErrorContext {
   technicalMessage?: string;
   /** Error severity level */
   severity: ErrorSeverity;
+  /** Screen reader priority override for recoverable errors that require immediate feedback */
+  announcePriority?: AnnouncePriority;
   /** Retry callback if recoverable */
   onRetry?: () => void | Promise<void>;
   /** Additional context data */
@@ -47,10 +48,7 @@ export function handleError(error: unknown, context: ErrorContext): void {
   });
 
   // Announce to screen readers
-  const priority = context.severity === ErrorSeverity.FATAL
-    || context.severity === ErrorSeverity.RECOVERABLE_ASSERTIVE
-    ? 'assertive'
-    : 'polite';
+  const priority = context.announcePriority ?? (context.severity === ErrorSeverity.FATAL ? 'assertive' : 'polite');
   announce(context.userMessage, priority);
 
   // TODO: Send to error tracking service (Sentry, etc.)

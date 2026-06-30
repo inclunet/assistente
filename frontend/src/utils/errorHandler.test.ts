@@ -18,11 +18,12 @@ describe('errorHandler', () => {
     expect(announceSpy).toHaveBeenCalledWith('Falha', 'polite');
   });
 
-  it('anuncia erro recuperável assertivo com prioridade assertive', () => {
+  it('respeita override de prioridade assertive', () => {
     handleError(new Error('x'), {
       source: 'test',
       userMessage: 'Falha crítica',
-      severity: ErrorSeverity.RECOVERABLE_ASSERTIVE,
+      severity: ErrorSeverity.RECOVERABLE,
+      announcePriority: 'assertive',
     });
 
     expect(announceSpy).toHaveBeenCalledWith('Falha crítica', 'assertive');
