@@ -18,6 +18,7 @@ import {
   isClosingMarkdownFence,
   type MarkdownFenceMarker,
 } from '../../lib/markdownFence';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 
 const RAW_HTML_RE = /<\/?[a-z][a-z0-9-]*(?:\s|>|\/>)/i;
 
@@ -122,9 +123,11 @@ export function EditorContentArea({
   onRemoveMermaid,
 }: EditorContentAreaProps) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const [activeRevealSlideIndex, setActiveRevealSlideIndex] = useState(0);
   const lastRevealAppendNonceRef = useRef(revealAppendNonce);
   const lastRevealSlideNavigationNonceRef = useRef(revealSlideNavigationRequest?.nonce ?? 0);
+  const previousRevealSlideAnnouncementRef = useRef<string | null>(null);
   const revealDeck = useMemo(
     () => parseRevealMarkdown(activeTab?.markdown || ''),
     [activeTab?.markdown]
@@ -149,6 +152,12 @@ export function EditorContentArea({
       ? `${activeTab.id}:reveal-slide:${activeRevealSlide.index}`
       : `${activeTab.id}:document`
     : 'empty';
+  const activeRevealSlideLabel = isRevealDocument && activeRevealSlide
+    ? t('editor.presentation.slideLabel', {
+        current: activeRevealSlide.index + 1,
+        total: revealDeck.slides.length,
+      })
+    : '';
 
   const getLatestMarkdown = () => {
     if (!activeTab) return '';
@@ -171,6 +180,21 @@ export function EditorContentArea({
   useEffect(() => {
     onRevealSlideIndexChange?.(activeRevealSlide?.index ?? 0);
   }, [activeRevealSlide?.index, onRevealSlideIndexChange]);
+
+  useEffect(() => {
+    if (!activeRevealSlideLabel) {
+      previousRevealSlideAnnouncementRef.current = null;
+      return;
+    }
+    if (previousRevealSlideAnnouncementRef.current === null) {
+      previousRevealSlideAnnouncementRef.current = activeRevealSlideLabel;
+      return;
+    }
+    if (previousRevealSlideAnnouncementRef.current === activeRevealSlideLabel) return;
+
+    previousRevealSlideAnnouncementRef.current = activeRevealSlideLabel;
+    announce(activeRevealSlideLabel);
+  }, [activeRevealSlideLabel, announce]);
 
   useEffect(() => {
     if (!isRevealDocument) {
@@ -351,10 +375,7 @@ export function EditorContentArea({
             <div className="editor-page__pane-body">
               {isRevealDocument && activeRevealSlide ? (
                 <div className="editor-page__presentation-current">
-                  {t('editor.presentation.slideLabel', {
-                    current: activeRevealSlide.index + 1,
-                    total: revealDeck.slides.length,
-                  })}
+                  {activeRevealSlideLabel}
                 </div>
               ) : null}
               <RichTextEditor
