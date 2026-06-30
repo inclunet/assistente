@@ -15,17 +15,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// ==================== Fake Manager ====================
+// ==================== Real-backed Manager Stub ====================
 
 type fakeTaskListManager struct {
-	taskLists      map[string]*database.TaskList
-	tasks          map[string]*database.Task
-	workflows      map[string]*database.TaskListWorkflow
-	notes          map[string][]database.TaskNote
-	extNoteIndex   map[string]string
-	nextListID     int
-	nextTaskID     int
-	nextNoteID     int
+	*realTaskListManager
+	ctx       context.Context
+	db        *gorm.DB
+	taskLists map[string]*database.TaskList
+	tasks     map[string]*database.Task
+	workflows map[string]*database.TaskListWorkflow
+	notes     map[string][]database.TaskNote
+
 	createListErr  error
 	getListErr     error
 	getAllErr      error
@@ -41,42 +41,177 @@ type fakeTaskListManager struct {
 }
 
 func newFakeManager() *fakeTaskListManager {
-	return &fakeTaskListManager{
-		taskLists:    make(map[string]*database.TaskList),
-		tasks:        make(map[string]*database.Task),
-		workflows:    make(map[string]*database.TaskListWorkflow),
-		notes:        make(map[string][]database.TaskNote),
-		extNoteIndex: make(map[string]string),
-		nextListID:   1,
-		nextTaskID:   1,
-		nextNoteID:   1,
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		panic(fmt.Sprintf("open fake tasklist db: %v", err))
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		panic(fmt.Sprintf("open fake tasklist sql db: %v", err))
+	}
+	sqlDB.SetMaxOpenConns(1)
+	database.SetDB(db)
+	if err := db.AutoMigrate(
+		&database.TaskListWorkflow{},
+		&database.TaskList{},
+		&database.Task{},
+		&database.TaskNote{},
+	); err != nil {
+		panic(fmt.Sprintf("migrate fake tasklist db: %v", err))
+	}
+	mgr := &fakeTaskListManager{
+		ctx:       database.WithUserID(context.Background(), "tasklist-tool-fake-user"),
+		db:        db,
+		taskLists: make(map[string]*database.TaskList),
+		tasks:     make(map[string]*database.Task),
+		workflows: make(map[string]*database.TaskListWorkflow),
+		notes:     make(map[string][]database.TaskNote),
+	}
+	mgr.realTaskListManager = &realTaskListManager{Service: tasklistsvc.NewService(tasklistsvc.ServiceConfig{
+		Store:   tasklistsvc.NewDBStore(),
+		Emitter: noopTaskListEmitter{},
+	})}
+	return mgr
+}
+
+func (f *fakeTaskListManager) syncDBFromSnapshots() {
+	for _, tl := range f.taskLists {
+		if tl == nil || tl.ID == "" {
+			continue
+		}
+		_ = f.db.Model(&database.TaskList{}).
+			Where("id = ?", tl.ID).
+			Select("title", "slug", "description", "preferred_view_mode", "validation_policy", "custom_actions", "conversation_id").
+			Updates(map[string]any{
+				"title":               tl.Title,
+				"slug":                tl.Slug,
+				"description":         tl.Description,
+				"preferred_view_mode": tl.PreferredViewMode,
+				"validation_policy":   tl.ValidationPolicy,
+				"custom_actions":      tl.CustomActions,
+				"conversation_id":     tl.ConversationID,
+			}).Error
+	}
+	for _, wf := range f.workflows {
+		if wf == nil || wf.ID == "" {
+			continue
+		}
+		_ = f.db.Model(&database.TaskListWorkflow{}).
+			Where("id = ?", wf.ID).
+			Select("statuses", "allowed_transitions", "initial_status_id").
+			Updates(map[string]any{
+				"statuses":            wf.Statuses,
+				"allowed_transitions": wf.AllowedTransitions,
+				"initial_status_id":   wf.InitialStatusID,
+			}).Error
+	}
+	for _, task := range f.tasks {
+		if task == nil || task.ID == "" {
+			continue
+		}
+		_ = f.db.Model(&database.Task{}).
+			Where("id = ?", task.ID).
+			Select("task_list_id", "title", "description", "code", "link", "status_id", "parent_id", "assignee_name", "assignee_id", "creator_name", "creator_id", "conversation_id").
+			Updates(map[string]any{
+				"task_list_id":    task.TaskListID,
+				"title":           task.Title,
+				"description":     task.Description,
+				"code":            task.Code,
+				"link":            task.Link,
+				"status_id":       task.StatusID,
+				"parent_id":       task.ParentID,
+				"assignee_name":   task.AssigneeName,
+				"assignee_id":     task.AssigneeID,
+				"creator_name":    task.CreatorName,
+				"creator_id":      task.CreatorID,
+				"conversation_id": task.ConversationID,
+			}).Error
 	}
 }
 
-func (f *fakeTaskListManager) addTaskList(title string, statuses []database.TaskListWorkflowStatus) *database.TaskList {
-	id := fmt.Sprintf("%d", f.nextListID)
-	f.nextListID++
+func (f *fakeTaskListManager) refreshSnapshots() {
+	var lists []database.TaskList
+	_ = f.db.Preload("Workflow").Find(&lists).Error
+	seenLists := make(map[string]bool, len(lists))
+	for i := range lists {
+		tl := lists[i]
+		seenLists[tl.ID] = true
+		if existing := f.taskLists[tl.ID]; existing != nil {
+			*existing = tl
+		} else {
+			copy := tl
+			f.taskLists[tl.ID] = &copy
+		}
+		if tl.Workflow != nil {
+			wf := *tl.Workflow
+			if existing := f.workflows[tl.ID]; existing != nil {
+				*existing = wf
+			} else {
+				f.workflows[tl.ID] = &wf
+			}
+		}
+	}
+	for id := range f.taskLists {
+		if !seenLists[id] {
+			delete(f.taskLists, id)
+			delete(f.workflows, id)
+		}
+	}
 
+	var tasks []database.Task
+	_ = f.db.Find(&tasks).Error
+	seenTasks := make(map[string]bool, len(tasks))
+	for i := range tasks {
+		task := tasks[i]
+		seenTasks[task.ID] = true
+		if existing := f.tasks[task.ID]; existing != nil {
+			*existing = task
+		} else {
+			copy := task
+			f.tasks[task.ID] = &copy
+		}
+	}
+	for id := range f.tasks {
+		if !seenTasks[id] {
+			delete(f.tasks, id)
+		}
+	}
+
+	var notes []database.TaskNote
+	_ = f.db.Find(&notes).Error
+	f.notes = make(map[string][]database.TaskNote)
+	for _, note := range notes {
+		f.notes[note.TaskID] = append(f.notes[note.TaskID], note)
+	}
+}
+
+func (f *fakeTaskListManager) withRealState(fn func() error) error {
+	f.syncDBFromSnapshots()
+	err := fn()
+	f.refreshSnapshots()
+	return err
+}
+
+func (f *fakeTaskListManager) effectiveCtx(ctx context.Context) context.Context {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return f.ctx
+	}
+	return ctx
+}
+
+func workflowTemplate(statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions) *database.TaskListWorkflow {
 	statusesJSON, _ := json.Marshal(statuses)
-	transitions := database.TaskListWorkflowTransitions{1: {2, 3}, 2: {1, 3}, 3: {1, 2}}
 	transitionsJSON, _ := json.Marshal(transitions)
-
-	wf := &database.TaskListWorkflow{
-		TaskListID:         id,
+	return &database.TaskListWorkflow{
 		Statuses:           string(statusesJSON),
 		AllowedTransitions: string(transitionsJSON),
 		InitialStatusID:    1,
 	}
-	wf.ID = id
-	f.workflows[id] = wf
+}
 
-	tl := &database.TaskList{
-		Title:    title,
-		Workflow: wf,
-	}
-	tl.ID = id
-	f.taskLists[id] = tl
-	return tl
+func (f *fakeTaskListManager) addTaskList(title string, statuses []database.TaskListWorkflowStatus) *database.TaskList {
+	transitions := database.TaskListWorkflowTransitions{1: {2, 3}, 2: {1, 3}, 3: {1, 2}}
+	return f.addTaskListWithTransitions(title, statuses, transitions)
 }
 
 func defaultStatuses() []database.TaskListWorkflowStatus {
@@ -88,718 +223,376 @@ func defaultStatuses() []database.TaskListWorkflowStatus {
 }
 
 func (f *fakeTaskListManager) addTaskListWithTransitions(title string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions) *database.TaskList {
-	id := fmt.Sprintf("%d", f.nextListID)
-	f.nextListID++
-
-	statusesJSON, _ := json.Marshal(statuses)
-	transitionsJSON, _ := json.Marshal(transitions)
-
-	wf := &database.TaskListWorkflow{
-		TaskListID:         id,
-		Statuses:           string(statusesJSON),
-		AllowedTransitions: string(transitionsJSON),
-		InitialStatusID:    1,
+	f.syncDBFromSnapshots()
+	tl, err := f.realTaskListManager.CreateTaskList(f.ctx, title, "", workflowTemplate(statuses, transitions), "")
+	if err != nil {
+		panic(fmt.Sprintf("add task list: %v", err))
 	}
-	wf.ID = id
-	f.workflows[id] = wf
-
-	tl := &database.TaskList{
-		Title:    title,
-		Workflow: wf,
-	}
-	tl.ID = id
-	f.taskLists[id] = tl
-	return tl
+	f.refreshSnapshots()
+	return f.taskLists[tl.ID]
 }
 
 func (f *fakeTaskListManager) addTask(taskListID string, title string, statusID int) *database.Task {
-	id := fmt.Sprintf("%d", f.nextTaskID)
-	f.nextTaskID++
-	task := &database.Task{
-		TaskListID: taskListID,
-		Title:      title,
-		StatusID:   statusID,
+	f.syncDBFromSnapshots()
+	task, err := f.realTaskListManager.CreateTaskFull(f.ctx, taskListID, title, "", "", "", "", "", "", "", nil)
+	if err != nil {
+		panic(fmt.Sprintf("add task: %v", err))
 	}
-	task.ID = id
-	f.tasks[id] = task
-
-	if tl, ok := f.taskLists[taskListID]; ok {
-		tl.Tasks = append(tl.Tasks, *task)
-	}
-	return task
-}
-
-func (f *fakeTaskListManager) findTaskListIDBySlug(norm string) string {
-	if norm == "" {
-		return ""
-	}
-	for id, tl := range f.taskLists {
-		if database.NormalizeTaskListSlug(tl.Slug) == norm {
-			return id
+	if statusID != task.StatusID {
+		if err := f.db.Model(&database.Task{}).Where("id = ?", task.ID).Update("status_id", statusID).Error; err != nil {
+			panic(fmt.Sprintf("set task status fixture: %v", err))
 		}
 	}
-	return ""
+	f.refreshSnapshots()
+	return f.tasks[task.ID]
 }
 
-func (f *fakeTaskListManager) CreateTaskList(_ context.Context, title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
+func (f *fakeTaskListManager) CreateTaskList(ctx context.Context, title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
+	ctx = f.effectiveCtx(ctx)
 	if f.createListErr != nil {
 		return nil, f.createListErr
 	}
-	s := database.NormalizeTaskListSlug(slug)
-	if err := database.ValidateTaskListSlugFormat(s); err != nil {
-		return nil, err
+	var tl *database.TaskList
+	err := f.withRealState(func() error {
+		var err error
+		tl, err = f.realTaskListManager.CreateTaskList(ctx, title, description, templateWorkflow, slug)
+		return err
+	})
+	if tl != nil {
+		return f.taskLists[tl.ID], err
 	}
-	if s != "" {
-		if oid := f.findTaskListIDBySlug(s); oid != "" {
-			return nil, fmt.Errorf("slug %q já está em uso por outra lista", s)
-		}
-	}
-	tl := f.addTaskList(title, defaultStatuses())
-	tl.Description = description
-	tl.Slug = s
-	return tl, nil
+	return nil, err
 }
 
-func (f *fakeTaskListManager) GetTaskList(_ context.Context, id string) (*database.TaskList, error) {
+func (f *fakeTaskListManager) GetTaskList(ctx context.Context, id string) (*database.TaskList, error) {
+	ctx = f.effectiveCtx(ctx)
 	if f.getListErr != nil {
 		return nil, f.getListErr
 	}
-	tl, ok := f.taskLists[id]
-	if !ok {
-		return nil, fmt.Errorf("task list not found: %s", id)
+	f.syncDBFromSnapshots()
+	tl, err := f.realTaskListManager.GetTaskList(ctx, id)
+	f.refreshSnapshots()
+	if tl != nil {
+		return f.taskLists[tl.ID], err
 	}
-	return tl, nil
+	return nil, err
 }
 
-func (f *fakeTaskListManager) GetAllTaskLists(_ context.Context) ([]database.TaskList, error) {
+func (f *fakeTaskListManager) GetAllTaskLists(ctx context.Context) ([]database.TaskList, error) {
+	ctx = f.effectiveCtx(ctx)
 	if f.getAllErr != nil {
 		return nil, f.getAllErr
 	}
-	result := make([]database.TaskList, 0, len(f.taskLists))
-	for _, tl := range f.taskLists {
-		result = append(result, *tl)
-	}
-	return result, nil
+	f.syncDBFromSnapshots()
+	lists, err := f.realTaskListManager.GetAllTaskLists(ctx)
+	f.refreshSnapshots()
+	return lists, err
 }
 
-func (f *fakeTaskListManager) GetTaskListStats(_ context.Context, taskListID string) (map[string]interface{}, error) {
+func (f *fakeTaskListManager) GetTaskListStats(ctx context.Context, taskListID string) (map[string]interface{}, error) {
+	ctx = f.effectiveCtx(ctx)
 	if f.statsErr != nil {
 		return nil, f.statsErr
 	}
-	tl, ok := f.taskLists[taskListID]
-	if !ok {
-		return nil, fmt.Errorf("task list not found: %s", taskListID)
-	}
-	byStatus := make(map[string]int64)
-	for _, task := range tl.Tasks {
-		byStatus[fmt.Sprintf("%d", task.StatusID)]++
-	}
-	return map[string]interface{}{
-		"total":    int64(len(tl.Tasks)),
-		"byStatus": byStatus,
-	}, nil
+	f.syncDBFromSnapshots()
+	stats, err := f.realTaskListManager.GetTaskListStats(ctx, taskListID)
+	f.refreshSnapshots()
+	return stats, err
 }
 
-func (f *fakeTaskListManager) CreateTask(_ context.Context, taskListID string, title, description, code, link string, parentID *string) (*database.Task, error) {
+func (f *fakeTaskListManager) CreateTask(ctx context.Context, taskListID string, title, description, code, link string, parentID *string) (*database.Task, error) {
+	ctx = f.effectiveCtx(ctx)
 	if f.createTaskErr != nil {
 		return nil, f.createTaskErr
 	}
-	if _, ok := f.taskLists[taskListID]; !ok {
-		return nil, fmt.Errorf("task list not found: %s", taskListID)
+	var task *database.Task
+	err := f.withRealState(func() error {
+		var err error
+		task, err = f.realTaskListManager.CreateTask(ctx, taskListID, title, description, code, link, parentID)
+		return err
+	})
+	if task != nil {
+		return f.tasks[task.ID], err
 	}
-	pol, _ := fakeListPolicy(f, taskListID)
-	if err := database.ValidateTaskCodeAgainstPolicy(code, pol); err != nil {
-		return nil, err
-	}
-	wf := f.workflows[taskListID]
-	task := f.addTask(taskListID, title, wf.InitialStatusID)
-	task.Description = description
-	task.Code = code
-	task.Link = link
-	task.ParentID = parentID
-	return task, nil
+	return nil, err
 }
 
 func (f *fakeTaskListManager) CreateTaskFull(ctx context.Context, taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*database.Task, error) {
-	task, err := f.CreateTask(ctx, taskListID, title, description, code, link, parentID)
-	if err != nil {
-		return nil, err
+	ctx = f.effectiveCtx(ctx)
+	if f.createTaskErr != nil {
+		return nil, f.createTaskErr
 	}
-	task.AssigneeName = assigneeName
-	task.AssigneeID = assigneeID
-	task.CreatorName = creatorName
-	task.CreatorID = creatorID
-	return task, nil
+	var task *database.Task
+	err := f.withRealState(func() error {
+		var err error
+		task, err = f.realTaskListManager.CreateTaskFull(ctx, taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
+		return err
+	})
+	if task != nil {
+		return f.tasks[task.ID], err
+	}
+	return nil, err
 }
 
-func (f *fakeTaskListManager) GetTask(_ context.Context, id string) (*database.Task, error) {
+func (f *fakeTaskListManager) GetTask(ctx context.Context, id string) (*database.Task, error) {
+	ctx = f.effectiveCtx(ctx)
 	if f.getTaskErr != nil {
 		return nil, f.getTaskErr
 	}
-	task, ok := f.tasks[id]
-	if !ok {
-		return nil, fmt.Errorf("task not found: %s", id)
+	f.syncDBFromSnapshots()
+	task, err := f.realTaskListManager.GetTask(ctx, id)
+	f.refreshSnapshots()
+	if task != nil {
+		return f.tasks[task.ID], err
 	}
-	return task, nil
+	return nil, err
 }
 
-func (f *fakeTaskListManager) FindTaskByCode(_ context.Context, taskListID string, code string) (*database.Task, error) {
-	for _, task := range f.tasks {
-		if task.TaskListID == taskListID && task.Code == code {
-			return task, nil
-		}
+func (f *fakeTaskListManager) FindTaskByCode(ctx context.Context, taskListID string, code string) (*database.Task, error) {
+	ctx = f.effectiveCtx(ctx)
+	f.syncDBFromSnapshots()
+	task, err := f.realTaskListManager.FindTaskByCode(ctx, taskListID, code)
+	f.refreshSnapshots()
+	if task != nil {
+		return f.tasks[task.ID], err
 	}
-	return nil, nil
+	return nil, err
 }
 
-func (f *fakeTaskListManager) UpdateTask(_ context.Context, id string, title, description, code, link string) error {
+func (f *fakeTaskListManager) UpdateTask(ctx context.Context, id string, title, description, code, link string) error {
+	ctx = f.effectiveCtx(ctx)
 	if f.updateTaskErr != nil {
 		return f.updateTaskErr
 	}
-	task, ok := f.tasks[id]
-	if !ok {
-		return fmt.Errorf("task not found: %s", id)
-	}
-	pol, _ := fakeListPolicy(f, task.TaskListID)
-	if err := database.ValidateTaskCodeAgainstPolicy(code, pol); err != nil {
-		return err
-	}
-	task.Title = title
-	task.Description = description
-	task.Code = code
-	task.Link = link
-	return nil
+	return f.withRealState(func() error {
+		return f.realTaskListManager.UpdateTask(ctx, id, title, description, code, link)
+	})
 }
 
 func (f *fakeTaskListManager) UpdateTaskFull(ctx context.Context, id string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
-	if err := f.UpdateTask(ctx, id, title, description, code, link); err != nil {
-		return err
+	ctx = f.effectiveCtx(ctx)
+	if f.updateTaskErr != nil {
+		return f.updateTaskErr
 	}
-	task := f.tasks[id]
-	task.AssigneeName = assigneeName
-	task.AssigneeID = assigneeID
-	task.CreatorName = creatorName
-	task.CreatorID = creatorID
-	return nil
+	return f.withRealState(func() error {
+		return f.realTaskListManager.UpdateTaskFull(ctx, id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
+	})
 }
 
-func (f *fakeTaskListManager) UpdateTaskAssignee(_ context.Context, id string, assigneeName, assigneeID string) error {
-	task, ok := f.tasks[id]
-	if !ok {
-		return fmt.Errorf("task not found: %s", id)
-	}
-	task.AssigneeName = assigneeName
-	task.AssigneeID = assigneeID
-	return nil
+func (f *fakeTaskListManager) UpdateTaskAssignee(ctx context.Context, id string, assigneeName, assigneeID string) error {
+	ctx = f.effectiveCtx(ctx)
+	return f.withRealState(func() error {
+		return f.realTaskListManager.UpdateTaskAssignee(ctx, id, assigneeName, assigneeID)
+	})
 }
 
-func (f *fakeTaskListManager) SetTaskConversation(_ context.Context, id string, conversationID *string) error {
-	task, ok := f.tasks[id]
-	if !ok {
-		return fmt.Errorf("task not found: %s", id)
-	}
-	task.ConversationID = conversationID
-	return nil
+func (f *fakeTaskListManager) SetTaskConversation(ctx context.Context, id string, conversationID *string) error {
+	ctx = f.effectiveCtx(ctx)
+	return f.withRealState(func() error {
+		return f.realTaskListManager.SetTaskConversation(ctx, id, conversationID)
+	})
 }
 
-func (f *fakeTaskListManager) UpdateTaskStatus(_ context.Context, id string, newStatusID int) error {
+func (f *fakeTaskListManager) UpdateTaskStatus(ctx context.Context, id string, newStatusID int) error {
+	ctx = f.effectiveCtx(ctx)
 	if f.updateStatErr != nil {
 		return f.updateStatErr
 	}
-	task, ok := f.tasks[id]
-	if !ok {
-		return fmt.Errorf("task not found: %s", id)
-	}
-
-	wf, ok := f.workflows[task.TaskListID]
-	if !ok {
-		return fmt.Errorf("workflow not found for task list: %s", task.TaskListID)
-	}
-
-	if task.StatusID == newStatusID {
-		return nil
-	}
-
-	var statuses []database.TaskListWorkflowStatus
-	if err := json.Unmarshal([]byte(wf.Statuses), &statuses); err != nil {
-		return err
-	}
-
-	toExists := false
-	for _, s := range statuses {
-		if s.ID == newStatusID {
-			toExists = true
-			break
-		}
-	}
-	if !toExists {
-		labels := make([]string, len(statuses))
-		for i, s := range statuses {
-			labels[i] = fmt.Sprintf("%d (%s)", s.ID, s.Label)
-		}
-		return fmt.Errorf("status destino %d não existe no workflow. Status válidos: %s",
-			newStatusID, strings.Join(labels, ", "))
-	}
-
-	var transitions database.TaskListWorkflowTransitions
-	if err := json.Unmarshal([]byte(wf.AllowedTransitions), &transitions); err != nil {
-		return err
-	}
-
-	allowedStatuses, fromExists := transitions[task.StatusID]
-	if !fromExists {
-		task.StatusID = newStatusID
-		return nil
-	}
-
-	for _, sid := range allowedStatuses {
-		if sid == newStatusID {
-			task.StatusID = newStatusID
-			return nil
-		}
-	}
-
-	return fmt.Errorf("transição de status %d para %d não é permitida pelo workflow", task.StatusID, newStatusID)
+	return f.withRealState(func() error {
+		return f.realTaskListManager.UpdateTaskStatus(ctx, id, newStatusID)
+	})
 }
 
-func (f *fakeTaskListManager) DeleteTask(_ context.Context, id string) error {
+func (f *fakeTaskListManager) DeleteTask(ctx context.Context, id string) error {
+	ctx = f.effectiveCtx(ctx)
 	if f.deleteTaskErr != nil {
 		return f.deleteTaskErr
 	}
-	if _, ok := f.tasks[id]; !ok {
-		return fmt.Errorf("task not found: %s", id)
-	}
-	delete(f.tasks, id)
-	return nil
+	return f.withRealState(func() error {
+		return f.realTaskListManager.DeleteTask(ctx, id)
+	})
 }
 
-func (f *fakeTaskListManager) MoveTaskToList(_ context.Context, taskID string, targetTaskListID string) (*database.Task, error) {
-	task, ok := f.tasks[taskID]
-	if !ok {
-		return nil, fmt.Errorf("task not found: %s", taskID)
+func (f *fakeTaskListManager) MoveTaskToList(ctx context.Context, taskID string, targetTaskListID string) (*database.Task, error) {
+	ctx = f.effectiveCtx(ctx)
+	var task *database.Task
+	err := f.withRealState(func() error {
+		var err error
+		task, err = f.realTaskListManager.MoveTaskToList(ctx, taskID, targetTaskListID)
+		return err
+	})
+	if task != nil {
+		return f.tasks[task.ID], err
 	}
-	if task.TaskListID != targetTaskListID {
-		pol, _ := fakeListPolicy(f, targetTaskListID)
-		if err := database.ValidateTaskCodeAgainstPolicy(task.Code, pol); err != nil {
-			return nil, err
-		}
-	}
-	wf, ok := f.workflows[targetTaskListID]
-	if !ok {
-		return nil, fmt.Errorf("workflow not found for task list: %s", targetTaskListID)
-	}
-	task.TaskListID = targetTaskListID
-	task.StatusID = wf.InitialStatusID
-	task.ParentID = nil
-	return task, nil
+	return nil, err
 }
 
-func (f *fakeTaskListManager) GetWorkflow(_ context.Context, taskListID string) (*database.TaskListWorkflow, error) {
+func (f *fakeTaskListManager) GetWorkflow(ctx context.Context, taskListID string) (*database.TaskListWorkflow, error) {
+	ctx = f.effectiveCtx(ctx)
 	if f.getWorkflowErr != nil {
 		return nil, f.getWorkflowErr
 	}
-	wf, ok := f.workflows[taskListID]
-	if !ok {
-		return nil, fmt.Errorf("workflow not found for task list: %s", taskListID)
+	f.syncDBFromSnapshots()
+	wf, err := f.realTaskListManager.GetWorkflow(ctx, taskListID)
+	f.refreshSnapshots()
+	if wf != nil {
+		return f.workflows[taskListID], err
 	}
-	return wf, nil
+	return nil, err
 }
 
-func (f *fakeTaskListManager) CreateTaskNote(_ context.Context, taskID string, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
+func (f *fakeTaskListManager) CreateTaskNote(ctx context.Context, taskID string, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
+	ctx = f.effectiveCtx(ctx)
 	if f.createNoteErr != nil {
 		return nil, f.createNoteErr
 	}
-	if _, ok := f.tasks[taskID]; !ok {
-		return nil, fmt.Errorf("task not found: %s", taskID)
+	var note *database.TaskNote
+	err := f.withRealState(func() error {
+		var err error
+		note, err = f.realTaskListManager.CreateTaskNote(ctx, taskID, noteType, content, authorName, authorID)
+		return err
+	})
+	if note != nil {
+		notes := f.notes[note.TaskID]
+		for i := range notes {
+			if notes[i].ID == note.ID {
+				return &notes[i], err
+			}
+		}
 	}
-	id := fmt.Sprintf("%d", f.nextNoteID)
-	f.nextNoteID++
-	note := database.TaskNote{
-		TaskID:     taskID,
-		Type:       noteType,
-		Content:    content,
-		AuthorName: authorName,
-		AuthorID:   authorID,
-	}
-	note.ID = id
-	f.notes[taskID] = append(f.notes[taskID], note)
-	sl := f.notes[taskID]
-	return &sl[len(sl)-1], nil
+	return note, err
 }
 
-func (f *fakeTaskListManager) UpsertTaskNoteByExternal(_ context.Context, p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
+func (f *fakeTaskListManager) UpsertTaskNoteByExternal(ctx context.Context, p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
+	ctx = f.effectiveCtx(ctx)
 	if f.createNoteErr != nil {
 		return nil, false, f.createNoteErr
 	}
-	task, ok := f.tasks[p.TaskID]
-	if !ok {
-		return nil, false, fmt.Errorf("task not found: %s", p.TaskID)
-	}
-	src := strings.TrimSpace(p.ExternalSource)
-	ext := strings.TrimSpace(p.ExternalID)
-	if src == "" || ext == "" {
-		return nil, false, fmt.Errorf("external_source e external_id são obrigatórios")
-	}
-	pol, _ := fakeListPolicy(f, task.TaskListID)
-	if err := database.ValidateExternalNoteAgainstPolicy(src, ext, strings.TrimSpace(p.ExternalParentID), pol); err != nil {
-		return nil, false, err
-	}
-	key := src + "\x00" + ext
-
-	if noteID, ok := f.extNoteIndex[key]; ok {
-		for tid, notes := range f.notes {
-			for i := range notes {
-				if notes[i].ID != noteID {
-					continue
-				}
-				if tid != p.TaskID {
-					return nil, false, fmt.Errorf("nota com source=%q external_id=%q já existe na task %s; recusado vincular à task %s", src, ext, tid, p.TaskID)
-				}
-				n := &f.notes[tid][i]
-				n.Content = p.Content
-				n.AuthorName = strings.TrimSpace(p.AuthorName)
-				n.AuthorID = strings.TrimSpace(p.AuthorID)
-				n.ExternalSource = src
-				n.ExternalID = ext
-				n.ExternalParentID = strings.TrimSpace(p.ExternalParentID)
-				n.ExternalUpdatedAt = p.ExternalUpdatedAt
-				if p.Type != nil {
-					n.Type = *p.Type
-				}
-				return n, false, nil
+	var note *database.TaskNote
+	var created bool
+	err := f.withRealState(func() error {
+		var err error
+		note, created, err = f.realTaskListManager.UpsertTaskNoteByExternal(ctx, p)
+		return err
+	})
+	if note != nil {
+		notes := f.notes[note.TaskID]
+		for i := range notes {
+			if notes[i].ID == note.ID {
+				return &notes[i], created, err
 			}
 		}
 	}
-
-	if p.Type == nil {
-		return nil, false, fmt.Errorf("type é obrigatório ao criar nota externa nova")
-	}
-
-	id := fmt.Sprintf("%d", f.nextNoteID)
-	f.nextNoteID++
-	note := database.TaskNote{
-		TaskID:            p.TaskID,
-		Type:              *p.Type,
-		Content:           p.Content,
-		AuthorName:        strings.TrimSpace(p.AuthorName),
-		AuthorID:          strings.TrimSpace(p.AuthorID),
-		ExternalSource:    src,
-		ExternalID:        ext,
-		ExternalParentID:  strings.TrimSpace(p.ExternalParentID),
-		ExternalUpdatedAt: p.ExternalUpdatedAt,
-	}
-	note.ID = id
-	f.notes[p.TaskID] = append(f.notes[p.TaskID], note)
-	f.extNoteIndex[key] = id
-	sl := f.notes[p.TaskID]
-	return &sl[len(sl)-1], true, nil
+	return note, created, err
 }
 
-func (f *fakeTaskListManager) UpdateTaskNote(_ context.Context, noteID string, content string) error {
-	for taskID, notes := range f.notes {
-		for i, n := range notes {
-			if n.ID == noteID {
-				f.notes[taskID][i].Content = content
-				return nil
-			}
-		}
-	}
-	return fmt.Errorf("note not found: %s", noteID)
+func (f *fakeTaskListManager) UpdateTaskNote(ctx context.Context, noteID string, content string) error {
+	ctx = f.effectiveCtx(ctx)
+	return f.withRealState(func() error {
+		return f.realTaskListManager.UpdateTaskNote(ctx, noteID, content)
+	})
 }
 
-func (f *fakeTaskListManager) GetTaskNotes(_ context.Context, taskID string) ([]database.TaskNote, error) {
+func (f *fakeTaskListManager) GetTaskNotes(ctx context.Context, taskID string) ([]database.TaskNote, error) {
+	ctx = f.effectiveCtx(ctx)
 	if f.getNotesErr != nil {
 		return nil, f.getNotesErr
 	}
-	return f.notes[taskID], nil
+	f.syncDBFromSnapshots()
+	notes, err := f.realTaskListManager.GetTaskNotes(ctx, taskID)
+	f.refreshSnapshots()
+	return notes, err
 }
 
-func (f *fakeTaskListManager) GetTaskNote(_ context.Context, noteID string) (*database.TaskNote, error) {
-	for _, notes := range f.notes {
-		for i, n := range notes {
-			if n.ID == noteID {
-				return &notes[i], nil
+func (f *fakeTaskListManager) GetTaskNote(ctx context.Context, noteID string) (*database.TaskNote, error) {
+	ctx = f.effectiveCtx(ctx)
+	f.syncDBFromSnapshots()
+	note, err := f.realTaskListManager.GetTaskNote(ctx, noteID)
+	f.refreshSnapshots()
+	if note != nil {
+		notes := f.notes[note.TaskID]
+		for i := range notes {
+			if notes[i].ID == note.ID {
+				return &notes[i], err
 			}
 		}
 	}
-	return nil, fmt.Errorf("note not found: %s", noteID)
+	return nil, err
 }
 
-func (f *fakeTaskListManager) UpdateTaskListFull(_ context.Context, id string, title, description, preferredViewMode string, slug *string) error {
-	tl, ok := f.taskLists[id]
-	if !ok {
-		return fmt.Errorf("task list not found: %s", id)
-	}
-	tl.Title = title
-	tl.Description = description
-	if preferredViewMode == "list" || preferredViewMode == "kanban" {
-		tl.PreferredViewMode = preferredViewMode
-	}
-	if slug != nil {
-		s := database.NormalizeTaskListSlug(*slug)
-		if err := database.ValidateTaskListSlugFormat(s); err != nil {
-			return err
-		}
-		if s != "" {
-			if oid := f.findTaskListIDBySlug(s); oid != "" && oid != id {
-				return fmt.Errorf("slug %q já está em uso por outra lista", s)
-			}
-		}
-		tl.Slug = s
-	}
-	return nil
+func (f *fakeTaskListManager) UpdateTaskListFull(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error {
+	ctx = f.effectiveCtx(ctx)
+	return f.withRealState(func() error {
+		return f.realTaskListManager.UpdateTaskListFull(ctx, id, title, description, preferredViewMode, slug)
+	})
 }
 
-func (f *fakeTaskListManager) SetTaskListConversation(_ context.Context, id string, conversationID *string) error {
-	tl, ok := f.taskLists[id]
-	if !ok {
-		return fmt.Errorf("task list not found: %s", id)
-	}
-	tl.ConversationID = conversationID
-	return nil
+func (f *fakeTaskListManager) SetTaskListConversation(ctx context.Context, id string, conversationID *string) error {
+	ctx = f.effectiveCtx(ctx)
+	return f.withRealState(func() error {
+		return f.realTaskListManager.SetTaskListConversation(ctx, id, conversationID)
+	})
 }
 
-func (f *fakeTaskListManager) ResolveTaskListRef(_ context.Context, taskListID *string, taskListSlug string) (string, error) {
-	var idVal string
-	if taskListID != nil {
-		idVal = *taskListID
-	}
-	s := database.NormalizeTaskListSlug(taskListSlug)
-	hasID := idVal != ""
-	hasSlug := s != ""
-	if !hasID && !hasSlug {
-		return "", fmt.Errorf("informe task_list_id ou task_list_slug")
-	}
-	if hasID && !hasSlug {
-		if _, ok := f.taskLists[idVal]; !ok {
-			return "", fmt.Errorf("task_list_id %s não encontrado", idVal)
-		}
-		return idVal, nil
-	}
-	if !hasID && hasSlug {
-		id := f.findTaskListIDBySlug(s)
-		if id == "" {
-			return "", fmt.Errorf("task_list_slug %q não encontrado", strings.TrimSpace(taskListSlug))
-		}
-		return id, nil
-	}
-	if _, ok := f.taskLists[idVal]; !ok {
-		return "", fmt.Errorf("task_list_id %s não encontrado", idVal)
-	}
-	sid := f.findTaskListIDBySlug(s)
-	if sid == "" {
-		return "", fmt.Errorf("task_list_slug %q não encontrado", strings.TrimSpace(taskListSlug))
-	}
-	if idVal != sid {
-		return "", fmt.Errorf("task_list_id %s e task_list_slug %q referem listas diferentes", idVal, strings.TrimSpace(taskListSlug))
-	}
-	return idVal, nil
+func (f *fakeTaskListManager) ResolveTaskListRef(ctx context.Context, taskListID *string, taskListSlug string) (string, error) {
+	ctx = f.effectiveCtx(ctx)
+	f.syncDBFromSnapshots()
+	id, err := f.realTaskListManager.ResolveTaskListRef(ctx, taskListID, taskListSlug)
+	f.refreshSnapshots()
+	return id, err
 }
 
 func (f *fakeTaskListManager) ResolveTaskRef(ctx context.Context, taskListID *string, taskListSlug string, taskID *string, code string) (string, error) {
-	codeTrim := strings.TrimSpace(code)
-	var idVal string
-	if taskID != nil {
-		idVal = *taskID
-	}
-	hasID := idVal != ""
-	hasCode := codeTrim != ""
-	listPtr := taskListID
-	if listPtr != nil && *listPtr == "" {
-		listPtr = nil
-	}
-	hasListRef := listPtr != nil || strings.TrimSpace(taskListSlug) != ""
-
-	if !hasID && !hasCode {
-		return "", fmt.Errorf("informe task_id ou code")
-	}
-	if hasCode && !hasID && !hasListRef {
-		return "", fmt.Errorf("com code é necessário task_list_id ou task_list_slug")
-	}
-
-	if hasID && !hasCode {
-		task, ok := f.tasks[idVal]
-		if !ok {
-			return "", fmt.Errorf("task_id %s não encontrado", idVal)
-		}
-		return task.ID, nil
-	}
-
-	if !hasID && hasCode {
-		listID, err := f.ResolveTaskListRef(ctx, listPtr, taskListSlug)
-		if err != nil {
-			return "", err
-		}
-		for _, task := range f.tasks {
-			if task.TaskListID == listID && task.Code == codeTrim {
-				return task.ID, nil
-			}
-		}
-		return "", fmt.Errorf("nenhuma task com code %q na lista", codeTrim)
-	}
-
-	task, ok := f.tasks[idVal]
-	if !ok {
-		return "", fmt.Errorf("task_id %s não encontrado", idVal)
-	}
-	if task.Code != codeTrim {
-		return "", fmt.Errorf("task_id %s e code %q não correspondem à mesma task", idVal, codeTrim)
-	}
-	if hasListRef {
-		listID, err := f.ResolveTaskListRef(ctx, listPtr, taskListSlug)
-		if err != nil {
-			return "", err
-		}
-		if task.TaskListID != listID {
-			return "", fmt.Errorf("task_id %s e lista referenciada não correspondem à mesma task", idVal)
-		}
-	}
-	return task.ID, nil
+	ctx = f.effectiveCtx(ctx)
+	f.syncDBFromSnapshots()
+	id, err := f.realTaskListManager.ResolveTaskRef(ctx, taskListID, taskListSlug, taskID, code)
+	f.refreshSnapshots()
+	return id, err
 }
 
-func (f *fakeTaskListManager) ResolveTaskIDByTaskCode(_ context.Context, taskListID *string, taskCode string) (string, error) {
-	codeTrim := strings.TrimSpace(taskCode)
-	if codeTrim == "" {
-		return "", fmt.Errorf("task_code não pode ser vazio")
-	}
-	var matches []string
-	for _, task := range f.tasks {
-		if task.Code != codeTrim {
-			continue
-		}
-		if taskListID != nil && *taskListID != "" && task.TaskListID != *taskListID {
-			continue
-		}
-		matches = append(matches, task.ID)
-	}
-	switch len(matches) {
-	case 0:
-		if taskListID != nil && *taskListID != "" {
-			return "", fmt.Errorf("nenhuma task com task_code %q na lista %s", codeTrim, *taskListID)
-		}
-		return "", fmt.Errorf("nenhuma task com task_code %q", codeTrim)
-	case 1:
-		return matches[0], nil
-	default:
-		if taskListID != nil && *taskListID != "" {
-			return "", fmt.Errorf("múltiplas tasks com task_code %q na lista %s", codeTrim, *taskListID)
-		}
-		return "", fmt.Errorf("várias tasks com task_code %q; informe task_list_id ou task_list_slug para restringir à lista", codeTrim)
-	}
+func (f *fakeTaskListManager) ResolveTaskIDByTaskCode(ctx context.Context, taskListID *string, taskCode string) (string, error) {
+	ctx = f.effectiveCtx(ctx)
+	f.syncDBFromSnapshots()
+	id, err := f.realTaskListManager.ResolveTaskIDByTaskCode(ctx, taskListID, taskCode)
+	f.refreshSnapshots()
+	return id, err
 }
 
-func (f *fakeTaskListManager) SetTaskListValidationPolicy(_ context.Context, id string, policyJSON string) error {
-	tl, ok := f.taskLists[id]
-	if !ok {
-		return fmt.Errorf("task list not found: %s", id)
-	}
-	s := strings.TrimSpace(policyJSON)
-	if s != "" {
-		if _, err := database.ParseTaskListValidationPolicyJSON(s); err != nil {
-			return err
-		}
-	}
-	tl.ValidationPolicy = s
-	return nil
+func (f *fakeTaskListManager) SetTaskListValidationPolicy(ctx context.Context, id string, policyJSON string) error {
+	ctx = f.effectiveCtx(ctx)
+	return f.withRealState(func() error {
+		return f.realTaskListManager.SetTaskListValidationPolicy(ctx, id, policyJSON)
+	})
 }
 
-func (f *fakeTaskListManager) GetTaskListCustomActions(_ context.Context, id string) (*database.TaskListCustomActions, error) {
-	tl, ok := f.taskLists[id]
-	if !ok {
-		return nil, fmt.Errorf("task list not found: %s", id)
-	}
-	return database.ParseTaskListCustomActionsJSON(tl.CustomActions)
+func (f *fakeTaskListManager) GetTaskListCustomActions(ctx context.Context, id string) (*database.TaskListCustomActions, error) {
+	ctx = f.effectiveCtx(ctx)
+	f.syncDBFromSnapshots()
+	actions, err := f.realTaskListManager.GetTaskListCustomActions(ctx, id)
+	f.refreshSnapshots()
+	return actions, err
 }
 
-func (f *fakeTaskListManager) SetTaskListCustomActions(_ context.Context, id string, actionsJSON string) error {
-	tl, ok := f.taskLists[id]
-	if !ok {
-		return fmt.Errorf("task list not found: %s", id)
-	}
-	s := strings.TrimSpace(actionsJSON)
-	if s != "" {
-		if _, err := database.ParseTaskListCustomActionsJSON(s); err != nil {
-			return err
-		}
-	}
-	tl.CustomActions = s
-	return nil
+func (f *fakeTaskListManager) SetTaskListCustomActions(ctx context.Context, id string, actionsJSON string) error {
+	ctx = f.effectiveCtx(ctx)
+	return f.withRealState(func() error {
+		return f.realTaskListManager.SetTaskListCustomActions(ctx, id, actionsJSON)
+	})
 }
 
-func fakeListPolicy(f *fakeTaskListManager, taskListID string) (*database.TaskListValidationPolicy, error) {
-	tl, ok := f.taskLists[taskListID]
-	if !ok {
-		return nil, fmt.Errorf("task list not found: %s", taskListID)
-	}
-	return database.ParseTaskListValidationPolicyJSON(tl.ValidationPolicy)
+func (f *fakeTaskListManager) UpdateWorkflowFull(ctx context.Context, taskListID string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
+	ctx = f.effectiveCtx(ctx)
+	return f.withRealState(func() error {
+		return f.realTaskListManager.UpdateWorkflowFull(ctx, taskListID, statuses, transitions, initialStatusID, statusMigration)
+	})
 }
 
-func (f *fakeTaskListManager) UpdateWorkflowFull(_ context.Context, taskListID string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
-	wf, ok := f.workflows[taskListID]
-	if !ok {
-		return fmt.Errorf("workflow not found for task list: %s", taskListID)
-	}
-
-	statusIDs := make(map[int]bool, len(statuses))
-	for _, s := range statuses {
-		statusIDs[s.ID] = true
-	}
-
-	if !statusIDs[initialStatusID] {
-		return fmt.Errorf("initial_status_id %d não existe nos statuses fornecidos", initialStatusID)
-	}
-
-	for fromID, toIDs := range transitions {
-		if !statusIDs[fromID] {
-			return fmt.Errorf("transição referencia status inexistente: %d", fromID)
-		}
-		for _, toID := range toIDs {
-			if !statusIDs[toID] {
-				return fmt.Errorf("transição de %d referencia status inexistente: %d", fromID, toID)
-			}
-		}
-	}
-
-	// Check tasks using removed statuses
-	for _, task := range f.tasks {
-		if task.TaskListID != taskListID {
-			continue
-		}
-		if statusIDs[task.StatusID] {
-			continue
-		}
-		if statusMigration != nil {
-			if newID, ok := statusMigration[task.StatusID]; ok {
-				if statusIDs[newID] {
-					task.StatusID = newID
-					continue
-				}
-			}
-		}
-		return fmt.Errorf("status_id %d está em uso e não existe nos novos statuses", task.StatusID)
-	}
-
-	statusesJSON, _ := json.Marshal(statuses)
-	transitionsJSON, _ := json.Marshal(transitions)
-	wf.Statuses = string(statusesJSON)
-	wf.AllowedTransitions = string(transitionsJSON)
-	wf.InitialStatusID = initialStatusID
-
-	// Update tasklist workflow reference
-	if tl, ok := f.taskLists[taskListID]; ok {
-		tl.Workflow = wf
-	}
-	return nil
-}
-
-func (f *fakeTaskListManager) GetTaskCountsByStatus(_ context.Context, taskListID string) (map[int]int64, error) {
-	counts := make(map[int]int64)
-	for _, task := range f.tasks {
-		if task.TaskListID == taskListID {
-			counts[task.StatusID]++
-		}
-	}
-	return counts, nil
+func (f *fakeTaskListManager) GetTaskCountsByStatus(ctx context.Context, taskListID string) (map[int]int64, error) {
+	ctx = f.effectiveCtx(ctx)
+	f.syncDBFromSnapshots()
+	counts, err := f.realTaskListManager.GetTaskCountsByStatus(ctx, taskListID)
+	f.refreshSnapshots()
+	return counts, err
 }
 
 // ==================== Helper ====================
@@ -866,6 +659,89 @@ func newRealTaskListFixture(t *testing.T) realTaskListFixture {
 		ctx:  database.WithUserID(context.Background(), "tasklist-tool-test-user"),
 		mgr:  mgr,
 		tool: NewTaskList(mgr),
+	}
+}
+
+func TestTaskListManagerContract_ResolvesSlugAndTaskCode(t *testing.T) {
+	defaultTransitions := database.TaskListWorkflowTransitions{1: {2, 3}, 2: {1, 3}, 3: {1, 2}}
+
+	cases := []struct {
+		name  string
+		setup func(t *testing.T) (context.Context, TaskListManager)
+	}{
+		{
+			name: "real service sqlite",
+			setup: func(t *testing.T) (context.Context, TaskListManager) {
+				t.Helper()
+				fixture := newRealTaskListFixture(t)
+				return fixture.ctx, fixture.mgr
+			},
+		},
+		{
+			name: "error-injection stub",
+			setup: func(t *testing.T) (context.Context, TaskListManager) {
+				t.Helper()
+				mgr := newFakeManager()
+				return mgr.ctx, mgr
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, mgr := tc.setup(t)
+			workflow := workflowTemplate(defaultStatuses(), defaultTransitions)
+			bugs, err := mgr.CreateTaskList(ctx, "Bugs", "", workflow, "bugs")
+			if err != nil {
+				t.Fatalf("CreateTaskList bugs: %v", err)
+			}
+			task, err := mgr.CreateTaskFull(ctx, bugs.ID, "Fix login", "", "FSD-99", "", "", "", "", "", nil)
+			if err != nil {
+				t.Fatalf("CreateTaskFull: %v", err)
+			}
+
+			gotListID, err := mgr.ResolveTaskListRef(ctx, nil, "bugs")
+			if err != nil {
+				t.Fatalf("ResolveTaskListRef by slug: %v", err)
+			}
+			if gotListID != bugs.ID {
+				t.Fatalf("ResolveTaskListRef = %s, want %s", gotListID, bugs.ID)
+			}
+
+			gotTaskID, err := mgr.ResolveTaskRef(ctx, nil, "bugs", nil, "FSD-99")
+			if err != nil {
+				t.Fatalf("ResolveTaskRef by slug+code: %v", err)
+			}
+			if gotTaskID != task.ID {
+				t.Fatalf("ResolveTaskRef = %s, want %s", gotTaskID, task.ID)
+			}
+
+			gotTaskID, err = mgr.ResolveTaskIDByTaskCode(ctx, nil, "FSD-99")
+			if err != nil {
+				t.Fatalf("ResolveTaskIDByTaskCode unique: %v", err)
+			}
+			if gotTaskID != task.ID {
+				t.Fatalf("ResolveTaskIDByTaskCode = %s, want %s", gotTaskID, task.ID)
+			}
+
+			other, err := mgr.CreateTaskList(ctx, "Other", "", workflowTemplate(defaultStatuses(), defaultTransitions), "other")
+			if err != nil {
+				t.Fatalf("CreateTaskList other: %v", err)
+			}
+			if _, err := mgr.CreateTaskFull(ctx, other.ID, "Same external id", "", "FSD-99", "", "", "", "", "", nil); err != nil {
+				t.Fatalf("CreateTaskFull duplicate code: %v", err)
+			}
+			if _, err := mgr.ResolveTaskIDByTaskCode(ctx, nil, "FSD-99"); err == nil {
+				t.Fatal("ResolveTaskIDByTaskCode without list should reject ambiguous code")
+			}
+			gotTaskID, err = mgr.ResolveTaskIDByTaskCode(ctx, &bugs.ID, "FSD-99")
+			if err != nil {
+				t.Fatalf("ResolveTaskIDByTaskCode scoped: %v", err)
+			}
+			if gotTaskID != task.ID {
+				t.Fatalf("scoped ResolveTaskIDByTaskCode = %s, want %s", gotTaskID, task.ID)
+			}
+		})
 	}
 }
 
