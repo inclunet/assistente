@@ -40,24 +40,31 @@ type fakeTaskListManager struct {
 	getNotesErr    error
 }
 
-func newFakeManager() *fakeTaskListManager {
+func newFakeManager(t testing.TB) *fakeTaskListManager {
+	t.Helper()
+
+	previous := database.DB()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
-		panic(fmt.Sprintf("open fake tasklist db: %v", err))
+		t.Fatalf("open fake tasklist db: %v", err)
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
-		panic(fmt.Sprintf("open fake tasklist sql db: %v", err))
+		t.Fatalf("open fake tasklist sql db: %v", err)
 	}
 	sqlDB.SetMaxOpenConns(1)
 	database.SetDB(db)
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+		database.SetDB(previous)
+	})
 	if err := db.AutoMigrate(
 		&database.TaskListWorkflow{},
 		&database.TaskList{},
 		&database.Task{},
 		&database.TaskNote{},
 	); err != nil {
-		panic(fmt.Sprintf("migrate fake tasklist db: %v", err))
+		t.Fatalf("migrate fake tasklist db: %v", err)
 	}
 	mgr := &fakeTaskListManager{
 		ctx:       database.WithUserID(context.Background(), "tasklist-tool-fake-user"),
@@ -681,7 +688,7 @@ func TestTaskListManagerContract_ResolvesSlugAndTaskCode(t *testing.T) {
 			name: "error-injection stub",
 			setup: func(t *testing.T) (context.Context, TaskListManager) {
 				t.Helper()
-				mgr := newFakeManager()
+				mgr := newFakeManager(t)
 				return mgr.ctx, mgr
 			},
 		},
@@ -836,7 +843,7 @@ func TestGetTaskList_FullDetails(t *testing.T) {
 }
 
 func TestGetTaskList_NotFound(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_list_id": "999"}))
@@ -977,7 +984,7 @@ func TestTaskList_DuplicateConversationInheritance(t *testing.T) {
 }
 
 func TestGetTaskList_ZeroID(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_list_id": ""}))
@@ -990,7 +997,7 @@ func TestGetTaskList_ZeroID(t *testing.T) {
 }
 
 func TestGetTaskList_SummaryOnly(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Status Test", defaultStatuses())
 	mgr.addTask(tl.ID, "Task 1", 1)
 	mgr.addTask(tl.ID, "Task 2", 2)
@@ -1012,7 +1019,7 @@ func TestGetTaskList_SummaryOnly(t *testing.T) {
 }
 
 func TestGetTaskList_SummaryOnly_NotFound(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1028,7 +1035,7 @@ func TestGetTaskList_SummaryOnly_NotFound(t *testing.T) {
 }
 
 func TestGetTaskList_SummaryOnly_WithoutID_Error(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1046,7 +1053,7 @@ func TestGetTaskList_SummaryOnly_WithoutID_Error(t *testing.T) {
 }
 
 func TestTask_ReadNoNotes(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
 	tool := NewTask(mgr)
@@ -1067,7 +1074,7 @@ func TestTask_ReadNoNotes(t *testing.T) {
 }
 
 func TestTask_ReadWithNotes(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
 
@@ -1094,7 +1101,7 @@ func TestTask_ReadWithNotes(t *testing.T) {
 }
 
 func TestTask_ReadIncludesFields(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Detailed Task", 1)
 	task.Description = "Some description"
@@ -1118,7 +1125,7 @@ func TestTask_ReadIncludesFields(t *testing.T) {
 }
 
 func TestTask_ConversationLink(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -1186,7 +1193,7 @@ func TestTask_ConversationLink(t *testing.T) {
 }
 
 func TestTask_ReadNotFound(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTask(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": "999"}))
@@ -1199,7 +1206,7 @@ func TestTask_ReadNotFound(t *testing.T) {
 }
 
 func TestTask_ReadZeroID(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTask(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": ""}))
@@ -1215,7 +1222,7 @@ func TestTask_ReadZeroID(t *testing.T) {
 }
 
 func TestTask_ReadByListSlugAndCode(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Bugs", defaultStatuses())
 	tl.Slug = "bugs"
 	task := mgr.addTask(tl.ID, "Fix it", 1)
@@ -1247,7 +1254,7 @@ func TestUpsertTask_Name(t *testing.T) {
 }
 
 func TestUpsertTask_Create(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -1267,7 +1274,7 @@ func TestUpsertTask_Create(t *testing.T) {
 }
 
 func TestUpsertTask_Update(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Old Title", 1)
 	tool := NewTask(mgr)
@@ -1290,7 +1297,7 @@ func TestUpsertTask_Update(t *testing.T) {
 }
 
 func TestUpsertTask_InvalidStatus(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -1312,7 +1319,7 @@ func TestUpsertTask_InvalidStatus(t *testing.T) {
 }
 
 func TestUpsertTask_EmptyTitle(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -1329,7 +1336,7 @@ func TestUpsertTask_EmptyTitle(t *testing.T) {
 }
 
 func TestUpsertTask_WithStatus(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -1350,7 +1357,7 @@ func TestUpsertTask_WithStatus(t *testing.T) {
 // ==================== Dedup by Code Tests ====================
 
 func TestUpsertTask_DedupByCode_CreatesWhenNew(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Dedup", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -1371,7 +1378,7 @@ func TestUpsertTask_DedupByCode_CreatesWhenNew(t *testing.T) {
 }
 
 func TestUpsertTask_DedupByCode_UpdatesExisting(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Dedup", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -1417,7 +1424,7 @@ func TestUpsertTask_DedupByCode_UpdatesExisting(t *testing.T) {
 }
 
 func TestUpsertTask_DedupByCode_SameCodeDifferentLists(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl1 := mgr.addTaskList("List A", defaultStatuses())
 	tl2 := mgr.addTaskList("List B", defaultStatuses())
 	tool := NewTask(mgr)
@@ -1461,7 +1468,7 @@ func TestUpsertTask_DedupByCode_SameCodeDifferentLists(t *testing.T) {
 }
 
 func TestUpsertTask_DedupByCode_EmptyCodeAlwaysCreates(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("No Code", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -1484,7 +1491,7 @@ func TestUpsertTask_DedupByCode_EmptyCodeAlwaysCreates(t *testing.T) {
 }
 
 func TestUpsertTask_DedupByCode_TaskIdTakesPrecedence(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Precedence", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -1535,7 +1542,7 @@ func TestUpsertTask_DedupByCode_TaskIdTakesPrecedence(t *testing.T) {
 }
 
 func TestUpsertTask_DedupByCode_UpdatesStatusToo(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Status", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -1575,7 +1582,7 @@ func TestUpsertTask_DedupByCode_UpdatesStatusToo(t *testing.T) {
 // ==================== DeleteTask Tests ====================
 
 func TestUpsertTask_DeleteSuccess(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Doomed Task", 1)
 	tool := NewTask(mgr)
@@ -1600,7 +1607,7 @@ func TestUpsertTask_DeleteSuccess(t *testing.T) {
 }
 
 func TestUpsertTask_DeleteNotFound(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTask(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1617,7 +1624,7 @@ func TestUpsertTask_DeleteNotFound(t *testing.T) {
 }
 
 func TestUpsertTask_DeleteWithoutTaskID_Error(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTask(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1636,7 +1643,7 @@ func TestUpsertTask_DeleteWithoutTaskID_Error(t *testing.T) {
 }
 
 func TestUpsertTask_DeleteAndDuplicate_Error(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
 	tool := NewTask(mgr)
@@ -1668,7 +1675,7 @@ func TestUpsertTaskNote_Name(t *testing.T) {
 }
 
 func TestUpsertTaskNote_CreateSuccess(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
 	tool := NewTaskNote(mgr)
@@ -1694,7 +1701,7 @@ func TestUpsertTaskNote_CreateSuccess(t *testing.T) {
 }
 
 func TestUpsertTaskNote_CreateWithListSlugAndCode(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Bugs", defaultStatuses())
 	tl.Slug = "bugs"
 	task := mgr.addTask(tl.ID, "Task", 1)
@@ -1720,7 +1727,7 @@ func TestUpsertTaskNote_CreateWithListSlugAndCode(t *testing.T) {
 }
 
 func TestUpsertTaskNote_CreateCustomerType(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
 	tool := NewTaskNote(mgr)
@@ -1742,7 +1749,7 @@ func TestUpsertTaskNote_CreateCustomerType(t *testing.T) {
 }
 
 func TestUpsertTaskNote_UpdateSuccess(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
 
@@ -1770,7 +1777,7 @@ func TestUpsertTaskNote_UpdateSuccess(t *testing.T) {
 }
 
 func TestUpsertTaskNote_UpdateNotFound(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
 	tool := NewTaskNote(mgr)
@@ -1789,7 +1796,7 @@ func TestUpsertTaskNote_UpdateNotFound(t *testing.T) {
 }
 
 func TestUpsertTaskNote_UpdateWrongTask(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task1 := mgr.addTask(tl.ID, "Task 1", 1)
 	task2 := mgr.addTask(tl.ID, "Task 2", 1)
@@ -1814,7 +1821,7 @@ func TestUpsertTaskNote_UpdateWrongTask(t *testing.T) {
 }
 
 func TestUpsertTaskNote_EmptyContent(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
 	tool := NewTaskNote(mgr)
@@ -1833,7 +1840,7 @@ func TestUpsertTaskNote_EmptyContent(t *testing.T) {
 }
 
 func TestUpsertTaskNote_InvalidType(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
 	tool := NewTaskNote(mgr)
@@ -1852,7 +1859,7 @@ func TestUpsertTaskNote_InvalidType(t *testing.T) {
 }
 
 func TestUpsertTaskNote_ZeroTaskID(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskNote(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1872,7 +1879,7 @@ func TestUpsertTaskNote_ZeroTaskID(t *testing.T) {
 }
 
 func TestUpsertTaskNote_TaskNotFound(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskNote(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1889,7 +1896,7 @@ func TestUpsertTaskNote_TaskNotFound(t *testing.T) {
 }
 
 func TestUpsertTaskNote_CreateWithoutType_Error(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
 	tool := NewTaskNote(mgr)
@@ -1910,7 +1917,7 @@ func TestUpsertTaskNote_CreateWithoutType_Error(t *testing.T) {
 }
 
 func TestUpsertTaskNote_ExternalIdempotentTwice(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
 	tool := NewTaskNote(mgr)
@@ -1960,7 +1967,7 @@ func TestUpsertTaskNote_ExternalIdempotentTwice(t *testing.T) {
 }
 
 func TestUpsertTaskNote_ExternalUpdateWithoutType(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
 	tool := NewTaskNote(mgr)
@@ -1989,7 +1996,7 @@ func TestUpsertTaskNote_ExternalUpdateWithoutType(t *testing.T) {
 }
 
 func TestUpsertTaskNote_ExternalRequiresBothKeys(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
 	tool := NewTaskNote(mgr)
@@ -2007,7 +2014,7 @@ func TestUpsertTaskNote_ExternalRequiresBothKeys(t *testing.T) {
 }
 
 func TestUpsertTaskNote_ExternalConflictDifferentTask(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task1 := mgr.addTask(tl.ID, "T1", 1)
 	task2 := mgr.addTask(tl.ID, "T2", 1)
@@ -2033,7 +2040,7 @@ func TestUpsertTaskNote_ExternalConflictDifferentTask(t *testing.T) {
 }
 
 func TestUpsertTaskNote_ByTaskCode_ManualCreate(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task, err := mgr.CreateTask(context.Background(), tl.ID, "Issue", "", "FSD-12345", "", nil)
 	if err != nil {
@@ -2056,7 +2063,7 @@ func TestUpsertTaskNote_ByTaskCode_ManualCreate(t *testing.T) {
 }
 
 func TestUpsertTaskNote_ExternalByTaskCode_Idempotent(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task, err := mgr.CreateTask(context.Background(), tl.ID, "Issue", "", "FSD-12345", "", nil)
 	if err != nil {
@@ -2095,7 +2102,7 @@ func TestUpsertTaskNote_ExternalByTaskCode_Idempotent(t *testing.T) {
 }
 
 func TestUpsertTaskNote_TaskCodeNotFound(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	_, _ = mgr.CreateTask(context.Background(), tl.ID, "Issue", "", "OTHER", "", nil)
 	tool := NewTaskNote(mgr)
@@ -2114,7 +2121,7 @@ func TestUpsertTaskNote_TaskCodeNotFound(t *testing.T) {
 }
 
 func TestUpsertTaskNote_TaskCodeAmbiguous(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl1 := mgr.addTaskList("A", defaultStatuses())
 	tl2 := mgr.addTaskList("B", defaultStatuses())
 	_, _ = mgr.CreateTask(context.Background(), tl1.ID, "t", "", "SAME", "", nil)
@@ -2135,7 +2142,7 @@ func TestUpsertTaskNote_TaskCodeAmbiguous(t *testing.T) {
 }
 
 func TestUpsertTaskNote_TaskCodeWithListSlug_Disambiguates(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl1 := mgr.addTaskList("A", defaultStatuses())
 	tl1.Slug = "lista-a"
 	tl2 := mgr.addTaskList("B", defaultStatuses())
@@ -2160,7 +2167,7 @@ func TestUpsertTaskNote_TaskCodeWithListSlug_Disambiguates(t *testing.T) {
 }
 
 func TestUpsertTaskNote_TaskIDWithMismatchedTaskCode(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task, _ := mgr.CreateTask(context.Background(), tl.ID, "Issue", "", "FSD-1", "", nil)
 	tool := NewTaskNote(mgr)
@@ -2180,7 +2187,7 @@ func TestUpsertTaskNote_TaskIDWithMismatchedTaskCode(t *testing.T) {
 }
 
 func TestTask_ReadNotesIncludeExternalFields(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
 	ts := time.Date(2026, 4, 8, 15, 30, 0, 0, time.UTC)
@@ -2245,7 +2252,7 @@ func TestUpsertTaskList_Name(t *testing.T) {
 }
 
 func TestUpsertTaskList_CreateSimple(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2267,7 +2274,7 @@ func TestUpsertTaskList_CreateSimple(t *testing.T) {
 }
 
 func TestUpsertTaskList_CreateWithCustomActions(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2306,7 +2313,7 @@ func TestUpsertTaskList_CreateWithCustomActions(t *testing.T) {
 }
 
 func TestUpsertTaskList_UpdateCustomActionsClear(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Suporte", defaultStatuses())
 	tl.CustomActions = `{"actions":[{"id":"refresh","label":"Atualizar","event":"tasklist.card.refresh"}]}`
 	tool := NewTaskList(mgr)
@@ -2327,7 +2334,7 @@ func TestUpsertTaskList_UpdateCustomActionsClear(t *testing.T) {
 }
 
 func TestUpsertTaskList_CustomActionsInvalid(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2348,7 +2355,7 @@ func TestUpsertTaskList_CustomActionsInvalid(t *testing.T) {
 // como objeto ({}) é rejeitado com erro, em vez de ser tratado como "limpar"
 // (que mascararia um tipo errado como data-loss). Só [] limpa.
 func TestUpsertTaskList_CustomActionsObjectRejected(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Suporte", defaultStatuses())
 	tl.CustomActions = `{"actions":[{"id":"refresh","label":"Atualizar","event":"tasklist.card.refresh"}]}`
 	tool := NewTaskList(mgr)
@@ -2373,7 +2380,7 @@ func TestUpsertTaskList_CustomActionsObjectRejected(t *testing.T) {
 // escrita (que sobrescreveria description/view_mode com vazio). Regressão do
 // bug em que task_list_slug sozinho era tratado como write.
 func TestGetTaskList_BySlugDoesNotMutate(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Suporte", defaultStatuses())
 	tl.Slug = "bugs"
 	tl.Description = "descrição importante"
@@ -2438,7 +2445,7 @@ func TestCustomActionsToList_InvalidSurfacesError(t *testing.T) {
 }
 
 func TestUpsertTaskList_CreateWithCustomWorkflow(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2473,7 +2480,7 @@ func TestUpsertTaskList_CreateWithCustomWorkflow(t *testing.T) {
 }
 
 func TestUpsertTaskList_CreateEmptyTitle(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2489,7 +2496,7 @@ func TestUpsertTaskList_CreateEmptyTitle(t *testing.T) {
 }
 
 func TestUpsertTaskList_CreateInvalidWorkflow_DuplicateIDs(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2512,7 +2519,7 @@ func TestUpsertTaskList_CreateInvalidWorkflow_DuplicateIDs(t *testing.T) {
 }
 
 func TestUpsertTaskList_CreateInvalidWorkflow_BadInitialStatus(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2532,7 +2539,7 @@ func TestUpsertTaskList_CreateInvalidWorkflow_BadInitialStatus(t *testing.T) {
 }
 
 func TestUpsertTaskList_UpdateMetadata(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Old Title", defaultStatuses())
 	tool := NewTaskList(mgr)
 
@@ -2557,7 +2564,7 @@ func TestUpsertTaskList_UpdateMetadata(t *testing.T) {
 }
 
 func TestUpsertTaskList_UpdateWorkflow(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("List", defaultStatuses())
 	tool := NewTaskList(mgr)
 
@@ -2593,7 +2600,7 @@ func TestUpsertTaskList_UpdateWorkflow(t *testing.T) {
 }
 
 func TestUpsertTaskList_UpdateWorkflow_RemoveStatusWithMigration(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("List", defaultStatuses())
 	mgr.addTask(tl.ID, "Task in Progress", 2)
 	tool := NewTaskList(mgr)
@@ -2630,7 +2637,7 @@ func TestUpsertTaskList_UpdateWorkflow_RemoveStatusWithMigration(t *testing.T) {
 }
 
 func TestUpsertTaskList_UpdateWorkflow_RemoveStatusWithoutMigration_Fails(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("List", defaultStatuses())
 	mgr.addTask(tl.ID, "Task in Progress", 2)
 	tool := NewTaskList(mgr)
@@ -2660,7 +2667,7 @@ func TestUpsertTaskList_UpdateWorkflow_RemoveStatusWithoutMigration_Fails(t *tes
 }
 
 func TestUpsertTaskList_UpdateNotFound(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	id := "999"
@@ -2677,7 +2684,7 @@ func TestUpsertTaskList_UpdateNotFound(t *testing.T) {
 }
 
 func TestUpsertTaskList_CreateWithViewMode(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2698,7 +2705,7 @@ func TestUpsertTaskList_CreateWithViewMode(t *testing.T) {
 // ==================== Duplicate TaskList Tests ====================
 
 func TestUpsertTaskList_DuplicateBasic(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	source := mgr.addTaskList("Source List", defaultStatuses())
 	mgr.taskLists[source.ID].Description = "source description"
 	tool := NewTaskList(mgr)
@@ -2738,7 +2745,7 @@ func TestUpsertTaskList_DuplicateBasic(t *testing.T) {
 }
 
 func TestUpsertTaskList_DuplicateInheritsWorkflow(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	customStatuses := []database.TaskListWorkflowStatus{
 		{ID: 10, Order: 0, Label: "Novo"},
 		{ID: 20, Order: 1, Label: "Andamento"},
@@ -2775,7 +2782,7 @@ func TestUpsertTaskList_DuplicateInheritsWorkflow(t *testing.T) {
 }
 
 func TestUpsertTaskList_DuplicateOverridesDescription(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	source := mgr.addTaskList("Source", defaultStatuses())
 	mgr.taskLists[source.ID].Description = "original desc"
 	tool := NewTaskList(mgr)
@@ -2805,7 +2812,7 @@ func TestUpsertTaskList_DuplicateOverridesDescription(t *testing.T) {
 }
 
 func TestUpsertTaskList_DuplicateOverridesWorkflow(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	source := mgr.addTaskList("Source", defaultStatuses())
 	tool := NewTaskList(mgr)
 
@@ -2837,7 +2844,7 @@ func TestUpsertTaskList_DuplicateOverridesWorkflow(t *testing.T) {
 }
 
 func TestUpsertTaskList_DuplicateSourceNotFound(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	ghostID := "9999"
@@ -2858,7 +2865,7 @@ func TestUpsertTaskList_DuplicateSourceNotFound(t *testing.T) {
 }
 
 func TestUpsertTaskList_DuplicateWithoutTaskListID_Error(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2877,7 +2884,7 @@ func TestUpsertTaskList_DuplicateWithoutTaskListID_Error(t *testing.T) {
 }
 
 func TestUpsertTaskList_DuplicateDoesNotCopyTasks(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	source := mgr.addTaskList("Source", defaultStatuses())
 	mgr.addTask(source.ID, "Task 1", 1)
 	mgr.addTask(source.ID, "Task 2", 2)
@@ -2916,7 +2923,7 @@ func TestUpsertTaskList_DuplicateDoesNotCopyTasks(t *testing.T) {
 // ==================== Assignee Tests ====================
 
 func TestUpsertTask_CreateWithAssignee(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -2956,7 +2963,7 @@ func TestUpsertTask_CreateWithAssignee(t *testing.T) {
 }
 
 func TestUpsertTask_UpdateAssignee(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
 	task.AssigneeName = "Alice"
@@ -2990,7 +2997,7 @@ func TestUpsertTask_UpdateAssignee(t *testing.T) {
 }
 
 func TestUpsertTask_ClearAssignee(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
 	task.AssigneeName = "Alice"
@@ -3023,7 +3030,7 @@ func TestUpsertTask_ClearAssignee(t *testing.T) {
 }
 
 func TestUpsertTask_CreateWithoutAssignee_NoChange(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -3049,7 +3056,7 @@ func TestUpsertTask_CreateWithoutAssignee_NoChange(t *testing.T) {
 }
 
 func TestUpsertTask_UpdatePreservesAssigneeWhenOmitted(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
 	task.AssigneeName = "Alice"
@@ -3076,7 +3083,7 @@ func TestUpsertTask_UpdatePreservesAssigneeWhenOmitted(t *testing.T) {
 }
 
 func TestUpsertTask_DedupByCode_WithAssignee(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -3122,7 +3129,7 @@ func TestUpsertTask_DedupByCode_WithAssignee(t *testing.T) {
 // ==================== Creator Tests ====================
 
 func TestUpsertTask_CreateWithCreator(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -3156,7 +3163,7 @@ func TestUpsertTask_CreateWithCreator(t *testing.T) {
 }
 
 func TestUpsertTask_CreateWithCreatorAndAssignee(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -3189,7 +3196,7 @@ func TestUpsertTask_CreateWithCreatorAndAssignee(t *testing.T) {
 }
 
 func TestUpsertTask_UpdatePreservesCreatorWhenOmitted(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
 	task.CreatorName = "Original"
@@ -3216,7 +3223,7 @@ func TestUpsertTask_UpdatePreservesCreatorWhenOmitted(t *testing.T) {
 }
 
 func TestUpsertTask_ClearCreator(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
 	task.CreatorName = "Someone"
@@ -3248,7 +3255,7 @@ func TestUpsertTask_ClearCreator(t *testing.T) {
 // ==================== UpsertTaskNote Author Tests ====================
 
 func TestUpsertTaskNote_CreateWithStructuredAuthor(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
 	tool := NewTaskNote(mgr)
@@ -3281,7 +3288,7 @@ func TestUpsertTaskNote_CreateWithStructuredAuthor(t *testing.T) {
 }
 
 func TestUpsertTaskNote_CreateNoAuthor(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
 	tool := NewTaskNote(mgr)
@@ -3309,7 +3316,7 @@ func TestUpsertTaskNote_CreateNoAuthor(t *testing.T) {
 // ==================== Idempotent upsert_task Tests ====================
 
 func TestUpsertTask_SameStatus_DifferentDescription(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.StatusID = 3
@@ -3343,7 +3350,7 @@ func TestUpsertTask_SameStatus_DifferentDescription(t *testing.T) {
 }
 
 func TestUpsertTask_SameStatus_SameFields_Noop(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.StatusID = 3
@@ -3372,7 +3379,7 @@ func TestUpsertTask_SameStatus_SameFields_Noop(t *testing.T) {
 }
 
 func TestUpsertTask_DifferentStatus_ValidTransition(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.StatusID = 1
@@ -3401,7 +3408,7 @@ func TestUpsertTask_DifferentStatus_ValidTransition(t *testing.T) {
 }
 
 func TestUpsertTask_DifferentStatus_InvalidTransition(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	statuses := defaultStatuses()
 	transitions := database.TaskListWorkflowTransitions{
 		1: {2},
@@ -3431,7 +3438,7 @@ func TestUpsertTask_DifferentStatus_InvalidTransition(t *testing.T) {
 }
 
 func TestUpsertTask_Create_StillWorks(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -3452,7 +3459,7 @@ func TestUpsertTask_Create_StillWorks(t *testing.T) {
 }
 
 func TestUpsertTask_DedupByCode_StillWorks(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -3483,7 +3490,7 @@ func TestUpsertTask_DedupByCode_StillWorks(t *testing.T) {
 }
 
 func TestUpsertTask_SameStatus_NoStatusID_UpdatesFields(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.Description = "old"
@@ -3512,7 +3519,7 @@ func TestUpsertTask_SameStatus_NoStatusID_UpdatesFields(t *testing.T) {
 // ==================== Workflow Transition Tests ====================
 
 func TestUpsertTask_TransitionToTerminalStatus(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	statuses := []database.TaskListWorkflowStatus{
 		{ID: 1, Order: 0, Label: "Backlog"},
 		{ID: 2, Order: 1, Label: "Em Progresso"},
@@ -3548,7 +3555,7 @@ func TestUpsertTask_TransitionToTerminalStatus(t *testing.T) {
 }
 
 func TestUpsertTask_TransitionFromZeroStatus(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	statuses := []database.TaskListWorkflowStatus{
 		{ID: 1, Order: 0, Label: "Backlog"},
 		{ID: 2, Order: 1, Label: "Em Progresso"},
@@ -3582,7 +3589,7 @@ func TestUpsertTask_TransitionFromZeroStatus(t *testing.T) {
 }
 
 func TestUpsertTask_SameStatusNoop_NoUpdateTaskStatusCall(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.StatusID = 2
@@ -3607,7 +3614,7 @@ func TestUpsertTask_SameStatusNoop_NoUpdateTaskStatusCall(t *testing.T) {
 }
 
 func TestUpsertTask_InvalidDestinationStatus(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	statuses := []database.TaskListWorkflowStatus{
 		{ID: 1, Order: 0, Label: "Backlog"},
 		{ID: 2, Order: 1, Label: "Done"},
@@ -3637,7 +3644,7 @@ func TestUpsertTask_InvalidDestinationStatus(t *testing.T) {
 }
 
 func TestUpsertTask_TransitionNotAllowedByWorkflow(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	statuses := []database.TaskListWorkflowStatus{
 		{ID: 1, Order: 0, Label: "Backlog"},
 		{ID: 2, Order: 1, Label: "Em Progresso"},
@@ -3671,7 +3678,7 @@ func TestUpsertTask_TransitionNotAllowedByWorkflow(t *testing.T) {
 }
 
 func TestUpsertTask_CreateWithTerminalStatus(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	statuses := []database.TaskListWorkflowStatus{
 		{ID: 1, Order: 0, Label: "Backlog"},
 		{ID: 2, Order: 1, Label: "Em Progresso"},
@@ -3704,7 +3711,7 @@ func TestUpsertTask_CreateWithTerminalStatus(t *testing.T) {
 // ==================== Move Task Tests ====================
 
 func TestUpsertTask_MoveToAnotherList(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	listA := mgr.addTaskList("List A", defaultStatuses())
 	listB := mgr.addTaskList("List B", defaultStatuses())
 	task := mgr.addTask(listA.ID, "My task", 1)
@@ -3731,7 +3738,7 @@ func TestUpsertTask_MoveToAnotherList(t *testing.T) {
 }
 
 func TestUpsertTask_MoveSameList_Noop(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	listA := mgr.addTaskList("List A", defaultStatuses())
 	task := mgr.addTask(listA.ID, "My task", 1)
 	tool := NewTask(mgr)
@@ -3753,7 +3760,7 @@ func TestUpsertTask_MoveSameList_Noop(t *testing.T) {
 }
 
 func TestUpsertTask_MoveAndUpdateFields(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	listA := mgr.addTaskList("List A", defaultStatuses())
 	listB := mgr.addTaskList("List B", defaultStatuses())
 	task := mgr.addTask(listA.ID, "Old title", 1)
@@ -3783,7 +3790,7 @@ func TestUpsertTask_MoveAndUpdateFields(t *testing.T) {
 }
 
 func TestUpsertTask_MoveResetsStatus(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	listA := mgr.addTaskList("List A", defaultStatuses())
 	listB := mgr.addTaskList("List B", defaultStatuses())
 	task := mgr.addTask(listA.ID, "Task", 1)
@@ -3810,7 +3817,7 @@ func TestUpsertTask_MoveResetsStatus(t *testing.T) {
 // ==================== Duplicate Task Tests ====================
 
 func TestUpsertTask_DuplicateSameList(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	list := mgr.addTaskList("List", defaultStatuses())
 	source := mgr.addTask(list.ID, "Source task", 1)
 	source.Description = "source desc"
@@ -3871,7 +3878,7 @@ func TestUpsertTask_DuplicateSameList(t *testing.T) {
 }
 
 func TestUpsertTask_DuplicateToAnotherList(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	listA := mgr.addTaskList("List A", defaultStatuses())
 	listB := mgr.addTaskList("List B", defaultStatuses())
 	source := mgr.addTask(listA.ID, "Source", 1)
@@ -3910,7 +3917,7 @@ func TestUpsertTask_DuplicateToAnotherList(t *testing.T) {
 }
 
 func TestUpsertTask_DuplicateOverridesFields(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	list := mgr.addTaskList("List", defaultStatuses())
 	source := mgr.addTask(list.ID, "Source", 1)
 	source.Description = "source desc"
@@ -3957,7 +3964,7 @@ func TestUpsertTask_DuplicateOverridesFields(t *testing.T) {
 }
 
 func TestUpsertTask_DuplicateWithCode(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	list := mgr.addTaskList("List", defaultStatuses())
 	source := mgr.addTask(list.ID, "Source", 1)
 	source.Code = "JIRA-100"
@@ -3993,7 +4000,7 @@ func TestUpsertTask_DuplicateWithCode(t *testing.T) {
 }
 
 func TestUpsertTask_DuplicateSourceNotFound(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	list := mgr.addTaskList("List", defaultStatuses())
 	tool := NewTask(mgr)
 
@@ -4016,7 +4023,7 @@ func TestUpsertTask_DuplicateSourceNotFound(t *testing.T) {
 }
 
 func TestUpsertTask_DuplicateWithoutTaskID_Error(t *testing.T) {
-	mgr := newFakeManager()
+	mgr := newFakeManager(t)
 	list := mgr.addTaskList("List", defaultStatuses())
 	tool := NewTask(mgr)
 
