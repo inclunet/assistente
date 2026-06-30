@@ -519,6 +519,7 @@ export default function ChannelsPage() {
       setSignalRegError(msg);
       setSignalAPIReady(false);
       addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(msg, 'assertive');
     } finally {
       setSignalCheckingAPI(false);
     }
@@ -529,6 +530,7 @@ export default function ChannelsPage() {
       const msg = t('channels.error.signalAccountAndUrlRequired');
       setSignalRegError(msg);
       addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(msg, 'assertive');
       return;
     }
     const apiToken = signalForm.apiToken.trim();
@@ -548,6 +550,7 @@ export default function ChannelsPage() {
       const msg = getErrorMessage(error) || t('channels.error.signalRegisterFailed');
       setSignalRegError(msg);
       addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(msg, 'assertive');
     }
   };
 
@@ -555,6 +558,7 @@ export default function ChannelsPage() {
     if (!signalRegCode) {
       const msg = t('channels.error.verificationCodeRequired');
       setSignalRegError(msg);
+      announce(msg, 'assertive');
       return;
     }
     const apiToken = signalForm.apiToken.trim();
@@ -566,11 +570,13 @@ export default function ChannelsPage() {
       setSignalSmsSent(false);
       const numberVerifiedMessage = t('channels.announce.numberVerified');
       addToast(numberVerifiedMessage, 'success', undefined, undefined, { suppressAnnounce: true });
+      announce(numberVerifiedMessage);
     } catch (error: unknown) {
       setSignalRegStep('awaiting_code');
       const msg = getErrorMessage(error) || t('channels.error.signalVerifyFailed');
       setSignalRegError(msg);
       addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(msg, 'assertive');
     }
   };
 
@@ -589,6 +595,7 @@ export default function ChannelsPage() {
         const linkTimeoutMessage = t('channels.announce.linkTimeout');
         setSignalRegError(t('channels.error.signalLinkTimeoutDetails'));
         addToast(linkTimeoutMessage, 'error', undefined, undefined, { suppressAnnounce: true });
+        announce(linkTimeoutMessage, 'assertive');
         return;
       }
       try {
@@ -631,6 +638,7 @@ export default function ChannelsPage() {
       const errorMessage = getErrorMessage(error) || t('channels.error.signalLinkQrFailedDetailed');
       setSignalRegError(errorMessage);
       addToast(errorMessage, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(errorMessage, 'assertive');
       setSignalLinking(false);
     }
   };
