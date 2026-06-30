@@ -289,7 +289,8 @@ describe('ChatSessionView', () => {
     chatStoreState.sessionsByConversationId[conversationId].conversation = activeConversation;
     chatStoreState.sessionsByConversationId[conversationId].hasOlderMessages = false;
     chatStoreState.sessionsByConversationId[conversationId].isLoadingOlderMessages = false;
-    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureMessage?: string | null }).sendFailureMessage = null;
+    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureMessage?: string | null; sendFailureRetryable?: boolean }).sendFailureMessage = null;
+    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryable?: boolean }).sendFailureRetryable = false;
     (activeConversation.threadedMessages as unknown[]) = [];
     (announce as ReturnType<typeof vi.fn>).mockReset();
     chatStoreState.cancelStreaming.mockReset();
@@ -500,6 +501,7 @@ describe('ChatSessionView', () => {
     (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
       ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
       sendFailureMessage: 'Falha ao enviar pela sessão',
+      sendFailureRetryable: false,
     };
     renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />);
 

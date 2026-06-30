@@ -131,6 +131,7 @@ export interface ChatSurfaceSession {
   messageWindow?: MessageWindowState;
   streamingMessageId: string | null;
   sendFailureMessage: string | null;
+  sendFailureRetryable: boolean;
   // lastInterruptedMessageId aponta para a mensagem assistant (sintética) cuja geração
   // foi interrompida (erro/cancelamento) e é elegível para "Continuar resposta".
   lastInterruptedMessageId: string | null;
@@ -174,6 +175,7 @@ export const createEmptyChatSurfaceSession = (
   isLoadingMessageWindow: false,
   streamingMessageId: null,
   sendFailureMessage: null,
+  sendFailureRetryable: false,
   lastInterruptedMessageId: null,
   streamingReasoning: null,
   isThinking: false,

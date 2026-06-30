@@ -117,6 +117,7 @@ export interface ChatEventSession {
   activeToolCalls: ToolCallStatus[];
   completedSegments: TurnSegment[];
   sendFailureMessage?: string | null;
+  sendFailureRetryable?: boolean;
   messageWindow?: MessageWindowState;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
@@ -237,6 +238,7 @@ export function startChatEventController({
     activeToolCalls: [],
     isLoading: true,
     sendFailureMessage: null,
+    sendFailureRetryable: false,
   });
 
   const noop = () => { /* no-op */ };
@@ -463,7 +465,7 @@ export function startChatEventController({
       if (hasAssistantNode) {
         updateEmptyAssistantWithError(errorMessage);
       } else {
-        patchCurrentSession({ sendFailureMessage: errorMessage });
+        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureRetryable: false });
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
@@ -616,7 +618,7 @@ export function startChatEventController({
       if (hasAssistantNode) {
         updateEmptyAssistantWithError(errorMessage);
       } else {
-        patchCurrentSession({ sendFailureMessage: errorMessage });
+        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureRetryable: false });
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
@@ -700,7 +702,12 @@ export function startChatEventController({
       announce(sendFailureMessage, 'assertive');
       cleanup();
       adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
-      patchCurrentSession({ isLoading: false, streamingMessageId: null, sendFailureMessage });
+      patchCurrentSession({
+        isLoading: false,
+        streamingMessageId: null,
+        sendFailureMessage,
+        sendFailureRetryable: true,
+      });
     },
   };
 }

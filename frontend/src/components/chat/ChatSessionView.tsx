@@ -347,11 +347,13 @@ function ChatSessionViewContent({
   const [sendError, setSendError] = useState<string | null>(null);
   const [dismissedSessionSendError, setDismissedSessionSendError] = useState<string | null>(null);
   const sessionSendFailureMessage = session?.sendFailureMessage ?? null;
+  const sessionSendFailureRetryable = session?.sendFailureRetryable ?? false;
   const effectiveSendError = sendError ?? (
     sessionSendFailureMessage && sessionSendFailureMessage !== dismissedSessionSendError
       ? sessionSendFailureMessage
       : null
   );
+  const canRetryEffectiveSendError = !!lastFailedMessage && (!!sendError || sessionSendFailureRetryable);
 
   const wsTabs = useWorkspaceStore((state) => state.workspace?.tabs);
 
@@ -918,7 +920,7 @@ function ChatSessionViewContent({
             showIcon
             closable
             message={effectiveSendError}
-            action={lastFailedMessage ? (
+            action={canRetryEffectiveSendError ? (
               <Button
                 ref={retryButtonRef}
                 size="small"
