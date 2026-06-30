@@ -114,7 +114,7 @@ func (s *Server) routes() {
 func (s *Server) handleVaultStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := s.vault.Status(r.Context())
 	if err != nil {
-		s.writeInternalErr(w, "vault.status", err)
+		s.writeInternalErr(r.Context(), w, "vault.status", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
@@ -146,7 +146,7 @@ func (s *Server) handleVaultUnlock(w http.ResponseWriter, r *http.Request) {
 	if err := s.vault.Unlock(r.Context(), req.Kind, req.Secret); err != nil {
 		// Mensagem genérica para que kind/secret específicos não vazem
 		// pelo erro do unlock. O log mantém o detalhe.
-		s.writeAuthErr(w, "vault.unlock", http.StatusUnauthorized, err)
+		s.writeAuthErr(r.Context(), w, "vault.unlock", http.StatusUnauthorized, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"unlocked": true})
@@ -171,7 +171,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, auth.ErrInactiveUser) {
 			status = http.StatusForbidden
 		}
-		s.writeAuthErr(w, "auth.login", status, err)
+		s.writeAuthErr(r.Context(), w, "auth.login", status, err)
 		return
 	}
 	session := s.sessionService()
@@ -181,7 +181,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	pair, err := session.IssueSession(r.Context(), user, extractClientLabel(req.ClientLabel))
 	if err != nil {
-		s.writeInternalErr(w, "auth.login.issue", err)
+		s.writeInternalErr(r.Context(), w, "auth.login.issue", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, pair)
@@ -211,7 +211,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	pair, err := session.Refresh(r.Context(), req.RefreshToken)
 	if err != nil {
-		s.writeAuthErr(w, "auth.refresh", http.StatusUnauthorized, err)
+		s.writeAuthErr(r.Context(), w, "auth.refresh", http.StatusUnauthorized, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, pair)
@@ -266,7 +266,7 @@ func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, err)
 			return
 		}
-		s.writeInternalErr(w, "auth.jwks", err)
+		s.writeInternalErr(r.Context(), w, "auth.jwks", err)
 		return
 	}
 	if etag := r.Header.Get("If-None-Match"); etag != "" && etag == entry.etag {
@@ -298,7 +298,7 @@ func (s *Server) requireAccess(w http.ResponseWriter, r *http.Request) (*princip
 		}
 		claims, err := s.external.Validate(r.Context(), token)
 		if err != nil {
-			s.writeAuthErr(w, "auth.access.external", http.StatusUnauthorized, err)
+			s.writeAuthErr(r.Context(), w, "auth.access.external", http.StatusUnauthorized, err)
 			return nil, false
 		}
 		role := "user"
@@ -314,7 +314,7 @@ func (s *Server) requireAccess(w http.ResponseWriter, r *http.Request) (*princip
 	}
 	claims, err := session.VerifyAccessToken(token)
 	if err != nil {
-		s.writeAuthErr(w, "auth.access.local", http.StatusUnauthorized, err)
+		s.writeAuthErr(r.Context(), w, "auth.access.local", http.StatusUnauthorized, err)
 		return nil, false
 	}
 	return &principal{UserID: claims.Subject, SessionID: claims.SessionID, Role: claims.Role}, true

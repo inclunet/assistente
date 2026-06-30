@@ -34,7 +34,7 @@ func main() {
 				wails.NewWindowAdapter(ctx),
 				wails.NewDialogAdapter(ctx),
 			); err != nil {
-				logging.Fatalf(context.Background(), "main", "Falha ao inicializar aplicação: %v", err)
+				logging.Fatalf(ctx, "main", "Falha ao inicializar aplicação: %v", err)
 			}
 			// Restaura foco da janela (resolve bug do Wails no Windows)
 			go func() {

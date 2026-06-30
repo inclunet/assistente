@@ -164,7 +164,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		if uc.providerSvc == nil || !uc.providerSvc.SupportsAssistantPrefill(ctx, activeProfile) {
 			params.AllowAssistantPrefill = false
 			params.ContinueViaUserMessage = true
-			logging.Infof(context.Background(), "core.usecases.send-message", "[SendMessage] provider/modelo sem suporte a assistant prefill — usando fallback de continuação por mensagem de usuário (conversa %s)", req.ConversationID)
+			logging.Infof(ctx, "core.usecases.send-message", "[SendMessage] provider/modelo sem suporte a assistant prefill — usando fallback de continuação por mensagem de usuário (conversa %s)", req.ConversationID)
 		}
 	}
 	userContent := pctx.UserContent
@@ -301,11 +301,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	requestStreamer, err := uc.providerSvc.GetChatProvider(ctx, activeProfile.Chat.LLMProvider)
 	if err != nil {
 		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
-		logging.Errorf(context.Background(), "core.usecases.send-message", "[SendMessage] ERRO: %s", errMsg)
+		logging.Errorf(ctx, "core.usecases.send-message", "[SendMessage] ERRO: %s", errMsg)
 		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
 		return "", fmt.Errorf("%s", errMsg)
 	}
-	logging.Infof(context.Background(), "core.usecases.send-message", "[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
+	logging.Infof(ctx, "core.usecases.send-message", "[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
 
 	// MCP nativo: configura servidores MCP HTTP no provider e remove suas tools da lista padrão.
 	// O override é por PERFIL (AEP-0021) e vale igualmente para chat e sub-agentes,
