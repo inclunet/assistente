@@ -419,7 +419,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			}
 			keyError = ""
 
-			logging.Errorf(ctx, "controllers.welcome-controller", "[Wizard] Validando conexão: %s (com key: %v)", baseURL, apiKey != "")
+			logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Validando conexão: %s (com key: %v)", baseURL, apiKey != "")
 			validation := c.ValidateWizardConnection(ctx, baseURL, apiKey)
 
 			needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
