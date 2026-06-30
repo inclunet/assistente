@@ -518,7 +518,7 @@ export default function ChannelsPage() {
       const msg = getErrorMessage(error) || t('channels.error.signalApiConnectFailed');
       setSignalRegError(msg);
       setSignalAPIReady(false);
-      addToast(msg, 'error');
+      addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
     } finally {
       setSignalCheckingAPI(false);
     }
@@ -586,10 +586,9 @@ export default function ChannelsPage() {
     linkPollRef.current = setTimeout(async () => {
       if (Date.now() - startTime > POLL_TIMEOUT_MS) {
         setSignalLinking(false);
-        setSignalRegError(t('channels.error.signalLinkTimeoutDetails'));
         const linkTimeoutMessage = t('channels.announce.linkTimeout');
+        setSignalRegError(t('channels.error.signalLinkTimeoutDetails'));
         addToast(linkTimeoutMessage, 'error', undefined, undefined, { suppressAnnounce: true });
-        announce(linkTimeoutMessage);
         return;
       }
       try {
@@ -616,7 +615,6 @@ export default function ChannelsPage() {
     if (!signalForm.apiURL) {
       const msg = t('channels.error.signalApiUrlRequired');
       setSignalRegError(msg);
-      announce(msg, 'assertive');
       return;
     }
     const apiToken = signalForm.apiToken.trim();
@@ -632,7 +630,7 @@ export default function ChannelsPage() {
     } catch (error: unknown) {
       const errorMessage = getErrorMessage(error) || t('channels.error.signalLinkQrFailedDetailed');
       setSignalRegError(errorMessage);
-      addToast(errorMessage, 'error');
+      addToast(errorMessage, 'error', undefined, undefined, { suppressAnnounce: true });
       setSignalLinking(false);
     }
   };
