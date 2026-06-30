@@ -722,7 +722,6 @@ func (s *Service) HandleRecoveredPanic(
 	if r == nil {
 		return
 	}
-	const uiErrorMessage = "Erro interno inesperado. Tente novamente."
 	log.Printf("🔴 [PANIC RECOVERED] %s (conversa %s): %v", source, conversationID, r)
 
 	assistantMessageID := ""
@@ -748,7 +747,7 @@ func (s *Service) HandleRecoveredPanic(
 			AssistantMessageID: assistantMessageID,
 			SurfaceOrigin:      surfaceOrigin,
 			Reason:             "error",
-			ErrorMessage:       uiErrorMessage,
+			ErrorMessage:       ports.ChatErrorInternal,
 		})
 	}
 }

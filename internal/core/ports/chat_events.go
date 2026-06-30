@@ -3,6 +3,11 @@ package ports
 // Chat event structs — typed payloads for all chat:* events.
 // Every chat event MUST carry ConversationID (AEP-0040).
 
+const (
+	// ChatErrorInternal is a stable UI-facing error code for unexpected backend failures.
+	ChatErrorInternal = "internal_error"
+)
+
 // ChatSurfaceOrigin identifies the frontend surface that initiated a chat turn.
 type ChatSurfaceOrigin struct {
 	SessionKey     string `json:"sessionKey"`

@@ -1,7 +1,6 @@
 package events
 
 import (
-	"fmt"
 	"log"
 
 	"assistente/internal/core/ports"
@@ -21,7 +20,7 @@ type NoopEmitter struct{}
 func (NoopEmitter) Emit(_ string, _ any) {}
 
 // RecoverFromPanic captura um panic em andamento (deve ser chamado via defer) e emite
-// chat:stream com Done=true e a mensagem de erro para o frontend.
+// chat:stream com Done=true e um código de erro estável para o frontend.
 // O emitter pode ser nil — a função protege contra double-panic nesse caso.
 func RecoverFromPanic(emitter Emitter, conversationID string, source string) {
 	HandlePanic(emitter, conversationID, source, recover())
@@ -34,14 +33,13 @@ func HandlePanic(emitter Emitter, conversationID string, source string, r any) {
 	if r == nil {
 		return
 	}
-	errMsg := fmt.Sprintf("Erro interno inesperado em %s: %v", source, r)
 	log.Printf("🔴 [PANIC RECOVERED] %s (conversa %s): %v", source, conversationID, r)
 	func() {
 		defer func() { _ = recover() }()
 		if emitter != nil {
 			emitter.Emit("chat:stream", StreamEvent{
 				Done:           true,
-				Error:          errMsg,
+				Error:          ports.ChatErrorInternal,
 				ConversationId: conversationID,
 			})
 		}

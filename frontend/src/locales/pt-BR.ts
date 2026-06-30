@@ -166,6 +166,7 @@ const ptBR = {
         chatTabNotReady: 'Conversa da aba de chat ainda não está pronta.',
         cancelStreamingFailed: 'Não foi possível cancelar a geração: {{message}}',
         assistantPlaceholder: 'Não foi possível preparar a mensagem do assistente.',
+        internalError: 'Erro interno inesperado. Tente novamente.',
       },
       stopReading: 'Parar leitura',
       stopReadingLabel: 'Parar leitura de texto',

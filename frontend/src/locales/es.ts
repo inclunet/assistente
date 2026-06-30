@@ -165,6 +165,7 @@ const es = {
         chatTabNotReady: 'La conversación de la pestaña de chat aún no está lista.',
         cancelStreamingFailed: 'No se pudo cancelar la generación: {{message}}',
         assistantPlaceholder: 'No se pudo preparar el mensaje del asistente.',
+        internalError: 'Error interno inesperado. Inténtalo de nuevo.',
       },
       stopReading: 'Detener lectura',
       stopReadingLabel: 'Detener lectura de texto',

@@ -334,8 +334,8 @@ func TestHandleRecoveredPanic_EmitsGenericErrorAndIgnoresCanceledContext(t *test
 		t.Fatalf("expected one chat:done, got %d", len(doneEvents))
 	}
 	done := doneEvents[0].data.(ports.DoneEvent)
-	if done.ErrorMessage != "Erro interno inesperado. Tente novamente." {
-		t.Fatalf("expected generic error message, got %q", done.ErrorMessage)
+	if done.ErrorMessage != ports.ChatErrorInternal {
+		t.Fatalf("expected internal error code, got %q", done.ErrorMessage)
 	}
 	if done.AssistantMessageID == "" {
 		t.Fatalf("expected assistantMessageId in recovered panic chat:done")

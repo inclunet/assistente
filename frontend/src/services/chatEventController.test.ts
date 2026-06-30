@@ -439,13 +439,13 @@ describe('chatEventController', () => {
     });
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
-      error: 'boom stream',
+      error: 'internal_error',
       turnId: 'user-1',
       messageId: 'assistant-db-2',
     });
 
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[1].message.content).toBe('Erro: boom stream');
+    expect(messages[1].message.content).toBe('Erro: chat.errors.internalError');
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-2');
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
@@ -661,13 +661,13 @@ describe('chatEventController', () => {
     emitEvent('chat:done', {
       conversationId: 'conversation-1',
       hadToolCalls: false,
-      errorMessage: 'boom done',
+      errorMessage: 'internal_error',
       turnId: 'user-1',
       assistantMessageId: 'assistant-db-3',
     });
 
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[1].message.content).toBe('Erro: boom done');
+    expect(messages[1].message.content).toBe('Erro: chat.errors.internalError');
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-3');
   });
 

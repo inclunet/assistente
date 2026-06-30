@@ -166,6 +166,7 @@ const en = {
         chatTabNotReady: 'The chat tab conversation is not ready yet.',
         cancelStreamingFailed: 'Could not cancel generation: {{message}}',
         assistantPlaceholder: 'Could not prepare the assistant message.',
+        internalError: 'Unexpected internal error. Please try again.',
       },
       stopReading: 'Stop reading',
       stopReadingLabel: 'Stop text reading',
