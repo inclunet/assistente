@@ -1,20 +1,19 @@
 package usecases
 
 import (
-	"context"
-	"fmt"
-	"log"
-
 	"assistente/internal/agent"
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/logging"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
 	"assistente/internal/speech"
 	"assistente/internal/tools"
+	"context"
+	"fmt"
 )
 
 func resolveStreamingRecoverySettings(activeProfile *profiles.Profile) (enabled bool, maxAttempts int) {
@@ -165,7 +164,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		if uc.providerSvc == nil || !uc.providerSvc.SupportsAssistantPrefill(ctx, activeProfile) {
 			params.AllowAssistantPrefill = false
 			params.ContinueViaUserMessage = true
-			log.Printf("[SendMessage] provider/modelo sem suporte a assistant prefill — usando fallback de continuação por mensagem de usuário (conversa %s)", req.ConversationID)
+			logging.Infof(context.Background(), "core.usecases.send-message", "[SendMessage] provider/modelo sem suporte a assistant prefill — usando fallback de continuação por mensagem de usuário (conversa %s)", req.ConversationID)
 		}
 	}
 	userContent := pctx.UserContent
@@ -302,11 +301,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	requestStreamer, err := uc.providerSvc.GetChatProvider(ctx, activeProfile.Chat.LLMProvider)
 	if err != nil {
 		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
-		log.Printf("[SendMessage] ERRO: %s", errMsg)
+		logging.Errorf(context.Background(), "core.usecases.send-message", "[SendMessage] ERRO: %s", errMsg)
 		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
 		return "", fmt.Errorf("%s", errMsg)
 	}
-	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
+	logging.Infof(context.Background(), "core.usecases.send-message", "[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
 
 	// MCP nativo: configura servidores MCP HTTP no provider e remove suas tools da lista padrão.
 	// O override é por PERFIL (AEP-0021) e vale igualmente para chat e sub-agentes,

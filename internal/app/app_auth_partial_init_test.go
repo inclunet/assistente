@@ -8,7 +8,7 @@ import (
 // TestRuntimeReloadResult_AddCollectsPerSubsystem garante que a coleta de
 // falhas por subsistema acumula apenas erros reais (err != nil), registrando o
 // identificador estável do subsistema — o coração da correção da issue #250
-// (antes só havia log.Printf e o usuário não sabia que o runtime subiu
+// (antes só havia log sem retorno estruturado e o usuário não sabia que o runtime subiu
 // parcialmente). A mensagem do erro NÃO é guardada (só vai para logs).
 func TestRuntimeReloadResult_AddCollectsPerSubsystem(t *testing.T) {
 	result := &runtimeReloadResult{}

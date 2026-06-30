@@ -1,9 +1,9 @@
 package jobs
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -14,7 +14,7 @@ import (
 type Scheduler struct {
 	mu       sync.Mutex
 	cron     *cron.Cron
-	entries  map[string][]cron.EntryID     // jobID -> lista de entry IDs
+	entries  map[string][]cron.EntryID       // jobID -> lista de entry IDs
 	timers   map[string][]*time.Ticker       // jobID -> tickers para interval
 	cancelFn map[string][]context.CancelFunc // jobID -> cancels para goroutines de interval
 	pending  map[string][]pendingInterval    // jobID -> intervals aguardando Start
@@ -99,7 +99,7 @@ func (s *Scheduler) Start() {
 		}
 		delete(s.pending, jobID)
 	}
-	log.Printf("[Jobs] Scheduler started")
+	logging.Infof(context.Background(), "jobs.scheduler", "[Jobs] Scheduler started")
 }
 
 // Stop para o scheduler e cancela todos os timers.
@@ -132,7 +132,7 @@ func (s *Scheduler) Stop() {
 	s.entries = make(map[string][]cron.EntryID)
 
 	s.started = false
-	log.Printf("[Jobs] Scheduler stopped")
+	logging.Errorf(context.Background(), "jobs.scheduler", "[Jobs] Scheduler stopped")
 }
 
 // Reschedule atualiza os triggers de um job (remove e re-adiciona).
@@ -157,7 +157,7 @@ func (s *Scheduler) scheduleCron(job *Job, t Trigger) error {
 	}
 
 	s.entries[job.ID] = append(s.entries[job.ID], entryID)
-	log.Printf("[Jobs] Scheduled cron for %s: %s", job.ID, t.Expression)
+	logging.Errorf(context.Background(), "jobs.scheduler", "[Jobs] Scheduled cron for %s: %s", job.ID, t.Expression)
 	return nil
 }
 
@@ -170,13 +170,13 @@ func (s *Scheduler) scheduleInterval(job *Job, t Trigger) error {
 	jobCopy := *job
 	if !s.started {
 		s.pending[job.ID] = append(s.pending[job.ID], pendingInterval{jobCopy: jobCopy, every: t.Every, when: t.When, duration: duration})
-		log.Printf("[Jobs] Scheduled interval pending for %s: every %s", job.ID, t.Every)
+		logging.Infof(context.Background(), "jobs.scheduler", "[Jobs] Scheduled interval pending for %s: every %s", job.ID, t.Every)
 		return nil
 	}
 
 	s.startIntervalLocked(job.ID, &jobCopy, t.Every, t.When, duration)
 
-	log.Printf("[Jobs] Scheduled interval for %s: every %s", job.ID, t.Every)
+	logging.Infof(context.Background(), "jobs.scheduler", "[Jobs] Scheduled interval for %s: every %s", job.ID, t.Every)
 	return nil
 }
 
@@ -211,7 +211,7 @@ func (s *Scheduler) startIntervalLocked(jobID string, job *Job, every string, wh
 func (s *Scheduler) safeExec(ctx context.Context, job *Job, trigCtx *TriggerContext) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Jobs] PANIC recovered in interval execution for %q: %v", job.ID, r)
+			logging.Errorf(ctx, "jobs.scheduler", "[Jobs] PANIC recovered in interval execution for %q: %v", job.ID, r)
 		}
 	}()
 	s.execFunc(ctx, job, trigCtx)

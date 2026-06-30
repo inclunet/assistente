@@ -1,10 +1,11 @@
 package app
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"embed"
 	"encoding/json"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,18 +38,18 @@ func (a *App) installBuiltinProfiles() {
 	resolver := configdir.NewResolver("profiles")
 	homeDir := resolver.GetHomeDir()
 	if homeDir == "" {
-		log.Printf("[Profiles] Home dir not available, skipping builtin profile install")
+		logging.Errorf(context.Background(), "app.builtin-profiles", "[Profiles] Home dir not available, skipping builtin profile install")
 		return
 	}
 
 	if err := os.MkdirAll(homeDir, 0755); err != nil {
-		log.Printf("[Profiles] Error creating profiles home dir: %v", err)
+		logging.Errorf(context.Background(), "app.builtin-profiles", "[Profiles] Error creating profiles home dir: %v", err)
 		return
 	}
 
 	entries, err := fs.ReadDir(builtinProfilesFS, "builtin/profiles")
 	if err != nil {
-		log.Printf("[Profiles] Error reading embedded profiles: %v", err)
+		logging.Errorf(context.Background(), "app.builtin-profiles", "[Profiles] Error reading embedded profiles: %v", err)
 		return
 	}
 
@@ -59,18 +60,18 @@ func (a *App) installBuiltinProfiles() {
 
 		embeddedData, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/"+entry.Name())
 		if err != nil {
-			log.Printf("[Profiles] Error reading embedded profile %s: %v", entry.Name(), err)
+			logging.Errorf(context.Background(), "app.builtin-profiles", "[Profiles] Error reading embedded profile %s: %v", entry.Name(), err)
 			continue
 		}
 
 		var embeddedProfile profiles.Profile
 		if err := json.Unmarshal(embeddedData, &embeddedProfile); err != nil {
-			log.Printf("[Profiles] Error parsing embedded profile %s: %v", entry.Name(), err)
+			logging.Errorf(context.Background(), "app.builtin-profiles", "[Profiles] Error parsing embedded profile %s: %v", entry.Name(), err)
 			continue
 		}
 
 		if embeddedProfile.BuiltinVersion == "" {
-			log.Printf("[Profiles] Embedded profile %s has no _builtin_version, skipping", entry.Name())
+			logging.Infof(context.Background(), "app.builtin-profiles", "[Profiles] Embedded profile %s has no _builtin_version, skipping", entry.Name())
 			continue
 		}
 
@@ -90,28 +91,28 @@ func (a *App) installBuiltinProfiles() {
 				installedVersion := existing.BuiltinVersion
 				if installedVersion == "" {
 					installedVersion = "0.0.0"
-					log.Printf("[Profiles] Migrating legacy profile %s (no _builtin_version → v0.0.0)", entry.Name())
+					logging.Infof(context.Background(), "app.builtin-profiles", "[Profiles] Migrating legacy profile %s (no _builtin_version → v0.0.0)", entry.Name())
 				}
 				if !isVersionNewer(embeddedProfile.BuiltinVersion, installedVersion) {
-					log.Printf("[Profiles] Builtin %s v%s up to date (installed: v%s)", entry.Name(), embeddedProfile.BuiltinVersion, installedVersion)
+					logging.Infof(context.Background(), "app.builtin-profiles", "[Profiles] Builtin %s v%s up to date (installed: v%s)", entry.Name(), embeddedProfile.BuiltinVersion, installedVersion)
 					continue
 				}
-				log.Printf("[Profiles] Updating builtin profile %s: v%s → v%s", entry.Name(), installedVersion, embeddedProfile.BuiltinVersion)
+				logging.Infof(context.Background(), "app.builtin-profiles", "[Profiles] Updating builtin profile %s: v%s → v%s", entry.Name(), installedVersion, embeddedProfile.BuiltinVersion)
 			}
 		} else {
-			log.Printf("[Profiles] Installing builtin profile %s v%s", entry.Name(), embeddedProfile.BuiltinVersion)
+			logging.Errorf(context.Background(), "app.builtin-profiles", "[Profiles] Installing builtin profile %s v%s", entry.Name(), embeddedProfile.BuiltinVersion)
 		}
 
 		toWrite := mergeBuiltinPreservingRuntime(embeddedProfile, existingProfile)
 
 		prettyData, err := json.MarshalIndent(toWrite, "", "  ")
 		if err != nil {
-			log.Printf("[Profiles] Error marshaling profile %s: %v", entry.Name(), err)
+			logging.Errorf(context.Background(), "app.builtin-profiles", "[Profiles] Error marshaling profile %s: %v", entry.Name(), err)
 			continue
 		}
 
 		if err := os.WriteFile(targetFile, prettyData, 0644); err != nil {
-			log.Printf("[Profiles] Error writing %s: %v", targetFile, err)
+			logging.Errorf(context.Background(), "app.builtin-profiles", "[Profiles] Error writing %s: %v", targetFile, err)
 		}
 	}
 
@@ -158,7 +159,7 @@ func (a *App) ensureActiveProfile() {
 	}
 
 	if err := a.profileManager.SetActive("padrao"); err != nil {
-		log.Printf("[Profiles] Could not set 'padrao' as active: %v", err)
+		logging.Infof(context.Background(), "app.builtin-profiles", "[Profiles] Could not set 'padrao' as active: %v", err)
 		// Fallback: activate the first available profile
 		if len(list) > 0 {
 			_ = a.profileManager.SetActive(list[0].Slug)

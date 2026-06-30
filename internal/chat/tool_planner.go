@@ -1,7 +1,8 @@
 package chat
 
 import (
-	"log"
+	"assistente/internal/logging"
+	"context"
 	"strings"
 
 	"assistente/internal/llm"
@@ -56,7 +57,7 @@ func (p *ToolSelectionPolicy) applyPlanner(defs []llm.ToolDefinition, cfg Profil
 		return defs
 	}
 
-	log.Printf("[chat] ToolPlanner (%s): %s", surface, plan.LogLine())
+	logging.Infof(context.Background(), "chat.tool-planner", "[chat] ToolPlanner (%s): %s", surface, plan.LogLine())
 	selected := plan.SelectedSet()
 	out := make([]llm.ToolDefinition, 0, len(plan.Selected))
 	for _, d := range defs {
@@ -169,7 +170,7 @@ func (p *ToolSelectionPolicy) planAccumulatedToolDefs(active, newDefs []llm.Tool
 		return combined
 	}
 
-	log.Printf("[chat] ToolPlanner (acumulado): %s", plan.LogLine())
+	logging.Infof(context.Background(), "chat.tool-planner", "[chat] ToolPlanner (acumulado): %s", plan.LogLine())
 	selected := plan.SelectedSet()
 	out := make([]llm.ToolDefinition, 0, len(plan.Selected))
 	for _, d := range combined {

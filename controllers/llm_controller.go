@@ -1,14 +1,13 @@
 package controllers
 
 import (
-	"context"
-	"fmt"
-	"log"
-
 	"assistente/internal/core/ports"
 	"assistente/internal/llm"
+	"assistente/internal/logging"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
+	"context"
+	"fmt"
 )
 
 // LLMProviderRequest types — movidos de app.go para o pacote controllers.
@@ -123,7 +122,7 @@ func (c *LLMController) TestLLMProvider(ctx context.Context, req TestLLMProvider
 func (c *LLMController) ListModelsRaw(ctx context.Context, req TestLLMProviderRequest) (models []string, retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[LLMController.ListModelsRaw] PANIC: %v", r)
+			logging.Errorf(ctx, "controllers.llm-controller", "[LLMController.ListModelsRaw] PANIC: %v", r)
 			retErr = fmt.Errorf("erro interno ao listar modelos: %v", r)
 		}
 	}()

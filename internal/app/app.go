@@ -1,9 +1,9 @@
 package app
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -228,7 +228,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		return fmt.Errorf("erro ao inicializar banco de dados: %w", err)
 	}
 	if err := a.cleanupEditorOrphanDraftsOnStartup(); err != nil {
-		log.Printf("Erro ao limpar drafts órfãos do editor no startup: %v", err)
+		logging.Errorf(ctx, "app.app", "Erro ao limpar drafts órfãos do editor no startup: %v", err)
 	}
 
 	// Instala/atualiza perfis embutidos em ~/.assistente/profiles/
@@ -236,7 +236,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Garante que o diretório de perfis existe
 	if err := a.profileManager.EnsureDefaults(); err != nil {
-		log.Printf("Erro ao garantir diretório de perfis: %v", err)
+		logging.Errorf(ctx, "app.app", "Erro ao garantir diretório de perfis: %v", err)
 	}
 
 	// Inicializa Credential Manager PRIMEIRO (antes de qualquer uso)
@@ -249,7 +249,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	llmRateLimiter := llm.NewRateLimiter(llm.RateLimitConfigFromEnv())
 	if llmRateLimiter != nil {
 		llmRateLimiter.SetNearLimitHandler(func(key string, remaining float64) {
-			log.Printf("[llm/ratelimit] usuário %s próximo do limite de chamadas LLM (%.0f tokens restantes)", key, remaining)
+			logging.Infof(ctx, "app.app", "[llm/ratelimit] usuário %s próximo do limite de chamadas LLM (%.0f tokens restantes)", key, remaining)
 		})
 	}
 	// Chave do rate limit = userID do contexto (AEP-0052). Compartilhada entre
@@ -336,7 +336,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 			Origin:         ChatSpeakOrigin(origin),
 			Interrupt:      &interrupt,
 		}); err != nil {
-			log.Printf("[Speech] WARN: dispatchSpeechEvent falhou (conv=%s msg=%s): %v", conversationID, messageID, err)
+			logging.Warnf(ctx, "app.app", "[Speech] WARN: dispatchSpeechEvent falhou (conv=%s msg=%s): %v", conversationID, messageID, err)
 		}
 	}
 
@@ -421,7 +421,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		OnProfileChanged: func(slug string) {
 			a.initLLMClient()
 			if err := a.InitSpeechManagerFromProfile(); err != nil {
-				log.Printf("[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
+				logging.Errorf(ctx, "app.app", "[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
 			}
 			a.registerActiveProfileHotkeys()
 		},
@@ -499,9 +499,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		defer cancel()
 		n, err := a.subagentMgr.ReconcileOrphans(ctx, reconcileCutoff)
 		if err != nil {
-			log.Printf("[Subagent] erro ao reconciliar runs órfãos: %v", err)
+			logging.Errorf(ctx, "app.app", "[Subagent] erro ao reconciliar runs órfãos: %v", err)
 		} else if n > 0 {
-			log.Printf("[Subagent] %d run(s) órfão(s) de sub-agente reconciliado(s) como failed", n)
+			logging.Errorf(ctx, "app.app", "[Subagent] %d run(s) órfão(s) de sub-agente reconciliado(s) como failed", n)
 		}
 	}()
 
@@ -591,7 +591,7 @@ func (a *App) waitBackground(timeout time.Duration) {
 	select {
 	case <-done:
 	case <-time.After(timeout):
-		log.Printf("[App] Timeout aguardando goroutines de background no Shutdown")
+		logging.Warnf(context.Background(), "app.app", "[App] Timeout aguardando goroutines de background no Shutdown")
 	}
 }
 

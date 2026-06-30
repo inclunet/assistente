@@ -1,9 +1,10 @@
 package app
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -89,10 +90,10 @@ func (a *App) startHTTPAPI() error {
 			serveErr = server.Serve(listener)
 		}
 		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			log.Printf("[httpapi] servidor encerrado com erro: %v", serveErr)
+			logging.Errorf(context.Background(), "app.app-httpapi", "[httpapi] servidor encerrado com erro: %v", serveErr)
 		}
 	}()
-	log.Printf("[httpapi] escutando em %s (mode=%s tls=%v)", listener.Addr().String(), authCfg.Mode, authCfg.HTTP.TLSEnabled)
+	logging.Warnf(context.Background(), "app.app-httpapi", "[httpapi] escutando em %s (mode=%s tls=%v)", listener.Addr().String(), authCfg.Mode, authCfg.HTTP.TLSEnabled)
 	return nil
 }
 
@@ -116,7 +117,7 @@ func guardDevInsecure(cfg *config.AuthConfig) error {
 	ip := net.ParseIP(host)
 	loopback := host == "localhost" || (ip != nil && ip.IsLoopback())
 	if !loopback {
-		log.Printf("[httpapi] WARNING: dev_insecure=true em bind não-loopback %q — credenciais e tokens trafegam em texto", cfg.HTTP.BindAddress)
+		logging.Warnf(context.Background(), "app.app-httpapi", "[httpapi] WARNING: dev_insecure=true em bind não-loopback %q — credenciais e tokens trafegam em texto", cfg.HTTP.BindAddress)
 	}
 	return nil
 }

@@ -1,8 +1,9 @@
 package llm
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"encoding/json"
-	"log"
 	"strings"
 
 	"github.com/openai/openai-go"
@@ -114,7 +115,7 @@ func convertTools(tools []ToolDefinition) []openai.ChatCompletionToolParam {
 		var params shared.FunctionParameters
 		if len(tool.Function.Parameters) > 0 {
 			if err := json.Unmarshal(tool.Function.Parameters, &params); err != nil {
-				log.Printf("[OpenAIProvider] Erro ao parsear parameters de %s: %v", tool.Function.Name, err)
+				logging.Errorf(context.Background(), "llm.openai-convert", "[OpenAIProvider] Erro ao parsear parameters de %s: %v", tool.Function.Name, err)
 				continue
 			}
 		}

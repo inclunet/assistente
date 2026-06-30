@@ -1,7 +1,8 @@
 package messaging
 
 import (
-	"log"
+	"assistente/internal/logging"
+	"context"
 	"sync"
 	"time"
 )
@@ -69,7 +70,7 @@ func (b *TTSBroker) Wait(messageID string, timeout time.Duration) (AudioPayload,
 		b.mu.Lock()
 		delete(b.slots, messageID)
 		b.mu.Unlock()
-		log.Printf("[TTSBroker] timeout (%v) aguardando áudio para msg %s", timeout, messageID)
+		logging.Warnf(context.Background(), "messaging.tts-broker", "[TTSBroker] timeout (%v) aguardando áudio para msg %s", timeout, messageID)
 		return AudioPayload{}, false
 	}
 }
@@ -88,7 +89,7 @@ func (b *TTSBroker) Publish(messageID string, data []byte, mimeType string) {
 	if ok {
 		select {
 		case ch <- AudioPayload{Data: data, MIMEType: mimeType}:
-			log.Printf("[TTSBroker] áudio publicado para msg %s (%d bytes)", messageID, len(data))
+			logging.Infof(context.Background(), "messaging.tts-broker", "[TTSBroker] áudio publicado para msg %s (%d bytes)", messageID, len(data))
 		default:
 			// Canal cheio (já publicou ou ninguém esperando) — não bloqueia
 		}

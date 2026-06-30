@@ -5,14 +5,14 @@ import (
 	"log/slog"
 	"testing"
 
-	"assistente/internal/database"
 	"assistente/internal/eventctx"
-	"assistente/internal/toolinvocations"
+	"assistente/internal/toolctx"
 	"assistente/internal/tools/invocationctx"
+	"assistente/internal/userctx"
 )
 
 func TestContextAttrsIncludesCorrelationFields(t *testing.T) {
-	ctx := database.WithUserID(context.Background(), "user-1")
+	ctx := userctx.WithUserID(context.Background(), "user-1")
 	ctx = invocationctx.With(ctx, invocationctx.InvocationContext{
 		ConversationID: "conv-1",
 		TurnID:         "turn-1",
@@ -25,8 +25,8 @@ func TestContextAttrsIncludesCorrelationFields(t *testing.T) {
 		ChainID:      "chain-1",
 		ChainHistory: []string{"job-1", "job-2"},
 	})
-	ctx = toolinvocations.WithCurrentInvocationID(ctx, "inv-1")
-	ctx = toolinvocations.WithParentInvocationID(ctx, "parent-inv-1")
+	ctx = toolctx.WithCurrentInvocationID(ctx, "inv-1")
+	ctx = toolctx.WithParentInvocationID(ctx, "parent-inv-1")
 	ctx = WithAttrs(ctx, slog.String("run_id", "run-1"))
 
 	got := attrsByKey(ContextAttrs(ctx))
@@ -52,6 +52,13 @@ func TestWithAttrsKeepsExistingAttributes(t *testing.T) {
 	got := attrsByKey(ContextAttrs(ctx))
 	assertAttr(t, got, "job_id", "job-1")
 	assertAttr(t, got, "run_id", "run-1")
+}
+
+func TestNormalizeLegacyMessageRemovesPrefixAndSymbols(t *testing.T) {
+	got := normalizeLegacyMessage("[Updater] ✅ Atualização aplicada com sucesso")
+	if got != "Atualização aplicada com sucesso" {
+		t.Fatalf("normalizeLegacyMessage() = %q", got)
+	}
 }
 
 func attrsByKey(attrs []slog.Attr) map[string]any {

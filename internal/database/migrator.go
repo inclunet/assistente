@@ -1,9 +1,10 @@
 package database
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"gorm.io/gorm"
@@ -230,7 +231,7 @@ func runMigrationList(database *gorm.DB, phase migrationPhase, migrations []migr
 				if rerr := recordMigration(database, m); rerr != nil {
 					return rerr
 				}
-				log.Printf("[Migration] v%d %q já presente em banco legado — marcada como aplicada sem reexecutar", m.Version, m.Name)
+				logging.Infof(context.Background(), "database.migrator", "[Migration] v%d %q já presente em banco legado — marcada como aplicada sem reexecutar", m.Version, m.Name)
 				continue
 			}
 		}
@@ -244,7 +245,7 @@ func runMigrationList(database *gorm.DB, phase migrationPhase, migrations []migr
 				// user_version reflete a maior versão CONTÍGUA (ver
 				// syncUserVersion), não saltando à frente da pendente.
 				if errors.Is(rerr, errMigrationDeferred) {
-					log.Printf("[Migration] v%d %q adiada — será retentada no próximo boot: %v", m.Version, m.Name, rerr)
+					logging.Errorf(context.Background(), "database.migrator", "[Migration] v%d %q adiada — será retentada no próximo boot: %v", m.Version, m.Name, rerr)
 					continue
 				}
 				return fmt.Errorf("aplicar migração %d (%s): %w", m.Version, m.Name, rerr)
@@ -253,7 +254,7 @@ func runMigrationList(database *gorm.DB, phase migrationPhase, migrations []migr
 		if rerr := recordMigration(database, m); rerr != nil {
 			return rerr
 		}
-		log.Printf("[Migration] v%d %q aplicada", m.Version, m.Name)
+		logging.Infof(context.Background(), "database.migrator", "[Migration] v%d %q aplicada", m.Version, m.Name)
 	}
 
 	return nil

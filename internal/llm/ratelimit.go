@@ -1,9 +1,10 @@
 package llm
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -84,21 +85,21 @@ func RateLimitConfigFromEnv() RateLimitConfig {
 		if v, err := strconv.ParseBool(strings.TrimSpace(raw)); err == nil {
 			cfg.Enabled = v
 		} else {
-			log.Printf("[llm/ratelimit] valor inválido em %s=%q; mantendo enabled=%v", envRateLimitEnabled, raw, cfg.Enabled)
+			logging.Infof(context.Background(), "llm.ratelimit", "[llm/ratelimit] valor inválido em %s=%q; mantendo enabled=%v", envRateLimitEnabled, raw, cfg.Enabled)
 		}
 	}
 	if raw, ok := os.LookupEnv(envRateLimitRPM); ok {
 		if v, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && v > 0 {
 			cfg.RequestsPerMinute = v
 		} else {
-			log.Printf("[llm/ratelimit] valor inválido em %s=%q; mantendo rpm=%d", envRateLimitRPM, raw, cfg.RequestsPerMinute)
+			logging.Infof(context.Background(), "llm.ratelimit", "[llm/ratelimit] valor inválido em %s=%q; mantendo rpm=%d", envRateLimitRPM, raw, cfg.RequestsPerMinute)
 		}
 	}
 	if raw, ok := os.LookupEnv(envRateLimitBurst); ok {
 		if v, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && v > 0 {
 			cfg.Burst = v
 		} else {
-			log.Printf("[llm/ratelimit] valor inválido em %s=%q; mantendo burst=%d", envRateLimitBurst, raw, cfg.Burst)
+			logging.Errorf(context.Background(), "llm.ratelimit", "[llm/ratelimit] valor inválido em %s=%q; mantendo burst=%d", envRateLimitBurst, raw, cfg.Burst)
 		}
 	}
 	return cfg

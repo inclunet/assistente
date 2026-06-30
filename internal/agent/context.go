@@ -1,7 +1,8 @@
 package agent
 
 import (
-	"log"
+	"assistente/internal/logging"
+	"context"
 	"strconv"
 	"unicode/utf8"
 
@@ -138,7 +139,7 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 	}
 
 	// Precisa truncar. Calcula budget proporcional por resultado.
-	log.Printf("[Agent] context pre-check: %d tokens de tools excede budget de %d (contexto=%d, existente=%d, resposta=%d)",
+	logging.Infof(context.Background(), "agent.context", "[Agent] context pre-check: %d tokens de tools excede budget de %d (contexto=%d, existente=%d, resposta=%d)",
 		resultTokens, availableTokens, contextLimit, existingTokens, maxResponseTokens)
 
 	// Distribui o budget proporcionalmente ao tamanho de cada resultado
@@ -165,7 +166,7 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 		}
 		result.FinalTokens = 0
 		if result.Truncated {
-			log.Printf("[Agent] context pre-check: budget zero, %d resultados removidos", nResults)
+			logging.Infof(context.Background(), "agent.context", "[Agent] context pre-check: budget zero, %d resultados removidos", nResults)
 		}
 		return result
 	}
@@ -246,7 +247,7 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 
 	result.FinalTokens = truncatedTokens
 	if result.Truncated {
-		log.Printf("[Agent] context pre-check: truncou %d → %d tokens estimados", resultTokens, truncatedTokens)
+		logging.Infof(context.Background(), "agent.context", "[Agent] context pre-check: truncou %d → %d tokens estimados", resultTokens, truncatedTokens)
 	}
 	return result
 }

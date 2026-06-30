@@ -1,7 +1,8 @@
 package llm
 
 import (
-	"log"
+	"assistente/internal/logging"
+	"context"
 	"strings"
 
 	"github.com/openai/openai-go/packages/param"
@@ -50,7 +51,7 @@ func buildNativeMCPTools(mcpServers []MCPServerConfig) []responses.ToolUnionPara
 			}
 		}
 		respTools = append(respTools, mcpTool)
-		log.Printf("[OpenAIProvider] MCP native tool: label=%q url=%q hasAuth=%v allowedTools=%d",
+		logging.Infof(context.Background(), "llm.openai-mcp", "[OpenAIProvider] MCP native tool: label=%q url=%q hasAuth=%v allowedTools=%d",
 			srv.Name, srv.URL, srv.AuthToken != "", len(srv.AllowedTools))
 	}
 	return respTools

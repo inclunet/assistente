@@ -1,11 +1,11 @@
 package toolinvocations
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -118,11 +118,11 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					// Se o turno/mensagem foi removido antes da execução, não execute tools com efeitos colaterais.
-					log.Printf("[toolinvocations] chat origin %s deleted before execution; aborting tool execution", strings.TrimSpace(req.Origin.ID))
+					logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] chat origin %s deleted before execution; aborting tool execution", strings.TrimSpace(req.Origin.ID))
 					return ExecuteResult{Execution: executionCancelled(req.Call, "Execução cancelada: o item do chat foi removido"), Persisted: false}
 				}
 				// Para falhas transitórias de DB, mantém best-effort e executa sem persistência.
-				log.Printf("[toolinvocations] failed to validate chat origin %s; executing without persistence (best-effort): %v", strings.TrimSpace(req.Origin.ID), err)
+				logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to validate chat origin %s; executing without persistence (best-effort): %v", strings.TrimSpace(req.Origin.ID), err)
 				exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
 				return ExecuteResult{Execution: exec, Persisted: false}
 			}
@@ -136,10 +136,10 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		visible, err := s.repo.IsToolCatalogIDVisible(opCtx, toolCatalogID)
 		cancel()
 		if err != nil {
-			log.Printf("[toolinvocations] failed to validate tool_catalog_id (best-effort): %v", err)
+			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to validate tool_catalog_id (best-effort): %v", err)
 			toolCatalogID = ""
 		} else if !visible {
-			log.Printf("[toolinvocations] tool_catalog_id not visible to user; falling back to resolve by name (best-effort) id=%s", strings.TrimSpace(toolCatalogID))
+			logging.Infof(ctx, "toolinvocations.service", "[toolinvocations] tool_catalog_id not visible to user; falling back to resolve by name (best-effort) id=%s", strings.TrimSpace(toolCatalogID))
 			toolCatalogID = ""
 		} else {
 			// Defesa: garante que o ID fornecido corresponde ao nome da tool.
@@ -147,10 +147,10 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 			resolved, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
 			cancel()
 			if err != nil {
-				log.Printf("[toolinvocations] failed to verify tool_catalog_id by name (best-effort): %v", err)
+				logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to verify tool_catalog_id by name (best-effort): %v", err)
 				toolCatalogID = ""
 			} else if strings.TrimSpace(resolved) != "" && resolved != toolCatalogID {
-				log.Printf("[toolinvocations] tool_catalog_id mismatch for %q; using resolved id", req.Call.Function.Name)
+				logging.Infof(ctx, "toolinvocations.service", "[toolinvocations] tool_catalog_id mismatch for %q; using resolved id", req.Call.Function.Name)
 				toolCatalogID = resolved
 			}
 		}
@@ -162,7 +162,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		if err != nil {
 			// Best-effort: não bloqueia execução quando o catálogo está
 			// desatualizado/indisponível. Executa a tool sem persistir.
-			log.Printf("[toolinvocations] failed to resolve tool_catalog_id (best-effort): %v", err)
+			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to resolve tool_catalog_id (best-effort): %v", err)
 			exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
 			return ExecuteResult{Execution: exec, Persisted: false}
 		}
@@ -197,7 +197,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 
 	opCtx, cancel := s.persistOpCtx(persistCtx)
 	if err := s.repo.Create(opCtx, &inv); err != nil {
-		log.Printf("[toolinvocations] failed to create invocation (best-effort): %v", err)
+		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to create invocation (best-effort): %v", err)
 		inv.ID = ""
 	}
 	cancel()
@@ -205,7 +205,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		startedAt := s.now()
 		opCtx, cancel := s.persistOpCtx(persistCtx)
 		if err := s.repo.MarkRunning(opCtx, inv.ID, startedAt); err != nil {
-			log.Printf("[toolinvocations] failed to mark running (id=%s): %v", inv.ID, err)
+			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to mark running (id=%s): %v", inv.ID, err)
 		} else {
 			inv.StartedAt = &startedAt
 		}
@@ -232,12 +232,12 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 						delErr := s.repo.Delete(opCtx, inv.ID)
 						cancel()
 						if delErr != nil {
-							log.Printf("[toolinvocations] failed to delete orphan invocation (id=%s): %v", inv.ID, delErr)
+							logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to delete orphan invocation (id=%s): %v", inv.ID, delErr)
 						}
 						return ExecuteResult{Invocation: inv, Execution: exec, Persisted: false}
 					}
 					// Se não conseguimos revalidar por erro transitório, tenta completar a invocação.
-					log.Printf("[toolinvocations] warning: failed to revalidate chat origin %s before complete; completing anyway (id=%s): %v", strings.TrimSpace(inv.OriginID), inv.ID, err)
+					logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] warning: failed to revalidate chat origin %s before complete; completing anyway (id=%s): %v", strings.TrimSpace(inv.OriginID), inv.ID, err)
 				}
 			}
 		}
@@ -256,7 +256,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		err := s.repo.Complete(opCtx, inv.ID, &inv)
 		cancel()
 		if err != nil {
-			log.Printf("[toolinvocations] failed to complete invocation (id=%s): %v", inv.ID, err)
+			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to complete invocation (id=%s): %v", inv.ID, err)
 			persisted = false
 		} else {
 			persisted = true
@@ -630,7 +630,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return Invocation{}, err
 				}
-				log.Printf("[toolinvocations] warning: failed to validate chat origin %s for Record; proceeding (best-effort): %v", strings.TrimSpace(req.Origin.ID), err)
+				logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] warning: failed to validate chat origin %s for Record; proceeding (best-effort): %v", strings.TrimSpace(req.Origin.ID), err)
 			}
 		}
 	}
@@ -691,7 +691,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	startedAt := s.now()
 	opCtx, cancel = s.persistOpCtx(persistCtx)
 	if err := s.repo.MarkRunning(opCtx, inv.ID, startedAt); err != nil {
-		log.Printf("[toolinvocations] failed to mark running (id=%s): %v", inv.ID, err)
+		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to mark running (id=%s): %v", inv.ID, err)
 	} else {
 		inv.StartedAt = &startedAt
 	}
@@ -721,11 +721,11 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 					delErr := s.repo.Delete(opCtx, inv.ID)
 					cancel()
 					if delErr != nil {
-						log.Printf("[toolinvocations] failed to delete orphan recorded invocation (id=%s): %v", inv.ID, delErr)
+						logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to delete orphan recorded invocation (id=%s): %v", inv.ID, delErr)
 					}
 					return inv, err
 				}
-				log.Printf("[toolinvocations] warning: failed to revalidate chat origin %s before completing Record; completing anyway (id=%s): %v", strings.TrimSpace(inv.OriginID), inv.ID, err)
+				logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] warning: failed to revalidate chat origin %s before completing Record; completing anyway (id=%s): %v", strings.TrimSpace(inv.OriginID), inv.ID, err)
 			}
 		}
 	}
@@ -733,7 +733,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	err := s.repo.Complete(opCtx, inv.ID, &inv)
 	cancel()
 	if err != nil {
-		log.Printf("[toolinvocations] failed to complete recorded invocation (id=%s): %v", inv.ID, err)
+		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to complete recorded invocation (id=%s): %v", inv.ID, err)
 		return inv, err
 	}
 	return inv, nil

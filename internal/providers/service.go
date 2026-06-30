@@ -1,11 +1,11 @@
 package providers
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -112,19 +112,19 @@ func (s *Service) Load(ctx context.Context) error {
 			inferred := p.GetAPIFormat()
 			p.APIFormat = inferred
 			needsSave = true
-			log.Printf("[providers] api_format de '%s' materializado como %q", p.Name, inferred)
+			logging.Errorf(ctx, "providers.service", "[providers] api_format de '%s' materializado como %q", p.Name, inferred)
 		}
 		if err := s.registry.Register(p); err != nil {
-			log.Printf("[providers] Erro ao registrar provedor '%s': %v", p.ID, err)
+			logging.Errorf(ctx, "providers.service", "[providers] Erro ao registrar provedor '%s': %v", p.ID, err)
 		}
 	}
-	log.Printf("[providers] %d provedor(es) carregado(s) do store", len(providers))
+	logging.Infof(ctx, "providers.service", "[providers] %d provedor(es) carregado(s) do store", len(providers))
 	s.EnsureDefault(ctx)
 
 	// Persistir api_format materializado para não repetir inferência no próximo boot
 	if needsSave {
 		if err := s.Save(ctx); err != nil {
-			log.Printf("[providers] Erro ao persistir api_format materializado: %v", err)
+			logging.Errorf(ctx, "providers.service", "[providers] Erro ao persistir api_format materializado: %v", err)
 		}
 	}
 	return nil
@@ -144,10 +144,10 @@ func (s *Service) EnsureDefault(ctx context.Context) {
 	}
 
 	first := all[0]
-	log.Printf("[providers] Nenhum provedor default — marcando '%s' como default", first.Name)
+	logging.Errorf(ctx, "providers.service", "[providers] Nenhum provedor default — marcando '%s' como default", first.Name)
 
 	if err := s.store.SetDefault(ctx, first.ID); err != nil {
-		log.Printf("[providers] Erro ao definir default: %v", err)
+		logging.Errorf(ctx, "providers.service", "[providers] Erro ao definir default: %v", err)
 		return
 	}
 	first.IsDefault = true
@@ -156,7 +156,7 @@ func (s *Service) EnsureDefault(ctx context.Context) {
 		first.DefaultModel = first.Model
 		// Persiste o DefaultModel preenchido
 		if err := s.store.Save(ctx, []*llm.ProviderConfig{first}); err != nil {
-			log.Printf("[providers] Erro ao salvar DefaultModel: %v", err)
+			logging.Errorf(ctx, "providers.service", "[providers] Erro ao salvar DefaultModel: %v", err)
 		}
 	}
 }
@@ -261,15 +261,15 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		return nil, fmt.Errorf("erro ao registrar provider: %w", err)
 	}
 	if err := s.Save(ctx); err != nil {
-		log.Printf("[providers] Erro ao salvar após criação: %v", err)
+		logging.Errorf(ctx, "providers.service", "[providers] Erro ao salvar após criação: %v", err)
 	}
 	if isFirst {
 		if err := s.store.SetDefault(ctx, req.ID); err != nil {
-			log.Printf("[providers] Aviso: erro ao marcar como default: %v", err)
+			logging.Warnf(ctx, "providers.service", "[providers] Aviso: erro ao marcar como default: %v", err)
 		}
 	}
 
-	log.Printf("[providers] Provider '%s' criado (hostname=%s, default=%v)", req.ID, hostname, isFirst)
+	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (hostname=%s, default=%v)", req.ID, hostname, isFirst)
 	return &CreateResult{
 		Provider:             provider,
 		CredentialPattern:    hostname,
@@ -352,16 +352,16 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 
 	if err := s.registry.Remove(id); err != nil {
-		log.Printf("[providers] Aviso: falha ao remover provider antigo '%s': %v", id, err)
+		logging.Warnf(ctx, "providers.service", "[providers] Aviso: falha ao remover provider antigo '%s': %v", id, err)
 	}
 	if err := s.registry.Register(updated); err != nil {
 		return nil, fmt.Errorf("erro ao atualizar provider: %w", err)
 	}
 	if err := s.Save(ctx); err != nil {
-		log.Printf("[providers] Erro ao salvar após atualização: %v", err)
+		logging.Errorf(ctx, "providers.service", "[providers] Erro ao salvar após atualização: %v", err)
 	}
 
-	log.Printf("[providers] Provider '%s' atualizado", id)
+	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' atualizado", id)
 	return &UpdateResult{Provider: updated, CredentialConfigured: credConfigured}, nil
 }
 
@@ -373,7 +373,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	if err := s.registry.Remove(id); err != nil {
 		return fmt.Errorf("erro ao remover provider: %w", err)
 	}
-	log.Printf("[providers] Provider '%s' removido", id)
+	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' removido", id)
 	return nil
 }
 
@@ -388,7 +388,7 @@ func (s *Service) SetDefault(ctx context.Context, id string) error {
 	for _, p := range s.registry.List() {
 		p.IsDefault = (p.ID == id)
 	}
-	log.Printf("[providers] Provider '%s' definido como default", id)
+	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' definido como default", id)
 	return nil
 }
 
@@ -411,7 +411,7 @@ func (s *Service) ListWithStatus(ctx context.Context) []ProviderStatus {
 		if p.CredentialPattern != "" {
 			auth, err := s.credMgr.GetByPatternWithContext(ctx, p.CredentialPattern)
 			if err != nil {
-				log.Printf("[providers] Credencial '%s' do provider '%s' não pode ser usada: %v", p.CredentialPattern, p.ID, err)
+				logging.Infof(ctx, "providers.service", "[providers] Credencial '%s' do provider '%s' não pode ser usada: %v", p.CredentialPattern, p.ID, err)
 			}
 			credConfigured = err == nil && auth != nil
 		}
@@ -467,7 +467,7 @@ func (s *Service) ResolveProfileDefaults(ctx context.Context, p *profiles.Profil
 	if needsDefaultProvider {
 		dp, err := s.store.GetDefault(ctx)
 		if err != nil || dp == nil {
-			log.Printf("[providers] Nenhum provedor default encontrado para resolução: %v", err)
+			logging.Infof(ctx, "providers.service", "[providers] Nenhum provedor default encontrado para resolução: %v", err)
 			return p
 		}
 		defaultProvider = dp
@@ -504,10 +504,10 @@ func (s *Service) ResolveProfileDefaults(ctx context.Context, p *profiles.Profil
 		}
 		resolved.Chat.Model = resolvedModel
 		if modelSourceProvider != nil {
-			log.Printf("[providers] Resolvido $default model → provider=%s, model=%s", modelSourceProvider.ID, resolvedModel)
+			logging.Infof(ctx, "providers.service", "[providers] Resolvido $default model → provider=%s, model=%s", modelSourceProvider.ID, resolvedModel)
 		}
 	} else if defaultProvider != nil {
-		log.Printf("[providers] Resolvido $default → provider=%s", defaultProvider.ID)
+		logging.Infof(ctx, "providers.service", "[providers] Resolvido $default → provider=%s", defaultProvider.ID)
 	}
 	return &resolved
 }

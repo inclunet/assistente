@@ -1,14 +1,13 @@
 package agent
 
 import (
-	"context"
-	"errors"
-	"log"
-
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/events"
 	"assistente/internal/llm"
+	"assistente/internal/logging"
+	"context"
+	"errors"
 )
 
 // SimpleStreamHandler implements llm.StreamHandler for the non-agentic (no-tool) path.
@@ -86,16 +85,16 @@ func (h *SimpleStreamHandler) SuppressTerminalError(v bool) {
 // OnToolCalls is the safety fallback for when simple streaming unexpectedly receives tool calls.
 // Delegates to OnDone to preserve any textual response.
 func (h *SimpleStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string, usage llm.Usage, model string) {
-	log.Printf("[TOOL_CALLS] recebido %d tool calls no streaming simples — delegando para OnDone", len(calls))
+	logging.Infof(context.Background(), "agent.simple-stream-handler", "[TOOL_CALLS] recebido %d tool calls no streaming simples — delegando para OnDone", len(calls))
 	h.OnDone(fullResponse, usage, model)
 }
 
 func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 	if event.IsCompleted {
-		log.Printf("[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
+		logging.Infof(context.Background(), "agent.simple-stream-handler", "[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
 			event.Name, event.ServerLabel, event.ID, len(event.Output))
 	} else {
-		log.Printf("[MCP Native] 🔧 %s (server=%s, id=%s)",
+		logging.Infof(context.Background(), "agent.simple-stream-handler", "[MCP Native] 🔧 %s (server=%s, id=%s)",
 			event.Name, event.ServerLabel, event.ID)
 	}
 }

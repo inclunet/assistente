@@ -4,10 +4,10 @@ import (
 	"context"
 	"log/slog"
 
-	"assistente/internal/database"
 	"assistente/internal/eventctx"
-	"assistente/internal/toolinvocations"
+	"assistente/internal/toolctx"
 	"assistente/internal/tools/invocationctx"
+	"assistente/internal/userctx"
 )
 
 type contextAttrsKey struct{}
@@ -43,7 +43,7 @@ func ContextAttrs(ctx context.Context) []slog.Attr {
 		return nil
 	}
 	attrs := make([]slog.Attr, 0, 8)
-	if userID, ok := database.UserIDFromContext(ctx); ok {
+	if userID, ok := userctx.UserIDFromContext(ctx); ok {
 		attrs = append(attrs, slog.String("user_id", userID))
 	}
 	if inv, ok := invocationctx.Get(ctx); ok {
@@ -60,8 +60,8 @@ func ContextAttrs(ctx context.Context) []slog.Attr {
 			attrs = append(attrs, slog.Int("chain_depth", len(prov.ChainHistory)))
 		}
 	}
-	appendStringAttr(&attrs, "tool_invocation_id", toolinvocations.CurrentInvocationID(ctx))
-	appendStringAttr(&attrs, "parent_tool_invocation_id", toolinvocations.ParentInvocationIDFromContext(ctx))
+	appendStringAttr(&attrs, "tool_invocation_id", toolctx.CurrentInvocationID(ctx))
+	appendStringAttr(&attrs, "parent_tool_invocation_id", toolctx.ParentInvocationIDFromContext(ctx))
 	if extra, _ := ctx.Value(contextAttrsKey{}).([]slog.Attr); len(extra) > 0 {
 		attrs = append(attrs, extra...)
 	}

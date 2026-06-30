@@ -1,9 +1,9 @@
 package app
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"assistente/controllers"
@@ -128,18 +128,18 @@ func (a *App) ensureDefaultProvider() {
 func (a *App) initLLMClient() {
 	activeProfile, err := a.profileManager.GetActive()
 	if err != nil || activeProfile == nil {
-		log.Printf("[initLLMClient] Perfil ativo não encontrado: %v", err)
+		logging.Infof(context.Background(), "app.app-llm-providers", "[initLLMClient] Perfil ativo não encontrado: %v", err)
 		return
 	}
 	activeProfile = a.resolveProfileDefaults(activeProfile)
 
 	provider := a.llmRegistry.Get(activeProfile.Chat.LLMProvider)
 	if provider == nil {
-		log.Printf("[initLLMClient] Provedor LLM não encontrado: %s", activeProfile.Chat.LLMProvider)
+		logging.Infof(context.Background(), "app.app-llm-providers", "[initLLMClient] Provedor LLM não encontrado: %s", activeProfile.Chat.LLMProvider)
 		return
 	}
 
-	log.Printf("[initLLMClient] Provedor ativo: %s (api_format=%s)", provider.Name, provider.GetAPIFormat())
+	logging.Infof(context.Background(), "app.app-llm-providers", "[initLLMClient] Provedor ativo: %s (api_format=%s)", provider.Name, provider.GetAPIFormat())
 }
 
 // ReloadLLMClient recarrega o cliente LLM (chamado quando config muda)
@@ -190,7 +190,7 @@ func (a *App) initLLMProviders(ctx context.Context) {
 	if err := a.providerSvc.Load(ctx); err != nil {
 		count, countErr := a.providerSvc.Count(ctx)
 		if countErr != nil || count == 0 {
-			log.Printf("Nenhum provedor encontrado. Configure um provedor nas configurações ou crie um perfil.")
+			logging.Infof(ctx, "app.app-llm-providers", "Nenhum provedor encontrado. Configure um provedor nas configurações ou crie um perfil.")
 		}
 	}
 }

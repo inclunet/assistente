@@ -1,8 +1,8 @@
 package chat
 
 import (
+	"assistente/internal/logging"
 	"context"
-	"log"
 	"sort"
 	"strings"
 
@@ -428,7 +428,7 @@ func applyNativeMCP(
 				}
 			}
 			if len(allowed) == 0 {
-				log.Printf("[chat] MCP nativo: servidor %q excluído (nenhuma tool habilitada no perfil)", srv.Name)
+				logging.Infof(context.Background(), "chat.tool-selection-policy", "[chat] MCP nativo: servidor %q excluído (nenhuma tool habilitada no perfil)", srv.Name)
 				continue
 			}
 			cfg.AllowedTools = allowed
@@ -443,7 +443,7 @@ func applyNativeMCP(
 
 	if len(mcpConfigs) > 0 {
 		streamer = streamer.WithMCPServers(mcpConfigs)
-		log.Printf("[chat] MCP nativo: %d servidores HTTP configurados", len(mcpConfigs))
+		logging.Infof(context.Background(), "chat.tool-selection-policy", "[chat] MCP nativo: %d servidores HTTP configurados", len(mcpConfigs))
 	}
 
 	if len(nativeToolNames) > 0 {
@@ -455,7 +455,7 @@ func applyNativeMCP(
 		}
 		removed := len(toolDefs) - len(filtered)
 		if removed > 0 {
-			log.Printf("[chat] MCP nativo: %d bridge tools removidas (nativas agora)", removed)
+			logging.Infof(context.Background(), "chat.tool-selection-policy", "[chat] MCP nativo: %d bridge tools removidas (nativas agora)", removed)
 		}
 		toolDefs = filtered
 	}

@@ -1,8 +1,8 @@
 package app
 
 import (
+	"assistente/internal/logging"
 	"context"
-	"log"
 	"time"
 
 	"assistente/internal/questionnaire"
@@ -41,7 +41,7 @@ func (a *App) initUpdater() {
 	// Configura callback de elevação (solicita permissão ao usuário)
 	a.updater.SetElevationCallback(func() bool {
 		if a.questionnaireMgr == nil {
-			log.Printf("[Updater] Questionnaire manager não disponível para solicitar elevação")
+			logging.Warnf(context.Background(), "app.app-updater", "[Updater] Questionnaire manager não disponível para solicitar elevação")
 			return false
 		}
 
@@ -66,21 +66,21 @@ func (a *App) initUpdater() {
 		})
 
 		if err != nil {
-			log.Printf("[Updater] Erro ao solicitar confirmação de elevação: %v", err)
+			logging.Errorf(context.Background(), "app.app-updater", "[Updater] Erro ao solicitar confirmação de elevação: %v", err)
 			return false
 		}
 		if resp.Cancelled {
-			log.Printf("[Updater] Usuário cancelou a solicitação de elevação")
+			logging.Infof(context.Background(), "app.app-updater", "[Updater] Usuário cancelou a solicitação de elevação")
 			return false
 		}
 		if allow, ok := resp.Answers["allow"].(bool); ok && allow {
-			log.Printf("[Updater] Usuário autorizou elevação")
+			logging.Infof(context.Background(), "app.app-updater", "[Updater] Usuário autorizou elevação")
 			return true
 		}
 		return false
 	})
 
-	log.Printf("[Updater] Inicializado (versão atual: %s)", AppVersion)
+	logging.Infof(context.Background(), "app.app-updater", "[Updater] Inicializado (versão atual: %s)", AppVersion)
 }
 
 // checkForUpdatesOnStartup verifica atualizações ao iniciar (não bloqueante).

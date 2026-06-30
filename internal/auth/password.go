@@ -1,12 +1,13 @@
 package auth
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 
@@ -131,7 +132,7 @@ func parsePositiveUint32(raw string) (uint32, error) {
 		return 0, err
 	}
 	if value == 0 {
-		log.Printf("[Auth] hash de senha com parametro Argon2 zero detectado - corrupcao provavel, user precisa redefinir senha")
+		logging.Infof(context.Background(), "auth.password", "[Auth] hash de senha com parametro Argon2 zero detectado - corrupcao provavel, user precisa redefinir senha")
 		return 0, ErrInvalidPasswordHash
 	}
 	return uint32(value), nil

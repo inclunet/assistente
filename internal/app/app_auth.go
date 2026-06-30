@@ -1,9 +1,9 @@
 package app
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"errors"
-	"log"
 	"strings"
 	"time"
 
@@ -65,7 +65,7 @@ func (a *App) configureSessionService() {
 	}
 	pepper, err := auth.LoadOrCreateRefreshTokenPepper(a.credMgr)
 	if err != nil {
-		log.Printf("[Auth] erro ao carregar pepper de refresh token: %v", err)
+		logging.Errorf(context.Background(), "app.app-auth", "[Auth] erro ao carregar pepper de refresh token: %v", err)
 		a.authMu.Lock()
 		a.sessionSvc = nil
 		a.authMu.Unlock()
@@ -86,9 +86,9 @@ func (a *App) configureSessionService() {
 	a.authMu.Unlock()
 
 	if deleted, err := sessionSvc.PurgeExpiredSessions(a.appContext(), sessionPurgeRetention); err != nil {
-		log.Printf("[Auth] purge de sessions expiradas/revogadas falhou: %v", err)
+		logging.Infof(context.Background(), "app.app-auth", "[Auth] purge de sessions expiradas/revogadas falhou: %v", err)
 	} else if deleted > 0 {
-		log.Printf("[Auth] %d sessions expiradas/revogadas removidas (retention %s)", deleted, sessionPurgeRetention)
+		logging.Infof(context.Background(), "app.app-auth", "[Auth] %d sessions expiradas/revogadas removidas (retention %s)", deleted, sessionPurgeRetention)
 	}
 }
 
@@ -169,14 +169,14 @@ func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
 	// app_messaging.go.SaveChannelConfig).
 	migrated, adoptErr := channels.AdoptOrphans(user.ID)
 	if len(migrated) > 0 {
-		log.Printf("[CreateAdminUser] %d canal(is) legado(s) reatribuído(s) ao admin %s: %v", len(migrated), user.ID, migrated)
+		logging.Errorf(context.Background(), "app.app-auth", "[CreateAdminUser] %d canal(is) legado(s) reatribuído(s) ao admin %s: %v", len(migrated), user.ID, migrated)
 	}
 	if adoptErr != nil {
 		// Best-effort: o admin foi criado e é o único que pode adotar
 		// canais sem dono — propagamos o erro só em log para não
 		// bloquear setup. Canais que ficaram sem dono podem ser
 		// reativados manualmente pelas settings.
-		log.Printf("[CreateAdminUser] erro best-effort em channels.AdoptOrphans: %v", adoptErr)
+		logging.Errorf(context.Background(), "app.app-auth", "[CreateAdminUser] erro best-effort em channels.AdoptOrphans: %v", adoptErr)
 	}
 	return user, nil
 }
@@ -237,9 +237,9 @@ func (a *App) Login(req LoginRequest) (*AuthUser, error) {
 func (a *App) logLogoutError(err error) {
 	switch {
 	case errors.Is(err, auth.ErrInvalidRefreshToken):
-		log.Printf("[Auth] Logout: refresh token mal formatado (possível tampering ou sessão local corrompida): %v", err)
+		logging.Errorf(context.Background(), "app.app-auth", "[Auth] Logout: refresh token mal formatado (possível tampering ou sessão local corrompida): %v", err)
 	default:
-		log.Printf("[Auth] Logout: erro ao revogar sessão remota (estado local já foi limpo, sessão remota expira em RefreshTTL): %v", err)
+		logging.Errorf(context.Background(), "app.app-auth", "[Auth] Logout: erro ao revogar sessão remota (estado local já foi limpo, sessão remota expira em RefreshTTL): %v", err)
 	}
 }
 
@@ -261,11 +261,11 @@ func (a *App) rollbackLoginState(refreshToken string) {
 		err := a.sessionSvc.Logout(ctx, refreshToken)
 		cancel()
 		if err != nil {
-			log.Printf("[Auth] rollback: erro ao revogar sessão (ctx<=%s): %v", rollbackLogoutTimeout, err)
+			logging.Errorf(context.Background(), "app.app-auth", "[Auth] rollback: erro ao revogar sessão (ctx<=%s): %v", rollbackLogoutTimeout, err)
 		}
 	}
 	if err := a.clearAuthRefreshToken(); err != nil {
-		log.Printf("[Auth] rollback: erro ao apagar refresh token local: %v", err)
+		logging.Errorf(context.Background(), "app.app-auth", "[Auth] rollback: erro ao apagar refresh token local: %v", err)
 	}
 	a.userRuntimeMu.Lock()
 	if a.userRuntimeCancel != nil {
@@ -675,7 +675,7 @@ const (
 // RuntimeSubsystemFailure identifica um subsistema user-scoped que falhou no
 // reload pós-login. Carrega APENAS o identificador estável do subsistema (que
 // o frontend usa para traduzir o aviso). A mensagem de erro NÃO é emitida ao
-// frontend — fica somente nos logs do backend (log.Printf) — para não inflar o
+// frontend — fica somente nos logs do backend — para não inflar o
 // payload nem vazar paths/stack/contexto interno (review PR #278).
 type RuntimeSubsystemFailure struct {
 	Subsystem string `json:"subsystem"`
@@ -697,7 +697,7 @@ type runtimeReloadResult struct {
 // add registra a falha de um subsistema. É no-op quando err == nil, então pode
 // ser chamado diretamente no caminho feliz sem checagens extras. O err serve
 // só para o nil-check: a mensagem em si NÃO é guardada (já é logada pelo
-// chamador via log.Printf) e não vai para o frontend.
+// chamador via logger estruturado) e não vai para o frontend.
 func (r *runtimeReloadResult) add(subsystem string, err error) {
 	if err == nil {
 		return
@@ -735,7 +735,7 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 	}
 	authedCtx, err := a.requireAuthenticatedContext()
 	if err != nil {
-		log.Printf("[reloadUserScopedRuntime] sem sessão autenticada, abortando: %v", err)
+		logging.Warnf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] sem sessão autenticada, abortando: %v", err)
 		return *result
 	}
 	ctx, cancel := context.WithTimeout(authedCtx, reloadUserScopedRuntimeTimeout)
@@ -747,16 +747,16 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 		}
 		currentCtx, err := a.requireAuthenticatedContext()
 		if err != nil {
-			log.Printf("[reloadUserScopedRuntime] jobs não iniciados sem sessão autenticada: %v", err)
+			logging.Infof(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] jobs não iniciados sem sessão autenticada: %v", err)
 			return
 		}
 		currentUserID, _ := database.UserIDFromContext(currentCtx)
 		if currentUserID != userID {
-			log.Printf("[reloadUserScopedRuntime] jobs não iniciados: sessão mudou durante reload")
+			logging.Warnf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] jobs não iniciados: sessão mudou durante reload")
 			return
 		}
 		if err := a.jobMgr.Start(); err != nil {
-			log.Printf("[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)
+			logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] erro ao iniciar jobs do usuário: %v", err)
 			result.add(runtimeSubsystemJobs, err)
 		}
 	}
@@ -771,18 +771,18 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 		// (AEP-0074): no login só varremos órfãos (rede de segurança) e, se o
 		// usuário configurou um cap de idade explícito, aplicamos esse limite.
 		if deleted, err := a.toolInvocationSvc.CleanOrphanChat(ctx); err != nil {
-			log.Printf("[reloadUserScopedRuntime] erro ao limpar tool invocations órfãs de chat: %v", err)
+			logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] erro ao limpar tool invocations órfãs de chat: %v", err)
 			result.add(runtimeSubsystemToolInvocations, err)
 		} else if deleted > 0 {
-			log.Printf("[reloadUserScopedRuntime] tool invocations órfãs de chat removidas: %d", deleted)
+			logging.Infof(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] tool invocations órfãs de chat removidas: %d", deleted)
 		}
 		if maint, mErr := config.GetMaintenance(); mErr == nil && maint.ChatToolCallsRetentionDays > 0 {
 			age := time.Duration(maint.ChatToolCallsRetentionDays) * 24 * time.Hour
 			if deleted, err := a.toolInvocationSvc.CleanOldChat(ctx, age); err != nil {
-				log.Printf("[reloadUserScopedRuntime] erro ao aplicar cap de idade de tool calls de chat: %v", err)
+				logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] erro ao aplicar cap de idade de tool calls de chat: %v", err)
 				result.add(runtimeSubsystemToolInvocations, err)
 			} else if deleted > 0 {
-				log.Printf("[reloadUserScopedRuntime] tool calls de chat acima do cap removidas: %d", deleted)
+				logging.Infof(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] tool calls de chat acima do cap removidas: %d", deleted)
 			}
 		}
 	}
@@ -794,7 +794,7 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 	}
 	if a.mcpMgr != nil {
 		if err := a.mcpMgr.LoadConfigs(); err != nil {
-			log.Printf("[reloadUserScopedRuntime] erro ao carregar MCP servers do usuário: %v", err)
+			logging.Errorf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] erro ao carregar MCP servers do usuário: %v", err)
 			result.add(runtimeSubsystemMCP, err)
 		}
 		startJobsForCurrentUser()
@@ -833,7 +833,7 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 	a.startConnectionMonitor(userID)
 
 	if err := ctx.Err(); err != nil {
-		log.Printf("[reloadUserScopedRuntime] timeout/cancel atingido (%s): %v — runtime pode estar parcialmente inicializado", reloadUserScopedRuntimeTimeout, err)
+		logging.Warnf(context.Background(), "app.app-auth", "[reloadUserScopedRuntime] timeout/cancel atingido (%s): %v — runtime pode estar parcialmente inicializado", reloadUserScopedRuntimeTimeout, err)
 		result.add(runtimeSubsystemTimeout, err)
 	}
 

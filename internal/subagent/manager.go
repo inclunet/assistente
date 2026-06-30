@@ -1,12 +1,12 @@
 package subagent
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -274,7 +274,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 		run.Error = fmt.Sprintf("erro ao limpar sub-conversa (clear): %v", err)
 		run.CompletedAt = &clearedAt
 		if uerr := m.repo.Update(context.WithoutCancel(ctx), run); uerr != nil {
-			log.Printf("[Subagent] erro (best-effort) ao marcar run %s como failed após falha de clear: %v", run.ID, uerr)
+			logging.Errorf(ctx, "subagent.manager", "[Subagent] erro (best-effort) ao marcar run %s como failed após falha de clear: %v", run.ID, uerr)
 		}
 		m.releaseConversation(childConvID)
 		m.releaseSlot(userID)
@@ -330,7 +330,7 @@ func (m *Manager) Run(ctx context.Context, p RunParams) (RunResult, error) {
 	result.Status = run.Status
 	if err := m.repo.Update(context.WithoutCancel(ctx), run); err != nil {
 		m.notifier.Cancel(childConvID)
-		log.Printf("[Subagent] erro ao marcar run %s (conversa %s) como running: %v", run.ID, childConvID, err)
+		logging.Errorf(ctx, "subagent.manager", "[Subagent] erro ao marcar run %s (conversa %s) como running: %v", run.ID, childConvID, err)
 		o := outcome{status: database.SubAgentRunStatusFailed, errMsg: fmt.Sprintf("erro ao persistir estado running: %v", err)}
 		finished := m.finalize(ctx, run, &result, o)
 		// Libera a vaga IMEDIATAMENTE após o estado terminal e ANTES de deliver():
@@ -811,7 +811,7 @@ func (m *Manager) finish(ctx context.Context, run *database.SubAgentRun, result 
 	if err := m.repo.Update(persistCtx, run); err != nil {
 		// Best-effort: não propaga (o desfecho do run já foi decidido), mas
 		// loga para não falhar silenciosamente — evita run preso sem sinal.
-		log.Printf("[Subagent] erro (best-effort) ao persistir estado final do run %s (status=%s): %v", run.ID, o.status, err)
+		logging.Errorf(ctx, "subagent.manager", "[Subagent] erro (best-effort) ao persistir estado final do run %s (status=%s): %v", run.ID, o.status, err)
 	}
 
 	result.Status = o.status
@@ -848,7 +848,7 @@ func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun) {
 	// não o conteúdo do DB. `fresh` serve só para a idempotência.
 	fresh, err := m.repo.Get(persistCtx, run.ID)
 	if err != nil {
-		log.Printf("[Subagent] deliver: não foi possível verificar idempotência do run %s; entrega abortada (fail-closed): %v", run.ID, err)
+		logging.Errorf(ctx, "subagent.manager", "[Subagent] deliver: não foi possível verificar idempotência do run %s; entrega abortada (fail-closed): %v", run.ID, err)
 		return
 	}
 	if fresh != nil && fresh.DeliveredAt != nil {
@@ -875,7 +875,7 @@ func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun) {
 		// Não marca DeliveredAt em falha — permite reentrega futura. Loga
 		// best-effort: um run de background que concluiu mas nunca apareceu no
 		// pai precisa ser diagnosticável.
-		log.Printf("[Subagent] deliver: falha ao entregar aviso do run %s ao pai %s (será reentregue): %v", run.ID, run.ParentConversationID, err)
+		logging.Warnf(ctx, "subagent.manager", "[Subagent] deliver: falha ao entregar aviso do run %s ao pai %s (será reentregue): %v", run.ID, run.ParentConversationID, err)
 		return
 	}
 
@@ -885,7 +885,7 @@ func (m *Manager) deliver(ctx context.Context, run *database.SubAgentRun) {
 		// O aviso JÁ foi entregue, mas não conseguimos persistir DeliveredAt: em
 		// retry/recovery a idempotência pode não enxergar a entrega e reentregar.
 		// Não aborta (o desfecho já ocorreu), mas o erro precisa ser visível.
-		log.Printf("[Subagent] deliver: aviso do run %s entregue, mas falha ao persistir DeliveredAt (risco de reentrega em retry/recovery): %v", run.ID, err)
+		logging.Warnf(ctx, "subagent.manager", "[Subagent] deliver: aviso do run %s entregue, mas falha ao persistir DeliveredAt (risco de reentrega em retry/recovery): %v", run.ID, err)
 	}
 }
 

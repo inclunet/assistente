@@ -1,12 +1,11 @@
 package providers
 
 import (
-	"context"
-	"fmt"
-	"log"
-
 	"assistente/internal/credentials"
 	"assistente/internal/llm"
+	"assistente/internal/logging"
+	"context"
+	"fmt"
 )
 
 // BuiltinTemplate retorna um ProviderConfig pré-configurado para um tipo conhecido.
@@ -202,6 +201,6 @@ func (s *Service) CreateFromTemplate(ctx context.Context, providerType, apiKey s
 		return fmt.Errorf("erro ao salvar provedor: %w", err)
 	}
 
-	log.Printf("[providers] Provedor '%s' criado a partir do template", p.ID)
+	logging.Infof(ctx, "providers.defaults", "[providers] Provedor '%s' criado a partir do template", p.ID)
 	return nil
 }

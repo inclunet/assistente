@@ -1,9 +1,10 @@
 package database
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 )
 
@@ -68,7 +69,7 @@ func ensureChatMessageWindowIndex() error {
 	var firstErr error
 	for _, stmt := range indexStmts {
 		if err := db.Exec(stmt).Error; err != nil {
-			log.Printf("[Database] AVISO: falha ao criar índice de chat_messages: %v (stmt: %s)", err, stmt)
+			logging.Warnf(context.Background(), "database.schema-migrations", "[Database] AVISO: falha ao criar índice de chat_messages: %v (stmt: %s)", err, stmt)
 			if firstErr == nil {
 				firstErr = fmt.Errorf("criar índice chat_messages: %w", err)
 			}
@@ -137,7 +138,7 @@ func dedupCredentialEntriesBeforeMigrate() error {
 		return fmt.Errorf("dedup de credential_entries: %w", res.Error)
 	}
 	if res.RowsAffected > 0 {
-		log.Printf("[Database] dedup de credential_entries: %d duplicatas removidas (user_id, pattern)", res.RowsAffected)
+		logging.Infof(context.Background(), "database.schema-migrations", "[Database] dedup de credential_entries: %d duplicatas removidas (user_id, pattern)", res.RowsAffected)
 	}
 	return nil
 }
@@ -220,7 +221,7 @@ func ensureUsernameCaseInsensitive() error {
 			if err := db.Exec(`UPDATE users SET username = ?, is_active = 0 WHERE id = ?`, deactivated, loser).Error; err != nil {
 				return fmt.Errorf("deactivate legacy duplicate username %q: %w", row.Username, err)
 			}
-			log.Printf("[Database] AVISO: username legacy %q desativado por colisão case-insensitive (id=%s renomeado para %q)", row.Username, loser, deactivated)
+			logging.Warnf(context.Background(), "database.schema-migrations", "[Database] AVISO: username legacy %q desativado por colisão case-insensitive (id=%s renomeado para %q)", row.Username, loser, deactivated)
 			if loser == row.ID {
 				continue
 			}
@@ -231,7 +232,7 @@ func ensureUsernameCaseInsensitive() error {
 	}
 
 	if len(legacyMixedCase) > 0 {
-		log.Printf("[Database] usernames legacy normalizados para lowercase: %d", len(legacyMixedCase))
+		logging.Errorf(context.Background(), "database.schema-migrations", "[Database] usernames legacy normalizados para lowercase: %d", len(legacyMixedCase))
 	}
 
 	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_unique ON users (LOWER(username))`).Error; err != nil {
@@ -285,7 +286,7 @@ func migrateRefreshURLToEnc() error {
 		return fmt.Errorf("migrar refresh_url para refresh_token_enc: %w", res.Error)
 	}
 	if res.RowsAffected > 0 {
-		log.Printf("[Database] credential_entries: %d linhas migradas refresh_url → refresh_token_enc", res.RowsAffected)
+		logging.Errorf(context.Background(), "database.schema-migrations", "[Database] credential_entries: %d linhas migradas refresh_url → refresh_token_enc", res.RowsAffected)
 	}
 
 	if err := db.Exec(`ALTER TABLE credential_entries DROP COLUMN refresh_url`).Error; err != nil {
@@ -295,7 +296,7 @@ func migrateRefreshURLToEnc() error {
 		// retentado no próximo startup — preservando o comportamento anterior ao
 		// versionamento (rodava a cada boot até a coluna sumir) e evitando deixar
 		// a coluna em texto plano gravada como "migrada".
-		log.Printf("[Database] AVISO: falha ao dropar coluna legacy refresh_url (será retentado no próximo boot): %v", err)
+		logging.Warnf(context.Background(), "database.schema-migrations", "[Database] AVISO: falha ao dropar coluna legacy refresh_url (será retentado no próximo boot): %v", err)
 		// errors.Join preserva o erro original na cadeia de unwrap além do
 		// sentinela errMigrationDeferred (mesmo padrão de deferIfErr).
 		return errors.Join(fmt.Errorf("dropar coluna legacy refresh_url: %w", err), errMigrationDeferred)

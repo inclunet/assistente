@@ -3,9 +3,10 @@ package app
 import (
 	"assistente/controllers"
 	"assistente/internal/configdir"
+	"assistente/internal/logging"
 	"assistente/internal/workspace"
+	"context"
 	"fmt"
-	"log"
 	"os"
 )
 
@@ -23,9 +24,9 @@ func (a *App) initWorkspace() {
 	}
 
 	if err := a.workspaceMgr.Initialize(workDir); err != nil {
-		log.Printf("Erro ao inicializar workspace: %v", err)
+		logging.Errorf(context.Background(), "app.app-workspace", "Erro ao inicializar workspace: %v", err)
 	} else if ws := a.workspaceMgr.Active(); ws != nil {
-		log.Printf("Workspace ativo: %s (%s)", ws.Name, ws.ID)
+		logging.Errorf(context.Background(), "app.app-workspace", "Workspace ativo: %s (%s)", ws.Name, ws.ID)
 	}
 
 	a.workspaceCtrl = controllers.NewWorkspaceController(controllers.WorkspaceControllerConfig{

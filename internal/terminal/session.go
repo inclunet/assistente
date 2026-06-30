@@ -1,11 +1,11 @@
 package terminal
 
 import (
+	"assistente/internal/logging"
 	"bytes"
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"runtime"
 	"strings"
 	"sync"
@@ -87,8 +87,8 @@ type Session struct {
 	lastUsed   time.Time
 
 	// outputBuf acumula todo o output do PTY em background (para RunCommand com markers)
-	outputBuf  bytes.Buffer
-	outputMu   sync.Mutex
+	outputBuf bytes.Buffer
+	outputMu  sync.Mutex
 
 	// onOutput é chamado com chunks de output filtrado durante RunCommand (LLM)
 	onOutput outputCallback
@@ -174,7 +174,7 @@ func newSession(name, workDir, shell string, onOutput outputCallback, onRawOutpu
 	// Goroutine para ler output do PTY em background
 	go s.readLoop(ctx)
 
-	log.Printf("[Terminal] Sessão criada: id=%s name=%s shell=%s cwd=%s", s.id, s.name, s.shell, s.cwd)
+	logging.Infof(context.Background(), "terminal.session", "[Terminal] Sessão criada: id=%s name=%s shell=%s cwd=%s", s.id, s.name, s.shell, s.cwd)
 	return s, nil
 }
 
@@ -214,7 +214,7 @@ func (s *Session) readLoop(ctx context.Context) {
 		}
 		if err != nil {
 			if err != io.EOF {
-				log.Printf("[Terminal] Erro de leitura na sessão %s: %v", s.id, err)
+				logging.Errorf(ctx, "terminal.session", "[Terminal] Erro de leitura na sessão %s: %v", s.id, err)
 			}
 			return
 		}
@@ -275,13 +275,13 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 	if runtime.GOOS == "windows" {
 		enter = "\r"
 	}
-	log.Printf("[Terminal] RunCommand session=%s os=%s enter=%q cmdLen=%d shell=%s",
+	logging.Errorf(ctx, "terminal.session", "[Terminal] RunCommand session=%s os=%s enter=%q cmdLen=%d shell=%s",
 		s.id, runtime.GOOS, enter, len(wrappedCmd), s.shell)
 	nWritten, err := s.ptySession.PtyWriter().Write([]byte(wrappedCmd + enter))
 	if err != nil {
 		return nil, fmt.Errorf("falha ao enviar comando para sessão %s: %w", s.id, err)
 	}
-	log.Printf("[Terminal] Write OK: %d bytes escritos para sessão %s", nWritten, s.id)
+	logging.Warnf(ctx, "terminal.session", "[Terminal] Write OK: %d bytes escritos para sessão %s", nWritten, s.id)
 
 	// Aguarda o end marker aparecer no output (com timeout)
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -326,13 +326,13 @@ func (s *Session) waitForMarker(ctx context.Context, marker *CommandMarker, comm
 			cleaned := StripANSI(raw)
 			cleaned = strings.ReplaceAll(cleaned, "\r\n", "\n")
 
-			log.Printf("[Terminal] TIMEOUT session=%s bufLen=%d", s.id, len(raw))
+			logging.Errorf(ctx, "terminal.session", "[Terminal] TIMEOUT session=%s bufLen=%d", s.id, len(raw))
 
 			// Envia Ctrl+C para interromper o comando travado e liberar o shell
 			if _, writeErr := s.ptySession.PtyWriter().Write([]byte{0x03}); writeErr != nil {
-				log.Printf("[Terminal] Erro ao enviar Ctrl+C após timeout: %v", writeErr)
+				logging.Errorf(ctx, "terminal.session", "[Terminal] Erro ao enviar Ctrl+C após timeout: %v", writeErr)
 			} else {
-				log.Printf("[Terminal] Ctrl+C enviado após timeout na sessão %s", s.id)
+				logging.Warnf(ctx, "terminal.session", "[Terminal] Ctrl+C enviado após timeout na sessão %s", s.id)
 			}
 
 			// Extrai output útil (entre start marker e o fim, se houver start marker)
@@ -523,7 +523,7 @@ func (s *Session) Interrupt() error {
 	if err != nil {
 		return fmt.Errorf("falha ao enviar Ctrl+C para sessão %s: %w", s.id, err)
 	}
-	log.Printf("[Terminal] Ctrl+C enviado para sessão %s", s.id)
+	logging.Errorf(context.Background(), "terminal.session", "[Terminal] Ctrl+C enviado para sessão %s", s.id)
 	return nil
 }
 
@@ -549,6 +549,6 @@ func (s *Session) Close() error {
 		_ = s.ptySession.Close()
 	}
 
-	log.Printf("[Terminal] Sessão encerrada: id=%s name=%s", s.id, s.name)
+	logging.Infof(context.Background(), "terminal.session", "[Terminal] Sessão encerrada: id=%s name=%s", s.id, s.name)
 	return nil
 }

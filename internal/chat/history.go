@@ -1,9 +1,9 @@
 package chat
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
-	"log"
 	"strings"
 )
 
@@ -54,7 +54,7 @@ func parseHistoryToolCalls(raw string) (calls []historyToolCall, raws []json.Raw
 func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Message, string, error) {
 	existingSummary, summaryUpToID, err := h.Repo.GetConversationSummary(ctx, conversationID)
 	if err != nil {
-		log.Printf("[HISTORY] Erro ao buscar resumo da conversa %s: %v", conversationID, err)
+		logging.Errorf(ctx, "chat.history", "[HISTORY] Erro ao buscar resumo da conversa %s: %v", conversationID, err)
 		existingSummary = ""
 		summaryUpToID = ""
 	}
@@ -148,7 +148,7 @@ func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Mess
 	cleaned := make([]Message, 0, len(dbMessages))
 	for _, m := range dbMessages {
 		if m.Role == "tool" && m.ToolCallID != "" && !offeredIDs[m.ToolCallID] {
-			log.Printf("[History] removendo tool_result órfão: %s (conversa %s)", m.ToolCallID, conversationID)
+			logging.Infof(ctx, "chat.history", "[History] removendo tool_result órfão: %s (conversa %s)", m.ToolCallID, conversationID)
 			continue
 		}
 		if m.ToolCalls != "" {
@@ -162,7 +162,7 @@ func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Mess
 					if answeredIDs[id] {
 						kept = append(kept, tcsRaw[i])
 					} else {
-						log.Printf("[History] removendo tool_use órfão: %s (conversa %s)", id, conversationID)
+						logging.Infof(ctx, "chat.history", "[History] removendo tool_use órfão: %s (conversa %s)", id, conversationID)
 					}
 				}
 				if len(kept) == 0 {

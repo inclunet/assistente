@@ -3,9 +3,10 @@ package app
 import (
 	"assistente/controllers"
 	"assistente/internal/configdir"
+	"assistente/internal/logging"
 	"assistente/internal/skills"
 	skillloadertool "assistente/internal/tools/skillloader"
-	"log"
+	"context"
 	"os"
 )
 
@@ -38,7 +39,7 @@ func (a *App) GetSkillSearchPaths() []string { return a.skillsCtrl.GetSkillSearc
 func (a *App) initSkills() {
 	a.skillMgr = skills.NewManager()
 	if err := a.skillMgr.EnsureDir(); err != nil {
-		log.Printf("[Skills] Erro ao garantir diretório de skills: %v", err)
+		logging.Errorf(context.Background(), "app.app-skills", "[Skills] Erro ao garantir diretório de skills: %v", err)
 	}
 
 	a.installBuiltinSkills()
@@ -48,9 +49,9 @@ func (a *App) initSkills() {
 
 	list, err := a.skillMgr.List()
 	if err != nil {
-		log.Printf("[Skills] Erro ao listar skills: %v", err)
+		logging.Errorf(context.Background(), "app.app-skills", "[Skills] Erro ao listar skills: %v", err)
 	} else {
-		log.Printf("[Skills] Manager inicializado com %d skills", len(list))
+		logging.Infof(context.Background(), "app.app-skills", "[Skills] Manager inicializado com %d skills", len(list))
 	}
 }
 
@@ -60,19 +61,19 @@ func (a *App) initMemoryDir() {
 	resolver := configdir.NewResolver("memory")
 
 	if err := resolver.EnsureHomeDir(); err != nil {
-		log.Printf("[Memory] Erro ao criar diretório de memória: %v", err)
+		logging.Errorf(context.Background(), "app.app-skills", "[Memory] Erro ao criar diretório de memória: %v", err)
 		return
 	}
 
 	if !resolver.Exists("memory.md") {
 		initial := []byte("## Sobre o Usuário\n\n(Ainda não há memórias salvas. Quando o usuário compartilhar informações pessoais ou pedir para lembrar algo, registre aqui.)\n")
 		if err := resolver.Create("memory.md", initial); err != nil {
-			log.Printf("[Memory] Erro ao criar memory.md: %v", err)
+			logging.Errorf(context.Background(), "app.app-skills", "[Memory] Erro ao criar memory.md: %v", err)
 		} else {
-			log.Printf("[Memory] memory.md criado em ~/.assistente/memory/")
+			logging.Infof(context.Background(), "app.app-skills", "[Memory] memory.md criado em ~/.assistente/memory/")
 		}
 	} else {
-		log.Printf("[Memory] memory.md encontrado")
+		logging.Infof(context.Background(), "app.app-skills", "[Memory] memory.md encontrado")
 	}
 
 	homeDir := resolver.GetHomeDir()
@@ -80,7 +81,7 @@ func (a *App) initMemoryDir() {
 		for _, sub := range []string{"daily", "weekly", "monthly", "yearly"} {
 			subPath := homeDir + string(os.PathSeparator) + sub
 			if err := os.MkdirAll(subPath, 0755); err != nil {
-				log.Printf("[Memory] Erro ao criar %s: %v", sub, err)
+				logging.Errorf(context.Background(), "app.app-skills", "[Memory] Erro ao criar %s: %v", sub, err)
 			}
 		}
 	}

@@ -1,9 +1,9 @@
 package llm
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -174,7 +174,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
-		log.Printf("[OpenAIProvider] Stream error: %s", errStr)
+		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream error: %s", errStr)
 
 		if !emittedAnything {
 			// tool_choice downgrade

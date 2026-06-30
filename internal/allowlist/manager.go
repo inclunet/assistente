@@ -1,9 +1,10 @@
 package allowlist
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 
 	"assistente/internal/configdir"
@@ -41,7 +42,7 @@ func (m *Manager) List() ([]AllowlistInfo, error) {
 	for _, f := range files {
 		al, err := m.loadFromFile(f.Filename)
 		if err != nil {
-			log.Printf("[Allowlist] Erro ao carregar %s: %v", f.Filename, err)
+			logging.Errorf(context.Background(), "allowlist.manager", "[Allowlist] Erro ao carregar %s: %v", f.Filename, err)
 			continue
 		}
 
@@ -81,7 +82,7 @@ func (m *Manager) Create(al *Allowlist) (string, error) {
 		return "", err
 	}
 
-	log.Printf("[Allowlist] Criada: %s (%s)", al.Name, slug)
+	logging.Infof(context.Background(), "allowlist.manager", "[Allowlist] Criada: %s (%s)", al.Name, slug)
 	return slug, nil
 }
 
@@ -96,7 +97,7 @@ func (m *Manager) Update(slug string, al *Allowlist) error {
 		return err
 	}
 
-	log.Printf("[Allowlist] Atualizada: %s", slug)
+	logging.Infof(context.Background(), "allowlist.manager", "[Allowlist] Atualizada: %s", slug)
 	return nil
 }
 
@@ -107,7 +108,7 @@ func (m *Manager) Delete(slug string) error {
 		return fmt.Errorf("erro ao excluir allowlist '%s': %w", slug, err)
 	}
 
-	log.Printf("[Allowlist] Excluída: %s", slug)
+	logging.Infof(context.Background(), "allowlist.manager", "[Allowlist] Excluída: %s", slug)
 	return nil
 }
 
@@ -143,7 +144,7 @@ func (m *Manager) EnsureDefaults() error {
 		return fmt.Errorf("erro ao criar allowlist padrão: %w", err)
 	}
 
-	log.Printf("[Allowlist] Allowlist padrão criada: %s", defaultSlug)
+	logging.Infof(context.Background(), "allowlist.manager", "[Allowlist] Allowlist padrão criada: %s", defaultSlug)
 	return nil
 }
 
@@ -170,7 +171,7 @@ func (m *Manager) migrateDefaultRules() error {
 
 	al, err := m.loadFromFile(filename)
 	if err != nil {
-		log.Printf("[Allowlist] Migracao pulada: erro ao ler %s: %v", filename, err)
+		logging.Errorf(context.Background(), "allowlist.manager", "[Allowlist] Migracao pulada: erro ao ler %s: %v", filename, err)
 		return nil
 	}
 
@@ -205,7 +206,7 @@ func (m *Manager) migrateDefaultRules() error {
 	al.CommandRules = append(al.CommandRules, added...)
 	if err := m.save(defaultSlug, al); err != nil {
 		// Nao falhamos o boot: logamos e seguimos como antes.
-		log.Printf("[Allowlist] Migracao falhou ao salvar %s: %v", filename, err)
+		logging.Infof(context.Background(), "allowlist.manager", "[Allowlist] Migracao falhou ao salvar %s: %v", filename, err)
 		return nil
 	}
 
@@ -213,7 +214,7 @@ func (m *Manager) migrateDefaultRules() error {
 	for p := range addedPrograms {
 		programs = append(programs, p)
 	}
-	log.Printf("[Allowlist] Migracao mesclou %d regra(s) estruturada(s) para programa(s): %s", len(added), strings.Join(programs, ", "))
+	logging.Infof(context.Background(), "allowlist.manager", "[Allowlist] Migracao mesclou %d regra(s) estruturada(s) para programa(s): %s", len(added), strings.Join(programs, ", "))
 	return nil
 }
 

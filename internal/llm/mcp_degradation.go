@@ -1,9 +1,9 @@
 package llm
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
-	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -108,7 +108,7 @@ func planMCPDegradationRetry(
 		return nil, false
 	}
 
-	log.Printf("[MCP-DEGRADE] attempt=%d provider=%s server=%s stage=%s action=retry_without_server recoverable=%v",
+	logging.Errorf(ctx, "llm.mcp-degradation", "[MCP-DEGRADE] attempt=%d provider=%s server=%s stage=%s action=retry_without_server recoverable=%v",
 		attempt, provider, removed.Name, failure.Stage, failure.Recoverable)
 
 	if removed.Recover != nil {
@@ -117,9 +117,9 @@ func planMCPDegradationRetry(
 			defer cancel()
 
 			if err := removed.Recover(recoveryCtx); err != nil {
-				log.Printf("[MCP-RECOVER] provider=%s server=%s err=%v", provider, removed.Name, err)
+				logging.Infof(ctx, "llm.mcp-degradation", "[MCP-RECOVER] provider=%s server=%s err=%v", provider, removed.Name, err)
 			} else {
-				log.Printf("[MCP-RECOVER] provider=%s server=%s err=nil", provider, removed.Name)
+				logging.Infof(ctx, "llm.mcp-degradation", "[MCP-RECOVER] provider=%s server=%s err=nil", provider, removed.Name)
 			}
 		}(provider, removed)
 	}

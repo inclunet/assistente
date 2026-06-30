@@ -1,10 +1,10 @@
 package shell
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -152,9 +152,9 @@ func (rc *RunCommand) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// summarizePolicyReasons (sem repetir args do comando).
 	commandSummary := redactCommandForLog(a.Command, policyResult)
 	if decision == allowlist.DecisionApprove {
-		log.Printf("[RunCommand] Comando: %s, decisão: %s", commandSummary, decision)
+		logging.Infof(ctx, "tools.shell.run-command", "[RunCommand] Comando: %s, decisão: %s", commandSummary, decision)
 	} else {
-		log.Printf("[RunCommand] Comando: %s, decisão: %s, motivos: %s", commandSummary, decision, summarizePolicyReasons(policyResult))
+		logging.Infof(ctx, "tools.shell.run-command", "[RunCommand] Comando: %s, decisão: %s, motivos: %s", commandSummary, decision, summarizePolicyReasons(policyResult))
 	}
 
 	switch decision {

@@ -1,9 +1,9 @@
 package auth
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"errors"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -44,7 +44,7 @@ func ensureDummyPasswordHash() string {
 			// enumeração por timing (M2) não está ativa. Em produção
 			// isso só acontece em condições muito patológicas (ex.:
 			// argon2 falhando por OOM real).
-			log.Printf("[Auth] CRITICO: dummy_password_hash falhou na inicializacao - defesa contra enumeracao por timing DESATIVADA: %v", err)
+			logging.Errorf(context.Background(), "auth.identity", "[Auth] CRITICO: dummy_password_hash falhou na inicializacao - defesa contra enumeracao por timing DESATIVADA: %v", err)
 			dummyPasswordHash = ""
 			return
 		}

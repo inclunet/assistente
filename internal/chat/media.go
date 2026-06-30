@@ -1,10 +1,10 @@
 package chat
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 
 	"assistente/internal/llm"
@@ -143,7 +143,7 @@ func (l *MediaHistoryLoader) convertMediaParts(ctx context.Context, mediaParts [
 		case strings.HasPrefix(mediaType, "audio/"):
 			// Se já temos transcrição no Content, não re-transcreve o áudio
 			if hasTextContent {
-				log.Printf("[Media] Áudio ignorado no histórico — já temos transcrição no content")
+				logging.Infof(context.Background(), "chat.media", "[Media] Áudio ignorado no histórico — já temos transcrição no content")
 				continue
 			}
 			content = append(content, l.convertAudioPart(ctx, data, mediaType)...)
@@ -195,12 +195,12 @@ func (l *MediaHistoryLoader) convertAudioPart(ctx context.Context, data, mediaTy
 	// Formato não suportado: tenta transcrever com Whisper
 	if l.Transcribe != nil {
 		filename := WhisperFilename(audioFmt)
-		log.Printf("[Media] Tentando transcrever áudio %s via Whisper (filename=%s)", audioFmt, filename)
+		logging.Errorf(context.Background(), "chat.media", "[Media] Tentando transcrever áudio %s via Whisper (filename=%s)", audioFmt, filename)
 		text, err := l.Transcribe(ctx, data, filename)
 		if err != nil {
-			log.Printf("[Media] Erro ao transcrever %s via Whisper: %v", audioFmt, err)
+			logging.Errorf(context.Background(), "chat.media", "[Media] Erro ao transcrever %s via Whisper: %v", audioFmt, err)
 		} else if text != "" {
-			log.Printf("[Media] Áudio %s transcrito via Whisper ao carregar histórico: %s", audioFmt, truncate(text, 100))
+			logging.Infof(context.Background(), "chat.media", "[Media] Áudio %s transcrito via Whisper ao carregar histórico: %s", audioFmt, truncate(text, 100))
 			return []interface{}{map[string]interface{}{
 				"type": "text",
 				"text": text,
@@ -209,7 +209,7 @@ func (l *MediaHistoryLoader) convertAudioPart(ctx context.Context, data, mediaTy
 	}
 
 	// NUNCA enviar formato não suportado como input_audio — placeholder textual
-	log.Printf("[Media] Áudio %s não transcrito — adicionando placeholder textual", audioFmt)
+	logging.Infof(context.Background(), "chat.media", "[Media] Áudio %s não transcrito — adicionando placeholder textual", audioFmt)
 	return []interface{}{map[string]interface{}{
 		"type": "text",
 		"text": fmt.Sprintf("[Mensagem de áudio recebida (%s) — não foi possível transcrever]", audioFmt),
@@ -252,12 +252,12 @@ func PreprocessMessages(ctx context.Context, messages []llm.Message, transcribe 
 						transcribed := false
 						if audioData != "" && transcribe != nil {
 							filename := WhisperFilename(audioFmt)
-							log.Printf("[Preprocess] Tentando transcrever áudio %s via Whisper (filename=%s)", audioFmt, filename)
+							logging.Errorf(ctx, "chat.media", "[Preprocess] Tentando transcrever áudio %s via Whisper (filename=%s)", audioFmt, filename)
 							text, err := transcribe(ctx, audioData, filename)
 							if err != nil {
-								log.Printf("[Preprocess] Erro ao transcrever áudio %s: %v", audioFmt, err)
+								logging.Errorf(ctx, "chat.media", "[Preprocess] Erro ao transcrever áudio %s: %v", audioFmt, err)
 							} else if text != "" {
-								log.Printf("[Preprocess] Áudio %s transcrito via Whisper: %s", audioFmt, truncate(text, 100))
+								logging.Infof(ctx, "chat.media", "[Preprocess] Áudio %s transcrito via Whisper: %s", audioFmt, truncate(text, 100))
 								newContent = append(newContent, map[string]interface{}{
 									"type": "text",
 									"text": text,
@@ -267,7 +267,7 @@ func PreprocessMessages(ctx context.Context, messages []llm.Message, transcribe 
 						}
 						if !transcribed {
 							// NUNCA enviar formato não suportado — placeholder textual
-							log.Printf("[Preprocess] Áudio %s não transcrito — placeholder textual", audioFmt)
+							logging.Infof(ctx, "chat.media", "[Preprocess] Áudio %s não transcrito — placeholder textual", audioFmt)
 							newContent = append(newContent, map[string]interface{}{
 								"type": "text",
 								"text": fmt.Sprintf("[Mensagem de áudio recebida (%s) — não foi possível transcrever]", audioFmt),

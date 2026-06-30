@@ -1,10 +1,10 @@
 package telegram
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"path"
 	"strconv"
@@ -61,7 +61,7 @@ func (t *TelegramAdapter) Connect(ctx context.Context) error {
 	t.status = messaging.StatusConnected
 	t.mu.Unlock()
 
-	log.Printf("[Telegram] Conectado como @%s", bot.Self.UserName)
+	logging.Errorf(ctx, "messaging.telegram.adapter", "[Telegram] Conectado como @%s", bot.Self.UserName)
 
 	// Inicia o loop de long polling em goroutine
 	go t.pollLoop()
@@ -81,7 +81,7 @@ func (t *TelegramAdapter) Disconnect() error {
 		t.bot.StopReceivingUpdates()
 	}
 	t.status = messaging.StatusDisconnected
-	log.Println("[Telegram] Desconectado")
+	logging.Println(context.Background(), "messaging.telegram.adapter", "[Telegram] Desconectado")
 	return nil
 }
 
@@ -104,7 +104,7 @@ func (t *TelegramAdapter) Send(ctx context.Context, msg messaging.OutgoingMessag
 	// Envia attachments primeiro (se houver)
 	for _, att := range msg.Attachments {
 		if err := t.sendAttachment(chatID, att, msg.ReplyToMessageID); err != nil {
-			log.Printf("[Telegram] Erro ao enviar attachment %s: %v", att.Filename, err)
+			logging.Errorf(ctx, "messaging.telegram.adapter", "[Telegram] Erro ao enviar attachment %s: %v", att.Filename, err)
 		}
 	}
 
@@ -225,8 +225,8 @@ func mimeFromFilename(filename string) string {
 		".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".oga": "audio/ogg",
 		".wav": "audio/wav", ".aac": "audio/aac", ".m4a": "audio/mp4",
 		".mp4": "video/mp4", ".webm": "video/webm",
-		".pdf": "application/pdf",
-		".doc": "application/msword",
+		".pdf":  "application/pdf",
+		".doc":  "application/msword",
 		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	}
 	if m, ok := mimes[ext]; ok {
@@ -289,7 +289,7 @@ func (t *TelegramAdapter) pollLoop() {
 			return
 		case update, ok := <-updates:
 			if !ok {
-				log.Println("[Telegram] Canal de updates fechado")
+				logging.Println(context.Background(), "messaging.telegram.adapter", "[Telegram] Canal de updates fechado")
 				return
 			}
 			t.handleUpdate(update)
@@ -324,7 +324,7 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 				Size:     int64(m.Voice.FileSize),
 			})
 		} else {
-			log.Printf("[Telegram] Erro ao baixar voice: %v", err)
+			logging.Errorf(context.Background(), "messaging.telegram.adapter", "[Telegram] Erro ao baixar voice: %v", err)
 		}
 	}
 
@@ -342,7 +342,7 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 				Size:     int64(m.Audio.FileSize),
 			})
 		} else {
-			log.Printf("[Telegram] Erro ao baixar audio: %v", err)
+			logging.Errorf(context.Background(), "messaging.telegram.adapter", "[Telegram] Erro ao baixar audio: %v", err)
 		}
 	}
 
@@ -357,7 +357,7 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 				Size:     int64(photo.FileSize),
 			})
 		} else {
-			log.Printf("[Telegram] Erro ao baixar foto: %v", err)
+			logging.Errorf(context.Background(), "messaging.telegram.adapter", "[Telegram] Erro ao baixar foto: %v", err)
 		}
 	}
 
@@ -375,7 +375,7 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 				Size:     int64(m.Document.FileSize),
 			})
 		} else {
-			log.Printf("[Telegram] Erro ao baixar documento: %v", err)
+			logging.Errorf(context.Background(), "messaging.telegram.adapter", "[Telegram] Erro ao baixar documento: %v", err)
 		}
 	}
 
@@ -393,7 +393,7 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 				Size:     int64(m.Video.FileSize),
 			})
 		} else {
-			log.Printf("[Telegram] Erro ao baixar vídeo: %v", err)
+			logging.Errorf(context.Background(), "messaging.telegram.adapter", "[Telegram] Erro ao baixar vídeo: %v", err)
 		}
 	}
 
@@ -407,7 +407,7 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 				Size:     int64(m.VideoNote.FileSize),
 			})
 		} else {
-			log.Printf("[Telegram] Erro ao baixar video note: %v", err)
+			logging.Errorf(context.Background(), "messaging.telegram.adapter", "[Telegram] Erro ao baixar video note: %v", err)
 		}
 	}
 

@@ -1,9 +1,9 @@
 package app
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"os"
 
 	"assistente/internal/allowlist"
@@ -141,7 +141,7 @@ func (a *App) initToolRegistry() {
 	// Determina diretório de trabalho para as tools de filesystem
 	workDir, err := os.Getwd()
 	if err != nil {
-		log.Printf("[Tools] Erro ao obter diretório de trabalho: %v", err)
+		logging.Errorf(context.Background(), "app.app-tool-registry", "[Tools] Erro ao obter diretório de trabalho: %v", err)
 		workDir = "."
 	}
 
@@ -258,7 +258,7 @@ func (a *App) initToolRegistry() {
 		}
 		al, err := a.allowlistMgr.Get(activeProfile.Chat.CommandAllowlist)
 		if err != nil {
-			log.Printf("[Tools] Allowlist '%s' não encontrada, usando confirmação para tudo", activeProfile.Chat.CommandAllowlist)
+			logging.Infof(context.Background(), "app.app-tool-registry", "[Tools] Allowlist '%s' não encontrada, usando confirmação para tudo", activeProfile.Chat.CommandAllowlist)
 			return nil
 		}
 		return al
@@ -306,5 +306,5 @@ func (a *App) initToolRegistry() {
 	// Registra ferramenta de deep links
 	a.toolRegistry.MustRegister(deeplinktool.NewOpenDeepLink(&appDeepLinkEmitter{emitter: a.emitter}))
 
-	log.Printf("[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
+	logging.Infof(context.Background(), "app.app-tool-registry", "[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
 }

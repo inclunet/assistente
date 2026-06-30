@@ -1,9 +1,10 @@
 package httpapi
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -48,10 +49,10 @@ type Config struct {
 	// limites por deploy. Defaults conservadores aplicados quando não
 	// configurados — evitam que um teste/integração local "sem cargo"
 	// fique mais frágil que o setup atual.
-	AuthRate   float64
-	AuthBurst  float64
-	JWKSRate   float64
-	JWKSBurst  float64
+	AuthRate  float64
+	AuthBurst float64
+	JWKSRate  float64
+	JWKSBurst float64
 }
 
 func New(cfg Config) *Server {
@@ -238,7 +239,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	// estruturado para alertas / dashboards: o token JWT continua
 	// válido até expirar, então a falha é importante para investigação.
 	if err := session.Logout(r.Context(), req.RefreshToken); err != nil {
-		log.Printf("[httpapi] op=auth.logout status=revoke_failed err=%v", err)
+		logging.Errorf(context.Background(), "httpapi.server", "[httpapi] op=auth.logout status=revoke_failed err=%v", err)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

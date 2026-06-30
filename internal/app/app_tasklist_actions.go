@@ -1,10 +1,10 @@
 package app
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -101,7 +101,7 @@ func (a *App) filterVisibleActions(actions []database.CustomAction, surface stri
 		}
 		ok, err := jobs.EvaluateConditionWithRoot(action.When, data)
 		if err != nil {
-			log.Printf("[CustomActions] when eval error (action=%q): %v", action.ID, err)
+			logging.Errorf(context.Background(), "app.app-tasklist-actions", "[CustomActions] when eval error (action=%q): %v", action.ID, err)
 			continue
 		}
 		if !ok {

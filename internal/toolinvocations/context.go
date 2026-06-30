@@ -1,6 +1,10 @@
 package toolinvocations
 
-import "context"
+import (
+	"context"
+
+	"assistente/internal/toolctx"
+)
 
 // Encadeamento de invocações pai↔filho via context (AEP-0068 + AEP-0063).
 //
@@ -15,41 +19,24 @@ import "context"
 //   - parentInvocationIDKey: o ID da invocação-pai a ser herdado pelas próximas
 //     invocações. Quando um ExecuteRequest não traz ParentInvocationID
 //     explícito, o Service cai para este valor do ctx.
-type currentInvocationIDKey struct{}
-
-type parentInvocationIDKey struct{}
-
+//
 // WithCurrentInvocationID retorna um ctx carregando o ID da invocação corrente.
 func WithCurrentInvocationID(ctx context.Context, id string) context.Context {
-	if id == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, currentInvocationIDKey{}, id)
+	return toolctx.WithCurrentInvocationID(ctx, id)
 }
 
 // CurrentInvocationID recupera o ID da invocação corrente carimbado no ctx.
 func CurrentInvocationID(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	id, _ := ctx.Value(currentInvocationIDKey{}).(string)
-	return id
+	return toolctx.CurrentInvocationID(ctx)
 }
 
 // WithParentInvocationID retorna um ctx carregando o ID da invocação-pai que as
 // próximas invocações devem herdar.
 func WithParentInvocationID(ctx context.Context, id string) context.Context {
-	if id == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, parentInvocationIDKey{}, id)
+	return toolctx.WithParentInvocationID(ctx, id)
 }
 
 // ParentInvocationIDFromContext recupera o ID da invocação-pai carimbado no ctx.
 func ParentInvocationIDFromContext(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	id, _ := ctx.Value(parentInvocationIDKey{}).(string)
-	return id
+	return toolctx.ParentInvocationIDFromContext(ctx)
 }

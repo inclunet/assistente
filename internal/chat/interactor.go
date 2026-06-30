@@ -1,10 +1,10 @@
 package chat
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 
@@ -209,11 +209,11 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		req.Params.ProfileSlug = resolvedProfileSlug
 	}
 	if i.profileMgr == nil {
-		log.Printf("[PrepareContext] profileManager não inicializado — continuando sem perfil")
+		logging.Errorf(ctx, "chat.interactor", "[PrepareContext] profileManager não inicializado — continuando sem perfil")
 	} else if resolvedProfileSlug != "" {
 		activeProfile, err = i.profileMgr.Get(resolvedProfileSlug)
 		if err != nil {
-			log.Printf("[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", resolvedProfileSlug, err)
+			logging.Errorf(ctx, "chat.interactor", "[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", resolvedProfileSlug, err)
 			activeProfile, err = i.profileMgr.GetActive()
 			if err == nil && activeProfile != nil {
 				resolvedProfileSlug = i.profileMgr.GetActiveSlug()
@@ -224,7 +224,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		activeProfile, err = i.profileMgr.GetActive()
 	}
 	if err != nil {
-		log.Printf("[PrepareContext] Erro ao obter perfil: %v", err)
+		logging.Errorf(ctx, "chat.interactor", "[PrepareContext] Erro ao obter perfil: %v", err)
 	}
 
 	// 6. Resolve $default sentinels (provider/model)
@@ -235,7 +235,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	// 7. Apply profile-level chat defaults onto Params
 	params := req.Params
 	if activeProfile != nil {
-		log.Printf("[PrepareContext] Usando perfil: %s", activeProfile.Name)
+		logging.Infof(ctx, "chat.interactor", "[PrepareContext] Usando perfil: %s", activeProfile.Name)
 		if params.Model == "" && activeProfile.Chat.Model != "" {
 			params.Model = activeProfile.Chat.Model
 		}
@@ -279,7 +279,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	// 8. Fall back to config default model if still empty
 	if params.Model == "" && req.DefaultModel != "" {
 		params.Model = req.DefaultModel
-		log.Printf("[PrepareContext] Usando modelo padrão: %s", params.Model)
+		logging.Debugf(ctx, "chat.interactor", "[PrepareContext] Usando modelo padrão: %s", params.Model)
 	}
 	if activeProfile != nil {
 		cacheProfileSlug := strings.TrimSpace(params.ProfileSlug)
@@ -324,7 +324,7 @@ func (i *Interactor) HandleNativeMCPUnsupported(profileSlug, model string, overr
 			if slug == "" && i.profileMgr != nil {
 				slug = i.profileMgr.GetActiveSlug()
 			}
-			log.Printf("[MCP] modelo %s do perfil %q não suporta MCP nativo; usando adapter neste turno (perfil em 'forçar nativo')", model, slug)
+			logging.Infof(context.Background(), "chat.interactor", "[MCP] modelo %s do perfil %q não suporta MCP nativo; usando adapter neste turno (perfil em 'forçar nativo')", model, slug)
 		}
 		return
 	}
@@ -347,7 +347,7 @@ func (i *Interactor) HandleNativeMCPUnsupported(profileSlug, model string, overr
 
 	profile, err := i.profileMgr.Get(slug)
 	if err != nil {
-		log.Printf("[MCP] auto-ajuste abortado: erro ao ler perfil %q: %v", slug, err)
+		logging.Errorf(context.Background(), "chat.interactor", "[MCP] auto-ajuste abortado: erro ao ler perfil %q: %v", slug, err)
 		return
 	}
 	if profile.Chat.NativeMCP != nil {
@@ -359,10 +359,10 @@ func (i *Interactor) HandleNativeMCPUnsupported(profileSlug, model string, overr
 	adapter := false
 	profile.Chat.NativeMCP = &adapter
 	if err := i.profileMgr.Update(slug, profile); err != nil {
-		log.Printf("[MCP] auto-ajuste abortado: erro ao persistir perfil %q: %v", slug, err)
+		logging.Errorf(context.Background(), "chat.interactor", "[MCP] auto-ajuste abortado: erro ao persistir perfil %q: %v", slug, err)
 		return
 	}
-	log.Printf("[MCP] perfil %q (modelo %s) ajustado para adapter automaticamente após erro de MCP nativo não suportado", slug, model)
+	logging.Errorf(context.Background(), "chat.interactor", "[MCP] perfil %q (modelo %s) ajustado para adapter automaticamente após erro de MCP nativo não suportado", slug, model)
 }
 
 // HandlePromptCacheHintUnsupported é chamado quando um provider/gateway rejeita
@@ -388,7 +388,7 @@ func (i *Interactor) HandlePromptCacheHintUnsupported(profileSlug, model string)
 
 	profile, err := i.profileMgr.Get(slug)
 	if err != nil {
-		log.Printf("[PromptCache] auto-ajuste abortado: erro ao ler perfil %q: %v", slug, err)
+		logging.Errorf(context.Background(), "chat.interactor", "[PromptCache] auto-ajuste abortado: erro ao ler perfil %q: %v", slug, err)
 		return
 	}
 	if !profile.Chat.PromptCache.ProviderHints {
@@ -397,10 +397,10 @@ func (i *Interactor) HandlePromptCacheHintUnsupported(profileSlug, model string)
 
 	profile.Chat.PromptCache.ProviderHints = false
 	if err := i.profileMgr.Update(slug, profile); err != nil {
-		log.Printf("[PromptCache] auto-ajuste abortado: erro ao persistir perfil %q: %v", slug, err)
+		logging.Errorf(context.Background(), "chat.interactor", "[PromptCache] auto-ajuste abortado: erro ao persistir perfil %q: %v", slug, err)
 		return
 	}
-	log.Printf("[PromptCache] perfil %q (modelo %s) ajustado para provider_hints=false após rejeição explícita de prompt_cache_key", slug, model)
+	logging.Infof(context.Background(), "chat.interactor", "[PromptCache] perfil %q (modelo %s) ajustado para provider_hints=false após rejeição explícita de prompt_cache_key", slug, model)
 }
 
 // RecordUserMessageRequest contém a entrada do usuário já processada (incluindo STT) pronta para ser persistida.
@@ -539,7 +539,7 @@ func (i *Interactor) ResolveUserContent(ctx context.Context, req ResolveUserCont
 		if req.Source != "wails" {
 			stt := req.STTProvider
 			if stt == "webspeech" || stt == "" {
-				log.Printf("[ResolveUserContent] Canal %s: STT '%s' não suporta transcrição server-side — usando placeholder", req.Source, stt)
+				logging.Infof(ctx, "chat.interactor", "[ResolveUserContent] Canal %s: STT '%s' não suporta transcrição server-side — usando placeholder", req.Source, stt)
 				content = "[Mensagem de áudio recebida, mas transcrição automática não está configurada. Configure Whisper no perfil deste canal para processar mensagens de voz.]"
 			}
 		}
@@ -601,7 +601,7 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 	skillPolicy, policyReady, policyErr := i.BuildSkillSelectionPolicy(req.ActiveProfile)
 	if policyErr != nil {
 		if !isSlashCommand {
-			log.Printf("[chat] erro ao carregar política de skills; seguindo sem autoativação/contexto de skills: %v", policyErr)
+			logging.Errorf(ctx, "chat.interactor", "[chat] erro ao carregar política de skills; seguindo sem autoativação/contexto de skills: %v", policyErr)
 		} else {
 			if i.emitter != nil {
 				i.emitter.Emit("chat:error", ports.ErrorEvent{
@@ -869,7 +869,7 @@ func (i *Interactor) buildDynamicContext(ctx context.Context, data TemplateData,
 	}
 	blocks, err := i.contextProviders.Build(ctx, req)
 	if err != nil {
-		log.Printf("[context/providers] erro ao montar blocos dinâmicos: %v", err)
+		logging.Errorf(ctx, "chat.interactor", "[context/providers] erro ao montar blocos dinâmicos: %v", err)
 		return nil
 	}
 	return blocks

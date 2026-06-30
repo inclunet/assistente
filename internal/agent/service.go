@@ -1,11 +1,11 @@
 package agent
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -107,7 +107,7 @@ func (s *Service) StreamSimpleWithRecovery(
 			return
 		}
 		if err != nil {
-			log.Printf("[Chat] falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
+			logging.Errorf(context.Background(), "agent.service", "[Chat] falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
 			s.emitPlaceholderErrorDone(conversationID, turnID, surfaceOrigin)
 			return
 		}
@@ -129,7 +129,7 @@ func (s *Service) StreamSimpleWithRecovery(
 			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
 		}
 		if attempt < attempts {
-			log.Printf("[Chat] streaming interrompido (conversa %s, tentativa %d/%d): %s", conversationID, attempt, attempts, h.LastError())
+			logging.Errorf(context.Background(), "agent.service", "[Chat] streaming interrompido (conversa %s, tentativa %d/%d): %s", conversationID, attempt, attempts, h.LastError())
 		}
 	}
 }
@@ -169,7 +169,7 @@ func (s *Service) RunAgenticLoop(
 ) {
 	if streamer == nil {
 		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
-		log.Printf("🔴 [AGENT] streamer nil na conversa %s", conversationID)
+		logging.Errorf(ctx, "agent.service", "🔴 [AGENT] streamer nil na conversa %s", conversationID)
 		s.emitter.Emit("chat:done", ports.DoneEvent{
 			ConversationID: conversationID,
 			TurnID:         turnID,
@@ -185,7 +185,7 @@ func (s *Service) RunAgenticLoop(
 		return
 	}
 	if err != nil {
-		log.Printf("[Agent] falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
+		logging.Errorf(ctx, "agent.service", "[Agent] falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
 		s.emitPlaceholderErrorDone(conversationID, turnID, surfaceOrigin)
 		return
 	}
@@ -266,7 +266,7 @@ func (s *Service) SaveAndFinish(
 			return
 		}
 		if err != nil {
-			log.Printf("[Agent] erro ao salvar resposta final: %v", err)
+			logging.Errorf(ctx, "agent.service", "[Agent] erro ao salvar resposta final: %v", err)
 		}
 	}
 	if savedMsgID == "" {
@@ -382,7 +382,7 @@ func (s *Service) emitTokenStats(conversationID string) {
 		ModelCallCount:      stats.ModelCallCount,
 	})
 	if stats.IsCritical {
-		log.Printf("[Context] conversa %s em CRÍTICO: %0.1f%% (%d/%d tokens)",
+		logging.Warnf(context.Background(), "agent.service", "[Context] conversa %s em CRÍTICO: %0.1f%% (%d/%d tokens)",
 			conversationID, stats.ContextUsage, stats.ContextTokens, stats.ContextLimit)
 		s.emitter.Emit("chat:context_warning", ports.ContextWarningEvent{
 			ConversationID: conversationID,
@@ -394,7 +394,7 @@ func (s *Service) emitTokenStats(conversationID string) {
 			ContextLimit:  stats.ContextLimit,
 		})
 	} else if stats.IsNearLimit {
-		log.Printf("[Context] conversa %s próxima do limite: %0.1f%% (%d/%d tokens)",
+		logging.Warnf(context.Background(), "agent.service", "[Context] conversa %s próxima do limite: %0.1f%% (%d/%d tokens)",
 			conversationID, stats.ContextUsage, stats.ContextTokens, stats.ContextLimit)
 		s.emitter.Emit("chat:context_warning", ports.ContextWarningEvent{
 			ConversationID: conversationID,
@@ -462,13 +462,13 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 	// não registrar tool_invocations para evitar registros órfãos.
 	if s.msgRepo != nil {
 		if turnMsg, err := s.msgRepo.GetMessage(ctx, turnID); err != nil {
-			log.Printf("[MCP Native] turn message %s não existe mais; ignorando persistência de MCP events: %v", turnID, err)
+			logging.Infof(ctx, "agent.service", "[MCP Native] turn message %s não existe mais; ignorando persistência de MCP events: %v", turnID, err)
 			return
 		} else {
 			turnConv := strings.TrimSpace(turnMsg.ConversationID)
 			conv := strings.TrimSpace(conversationID)
 			if turnConv != "" && conv != "" && turnConv != conv {
-				log.Printf("[MCP Native] turn message %s pertence a outra conversa (%s); ignorando persistência de MCP events", turnID, turnMsg.ConversationID)
+				logging.Infof(ctx, "agent.service", "[MCP Native] turn message %s pertence a outra conversa (%s); ignorando persistência de MCP events", turnID, turnMsg.ConversationID)
 				return
 			}
 		}
@@ -539,7 +539,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 				}
 			}
 			if strings.TrimSpace(slug) == "" {
-				log.Printf("[MCP Native] não foi possível resolver server slug para %q; usando fallback role=tool (id=%s)", ev.ServerLabel, ev.ID)
+				logging.Errorf(ctx, "agent.service", "[MCP Native] não foi possível resolver server slug para %q; usando fallback role=tool (id=%s)", ev.ServerLabel, ev.ID)
 				content := formatFallbackContent(ev.Output, ev.Error)
 				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content})
 				continue
@@ -576,7 +576,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 				DurationMs:   0,
 			})
 			if recErr != nil {
-				log.Printf("[MCP Native] Erro ao registrar tool invocation (id=%s): %v", ev.ID, recErr)
+				logging.Errorf(ctx, "agent.service", "[MCP Native] Erro ao registrar tool invocation (id=%s): %v", ev.ID, recErr)
 				// Fallback: garante que exista ao menos um resultado persistido
 				// para o tool_call_id no histórico da conversa.
 				content := formatFallbackContent(ev.Output, ev.Error)
@@ -613,11 +613,11 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 	}
 	toolCallsJSON, err := json.Marshal(toolCalls)
 	if err != nil {
-		log.Printf("[MCP Native] Erro ao serializar tool calls: %v", err)
+		logging.Errorf(ctx, "agent.service", "[MCP Native] Erro ao serializar tool calls: %v", err)
 		return
 	}
 	if _, err := s.msgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, "", string(toolCallsJSON), "", ""); err != nil {
-		log.Printf("[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
+		logging.Errorf(ctx, "agent.service", "[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
 		// Ainda assim, tenta persistir resultados como role=tool (melhor que perder output).
 		// Inclui também eventos que foram registrados em tool_invocations, pois sem a mensagem assistant
 		// não há como hidratar esses resultados a partir do histórico.
@@ -634,7 +634,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 				continue
 			}
 			if _, err2 := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, callID); err2 != nil {
-				log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", callID, err2)
+				logging.Errorf(ctx, "agent.service", "[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", callID, err2)
 			}
 		}
 		return
@@ -644,7 +644,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 			continue
 		}
 		if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, fb.Content, fb.CallID); err != nil {
-			log.Printf("[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", fb.CallID, err)
+			logging.Errorf(ctx, "agent.service", "[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", fb.CallID, err)
 		}
 	}
 }
@@ -680,7 +680,7 @@ func resolveMCPServerSlug(ctx context.Context, serverLabel string) (string, bool
 			return servers[0].Slug, true
 		}
 		if len(servers) > 1 {
-			log.Printf("[MCP Native] server label %q é ambíguo (name duplicado); não persistindo por slug", serverLabel)
+			logging.Infof(ctx, "agent.service", "[MCP Native] server label %q é ambíguo (name duplicado); não persistindo por slug", serverLabel)
 			return "", false
 		}
 	}
@@ -698,7 +698,7 @@ func resolveMCPServerSlug(ctx context.Context, serverLabel string) (string, bool
 		return servers[0].Slug, true
 	}
 	if len(servers) > 1 {
-		log.Printf("[MCP Native] server label %q é ambíguo (LOWER(name) duplicado); não persistindo por slug", serverLabel)
+		logging.Errorf(ctx, "agent.service", "[MCP Native] server label %q é ambíguo (LOWER(name) duplicado); não persistindo por slug", serverLabel)
 		return "", false
 	}
 	return "", false
@@ -722,7 +722,7 @@ func (s *Service) HandleRecoveredPanic(
 	if r == nil {
 		return
 	}
-	log.Printf("🔴 [PANIC RECOVERED] %s (conversa %s): %v", source, conversationID, r)
+	logging.Errorf(ctx, "agent.service", "🔴 [PANIC RECOVERED] %s (conversa %s): %v", source, conversationID, r)
 
 	assistantMessageID := ""
 	if s.msgRepo != nil && turnID != "" {
@@ -734,7 +734,7 @@ func (s *Service) HandleRecoveredPanic(
 			return
 		}
 		if err != nil {
-			log.Printf("[Agent] falha ao criar/reusar placeholder assistant após panic (conversa %s, turno %s): %v", conversationID, turnID, err)
+			logging.Errorf(ctx, "agent.service", "[Agent] falha ao criar/reusar placeholder assistant após panic (conversa %s, turno %s): %v", conversationID, turnID, err)
 		} else {
 			assistantMessageID = msgID
 		}
@@ -778,7 +778,7 @@ func selectedToolsFromCatalog(results []tools.ToolExecutionResult) []string {
 			SelectedTools []string `json:"selected_tools"`
 		}
 		if err := json.Unmarshal([]byte(result.Result.Content), &payload); err != nil {
-			log.Printf("[Agent] resposta inválida de %s: %v", tools.ToolCatalogName, err)
+			logging.Infof(context.Background(), "agent.service", "[Agent] resposta inválida de %s: %v", tools.ToolCatalogName, err)
 			continue
 		}
 		for _, name := range payload.SelectedTools {
@@ -1078,7 +1078,7 @@ func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assista
 	}
 
 	if err := s.msgRepo.UpdateMessageContentAndReasoning(persistCtx, assistantMessageID, content, reasoning, promptTokens, completionTokens, totalTokens, model); err != nil {
-		log.Printf("[Agent] aviso: falha ao persistir conteúdo parcial da mensagem assistant %s: %v", assistantMessageID, err)
+		logging.Warnf(ctx, "agent.service", "[Agent] aviso: falha ao persistir conteúdo parcial da mensagem assistant %s: %v", assistantMessageID, err)
 	}
 }
 
