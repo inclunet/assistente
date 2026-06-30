@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const updateMessageMock = vi.fn();
@@ -24,7 +24,10 @@ const activeConversation: { id: string; title: string; threadedMessages: MockThr
 };
 
 const modalState = vi.hoisted(() => ({ open: false }));
-const contextMenuState = vi.hoisted(() => ({ visible: true }));
+const contextMenuState = vi.hoisted(() => ({
+  visible: true,
+  onResend: undefined as undefined | ((message: { id: string; role?: string }) => Promise<void>),
+}));
 const runtimeEventHandlers = vi.hoisted(() => new Map<string, (data: unknown) => void>());
 
 vi.mock('../ui/Modal', async (importOriginal) => {
@@ -108,13 +111,16 @@ vi.mock('../../hooks/useChatKeyboardNav', () => ({
 }));
 
 vi.mock('../../hooks/useContextMenu', () => ({
-  useContextMenu: () => ({
-    menuVisible: contextMenuState.visible,
-    menuPosition: { x: 1, y: 2 },
-    menuItems: [{ id: 'copy', label: 'Copiar' }],
-    showMenu: showMenuMock,
-    hideMenu: hideMenuMock,
-  }),
+  useContextMenu: (options: { onResend?: (message: { id: string; role?: string }) => Promise<void> }) => {
+    contextMenuState.onResend = options.onResend;
+    return {
+      menuVisible: contextMenuState.visible,
+      menuPosition: { x: 1, y: 2 },
+      menuItems: [{ id: 'copy', label: 'Copiar' }],
+      showMenu: showMenuMock,
+      hideMenu: hideMenuMock,
+    };
+  },
   useMessageActions: () => ({
     copyMessage: copyMessageMock,
     speakMessage: speakMessageMock,
@@ -292,9 +298,11 @@ describe('ChatSessionView', () => {
     (activeConversation.threadedMessages as unknown[]) = [];
     (announce as ReturnType<typeof vi.fn>).mockReset();
     chatStoreState.cancelStreaming.mockReset();
+    chatStoreState.retryMessageToConversation.mockReset();
     chatStoreState.surfaceSessionsByKey = {};
     modalState.open = false;
     contextMenuState.visible = true;
+    contextMenuState.onResend = undefined;
     runtimeEventHandlers.clear();
     useShortcutsHelpStore.setState({ isOpen: false });
   });
@@ -492,6 +500,19 @@ describe('ChatSessionView', () => {
     await waitFor(() => {
       expect(onSend).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it('embedded: mostra banner de erro quando reenvio falha', async () => {
+    chatStoreState.retryMessageToConversation.mockRejectedValueOnce(new Error('retry fail'));
+    renderWithPanel(<ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={vi.fn()} showShortcutsHelp={false} />);
+
+    await act(async () => {
+      await contextMenuState.onResend?.({ id: conversationId, role: 'user' });
+    });
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Falha ao enviar');
+    expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
   });
 
   it('embedded: mantém envio habilitado mesmo com isLoading global ativo', async () => {

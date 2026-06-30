@@ -461,6 +461,18 @@ function ChatSessionViewContent({
     [t],
   );
 
+  const reportRetryFailure = useCallback((error: unknown, source: string) => {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`[ChatSessionView] ${source}:`, errorMessage);
+    setLastFailedMessage(null);
+    setSendError(ErrorMessages.CHAT.SEND_FAILED);
+    handleError(error, {
+      source: `ChatSessionView.${source}`,
+      userMessage: ErrorMessages.CHAT.SEND_FAILED,
+      severity: ErrorSeverity.RECOVERABLE,
+    });
+  }, []);
+
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
     sessionKey: origin.sessionKey,
     onCopy: copyMessage,
@@ -478,15 +490,23 @@ function ChatSessionViewContent({
     onResend: async (message) => {
       const conversationId = getSessionConversation()?.id;
       if (!conversationId || !isBackendId(message.id)) return;
-      await retryMessageToConversation(conversationId, message.id, undefined, { origin });
-      announce(t('chat.announce.messageResent'));
+      try {
+        await retryMessageToConversation(conversationId, message.id, undefined, { origin });
+        announce(t('chat.announce.messageResent'));
+      } catch (error: unknown) {
+        reportRetryFailure(error, 'onResend');
+      }
     },
     onContinue: async (message) => {
       const conversationId = getSessionConversation()?.id;
       const turnId = String(message.turnId || '').trim();
       if (!conversationId || !turnId) return;
-      await retryMessageToConversation(conversationId, turnId, { allowAssistantPrefill: true }, { origin });
-      announce(t('chat.announce.continuingResponse'));
+      try {
+        await retryMessageToConversation(conversationId, turnId, { allowAssistantPrefill: true }, { origin });
+        announce(t('chat.announce.continuingResponse'));
+      } catch (error: unknown) {
+        reportRetryFailure(error, 'onContinue');
+      }
     },
     shouldShowContinue: (message) => {
       if (!showContinueEnabled) return false;
@@ -902,14 +922,14 @@ function ChatSessionViewContent({
           onSendToEditor={sendToEditor}
         />
 
-        {sendError && lastFailedMessage && (
+        {sendError && (
           <Alert
             role="alert"
             type="error"
             showIcon
             closable
             message={sendError}
-            action={
+            action={lastFailedMessage ? (
               <Button
                 ref={retryButtonRef}
                 size="small"
@@ -919,7 +939,7 @@ function ChatSessionViewContent({
               >
                 {t('chat.retry')}
               </Button>
-            }
+            ) : undefined}
             onClose={() => {
               setSendError(null);
               setLastFailedMessage(null);
