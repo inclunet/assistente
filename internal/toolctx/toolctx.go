@@ -11,6 +11,9 @@ func WithCurrentInvocationID(ctx context.Context, id string) context.Context {
 	if id == "" {
 		return ctx
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return context.WithValue(ctx, currentInvocationIDKey{}, id)
 }
 
@@ -27,6 +30,9 @@ func CurrentInvocationID(ctx context.Context) string {
 func WithParentInvocationID(ctx context.Context, id string) context.Context {
 	if id == "" {
 		return ctx
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	return context.WithValue(ctx, parentInvocationIDKey{}, id)
 }

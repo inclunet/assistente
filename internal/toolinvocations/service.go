@@ -118,7 +118,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					// Se o turno/mensagem foi removido antes da execução, não execute tools com efeitos colaterais.
-					logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] chat origin %s deleted before execution; aborting tool execution", strings.TrimSpace(req.Origin.ID))
+					logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat origin %s deleted before execution; aborting tool execution", strings.TrimSpace(req.Origin.ID))
 					return ExecuteResult{Execution: executionCancelled(req.Call, "Execução cancelada: o item do chat foi removido"), Persisted: false}
 				}
 				// Para falhas transitórias de DB, mantém best-effort e executa sem persistência.

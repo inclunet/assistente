@@ -286,7 +286,7 @@ func migrateRefreshURLToEnc() error {
 		return fmt.Errorf("migrar refresh_url para refresh_token_enc: %w", res.Error)
 	}
 	if res.RowsAffected > 0 {
-		logging.Errorf(context.Background(), "database.schema-migrations", "[Database] credential_entries: %d linhas migradas refresh_url → refresh_token_enc", res.RowsAffected)
+		logging.Infof(context.Background(), "database.schema-migrations", "[Database] credential_entries: %d linhas migradas refresh_url → refresh_token_enc", res.RowsAffected)
 	}
 
 	if err := db.Exec(`ALTER TABLE credential_entries DROP COLUMN refresh_url`).Error; err != nil {
