@@ -29,6 +29,14 @@ function renderVoiceButton() {
   );
 }
 
+function renderVoiceButtonElement() {
+  return (
+    <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+      <VoiceButton onTranscription={() => {}} />
+    </WorkspacePanelProvider>
+  );
+}
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
@@ -129,6 +137,28 @@ describe('VoiceButton', () => {
     act(() => {
       vi.advanceTimersByTime(500);
     });
+
+    expect(announceRequestSpy).toHaveBeenCalledWith({
+      message: 'texto parcial',
+      origin: {
+        tabId: 'chat-tab',
+        surfaceId: 'chat-tab',
+        conversationId: 'conversation-1',
+        surfaceType: 'chat',
+        profileSlug: null,
+        title: 'Chat',
+      },
+      eventType: 'progress',
+    });
+  });
+
+  it('faz flush do último interim quando o texto limpa antes do debounce', () => {
+    vi.useFakeTimers();
+    interimText = 'texto parcial';
+    const { rerender } = renderVoiceButton();
+
+    interimText = '';
+    rerender(renderVoiceButtonElement());
 
     expect(announceRequestSpy).toHaveBeenCalledWith({
       message: 'texto parcial',

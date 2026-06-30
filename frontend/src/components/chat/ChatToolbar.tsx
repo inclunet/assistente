@@ -105,7 +105,10 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   useEffect(() => {
     const previousQueuedTurnCount = previousQueuedTurnCountRef.current;
     previousQueuedTurnCountRef.current = queuedTurnCount;
-    if (queuedTurnCount <= 0 || queuedTurnCount === previousQueuedTurnCount) return;
+    if (
+      queuedTurnCount <= 0
+      || (previousQueuedTurnCount !== null && queuedTurnCount <= previousQueuedTurnCount)
+    ) return;
 
     announceRequestRef.current({
       message: t('chat.queue.pending', { count: queuedTurnCount }),

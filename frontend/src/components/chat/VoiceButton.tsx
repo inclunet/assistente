@@ -54,6 +54,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const { announceRequest } = useAnnouncer();
   const announceRequestRef = useRef(announceRequest);
   const interimAnnounceTimeoutRef = useRef<number | null>(null);
+  const pendingInterimMessageRef = useRef('');
   const lastAnnouncedInterimRef = useRef('');
 
   // Cascata de perfil: tab.profileOverride.slug → workspace.profile → null (global)
@@ -151,33 +152,43 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   }, [voiceOrigin]);
 
   useEffect(() => {
-    const message = interimText.trim();
-    if (interimAnnounceTimeoutRef.current !== null) {
-      window.clearTimeout(interimAnnounceTimeoutRef.current);
-      interimAnnounceTimeoutRef.current = null;
-    }
-
-    if (!message) {
-      lastAnnouncedInterimRef.current = '';
-      return;
-    }
-
-    interimAnnounceTimeoutRef.current = window.setTimeout(() => {
-      interimAnnounceTimeoutRef.current = null;
-      if (lastAnnouncedInterimRef.current === message) return;
-      lastAnnouncedInterimRef.current = message;
-      announceRequestRef.current({
-        message,
-        origin: voiceOriginRef.current,
-        eventType: 'progress',
-      });
-    }, STT_INTERIM_ANNOUNCE_DELAY_MS);
-
-    return () => {
+    const clearPendingTimer = () => {
       if (interimAnnounceTimeoutRef.current !== null) {
         window.clearTimeout(interimAnnounceTimeoutRef.current);
         interimAnnounceTimeoutRef.current = null;
       }
+    };
+
+    const announcePendingInterim = () => {
+      const pendingMessage = pendingInterimMessageRef.current;
+      pendingInterimMessageRef.current = '';
+      if (!pendingMessage || lastAnnouncedInterimRef.current === pendingMessage) return;
+
+      lastAnnouncedInterimRef.current = pendingMessage;
+      announceRequestRef.current({
+        message: pendingMessage,
+        origin: voiceOriginRef.current,
+        eventType: 'progress',
+      });
+    };
+
+    const message = interimText.trim();
+    clearPendingTimer();
+
+    if (!message) {
+      announcePendingInterim();
+      lastAnnouncedInterimRef.current = '';
+      return;
+    }
+
+    pendingInterimMessageRef.current = message;
+    interimAnnounceTimeoutRef.current = window.setTimeout(() => {
+      interimAnnounceTimeoutRef.current = null;
+      announcePendingInterim();
+    }, STT_INTERIM_ANNOUNCE_DELAY_MS);
+
+    return () => {
+      clearPendingTimer();
     };
   }, [interimText]);
 
