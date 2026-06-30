@@ -17,6 +17,8 @@ import (
 
 // ==================== Real-backed Manager Stub ====================
 
+const fakeTaskListUserID = "tasklist-tool-fake-user"
+
 type fakeTaskListManager struct {
 	*realTaskListManager
 	ctx       context.Context
@@ -67,7 +69,7 @@ func newFakeManager(t testing.TB) *fakeTaskListManager {
 		t.Fatalf("migrate fake tasklist db: %v", err)
 	}
 	mgr := &fakeTaskListManager{
-		ctx:       database.WithUserID(context.Background(), "tasklist-tool-fake-user"),
+		ctx:       database.WithUserID(context.Background(), fakeTaskListUserID),
 		db:        db,
 		taskLists: make(map[string]*database.TaskList),
 		tasks:     make(map[string]*database.Task),
@@ -86,7 +88,7 @@ func (f *fakeTaskListManager) syncDBFromSnapshots() {
 		if tl == nil || tl.ID == "" {
 			continue
 		}
-		_ = f.db.Model(&database.TaskList{}).
+		if err := f.db.Model(&database.TaskList{}).
 			Where("id = ?", tl.ID).
 			Select("title", "slug", "description", "preferred_view_mode", "validation_policy", "custom_actions", "conversation_id").
 			Updates(map[string]any{
@@ -97,26 +99,30 @@ func (f *fakeTaskListManager) syncDBFromSnapshots() {
 				"validation_policy":   tl.ValidationPolicy,
 				"custom_actions":      tl.CustomActions,
 				"conversation_id":     tl.ConversationID,
-			}).Error
+			}).Error; err != nil {
+			panic(fmt.Sprintf("sync task list fixture %q: %v", tl.ID, err))
+		}
 	}
 	for _, wf := range f.workflows {
 		if wf == nil || wf.ID == "" {
 			continue
 		}
-		_ = f.db.Model(&database.TaskListWorkflow{}).
+		if err := f.db.Model(&database.TaskListWorkflow{}).
 			Where("id = ?", wf.ID).
 			Select("statuses", "allowed_transitions", "initial_status_id").
 			Updates(map[string]any{
 				"statuses":            wf.Statuses,
 				"allowed_transitions": wf.AllowedTransitions,
 				"initial_status_id":   wf.InitialStatusID,
-			}).Error
+			}).Error; err != nil {
+			panic(fmt.Sprintf("sync task list workflow fixture %q: %v", wf.ID, err))
+		}
 	}
 	for _, task := range f.tasks {
 		if task == nil || task.ID == "" {
 			continue
 		}
-		_ = f.db.Model(&database.Task{}).
+		if err := f.db.Model(&database.Task{}).
 			Where("id = ?", task.ID).
 			Select("task_list_id", "title", "description", "code", "link", "status_id", "parent_id", "assignee_name", "assignee_id", "creator_name", "creator_id", "conversation_id").
 			Updates(map[string]any{
@@ -132,13 +138,17 @@ func (f *fakeTaskListManager) syncDBFromSnapshots() {
 				"creator_name":    task.CreatorName,
 				"creator_id":      task.CreatorID,
 				"conversation_id": task.ConversationID,
-			}).Error
+			}).Error; err != nil {
+			panic(fmt.Sprintf("sync task fixture %q: %v", task.ID, err))
+		}
 	}
 }
 
 func (f *fakeTaskListManager) refreshSnapshots() {
 	var lists []database.TaskList
-	_ = f.db.Preload("Workflow").Find(&lists).Error
+	if err := f.db.Preload("Workflow").Find(&lists).Error; err != nil {
+		panic(fmt.Sprintf("refresh task list fixtures: %v", err))
+	}
 	seenLists := make(map[string]bool, len(lists))
 	for i := range lists {
 		tl := lists[i]
@@ -166,7 +176,9 @@ func (f *fakeTaskListManager) refreshSnapshots() {
 	}
 
 	var tasks []database.Task
-	_ = f.db.Find(&tasks).Error
+	if err := f.db.Find(&tasks).Error; err != nil {
+		panic(fmt.Sprintf("refresh task fixtures: %v", err))
+	}
 	seenTasks := make(map[string]bool, len(tasks))
 	for i := range tasks {
 		task := tasks[i]
@@ -185,7 +197,9 @@ func (f *fakeTaskListManager) refreshSnapshots() {
 	}
 
 	var notes []database.TaskNote
-	_ = f.db.Find(&notes).Error
+	if err := f.db.Find(&notes).Error; err != nil {
+		panic(fmt.Sprintf("refresh task note fixtures: %v", err))
+	}
 	f.notes = make(map[string][]database.TaskNote)
 	for _, note := range notes {
 		f.notes[note.TaskID] = append(f.notes[note.TaskID], note)
@@ -201,7 +215,10 @@ func (f *fakeTaskListManager) withRealState(fn func() error) error {
 
 func (f *fakeTaskListManager) effectiveCtx(ctx context.Context) context.Context {
 	if _, err := database.RequireUserID(ctx); err != nil {
-		return f.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		return database.WithUserID(ctx, fakeTaskListUserID)
 	}
 	return ctx
 }
