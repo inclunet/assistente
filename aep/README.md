@@ -53,6 +53,10 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 
 Nota de numeração: AEP-0054 está ocupada por `0054-split-server-client-agent.md`; AEP-0055 é prevista em PR próprio. Portanto, 0054 não deve ser tratado como número livre para propostas futuras.
 
+## Números livres
+
+0054 não está livre. Próximas propostas devem consultar este índice e usar o próximo número realmente disponível após as AEPs já listadas ou reservadas.
+
 ## Status Legend
 
 - 📝 **Draft** — em discussão/design

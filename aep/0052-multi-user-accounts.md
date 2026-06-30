@@ -220,13 +220,14 @@ Exceção explícita: segredos de instância usam `credential_entries` com `user
 |--------|-------------------|------|-------------|
 | `llm_providers` | `user_id` | TEXT | FK→users.id, INDEX |
 | `conversations` | `user_id` | TEXT | FK→users.id, INDEX |
-| `credential_entries` | `user_id` | TEXT | INDEX; FK→users.id quando não vazio |
+| `credential_entries` | `user_id` | TEXT | NOT NULL DEFAULT '', INDEX |
 | `task_lists` | `user_id` | TEXT | FK→users.id, INDEX |
 
 **Mudanças de constraints**:
 - `llm_providers`: qualquer chave/índice único baseado no identificador do provider deixa de ser global e passa a ser escopado por usuário, por exemplo `(user_id, id)`/`(user_id, slug)`, para permitir providers com o mesmo identificador em contas diferentes.
 - `credential_entries`: unique muda de `(pattern)` para `(user_id, pattern)`.
 - `credential_entries`: segredos de instância usam `user_id = ''` (string vazia, nunca `NULL`) para preservar o UPSERT `(user_id, pattern)` e evitar duplicatas no SQLite.
+- `credential_entries.user_id` não tem FK de banco porque o escopo reservado `''` é válido para segredos de instância; recursos de usuário validam `user_id` no repository/service layer.
 
 ---
 
@@ -254,19 +255,23 @@ Exceção explícita: segredos de instância usam `credential_entries` com `user
    - `IssueSession(userID) -> (access_jwt, refresh_token)`
    - `Refresh(refresh_token) -> (access_jwt, refresh_token_rotated)` (rotate always)
    - `Logout(refresh_token)` (revoga)
-9. Implementar assinatura de JWT com Ed25519 e publicação de JWKS (`/.well-known/jwks.json`).
+9. Preparar `credential_entries` para segredos de instância antes de criar chaves de auth:
+   - adicionar `user_id TEXT NOT NULL DEFAULT ''`;
+   - normalizar entradas existentes para `user_id = ''`;
+   - deduplicar entradas legadas por `pattern`;
+   - trocar o unique de `(pattern)` para `(user_id, pattern)`.
+10. Implementar assinatura de JWT com Ed25519 e publicação de JWKS (`/.well-known/jwks.json`).
    - A chave de assinatura é segredo de instância persistido em `credential_entries` com `user_id = ''` e pattern `internal-auth:jwt-signing-key`, criptografado pela DEK global.
    - Instalações novas criam esse segredo durante o setup de auth; upgrades normalizam qualquer chave interna legada para `user_id = ''` antes do backfill user-scoped.
 
 ### Fase 3 — Scoping por `user_id`
 
-10. Adicionar `user_id` em `llm_providers`, `conversations`, `credential_entries`, `task_lists`.
-11. Atualizar repositories/queries para enforcement central de `user_id`.
-12. Migração/backfill para instalações existentes:
+11. Adicionar `user_id` em `llm_providers`, `conversations`, `task_lists` e ativar uso user-scoped de `credential_entries`.
+12. Atualizar repositories/queries para enforcement central de `user_id`.
+13. Migração/backfill para instalações existentes:
    - criar/associar o admin local antes do backfill;
    - normalizar segredos internos `internal-auth:*` e `internal-tls:*` para `credential_entries.user_id = ''`;
-   - deduplicar `credential_entries` legadas por `pattern` antes de criar o unique `(user_id, pattern)`;
-   - criar o índice único `(user_id, pattern)` somente após deduplicação e normalização dos segredos internos.
+   - atribuir o `user_id` do admin aos demais `credential_entries` legados.
 
 ### Fase 4 — HTTP API local + TLS
 
