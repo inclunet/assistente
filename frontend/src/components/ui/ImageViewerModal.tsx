@@ -76,7 +76,7 @@ function ImageViewerView({ images, initialIndex, captionId }: ImageViewerViewPro
       didMountRef.current = true;
       return;
     }
-    announce(t('ui.imageViewer.zoomLevel', { percent: Math.round(zoom * 100) }));
+    announce(t('ui.imageViewer.zoomLevel', 'Zoom {{percent}}%', { percent: Math.round(zoom * 100) }));
   }, [announce, t, zoom]);
 
   // Navegação por setas e atalhos de zoom (ESC/Tab são tratados pelo Modal).

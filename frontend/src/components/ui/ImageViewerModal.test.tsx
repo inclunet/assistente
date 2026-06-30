@@ -64,7 +64,7 @@ describe('ImageViewerModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'ui.imageViewer.zoomIn' }));
     expect(screen.getByText('150%')).toBeInTheDocument();
-    expect(announceMock).toHaveBeenCalledWith('ui.imageViewer.zoomLevel');
+    expect(announceMock).toHaveBeenCalledWith('Zoom 150%');
 
     fireEvent.click(screen.getByRole('button', { name: 'ui.imageViewer.zoomOut' }));
     expect(screen.getByText('100%')).toBeInTheDocument();

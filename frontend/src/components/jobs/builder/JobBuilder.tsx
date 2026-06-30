@@ -337,7 +337,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
         setTestOutput(result.output ?? {});
         setTestDuration(result.duration ?? null);
         setTestJustFinished(true);
-        announce(t('jobs.builder.testSuccess'));
+        announce(t('jobs.builder.testSuccess', 'Tool test completed successfully'));
         requestAnimationFrame(() => {
           testResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         });

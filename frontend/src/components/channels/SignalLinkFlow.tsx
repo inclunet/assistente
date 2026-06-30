@@ -23,8 +23,8 @@ export function SignalLinkFlow({
   const previousAnnouncementRef = useRef('');
   const progressAnnouncement = linking
     ? linkQR
-      ? t('channels.signalLink.waiting')
-      : t('channels.signalLink.generating')
+      ? t('channels.signalLink.waiting', 'Waiting for linking...')
+      : t('channels.signalLink.generating', 'Generating QR Code...')
     : '';
 
   useEffect(() => {
@@ -46,7 +46,7 @@ export function SignalLinkFlow({
           disabled={!apiURL || linking}
           loading={linking}
         >
-          {t('channels.signalLink.generateQr')}
+          {t('channels.signalLink.generateQr', 'Generate QR Code')}
         </Button>
       </div>
 
@@ -54,16 +54,16 @@ export function SignalLinkFlow({
         <div
           className="channels-page__qr-container"
           role="region"
-          aria-label={t('channels.signalLink.regionLabel')}
+          aria-label={t('channels.signalLink.regionLabel', 'Signal linking QR Code')}
         >
           {linkQR ? (
             <>
               <p className="channels-page__hint">
-                {t('channels.signalLink.scanQr')}
+                {t('channels.signalLink.scanQr', 'Scan the QR Code with Signal on your phone:')}
               </p>
               <img
                 src={linkQR}
-                alt={t('channels.signalLink.qrAlt')}
+                alt={t('channels.signalLink.qrAlt', 'QR Code to link Signal device')}
                 className="channels-page__qr-image"
               />
             </>
@@ -71,14 +71,14 @@ export function SignalLinkFlow({
             <p
               className="channels-page__hint"
             >
-              {t('channels.signalLink.generating')}
+              {t('channels.signalLink.generating', 'Generating QR Code...')}
             </p>
           )}
           {linking && (
             <p
               className="channels-page__hint"
             >
-              {t('channels.signalLink.waiting')}
+              {t('channels.signalLink.waiting', 'Waiting for linking...')}
             </p>
           )}
           <Button variant="ghost" onClick={onReset}>
