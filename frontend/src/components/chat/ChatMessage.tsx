@@ -281,6 +281,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
           origin,
           eventType: 'completion',
         });
+        streamingAnnouncementStates.delete(message.id);
       }
       return;
     }

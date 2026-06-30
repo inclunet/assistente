@@ -168,7 +168,7 @@ export function ChannelsSignalSection({
               loading={checkingAPI}
               disabled={!form.apiURL}
             >
-              Testar Conexão
+              {t('channels.signal.testConnection')}
             </Button>
           </div>
           <div>
@@ -181,7 +181,7 @@ export function ChannelsSignalSection({
 
           {!apiReady && (
             <p className="channels-page__hint">
-              Teste a conexão para avançar.
+              {t('channels.signal.testHint')}
             </p>
           )}
 

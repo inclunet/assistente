@@ -570,6 +570,7 @@ export default function ChannelsPage() {
       setSignalSmsSent(false);
       const numberVerifiedMessage = t('channels.announce.numberVerified');
       addToast(numberVerifiedMessage, 'success', undefined, undefined, { suppressAnnounce: true });
+      announce(numberVerifiedMessage);
     } catch (error: unknown) {
       setSignalRegStep('awaiting_code');
       const msg = getErrorMessage(error) || t('channels.error.signalVerifyFailed');
