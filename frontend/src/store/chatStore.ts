@@ -669,7 +669,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     } catch (error: unknown) {
       const errorMsg = getErrorMessage(error);
       controller.handleSendFailure(errorMsg);
-      return error;
     }
   };
 
@@ -1225,11 +1224,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
       if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
       try {
-        const sendError = await turnQueue.enqueue(conversationId, async () => {
+        await turnQueue.enqueue(conversationId, async () => {
           if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
-          return sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
+          await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
         });
-        if (sendError) throw sendError;
       } catch (error) {
         if (!isConversationTurnQueueClearedError(error)) throw error;
       }
@@ -1248,11 +1246,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
       if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
       try {
-        const sendError = await turnQueue.enqueue(conversationId, async () => {
+        await turnQueue.enqueue(conversationId, async () => {
           if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
-          return sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
+          await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
         });
-        if (sendError) throw sendError;
       } catch (error) {
         if (!isConversationTurnQueueClearedError(error)) throw error;
       }

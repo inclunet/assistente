@@ -172,6 +172,7 @@ describe('chatStore validation', () => {
           isLoadingOlderMessages: false,
           isLoadingMessageWindow: false,
           streamingMessageId: null,
+          sendFailureMessage: null,
           lastInterruptedMessageId: null,
           streamingReasoning: null,
           isThinking: false,
@@ -248,8 +249,7 @@ describe('chatStore validation', () => {
       return Promise.reject(new Error('backend error'));
     });
 
-    await expect(useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello'))
-      .rejects.toThrow('backend error');
+    await useChatStore.getState().sendMessageToConversation(defaultConversationId, 'hello');
 
     expect(mockAnnounce).toHaveBeenCalledWith('Provedor LLM não disponível');
     expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.isLoading).toBe(false);
@@ -285,6 +285,7 @@ describe('chatStore validation', () => {
       isLoadingOlderMessages: false,
       isLoadingMessageWindow: false,
       streamingMessageId: null,
+      sendFailureMessage: null,
       lastInterruptedMessageId: null,
       streamingReasoning: null,
       isThinking: false,

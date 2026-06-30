@@ -116,6 +116,7 @@ export interface ChatEventSession {
   conversation: ChatTreeConversation | null;
   activeToolCalls: ToolCallStatus[];
   completedSegments: TurnSegment[];
+  sendFailureMessage?: string | null;
   messageWindow?: MessageWindowState;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
@@ -231,7 +232,12 @@ export function startChatEventController({
   };
 
   adapter.setConversationLoading(conversationId, true, origin?.sessionKey);
-  patchCurrentSession({ completedSegments: [], activeToolCalls: [], isLoading: true });
+  patchCurrentSession({
+    completedSegments: [],
+    activeToolCalls: [],
+    isLoading: true,
+    sendFailureMessage: null,
+  });
 
   const noop = () => { /* no-op */ };
   let unsubMessagesReady = noop;
@@ -684,10 +690,11 @@ export function startChatEventController({
       if (cleanupExecuted) return;
       logger.error('[Chat] Error sending message:', message);
       playChatErrorSoundIfActive(conversationId, origin);
-      announce(i18next.t('chat.sendErrorPrefix', { message }), 'assertive');
+      const sendFailureMessage = i18next.t('chat.sendErrorPrefix', { message });
+      announce(sendFailureMessage, 'assertive');
       cleanup();
       adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
-      patchCurrentSession({ isLoading: false, streamingMessageId: null });
+      patchCurrentSession({ isLoading: false, streamingMessageId: null, sendFailureMessage });
     },
   };
 }

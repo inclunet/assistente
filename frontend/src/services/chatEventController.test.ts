@@ -141,6 +141,7 @@ const createSession = (conversationId: string): TestSession => ({
   conversation: createConversation(conversationId),
   isLoading: false,
   streamingMessageId: null,
+  sendFailureMessage: null,
   lastInterruptedMessageId: null,
   streamingReasoning: null,
   isThinking: false,
