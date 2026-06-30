@@ -190,6 +190,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const [testDuration, setTestDuration] = useState<string | null>(null);
   const [testJustFinished, setTestJustFinished] = useState(false);
   const testResultRef = useRef<HTMLDivElement>(null);
+  const announcedFanoutWarningRef = useRef('');
 
   const [eventSchema, setEventSchema] = useState<Record<string, unknown> | null>(null);
   const [knownEvents, setKnownEvents] = useState<ComboboxItem[]>([]);
@@ -208,6 +209,14 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const [yamlOpen, setYamlOpen] = useState(false);
 
   const outputHasArrays = useMemo(() => hasArraysInData(testOutput), [testOutput]);
+  const fanoutNoArraysWarningKey = useMemo(() => {
+    if (!testOutput || !draft.events.emit_success || draft.events.mode !== 'fanout' || outputHasArrays) return '';
+    try {
+      return JSON.stringify(testOutput);
+    } catch {
+      return String(testOutput);
+    }
+  }, [draft.events.emit_success, draft.events.mode, outputHasArrays, testOutput]);
 
   const showError = useCallback((message: string) => {
     setError(message);
@@ -215,10 +224,14 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   }, [announce]);
 
   useEffect(() => {
-    if (testOutput && draft.events.emit_success && draft.events.mode === 'fanout' && !outputHasArrays) {
+    if (fanoutNoArraysWarningKey && announcedFanoutWarningRef.current !== fanoutNoArraysWarningKey) {
+      announcedFanoutWarningRef.current = fanoutNoArraysWarningKey;
       announce(t('jobs.builder.noArraysWarning'), 'assertive');
     }
-  }, [announce, draft.events.emit_success, draft.events.mode, outputHasArrays, t, testOutput]);
+    if (!fanoutNoArraysWarningKey) {
+      announcedFanoutWarningRef.current = '';
+    }
+  }, [announce, fanoutNoArraysWarningKey, t]);
 
   const templateContext = useMemo(() => {
     const ctx: { output?: Record<string, unknown>; event?: Record<string, unknown> } = {};

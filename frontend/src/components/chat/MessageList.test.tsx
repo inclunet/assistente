@@ -96,6 +96,32 @@ describe('MessageList', () => {
     expect(announceRequestMock).toHaveBeenCalledTimes(2);
   });
 
+  it('anuncia mudança de texto enquanto loading continua ativo', () => {
+    const node = createNode();
+    const { rerender } = render(
+      <MessageList
+        threadedMessages={[node]}
+        isLoading
+        loadingText="Carregando resposta"
+      />
+    );
+
+    rerender(
+      <MessageList
+        threadedMessages={[node]}
+        isLoading
+        loadingText="Ainda carregando"
+      />
+    );
+
+    expect(announceRequestMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      message: 'Carregando resposta',
+    }));
+    expect(announceRequestMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      message: 'Ainda carregando',
+    }));
+  });
+
   it('repassa posição absoluta e tamanho total para itens renderizados', () => {
     hoisted.messageNodeMock.mockClear();
     const node = createNode('message-42');

@@ -358,6 +358,8 @@ function ChatSessionViewContent({
       ? sessionSendFailureMessage
       : null
   );
+  const mountedSessionSendFailureRef = useRef(sessionSendFailureMessage);
+  const didAnnounceMountedSessionSendFailureRef = useRef(false);
   const effectiveFailedMessage = lastFailedMessage ?? (sessionSendFailureRetryable ? sessionSendFailureRetry : null);
   const canRetryEffectiveSendError = !!effectiveFailedMessage && (!!sendError || sessionSendFailureRetryable);
 
@@ -696,6 +698,15 @@ function ChatSessionViewContent({
       retryButtonRef.current.focus();
     }
   }, [effectiveSendError]);
+
+  useEffect(() => {
+    if (didAnnounceMountedSessionSendFailureRef.current) return;
+    const mountedSessionSendFailure = mountedSessionSendFailureRef.current;
+    didAnnounceMountedSessionSendFailureRef.current = true;
+    if (!mountedSessionSendFailure || sendError || effectiveSendError !== mountedSessionSendFailure) return;
+
+    announce(mountedSessionSendFailure, 'assertive');
+  }, [announce, effectiveSendError, sendError]);
 
   useEffect(() => {
     const windowState = session?.messageWindow;

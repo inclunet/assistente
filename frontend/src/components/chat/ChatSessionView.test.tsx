@@ -515,6 +515,7 @@ describe('ChatSessionView', () => {
 
     expect(await screen.findByText('Falha ao enviar pela sessão')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('Falha ao enviar pela sessão', 'assertive');
     expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
   });
 

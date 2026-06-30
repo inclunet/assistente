@@ -236,7 +236,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   const { announceRequest } = useAnnouncer();
   const effectiveLoadingText = loadingText ?? t('chat.typing');
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const previousLoadingRef = useRef(false);
+  const previousLoadingAnnouncementRef = useRef<string | null>(null);
   // Fonte de verdade do elemento de scroll. Sempre apontado por um callback ref
   // próprio, então `.current` é confiável mesmo quando o ref externo é um callback.
   const innerContainerRef = useRef<HTMLDivElement | null>(null);
@@ -257,16 +257,19 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   }, [ref]);
 
   useEffect(() => {
-    if (isLoading && !previousLoadingRef.current) {
-      previousLoadingRef.current = announceRequest({
+    if (isLoading && previousLoadingAnnouncementRef.current !== effectiveLoadingText) {
+      const didAnnounce = announceRequest({
         message: effectiveLoadingText,
         origin,
         eventType: 'progress',
       });
+      if (didAnnounce) {
+        previousLoadingAnnouncementRef.current = effectiveLoadingText;
+      }
       return;
     }
     if (!isLoading) {
-      previousLoadingRef.current = false;
+      previousLoadingAnnouncementRef.current = null;
     }
   }, [announceRequest, effectiveLoadingText, isLoading, origin]);
 
