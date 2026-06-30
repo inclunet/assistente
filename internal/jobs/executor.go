@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"strings"
 	"time"
 
 	"assistente/internal/eventctx"
+	"assistente/internal/logging"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 
@@ -87,6 +88,19 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		runUUID = uuid.New()
 	}
 	runID := "run_" + runUUID.String()
+	logAttrs := []slog.Attr{
+		slog.String("job_id", job.ID),
+		slog.String("run_id", runID),
+		slog.String("trigger_type", string(trigCtx.Type)),
+	}
+	if trigCtx.EventName != "" {
+		logAttrs = append(logAttrs, slog.String("trigger_event", trigCtx.EventName))
+	}
+	if trigCtx.ChainID != "" {
+		logAttrs = append(logAttrs, slog.String("trigger_chain_id", trigCtx.ChainID))
+	}
+	ctx = logging.WithAttrs(ctx, logAttrs...)
+	logger := logging.Logger(ctx, "jobs.executor")
 
 	rl := &RunLog{
 		RunID: runID,
@@ -116,10 +130,10 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		if e.repository != nil {
 			persistCtx := context.WithoutCancel(ctx)
 			if err := e.repository.LogRun(persistCtx, rl); err != nil {
-				log.Printf("[Jobs] Error logging run: %v", err)
+				logger.Error("failed to log job run", slog.Any("error", err))
 			}
 		} else {
-			log.Printf("[Jobs] Error logging run: repository not configured")
+			logger.Error("failed to log job run", slog.String("reason", "repository not configured"))
 		}
 
 		if e.onRunEnd != nil {
@@ -179,7 +193,11 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			delay := e.calculateRetryDelay(job, attempt)
-			log.Printf("[Jobs] %s: retry %d/%d after %s", job.ID, attempt, job.ErrorPolicy.MaxRetries, delay)
+			logger.Info("retrying job",
+				slog.Int("attempt", attempt),
+				slog.Int("max_retries", job.ErrorPolicy.MaxRetries),
+				slog.Duration("delay", delay),
+			)
 			rl.RetryCount = attempt
 
 			select {
@@ -202,7 +220,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		}
 
 		lastErr = err
-		log.Printf("[Jobs] %s: attempt %d failed: %v", job.ID, attempt+1, err)
+		logger.Warn("job attempt failed", slog.Int("attempt", attempt+1), slog.Any("error", err))
 	}
 
 	// Todos os retries falharam
@@ -264,6 +282,7 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 	// Isso flui ctx -> tool -> tasklist.Service, que injeta no payload do evento,
 	// permitindo anti-loop via trigger.when ({{ eq .event._source "user" }}).
 	ctx = eventctx.With(ctx, e.runProvenance(job, trigCtx, rl))
+	logger := logging.Logger(ctx, "jobs.executor")
 
 	// Resolve a tool no registry
 	tool, ok := e.toolRegistry.Get(job.Tool)
@@ -315,19 +334,17 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 			var arr []any
 			if arrErr := json.Unmarshal([]byte(result.Content), &arr); arrErr == nil {
 				output["content"] = arr
-				log.Printf("[Jobs] Output parsed as array with %d elements", len(arr))
+				logger.Debug("tool output parsed as array", slog.Int("elements", len(arr)))
 			} else {
 				output["content"] = result.Content
-				log.Printf("[Jobs] Output stored as raw string (len=%d)", len(result.Content))
+				logger.Debug("tool output stored as raw string", slog.Int("content_length", len(result.Content)))
 			}
-		} else {
-			log.Printf("[Jobs] Output parsed as object with keys: %v", func() []string {
-				keys := make([]string, 0, len(output))
-				for k := range output {
-					keys = append(keys, k)
-				}
-				return keys
-			}())
+		} else if logger.Enabled(ctx, slog.LevelDebug) {
+			keys := make([]string, 0, len(output))
+			for k := range output {
+				keys = append(keys, k)
+			}
+			logger.Debug("tool output parsed as object", slog.Any("keys", keys))
 		}
 	}
 	if result.Metadata != nil {
@@ -432,6 +449,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 	if job.Events.OnSuccess == "" {
 		return
 	}
+	logger := logging.Logger(ctx, "jobs.executor")
 
 	chainID := trigCtx.ChainID
 	if chainID == "" {
@@ -460,11 +478,11 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 				itemPayload["_fan_out_total"] = len(items)
 
 				// Per-item emit_when filter
-				if !e.checkEmitWhen(job, itemPayload, trigCtx) {
+				if !e.checkEmitWhen(ctx, job, itemPayload, trigCtx) {
 					continue
 				}
 
-				itemPayload = e.applyPayloadTemplate(job, itemPayload, trigCtx)
+				itemPayload = e.applyPayloadTemplate(ctx, job, itemPayload, trigCtx)
 				filtered := e.buildEventPayload(job, itemPayload)
 				enriched := make(map[string]any, len(filtered)+2)
 				for k, v := range filtered {
@@ -482,20 +500,23 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 					fmt.Sprintf("[%s] -> emitted %q x%d/%d (fan-out on %q)", job.ID, job.Events.OnSuccess, emitted, len(items), job.Events.ForEach), nil)
 				rl.EventsEmitted = append(rl.EventsEmitted, fmt.Sprintf("%s x%d", job.Events.OnSuccess, emitted))
 			} else {
-				log.Printf("[Jobs] %s: all %d fan-out items filtered by emit_when", job.ID, len(items))
+				logger.Info("all fan-out items filtered by emit_when",
+					slog.String("event_name", job.Events.OnSuccess),
+					slog.Int("fan_out_total", len(items)),
+				)
 			}
 			return
 		}
-		log.Printf("[Jobs] %s: for_each %q did not resolve to array, emitting single event", job.ID, job.Events.ForEach)
+		logger.Warn("for_each did not resolve to array; emitting single event", slog.String("for_each", job.Events.ForEach))
 	}
 
 	// Single event: emit_when against full output
-	if !e.checkEmitWhen(job, rl.Output, trigCtx) {
-		log.Printf("[Jobs] %s: emit_when condition not met, skipping event %q", job.ID, job.Events.OnSuccess)
+	if !e.checkEmitWhen(ctx, job, rl.Output, trigCtx) {
+		logger.Info("emit_when condition not met; skipping event", slog.String("event_name", job.Events.OnSuccess))
 		return
 	}
 
-	output := e.applyPayloadTemplate(job, rl.Output, trigCtx)
+	output := e.applyPayloadTemplate(ctx, job, rl.Output, trigCtx)
 	payload := e.buildEventPayload(job, output)
 
 	rl.addDomainEvent("event_emitted", job.ID, job.Events.OnSuccess,
@@ -584,7 +605,7 @@ func (e *JobExecutor) emitFailure(ctx context.Context, job *Job, rl *RunLog, tri
 // checkEmitWhen evaluates the emit_when condition against the given data.
 // Returns true if the event should be emitted (condition met or not set).
 // Both .output (tool result or fan-out item) and .event (trigger payload) are available.
-func (e *JobExecutor) checkEmitWhen(job *Job, data map[string]any, trigCtx *TriggerContext) bool {
+func (e *JobExecutor) checkEmitWhen(ctx context.Context, job *Job, data map[string]any, trigCtx *TriggerContext) bool {
 	if job.Events.EmitWhen == "" {
 		return true
 	}
@@ -594,7 +615,7 @@ func (e *JobExecutor) checkEmitWhen(job *Job, data map[string]any, trigCtx *Trig
 		Now:    time.Now(),
 	})
 	if err != nil {
-		log.Printf("[Jobs] %s: emit_when eval error: %v", job.ID, err)
+		logging.Logger(ctx, "jobs.executor").Warn("emit_when evaluation failed", slog.Any("error", err))
 		return false
 	}
 	return ok
@@ -603,7 +624,7 @@ func (e *JobExecutor) checkEmitWhen(job *Job, data map[string]any, trigCtx *Trig
 // applyPayloadTemplate renderiza o PayloadTemplate contra o output, retornando
 // o resultado parseado como map. Se o template não está definido ou falha,
 // retorna o output original. Both .output and .event are available.
-func (e *JobExecutor) applyPayloadTemplate(job *Job, output map[string]any, trigCtx *TriggerContext) map[string]any {
+func (e *JobExecutor) applyPayloadTemplate(ctx context.Context, job *Job, output map[string]any, trigCtx *TriggerContext) map[string]any {
 	if job.Events.PayloadTemplate == "" {
 		return output
 	}
@@ -616,7 +637,7 @@ func (e *JobExecutor) applyPayloadTemplate(job *Job, output map[string]any, trig
 
 	rendered, err := resolveTemplate(job.Events.PayloadTemplate, tmplCtx)
 	if err != nil {
-		log.Printf("[Jobs] %s: payload_template render error: %v", job.ID, err)
+		logging.Logger(ctx, "jobs.executor").Warn("payload_template render failed", slog.Any("error", err))
 		return output
 	}
 
@@ -627,7 +648,7 @@ func (e *JobExecutor) applyPayloadTemplate(job *Job, output map[string]any, trig
 
 	var result map[string]any
 	if err := json.Unmarshal([]byte(renderedStr), &result); err != nil {
-		log.Printf("[Jobs] %s: payload_template JSON parse error: %v", job.ID, err)
+		logging.Logger(ctx, "jobs.executor").Warn("payload_template JSON parse failed", slog.Any("error", err))
 		return output
 	}
 	return result
