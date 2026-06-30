@@ -29,7 +29,7 @@ import { useUIStore } from '../store/uiStore';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
-import { Button } from '../components';
+import { Button, PageLoading } from '../components';
 import { ChannelsTelegramSection, ChannelsSignalSection, ChannelsSlackSection } from '../components/channels';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
 import { DataGrid, type DataGridColumn } from '../components/ui/DataGrid';
@@ -869,7 +869,7 @@ export default function ChannelsPage() {
   if (loading) {
     return (
       <div className="channels-page">
-        <div className="channels-page__loading">{t('channels.loading', 'Carregando canais...')}</div>
+        <PageLoading className="channels-page__loading" message={t('channels.loading', 'Carregando canais...')} />
       </div>
     );
   }
