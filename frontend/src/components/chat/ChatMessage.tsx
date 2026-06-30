@@ -28,6 +28,7 @@ const TOOL_ONLY_TURN_PLACEHOLDER_SOURCE = 'tool_only_turn_placeholder';
 
 interface StreamingAnnouncementState {
   previous: string;
+  previousOriginKey: string;
   wasStreaming: boolean;
   emptyCompletionAnnounced: boolean;
 }
@@ -37,10 +38,22 @@ const streamingAnnouncementStates = new Map<string, StreamingAnnouncementState>(
 function getStreamingAnnouncementState(messageId: string): StreamingAnnouncementState {
   let state = streamingAnnouncementStates.get(messageId);
   if (!state) {
-    state = { previous: '', wasStreaming: false, emptyCompletionAnnounced: false };
+    state = { previous: '', previousOriginKey: '', wasStreaming: false, emptyCompletionAnnounced: false };
     streamingAnnouncementStates.set(messageId, state);
   }
   return state;
+}
+
+function getStreamingAnnouncementOriginKey(origin?: VoiceAccessibilityOrigin): string {
+  if (!origin) return '';
+  return [
+    origin.surfaceType ?? '',
+    origin.surfaceId ?? '',
+    origin.sessionKey ?? '',
+    origin.tabId ?? '',
+    origin.conversationId ?? '',
+    origin.profileSlug ?? '',
+  ].join('|');
 }
 
 export interface ChatMessageProps {
@@ -253,11 +266,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       if (!message) return;
 
       const previous = announcementState.previous;
+      const originKey = getStreamingAnnouncementOriginKey(origin);
+      const sameOrigin = announcementState.previousOriginKey === originKey;
       const replacedProgressMessage = previous !== '' && !message.startsWith(previous);
       const progressedEnough = message.length - previous.length >= 80;
       const reachedSentenceBoundary = /[.!?…]\s*$/.test(message);
-      if (previous === message) return;
-      if (previous && !replacedProgressMessage && !progressedEnough && !reachedSentenceBoundary) return;
+      if (previous === message && sameOrigin) return;
+      if (sameOrigin && previous && !replacedProgressMessage && !progressedEnough && !reachedSentenceBoundary) return;
 
       const didAnnounce = announceRequest({
         message,
@@ -266,6 +281,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       });
       if (didAnnounce) {
         announcementState.previous = message;
+        announcementState.previousOriginKey = originKey;
       }
       return;
     }
@@ -276,6 +292,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     }
 
     announcementState.previous = '';
+    announcementState.previousOriginKey = '';
     if (!text) {
       if (hasAgenticSegments && !announcementState.emptyCompletionAnnounced) {
         announcementState.emptyCompletionAnnounced = true;

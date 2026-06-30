@@ -241,7 +241,7 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 }));
 
 vi.mock('../../utils/errorHandler', () => ({
-  ErrorSeverity: { RECOVERABLE: 'recoverable' },
+  ErrorSeverity: { RECOVERABLE: 'recoverable', RECOVERABLE_ASSERTIVE: 'recoverable_assertive' },
   ErrorMessages: { CHAT: { SEND_FAILED: 'Falha ao enviar', DELETE_FAILED: 'Falha ao deletar' } },
   handleError: handleErrorMock,
 }));
@@ -497,7 +497,7 @@ describe('ChatSessionView', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(handleErrorMock).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({
       userMessage: 'Falha ao enviar',
-      announcePriority: 'assertive',
+      severity: 'recoverable_assertive',
     }));
 
     onSend.mockResolvedValueOnce(undefined);

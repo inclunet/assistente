@@ -259,6 +259,33 @@ describe('ChatMessage', () => {
     });
   });
 
+  it('reanuncia progresso quando a origem da superfície muda', () => {
+    const streamingMessage = new chat.EnrichedMessage({
+      id: 'assistant-origin-change-1',
+      conversationId,
+      role: 'assistant',
+      content: 'Resposta parcial com conteúdo suficiente para anunciar.',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+    const firstOrigin = { conversationId, surfaceId: 'chat-tab-a', surfaceType: 'chat' as const };
+    const secondOrigin = { conversationId, surfaceId: 'chat-tab-b', surfaceType: 'chat' as const };
+
+    const { rerender } = render(
+      <ChatMessage message={streamingMessage} origin={firstOrigin} />
+    );
+    rerender(<ChatMessage message={streamingMessage} origin={secondOrigin} />);
+
+    expect(announceRequestMock).toHaveBeenCalledTimes(2);
+    expect(announceRequestMock).toHaveBeenLastCalledWith({
+      message: 'Resposta parcial com conteúdo suficiente para anunciar.',
+      origin: secondOrigin,
+      eventType: 'progress',
+    });
+  });
+
   it('preserva anúncio de conclusão quando há render intermediário sem conteúdo final', () => {
     const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
     const streamingMessage = new chat.EnrichedMessage({
