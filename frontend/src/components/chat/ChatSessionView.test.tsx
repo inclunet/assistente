@@ -519,6 +519,32 @@ describe('ChatSessionView', () => {
     expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
   });
 
+  it('embedded: anuncia falha de sessão que aparece após o primeiro render', async () => {
+    const chatSurface = surface({ surfaceType: 'embedded' });
+    const { rerender } = renderWithPanel(
+      <ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />,
+    );
+
+    expect(announce).not.toHaveBeenCalledWith('Falha hidratada da sessão', 'assertive');
+
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
+      sendFailureMessage: 'Falha hidratada da sessão',
+      sendFailureRetryable: false,
+      sendFailureRetryContent: null,
+      sendFailureRetryMediaFiles: [],
+    };
+    rerender(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />
+      </WorkspacePanelProvider>,
+    );
+
+    expect(await screen.findByText('Falha hidratada da sessão')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('Falha hidratada da sessão', 'assertive');
+  });
+
   it('embedded: Escape descarta e limpa falha persistida da sessão', async () => {
     const chatSurface = surface({ surfaceType: 'embedded' });
     (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {

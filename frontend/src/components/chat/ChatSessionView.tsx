@@ -358,8 +358,7 @@ function ChatSessionViewContent({
       ? sessionSendFailureMessage
       : null
   );
-  const mountedSessionSendFailureRef = useRef(sessionSendFailureMessage);
-  const didAnnounceMountedSessionSendFailureRef = useRef(false);
+  const lastAnnouncedSessionSendFailureRef = useRef<string | null>(null);
   const effectiveFailedMessage = lastFailedMessage ?? (sessionSendFailureRetryable ? sessionSendFailureRetry : null);
   const canRetryEffectiveSendError = !!effectiveFailedMessage && (!!sendError || sessionSendFailureRetryable);
 
@@ -700,13 +699,19 @@ function ChatSessionViewContent({
   }, [effectiveSendError]);
 
   useEffect(() => {
-    if (didAnnounceMountedSessionSendFailureRef.current) return;
-    const mountedSessionSendFailure = mountedSessionSendFailureRef.current;
-    didAnnounceMountedSessionSendFailureRef.current = true;
-    if (!mountedSessionSendFailure || sendError || effectiveSendError !== mountedSessionSendFailure) return;
+    const sessionFailureToAnnounce = sessionSendFailureMessage
+      && sessionSendFailureMessage !== dismissedSessionSendError
+      ? sessionSendFailureMessage
+      : null;
+    if (!sessionFailureToAnnounce) {
+      lastAnnouncedSessionSendFailureRef.current = null;
+      return;
+    }
+    if (sendError || lastAnnouncedSessionSendFailureRef.current === sessionFailureToAnnounce) return;
 
-    announce(mountedSessionSendFailure, 'assertive');
-  }, [announce, effectiveSendError, sendError]);
+    lastAnnouncedSessionSendFailureRef.current = sessionFailureToAnnounce;
+    announce(sessionFailureToAnnounce, 'assertive');
+  }, [announce, dismissedSessionSendError, sendError, sessionSendFailureMessage]);
 
   useEffect(() => {
     const windowState = session?.messageWindow;
@@ -768,6 +773,7 @@ function ChatSessionViewContent({
       setSendError(null);
       setLastFailedMessage(null);
       setDismissedSessionSendError(null);
+      lastAnnouncedSessionSendFailureRef.current = null;
       if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
       await controller.sendMessage(content, mediaFiles);
     } catch (error: unknown) {
@@ -791,6 +797,7 @@ function ChatSessionViewContent({
     try {
       setSendError(null);
       setDismissedSessionSendError(null);
+      lastAnnouncedSessionSendFailureRef.current = null;
       if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
       await controller.sendMessage(effectiveFailedMessage.content, effectiveFailedMessage.media);
       setLastFailedMessage(null);
