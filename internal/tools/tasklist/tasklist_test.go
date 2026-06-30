@@ -160,7 +160,14 @@ func (f *fakeTaskListManager) syncDBFromSnapshots() {
 
 func (f *fakeTaskListManager) refreshSnapshots() {
 	var lists []database.TaskList
-	if err := f.db.Preload("Workflow").Find(&lists).Error; err != nil {
+	if err := f.db.Preload("Workflow").
+		Preload("Tasks", func(db *gorm.DB) *gorm.DB {
+			return db.Where("parent_id IS NULL").Order("`order` ASC")
+		}).
+		Preload("Tasks.Subtasks", func(db *gorm.DB) *gorm.DB {
+			return db.Order("`order` ASC")
+		}).
+		Find(&lists).Error; err != nil {
 		f.fatalf("refresh task list fixtures: %v", err)
 	}
 	seenLists := make(map[string]bool, len(lists))
