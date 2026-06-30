@@ -157,11 +157,12 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
 
     // Effective selected value
     const selectedSlug = isControlled ? (value || '') : activeSlug;
+    const loadingLabel = t('profiles.loading');
 
     const loadingState = (
       <div className="voice-picker voice-picker--loading">
         <span className="voice-picker__icon" aria-hidden="true">{icon}</span>
-        <span className="voice-picker__loading">Carregando...</span>
+        <span className="voice-picker__loading">{loadingLabel}</span>
       </div>
     );
 
@@ -191,6 +192,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
         maxWidth={maxWidth}
         onAnnounce={onAnnounce}
         loading={loading}
+        loadingLabel={loadingLabel}
         error={error}
         loadingState={loadingState}
         errorState={errorState}

@@ -1,6 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BasePicker } from './BasePicker';
+
+const announceMock = vi.hoisted(() => vi.fn());
 
 vi.mock('./Combobox', () => ({
   Combobox: (props: { items: Array<{ value: string; label: string }>; selected: string; onSelect: (value: string) => void }) => (
@@ -11,7 +13,17 @@ vi.mock('./Combobox', () => ({
   ),
 }));
 
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announce: announceMock,
+  }),
+}));
+
 describe('BasePicker', () => {
+  afterEach(() => {
+    announceMock.mockClear();
+  });
+
   it('renderiza estado de loading', () => {
     render(
       <BasePicker
@@ -24,6 +36,32 @@ describe('BasePicker', () => {
     );
 
     expect(screen.getByText('Carregando...')).toBeInTheDocument();
+  });
+
+  it('anuncia estado de loading ao entrar em carregamento', () => {
+    const { rerender } = render(
+      <BasePicker
+        items={[{ value: 'a', label: 'A' }]}
+        selected="a"
+        onSelect={() => {}}
+        label="Label"
+      />
+    );
+
+    expect(announceMock).not.toHaveBeenCalled();
+
+    rerender(
+      <BasePicker
+        items={[]}
+        selected=""
+        onSelect={() => {}}
+        label="Label"
+        loading
+        loadingLabel="Carregando opções"
+      />
+    );
+
+    expect(announceMock).toHaveBeenCalledWith('Carregando opções');
   });
 
   it('renderiza estado de erro com retry', () => {

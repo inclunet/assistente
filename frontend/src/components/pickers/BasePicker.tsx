@@ -138,6 +138,7 @@ export const BasePicker = ({
 }: BasePickerProps) => {
   const { announce } = useAnnouncer();
   const previousErrorRef = useRef<string | null | undefined>(null);
+  const previousLoadingRef = useRef(false);
   const resolvedLoadingLabel = resolveVariantValue(loadingLabel, variant) ?? 'Carregando...';
   const resolvedErrorLabel = resolveVariantValue(errorLabel, variant) ?? error ?? 'Erro ao carregar';
   const resolvedEmptyLabel = resolveVariantValue(emptyLabel, variant) ?? 'Nenhuma opção disponível';
@@ -167,6 +168,13 @@ export const BasePicker = ({
     }
     previousErrorRef.current = error;
   }, [announce, error, resolvedErrorLabel, showErrorState]);
+
+  useEffect(() => {
+    if (showLoadingState && loading && !previousLoadingRef.current) {
+      announce(resolvedLoadingLabel);
+    }
+    previousLoadingRef.current = loading;
+  }, [announce, loading, resolvedLoadingLabel, showLoadingState]);
 
   if (showLoadingState && loading) {
     if (loadingState) {

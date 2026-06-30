@@ -7,7 +7,6 @@ const mockSave = vi.fn();
 const mockGetConfig = vi.fn();
 const mockLoadServers = vi.fn();
 const mockDuplicate = vi.fn();
-const mockAnnounce = vi.fn();
 let mockServers: Array<Record<string, unknown>> = [];
 
 vi.mock('react-i18next', () => ({
@@ -18,7 +17,6 @@ vi.mock('react-i18next', () => ({
         'mcp.buttons.newServer': 'Novo Servidor',
         'mcp.actions.duplicate': 'Duplicar',
         'mcp.buttons.delete': 'Excluir',
-        'mcp.connection.oauthNotDetected': 'Metadados OAuth não detectados. Configure manualmente.',
         'common.save': 'Salvar',
       } as Record<string, string>)[key] ?? key,
   }),
@@ -55,7 +53,7 @@ vi.mock('../hooks/useGridFocus', () => ({
 
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
-    announce: mockAnnounce,
+    announce: vi.fn(),
   }),
 }));
 
@@ -203,7 +201,6 @@ describe('McpPage — oauth2_callback_host', () => {
     mockSave.mockResolvedValue(undefined);
     mockLoadServers.mockResolvedValue(undefined);
     mockServers = [];
-    mockAnnounce.mockReset();
   });
 
   async function openNewServerForm() {
@@ -262,14 +259,6 @@ describe('McpPage — oauth2_callback_host', () => {
 
     const [, config] = mockSave.mock.calls[0];
     expect(config.oauth2_callback_host).toBeUndefined();
-  });
-
-  it('anuncia quando o usuário troca OAuth para configuração manual', async () => {
-    await openNewServerForm();
-
-    await userEvent.click(screen.getByText('Configurar manualmente'));
-
-    expect(mockAnnounce).toHaveBeenCalledWith('Metadados OAuth não detectados. Configure manualmente.');
   });
 
   it('duplica servidor MCP via menu de acoes', async () => {

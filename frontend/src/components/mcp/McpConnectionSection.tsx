@@ -1,7 +1,8 @@
-import { useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Checkbox, Input, Textarea } from '../index';
 import { Select } from '../index';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 
 type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'not_found';
 
@@ -102,9 +103,11 @@ export function McpConnectionSection({
   onManualOverride,
 }: McpConnectionSectionProps) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const uid = useId();
   const discoveryLiveId = `${uid}-discovery-live`;
   const callbackHintId = `${uid}-callback-hint`;
+  const previousDiscoveryAnnouncementRef = useRef('');
 
   const resourceSuffix = discoveryResourceName ? ` (${discoveryResourceName})` : '';
 
@@ -130,6 +133,13 @@ export function McpConnectionSection({
         return '';
     }
   })();
+
+  useEffect(() => {
+    if (!discoveryLiveText || discoveryLiveText === previousDiscoveryAnnouncementRef.current) return;
+
+    previousDiscoveryAnnouncementRef.current = discoveryLiveText;
+    announce(discoveryLiveText);
+  }, [announce, discoveryLiveText]);
 
   return (
     <section className="mcp-section" aria-labelledby="mcp-section-connection">

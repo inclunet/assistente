@@ -1,9 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { McpConnectionSection } from './McpConnectionSection';
 import type { ComponentProps } from 'react';
 import ptBR from '../../locales/pt-BR';
+
+const announceMock = vi.hoisted(() => vi.fn());
 
 function resolveLocaleString(key: string, vars?: Record<string, unknown>): string | undefined {
   const root = (ptBR as { translation: Record<string, unknown> }).translation;
@@ -33,6 +35,12 @@ vi.mock('react-i18next', async (importOriginal) => {
     }),
   };
 });
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announce: announceMock,
+  }),
+}));
 
 const noop = () => {};
 
@@ -88,6 +96,10 @@ function renderWith(overrides: Partial<ComponentProps<typeof McpConnectionSectio
 }
 
 describe('McpConnectionSection — Discovery states', () => {
+  afterEach(() => {
+    announceMock.mockClear();
+  });
+
   it('DCR disponível: não exibe campos OAuth, mostra mensagem de sucesso', () => {
     renderWith({
       discoveryStatus: 'found',
@@ -121,6 +133,18 @@ describe('McpConnectionSection — Discovery states', () => {
   it('loading: mostra mensagem de verificação', () => {
     renderWith({ discoveryStatus: 'loading' });
     expect(screen.getByText(/Verificando configuração OAuth/)).toBeInTheDocument();
+  });
+
+  it('anuncia mudanças de discovery pelo broker global', () => {
+    const { rerender } = renderWith({ discoveryStatus: 'idle' });
+
+    expect(announceMock).not.toHaveBeenCalled();
+
+    rerender(<McpConnectionSection {...baseProps} discoveryStatus="loading" />);
+    expect(announceMock).toHaveBeenCalledWith('Verificando configuração OAuth do servidor…');
+
+    rerender(<McpConnectionSection {...baseProps} discoveryStatus="not_found" />);
+    expect(announceMock).toHaveBeenCalledWith('Metadados OAuth não detectados. Configure manualmente.');
   });
 });
 

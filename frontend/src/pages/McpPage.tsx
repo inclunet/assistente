@@ -282,7 +282,6 @@ export default function McpPage() {
     if (urlToDiscover === lastDiscoveredUrl) return;
 
     setDiscoveryStatus('loading');
-    announce(t('mcp.connection.checkingOAuth'));
     setLastDiscoveredUrl(urlToDiscover);
 
     try {
@@ -312,19 +311,13 @@ export default function McpPage() {
         setDiscoveryRegistrationUrl(result.registrationUrl || '');
         if (resName && !formName) setFormName(resName);
         setDiscoveryStatus('found');
-        const suffix = resName ? ` (${resName})` : '';
-        announce(result.registrationUrl
-          ? t('mcp.connection.oauthAutoConfiguredDCR', { resourceName: suffix })
-          : t('mcp.connection.oauthDetectedNoDCR', { resourceName: suffix }));
       } else {
         setDiscoveryStatus('not_found');
-        announce(t('mcp.connection.oauthNotDetected'));
       }
     } catch {
       setDiscoveryStatus('not_found');
-      announce(t('mcp.connection.oauthNotDetected'));
     }
-  }, [announce, lastDiscoveredUrl, formName, t]);
+  }, [lastDiscoveredUrl, formName]);
 
   const handleUrlBlur = useCallback(() => {
     const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
@@ -344,8 +337,7 @@ export default function McpPage() {
   const handleManualOverride = useCallback(() => {
     setDiscoveredFields(new Set());
     setDiscoveryStatus('not_found');
-    announce(t('mcp.connection.oauthNotDetected'));
-  }, [announce, t]);
+  }, []);
 
   // Dispara discovery quando transport muda para HTTP e URL já está preenchida
   useEffect(() => {
