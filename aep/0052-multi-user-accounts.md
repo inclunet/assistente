@@ -344,7 +344,7 @@ Etapa 7: Modelo                           ← exige sessão/user_id
 
 1. Se o servidor estiver em `VaultLocked`, abrir somente o fluxo de cofre (`/vault/setup` no primeiro uso ou `/vault/unlock` em instalação existente). Após setup/unlock bem-sucedido, voltar ao passo 2.
 2. Verificar se existe usuário admin local.
-   - Se não existir, abrir diretamente a etapa **Criar Admin Local** do wizard, sem recriar cofre nem recovery key.
+   - Se não existir, abrir diretamente a etapa **Criar Admin Local** do wizard, sem recriar cofre nem recovery key; ao salvar o admin, emitir sessão local/refresh token e seguir para onboarding pós-login.
    - Se existir, continuar para sessão/login.
 3. Se houver refresh token, chamar `/auth/refresh`.
    - Se refresh funcionar, fazer auto-login sem prompts.
