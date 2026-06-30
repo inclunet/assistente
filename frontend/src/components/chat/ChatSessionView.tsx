@@ -349,8 +349,9 @@ function ChatSessionViewContent({
   const [dismissedSessionSendError, setDismissedSessionSendError] = useState<string | null>(null);
   const sessionSendFailureMessage = session?.sendFailureMessage ?? null;
   const sessionSendFailureRetryable = session?.sendFailureRetryable ?? false;
-  const sessionSendFailureRetry = session?.sendFailureRetryContent
-    ? { content: session.sendFailureRetryContent, media: session.sendFailureRetryMediaFiles }
+  const sessionSendFailureRetry = sessionSendFailureRetryable
+    && (session?.sendFailureRetryContent !== null || (session?.sendFailureRetryMediaFiles.length ?? 0) > 0)
+    ? { content: session?.sendFailureRetryContent ?? '', media: session?.sendFailureRetryMediaFiles ?? [] }
     : null;
   const effectiveSendError = sendError ?? (
     sessionSendFailureMessage && sessionSendFailureMessage !== dismissedSessionSendError

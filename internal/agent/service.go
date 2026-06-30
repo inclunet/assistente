@@ -1121,7 +1121,7 @@ func (s *Service) emitPlaceholderErrorDone(
 		TurnID:         turnID,
 		SurfaceOrigin:  surfaceOrigin,
 		Reason:         "error",
-		ErrorMessage:   "não foi possível preparar a mensagem do assistente",
+		ErrorMessage:   "assistant_placeholder_error",
 	})
 }
 

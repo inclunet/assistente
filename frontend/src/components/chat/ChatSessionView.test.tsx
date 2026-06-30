@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MediaCategory, type MediaFile } from '../../services/mediaService';
 
 const updateMessageMock = vi.fn();
 const showMenuMock = vi.fn();
@@ -514,6 +515,35 @@ describe('ChatSessionView', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Falha ao enviar pela sessão');
     expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
+  });
+
+  it('embedded: permite retry de falha persistida com mídia sem texto', async () => {
+    const user = userEvent.setup();
+    const chatSurface = surface({ surfaceType: 'embedded' });
+    const mediaFile: MediaFile = {
+      id: 'media-1',
+      file: new File(['conteudo'], 'imagem.png', { type: 'image/png' }),
+      category: MediaCategory.IMAGE,
+      mimeType: 'image/png',
+      extension: 'png',
+      fileName: 'imagem.png',
+      fileSize: 8,
+      fileSizeFormatted: '8 B',
+      icon: 'image',
+    };
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
+      sendFailureMessage: 'Falha ao enviar mídia',
+      sendFailureRetryable: true,
+      sendFailureRetryContent: null,
+      sendFailureRetryMediaFiles: [mediaFile],
+    };
+    renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={onSend} showShortcutsHelp={false} />);
+
+    await user.click(await screen.findByRole('button', { name: 'chat.retryAriaLabel' }));
+
+    expect(onSend).toHaveBeenCalledWith('', [mediaFile], chatSurface);
   });
 
   it('embedded: mantém envio habilitado mesmo com isLoading global ativo', async () => {

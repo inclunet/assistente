@@ -351,7 +351,7 @@ describe('chatEventController', () => {
     emitEvent('chat:done', {
       conversationId: 'conversation-1',
       hadToolCalls: false,
-      errorMessage: 'boom',
+      errorMessage: 'assistant_placeholder_error',
       turnId: 'user-1',
     });
 
@@ -359,9 +359,9 @@ describe('chatEventController', () => {
     expect(messages).toHaveLength(1);
     expect(messages[0].message.id).toBe('user-1');
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBeNull();
-    expect(sessions['conversation-1'].sendFailureMessage).toBe('boom');
+    expect(sessions['conversation-1'].sendFailureMessage).toBe('chat.errors.assistantPlaceholder');
     expect(sessions['conversation-1'].sendFailureRetryable).toBe(false);
-    expect(mockAnnounce).toHaveBeenCalledWith('boom', 'assertive');
+    expect(mockAnnounce).toHaveBeenCalledWith('chat.errors.assistantPlaceholder', 'assertive');
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
 

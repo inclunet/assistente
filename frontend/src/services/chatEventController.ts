@@ -30,6 +30,13 @@ import type { ChatSurfaceOrigin, MessageWindowState } from './chatSessionRegistr
 
 const STREAM_UPDATE_DEBOUNCE_MS = 16;
 
+const translateBackendChatError = (message: string) => {
+  if (message === 'assistant_placeholder_error') {
+    return i18next.t('chat.errors.assistantPlaceholder');
+  }
+  return message;
+};
+
 interface ChatMessagesReadyEvent {
   conversationId: string;
   userMessageId: string;
@@ -466,7 +473,7 @@ export function startChatEventController({
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       flushStreamingUpdate();
-      const errorMessage = String(event.error || '').trim();
+      const errorMessage = translateBackendChatError(String(event.error || '').trim());
       announce(errorMessage, 'assertive');
       playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
       if (hasAssistantNode) {
@@ -619,7 +626,7 @@ export function startChatEventController({
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       flushStreamingUpdate();
-      const errorMessage = String(event.errorMessage || '').trim();
+      const errorMessage = translateBackendChatError(String(event.errorMessage || '').trim());
       announce(errorMessage, 'assertive');
       playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
       if (hasAssistantNode) {

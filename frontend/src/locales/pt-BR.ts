@@ -165,6 +165,7 @@ const ptBR = {
         tabCannotSend: 'A aba ativa não suporta envio de mensagens.',
         chatTabNotReady: 'Conversa da aba de chat ainda não está pronta.',
         cancelStreamingFailed: 'Não foi possível cancelar a geração: {{message}}',
+        assistantPlaceholder: 'Não foi possível preparar a mensagem do assistente.',
       },
       stopReading: 'Parar leitura',
       stopReadingLabel: 'Parar leitura de texto',
