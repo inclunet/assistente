@@ -743,19 +743,20 @@ function ChatSessionViewContent({
         setSendError(null);
         setLastFailedMessage(null);
         setDismissedSessionSendError(sessionSendFailureMessage);
+        if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
         announce(t('chat.announce.errorDismissed'));
       }
     };
 
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [isInteractiveSurface, effectiveSendError, sessionSendFailureMessage, announce, t]);
+  }, [isInteractiveSurface, effectiveSendError, sessionSendFailureMessage, conversationId, origin.sessionKey, clearConversationSendFailure, announce, t]);
 
   const handleSendMessage = async (content: string, mediaFiles?: MediaFile[]) => {
     try {
       setSendError(null);
       setLastFailedMessage(null);
-      setDismissedSessionSendError(sessionSendFailureMessage);
+      setDismissedSessionSendError(null);
       if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
       await controller.sendMessage(content, mediaFiles);
     } catch (error: unknown) {
@@ -778,7 +779,7 @@ function ChatSessionViewContent({
 
     try {
       setSendError(null);
-      setDismissedSessionSendError(sessionSendFailureMessage);
+      setDismissedSessionSendError(null);
       if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
       await controller.sendMessage(effectiveFailedMessage.content, effectiveFailedMessage.media);
       setLastFailedMessage(null);
