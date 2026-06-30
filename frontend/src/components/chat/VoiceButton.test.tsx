@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { VoiceButton } from './VoiceButton';
 import { WorkspacePanelProvider } from '../workspace/WorkspacePanelContext';
 
@@ -9,7 +9,9 @@ const startInteractionSpy = vi.fn();
 const stopInteractionSpy = vi.fn();
 const requestSTTStartSpy: ReturnType<typeof vi.fn<(request: unknown) => boolean>> = vi.fn(() => true);
 const finishSTTSessionSpy: ReturnType<typeof vi.fn<(origin: unknown) => void>> = vi.fn();
+const announceRequestSpy = vi.fn();
 let triggerType = 'button_toggle';
+let interimText = '';
 
 const panelTab = {
   id: 'chat-tab',
@@ -27,6 +29,14 @@ function renderVoiceButton() {
   );
 }
 
+function renderVoiceButtonElement() {
+  return (
+    <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+      <VoiceButton onTranscription={() => {}} />
+    </WorkspacePanelProvider>
+  );
+}
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
@@ -38,7 +48,7 @@ vi.mock('../../hooks/useInteractionProfile', () => ({
     isRecording: false,
     isProcessing: false,
     volume: 0,
-    interimText: '',
+    interimText,
     activeProfile: {
       input: {
         triggers: [{ type: triggerType, enabled: true }],
@@ -52,6 +62,12 @@ vi.mock('../../hooks/useInteractionProfile', () => ({
   }),
 }));
 
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announceRequest: announceRequestSpy,
+  }),
+}));
+
 vi.mock('../../services/voiceAccessibility/sttGate', () => ({
   requestSTTStart: (request: unknown) => requestSTTStartSpy(request),
   finishSTTSession: (origin: unknown) => finishSTTSessionSpy(origin),
@@ -60,12 +76,18 @@ vi.mock('../../services/voiceAccessibility/sttGate', () => ({
 describe('VoiceButton', () => {
   beforeEach(() => {
     triggerType = 'button_toggle';
+    interimText = '';
     toggleInteractionSpy.mockClear();
     startInteractionSpy.mockClear();
     stopInteractionSpy.mockClear();
+    announceRequestSpy.mockClear();
     requestSTTStartSpy.mockReset();
     requestSTTStartSpy.mockReturnValue(true);
     finishSTTSessionSpy.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('aciona toggle no clique', () => {
@@ -101,5 +123,54 @@ describe('VoiceButton', () => {
 
     expect(startInteractionSpy).not.toHaveBeenCalled();
     expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('debounceia texto interim no announcer global sem live region local', () => {
+    vi.useFakeTimers();
+    interimText = 'texto parcial';
+
+    renderVoiceButton();
+
+    expect(screen.getByText('texto parcial')).not.toHaveAttribute('aria-live');
+    expect(announceRequestSpy).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(announceRequestSpy).toHaveBeenCalledWith({
+      message: 'texto parcial',
+      origin: {
+        tabId: 'chat-tab',
+        surfaceId: 'chat-tab',
+        conversationId: 'conversation-1',
+        surfaceType: 'chat',
+        profileSlug: null,
+        title: 'Chat',
+      },
+      eventType: 'progress',
+    });
+  });
+
+  it('faz flush do último interim quando o texto limpa antes do debounce', () => {
+    vi.useFakeTimers();
+    interimText = 'texto parcial';
+    const { rerender } = renderVoiceButton();
+
+    interimText = '';
+    rerender(renderVoiceButtonElement());
+
+    expect(announceRequestSpy).toHaveBeenCalledWith({
+      message: 'texto parcial',
+      origin: {
+        tabId: 'chat-tab',
+        surfaceId: 'chat-tab',
+        conversationId: 'conversation-1',
+        surfaceType: 'chat',
+        profileSlug: null,
+        title: 'Chat',
+      },
+      eventType: 'progress',
+    });
   });
 });
