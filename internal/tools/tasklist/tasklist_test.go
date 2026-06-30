@@ -3,7 +3,6 @@ package tasklist
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +20,7 @@ const fakeTaskListUserID = "tasklist-tool-fake-user"
 
 type fakeTaskListManager struct {
 	*realTaskListManager
+	t         testing.TB
 	ctx       context.Context
 	db        *gorm.DB
 	taskLists map[string]*database.TaskList
@@ -42,17 +42,17 @@ type fakeTaskListManager struct {
 	getNotesErr    error
 }
 
-func newFakeManager(t testing.TB) *fakeTaskListManager {
+func newTaskListTestDB(t testing.TB, userID string) (*gorm.DB, context.Context) {
 	t.Helper()
 
 	previous := database.DB()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
-		t.Fatalf("open fake tasklist db: %v", err)
+		t.Fatalf("open tasklist test db: %v", err)
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
-		t.Fatalf("open fake tasklist sql db: %v", err)
+		t.Fatalf("open tasklist sql db: %v", err)
 	}
 	sqlDB.SetMaxOpenConns(1)
 	database.SetDB(db)
@@ -66,10 +66,19 @@ func newFakeManager(t testing.TB) *fakeTaskListManager {
 		&database.Task{},
 		&database.TaskNote{},
 	); err != nil {
-		t.Fatalf("migrate fake tasklist db: %v", err)
+		t.Fatalf("migrate tasklist test db: %v", err)
 	}
+
+	return db, database.WithUserID(context.Background(), userID)
+}
+
+func newFakeManager(t testing.TB) *fakeTaskListManager {
+	t.Helper()
+
+	db, ctx := newTaskListTestDB(t, fakeTaskListUserID)
 	mgr := &fakeTaskListManager{
-		ctx:       database.WithUserID(context.Background(), fakeTaskListUserID),
+		t:         t,
+		ctx:       ctx,
 		db:        db,
 		taskLists: make(map[string]*database.TaskList),
 		tasks:     make(map[string]*database.Task),
@@ -81,6 +90,11 @@ func newFakeManager(t testing.TB) *fakeTaskListManager {
 		Emitter: noopTaskListEmitter{},
 	})}
 	return mgr
+}
+
+func (f *fakeTaskListManager) fatalf(format string, args ...any) {
+	f.t.Helper()
+	f.t.Fatalf(format, args...)
 }
 
 func (f *fakeTaskListManager) syncDBFromSnapshots() {
@@ -100,7 +114,7 @@ func (f *fakeTaskListManager) syncDBFromSnapshots() {
 				"custom_actions":      tl.CustomActions,
 				"conversation_id":     tl.ConversationID,
 			}).Error; err != nil {
-			panic(fmt.Sprintf("sync task list fixture %q: %v", tl.ID, err))
+			f.fatalf("sync task list fixture %q: %v", tl.ID, err)
 		}
 	}
 	for _, wf := range f.workflows {
@@ -115,7 +129,7 @@ func (f *fakeTaskListManager) syncDBFromSnapshots() {
 				"allowed_transitions": wf.AllowedTransitions,
 				"initial_status_id":   wf.InitialStatusID,
 			}).Error; err != nil {
-			panic(fmt.Sprintf("sync task list workflow fixture %q: %v", wf.ID, err))
+			f.fatalf("sync task list workflow fixture %q: %v", wf.ID, err)
 		}
 	}
 	for _, task := range f.tasks {
@@ -139,7 +153,7 @@ func (f *fakeTaskListManager) syncDBFromSnapshots() {
 				"creator_id":      task.CreatorID,
 				"conversation_id": task.ConversationID,
 			}).Error; err != nil {
-			panic(fmt.Sprintf("sync task fixture %q: %v", task.ID, err))
+			f.fatalf("sync task fixture %q: %v", task.ID, err)
 		}
 	}
 }
@@ -147,7 +161,7 @@ func (f *fakeTaskListManager) syncDBFromSnapshots() {
 func (f *fakeTaskListManager) refreshSnapshots() {
 	var lists []database.TaskList
 	if err := f.db.Preload("Workflow").Find(&lists).Error; err != nil {
-		panic(fmt.Sprintf("refresh task list fixtures: %v", err))
+		f.fatalf("refresh task list fixtures: %v", err)
 	}
 	seenLists := make(map[string]bool, len(lists))
 	for i := range lists {
@@ -177,7 +191,7 @@ func (f *fakeTaskListManager) refreshSnapshots() {
 
 	var tasks []database.Task
 	if err := f.db.Find(&tasks).Error; err != nil {
-		panic(fmt.Sprintf("refresh task fixtures: %v", err))
+		f.fatalf("refresh task fixtures: %v", err)
 	}
 	seenTasks := make(map[string]bool, len(tasks))
 	for i := range tasks {
@@ -198,7 +212,7 @@ func (f *fakeTaskListManager) refreshSnapshots() {
 
 	var notes []database.TaskNote
 	if err := f.db.Find(&notes).Error; err != nil {
-		panic(fmt.Sprintf("refresh task note fixtures: %v", err))
+		f.fatalf("refresh task note fixtures: %v", err)
 	}
 	f.notes = make(map[string][]database.TaskNote)
 	for _, note := range notes {
@@ -250,7 +264,7 @@ func (f *fakeTaskListManager) addTaskListWithTransitions(title string, statuses 
 	f.syncDBFromSnapshots()
 	tl, err := f.realTaskListManager.CreateTaskList(f.ctx, title, "", workflowTemplate(statuses, transitions), "")
 	if err != nil {
-		panic(fmt.Sprintf("add task list: %v", err))
+		f.fatalf("add task list: %v", err)
 	}
 	f.refreshSnapshots()
 	return f.taskLists[tl.ID]
@@ -260,11 +274,11 @@ func (f *fakeTaskListManager) addTask(taskListID string, title string, statusID 
 	f.syncDBFromSnapshots()
 	task, err := f.realTaskListManager.CreateTaskFull(f.ctx, taskListID, title, "", "", "", "", "", "", "", nil)
 	if err != nil {
-		panic(fmt.Sprintf("add task: %v", err))
+		f.fatalf("add task: %v", err)
 	}
 	if statusID != task.StatusID {
 		if err := f.db.Model(&database.Task{}).Where("id = ?", task.ID).Update("status_id", statusID).Error; err != nil {
-			panic(fmt.Sprintf("set task status fixture: %v", err))
+			f.fatalf("set task status fixture: %v", err)
 		}
 	}
 	f.refreshSnapshots()
@@ -651,36 +665,13 @@ type realTaskListFixture struct {
 func newRealTaskListFixture(t *testing.T) realTaskListFixture {
 	t.Helper()
 
-	previous := database.DB()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open tasklist test db: %v", err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("open tasklist sql db: %v", err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	database.SetDB(db)
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-		database.SetDB(previous)
-	})
-	if err := db.AutoMigrate(
-		&database.TaskListWorkflow{},
-		&database.TaskList{},
-		&database.Task{},
-		&database.TaskNote{},
-	); err != nil {
-		t.Fatalf("migrate tasklist test db: %v", err)
-	}
-
 	mgr := &realTaskListManager{Service: tasklistsvc.NewService(tasklistsvc.ServiceConfig{
 		Store:   tasklistsvc.NewDBStore(),
 		Emitter: noopTaskListEmitter{},
 	})}
+	_, ctx := newTaskListTestDB(t, "tasklist-tool-test-user")
 	return realTaskListFixture{
-		ctx:  database.WithUserID(context.Background(), "tasklist-tool-test-user"),
+		ctx:  ctx,
 		mgr:  mgr,
 		tool: NewTaskList(mgr),
 	}
