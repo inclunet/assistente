@@ -521,11 +521,11 @@ describe('ChatSessionView', () => {
 
     expect(await screen.findByText('Falha ao enviar pela sessão')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(announce).toHaveBeenCalledWith('Falha ao enviar pela sessão', 'assertive');
+    expect(announce).not.toHaveBeenCalledWith('Falha ao enviar pela sessão', 'assertive');
     expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
   });
 
-  it('embedded: anuncia falha de sessão que aparece após o primeiro render', async () => {
+  it('embedded: mostra falha de sessão que aparece após o primeiro render sem anúncio duplicado', async () => {
     const chatSurface = surface({ surfaceType: 'embedded' });
     const { rerender } = renderWithPanel(
       <ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />,
@@ -548,7 +548,7 @@ describe('ChatSessionView', () => {
 
     expect(await screen.findByText('Falha hidratada da sessão')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(announce).toHaveBeenCalledWith('Falha hidratada da sessão', 'assertive');
+    expect(announce).not.toHaveBeenCalledWith('Falha hidratada da sessão', 'assertive');
   });
 
   it('embedded: Escape descarta e limpa falha persistida da sessão', async () => {
