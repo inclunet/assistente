@@ -56,4 +56,17 @@ describe('announcerBroker', () => {
 
     expect(sink).toHaveBeenCalledWith('Falha', 'assertive');
   });
+
+  it('não deduplica mensagens idênticas quando o chamador solicita novo anúncio', () => {
+    const request = {
+      message: '1 turno na fila',
+      eventType: 'progress' as const,
+      origin: { tabId: 'tab-1', title: 'Chat A' },
+    };
+
+    expect(announceWithOrigin(request)).toBe(true);
+    expect(announceWithOrigin(request)).toBe(true);
+
+    expect(sink).toHaveBeenCalledTimes(2);
+  });
 });
