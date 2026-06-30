@@ -25,6 +25,23 @@ const HEAVY_ARIA_CONTENT_PREVIEW_LENGTH = 1_200;
 const HEAVY_AGENTIC_SEGMENT_COUNT = 8;
 const TOOL_ONLY_TURN_PLACEHOLDER_SOURCE = 'tool_only_turn_placeholder';
 
+interface StreamingAnnouncementState {
+  previous: string;
+  wasStreaming: boolean;
+  emptyCompletionAnnounced: boolean;
+}
+
+const streamingAnnouncementStates = new Map<string, StreamingAnnouncementState>();
+
+function getStreamingAnnouncementState(messageId: string): StreamingAnnouncementState {
+  let state = streamingAnnouncementStates.get(messageId);
+  if (!state) {
+    state = { previous: '', wasStreaming: false, emptyCompletionAnnounced: false };
+    streamingAnnouncementStates.set(messageId, state);
+  }
+  return state;
+}
+
 export interface ChatMessageProps {
   message: Message;
   // Thread indicator props
@@ -99,9 +116,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const [isChainExpanded, setIsChainExpanded] = useState(true);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const previousShouldDeferHeavyContentRef = useRef(false);
-  const previousStreamingAnnouncementRef = useRef('');
-  const emptyCompletionAnnouncementRef = useRef(false);
-  const wasStreamingRef = useRef(false);
   const {
     liveContent,
     liveIsStreaming,
@@ -229,21 +243,22 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   useEffect(() => {
     if (role !== 'assistant') return;
 
+    const announcementState = getStreamingAnnouncementState(message.id);
     const text = conclusionContent.trim();
     if (effectiveIsStreaming) {
-      wasStreamingRef.current = true;
-      emptyCompletionAnnouncementRef.current = false;
+      announcementState.wasStreaming = true;
+      announcementState.emptyCompletionAnnounced = false;
       const message = text || (isAgenticStreaming ? t('chat.progressLabel') : '');
       if (!message) return;
 
-      const previous = previousStreamingAnnouncementRef.current;
+      const previous = announcementState.previous;
       const replacedProgressMessage = previous !== '' && !message.startsWith(previous);
       const progressedEnough = message.length - previous.length >= 80;
       const reachedSentenceBoundary = /[.!?…]\s*$/.test(message);
       if (previous === message) return;
       if (previous && !replacedProgressMessage && !progressedEnough && !reachedSentenceBoundary) return;
 
-      previousStreamingAnnouncementRef.current = message;
+      announcementState.previous = message;
       announceRequest({
         message,
         origin,
@@ -252,15 +267,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       return;
     }
 
-    if (!wasStreamingRef.current) {
-      if (!text) previousStreamingAnnouncementRef.current = '';
+    if (!announcementState.wasStreaming) {
+      if (!text) announcementState.previous = '';
       return;
     }
 
-    previousStreamingAnnouncementRef.current = '';
+    announcementState.previous = '';
     if (!text) {
-      if (hasAgenticSegments && !emptyCompletionAnnouncementRef.current) {
-        emptyCompletionAnnouncementRef.current = true;
+      if (hasAgenticSegments && !announcementState.emptyCompletionAnnounced) {
+        announcementState.emptyCompletionAnnounced = true;
         announceRequest({
           message: t('chat.progressLabel'),
           origin,
@@ -270,14 +285,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       return;
     }
 
-    wasStreamingRef.current = false;
-    emptyCompletionAnnouncementRef.current = false;
+    streamingAnnouncementStates.delete(message.id);
     announceRequest({
       message: text,
       origin,
       eventType: 'completion',
     });
-  }, [announceRequest, conclusionContent, effectiveIsStreaming, hasAgenticSegments, isAgenticStreaming, origin, role, t]);
+  }, [announceRequest, conclusionContent, effectiveIsStreaming, hasAgenticSegments, isAgenticStreaming, message.id, origin, role, t]);
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);

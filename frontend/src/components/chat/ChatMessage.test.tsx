@@ -208,6 +208,28 @@ describe('ChatMessage', () => {
     });
   });
 
+  it('não reanuncia progresso ao remontar a mesma mensagem em streaming', () => {
+    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const streamingMessage = new chat.EnrichedMessage({
+      id: 'assistant-remount-1',
+      conversationId,
+      role: 'assistant',
+      content: 'Resposta parcial com conteúdo suficiente para anunciar.',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+
+    const { unmount } = render(
+      <ChatMessage message={streamingMessage} origin={origin} />
+    );
+    unmount();
+    render(<ChatMessage message={streamingMessage} origin={origin} />);
+
+    expect(announceRequestMock).toHaveBeenCalledTimes(1);
+  });
+
   it('preserva anúncio de conclusão quando há render intermediário sem conteúdo final', () => {
     const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
     const streamingMessage = new chat.EnrichedMessage({

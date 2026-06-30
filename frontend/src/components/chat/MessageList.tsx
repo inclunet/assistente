@@ -258,13 +258,16 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
 
   useEffect(() => {
     if (isLoading && !previousLoadingRef.current) {
-      announceRequest({
+      previousLoadingRef.current = announceRequest({
         message: effectiveLoadingText,
         origin,
         eventType: 'progress',
       });
+      return;
     }
-    previousLoadingRef.current = isLoading;
+    if (!isLoading) {
+      previousLoadingRef.current = false;
+    }
   }, [announceRequest, effectiveLoadingText, isLoading, origin]);
 
   // Fallback transitório: o backend já retorna timeline items canônicos;
