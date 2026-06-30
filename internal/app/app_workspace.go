@@ -26,7 +26,7 @@ func (a *App) initWorkspace() {
 	if err := a.workspaceMgr.Initialize(workDir); err != nil {
 		logging.Errorf(context.Background(), "app.app-workspace", "Erro ao inicializar workspace: %v", err)
 	} else if ws := a.workspaceMgr.Active(); ws != nil {
-		logging.Errorf(context.Background(), "app.app-workspace", "Workspace ativo: %s (%s)", ws.Name, ws.ID)
+		logging.Infof(context.Background(), "app.app-workspace", "Workspace ativo: %s (%s)", ws.Name, ws.ID)
 	}
 
 	a.workspaceCtrl = controllers.NewWorkspaceController(controllers.WorkspaceControllerConfig{

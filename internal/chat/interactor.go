@@ -213,7 +213,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	} else if resolvedProfileSlug != "" {
 		activeProfile, err = i.profileMgr.Get(resolvedProfileSlug)
 		if err != nil {
-			logging.Errorf(ctx, "chat.interactor", "[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", resolvedProfileSlug, err)
+			logging.Warnf(ctx, "chat.interactor", "[PrepareContext] Erro ao obter perfil '%s': %v — usando perfil ativo global", resolvedProfileSlug, err)
 			activeProfile, err = i.profileMgr.GetActive()
 			if err == nil && activeProfile != nil {
 				resolvedProfileSlug = i.profileMgr.GetActiveSlug()
@@ -362,7 +362,7 @@ func (i *Interactor) HandleNativeMCPUnsupported(profileSlug, model string, overr
 		logging.Errorf(context.Background(), "chat.interactor", "[MCP] auto-ajuste abortado: erro ao persistir perfil %q: %v", slug, err)
 		return
 	}
-	logging.Errorf(context.Background(), "chat.interactor", "[MCP] perfil %q (modelo %s) ajustado para adapter automaticamente após erro de MCP nativo não suportado", slug, model)
+	logging.Warnf(context.Background(), "chat.interactor", "[MCP] perfil %q (modelo %s) ajustado para adapter automaticamente após erro de MCP nativo não suportado", slug, model)
 }
 
 // HandlePromptCacheHintUnsupported é chamado quando um provider/gateway rejeita
