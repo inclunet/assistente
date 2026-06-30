@@ -153,7 +153,7 @@ test.describe('Chat — erro no envio', () => {
       );
     }, { timeout: 5_000 });
 
-    const errorMessage = page.locator('[role="alert"], .chat-message').filter({ hasText: /Network error/ });
+    const errorMessage = page.locator('[role="alert"]:not(.sr-only), .chat-message').filter({ hasText: /Network error/ });
     await expect(errorMessage).toBeVisible({ timeout: 5_000 });
   });
 
@@ -176,7 +176,7 @@ test.describe('Chat — erro no envio', () => {
     }, { timeout: 5_000 });
 
     // Aguarda o erro aparecer
-    await page.locator('[role="alert"], .chat-message').filter({ hasText: /Timeout/ }).waitFor({ timeout: 5_000 });
+    await page.locator('[role="alert"]:not(.sr-only), .chat-message').filter({ hasText: /Timeout/ }).waitFor({ timeout: 5_000 });
 
     // Input deve ser reabilitado (isLoading → false)
     await page.waitForFunction(() => {
@@ -208,7 +208,7 @@ test.describe('Chat — erro no envio', () => {
     }, { timeout: 5_000 });
 
     // A mensagem de erro deve conter o texto do erro
-    const errorMessage = page.locator('[role="alert"], .chat-message').filter({ hasText: 'Connection refused' });
+    const errorMessage = page.locator('[role="alert"]:not(.sr-only), .chat-message').filter({ hasText: 'Connection refused' });
     await expect(errorMessage).toBeVisible({ timeout: 5_000 });
   });
 
