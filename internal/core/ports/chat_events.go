@@ -6,6 +6,8 @@ package ports
 const (
 	// ChatErrorInternal is a stable UI-facing error code for unexpected backend failures.
 	ChatErrorInternal = "internal_error"
+	// ChatErrorAssistantPlaceholder is emitted when the assistant placeholder cannot be created.
+	ChatErrorAssistantPlaceholder = "assistant_placeholder_error"
 )
 
 // ChatSurfaceOrigin identifies the frontend surface that initiated a chat turn.

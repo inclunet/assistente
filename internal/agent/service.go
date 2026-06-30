@@ -1120,7 +1120,7 @@ func (s *Service) emitPlaceholderErrorDone(
 		TurnID:         turnID,
 		SurfaceOrigin:  surfaceOrigin,
 		Reason:         "error",
-		ErrorMessage:   "assistant_placeholder_error",
+		ErrorMessage:   ports.ChatErrorAssistantPlaceholder,
 	})
 }
 
