@@ -350,7 +350,7 @@ export function EditorContentArea({
             <div className="editor-page__pane-title">{t('editor.panes.rich')}</div>
             <div className="editor-page__pane-body">
               {isRevealDocument && activeRevealSlide ? (
-                <div className="editor-page__presentation-current" role="status">
+                <div className="editor-page__presentation-current">
                   {t('editor.presentation.slideLabel', {
                     current: activeRevealSlide.index + 1,
                     total: revealDeck.slides.length,

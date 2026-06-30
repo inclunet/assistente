@@ -48,8 +48,8 @@ export function SignalLinkFlow({
           ) : (
             <p
               className="channels-page__hint"
-              role="status"
-              aria-live="polite"
+
+
             >
               Gerando QR Code...
             </p>
@@ -57,8 +57,8 @@ export function SignalLinkFlow({
           {linking && (
             <p
               className="channels-page__hint"
-              role="status"
-              aria-live="polite"
+
+
             >
               Aguardando vinculação...
             </p>

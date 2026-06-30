@@ -152,7 +152,7 @@ export default function ContactsPage() {
   if (loading) {
     return (
       <div className="contacts-page">
-        <div className="contacts-page__loading" role="status">
+        <div className="contacts-page__loading">
           {t('contacts.loading', 'Carregando contatos...')}
         </div>
       </div>
@@ -182,7 +182,7 @@ export default function ContactsPage() {
             onFocusChange={handleContactFocusChange}
           />
         ) : (
-          <p className="contacts-page__empty" role="status">
+          <p className="contacts-page__empty">
             {t('contacts.empty', 'Nenhum contato autorizado.')}
           </p>
         )}

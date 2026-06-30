@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useId, useCallback, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { playBumpSound } from '../../services/audioFeedback';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import './Combobox.css';
 
 export interface ComboboxItem {
@@ -43,12 +44,12 @@ export const Combobox = ({
     onAfterSelect,
 }: ComboboxProps) => {
     const { t } = useTranslation();
+    const { announce: announceGlobally } = useAnnouncer();
     const effectiveLabel = label ?? t('pickers.combobox.select');
     const effectivePlaceholder = placeholder ?? t('pickers.combobox.filterPlaceholder');
     const [isOpen, setIsOpen] = useState(false);
     const [filter, setFilter] = useState('');
     const [highlightIndex, setHighlightIndex] = useState(0);
-    const [liveMessage, setLiveMessage] = useState('');
 
     const inputRef = useRef<HTMLInputElement>(null);
     const buttonRef = useRef<HTMLButtonElement>(null);
@@ -72,9 +73,8 @@ export const Combobox = ({
         if (onAnnounce) {
             onAnnounce(msg);
         }
-        setLiveMessage('');
-        requestAnimationFrame(() => setLiveMessage(msg));
-    }, [onAnnounce]);
+        announceGlobally(msg, 'assertive');
+    }, [announceGlobally, onAnnounce]);
 
     const announceHighlight = useCallback((index: number, list: ComboboxItem[]) => {
         if (index >= 0 && list[index]) {
@@ -113,7 +113,6 @@ export const Combobox = ({
         setIsOpen(false);
         setFilter('');
         setHighlightIndex(0);
-        setLiveMessage('');
 
         setTimeout(() => {
             if (reason === 'select' && onAfterSelect) {
@@ -348,31 +347,23 @@ export const Combobox = ({
                             </li>
                         ))}
                         {filteredItems.length === 0 && !allowFreeInput && (
-                            <li className="no-results" role="status">
+                            <li className="no-results">
                                 {t('pickers.combobox.noResults')}
                             </li>
                         )}
                         {filteredItems.length === 0 && allowFreeInput && filter.trim() && (
-                            <li className="no-results free-input-hint" role="status">
+                            <li className="no-results free-input-hint">
                                 {t('pickers.combobox.pressEnterToUse', { value: filter.trim() })}
                             </li>
                         )}
                         {filteredItems.length === 0 && allowFreeInput && !filter.trim() && (
-                            <li className="no-results" role="status">
+                            <li className="no-results">
                                 {t('pickers.combobox.typeToCreate')}
                             </li>
                         )}
                     </ul>
                 </div>
             )}
-            <div
-                className="sr-only"
-                aria-live="assertive"
-                aria-atomic="true"
-                role="log"
-            >
-                {liveMessage}
-            </div>
         </div>
     );
 };

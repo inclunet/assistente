@@ -35,9 +35,9 @@ export function SignalRegistrationFlow({
   const { t } = useTranslation();
   return (
     <>
-      <div aria-live="assertive" aria-atomic="true">
+      <div>
         {regError && (
-          <div className="channels-page__alert" role="alert">
+          <div className="channels-page__alert">
             <strong>{t('channels.signalRegistration.error')}</strong> {regError}
           </div>
         )}
@@ -78,8 +78,8 @@ export function SignalRegistrationFlow({
       {regStep === 'registering' && (
         <p
           className="channels-page__hint"
-          role="status"
-          aria-live="polite"
+
+
         >
           {t('channels.signalRegistration.sending')}
         </p>
@@ -121,8 +121,8 @@ export function SignalRegistrationFlow({
         <div className="channels-page__fields">
           <div
             className="channels-page__success"
-            role="status"
-            aria-live="polite"
+
+
           >
             {account} {t('channels.signalRegistration.registeredSuccess')}
           </div>

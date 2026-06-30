@@ -175,7 +175,7 @@ export const BasePicker = ({
       return <>{errorState}</>;
     }
     return (
-      <div className={effectiveErrorClassName} role="alert">
+      <div className={effectiveErrorClassName}>
         {resolvedErrorIcon && <span className="error-icon">{resolvedErrorIcon}</span>}
         {renderLabelText(resolvedErrorLabel, resolvedErrorHidden)}
         {onRetry && (

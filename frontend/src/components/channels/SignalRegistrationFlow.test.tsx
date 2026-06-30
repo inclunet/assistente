@@ -90,7 +90,8 @@ describe('SignalRegistrationFlow', () => {
       <SignalRegistrationFlow {...defaultProps} regError="Erro ao registrar" />
     );
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Erro: Erro ao registrar');
+    expect(screen.getByText(/Erro ao registrar/)).toHaveClass('channels-page__alert');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('desabilita botão SMS quando faltam dados', () => {

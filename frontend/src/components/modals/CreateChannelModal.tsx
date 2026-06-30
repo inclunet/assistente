@@ -103,7 +103,7 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
     >
       <div className="create-channel-modal">
         {error && (
-          <div className="error-message" role="alert">
+          <div className="error-message">
             {error}
           </div>
         )}

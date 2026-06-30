@@ -613,7 +613,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       </FormField>
 
       {errors.submit && (
-        <div className="provider-form__error" role="alert">
+        <div className="provider-form__error">
           <WarningOutlined aria-hidden="true" /> {errors.submit}
         </div>
       )}

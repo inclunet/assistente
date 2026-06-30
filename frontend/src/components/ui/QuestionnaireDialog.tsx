@@ -307,7 +307,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
               </div>
             )}
 
-            {errors[q.id] && <div className="questionnaire-dialog__error" role="alert">{errors[q.id]}</div>}
+            {errors[q.id] && <div className="questionnaire-dialog__error">{errors[q.id]}</div>}
           </div>
           );
         })}

@@ -159,14 +159,14 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     const selectedSlug = isControlled ? (value || '') : activeSlug;
 
     const loadingState = (
-      <div className="voice-picker voice-picker--loading" role="status" aria-live="polite">
+      <div className="voice-picker voice-picker--loading">
         <span className="voice-picker__icon" aria-hidden="true">{icon}</span>
         <span className="voice-picker__loading">Carregando...</span>
       </div>
     );
 
     const errorState = (
-      <div className="voice-picker voice-picker--error" role="alert" aria-live="assertive">
+      <div className="voice-picker voice-picker--error">
         <span className="voice-picker__icon"><WarningOutlined aria-hidden="true" /></span>
         <span className="voice-picker__error">{error}</span>
       </div>

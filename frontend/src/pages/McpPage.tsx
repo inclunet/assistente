@@ -835,13 +835,13 @@ export default function McpPage() {
       </Modal>
 
       {!editing && rows.length > 0 && (
-        <div className="mcp-empty" role="status">
+        <div className="mcp-empty">
           <p>{t('mcp.hint.edit', 'Pressione Enter ou clique no servidor para editar.')}</p>
         </div>
       )}
 
       {!editing && rows.length === 0 && (
-        <div className="mcp-empty" role="status">
+        <div className="mcp-empty">
           <p>{t('mcp.empty.noServers', 'Nenhum servidor MCP encontrado. Use o botão "Novo Servidor" para começar.')}</p>
         </div>
       )}

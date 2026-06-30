@@ -53,14 +53,14 @@ const VIRTUAL_OVERSCAN = 6;
 /**
  * Consolida mensagens de turnos de tool calling em entradas únicas com
  * segments intercalados (texto → tools → texto → tools → resposta final).
- * 
+ *
  * No agentic loop, um único turno gera múltiplas mensagens no banco:
  *   1. Assistant com toolCalls (intermediária)
  *   2. Tool results (role=tool)
  *   3. Assistant com toolCalls (outra iteração)
  *   4. Tool results...
  *   5. Assistant final (resposta)
- * 
+ *
  * Produz UMA entrada visual com `_turnSegments` que preserva a ordem
  * cronológica: [text, tool_calls, text, tool_calls, ..., text].
  */
@@ -583,7 +583,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
 
   if (threadedMessages.length === 0) {
     return (
-      <div 
+      <div
         className="message-list message-list--empty"
         role="region"
         aria-label={t('chat.messageListLabel')}
@@ -604,8 +604,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   }
 
   return (
-    <div 
-      className="message-list" 
+    <div
+      className="message-list"
       ref={setContainerRef}
       aria-label={t('chat.messageListLabel')}
     >
@@ -623,10 +623,10 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
             </button>
           </div>
         )}
-        <div 
+        <div
           ref={listRef}
           className="message-list__list"
-          role="list" 
+          role="list"
           aria-label={t('chat.messagesRegion')}
           tabIndex={0}
           style={shouldVirtualize
@@ -661,7 +661,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
         {isLoading && (
           <div
             className="message-list__loading"
-            role="status"
+
             aria-label={effectiveLoadingText}
           >
             <div className="message-list__loading-dots" aria-hidden="true">

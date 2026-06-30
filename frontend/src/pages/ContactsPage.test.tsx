@@ -61,7 +61,7 @@ describe('ContactsPage', () => {
   it('renderiza loading state inicialmente', () => {
     render(<ContactsPage />);
     expect(screen.getByText('Carregando contatos...')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('possui a classe CSS principal', () => {

@@ -277,7 +277,7 @@ describe('AuthGate', () => {
     await userEvent.type(screen.getByLabelText('auth.labels.confirmPassword'), 'senha-2');
     await userEvent.click(screen.getByRole('button', { name: 'auth.buttons.continue' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('auth.validation.passwordsDoNotMatch');
+    expect(screen.getByText('auth.validation.passwordsDoNotMatch')).toHaveClass('auth-gate__error');
     expect(mockSetupVault).not.toHaveBeenCalled();
   });
 

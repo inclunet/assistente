@@ -50,7 +50,7 @@ export const FormField = ({
       {description && !error && (
         <p id={descId} className="form-field-group__description">{description}</p>
       )}
-      {error && <p id={errorId} className="form-field-group__error" role="alert">{error}</p>}
+      {error && <p id={errorId} className="form-field-group__error">{error}</p>}
     </div>
   );
 };

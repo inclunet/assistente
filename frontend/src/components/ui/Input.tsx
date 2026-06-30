@@ -38,7 +38,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           {...props}
         />
         {hint && <span id={hintId} className="input__hint">{hint}</span>}
-        {error && <span id={errorId} className="input__error" role="alert">{error}</span>}
+        {error && <span id={errorId} className="input__error">{error}</span>}
       </div>
     );
   }

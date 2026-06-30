@@ -147,7 +147,7 @@ export function WorkspaceChatModal() {
         </details>
 
         {adapterError && (
-          <div className="workspace-chat-modal__error" role="alert">
+          <div className="workspace-chat-modal__error">
             {adapterError}
           </div>
         )}

@@ -861,7 +861,7 @@ export default function ChannelsPage() {
   if (loading) {
     return (
       <div className="channels-page">
-        <div className="channels-page__loading" role="status">{t('channels.loading', 'Carregando canais...')}</div>
+        <div className="channels-page__loading">{t('channels.loading', 'Carregando canais...')}</div>
       </div>
     );
   }

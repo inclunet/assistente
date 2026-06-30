@@ -444,7 +444,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       ref={messageRef}
       className={`chat-message chat-message--${role} ${isEditing ? 'chat-message--editing' : ''} ${isReading ? 'chat-message--reading' : ''}`}
       aria-label={isEditing || isReading ? undefined : getAriaLabel()}
-      aria-live={effectiveIsStreaming && !isAgenticStreaming ? 'polite' : 'off'}
       aria-busy={effectiveIsStreaming && !isAgenticStreaming}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
@@ -555,13 +554,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                 )}
               </div>
             )}
-            {/* Completed segments — role="log" so screen readers announce each addition
-                and browse mode users can navigate segment by segment */}
+            {/* Completed segments stay navigable without creating a local live region;
+                progress announcements are brokered globally with surface origin. */}
             <div
               id={chainRegionId}
-              role={isAgenticStreaming ? 'log' : undefined}
               aria-label={isAgenticStreaming ? t('chat.progressLabel') : undefined}
-              aria-relevant={isAgenticStreaming ? 'additions' : undefined}
               className="chat-message__segments-log"
             >
               {(isAgenticStreaming || isChainExpanded) && (canRenderHeavyContent ? displaySegments.map((seg, idx) => (
@@ -591,8 +588,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               ))}
             </div>
 
-            {/* Current iteration — aria-busy suppresses char-by-char updates */}
-            <div aria-busy={effectiveIsStreaming} aria-live={effectiveIsStreaming ? 'polite' : 'off'}>
+            {/* Current iteration keeps busy state without local aria-live updates. */}
+            <div aria-busy={effectiveIsStreaming}>
               {effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0 && (
                 <ToolCallsSection activeToolCalls={effectiveToolCalls} />
               )}

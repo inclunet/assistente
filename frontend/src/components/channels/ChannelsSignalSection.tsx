@@ -171,16 +171,16 @@ export function ChannelsSignalSection({
               Testar Conexão
             </Button>
           </div>
-          <div aria-live="polite">
+          <div>
             {apiInfo && (
-              <p className="channels-page__hint" role="status">
+              <p className="channels-page__hint">
                 {apiInfo}
               </p>
             )}
           </div>
 
           {!apiReady && (
-            <p className="channels-page__hint" role="status">
+            <p className="channels-page__hint">
               Teste a conexão para avançar.
             </p>
           )}

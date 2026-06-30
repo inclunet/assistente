@@ -184,8 +184,8 @@ export function McpConnectionSection({
 
             <div
               id={discoveryLiveId}
-              aria-live="polite"
-              aria-atomic="true"
+
+
               className="mcp-discovery-live"
             >
               {discoveryLiveText}
@@ -193,7 +193,7 @@ export function McpConnectionSection({
 
             {/* Estado A: DCR disponível — nada a preencher */}
             {hasDCR && (
-              <p className="mcp-hint mcp-hint--success" role="status">
+              <p className="mcp-hint mcp-hint--success">
                 {t('mcp.connection.browserAuthHint')}{' '}
                 <button type="button" className="mcp-link-btn" onClick={onManualOverride}>
                   {t('mcp.connection.configureManually')}
@@ -267,7 +267,7 @@ export function McpConnectionSection({
                 />
 
                 {hasExistingAuth && authType !== 'none' && authType !== 'oauth2_client_credentials' && authType !== 'oauth2_pkce' && (
-                  <p className="mcp-hint mcp-hint--success" role="status">
+                  <p className="mcp-hint mcp-hint--success">
                     {t('mcp.connection.credentialConfigured')}
                   </p>
                 )}
@@ -470,7 +470,7 @@ export function McpConnectionSection({
                   fullWidth
                 />
                 {oauth2CallbackPort && (
-                  <p id={callbackHintId} className="mcp-hint mcp-hint--success" role="status">
+                  <p id={callbackHintId} className="mcp-hint mcp-hint--success">
                     {t('mcp.connection.redirectUriLabel')}{' '}
                     <code>
                       http://{oauth2CallbackHost || 'localhost'}:{oauth2CallbackPort}/callback

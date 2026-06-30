@@ -228,7 +228,7 @@ export function ProfileContextProvidersSection({
           className="profiles-context-providers-datagrid"
         />
       ) : (
-        <p className="profiles-field__hint" role="status">
+        <p className="profiles-field__hint">
           {t('profiles.contextProvidersUnavailable', 'Nenhum Context Provider registrado foi informado pelo runtime.')}
         </p>
       )}

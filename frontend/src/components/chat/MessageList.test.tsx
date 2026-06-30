@@ -59,7 +59,8 @@ describe('MessageList', () => {
     );
 
     expect(screen.getByTestId('message-node')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByLabelText('chat.typing')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('repassa posição absoluta e tamanho total para itens renderizados', () => {

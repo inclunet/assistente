@@ -137,7 +137,7 @@ function ImageViewerView({ images, initialIndex, captionId }: ImageViewerViewPro
         >
           <ZoomOutOutlined aria-hidden="true" />
         </button>
-        <span className="image-viewer__zoom-level" aria-live="polite">
+        <span className="image-viewer__zoom-level">
           {Math.round(zoom * 100)}%
         </span>
         <button

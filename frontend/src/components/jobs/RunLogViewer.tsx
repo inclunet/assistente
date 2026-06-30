@@ -120,8 +120,8 @@ function RunDetail({
       {replayResult && (
         <div
           className={`run-detail__replay-result ${replayResult.success ? 'run-detail__replay-result--ok' : 'run-detail__replay-result--err'}`}
-          role="status"
-          aria-live="polite"
+
+
         >
           <h4 className="run-detail__label">
             {replayResult.success ? t('jobs.replaySuccess') : t('jobs.replayFailed')}
@@ -198,11 +198,11 @@ export function RunLogViewer({ logs, isLoading, onReplay, onRerun }: RunLogViewe
   }, []);
 
   if (isLoading) {
-    return <div className="run-log-viewer run-log-viewer--loading" role="status">{t('common.loading')}</div>;
+    return <div className="run-log-viewer run-log-viewer--loading">{t('common.loading')}</div>;
   }
 
   if (!logs || logs.length === 0) {
-    return <div className="run-log-viewer run-log-viewer--empty" role="status">{t('jobs.logsEmpty')}</div>;
+    return <div className="run-log-viewer run-log-viewer--empty">{t('jobs.logsEmpty')}</div>;
   }
 
   return (

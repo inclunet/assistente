@@ -369,7 +369,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
     <div className="job-builder">
       <div className="job-builder__content">
         {error && (
-          <div className="job-builder__error" role="alert" aria-live="assertive">
+          <div className="job-builder__error">
             <span>{error}</span>
             <button
               className="job-builder__error-close"
@@ -444,7 +444,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
               knownEvents={knownEvents}
             />
             {eventSchema && (
-              <div className="job-builder__event-schema-badge" role="status" aria-live="polite">
+              <div className="job-builder__event-schema-badge">
                 {t('jobs.builder.eventSchemaFound', { count: Object.keys(eventSchema).length })}
               </div>
             )}
@@ -472,7 +472,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
 
             {draft.tool && (
               <>
-                <div className="job-builder__tool-selected" role="status" aria-live="polite">
+                <div className="job-builder__tool-selected">
                   {t('jobs.builder.selectedTool')}: <code>{draft.tool}</code>
                 </div>
 
@@ -501,7 +501,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
                   )}
                 </div>
 
-                <div aria-live="polite" aria-atomic="true">
+                <div>
                   {testOutput && (
                     <div ref={testResultRef} className="job-builder__test-result" role="region" aria-label={t('jobs.builder.testResult')}>
                       <h4 className="job-builder__test-result-title">{t('jobs.builder.testResult')}</h4>
@@ -602,7 +602,7 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
                       onSelectPath={handleFanoutSelect}
                     />
                     {!outputHasArrays && (
-                      <p className="job-builder__warning" role="alert">
+                      <p className="job-builder__warning">
                         {t('jobs.builder.noArraysWarning')}
                       </p>
                     )}

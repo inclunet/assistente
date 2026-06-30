@@ -53,7 +53,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
           </select>
         </div>
         {hint && <span id={hintId} className="select-hint">{hint}</span>}
-        {error && <span id={errorId} className="select-error" role="alert">{error}</span>}
+        {error && <span id={errorId} className="select-error">{error}</span>}
       </div>
     );
   }
