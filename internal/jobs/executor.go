@@ -88,17 +88,18 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		runUUID = uuid.New()
 	}
 	runID := "run_" + runUUID.String()
-	ctx = logging.WithAttrs(ctx,
+	logAttrs := []slog.Attr{
 		slog.String("job_id", job.ID),
 		slog.String("run_id", runID),
 		slog.String("trigger_type", string(trigCtx.Type)),
-	)
+	}
 	if trigCtx.EventName != "" {
-		ctx = logging.WithAttrs(ctx, slog.String("trigger_event", trigCtx.EventName))
+		logAttrs = append(logAttrs, slog.String("trigger_event", trigCtx.EventName))
 	}
 	if trigCtx.ChainID != "" {
-		ctx = logging.WithAttrs(ctx, slog.String("trigger_chain_id", trigCtx.ChainID))
+		logAttrs = append(logAttrs, slog.String("trigger_chain_id", trigCtx.ChainID))
 	}
+	ctx = logging.WithAttrs(ctx, logAttrs...)
 	logger := logging.Logger(ctx, "jobs.executor")
 
 	rl := &RunLog{
