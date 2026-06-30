@@ -81,6 +81,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const profilePickerRef = useRef<ProfilePickerRef>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
   const profileContainerRef = useRef<HTMLDivElement>(null);
+  const previousQueueConversationIdRef = useRef<string | null | undefined>(undefined);
   const previousQueuedTurnCountRef = useRef<number | null>(null);
 
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
@@ -103,7 +104,9 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   }, [voiceOrigin]);
 
   useEffect(() => {
-    const previousQueuedTurnCount = previousQueuedTurnCountRef.current;
+    const conversationChanged = previousQueueConversationIdRef.current !== effectiveConversationId;
+    const previousQueuedTurnCount = conversationChanged ? null : previousQueuedTurnCountRef.current;
+    previousQueueConversationIdRef.current = effectiveConversationId;
     previousQueuedTurnCountRef.current = queuedTurnCount;
     if (
       queuedTurnCount <= 0
@@ -115,7 +118,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       origin: voiceOriginRef.current,
       eventType: 'progress',
     });
-  }, [queuedTurnCount, t]);
+  }, [effectiveConversationId, queuedTurnCount, t]);
 
   const {
     menu: contextMenu,
