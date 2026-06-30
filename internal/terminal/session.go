@@ -275,13 +275,13 @@ func (s *Session) RunCommand(ctx context.Context, command string, timeout time.D
 	if runtime.GOOS == "windows" {
 		enter = "\r"
 	}
-	logging.Errorf(ctx, "terminal.session", "[Terminal] RunCommand session=%s os=%s enter=%q cmdLen=%d shell=%s",
+	logging.Debugf(ctx, "terminal.session", "[Terminal] RunCommand session=%s os=%s enter=%q cmdLen=%d shell=%s",
 		s.id, runtime.GOOS, enter, len(wrappedCmd), s.shell)
 	nWritten, err := s.ptySession.PtyWriter().Write([]byte(wrappedCmd + enter))
 	if err != nil {
 		return nil, fmt.Errorf("falha ao enviar comando para sessão %s: %w", s.id, err)
 	}
-	logging.Warnf(ctx, "terminal.session", "[Terminal] Write OK: %d bytes escritos para sessão %s", nWritten, s.id)
+	logging.Debugf(ctx, "terminal.session", "[Terminal] Write OK: %d bytes escritos para sessão %s", nWritten, s.id)
 
 	// Aguarda o end marker aparecer no output (com timeout)
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -523,7 +523,7 @@ func (s *Session) Interrupt() error {
 	if err != nil {
 		return fmt.Errorf("falha ao enviar Ctrl+C para sessão %s: %w", s.id, err)
 	}
-	logging.Errorf(context.Background(), "terminal.session", "[Terminal] Ctrl+C enviado para sessão %s", s.id)
+	logging.Infof(context.Background(), "terminal.session", "[Terminal] Ctrl+C enviado para sessão %s", s.id)
 	return nil
 }
 

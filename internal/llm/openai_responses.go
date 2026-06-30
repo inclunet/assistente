@@ -421,9 +421,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			}
 
 		case "response.mcp_list_tools.in_progress":
-			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP listing tools (server-side)")
+			logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP listing tools (server-side)")
 		case "response.mcp_list_tools.completed":
-			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing done (server-side)")
+			logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing done (server-side)")
 		case "response.mcp_list_tools.failed":
 			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing FAILED (server-side)")
 			ev := event.AsResponseMcpListToolsFailed()
@@ -446,7 +446,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			if string(ev.Response.Model) != "" {
 				lastModel = string(ev.Response.Model)
 			}
-			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Stream completed: %d events, response=%d bytes, toolCalls=%d, model=%s",
+			logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] Stream completed: %d events, response=%d bytes, toolCalls=%d, model=%s",
 				eventCount, fullResponse.Len(), len(finishedToolCalls), lastModel)
 
 		case "response.failed":

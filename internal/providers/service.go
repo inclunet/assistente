@@ -112,7 +112,7 @@ func (s *Service) Load(ctx context.Context) error {
 			inferred := p.GetAPIFormat()
 			p.APIFormat = inferred
 			needsSave = true
-			logging.Errorf(ctx, "providers.service", "[providers] api_format de '%s' materializado como %q", p.Name, inferred)
+			logging.Infof(ctx, "providers.service", "[providers] api_format de '%s' materializado como %q", p.Name, inferred)
 		}
 		if err := s.registry.Register(p); err != nil {
 			logging.Errorf(ctx, "providers.service", "[providers] Erro ao registrar provedor '%s': %v", p.ID, err)
@@ -144,7 +144,7 @@ func (s *Service) EnsureDefault(ctx context.Context) {
 	}
 
 	first := all[0]
-	logging.Errorf(ctx, "providers.service", "[providers] Nenhum provedor default — marcando '%s' como default", first.Name)
+	logging.Warnf(ctx, "providers.service", "[providers] Nenhum provedor default — marcando '%s' como default", first.Name)
 
 	if err := s.store.SetDefault(ctx, first.ID); err != nil {
 		logging.Errorf(ctx, "providers.service", "[providers] Erro ao definir default: %v", err)

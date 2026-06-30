@@ -132,7 +132,7 @@ func (s *Scheduler) Stop() {
 	s.entries = make(map[string][]cron.EntryID)
 
 	s.started = false
-	logging.Errorf(context.Background(), "jobs.scheduler", "[Jobs] Scheduler stopped")
+	logging.Infof(context.Background(), "jobs.scheduler", "[Jobs] Scheduler stopped")
 }
 
 // Reschedule atualiza os triggers de um job (remove e re-adiciona).
@@ -157,7 +157,7 @@ func (s *Scheduler) scheduleCron(job *Job, t Trigger) error {
 	}
 
 	s.entries[job.ID] = append(s.entries[job.ID], entryID)
-	logging.Errorf(context.Background(), "jobs.scheduler", "[Jobs] Scheduled cron for %s: %s", job.ID, t.Expression)
+	logging.Infof(context.Background(), "jobs.scheduler", "[Jobs] Scheduled cron for %s: %s", job.ID, t.Expression)
 	return nil
 }
 

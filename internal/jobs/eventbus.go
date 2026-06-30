@@ -125,7 +125,7 @@ func (eb *EventBus) Publish(ctx context.Context, eventName string, payload map[s
 		}
 	}
 
-	logging.Errorf(ctx, "jobs.eventbus", "[EventBus] Event %q published to %d listener(s)", eventName, len(handlers))
+	logging.Debugf(ctx, "jobs.eventbus", "[EventBus] Event %q published to %d listener(s)", eventName, len(handlers))
 
 	for _, h := range handlers {
 		go func(nh namedHandler) {

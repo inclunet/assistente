@@ -102,7 +102,7 @@ func (s *Server) rateLimit(limiter *rateLimiter, op string, next http.HandlerFun
 		key := clientIP(r)
 		if !limiter.allow(key) {
 			w.Header().Set("Retry-After", "1")
-			logging.Errorf(context.Background(), "httpapi.middleware", "[httpapi] rate-limit excedido op=%s ip=%s", op, key)
+			logging.Warnf(r.Context(), "httpapi.middleware", "[httpapi] rate-limit excedido op=%s ip=%s", op, key)
 			http.Error(w, "too many requests", http.StatusTooManyRequests)
 			return
 		}

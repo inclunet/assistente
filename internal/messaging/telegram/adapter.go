@@ -61,7 +61,7 @@ func (t *TelegramAdapter) Connect(ctx context.Context) error {
 	t.status = messaging.StatusConnected
 	t.mu.Unlock()
 
-	logging.Errorf(ctx, "messaging.telegram.adapter", "[Telegram] Conectado como @%s", bot.Self.UserName)
+	logging.Infof(ctx, "messaging.telegram.adapter", "[Telegram] Conectado como @%s", bot.Self.UserName)
 
 	// Inicia o loop de long polling em goroutine
 	go t.pollLoop()

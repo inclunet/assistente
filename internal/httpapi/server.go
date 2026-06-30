@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"assistente/internal/logging"
-	"context"
 	"encoding/json"
 	"errors"
 	"net"
@@ -239,7 +238,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	// estruturado para alertas / dashboards: o token JWT continua
 	// válido até expirar, então a falha é importante para investigação.
 	if err := session.Logout(r.Context(), req.RefreshToken); err != nil {
-		logging.Errorf(context.Background(), "httpapi.server", "[httpapi] op=auth.logout status=revoke_failed err=%v", err)
+		logging.Errorf(r.Context(), "httpapi.server", "[httpapi] op=auth.logout status=revoke_failed err=%v", err)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
