@@ -15,18 +15,17 @@ describe('errorHandler', () => {
       severity: ErrorSeverity.RECOVERABLE,
     });
 
-    expect(announceSpy).toHaveBeenCalledWith('Falha', 'polite');
+    expect(announceSpy).toHaveBeenCalledWith('Falha', 'assertive');
   });
 
-  it('respeita override de prioridade assertive', () => {
+  it('anuncia erro de usuário com prioridade polite', () => {
     handleError(new Error('x'), {
       source: 'test',
-      userMessage: 'Falha crítica',
-      severity: ErrorSeverity.RECOVERABLE,
-      announcePriority: 'assertive',
+      userMessage: 'Entrada inválida',
+      severity: ErrorSeverity.USER,
     });
 
-    expect(announceSpy).toHaveBeenCalledWith('Falha crítica', 'assertive');
+    expect(announceSpy).toHaveBeenCalledWith('Entrada inválida', 'polite');
   });
 
   it('wrap com erro', async () => {

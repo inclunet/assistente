@@ -498,7 +498,6 @@ describe('ChatSessionView', () => {
     expect(handleErrorMock).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({
       userMessage: 'Falha ao enviar',
       severity: 'recoverable',
-      announcePriority: 'assertive',
     }));
 
     onSend.mockResolvedValueOnce(undefined);

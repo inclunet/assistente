@@ -786,7 +786,6 @@ function ChatSessionViewContent({
         source: 'ChatSessionView.handleSendMessage',
         userMessage: ErrorMessages.CHAT.SEND_FAILED,
         severity: ErrorSeverity.RECOVERABLE,
-        announcePriority: 'assertive',
         onRetry: () => handleRetry(),
       });
     }
@@ -807,7 +806,6 @@ function ChatSessionViewContent({
         source: 'ChatSessionView.handleRetry',
         userMessage: ErrorMessages.CHAT.SEND_FAILED,
         severity: ErrorSeverity.RECOVERABLE,
-        announcePriority: 'assertive',
       });
     }
   };
