@@ -45,6 +45,8 @@ type fakeTaskListManager struct {
 func newTaskListTestDB(t testing.TB, userID string) (*gorm.DB, context.Context) {
 	t.Helper()
 
+	// database.SetDB swaps process-global state, so callers must not use this helper
+	// from tests that run with t.Parallel().
 	previous := database.DB()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
