@@ -308,7 +308,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
           origin,
           eventType: 'completion',
         });
-        streamingAnnouncementStates.delete(message.id);
       }
       window.setTimeout(() => {
         const latestState = streamingAnnouncementStates.get(message.id);

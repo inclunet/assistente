@@ -375,6 +375,61 @@ describe('ChatMessage', () => {
     });
   });
 
+  it('anuncia conclusão final quando texto chega após conclusão agêntica genérica', () => {
+    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const streamingMessage = new chat.EnrichedMessage({
+      id: 'assistant-empty-then-final-1',
+      conversationId,
+      role: 'assistant',
+      content: '',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+    const completedToolOnlyMessage = new chat.EnrichedMessage({
+      ...streamingMessage,
+      isStreaming: false,
+      turnSegments: [
+        {
+          type: 'tool_calls',
+          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+        },
+      ],
+    });
+    const finalMessage = new chat.EnrichedMessage({
+      ...streamingMessage,
+      isStreaming: false,
+      content: 'Resposta final após ferramentas.',
+    });
+
+    const { rerender } = render(
+      <ChatMessage
+        message={streamingMessage}
+        origin={origin}
+        completedSegments={[
+          {
+            type: 'tool_calls',
+            toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+          },
+        ]}
+      />
+    );
+    rerender(<ChatMessage message={completedToolOnlyMessage} origin={origin} />);
+    expect(announceRequestMock).toHaveBeenLastCalledWith({
+      message: 'chat.progressLabel',
+      origin,
+      eventType: 'completion',
+    });
+
+    rerender(<ChatMessage message={finalMessage} origin={origin} />);
+    expect(announceRequestMock).toHaveBeenLastCalledWith({
+      message: 'Resposta final após ferramentas.',
+      origin,
+      eventType: 'completion',
+    });
+  });
+
   it('adia renderizacao de markdown grande ate entrar na area visivel', async () => {
     let observerCallback: IntersectionObserverCallback | null = null;
     class MockIntersectionObserver {
