@@ -257,34 +257,37 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   useEffect(() => {
     if (role !== 'assistant') return;
 
-    const announcementState = getStreamingAnnouncementState(message.id);
     const text = conclusionContent.trim();
     if (effectiveIsStreaming) {
+      const announcementState = getStreamingAnnouncementState(message.id);
       announcementState.wasStreaming = true;
       announcementState.emptyCompletionAnnounced = false;
-      const message = text || (isAgenticStreaming ? t('chat.progressLabel') : '');
-      if (!message) return;
+      const progressMessage = text || (isAgenticStreaming ? t('chat.progressLabel') : '');
+      if (!progressMessage) return;
 
       const previous = announcementState.previous;
       const originKey = getStreamingAnnouncementOriginKey(origin);
       const sameOrigin = announcementState.previousOriginKey === originKey;
-      const replacedProgressMessage = previous !== '' && !message.startsWith(previous);
-      const progressedEnough = message.length - previous.length >= 80;
-      const reachedSentenceBoundary = /[.!?…]\s*$/.test(message);
-      if (previous === message && sameOrigin) return;
+      const replacedProgressMessage = previous !== '' && !progressMessage.startsWith(previous);
+      const progressedEnough = progressMessage.length - previous.length >= 80;
+      const reachedSentenceBoundary = /[.!?…]\s*$/.test(progressMessage);
+      if (previous === progressMessage && sameOrigin) return;
       if (sameOrigin && previous && !replacedProgressMessage && !progressedEnough && !reachedSentenceBoundary) return;
 
       const didAnnounce = announceRequest({
-        message,
+        message: progressMessage,
         origin,
         eventType: 'progress',
       });
       if (didAnnounce) {
-        announcementState.previous = message;
+        announcementState.previous = progressMessage;
         announcementState.previousOriginKey = originKey;
       }
       return;
     }
+
+    const announcementState = streamingAnnouncementStates.get(message.id);
+    if (!announcementState) return;
 
     if (!announcementState.wasStreaming) {
       if (!text) announcementState.previous = '';
