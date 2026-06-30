@@ -40,6 +40,7 @@ const chatStoreState = {
   sendMessageToConversation: sendMessageMock,
   ensureConversationSurfaceSession: vi.fn(),
   removeConversationSurfaceSession: vi.fn(),
+  clearConversationSendFailure: vi.fn(),
   sessionsByConversationId: {
     [conversationId]: {
       conversation: activeConversation,
