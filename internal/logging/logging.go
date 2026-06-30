@@ -91,7 +91,11 @@ func Logf(ctx context.Context, level slog.Level, component string, format string
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	Logger(ctx, component).Log(ctx, level, normalizeLegacyMessage(fmt.Sprintf(format, args...)))
+	logger := Logger(ctx, component)
+	if !logger.Enabled(ctx, level) {
+		return
+	}
+	logger.Log(ctx, level, normalizeLegacyMessage(fmt.Sprintf(format, args...)))
 }
 
 // Printf is the migration bridge for legacy formatted log call sites.
@@ -142,10 +146,25 @@ func normalizeLegacyMessage(message string) string {
 		if end <= 0 || end > 48 {
 			break
 		}
+		if !isLegacyComponentPrefix(message[1:end]) {
+			break
+		}
 		message = strings.TrimSpace(message[end+1:])
 	}
 	message = strings.TrimLeftFunc(message, func(r rune) bool {
 		return unicode.IsSymbol(r) || r == ':' || r == '-' || unicode.IsSpace(r)
 	})
 	return strings.TrimSpace(message)
+}
+
+func isLegacyComponentPrefix(prefix string) bool {
+	if strings.ContainsAny(prefix, " \t") {
+		return false
+	}
+	for _, r := range prefix {
+		if unicode.IsLower(r) {
+			return true
+		}
+	}
+	return false
 }

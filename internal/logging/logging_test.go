@@ -61,6 +61,40 @@ func TestNormalizeLegacyMessageRemovesPrefixAndSymbols(t *testing.T) {
 	}
 }
 
+func TestNormalizeLegacyMessagePreservesDiagnosticTags(t *testing.T) {
+	cases := map[string]string{
+		"[MCP-DEGRADE] attempt=1":            "[MCP-DEGRADE] attempt=1",
+		"[MCP Native] event persisted":       "[MCP Native] event persisted",
+		"🔴 [PANIC RECOVERED] handler failed": "[PANIC RECOVERED] handler failed",
+	}
+
+	for input, want := range cases {
+		if got := normalizeLegacyMessage(input); got != want {
+			t.Fatalf("normalizeLegacyMessage(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestLogfSkipsFormattingWhenLevelDisabled(t *testing.T) {
+	defaultLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(discardWriter{}, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer slog.SetDefault(defaultLogger)
+
+	Debugf(context.Background(), "logging.test", "disabled %s", panicStringer{})
+}
+
+type panicStringer struct{}
+
+func (panicStringer) String() string {
+	panic("disabled log should not format arguments")
+}
+
+type discardWriter struct{}
+
+func (discardWriter) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
 func attrsByKey(attrs []slog.Attr) map[string]any {
 	out := make(map[string]any, len(attrs))
 	for _, attr := range attrs {
