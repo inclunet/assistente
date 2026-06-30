@@ -226,7 +226,7 @@ Exceção explícita: segredos de instância sem owner, como `credential_entries
 **Mudanças de constraints**:
 - `llm_providers`: qualquer chave/índice único baseado no identificador do provider deixa de ser global e passa a ser escopado por usuário, por exemplo `(user_id, id)`/`(user_id, slug)`, para permitir providers com o mesmo identificador em contas diferentes.
 - `credential_entries`: unique muda de `(pattern)` para `(user_id, pattern)` para credenciais de usuário.
-- `credential_entries`: segredos de instância continuam sem owner (`user_id` nulo), com unique separado por `pattern` apenas para prefixes internos como `internal-auth:*` e `internal-tls:*`.
+- `credential_entries`: segredos de instância continuam sem owner (`user_id` nulo), mas **não** dependem do unique composto `(user_id, pattern)`, pois SQLite permite múltiplos `NULL`. Eles usam índice único parcial próprio em `pattern` (`WHERE user_id IS NULL`) para prefixes internos como `internal-auth:*` e `internal-tls:*`; writes devem usar conflict target parcial equivalente ou lookup/update transacional.
 
 ---
 
