@@ -264,6 +264,8 @@ Exceção explícita: segredos de instância sem owner ficam fora de `credential
    - `Refresh(refresh_token) -> (access_jwt, refresh_token_rotated)` (rotate always)
    - `Logout(refresh_token)` (revoga)
 9. Implementar assinatura de JWT com Ed25519 e publicação de JWKS (`/.well-known/jwks.json`).
+   - A chave de assinatura é segredo de instância persistido em `instance_secrets` como `internal-auth:jwt-signing-key`, criptografado pela DEK global.
+   - Instalações novas criam esse segredo durante o setup de auth; upgrades movem qualquer chave interna legada antes do backfill user-scoped.
 
 ### Fase 3 — Scoping por `user_id`
 
@@ -378,9 +380,13 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
               │    - llm_providers           │
               │    - conversations           │
               │    - credential_entries      │
-              │    - instance_secrets        │
               │    - task_lists              │
               └──────────────────────────────┘
+                   ▲
+                   │ antes do backfill:
+                   │ mover internal-auth:* e
+                   │ internal-tls:* para
+                   │ instance_secrets
 ```
 
 ---
