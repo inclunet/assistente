@@ -32,13 +32,17 @@ func (a *App) runPostLoginLegacyImports(ctx context.Context) {
 	}
 	for _, entry := range summary.Entries {
 		for _, warning := range entry.Warnings {
-			logging.Errorf(ctx, "app.app-legacy-imports", "[LegacyImport] %s: %s", entry.Name, warning)
+			logging.Warnf(ctx, "app.app-legacy-imports", "[LegacyImport] %s: %s", entry.Name, warning)
 		}
 		for _, itemErr := range entry.Errors {
 			logging.Errorf(ctx, "app.app-legacy-imports", "[LegacyImport] %s: %s", entry.Name, itemErr)
 		}
 		if entry.Imported > 0 || entry.Skipped > 0 || entry.Failed > 0 {
-			logging.Errorf(ctx, "app.app-legacy-imports", "[LegacyImport] %s: %d importados, %d já existentes, %d falhas", entry.Name, entry.Imported, entry.Skipped, entry.Failed)
+			if entry.Failed > 0 {
+				logging.Warnf(ctx, "app.app-legacy-imports", "[LegacyImport] %s: %d importados, %d já existentes, %d falhas", entry.Name, entry.Imported, entry.Skipped, entry.Failed)
+			} else {
+				logging.Infof(ctx, "app.app-legacy-imports", "[LegacyImport] %s: %d importados, %d já existentes, %d falhas", entry.Name, entry.Imported, entry.Skipped, entry.Failed)
+			}
 		}
 	}
 	if a.emitter != nil && a.shouldEmitLegacyImportSummary(summary) {

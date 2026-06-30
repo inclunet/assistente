@@ -501,7 +501,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		if err != nil {
 			logging.Errorf(ctx, "app.app", "[Subagent] erro ao reconciliar runs órfãos: %v", err)
 		} else if n > 0 {
-			logging.Errorf(ctx, "app.app", "[Subagent] %d run(s) órfão(s) de sub-agente reconciliado(s) como failed", n)
+			logging.Infof(ctx, "app.app", "[Subagent] %d run(s) órfão(s) de sub-agente reconciliado(s) como failed", n)
 		}
 	}()
 

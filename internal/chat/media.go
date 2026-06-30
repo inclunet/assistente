@@ -195,12 +195,12 @@ func (l *MediaHistoryLoader) convertAudioPart(ctx context.Context, data, mediaTy
 	// Formato não suportado: tenta transcrever com Whisper
 	if l.Transcribe != nil {
 		filename := WhisperFilename(audioFmt)
-		logging.Errorf(context.Background(), "chat.media", "[Media] Tentando transcrever áudio %s via Whisper (filename=%s)", audioFmt, filename)
+		logging.Infof(ctx, "chat.media", "[Media] Tentando transcrever áudio %s via Whisper (filename=%s)", audioFmt, filename)
 		text, err := l.Transcribe(ctx, data, filename)
 		if err != nil {
-			logging.Errorf(context.Background(), "chat.media", "[Media] Erro ao transcrever %s via Whisper: %v", audioFmt, err)
+			logging.Errorf(ctx, "chat.media", "[Media] Erro ao transcrever %s via Whisper: %v", audioFmt, err)
 		} else if text != "" {
-			logging.Infof(context.Background(), "chat.media", "[Media] Áudio %s transcrito via Whisper ao carregar histórico: %s", audioFmt, truncate(text, 100))
+			logging.Infof(ctx, "chat.media", "[Media] Áudio %s transcrito via Whisper ao carregar histórico: %s", audioFmt, truncate(text, 100))
 			return []interface{}{map[string]interface{}{
 				"type": "text",
 				"text": text,
@@ -209,7 +209,7 @@ func (l *MediaHistoryLoader) convertAudioPart(ctx context.Context, data, mediaTy
 	}
 
 	// NUNCA enviar formato não suportado como input_audio — placeholder textual
-	logging.Infof(context.Background(), "chat.media", "[Media] Áudio %s não transcrito — adicionando placeholder textual", audioFmt)
+	logging.Infof(ctx, "chat.media", "[Media] Áudio %s não transcrito — adicionando placeholder textual", audioFmt)
 	return []interface{}{map[string]interface{}{
 		"type": "text",
 		"text": fmt.Sprintf("[Mensagem de áudio recebida (%s) — não foi possível transcrever]", audioFmt),
