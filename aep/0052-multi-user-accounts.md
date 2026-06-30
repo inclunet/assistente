@@ -272,6 +272,7 @@ Exceção explícita: segredos de instância usam `credential_entries` com `user
 12. Migração/backfill para instalações existentes:
    - criar/associar o admin local antes do backfill;
    - normalizar segredos internos `internal-auth:*` e `internal-tls:*` para `credential_entries.user_id = ''`;
+   - antes de atribuir credenciais ao admin, resolver conflitos em que já exista `(user_id = admin, pattern)` para o mesmo `pattern`: manter a entrada do admin e remover/mesclar a órfã `user_id = ''` em uma transação idempotente;
    - atribuir o `user_id` do admin aos demais `credential_entries` legados;
    - preencher `user_id` dos demais recursos legados antes de expor repositories user-scoped.
 13. Atualizar repositories/queries para enforcement central de `user_id` e ativar uso user-scoped de `credential_entries`.
