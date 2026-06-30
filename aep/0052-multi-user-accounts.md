@@ -178,6 +178,8 @@ Recursos em filesystem (profiles, skills, MCP) permanecem fora de escopo nesta A
 
 Todas as queries de recursos devem filtrar por `user_id`, implementado via helper/middleware no repository layer.
 
+Exceção explícita: segredos de instância sem owner, como `credential_entries` com prefixes `internal-auth:*` e `internal-tls:*`, não passam pelo helper user-scoped. Eles devem ser acessados somente por serviços internos do servidor, nunca por endpoints de recurso do usuário.
+
 ---
 
 ## Tabelas
@@ -324,45 +326,14 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
 
 ## Fluxo de Auto-Login
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    App Startup                           │
-└─────────────────────┬───────────────────────────────────┘
-                      │
-                      ▼
-        ┌────────────────────┐
-        │ VaultLocked? (DEK) │
-        └─────────┬──────────┘
-      │
-   ┌──────────────┴──────────────┐
-   │ Sim                         │ Não
-   ▼                             ▼
-┌──────────────────────┐      ┌───────────────────────┐
-│ Tela/fluxo de cofre   │      │ Admin local existe?   │
-│ (/vault/setup/unlock) │      └─────────┬─────────────┘
-└──────────┬───────────┘                │
-     │                         ┌────────┴────────┐
-     ▼                         │ Sim             │ Não
-   (Cofre destravado)          ▼                 ▼
-                     ┌───────────────────────┐  ┌──────────────────┐
-                     │ Refresh token existe? │  │ Criar admin local │
-                     └─────────┬─────────────┘  │ (wizard)          │
-                               │                └──────────────────┘
-                     ┌─────────┴─────────┐
-                     │ Sim               │ Não
-                     ▼                   ▼
-              ┌───────────────────┐  ┌──────────────────┐
-              │ /auth/refresh OK? │  │ Login Screen      │
-              └─────────┬─────────┘  │ (username + senha)│
-                        │            └──────────────────┘
-              ┌─────────┴─────────┐
-              │ Sim               │ Não
-              ▼                   ▼
-       ┌───────────────┐   ┌──────────────────┐
-       │ Auto-login     │   │ Login Screen      │
-       │ (sem prompts)  │   │ (username + senha)│
-       └───────────────┘   └──────────────────┘
-```
+1. Se o servidor estiver em `VaultLocked`, abrir somente o fluxo de cofre (`/vault/setup` no primeiro uso ou `/vault/unlock` em instalação existente). Após setup/unlock bem-sucedido, voltar ao passo 2.
+2. Verificar se existe usuário admin local.
+   - Se não existir, abrir diretamente a etapa **Criar Admin Local** do wizard, sem recriar cofre nem recovery key.
+   - Se existir, continuar para sessão/login.
+3. Se houver refresh token, chamar `/auth/refresh`.
+   - Se refresh funcionar, fazer auto-login sem prompts.
+   - Se refresh falhar, ir para Login Screen.
+4. Se não houver refresh token, ir para Login Screen.
 
 ---
 
