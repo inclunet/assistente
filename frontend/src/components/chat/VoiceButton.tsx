@@ -28,6 +28,8 @@ type TriggerConfig = profiles.TriggerConfig;
 // Tipos de modo de interação
 type InteractionMode = 'ptt' | 'toggle' | 'vad' | 'wakeword';
 
+const STT_INTERIM_ANNOUNCE_DELAY_MS = 500;
+
 export interface VoiceButtonProps {
   /** Callback quando transcrição é finalizada */
   onTranscription: (text: string) => void;
@@ -51,6 +53,8 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const { announceRequest } = useAnnouncer();
   const announceRequestRef = useRef(announceRequest);
+  const interimAnnounceTimeoutRef = useRef<number | null>(null);
+  const lastAnnouncedInterimRef = useRef('');
 
   // Cascata de perfil: tab.profileOverride.slug → workspace.profile → null (global)
   const workspace = useWorkspaceStore((s) => s.workspace);
@@ -147,12 +151,34 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   }, [voiceOrigin]);
 
   useEffect(() => {
-    if (!interimText.trim()) return;
-    announceRequestRef.current({
-      message: interimText,
-      origin: voiceOriginRef.current,
-      eventType: 'progress',
-    });
+    const message = interimText.trim();
+    if (interimAnnounceTimeoutRef.current !== null) {
+      window.clearTimeout(interimAnnounceTimeoutRef.current);
+      interimAnnounceTimeoutRef.current = null;
+    }
+
+    if (!message) {
+      lastAnnouncedInterimRef.current = '';
+      return;
+    }
+
+    interimAnnounceTimeoutRef.current = window.setTimeout(() => {
+      interimAnnounceTimeoutRef.current = null;
+      if (lastAnnouncedInterimRef.current === message) return;
+      lastAnnouncedInterimRef.current = message;
+      announceRequestRef.current({
+        message,
+        origin: voiceOriginRef.current,
+        eventType: 'progress',
+      });
+    }, STT_INTERIM_ANNOUNCE_DELAY_MS);
+
+    return () => {
+      if (interimAnnounceTimeoutRef.current !== null) {
+        window.clearTimeout(interimAnnounceTimeoutRef.current);
+        interimAnnounceTimeoutRef.current = null;
+      }
+    };
   }, [interimText]);
 
   const startInteractionWithGate = useCallback((): boolean => {

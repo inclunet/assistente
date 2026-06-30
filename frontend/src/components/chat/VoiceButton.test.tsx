@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { VoiceButton } from './VoiceButton';
 import { WorkspacePanelProvider } from '../workspace/WorkspacePanelContext';
 
@@ -78,6 +78,10 @@ describe('VoiceButton', () => {
     finishSTTSessionSpy.mockClear();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('aciona toggle no clique', () => {
     renderVoiceButton();
 
@@ -113,12 +117,19 @@ describe('VoiceButton', () => {
     expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('envia texto interim para o announcer global sem live region local', () => {
+  it('debounceia texto interim no announcer global sem live region local', () => {
+    vi.useFakeTimers();
     interimText = 'texto parcial';
 
     renderVoiceButton();
 
     expect(screen.getByText('texto parcial')).not.toHaveAttribute('aria-live');
+    expect(announceRequestSpy).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
     expect(announceRequestSpy).toHaveBeenCalledWith({
       message: 'texto parcial',
       origin: {
