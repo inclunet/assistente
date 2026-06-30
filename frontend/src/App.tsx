@@ -1,5 +1,5 @@
 import { logger } from './utils/logger';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { RespondQuestionnaire, NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/app/App";
@@ -38,6 +38,24 @@ function useAntdLocale(lang: string): Locale | undefined {
     return locale;
 }
 
+type LegacyImportSummaryEvent = {
+    userId?: string;
+    imported?: number;
+    skipped?: number;
+    failed?: number;
+    warningCount?: number;
+    errorCount?: number;
+};
+
+function getCurrentAuthSnapshot() {
+    const auth = useAuthStore.getState();
+    return {
+        isAuthenticated: auth.isAuthenticated,
+        isLoading: auth.isLoading,
+        userId: auth.user?.userId,
+    };
+}
+
 function App() {
     const { theme } = useTheme();
     const { t, i18n } = useTranslation();
@@ -45,6 +63,7 @@ function App() {
     const antLocale = useAntdLocale(i18n.language);
     const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
     const authUser = useAuthStore((s) => s.user);
+    const authLoading = useAuthStore((s) => s.isLoading);
     const addToast = useUIStore((s) => s.addToast);
     const handleConversationDeleted = useChatStore((s) => s.handleConversationDeleted);
     const handleConversationCleared = useChatStore((s) => s.handleConversationCleared);
@@ -53,6 +72,7 @@ function App() {
     const handleExternalIncoming = useChatStore((s) => s.handleExternalIncoming);
     const wasQuestionnaireOpenRef = useRef(false);
     const lastFocusedElementRef = useRef<HTMLElement | null>(null);
+    const pendingLegacyImportSummaryRef = useRef<LegacyImportSummaryEvent | null>(null);
 
     // Estado do dialog de questionário (tool: collect_responses e aprovações)
     const [questionnaireOpen, setQuestionnaireOpen] = useState(false);
@@ -70,6 +90,35 @@ function App() {
     // Aviso não-bloqueante de runtime parcialmente inicializado pós-login
     // (issue #250): toast + announce com ação "Tentar novamente".
     usePartialRuntimeInitListener();
+
+    const showLegacyImportSummary = useCallback((eventData: LegacyImportSummaryEvent) => {
+        const currentUserId = getCurrentAuthSnapshot().userId;
+        if (eventData.userId && currentUserId && eventData.userId !== currentUserId) return;
+
+        const imported = eventData.imported ?? 0;
+        const skipped = eventData.skipped ?? 0;
+        const failed = eventData.failed ?? 0;
+        const warnings = eventData.warningCount ?? 0;
+        const errors = eventData.errorCount ?? 0;
+        if (imported === 0 && skipped === 0 && failed === 0 && warnings === 0 && errors === 0) return;
+
+        const toastType = failed > 0 || errors > 0 ? 'error' : warnings > 0 ? 'warning' : 'success';
+        addToast(t('app.legacyImport.summary', { imported, skipped, failed, warnings }), toastType, 10000);
+    }, [addToast, t]);
+
+    useEffect(() => {
+        if (!isAuthenticated || !authUser || !pendingLegacyImportSummaryRef.current) return;
+
+        const pending = pendingLegacyImportSummaryRef.current;
+        pendingLegacyImportSummaryRef.current = null;
+        showLegacyImportSummary(pending);
+    }, [authUser, isAuthenticated, showLegacyImportSummary]);
+
+    useEffect(() => {
+        if (!isAuthenticated && !authLoading) {
+            pendingLegacyImportSummaryRef.current = null;
+        }
+    }, [authLoading, isAuthenticated]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -167,10 +216,22 @@ function App() {
             addToast(t('app.summary.error', { error: eventData.error || '' }), 'error');
         }));
 
+        unsubs.push(EventsOn('legacy:import_summary', (data: unknown) => {
+            const eventData = data as LegacyImportSummaryEvent;
+            const authSnapshot = getCurrentAuthSnapshot();
+            if (!authSnapshot.isAuthenticated || !authSnapshot.userId) {
+                if (authSnapshot.isLoading) {
+                    pendingLegacyImportSummaryRef.current = eventData;
+                }
+                return;
+            }
+            showLegacyImportSummary(eventData);
+        }));
+
         return () => {
             unsubs.forEach(fn => fn());
         };
-    }, [handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, navigate]);
+    }, [addToast, handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, navigate, showLegacyImportSummary, t]);
 
     // Listener para mensagens de canais externos (Signal, Telegram).
     // Quando messaging:incoming chega, delega ao chatStore que monta placeholders

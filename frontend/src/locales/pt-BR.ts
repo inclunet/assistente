@@ -3264,6 +3264,9 @@ const ptBR = {
         completed: 'Resumo da conversa atualizado ({{count}} mensagens resumidas)',
         error: 'Erro ao sumarizar conversa: {{error}}',
       },
+      legacyImport: {
+        summary: 'Importação legada: {{imported}} importados, {{skipped}} já existentes, {{failed}} falhas, {{warnings}} avisos.',
+      },
       questionnaire: {
         submitError: 'Erro ao enviar questionário',
       },
