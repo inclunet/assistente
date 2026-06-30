@@ -257,14 +257,22 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   }, [ref]);
 
   useEffect(() => {
-    if (isLoading && previousLoadingAnnouncementRef.current !== effectiveLoadingText) {
+    const loadingAnnouncementKey = [
+      effectiveLoadingText,
+      origin?.surfaceType ?? '',
+      origin?.surfaceId ?? '',
+      origin?.sessionKey ?? '',
+      origin?.tabId ?? '',
+      origin?.conversationId ?? '',
+    ].join('|');
+    if (isLoading && previousLoadingAnnouncementRef.current !== loadingAnnouncementKey) {
       const didAnnounce = announceRequest({
         message: effectiveLoadingText,
         origin,
         eventType: 'progress',
       });
       if (didAnnounce) {
-        previousLoadingAnnouncementRef.current = effectiveLoadingText;
+        previousLoadingAnnouncementRef.current = loadingAnnouncementKey;
       }
       return;
     }

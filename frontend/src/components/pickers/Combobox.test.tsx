@@ -164,7 +164,7 @@ describe('Combobox - allowFreeInput', () => {
     await user.type(screen.getByRole('combobox'), 'sem-match');
 
     expect(screen.getByText('pickers.combobox.noResults')).toBeInTheDocument();
-    expect(announceMock).toHaveBeenCalledWith('pickers.combobox.noResults', 'assertive');
+    expect(announceMock).toHaveBeenCalledWith('pickers.combobox.noResults', 'polite');
   });
 
   it('fecha dropdown ao pressionar Escape', async () => {

@@ -96,6 +96,28 @@ describe('MessageList', () => {
     expect(announceRequestMock).toHaveBeenCalledTimes(2);
   });
 
+  it('reanuncia loading quando a origem muda', () => {
+    const node = createNode();
+    const origin = { conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001', surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const { rerender } = render(
+      <MessageList
+        threadedMessages={[node]}
+        isLoading
+        origin={origin}
+      />
+    );
+
+    rerender(
+      <MessageList
+        threadedMessages={[node]}
+        isLoading
+        origin={{ ...origin, surfaceId: 'workspace-panel', surfaceType: 'page' as const }}
+      />
+    );
+
+    expect(announceRequestMock).toHaveBeenCalledTimes(2);
+  });
+
   it('anuncia mudança de texto enquanto loading continua ativo', () => {
     const node = createNode();
     const { rerender } = render(

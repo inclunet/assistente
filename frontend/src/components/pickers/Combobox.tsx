@@ -77,12 +77,12 @@ export const Combobox = ({
                 : t('pickers.combobox.noResults')
         : '';
 
-    const announceMessage = useCallback((msg: string) => {
+    const announceMessage = useCallback((msg: string, priority: 'polite' | 'assertive' = 'assertive') => {
         if (onAnnounce) {
             onAnnounce(msg);
             return;
         }
-        announceGlobally(msg, 'assertive');
+        announceGlobally(msg, priority);
     }, [announceGlobally, onAnnounce]);
 
     const announceHighlight = useCallback((index: number, list: ComboboxItem[]) => {
@@ -156,7 +156,7 @@ export const Combobox = ({
         }
         if (emptyResultsMessage === previousEmptyResultsAnnouncementRef.current) return;
 
-        announceMessage(emptyResultsMessage);
+        announceMessage(emptyResultsMessage, 'polite');
         previousEmptyResultsAnnouncementRef.current = emptyResultsMessage;
     }, [announceMessage, emptyResultsMessage, isOpen]);
 
