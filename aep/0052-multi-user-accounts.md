@@ -2,8 +2,8 @@
 
 **Status**: 📝 Draft  
 **Criado em**: 2026-04-21  
-**Precede**: AEP-0046 (UUIDv7 Migration)  
-**Relacionado**: AEP-0014 (Credential Persistence), AEP-0022 (Welcome Wizard), AEP-0026 (Credential Fixes), AEP-0047 (Import/Export)
+**Depende de**: AEP-0046 (UUIDv7 Migration), AEP-0047 (Import/Export)  
+**Relacionado**: AEP-0014 (Credential Persistence), AEP-0022 (Welcome Wizard), AEP-0026 (Credential Fixes)
 
 ---
 
@@ -37,9 +37,9 @@ Sem `user_id`, todos os recursos (conversas, providers, credenciais) são globai
 
 O sistema de credenciais já usa uma DEK (Data Encryption Key) global. Nesta AEP, a DEK permanece **global por instância** (cofre de infraestrutura). O isolamento entre usuários é **lógico** (via `user_id` nas tabelas e enforcement em queries/handlers), não criptográfico por usuário.
 
-### 4. Pré-requisito para migrações DB
+### 4. Complemento para migrações DB multi-user
 
-As AEPs 0046-0051 migram recursos para banco de dados. Ter `user_id` disponível antes dessas migrações evita retrabalho (adicionar coluna depois + backfill).
+As AEPs 0046 e 0047 estabelecem IDs estáveis e contratos portáveis. Esta AEP complementa essa base com identidade local e `user_id`, para que as migrações DB seguintes já nasçam com ownership explícito.
 
 ---
 
@@ -178,7 +178,7 @@ Recursos em filesystem (profiles, skills, MCP) permanecem fora de escopo nesta A
 
 Todas as queries de recursos devem filtrar por `user_id`, implementado via helper/middleware no repository layer.
 
-Exceção explícita: segredos de instância sem owner, como `credential_entries` com prefixes `internal-auth:*` e `internal-tls:*`, não passam pelo helper user-scoped. Eles devem ser acessados somente por serviços internos do servidor, nunca por endpoints de recurso do usuário.
+Exceção explícita: segredos de instância sem owner ficam fora de `credential_entries` user-scoped e são armazenados em `instance_secrets`. Eles devem ser acessados somente por serviços internos do servidor, nunca por endpoints de recurso do usuário.
 
 ---
 
@@ -214,6 +214,15 @@ Exceção explícita: segredos de instância sem owner, como `credential_entries
 | `revoked_at` | DATETIME | | Revogação (logout/reuse) |
 | `client_label` | TEXT | | Identificador amigável (opcional) |
 
+### `instance_secrets` (nova, segredos do servidor)
+
+| Coluna | Tipo | Constraints | Notas |
+|--------|------|-------------|-------|
+| `pattern` | TEXT | PK/UNIQUE | Prefixes internos como `internal-auth:*` e `internal-tls:*` |
+| `encrypted_value` | BLOB | NOT NULL | Criptografado com a DEK global |
+| `created_at` | DATETIME | | |
+| `updated_at` | DATETIME | | |
+
 ### Alterações em tabelas existentes
 
 | Tabela | Coluna adicionada | Tipo | Constraints |
@@ -226,7 +235,7 @@ Exceção explícita: segredos de instância sem owner, como `credential_entries
 **Mudanças de constraints**:
 - `llm_providers`: qualquer chave/índice único baseado no identificador do provider deixa de ser global e passa a ser escopado por usuário, por exemplo `(user_id, id)`/`(user_id, slug)`, para permitir providers com o mesmo identificador em contas diferentes.
 - `credential_entries`: unique muda de `(pattern)` para `(user_id, pattern)` para credenciais de usuário.
-- `credential_entries`: segredos de instância continuam sem owner (`user_id` nulo), mas **não** dependem do unique composto `(user_id, pattern)`, pois SQLite permite múltiplos `NULL`. Eles usam índice único parcial próprio em `pattern` (`WHERE user_id IS NULL`) para prefixes internos como `internal-auth:*` e `internal-tls:*`; writes devem usar conflict target parcial equivalente ou lookup/update transacional.
+- Segredos de instância não usam `credential_entries` nem o UPSERT `(user_id, pattern)`; usam `instance_secrets.pattern` como chave única simples.
 
 ---
 
@@ -262,9 +271,9 @@ Exceção explícita: segredos de instância sem owner, como `credential_entries
 11. Atualizar repositories/queries para enforcement central de `user_id`.
 12. Migração/backfill para instalações existentes:
    - criar/associar o admin local antes do backfill;
+   - mover segredos internos `internal-auth:*` e `internal-tls:*` para `instance_secrets`;
    - deduplicar `credential_entries` legadas por `pattern` antes de criar o unique `(user_id, pattern)`;
-   - manter `credential_entries` com prefixes `internal-auth:*` e `internal-tls:*` sem `user_id`, pois são segredos de instância;
-   - criar índices únicos user-scoped somente após deduplicação e exclusão dos segredos internos.
+   - criar índices únicos user-scoped somente após deduplicação e migração dos segredos internos.
 
 ### Fase 4 — HTTP API local + TLS
 
@@ -369,7 +378,7 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
               │    - llm_providers           │
               │    - conversations           │
               │    - credential_entries      │
-              │      (exceto internos)       │
+              │    - instance_secrets        │
               │    - task_lists              │
               └──────────────────────────────┘
 ```
@@ -464,8 +473,8 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
 
 | AEP | Relação |
 |-----|---------|
-| **0047** (Import/Export) | Relacionada. Export/import de recursos deverá considerar `user_id` em evolução própria, sem bloquear esta AEP |
-| **0046** (UUIDv7) | Sucede esta. `users.id` já usa UUIDv7; demais tabelas migram depois |
+| **0046** (UUIDv7) | Precede esta. IDs estáveis já são base do schema multi-user |
+| **0047** (Import/Export) | Precede esta. Export/import segue como contrato DB-only e evolui depois para recursos com `user_id` |
 | **0048** (Jobs DB) | Sucede esta. Tabela `jobs` terá `user_id` desde o início |
 | **0049** (MCP DB) | Sucede esta. Tabela `mcp_servers` terá `user_id` desde o início |
 | **0050** (Profiles DB) | Sucede esta. Tabela `profiles` terá `user_id` desde o início |
@@ -476,9 +485,11 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
 ### Ordem de implementação atualizada
 
 ```
-AEP-0052 (Multi-User — esta)
-    ↓
 AEP-0046 (UUIDv7)
+    ↓
+AEP-0047 (Import/Export)
+    ↓
+AEP-0052 (Multi-User — esta)
     ↓
 AEP-0048 (Jobs DB)      ─┐
 AEP-0049 (MCP DB)        │ (paralelo)
