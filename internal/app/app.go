@@ -114,6 +114,9 @@ type App struct {
 	userRuntimeCtx    context.Context
 	userRuntimeCancel context.CancelFunc
 
+	legacyImportSummaryMu            sync.Mutex
+	legacyImportSkippedSummaryUserID string
+
 	// Monitor de status de conexão com a API LLM (health check periódico).
 	connMu      sync.Mutex
 	connMonitor *connstatus.Monitor
