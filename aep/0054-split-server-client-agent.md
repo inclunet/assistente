@@ -113,10 +113,12 @@ Cada tool é classificada em runtime:
 
 ### Fase 0 — Contratos (documentação + interfaces)
 - Definir endpoints mínimos da Resource API e do streaming.
+- O streaming de chat deve reutilizar o envelope tipado da AEP-0040: todo evento carrega `conversationId` obrigatório e preserva filtragem por conversa/aba.
 - Definir envelope e correlação do Tool RPC.
 
 ### Fase 1 — All-in-one local API-first
 - Subir servidor HTTP local no desktop e fazer o frontend consumir chat via HTTP.
+- Validar que HTTP/WS/SSE não cria fluxo alternativo de mensagens nem remove `conversationId` dos eventos de chat.
 - Manter bridge Wails apenas para bootstrap mínimo (descobrir `baseURL`, etc.).
 
 ### Fase 2 — Agent Local + delegação de tools
