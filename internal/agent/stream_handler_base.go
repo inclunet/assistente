@@ -101,12 +101,13 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 	if !h.isThinking {
 		h.isThinking = true
 		h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
-			ConversationID: h.ConversationID,
-			TurnID:         h.TurnID,
-			Content:        content,
-			Done:           false,
-			Started:        true,
-			SurfaceOrigin:  h.SurfaceOrigin,
+			ConversationID:     h.ConversationID,
+			TurnID:             h.TurnID,
+			AssistantMessageID: h.AssistantMessageID,
+			Content:            content,
+			Done:               false,
+			Started:            true,
+			SurfaceOrigin:      h.SurfaceOrigin,
 		})
 	}
 
@@ -143,11 +144,12 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 
 func (h *BaseStreamHandler) emitThinkingEvent() {
 	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
-		ConversationID: h.ConversationID,
-		TurnID:         h.TurnID,
-		Content:        h.accumulatedReasoning,
-		Done:           false,
-		SurfaceOrigin:  h.SurfaceOrigin,
+		ConversationID:     h.ConversationID,
+		TurnID:             h.TurnID,
+		AssistantMessageID: h.AssistantMessageID,
+		Content:            h.accumulatedReasoning,
+		Done:               false,
+		SurfaceOrigin:      h.SurfaceOrigin,
 	})
 }
 
@@ -162,11 +164,12 @@ func (h *BaseStreamHandler) OnThinkingDone(fullReasoning string) {
 	h.mu.Unlock()
 
 	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
-		ConversationID: h.ConversationID,
-		TurnID:         h.TurnID,
-		Content:        fullReasoning,
-		Done:           true,
-		SurfaceOrigin:  h.SurfaceOrigin,
+		ConversationID:     h.ConversationID,
+		TurnID:             h.TurnID,
+		AssistantMessageID: h.AssistantMessageID,
+		Content:            fullReasoning,
+		Done:               true,
+		SurfaceOrigin:      h.SurfaceOrigin,
 	})
 }
 
@@ -188,11 +191,12 @@ func (h *BaseStreamHandler) FinishThinkingIfActive() {
 	h.mu.Unlock()
 
 	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
-		ConversationID: h.ConversationID,
-		TurnID:         h.TurnID,
-		Content:        reasoning,
-		Done:           true,
-		SurfaceOrigin:  h.SurfaceOrigin,
+		ConversationID:     h.ConversationID,
+		TurnID:             h.TurnID,
+		AssistantMessageID: h.AssistantMessageID,
+		Content:            reasoning,
+		Done:               true,
+		SurfaceOrigin:      h.SurfaceOrigin,
 	})
 }
 

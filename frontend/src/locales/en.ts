@@ -165,6 +165,8 @@ const en = {
         tabCannotSend: 'The active tab does not support sending messages.',
         chatTabNotReady: 'The chat tab conversation is not ready yet.',
         cancelStreamingFailed: 'Could not cancel generation: {{message}}',
+        assistantPlaceholder: 'Could not prepare the assistant message.',
+        internalError: 'Unexpected internal error. Please try again.',
       },
       stopReading: 'Stop reading',
       stopReadingLabel: 'Stop text reading',

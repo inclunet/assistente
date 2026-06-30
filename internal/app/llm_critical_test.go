@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"assistente/internal/chat"
+	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/messaging"
@@ -248,8 +249,8 @@ func TestRecoverFromPanic_EmitsStreamEventWithError(t *testing.T) {
 	if !ev.Done {
 		t.Error("StreamEvent.Done deveria ser true")
 	}
-	if ev.Error == "" {
-		t.Error("StreamEvent.Error não deveria ser vazio")
+	if ev.Error != ports.ChatErrorInternal {
+		t.Errorf("esperava código de erro interno, obteve %q", ev.Error)
 	}
 	if ev.ConversationId != "42" {
 		t.Errorf("esperava ConversationId=42, obteve %s", ev.ConversationId)

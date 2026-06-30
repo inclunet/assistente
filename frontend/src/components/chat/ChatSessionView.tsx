@@ -159,6 +159,7 @@ function ChatSessionViewContent({
   } = controller;
 
   const cancelStreaming = useChatStore((state) => state.cancelStreaming);
+  const clearConversationSendFailure = useChatStore((state) => state.clearConversationSendFailure);
 
   const handleCancelStreaming = useCallback(async () => {
     const targetConversationId = conversation?.id ?? conversationId;
@@ -345,6 +346,20 @@ function ChatSessionViewContent({
 
   const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [dismissedSessionSendError, setDismissedSessionSendError] = useState<string | null>(null);
+  const sessionSendFailureMessage = session?.sendFailureMessage ?? null;
+  const sessionSendFailureRetryable = session?.sendFailureRetryable ?? false;
+  const sessionSendFailureRetry = sessionSendFailureRetryable
+    && (session?.sendFailureRetryContent !== null || (session?.sendFailureRetryMediaFiles.length ?? 0) > 0)
+    ? { content: session?.sendFailureRetryContent ?? '', media: session?.sendFailureRetryMediaFiles ?? [] }
+    : null;
+  const effectiveSendError = sendError ?? (
+    sessionSendFailureMessage && sessionSendFailureMessage !== dismissedSessionSendError
+      ? sessionSendFailureMessage
+      : null
+  );
+  const effectiveFailedMessage = lastFailedMessage ?? (sessionSendFailureRetryable ? sessionSendFailureRetry : null);
+  const canRetryEffectiveSendError = !!effectiveFailedMessage && (!!sendError || sessionSendFailureRetryable);
 
   const wsTabs = useWorkspaceStore((state) => state.workspace?.tabs);
 
@@ -677,10 +692,10 @@ function ChatSessionViewContent({
   }, [announce, conversationId, t]);
 
   useEffect(() => {
-    if (sendError && retryButtonRef.current) {
+    if (effectiveSendError && retryButtonRef.current) {
       retryButtonRef.current.focus();
     }
-  }, [sendError]);
+  }, [effectiveSendError]);
 
   useEffect(() => {
     const windowState = session?.messageWindow;
@@ -724,21 +739,25 @@ function ChatSessionViewContent({
       // Com um modal aberto, o Escape fecha o modal; não descarta o banner de
       // erro na UI de fundo.
       if (isModalOpen()) return;
-      if (e.key === 'Escape' && sendError) {
+      if (e.key === 'Escape' && effectiveSendError) {
         setSendError(null);
         setLastFailedMessage(null);
+        setDismissedSessionSendError(sessionSendFailureMessage);
+        if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
         announce(t('chat.announce.errorDismissed'));
       }
     };
 
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [isInteractiveSurface, sendError, announce, t]);
+  }, [isInteractiveSurface, effectiveSendError, sessionSendFailureMessage, conversationId, origin.sessionKey, clearConversationSendFailure, announce, t]);
 
   const handleSendMessage = async (content: string, mediaFiles?: MediaFile[]) => {
     try {
       setSendError(null);
       setLastFailedMessage(null);
+      setDismissedSessionSendError(null);
+      if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
       await controller.sendMessage(content, mediaFiles);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -756,11 +775,13 @@ function ChatSessionViewContent({
   };
 
   const handleRetry = async () => {
-    if (!lastFailedMessage) return;
+    if (!effectiveFailedMessage) return;
 
     try {
       setSendError(null);
-      await controller.sendMessage(lastFailedMessage.content, lastFailedMessage.media);
+      setDismissedSessionSendError(null);
+      if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
+      await controller.sendMessage(effectiveFailedMessage.content, effectiveFailedMessage.media);
       setLastFailedMessage(null);
     } catch (error) {
       handleError(error, {
@@ -902,14 +923,14 @@ function ChatSessionViewContent({
           onSendToEditor={sendToEditor}
         />
 
-        {sendError && lastFailedMessage && (
+        {effectiveSendError && (
           <Alert
             role="alert"
             type="error"
             showIcon
             closable
-            message={sendError}
-            action={
+            message={effectiveSendError}
+            action={canRetryEffectiveSendError ? (
               <Button
                 ref={retryButtonRef}
                 size="small"
@@ -919,10 +940,12 @@ function ChatSessionViewContent({
               >
                 {t('chat.retry')}
               </Button>
-            }
+            ) : undefined}
             onClose={() => {
               setSendError(null);
               setLastFailedMessage(null);
+              setDismissedSessionSendError(sessionSendFailureMessage);
+              if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
             }}
             style={{ flexShrink: 0 }}
           />

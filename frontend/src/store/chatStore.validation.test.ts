@@ -172,6 +172,10 @@ describe('chatStore validation', () => {
           isLoadingOlderMessages: false,
           isLoadingMessageWindow: false,
           streamingMessageId: null,
+          sendFailureMessage: null,
+          sendFailureRetryable: false,
+          sendFailureRetryContent: null,
+          sendFailureRetryMediaFiles: [],
           lastInterruptedMessageId: null,
           streamingReasoning: null,
           isThinking: false,
@@ -284,6 +288,10 @@ describe('chatStore validation', () => {
       isLoadingOlderMessages: false,
       isLoadingMessageWindow: false,
       streamingMessageId: null,
+      sendFailureMessage: null,
+      sendFailureRetryable: false,
+      sendFailureRetryContent: null,
+      sendFailureRetryMediaFiles: [],
       lastInterruptedMessageId: null,
       streamingReasoning: null,
       isThinking: false,
@@ -1828,11 +1836,7 @@ describe('chatStore validation', () => {
     expect(mockSendMessage).toHaveBeenCalledTimes(2);
 
     const syntheticIds = ids.filter((id) => id.startsWith('streaming-01926b90-7a5a-7c4e-8d3f-000000000001-'));
-    expect(syntheticIds.length).toBeLessThanOrEqual(1);
-    const firstAssistantError = syntheticIds.length > 0
-      ? threaded.find((node) => String(node.message.id) === syntheticIds[0])
-      : undefined;
-    expect(firstAssistantError?.message.isStreaming ?? false).toBe(false);
+    expect(syntheticIds).toEqual([]);
     const finalAssistant = threaded.find((node) => String(node.message.id) === '01926b90-7a5a-7c4e-8d3f-000000014546');
     expect(finalAssistant?.message.role).toBe('assistant');
     expect(finalAssistant?.message.isStreaming).toBe(false);
@@ -1931,6 +1935,7 @@ describe('chatStore validation', () => {
       });
       emitEvent('chat:stream', {
         conversationId: defaultConversationId,
+        messageId: 'surface-assistant-message',
         content: 'resposta parcial',
         done: false,
       });

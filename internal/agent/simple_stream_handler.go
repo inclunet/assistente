@@ -36,8 +36,7 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 		return nil, err
 	}
 	if err != nil {
-		// Best-effort: streaming ainda funciona, mas sem messageId estável.
-		assistantMsgID = ""
+		return nil, err
 	}
 	return &SimpleStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{

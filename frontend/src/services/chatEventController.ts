@@ -3,12 +3,13 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import i18next from 'i18next';
 import { chat } from '../../wailsjs/go/models';
 import type { ToolCallStatus } from '../types/chat';
+import type { MediaFile } from './mediaService';
 import { announce } from '../hooks/useAnnouncer';
 import {
   finalizeStreamingNode,
   flattenThreadedMessages,
   hasMessageId,
-  migrateStreamingNodeId,
+  markMessageStreamingInTree,
   type ChatTreeConversation,
   type Message,
   type MessageNode,
@@ -28,6 +29,16 @@ import { INITIAL_MESSAGE_WINDOW_SIZE } from './messageWindowLimits';
 import type { ChatSurfaceOrigin, MessageWindowState } from './chatSessionRegistry';
 
 const STREAM_UPDATE_DEBOUNCE_MS = 16;
+
+const translateBackendChatError = (message: string) => {
+  if (message === 'assistant_placeholder_error') {
+    return i18next.t('chat.errors.assistantPlaceholder');
+  }
+  if (message === 'internal_error') {
+    return i18next.t('chat.errors.internalError');
+  }
+  return message;
+};
 
 interface ChatMessagesReadyEvent {
   conversationId: string;
@@ -49,6 +60,7 @@ interface ChatStreamEvent {
 
 interface ChatThinkingEvent {
   conversationId: string;
+  assistantMessageId?: string;
   started?: boolean;
   done?: boolean;
   content?: string;
@@ -58,6 +70,7 @@ interface ChatThinkingEvent {
 
 interface ChatToolStartEvent {
   conversationId: string;
+  assistantMessageId?: string;
   name: string;
   callId: string;
   args?: string;
@@ -67,6 +80,7 @@ interface ChatToolStartEvent {
 
 interface ChatToolEndEvent {
   conversationId: string;
+  assistantMessageId?: string;
   callId: string;
   name?: string;
   status?: string;
@@ -78,6 +92,7 @@ interface ChatToolEndEvent {
 
 interface ChatToolFailureEvent {
   conversationId: string;
+  assistantMessageId?: string;
   name: string;
   callId: string;
   willRetry?: boolean;
@@ -87,6 +102,7 @@ interface ChatToolFailureEvent {
 
 interface ChatSegmentDoneEvent {
   conversationId: string;
+  assistantMessageId?: string;
   hasMore?: boolean;
   content?: string;
   turnId?: string;
@@ -111,6 +127,10 @@ export interface ChatEventSession {
   conversation: ChatTreeConversation | null;
   activeToolCalls: ToolCallStatus[];
   completedSegments: TurnSegment[];
+  sendFailureMessage?: string | null;
+  sendFailureRetryable?: boolean;
+  sendFailureRetryContent?: string | null;
+  sendFailureRetryMediaFiles?: MediaFile[];
   messageWindow?: MessageWindowState;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
@@ -130,6 +150,7 @@ export interface ChatEventControllerAdapter {
 interface ChatEventControllerOptions {
   conversationId: string;
   initialUserContent?: string;
+  initialMediaFiles?: MediaFile[];
   external?: {
     channel: string;
     from: string;
@@ -148,12 +169,6 @@ export interface ChatEventControllerHandle {
 const activeControllers = new Map<string, () => void>();
 const streamUpdateTimers = new Map<string, NodeJS.Timeout>();
 const pendingStreamUpdates = new Map<string, { messageId: string; content: string }>();
-let streamingMessageSeq = 0;
-
-const createStreamingMessageId = (conversationId: string): string => {
-  streamingMessageSeq += 1;
-  return `streaming-${conversationId}-${streamingMessageSeq}`;
-};
 
 const debouncedUpdateMessage = (
   messageId: string,
@@ -212,13 +227,13 @@ export function stopAllChatEventControllers() {
 export function startChatEventController({
   conversationId,
   initialUserContent = '',
+  initialMediaFiles,
   external,
   origin,
   adapter,
 }: ChatEventControllerOptions): ChatEventControllerHandle {
   const conversationIdStr = conversationId.toString();
-  const streamingMsgId = createStreamingMessageId(conversationId);
-  let currentAssistantNodeId = streamingMsgId;
+  let currentAssistantNodeId: string | null = null;
   let cleanupExecuted = false;
   let streamingAnnounced = false;
   let assistantNodeCreated = false;
@@ -233,7 +248,15 @@ export function startChatEventController({
   };
 
   adapter.setConversationLoading(conversationId, true, origin?.sessionKey);
-  patchCurrentSession({ completedSegments: [], activeToolCalls: [], isLoading: true });
+  patchCurrentSession({
+    completedSegments: [],
+    activeToolCalls: [],
+    isLoading: true,
+    sendFailureMessage: null,
+    sendFailureRetryable: false,
+    sendFailureRetryContent: null,
+    sendFailureRetryMediaFiles: [],
+  });
 
   const noop = () => { /* no-op */ };
   let unsubMessagesReady = noop;
@@ -250,11 +273,31 @@ export function startChatEventController({
   const isActive = () => activeControllers.has(conversationIdStr);
   const getEventOrigin = (event: { surfaceOrigin?: ChatSurfaceOrigin }) => event.surfaceOrigin ?? origin;
 
-  const ensureAssistantNode = () => {
-    if (assistantNodeCreated) return;
+  const ensureAssistantNode = (messageId?: string | null) => {
+    const backendMessageId = messageId && messageId !== '' ? messageId : null;
+    if (!backendMessageId) return false;
+    const session = getCurrentSession();
+    if (!session.conversation) return false;
+    currentAssistantNodeId = backendMessageId;
+    if (assistantNodeCreated) return true;
+    if (hasMessageId(session.conversation.threadedMessages, backendMessageId)) {
+      assistantNodeCreated = true;
+      adapter.patchConversation(
+        conversationId,
+        (conversation) => ({
+          ...conversation,
+          threadedMessages: markMessageStreamingInTree(conversation.threadedMessages, backendMessageId, currentTurnId),
+        }),
+      );
+      patchCurrentSession({
+        streamingMessageId: backendMessageId,
+        lastInterruptedMessageId: null,
+      });
+      return true;
+    }
     assistantNodeCreated = true;
     const assistantMsg = new chat.EnrichedMessage({
-      id: streamingMsgId,
+      id: backendMessageId,
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
@@ -265,17 +308,16 @@ export function startChatEventController({
       createdAt: new Date().toISOString(),
     }) as Message;
     const assistantNode = new chat.MessageNode({ message: assistantMsg, children: [], level: 0, childCount: 0 });
-    const session = getCurrentSession();
-    if (!session.conversation) return;
     patchCurrentSession({
       conversation: {
         ...session.conversation,
         threadedMessages: [...session.conversation.threadedMessages, assistantNode as MessageNode],
       },
       appendVisibleMessages: true,
-      streamingMessageId: streamingMsgId,
+      streamingMessageId: backendMessageId,
       lastInterruptedMessageId: null,
     });
+    return true;
   };
 
   const cleanup = () => {
@@ -291,8 +333,7 @@ export function startChatEventController({
     unsubDone();
     unsubError();
     unsubSpeak();
-    discardPendingUpdate(streamingMsgId);
-    if (currentAssistantNodeId !== streamingMsgId) {
+    if (currentAssistantNodeId) {
       discardPendingUpdate(currentAssistantNodeId);
     }
     activeControllers.delete(conversationIdStr);
@@ -309,17 +350,24 @@ export function startChatEventController({
   };
 
   const finalizeStreaming = (finalId?: string | null, finalTurnId: string | null = currentTurnId) => {
+    if (finalId && !currentAssistantNodeId) {
+      ensureAssistantNode(finalId);
+    }
+    if (!currentAssistantNodeId) return;
+    const assistantNodeId = currentAssistantNodeId;
     adapter.patchConversation(
       conversationId,
-      (conversation) => finalizeStreamingNode(conversation, currentAssistantNodeId, finalId, finalTurnId),
+      (conversation) => finalizeStreamingNode(conversation, assistantNodeId, finalId, finalTurnId),
     );
   };
 
   const updateStreamingMessage = (content: string) => {
+    if (!currentAssistantNodeId) return;
     adapter.updateMessage(conversationId, currentAssistantNodeId, content);
   };
 
   const getCurrentAssistantContent = () => {
+    if (!currentAssistantNodeId) return '';
     const messages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
     return String(messages.find(m => m.id === currentAssistantNodeId)?.content || '');
   };
@@ -330,6 +378,7 @@ export function startChatEventController({
   };
 
   const flushStreamingUpdate = () => {
+    if (!currentAssistantNodeId) return;
     flushPendingUpdate(currentAssistantNodeId, (_messageId, nextContent) => updateStreamingMessage(nextContent));
   };
 
@@ -411,39 +460,31 @@ export function startChatEventController({
 
     if (event.content && !event.done && !event.error) {
       currentTurnId = event.turnId || currentTurnId;
-      ensureAssistantNode();
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
-      if (backendAssistantId) {
-        flushStreamingUpdate();
-        adapter.patchConversation(
-          conversationId,
-          (conversation) => migrateStreamingNodeId(conversation, currentAssistantNodeId, backendAssistantId, event.turnId || currentTurnId),
-        );
-        currentAssistantNodeId = backendAssistantId;
-        patchCurrentSession({ streamingMessageId: backendAssistantId });
-      }
+      if (!ensureAssistantNode(backendAssistantId) && !currentAssistantNodeId) return;
+      const assistantNodeId = currentAssistantNodeId;
+      if (!assistantNodeId) return;
       if (!streamingAnnounced) {
         streamingAnnounced = true;
         announceForActiveChatConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite', getEventOrigin(event));
       }
-      debouncedUpdateMessage(currentAssistantNodeId, event.content, (_messageId, nextContent) => updateStreamingMessage(nextContent));
+      debouncedUpdateMessage(assistantNodeId, event.content, (_messageId, nextContent) => updateStreamingMessage(nextContent));
     }
 
     if (event.error) {
       currentTurnId = event.turnId || currentTurnId;
-      ensureAssistantNode();
+      const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
+      const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       flushStreamingUpdate();
-      announce(String(event.error || '').trim(), 'assertive');
+      const errorMessage = translateBackendChatError(String(event.error || '').trim());
+      announce(errorMessage, 'assertive');
       playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
-      updateEmptyAssistantWithError(String(event.error || '').trim());
-      const interruptedId = event.messageId && event.messageId !== '' ? event.messageId : streamingMsgId;
-      if (interruptedId !== streamingMsgId && interruptedId !== currentAssistantNodeId) {
-        adapter.patchConversation(
-          conversationId,
-          (conversation) => migrateStreamingNodeId(conversation, currentAssistantNodeId, interruptedId, event.turnId || currentTurnId),
-        );
-        currentAssistantNodeId = interruptedId;
+      if (hasAssistantNode) {
+        updateEmptyAssistantWithError(errorMessage);
+      } else {
+        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureRetryable: false });
       }
+      const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming();
       cleanup();
@@ -451,10 +492,10 @@ export function startChatEventController({
 
     if (event.done) {
       currentTurnId = event.turnId || currentTurnId;
-      ensureAssistantNode();
+      const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
+      ensureAssistantNode(backendAssistantId);
       flushStreamingUpdate();
       if (event.content) updateStreamingMessage(event.content);
-      const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
 
       const flatMessages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
@@ -467,7 +508,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
-    ensureAssistantNode();
+    ensureAssistantNode(event.assistantMessageId);
     if (event.started) {
       patchCurrentSession({
         isThinking: true,
@@ -476,7 +517,7 @@ export function startChatEventController({
       announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite', getEventOrigin(event));
     } else if (event.done) {
       patchCurrentSession({ isThinking: false });
-      if (event.content) adapter.updateReasoning(conversationId, currentAssistantNodeId, event.content);
+      if (event.content && currentAssistantNodeId) adapter.updateReasoning(conversationId, currentAssistantNodeId, event.content);
     } else {
       patchCurrentSession({ streamingReasoning: event.content || '' });
     }
@@ -486,7 +527,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
-    ensureAssistantNode();
+    ensureAssistantNode(event.assistantMessageId);
     const session = getCurrentSession();
     const existing = session.activeToolCalls.findIndex((tc) => tc.callId === event.callId);
     patchCurrentSession({
@@ -507,6 +548,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    ensureAssistantNode(event.assistantMessageId);
     const session = getCurrentSession();
     patchCurrentSession({
       activeToolCalls: session.activeToolCalls.map((tc) =>
@@ -529,6 +571,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    ensureAssistantNode(event.assistantMessageId);
     if (event.willRetry) {
       announceForActiveChatConversation(conversationId, i18next.t('chat.toolRetrying', { name: event.name }), 'polite', getEventOrigin(event));
       return;
@@ -541,6 +584,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    ensureAssistantNode(event.assistantMessageId);
     if (!event.hasMore) return;
 
     const session = getCurrentSession();
@@ -573,7 +617,7 @@ export function startChatEventController({
       activeToolCalls: [],
     });
     flushStreamingUpdate();
-    updateStreamingMessage('');
+    if (currentAssistantNodeId) updateStreamingMessage('');
   });
 
   unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
@@ -582,14 +626,20 @@ export function startChatEventController({
     currentTurnId = event.turnId || currentTurnId;
 
     if (event.errorMessage) {
-      ensureAssistantNode();
+      const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
+      const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       flushStreamingUpdate();
-      announce(String(event.errorMessage || '').trim(), 'assertive');
+      const errorMessage = translateBackendChatError(String(event.errorMessage || '').trim());
+      announce(errorMessage, 'assertive');
       playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
-      updateEmptyAssistantWithError(String(event.errorMessage || '').trim());
-      const interruptedId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : streamingMsgId;
+      if (hasAssistantNode) {
+        updateEmptyAssistantWithError(errorMessage);
+      } else {
+        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureRetryable: false });
+      }
+      const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
-      finalizeStreaming(event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null, currentTurnId);
+      finalizeStreaming(backendAssistantId, currentTurnId);
       cleanup();
       return;
     }
@@ -664,13 +714,19 @@ export function startChatEventController({
     handleSendFailure: (message: string) => {
       if (cleanupExecuted) return;
       logger.error('[Chat] Error sending message:', message);
-      cleanup();
-      ensureAssistantNode();
-      updateStreamingMessage(i18next.t('chat.sendErrorPrefix', { message }));
       playChatErrorSoundIfActive(conversationId, origin);
-      finalizeStreaming();
+      const sendFailureMessage = i18next.t('chat.sendErrorPrefix', { message });
+      announce(sendFailureMessage, 'assertive');
+      cleanup();
       adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
-      patchCurrentSession({ isLoading: false, streamingMessageId: null });
+      patchCurrentSession({
+        isLoading: false,
+        streamingMessageId: null,
+        sendFailureMessage,
+        sendFailureRetryable: true,
+        sendFailureRetryContent: initialUserContent || null,
+        sendFailureRetryMediaFiles: initialMediaFiles ?? [],
+      });
     },
   };
 }

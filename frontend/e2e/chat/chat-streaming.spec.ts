@@ -54,6 +54,7 @@ test.describe('Chat — streaming multi-segmento', () => {
     // Tool call dentro do stream (conversationId obrigatório para filtro backend-driven)
     await wails.emit('chat:tool_start', {
       conversationId,
+      assistantMessageId: initialAssistantMessageId,
       name: 'search_web',
       callId: 'tc-seg-1',
       args: '{"query":"inteligência artificial"}',
@@ -64,6 +65,7 @@ test.describe('Chat — streaming multi-segmento', () => {
 
     await wails.emit('chat:tool_end', {
       conversationId,
+      assistantMessageId: initialAssistantMessageId,
       callId: 'tc-seg-1',
       name: 'search_web',
       status: 'success',
@@ -81,7 +83,11 @@ test.describe('Chat — streaming multi-segmento', () => {
       done: true,
     });
 
-    await wails.emit('chat:done', {});
+    await wails.emit('chat:done', {
+      conversationId,
+      assistantMessageId: initialAssistantMessageId,
+      hadToolCalls: true,
+    });
 
     // Após chat:done, o input deve estar habilitado
     await page.waitForFunction(() => {
@@ -109,7 +115,11 @@ test.describe('Chat — streaming multi-segmento', () => {
       content: 'Resposta completa.',
       done: true,
     });
-    await wails.emit('chat:done', {});
+    await wails.emit('chat:done', {
+      conversationId,
+      assistantMessageId: initialAssistantMessageId,
+      hadToolCalls: false,
+    });
 
     // Aguarda o React processar (isLoading → false)
     await page.waitForFunction(() => {
@@ -143,7 +153,7 @@ test.describe('Chat — erro no envio', () => {
       );
     }, { timeout: 5_000 });
 
-    const errorMessage = page.locator('[role="alert"], .chat-message').filter({ hasText: /Network error/ });
+    const errorMessage = page.locator('[role="alert"]:not(.sr-only), .chat-message').filter({ hasText: /Network error/ });
     await expect(errorMessage).toBeVisible({ timeout: 5_000 });
   });
 
@@ -166,7 +176,7 @@ test.describe('Chat — erro no envio', () => {
     }, { timeout: 5_000 });
 
     // Aguarda o erro aparecer
-    await page.locator('[role="alert"], .chat-message').filter({ hasText: /Timeout/ }).waitFor({ timeout: 5_000 });
+    await page.locator('[role="alert"]:not(.sr-only), .chat-message').filter({ hasText: /Timeout/ }).waitFor({ timeout: 5_000 });
 
     // Input deve ser reabilitado (isLoading → false)
     await page.waitForFunction(() => {
@@ -198,7 +208,7 @@ test.describe('Chat — erro no envio', () => {
     }, { timeout: 5_000 });
 
     // A mensagem de erro deve conter o texto do erro
-    const errorMessage = page.locator('[role="alert"], .chat-message').filter({ hasText: 'Connection refused' });
+    const errorMessage = page.locator('[role="alert"]:not(.sr-only), .chat-message').filter({ hasText: 'Connection refused' });
     await expect(errorMessage).toBeVisible({ timeout: 5_000 });
   });
 
@@ -369,6 +379,7 @@ test.describe('Chat — thinking/reasoning', () => {
     // Simula início de thinking (conversationId obrigatório)
     await wails.emit('chat:thinking', {
       conversationId,
+      assistantMessageId: initialAssistantMessageId,
       started: true,
       content: 'Analisando a pergunta...',
     });
@@ -380,6 +391,7 @@ test.describe('Chat — thinking/reasoning', () => {
     // Finaliza thinking e inicia resposta
     await wails.emit('chat:thinking', {
       conversationId,
+      assistantMessageId: initialAssistantMessageId,
       done: true,
       content: 'Analisando a pergunta... Considerando diferentes perspectivas.',
     });
@@ -391,7 +403,11 @@ test.describe('Chat — thinking/reasoning', () => {
       done: true,
     });
 
-    await wails.emit('chat:done', {});
+    await wails.emit('chat:done', {
+      conversationId,
+      assistantMessageId: initialAssistantMessageId,
+      hadToolCalls: false,
+    });
 
     // A seção de raciocínio deve continuar visível (colapsável)
     await expect(reasoning).toBeVisible();

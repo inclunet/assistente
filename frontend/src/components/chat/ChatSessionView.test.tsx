@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MediaCategory, type MediaFile } from '../../services/mediaService';
 
 const updateMessageMock = vi.fn();
 const showMenuMock = vi.fn();
@@ -79,6 +80,7 @@ const chatStoreState = {
   setConversationDraftMessage: vi.fn(),
   setConversationDraftMediaFiles: vi.fn(),
   clearConversationDraft: vi.fn(),
+  clearConversationSendFailure: vi.fn(),
   setConversationEditingMessageId: vi.fn(),
   setConversationReadingMessageId: vi.fn(),
   toggleConversationThreadExpanded: vi.fn(),
@@ -289,9 +291,14 @@ describe('ChatSessionView', () => {
     chatStoreState.sessionsByConversationId[conversationId].conversation = activeConversation;
     chatStoreState.sessionsByConversationId[conversationId].hasOlderMessages = false;
     chatStoreState.sessionsByConversationId[conversationId].isLoadingOlderMessages = false;
+    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureMessage?: string | null; sendFailureRetryable?: boolean }).sendFailureMessage = null;
+    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryable?: boolean; sendFailureRetryContent?: string | null; sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryable = false;
+    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryContent?: string | null }).sendFailureRetryContent = null;
+    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryMediaFiles = [];
     (activeConversation.threadedMessages as unknown[]) = [];
     (announce as ReturnType<typeof vi.fn>).mockReset();
     chatStoreState.cancelStreaming.mockReset();
+    chatStoreState.clearConversationSendFailure.mockReset();
     chatStoreState.surfaceSessionsByKey = {};
     modalState.open = false;
     contextMenuState.visible = true;
@@ -492,6 +499,108 @@ describe('ChatSessionView', () => {
     await waitFor(() => {
       expect(onSend).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it('embedded: mostra banner de erro transitório da sessão sem retry local', async () => {
+    const chatSurface = surface({ surfaceType: 'embedded' });
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
+      sendFailureMessage: 'Falha ao enviar pela sessão',
+      sendFailureRetryable: false,
+      sendFailureRetryContent: null,
+      sendFailureRetryMediaFiles: [],
+    };
+    renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Falha ao enviar pela sessão');
+    expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
+  });
+
+  it('embedded: Escape descarta e limpa falha persistida da sessão', async () => {
+    const chatSurface = surface({ surfaceType: 'embedded' });
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
+      sendFailureMessage: 'Falha ao enviar pela sessão',
+      sendFailureRetryable: false,
+      sendFailureRetryContent: null,
+      sendFailureRetryMediaFiles: [],
+    };
+    renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Falha ao enviar pela sessão');
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(chatStoreState.clearConversationSendFailure).toHaveBeenCalledWith(conversationId, chatSurface.sessionKey);
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+  });
+
+  it('embedded: novo envio mostra falha de sessão repetida', async () => {
+    const user = userEvent.setup();
+    const chatSurface = surface({ surfaceType: 'embedded' });
+    const onSend = vi.fn().mockImplementation(async () => {
+      (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
+        ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
+        sendFailureMessage: 'Falha ao enviar pela sessão',
+        sendFailureRetryable: false,
+        sendFailureRetryContent: null,
+        sendFailureRetryMediaFiles: [],
+      };
+    });
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
+      sendFailureMessage: 'Falha ao enviar pela sessão',
+      sendFailureRetryable: false,
+      sendFailureRetryContent: null,
+      sendFailureRetryMediaFiles: [],
+    };
+    const { rerender } = renderWithPanel(
+      <ChatSessionView variant="embedded" surface={chatSurface} onSend={onSend} showShortcutsHelp={false} />,
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Falha ao enviar pela sessão');
+
+    await user.click(screen.getByRole('button', { name: 'send' }));
+    rerender(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView variant="embedded" surface={chatSurface} onSend={onSend} showShortcutsHelp={false} />
+      </WorkspacePanelProvider>,
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Falha ao enviar pela sessão');
+  });
+
+  it('embedded: permite retry de falha persistida com mídia sem texto', async () => {
+    const user = userEvent.setup();
+    const chatSurface = surface({ surfaceType: 'embedded' });
+    const mediaFile: MediaFile = {
+      id: 'media-1',
+      file: new File(['conteudo'], 'imagem.png', { type: 'image/png' }),
+      category: MediaCategory.IMAGE,
+      mimeType: 'image/png',
+      extension: 'png',
+      fileName: 'imagem.png',
+      fileSize: 8,
+      fileSizeFormatted: '8 B',
+      icon: 'image',
+    };
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
+      sendFailureMessage: 'Falha ao enviar mídia',
+      sendFailureRetryable: true,
+      sendFailureRetryContent: null,
+      sendFailureRetryMediaFiles: [mediaFile],
+    };
+    renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={onSend} showShortcutsHelp={false} />);
+
+    await user.click(await screen.findByRole('button', { name: 'chat.retryAriaLabel' }));
+
+    expect(onSend).toHaveBeenCalledWith('', [mediaFile], chatSurface);
+    expect(chatStoreState.clearConversationSendFailure).toHaveBeenCalledWith(conversationId, chatSurface.sessionKey);
   });
 
   it('embedded: mantém envio habilitado mesmo com isLoading global ativo', async () => {

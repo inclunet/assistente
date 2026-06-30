@@ -141,6 +141,10 @@ const createSession = (conversationId: string): TestSession => ({
   conversation: createConversation(conversationId),
   isLoading: false,
   streamingMessageId: null,
+  sendFailureMessage: null,
+  sendFailureRetryable: false,
+  sendFailureRetryContent: null,
+  sendFailureRetryMediaFiles: [],
   lastInterruptedMessageId: null,
   streamingReasoning: null,
   isThinking: false,
@@ -277,7 +281,7 @@ describe('chatEventController', () => {
     expect(mockPlayChatReceiveSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
 
-  it('reiniciar a mesma conversa cancela o controller anterior', () => {
+  it('reiniciar a mesma conversa cancela o controller anterior sem criar assistant local sem messageId', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', initialUserContent: 'primeira', adapter });
@@ -289,8 +293,7 @@ describe('chatEventController', () => {
       done: false,
     });
 
-    expect(sessions['conversation-1'].conversation?.threadedMessages).toHaveLength(1);
-    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.id).toContain('streaming-conversation-1');
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
   });
 
   it('processa messages_ready, stream e done atualizando a sessão correta', () => {
@@ -327,7 +330,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceChatBackgroundResponseDone).toHaveBeenCalledWith('conversation-1', 'Conversa conversation-1', undefined);
   });
 
-  it('em erro no chat:done preserva conteúdo parcial e marca interrupção', () => {
+  it('em erro no chat:done sem assistantMessageId não cria mensagem assistant local', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
@@ -345,20 +348,20 @@ describe('chatEventController', () => {
       turnId: 'user-1',
     });
 
-    const assistantNode = sessions['conversation-1'].conversation?.threadedMessages[1];
-    const streamingId = String(assistantNode?.message.id || '');
-
     emitEvent('chat:done', {
       conversationId: 'conversation-1',
       hadToolCalls: false,
-      errorMessage: 'boom',
+      errorMessage: 'assistant_placeholder_error',
       turnId: 'user-1',
     });
 
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[1].message.content).toBe('parcial');
-    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe(streamingId);
-    expect(mockAnnounce).toHaveBeenCalledWith('boom', 'assertive');
+    expect(messages).toHaveLength(1);
+    expect(messages[0].message.id).toBe('user-1');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBeNull();
+    expect(sessions['conversation-1'].sendFailureMessage).toBe('chat.errors.assistantPlaceholder');
+    expect(sessions['conversation-1'].sendFailureRetryable).toBe(false);
+    expect(mockAnnounce).toHaveBeenCalledWith('chat.errors.assistantPlaceholder', 'assertive');
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
 
@@ -436,15 +439,183 @@ describe('chatEventController', () => {
     });
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
-      error: 'boom stream',
+      error: 'internal_error',
       turnId: 'user-1',
       messageId: 'assistant-db-2',
     });
 
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[1].message.content).toBe('Erro: boom stream');
+    expect(messages[1].message.content).toBe('Erro: chat.errors.internalError');
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-2');
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
+  });
+
+  it('preenche erro de chat:stream no assistant já criado mesmo sem messageId terminal', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-existing',
+      name: 'buscar',
+      callId: 'call-1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      error: 'boom sem id terminal',
+      turnId: 'user-1',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[0].message.id).toBe('assistant-db-existing');
+    expect(messages[0].message.content).toBe('Erro: boom sem id terminal');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-existing');
+  });
+
+  it('preenche erro de chat:done no assistant já criado mesmo sem assistantMessageId terminal', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-existing',
+      started: true,
+    });
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      hadToolCalls: false,
+      errorMessage: 'done sem id terminal',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[0].message.id).toBe('assistant-db-existing');
+    expect(messages[0].message.content).toBe('Erro: done sem id terminal');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-existing');
+  });
+
+  it('mostra tool calls antes do primeiro chunk usando assistantMessageId persistido', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-tool',
+      name: 'buscar',
+      callId: 'call-1',
+      args: '{}',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages.map((node) => node.message.id)).toEqual(['assistant-db-tool']);
+    expect(sessions['conversation-1'].streamingMessageId).toBe('assistant-db-tool');
+    expect(sessions['conversation-1'].activeToolCalls[0]).toMatchObject({
+      name: 'buscar',
+      callId: 'call-1',
+      status: 'running',
+    });
+  });
+
+  it('atualiza chunk sem messageId quando assistant já veio de thinking', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-thinking',
+      started: true,
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      content: 'chunk sem id',
+      done: false,
+    });
+    vi.runOnlyPendingTimers();
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages.map((node) => node.message.id)).toEqual(['assistant-db-thinking']);
+    expect(messages[0].message.content).toBe('chunk sem id');
+  });
+
+  it('não bloqueia criação posterior quando a conversa ainda não está carregada', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    sessions['conversation-1'].conversation = null;
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-delayed',
+      name: 'buscar',
+      callId: 'call-1',
+    });
+
+    sessions['conversation-1'].conversation = createConversation('conversation-1');
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      messageId: 'assistant-db-delayed',
+      content: 'resposta após carregar',
+      done: false,
+    });
+    vi.runOnlyPendingTimers();
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages.map((node) => node.message.id)).toEqual(['assistant-db-delayed']);
+    expect(messages[0].message.content).toBe('resposta após carregar');
+  });
+
+  it('marca assistant existente como streaming ao reutilizar messageId persistido', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    sessions['conversation-1'].conversation = {
+      ...createConversation('conversation-1'),
+      threadedMessages: [createNode(createMessage('assistant-db-existing', 'assistant', ''))],
+    };
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      messageId: 'assistant-db-existing',
+      content: 'resposta em andamento',
+      done: false,
+    });
+    vi.runOnlyPendingTimers();
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[0].message.id).toBe('assistant-db-existing');
+    expect(messages[0].message.isStreaming).toBe(true);
+    expect(messages[0].message.content).toBe('resposta em andamento');
+  });
+
+  it('preserva reasoning final antes do primeiro chunk usando assistantMessageId persistido', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-thinking',
+      content: 'raciocínio final',
+      done: true,
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages.map((node) => node.message.id)).toEqual(['assistant-db-thinking']);
+    expect(messages[0].message.reasoning).toBe('raciocínio final');
   });
 
   it('toca som de erro em chat:error e chat:tool_failure final, respeitando arbitragem', () => {
@@ -490,13 +661,13 @@ describe('chatEventController', () => {
     emitEvent('chat:done', {
       conversationId: 'conversation-1',
       hadToolCalls: false,
-      errorMessage: 'boom done',
+      errorMessage: 'internal_error',
       turnId: 'user-1',
       assistantMessageId: 'assistant-db-3',
     });
 
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[1].message.content).toBe('Erro: boom done');
+    expect(messages[1].message.content).toBe('Erro: chat.errors.internalError');
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-3');
   });
 
@@ -516,6 +687,7 @@ describe('chatEventController', () => {
       conversationId: 'conversation-1',
       content: 'resposta',
       done: false,
+      messageId: 'assistant-1',
       surfaceOrigin,
     });
     emitEvent('chat:stream', {
@@ -598,7 +770,7 @@ describe('chatEventController', () => {
     });
   });
 
-  it('descarta update de streaming pendente ao limpar controller', () => {
+  it('ignora update de streaming sem messageId ao limpar controller', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
     const handle = startChatEventController({ conversationId: 'conversation-1', adapter });
@@ -611,8 +783,7 @@ describe('chatEventController', () => {
     handle.cleanup();
     vi.runOnlyPendingTimers();
 
-    const assistantMessage = sessions['conversation-1'].conversation?.threadedMessages[0]?.message;
-    expect(assistantMessage?.content).toBe('');
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
   });
 
   it('entrada externa anuncia origem e usa a sessão por conversationId', () => {

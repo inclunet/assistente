@@ -106,6 +106,11 @@ func (s *Service) StreamSimpleWithRecovery(
 		if errors.Is(err, chat.ErrConversationGone) {
 			return
 		}
+		if err != nil {
+			log.Printf("[Chat] falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
+			s.emitPlaceholderErrorDone(conversationID, turnID, surfaceOrigin)
+			return
+		}
 		messages = s.applyContinuationPrefill(ctx, messages, params, h.AssistantMessageID, h.SetInitialContent)
 		// Só a última tentativa deve finalizar o streaming com erro.
 		h.SuppressTerminalError(attempt < attempts)
@@ -180,9 +185,9 @@ func (s *Service) RunAgenticLoop(
 		return
 	}
 	if err != nil {
-		// Best-effort: segue sem placeholder (streaming funciona, mas sem messageId estável).
-		log.Printf("[Agent] aviso: falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
-		assistantMessageID = ""
+		log.Printf("[Agent] falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
+		s.emitPlaceholderErrorDone(conversationID, turnID, surfaceOrigin)
+		return
 	}
 
 	// Propaga contexto de invocação para as tools (AEP-0068).
@@ -403,19 +408,20 @@ func (s *Service) emitTokenStats(conversationID string) {
 	}
 }
 
-func (s *Service) emitToolStarts(conversationID string, turnID string, calls []llm.ToolCall, surfaceOrigin *ports.ChatSurfaceOrigin) {
+func (s *Service) emitToolStarts(conversationID string, turnID string, assistantMessageID string, calls []llm.ToolCall, surfaceOrigin *ports.ChatSurfaceOrigin) {
 	for _, call := range calls {
 		origin, serverLabel := detectToolOrigin(call.Function.Name)
 		name := extractLogicalToolName(call.Function.Name)
 		EmitToolStart(s.emitter, ports.ToolStartEvent{
-			ConversationID: conversationID,
-			TurnID:         turnID,
-			Name:           name,
-			CallID:         call.ID,
-			Args:           call.Function.Arguments,
-			Origin:         origin,
-			ServerLabel:    serverLabel,
-			SurfaceOrigin:  surfaceOrigin,
+			ConversationID:     conversationID,
+			TurnID:             turnID,
+			AssistantMessageID: assistantMessageID,
+			Name:               name,
+			CallID:             call.ID,
+			Args:               call.Function.Arguments,
+			Origin:             origin,
+			ServerLabel:        serverLabel,
+			SurfaceOrigin:      surfaceOrigin,
 		})
 	}
 }
@@ -703,6 +709,47 @@ func resolveMCPServerSlug(ctx context.Context, serverLabel string) (string, bool
 func (s *Service) recoverFromPanic(conversationID string, source string) {
 	r := recover()
 	events.HandlePanic(s.emitter, conversationID, source, r)
+}
+
+func (s *Service) HandleRecoveredPanic(
+	ctx context.Context,
+	conversationID string,
+	turnID string,
+	source string,
+	r any,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+) {
+	if r == nil {
+		return
+	}
+	log.Printf("🔴 [PANIC RECOVERED] %s (conversa %s): %v", source, conversationID, r)
+
+	assistantMessageID := ""
+	if s.msgRepo != nil && turnID != "" {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		msgID, err := chat.EnsureAssistantPlaceholder(context.WithoutCancel(ctx), s.msgRepo, conversationID, turnID)
+		if errors.Is(err, chat.ErrConversationGone) {
+			return
+		}
+		if err != nil {
+			log.Printf("[Agent] falha ao criar/reusar placeholder assistant após panic (conversa %s, turno %s): %v", conversationID, turnID, err)
+		} else {
+			assistantMessageID = msgID
+		}
+	}
+
+	if s.emitter != nil {
+		s.emitter.Emit("chat:done", ports.DoneEvent{
+			ConversationID:     conversationID,
+			TurnID:             turnID,
+			AssistantMessageID: assistantMessageID,
+			SurfaceOrigin:      surfaceOrigin,
+			Reason:             "error",
+			ErrorMessage:       ports.ChatErrorInternal,
+		})
+	}
 }
 
 func convertToolCalls(llmCalls []llm.ToolCall) []tools.ToolCall {
@@ -1057,6 +1104,23 @@ func (s *Service) emitSimpleContextDone(
 		SurfaceOrigin:      surfaceOrigin,
 		Reason:             "error",
 		ErrorMessage:       errorMessage,
+	})
+}
+
+func (s *Service) emitPlaceholderErrorDone(
+	conversationID string,
+	turnID string,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+) {
+	if s.emitter == nil {
+		return
+	}
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID: conversationID,
+		TurnID:         turnID,
+		SurfaceOrigin:  surfaceOrigin,
+		Reason:         "error",
+		ErrorMessage:   ports.ChatErrorAssistantPlaceholder,
 	})
 }
 
