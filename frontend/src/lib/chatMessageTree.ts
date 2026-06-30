@@ -222,6 +222,14 @@ export function updateMessageContentInTree(nodes: MessageNode[], messageId: stri
   });
 }
 
+export function markMessageStreamingInTree(nodes: MessageNode[], messageId: string, turnId?: string | null): MessageNode[] {
+  const turnPatch: Partial<Message> = turnId ? { turnId } : {};
+  return mapMessageTree(nodes, (node) => {
+    if (String(node.message.id) !== messageId) return node;
+    return cloneNode(node, { message: cloneMessage(node.message, { isStreaming: true, ...turnPatch }) });
+  });
+}
+
 export function updateMessageReasoningInTree(nodes: MessageNode[], messageId: string, reasoning: string): MessageNode[] {
   return mapMessageTree(nodes, (node) => {
     if (String(node.message.id) !== messageId) return node;

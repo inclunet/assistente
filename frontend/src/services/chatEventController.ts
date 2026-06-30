@@ -8,6 +8,7 @@ import {
   finalizeStreamingNode,
   flattenThreadedMessages,
   hasMessageId,
+  markMessageStreamingInTree,
   type ChatTreeConversation,
   type Message,
   type MessageNode,
@@ -256,6 +257,13 @@ export function startChatEventController({
     if (assistantNodeCreated) return true;
     if (hasMessageId(session.conversation.threadedMessages, backendMessageId)) {
       assistantNodeCreated = true;
+      adapter.patchConversation(
+        conversationId,
+        (conversation) => ({
+          ...conversation,
+          threadedMessages: markMessageStreamingInTree(conversation.threadedMessages, backendMessageId, currentTurnId),
+        }),
+      );
       patchCurrentSession({
         streamingMessageId: backendMessageId,
         lastInterruptedMessageId: null,

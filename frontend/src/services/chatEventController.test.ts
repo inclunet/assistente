@@ -546,6 +546,30 @@ describe('chatEventController', () => {
     expect(messages[0].message.content).toBe('resposta após carregar');
   });
 
+  it('marca assistant existente como streaming ao reutilizar messageId persistido', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    sessions['conversation-1'].conversation = {
+      ...createConversation('conversation-1'),
+      threadedMessages: [createNode(createMessage('assistant-db-existing', 'assistant', ''))],
+    };
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      messageId: 'assistant-db-existing',
+      content: 'resposta em andamento',
+      done: false,
+    });
+    vi.runOnlyPendingTimers();
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[0].message.id).toBe('assistant-db-existing');
+    expect(messages[0].message.isStreaming).toBe(true);
+    expect(messages[0].message.content).toBe('resposta em andamento');
+  });
+
   it('preserva reasoning final antes do primeiro chunk usando assistantMessageId persistido', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
