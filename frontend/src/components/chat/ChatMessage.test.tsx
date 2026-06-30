@@ -208,6 +208,51 @@ describe('ChatMessage', () => {
     });
   });
 
+  it('preserva anúncio de conclusão quando há render intermediário sem conteúdo final', () => {
+    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const streamingMessage = new chat.EnrichedMessage({
+      id: 'assistant-race-1',
+      conversationId,
+      role: 'assistant',
+      content: 'Resposta parcial com conteúdo suficiente para anunciar.',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+    const emptyCompletedMessage = new chat.EnrichedMessage({
+      ...streamingMessage,
+      isStreaming: false,
+      content: '',
+    });
+    const finalMessage = new chat.EnrichedMessage({
+      ...streamingMessage,
+      isStreaming: false,
+      content: 'Resposta final depois da consolidação.',
+    });
+
+    const { rerender } = render(
+      <ChatMessage message={streamingMessage} origin={origin} />
+    );
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Resposta parcial com conteúdo suficiente para anunciar.',
+      origin,
+      eventType: 'progress',
+    });
+
+    rerender(<ChatMessage message={emptyCompletedMessage} origin={origin} />);
+    expect(announceRequestMock).not.toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'completion',
+    }));
+
+    rerender(<ChatMessage message={finalMessage} origin={origin} />);
+    expect(announceRequestMock).toHaveBeenLastCalledWith({
+      message: 'Resposta final depois da consolidação.',
+      origin,
+      eventType: 'completion',
+    });
+  });
+
   it('adia renderizacao de markdown grande ate entrar na area visivel', async () => {
     let observerCallback: IntersectionObserverCallback | null = null;
     class MockIntersectionObserver {

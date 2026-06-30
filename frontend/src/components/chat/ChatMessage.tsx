@@ -255,10 +255,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       return;
     }
 
-    wasStreamingRef.current = false;
     previousStreamingAnnouncementRef.current = '';
     if (!text) return;
 
+    wasStreamingRef.current = false;
     announceRequest({
       message: text,
       origin,
