@@ -323,6 +323,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     });
   }, [announceRequest, conclusionContent, effectiveIsStreaming, hasAgenticSegments, isAgenticStreaming, message.id, origin, role, t]);
 
+  useEffect(() => () => {
+    streamingAnnouncementStates.delete(message.id);
+  }, [message.id]);
+
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString('pt-BR', {

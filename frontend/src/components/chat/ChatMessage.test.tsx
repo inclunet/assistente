@@ -208,7 +208,7 @@ describe('ChatMessage', () => {
     });
   });
 
-  it('não reanuncia progresso ao remontar a mesma mensagem em streaming', () => {
+  it('não reanuncia progresso ao rerenderizar a mesma mensagem em streaming', () => {
     const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
     const streamingMessage = new chat.EnrichedMessage({
       id: 'assistant-remount-1',
@@ -221,11 +221,10 @@ describe('ChatMessage', () => {
       internal: false,
     });
 
-    const { unmount } = render(
+    const { rerender } = render(
       <ChatMessage message={streamingMessage} origin={origin} />
     );
-    unmount();
-    render(<ChatMessage message={streamingMessage} origin={origin} />);
+    rerender(<ChatMessage message={streamingMessage} origin={origin} />);
 
     expect(announceRequestMock).toHaveBeenCalledTimes(1);
   });
