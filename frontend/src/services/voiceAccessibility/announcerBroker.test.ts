@@ -57,7 +57,7 @@ describe('announcerBroker', () => {
     expect(sink).toHaveBeenCalledWith('Falha', 'assertive');
   });
 
-  it('permite mensagens idênticas consecutivas quando o estado muda fora do broker', () => {
+  it('não deduplica mensagens idênticas quando o chamador solicita novo anúncio', () => {
     const request = {
       message: '1 turno na fila',
       eventType: 'progress' as const,
