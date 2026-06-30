@@ -544,6 +544,7 @@ describe('ChatSessionView', () => {
     await user.click(await screen.findByRole('button', { name: 'chat.retryAriaLabel' }));
 
     expect(onSend).toHaveBeenCalledWith('', [mediaFile], chatSurface);
+    expect(chatStoreState.clearConversationSendFailure).toHaveBeenCalledWith(conversationId, chatSurface.sessionKey);
   });
 
   it('embedded: mantém envio habilitado mesmo com isLoading global ativo', async () => {

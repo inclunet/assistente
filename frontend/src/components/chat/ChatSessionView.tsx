@@ -778,7 +778,8 @@ function ChatSessionViewContent({
 
     try {
       setSendError(null);
-      setDismissedSessionSendError(null);
+      setDismissedSessionSendError(sessionSendFailureMessage);
+      if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
       await controller.sendMessage(effectiveFailedMessage.content, effectiveFailedMessage.media);
       setLastFailedMessage(null);
     } catch (error) {
