@@ -627,6 +627,14 @@ const en = {
         registeredSuccess: 'registered successfully!',
         ok: 'OK',
       },
+      signalLink: {
+        generateQr: 'Generate QR Code',
+        regionLabel: 'Signal linking QR Code',
+        scanQr: 'Scan the QR Code with Signal on your phone:',
+        qrAlt: 'QR Code to link Signal device',
+        generating: 'Generating QR Code...',
+        waiting: 'Waiting for linking...',
+      },
       createModal: {
         configure: 'Configure',
         title: 'Create New Channel',

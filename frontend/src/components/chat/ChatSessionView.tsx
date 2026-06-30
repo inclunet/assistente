@@ -921,6 +921,7 @@ function ChatSessionViewContent({
           onDelete={handleDeleteMessage}
           editorTargets={editorTargets}
           onSendToEditor={sendToEditor}
+          origin={{ ...origin, conversationId: origin.conversationId ?? undefined }}
         />
 
         {effectiveSendError && (

@@ -1,4 +1,7 @@
+import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '../index';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 
 interface SignalLinkFlowProps {
   apiURL: string;
@@ -15,6 +18,21 @@ export function SignalLinkFlow({
   onLink,
   onReset,
 }: SignalLinkFlowProps) {
+  const { t } = useTranslation();
+  const { announce } = useAnnouncer();
+  const previousAnnouncementRef = useRef('');
+  const progressAnnouncement = linking
+    ? linkQR
+      ? t('channels.signalLink.waiting')
+      : t('channels.signalLink.generating')
+    : '';
+
+  useEffect(() => {
+    if (!progressAnnouncement || progressAnnouncement === previousAnnouncementRef.current) return;
+    announce(progressAnnouncement);
+    previousAnnouncementRef.current = progressAnnouncement;
+  }, [announce, progressAnnouncement]);
+
   return (
     <div className="channels-page__fields">
       <div className="channels-page__row">
@@ -24,7 +42,7 @@ export function SignalLinkFlow({
           disabled={!apiURL || linking}
           loading={linking}
         >
-          Gerar QR Code
+          {t('channels.signalLink.generateQr')}
         </Button>
       </div>
 
@@ -32,39 +50,35 @@ export function SignalLinkFlow({
         <div
           className="channels-page__qr-container"
           role="region"
-          aria-label="QR Code de vinculação Signal"
+          aria-label={t('channels.signalLink.regionLabel')}
         >
           {linkQR ? (
             <>
               <p className="channels-page__hint">
-                Escaneie o QR Code com o Signal no celular:
+                {t('channels.signalLink.scanQr')}
               </p>
               <img
                 src={linkQR}
-                alt="QR Code para vincular dispositivo Signal"
+                alt={t('channels.signalLink.qrAlt')}
                 className="channels-page__qr-image"
               />
             </>
           ) : (
             <p
               className="channels-page__hint"
-
-
             >
-              Gerando QR Code...
+              {t('channels.signalLink.generating')}
             </p>
           )}
           {linking && (
             <p
               className="channels-page__hint"
-
-
             >
-              Aguardando vinculação...
+              {t('channels.signalLink.waiting')}
             </p>
           )}
           <Button variant="ghost" onClick={onReset}>
-            Cancelar
+            {t('common.cancel')}
           </Button>
         </div>
       )}

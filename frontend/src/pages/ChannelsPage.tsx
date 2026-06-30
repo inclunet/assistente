@@ -528,7 +528,7 @@ export default function ChannelsPage() {
     if (!signalForm.account || !signalForm.apiURL) {
       const msg = t('channels.error.signalAccountAndUrlRequired');
       setSignalRegError(msg);
-      addToast(msg, 'error');
+      addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
       return;
     }
     const apiToken = signalForm.apiToken.trim();
@@ -547,7 +547,7 @@ export default function ChannelsPage() {
       setSignalRegStep(signalSmsSent ? 'awaiting_code' : 'idle');
       const msg = getErrorMessage(error) || t('channels.error.signalRegisterFailed');
       setSignalRegError(msg);
-      addToast(msg, 'error');
+      addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
     }
   };
 
@@ -555,7 +555,6 @@ export default function ChannelsPage() {
     if (!signalRegCode) {
       const msg = t('channels.error.verificationCodeRequired');
       setSignalRegError(msg);
-      announce(msg, 'assertive');
       return;
     }
     const apiToken = signalForm.apiToken.trim();
@@ -567,12 +566,11 @@ export default function ChannelsPage() {
       setSignalSmsSent(false);
       const numberVerifiedMessage = t('channels.announce.numberVerified');
       addToast(numberVerifiedMessage, 'success', undefined, undefined, { suppressAnnounce: true });
-      announce(numberVerifiedMessage);
     } catch (error: unknown) {
       setSignalRegStep('awaiting_code');
       const msg = getErrorMessage(error) || t('channels.error.signalVerifyFailed');
       setSignalRegError(msg);
-      addToast(msg, 'error');
+      addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
     }
   };
 

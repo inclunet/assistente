@@ -9,6 +9,8 @@ import { getMessageTurnSegments } from '../../lib/chatMessageTree';
 import { chat } from '../../../wailsjs/go/models';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import { getTimelineNodeKey, isPersistedTimelineNode, type MessageWindowState } from '../../services/chatSessionRegistry';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './MessageList.css';
 
 export interface MessageListProps {
@@ -36,6 +38,7 @@ export interface MessageListProps {
   onDelete?: (message: Message) => void;
   editorTargets?: EditorSendTargetOption[];
   onSendToEditor?: (payload: SendToEditorPayload) => void;
+  origin?: VoiceAccessibilityOrigin;
 }
 
 /**
@@ -225,12 +228,15 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     onDelete,
     editorTargets,
     onSendToEditor,
+    origin,
   },
   ref
 ) => {
   const { t } = useTranslation();
+  const { announceRequest } = useAnnouncer();
   const effectiveLoadingText = loadingText ?? t('chat.typing');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const previousLoadingRef = useRef(false);
   // Fonte de verdade do elemento de scroll. Sempre apontado por um callback ref
   // próprio, então `.current` é confiável mesmo quando o ref externo é um callback.
   const innerContainerRef = useRef<HTMLDivElement | null>(null);
@@ -249,6 +255,17 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
     }
   }, [ref]);
+
+  useEffect(() => {
+    if (isLoading && !previousLoadingRef.current) {
+      announceRequest({
+        message: effectiveLoadingText,
+        origin,
+        eventType: 'progress',
+      });
+    }
+    previousLoadingRef.current = isLoading;
+  }, [announceRequest, effectiveLoadingText, isLoading, origin]);
 
   // Fallback transitório: o backend já retorna timeline items canônicos;
   // durante streaming ainda podem existir múltiplos nós locais do mesmo turnId.

@@ -6,6 +6,8 @@ import { axe } from '../../test/a11yAxe';
 import { AuthGate } from './AuthGate';
 import { useAuthStore, __testing__ as authTesting } from '../../store/authStore';
 
+const announceMock = vi.hoisted(() => vi.fn());
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     // Em testes a key vence — replica o comportamento de `t()` quando
@@ -14,6 +16,10 @@ vi.mock('react-i18next', () => ({
     t: (key: string) => key,
     i18n: { language: 'en', changeLanguage: vi.fn() },
   }),
+}));
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({ announce: announceMock }),
 }));
 
 const mockGetAuthStatus = vi.fn();
@@ -47,6 +53,7 @@ describe('AuthGate', () => {
     mockCreateAdminUser.mockReset();
     mockLogin.mockReset();
     mockLogout.mockReset();
+    announceMock.mockClear();
     localStorage.clear();
     authTesting.resetGuards();
     useAuthStore.setState({
@@ -278,6 +285,7 @@ describe('AuthGate', () => {
     await userEvent.click(screen.getByRole('button', { name: 'auth.buttons.continue' }));
 
     expect(screen.getByText('auth.validation.passwordsDoNotMatch')).toHaveClass('auth-gate__error');
+    expect(announceMock).toHaveBeenCalledWith('auth.validation.passwordsDoNotMatch', 'assertive');
     expect(mockSetupVault).not.toHaveBeenCalled();
   });
 

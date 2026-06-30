@@ -1,5 +1,6 @@
-import type { HTMLAttributes, ReactNode } from 'react';
+import { useEffect, useRef, type HTMLAttributes, type ReactNode } from 'react';
 import { Combobox, ComboboxItem } from './Combobox';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 
 type Variant = 'toolbar' | 'form';
 
@@ -135,6 +136,8 @@ export const BasePicker = ({
   allowFreeInput = false,
   onAfterSelect,
 }: BasePickerProps) => {
+  const { announce } = useAnnouncer();
+  const previousErrorRef = useRef<string | null | undefined>(null);
   const resolvedLoadingLabel = resolveVariantValue(loadingLabel, variant) ?? 'Carregando...';
   const resolvedErrorLabel = resolveVariantValue(errorLabel, variant) ?? error ?? 'Erro ao carregar';
   const resolvedEmptyLabel = resolveVariantValue(emptyLabel, variant) ?? 'Nenhuma opção disponível';
@@ -157,6 +160,13 @@ export const BasePicker = ({
     variant,
     toolbarClassName || formClassName
   );
+
+  useEffect(() => {
+    if (showErrorState && error && error !== previousErrorRef.current) {
+      announce(resolvedErrorLabel, 'assertive');
+    }
+    previousErrorRef.current = error;
+  }, [announce, error, resolvedErrorLabel, showErrorState]);
 
   if (showLoadingState && loading) {
     if (loadingState) {

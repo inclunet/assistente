@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MessageList } from './MessageList';
 import { chat } from '../../../wailsjs/go/models';
 
@@ -407,6 +407,7 @@ describe('MessageList (virtualização)', () => {
     );
 
   beforeEach(() => {
+    vi.useFakeTimers();
     const proto = window.HTMLElement.prototype;
     const original = Object.getOwnPropertyDescriptor(proto, 'offsetHeight');
     Object.defineProperty(proto, 'offsetHeight', {
@@ -427,6 +428,9 @@ describe('MessageList (virtualização)', () => {
   });
 
   afterEach(() => {
+    cleanup();
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
     restoreDims?.();
     restoreDims = null;
   });

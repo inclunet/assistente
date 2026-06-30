@@ -12,6 +12,7 @@ import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
 import { normalizeChatSurfaceOrigin } from '../../services/chatSessionRegistry';
 import { WorkspacePanelProvider } from './WorkspacePanelContext';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 
 import './WorkspaceChatModal.css';
 
@@ -29,6 +30,7 @@ export function WorkspaceChatModal() {
   const workspaceTabs = useWorkspaceStore((s) => s.workspace?.tabs ?? []);
   const activeConversation = useChatConversationTimeline(boundConversationId);
   const activeWorkspaceTab = useActiveTab();
+  const { announce } = useAnnouncer();
   const boundWorkspaceTab = useMemo(
     () => workspaceTabs.find((tab) => tab.id === boundTabId) ?? null,
     [boundTabId, workspaceTabs],
@@ -64,6 +66,12 @@ export function WorkspaceChatModal() {
     });
     return () => cancelAnimationFrame(id);
   }, [isOpen, focusNonce]);
+
+  useEffect(() => {
+    if (isOpen && adapterError) {
+      announce(adapterError, 'assertive');
+    }
+  }, [adapterError, announce, isOpen]);
 
   const handleSend = useCallback(
     async (content: string, mediaFiles: MediaFile[] | undefined, context: ChatPanelSendContext) => {

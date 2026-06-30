@@ -4,6 +4,7 @@ import { jobs } from '@wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 import { Button } from '../ui/Button';
 import { OutputExplorer } from './builder/OutputExplorer';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import './RunLogViewer.css';
 
 interface RunLogViewerProps {
@@ -64,6 +65,7 @@ function RunDetail({
   onRerun?: (jobId: string) => void;
 }) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const [replaying, setReplaying] = useState(false);
   const [replayResult, setReplayResult] = useState<jobs.TestToolResult | null>(null);
 
@@ -74,10 +76,16 @@ function RunDetail({
     try {
       const result = await onReplay(run);
       setReplayResult(result);
+      if (result) {
+        announce(
+          result.success ? t('jobs.replaySuccess') : t('jobs.replayFailed'),
+          result.success ? 'polite' : 'assertive',
+        );
+      }
     } finally {
       setReplaying(false);
     }
-  }, [onReplay, run]);
+  }, [announce, onReplay, run, t]);
 
   const canReplay = Boolean(run.replayable && run.tool_name && run.resolved_inputs && onReplay);
 

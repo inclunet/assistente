@@ -72,6 +72,7 @@ export const Combobox = ({
     const announceMessage = useCallback((msg: string) => {
         if (onAnnounce) {
             onAnnounce(msg);
+            return;
         }
         announceGlobally(msg, 'assertive');
     }, [announceGlobally, onAnnounce]);

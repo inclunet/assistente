@@ -63,12 +63,6 @@ export function AuthGate({ children }: AuthGateProps) {
     }
   }, [recoveryKey, announce, t]);
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      announce(t('auth.a11y.loginSuccess'), 'polite');
-    }
-  }, [isAuthenticated, announce, t]);
-
   const localizedError = useMemo(() => {
     if (validationError) return validationError;
     if (!error) return null;
@@ -177,6 +171,7 @@ export function AuthGate({ children }: AuthGateProps) {
         return;
       }
       await login(username, secret);
+      announce(t('auth.a11y.loginSuccess'), 'polite');
       setSecret('');
     } catch {
       // O store já registra o erro via `error`. Não precisamos rethrowar.

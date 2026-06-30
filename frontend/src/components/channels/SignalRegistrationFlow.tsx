@@ -1,5 +1,7 @@
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input, Button } from '../index';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 
 type SignalRegisterStep = 'idle' | 'registering' | 'awaiting_code' | 'verifying' | 'done';
 
@@ -33,6 +35,20 @@ export function SignalRegistrationFlow({
   onReset,
 }: SignalRegistrationFlowProps) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
+  const previousAnnouncementRef = useRef('');
+
+  useEffect(() => {
+    const message = regError
+      || (regStep === 'registering' ? t('channels.signalRegistration.sending') : '')
+      || (regStep === 'done'
+        ? `${account} ${t('channels.signalRegistration.registeredSuccess')}`
+        : '');
+    if (!message || message === previousAnnouncementRef.current) return;
+    announce(message, regError ? 'assertive' : 'polite');
+    previousAnnouncementRef.current = message;
+  }, [account, announce, regError, regStep, t]);
+
   return (
     <>
       <div>
