@@ -205,6 +205,89 @@ func TestStreamSimpleWithRecovery_RetriesWithoutTerminalError(t *testing.T) {
 	}
 }
 
+func TestStreamSimpleWithRecovery_StopsWhenAssistantPlaceholderFails(t *testing.T) {
+	em := &captureEmitter{}
+	repo := &inMemoryMsgRepo{createErr: fmt.Errorf("db down")}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
+		func(h llm.StreamHandler) {
+			h.OnChunk("nao deve emitir")
+		},
+	}}
+
+	svc.StreamSimpleWithRecovery(
+		context.Background(),
+		streamer,
+		nil,
+		llm.ChatParams{},
+		"conversation-1",
+		"user-1",
+		"profile",
+		nil,
+		false,
+		1,
+	)
+
+	if streamer.calls != 0 {
+		t.Fatalf("streamer should not be called without assistant placeholder, got %d calls", streamer.calls)
+	}
+	if got := em.find("chat:stream"); len(got) != 0 {
+		t.Fatalf("expected no chat:stream without assistant placeholder, got %d", len(got))
+	}
+	doneEvents := em.find("chat:done")
+	if len(doneEvents) != 1 {
+		t.Fatalf("expected one chat:done, got %d", len(doneEvents))
+	}
+	done := doneEvents[0].data.(ports.DoneEvent)
+	if done.Reason != "error" || done.ErrorMessage == "" {
+		t.Fatalf("expected error chat:done, got %+v", done)
+	}
+}
+
+func TestRunAgenticLoop_StopsWhenAssistantPlaceholderFails(t *testing.T) {
+	em := &captureEmitter{}
+	repo := &inMemoryMsgRepo{createErr: fmt.Errorf("db down")}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
+		func(h llm.StreamHandler) {
+			h.OnChunk("nao deve emitir")
+		},
+	}}
+
+	svc.RunAgenticLoop(
+		context.Background(),
+		nil,
+		llm.ChatParams{MaxAgenticIterations: 1},
+		"conversation-1",
+		"user-1",
+		nil,
+		streamer,
+		nil,
+		func(string, int) IterationHandler {
+			t.Fatal("newHandler should not be called without assistant placeholder")
+			return nil
+		},
+		nil,
+		false,
+		1,
+	)
+
+	if streamer.calls != 0 {
+		t.Fatalf("streamer should not be called without assistant placeholder, got %d calls", streamer.calls)
+	}
+	if got := em.find("chat:stream"); len(got) != 0 {
+		t.Fatalf("expected no chat:stream without assistant placeholder, got %d", len(got))
+	}
+	doneEvents := em.find("chat:done")
+	if len(doneEvents) != 1 {
+		t.Fatalf("expected one chat:done, got %d", len(doneEvents))
+	}
+	done := doneEvents[0].data.(ports.DoneEvent)
+	if done.Reason != "error" || done.ErrorMessage == "" {
+		t.Fatalf("expected error chat:done, got %+v", done)
+	}
+}
+
 func TestStreamSimpleWithRecovery_EmitsTerminalErrorWhenExhausted(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{}

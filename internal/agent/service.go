@@ -106,6 +106,11 @@ func (s *Service) StreamSimpleWithRecovery(
 		if errors.Is(err, chat.ErrConversationGone) {
 			return
 		}
+		if err != nil {
+			log.Printf("[Chat] falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
+			s.emitPlaceholderErrorDone(conversationID, turnID, surfaceOrigin)
+			return
+		}
 		messages = s.applyContinuationPrefill(ctx, messages, params, h.AssistantMessageID, h.SetInitialContent)
 		// Só a última tentativa deve finalizar o streaming com erro.
 		h.SuppressTerminalError(attempt < attempts)
@@ -180,9 +185,9 @@ func (s *Service) RunAgenticLoop(
 		return
 	}
 	if err != nil {
-		// Best-effort: segue sem placeholder (streaming funciona, mas sem messageId estável).
-		log.Printf("[Agent] aviso: falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
-		assistantMessageID = ""
+		log.Printf("[Agent] falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
+		s.emitPlaceholderErrorDone(conversationID, turnID, surfaceOrigin)
+		return
 	}
 
 	// Propaga contexto de invocação para as tools (AEP-0068).
@@ -1058,6 +1063,23 @@ func (s *Service) emitSimpleContextDone(
 		SurfaceOrigin:      surfaceOrigin,
 		Reason:             "error",
 		ErrorMessage:       errorMessage,
+	})
+}
+
+func (s *Service) emitPlaceholderErrorDone(
+	conversationID string,
+	turnID string,
+	surfaceOrigin *ports.ChatSurfaceOrigin,
+) {
+	if s.emitter == nil {
+		return
+	}
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID: conversationID,
+		TurnID:         turnID,
+		SurfaceOrigin:  surfaceOrigin,
+		Reason:         "error",
+		ErrorMessage:   "não foi possível preparar a mensagem do assistente",
 	})
 }
 
