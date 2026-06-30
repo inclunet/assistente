@@ -93,7 +93,7 @@ func (a *App) startHTTPAPI() error {
 			logging.Errorf(context.Background(), "app.app-httpapi", "[httpapi] servidor encerrado com erro: %v", serveErr)
 		}
 	}()
-	logging.Warnf(context.Background(), "app.app-httpapi", "[httpapi] escutando em %s (mode=%s tls=%v)", listener.Addr().String(), authCfg.Mode, authCfg.HTTP.TLSEnabled)
+	logging.Infof(context.Background(), "app.app-httpapi", "[httpapi] escutando em %s (mode=%s tls=%v)", listener.Addr().String(), authCfg.Mode, authCfg.HTTP.TLSEnabled)
 	return nil
 }
 

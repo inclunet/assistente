@@ -99,7 +99,7 @@ func RateLimitConfigFromEnv() RateLimitConfig {
 		if v, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && v > 0 {
 			cfg.Burst = v
 		} else {
-			logging.Errorf(context.Background(), "llm.ratelimit", "[llm/ratelimit] valor inválido em %s=%q; mantendo burst=%d", envRateLimitBurst, raw, cfg.Burst)
+			logging.Warnf(context.Background(), "llm.ratelimit", "[llm/ratelimit] valor inválido em %s=%q; mantendo burst=%d", envRateLimitBurst, raw, cfg.Burst)
 		}
 	}
 	return cfg

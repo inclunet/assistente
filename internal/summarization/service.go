@@ -389,7 +389,7 @@ func (s *Service) TriggerSummarizationInBackground(
 		// If currentUpToID not found, newMessages stays nil → treated as "nothing new"
 	}
 	if len(newMessages) == 0 {
-		logging.Errorf(ctx, "summarization.service", "[Summary] Nenhuma mensagem nova para resumir (já resumido até ID %s)", currentUpToID)
+		logging.Infof(ctx, "summarization.service", "[Summary] Nenhuma mensagem nova para resumir (já resumido até ID %s)", currentUpToID)
 		return
 	}
 

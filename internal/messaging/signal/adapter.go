@@ -108,7 +108,7 @@ func (s *SignalAdapter) Connect(ctx context.Context) error {
 	} else {
 		// Modo native: usa HTTP polling
 		s.setStatus(messaging.StatusConnected)
-		logging.Errorf(ctx, "messaging.signal.adapter", "[Signal] Conectado via HTTP polling à API %s (account=%s, mode=%s)", s.baseURL, maskIdentifier(s.account), mode)
+		logging.Infof(ctx, "messaging.signal.adapter", "[Signal] Conectado via HTTP polling à API %s (account=%s, mode=%s)", s.baseURL, maskIdentifier(s.account), mode)
 		go s.httpPollLoop()
 	}
 
@@ -245,7 +245,7 @@ func (s *SignalAdapter) healthCheckAndDetectMode() (string, error) {
 		}
 	}
 
-	logging.Errorf(context.Background(), "messaging.signal.adapter", "[Signal] Health check OK (%s, mode=%s)", reqURL, mode)
+	logging.Debugf(context.Background(), "messaging.signal.adapter", "[Signal] Health check OK (%s, mode=%s)", reqURL, mode)
 	return mode, nil
 }
 

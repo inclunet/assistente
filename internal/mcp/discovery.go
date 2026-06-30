@@ -123,10 +123,10 @@ type authServerMetadata struct {
 func fetchProtectedResourceMetadata(mcpURL string) (*protectedResourceMetadata, error) {
 	candidates := buildPRMCandidates(mcpURL)
 	for _, candidateURL := range candidates {
-		logging.Errorf(context.Background(), "mcp.discovery", "[MCP:discovery] PRM: tentando %s", candidateURL)
+		logging.Debugf(context.Background(), "mcp.discovery", "[MCP:discovery] PRM: tentando %s", candidateURL)
 		var result protectedResourceMetadata
 		if err := fetchJSON(candidateURL, &result); err == nil {
-			logging.Errorf(context.Background(), "mcp.discovery", "[MCP:discovery] PRM: encontrado em %s", candidateURL)
+			logging.Infof(context.Background(), "mcp.discovery", "[MCP:discovery] PRM: encontrado em %s", candidateURL)
 			return &result, nil
 		}
 	}
@@ -168,10 +168,10 @@ func buildPRMCandidates(mcpURL string) []string {
 func fetchAuthServerMetadata(authServerBase string) (*authServerMetadata, error) {
 	candidates := buildASMCandidates(authServerBase)
 	for _, candidateURL := range candidates {
-		logging.Errorf(context.Background(), "mcp.discovery", "[MCP:discovery] ASM: tentando %s", candidateURL)
+		logging.Debugf(context.Background(), "mcp.discovery", "[MCP:discovery] ASM: tentando %s", candidateURL)
 		var result authServerMetadata
 		if err := fetchJSON(candidateURL, &result); err == nil && result.TokenEndpoint != "" {
-			logging.Errorf(context.Background(), "mcp.discovery", "[MCP:discovery] ASM: encontrado em %s", candidateURL)
+			logging.Infof(context.Background(), "mcp.discovery", "[MCP:discovery] ASM: encontrado em %s", candidateURL)
 			return &result, nil
 		}
 	}

@@ -436,7 +436,7 @@ func (s *Service) SpeakPreview(ctx context.Context, p SpeakPreviewParams) error 
 		volume = 1.0
 	}
 
-	logging.Errorf(ctx, "speech.service", "[SpeakPreview] provider=%s, voice=%s, model=%s, language=%s, rate=%.2f, volume=%.2f", p.ProviderID, p.VoiceID, p.Model, p.Language, rate, volume)
+	logging.Debugf(ctx, "speech.service", "[SpeakPreview] provider=%s, voice=%s, model=%s, language=%s, rate=%.2f, volume=%.2f", p.ProviderID, p.VoiceID, p.Model, p.Language, rate, volume)
 
 	switch p.ProviderID {
 	case "webspeech":
