@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore, type AuthStatus } from '../../store/authStore';
@@ -36,6 +36,7 @@ export function AuthGate({ children }: AuthGateProps) {
   const [username, setUsername] = useState('');
   const [recoveryKey, setRecoveryKey] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
+  const wasAuthenticatedRef = useRef(isAuthenticated);
 
   const headingId = useId();
   const descriptionId = useId();
@@ -62,6 +63,13 @@ export function AuthGate({ children }: AuthGateProps) {
       announce(t('auth.a11y.recoveryAnnouncement'), 'assertive');
     }
   }, [recoveryKey, announce, t]);
+
+  useEffect(() => {
+    if (!wasAuthenticatedRef.current && isAuthenticated) {
+      announce(t('auth.a11y.loginSuccess'), 'polite');
+    }
+    wasAuthenticatedRef.current = isAuthenticated;
+  }, [announce, isAuthenticated, t]);
 
   const localizedError = useMemo(() => {
     if (validationError) return validationError;
@@ -171,7 +179,6 @@ export function AuthGate({ children }: AuthGateProps) {
         return;
       }
       await login(username, secret);
-      announce(t('auth.a11y.loginSuccess'), 'polite');
       setSecret('');
     } catch {
       // O store já registra o erro via `error`. Não precisamos rethrowar.

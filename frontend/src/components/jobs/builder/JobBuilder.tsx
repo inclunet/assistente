@@ -215,10 +215,10 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   }, [announce]);
 
   useEffect(() => {
-    if (testOutput && !outputHasArrays) {
+    if (testOutput && draft.events.emit_success && draft.events.mode === 'fanout' && !outputHasArrays) {
       announce(t('jobs.builder.noArraysWarning'), 'assertive');
     }
-  }, [announce, outputHasArrays, t, testOutput]);
+  }, [announce, draft.events.emit_success, draft.events.mode, outputHasArrays, t, testOutput]);
 
   const templateContext = useMemo(() => {
     const ctx: { output?: Record<string, unknown>; event?: Record<string, unknown> } = {};
