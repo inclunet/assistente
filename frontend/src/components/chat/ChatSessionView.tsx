@@ -754,8 +754,9 @@ function ChatSessionViewContent({
   const handleSendMessage = async (content: string, mediaFiles?: MediaFile[]) => {
     try {
       setSendError(null);
-      setLastFailedMessage({ content, media: mediaFiles });
-      setDismissedSessionSendError(null);
+      setLastFailedMessage(null);
+      setDismissedSessionSendError(sessionSendFailureMessage);
+      if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
       await controller.sendMessage(content, mediaFiles);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
