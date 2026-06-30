@@ -143,6 +143,8 @@ const createSession = (conversationId: string): TestSession => ({
   streamingMessageId: null,
   sendFailureMessage: null,
   sendFailureRetryable: false,
+  sendFailureRetryContent: null,
+  sendFailureRetryMediaFiles: [],
   lastInterruptedMessageId: null,
   streamingReasoning: null,
   isThinking: false,
@@ -518,6 +520,30 @@ describe('chatEventController', () => {
       callId: 'call-1',
       status: 'running',
     });
+  });
+
+  it('atualiza chunk sem messageId quando assistant já veio de thinking', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-thinking',
+      started: true,
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      content: 'chunk sem id',
+      done: false,
+    });
+    vi.runOnlyPendingTimers();
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages.map((node) => node.message.id)).toEqual(['assistant-db-thinking']);
+    expect(messages[0].message.content).toBe('chunk sem id');
   });
 
   it('não bloqueia criação posterior quando a conversa ainda não está carregada', () => {

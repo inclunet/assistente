@@ -156,6 +156,7 @@ interface ChatStore {
   ) => void;
   ensureConversationSurfaceSession: (conversationId: string, sessionKey: string, origin?: ChatSurfaceOrigin) => void;
   removeConversationSurfaceSession: (sessionKey: string) => void;
+  clearConversationSendFailure: (conversationId: string, sessionKey: string) => void;
 
   createConversation: (title?: string) => Promise<string>;
   loadConversationSession: (id: string, options?: { refreshSurfaceWindows?: boolean }) => Promise<void>;
@@ -622,6 +623,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     const controller = startChatEventController({
       conversationId,
       initialUserContent: content,
+      initialMediaFiles: mediaFiles,
       origin: options?.origin,
       adapter: chatEventAdapter,
     });
@@ -714,6 +716,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           draftMediaFiles: session.draftMediaFiles.length === 0 ? session.draftMediaFiles : [],
         }, sessionKey);
       });
+    },
+
+    clearConversationSendFailure: (conversationId, sessionKey) => {
+      set((state) => patchSession(state, conversationId, {
+        sendFailureMessage: null,
+        sendFailureRetryable: false,
+        sendFailureRetryContent: null,
+        sendFailureRetryMediaFiles: [],
+      }, sessionKey));
     },
 
     setConversationScrollState: (conversationId, scrollState, sessionKey) => {

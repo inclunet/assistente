@@ -159,6 +159,7 @@ function ChatSessionViewContent({
   } = controller;
 
   const cancelStreaming = useChatStore((state) => state.cancelStreaming);
+  const clearConversationSendFailure = useChatStore((state) => state.clearConversationSendFailure);
 
   const handleCancelStreaming = useCallback(async () => {
     const targetConversationId = conversation?.id ?? conversationId;
@@ -348,12 +349,16 @@ function ChatSessionViewContent({
   const [dismissedSessionSendError, setDismissedSessionSendError] = useState<string | null>(null);
   const sessionSendFailureMessage = session?.sendFailureMessage ?? null;
   const sessionSendFailureRetryable = session?.sendFailureRetryable ?? false;
+  const sessionSendFailureRetry = session?.sendFailureRetryContent
+    ? { content: session.sendFailureRetryContent, media: session.sendFailureRetryMediaFiles }
+    : null;
   const effectiveSendError = sendError ?? (
     sessionSendFailureMessage && sessionSendFailureMessage !== dismissedSessionSendError
       ? sessionSendFailureMessage
       : null
   );
-  const canRetryEffectiveSendError = !!lastFailedMessage && (!!sendError || sessionSendFailureRetryable);
+  const effectiveFailedMessage = lastFailedMessage ?? (sessionSendFailureRetryable ? sessionSendFailureRetry : null);
+  const canRetryEffectiveSendError = !!effectiveFailedMessage && (!!sendError || sessionSendFailureRetryable);
 
   const wsTabs = useWorkspaceStore((state) => state.workspace?.tabs);
 
@@ -767,11 +772,12 @@ function ChatSessionViewContent({
   };
 
   const handleRetry = async () => {
-    if (!lastFailedMessage) return;
+    if (!effectiveFailedMessage) return;
 
     try {
       setSendError(null);
-      await controller.sendMessage(lastFailedMessage.content, lastFailedMessage.media);
+      setDismissedSessionSendError(null);
+      await controller.sendMessage(effectiveFailedMessage.content, effectiveFailedMessage.media);
       setLastFailedMessage(null);
     } catch (error) {
       handleError(error, {
@@ -935,6 +941,7 @@ function ChatSessionViewContent({
               setSendError(null);
               setLastFailedMessage(null);
               setDismissedSessionSendError(sessionSendFailureMessage);
+              if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
             }}
             style={{ flexShrink: 0 }}
           />

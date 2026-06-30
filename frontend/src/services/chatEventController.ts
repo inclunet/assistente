@@ -3,6 +3,7 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import i18next from 'i18next';
 import { chat } from '../../wailsjs/go/models';
 import type { ToolCallStatus } from '../types/chat';
+import type { MediaFile } from './mediaService';
 import { announce } from '../hooks/useAnnouncer';
 import {
   finalizeStreamingNode,
@@ -118,6 +119,8 @@ export interface ChatEventSession {
   completedSegments: TurnSegment[];
   sendFailureMessage?: string | null;
   sendFailureRetryable?: boolean;
+  sendFailureRetryContent?: string | null;
+  sendFailureRetryMediaFiles?: MediaFile[];
   messageWindow?: MessageWindowState;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
@@ -137,6 +140,7 @@ export interface ChatEventControllerAdapter {
 interface ChatEventControllerOptions {
   conversationId: string;
   initialUserContent?: string;
+  initialMediaFiles?: MediaFile[];
   external?: {
     channel: string;
     from: string;
@@ -213,6 +217,7 @@ export function stopAllChatEventControllers() {
 export function startChatEventController({
   conversationId,
   initialUserContent = '',
+  initialMediaFiles,
   external,
   origin,
   adapter,
@@ -239,6 +244,8 @@ export function startChatEventController({
     isLoading: true,
     sendFailureMessage: null,
     sendFailureRetryable: false,
+    sendFailureRetryContent: null,
+    sendFailureRetryMediaFiles: [],
   });
 
   const noop = () => { /* no-op */ };
@@ -444,7 +451,7 @@ export function startChatEventController({
     if (event.content && !event.done && !event.error) {
       currentTurnId = event.turnId || currentTurnId;
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
-      if (!ensureAssistantNode(backendAssistantId)) return;
+      if (!ensureAssistantNode(backendAssistantId) && !currentAssistantNodeId) return;
       const assistantNodeId = currentAssistantNodeId;
       if (!assistantNodeId) return;
       if (!streamingAnnounced) {
@@ -707,6 +714,8 @@ export function startChatEventController({
         streamingMessageId: null,
         sendFailureMessage,
         sendFailureRetryable: true,
+        sendFailureRetryContent: initialUserContent || null,
+        sendFailureRetryMediaFiles: initialMediaFiles ?? [],
       });
     },
   };

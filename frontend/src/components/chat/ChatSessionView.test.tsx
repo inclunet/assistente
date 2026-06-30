@@ -79,6 +79,7 @@ const chatStoreState = {
   setConversationDraftMessage: vi.fn(),
   setConversationDraftMediaFiles: vi.fn(),
   clearConversationDraft: vi.fn(),
+  clearConversationSendFailure: vi.fn(),
   setConversationEditingMessageId: vi.fn(),
   setConversationReadingMessageId: vi.fn(),
   toggleConversationThreadExpanded: vi.fn(),
@@ -290,10 +291,13 @@ describe('ChatSessionView', () => {
     chatStoreState.sessionsByConversationId[conversationId].hasOlderMessages = false;
     chatStoreState.sessionsByConversationId[conversationId].isLoadingOlderMessages = false;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureMessage?: string | null; sendFailureRetryable?: boolean }).sendFailureMessage = null;
-    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryable?: boolean }).sendFailureRetryable = false;
+    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryable?: boolean; sendFailureRetryContent?: string | null; sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryable = false;
+    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryContent?: string | null }).sendFailureRetryContent = null;
+    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryMediaFiles = [];
     (activeConversation.threadedMessages as unknown[]) = [];
     (announce as ReturnType<typeof vi.fn>).mockReset();
     chatStoreState.cancelStreaming.mockReset();
+    chatStoreState.clearConversationSendFailure.mockReset();
     chatStoreState.surfaceSessionsByKey = {};
     modalState.open = false;
     contextMenuState.visible = true;
@@ -502,6 +506,8 @@ describe('ChatSessionView', () => {
       ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
       sendFailureMessage: 'Falha ao enviar pela sessão',
       sendFailureRetryable: false,
+      sendFailureRetryContent: null,
+      sendFailureRetryMediaFiles: [],
     };
     renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />);
 
