@@ -245,7 +245,7 @@ func runMigrationList(database *gorm.DB, phase migrationPhase, migrations []migr
 				// user_version reflete a maior versão CONTÍGUA (ver
 				// syncUserVersion), não saltando à frente da pendente.
 				if errors.Is(rerr, errMigrationDeferred) {
-					logging.Errorf(context.Background(), "database.migrator", "[Migration] v%d %q adiada — será retentada no próximo boot: %v", m.Version, m.Name, rerr)
+					logging.Warnf(context.Background(), "database.migrator", "[Migration] v%d %q adiada — será retentada no próximo boot: %v", m.Version, m.Name, rerr)
 					continue
 				}
 				return fmt.Errorf("aplicar migração %d (%s): %w", m.Version, m.Name, rerr)

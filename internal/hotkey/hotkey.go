@@ -100,7 +100,7 @@ func (m *Manager) Register(modifiers []hotkey.Modifier, key hotkey.Key, callback
 		cancel:    cancel,
 	}
 
-	logging.Errorf(context.Background(), "hotkey.hotkey", "Hotkey registrado: ID=%d, Modifiers=%v, Key=%v", id, modifiers, key)
+	logging.Infof(context.Background(), "hotkey.hotkey", "Hotkey registrado: ID=%d, Modifiers=%v, Key=%v", id, modifiers, key)
 	return id, nil
 }
 

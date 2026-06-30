@@ -143,7 +143,7 @@ func (l *MediaHistoryLoader) convertMediaParts(ctx context.Context, mediaParts [
 		case strings.HasPrefix(mediaType, "audio/"):
 			// Se já temos transcrição no Content, não re-transcreve o áudio
 			if hasTextContent {
-				logging.Infof(context.Background(), "chat.media", "[Media] Áudio ignorado no histórico — já temos transcrição no content")
+				logging.Infof(ctx, "chat.media", "[Media] Áudio ignorado no histórico — já temos transcrição no content")
 				continue
 			}
 			content = append(content, l.convertAudioPart(ctx, data, mediaType)...)

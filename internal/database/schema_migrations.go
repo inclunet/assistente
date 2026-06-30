@@ -232,7 +232,7 @@ func ensureUsernameCaseInsensitive() error {
 	}
 
 	if len(legacyMixedCase) > 0 {
-		logging.Errorf(context.Background(), "database.schema-migrations", "[Database] usernames legacy normalizados para lowercase: %d", len(legacyMixedCase))
+		logging.Infof(context.Background(), "database.schema-migrations", "[Database] usernames legacy normalizados para lowercase: %d", len(legacyMixedCase))
 	}
 
 	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_unique ON users (LOWER(username))`).Error; err != nil {

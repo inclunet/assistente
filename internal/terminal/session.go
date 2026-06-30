@@ -174,7 +174,7 @@ func newSession(name, workDir, shell string, onOutput outputCallback, onRawOutpu
 	// Goroutine para ler output do PTY em background
 	go s.readLoop(ctx)
 
-	logging.Infof(context.Background(), "terminal.session", "[Terminal] Sessão criada: id=%s name=%s shell=%s cwd=%s", s.id, s.name, s.shell, s.cwd)
+	logging.Infof(ctx, "terminal.session", "[Terminal] Sessão criada: id=%s name=%s shell=%s cwd=%s", s.id, s.name, s.shell, s.cwd)
 	return s, nil
 }
 
