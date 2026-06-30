@@ -444,6 +444,54 @@ describe('chatEventController', () => {
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
 
+  it('preenche erro de chat:stream no assistant já criado mesmo sem messageId terminal', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-existing',
+      name: 'buscar',
+      callId: 'call-1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      error: 'boom sem id terminal',
+      turnId: 'user-1',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[0].message.id).toBe('assistant-db-existing');
+    expect(messages[0].message.content).toBe('Erro: boom sem id terminal');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-existing');
+  });
+
+  it('preenche erro de chat:done no assistant já criado mesmo sem assistantMessageId terminal', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-existing',
+      started: true,
+    });
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      hadToolCalls: false,
+      errorMessage: 'done sem id terminal',
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[0].message.id).toBe('assistant-db-existing');
+    expect(messages[0].message.content).toBe('Erro: done sem id terminal');
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-existing');
+  });
+
   it('mostra tool calls antes do primeiro chunk usando assistantMessageId persistido', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 

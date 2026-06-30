@@ -441,7 +441,7 @@ export function startChatEventController({
     if (event.error) {
       currentTurnId = event.turnId || currentTurnId;
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
-      const hasAssistantNode = ensureAssistantNode(backendAssistantId);
+      const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       flushStreamingUpdate();
       announce(String(event.error || '').trim(), 'assertive');
       playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
@@ -591,7 +591,7 @@ export function startChatEventController({
 
     if (event.errorMessage) {
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
-      const hasAssistantNode = ensureAssistantNode(backendAssistantId);
+      const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       flushStreamingUpdate();
       announce(String(event.errorMessage || '').trim(), 'assertive');
       playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
