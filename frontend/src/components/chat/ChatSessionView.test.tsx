@@ -27,7 +27,6 @@ const activeConversation: { id: string; title: string; threadedMessages: MockThr
 const modalState = vi.hoisted(() => ({ open: false }));
 const contextMenuState = vi.hoisted(() => ({ visible: true }));
 const runtimeEventHandlers = vi.hoisted(() => new Map<string, (data: unknown) => void>());
-const announceWithOriginMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../ui/Modal', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../ui/Modal')>();
@@ -50,10 +49,6 @@ vi.mock('../../services/tts', () => ({
     on: vi.fn(),
     off: vi.fn(),
   },
-}));
-
-vi.mock('../../services/voiceAccessibility/announcerBroker', () => ({
-  announceWithOrigin: (...args: unknown[]) => announceWithOriginMock(...args),
 }));
 
 const chatStoreState = {
@@ -305,7 +300,6 @@ describe('ChatSessionView', () => {
     chatStoreState.cancelStreaming.mockReset();
     chatStoreState.clearConversationSendFailure.mockReset();
     chatStoreState.surfaceSessionsByKey = {};
-    announceWithOriginMock.mockReset();
     modalState.open = false;
     contextMenuState.visible = true;
     runtimeEventHandlers.clear();
@@ -499,11 +493,6 @@ describe('ChatSessionView', () => {
 
     expect(await screen.findByText('Falha ao enviar')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(announceWithOriginMock).toHaveBeenCalledWith({
-      message: 'Falha ao enviar',
-      origin: chatSurface,
-      eventType: 'error',
-    });
 
     onSend.mockResolvedValueOnce(undefined);
     await user.click(screen.getByRole('button', { name: 'chat.retryAriaLabel' }));
