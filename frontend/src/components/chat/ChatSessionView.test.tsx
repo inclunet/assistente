@@ -27,6 +27,7 @@ const activeConversation: { id: string; title: string; threadedMessages: MockThr
 const modalState = vi.hoisted(() => ({ open: false }));
 const contextMenuState = vi.hoisted(() => ({ visible: true }));
 const runtimeEventHandlers = vi.hoisted(() => new Map<string, (data: unknown) => void>());
+const announceWithOriginMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../ui/Modal', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../ui/Modal')>();
@@ -49,6 +50,10 @@ vi.mock('../../services/tts', () => ({
     on: vi.fn(),
     off: vi.fn(),
   },
+}));
+
+vi.mock('../../services/voiceAccessibility/announcerBroker', () => ({
+  announceWithOrigin: (...args: unknown[]) => announceWithOriginMock(...args),
 }));
 
 const chatStoreState = {
@@ -300,6 +305,7 @@ describe('ChatSessionView', () => {
     chatStoreState.cancelStreaming.mockReset();
     chatStoreState.clearConversationSendFailure.mockReset();
     chatStoreState.surfaceSessionsByKey = {};
+    announceWithOriginMock.mockReset();
     modalState.open = false;
     contextMenuState.visible = true;
     runtimeEventHandlers.clear();
@@ -486,12 +492,18 @@ describe('ChatSessionView', () => {
   it('embedded: mostra banner de erro e retry quando onSend falha', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockRejectedValueOnce(new Error('fail'));
-    renderWithPanel(<ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={onSend} showShortcutsHelp={false} />);
+    const chatSurface = surface({ surfaceType: 'embedded' });
+    renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={onSend} showShortcutsHelp={false} />);
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Falha ao enviar');
+    expect(announceWithOriginMock).toHaveBeenCalledWith({
+      message: 'Falha ao enviar',
+      origin: chatSurface,
+      eventType: 'error',
+    });
 
     onSend.mockResolvedValueOnce(undefined);
     await user.click(screen.getByRole('button', { name: 'chat.retryAriaLabel' }));

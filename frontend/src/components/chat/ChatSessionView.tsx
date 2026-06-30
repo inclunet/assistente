@@ -27,6 +27,7 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
+import { announceWithOrigin } from '../../services/voiceAccessibility/announcerBroker';
 import {
   useChatSurfaceController,
   type ChatSurfaceController,
@@ -114,6 +115,7 @@ function ChatSessionViewContent({
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
+  const previousSendErrorAnnouncementRef = useRef<string | null>(null);
   const pendingWindowAnnouncementRef = useRef<{
     kind: 'start' | 'end' | 'older' | 'newer';
     previousStartIndex: number;
@@ -696,6 +698,21 @@ function ChatSessionViewContent({
       retryButtonRef.current.focus();
     }
   }, [effectiveSendError]);
+
+  useEffect(() => {
+    if (!effectiveSendError) {
+      previousSendErrorAnnouncementRef.current = null;
+      return;
+    }
+    if (previousSendErrorAnnouncementRef.current === effectiveSendError) return;
+
+    announceWithOrigin({
+      message: effectiveSendError,
+      origin: { ...origin, conversationId: origin.conversationId ?? undefined },
+      eventType: 'error',
+    });
+    previousSendErrorAnnouncementRef.current = effectiveSendError;
+  }, [effectiveSendError, origin]);
 
   useEffect(() => {
     const windowState = session?.messageWindow;
