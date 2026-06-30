@@ -15,6 +15,7 @@ import { logger } from '../../utils/logger';
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useInteractionProfile } from '../../hooks/useInteractionProfile';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { finishSTTSession, requestSTTStart } from '../../services/voiceAccessibility/sttGate';
 import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
@@ -26,6 +27,8 @@ type TriggerConfig = profiles.TriggerConfig;
 
 // Tipos de modo de interação
 type InteractionMode = 'ptt' | 'toggle' | 'vad' | 'wakeword';
+
+const STT_INTERIM_ANNOUNCE_DELAY_MS = 500;
 
 export interface VoiceButtonProps {
   /** Callback quando transcrição é finalizada */
@@ -48,6 +51,11 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const [isPTTActive, setIsPTTActive] = useState(false);
   const pttTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const { announceRequest } = useAnnouncer();
+  const announceRequestRef = useRef(announceRequest);
+  const interimAnnounceTimeoutRef = useRef<number | null>(null);
+  const pendingInterimMessageRef = useRef('');
+  const lastAnnouncedInterimRef = useRef('');
 
   // Cascata de perfil: tab.profileOverride.slug → workspace.profile → null (global)
   const workspace = useWorkspaceStore((s) => s.workspace);
@@ -60,6 +68,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     () => (panelTab ? buildVoiceAccessibilityOriginFromTab(panelTab, workspace) : undefined),
     [panelTab, workspace],
   );
+  const voiceOriginRef = useRef(voiceOrigin);
 
   const {
     isActive,
@@ -133,6 +142,55 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     finishSTTSession(voiceOrigin);
     setIsPTTActive(false);
   }, [cancelInteraction, isActive, isListeningState, isPTTActive, isPanelActive, voiceOrigin]);
+
+  useEffect(() => {
+    announceRequestRef.current = announceRequest;
+  }, [announceRequest]);
+
+  useEffect(() => {
+    voiceOriginRef.current = voiceOrigin;
+  }, [voiceOrigin]);
+
+  useEffect(() => {
+    const clearPendingTimer = () => {
+      if (interimAnnounceTimeoutRef.current !== null) {
+        window.clearTimeout(interimAnnounceTimeoutRef.current);
+        interimAnnounceTimeoutRef.current = null;
+      }
+    };
+
+    const announcePendingInterim = () => {
+      const pendingMessage = pendingInterimMessageRef.current;
+      pendingInterimMessageRef.current = '';
+      if (!pendingMessage || lastAnnouncedInterimRef.current === pendingMessage) return;
+
+      lastAnnouncedInterimRef.current = pendingMessage;
+      announceRequestRef.current({
+        message: pendingMessage,
+        origin: voiceOriginRef.current,
+        eventType: 'progress',
+      });
+    };
+
+    const message = interimText.trim();
+    clearPendingTimer();
+
+    if (!message) {
+      announcePendingInterim();
+      lastAnnouncedInterimRef.current = '';
+      return;
+    }
+
+    pendingInterimMessageRef.current = message;
+    interimAnnounceTimeoutRef.current = window.setTimeout(() => {
+      interimAnnounceTimeoutRef.current = null;
+      announcePendingInterim();
+    }, STT_INTERIM_ANNOUNCE_DELAY_MS);
+
+    return () => {
+      clearPendingTimer();
+    };
+  }, [interimText]);
 
   const startInteractionWithGate = useCallback((): boolean => {
     if (!requestSTTStart({ origin: voiceOrigin, cancel: cancelInteraction })) return false;
@@ -400,7 +458,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     <div className={`voice-button-container ${className}`}>
       {/* Texto interim (preview da transcrição) */}
       {interimText && (
-        <div className="voice-button__interim" aria-live="polite">
+        <div className="voice-button__interim">
           {interimText}
         </div>
       )}
