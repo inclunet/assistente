@@ -39,8 +39,7 @@ export function SignalRegistrationFlow({
   const previousAnnouncementRef = useRef('');
 
   useEffect(() => {
-    const message = regError
-      || (regStep === 'registering' ? t('channels.signalRegistration.sending') : '')
+    const message = (regStep === 'registering' ? t('channels.signalRegistration.sending') : '')
       || (regStep === 'done'
         ? `${account} ${t('channels.signalRegistration.registeredSuccess')}`
         : '');
@@ -49,9 +48,9 @@ export function SignalRegistrationFlow({
       return;
     }
     if (message === previousAnnouncementRef.current) return;
-    announce(message, regError ? 'assertive' : 'polite');
+    announce(message);
     previousAnnouncementRef.current = message;
-  }, [account, announce, regError, regStep, t]);
+  }, [account, announce, regStep, t]);
 
   return (
     <>

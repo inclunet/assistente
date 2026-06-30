@@ -262,8 +262,8 @@ describe('ChatPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Falha ao enviar');
+    expect(await screen.findByText('Falha ao enviar')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
     sendMessageMock.mockResolvedValueOnce(undefined);
     // Mock i18n returns translation keys as literal strings

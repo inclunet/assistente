@@ -497,8 +497,8 @@ describe('ChatSessionView', () => {
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Falha ao enviar');
+    expect(await screen.findByText('Falha ao enviar')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(announceWithOriginMock).toHaveBeenCalledWith({
       message: 'Falha ao enviar',
       origin: chatSurface,
@@ -524,8 +524,8 @@ describe('ChatSessionView', () => {
     };
     renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />);
 
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Falha ao enviar pela sessão');
+    expect(await screen.findByText('Falha ao enviar pela sessão')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
   });
 
@@ -540,13 +540,14 @@ describe('ChatSessionView', () => {
     };
     renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Falha ao enviar pela sessão');
+    expect(await screen.findByText('Falha ao enviar pela sessão')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: 'Escape' });
 
     expect(chatStoreState.clearConversationSendFailure).toHaveBeenCalledWith(conversationId, chatSurface.sessionKey);
     await waitFor(() => {
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.queryByText('Falha ao enviar pela sessão')).not.toBeInTheDocument();
     });
   });
 
@@ -573,7 +574,8 @@ describe('ChatSessionView', () => {
       <ChatSessionView variant="embedded" surface={chatSurface} onSend={onSend} showShortcutsHelp={false} />,
     );
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Falha ao enviar pela sessão');
+    expect(await screen.findByText('Falha ao enviar pela sessão')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'send' }));
     rerender(
@@ -582,7 +584,8 @@ describe('ChatSessionView', () => {
       </WorkspacePanelProvider>,
     );
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Falha ao enviar pela sessão');
+    expect(await screen.findByText('Falha ao enviar pela sessão')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('embedded: permite retry de falha persistida com mídia sem texto', async () => {

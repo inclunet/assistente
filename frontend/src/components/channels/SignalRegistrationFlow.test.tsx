@@ -90,7 +90,7 @@ describe('SignalRegistrationFlow', () => {
       <SignalRegistrationFlow {...defaultProps} regStep="registering" />
     );
 
-    expect(announceMock).toHaveBeenCalledWith('Enviando código...', 'polite');
+    expect(announceMock).toHaveBeenCalledWith('Enviando código...');
 
     rerender(<SignalRegistrationFlow {...defaultProps} regStep="idle" />);
     rerender(<SignalRegistrationFlow {...defaultProps} regStep="registering" />);

@@ -530,6 +530,7 @@ export default function ChannelsPage() {
       const msg = t('channels.error.signalAccountAndUrlRequired');
       setSignalRegError(msg);
       addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(msg, 'assertive');
       return;
     }
     const apiToken = signalForm.apiToken.trim();
@@ -549,6 +550,7 @@ export default function ChannelsPage() {
       const msg = getErrorMessage(error) || t('channels.error.signalRegisterFailed');
       setSignalRegError(msg);
       addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(msg, 'assertive');
     }
   };
 
@@ -556,6 +558,7 @@ export default function ChannelsPage() {
     if (!signalRegCode) {
       const msg = t('channels.error.verificationCodeRequired');
       setSignalRegError(msg);
+      announce(msg, 'assertive');
       return;
     }
     const apiToken = signalForm.apiToken.trim();
@@ -572,6 +575,7 @@ export default function ChannelsPage() {
       const msg = getErrorMessage(error) || t('channels.error.signalVerifyFailed');
       setSignalRegError(msg);
       addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(msg, 'assertive');
     }
   };
 

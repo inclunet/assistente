@@ -945,6 +945,7 @@ function ChatSessionViewContent({
           <Alert
 
             type="error"
+            role="presentation"
             showIcon
             closable
             message={effectiveSendError}
