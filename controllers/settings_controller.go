@@ -177,7 +177,7 @@ func (c *SettingsController) ClearAllCredentials(ctx context.Context) error {
 		}
 		deleted++
 	}
-	logging.Errorf(ctx, "controllers.settings-controller", "[ClearAllCredentials] %d credenciais apagadas (escopo do usuário autenticado)", deleted)
+	logging.Infof(ctx, "controllers.settings-controller", "[ClearAllCredentials] %d credenciais apagadas (escopo do usuário autenticado)", deleted)
 	c.emitter.Emit("credentials:cleared", nil)
 	return nil
 }

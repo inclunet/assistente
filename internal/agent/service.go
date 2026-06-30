@@ -107,7 +107,7 @@ func (s *Service) StreamSimpleWithRecovery(
 			return
 		}
 		if err != nil {
-			logging.Errorf(context.Background(), "agent.service", "[Chat] falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
+			logging.Errorf(ctx, "agent.service", "[Chat] falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
 			s.emitPlaceholderErrorDone(conversationID, turnID, surfaceOrigin)
 			return
 		}
