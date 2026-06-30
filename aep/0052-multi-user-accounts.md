@@ -97,7 +97,7 @@ Se a DEK não estiver disponível (keyring vazio + não houve unlock), o servido
 
 - `GET /vault/status`
 - `POST /vault/unlock` (senha mestre do cofre ou recovery key)
-- `POST /vault/setup` (apenas no primeiro uso, quando ainda não há wraps)
+- `POST /vault/setup` (apenas no primeiro uso, quando ainda não há wraps; restrito a loopback até o bootstrap concluir)
 
 ### D4. Dois modos de autenticação/autorização
 
@@ -152,6 +152,7 @@ Endpoints mínimos (local mode):
 
 Segurança:
 
+- Durante o primeiro uso, `/vault/setup` só aceita conexões loopback (`127.0.0.1`/localhost). Bind em rede só é permitido após cofre e admin local existirem.
 - HTTPS é **obrigatório** quando o bind não for localhost.
 - HTTP puro só permitido em `127.0.0.1` e/ou modo dev explícito.
 
@@ -266,21 +267,22 @@ Exceção explícita: segredos de instância usam `credential_entries` com `user
 
 ### Fase 3 — Scoping por `user_id`
 
-11. Adicionar `user_id` em `llm_providers`, `conversations`, `task_lists` e ativar uso user-scoped de `credential_entries`.
-12. Atualizar repositories/queries para enforcement central de `user_id`.
-13. Migração/backfill para instalações existentes:
+11. Adicionar `user_id` em `llm_providers`, `conversations` e `task_lists`.
+12. Migração/backfill para instalações existentes:
    - criar/associar o admin local antes do backfill;
    - normalizar segredos internos `internal-auth:*` e `internal-tls:*` para `credential_entries.user_id = ''`;
-   - atribuir o `user_id` do admin aos demais `credential_entries` legados.
+   - atribuir o `user_id` do admin aos demais `credential_entries` legados;
+   - preencher `user_id` dos demais recursos legados antes de expor repositories user-scoped.
+13. Atualizar repositories/queries para enforcement central de `user_id` e ativar uso user-scoped de `credential_entries`.
 
 ### Fase 4 — HTTP API local + TLS
 
-13. Rodar servidor `net/http` embutido no backend com endpoints `/vault/*`, `/auth/*` e `/.well-known/jwks.json`.
-14. HTTPS obrigatório quando bind não for localhost.
+14. Rodar servidor `net/http` embutido no backend com endpoints `/vault/*`, `/auth/*` e `/.well-known/jwks.json`.
+15. HTTPS obrigatório quando bind não for localhost.
 
 ### Fase 5 — Modo `external` (IdP)
 
-15. Implementar validação JWKS (IdP) e enforcement por scopes/roles, sem token exchange.
+16. Implementar validação JWKS (IdP) e enforcement por scopes/roles, sem token exchange.
 
 ---
 
