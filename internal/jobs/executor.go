@@ -97,7 +97,7 @@ func (e *JobExecutor) Execute(ctx context.Context, job *Job, trigCtx *TriggerCon
 		ctx = logging.WithAttrs(ctx, slog.String("trigger_event", trigCtx.EventName))
 	}
 	if trigCtx.ChainID != "" {
-		ctx = logging.WithAttrs(ctx, slog.String("chain_id", trigCtx.ChainID))
+		ctx = logging.WithAttrs(ctx, slog.String("trigger_chain_id", trigCtx.ChainID))
 	}
 	logger := logging.Logger(ctx, "jobs.executor")
 
@@ -338,14 +338,12 @@ func (e *JobExecutor) executeSingle(ctx context.Context, job *Job, trigCtx *Trig
 				output["content"] = result.Content
 				logger.Debug("tool output stored as raw string", slog.Int("content_length", len(result.Content)))
 			}
-		} else {
-			logger.Debug("tool output parsed as object", slog.Any("keys", func() []string {
-				keys := make([]string, 0, len(output))
-				for k := range output {
-					keys = append(keys, k)
-				}
-				return keys
-			}()))
+		} else if logger.Enabled(ctx, slog.LevelDebug) {
+			keys := make([]string, 0, len(output))
+			for k := range output {
+				keys = append(keys, k)
+			}
+			logger.Debug("tool output parsed as object", slog.Any("keys", keys))
 		}
 	}
 	if result.Metadata != nil {
