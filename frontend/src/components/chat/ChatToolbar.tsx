@@ -64,7 +64,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const announceRequestRef = useRef(announceRequest);
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
 
-  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const workspace = useWorkspaceStore((s) => s.workspace);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
   const addToast = useUIStore((s) => s.addToast);
@@ -75,7 +74,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const voiceOriginRef = useRef(voiceOrigin);
 
   const tabProfileSlug = panelTab.profileOverride?.slug as string | undefined;
-  const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
+  const effectiveProfileSlug = tabProfileSlug || workspace?.profile || '';
 
   const historyPickerRef = useRef<HistoryPickerRef>(null);
   const profilePickerRef = useRef<ProfilePickerRef>(null);
