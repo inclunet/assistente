@@ -184,8 +184,6 @@ export function McpConnectionSection({
 
             <div
               id={discoveryLiveId}
-
-
               className="mcp-discovery-live"
             >
               {discoveryLiveText}

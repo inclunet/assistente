@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from './Modal';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import './QuestionnaireDialog.css';
 
 export type QuestionnaireQuestionType =
@@ -58,6 +59,7 @@ function isEmptyValue(value: unknown, type: QuestionnaireQuestionType): boolean 
 }
 
 export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: QuestionnaireDialogProps) {
+  const { announce } = useAnnouncer();
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -93,6 +95,10 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
 
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
+      const firstError = Object.values(nextErrors)[0];
+      if (firstError) {
+        announce(firstError, 'assertive');
+      }
       return;
     }
 

@@ -1,4 +1,5 @@
-import { InputHTMLAttributes, forwardRef, useId } from 'react';
+import { InputHTMLAttributes, forwardRef, useEffect, useId, useRef } from 'react';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import './Input.css';
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -10,16 +11,25 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ label, error, hint, fullWidth = false, className = '', id: externalId, ...props }, ref) => {
+    const { announce } = useAnnouncer();
     const autoId = useId();
     const inputId = externalId || autoId;
     const errorId = error ? `${inputId}-error` : undefined;
     const hintId = hint ? `${inputId}-hint` : undefined;
+    const previousErrorRef = useRef<string | undefined>();
 
     const describedBy = [
       props['aria-describedby'],
       errorId,
       hintId,
     ].filter(Boolean).join(' ') || undefined;
+
+    useEffect(() => {
+      if (error && error !== previousErrorRef.current) {
+        announce(error, 'assertive');
+      }
+      previousErrorRef.current = error;
+    }, [announce, error]);
 
     return (
       <div className={`input-wrapper ${fullWidth ? 'input-wrapper--full-width' : ''}`}>

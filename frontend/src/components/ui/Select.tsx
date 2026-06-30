@@ -1,4 +1,5 @@
-import { forwardRef, SelectHTMLAttributes, useId } from 'react';
+import { forwardRef, SelectHTMLAttributes, useEffect, useId, useRef } from 'react';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import './Select.css';
 
 export interface SelectOption {
@@ -17,16 +18,25 @@ export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
   ({ label, error, hint, fullWidth, options, className = '', id: externalId, ...props }, ref) => {
+    const { announce } = useAnnouncer();
     const autoId = useId();
     const selectId = externalId || autoId;
     const errorId = error ? `${selectId}-error` : undefined;
     const hintId = hint ? `${selectId}-hint` : undefined;
+    const previousErrorRef = useRef<string | undefined>();
 
     const describedBy = [
       props['aria-describedby'],
       errorId,
       hintId,
     ].filter(Boolean).join(' ') || undefined;
+
+    useEffect(() => {
+      if (error && error !== previousErrorRef.current) {
+        announce(error, 'assertive');
+      }
+      previousErrorRef.current = error;
+    }, [announce, error]);
 
     return (
       <div className={`select-wrapper ${fullWidth ? 'select-wrapper--full' : ''}`}>

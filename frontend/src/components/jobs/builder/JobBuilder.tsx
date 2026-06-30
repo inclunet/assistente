@@ -15,6 +15,7 @@ import { OutputExplorer } from './OutputExplorer';
 import { TemplateEditor } from './TemplateEditor';
 import { YAMLPreview } from './YAMLPreview';
 import { useJobStore } from '../../../store/jobStore';
+import { useAnnouncer } from '../../../hooks/useAnnouncer';
 import { ListKnownEvents, InferEventSchema } from '@wailsjs/go/app/App';
 import { jobs } from '@wailsjs/go/models';
 import './JobBuilder.css';
@@ -157,6 +158,7 @@ function hasArraysInData(data: Record<string, unknown> | null): boolean {
 
 export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const { saveJob, testTool, fetchToolCatalog } = useJobStore();
 
   const isEditing = Boolean(editJob);
@@ -206,6 +208,11 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
   const [yamlOpen, setYamlOpen] = useState(false);
 
   const outputHasArrays = useMemo(() => hasArraysInData(testOutput), [testOutput]);
+
+  const showError = useCallback((message: string) => {
+    setError(message);
+    announce(message, 'assertive');
+  }, [announce]);
 
   const templateContext = useMemo(() => {
     const ctx: { output?: Record<string, unknown>; event?: Record<string, unknown> } = {};
@@ -315,14 +322,14 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
           testResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         });
       } else if (result?.error) {
-        setError(result.error);
+        showError(result.error);
       }
     } catch (err) {
-      setError(String(err));
+      showError(String(err));
     } finally {
       setTesting(false);
     }
-  }, [draft.tool, draft.inputs, draft.triggers, testTool, eventSchema, hasEventTrigger]);
+  }, [draft.tool, draft.inputs, draft.triggers, testTool, eventSchema, hasEventTrigger, showError]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -355,11 +362,11 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
       onSaved?.();
       onClose();
     } catch (err) {
-      setError(String(err));
+      showError(String(err));
     } finally {
       setSaving(false);
     }
-  }, [draft, saveJob, onClose, onSaved]);
+  }, [draft, saveJob, onClose, onSaved, showError, testOutput]);
 
   const handleFanoutSelect = useCallback((path: string) => {
     updateEvents('for_each', path);

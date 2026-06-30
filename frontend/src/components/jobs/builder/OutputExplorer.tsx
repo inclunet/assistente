@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useAnnouncer } from '../../../hooks/useAnnouncer';
 import './OutputExplorer.css';
 
 interface OutputExplorerProps {
@@ -100,6 +101,7 @@ function buildInitialExpanded(data: Record<string, unknown>): Set<string> {
 
 export function OutputExplorer({ data, onSelectPath, autoFocus = false, highlightArrays = false }: OutputExplorerProps) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
 
   const [expandedSet, setExpandedSet] = useState<Set<string>>(() =>
     data ? buildInitialExpanded(data) : new Set(),
@@ -174,12 +176,13 @@ export function OutputExplorer({ data, onSelectPath, autoFocus = false, highligh
     const template = `{{ .output.${path} }}`;
     navigator.clipboard.writeText(template).then(() => {
       setCopiedPath(path);
+      announce(t('jobs.builder.treeCopiedTemplate', { path: template }));
       clearTimeout(copiedTimerRef.current);
       copiedTimerRef.current = setTimeout(() => setCopiedPath(null), 1500);
     }).catch(() => {
       // fallback: noop
     });
-  }, []);
+  }, [announce, t]);
 
   const activateNode = useCallback((node: FlatNode) => {
     if (onSelectPathRef.current) {

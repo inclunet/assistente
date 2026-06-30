@@ -553,7 +553,9 @@ export default function ChannelsPage() {
 
   const handleSignalVerify = async () => {
     if (!signalRegCode) {
-      setSignalRegError('Informe o código de verificação');
+      const msg = t('channels.error.verificationCodeRequired');
+      setSignalRegError(msg);
+      announce(msg, 'assertive');
       return;
     }
     const apiToken = signalForm.apiToken.trim();
@@ -614,7 +616,9 @@ export default function ChannelsPage() {
 
   const handleSignalLink = async () => {
     if (!signalForm.apiURL) {
-      setSignalRegError(t('channels.error.signalApiUrlRequired'));
+      const msg = t('channels.error.signalApiUrlRequired');
+      setSignalRegError(msg);
+      announce(msg, 'assertive');
       return;
     }
     const apiToken = signalForm.apiToken.trim();
