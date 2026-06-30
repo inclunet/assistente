@@ -146,6 +146,18 @@ describe('McpConnectionSection — Discovery states', () => {
     rerender(<McpConnectionSection {...baseProps} discoveryStatus="not_found" />);
     expect(announceMock).toHaveBeenCalledWith('Metadados OAuth não detectados. Configure manualmente.');
   });
+
+  it('reanuncia loading quando discovery volta para idle entre tentativas', () => {
+    const { rerender } = renderWith({ discoveryStatus: 'loading' });
+
+    expect(announceMock).toHaveBeenCalledWith('Verificando configuração OAuth do servidor…');
+    announceMock.mockClear();
+
+    rerender(<McpConnectionSection {...baseProps} discoveryStatus="idle" />);
+    rerender(<McpConnectionSection {...baseProps} discoveryStatus="loading" />);
+
+    expect(announceMock).toHaveBeenCalledWith('Verificando configuração OAuth do servidor…');
+  });
 });
 
 describe('McpConnectionSection — Callback Host (manual mode)', () => {

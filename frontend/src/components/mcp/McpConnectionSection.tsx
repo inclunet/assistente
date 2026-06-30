@@ -135,7 +135,11 @@ export function McpConnectionSection({
   })();
 
   useEffect(() => {
-    if (!discoveryLiveText || discoveryLiveText === previousDiscoveryAnnouncementRef.current) return;
+    if (!discoveryLiveText) {
+      previousDiscoveryAnnouncementRef.current = '';
+      return;
+    }
+    if (discoveryLiveText === previousDiscoveryAnnouncementRef.current) return;
 
     previousDiscoveryAnnouncementRef.current = discoveryLiveText;
     announce(discoveryLiveText);
