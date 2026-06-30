@@ -551,6 +551,26 @@ describe('ChatSessionView', () => {
     expect(announce).toHaveBeenCalledWith('Falha hidratada da sessão', 'assertive');
   });
 
+  it('page: anuncia falha de sessão mesmo com painel inativo', async () => {
+    const chatSurface = surface({ surfaceType: 'page' });
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
+      sendFailureMessage: 'Falha em aba inativa',
+      sendFailureRetryable: false,
+      sendFailureRetryContent: null,
+      sendFailureRetryMediaFiles: [],
+    };
+
+    render(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: false }}>
+        <ChatSessionView variant="page" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />
+      </WorkspacePanelProvider>,
+    );
+
+    expect(await screen.findByText('Falha em aba inativa')).toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('Falha em aba inativa', 'assertive');
+  });
+
   it('embedded: Escape descarta e limpa falha persistida da sessão', async () => {
     const chatSurface = surface({ surfaceType: 'embedded' });
     (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {

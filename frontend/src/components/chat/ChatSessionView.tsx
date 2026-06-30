@@ -707,11 +707,11 @@ function ChatSessionViewContent({
       lastAnnouncedSessionSendFailureRef.current = null;
       return;
     }
-    if (!isInteractiveSurface || sendError || lastAnnouncedSessionSendFailureRef.current === sessionFailureToAnnounce) return;
+    if (sendError || lastAnnouncedSessionSendFailureRef.current === sessionFailureToAnnounce) return;
 
     lastAnnouncedSessionSendFailureRef.current = sessionFailureToAnnounce;
     announce(sessionFailureToAnnounce, 'assertive');
-  }, [announce, dismissedSessionSendError, isInteractiveSurface, sendError, sessionSendFailureMessage]);
+  }, [announce, dismissedSessionSendError, sendError, sessionSendFailureMessage]);
 
   useEffect(() => {
     const windowState = session?.messageWindow;
