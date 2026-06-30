@@ -356,6 +356,7 @@ describe('chatEventController', () => {
     expect(messages).toHaveLength(1);
     expect(messages[0].message.id).toBe('user-1');
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBeNull();
+    expect(sessions['conversation-1'].sendFailureMessage).toBe('boom');
     expect(mockAnnounce).toHaveBeenCalledWith('boom', 'assertive');
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });

@@ -457,10 +457,13 @@ export function startChatEventController({
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       flushStreamingUpdate();
-      announce(String(event.error || '').trim(), 'assertive');
+      const errorMessage = String(event.error || '').trim();
+      announce(errorMessage, 'assertive');
       playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
       if (hasAssistantNode) {
-        updateEmptyAssistantWithError(String(event.error || '').trim());
+        updateEmptyAssistantWithError(errorMessage);
+      } else {
+        patchCurrentSession({ sendFailureMessage: errorMessage });
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
@@ -607,10 +610,13 @@ export function startChatEventController({
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       flushStreamingUpdate();
-      announce(String(event.errorMessage || '').trim(), 'assertive');
+      const errorMessage = String(event.errorMessage || '').trim();
+      announce(errorMessage, 'assertive');
       playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
       if (hasAssistantNode) {
-        updateEmptyAssistantWithError(String(event.errorMessage || '').trim());
+        updateEmptyAssistantWithError(errorMessage);
+      } else {
+        patchCurrentSession({ sendFailureMessage: errorMessage });
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
