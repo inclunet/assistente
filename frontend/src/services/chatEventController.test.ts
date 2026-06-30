@@ -468,6 +468,36 @@ describe('chatEventController', () => {
     });
   });
 
+  it('não bloqueia criação posterior quando a conversa ainda não está carregada', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    sessions['conversation-1'].conversation = null;
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-delayed',
+      name: 'buscar',
+      callId: 'call-1',
+    });
+
+    sessions['conversation-1'].conversation = createConversation('conversation-1');
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      messageId: 'assistant-db-delayed',
+      content: 'resposta após carregar',
+      done: false,
+    });
+    vi.runOnlyPendingTimers();
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages.map((node) => node.message.id)).toEqual(['assistant-db-delayed']);
+    expect(messages[0].message.content).toBe('resposta após carregar');
+  });
+
   it('preserva reasoning final antes do primeiro chunk usando assistantMessageId persistido', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 

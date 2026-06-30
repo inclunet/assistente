@@ -251,17 +251,18 @@ export function startChatEventController({
     const backendMessageId = messageId && messageId !== '' ? messageId : null;
     if (!backendMessageId) return false;
     currentAssistantNodeId = backendMessageId;
-    if (assistantNodeCreated) return true;
-    assistantNodeCreated = true;
     const session = getCurrentSession();
     if (!session.conversation) return false;
+    if (assistantNodeCreated) return true;
     if (hasMessageId(session.conversation.threadedMessages, backendMessageId)) {
+      assistantNodeCreated = true;
       patchCurrentSession({
         streamingMessageId: backendMessageId,
         lastInterruptedMessageId: null,
       });
       return true;
     }
+    assistantNodeCreated = true;
     const assistantMsg = new chat.EnrichedMessage({
       id: backendMessageId,
       role: 'assistant',
