@@ -627,8 +627,8 @@ const es = {
         ok: 'OK',
       },
       signalLink: {
-        generateQr: 'Generar código QR',
-        regionLabel: 'Código QR de vinculación Signal',
+        generateQr: 'Generar QR de vinculación',
+        regionLabel: 'Código QR de vinculación de Signal',
         scanQr: 'Escanea el código QR con Signal en el teléfono:',
         qrAlt: 'Código QR para vincular dispositivo Signal',
         generating: 'Generando código QR...',
@@ -1622,7 +1622,7 @@ const es = {
         counter: '{{current}} de {{total}}',
         defaultAlt: 'Imagen',
         openHint: 'Clic, Enter o Espacio para ampliar',
-        zoomLevel: 'Zoom {{percent}}%',
+        zoomLevel: 'Nivel de zoom {{percent}}%',
       },
       toast: { close: 'Cerrar notificación' },
       dataGrid: {
@@ -2974,7 +2974,7 @@ const es = {
         treeCopiedTemplate: 'Copiado: {{path}}',
         testTool: 'Probar herramienta',
         testing: 'Probando...',
-        testSuccess: 'Prueba de herramienta completada con éxito',
+        testSuccess: 'Prueba de herramienta completada con éxito.',
         testResult: 'Resultado de la prueba',
         lastTestOutput: 'Salida de la última prueba',
         outputReference: 'Haga clic en un campo del output para usarlo como for_each:',
