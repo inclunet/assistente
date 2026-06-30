@@ -175,6 +175,39 @@ describe('ChatMessage', () => {
     });
   });
 
+  it('anuncia progresso agêntico sem texto pelo broker global', () => {
+    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const streamingMessage = new chat.EnrichedMessage({
+      id: 'assistant-tool-1',
+      conversationId,
+      role: 'assistant',
+      content: '',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+
+    render(
+      <ChatMessage
+        message={streamingMessage}
+        origin={origin}
+        completedSegments={[
+          {
+            type: 'tool_calls',
+            toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+          },
+        ]}
+      />
+    );
+
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'chat.progressLabel',
+      origin,
+      eventType: 'progress',
+    });
+  });
+
   it('adia renderizacao de markdown grande ate entrar na area visivel', async () => {
     let observerCallback: IntersectionObserverCallback | null = null;
     class MockIntersectionObserver {

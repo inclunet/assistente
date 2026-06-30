@@ -231,17 +231,19 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     const text = conclusionContent.trim();
     if (effectiveIsStreaming) {
       wasStreamingRef.current = true;
-      if (!text) return;
+      const message = text || (isAgenticStreaming ? t('chat.progressLabel') : '');
+      if (!message) return;
 
       const previous = previousStreamingAnnouncementRef.current;
-      const progressedEnough = text.length - previous.length >= 80;
-      const reachedSentenceBoundary = /[.!?…]\s*$/.test(text);
-      if (previous && !progressedEnough && !reachedSentenceBoundary) return;
-      if (previous === text) return;
+      const replacedProgressMessage = previous !== '' && !message.startsWith(previous);
+      const progressedEnough = message.length - previous.length >= 80;
+      const reachedSentenceBoundary = /[.!?…]\s*$/.test(message);
+      if (previous === message) return;
+      if (previous && !replacedProgressMessage && !progressedEnough && !reachedSentenceBoundary) return;
 
-      previousStreamingAnnouncementRef.current = text;
+      previousStreamingAnnouncementRef.current = message;
       announceRequest({
-        message: text,
+        message,
         origin,
         eventType: 'progress',
       });
@@ -262,7 +264,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       origin,
       eventType: 'completion',
     });
-  }, [announceRequest, conclusionContent, effectiveIsStreaming, origin, role]);
+  }, [announceRequest, conclusionContent, effectiveIsStreaming, isAgenticStreaming, origin, role, t]);
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
