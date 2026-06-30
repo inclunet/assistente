@@ -169,7 +169,7 @@ func (a *App) CreateAdminUser(req CreateAdminRequest) (*database.User, error) {
 	// app_messaging.go.SaveChannelConfig).
 	migrated, adoptErr := channels.AdoptOrphans(user.ID)
 	if len(migrated) > 0 {
-		logging.Errorf(context.Background(), "app.app-auth", "[CreateAdminUser] %d canal(is) legado(s) reatribuído(s) ao admin %s: %v", len(migrated), user.ID, migrated)
+		logging.Infof(context.Background(), "app.app-auth", "[CreateAdminUser] %d canal(is) legado(s) reatribuído(s) ao admin %s: %v", len(migrated), user.ID, migrated)
 	}
 	if adoptErr != nil {
 		// Best-effort: o admin foi criado e é o único que pode adotar

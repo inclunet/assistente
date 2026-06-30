@@ -100,7 +100,7 @@ func (a *App) installBuiltinProfiles() {
 				logging.Infof(context.Background(), "app.builtin-profiles", "[Profiles] Updating builtin profile %s: v%s → v%s", entry.Name(), installedVersion, embeddedProfile.BuiltinVersion)
 			}
 		} else {
-			logging.Errorf(context.Background(), "app.builtin-profiles", "[Profiles] Installing builtin profile %s v%s", entry.Name(), embeddedProfile.BuiltinVersion)
+			logging.Infof(context.Background(), "app.builtin-profiles", "[Profiles] Installing builtin profile %s v%s", entry.Name(), embeddedProfile.BuiltinVersion)
 		}
 
 		toWrite := mergeBuiltinPreservingRuntime(embeddedProfile, existingProfile)

@@ -77,10 +77,10 @@ func (a *App) installBuiltinSkills() {
 				}
 				logging.Infof(context.Background(), "app.builtin-skills", "[Skills] Updating builtin skill %s v%s (content changed)", slug, embeddedMeta.Version)
 			} else {
-				logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Updating builtin skill %s: v%s → v%s", slug, existingMeta.Version, embeddedMeta.Version)
+				logging.Infof(context.Background(), "app.builtin-skills", "[Skills] Updating builtin skill %s: v%s → v%s", slug, existingMeta.Version, embeddedMeta.Version)
 			}
 		} else {
-			logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Installing builtin skill %s v%s", slug, embeddedMeta.Version)
+			logging.Infof(context.Background(), "app.builtin-skills", "[Skills] Installing builtin skill %s v%s", slug, embeddedMeta.Version)
 		}
 
 		if err := os.MkdirAll(targetDir, 0755); err != nil {
@@ -123,7 +123,7 @@ func removeLegacyContextProviderSkills(homeDir string) {
 			cleanupFailed = true
 			continue
 		}
-		logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Backed up legacy context provider skill %s to %s", slug, backupDir)
+		logging.Infof(context.Background(), "app.builtin-skills", "[Skills] Backed up legacy context provider skill %s to %s", slug, backupDir)
 	}
 	if cleanupFailed {
 		logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Legacy context provider cleanup incomplete; marker not written")

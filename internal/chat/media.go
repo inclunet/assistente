@@ -252,7 +252,7 @@ func PreprocessMessages(ctx context.Context, messages []llm.Message, transcribe 
 						transcribed := false
 						if audioData != "" && transcribe != nil {
 							filename := WhisperFilename(audioFmt)
-							logging.Errorf(ctx, "chat.media", "[Preprocess] Tentando transcrever áudio %s via Whisper (filename=%s)", audioFmt, filename)
+							logging.Infof(ctx, "chat.media", "[Preprocess] Tentando transcrever áudio %s via Whisper (filename=%s)", audioFmt, filename)
 							text, err := transcribe(ctx, audioData, filename)
 							if err != nil {
 								logging.Errorf(ctx, "chat.media", "[Preprocess] Erro ao transcrever áudio %s: %v", audioFmt, err)
