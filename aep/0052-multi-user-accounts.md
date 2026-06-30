@@ -2,9 +2,8 @@
 
 **Status**: 📝 Draft  
 **Criado em**: 2026-04-21  
-**Depende de**: AEP-0047 (Import/Export)  
 **Precede**: AEP-0046 (UUIDv7 Migration)  
-**Relacionado**: AEP-0014 (Credential Persistence), AEP-0022 (Welcome Wizard), AEP-0026 (Credential Fixes)
+**Relacionado**: AEP-0014 (Credential Persistence), AEP-0022 (Welcome Wizard), AEP-0026 (Credential Fixes), AEP-0047 (Import/Export)
 
 ---
 
@@ -73,6 +72,8 @@ As AEPs 0046-0051 migram recursos para banco de dados. Ter `user_id` disponível
 6 etapas: Senha Mestre → Recovery Key → Escolher Provider → URL → API Key → Modelo
 
 Detecção: `NeedsWelcomeWizard()` retorna true se o cofre (DEK/wraps) não está inicializado OU não há providers.
+
+Após esta AEP, a detecção também deve retornar true quando não existir usuário admin local, para garantir o bootstrap obrigatório antes de login, providers e sessões.
 
 ---
 
@@ -331,24 +332,30 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
    │ Sim                         │ Não
    ▼                             ▼
 ┌──────────────────────┐      ┌───────────────────────┐
-│ Tela/fluxo de cofre   │      │ Refresh token existe? │
+│ Tela/fluxo de cofre   │      │ Admin local existe?   │
 │ (/vault/setup/unlock) │      └─────────┬─────────────┘
 └──────────┬───────────┘                │
-     │                              │
-     ▼                    ┌─────────┴─────────┐
-   (Cofre destravado)           │ Sim               │ Não
-        ▼                   ▼
-           ┌───────────────────┐  ┌──────────────────┐
-           │ /auth/refresh OK? │  │ Login Screen      │
-           └─────────┬─────────┘  │ (username + senha)│
-         │            └──────────────────┘
-           ┌─────────┴─────────┐
-           │ Sim               │ Não
-           ▼                   ▼
-    ┌───────────────┐   ┌──────────────────┐
-    │ Auto-login     │   │ Login Screen      │
-    │ (sem prompts)  │   │ (username + senha)│
-    └───────────────┘   └──────────────────┘
+     │                         ┌────────┴────────┐
+     ▼                         │ Sim             │ Não
+   (Cofre destravado)          ▼                 ▼
+                     ┌───────────────────────┐  ┌──────────────────┐
+                     │ Refresh token existe? │  │ Criar admin local │
+                     └─────────┬─────────────┘  │ (wizard)          │
+                               │                └──────────────────┘
+                     ┌─────────┴─────────┐
+                     │ Sim               │ Não
+                     ▼                   ▼
+              ┌───────────────────┐  ┌──────────────────┐
+              │ /auth/refresh OK? │  │ Login Screen      │
+              └─────────┬─────────┘  │ (username + senha)│
+                        │            └──────────────────┘
+              ┌─────────┴─────────┐
+              │ Sim               │ Não
+              ▼                   ▼
+       ┌───────────────┐   ┌──────────────────┐
+       │ Auto-login     │   │ Login Screen      │
+       │ (sem prompts)  │   │ (username + senha)│
+       └───────────────┘   └──────────────────┘
 ```
 
 ---
@@ -479,7 +486,7 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
 
 | AEP | Relação |
 |-----|---------|
-| **0047** (Import/Export) | Precede esta. Export/import de recursos precisará considerar user_id |
+| **0047** (Import/Export) | Relacionada. Export/import de recursos deverá considerar `user_id` em evolução própria, sem bloquear esta AEP |
 | **0046** (UUIDv7) | Sucede esta. `users.id` já usa UUIDv7; demais tabelas migram depois |
 | **0048** (Jobs DB) | Sucede esta. Tabela `jobs` terá `user_id` desde o início |
 | **0049** (MCP DB) | Sucede esta. Tabela `mcp_servers` terá `user_id` desde o início |
@@ -491,8 +498,6 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
 ### Ordem de implementação atualizada
 
 ```
-AEP-0047 (Import/Export)
-    ↓
 AEP-0052 (Multi-User — esta)
     ↓
 AEP-0046 (UUIDv7)

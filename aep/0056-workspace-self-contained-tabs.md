@@ -14,7 +14,7 @@ Esta AEP é a fundação arquitetural do trabalho de abas autocontidas. Ela defi
 - AEP-0058: arbitragem global de announcer, TTS e STT;
 - AEP-0059: performance de conversas longas.
 
-Esta AEP usa o número 0056 porque as AEPs 0053, 0054 e 0055 estão sendo tratadas em outros PRs.
+Esta AEP usa o número 0056 porque as AEPs 0053, 0054 e 0055 já estavam reservadas ou sendo tratadas em PRs próprios.
 
 ## Motivação
 
