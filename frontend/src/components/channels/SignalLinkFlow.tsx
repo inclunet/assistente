@@ -28,7 +28,11 @@ export function SignalLinkFlow({
     : '';
 
   useEffect(() => {
-    if (!progressAnnouncement || progressAnnouncement === previousAnnouncementRef.current) return;
+    if (!progressAnnouncement) {
+      previousAnnouncementRef.current = '';
+      return;
+    }
+    if (progressAnnouncement === previousAnnouncementRef.current) return;
     announce(progressAnnouncement);
     previousAnnouncementRef.current = progressAnnouncement;
   }, [announce, progressAnnouncement]);

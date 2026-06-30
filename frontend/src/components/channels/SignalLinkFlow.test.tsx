@@ -1,12 +1,20 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SignalLinkFlow } from './SignalLinkFlow';
+
+const announceMock = vi.hoisted(() => vi.fn());
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
     t: (key: string) => key,
+  }),
+}));
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announce: announceMock,
   }),
 }));
 
@@ -21,6 +29,12 @@ describe('SignalLinkFlow', () => {
     onLink: mockOnLink,
     onReset: mockOnReset,
   };
+
+  beforeEach(() => {
+    announceMock.mockReset();
+    mockOnLink.mockReset();
+    mockOnReset.mockReset();
+  });
 
   it('mostra botão de gerar QR code', () => {
     render(<SignalLinkFlow {...defaultProps} />);
@@ -48,6 +62,17 @@ describe('SignalLinkFlow', () => {
     render(<SignalLinkFlow {...defaultProps} linking={true} />);
 
     expect(screen.getByText('channels.signalLink.generating')).toBeInTheDocument();
+  });
+
+  it('reanuncia progresso ao reiniciar vinculação', () => {
+    const { rerender } = render(<SignalLinkFlow {...defaultProps} linking={true} />);
+
+    expect(announceMock).toHaveBeenCalledWith('channels.signalLink.generating');
+
+    rerender(<SignalLinkFlow {...defaultProps} linking={false} />);
+    rerender(<SignalLinkFlow {...defaultProps} linking={true} />);
+
+    expect(announceMock).toHaveBeenCalledTimes(2);
   });
 
   it('mostra QR code quando linkQR está presente', () => {
