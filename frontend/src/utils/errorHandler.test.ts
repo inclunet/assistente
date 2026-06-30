@@ -18,6 +18,17 @@ describe('errorHandler', () => {
     expect(announceSpy).toHaveBeenCalledWith('Falha', 'polite');
   });
 
+  it('respeita prioridade de anúncio explícita', () => {
+    handleError(new Error('x'), {
+      source: 'test',
+      userMessage: 'Falha crítica',
+      severity: ErrorSeverity.RECOVERABLE,
+      announcePriority: 'assertive',
+    });
+
+    expect(announceSpy).toHaveBeenCalledWith('Falha crítica', 'assertive');
+  });
+
   it('wrap com erro', async () => {
     const fn = vi.fn(async () => {
       throw new Error('boom');

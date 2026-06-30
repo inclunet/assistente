@@ -23,6 +23,7 @@ import './ChatMessage.css';
 const HEAVY_MARKDOWN_CONTENT_LENGTH = 8_000;
 const HEAVY_ARIA_CONTENT_PREVIEW_LENGTH = 1_200;
 const HEAVY_AGENTIC_SEGMENT_COUNT = 8;
+const EMPTY_STREAM_CLEANUP_MS = 30_000;
 const TOOL_ONLY_TURN_PLACEHOLDER_SOURCE = 'tool_only_turn_placeholder';
 
 interface StreamingAnnouncementState {
@@ -285,6 +286,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         });
         streamingAnnouncementStates.delete(message.id);
       }
+      window.setTimeout(() => {
+        const latestState = streamingAnnouncementStates.get(message.id);
+        if (latestState === announcementState && !latestState.previous) {
+          streamingAnnouncementStates.delete(message.id);
+        }
+      }, EMPTY_STREAM_CLEANUP_MS);
       return;
     }
 

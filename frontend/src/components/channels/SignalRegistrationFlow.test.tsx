@@ -122,6 +122,7 @@ describe('SignalRegistrationFlow', () => {
 
     expect(screen.getByText(/Erro ao registrar/)).toHaveClass('channels-page__alert');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith('Erro: Erro ao registrar', 'assertive');
   });
 
   it('desabilita botão SMS quando faltam dados', () => {
