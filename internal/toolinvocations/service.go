@@ -744,17 +744,22 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 
 func buildInvocationDisplayMetadata(call tools.ToolCall, iteration int, durationMs int64, external bool) json.RawMessage {
 	name := strings.TrimSpace(call.Function.Name)
+	displayName := name
 	origin := "builtin"
 	serverLabel := ""
 	if parts := strings.SplitN(name, "__", 2); len(parts) == 2 && strings.TrimSpace(parts[0]) != "" {
 		origin = "mcp_bridge"
 		serverLabel = strings.TrimSpace(parts[0])
+		displayName = strings.TrimSpace(parts[1])
+	}
+	if displayName == "" {
+		displayName = name
 	}
 	payload := map[string]any{
 		"display": map[string]any{
 			"version":      1,
 			"type":         firstNonEmpty(call.Type, "function"),
-			"name":         name,
+			"name":         displayName,
 			"arguments":    call.Function.Arguments,
 			"origin":       origin,
 			"server_label": serverLabel,

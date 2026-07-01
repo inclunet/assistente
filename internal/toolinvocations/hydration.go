@@ -87,7 +87,7 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 	const pageSize = 2000
 
 	results := make(map[string][]ChatToolInvocationDisplay, len(turnIDs))
-	seenByTurn := make(map[string]map[string]struct{}, len(turnIDs))
+	indexByTurnCall := make(map[string]map[string]int, len(turnIDs))
 	for start := 0; start < len(turnIDs); start += maxTurnIDsPerBatch {
 		end := start + maxTurnIDsPerBatch
 		if end > len(turnIDs) {
@@ -137,16 +137,20 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 				if turnID == "" || callID == "" {
 					continue
 				}
-				seen := seenByTurn[turnID]
-				if seen == nil {
-					seen = map[string]struct{}{}
-					seenByTurn[turnID] = seen
+				indexByCall := indexByTurnCall[turnID]
+				if indexByCall == nil {
+					indexByCall = map[string]int{}
+					indexByTurnCall[turnID] = indexByCall
 				}
-				if _, ok := seen[callID]; ok {
+				display := toolInvocationRowToDisplay(row.ToolInvocation, row.ToolName, row.ToolDisplayName, row.ToolOrigin)
+				if idx, ok := indexByCall[callID]; ok {
+					// A consulta vem em ordem cronológica; retries com o mesmo tool_call_id
+					// substituem a tentativa anterior para expor o resultado mais recente.
+					results[turnID][idx] = display
 					continue
 				}
-				seen[callID] = struct{}{}
-				results[turnID] = append(results[turnID], toolInvocationRowToDisplay(row.ToolInvocation, row.ToolName, row.ToolDisplayName, row.ToolOrigin))
+				indexByCall[callID] = len(results[turnID])
+				results[turnID] = append(results[turnID], display)
 			}
 
 			last := rows[len(rows)-1]

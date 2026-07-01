@@ -298,6 +298,33 @@ func TestConsolidateTimelineTurn_ToolOnlyPlaceholderEmitsSegment(t *testing.T) {
 	}
 }
 
+func TestConsolidateTimelineTurn_UsesRoleToolFallbackWithoutMessageToolCalls(t *testing.T) {
+	turnID := "turn-1"
+	result := ConsolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-marker"},
+			Role:      "assistant",
+			Content:   "",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel:  database.UUIDModel{ID: "tool-a-message"},
+			Role:       "tool",
+			Content:    "resultado a",
+			TurnID:     &turnID,
+			ToolCallID: "tool-a",
+		},
+	}, nil)
+
+	if len(result.Segments) != 1 {
+		t.Fatalf("expected fallback tool segment, got %+v", result.Segments)
+	}
+	call := result.Segments[0].ToolCalls[0]
+	if call.ID != "tool-a" || call.Result != "resultado a" {
+		t.Fatalf("expected role=tool fallback call/result, got %+v", call)
+	}
+}
+
 func TestParseToolCalls_InvalidJSONReturnsNil(t *testing.T) {
 	resetInvalidToolCallsLogStateForTest(t)
 

@@ -229,6 +229,40 @@ func normalizeInvocationToolCalls(calls []TurnSegmentToolCall, toolResults map[s
 	return normalized
 }
 
+func appendMissingFallbackToolCalls(calls []TurnSegmentToolCall, toolResults map[string]string) []TurnSegmentToolCall {
+	if len(toolResults) == 0 {
+		return calls
+	}
+	seen := map[string]struct{}{}
+	for _, call := range calls {
+		callID := strings.TrimSpace(call.ID)
+		if callID != "" {
+			seen[callID] = struct{}{}
+		}
+	}
+	missingIDs := make([]string, 0)
+	for callID, result := range toolResults {
+		callID = strings.TrimSpace(callID)
+		if callID == "" || strings.TrimSpace(result) == "" {
+			continue
+		}
+		if _, ok := seen[callID]; ok {
+			continue
+		}
+		missingIDs = append(missingIDs, callID)
+	}
+	sort.Strings(missingIDs)
+	for _, callID := range missingIDs {
+		calls = append(calls, TurnSegmentToolCall{
+			ID:       callID,
+			Type:     "function",
+			Function: TurnSegmentToolFunction{Name: "tool_result", Arguments: ""},
+			Result:   toolResults[callID],
+		})
+	}
+	return calls
+}
+
 func groupInvocationToolCallsByIteration(calls []TurnSegmentToolCall) [][]TurnSegmentToolCall {
 	if len(calls) == 0 {
 		return nil
@@ -289,7 +323,7 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 		}
 		toolResults[callID] = result
 	}
-	invocationToolCalls = normalizeInvocationToolCalls(invocationToolCalls, toolResults)
+	invocationToolCalls = appendMissingFallbackToolCalls(normalizeInvocationToolCalls(invocationToolCalls, toolResults), toolResults)
 	invocationGroups := groupInvocationToolCallsByIteration(invocationToolCalls)
 	nextInvocationGroup := 0
 

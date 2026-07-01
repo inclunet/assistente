@@ -73,6 +73,49 @@ func TestRepositoryCreatesAndListsScopedInvocations(t *testing.T) {
 	}
 }
 
+func TestLoadChatToolInvocationDisplaysKeepsLatestRetryForCallID(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	toolID, err := repo.ResolveToolCatalogID(userA, "echo")
+	if err != nil {
+		t.Fatalf("resolve tool: %v", err)
+	}
+	oldTime := time.Now().Add(-time.Minute)
+	newTime := time.Now()
+	rows := []database.ToolInvocation{
+		{
+			UserID:        "user-a",
+			ToolCatalogID: toolID,
+			OriginType:    OriginChat,
+			OriginID:      "turn-1",
+			ToolCallID:    "call-1",
+			Status:        StatusFailed,
+			Output:        `{"content":"OLD"}`,
+			QueuedAt:      oldTime,
+		},
+		{
+			UserID:        "user-a",
+			ToolCatalogID: toolID,
+			OriginType:    OriginChat,
+			OriginID:      "turn-1",
+			ToolCallID:    "call-1",
+			Status:        StatusSucceeded,
+			Output:        `{"content":"NEW"}`,
+			QueuedAt:      newTime,
+		},
+	}
+	if err := database.DB().Create(&rows).Error; err != nil {
+		t.Fatalf("create invocations: %v", err)
+	}
+
+	displays, err := LoadChatToolInvocationDisplaysForTurnIDsWithUser(userA, "user-a", []string{"turn-1"})
+	if err != nil {
+		t.Fatalf("load displays: %v", err)
+	}
+	if got := displays["turn-1"]; len(got) != 1 || got[0].Result != "NEW" {
+		t.Fatalf("expected latest retry result, got %+v", got)
+	}
+}
+
 func TestRepositoryCompleteInvocation(t *testing.T) {
 	repo, userA, _ := setupRepositoryTest(t)
 	toolID, err := repo.ResolveToolCatalogID(userA, "echo")
