@@ -108,7 +108,7 @@ func TestDBRepositoryToolCatalogBuiltinAndMCPVisibility(t *testing.T) {
 
 func TestDBRepositoryListToolsAppliesLimit(t *testing.T) {
 	repo, userA, _ := setupCatalogTest(t)
-	for _, name := range []string{"alpha", "beta"} {
+	for _, name := range []string{"alpha", "beta", "gamma"} {
 		if err := repo.UpsertTool(userA, &tools.ToolCatalogEntry{
 			Name:               name,
 			DisplayName:        name,
@@ -126,6 +126,14 @@ func TestDBRepositoryListToolsAppliesLimit(t *testing.T) {
 	}
 	if len(entries) != 1 {
 		t.Fatalf("len(entries) = %d, want 1", len(entries))
+	}
+
+	entries, err = repo.ListTools(userA, tools.ToolCatalogFilter{Limit: 1, Offset: 1})
+	if err != nil {
+		t.Fatalf("ListTools with offset: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name != "beta" {
+		t.Fatalf("offset page = %#v, want beta", entries)
 	}
 }
 

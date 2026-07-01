@@ -23,6 +23,26 @@ func TestNormalizeRuntimeToolCatalogLimit(t *testing.T) {
 	}
 }
 
+func TestNormalizeRuntimeToolCatalogOffset(t *testing.T) {
+	tests := []struct {
+		name   string
+		offset int
+		want   int
+	}{
+		{name: "default negative", offset: -1, want: 0},
+		{name: "preserve zero", offset: 0, want: 0},
+		{name: "preserve positive", offset: 50, want: 50},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := normalizeRuntimeToolCatalogOffset(tt.offset); got != tt.want {
+				t.Fatalf("normalizeRuntimeToolCatalogOffset(%d) = %d, want %d", tt.offset, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRuntimeToolCatalogFilterToToolsNormalizesStrings(t *testing.T) {
 	got := runtimeToolCatalogFilterToTools(RuntimeToolCatalogFilter{
 		Origin:             " mcp_bridge ",
@@ -34,6 +54,7 @@ func TestRuntimeToolCatalogFilterToToolsNormalizesStrings(t *testing.T) {
 		AvailabilityStatus: " available ",
 		IncludeUnavailable: true,
 		Limit:              99,
+		Offset:             50,
 	})
 
 	if got.Origin != "mcp_bridge" ||
@@ -50,5 +71,8 @@ func TestRuntimeToolCatalogFilterToToolsNormalizesStrings(t *testing.T) {
 	}
 	if got.Limit != 50 {
 		t.Fatalf("Limit = %d, want 50", got.Limit)
+	}
+	if got.Offset != 50 {
+		t.Fatalf("Offset = %d, want 50", got.Offset)
 	}
 }

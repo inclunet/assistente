@@ -31,6 +31,7 @@ type RuntimeToolCatalogFilter struct {
 	AvailabilityStatus string `json:"availabilityStatus,omitempty"`
 	IncludeUnavailable bool   `json:"includeUnavailable,omitempty"`
 	Limit              int    `json:"limit,omitempty"`
+	Offset             int    `json:"offset,omitempty"`
 }
 
 type RuntimeToolCatalogEntry struct {
@@ -71,6 +72,13 @@ func normalizeRuntimeToolCatalogLimit(limit int) int {
 	return limit
 }
 
+func normalizeRuntimeToolCatalogOffset(offset int) int {
+	if offset < 0 {
+		return 0
+	}
+	return offset
+}
+
 func runtimeToolCatalogFilterToTools(filter RuntimeToolCatalogFilter) tools.ToolCatalogFilter {
 	return tools.ToolCatalogFilter{
 		Origin:             strings.TrimSpace(filter.Origin),
@@ -82,6 +90,7 @@ func runtimeToolCatalogFilterToTools(filter RuntimeToolCatalogFilter) tools.Tool
 		AvailabilityStatus: strings.TrimSpace(filter.AvailabilityStatus),
 		IncludeUnavailable: filter.IncludeUnavailable,
 		Limit:              normalizeRuntimeToolCatalogLimit(filter.Limit),
+		Offset:             normalizeRuntimeToolCatalogOffset(filter.Offset),
 	}
 }
 

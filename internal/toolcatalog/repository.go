@@ -139,6 +139,9 @@ func (r *DBRepository) ListTools(ctx context.Context, filter tools.ToolCatalogFi
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit)
 	}
+	if filter.Offset > 0 {
+		query = query.Offset(filter.Offset)
+	}
 	var rows []database.ToolCatalog
 	if err := query.Order("origin ASC, name ASC").Find(&rows).Error; err != nil {
 		return nil, err
