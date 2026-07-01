@@ -131,6 +131,7 @@ export interface ChatSurfaceSession {
   messageWindow?: MessageWindowState;
   streamingMessageId: string | null;
   sendFailureMessage: string | null;
+  sendFailureAnnounced: boolean;
   sendFailureRetryable: boolean;
   sendFailureRetryContent: string | null;
   sendFailureRetryMediaFiles: MediaFile[];
@@ -177,6 +178,7 @@ export const createEmptyChatSurfaceSession = (
   isLoadingMessageWindow: false,
   streamingMessageId: null,
   sendFailureMessage: null,
+  sendFailureAnnounced: false,
   sendFailureRetryable: false,
   sendFailureRetryContent: null,
   sendFailureRetryMediaFiles: [],

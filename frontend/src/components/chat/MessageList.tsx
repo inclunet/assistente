@@ -9,6 +9,8 @@ import { getMessageTurnSegments } from '../../lib/chatMessageTree';
 import { chat } from '../../../wailsjs/go/models';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import { getTimelineNodeKey, isPersistedTimelineNode, type MessageWindowState } from '../../services/chatSessionRegistry';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './MessageList.css';
 
 export interface MessageListProps {
@@ -36,6 +38,7 @@ export interface MessageListProps {
   onDelete?: (message: Message) => void;
   editorTargets?: EditorSendTargetOption[];
   onSendToEditor?: (payload: SendToEditorPayload) => void;
+  origin?: VoiceAccessibilityOrigin;
 }
 
 /**
@@ -53,14 +56,14 @@ const VIRTUAL_OVERSCAN = 6;
 /**
  * Consolida mensagens de turnos de tool calling em entradas únicas com
  * segments intercalados (texto → tools → texto → tools → resposta final).
- * 
+ *
  * No agentic loop, um único turno gera múltiplas mensagens no banco:
  *   1. Assistant com toolCalls (intermediária)
  *   2. Tool results (role=tool)
  *   3. Assistant com toolCalls (outra iteração)
  *   4. Tool results...
  *   5. Assistant final (resposta)
- * 
+ *
  * Produz UMA entrada visual com `_turnSegments` que preserva a ordem
  * cronológica: [text, tool_calls, text, tool_calls, ..., text].
  */
@@ -225,12 +228,15 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     onDelete,
     editorTargets,
     onSendToEditor,
+    origin,
   },
   ref
 ) => {
   const { t } = useTranslation();
+  const { announceRequest } = useAnnouncer();
   const effectiveLoadingText = loadingText ?? t('chat.typing');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const previousLoadingAnnouncementRef = useRef<string | null>(null);
   // Fonte de verdade do elemento de scroll. Sempre apontado por um callback ref
   // próprio, então `.current` é confiável mesmo quando o ref externo é um callback.
   const innerContainerRef = useRef<HTMLDivElement | null>(null);
@@ -249,6 +255,31 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
     }
   }, [ref]);
+
+  useEffect(() => {
+    const loadingAnnouncementKey = [
+      effectiveLoadingText,
+      origin?.surfaceType ?? '',
+      origin?.surfaceId ?? '',
+      origin?.sessionKey ?? '',
+      origin?.tabId ?? '',
+      origin?.conversationId ?? '',
+    ].join('|');
+    if (isLoading && previousLoadingAnnouncementRef.current !== loadingAnnouncementKey) {
+      const didAnnounce = announceRequest({
+        message: effectiveLoadingText,
+        origin,
+        eventType: 'progress',
+      });
+      if (didAnnounce) {
+        previousLoadingAnnouncementRef.current = loadingAnnouncementKey;
+      }
+      return;
+    }
+    if (!isLoading) {
+      previousLoadingAnnouncementRef.current = null;
+    }
+  }, [announceRequest, effectiveLoadingText, isLoading, origin]);
 
   // Fallback transitório: o backend já retorna timeline items canônicos;
   // durante streaming ainda podem existir múltiplos nós locais do mesmo turnId.
@@ -555,6 +586,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       onDelete={onDelete}
       editorTargets={editorTargets}
       onSendToEditor={onSendToEditor}
+      origin={origin}
       onFocusSiblingIndex={virtualized ? focusMessageAtIndex : undefined}
     />
   );
@@ -583,7 +615,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
 
   if (threadedMessages.length === 0) {
     return (
-      <div 
+      <div
         className="message-list message-list--empty"
         role="region"
         aria-label={t('chat.messageListLabel')}
@@ -604,8 +636,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   }
 
   return (
-    <div 
-      className="message-list" 
+    <div
+      className="message-list"
       ref={setContainerRef}
       aria-label={t('chat.messageListLabel')}
     >
@@ -623,10 +655,10 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
             </button>
           </div>
         )}
-        <div 
+        <div
           ref={listRef}
           className="message-list__list"
-          role="list" 
+          role="list"
           aria-label={t('chat.messagesRegion')}
           tabIndex={0}
           style={shouldVirtualize
@@ -661,7 +693,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
         {isLoading && (
           <div
             className="message-list__loading"
-            role="status"
+
             aria-label={effectiveLoadingText}
           >
             <div className="message-list__loading-dots" aria-hidden="true">

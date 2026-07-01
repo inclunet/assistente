@@ -627,6 +627,14 @@ const ptBR = {
         registeredSuccess: 'registrado com sucesso!',
         ok: 'OK',
       },
+      signalLink: {
+        generateQr: 'Gerar código QR',
+        regionLabel: 'Código QR de vinculação do Signal',
+        scanQr: 'Escaneie o código QR com o Signal no celular:',
+        qrAlt: 'Código QR para vincular dispositivo Signal',
+        generating: 'Gerando código QR...',
+        waiting: 'Aguardando vinculação...',
+      },
       createModal: {
         configure: 'Configurar',
         title: 'Criar Novo Canal',
@@ -1480,6 +1488,7 @@ const ptBR = {
     },
 
     pickers: {
+      base: { loading: 'Carregando...', loadError: 'Erro ao carregar', empty: 'Nenhuma opção disponível', retry: 'Tentar novamente' },
       llmProvider: { label: 'Provedor LLM', description: 'Selecione o provedor de modelo de linguagem', noneConfigured: 'Nenhum provedor configurado. Configure um provedor primeiro.', loadError: 'Erro ao carregar provedores', placeholder: 'Selecione um provedor...', retry: 'Tentar novamente', loading: 'Carregando provedores...' },
       model: { label: 'Modelo', filterPlaceholder: 'Filtrar modelos...', selectProvider: 'Selecione um provedor primeiro', noModels: 'Nenhum modelo disponível para este provedor.', noModelsGlobal: 'Nenhum modelo disponível. Configure um provedor primeiro.', configureApiKey: 'Configure a API key deste provedor em Configurações → Credenciais', loadError: 'Erro ao carregar modelos:', typePlaceholder: 'Digite o modelo...', notLoaded: 'Modelos não carregados. Digite manualmente o nome do modelo.', retry: 'Tentar novamente', loading: 'Carregando modelos...' },
       voice: { disabled: 'Desativado', system: 'Sistema', windows: 'Windows (SAPI5)', openai: 'OpenAI (Premium)', label: 'Voz', description: 'Selecione a voz para síntese de fala', loadError: 'Erro ao carregar vozes', screenReader: 'Desativada (usar leitor de telas)', accessibility: 'Acessibilidade', premium: '• Premium', loading: 'Carregando vozes...' },
@@ -1589,6 +1598,7 @@ const ptBR = {
         counter: '{{current}} de {{total}}',
         defaultAlt: 'Imagem',
         openHint: 'Clique, Enter ou Espaço para ampliar',
+        zoomLevel: 'Nível de zoom {{percent}}%',
       },
       toast: { close: 'Fechar notificação' },
       dataGrid: {
@@ -2940,6 +2950,7 @@ const ptBR = {
         treeCopiedTemplate: 'Copiado: {{path}}',
         testTool: 'Testar ferramenta',
         testing: 'Testando...',
+        testSuccess: 'Teste da ferramenta concluído com sucesso.',
         testResult: 'Resultado do teste',
         lastTestOutput: 'Output do último teste',
         outputReference: 'Clique em um campo do output para usá-lo como for_each:',

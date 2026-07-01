@@ -1,11 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MessageList } from './MessageList';
 import { chat } from '../../../wailsjs/go/models';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
+}));
+
+const announceRequestMock = vi.hoisted(() => vi.fn(() => true));
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announceRequest: announceRequestMock,
+  }),
 }));
 
 const hoisted = vi.hoisted(() => ({
@@ -59,7 +67,81 @@ describe('MessageList', () => {
     );
 
     expect(screen.getByTestId('message-node')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByLabelText('chat.typing')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('reanuncia loading quando o broker rejeita progresso por origem inativa', () => {
+    announceRequestMock
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    const node = createNode();
+    const origin = { conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001', surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const { rerender } = render(
+      <MessageList
+        threadedMessages={[node]}
+        isLoading
+        origin={origin}
+      />
+    );
+
+    rerender(
+      <MessageList
+        threadedMessages={[node]}
+        isLoading
+        origin={{ ...origin }}
+      />
+    );
+
+    expect(announceRequestMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reanuncia loading quando a origem muda', () => {
+    const node = createNode();
+    const origin = { conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001', surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const { rerender } = render(
+      <MessageList
+        threadedMessages={[node]}
+        isLoading
+        origin={origin}
+      />
+    );
+
+    rerender(
+      <MessageList
+        threadedMessages={[node]}
+        isLoading
+        origin={{ ...origin, surfaceId: 'workspace-panel', surfaceType: 'page' as const }}
+      />
+    );
+
+    expect(announceRequestMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('anuncia mudança de texto enquanto loading continua ativo', () => {
+    const node = createNode();
+    const { rerender } = render(
+      <MessageList
+        threadedMessages={[node]}
+        isLoading
+        loadingText="Carregando resposta"
+      />
+    );
+
+    rerender(
+      <MessageList
+        threadedMessages={[node]}
+        isLoading
+        loadingText="Ainda carregando"
+      />
+    );
+
+    expect(announceRequestMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      message: 'Carregando resposta',
+    }));
+    expect(announceRequestMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      message: 'Ainda carregando',
+    }));
   });
 
   it('repassa posição absoluta e tamanho total para itens renderizados', () => {
@@ -406,6 +488,9 @@ describe('MessageList (virtualização)', () => {
     );
 
   beforeEach(() => {
+    announceRequestMock.mockReset();
+    announceRequestMock.mockReturnValue(true);
+    vi.useFakeTimers();
     const proto = window.HTMLElement.prototype;
     const original = Object.getOwnPropertyDescriptor(proto, 'offsetHeight');
     Object.defineProperty(proto, 'offsetHeight', {
@@ -426,6 +511,9 @@ describe('MessageList (virtualização)', () => {
   });
 
   afterEach(() => {
+    cleanup();
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
     restoreDims?.();
     restoreDims = null;
   });

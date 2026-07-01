@@ -721,6 +721,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     clearConversationSendFailure: (conversationId, sessionKey) => {
       set((state) => patchSession(state, conversationId, {
         sendFailureMessage: null,
+        sendFailureAnnounced: false,
         sendFailureRetryable: false,
         sendFailureRetryContent: null,
         sendFailureRetryMediaFiles: [],

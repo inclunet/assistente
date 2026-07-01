@@ -1,14 +1,24 @@
 import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { DataGrid, DataGridColumn } from './DataGrid';
+
+const announceMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../services/audioFeedback', () => ({
   playBumpSound: vi.fn(),
 }));
 
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({ announce: announceMock }),
+}));
+
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
+});
+
+beforeEach(() => {
+  announceMock.mockClear();
 });
 
 interface TestItem {
@@ -73,6 +83,30 @@ describe('DataGrid (list mode — backward compat)', () => {
     const grid = getGrid();
     fireEvent.keyDown(grid, { key: ' ', ctrlKey: true });
     expect(onSel).toHaveBeenCalled();
+  });
+
+  it('anuncia ações da superfície ativa pelo announcer global sem live region local', () => {
+    const onSel = vi.fn();
+    render(
+      <DataGrid
+        items={items}
+        columns={columns}
+        selectionMode="checkbox"
+        selectedIds={new Set()}
+        onSelectionChange={onSel}
+        autoFocusOnMount={false}
+      />
+    );
+
+    const firstCell = getCells()[0];
+    act(() => {
+      firstCell.focus();
+      fireEvent.click(firstCell);
+    });
+
+    expect(announceMock).toHaveBeenCalled();
+    expect(document.body.querySelector('[aria-live]')).toBeNull();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('Arrow down em list mode (sem Ctrl) seleciona só o item atual', () => {

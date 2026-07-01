@@ -119,6 +119,7 @@ const mockAnnounce = vi.fn();
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
     announce: mockAnnounce,
+    announceRequest: vi.fn(() => true),
   }),
 }));
 

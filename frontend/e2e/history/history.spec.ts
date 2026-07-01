@@ -10,9 +10,10 @@ test.describe('Histórico — página e listagem', () => {
     await page.goto('/#/history');
     await page.waitForSelector('.history-page', { timeout: 10_000 });
 
-    // Quando não há conversas, mostra estado vazio (role="status")
-    const emptyState = page.locator('.datagrid-empty[role="status"]');
+    // Quando não há conversas, mostra estado vazio sem live region local.
+    const emptyState = page.locator('.datagrid-empty');
     await expect(emptyState).toBeVisible();
+    await expect(emptyState).not.toHaveAttribute('role', 'status');
   });
 
   test('conversas são listadas no grid', async ({ page, wails }) => {

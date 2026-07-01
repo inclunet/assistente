@@ -1,9 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { McpConnectionSection } from './McpConnectionSection';
 import type { ComponentProps } from 'react';
 import ptBR from '../../locales/pt-BR';
+import { WorkspacePanelProvider } from '../workspace/WorkspacePanelContext';
+import type { WorkspaceTab } from '../../store/workspaceStore';
+
+const announceRequestMock = vi.hoisted(() => vi.fn(() => true));
 
 function resolveLocaleString(key: string, vars?: Record<string, unknown>): string | undefined {
   const root = (ptBR as { translation: Record<string, unknown> }).translation;
@@ -33,6 +37,12 @@ vi.mock('react-i18next', async (importOriginal) => {
     }),
   };
 });
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announceRequest: announceRequestMock,
+  }),
+}));
 
 const noop = () => {};
 
@@ -87,7 +97,34 @@ function renderWith(overrides: Partial<ComponentProps<typeof McpConnectionSectio
   return render(<McpConnectionSection {...baseProps} {...overrides} />);
 }
 
+function renderWithPanel(overrides: Partial<ComponentProps<typeof McpConnectionSection>> = {}) {
+  return renderWithPanelState(false, overrides);
+}
+
+function renderWithPanelState(
+  isActive: boolean,
+  overrides: Partial<ComponentProps<typeof McpConnectionSection>> = {}
+) {
+  const tab: WorkspaceTab = {
+    id: 'tab-mcp',
+    type: 'editor',
+    title: 'MCP',
+    position: 0,
+  };
+
+  return render(
+    <WorkspacePanelProvider value={{ tab, isActive }}>
+      <McpConnectionSection {...baseProps} {...overrides} />
+    </WorkspacePanelProvider>
+  );
+}
+
 describe('McpConnectionSection — Discovery states', () => {
+  afterEach(() => {
+    announceRequestMock.mockClear();
+    announceRequestMock.mockReturnValue(true);
+  });
+
   it('DCR disponível: não exibe campos OAuth, mostra mensagem de sucesso', () => {
     renderWith({
       discoveryStatus: 'found',
@@ -121,6 +158,112 @@ describe('McpConnectionSection — Discovery states', () => {
   it('loading: mostra mensagem de verificação', () => {
     renderWith({ discoveryStatus: 'loading' });
     expect(screen.getByText(/Verificando configuração OAuth/)).toBeInTheDocument();
+  });
+
+  it('anuncia mudanças de discovery pelo broker global', () => {
+    const { rerender } = renderWith({ discoveryStatus: 'idle' });
+
+    expect(announceRequestMock).not.toHaveBeenCalled();
+
+    rerender(<McpConnectionSection {...baseProps} discoveryStatus="loading" />);
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Verificando configuração OAuth do servidor…',
+      origin: undefined,
+      eventType: 'progress',
+    });
+
+    rerender(<McpConnectionSection {...baseProps} discoveryStatus="not_found" />);
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Metadados OAuth não detectados. Configure manualmente.',
+      origin: undefined,
+      eventType: 'progress',
+    });
+  });
+
+  it('inclui origem do painel nos anúncios de discovery', () => {
+    renderWithPanel({ discoveryStatus: 'loading' });
+
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Verificando configuração OAuth do servidor…',
+      origin: {
+        tabId: 'tab-mcp',
+        surfaceId: 'tab-mcp',
+        conversationId: undefined,
+        surfaceType: 'editor',
+        profileSlug: null,
+        title: 'MCP',
+      },
+      eventType: 'progress',
+    });
+  });
+
+  it('reanuncia loading quando discovery volta para idle entre tentativas', () => {
+    const { rerender } = renderWith({ discoveryStatus: 'loading' });
+
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Verificando configuração OAuth do servidor…',
+      origin: undefined,
+      eventType: 'progress',
+    });
+    announceRequestMock.mockClear();
+
+    rerender(<McpConnectionSection {...baseProps} discoveryStatus="idle" />);
+    rerender(<McpConnectionSection {...baseProps} discoveryStatus="loading" />);
+
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Verificando configuração OAuth do servidor…',
+      origin: undefined,
+      eventType: 'progress',
+    });
+  });
+
+  it('não deduplica discovery quando broker rejeita anúncio em painel inativo', () => {
+    announceRequestMock.mockReturnValueOnce(false).mockReturnValue(true);
+    const { rerender } = renderWithPanelState(false, { discoveryStatus: 'loading' });
+
+    expect(announceRequestMock).toHaveBeenCalledTimes(1);
+    expect(announceRequestMock).toHaveBeenLastCalledWith({
+      message: 'Verificando configuração OAuth do servidor…',
+      origin: {
+        tabId: 'tab-mcp',
+        surfaceId: 'tab-mcp',
+        conversationId: undefined,
+        surfaceType: 'editor',
+        profileSlug: null,
+        title: 'MCP',
+      },
+      eventType: 'progress',
+    });
+
+    rerender(
+      <WorkspacePanelProvider
+        value={{
+          tab: {
+            id: 'tab-mcp',
+            type: 'editor',
+            title: 'MCP',
+            position: 0,
+          },
+          isActive: true,
+        }}
+      >
+        <McpConnectionSection {...baseProps} discoveryStatus="loading" />
+      </WorkspacePanelProvider>
+    );
+
+    expect(announceRequestMock).toHaveBeenCalledTimes(2);
+    expect(announceRequestMock).toHaveBeenLastCalledWith({
+      message: 'Verificando configuração OAuth do servidor…',
+      origin: {
+        tabId: 'tab-mcp',
+        surfaceId: 'tab-mcp',
+        conversationId: undefined,
+        surfaceType: 'editor',
+        profileSlug: null,
+        title: 'MCP',
+      },
+      eventType: 'progress',
+    });
   });
 });
 

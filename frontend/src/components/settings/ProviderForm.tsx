@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go/app/App';
 import { Input, Select, Button, FormField } from '../';
 import { PROVIDER_CONFIG } from '../../config/providers';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 export { PROVIDER_CONFIG } from '../../config/providers';
 import './ProviderForm.css';
 
@@ -49,6 +50,7 @@ export const API_FORMAT_OPTIONS = [
 
 export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) => {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const [formData, setFormData] = useState<ProviderFormData>({
     name: '',
     type: 'openai',
@@ -387,7 +389,9 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       onSave();
     } catch (error: unknown) {
       const err = error as { message?: unknown; toString?: () => string } | null;
-      setErrors({ submit: String(err?.message || err?.toString?.() || error || 'Erro ao salvar provedor') });
+      const message = String(err?.message || err?.toString?.() || error || t('providerForm.error.saveError'));
+      setErrors({ submit: message });
+      announce(message, 'assertive');
     } finally {
       setSaving(false);
     }
@@ -613,7 +617,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       </FormField>
 
       {errors.submit && (
-        <div className="provider-form__error" role="alert">
+        <div className="provider-form__error">
           <WarningOutlined aria-hidden="true" /> {errors.submit}
         </div>
       )}

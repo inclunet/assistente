@@ -1,7 +1,11 @@
-import { useId } from 'react';
+import { useEffect, useId, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Checkbox, Input, Textarea } from '../index';
 import { Select } from '../index';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { useOptionalWorkspacePanel } from '../workspace/WorkspacePanelContext';
+import { useWorkspaceStore } from '../../store/workspaceStore';
+import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
 
 type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'not_found';
 
@@ -102,9 +106,17 @@ export function McpConnectionSection({
   onManualOverride,
 }: McpConnectionSectionProps) {
   const { t } = useTranslation();
+  const { announceRequest } = useAnnouncer();
+  const workspacePanel = useOptionalWorkspacePanel();
+  const workspace = useWorkspaceStore((state) => state.workspace);
   const uid = useId();
   const discoveryLiveId = `${uid}-discovery-live`;
   const callbackHintId = `${uid}-callback-hint`;
+  const previousDiscoveryAnnouncementRef = useRef('');
+  const isWorkspacePanelActive = workspacePanel?.isActive;
+  const accessibilityOrigin = useMemo(() => (
+    workspacePanel ? buildVoiceAccessibilityOriginFromTab(workspacePanel.tab, workspace) : undefined
+  ), [workspace, workspacePanel]);
 
   const resourceSuffix = discoveryResourceName ? ` (${discoveryResourceName})` : '';
 
@@ -130,6 +142,23 @@ export function McpConnectionSection({
         return '';
     }
   })();
+
+  useEffect(() => {
+    if (!discoveryLiveText) {
+      previousDiscoveryAnnouncementRef.current = '';
+      return;
+    }
+    if (discoveryLiveText === previousDiscoveryAnnouncementRef.current) return;
+
+    const didAnnounce = announceRequest({
+      message: discoveryLiveText,
+      origin: accessibilityOrigin,
+      eventType: 'progress',
+    });
+    if (didAnnounce) {
+      previousDiscoveryAnnouncementRef.current = discoveryLiveText;
+    }
+  }, [accessibilityOrigin, announceRequest, discoveryLiveText, isWorkspacePanelActive]);
 
   return (
     <section className="mcp-section" aria-labelledby="mcp-section-connection">
@@ -184,8 +213,6 @@ export function McpConnectionSection({
 
             <div
               id={discoveryLiveId}
-              aria-live="polite"
-              aria-atomic="true"
               className="mcp-discovery-live"
             >
               {discoveryLiveText}
@@ -193,7 +220,7 @@ export function McpConnectionSection({
 
             {/* Estado A: DCR disponível — nada a preencher */}
             {hasDCR && (
-              <p className="mcp-hint mcp-hint--success" role="status">
+              <p className="mcp-hint mcp-hint--success">
                 {t('mcp.connection.browserAuthHint')}{' '}
                 <button type="button" className="mcp-link-btn" onClick={onManualOverride}>
                   {t('mcp.connection.configureManually')}
@@ -267,7 +294,7 @@ export function McpConnectionSection({
                 />
 
                 {hasExistingAuth && authType !== 'none' && authType !== 'oauth2_client_credentials' && authType !== 'oauth2_pkce' && (
-                  <p className="mcp-hint mcp-hint--success" role="status">
+                  <p className="mcp-hint mcp-hint--success">
                     {t('mcp.connection.credentialConfigured')}
                   </p>
                 )}
@@ -470,7 +497,7 @@ export function McpConnectionSection({
                   fullWidth
                 />
                 {oauth2CallbackPort && (
-                  <p id={callbackHintId} className="mcp-hint mcp-hint--success" role="status">
+                  <p id={callbackHintId} className="mcp-hint mcp-hint--success">
                     {t('mcp.connection.redirectUriLabel')}{' '}
                     <code>
                       http://{oauth2CallbackHost || 'localhost'}:{oauth2CallbackPort}/callback

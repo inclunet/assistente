@@ -14,6 +14,8 @@ vi.mock('react-i18next', () => ({
         'channels.signal.apiToken': 'Token da API (opcional)',
         'channels.signal.apiTokenPlaceholder': 'Bearer token',
         'channels.signal.saveVault': 'Salvar token no cofre de credenciais',
+        'channels.signal.testConnection': 'Testar Conexão',
+        'channels.signal.testHint': 'Teste a conexão para avançar.',
       } as Record<string, string>)[key] ?? key,
   }),
 }));

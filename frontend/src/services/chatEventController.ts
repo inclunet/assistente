@@ -23,6 +23,7 @@ import {
   playChatReceiveSoundIfActive,
   playChatErrorSoundIfActive,
 } from './chatArbitration';
+import { announceWithOrigin } from './voiceAccessibility/announcerBroker';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
 import { reloadConversationSnapshot } from './chatSessionLoader';
 import { INITIAL_MESSAGE_WINDOW_SIZE } from './messageWindowLimits';
@@ -128,6 +129,7 @@ export interface ChatEventSession {
   activeToolCalls: ToolCallStatus[];
   completedSegments: TurnSegment[];
   sendFailureMessage?: string | null;
+  sendFailureAnnounced?: boolean;
   sendFailureRetryable?: boolean;
   sendFailureRetryContent?: string | null;
   sendFailureRetryMediaFiles?: MediaFile[];
@@ -253,6 +255,7 @@ export function startChatEventController({
     activeToolCalls: [],
     isLoading: true,
     sendFailureMessage: null,
+    sendFailureAnnounced: false,
     sendFailureRetryable: false,
     sendFailureRetryContent: null,
     sendFailureRetryMediaFiles: [],
@@ -477,12 +480,18 @@ export function startChatEventController({
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       flushStreamingUpdate();
       const errorMessage = translateBackendChatError(String(event.error || '').trim());
-      announce(errorMessage, 'assertive');
-      playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
+      const eventOrigin = getEventOrigin(event);
+      announceWithOrigin({
+        message: errorMessage,
+        origin: getChatConversationVoiceOrigin(conversationId, undefined, eventOrigin),
+        eventType: 'error',
+        announcePriority: 'assertive',
+      });
+      playChatErrorSoundIfActive(conversationId, eventOrigin);
       if (hasAssistantNode) {
         updateEmptyAssistantWithError(errorMessage);
       } else {
-        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureRetryable: false });
+        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
@@ -630,12 +639,18 @@ export function startChatEventController({
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       flushStreamingUpdate();
       const errorMessage = translateBackendChatError(String(event.errorMessage || '').trim());
-      announce(errorMessage, 'assertive');
-      playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
+      const eventOrigin = getEventOrigin(event);
+      announceWithOrigin({
+        message: errorMessage,
+        origin: getChatConversationVoiceOrigin(conversationId, undefined, eventOrigin),
+        eventType: 'error',
+        announcePriority: 'assertive',
+      });
+      playChatErrorSoundIfActive(conversationId, eventOrigin);
       if (hasAssistantNode) {
         updateEmptyAssistantWithError(errorMessage);
       } else {
-        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureRetryable: false });
+        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
@@ -716,13 +731,13 @@ export function startChatEventController({
       logger.error('[Chat] Error sending message:', message);
       playChatErrorSoundIfActive(conversationId, origin);
       const sendFailureMessage = i18next.t('chat.sendErrorPrefix', { message });
-      announce(sendFailureMessage, 'assertive');
       cleanup();
       adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
       patchCurrentSession({
         isLoading: false,
         streamingMessageId: null,
         sendFailureMessage,
+        sendFailureAnnounced: false,
         sendFailureRetryable: true,
         sendFailureRetryContent: initialUserContent || null,
         sendFailureRetryMediaFiles: initialMediaFiles ?? [],

@@ -348,6 +348,7 @@ function ChatSessionViewContent({
   const [sendError, setSendError] = useState<string | null>(null);
   const [dismissedSessionSendError, setDismissedSessionSendError] = useState<string | null>(null);
   const sessionSendFailureMessage = session?.sendFailureMessage ?? null;
+  const sessionSendFailureAnnounced = session?.sendFailureAnnounced ?? false;
   const sessionSendFailureRetryable = session?.sendFailureRetryable ?? false;
   const sessionSendFailureRetry = sessionSendFailureRetryable
     && (session?.sendFailureRetryContent !== null || (session?.sendFailureRetryMediaFiles.length ?? 0) > 0)
@@ -358,6 +359,7 @@ function ChatSessionViewContent({
       ? sessionSendFailureMessage
       : null
   );
+  const lastAnnouncedSessionSendFailureRef = useRef<string | null>(null);
   const effectiveFailedMessage = lastFailedMessage ?? (sessionSendFailureRetryable ? sessionSendFailureRetry : null);
   const canRetryEffectiveSendError = !!effectiveFailedMessage && (!!sendError || sessionSendFailureRetryable);
 
@@ -698,6 +700,25 @@ function ChatSessionViewContent({
   }, [effectiveSendError]);
 
   useEffect(() => {
+    const sessionFailureToAnnounce = sessionSendFailureMessage
+      && sessionSendFailureMessage !== dismissedSessionSendError
+      ? sessionSendFailureMessage
+      : null;
+    if (!sessionFailureToAnnounce) {
+      lastAnnouncedSessionSendFailureRef.current = null;
+      return;
+    }
+    if (
+      sendError
+      || sessionSendFailureAnnounced
+      || lastAnnouncedSessionSendFailureRef.current === sessionFailureToAnnounce
+    ) return;
+
+    lastAnnouncedSessionSendFailureRef.current = sessionFailureToAnnounce;
+    announce(sessionFailureToAnnounce, 'assertive');
+  }, [announce, dismissedSessionSendError, sendError, sessionSendFailureAnnounced, sessionSendFailureMessage]);
+
+  useEffect(() => {
     const windowState = session?.messageWindow;
     latestWindowKeyRef.current = windowState
       ? `${windowState.startIndex}:${windowState.endIndex}:${windowState.totalCount}`
@@ -757,6 +778,7 @@ function ChatSessionViewContent({
       setSendError(null);
       setLastFailedMessage(null);
       setDismissedSessionSendError(null);
+      lastAnnouncedSessionSendFailureRef.current = null;
       if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
       await controller.sendMessage(content, mediaFiles);
     } catch (error: unknown) {
@@ -780,6 +802,7 @@ function ChatSessionViewContent({
     try {
       setSendError(null);
       setDismissedSessionSendError(null);
+      lastAnnouncedSessionSendFailureRef.current = null;
       if (conversationId) clearConversationSendFailure(conversationId, origin.sessionKey);
       await controller.sendMessage(effectiveFailedMessage.content, effectiveFailedMessage.media);
       setLastFailedMessage(null);
@@ -921,12 +944,14 @@ function ChatSessionViewContent({
           onDelete={handleDeleteMessage}
           editorTargets={editorTargets}
           onSendToEditor={sendToEditor}
+          origin={{ ...origin, conversationId: origin.conversationId ?? undefined }}
         />
 
         {effectiveSendError && (
           <Alert
-            role="alert"
+
             type="error"
+            role="group"
             showIcon
             closable
             message={effectiveSendError}

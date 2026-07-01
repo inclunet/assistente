@@ -585,7 +585,7 @@ export default function ProfilesPage() {
 
       {/* Empty state when no profile is being edited */}
       {!editingProfile && crud.items.length > 0 && (
-        <div className="profiles-empty" role="status">
+        <div className="profiles-empty">
           <p>
             {t('profiles.selectHint', 'Pressione Enter ou clique para editar.')}
             {' '}

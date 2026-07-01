@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ContextMenu, MenuItem } from './menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { playBumpSound } from '../../services/audioFeedback';
 import './DataGrid.css';
 
@@ -66,6 +67,7 @@ export function DataGrid<T = unknown>({
   getRowActions,
 }: DataGridProps<T>) {
   const { t } = useTranslation();
+  const { announce: announceGlobally } = useAnnouncer();
   // Foco lazy: começa em -1 (nenhuma linha focada).
   // Só inicializa quando o grid recebe foco real do usuário.
   // Isso evita que leitores de tela leiam o conteúdo ao montar/remontar.
@@ -75,13 +77,11 @@ export function DataGrid<T = unknown>({
   const [editingCol, setEditingCol] = useState(-1);
   const [editValue, setEditValue] = useState('');
   const [localSelectedIds, setLocalSelectedIds] = useState<Set<string | number>>(new Set(selectedIds || []));
-  const [announcement, setAnnouncement] = useState('');
   
   const gridRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const instructionsId = useId().replace(/[^a-zA-Z0-9_-]/g, '') + '-instructions';
   const cellRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const announceTimerRef = useRef<NodeJS.Timeout>();
   const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasInitializedRef = useRef(false);
   // Indica que o grid já recebeu foco pelo menos uma vez
@@ -124,22 +124,12 @@ export function DataGrid<T = unknown>({
   }, []);
 
   const announce = (message: string) => {
-    // Limpa o timer anterior se existir
-    if (announceTimerRef.current) {
-      clearTimeout(announceTimerRef.current);
-    }
-
     // Só anuncia quando o grid (ou algo dentro dele) tem foco.
     // Evita anúncios indesejados quando o componente monta em
     // background (ex: troca de abas com lazy loading).
     if (!gridRef.current?.contains(document.activeElement)) return;
-    
-    setAnnouncement(message);
-    
-    // Tempo suficiente para leitores de tela processarem
-    announceTimerRef.current = setTimeout(() => {
-      setAnnouncement('');
-    }, 3000);
+
+    announceGlobally(message);
   };
 
   // Foca no grid quando montado (se houver items) - apenas uma vez
@@ -791,7 +781,7 @@ export function DataGrid<T = unknown>({
 
   if (rowCount === 0) {
     return (
-      <div className="datagrid-empty" role="status">
+      <div className="datagrid-empty">
         {t('common.emptyState', 'Nenhum item para exibir')}
       </div>
     );
@@ -801,16 +791,6 @@ export function DataGrid<T = unknown>({
 
   return (
     <>
-      {announcement && (
-        <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          className="sr-only"
-        >
-          {announcement}
-        </div>
-      )}
       <div
         ref={gridRef}
         className={`datagrid-container${isCheckboxMode ? ' datagrid-container--checkbox' : ''}${className ? ` ${className}` : ''}`}

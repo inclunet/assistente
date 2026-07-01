@@ -16,12 +16,49 @@ import { isAgentMessage } from '../../lib/chatUtils';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './ChatMessage.css';
 
 const HEAVY_MARKDOWN_CONTENT_LENGTH = 8_000;
 const HEAVY_ARIA_CONTENT_PREVIEW_LENGTH = 1_200;
 const HEAVY_AGENTIC_SEGMENT_COUNT = 8;
+const EMPTY_STREAM_CLEANUP_MS = 30_000;
 const TOOL_ONLY_TURN_PLACEHOLDER_SOURCE = 'tool_only_turn_placeholder';
+
+interface StreamingAnnouncementState {
+  previous: string;
+  previousOriginKey: string;
+  wasStreaming: boolean;
+  emptyCompletionAnnounced: boolean;
+  cleanupTimer?: number;
+}
+
+const streamingAnnouncementStates = new Map<string, StreamingAnnouncementState>();
+
+function getStreamingAnnouncementState(messageId: string): StreamingAnnouncementState {
+  let state = streamingAnnouncementStates.get(messageId);
+  if (!state) {
+    state = { previous: '', previousOriginKey: '', wasStreaming: false, emptyCompletionAnnounced: false };
+    streamingAnnouncementStates.set(messageId, state);
+  } else if (state.cleanupTimer !== undefined) {
+    window.clearTimeout(state.cleanupTimer);
+    state.cleanupTimer = undefined;
+  }
+  return state;
+}
+
+function getStreamingAnnouncementOriginKey(origin?: VoiceAccessibilityOrigin): string {
+  if (!origin) return '';
+  return [
+    origin.surfaceType ?? '',
+    origin.surfaceId ?? '',
+    origin.sessionKey ?? '',
+    origin.tabId ?? '',
+    origin.conversationId ?? '',
+    origin.profileSlug ?? '',
+  ].join('|');
+}
 
 export interface ChatMessageProps {
   message: Message;
@@ -56,6 +93,7 @@ export interface ChatMessageProps {
   // Envio de blocos para o editor
   editorTargets?: EditorSendTargetOption[];
   onSendToEditor?: (payload: SendToEditorPayload) => void;
+  origin?: VoiceAccessibilityOrigin;
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
@@ -82,8 +120,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   isPlayingAudio = false,
   editorTargets,
   onSendToEditor,
+  origin,
 }) => {
   const { t } = useTranslation();
+  const { announceRequest } = useAnnouncer();
   const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
   const messageRef = useRef<HTMLDivElement>(null);
   const chainRegionId = useId();
@@ -217,6 +257,93 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       ? JSON.stringify(names.map((name) => ({ function: { name } })))
       : null;
   }, [effectiveToolCallsRaw, shouldDeferHeavyContent]);
+
+  useEffect(() => {
+    if (role !== 'assistant') return;
+
+    const text = conclusionContent.trim();
+    if (effectiveIsStreaming) {
+      const announcementState = getStreamingAnnouncementState(message.id);
+      announcementState.wasStreaming = true;
+      announcementState.emptyCompletionAnnounced = false;
+      const progressMessage = text || (isAgenticStreaming ? t('chat.progressLabel') : '');
+      if (!progressMessage) return;
+
+      const previous = announcementState.previous;
+      const originKey = getStreamingAnnouncementOriginKey(origin);
+      const sameOrigin = announcementState.previousOriginKey === originKey;
+      const replacedProgressMessage = previous !== '' && !progressMessage.startsWith(previous);
+      const progressedEnough = progressMessage.length - previous.length >= 80;
+      const reachedSentenceBoundary = /[.!?…]\s*$/.test(progressMessage);
+      if (previous === progressMessage && sameOrigin) return;
+      if (sameOrigin && previous && !replacedProgressMessage && !progressedEnough && !reachedSentenceBoundary) return;
+
+      const didAnnounce = announceRequest({
+        message: progressMessage,
+        origin,
+        eventType: 'progress',
+      });
+      if (didAnnounce) {
+        announcementState.previous = progressMessage;
+        announcementState.previousOriginKey = originKey;
+      }
+      return;
+    }
+
+    const announcementState = streamingAnnouncementStates.get(message.id);
+    if (!announcementState) return;
+
+    if (!announcementState.wasStreaming) {
+      if (!text) announcementState.previous = '';
+      return;
+    }
+
+    announcementState.previous = '';
+    announcementState.previousOriginKey = '';
+    if (!text) {
+      if (hasAgenticSegments && !announcementState.emptyCompletionAnnounced) {
+        announcementState.emptyCompletionAnnounced = true;
+        announceRequest({
+          message: t('chat.progressLabel'),
+          origin,
+          eventType: 'completion',
+        });
+      }
+      if (announcementState.cleanupTimer !== undefined) {
+        window.clearTimeout(announcementState.cleanupTimer);
+      }
+      announcementState.cleanupTimer = window.setTimeout(() => {
+        const latestState = streamingAnnouncementStates.get(message.id);
+        if (latestState === announcementState) {
+          latestState.cleanupTimer = undefined;
+          if (!latestState.previous) {
+            streamingAnnouncementStates.delete(message.id);
+          }
+        }
+      }, EMPTY_STREAM_CLEANUP_MS);
+      return;
+    }
+
+    streamingAnnouncementStates.delete(message.id);
+    announceRequest({
+      message: text,
+      origin,
+      eventType: 'completion',
+    });
+  }, [announceRequest, conclusionContent, effectiveIsStreaming, hasAgenticSegments, isAgenticStreaming, message.id, origin, role, t]);
+
+  useEffect(() => () => {
+    const announcementState = streamingAnnouncementStates.get(message.id);
+    if (!announcementState) return;
+    if (announcementState.cleanupTimer !== undefined) {
+      window.clearTimeout(announcementState.cleanupTimer);
+    }
+    announcementState.cleanupTimer = window.setTimeout(() => {
+      if (streamingAnnouncementStates.get(message.id) === announcementState) {
+        streamingAnnouncementStates.delete(message.id);
+      }
+    }, EMPTY_STREAM_CLEANUP_MS);
+  }, [message.id]);
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -444,7 +571,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       ref={messageRef}
       className={`chat-message chat-message--${role} ${isEditing ? 'chat-message--editing' : ''} ${isReading ? 'chat-message--reading' : ''}`}
       aria-label={isEditing || isReading ? undefined : getAriaLabel()}
-      aria-live={effectiveIsStreaming && !isAgenticStreaming ? 'polite' : 'off'}
       aria-busy={effectiveIsStreaming && !isAgenticStreaming}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
@@ -555,13 +681,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                 )}
               </div>
             )}
-            {/* Completed segments — role="log" so screen readers announce each addition
-                and browse mode users can navigate segment by segment */}
+            {/* Completed segments stay navigable without creating a local live region;
+                progress announcements are brokered globally with surface origin. */}
             <div
               id={chainRegionId}
-              role={isAgenticStreaming ? 'log' : undefined}
               aria-label={isAgenticStreaming ? t('chat.progressLabel') : undefined}
-              aria-relevant={isAgenticStreaming ? 'additions' : undefined}
               className="chat-message__segments-log"
             >
               {(isAgenticStreaming || isChainExpanded) && (canRenderHeavyContent ? displaySegments.map((seg, idx) => (
@@ -591,8 +715,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               ))}
             </div>
 
-            {/* Current iteration — aria-busy suppresses char-by-char updates */}
-            <div aria-busy={effectiveIsStreaming} aria-live={effectiveIsStreaming ? 'polite' : 'off'}>
+            {/* Current iteration keeps busy state without local aria-live updates. */}
+            <div aria-busy={effectiveIsStreaming}>
               {effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0 && (
                 <ToolCallsSection activeToolCalls={effectiveToolCalls} />
               )}

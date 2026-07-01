@@ -30,7 +30,7 @@ export function EventTimeline({ events, isLoading }: EventTimelineProps) {
   }
 
   return (
-    <div className="event-timeline" role="log" aria-label={t('jobs.eventsTitle')}>
+    <div className="event-timeline" role="region" aria-label={t('jobs.eventsTitle')}>
       {events.map((entry, i) => (
         <div key={`${entry.timestamp}-${i}`} className={`event-entry event-entry--${entry.type}`}>
           <span className="event-entry__icon" aria-hidden="true">{eventIcon(entry.type)}</span>

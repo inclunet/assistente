@@ -5,6 +5,7 @@ import { GetChannelTemplates, CreateChannelFromTemplate } from '@wailsjs/go/app/
 import { channels } from '../../../wailsjs/go/models';
 import { Button, Input } from '..';
 import { Modal } from '../ui/Modal';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import './CreateChannelModal.css';
 
 interface CreateChannelModalProps {
@@ -16,6 +17,7 @@ interface CreateChannelModalProps {
 
 export default function CreateChannelModal({ isOpen, onClose, onSuccess, initialTemplateType }: CreateChannelModalProps) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const [templates, setTemplates] = useState<channels.ChannelTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<channels.ChannelTemplate | null>(null);
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
@@ -46,7 +48,9 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
       setTemplates(result || []);
     } catch (err) {
       logger.error('Erro ao carregar templates:', err);
-      setError(t('channels.createModal.loadError'));
+      const message = t('channels.createModal.loadError');
+      setError(message);
+      announce(message, 'assertive');
     }
   };
 
@@ -81,7 +85,9 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
     } catch (err: unknown) {
       logger.error('Erro ao criar canal:', err);
       const errMessage = (err as { message?: unknown } | null)?.message;
-      setError(String(errMessage || err || 'Erro ao criar canal'));
+      const message = String(errMessage || err || t('channels.error.createFailed'));
+      setError(message);
+      announce(message, 'assertive');
     } finally {
       setLoading(false);
     }
@@ -103,7 +109,7 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
     >
       <div className="create-channel-modal">
         {error && (
-          <div className="error-message" role="alert">
+          <div className="error-message">
             {error}
           </div>
         )}

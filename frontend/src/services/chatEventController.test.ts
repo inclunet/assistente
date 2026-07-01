@@ -20,6 +20,11 @@ vi.mock('../hooks/useAnnouncer', () => ({
   announce: (...args: unknown[]) => mockAnnounce(...args),
 }));
 
+const mockAnnounceWithOrigin = vi.fn();
+vi.mock('./voiceAccessibility/announcerBroker', () => ({
+  announceWithOrigin: (...args: unknown[]) => mockAnnounceWithOrigin(...args),
+}));
+
 const mockReloadConversationSnapshot = vi.fn().mockResolvedValue({
   threadedMessages: [],
   messageWindow: {
@@ -142,6 +147,7 @@ const createSession = (conversationId: string): TestSession => ({
   isLoading: false,
   streamingMessageId: null,
   sendFailureMessage: null,
+  sendFailureAnnounced: false,
   sendFailureRetryable: false,
   sendFailureRetryContent: null,
   sendFailureRetryMediaFiles: [],
@@ -221,6 +227,7 @@ describe('chatEventController', () => {
     vi.useFakeTimers();
     eventListeners.clear();
     mockAnnounce.mockClear();
+    mockAnnounceWithOrigin.mockClear();
     mockReloadConversationSnapshot.mockReset();
     mockReloadConversationSnapshot.mockResolvedValue({
       threadedMessages: [],
@@ -332,6 +339,13 @@ describe('chatEventController', () => {
 
   it('em erro no chat:done sem assistantMessageId não cria mensagem assistant local', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
+    const surfaceOrigin = {
+      conversationId: 'conversation-1',
+      sessionKey: 'tab-1:conversation-1',
+      surfaceId: 'tab-1',
+      surfaceType: 'page' as const,
+      tabId: 'tab-1',
+    };
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
 
@@ -353,6 +367,7 @@ describe('chatEventController', () => {
       hadToolCalls: false,
       errorMessage: 'assistant_placeholder_error',
       turnId: 'user-1',
+      surfaceOrigin,
     });
 
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
@@ -360,9 +375,20 @@ describe('chatEventController', () => {
     expect(messages[0].message.id).toBe('user-1');
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBeNull();
     expect(sessions['conversation-1'].sendFailureMessage).toBe('chat.errors.assistantPlaceholder');
+    expect(sessions['conversation-1'].sendFailureAnnounced).toBe(true);
     expect(sessions['conversation-1'].sendFailureRetryable).toBe(false);
-    expect(mockAnnounce).toHaveBeenCalledWith('chat.errors.assistantPlaceholder', 'assertive');
-    expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith({
+      message: 'chat.errors.assistantPlaceholder',
+      origin: expect.objectContaining({
+        conversationId: 'conversation-1',
+        sessionKey: 'tab-1:conversation-1',
+        surfaceId: 'tab-1',
+        tabId: 'tab-1',
+      }),
+      eventType: 'error',
+      announcePriority: 'assertive',
+    });
+    expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', surfaceOrigin);
   });
 
   it('em erro no chat:done usa assistantMessageId persistido quando disponível', () => {
@@ -400,6 +426,13 @@ describe('chatEventController', () => {
 
   it('em erro no chat:stream usa messageId persistido para interrupção', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
+    const surfaceOrigin = {
+      conversationId: 'conversation-1',
+      sessionKey: 'tab-1:conversation-1',
+      surfaceId: 'tab-1',
+      surfaceType: 'page' as const,
+      tabId: 'tab-1',
+    };
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
 
@@ -421,9 +454,22 @@ describe('chatEventController', () => {
       error: 'boom stream',
       turnId: 'user-1',
       messageId: 'assistant-db-2',
+      surfaceOrigin,
     });
 
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-2');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith({
+      message: 'boom stream',
+      origin: expect.objectContaining({
+        conversationId: 'conversation-1',
+        sessionKey: 'tab-1:conversation-1',
+        surfaceId: 'tab-1',
+        tabId: 'tab-1',
+      }),
+      eventType: 'error',
+      announcePriority: 'assertive',
+    });
+    expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', surfaceOrigin);
   });
 
   it('preenche fallback visual quando chat:stream falha sem parcial', () => {
