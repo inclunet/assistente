@@ -1,8 +1,8 @@
 package app
 
 import (
+	"assistente/internal/logging"
 	"context"
-	"log"
 	"os"
 
 	"assistente/controllers"
@@ -32,7 +32,7 @@ func (a *App) initCredentialManager() {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[Credentials] Panic ao acessar keychain (go-keyring): %v", r)
+				logging.Errorf(context.Background(), "app.app-credentials", "[Credentials] Panic ao acessar keychain (go-keyring): %v", r)
 				persist = false
 				dek = nil
 			}
@@ -41,7 +41,7 @@ func (a *App) initCredentialManager() {
 		dek, err = credentials.LoadDEKFromKeychain()
 		if err != nil {
 			if !credentials.IsKeychainNotFound(err) {
-				log.Printf("[Credentials] Erro ao acessar keychain: %v", err)
+				logging.Errorf(context.Background(), "app.app-credentials", "[Credentials] Erro ao acessar keychain: %v", err)
 			}
 			persist = false
 			dek = nil
@@ -54,7 +54,7 @@ func (a *App) initCredentialManager() {
 	// key, etc.) precisam estar em memória. As credenciais user-scoped
 	// entram pós-Login via adoptLegacyDataForUser → LoadUserCredentials.
 	if err := a.credMgr.LoadInstanceSecrets(a.internalBootstrapCtx()); err != nil {
-		log.Printf("[Credentials] Erro ao carregar instance secrets: %v", err)
+		logging.Errorf(context.Background(), "app.app-credentials", "[Credentials] Erro ao carregar instance secrets: %v", err)
 	}
 	a.handleVaultIntegrityOnBoot()
 	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
@@ -79,18 +79,18 @@ func (a *App) handleVaultIntegrityOnBoot() {
 	}
 	status := a.credMgr.IntegrityStatus()
 	if !status.OK {
-		log.Printf("[Credentials] vault integrity: NOT OK — %s (keychain=%s wraps=%s)", status.Reason, status.KeychainDekID, status.WrapsDekID)
+		logging.Infof(context.Background(), "app.app-credentials", "[Credentials] vault integrity: NOT OK — %s (keychain=%s wraps=%s)", status.Reason, status.KeychainDekID, status.WrapsDekID)
 	}
 	if len(status.UnreadableCredentialIDs) == 0 {
 		return
 	}
-	log.Printf("[Credentials] %d credenciais ilegíveis encontradas (cifradas com DEK divergente da atual): %v — removendo automaticamente", len(status.UnreadableCredentialIDs), status.UnreadableCredentialIDs)
+	logging.Infof(context.Background(), "app.app-credentials", "[Credentials] %d credenciais ilegíveis encontradas (cifradas com DEK divergente da atual): %v — removendo automaticamente", len(status.UnreadableCredentialIDs), status.UnreadableCredentialIDs)
 	removed, err := a.credMgr.PurgeUnreadableCredentials(a.internalBootstrapCtx())
 	if err != nil {
-		log.Printf("[Credentials] erro ao purgar credenciais ilegíveis: %v", err)
+		logging.Errorf(context.Background(), "app.app-credentials", "[Credentials] erro ao purgar credenciais ilegíveis: %v", err)
 		return
 	}
-	log.Printf("[Credentials] %d credenciais ilegíveis removidas. Reemita as credenciais correspondentes via UI/wizard.", removed)
+	logging.Infof(context.Background(), "app.app-credentials", "[Credentials] %d credenciais ilegíveis removidas. Reemita as credenciais correspondentes via UI/wizard.", removed)
 }
 
 // GetVaultIntegrityStatus expõe o status de integridade do vault
@@ -173,7 +173,7 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 	// keychain antes de qualquer sessão). Só instance secrets entram em
 	// memória aqui; user-scoped vem depois via LoadUserCredentials.
 	if err := a.credMgr.LoadInstanceSecrets(a.internalBootstrapCtx()); err != nil {
-		log.Printf("[Credentials] Erro ao carregar instance secrets: %v", err)
+		logging.Errorf(context.Background(), "app.app-credentials", "[Credentials] Erro ao carregar instance secrets: %v", err)
 	}
 	a.handleVaultIntegrityOnBoot()
 	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)

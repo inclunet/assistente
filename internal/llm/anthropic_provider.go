@@ -1,10 +1,10 @@
 package llm
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"time"
@@ -110,7 +110,7 @@ func (p *AnthropicProvider) SendChat(ctx context.Context, messages []Message, pa
 func (p *AnthropicProvider) GetModels(ctx context.Context) (models []string, retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[AnthropicProvider] PANIC no SDK Models.List: %v", r)
+			logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] PANIC no SDK Models.List: %v", r)
 			retErr = fmt.Errorf("panic no SDK: %v", r)
 		}
 	}()
@@ -230,7 +230,7 @@ func (p *AnthropicProvider) streamChatWithMCP(
 	tools ...ToolDefinition,
 ) {
 	currentServers := cloneMCPServers(p.mcpServers)
-	log.Printf("[AnthropicProvider] MCP nativo: %d servers, %d tools locais", len(currentServers), len(tools))
+	logging.Infof(ctx, "llm.anthropic-provider", "[AnthropicProvider] MCP nativo: %d servers, %d tools locais", len(currentServers), len(tools))
 
 	const maxAttempts = 10
 	bk := 500 * time.Millisecond
@@ -258,7 +258,7 @@ func (p *AnthropicProvider) streamChatWithMCP(
 		if result.nativeMCPUnsupported {
 			// Modelo/endpoint rejeitou MCP nativo: dispara o auto-ajuste persistido do
 			// perfil (nil→false) e degrada nativo→adapter.
-			log.Printf("[MCP-DEGRADE] attempt=%d provider=anthropic action=native_to_adapter reason=model_rejects_native_mcp servers=%d", attempt, len(currentServers))
+			logging.Infof(ctx, "llm.anthropic-provider", "[MCP-DEGRADE] attempt=%d provider=anthropic action=native_to_adapter reason=model_rejects_native_mcp servers=%d", attempt, len(currentServers))
 			if params.OnNativeMCPUnsupported != nil {
 				params.OnNativeMCPUnsupported()
 			}
@@ -342,7 +342,7 @@ func (p *AnthropicProvider) buildBetaMCPParams(
 			mcpDef.AuthorizationToken = anthropicparam.NewOpt(srv.AuthToken)
 		}
 		betaParams.MCPServers = append(betaParams.MCPServers, mcpDef)
-		log.Printf("[AnthropicProvider] MCP native server: name=%q url=%q hasAuth=%v allowedTools=%d",
+		logging.Infof(ctx, "llm.anthropic-provider", "[AnthropicProvider] MCP native server: name=%q url=%q hasAuth=%v allowedTools=%d",
 			srv.Name, srv.URL, srv.AuthToken != "", len(srv.AllowedTools))
 	}
 
@@ -370,7 +370,7 @@ func (p *AnthropicProvider) buildBetaMCPParams(
 			var schema anthropic.BetaToolInputSchemaParam
 			if len(tool.Function.Parameters) > 0 {
 				if err := json.Unmarshal(tool.Function.Parameters, &schema); err != nil {
-					log.Printf("[AnthropicProvider] Erro ao parsear parameters de %s: %v", tool.Function.Name, err)
+					logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Erro ao parsear parameters de %s: %v", tool.Function.Name, err)
 					continue
 				}
 			}
@@ -558,7 +558,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
-		log.Printf("[AnthropicProvider] Beta stream error: %s", errStr)
+		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Beta stream error: %s", errStr)
 		if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errStr) {
 			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 		}
@@ -724,7 +724,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
-		log.Printf("[AnthropicProvider] Stream error: %s", errStr)
+		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Stream error: %s", errStr)
 
 		if !emittedAnything && isRetryableError(errStr) {
 			return false
@@ -847,7 +847,7 @@ func convertAnthropicTools(tools []ToolDefinition, explicitCacheControl bool) []
 		var schema anthropic.ToolInputSchemaParam
 		if len(tool.Function.Parameters) > 0 {
 			if err := json.Unmarshal(tool.Function.Parameters, &schema); err != nil {
-				log.Printf("[AnthropicProvider] Erro ao parsear parameters de %s: %v", tool.Function.Name, err)
+				logging.Errorf(context.Background(), "llm.anthropic-provider", "[AnthropicProvider] Erro ao parsear parameters de %s: %v", tool.Function.Name, err)
 				continue
 			}
 		}

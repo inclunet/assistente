@@ -1,9 +1,9 @@
 package slack
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"math"
 	"strconv"
 	"sync"
@@ -28,17 +28,17 @@ type SlackAdapter struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 
-	mu         sync.RWMutex
-	userCache  map[string]string
+	mu        sync.RWMutex
+	userCache map[string]string
 }
 
 // NewAdapter cria um novo adapter para Slack (Socket Mode).
 // botToken: xoxb-..., appToken: xapp-...
 func NewAdapter(botToken, appToken string) *SlackAdapter {
 	return &SlackAdapter{
-		botToken: botToken,
-		appToken: appToken,
-		status:   messaging.StatusDisconnected,
+		botToken:  botToken,
+		appToken:  appToken,
+		status:    messaging.StatusDisconnected,
 		userCache: make(map[string]string),
 	}
 }
@@ -77,11 +77,11 @@ func (s *SlackAdapter) Connect(ctx context.Context) error {
 	go s.eventLoop()
 	go func() {
 		if err := socketClient.RunContext(s.ctx); err != nil {
-			log.Printf("[Slack] RunContext error: %v", err)
+			logging.Errorf(ctx, "messaging.slack.adapter", "[Slack] RunContext error: %v", err)
 		}
 	}()
 
-	log.Println("[Slack] Conectado via Socket Mode")
+	logging.Println(ctx, "messaging.slack.adapter", "[Slack] Conectado via Socket Mode")
 	return nil
 }
 
@@ -94,7 +94,7 @@ func (s *SlackAdapter) Disconnect() error {
 		s.cancel()
 	}
 	s.status = messaging.StatusDisconnected
-	log.Println("[Slack] Desconectado")
+	logging.Println(context.Background(), "messaging.slack.adapter", "[Slack] Desconectado")
 	return nil
 }
 

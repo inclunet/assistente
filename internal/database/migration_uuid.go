@@ -1,10 +1,11 @@
 package database
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,9 +33,9 @@ func migrateToUUIDv7() error {
 	}
 
 	startedAt := time.Now()
-	log.Println("[Migration] Iniciando migração de IDs INTEGER → UUIDv7...")
+	logging.Println(context.Background(), "database.migration-uuid", "[Migration] Iniciando migração de IDs INTEGER → UUIDv7...")
 	defer func() {
-		log.Printf("[Migration] migrateToUUIDv7 finalizado em %s", time.Since(startedAt).Truncate(time.Millisecond))
+		logging.Errorf(context.Background(), "database.migration-uuid", "[Migration] migrateToUUIDv7 finalizado em %s", time.Since(startedAt).Truncate(time.Millisecond))
 	}()
 
 	// Backup antes de migrar.
@@ -44,7 +45,7 @@ func migrateToUUIDv7() error {
 	// O backup é best-effort para facilitar recuperação manual em cenários
 	// onde o SQLite esteja em estado inconsistente (corrupção prévia, etc.).
 	if err := createBackup(); err != nil {
-		log.Printf("[Migration] Aviso: não foi possível criar backup: %v", err)
+		logging.Warnf(context.Background(), "database.migration-uuid", "[Migration] Aviso: não foi possível criar backup: %v", err)
 	}
 
 	tx, err := sqlDB.Begin()
@@ -86,7 +87,7 @@ func migrateToUUIDv7() error {
 	if err != nil {
 		return fmt.Errorf("erro ao migrar credential_entries: %w", err)
 	}
-	log.Printf("[Migration] credential_entries: %d registros migrados", len(credMap))
+	logging.Infof(context.Background(), "database.migration-uuid", "[Migration] credential_entries: %d registros migrados", len(credMap))
 
 	// 2. credential_key_wraps (sem FKs)
 	kwMap, err := migrateTable(tx, "credential_key_wraps", []string{
@@ -103,7 +104,7 @@ func migrateToUUIDv7() error {
 	if err != nil {
 		return fmt.Errorf("erro ao migrar credential_key_wraps: %w", err)
 	}
-	log.Printf("[Migration] credential_key_wraps: %d registros migrados", len(kwMap))
+	logging.Infof(context.Background(), "database.migration-uuid", "[Migration] credential_key_wraps: %d registros migrados", len(kwMap))
 
 	// 3. conversations
 	convMap, err := migrateTable(tx, "conversations", []string{
@@ -120,7 +121,7 @@ func migrateToUUIDv7() error {
 	if err != nil {
 		return fmt.Errorf("erro ao migrar conversations: %w", err)
 	}
-	log.Printf("[Migration] conversations: %d registros migrados", len(convMap))
+	logging.Infof(context.Background(), "database.migration-uuid", "[Migration] conversations: %d registros migrados", len(convMap))
 
 	// 4. chat_messages (FK: conversation_id, parent_id, turn_id)
 	msgMap, err := migrateTable(tx, "chat_messages", []string{
@@ -151,7 +152,7 @@ func migrateToUUIDv7() error {
 	if err != nil {
 		return fmt.Errorf("erro ao migrar chat_messages: %w", err)
 	}
-	log.Printf("[Migration] chat_messages: %d registros migrados", len(msgMap))
+	logging.Infof(context.Background(), "database.migration-uuid", "[Migration] chat_messages: %d registros migrados", len(msgMap))
 
 	// 5. conversations (2° passe) — atualizar summary_up_to_message_id
 	if err := updateConversationSummaryRefs(tx, msgMap); err != nil {
@@ -172,7 +173,7 @@ func migrateToUUIDv7() error {
 	if err != nil {
 		return fmt.Errorf("erro ao migrar task_lists: %w", err)
 	}
-	log.Printf("[Migration] task_lists: %d registros migrados", len(tlMap))
+	logging.Infof(context.Background(), "database.migration-uuid", "[Migration] task_lists: %d registros migrados", len(tlMap))
 
 	// 7. task_list_workflows (FK: task_list_id)
 	wfMap, err := migrateTable(tx, "task_list_workflows", []string{
@@ -189,7 +190,7 @@ func migrateToUUIDv7() error {
 	if err != nil {
 		return fmt.Errorf("erro ao migrar task_list_workflows: %w", err)
 	}
-	log.Printf("[Migration] task_list_workflows: %d registros migrados", len(wfMap))
+	logging.Infof(context.Background(), "database.migration-uuid", "[Migration] task_list_workflows: %d registros migrados", len(wfMap))
 
 	// 8. tasks (FK: task_list_id, parent_id self-ref)
 	taskMap, err := migrateTable(tx, "tasks", []string{
@@ -217,7 +218,7 @@ func migrateToUUIDv7() error {
 	if err != nil {
 		return fmt.Errorf("erro ao migrar tasks: %w", err)
 	}
-	log.Printf("[Migration] tasks: %d registros migrados", len(taskMap))
+	logging.Infof(context.Background(), "database.migration-uuid", "[Migration] tasks: %d registros migrados", len(taskMap))
 
 	// 9. task_notes (FK: task_id)
 	tnMap, err := migrateTable(tx, "task_notes", []string{
@@ -239,12 +240,12 @@ func migrateToUUIDv7() error {
 	if err != nil {
 		return fmt.Errorf("erro ao migrar task_notes: %w", err)
 	}
-	log.Printf("[Migration] task_notes: %d registros migrados", len(tnMap))
+	logging.Infof(context.Background(), "database.migration-uuid", "[Migration] task_notes: %d registros migrados", len(tnMap))
 
 	// Normalizar campos booleanos: SQLite não tem tipo bool nativo,
 	// valores não-booleanos (ex: 4) causam "couldn't convert X into type bool".
 	if _, err := tx.Exec(`UPDATE conversations SET summarizing_in_progress = CASE WHEN summarizing_in_progress > 0 THEN 1 ELSE 0 END WHERE summarizing_in_progress NOT IN (0, 1)`); err != nil {
-		log.Printf("[Migration] Aviso: normalização de summarizing_in_progress: %v", err)
+		logging.Warnf(context.Background(), "database.migration-uuid", "[Migration] Aviso: normalização de summarizing_in_progress: %v", err)
 	}
 
 	// Persiste mapa de remapeamento ANTES do commit para minimizar janela de
@@ -253,7 +254,7 @@ func migrateToUUIDv7() error {
 	// e a migração será retentada do zero). Se o commit tiver sucesso, o remap
 	// já estará disponível para o workspace manager.
 	if err := persistIDRemapFile(sqlDB, convMap, tlMap); err != nil {
-		log.Printf("[Migration] Aviso: não foi possível salvar mapa de remapeamento: %v", err)
+		logging.Warnf(context.Background(), "database.migration-uuid", "[Migration] Aviso: não foi possível salvar mapa de remapeamento: %v", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -262,7 +263,7 @@ func migrateToUUIDv7() error {
 		return fmt.Errorf("erro ao commit da migração: %w", err)
 	}
 
-	log.Println("[Migration] Migração UUIDv7 concluída com sucesso!")
+	logging.Println(context.Background(), "database.migration-uuid", "[Migration] Migração UUIDv7 concluída com sucesso!")
 	return nil
 }
 
@@ -468,7 +469,7 @@ func migrateTable(tx *sql.Tx, tableName string, newCols []string, fkMaps map[str
 			)
 			if res != nil {
 				if cleaned, _ := res.RowsAffected(); cleaned > 0 {
-					log.Printf("[Migration] %s.%s: %d self-refs órfãs limpas para NULL", tableName, colName, cleaned)
+					logging.Infof(context.Background(), "database.migration-uuid", "[Migration] %s.%s: %d self-refs órfãs limpas para NULL", tableName, colName, cleaned)
 				}
 			}
 		}
@@ -476,7 +477,7 @@ func migrateTable(tx *sql.Tx, tableName string, newCols []string, fkMaps map[str
 
 	// Logar FKs órfãs encontradas durante a migração
 	for col, count := range orphanFKCount {
-		log.Printf("[Migration] %s.%s: %d FKs órfãs resolvidas para NULL", tableName, col, count)
+		logging.Infof(context.Background(), "database.migration-uuid", "[Migration] %s.%s: %d FKs órfãs resolvidas para NULL", tableName, col, count)
 	}
 
 	// Drop tabela antiga, rename nova
@@ -541,7 +542,7 @@ func createBackup() error {
 	// Flush WAL para o arquivo principal antes de copiar,
 	// garantindo que o backup contenha todas as páginas recentes.
 	if _, err := sqlDB.Exec("PRAGMA wal_checkpoint(FULL)"); err != nil {
-		log.Printf("[Migration] Aviso: wal_checkpoint falhou: %v", err)
+		logging.Warnf(context.Background(), "database.migration-uuid", "[Migration] Aviso: wal_checkpoint falhou: %v", err)
 	}
 
 	backupPath := dbPath + ".pre-uuid.bak"
@@ -552,7 +553,7 @@ func createBackup() error {
 	if err := os.WriteFile(backupPath, src, 0600); err != nil {
 		return err
 	}
-	log.Printf("[Migration] Backup criado: %s", backupPath)
+	logging.Infof(context.Background(), "database.migration-uuid", "[Migration] Backup criado: %s", backupPath)
 	return nil
 }
 
@@ -595,7 +596,7 @@ func persistIDRemapFile(sqlDB *sql.DB, convMap, tlMap map[uint]string) error {
 	if err := os.WriteFile(remapPath, b, 0600); err != nil {
 		return err
 	}
-	log.Printf("[Migration] Mapa de remapeamento salvo: %s", remapPath)
+	logging.Infof(context.Background(), "database.migration-uuid", "[Migration] Mapa de remapeamento salvo: %s", remapPath)
 	return nil
 }
 
@@ -609,7 +610,7 @@ func LoadIDRemapFile(dir string) *IDRemapData {
 	}
 	var data IDRemapData
 	if err := json.Unmarshal(b, &data); err != nil {
-		log.Printf("[Migration] Aviso: erro ao ler mapa de remapeamento: %v", err)
+		logging.Warnf(context.Background(), "database.migration-uuid", "[Migration] Aviso: erro ao ler mapa de remapeamento: %v", err)
 		return nil
 	}
 	return &data
@@ -619,6 +620,6 @@ func LoadIDRemapFile(dir string) *IDRemapData {
 func DeleteIDRemapFile(dir string) {
 	remapPath := filepath.Join(dir, idRemapFilename)
 	if err := os.Remove(remapPath); err != nil && !os.IsNotExist(err) {
-		log.Printf("[Migration] Aviso: erro ao remover mapa de remapeamento: %v", err)
+		logging.Warnf(context.Background(), "database.migration-uuid", "[Migration] Aviso: erro ao remover mapa de remapeamento: %v", err)
 	}
 }

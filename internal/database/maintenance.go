@@ -1,10 +1,10 @@
 package database
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"sync"
 )
@@ -73,7 +73,7 @@ func fileSize(path string) int64 {
 	info, err := os.Stat(path)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			log.Printf("[Database] fileSize(%s): %v", path, err)
+			logging.Errorf(context.Background(), "database.maintenance", "[Database] fileSize(%s): %v", path, err)
 		}
 		return 0
 	}
@@ -90,7 +90,7 @@ func DatabaseStatsSnapshot(ctx context.Context) (DatabaseStats, error) {
 	readInt := func(pragma string) int64 {
 		var v int64
 		if err := db.WithContext(ctx).Raw("PRAGMA " + pragma).Scan(&v).Error; err != nil {
-			log.Printf("[Database] manutenção: leitura de PRAGMA %s falhou: %v", pragma, err)
+			logging.Infof(ctx, "database.maintenance", "[Database] manutenção: leitura de PRAGMA %s falhou: %v", pragma, err)
 		}
 		return v
 	}
@@ -162,20 +162,20 @@ func Compact(ctx context.Context, force bool, minFreeBytes int64) (CompactionRes
 		// aguardem o lock sob contenção em vez de falhar imediatamente com
 		// SQLITE_BUSY (AEP-0074).
 		if _, err := conn.ExecContext(ctx, "PRAGMA busy_timeout=5000"); err != nil {
-			log.Printf("[Database] manutenção: set busy_timeout falhou: %v", err)
+			logging.Warnf(ctx, "database.maintenance", "[Database] manutenção: set busy_timeout falhou: %v", err)
 		}
 
 		// 1) Checkpoint do WAL: devolve o conteúdo do -wal ao arquivo principal e
 		//    trunca o -wal. Best-effort.
 		if _, err := conn.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-			log.Printf("[Database] manutenção: wal_checkpoint falhou: %v", err)
+			logging.Errorf(ctx, "database.maintenance", "[Database] manutenção: wal_checkpoint falhou: %v", err)
 		} else {
 			res.WALCheckpointed = true
 		}
 
 		runFullVacuum := func() error {
 			if _, err := conn.ExecContext(ctx, "PRAGMA auto_vacuum=INCREMENTAL"); err != nil {
-				log.Printf("[Database] manutenção: set auto_vacuum=INCREMENTAL falhou: %v", err)
+				logging.Errorf(ctx, "database.maintenance", "[Database] manutenção: set auto_vacuum=INCREMENTAL falhou: %v", err)
 			}
 			if _, err := conn.ExecContext(ctx, "VACUUM"); err != nil {
 				return fmt.Errorf("vacuum: %w", err)
@@ -217,7 +217,7 @@ func Compact(ctx context.Context, force bool, minFreeBytes int64) (CompactionRes
 	}
 
 	if res.Mode != "noop" && res.Mode != "skipped" {
-		log.Printf("[Database] manutenção: modo=%s wal=%v liberado=%dB (antes=%dB depois=%dB)",
+		logging.Infof(ctx, "database.maintenance", "[Database] manutenção: modo=%s wal=%v liberado=%dB (antes=%dB depois=%dB)",
 			res.Mode, res.WALCheckpointed, res.ReclaimedBytes, res.TotalSizeBefore, res.TotalSizeAfter)
 	}
 	return res, nil

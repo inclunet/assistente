@@ -1,10 +1,9 @@
 package database
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
-	"log"
-
 	"gorm.io/gorm"
 )
 
@@ -337,7 +336,7 @@ func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, 
 	// logado para não mascarar inconsistências no payload (vs. demais campos).
 	contextTokens, ctxErr := r.getLatestReportedContextTokens(ctx, conversationID)
 	if ctxErr != nil {
-		log.Printf("[DB] aviso: falha ao obter contextTokens da conversa %s: %v", conversationID, ctxErr)
+		logging.Warnf(ctx, "database.token-repository", "[DB] aviso: falha ao obter contextTokens da conversa %s: %v", conversationID, ctxErr)
 	}
 
 	return &DetailedTokenStats{

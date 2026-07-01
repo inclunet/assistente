@@ -1,10 +1,10 @@
 package speech
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/base64"
 	"fmt"
-	"log"
 	"math"
 	"strings"
 
@@ -88,7 +88,7 @@ func (s *Service) EnsureSpeechManager(ctx context.Context) bool {
 		return true
 	}
 	if err := s.InitFromProfile(ctx); err != nil {
-		log.Printf("[Speech] Erro ao inicializar speechManager do perfil: %v", err)
+		logging.Errorf(ctx, "speech.service", "[Speech] Erro ao inicializar speechManager do perfil: %v", err)
 		return false
 	}
 	return s.speechManager != nil
@@ -98,7 +98,7 @@ func (s *Service) EnsureSpeechManager(ctx context.Context) bool {
 func (s *Service) CreateTTSClient(ctx context.Context, providerID string, model string) *TTSClient {
 	cfg := s.registry.Get(providerID)
 	if cfg == nil {
-		log.Printf("[TTS] Provider %s não encontrado", providerID)
+		logging.Infof(ctx, "speech.service", "[TTS] Provider %s não encontrado", providerID)
 		return nil
 	}
 	return NewTTSClient(TTSConfig{
@@ -111,7 +111,7 @@ func (s *Service) CreateTTSClient(ctx context.Context, providerID string, model 
 func (s *Service) CreateTTSClientWithLanguage(ctx context.Context, providerID string, model string, language string) *TTSClient {
 	cfg := s.registry.Get(providerID)
 	if cfg == nil {
-		log.Printf("[TTS] Provider %s não encontrado", providerID)
+		logging.Infof(ctx, "speech.service", "[TTS] Provider %s não encontrado", providerID)
 		return nil
 	}
 	return NewTTSClient(TTSConfig{
@@ -149,7 +149,7 @@ func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID
 	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
 	cached := true
 	if saveErr := s.audioRepo.SaveMessageAudio(ctx, messageID, audioBase64, mimeType); saveErr != nil {
-		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%s): %v", messageID, saveErr)
+		logging.Warnf(ctx, "speech.service", "[TTS] WARN: falha ao salvar áudio no DB (messageID=%s): %v", messageID, saveErr)
 		cached = false
 	}
 
@@ -240,7 +240,7 @@ func (s *Service) GenerateAndSaveMessageAudio(ctx context.Context, messageID str
 	mimeType := "audio/mpeg"
 	cached := true
 	if err := s.audioRepo.SaveMessageAudio(ctx, messageID, result.AudioBase64, mimeType); err != nil {
-		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%s): %v — áudio será retornado mas não persistido", messageID, err)
+		logging.Warnf(ctx, "speech.service", "[TTS] WARN: falha ao salvar áudio no DB (messageID=%s): %v — áudio será retornado mas não persistido", messageID, err)
 		cached = false
 	}
 
@@ -257,12 +257,12 @@ func (s *Service) GetTTSModels(ctx context.Context, providerID string) []TTSMode
 	}
 	client := s.CreateTTSClient(ctx, providerID, "")
 	if client == nil {
-		log.Printf("[GetTTSModels] não foi possível criar client para provider %s", providerID)
+		logging.Errorf(ctx, "speech.service", "[GetTTSModels] não foi possível criar client para provider %s", providerID)
 		return []TTSModelInfo{}
 	}
 	models, err := client.FetchTTSModels(ctx)
 	if err != nil {
-		log.Printf("[GetTTSModels] erro ao buscar modelos para %s: %v", providerID, err)
+		logging.Errorf(ctx, "speech.service", "[GetTTSModels] erro ao buscar modelos para %s: %v", providerID, err)
 		return []TTSModelInfo{}
 	}
 	return models
@@ -295,20 +295,20 @@ func (s *Service) GetTTSVoices(ctx context.Context, providerID, modelID string) 
 		return []TTSVoiceInfo{}
 	}
 	if modelID == "" {
-		log.Printf("[GetTTSVoices] model é obrigatório para provider %s", providerID)
+		logging.Infof(ctx, "speech.service", "[GetTTSVoices] model é obrigatório para provider %s", providerID)
 		return []TTSVoiceInfo{}
 	}
 
 	// Provedores LLM: consulta via TTSClient
 	client := s.CreateTTSClient(ctx, providerID, modelID)
 	if client == nil {
-		log.Printf("[GetTTSVoices] não foi possível criar client para provider %s", providerID)
+		logging.Errorf(ctx, "speech.service", "[GetTTSVoices] não foi possível criar client para provider %s", providerID)
 		return []TTSVoiceInfo{}
 	}
 
 	voices, err := client.FetchVoices(ctx, modelID)
 	if err != nil {
-		log.Printf("[GetTTSVoices] erro ao buscar vozes para %s: %v", providerID, err)
+		logging.Errorf(ctx, "speech.service", "[GetTTSVoices] erro ao buscar vozes para %s: %v", providerID, err)
 		return []TTSVoiceInfo{}
 	}
 
@@ -385,7 +385,7 @@ func (s *Service) SynthesizeStream(ctx context.Context, text string, voice strin
 				})
 			},
 			OnError: func(err error) {
-				log.Printf("[TTS] Stream error: %v", err)
+				logging.Errorf(ctx, "speech.service", "[TTS] Stream error: %v", err)
 				s.emitter.Emit(EventTTSStreamError, TTSStreamEvent{
 					SessionID: sessionID,
 					Error:     err.Error(),
@@ -436,7 +436,7 @@ func (s *Service) SpeakPreview(ctx context.Context, p SpeakPreviewParams) error 
 		volume = 1.0
 	}
 
-	log.Printf("[SpeakPreview] provider=%s, voice=%s, model=%s, language=%s, rate=%.2f, volume=%.2f", p.ProviderID, p.VoiceID, p.Model, p.Language, rate, volume)
+	logging.Debugf(ctx, "speech.service", "[SpeakPreview] provider=%s, voice=%s, model=%s, language=%s, rate=%.2f, volume=%.2f", p.ProviderID, p.VoiceID, p.Model, p.Language, rate, volume)
 
 	switch p.ProviderID {
 	case "webspeech":
@@ -453,10 +453,10 @@ func (s *Service) previewSAPI5(text, voiceID string, rate, volume float64) error
 	sapiRate := mapRateToSAPI5(rate)
 	sapiVolume := int(volume * 100)
 	if err := manager.SetRate(sapiRate); err != nil {
-		log.Printf("[SpeakPreview] SetRate error: %v", err)
+		logging.Errorf(context.Background(), "speech.service", "[SpeakPreview] SetRate error: %v", err)
 	}
 	if err := manager.SetVolume(sapiVolume); err != nil {
-		log.Printf("[SpeakPreview] SetVolume error: %v", err)
+		logging.Errorf(context.Background(), "speech.service", "[SpeakPreview] SetVolume error: %v", err)
 	}
 	return manager.Speak(text, voiceID)
 }
@@ -498,7 +498,7 @@ func (s *Service) previewLLM(ctx context.Context, providerID, text, voiceID, mod
 				})
 			},
 			OnError: func(err error) {
-				log.Printf("[SpeakPreview] Stream error: %v", err)
+				logging.Errorf(ctx, "speech.service", "[SpeakPreview] Stream error: %v", err)
 				s.emitter.Emit(EventTTSStreamError, TTSStreamEvent{
 					SessionID: sessionID,
 					Error:     err.Error(),

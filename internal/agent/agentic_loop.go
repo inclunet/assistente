@@ -1,10 +1,10 @@
 package agent
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"sort"
 	"strings"
 
@@ -65,7 +65,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 	for iteration := 0; iteration < r.maxIterations; iteration++ {
 		// Verifica cancelamento
 		if ctx.Err() != nil {
-			log.Printf("[Agent] loop cancelado na iteração %d", iteration)
+			logging.Infof(ctx, "agent.agentic-loop", "[Agent] loop cancelado na iteração %d", iteration)
 			r.svc.emitAgenticContextDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin, iteration-1, r.totalToolCallCount, r.toolsUsedSet)
 			return
 		}
@@ -83,7 +83,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 
 		// 2. Erro?
 		if streamErr != "" {
-			log.Printf("[Agent] erro na iteração %d: %s", iteration, result.Error)
+			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro na iteração %d: %s", iteration, result.Error)
 			// chat:done é o evento terminal canônico — inclui ErrorMessage para que
 			// adapters (CLI, frontend) exibam o erro sem depender de chat:stream terminal.
 			r.svc.emitter.Emit("chat:done", r.buildErrorDoneEvent(streamErr, iteration))
@@ -146,7 +146,7 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 		// adapter (bridges presentes) e re-tenta esta iteração SEM consumir uma
 		// tentativa de recovery. Consume() garante que isso ocorre só uma vez.
 		if fb := r.params.NativeMCPFallback; fb != nil && fb.Consume() {
-			log.Printf("[Agent] MCP nativo não suportado (iteração %d): re-tentando o mesmo turno em modo adapter com bridge tools", iteration)
+			logging.Infof(ctx, "agent.agentic-loop", "[Agent] MCP nativo não suportado (iteração %d): re-tentando o mesmo turno em modo adapter com bridge tools", iteration)
 			if fb.Streamer != nil {
 				r.activeStreamer = fb.Streamer
 			}
@@ -178,7 +178,7 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			}
 		}
 		if attempt < attempts {
-			log.Printf("[Agent] streaming interrompido (iteração %d, tentativa %d/%d): %s", iteration, attempt, attempts, result.Error)
+			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido (iteração %d, tentativa %d/%d): %s", iteration, attempt, attempts, result.Error)
 			continue
 		}
 	}
@@ -279,10 +279,10 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	assistantToolCallsSaved := err == nil
 	if err != nil {
 		if errors.Is(err, chat.ErrConversationDeleted) {
-			log.Printf("[Agent] conversa %s deletada — abortando", r.conversationID)
+			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] conversa %s deletada — abortando", r.conversationID)
 			return ctx, true
 		}
-		log.Printf("[Agent] erro ao salvar assistant com tool_calls: %v", err)
+		logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar assistant com tool_calls: %v", err)
 	}
 
 	// 5f-iv. Persiste resultados técnicos em tool_invocations e adiciona
@@ -303,10 +303,10 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 			persistedContent := execResult.Result.Content
 			if _, err := r.svc.msgRepo.AddToolResultMessage(ctx, r.conversationID, r.turnID, persistedContent, execResult.CallID); err != nil {
 				if errors.Is(err, chat.ErrConversationDeleted) {
-					log.Printf("[Agent] conversa %s deletada durante tool execution — abortando", r.conversationID)
+					logging.Errorf(ctx, "agent.agentic-loop", "[Agent] conversa %s deletada durante tool execution — abortando", r.conversationID)
 					return ctx, true
 				}
-				log.Printf("[Agent] erro ao salvar tool result message (fallback): %v", err)
+				logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar tool result message (fallback): %v", err)
 			}
 		}
 		r.messages = append(r.messages, llm.Message{
@@ -372,21 +372,21 @@ func (r *agenticLoopRunner) turnStillValid(ctx context.Context) bool {
 	}
 	turnMsg, err := r.svc.msgRepo.GetMessage(ctx, r.turnID)
 	if err != nil {
-		log.Printf("[Agent] turn message %s não existe mais antes de executar tools: %v", r.turnID, err)
+		logging.Errorf(ctx, "agent.agentic-loop", "[Agent] turn message %s não existe mais antes de executar tools: %v", r.turnID, err)
 		return false
 	}
 	if turnMsg == nil {
 		// Defesa: um repo/mock pode devolver (nil, nil). Tratamos como turno
 		// inexistente e abortamos a execução de tools (mesmo efeito do erro),
 		// evitando panic ao acessar turnMsg.ConversationID.
-		log.Printf("[Agent] turn message %s retornou nil sem erro antes de executar tools; abortando", r.turnID)
+		logging.Errorf(ctx, "agent.agentic-loop", "[Agent] turn message %s retornou nil sem erro antes de executar tools; abortando", r.turnID)
 		return false
 	}
 	turnConv := strings.TrimSpace(turnMsg.ConversationID)
 	conv := strings.TrimSpace(r.conversationID)
 	// Se o repo não popula ConversationID, não temos como validar; segue o fluxo.
 	if turnConv != "" && conv != "" && turnConv != conv {
-		log.Printf("[Agent] turn message %s pertence a outra conversa (%s); abortando execução de tools", r.turnID, turnMsg.ConversationID)
+		logging.Errorf(ctx, "agent.agentic-loop", "[Agent] turn message %s pertence a outra conversa (%s); abortando execução de tools", r.turnID, turnMsg.ConversationID)
 		return false
 	}
 	return true
@@ -434,7 +434,7 @@ func (r *agenticLoopRunner) retryRetryableTools(ctx context.Context, toolCalls [
 				Attempt:            0,
 				SurfaceOrigin:      r.surfaceOrigin,
 			})
-			log.Printf("[Agent] tool %s falhou (kind=%s), tentando retry...", retryName, execResult.ErrorKind)
+			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] tool %s falhou (kind=%s), tentando retry...", retryName, execResult.ErrorKind)
 			// Emite tool_start para a nova tentativa (attempt=1)
 			EmitToolStart(r.svc.emitter, ports.ToolStartEvent{
 				ConversationID:     r.conversationID,
@@ -562,7 +562,7 @@ func (r *agenticLoopRunner) emitTokenStatsUpdate() {
 // finishLimitReached emite os eventos terminais quando o loop atinge o teto de
 // iterações (chat:stream informativo + chat:done com Reason="limit_reached").
 func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
-	log.Printf("[Agent] limite de %d iterações atingido para conversa %s", r.maxIterations, r.conversationID)
+	logging.Infof(ctx, "agent.agentic-loop", "[Agent] limite de %d iterações atingido para conversa %s", r.maxIterations, r.conversationID)
 	r.svc.emitter.Emit("chat:stream", events.StreamEvent{
 		Content:        "Limite de iterações do agente atingido. A resposta pode estar incompleta.",
 		Done:           true,

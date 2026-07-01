@@ -2,10 +2,11 @@ package profiles
 
 import (
 	"assistente/internal/configdir"
+	"assistente/internal/logging"
 	"assistente/internal/slug"
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"sort"
 	"strings"
@@ -188,7 +189,7 @@ func (m *Manager) Update(slug string, profile *Profile) error {
 
 	if profile.Active {
 		if err := m.deactivateOthers(slug); err != nil {
-			log.Printf("[Profiles] Update(%q) marcou Active=true mas falhou ao desativar outros: %v", slug, err)
+			logging.Errorf(context.Background(), "profiles.manager", "[Profiles] Update(%q) marcou Active=true mas falhou ao desativar outros: %v", slug, err)
 		}
 	}
 
@@ -218,11 +219,11 @@ func (m *Manager) deactivateOthers(keepSlug string) error {
 		filename := otherSlug + ".json"
 		data, mErr := json.MarshalIndent(other, "", "  ")
 		if mErr != nil {
-			log.Printf("[Profiles] erro ao serializar %q durante deactivate: %v", otherSlug, mErr)
+			logging.Errorf(context.Background(), "profiles.manager", "[Profiles] erro ao serializar %q durante deactivate: %v", otherSlug, mErr)
 			continue
 		}
 		if wErr := m.resolver.Write(filename, data); wErr != nil {
-			log.Printf("[Profiles] erro ao gravar %q desativado: %v", otherSlug, wErr)
+			logging.Errorf(context.Background(), "profiles.manager", "[Profiles] erro ao gravar %q desativado: %v", otherSlug, wErr)
 		}
 	}
 	return nil
@@ -329,7 +330,7 @@ func (m *Manager) resolveActive() (*Profile, string, error) {
 	}
 	if len(actives) > 1 {
 		winner := pickMostRecentActive(actives)
-		log.Printf("[Profiles] %d perfis com active=true detectados; mantendo %q (mais recente) e desativando demais", len(actives), winner.slug)
+		logging.Infof(context.Background(), "profiles.manager", "[Profiles] %d perfis com active=true detectados; mantendo %q (mais recente) e desativando demais", len(actives), winner.slug)
 		for _, c := range actives {
 			if c.slug == winner.slug {
 				continue
@@ -338,11 +339,11 @@ func (m *Manager) resolveActive() (*Profile, string, error) {
 			filename := c.slug + ".json"
 			data, err := json.MarshalIndent(c.profile, "", "  ")
 			if err != nil {
-				log.Printf("[Profiles] auto-cura: erro ao serializar %q: %v", c.slug, err)
+				logging.Errorf(context.Background(), "profiles.manager", "[Profiles] auto-cura: erro ao serializar %q: %v", c.slug, err)
 				continue
 			}
 			if err := m.resolver.Write(filename, data); err != nil {
-				log.Printf("[Profiles] auto-cura: erro ao desativar %q: %v", c.slug, err)
+				logging.Errorf(context.Background(), "profiles.manager", "[Profiles] auto-cura: erro ao desativar %q: %v", c.slug, err)
 			}
 		}
 		return winner.profile, winner.slug, nil
@@ -483,7 +484,7 @@ func (m *Manager) nextCopyName(baseName string) string {
 		baseName = "Perfil"
 	}
 
-	if candidate := baseName + " (Copia)"; !m.resolver.Exists(Slugify(candidate)+".json") {
+	if candidate := baseName + " (Copia)"; !m.resolver.Exists(Slugify(candidate) + ".json") {
 		return candidate
 	}
 

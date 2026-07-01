@@ -1,8 +1,8 @@
 package jobs
 
 import (
+	"assistente/internal/logging"
 	"context"
-	"log"
 	"sync"
 )
 
@@ -102,7 +102,7 @@ func (eb *EventBus) Publish(ctx context.Context, eventName string, payload map[s
 	copy(handlers, eb.handlers[eventName])
 	if len(handlers) == 0 {
 		eb.mu.RUnlock()
-		log.Printf("[EventBus] Event %q published with no listeners", eventName)
+		logging.Infof(ctx, "jobs.eventbus", "[EventBus] Event %q published with no listeners", eventName)
 		return
 	}
 	// Registra as goroutines no WaitGroup AINDA sob o RLock: Close adquire o
@@ -125,14 +125,14 @@ func (eb *EventBus) Publish(ctx context.Context, eventName string, payload map[s
 		}
 	}
 
-	log.Printf("[EventBus] Event %q published to %d listener(s)", eventName, len(handlers))
+	logging.Debugf(ctx, "jobs.eventbus", "[EventBus] Event %q published to %d listener(s)", eventName, len(handlers))
 
 	for _, h := range handlers {
 		go func(nh namedHandler) {
 			defer eb.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[EventBus] Panic in handler %q for event %q: %v", nh.id, eventName, r)
+					logging.Errorf(ctx, "jobs.eventbus", "[EventBus] Panic in handler %q for event %q: %v", nh.id, eventName, r)
 				}
 			}()
 			nh.handler(ctx, eventName, payload)

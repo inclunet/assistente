@@ -1,8 +1,8 @@
 package mcp
 
 import (
+	"assistente/internal/logging"
 	"context"
-	"log"
 	"strings"
 
 	"assistente/internal/database"
@@ -51,6 +51,6 @@ func (m *Manager) syncMCPTools(ctx context.Context, slug string, toolInfos []MCP
 
 func (m *Manager) syncMCPToolsBestEffort(ctx context.Context, slug string, toolInfos []MCPToolInfo) {
 	if err := m.syncMCPTools(ctx, slug, toolInfos); err != nil {
-		log.Printf("[MCP:%s] Erro ao sincronizar catálogo de tools: %v", slug, err)
+		logging.Errorf(ctx, "mcp.catalog-sync", "[MCP:%s] Erro ao sincronizar catálogo de tools: %v", slug, err)
 	}
 }

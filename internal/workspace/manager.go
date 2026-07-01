@@ -1,18 +1,19 @@
 package workspace
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"assistente/internal/configdir"
 	"assistente/internal/database"
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -748,9 +749,9 @@ func (m *Manager) migrateAllWorkspacesAndCleanupRemap() {
 				if _, err := m.loadWorkspaceFile(wsPath); err != nil {
 					if errors.Is(err, ErrMigrationSaveFailed) {
 						allSaved = false
-						log.Printf("[Workspace] Aviso: migração do workspace %s não foi persistida: %v", entry.ID, err)
+						logging.Warnf(context.Background(), "workspace.manager", "[Workspace] Aviso: migração do workspace %s não foi persistida: %v", entry.ID, err)
 					} else {
-						log.Printf("[Workspace] Aviso: falha ao migrar workspace %s: %v", entry.ID, err)
+						logging.Warnf(context.Background(), "workspace.manager", "[Workspace] Aviso: falha ao migrar workspace %s: %v", entry.ID, err)
 					}
 				}
 			}
@@ -758,7 +759,7 @@ func (m *Manager) migrateAllWorkspacesAndCleanupRemap() {
 	}
 
 	if !allSaved || m.activeMigrationFailed {
-		log.Printf("[Workspace] Remap preservado: nem todos os workspaces foram migrados com sucesso")
+		logging.Warnf(context.Background(), "workspace.manager", "[Workspace] Remap preservado: nem todos os workspaces foram migrados com sucesso")
 		return
 	}
 
@@ -882,7 +883,7 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 	// workspaces conhecidos antes de remover o arquivo de remap.
 	if needsSave {
 		if err := m.saveWorkspace(&ws, filepath.Dir(filepath.Dir(path))); err != nil {
-			log.Printf("[Workspace] Aviso: falha ao salvar migração de workspace: %v", err)
+			logging.Warnf(context.Background(), "workspace.manager", "[Workspace] Aviso: falha ao salvar migração de workspace: %v", err)
 			return &ws, fmt.Errorf("%w: %v", ErrMigrationSaveFailed, err)
 		}
 	}

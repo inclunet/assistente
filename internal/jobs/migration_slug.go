@@ -1,9 +1,9 @@
 package jobs
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"fmt"
-	"log"
-
 	"gorm.io/gorm"
 )
 
@@ -99,7 +99,7 @@ func RenormalizeLegacySlugs(db *gorm.DB) error {
 		totalSuffixed += suffixed
 	}
 	if totalUpdated > 0 {
-		log.Printf("[Jobs] Re-normalização de slugs legados concluída: %d atualizados (%d deles com sufixo por colisão de slug canônico)", totalUpdated, totalSuffixed)
+		logging.Infof(context.Background(), "jobs.migration-slug", "[Jobs] Re-normalização de slugs legados concluída: %d atualizados (%d deles com sufixo por colisão de slug canônico)", totalUpdated, totalSuffixed)
 	}
 	return nil
 }
@@ -195,7 +195,7 @@ func renormalizeSlugsForTable(tx *gorm.DB, target slugRenormalizationTarget) (up
 			// slug podem resolver para o job errado). Logamos o mapeamento
 			// completo (user, tabela, slug antigo → slug novo) para auditoria e
 			// rollback manual.
-			log.Printf("[WARN][Jobs] slug legado renomeado com sufixo por colisão (auditar referências textuais): user=%s tabela=%s slug antigo=%q -> slug novo=%q (forma canônica %q já estava ocupada)",
+			logging.Warnf(context.Background(), "jobs.migration-slug", "[WARN][Jobs] slug legado renomeado com sufixo por colisão (auditar referências textuais): user=%s tabela=%s slug antigo=%q -> slug novo=%q (forma canônica %q já estava ocupada)",
 				row.UserID, target.table, row.Slug, finalSlug, canonical)
 			suffixed++
 		}

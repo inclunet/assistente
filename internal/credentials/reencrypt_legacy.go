@@ -1,10 +1,10 @@
 package credentials
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/base64"
 	"fmt"
-	"log"
 	"strings"
 )
 
@@ -108,7 +108,7 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 			// Caso 3: possível ciphertext órfão (DEK divergente).
 			// Deixado para o fluxo de integridade do AEP-0061.
 			if !orphanLogEmitted {
-				log.Printf("[Credentials] refresh token não decifra mas tem formato de ciphertext — pulando re-cifragem de possível DEK divergente (ver AEP-0061)")
+				logging.Infof(ctx, "credentials.reencrypt-legacy", "[Credentials] refresh token não decifra mas tem formato de ciphertext — pulando re-cifragem de possível DEK divergente (ver AEP-0061)")
 				orphanLogEmitted = true
 			}
 			continue

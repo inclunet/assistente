@@ -1,7 +1,8 @@
 package messaging
 
 import (
-	"log"
+	"assistente/internal/logging"
+	"context"
 	"sync"
 	"time"
 )
@@ -149,7 +150,7 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 	now := n.now()
 
 	// Identifica/remove os expirados SOB o lock; o I/O de log fica para depois,
-	// fora do lock — log.Printf pode bloquear (I/O) e seguraria Register/Notify/
+	// fora do lock — logging pode bloquear (I/O) e seguraria Register/Notify/
 	// Cancel, aumentando a latência do fluxo de mensagens.
 	var toLog []expiredLogEntry
 	n.mu.Lock()
@@ -182,7 +183,7 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 	n.mu.Unlock()
 
 	for _, e := range toLog {
-		log.Printf("[Notifier] Callback expirado por TTL trace=%s conv=%s channel=%s (>%.0fmin sem resposta)",
+		logging.Debugf(context.Background(), "messaging.notifier", "[Notifier] Callback expirado por TTL trace=%s conv=%s channel=%s (>%.0fmin sem resposta)",
 			e.traceID, e.convID, e.channel, e.minutes)
 	}
 }
@@ -238,7 +239,7 @@ func (n *ResponseNotifier) Notify(conversationID string, response string, assist
 		go func(cb ResponseCallback) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[Notifier] panic em callback trace=%s channel=%s conv=%s: %v",
+					logging.Errorf(context.Background(), "messaging.notifier", "[Notifier] panic em callback trace=%s channel=%s conv=%s: %v",
 						cb.TraceID, cb.Channel, conversationID, r)
 				}
 			}()
@@ -263,7 +264,7 @@ func (n *ResponseNotifier) Cancel(conversationID string) {
 		// para correlação completa quando há múltiplos callbacks
 		// pendentes (ex.: race entre canal e UI na mesma conversa).
 		for _, p := range pendings {
-			log.Printf("[Messaging] Callback cancelado trace=%s conv=%s channel=%s (count=%d)",
+			logging.Debugf(context.Background(), "messaging.notifier", "[Messaging] Callback cancelado trace=%s conv=%s channel=%s (count=%d)",
 				p.cb.TraceID, conversationID, p.cb.Channel, len(pendings))
 		}
 	}
@@ -280,7 +281,7 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 		return 0
 	}
 	// Mesmo princípio do expireOldCallbacks: decide/remove sob o lock, coleta o
-	// que precisa logar e faz o I/O de log FORA do lock (log.Printf pode bloquear).
+	// que precisa logar e faz o I/O de log FORA do lock (logging pode bloquear).
 	var toLog []expiredLogEntry
 	n.mu.Lock()
 	cancelled := 0
@@ -307,7 +308,7 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 	n.mu.Unlock()
 
 	for _, e := range toLog {
-		log.Printf("[Notifier] Callback cancelado por canal removido trace=%s conv=%s channel=%s",
+		logging.Debugf(context.Background(), "messaging.notifier", "[Notifier] Callback cancelado por canal removido trace=%s conv=%s channel=%s",
 			e.traceID, e.convID, e.channel)
 	}
 	return cancelled

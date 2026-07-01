@@ -1,9 +1,9 @@
 package chat
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"errors"
-	"log"
 	"strings"
 )
 
@@ -23,7 +23,7 @@ func SaveAssistantMessage(ctx context.Context, msgRepo MessageRepository, opts M
 	msg, err := msgRepo.CreateMessage(ctx, opts)
 	if err != nil {
 		if errors.Is(err, ErrConversationDeleted) || errors.Is(err, ErrParentMessageDeleted) {
-			log.Printf("[Chat] conversa %s deletada — abortando processamento", opts.ConversationID)
+			logging.Infof(ctx, "chat.handler", "[Chat] conversa %s deletada — abortando processamento", opts.ConversationID)
 			return "", ErrConversationGone
 		}
 		return "", err
@@ -67,7 +67,7 @@ func EnsureAssistantPlaceholder(ctx context.Context, msgRepo MessageRepository, 
 	msg, err := msgRepo.CreateMessage(ctx, opts)
 	if err != nil {
 		if errors.Is(err, ErrConversationDeleted) || errors.Is(err, ErrParentMessageDeleted) {
-			log.Printf("[Chat] conversa %s deletada — abortando placeholder", conversationID)
+			logging.Infof(ctx, "chat.handler", "[Chat] conversa %s deletada — abortando placeholder", conversationID)
 			return "", ErrConversationGone
 		}
 		return "", err

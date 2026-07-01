@@ -1,10 +1,10 @@
 package database
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"path/filepath"
 	"strings"
 
@@ -164,11 +164,11 @@ func Init() error {
 		_ = sqlDB.QueryRow(`SELECT count(*) FROM chat_messages_fts`).Scan(&ftsCount)
 		_ = sqlDB.QueryRow(`SELECT count(*) FROM chat_messages WHERE role IN ('user','assistant') AND content != ''`).Scan(&msgCount)
 		if msgCount > 0 && ftsCount < msgCount {
-			log.Printf("[Database] Índice FTS5 desatualizado (%d/%d), reconstruindo...", ftsCount, msgCount)
+			logging.Infof(context.Background(), "database.database", "[Database] Índice FTS5 desatualizado (%d/%d), reconstruindo...", ftsCount, msgCount)
 			if err := RebuildFTSIndex(context.Background()); err != nil {
-				log.Printf("[Database] ERRO: falha ao reconstruir FTS5 — busca de histórico pode estar incompleta. Será retentado no próximo startup. Erro: %v", err)
+				logging.Errorf(context.Background(), "database.database", "[Database] ERRO: falha ao reconstruir FTS5 — busca de histórico pode estar incompleta. Será retentado no próximo startup. Erro: %v", err)
 			} else {
-				log.Printf("[Database] Índice FTS5 reconstruído (%d mensagens)", msgCount)
+				logging.Infof(context.Background(), "database.database", "[Database] Índice FTS5 reconstruído (%d mensagens)", msgCount)
 			}
 		}
 	}

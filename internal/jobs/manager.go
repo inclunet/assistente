@@ -1,11 +1,11 @@
 package jobs
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -129,10 +129,10 @@ func (m *Manager) Start() error {
 	m.registry.Replace(loaded)
 	for _, job := range loaded {
 		m.registerTriggers(job)
-		log.Printf("[Jobs] Registered: %s (enabled=%v pipeline_enabled=%v)", job.ID, job.Enabled, job.PipelineEnabled)
+		logging.Infof(context.Background(), "jobs.manager", "[Jobs] Registered: %s (enabled=%v pipeline_enabled=%v)", job.ID, job.Enabled, job.PipelineEnabled)
 	}
 
-	log.Printf("[Jobs] Loaded %d jobs from database", len(jobs))
+	logging.Infof(context.Background(), "jobs.manager", "[Jobs] Loaded %d jobs from database", len(jobs))
 
 	// Inicia o scheduler
 	m.scheduler.Start()
@@ -140,7 +140,7 @@ func (m *Manager) Start() error {
 	m.startRetentionLoop(ctx)
 
 	m.started = true
-	log.Printf("[Jobs] Manager started")
+	logging.Infof(context.Background(), "jobs.manager", "[Jobs] Manager started")
 	return nil
 }
 
@@ -166,7 +166,7 @@ func (m *Manager) Stop() {
 	m.circuitBreaker.Reset()
 
 	m.started = false
-	log.Printf("[Jobs] Manager stopped")
+	logging.Infof(context.Background(), "jobs.manager", "[Jobs] Manager stopped")
 }
 
 // --- Metodos publicos para UI/Wails ---
@@ -505,7 +505,7 @@ func (m *Manager) GetJobEventsPageContext(ctx context.Context, date string, limi
 func (m *Manager) GetPipelines() []PipelineInfo {
 	pipelines, err := m.GetPipelinesContext(m.context())
 	if err != nil {
-		log.Printf("[Jobs] GetPipelines error: %v", err)
+		logging.Errorf(context.Background(), "jobs.manager", "[Jobs] GetPipelines error: %v", err)
 		return nil
 	}
 	return pipelines
@@ -731,12 +731,12 @@ func (m *Manager) InferEventSchema(eventName string) map[string]any {
 
 		// 1. In-memory last run (atualizado durante a sessão pelo onRunEnd)
 		if job.LastRun != nil && len(job.LastRun.Output) > 0 {
-			log.Printf("[Jobs] InferEventSchema(%q): found in-memory output from job %s", eventName, job.ID)
+			logging.Infof(context.Background(), "jobs.manager", "[Jobs] InferEventSchema(%q): found in-memory output from job %s", eventName, job.ID)
 			return job.LastRun.Output
 		}
 
 		if lastRun, err := m.lastRun(job.ID); err == nil && lastRun != nil && len(lastRun.Output) > 0 {
-			log.Printf("[Jobs] InferEventSchema(%q): found persisted output from job %s", eventName, job.ID)
+			logging.Infof(context.Background(), "jobs.manager", "[Jobs] InferEventSchema(%q): found persisted output from job %s", eventName, job.ID)
 			return lastRun.Output
 		}
 
@@ -744,21 +744,21 @@ func (m *Manager) InferEventSchema(eventName string) map[string]any {
 		if len(job.Output.Schema) > 0 {
 			var schema map[string]any
 			if err := json.Unmarshal(job.Output.Schema, &schema); err == nil {
-				log.Printf("[Jobs] InferEventSchema(%q): found output schema from job %s", eventName, job.ID)
+				logging.Infof(context.Background(), "jobs.manager", "[Jobs] InferEventSchema(%q): found output schema from job %s", eventName, job.ID)
 				return schema
 			}
 		}
 
-		log.Printf("[Jobs] InferEventSchema(%q): job %s emits this event but has no output data", eventName, job.ID)
+		logging.Infof(context.Background(), "jobs.manager", "[Jobs] InferEventSchema(%q): job %s emits this event but has no output data", eventName, job.ID)
 	}
 
 	// Fallback: schema estatico do catalogo de eventos de dominio (AEP-0067).
 	if schema := DomainEventSchema(eventName); schema != nil {
-		log.Printf("[Jobs] InferEventSchema(%q): using static domain-event catalog schema", eventName)
+		logging.Infof(context.Background(), "jobs.manager", "[Jobs] InferEventSchema(%q): using static domain-event catalog schema", eventName)
 		return schema
 	}
 
-	log.Printf("[Jobs] InferEventSchema(%q): no emitting job found", eventName)
+	logging.Infof(context.Background(), "jobs.manager", "[Jobs] InferEventSchema(%q): no emitting job found", eventName)
 	return nil
 }
 
@@ -1088,7 +1088,7 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 		}, nil
 	}
 
-	log.Printf("[Jobs] TestToolDryRun(%q): input fields=%d, eventData fields=%d, eventData nil=%v",
+	logging.Infof(context.Background(), "jobs.manager", "[Jobs] TestToolDryRun(%q): input fields=%d, eventData fields=%d, eventData nil=%v",
 		toolName, len(req.Inputs), func() int {
 			if req.EventData == nil {
 				return 0
@@ -1105,14 +1105,14 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	}
 	if req.EventData != nil {
 		if c, ok := req.EventData["content"]; ok {
-			log.Printf("[Jobs] TestToolDryRun: eventData.content type=%T", c)
+			logging.Errorf(context.Background(), "jobs.manager", "[Jobs] TestToolDryRun: eventData.content type=%T", c)
 		}
 	}
 	resolved, err := ResolveInputs(req.Inputs, tmplCtx)
 	if err != nil {
 		return nil, fmt.Errorf("resolve templates: %w", err)
 	}
-	log.Printf("[Jobs] TestToolDryRun: resolved input fields=%d", len(resolved))
+	logging.Errorf(context.Background(), "jobs.manager", "[Jobs] TestToolDryRun: resolved input fields=%d", len(resolved))
 	inputs := resolved
 
 	inputs = CoerceInputs(inputs, tool.Parameters())
@@ -1273,7 +1273,7 @@ func (m *Manager) registerJob(job *Job) {
 	if m.started {
 		m.registerTriggers(job)
 	}
-	log.Printf("[Jobs] Registered: %s (enabled=%v pipeline_enabled=%v)", job.ID, job.Enabled, job.PipelineEnabled)
+	logging.Infof(context.Background(), "jobs.manager", "[Jobs] Registered: %s (enabled=%v pipeline_enabled=%v)", job.ID, job.Enabled, job.PipelineEnabled)
 }
 
 func (m *Manager) unregisterJob(jobID string) {
@@ -1282,7 +1282,7 @@ func (m *Manager) unregisterJob(jobID string) {
 		m.unregisterTriggers(job)
 	}
 	m.registry.Remove(jobID)
-	log.Printf("[Jobs] Unregistered: %s", jobID)
+	logging.Errorf(context.Background(), "jobs.manager", "[Jobs] Unregistered: %s", jobID)
 }
 
 func (m *Manager) registerTriggers(job *Job) {
@@ -1292,7 +1292,7 @@ func (m *Manager) registerTriggers(job *Job) {
 
 	// Schedule cron/interval
 	if err := m.scheduler.Schedule(job); err != nil {
-		log.Printf("[Jobs] Schedule error for %s: %v", job.ID, err)
+		logging.Errorf(context.Background(), "jobs.manager", "[Jobs] Schedule error for %s: %v", job.ID, err)
 	}
 
 	// Register event listeners
@@ -1320,11 +1320,11 @@ func (m *Manager) registerTriggers(job *Job) {
 						Now:   time.Now(),
 					})
 					if err != nil {
-						log.Printf("[Jobs] %s: trigger when eval error: %v", jobCopy.ID, err)
+						logging.Errorf(context.Background(), "jobs.manager", "[Jobs] %s: trigger when eval error: %v", jobCopy.ID, err)
 						return
 					}
 					if !ok {
-						log.Printf("[Jobs] %s: trigger when condition not met, skipping", jobCopy.ID)
+						logging.Infof(context.Background(), "jobs.manager", "[Jobs] %s: trigger when condition not met, skipping", jobCopy.ID)
 						return
 					}
 				}
@@ -1369,7 +1369,7 @@ func (m *Manager) registerJobHotkey(job *Job, keys string, when string) {
 
 	modifiers, key, err := hotkey.ParseCombination(keys)
 	if err != nil {
-		log.Printf("[Jobs] Hotkey parse error for %s (%s): %v", job.ID, keys, err)
+		logging.Errorf(context.Background(), "jobs.manager", "[Jobs] Hotkey parse error for %s (%s): %v", job.ID, keys, err)
 		return
 	}
 
@@ -1385,12 +1385,12 @@ func (m *Manager) registerJobHotkey(job *Job, keys string, when string) {
 		m.executeJob(ctx, &jobCopy, trigCtx)
 	})
 	if err != nil {
-		log.Printf("[Jobs] Hotkey register error for %s (%s): %v", job.ID, keys, err)
+		logging.Errorf(context.Background(), "jobs.manager", "[Jobs] Hotkey register error for %s (%s): %v", job.ID, keys, err)
 		return
 	}
 
 	m.hotkeyIDs[job.ID] = append(m.hotkeyIDs[job.ID], id)
-	log.Printf("[Jobs] Hotkey registered for %s: %s", job.ID, keys)
+	logging.Infof(context.Background(), "jobs.manager", "[Jobs] Hotkey registered for %s: %s", job.ID, keys)
 }
 
 func (m *Manager) unregisterJobHotkeys(jobID string) {
@@ -1400,7 +1400,7 @@ func (m *Manager) unregisterJobHotkeys(jobID string) {
 
 	for _, id := range m.hotkeyIDs[jobID] {
 		if err := m.cfg.HotkeyManager.Unregister(id); err != nil {
-			log.Printf("[Jobs] Hotkey unregister error for %s (id=%d): %v", jobID, id, err)
+			logging.Errorf(context.Background(), "jobs.manager", "[Jobs] Hotkey unregister error for %s (id=%d): %v", jobID, id, err)
 		}
 	}
 	delete(m.hotkeyIDs, jobID)
@@ -1487,7 +1487,7 @@ func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerCont
 	}
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
-		log.Printf("[Jobs] %s: authenticated context required: %v", current.ID, err)
+		logging.Infof(ctx, "jobs.manager", "[Jobs] %s: authenticated context required: %v", current.ID, err)
 		return
 	}
 	if trigCtx != nil && trigCtx.Type != TriggerManual && strings.HasPrefix(current.Tool, "mcp_") {
@@ -1504,7 +1504,7 @@ func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerCont
 }
 
 func (m *Manager) logSkippedUnavailableTool(ctx context.Context, job *Job, trigCtx *TriggerContext, reason string) {
-	log.Printf("[Jobs] %s: skipping automatic run; %s", job.ID, reason)
+	logging.Infof(ctx, "jobs.manager", "[Jobs] %s: skipping automatic run; %s", job.ID, reason)
 	if m.cfg.Repository == nil {
 		return
 	}
@@ -1536,7 +1536,7 @@ func (m *Manager) logSkippedUnavailableTool(ctx context.Context, job *Job, trigC
 	rl.addRunEvent("triggered", fmt.Sprintf("[%s] -> %s TRIGGERED", trigCtx.Type, job.ID), nil)
 	rl.addRunEvent("skipped", fmt.Sprintf("[%s] SKIPPED: %s", job.ID, reason), nil)
 	if err := m.cfg.Repository.LogRun(context.WithoutCancel(ctx), rl); err != nil {
-		log.Printf("[Jobs] %s: error logging skipped run: %v", job.ID, err)
+		logging.Errorf(ctx, "jobs.manager", "[Jobs] %s: error logging skipped run: %v", job.ID, err)
 	}
 }
 
@@ -1561,47 +1561,47 @@ func (m *Manager) runRetention(ctx context.Context) {
 	// Dados de jobs são efêmeros: janela curta (horas), configurável (AEP-0074).
 	jobsAge := time.Duration(maint.JobRetentionHours) * time.Hour
 	if deleted, err := m.cfg.Repository.CleanOldRunEvents(ctx, jobsAge); err != nil {
-		log.Printf("[Jobs] retention run events failed: %v", err)
+		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention run events failed: %v", err)
 	} else if deleted > 0 {
-		log.Printf("[Jobs] retention removed %d run event(s)", deleted)
+		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention removed %d run event(s)", deleted)
 	}
 	if deleted, err := m.cfg.Repository.CleanOldEvents(ctx, jobsAge); err != nil {
-		log.Printf("[Jobs] retention events failed: %v", err)
+		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention events failed: %v", err)
 	} else if deleted > 0 {
-		log.Printf("[Jobs] retention removed %d event(s)", deleted)
+		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention removed %d event(s)", deleted)
 	}
 	if deleted, err := m.cfg.Repository.CleanOldRuns(ctx, jobsAge); err != nil {
-		log.Printf("[Jobs] retention runs failed: %v", err)
+		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention runs failed: %v", err)
 	} else if deleted > 0 {
-		log.Printf("[Jobs] retention removed %d run(s)", deleted)
+		logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d run(s)", deleted)
 	}
 	// Cap por contagem: complementa a retenção por idade para jobs de alta
 	// frequência que acumulam muitos runs dentro da janela (AEP-0074, D4).
 	if deleted, err := m.cfg.Repository.CleanRunsExceedingCount(ctx, maint.RunsPerJobKeep); err != nil {
-		log.Printf("[Jobs] retention count-cap failed: %v", err)
+		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention count-cap failed: %v", err)
 	} else if deleted > 0 {
-		log.Printf("[Jobs] retention removed %d run(s) over per-job cap", deleted)
+		logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d run(s) over per-job cap", deleted)
 	}
 	if m.cfg.ToolInvocations != nil {
 		// Dry-runs operacionais (job_run/tool_catalog): janela curta de jobs.
 		if deleted, err := m.cfg.ToolInvocations.CleanOldDryRuns(ctx, jobsAge); err != nil {
-			log.Printf("[Jobs] retention dry-run tool invocations failed: %v", err)
+			logging.Errorf(ctx, "jobs.manager", "[Jobs] retention dry-run tool invocations failed: %v", err)
 		} else if deleted > 0 {
-			log.Printf("[Jobs] retention removed %d dry-run tool invocation(s)", deleted)
+			logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d dry-run tool invocation(s)", deleted)
 		}
 		// Tool calls de chat: retenção = ciclo de vida da conversa. Aqui só
 		// varremos órfãos; o cap de idade opcional roda no login (AEP-0074, D5).
 		if deleted, err := m.cfg.ToolInvocations.CleanOrphanChat(ctx); err != nil {
-			log.Printf("[Jobs] retention orphan chat tool invocations failed: %v", err)
+			logging.Errorf(ctx, "jobs.manager", "[Jobs] retention orphan chat tool invocations failed: %v", err)
 		} else if deleted > 0 {
-			log.Printf("[Jobs] retention removed %d orphan chat tool invocation(s)", deleted)
+			logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d orphan chat tool invocation(s)", deleted)
 		}
 		if maint.ChatToolCallsRetentionDays > 0 {
 			chatAge := time.Duration(maint.ChatToolCallsRetentionDays) * 24 * time.Hour
 			if deleted, err := m.cfg.ToolInvocations.CleanOldChat(ctx, chatAge); err != nil {
-				log.Printf("[Jobs] retention chat tool invocations age-cap failed: %v", err)
+				logging.Errorf(ctx, "jobs.manager", "[Jobs] retention chat tool invocations age-cap failed: %v", err)
 			} else if deleted > 0 {
-				log.Printf("[Jobs] retention removed %d chat tool invocation(s) over age cap", deleted)
+				logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d chat tool invocation(s) over age cap", deleted)
 			}
 		}
 	}
@@ -1636,7 +1636,7 @@ func (m *Manager) maybeCompact(ctx context.Context, minFreeBytes int64) {
 	m.compactMu.Unlock()
 
 	if err != nil {
-		log.Printf("[Jobs] retention compaction failed: %v", err)
+		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention compaction failed: %v", err)
 	}
 }
 
@@ -1669,7 +1669,7 @@ func (m *Manager) resolveSecret(ctx context.Context, key string) (string, error)
 
 func (m *Manager) notifyChannels(channels []string, message string) {
 	if m.cfg.MsgGateway == nil {
-		log.Printf("[Jobs] Notify (no gateway): %s", message)
+		logging.Infof(context.Background(), "jobs.manager", "[Jobs] Notify (no gateway): %s", message)
 		return
 	}
 
@@ -1681,14 +1681,14 @@ func (m *Manager) notifyChannels(channels []string, message string) {
 
 		messenger, ok := m.cfg.MsgGateway.GetMessenger(ch)
 		if !ok {
-			log.Printf("[Jobs] Notify: channel %q not available", ch)
+			logging.Errorf(context.Background(), "jobs.manager", "[Jobs] Notify: channel %q not available", ch)
 			continue
 		}
 
 		if err := messenger.Send(context.Background(), messaging.OutgoingMessage{
 			Text: message,
 		}); err != nil {
-			log.Printf("[Jobs] Notify error on %s: %v", ch, err)
+			logging.Errorf(context.Background(), "jobs.manager", "[Jobs] Notify error on %s: %v", ch, err)
 		}
 	}
 }
@@ -1809,7 +1809,7 @@ func (m *Manager) lastRunsWithContext(ctx context.Context, jobs []*Job) map[stri
 	}
 	runs, err := m.cfg.Repository.GetLastRuns(ctx, ids)
 	if err != nil {
-		log.Printf("[Jobs] Error loading last runs: %v", err)
+		logging.Errorf(ctx, "jobs.manager", "[Jobs] Error loading last runs: %v", err)
 		return out
 	}
 	return runs

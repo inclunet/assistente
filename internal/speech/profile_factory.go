@@ -1,11 +1,11 @@
 package speech
 
 import (
+	"assistente/internal/logging"
 	"context"
 
 	"assistente/internal/credentials"
 	"assistente/internal/profiles"
-	"log"
 )
 
 // NewSpeechManagerFromProfile cria um SpeechManager configurado a partir de um Profile.
@@ -34,7 +34,7 @@ func NewSpeechManagerFromProfile(ctx context.Context, p *profiles.Profile, regis
 		}
 		cfg := registry.Get(llmProviderID)
 		if cfg == nil {
-			log.Printf("[Speech] Provider '%s' não encontrado no registry", llmProviderID)
+			logging.Infof(ctx, "speech.profile-factory", "[Speech] Provider '%s' não encontrado no registry", llmProviderID)
 			credsCache[llmProviderID] = &resolvedCreds{}
 			return "", "", ""
 		}
@@ -44,14 +44,14 @@ func NewSpeechManagerFromProfile(ctx context.Context, p *profiles.Profile, regis
 			if auth, err := credMgr.GetByPatternWithContext(ctx, cfg.CredentialPattern); err == nil && auth != nil {
 				apiKey = auth.Token
 			} else if err != nil {
-				log.Printf("[Speech] ERRO ao resolver credencial para pattern '%s' (provider=%s): %v",
+				logging.Errorf(ctx, "speech.profile-factory", "[Speech] ERRO ao resolver credencial para pattern '%s' (provider=%s): %v",
 					cfg.CredentialPattern, llmProviderID, err)
 			} else {
-				log.Printf("[Speech] AVISO: credencial não encontrada para pattern '%s' (provider=%s) — TTS pode falhar",
+				logging.Warnf(ctx, "speech.profile-factory", "[Speech] AVISO: credencial não encontrada para pattern '%s' (provider=%s) — TTS pode falhar",
 					cfg.CredentialPattern, llmProviderID)
 			}
 		} else {
-			log.Printf("[Speech] Provider '%s' não tem CredentialPattern configurado", llmProviderID)
+			logging.Infof(ctx, "speech.profile-factory", "[Speech] Provider '%s' não tem CredentialPattern configurado", llmProviderID)
 		}
 		credsCache[llmProviderID] = &resolvedCreds{apiKey, baseURL, credPattern}
 		return apiKey, baseURL, credPattern
@@ -76,7 +76,7 @@ func NewSpeechManagerFromProfile(ctx context.Context, p *profiles.Profile, regis
 	assistantCfg := buildRoleConfig(p.Voice.Assistant)
 
 	if p.Voice.Assistant.Provider == "openai" && assistantCfg.APIKey == "" {
-		log.Printf("[Speech] AVISO: Provider assistant é 'openai' mas API key está vazia. "+
+		logging.Warnf(ctx, "speech.profile-factory", "[Speech] AVISO: Provider assistant é 'openai' mas API key está vazia. "+
 			"LLMProviderID='%s', Voice=%+v",
 			p.Voice.Assistant.LLMProviderID,
 			p.Voice.Assistant)
@@ -97,7 +97,7 @@ func NewSpeechManagerFromProfile(ctx context.Context, p *profiles.Profile, regis
 
 	sm := NewSpeechManager(speechCfg, credMgr)
 
-	log.Printf("[Speech] Manager inicializado | Assistant: %s | User: %s | System: %s | STT: %s",
+	logging.Infof(ctx, "speech.profile-factory", "[Speech] Manager inicializado | Assistant: %s | User: %s | System: %s | STT: %s",
 		p.Voice.Assistant.Provider,
 		p.Voice.User.Provider,
 		p.Voice.System.Provider,

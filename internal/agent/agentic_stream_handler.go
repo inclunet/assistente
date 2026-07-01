@@ -1,7 +1,8 @@
 package agent
 
 import (
-	"log"
+	"assistente/internal/logging"
+	"context"
 	"strings"
 
 	"assistente/internal/core/ports"
@@ -122,7 +123,7 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 			})
 		}
 
-		log.Printf("[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
+		logging.Infof(context.Background(), "agent.agentic-stream-handler", "[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
 			event.Name, event.ServerLabel, event.ID, len(event.Output))
 	} else {
 		// Start-event: salva argumentos para enriquecer o completed-event depois.
@@ -145,7 +146,7 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 			SurfaceOrigin:      h.SurfaceOrigin,
 		})
 
-		log.Printf("[MCP Native] 🔧 %s (server=%s, id=%s)",
+		logging.Infof(context.Background(), "agent.agentic-stream-handler", "[MCP Native] 🔧 %s (server=%s, id=%s)",
 			event.Name, event.ServerLabel, event.ID)
 	}
 }
