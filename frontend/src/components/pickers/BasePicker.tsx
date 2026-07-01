@@ -1,4 +1,5 @@
 import { useEffect, useRef, type HTMLAttributes, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Combobox, ComboboxItem } from './Combobox';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 
@@ -108,9 +109,9 @@ export const BasePicker = ({
   emptyState,
   loadingState,
   errorState,
-  loadingLabel = 'Carregando...',
+  loadingLabel,
   errorLabel,
-  emptyLabel = 'Nenhuma opção disponível',
+  emptyLabel,
   errorIcon,
   loadingLabelVisuallyHidden = false,
   errorLabelVisuallyHidden = false,
@@ -120,7 +121,7 @@ export const BasePicker = ({
   showErrorState = true,
   showEmptyState = true,
   onRetry,
-  retryLabel = 'Tentar novamente',
+  retryLabel,
   formClassName,
   toolbarClassName,
   formLabelClassName,
@@ -136,12 +137,13 @@ export const BasePicker = ({
   allowFreeInput = false,
   onAfterSelect,
 }: BasePickerProps) => {
+  const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const previousErrorRef = useRef<string | null | undefined>(null);
   const previousLoadingRef = useRef(false);
-  const resolvedLoadingLabel = resolveVariantValue(loadingLabel, variant) ?? 'Carregando...';
-  const resolvedErrorLabel = resolveVariantValue(errorLabel, variant) ?? error ?? 'Erro ao carregar';
-  const resolvedEmptyLabel = resolveVariantValue(emptyLabel, variant) ?? 'Nenhuma opção disponível';
+  const resolvedLoadingLabel = resolveVariantValue(loadingLabel, variant) ?? t('pickers.base.loading', 'Carregando...');
+  const resolvedErrorLabel = resolveVariantValue(errorLabel, variant) ?? error ?? t('pickers.base.loadError', 'Erro ao carregar');
+  const resolvedEmptyLabel = resolveVariantValue(emptyLabel, variant) ?? t('pickers.base.empty', 'Nenhuma opção disponível');
   const resolvedErrorIcon = resolveVariantValue(errorIcon, variant);
   const resolvedLoadingHidden = resolveVariantValue(loadingLabelVisuallyHidden, variant) ?? false;
   const resolvedErrorHidden = resolveVariantValue(errorLabelVisuallyHidden, variant) ?? false;
@@ -198,7 +200,7 @@ export const BasePicker = ({
         {renderLabelText(resolvedErrorLabel, resolvedErrorHidden)}
         {onRetry && (
           <button type="button" className={retryClassName} onClick={onRetry}>
-            {retryLabel}
+            {retryLabel ?? t('pickers.base.retry', 'Tentar novamente')}
           </button>
         )}
       </div>

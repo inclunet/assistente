@@ -1513,6 +1513,7 @@ const es = {
     },
 
     pickers: {
+      base: { loading: 'Cargando...', loadError: 'Error al cargar', empty: 'Ninguna opción disponible', retry: 'Reintentar' },
       llmProvider: { label: 'Proveedor LLM', description: 'Selecciona el proveedor de modelo de lenguaje', noneConfigured: 'Ningún proveedor configurado. Configura un proveedor primero.', loadError: 'Error al cargar proveedores', placeholder: 'Selecciona un proveedor...', retry: 'Reintentar', loading: 'Cargando proveedores...' },
       model: { label: 'Modelo', filterPlaceholder: 'Filtrar modelos...', selectProvider: 'Selecciona un proveedor primero', noModels: 'Ningún modelo disponible para este proveedor.', noModelsGlobal: 'Ningún modelo disponible. Configura un proveedor primero.', configureApiKey: 'Configura la API key de este proveedor en Configuración → Credenciales', loadError: 'Error al cargar modelos:', typePlaceholder: 'Escribe el modelo...', notLoaded: 'Modelos no cargados. Escribe manualmente el nombre del modelo.', retry: 'Reintentar', loading: 'Cargando modelos...' },
       voice: { disabled: 'Desactivado', system: 'Sistema', windows: 'Windows (SAPI5)', openai: 'OpenAI (Premium)', label: 'Voz', description: 'Selecciona la voz para síntesis de habla', loadError: 'Error al cargar voces', screenReader: 'Desactivada (usar lector de pantalla)', accessibility: 'Accesibilidad', premium: '• Premium', loading: 'Cargando voces...' },

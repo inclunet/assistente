@@ -1514,6 +1514,7 @@ const en = {
     },
 
     pickers: {
+      base: { loading: 'Loading...', loadError: 'Error loading', empty: 'No options available', retry: 'Try again' },
       llmProvider: { label: 'LLM Provider', description: 'Select the language model provider', noneConfigured: 'No provider configured. Configure a provider first.', loadError: 'Error loading providers', placeholder: 'Select a provider...', retry: 'Try again', loading: 'Loading providers...' },
       model: { label: 'Model', filterPlaceholder: 'Filter models...', selectProvider: 'Select a provider first', noModels: 'No models available for this provider.', noModelsGlobal: 'No models available. Configure a provider first.', configureApiKey: 'Configure this provider\'s API key in Settings → Credentials', loadError: 'Error loading models:', typePlaceholder: 'Type the model...', notLoaded: 'Models not loaded. Type the model name manually.', retry: 'Try again', loading: 'Loading models...' },
       voice: { disabled: 'Disabled', system: 'System', windows: 'Windows (SAPI5)', openai: 'OpenAI (Premium)', label: 'Voice', description: 'Select the voice for speech synthesis', loadError: 'Error loading voices', screenReader: 'Disabled (use screen reader)', accessibility: 'Accessibility', premium: '• Premium', loading: 'Loading voices...' },

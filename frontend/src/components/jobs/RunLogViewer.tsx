@@ -128,8 +128,6 @@ function RunDetail({
       {replayResult && (
         <div
           className={`run-detail__replay-result ${replayResult.success ? 'run-detail__replay-result--ok' : 'run-detail__replay-result--err'}`}
-
-
         >
           <h4 className="run-detail__label">
             {replayResult.success ? t('jobs.replaySuccess') : t('jobs.replayFailed')}

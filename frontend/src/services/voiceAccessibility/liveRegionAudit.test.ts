@@ -9,12 +9,30 @@ const allowedLiveRegionFiles = new Set([
 ]);
 
 const liveRegionPatterns = [
-  /\baria-live\s*=/,
-  /\brole\s*=\s*(?:"(?:status|alert|log)"|'(?:status|alert|log)'|\{[^}\r\n]*["'](?:status|alert|log)["'][^}\r\n]*\})/,
+  /\baria-live\s*=/g,
+  /\brole\s*=\s*(?:"(?:status|alert|log)"|'(?:status|alert|log)'|\{[^}]*["'](?:status|alert|log)["'][^}]*\})/g,
 ];
 
-function containsLiveRegionPattern(line: string): boolean {
-  return liveRegionPatterns.some((pattern) => pattern.test(line));
+function containsLiveRegionPattern(source: string): boolean {
+  return liveRegionPatterns.some((pattern) => {
+    pattern.lastIndex = 0;
+    return pattern.test(source);
+  });
+}
+
+function lineNumberAt(source: string, index: number): number {
+  return source.slice(0, index).split(/\r?\n/).length;
+}
+
+function findLiveRegionViolations(source: string, relativePath: string): string[] {
+  return liveRegionPatterns.flatMap((pattern) => {
+    pattern.lastIndex = 0;
+    return Array.from(source.matchAll(pattern), (match) => {
+      const lineNumber = lineNumberAt(source, match.index ?? 0);
+      const snippet = match[0].replace(/\s+/g, ' ').trim();
+      return `${relativePath}:${lineNumber}: ${snippet}`;
+    });
+  });
 }
 
 function listProductionSourceFiles(dir: string): string[] {
@@ -42,13 +60,10 @@ describe('AEP-0058 live region arbitration', () => {
         return [];
       }
 
-      return readFileSync(file, 'utf8')
-        .split(/\r?\n/)
-        .flatMap((line, index) => (
-          containsLiveRegionPattern(line)
-            ? [`${relativePath.split(sep).join('/')}:${index + 1}: ${line.trim()}`]
-            : []
-        ));
+      return findLiveRegionViolations(
+        readFileSync(file, 'utf8'),
+        relativePath.split(sep).join('/')
+      );
     });
 
     expect(violations).toEqual([]);
@@ -58,6 +73,11 @@ describe('AEP-0058 live region arbitration', () => {
     expect(containsLiveRegionPattern('<div role={condition ? \'alert\' : undefined} />')).toBe(true);
     expect(containsLiveRegionPattern('<section role={isBusy ? "status" : "region"} />')).toBe(true);
     expect(containsLiveRegionPattern('<div role={isLog ? \'log\' : undefined} />')).toBe(true);
+    expect(containsLiveRegionPattern(`<div
+      role={condition
+        ? 'alert'
+        : undefined}
+    />`)).toBe(true);
     expect(containsLiveRegionPattern('<div role={condition ? \'region\' : undefined} />')).toBe(false);
   });
 });
