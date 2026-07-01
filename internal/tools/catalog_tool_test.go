@@ -66,10 +66,18 @@ func TestCatalogToolReturnsSelectedTools(t *testing.T) {
 }
 
 func TestCatalogToolClampsReturnedPageToMaximum(t *testing.T) {
+	entries := make([]ToolCatalogEntry, 0, 51)
+	for i := 0; i < 51; i++ {
+		name := fmt.Sprintf("tool_%03d", i)
+		entries = append(entries, ToolCatalogEntry{
+			Name:               name,
+			DisplayName:        name,
+			Origin:             ToolOriginBuiltin,
+			AvailabilityStatus: ToolAvailabilityAvailable,
+		})
+	}
 	store := &fakeCatalogToolStore{
-		entries: []ToolCatalogEntry{
-			{Name: "read_file", DisplayName: "read_file", Origin: ToolOriginBuiltin, AvailabilityStatus: ToolAvailabilityAvailable},
-		},
+		entries: entries,
 	}
 	tool := NewCatalogTool(store)
 
@@ -82,6 +90,24 @@ func TestCatalogToolClampsReturnedPageToMaximum(t *testing.T) {
 	}
 	if store.filter.Limit != 51 {
 		t.Fatalf("filter limit = %d, want 51", store.filter.Limit)
+	}
+
+	var payload struct {
+		SelectedTools []string `json:"selected_tools"`
+		Count         int      `json:"count"`
+		Limit         int      `json:"limit"`
+		Offset        int      `json:"offset"`
+		HasMore       bool     `json:"has_more"`
+		NextOffset    int      `json:"next_offset"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Count != 50 || len(payload.SelectedTools) != 50 {
+		t.Fatalf("unexpected clamped page size: %#v", payload)
+	}
+	if payload.Limit != 50 || payload.Offset != 0 || !payload.HasMore || payload.NextOffset != 50 {
+		t.Fatalf("unexpected pagination metadata: %#v", payload)
 	}
 }
 
