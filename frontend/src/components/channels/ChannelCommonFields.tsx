@@ -17,6 +17,7 @@ interface ChannelEnabledFieldsProps<TForm extends { enabled: boolean }> {
 }
 
 interface ChannelVaultCredential {
+  id: string;
   stored: boolean;
   masked: string;
   storedLabel: string;
@@ -90,7 +91,7 @@ export function ChannelStoredCredentialActions({
     <>
       {credentials.map((credential) =>
         credential.stored ? (
-          <div className="channels-page__vault-actions" key={credential.storedLabel}>
+          <div className="channels-page__vault-actions" key={credential.id}>
             <span className="channels-page__hint">
               {credential.storedLabel} {credential.masked ? `(${credential.masked})` : ''}.
             </span>
@@ -118,7 +119,7 @@ export function ChannelLimitsProfileFields<TForm extends ChannelCommonForm>({
         min="1"
         max="100"
         value={String(form.maxContacts)}
-        onChange={(e) => onChange({ ...form, maxContacts: parseInt(e.target.value) || 1 })}
+        onChange={(e) => onChange({ ...form, maxContacts: parseInt(e.target.value, 10) || 1 })}
         fullWidth
       />
       <p className="channels-page__hint">{labels.maxContactsHint}</p>
@@ -136,7 +137,7 @@ export function ChannelLimitsProfileFields<TForm extends ChannelCommonForm>({
         min="1"
         max="200"
         value={form.maxHistory}
-        onChange={(e) => onChange({ ...form, maxHistory: parseInt(e.target.value) || 50 })}
+        onChange={(e) => onChange({ ...form, maxHistory: parseInt(e.target.value, 10) || 50 })}
         fullWidth
       />
     </>

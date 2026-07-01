@@ -73,6 +73,7 @@ describe('ChannelCommonFields', () => {
         hint="Token criptografado no cofre."
         credentials={[
           {
+            id: 'api-token',
             stored: true,
             masked: '****123',
             storedLabel: 'Token salvo no cofre',

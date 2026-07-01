@@ -217,5 +217,12 @@ describe('ChannelsSignalSection', () => {
     expect(mockSetApiInfo).toHaveBeenCalledWith('');
     expect(mockSetRegError).toHaveBeenCalledWith('');
     expect(mockSetAccounts).toHaveBeenCalledWith([]);
+    expect(mockSetRegStep).toHaveBeenCalledWith('idle');
+    expect(mockSetRegCode).toHaveBeenCalledWith('');
+    expect(mockSetRegCaptcha).toHaveBeenCalledWith('');
+    expect(mockSetSmsSent).toHaveBeenCalledWith(false);
+    expect(mockSetLinkQR).toHaveBeenCalledWith('');
+    expect(mockSetLinking).toHaveBeenCalledWith(false);
+    expect(mockOnStopLinkPolling).toHaveBeenCalledTimes(1);
   });
 });

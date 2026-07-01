@@ -57,6 +57,7 @@ export function ChannelsTelegramSection({
         hint={t('channels.telegram.vaultHint')}
         credentials={[
           {
+            id: 'telegram-bot-token',
             stored: credentialStored,
             masked: credentialMasked,
             storedLabel: t('channels.telegram.tokenStored'),

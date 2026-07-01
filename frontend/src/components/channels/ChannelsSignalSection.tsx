@@ -130,8 +130,9 @@ export function ChannelsSignalSection({
           onChange({ ...form, apiURL: e.target.value });
           onSetApiReady(false);
           onSetApiInfo('');
-          onSetRegError('');
           onSetAccounts([]);
+          resetRegistration();
+          resetLink();
         }}
         placeholder={t('channels.signal.apiUrlPlaceholder')}
         fullWidth
@@ -151,6 +152,7 @@ export function ChannelsSignalSection({
         hint={t('channels.signal.vaultHint')}
         credentials={[
           {
+            id: 'signal-api-token',
             stored: tokenStored,
             masked: tokenMasked,
             storedLabel: t('channels.signal.tokenStored'),
@@ -208,8 +210,7 @@ export function ChannelsSignalSection({
               onClick={() => {
                 onSetConnectionMode('register');
                 resetRegistration();
-                onSetLinkQR('');
-                onSetLinking(false);
+                resetLink();
               }}
             >
               {t('channels.signal.registerNumber')}

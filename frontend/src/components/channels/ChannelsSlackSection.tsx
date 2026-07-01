@@ -66,6 +66,7 @@ export function ChannelsSlackSection({
         hint={t('channels.slack.vaultHint')}
         credentials={[
           {
+            id: 'slack-bot-token',
             stored: botTokenStored,
             masked: botTokenMasked,
             storedLabel: t('channels.slack.botTokenStored'),
@@ -86,6 +87,7 @@ export function ChannelsSlackSection({
       <ChannelStoredCredentialActions
         credentials={[
           {
+            id: 'slack-app-token',
             stored: appTokenStored,
             masked: appTokenMasked,
             storedLabel: t('channels.slack.appTokenStored'),
