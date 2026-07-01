@@ -39,6 +39,9 @@ type TurnSegmentToolCall struct {
 	ServerLabel string                  `json:"server_label,omitempty"`
 	Iteration   int                     `json:"iteration,omitempty"`
 	DurationMs  int64                   `json:"duration_ms,omitempty"`
+	// AssistantMessageID é metadado interno de hidratação para associar a
+	// invocação L3-free à mensagem assistant que representou a iteração.
+	AssistantMessageID string `json:"-"`
 }
 
 // TurnSegmentToolFunction encapsula o nome e os argumentos de uma tool call.

@@ -284,6 +284,18 @@ func groupInvocationToolCallsByIteration(calls []TurnSegmentToolCall) [][]TurnSe
 	return groups
 }
 
+func groupInvocationToolCallsByAssistantID(calls []TurnSegmentToolCall) map[string][]TurnSegmentToolCall {
+	out := map[string][]TurnSegmentToolCall{}
+	for _, call := range calls {
+		assistantID := strings.TrimSpace(call.AssistantMessageID)
+		if assistantID == "" {
+			continue
+		}
+		out[assistantID] = append(out[assistantID], call)
+	}
+	return out
+}
+
 func ConsolidateTimelineTurnMessages(messages []Message, invocationToolResults map[string]string) Message {
 	return ConsolidateTimelineTurn(messages, invocationToolResults, nil).Message
 }
@@ -325,6 +337,7 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 	}
 	invocationToolCalls = appendMissingFallbackToolCalls(normalizeInvocationToolCalls(invocationToolCalls, toolResults), toolResults)
 	invocationGroups := groupInvocationToolCallsByIteration(invocationToolCalls)
+	invocationCallsByAssistantID := groupInvocationToolCallsByAssistantID(invocationToolCalls)
 	nextInvocationGroup := 0
 
 	consolidated := messages[0]
@@ -402,7 +415,17 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 			allToolCalls = append(allToolCalls, call)
 			iterationCalls = append(iterationCalls, toolCallToTurnSegmentToolCall(call))
 		}
-		if len(parsedToolCalls) == 0 && strings.TrimSpace(message.Content) != "" && len(invocationGroups) > 0 && i != finalMsgIdx && nextInvocationGroup < len(invocationGroups) {
+		if len(parsedToolCalls) == 0 {
+			for _, call := range invocationCallsByAssistantID[message.ID] {
+				if _, seen := seenToolCallIDs[call.ID]; seen {
+					continue
+				}
+				seenToolCallIDs[call.ID] = struct{}{}
+				allToolCalls = append(allToolCalls, turnSegmentToolCallToMap(call))
+				iterationCalls = append(iterationCalls, call)
+			}
+		}
+		if len(parsedToolCalls) == 0 && len(iterationCalls) == 0 && strings.TrimSpace(message.Content) != "" && len(invocationGroups) > 0 && i != finalMsgIdx && nextInvocationGroup < len(invocationGroups) {
 			for _, call := range invocationGroups[nextInvocationGroup] {
 				if _, seen := seenToolCallIDs[call.ID]; seen {
 					continue

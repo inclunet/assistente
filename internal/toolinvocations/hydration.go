@@ -11,27 +11,29 @@ import (
 )
 
 type ChatToolInvocationDisplay struct {
-	ID          string
-	Type        string
-	Name        string
-	Arguments   string
-	Result      string
-	Origin      string
-	ServerLabel string
-	Iteration   int
-	DurationMs  int64
+	ID                 string
+	Type               string
+	Name               string
+	Arguments          string
+	Result             string
+	Origin             string
+	ServerLabel        string
+	Iteration          int
+	DurationMs         int64
+	AssistantMessageID string
 }
 
 type toolInvocationDisplayMetadata struct {
 	Display struct {
-		Version     int    `json:"version,omitempty"`
-		Type        string `json:"type,omitempty"`
-		Name        string `json:"name,omitempty"`
-		Arguments   string `json:"arguments,omitempty"`
-		Origin      string `json:"origin,omitempty"`
-		ServerLabel string `json:"server_label,omitempty"`
-		Iteration   int    `json:"iteration,omitempty"`
-		DurationMs  int64  `json:"duration_ms,omitempty"`
+		Version            int    `json:"version,omitempty"`
+		Type               string `json:"type,omitempty"`
+		Name               string `json:"name,omitempty"`
+		Arguments          string `json:"arguments,omitempty"`
+		Origin             string `json:"origin,omitempty"`
+		ServerLabel        string `json:"server_label,omitempty"`
+		Iteration          int    `json:"iteration,omitempty"`
+		DurationMs         int64  `json:"duration_ms,omitempty"`
+		AssistantMessageID string `json:"assistant_message_id,omitempty"`
 	} `json:"display,omitempty"`
 	External bool `json:"external,omitempty"`
 }
@@ -192,15 +194,16 @@ func toolInvocationRowToDisplay(row database.ToolInvocation, toolName, toolDispl
 	}
 
 	return ChatToolInvocationDisplay{
-		ID:          strings.TrimSpace(row.ToolCallID),
-		Type:        tipo,
-		Name:        name,
-		Arguments:   meta.Display.Arguments,
-		Result:      ExtractToolInvocationContent(row.Output),
-		Origin:      origin,
-		ServerLabel: meta.Display.ServerLabel,
-		Iteration:   meta.Display.Iteration,
-		DurationMs:  durationMs,
+		ID:                 strings.TrimSpace(row.ToolCallID),
+		Type:               tipo,
+		Name:               name,
+		Arguments:          meta.Display.Arguments,
+		Result:             ExtractToolInvocationContent(row.Output),
+		Origin:             origin,
+		ServerLabel:        meta.Display.ServerLabel,
+		Iteration:          meta.Display.Iteration,
+		DurationMs:         durationMs,
+		AssistantMessageID: strings.TrimSpace(meta.Display.AssistantMessageID),
 	}
 }
 

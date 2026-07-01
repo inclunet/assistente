@@ -159,14 +159,15 @@ func toolInvocationDisplaysToTurnSegments(displays map[string][]toolinvocations.
 	for turnID, calls := range displays {
 		for _, call := range calls {
 			out[turnID] = append(out[turnID], chat.TurnSegmentToolCall{
-				ID:          call.ID,
-				Type:        call.Type,
-				Function:    chat.TurnSegmentToolFunction{Name: call.Name, Arguments: call.Arguments},
-				Result:      call.Result,
-				Origin:      call.Origin,
-				ServerLabel: call.ServerLabel,
-				Iteration:   call.Iteration,
-				DurationMs:  call.DurationMs,
+				ID:                 call.ID,
+				Type:               call.Type,
+				Function:           chat.TurnSegmentToolFunction{Name: call.Name, Arguments: call.Arguments},
+				Result:             call.Result,
+				Origin:             call.Origin,
+				ServerLabel:        call.ServerLabel,
+				Iteration:          call.Iteration,
+				DurationMs:         call.DurationMs,
+				AssistantMessageID: call.AssistantMessageID,
 			})
 		}
 	}

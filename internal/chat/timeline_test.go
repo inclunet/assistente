@@ -325,6 +325,42 @@ func TestConsolidateTimelineTurn_UsesRoleToolFallbackWithoutMessageToolCalls(t *
 	}
 }
 
+func TestConsolidateTimelineTurn_AttachesInvocationByAssistantMessageID(t *testing.T) {
+	turnID := "turn-1"
+	result := ConsolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-marker"},
+			Role:      "assistant",
+			Content:   "",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-text"},
+			Role:      "assistant",
+			Content:   "texto posterior",
+			TurnID:    &turnID,
+		},
+	}, nil, []TurnSegmentToolCall{
+		{
+			ID:                 "tool-a",
+			Type:               "function",
+			Function:           TurnSegmentToolFunction{Name: "search", Arguments: "{}"},
+			Result:             "resultado a",
+			AssistantMessageID: "assistant-marker",
+		},
+	})
+
+	if len(result.Segments) != 2 {
+		t.Fatalf("expected tool segment attached to marker before later text, got %+v", result.Segments)
+	}
+	if result.Segments[0].Type != "tool_calls" || result.Segments[0].ToolCalls[0].ID != "tool-a" {
+		t.Fatalf("expected first segment to be marker tool call, got %+v", result.Segments[0])
+	}
+	if result.Segments[1].Type != "text" || result.Segments[1].Content != "texto posterior" {
+		t.Fatalf("expected second segment to be later text, got %+v", result.Segments[1])
+	}
+}
+
 func TestParseToolCalls_InvalidJSONReturnsNil(t *testing.T) {
 	resetInvalidToolCallsLogStateForTest(t)
 
