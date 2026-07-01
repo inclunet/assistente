@@ -93,7 +93,9 @@ export function ChannelStoredCredentialActions({
         credential.stored ? (
           <div className="channels-page__vault-actions" key={credential.id}>
             <span className="channels-page__hint">
-              {credential.storedLabel} {credential.masked ? `(${credential.masked})` : ''}.
+              {credential.masked
+                ? `${credential.storedLabel} (${credential.masked}).`
+                : `${credential.storedLabel}.`}
             </span>
             <Button variant="ghost" size="sm" onClick={credential.onRemove}>
               {credential.removeLabel}

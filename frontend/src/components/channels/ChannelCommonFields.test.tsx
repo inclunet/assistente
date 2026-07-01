@@ -93,6 +93,30 @@ describe('ChannelCommonFields', () => {
     expect(onRemove).toHaveBeenCalledTimes(1);
   });
 
+  it('renderiza credencial armazenada sem espaço extra quando não há máscara', () => {
+    render(
+      <ChannelVaultFields
+        label="Salvar token no cofre"
+        checked={true}
+        onToggle={vi.fn()}
+        hint="Token criptografado no cofre."
+        credentials={[
+          {
+            id: 'api-token',
+            stored: true,
+            masked: '',
+            storedLabel: 'Token salvo no cofre',
+            removeLabel: 'Remover do cofre',
+            onRemove: vi.fn(),
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText('Token salvo no cofre.')).toBeInTheDocument();
+    expect(screen.queryByText('Token salvo no cofre .')).not.toBeInTheDocument();
+  });
+
   it('atualiza limites e perfil preservando o restante do formulário', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
