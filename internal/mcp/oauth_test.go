@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -254,6 +255,111 @@ func TestDCRDoesNotOverwriteFixedPort(t *testing.T) {
 	}
 	if rt.cfg.OAuth2CallbackPort != 3118 {
 		t.Errorf("porta não deveria mudar: got %d, want 3118", rt.cfg.OAuth2CallbackPort)
+	}
+}
+
+func TestAuthorizePKCEReregistersWhenFixedCallbackPortIsBusy(t *testing.T) {
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen failed: %v", err)
+	}
+	defer func() { _ = occupied.Close() }()
+	occupiedPort := occupied.Addr().(*net.TCPAddr).Port
+
+	var (
+		mu                 sync.Mutex
+		registeredRedirect string
+		savedConfig        *ServerConfig
+	)
+
+	authServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/register":
+			var req dcrRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("DCR body inválido: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if len(req.RedirectURIs) != 1 {
+				t.Errorf("redirect_uris: got %v, want 1 item", req.RedirectURIs)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			mu.Lock()
+			registeredRedirect = req.RedirectURIs[0]
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"client_id":"new-client"}`)
+		case "/token":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"access_token":"access","token_type":"Bearer","expires_in":3600}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer authServer.Close()
+
+	oldBrowserOpen := browserOpen
+	browserOpen = func(rawURL string) error {
+		u, err := url.Parse(rawURL)
+		if err != nil {
+			return err
+		}
+		redirectURI := u.Query().Get("redirect_uri")
+		state := u.Query().Get("state")
+		go func() {
+			resp, err := http.Get(redirectURI + "?code=ok&state=" + url.QueryEscape(state))
+			if err == nil {
+				_ = resp.Body.Close()
+			}
+		}()
+		return nil
+	}
+	defer func() { browserOpen = oldBrowserOpen }()
+
+	rt := &pkceRoundTripper{
+		base: http.DefaultTransport,
+		cfg: ServerConfig{
+			OAuth2ClientID:        "old-client",
+			OAuth2AuthURL:         authServer.URL + "/authorize",
+			OAuth2TokenURL:        authServer.URL + "/token",
+			OAuth2CallbackPort:    occupiedPort,
+			OAuth2CallbackHost:    "127.0.0.1",
+			OAuth2RegistrationURL: authServer.URL + "/register",
+		},
+		serverSlug: "test",
+		onConfigUpdate: func(cfg ServerConfig) {
+			mu.Lock()
+			defer mu.Unlock()
+			c := cfg
+			savedConfig = &c
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := rt.authorizePKCE(ctx); err != nil {
+		t.Fatalf("authorizePKCE failed: %v", err)
+	}
+
+	if rt.cfg.OAuth2ClientID != "new-client" {
+		t.Fatalf("client_id: got %q, want new-client", rt.cfg.OAuth2ClientID)
+	}
+	if rt.cfg.OAuth2CallbackPort == 0 || rt.cfg.OAuth2CallbackPort == occupiedPort {
+		t.Fatalf("callback port não foi substituída: got %d, busy %d", rt.cfg.OAuth2CallbackPort, occupiedPort)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if savedConfig == nil {
+		t.Fatal("onConfigUpdate não foi chamado")
+	}
+	if savedConfig.OAuth2CallbackPort != rt.cfg.OAuth2CallbackPort {
+		t.Fatalf("porta persistida: got %d, want %d", savedConfig.OAuth2CallbackPort, rt.cfg.OAuth2CallbackPort)
+	}
+	if registeredRedirect == "" || strings.Contains(registeredRedirect, fmt.Sprintf(":%d/", occupiedPort)) {
+		t.Fatalf("redirect_uri registrado inválido: %q", registeredRedirect)
 	}
 }
 

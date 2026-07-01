@@ -895,9 +895,30 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		if rt.cfg.OAuth2CallbackPort > 0 {
+			if rt.cfg.OAuth2RegistrationURL != "" {
+				oldPort := rt.cfg.OAuth2CallbackPort
+				log.Printf("[MCP:%s] porta PKCE %d indisponível; tentando re-registrar client OAuth com porta aleatória", rt.serverSlug, oldPort)
+				rt.cfg.OAuth2CallbackPort = 0
+				if reRegErr := rt.reRegisterClient(ctx); reRegErr == nil && rt.cfg.OAuth2CallbackPort > 0 {
+					listenAddr = fmt.Sprintf("%s:%d", listenIP, rt.cfg.OAuth2CallbackPort)
+					listener, err = net.Listen("tcp", listenAddr)
+					if err == nil {
+						log.Printf("[MCP:%s] PKCE re-registrado: porta %d substituiu porta indisponível %d", rt.serverSlug, rt.cfg.OAuth2CallbackPort, oldPort)
+					}
+				} else {
+					if reRegErr != nil {
+						log.Printf("[MCP:%s] re-registro OAuth após colisão da porta %d falhou: %v", rt.serverSlug, oldPort, reRegErr)
+					}
+					rt.cfg.OAuth2CallbackPort = oldPort
+				}
+			}
+		}
+		if err != nil && rt.cfg.OAuth2CallbackPort > 0 {
 			return fmt.Errorf("porta %d em uso — verifique se outro processo está usando-a: %w",
 				rt.cfg.OAuth2CallbackPort, err)
 		}
+	}
+	if err != nil {
 		return fmt.Errorf("failed to start loopback listener: %w", err)
 	}
 	defer func() { _ = listener.Close() }()
