@@ -128,6 +128,7 @@ export interface ChatEventSession {
   activeToolCalls: ToolCallStatus[];
   completedSegments: TurnSegment[];
   sendFailureMessage?: string | null;
+  sendFailureAnnounced?: boolean;
   sendFailureRetryable?: boolean;
   sendFailureRetryContent?: string | null;
   sendFailureRetryMediaFiles?: MediaFile[];
@@ -253,6 +254,7 @@ export function startChatEventController({
     activeToolCalls: [],
     isLoading: true,
     sendFailureMessage: null,
+    sendFailureAnnounced: false,
     sendFailureRetryable: false,
     sendFailureRetryContent: null,
     sendFailureRetryMediaFiles: [],
@@ -482,7 +484,7 @@ export function startChatEventController({
       if (hasAssistantNode) {
         updateEmptyAssistantWithError(errorMessage);
       } else {
-        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureRetryable: false });
+        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
@@ -635,7 +637,7 @@ export function startChatEventController({
       if (hasAssistantNode) {
         updateEmptyAssistantWithError(errorMessage);
       } else {
-        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureRetryable: false });
+        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
@@ -722,6 +724,7 @@ export function startChatEventController({
         isLoading: false,
         streamingMessageId: null,
         sendFailureMessage,
+        sendFailureAnnounced: false,
         sendFailureRetryable: true,
         sendFailureRetryContent: initialUserContent || null,
         sendFailureRetryMediaFiles: initialMediaFiles ?? [],

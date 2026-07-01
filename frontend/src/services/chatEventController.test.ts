@@ -142,6 +142,7 @@ const createSession = (conversationId: string): TestSession => ({
   isLoading: false,
   streamingMessageId: null,
   sendFailureMessage: null,
+  sendFailureAnnounced: false,
   sendFailureRetryable: false,
   sendFailureRetryContent: null,
   sendFailureRetryMediaFiles: [],
@@ -360,6 +361,7 @@ describe('chatEventController', () => {
     expect(messages[0].message.id).toBe('user-1');
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBeNull();
     expect(sessions['conversation-1'].sendFailureMessage).toBe('chat.errors.assistantPlaceholder');
+    expect(sessions['conversation-1'].sendFailureAnnounced).toBe(true);
     expect(sessions['conversation-1'].sendFailureRetryable).toBe(false);
     expect(mockAnnounce).toHaveBeenCalledWith('chat.errors.assistantPlaceholder', 'assertive');
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);

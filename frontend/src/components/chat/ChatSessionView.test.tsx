@@ -293,6 +293,7 @@ describe('ChatSessionView', () => {
     chatStoreState.sessionsByConversationId[conversationId].hasOlderMessages = false;
     chatStoreState.sessionsByConversationId[conversationId].isLoadingOlderMessages = false;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureMessage?: string | null; sendFailureRetryable?: boolean }).sendFailureMessage = null;
+    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureAnnounced?: boolean }).sendFailureAnnounced = false;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryable?: boolean; sendFailureRetryContent?: string | null; sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryable = false;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryContent?: string | null }).sendFailureRetryContent = null;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryMediaFiles = [];
@@ -523,6 +524,23 @@ describe('ChatSessionView', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(announce).toHaveBeenCalledWith('Falha ao enviar pela sessão', 'assertive');
     expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
+  });
+
+  it('embedded: não anuncia novamente falha que o controller já anunciou', async () => {
+    const chatSurface = surface({ surfaceType: 'embedded' });
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
+      sendFailureMessage: 'Falha já anunciada',
+      sendFailureAnnounced: true,
+      sendFailureRetryable: false,
+      sendFailureRetryContent: null,
+      sendFailureRetryMediaFiles: [],
+    };
+    renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />);
+
+    expect(await screen.findByText('Falha já anunciada')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(announce).not.toHaveBeenCalledWith('Falha já anunciada', 'assertive');
   });
 
   it('embedded: anuncia falha de sessão que aparece após o primeiro render', async () => {

@@ -348,6 +348,7 @@ function ChatSessionViewContent({
   const [sendError, setSendError] = useState<string | null>(null);
   const [dismissedSessionSendError, setDismissedSessionSendError] = useState<string | null>(null);
   const sessionSendFailureMessage = session?.sendFailureMessage ?? null;
+  const sessionSendFailureAnnounced = session?.sendFailureAnnounced ?? false;
   const sessionSendFailureRetryable = session?.sendFailureRetryable ?? false;
   const sessionSendFailureRetry = sessionSendFailureRetryable
     && (session?.sendFailureRetryContent !== null || (session?.sendFailureRetryMediaFiles.length ?? 0) > 0)
@@ -707,11 +708,15 @@ function ChatSessionViewContent({
       lastAnnouncedSessionSendFailureRef.current = null;
       return;
     }
-    if (sendError || lastAnnouncedSessionSendFailureRef.current === sessionFailureToAnnounce) return;
+    if (
+      sendError
+      || sessionSendFailureAnnounced
+      || lastAnnouncedSessionSendFailureRef.current === sessionFailureToAnnounce
+    ) return;
 
     lastAnnouncedSessionSendFailureRef.current = sessionFailureToAnnounce;
     announce(sessionFailureToAnnounce, 'assertive');
-  }, [announce, dismissedSessionSendError, sendError, sessionSendFailureMessage]);
+  }, [announce, dismissedSessionSendError, sendError, sessionSendFailureAnnounced, sessionSendFailureMessage]);
 
   useEffect(() => {
     const windowState = session?.messageWindow;
