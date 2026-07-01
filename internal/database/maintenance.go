@@ -161,7 +161,7 @@ func Compact(ctx context.Context, force bool, minFreeBytes int64) (CompactionRes
 		// pool, então é preciso reaplicá-lo aqui para que checkpoint/VACUUM
 		// aguardem o lock sob contenção em vez de falhar imediatamente com
 		// SQLITE_BUSY (AEP-0074).
-		if _, err := conn.ExecContext(ctx, "PRAGMA busy_timeout=5000"); err != nil {
+		if _, err := conn.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout=%d", sqliteMaintenanceBusyTimeout.Milliseconds())); err != nil {
 			logging.Warnf(ctx, "database.maintenance", "[Database] manutenção: set busy_timeout falhou: %v", err)
 		}
 

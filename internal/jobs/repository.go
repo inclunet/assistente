@@ -89,12 +89,18 @@ func NewDBRepository(db *gorm.DB) *DBRepository {
 	return &DBRepository{db: db, now: time.Now}
 }
 
+func (r *DBRepository) retry(ctx context.Context, operation string, fn func() error) error {
+	return database.WithSQLiteBusyRetry(ctx, "jobs."+operation, fn)
+}
+
 func (r *DBRepository) ListTags(ctx context.Context) ([]Tag, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
 	}
 	var rows []database.Tag
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Order("slug ASC").Find(&rows).Error; err != nil {
+	if err := r.retry(ctx, "list_tags", func() error {
+		return database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Order("slug ASC").Find(&rows).Error
+	}); err != nil {
 		return nil, err
 	}
 	out := make([]Tag, 0, len(rows))
@@ -130,28 +136,30 @@ func (r *DBRepository) UpsertTag(ctx context.Context, tag *Tag) error {
 		Description: strings.TrimSpace(tag.Description),
 		Color:       strings.TrimSpace(tag.Color),
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing database.Tag
-		err := tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
-		switch {
-		case errors.Is(err, gorm.ErrRecordNotFound):
-			if err := tx.Create(&row).Error; err != nil {
+	return r.retry(ctx, "upsert_tag", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var existing database.Tag
+			err := tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
+			switch {
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				if err := tx.Create(&row).Error; err != nil {
+					return err
+				}
+				tag.ID = row.ID
+			case err != nil:
 				return err
+			default:
+				row.ID = existing.ID
+				row.CreatedAt = existing.CreatedAt
+				if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
+					return err
+				}
+				tag.ID = existing.ID
 			}
-			tag.ID = row.ID
-		case err != nil:
-			return err
-		default:
-			row.ID = existing.ID
-			row.CreatedAt = existing.CreatedAt
-			if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
-				return err
-			}
-			tag.ID = existing.ID
-		}
-		tag.Slug = slug
-		tag.Name = name
-		return nil
+			tag.Slug = slug
+			tag.Name = name
+			return nil
+		})
 	})
 }
 
@@ -166,27 +174,29 @@ func (r *DBRepository) SetResourceTags(ctx context.Context, resourceType, resour
 		return fmt.Errorf("resourceType e resourceID são obrigatórios")
 	}
 	slugs := uniqueSlugs(tagSlugs)
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("user_id = ? AND resource_type = ? AND resource_id = ?", userID, resourceType, resourceID).
-			Delete(&database.TagAssignment{}).Error; err != nil {
-			return err
-		}
-		for _, slug := range slugs {
-			tag, err := r.ensureTagTx(ctx, tx, userID, slug)
-			if err != nil {
+	return r.retry(ctx, "set_resource_tags", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("user_id = ? AND resource_type = ? AND resource_id = ?", userID, resourceType, resourceID).
+				Delete(&database.TagAssignment{}).Error; err != nil {
 				return err
 			}
-			assign := database.TagAssignment{
-				UserID:       userID,
-				TagID:        tag.ID,
-				ResourceType: resourceType,
-				ResourceID:   resourceID,
+			for _, slug := range slugs {
+				tag, err := r.ensureTagTx(ctx, tx, userID, slug)
+				if err != nil {
+					return err
+				}
+				assign := database.TagAssignment{
+					UserID:       userID,
+					TagID:        tag.ID,
+					ResourceType: resourceType,
+					ResourceID:   resourceID,
+				}
+				if err := tx.Create(&assign).Error; err != nil {
+					return err
+				}
 			}
-			if err := tx.Create(&assign).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+			return nil
+		})
 	})
 }
 
@@ -196,12 +206,14 @@ func (r *DBRepository) GetResourceTags(ctx context.Context, resourceType, resour
 		return nil, err
 	}
 	var rows []database.Tag
-	err = r.db.WithContext(ctx).
-		Joins("JOIN tag_assignments ON tag_assignments.tag_id = tags.id").
-		Where("tag_assignments.user_id = ? AND tag_assignments.resource_type = ? AND tag_assignments.resource_id = ?", userID, resourceType, resourceID).
-		Scopes(func(tx *gorm.DB) *gorm.DB { return database.ScopeByUser(ctx, tx, "tags.user_id") }).
-		Order("tags.slug ASC").
-		Find(&rows).Error
+	err = r.retry(ctx, "get_resource_tags", func() error {
+		return r.db.WithContext(ctx).
+			Joins("JOIN tag_assignments ON tag_assignments.tag_id = tags.id").
+			Where("tag_assignments.user_id = ? AND tag_assignments.resource_type = ? AND tag_assignments.resource_id = ?", userID, resourceType, resourceID).
+			Scopes(func(tx *gorm.DB) *gorm.DB { return database.ScopeByUser(ctx, tx, "tags.user_id") }).
+			Order("tags.slug ASC").
+			Find(&rows).Error
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +229,9 @@ func (r *DBRepository) ListPipelines(ctx context.Context) ([]Pipeline, error) {
 		return nil, err
 	}
 	var rows []database.JobPipeline
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Order("slug ASC").Find(&rows).Error; err != nil {
+	if err := r.retry(ctx, "list_pipelines", func() error {
+		return database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Order("slug ASC").Find(&rows).Error
+	}); err != nil {
 		return nil, err
 	}
 	out := make([]Pipeline, 0, len(rows))
@@ -232,8 +246,10 @@ func (r *DBRepository) GetPipeline(ctx context.Context, slug string) (*Pipeline,
 		return nil, err
 	}
 	var row database.JobPipeline
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("slug = ?", normalizeSlug(slug)).First(&row).Error; err != nil {
+	if err := r.retry(ctx, "get_pipeline", func() error {
+		return database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+			Where("slug = ?", normalizeSlug(slug)).First(&row).Error
+	}); err != nil {
 		return nil, err
 	}
 	p := pipelineModelToDomain(row)
@@ -271,7 +287,9 @@ func (r *DBRepository) CreatePipeline(ctx context.Context, pipeline *Pipeline) e
 		Enabled:     pipeline.Enabled,
 		Metadata:    meta,
 	}
-	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+	if err := r.retry(ctx, "create_pipeline", func() error {
+		return r.db.WithContext(ctx).Create(&row).Error
+	}); err != nil {
 		if isUniqueConstraintError(err) {
 			return fmt.Errorf("%w: %s", ErrPipelineAlreadyExists, slug)
 		}
@@ -316,28 +334,30 @@ func (r *DBRepository) SavePipeline(ctx context.Context, pipeline *Pipeline) err
 		Enabled:     pipeline.Enabled,
 		Metadata:    meta,
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing database.JobPipeline
-		err := tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
-		switch {
-		case errors.Is(err, gorm.ErrRecordNotFound):
-			if err := tx.Create(&row).Error; err != nil {
+	return r.retry(ctx, "save_pipeline", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var existing database.JobPipeline
+			err := tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
+			switch {
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				if err := tx.Create(&row).Error; err != nil {
+					return err
+				}
+				pipeline.ID = row.ID
+			case err != nil:
 				return err
+			default:
+				row.ID = existing.ID
+				row.CreatedAt = existing.CreatedAt
+				if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
+					return err
+				}
+				pipeline.ID = existing.ID
 			}
-			pipeline.ID = row.ID
-		case err != nil:
-			return err
-		default:
-			row.ID = existing.ID
-			row.CreatedAt = existing.CreatedAt
-			if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
-				return err
-			}
-			pipeline.ID = existing.ID
-		}
-		pipeline.Slug = slug
-		pipeline.Name = name
-		return nil
+			pipeline.Slug = slug
+			pipeline.Name = name
+			return nil
+		})
 	})
 }
 
@@ -346,16 +366,18 @@ func (r *DBRepository) DeletePipeline(ctx context.Context, slug string) error {
 	if err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var row database.JobPipeline
-		if err := database.ScopeByUser(ctx, tx, "user_id").Where("slug = ?", normalizeSlug(slug)).First(&row).Error; err != nil {
-			return err
-		}
-		if err := tx.Model(&database.Job{}).Where("user_id = ? AND pipeline_id = ?", userID, row.ID).
-			Update("pipeline_id", gorm.Expr("NULL")).Error; err != nil {
-			return err
-		}
-		return tx.Delete(&row).Error
+	return r.retry(ctx, "delete_pipeline", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var row database.JobPipeline
+			if err := database.ScopeByUser(ctx, tx, "user_id").Where("slug = ?", normalizeSlug(slug)).First(&row).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&database.Job{}).Where("user_id = ? AND pipeline_id = ?", userID, row.ID).
+				Update("pipeline_id", gorm.Expr("NULL")).Error; err != nil {
+				return err
+			}
+			return tx.Delete(&row).Error
+		})
 	})
 }
 
@@ -382,7 +404,9 @@ func (r *DBRepository) ListJobs(ctx context.Context, filter JobFilter) ([]Job, e
 			Where("tags.slug = ?", normalizeSlug(filter.Tag))
 	}
 	var rows []database.Job
-	if err := query.Order("jobs.slug ASC").Find(&rows).Error; err != nil {
+	if err := r.retry(ctx, "list_jobs", func() error {
+		return query.Order("jobs.slug ASC").Find(&rows).Error
+	}); err != nil {
 		return nil, err
 	}
 	jobIDs := make([]string, 0, len(rows))
@@ -409,9 +433,11 @@ func (r *DBRepository) GetJob(ctx context.Context, slug string) (*Job, error) {
 		return nil, err
 	}
 	var row database.Job
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "jobs.user_id").
-		Preload("Pipeline").Preload("Triggers", "enabled = ?", true).Preload("ToolCatalog").
-		Where("jobs.slug = ?", normalizeSlug(slug)).First(&row).Error; err != nil {
+	if err := r.retry(ctx, "get_job", func() error {
+		return database.ScopeByUser(ctx, r.db.WithContext(ctx), "jobs.user_id").
+			Preload("Pipeline").Preload("Triggers", "enabled = ?", true).Preload("ToolCatalog").
+			Where("jobs.slug = ?", normalizeSlug(slug)).First(&row).Error
+	}); err != nil {
 		return nil, err
 	}
 	return r.jobModelToDomain(ctx, row)
@@ -422,9 +448,11 @@ func (r *DBRepository) GetJobByID(ctx context.Context, id string) (*Job, error) 
 		return nil, err
 	}
 	var row database.Job
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "jobs.user_id").
-		Preload("Pipeline").Preload("Triggers", "enabled = ?", true).Preload("ToolCatalog").
-		Where("jobs.id = ?", strings.TrimSpace(id)).First(&row).Error; err != nil {
+	if err := r.retry(ctx, "get_job_by_id", func() error {
+		return database.ScopeByUser(ctx, r.db.WithContext(ctx), "jobs.user_id").
+			Preload("Pipeline").Preload("Triggers", "enabled = ?", true).Preload("ToolCatalog").
+			Where("jobs.id = ?", strings.TrimSpace(id)).First(&row).Error
+	}); err != nil {
 		return nil, err
 	}
 	return r.jobModelToDomain(ctx, row)
@@ -445,44 +473,46 @@ func (r *DBRepository) CreateJob(ctx context.Context, job *Job) error {
 	if slug == "" {
 		return fmt.Errorf("slug do job é obrigatório")
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		pipelineID, err := r.pipelineIDForSlugTx(ctx, tx, userID, job.Pipeline)
-		if err != nil {
-			return err
-		}
-		toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, job.Tool)
-		if err != nil {
-			return err
-		}
-		row, err := jobDomainToModel(userID, slug, pipelineID, toolCatalogID, job)
-		if err != nil {
-			return err
-		}
-		if err := tx.Create(row).Error; err != nil {
-			if isUniqueConstraintError(err) {
-				return fmt.Errorf("%w: %s", ErrJobAlreadyExists, slug)
-			}
-			return err
-		}
-		if err := r.saveTriggersTx(ctx, tx, userID, row.ID, job.Triggers); err != nil {
-			return err
-		}
-		if err := r.setResourceTagsTx(ctx, tx, userID, tagResourceJob, row.ID, job.Tags); err != nil {
-			return err
-		}
-		pipelineEnabled := pipelineID == nil
-		if pipelineID != nil {
-			var err error
-			pipelineEnabled, err = r.pipelineEnabledByIDTx(ctx, tx, userID, *pipelineID)
+	return r.retry(ctx, "create_job", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			pipelineID, err := r.pipelineIDForSlugTx(ctx, tx, userID, job.Pipeline)
 			if err != nil {
 				return err
 			}
-		}
-		job.ID = slug
-		job.Pipeline = normalizeSlug(job.Pipeline)
-		job.PipelineEnabled = pipelineEnabled
-		job.Tags = uniqueSlugs(job.Tags)
-		return nil
+			toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, job.Tool)
+			if err != nil {
+				return err
+			}
+			row, err := jobDomainToModel(userID, slug, pipelineID, toolCatalogID, job)
+			if err != nil {
+				return err
+			}
+			if err := tx.Create(row).Error; err != nil {
+				if isUniqueConstraintError(err) {
+					return fmt.Errorf("%w: %s", ErrJobAlreadyExists, slug)
+				}
+				return err
+			}
+			if err := r.saveTriggersTx(ctx, tx, userID, row.ID, job.Triggers); err != nil {
+				return err
+			}
+			if err := r.setResourceTagsTx(ctx, tx, userID, tagResourceJob, row.ID, job.Tags); err != nil {
+				return err
+			}
+			pipelineEnabled := pipelineID == nil
+			if pipelineID != nil {
+				var err error
+				pipelineEnabled, err = r.pipelineEnabledByIDTx(ctx, tx, userID, *pipelineID)
+				if err != nil {
+					return err
+				}
+			}
+			job.ID = slug
+			job.Pipeline = normalizeSlug(job.Pipeline)
+			job.PipelineEnabled = pipelineEnabled
+			job.Tags = uniqueSlugs(job.Tags)
+			return nil
+		})
 	})
 }
 
@@ -501,55 +531,57 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 	if slug == "" {
 		return fmt.Errorf("slug do job é obrigatório")
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		pipelineID, err := r.pipelineIDForSlugTx(ctx, tx, userID, job.Pipeline)
-		if err != nil {
-			return err
-		}
-		toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, job.Tool)
-		if err != nil {
-			return err
-		}
-		row, err := jobDomainToModel(userID, slug, pipelineID, toolCatalogID, job)
-		if err != nil {
-			return err
-		}
-		var existing database.Job
-		err = tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
-		switch {
-		case errors.Is(err, gorm.ErrRecordNotFound):
-			if err := tx.Create(row).Error; err != nil {
-				return err
-			}
-		case err != nil:
-			return err
-		default:
-			row.ID = existing.ID
-			row.CreatedAt = existing.CreatedAt
-			row.CreatedBy = existing.CreatedBy
-			if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(row).Error; err != nil {
-				return err
-			}
-		}
-		if err := r.saveTriggersTx(ctx, tx, userID, row.ID, job.Triggers); err != nil {
-			return err
-		}
-		if err := r.setResourceTagsTx(ctx, tx, userID, tagResourceJob, row.ID, job.Tags); err != nil {
-			return err
-		}
-		pipelineEnabled := pipelineID == nil
-		if pipelineID != nil {
-			var err error
-			pipelineEnabled, err = r.pipelineEnabledByIDTx(ctx, tx, userID, *pipelineID)
+	return r.retry(ctx, "save_job", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			pipelineID, err := r.pipelineIDForSlugTx(ctx, tx, userID, job.Pipeline)
 			if err != nil {
 				return err
 			}
-		}
-		job.ID = slug
-		job.Pipeline = normalizeSlug(job.Pipeline)
-		job.PipelineEnabled = pipelineEnabled
-		job.Tags = uniqueSlugs(job.Tags)
-		return nil
+			toolCatalogID, err := r.toolCatalogIDForNameTx(ctx, tx, userID, job.Tool)
+			if err != nil {
+				return err
+			}
+			row, err := jobDomainToModel(userID, slug, pipelineID, toolCatalogID, job)
+			if err != nil {
+				return err
+			}
+			var existing database.Job
+			err = tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
+			switch {
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				if err := tx.Create(row).Error; err != nil {
+					return err
+				}
+			case err != nil:
+				return err
+			default:
+				row.ID = existing.ID
+				row.CreatedAt = existing.CreatedAt
+				row.CreatedBy = existing.CreatedBy
+				if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(row).Error; err != nil {
+					return err
+				}
+			}
+			if err := r.saveTriggersTx(ctx, tx, userID, row.ID, job.Triggers); err != nil {
+				return err
+			}
+			if err := r.setResourceTagsTx(ctx, tx, userID, tagResourceJob, row.ID, job.Tags); err != nil {
+				return err
+			}
+			pipelineEnabled := pipelineID == nil
+			if pipelineID != nil {
+				var err error
+				pipelineEnabled, err = r.pipelineEnabledByIDTx(ctx, tx, userID, *pipelineID)
+				if err != nil {
+					return err
+				}
+			}
+			job.ID = slug
+			job.Pipeline = normalizeSlug(job.Pipeline)
+			job.PipelineEnabled = pipelineEnabled
+			job.Tags = uniqueSlugs(job.Tags)
+			return nil
+		})
 	})
 }
 
@@ -558,36 +590,38 @@ func (r *DBRepository) DeleteJob(ctx context.Context, slug string) error {
 	if err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var row database.Job
-		if err := database.ScopeByUser(ctx, tx, "user_id").Where("slug = ?", normalizeSlug(slug)).First(&row).Error; err != nil {
-			return err
-		}
-		var runIDs []string
-		if err := tx.Model(&database.JobRun{}).Where("user_id = ? AND job_id = ?", userID, row.ID).Pluck("id", &runIDs).Error; err != nil {
-			return err
-		}
-		if len(runIDs) > 0 {
-			if err := tx.Where("user_id = ? AND job_run_id IN ?", userID, runIDs).Delete(&database.JobRunEvent{}).Error; err != nil {
+	return r.retry(ctx, "delete_job", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var row database.Job
+			if err := database.ScopeByUser(ctx, tx, "user_id").Where("slug = ?", normalizeSlug(slug)).First(&row).Error; err != nil {
 				return err
 			}
-			if err := tx.Where("user_id = ? AND job_run_id IN ?", userID, runIDs).Delete(&database.JobEvent{}).Error; err != nil {
+			var runIDs []string
+			if err := tx.Model(&database.JobRun{}).Where("user_id = ? AND job_id = ?", userID, row.ID).Pluck("id", &runIDs).Error; err != nil {
 				return err
 			}
-		}
-		if err := tx.Where("user_id = ? AND job_id = ?", userID, row.ID).Delete(&database.JobRun{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ? AND job_id = ?", userID, row.ID).Delete(&database.JobEvent{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ? AND job_id = ?", userID, row.ID).Delete(&database.JobTrigger{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ? AND resource_type = ? AND resource_id = ?", userID, tagResourceJob, row.ID).Delete(&database.TagAssignment{}).Error; err != nil {
-			return err
-		}
-		return tx.Delete(&row).Error
+			if len(runIDs) > 0 {
+				if err := tx.Where("user_id = ? AND job_run_id IN ?", userID, runIDs).Delete(&database.JobRunEvent{}).Error; err != nil {
+					return err
+				}
+				if err := tx.Where("user_id = ? AND job_run_id IN ?", userID, runIDs).Delete(&database.JobEvent{}).Error; err != nil {
+					return err
+				}
+			}
+			if err := tx.Where("user_id = ? AND job_id = ?", userID, row.ID).Delete(&database.JobRun{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("user_id = ? AND job_id = ?", userID, row.ID).Delete(&database.JobEvent{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("user_id = ? AND job_id = ?", userID, row.ID).Delete(&database.JobTrigger{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("user_id = ? AND resource_type = ? AND resource_id = ?", userID, tagResourceJob, row.ID).Delete(&database.TagAssignment{}).Error; err != nil {
+				return err
+			}
+			return tx.Delete(&row).Error
+		})
 	})
 }
 
@@ -600,7 +634,9 @@ func (r *DBRepository) ListTriggers(ctx context.Context, jobID string) ([]Trigge
 		return nil, err
 	}
 	var rows []database.JobTrigger
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Where("job_id = ? AND enabled = ?", dbID, true).Order("created_at ASC").Find(&rows).Error; err != nil {
+	if err := r.retry(ctx, "list_triggers", func() error {
+		return database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Where("job_id = ? AND enabled = ?", dbID, true).Order("created_at ASC").Find(&rows).Error
+	}); err != nil {
 		return nil, err
 	}
 	out := make([]Trigger, 0, len(rows))
@@ -623,8 +659,10 @@ func (r *DBRepository) SaveTriggers(ctx context.Context, jobID string, triggers 
 	if err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return r.saveTriggersTx(ctx, tx, userID, dbID, triggers)
+	return r.retry(ctx, "save_triggers", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			return r.saveTriggersTx(ctx, tx, userID, dbID, triggers)
+		})
 	})
 }
 
@@ -638,11 +676,15 @@ func (r *DBRepository) EnsureManualTrigger(ctx context.Context, jobID string) (*
 		return nil, err
 	}
 	var row database.JobTrigger
-	err = r.db.WithContext(ctx).Where("user_id = ? AND job_id = ? AND type = ?", userID, dbID, string(TriggerManual)).First(&row).Error
+	err = r.retry(ctx, "ensure_manual_trigger.lookup", func() error {
+		return r.db.WithContext(ctx).Where("user_id = ? AND job_id = ? AND type = ?", userID, dbID, string(TriggerManual)).First(&row).Error
+	})
 	switch {
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		row = database.JobTrigger{UserID: userID, JobID: dbID, Type: string(TriggerManual), Enabled: true}
-		if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+		if err := r.retry(ctx, "ensure_manual_trigger.create", func() error {
+			return r.db.WithContext(ctx).Create(&row).Error
+		}); err != nil {
 			return nil, err
 		}
 	case err != nil:
@@ -658,11 +700,13 @@ func (r *DBRepository) ListToolCatalog(ctx context.Context) ([]CatalogEntry, err
 		return nil, err
 	}
 	var rows []database.ToolCatalog
-	if err := r.db.WithContext(ctx).
-		Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
-		Where("tool_catalog.user_id IS NULL OR tool_catalog.user_id = ? OR mcp_servers.user_id = ?", userID, userID).
-		Order("tool_catalog.name ASC").
-		Find(&rows).Error; err != nil {
+	if err := r.retry(ctx, "list_tool_catalog", func() error {
+		return r.db.WithContext(ctx).
+			Joins("LEFT JOIN mcp_servers ON mcp_servers.id = tool_catalog.mcp_server_id").
+			Where("tool_catalog.user_id IS NULL OR tool_catalog.user_id = ? OR mcp_servers.user_id = ?", userID, userID).
+			Order("tool_catalog.name ASC").
+			Find(&rows).Error
+	}); err != nil {
 		return nil, err
 	}
 	entries := make([]CatalogEntry, 0, len(rows))
@@ -753,62 +797,64 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 	if row.StartedAt.IsZero() {
 		row.StartedAt = r.now()
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&row).Error; err != nil {
-			return err
-		}
-		rl.RunID = row.ID
-		for i, event := range rl.RunEvents {
-			event.RunID = row.ID
-			if event.Sequence <= 0 {
-				event.Sequence = i + 1
-			}
-			if event.Timestamp.IsZero() {
-				event.Timestamp = r.now()
-			}
-			data, err := marshalJSON(event.Data)
-			if err != nil {
+	return r.retry(ctx, "log_run", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(&row).Error; err != nil {
 				return err
 			}
-			eventRow := database.JobRunEvent{
-				UUIDModel:  database.UUIDModel{ID: strings.TrimSpace(event.ID)},
-				UserID:     userID,
-				JobRunID:   row.ID,
-				Sequence:   event.Sequence,
-				OccurredAt: event.Timestamp,
-				Type:       event.Type,
-				Message:    event.Message,
-				Data:       data,
+			rl.RunID = row.ID
+			for i, event := range rl.RunEvents {
+				event.RunID = row.ID
+				if event.Sequence <= 0 {
+					event.Sequence = i + 1
+				}
+				if event.Timestamp.IsZero() {
+					event.Timestamp = r.now()
+				}
+				data, err := marshalJSON(event.Data)
+				if err != nil {
+					return err
+				}
+				eventRow := database.JobRunEvent{
+					UUIDModel:  database.UUIDModel{ID: strings.TrimSpace(event.ID)},
+					UserID:     userID,
+					JobRunID:   row.ID,
+					Sequence:   event.Sequence,
+					OccurredAt: event.Timestamp,
+					Type:       event.Type,
+					Message:    event.Message,
+					Data:       data,
+				}
+				if err := tx.Create(&eventRow).Error; err != nil {
+					return err
+				}
 			}
-			if err := tx.Create(&eventRow).Error; err != nil {
-				return err
+			for _, event := range rl.DomainEvents {
+				event.RunID = row.ID
+				if event.Timestamp.IsZero() {
+					event.Timestamp = r.now()
+				}
+				data, err := marshalJSON(event.Data)
+				if err != nil {
+					return err
+				}
+				eventRow := database.JobEvent{
+					UUIDModel:  database.UUIDModel{ID: strings.TrimSpace(event.ID)},
+					UserID:     userID,
+					JobID:      &jobRow.ID,
+					JobRunID:   &row.ID,
+					OccurredAt: event.Timestamp,
+					Type:       event.Type,
+					Event:      event.Event,
+					Message:    event.Message,
+					Data:       data,
+				}
+				if err := tx.Create(&eventRow).Error; err != nil {
+					return err
+				}
 			}
-		}
-		for _, event := range rl.DomainEvents {
-			event.RunID = row.ID
-			if event.Timestamp.IsZero() {
-				event.Timestamp = r.now()
-			}
-			data, err := marshalJSON(event.Data)
-			if err != nil {
-				return err
-			}
-			eventRow := database.JobEvent{
-				UUIDModel:  database.UUIDModel{ID: strings.TrimSpace(event.ID)},
-				UserID:     userID,
-				JobID:      &jobRow.ID,
-				JobRunID:   &row.ID,
-				OccurredAt: event.Timestamp,
-				Type:       event.Type,
-				Event:      event.Event,
-				Message:    event.Message,
-				Data:       data,
-			}
-			if err := tx.Create(&eventRow).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+			return nil
+		})
 	})
 }
 
@@ -826,7 +872,9 @@ func (r *DBRepository) GetRuns(ctx context.Context, jobID string, limit int) ([]
 		query = query.Limit(limit)
 	}
 	var rows []database.JobRun
-	if err := query.Find(&rows).Error; err != nil {
+	if err := r.retry(ctx, "get_runs", func() error {
+		return query.Find(&rows).Error
+	}); err != nil {
 		return nil, err
 	}
 	out := make([]RunLog, 0, len(rows))
@@ -867,7 +915,9 @@ func (r *DBRepository) ListRuns(ctx context.Context, jobID string, filter RunFil
 	}
 	query = query.Limit(limit)
 	var rows []database.JobRun
-	if err := query.Find(&rows).Error; err != nil {
+	if err := r.retry(ctx, "list_runs", func() error {
+		return query.Find(&rows).Error
+	}); err != nil {
 		return nil, err
 	}
 	out := make([]RunLog, 0, len(rows))
@@ -892,8 +942,9 @@ func (r *DBRepository) GetLastRuns(ctx context.Context, jobIDs []string) (map[st
 		JobSlug string `gorm:"column:job_slug"`
 	}
 	var rows []lastRunRow
-	if err := r.db.WithContext(ctx).
-		Raw(`
+	if err := r.retry(ctx, "get_last_runs", func() error {
+		return r.db.WithContext(ctx).
+			Raw(`
 			SELECT *
 			FROM (
 				SELECT
@@ -910,7 +961,8 @@ func (r *DBRepository) GetLastRuns(ctx context.Context, jobIDs []string) (map[st
 			WHERE rn = 1
 			ORDER BY started_at DESC, created_at DESC
 		`, userID, userID, slugs).
-		Scan(&rows).Error; err != nil {
+			Scan(&rows).Error
+	}); err != nil {
 		return nil, err
 	}
 	for _, row := range rows {
@@ -932,8 +984,10 @@ func (r *DBRepository) GetRun(ctx context.Context, jobID, runID string) (*RunLog
 		return nil, err
 	}
 	var row database.JobRun
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("job_id = ? AND id = ?", jobRow.ID, strings.TrimSpace(runID)).First(&row).Error; err != nil {
+	if err := r.retry(ctx, "get_run", func() error {
+		return database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+			Where("job_id = ? AND id = ?", jobRow.ID, strings.TrimSpace(runID)).First(&row).Error
+	}); err != nil {
 		return nil, err
 	}
 	rl := runModelToDomain(row, jobRow.Slug)
@@ -1004,7 +1058,9 @@ func (r *DBRepository) LogEvent(ctx context.Context, entry *EventEntry) error {
 		Message:    entry.Message,
 		Data:       data,
 	}
-	return r.db.WithContext(ctx).Create(&row).Error
+	return r.retry(ctx, "log_event", func() error {
+		return r.db.WithContext(ctx).Create(&row).Error
+	})
 }
 
 func (r *DBRepository) listDomainEvents(ctx context.Context, filter EventFilter) ([]EventEntry, error) {
@@ -1058,7 +1114,9 @@ func (r *DBRepository) listDomainEvents(ctx context.Context, filter EventFilter)
 		sql += " LIMIT ? OFFSET ?"
 	}
 	var rows []eventRow
-	if err := r.db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error; err != nil {
+	if err := r.retry(ctx, "list_domain_events", func() error {
+		return r.db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error
+	}); err != nil {
 		return nil, err
 	}
 	out := make([]EventEntry, 0, len(rows))
@@ -1157,7 +1215,9 @@ func (r *DBRepository) ListEvents(ctx context.Context, filter EventFilter) ([]Ev
 		sql += " LIMIT ? OFFSET ?"
 	}
 	var rows []combinedEventRow
-	if err := r.db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error; err != nil {
+	if err := r.retry(ctx, "list_events", func() error {
+		return r.db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error
+	}); err != nil {
 		return nil, err
 	}
 	out := make([]EventEntry, 0, len(rows))
@@ -1205,34 +1265,36 @@ func (r *DBRepository) LogRunEvent(ctx context.Context, entry *RunEvent) error {
 	if occurredAt.IsZero() {
 		occurredAt = r.now()
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		sequence := entry.Sequence
-		if sequence <= 0 {
-			var maxSequence int
-			if err := tx.Model(&database.JobRunEvent{}).
-				Where("user_id = ? AND job_run_id = ?", userID, run.ID).
-				Select("COALESCE(MAX(sequence), 0)").
-				Scan(&maxSequence).Error; err != nil {
+	return r.retry(ctx, "log_run_event", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			sequence := entry.Sequence
+			if sequence <= 0 {
+				var maxSequence int
+				if err := tx.Model(&database.JobRunEvent{}).
+					Where("user_id = ? AND job_run_id = ?", userID, run.ID).
+					Select("COALESCE(MAX(sequence), 0)").
+					Scan(&maxSequence).Error; err != nil {
+					return err
+				}
+				sequence = maxSequence + 1
+			}
+			row := database.JobRunEvent{
+				UUIDModel:  database.UUIDModel{ID: strings.TrimSpace(entry.ID)},
+				UserID:     userID,
+				JobRunID:   run.ID,
+				Sequence:   sequence,
+				OccurredAt: occurredAt,
+				Type:       entry.Type,
+				Message:    entry.Message,
+				Data:       data,
+			}
+			if err := tx.Create(&row).Error; err != nil {
 				return err
 			}
-			sequence = maxSequence + 1
-		}
-		row := database.JobRunEvent{
-			UUIDModel:  database.UUIDModel{ID: strings.TrimSpace(entry.ID)},
-			UserID:     userID,
-			JobRunID:   run.ID,
-			Sequence:   sequence,
-			OccurredAt: occurredAt,
-			Type:       entry.Type,
-			Message:    entry.Message,
-			Data:       data,
-		}
-		if err := tx.Create(&row).Error; err != nil {
-			return err
-		}
-		entry.ID = row.ID
-		entry.Sequence = sequence
-		return nil
+			entry.ID = row.ID
+			entry.Sequence = sequence
+			return nil
+		})
 	})
 }
 
@@ -1241,8 +1303,10 @@ func (r *DBRepository) GetRunEvents(ctx context.Context, runID string) ([]RunEve
 		return nil, err
 	}
 	var rows []database.JobRunEvent
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("job_run_id = ?", strings.TrimSpace(runID)).Order("sequence ASC").Find(&rows).Error; err != nil {
+	if err := r.retry(ctx, "get_run_events", func() error {
+		return database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+			Where("job_run_id = ?", strings.TrimSpace(runID)).Order("sequence ASC").Find(&rows).Error
+	}); err != nil {
 		return nil, err
 	}
 	out := make([]RunEvent, 0, len(rows))

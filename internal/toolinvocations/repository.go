@@ -37,6 +37,10 @@ func NewDBRepository(db *gorm.DB) *DBRepository {
 	return &DBRepository{db: db, now: time.Now}
 }
 
+func (r *DBRepository) retry(ctx context.Context, operation string, fn func() error) error {
+	return database.WithSQLiteBusyRetry(ctx, "toolinvocations."+operation, fn)
+}
+
 func (r *DBRepository) Create(ctx context.Context, inv *Invocation) error {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
@@ -53,7 +57,9 @@ func (r *DBRepository) Create(ctx context.Context, inv *Invocation) error {
 		inv.Status = StatusQueued
 	}
 	row := invocationDomainToModel(*inv)
-	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+	if err := r.retry(ctx, "create", func() error {
+		return r.db.WithContext(ctx).Create(&row).Error
+	}); err != nil {
 		return err
 	}
 	*inv = invocationModelToDomain(row)
@@ -67,14 +73,18 @@ func (r *DBRepository) MarkRunning(ctx context.Context, id string, startedAt tim
 	if startedAt.IsZero() {
 		startedAt = r.now()
 	}
-	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
-		Where("id = ?", strings.TrimSpace(id)).
-		Updates(map[string]any{
-			"status":     StatusRunning,
-			"started_at": startedAt,
-		})
-	if tx.Error != nil {
+	var tx *gorm.DB
+	err := r.retry(ctx, "mark_running", func() error {
+		tx = database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+			Where("id = ?", strings.TrimSpace(id)).
+			Updates(map[string]any{
+				"status":     StatusRunning,
+				"started_at": startedAt,
+			})
 		return tx.Error
+	})
+	if err != nil {
+		return err
 	}
 	if tx.RowsAffected == 0 {
 		return gorm.ErrRecordNotFound
@@ -98,20 +108,24 @@ func (r *DBRepository) Complete(ctx context.Context, id string, inv *Invocation)
 	if status == "" {
 		status = StatusSucceeded
 	}
-	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
-		Where("id = ?", strings.TrimSpace(id)).
-		Updates(map[string]any{
-			"status":        status,
-			"output":        string(inv.Output),
-			"metadata":      string(inv.Metadata),
-			"error_kind":    inv.ErrorKind,
-			"error_message": inv.ErrorMessage,
-			"retryable":     inv.Retryable,
-			"completed_at":  completedAt,
-			"duration_ms":   inv.DurationMs,
-		})
-	if tx.Error != nil {
+	var tx *gorm.DB
+	err := r.retry(ctx, "complete", func() error {
+		tx = database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+			Where("id = ?", strings.TrimSpace(id)).
+			Updates(map[string]any{
+				"status":        status,
+				"output":        string(inv.Output),
+				"metadata":      string(inv.Metadata),
+				"error_kind":    inv.ErrorKind,
+				"error_message": inv.ErrorMessage,
+				"retryable":     inv.Retryable,
+				"completed_at":  completedAt,
+				"duration_ms":   inv.DurationMs,
+			})
 		return tx.Error
+	})
+	if err != nil {
+		return err
 	}
 	if tx.RowsAffected == 0 {
 		return gorm.ErrRecordNotFound
@@ -123,11 +137,15 @@ func (r *DBRepository) Delete(ctx context.Context, id string) error {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return err
 	}
-	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
-		Where("id = ?", strings.TrimSpace(id)).
-		Delete(&database.ToolInvocation{})
-	if tx.Error != nil {
+	var tx *gorm.DB
+	err := r.retry(ctx, "delete", func() error {
+		tx = database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+			Where("id = ?", strings.TrimSpace(id)).
+			Delete(&database.ToolInvocation{})
 		return tx.Error
+	})
+	if err != nil {
+		return err
 	}
 	if tx.RowsAffected == 0 {
 		return gorm.ErrRecordNotFound
@@ -140,8 +158,10 @@ func (r *DBRepository) Get(ctx context.Context, id string) (*Invocation, error) 
 		return nil, err
 	}
 	var row database.ToolInvocation
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		First(&row, "id = ?", strings.TrimSpace(id)).Error; err != nil {
+	if err := r.retry(ctx, "get", func() error {
+		return database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+			First(&row, "id = ?", strings.TrimSpace(id)).Error
+	}); err != nil {
 		return nil, err
 	}
 	inv := invocationModelToDomain(row)
@@ -170,7 +190,9 @@ func (r *DBRepository) List(ctx context.Context, filter Filter) ([]Invocation, e
 		q = q.Where("dry_run = ?", *filter.DryRun)
 	}
 	var rows []database.ToolInvocation
-	if err := q.Order("queued_at DESC, created_at DESC").Limit(limit).Find(&rows).Error; err != nil {
+	if err := r.retry(ctx, "list", func() error {
+		return q.Order("queued_at DESC, created_at DESC").Limit(limit).Find(&rows).Error
+	}); err != nil {
 		return nil, err
 	}
 	out := make([]Invocation, 0, len(rows))
@@ -192,16 +214,23 @@ func (r *DBRepository) CleanOldDryRuns(ctx context.Context, maxAge time.Duration
 		return 0, nil
 	}
 	cutoff := r.now().Add(-maxAge)
-	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where(
-			"queued_at < ? AND dry_run = ? AND origin_type IN (?, ?)",
-			cutoff,
-			true,
-			OriginToolCatalog,
-			OriginJobRun,
-		).
-		Delete(&database.ToolInvocation{})
-	return int(tx.RowsAffected), tx.Error
+	var tx *gorm.DB
+	err := r.retry(ctx, "clean_old_dry_runs", func() error {
+		tx = database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+			Where(
+				"queued_at < ? AND dry_run = ? AND origin_type IN (?, ?)",
+				cutoff,
+				true,
+				OriginToolCatalog,
+				OriginJobRun,
+			).
+			Delete(&database.ToolInvocation{})
+		return tx.Error
+	})
+	if tx == nil {
+		return 0, err
+	}
+	return int(tx.RowsAffected), err
 }
 
 // CleanOldChat remove invocações de CHAT mais antigas que maxAge. É um cap de
@@ -216,10 +245,17 @@ func (r *DBRepository) CleanOldChat(ctx context.Context, maxAge time.Duration) (
 		return 0, nil
 	}
 	cutoff := r.now().Add(-maxAge)
-	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("queued_at < ? AND origin_type = ?", cutoff, OriginChat).
-		Delete(&database.ToolInvocation{})
-	return int(tx.RowsAffected), tx.Error
+	var tx *gorm.DB
+	err := r.retry(ctx, "clean_old_chat", func() error {
+		tx = database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+			Where("queued_at < ? AND origin_type = ?", cutoff, OriginChat).
+			Delete(&database.ToolInvocation{})
+		return tx.Error
+	})
+	if tx == nil {
+		return 0, err
+	}
+	return int(tx.RowsAffected), err
 }
 
 // CleanOrphanChat remove invocações de chat cujo turno/mensagem de origem não
@@ -236,11 +272,18 @@ func (r *DBRepository) CleanOrphanChat(ctx context.Context) (int, error) {
 	// NOT EXISTS faz lookup por chave primária por invocação, evitando
 	// materializar/varrer todos os ids de chat_messages (caro conforme o
 	// histórico cresce). Mesma semântica: remove apenas quando não há mensagem.
-	tx := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("origin_type = ?", OriginChat).
-		Where("NOT EXISTS (SELECT 1 FROM chat_messages WHERE chat_messages.id = tool_invocations.origin_id)").
-		Delete(&database.ToolInvocation{})
-	return int(tx.RowsAffected), tx.Error
+	var tx *gorm.DB
+	err := r.retry(ctx, "clean_orphan_chat", func() error {
+		tx = database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
+			Where("origin_type = ?", OriginChat).
+			Where("NOT EXISTS (SELECT 1 FROM chat_messages WHERE chat_messages.id = tool_invocations.origin_id)").
+			Delete(&database.ToolInvocation{})
+		return tx.Error
+	})
+	if tx == nil {
+		return 0, err
+	}
+	return int(tx.RowsAffected), err
 }
 
 func (r *DBRepository) ResolveToolCatalogID(ctx context.Context, toolName string) (string, error) {
@@ -267,10 +310,12 @@ func (r *DBRepository) ResolveToolCatalogID(ctx context.Context, toolName string
 			name, userID, tools.ToolOriginBuiltin,
 		)
 	}
-	err = q.
-		Order("tool_catalog.mcp_server_id IS NULL ASC").
-		Order("tool_catalog.user_id IS NULL ASC").
-		First(&row).Error
+	err = r.retry(ctx, "resolve_tool_catalog_id", func() error {
+		return q.
+			Order("tool_catalog.mcp_server_id IS NULL ASC").
+			Order("tool_catalog.user_id IS NULL ASC").
+			First(&row).Error
+	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", fmt.Errorf("tool catalog entry not found: %s", name)
 	}
@@ -309,7 +354,9 @@ func (r *DBRepository) IsToolCatalogIDVisible(ctx context.Context, toolCatalogID
 			tools.ToolOriginBuiltin,
 		)
 	}
-	err = q.First(&row).Error
+	err = r.retry(ctx, "is_tool_catalog_id_visible", func() error {
+		return q.First(&row).Error
+	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return false, nil
 	}
