@@ -361,6 +361,39 @@ func TestConsolidateTimelineTurn_AttachesInvocationByAssistantMessageID(t *testi
 	}
 }
 
+func TestConsolidateTimelineTurn_DoesNotPromoteIntermediateTextAsFinalContent(t *testing.T) {
+	turnID := "turn-1"
+	result := ConsolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-placeholder"},
+			Role:      "assistant",
+			Content:   "",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-iter1"},
+			Role:      "assistant",
+			Content:   "vou buscar",
+			TurnID:    &turnID,
+		},
+	}, nil, []TurnSegmentToolCall{
+		{
+			ID:                 "tool-a",
+			Type:               "function",
+			Function:           TurnSegmentToolFunction{Name: "search", Arguments: "{}"},
+			Result:             "resultado a",
+			AssistantMessageID: "assistant-iter1",
+		},
+	})
+
+	if result.Message.Content != "" {
+		t.Fatalf("expected no canonical final content while placeholder is still empty, got %q", result.Message.Content)
+	}
+	if len(result.Segments) != 2 {
+		t.Fatalf("expected intermediate text and tool segment, got %+v", result.Segments)
+	}
+}
+
 func TestParseToolCalls_InvalidJSONReturnsNil(t *testing.T) {
 	resetInvalidToolCallsLogStateForTest(t)
 
