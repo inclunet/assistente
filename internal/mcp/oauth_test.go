@@ -367,6 +367,26 @@ func TestAuthorizePKCEReregistersWhenFixedCallbackPortIsBusy(t *testing.T) {
 	}
 }
 
+func TestIsAddressInUseDetectsListenCollision(t *testing.T) {
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen failed: %v", err)
+	}
+	defer func() { _ = occupied.Close() }()
+
+	second, err := net.Listen("tcp", occupied.Addr().String())
+	if err == nil {
+		_ = second.Close()
+		t.Fatal("segundo listener deveria falhar com porta em uso")
+	}
+	if !isAddressInUse(err) {
+		t.Fatalf("esperava erro de porta em uso, got %v", err)
+	}
+	if isAddressInUse(fmt.Errorf("host inválido")) {
+		t.Fatal("erro genérico não deveria ser tratado como porta em uso")
+	}
+}
+
 func TestCallbackListenerBinds(t *testing.T) {
 	tests := []struct {
 		name         string

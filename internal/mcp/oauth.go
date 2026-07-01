@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"assistente/internal/credentials"
@@ -895,21 +897,24 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		if rt.cfg.OAuth2CallbackPort > 0 {
-			if rt.cfg.OAuth2RegistrationURL != "" {
+			if isAddressInUse(err) && rt.cfg.OAuth2RegistrationURL != "" {
 				oldPort := rt.cfg.OAuth2CallbackPort
-				logging.Warnf(ctx, "mcp.oauth", "[MCP:%s] porta PKCE %d indisponível; tentando re-registrar client OAuth com porta aleatória", rt.serverSlug, oldPort)
-				rt.cfg.OAuth2CallbackPort = 0
-				if reRegErr := rt.reRegisterClient(ctx); reRegErr == nil && rt.cfg.OAuth2CallbackPort > 0 {
-					listenAddr = fmt.Sprintf("%s:%d", listenIP, rt.cfg.OAuth2CallbackPort)
-					listener, err = net.Listen("tcp", listenAddr)
-					if err == nil {
-						logging.Infof(ctx, "mcp.oauth", "[MCP:%s] PKCE re-registrado: porta %d substituiu porta indisponível %d", rt.serverSlug, rt.cfg.OAuth2CallbackPort, oldPort)
-					}
+				replacementListener, reserveErr := net.Listen("tcp", listenIP+":0")
+				if reserveErr != nil {
+					logging.Errorf(ctx, "mcp.oauth", "[MCP:%s] falha ao reservar porta alternativa após colisão da porta PKCE %d: %v", rt.serverSlug, oldPort, reserveErr)
 				} else {
-					if reRegErr != nil {
+					replacementPort := replacementListener.Addr().(*net.TCPAddr).Port
+					logging.Warnf(ctx, "mcp.oauth", "[MCP:%s] porta PKCE %d indisponível; tentando re-registrar client OAuth com porta reservada %d", rt.serverSlug, oldPort, replacementPort)
+					rt.cfg.OAuth2CallbackPort = replacementPort
+					if reRegErr := rt.reRegisterClient(ctx); reRegErr == nil {
+						listener = replacementListener
+						err = nil
+						logging.Infof(ctx, "mcp.oauth", "[MCP:%s] PKCE re-registrado: porta %d substituiu porta indisponível %d", rt.serverSlug, replacementPort, oldPort)
+					} else {
+						_ = replacementListener.Close()
 						logging.Errorf(ctx, "mcp.oauth", "[MCP:%s] re-registro OAuth após colisão da porta %d falhou: %v", rt.serverSlug, oldPort, reRegErr)
+						rt.cfg.OAuth2CallbackPort = oldPort
 					}
-					rt.cfg.OAuth2CallbackPort = oldPort
 				}
 			}
 		}
@@ -1026,6 +1031,15 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 	case <-time.After(5 * time.Minute):
 		return fmt.Errorf("authorization timed out (5 min)")
 	}
+}
+
+func isAddressInUse(err error) bool {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return true
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "address already in use") ||
+		strings.Contains(lower, "only one usage of each socket address")
 }
 
 // ============ Dynamic Client Registration (RFC 7591) ============
