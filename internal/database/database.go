@@ -85,9 +85,11 @@ func Init() error {
 	if err != nil {
 		return err
 	}
-	if sqlDB, err := db.DB(); err == nil {
-		configureSQLitePool(sqlDB)
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("obter conexão SQL para configurar pool SQLite: %w", err)
 	}
+	configureSQLitePool(sqlDB)
 
 	// auto_vacuum=INCREMENTAL: bancos NOVOS nascem podendo devolver páginas
 	// livres ao SO via incremental_vacuum, sem reescrever o arquivo inteiro.
@@ -161,18 +163,15 @@ func Init() error {
 	}
 
 	// Verifica se o índice FTS5 está desatualizado e precisa de rebuild
-	sqlDB, err := db.DB()
-	if err == nil {
-		var ftsCount, msgCount int
-		_ = sqlDB.QueryRow(`SELECT count(*) FROM chat_messages_fts`).Scan(&ftsCount)
-		_ = sqlDB.QueryRow(`SELECT count(*) FROM chat_messages WHERE role IN ('user','assistant') AND content != ''`).Scan(&msgCount)
-		if msgCount > 0 && ftsCount < msgCount {
-			logging.Infof(context.Background(), "database.database", "[Database] Índice FTS5 desatualizado (%d/%d), reconstruindo...", ftsCount, msgCount)
-			if err := RebuildFTSIndex(context.Background()); err != nil {
-				logging.Errorf(context.Background(), "database.database", "[Database] ERRO: falha ao reconstruir FTS5 — busca de histórico pode estar incompleta. Será retentado no próximo startup. Erro: %v", err)
-			} else {
-				logging.Infof(context.Background(), "database.database", "[Database] Índice FTS5 reconstruído (%d mensagens)", msgCount)
-			}
+	var ftsCount, msgCount int
+	_ = sqlDB.QueryRow(`SELECT count(*) FROM chat_messages_fts`).Scan(&ftsCount)
+	_ = sqlDB.QueryRow(`SELECT count(*) FROM chat_messages WHERE role IN ('user','assistant') AND content != ''`).Scan(&msgCount)
+	if msgCount > 0 && ftsCount < msgCount {
+		logging.Infof(context.Background(), "database.database", "[Database] Índice FTS5 desatualizado (%d/%d), reconstruindo...", ftsCount, msgCount)
+		if err := RebuildFTSIndex(context.Background()); err != nil {
+			logging.Errorf(context.Background(), "database.database", "[Database] ERRO: falha ao reconstruir FTS5 — busca de histórico pode estar incompleta. Será retentado no próximo startup. Erro: %v", err)
+		} else {
+			logging.Infof(context.Background(), "database.database", "[Database] Índice FTS5 reconstruído (%d mensagens)", msgCount)
 		}
 	}
 

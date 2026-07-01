@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	sqliteBusyTimeout            = 1 * time.Second
+	sqliteBusyTimeout            = 100 * time.Millisecond
 	sqliteMaintenanceBusyTimeout = 5 * time.Second
 	sqliteMaxOpenConns           = 4
 	sqliteMaxIdleConns           = 2
@@ -29,9 +29,9 @@ var sqliteBusyRetryDelays = []time.Duration{
 	375 * time.Millisecond,
 }
 
-// sqliteDSN configura pragmas por conexão. PRAGMA busy_timeout executado depois
-// do Open só vale para a conexão usada naquele momento; no pool, conexões novas
-// precisam receber o timeout via DSN para não falharem imediatamente sob lock.
+// sqliteDSN configura pragmas por conexão. O busy_timeout nativo é curto para
+// devolver SQLITE_BUSY rapidamente; WithSQLiteBusyRetry controla a espera total
+// com backoff e logging centralizados.
 func sqliteDSN(path string) string {
 	normalized := filepath.ToSlash(path)
 	if !strings.HasPrefix(normalized, "/") {
