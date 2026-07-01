@@ -6,15 +6,7 @@ import {
   ChannelStoredCredentialActions,
   ChannelVaultFields,
 } from './ChannelCommonFields';
-
-interface SlackForm {
-  enabled: boolean;
-  botToken: string;
-  appToken: string;
-  profile: string;
-  maxHistory: number;
-  maxContacts: number;
-}
+import type { SlackForm } from './channelTypes';
 
 interface ChannelsSlackSectionProps {
   form: SlackForm;
