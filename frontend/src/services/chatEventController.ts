@@ -639,8 +639,14 @@ export function startChatEventController({
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       flushStreamingUpdate();
       const errorMessage = translateBackendChatError(String(event.errorMessage || '').trim());
-      announce(errorMessage, 'assertive');
-      playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
+      const eventOrigin = getEventOrigin(event);
+      announceWithOrigin({
+        message: errorMessage,
+        origin: getChatConversationVoiceOrigin(conversationId, undefined, eventOrigin),
+        eventType: 'error',
+        announcePriority: 'assertive',
+      });
+      playChatErrorSoundIfActive(conversationId, eventOrigin);
       if (hasAssistantNode) {
         updateEmptyAssistantWithError(errorMessage);
       } else {
