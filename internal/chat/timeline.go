@@ -402,7 +402,7 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 			allToolCalls = append(allToolCalls, call)
 			iterationCalls = append(iterationCalls, toolCallToTurnSegmentToolCall(call))
 		}
-		if len(parsedToolCalls) == 0 && len(invocationGroups) > 0 && i != finalMsgIdx && nextInvocationGroup < len(invocationGroups) {
+		if len(parsedToolCalls) == 0 && strings.TrimSpace(message.Content) != "" && len(invocationGroups) > 0 && i != finalMsgIdx && nextInvocationGroup < len(invocationGroups) {
 			for _, call := range invocationGroups[nextInvocationGroup] {
 				if _, seen := seenToolCallIDs[call.ID]; seen {
 					continue

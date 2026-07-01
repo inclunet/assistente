@@ -586,7 +586,7 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.D
 	if msg.Role == "assistant" {
 		toolCallsJSON := strings.TrimSpace(msg.ToolCalls)
 		if toolCallsJSON == "" {
-			cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, chatToolInvocationCallIDsForTurn(ctx, exec, turn)...)
+			cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, chatToolInvocationCallIDsForAssistantMessage(ctx, exec, turn, msg.ID)...)
 			return dedupCleanup(cleanup)
 		}
 		// Aceita tanto `[{...}]` quanto `{...}`.
@@ -613,9 +613,9 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.D
 	return dedupCleanup(cleanup)
 }
 
-func chatToolInvocationCallIDsForTurn(ctx context.Context, exec *gorm.DB, turnID string) []string {
+func chatToolInvocationCallIDsForAssistantMessage(ctx context.Context, exec *gorm.DB, turnID string, assistantMessageID string) []string {
 	userID, err := RequireUserID(ctx)
-	if err != nil || strings.TrimSpace(turnID) == "" {
+	if err != nil || strings.TrimSpace(turnID) == "" || strings.TrimSpace(assistantMessageID) == "" {
 		return nil
 	}
 	if exec == nil || !exec.Migrator().HasTable(&ToolInvocation{}) {
@@ -623,7 +623,7 @@ func chatToolInvocationCallIDsForTurn(ctx context.Context, exec *gorm.DB, turnID
 	}
 	var rows []ToolInvocation
 	if err := exec.WithContext(ctx).
-		Select("tool_call_id").
+		Select("tool_call_id", "metadata").
 		Where("user_id = ? AND origin_type = ? AND origin_id = ? AND tool_call_id <> ''", userID, "chat", strings.TrimSpace(turnID)).
 		Find(&rows).Error; err != nil {
 		logging.Warnf(ctx, "database.message-repository", "[DB] aviso: falha ao listar tool_call_id de tool_invocations do turno %s: %v", turnID, err)
@@ -631,6 +631,17 @@ func chatToolInvocationCallIDsForTurn(ctx context.Context, exec *gorm.DB, turnID
 	}
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {
+		var metadata struct {
+			Display struct {
+				AssistantMessageID string `json:"assistant_message_id"`
+			} `json:"display"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(row.Metadata)), &metadata); err != nil {
+			continue
+		}
+		if strings.TrimSpace(metadata.Display.AssistantMessageID) != strings.TrimSpace(assistantMessageID) {
+			continue
+		}
 		if callID := strings.TrimSpace(row.ToolCallID); callID != "" {
 			out = append(out, callID)
 		}

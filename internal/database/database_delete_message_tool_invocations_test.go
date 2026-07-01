@@ -130,6 +130,7 @@ func TestDeleteMessageWithContext_DeletesTurnInvocationsForAssistantWithoutToolC
 		OriginID:      turnID,
 		ToolCallID:    "call-1",
 		Status:        "succeeded",
+		Metadata:      `{"display":{"assistant_message_id":"` + assistantMsg.ID + `"}}`,
 		QueuedAt:      time.Now(),
 	}).Error; err != nil {
 		t.Fatalf("seed invocation: %v", err)

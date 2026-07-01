@@ -266,7 +266,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	// 5f-iii. Persiste o texto intermediário do assistant. AEP-0078 depreca o L3:
 	// novas mensagens não gravam mais o JSON tool_calls; o snapshot exibível fica
 	// em tool_invocations.metadata, associado por tool_call_id.
-	_, err := r.svc.msgRepo.AddAssistantToolMessage(
+	assistantToolMsg, err := r.svc.msgRepo.AddAssistantToolMessage(
 		ctx,
 		r.conversationID,
 		r.turnID,
@@ -281,6 +281,8 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 			return ctx, true
 		}
 		logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar assistant com tool_calls: %v", err)
+	} else if assistantToolMsg != nil {
+		r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.turnID, execResults, assistantToolMsg.ID)
 	}
 
 	// 5f-iv. Persiste resultados técnicos em tool_invocations e adiciona
