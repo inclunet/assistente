@@ -17,6 +17,12 @@ vi.mock('../../hooks/useAnnouncer', () => ({
   }),
 }));
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, values?: { value?: string }) => values?.value ? `${key}:${values.value}` : key,
+  }),
+}));
+
 describe('Combobox - allowFreeInput', () => {
   afterEach(() => {
     announceMock.mockClear();
@@ -165,6 +171,33 @@ describe('Combobox - allowFreeInput', () => {
 
     expect(screen.getByText('pickers.combobox.noResults')).toBeInTheDocument();
     expect(announceMock).toHaveBeenCalledWith('pickers.combobox.noResults', 'polite');
+  });
+
+  it('não repete anúncio de entrada livre a cada tecla sem resultados', async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <Combobox
+        items={[]}
+        selected=""
+        onSelect={onSelect}
+        placeholder="Filtrar..."
+        allowFreeInput={true}
+      />
+    );
+
+    await user.click(screen.getByRole('button'));
+    await waitFor(() => {
+      expect(announceMock).toHaveBeenCalledWith('pickers.combobox.typeToCreate', 'polite');
+    });
+    announceMock.mockClear();
+
+    await user.type(screen.getByRole('combobox'), 'abc');
+
+    expect(screen.getByText('pickers.combobox.pressEnterToUse:abc')).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledTimes(1);
+    expect(announceMock).toHaveBeenCalledWith('pickers.combobox.pressEnterToUse:a', 'polite');
   });
 
   it('fecha dropdown ao pressionar Escape', async () => {
