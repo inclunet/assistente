@@ -10,8 +10,12 @@ const allowedLiveRegionFiles = new Set([
 
 const liveRegionPatterns = [
   /\baria-live\s*=/,
-  /\brole\s*=\s*(?:"(?:status|alert|log)"|'(?:status|alert|log)'|\{\s*["'](?:status|alert|log)["']\s*\})/,
+  /\brole\s*=\s*(?:"(?:status|alert|log)"|'(?:status|alert|log)'|\{[^}\r\n]*["'](?:status|alert|log)["'][^}\r\n]*\})/,
 ];
+
+function containsLiveRegionPattern(line: string): boolean {
+  return liveRegionPatterns.some((pattern) => pattern.test(line));
+}
 
 function listProductionSourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -41,12 +45,19 @@ describe('AEP-0058 live region arbitration', () => {
       return readFileSync(file, 'utf8')
         .split(/\r?\n/)
         .flatMap((line, index) => (
-          liveRegionPatterns.some((pattern) => pattern.test(line))
+          containsLiveRegionPattern(line)
             ? [`${relativePath.split(sep).join('/')}:${index + 1}: ${line.trim()}`]
             : []
         ));
     });
 
     expect(violations).toEqual([]);
+  });
+
+  it('detecta roles de live region em expressoes JSX', () => {
+    expect(containsLiveRegionPattern('<div role={condition ? \'alert\' : undefined} />')).toBe(true);
+    expect(containsLiveRegionPattern('<section role={isBusy ? "status" : "region"} />')).toBe(true);
+    expect(containsLiveRegionPattern('<div role={isLog ? \'log\' : undefined} />')).toBe(true);
+    expect(containsLiveRegionPattern('<div role={condition ? \'region\' : undefined} />')).toBe(false);
   });
 });
