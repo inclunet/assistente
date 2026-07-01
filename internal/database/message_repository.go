@@ -586,6 +586,7 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.D
 	if msg.Role == "assistant" {
 		toolCallsJSON := strings.TrimSpace(msg.ToolCalls)
 		if toolCallsJSON == "" {
+			cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, chatToolInvocationCallIDsForTurn(ctx, exec, turn)...)
 			return dedupCleanup(cleanup)
 		}
 		// Aceita tanto `[{...}]` quanto `{...}`.
@@ -610,6 +611,31 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.D
 	}
 
 	return dedupCleanup(cleanup)
+}
+
+func chatToolInvocationCallIDsForTurn(ctx context.Context, exec *gorm.DB, turnID string) []string {
+	userID, err := RequireUserID(ctx)
+	if err != nil || strings.TrimSpace(turnID) == "" {
+		return nil
+	}
+	if exec == nil || !exec.Migrator().HasTable(&ToolInvocation{}) {
+		return nil
+	}
+	var rows []ToolInvocation
+	if err := exec.WithContext(ctx).
+		Select("tool_call_id").
+		Where("user_id = ? AND origin_type = ? AND origin_id = ? AND tool_call_id <> ''", userID, "chat", strings.TrimSpace(turnID)).
+		Find(&rows).Error; err != nil {
+		logging.Warnf(ctx, "database.message-repository", "[DB] aviso: falha ao listar tool_call_id de tool_invocations do turno %s: %v", turnID, err)
+		return nil
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if callID := strings.TrimSpace(row.ToolCallID); callID != "" {
+			out = append(out, callID)
+		}
+	}
+	return out
 }
 
 func dedupCleanup(in chatToolInvocationCleanup) chatToolInvocationCleanup {

@@ -100,3 +100,49 @@ func TestDeleteMessageWithContext_DeletesChatToolInvocationsByTurnIDAndMessageID
 		t.Fatalf("expected all turn invocations removed when deleting user root, got %d", count)
 	}
 }
+
+func TestDeleteMessageWithContext_DeletesTurnInvocationsForAssistantWithoutToolCalls(t *testing.T) {
+	setupDeleteMessageToolInvocationsTestDB(t)
+
+	ctx := WithUserID(context.Background(), "user-a")
+	conv, err := CreateConversationWithContext(ctx, "Conv", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	userMsg, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: conv.ID, Role: "user", Content: "u1"})
+	if err != nil {
+		t.Fatalf("create user message: %v", err)
+	}
+	turnID := userMsg.ID
+	assistantMsg, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: conv.ID, Role: "assistant", Content: "vou buscar", TurnID: &turnID})
+	if err != nil {
+		t.Fatalf("create assistant message: %v", err)
+	}
+	var tool ToolCatalog
+	if err := db.WithContext(ctx).First(&tool, "name = ?", "echo").Error; err != nil {
+		t.Fatalf("load tool catalog: %v", err)
+	}
+	if err := db.WithContext(ctx).Create(&ToolInvocation{
+		UUIDModel:     UUIDModel{ID: "inv-turn-l3-free"},
+		UserID:        "user-a",
+		ToolCatalogID: tool.ID,
+		OriginType:    "chat",
+		OriginID:      turnID,
+		ToolCallID:    "call-1",
+		Status:        "succeeded",
+		QueuedAt:      time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("seed invocation: %v", err)
+	}
+
+	if err := DeleteMessageWithContext(ctx, assistantMsg.ID); err != nil {
+		t.Fatalf("delete assistant message: %v", err)
+	}
+	var count int64
+	if err := db.WithContext(ctx).Model(&ToolInvocation{}).Where("user_id = ? AND origin_type = ?", "user-a", "chat").Count(&count).Error; err != nil {
+		t.Fatalf("count tool invocations: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected l3-free assistant deletion to remove turn invocation, got %d", count)
+	}
+}
