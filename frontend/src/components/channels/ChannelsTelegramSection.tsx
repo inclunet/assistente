@@ -1,6 +1,10 @@
 import { useTranslation } from 'react-i18next';
-import { Input, Checkbox, Button } from '../index';
-import { ProfilePicker } from '../pickers/ProfilePicker';
+import { Input } from '../index';
+import {
+  ChannelEnabledFields,
+  ChannelLimitsProfileFields,
+  ChannelVaultFields,
+} from './ChannelCommonFields';
 
 interface TelegramForm {
   enabled: boolean;
@@ -33,80 +37,48 @@ export function ChannelsTelegramSection({
 }: ChannelsTelegramSectionProps) {
   const { t } = useTranslation();
   return (
-    <>
-      <Checkbox
-        label={t('channels.telegram.enabled')}
-        checked={form.enabled}
-        onChange={(e) => onChange({ ...form, enabled: e.target.checked })}
+    <ChannelEnabledFields
+      form={form}
+      onChange={onChange}
+      enabledLabel={t('channels.telegram.enabled')}
+    >
+      <Input
+        label={t('channels.telegram.botToken')}
+        type="password"
+        value={form.botToken}
+        onChange={(e) => onChange({ ...form, botToken: e.target.value })}
+        placeholder={t('channels.telegram.botTokenPlaceholder')}
+        fullWidth
       />
-      {form.enabled && (
-        <>
-          <Input
-            label={t('channels.telegram.botToken')}
-            type="password"
-            value={form.botToken}
-            onChange={(e) => onChange({ ...form, botToken: e.target.value })}
-            placeholder={t('channels.telegram.botTokenPlaceholder')}
-            fullWidth
-          />
-          <Checkbox
-            label={t('channels.telegram.saveVault')}
-            checked={vaultEnabled}
-            onChange={(e) => onToggleVault(e.target.checked)}
-          />
-          <p className="channels-page__hint">
-            {t('channels.telegram.vaultHint')}
-          </p>
-          {credentialStored && (
-            <div className="channels-page__vault-actions">
-              <span className="channels-page__hint">
-                {t('channels.telegram.tokenStored')} {credentialMasked ? `(${credentialMasked})` : ''}.
-              </span>
-              <Button variant="ghost" size="sm" onClick={onRemoveCredential}>
-                {t('channels.telegram.removeVault')}
-              </Button>
-            </div>
-          )}
-          <p className="channels-page__hint">
-            {t('channels.telegram.botFatherHint')}
-          </p>
-          <Input
-            label={t('channels.telegram.maxContacts')}
-            type="number"
-            min="1"
-            max="100"
-            value={form.maxContacts}
-            onChange={(e) =>
-              onChange({ ...form, maxContacts: parseInt(e.target.value) || 1 })
-            }
-            fullWidth
-          />
-          <p className="channels-page__hint">
-            {t('channels.telegram.maxContactsHint')}
-          </p>
-          <ProfilePicker
-            value={form.profile}
-            onChange={(slug) => onChange({ ...form, profile: slug })}
-            label={t('channels.telegram.channelProfile')}
-            maxWidth="100%"
-            onAnnounce={onAnnounce}
-          />
-          <p className="channels-page__hint">
-            {t('channels.telegram.channelProfileHint')}
-          </p>
-          <Input
-            label={t('channels.telegram.maxHistory')}
-            type="number"
-            min="1"
-            max="200"
-            value={form.maxHistory}
-            onChange={(e) =>
-              onChange({ ...form, maxHistory: parseInt(e.target.value) || 50 })
-            }
-            fullWidth
-          />
-        </>
-      )}
-    </>
+      <ChannelVaultFields
+        label={t('channels.telegram.saveVault')}
+        checked={vaultEnabled}
+        onToggle={onToggleVault}
+        hint={t('channels.telegram.vaultHint')}
+        credentials={[
+          {
+            id: 'telegram-bot-token',
+            stored: credentialStored,
+            masked: credentialMasked,
+            storedLabel: t('channels.telegram.tokenStored'),
+            removeLabel: t('channels.telegram.removeVault'),
+            onRemove: onRemoveCredential,
+          },
+        ]}
+      />
+      <p className="channels-page__hint">{t('channels.telegram.botFatherHint')}</p>
+      <ChannelLimitsProfileFields
+        form={form}
+        onChange={onChange}
+        onAnnounce={onAnnounce}
+        labels={{
+          maxContacts: t('channels.telegram.maxContacts'),
+          maxContactsHint: t('channels.telegram.maxContactsHint'),
+          channelProfile: t('channels.telegram.channelProfile'),
+          channelProfileHint: t('channels.telegram.channelProfileHint'),
+          maxHistory: t('channels.telegram.maxHistory'),
+        }}
+      />
+    </ChannelEnabledFields>
   );
 }

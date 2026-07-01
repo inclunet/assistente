@@ -7,28 +7,52 @@ vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
     t: (key: string) =>
-      ({
-        'channels.signal.enabled': 'Habilitado',
-        'channels.signal.apiUrl': 'URL da API',
-        'channels.signal.apiUrlPlaceholder': 'http://localhost:8080',
-        'channels.signal.apiToken': 'Token da API (opcional)',
-        'channels.signal.apiTokenPlaceholder': 'Bearer token',
-        'channels.signal.saveVault': 'Salvar token no cofre de credenciais',
-        'channels.signal.testConnection': 'Testar Conexão',
-        'channels.signal.testHint': 'Teste a conexão para avançar.',
-      } as Record<string, string>)[key] ?? key,
+      (
+        ({
+          'channels.signal.enabled': 'Habilitado',
+          'channels.signal.apiUrl': 'URL da API',
+          'channels.signal.apiUrlPlaceholder': 'http://localhost:8080',
+          'channels.signal.apiToken': 'Token da API (opcional)',
+          'channels.signal.apiTokenPlaceholder': 'Bearer token',
+          'channels.signal.saveVault': 'Salvar token no cofre de credenciais',
+          'channels.signal.vaultHint':
+            'Use apenas se sua instância exigir autenticação. O token fica criptografado no cofre.',
+          'channels.signal.tokenStored': 'Token salvo no cofre',
+          'channels.signal.removeVault': 'Remover do cofre',
+          'channels.signal.testConnection': 'Testar Conexão',
+          'channels.signal.testHint': 'Teste a conexão para avançar.',
+          'channels.signal.connectAccount': 'Conectar Conta',
+          'channels.signal.connectHint':
+            'Cadastre um novo número ou conecte uma conta existente via QR Code.',
+          'channels.signal.phoneNumber': 'Novo número de telefone',
+          'channels.signal.phonePlaceholder': '+5511999999999',
+          'channels.signal.registerNumber': 'Cadastrar número',
+          'channels.signal.connectExisting': 'Conectar conta existente',
+          'channels.signal.maxContacts': 'Max. contatos autorizados',
+          'channels.signal.maxContactsHint':
+            'Ao atingir o limite, novos contatos são ignorados silenciosamente.',
+          'channels.signal.channelProfile': 'Perfil do Canal',
+          'channels.signal.channelProfileHint':
+            'Perfil usado para conversas deste canal. Define modelo, voz, STT e comportamento. Vazio usa o perfil ativo global.',
+          'channels.signal.maxHistory': 'Máximo de Histórico',
+        }) as Record<string, string>
+      )[key] ?? key,
   }),
 }));
 
 vi.mock('../pickers/ProfilePicker', () => ({
-  ProfilePicker: ({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) => (
+  ProfilePicker: ({
+    value,
+    onChange,
+    label,
+  }: {
+    value: string;
+    onChange: (value: string) => void;
+    label: string;
+  }) => (
     <div>
       <label htmlFor="profile-picker">{label}</label>
-      <select
-        id="profile-picker"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
+      <select id="profile-picker" value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Nenhum</option>
         <option value="default">Default</option>
       </select>
@@ -121,17 +145,10 @@ describe('ChannelsSignalSection', () => {
   });
 
   it('mostra campos quando habilitado', () => {
-    render(
-      <ChannelsSignalSection
-        {...defaultProps}
-        form={{ ...defaultForm, enabled: true }}
-      />
-    );
+    render(<ChannelsSignalSection {...defaultProps} form={{ ...defaultForm, enabled: true }} />);
 
     expect(screen.getByText('URL da API')).toBeInTheDocument();
-    expect(
-      screen.getByPlaceholderText('http://localhost:8080')
-    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('http://localhost:8080')).toBeInTheDocument();
     expect(screen.getByText('Testar Conexão')).toBeInTheDocument();
   });
 
@@ -191,12 +208,7 @@ describe('ChannelsSignalSection', () => {
   });
 
   it('limpa estado ao alterar URL da API', () => {
-    render(
-      <ChannelsSignalSection
-        {...defaultProps}
-        form={{ ...defaultForm, enabled: true }}
-      />
-    );
+    render(<ChannelsSignalSection {...defaultProps} form={{ ...defaultForm, enabled: true }} />);
 
     const input = screen.getByPlaceholderText('http://localhost:8080');
     fireEvent.change(input, { target: { value: 'http://localhost:8080' } });
@@ -205,5 +217,12 @@ describe('ChannelsSignalSection', () => {
     expect(mockSetApiInfo).toHaveBeenCalledWith('');
     expect(mockSetRegError).toHaveBeenCalledWith('');
     expect(mockSetAccounts).toHaveBeenCalledWith([]);
+    expect(mockSetRegStep).toHaveBeenCalledWith('idle');
+    expect(mockSetRegCode).toHaveBeenCalledWith('');
+    expect(mockSetRegCaptcha).toHaveBeenCalledWith('');
+    expect(mockSetSmsSent).toHaveBeenCalledWith(false);
+    expect(mockSetLinkQR).toHaveBeenCalledWith('');
+    expect(mockSetLinking).toHaveBeenCalledWith(false);
+    expect(mockOnStopLinkPolling).toHaveBeenCalledTimes(1);
   });
 });
