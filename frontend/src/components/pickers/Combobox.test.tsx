@@ -153,6 +153,34 @@ describe('Combobox - allowFreeInput', () => {
     expect(screen.queryByText('Claude 3')).not.toBeInTheDocument();
   });
 
+  it('atualiza item destacado quando a seleção controlada muda com dropdown aberto', async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+
+    const { rerender } = render(
+      <Combobox
+        items={mockItems}
+        selected="gpt-4"
+        onSelect={onSelect}
+        placeholder="Filtrar..."
+      />
+    );
+
+    await user.click(screen.getByRole('button'));
+    rerender(
+      <Combobox
+        items={mockItems}
+        selected="claude-3"
+        onSelect={onSelect}
+        placeholder="Filtrar..."
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'Claude 3' })).toHaveClass('highlighted');
+    });
+  });
+
   it('anuncia quando o filtro não retorna resultados', async () => {
     const onSelect = vi.fn();
     const user = userEvent.setup();

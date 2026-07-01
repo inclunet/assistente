@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useId, useCallback, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useId, useCallback, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { playBumpSound } from '../../services/audioFeedback';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -58,10 +58,10 @@ export const Combobox = ({
     const previousEmptyResultsAnnouncementKeyRef = useRef('');
     const uniqueId = useId();
 
-    const filteredItems = items.filter(item =>
+    const filteredItems = useMemo(() => items.filter(item =>
         item.label.toLowerCase().includes(filter.toLowerCase()) ||
         (item.sublabel && item.sublabel.toLowerCase().includes(filter.toLowerCase()))
-    );
+    ), [filter, items]);
 
     const selectedItem = items.find(i => i.value === selected);
     const selectedLabel = selectedItem?.label || (selected ? selected : effectiveLabel);
@@ -148,13 +148,13 @@ export const Combobox = ({
         close('select');
     }, [onSelect, close]);
 
-    // Reset highlight when filter changes
+    // Keep highlighted option aligned with filter, controlled selection, and refreshed items.
     useEffect(() => {
         if (!isOpen) return;
         const currentIdx = filteredItems.findIndex(i => i.value === selected);
         const newIdx = currentIdx >= 0 ? currentIdx : 0;
         setHighlightIndex(newIdx);
-    }, [filter]);
+    }, [filteredItems, isOpen, selected]);
 
     useEffect(() => {
         if (!isOpen || !emptyResultsMessage) {
