@@ -914,7 +914,7 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 			}
 		}
 		if err != nil && rt.cfg.OAuth2CallbackPort > 0 {
-			return fmt.Errorf("porta %d em uso — verifique se outro processo está usando-a: %w",
+			return fmt.Errorf("não foi possível abrir callback OAuth na porta %d — verifique host/porta ou processo local: %w",
 				rt.cfg.OAuth2CallbackPort, err)
 		}
 	}

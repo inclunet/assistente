@@ -358,8 +358,12 @@ func TestAuthorizePKCEReregistersWhenFixedCallbackPortIsBusy(t *testing.T) {
 	if savedConfig.OAuth2CallbackPort != rt.cfg.OAuth2CallbackPort {
 		t.Fatalf("porta persistida: got %d, want %d", savedConfig.OAuth2CallbackPort, rt.cfg.OAuth2CallbackPort)
 	}
-	if registeredRedirect == "" || strings.Contains(registeredRedirect, fmt.Sprintf(":%d/", occupiedPort)) {
-		t.Fatalf("redirect_uri registrado inválido: %q", registeredRedirect)
+	redirectURL, err := url.Parse(registeredRedirect)
+	if err != nil {
+		t.Fatalf("redirect_uri registrado inválido: %q: %v", registeredRedirect, err)
+	}
+	if redirectURL.Port() == "" || redirectURL.Port() == fmt.Sprint(occupiedPort) {
+		t.Fatalf("redirect_uri registrado usou porta inválida: %q", registeredRedirect)
 	}
 }
 
