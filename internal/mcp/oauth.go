@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"assistente/internal/credentials"
@@ -628,7 +630,7 @@ func (rt *pkceRoundTripper) resolveClientID(ctx context.Context) error {
 	callbackHost, listenIP := resolveCallbackHost(rt.cfg.OAuth2CallbackHost)
 	port := rt.cfg.OAuth2CallbackPort
 	if port == 0 {
-		l, err := net.Listen("tcp", listenIP+":0")
+		l, err := net.Listen("tcp", callbackListenAddr(listenIP, 0))
 		if err != nil {
 			return fmt.Errorf("failed to allocate port for DCR redirect_uri: %w", err)
 		}
@@ -663,7 +665,7 @@ func (rt *pkceRoundTripper) reRegisterClient(ctx context.Context) error {
 	callbackHost, listenIP := resolveCallbackHost(rt.cfg.OAuth2CallbackHost)
 	port := rt.cfg.OAuth2CallbackPort
 	if port == 0 {
-		l, err := net.Listen("tcp", listenIP+":0")
+		l, err := net.Listen("tcp", callbackListenAddr(listenIP, 0))
 		if err != nil {
 			return fmt.Errorf("failed to allocate port for DCR redirect_uri: %w", err)
 		}
@@ -887,17 +889,41 @@ func (rt *pkceRoundTripper) pollDeviceToken(clientID, deviceCode string) (*devic
 func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 	callbackHost, listenIP := resolveCallbackHost(rt.cfg.OAuth2CallbackHost)
 
-	listenAddr := listenIP + ":0"
+	listenAddr := callbackListenAddr(listenIP, 0)
 	if rt.cfg.OAuth2CallbackPort > 0 {
-		listenAddr = fmt.Sprintf("%s:%d", listenIP, rt.cfg.OAuth2CallbackPort)
+		listenAddr = callbackListenAddr(listenIP, rt.cfg.OAuth2CallbackPort)
 	}
 
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		if rt.cfg.OAuth2CallbackPort > 0 {
-			return fmt.Errorf("porta %d em uso — verifique se outro processo está usando-a: %w",
+			if isAddressInUse(err) && rt.cfg.OAuth2RegistrationURL != "" {
+				oldPort := rt.cfg.OAuth2CallbackPort
+				replacementListener, reserveErr := net.Listen("tcp", callbackListenAddr(listenIP, 0))
+				if reserveErr != nil {
+					logging.Errorf(ctx, "mcp.oauth", "[MCP:%s] falha ao reservar porta alternativa após colisão da porta PKCE %d: %v", rt.serverSlug, oldPort, reserveErr)
+				} else {
+					replacementPort := replacementListener.Addr().(*net.TCPAddr).Port
+					logging.Warnf(ctx, "mcp.oauth", "[MCP:%s] porta PKCE %d indisponível; tentando re-registrar client OAuth com porta reservada %d", rt.serverSlug, oldPort, replacementPort)
+					rt.cfg.OAuth2CallbackPort = replacementPort
+					if reRegErr := rt.reRegisterClient(ctx); reRegErr == nil {
+						listener = replacementListener
+						err = nil
+						logging.Infof(ctx, "mcp.oauth", "[MCP:%s] PKCE re-registrado: porta %d substituiu porta indisponível %d", rt.serverSlug, replacementPort, oldPort)
+					} else {
+						_ = replacementListener.Close()
+						logging.Errorf(ctx, "mcp.oauth", "[MCP:%s] re-registro OAuth após colisão da porta %d falhou: %v", rt.serverSlug, oldPort, reRegErr)
+						rt.cfg.OAuth2CallbackPort = oldPort
+					}
+				}
+			}
+		}
+		if err != nil && rt.cfg.OAuth2CallbackPort > 0 {
+			return fmt.Errorf("não foi possível abrir callback OAuth na porta %d — verifique host/porta ou processo local: %w",
 				rt.cfg.OAuth2CallbackPort, err)
 		}
+	}
+	if err != nil {
 		return fmt.Errorf("failed to start loopback listener: %w", err)
 	}
 	defer func() { _ = listener.Close() }()
@@ -1005,6 +1031,15 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 	case <-time.After(5 * time.Minute):
 		return fmt.Errorf("authorization timed out (5 min)")
 	}
+}
+
+func isAddressInUse(err error) bool {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return true
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "address already in use") ||
+		strings.Contains(lower, "only one usage of each socket address")
 }
 
 // ============ Dynamic Client Registration (RFC 7591) ============
@@ -1208,6 +1243,10 @@ func resolveCallbackHost(configured string) (host, listenIP string) {
 		listenIP = "::1"
 	}
 	return
+}
+
+func callbackListenAddr(listenIP string, port int) string {
+	return net.JoinHostPort(listenIP, fmt.Sprint(port))
 }
 
 func generateState() string {
