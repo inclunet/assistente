@@ -4,8 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { McpConnectionSection } from './McpConnectionSection';
 import type { ComponentProps } from 'react';
 import ptBR from '../../locales/pt-BR';
+import { WorkspacePanelProvider } from '../workspace/WorkspacePanelContext';
+import type { WorkspaceTab } from '../../store/workspaceStore';
 
-const announceMock = vi.hoisted(() => vi.fn());
+const announceRequestMock = vi.hoisted(() => vi.fn(() => true));
 
 function resolveLocaleString(key: string, vars?: Record<string, unknown>): string | undefined {
   const root = (ptBR as { translation: Record<string, unknown> }).translation;
@@ -38,7 +40,7 @@ vi.mock('react-i18next', async (importOriginal) => {
 
 vi.mock('../../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
-    announce: announceMock,
+    announceRequest: announceRequestMock,
   }),
 }));
 
@@ -95,9 +97,25 @@ function renderWith(overrides: Partial<ComponentProps<typeof McpConnectionSectio
   return render(<McpConnectionSection {...baseProps} {...overrides} />);
 }
 
+function renderWithPanel(overrides: Partial<ComponentProps<typeof McpConnectionSection>> = {}) {
+  const tab: WorkspaceTab = {
+    id: 'tab-mcp',
+    type: 'editor',
+    title: 'MCP',
+    position: 0,
+  };
+
+  return render(
+    <WorkspacePanelProvider value={{ tab, isActive: false }}>
+      <McpConnectionSection {...baseProps} {...overrides} />
+    </WorkspacePanelProvider>
+  );
+}
+
 describe('McpConnectionSection — Discovery states', () => {
   afterEach(() => {
-    announceMock.mockClear();
+    announceRequestMock.mockClear();
+    announceRequestMock.mockReturnValue(true);
   });
 
   it('DCR disponível: não exibe campos OAuth, mostra mensagem de sucesso', () => {
@@ -138,25 +156,58 @@ describe('McpConnectionSection — Discovery states', () => {
   it('anuncia mudanças de discovery pelo broker global', () => {
     const { rerender } = renderWith({ discoveryStatus: 'idle' });
 
-    expect(announceMock).not.toHaveBeenCalled();
+    expect(announceRequestMock).not.toHaveBeenCalled();
 
     rerender(<McpConnectionSection {...baseProps} discoveryStatus="loading" />);
-    expect(announceMock).toHaveBeenCalledWith('Verificando configuração OAuth do servidor…');
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Verificando configuração OAuth do servidor…',
+      origin: undefined,
+      eventType: 'progress',
+    });
 
     rerender(<McpConnectionSection {...baseProps} discoveryStatus="not_found" />);
-    expect(announceMock).toHaveBeenCalledWith('Metadados OAuth não detectados. Configure manualmente.');
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Metadados OAuth não detectados. Configure manualmente.',
+      origin: undefined,
+      eventType: 'progress',
+    });
+  });
+
+  it('inclui origem do painel nos anúncios de discovery', () => {
+    renderWithPanel({ discoveryStatus: 'loading' });
+
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Verificando configuração OAuth do servidor…',
+      origin: {
+        tabId: 'tab-mcp',
+        surfaceId: 'tab-mcp',
+        conversationId: undefined,
+        surfaceType: 'editor',
+        profileSlug: null,
+        title: 'MCP',
+      },
+      eventType: 'progress',
+    });
   });
 
   it('reanuncia loading quando discovery volta para idle entre tentativas', () => {
     const { rerender } = renderWith({ discoveryStatus: 'loading' });
 
-    expect(announceMock).toHaveBeenCalledWith('Verificando configuração OAuth do servidor…');
-    announceMock.mockClear();
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Verificando configuração OAuth do servidor…',
+      origin: undefined,
+      eventType: 'progress',
+    });
+    announceRequestMock.mockClear();
 
     rerender(<McpConnectionSection {...baseProps} discoveryStatus="idle" />);
     rerender(<McpConnectionSection {...baseProps} discoveryStatus="loading" />);
 
-    expect(announceMock).toHaveBeenCalledWith('Verificando configuração OAuth do servidor…');
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Verificando configuração OAuth do servidor…',
+      origin: undefined,
+      eventType: 'progress',
+    });
   });
 });
 

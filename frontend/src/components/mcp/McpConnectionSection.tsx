@@ -1,8 +1,11 @@
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Checkbox, Input, Textarea } from '../index';
 import { Select } from '../index';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { useOptionalWorkspacePanel } from '../workspace/WorkspacePanelContext';
+import { useWorkspaceStore } from '../../store/workspaceStore';
+import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
 
 type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'not_found';
 
@@ -103,11 +106,16 @@ export function McpConnectionSection({
   onManualOverride,
 }: McpConnectionSectionProps) {
   const { t } = useTranslation();
-  const { announce } = useAnnouncer();
+  const { announceRequest } = useAnnouncer();
+  const workspacePanel = useOptionalWorkspacePanel();
+  const workspace = useWorkspaceStore((state) => state.workspace);
   const uid = useId();
   const discoveryLiveId = `${uid}-discovery-live`;
   const callbackHintId = `${uid}-callback-hint`;
   const previousDiscoveryAnnouncementRef = useRef('');
+  const accessibilityOrigin = useMemo(() => (
+    workspacePanel ? buildVoiceAccessibilityOriginFromTab(workspacePanel.tab, workspace) : undefined
+  ), [workspace, workspacePanel]);
 
   const resourceSuffix = discoveryResourceName ? ` (${discoveryResourceName})` : '';
 
@@ -142,8 +150,12 @@ export function McpConnectionSection({
     if (discoveryLiveText === previousDiscoveryAnnouncementRef.current) return;
 
     previousDiscoveryAnnouncementRef.current = discoveryLiveText;
-    announce(discoveryLiveText);
-  }, [announce, discoveryLiveText]);
+    announceRequest({
+      message: discoveryLiveText,
+      origin: accessibilityOrigin,
+      eventType: 'progress',
+    });
+  }, [accessibilityOrigin, announceRequest, discoveryLiveText]);
 
   return (
     <section className="mcp-section" aria-labelledby="mcp-section-connection">
