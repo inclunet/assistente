@@ -28,7 +28,7 @@ vi.mock('../store/uiStore', () => ({
 }));
 
 vi.mock('../hooks/useAnnouncer', () => ({
-  useAnnouncer: () => ({ announce: vi.fn() }),
+  useAnnouncer: () => ({ announce: vi.fn(), announceRequest: vi.fn(() => true) }),
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
