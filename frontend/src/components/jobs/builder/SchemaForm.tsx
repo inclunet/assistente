@@ -245,7 +245,7 @@ export function SchemaForm({ schema, values, onChange, templateMode = false, tem
 
   if (!schema || !schema.properties || fields.length === 0) {
     return (
-      <div className="schema-form__empty" role="status">
+      <div className="schema-form__empty">
         {t('jobs.builder.noInputs')}
       </div>
     );

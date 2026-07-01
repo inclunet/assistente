@@ -27,6 +27,7 @@ const activeConversation: { id: string; title: string; threadedMessages: MockThr
 const modalState = vi.hoisted(() => ({ open: false }));
 const contextMenuState = vi.hoisted(() => ({ visible: true }));
 const runtimeEventHandlers = vi.hoisted(() => new Map<string, (data: unknown) => void>());
+const handleErrorMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../ui/Modal', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../ui/Modal')>();
@@ -242,7 +243,7 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 vi.mock('../../utils/errorHandler', () => ({
   ErrorSeverity: { RECOVERABLE: 'recoverable' },
   ErrorMessages: { CHAT: { SEND_FAILED: 'Falha ao enviar', DELETE_FAILED: 'Falha ao deletar' } },
-  handleError: vi.fn(),
+  handleError: handleErrorMock,
 }));
 
 import { ChatSessionView } from './ChatSessionView';
@@ -292,6 +293,7 @@ describe('ChatSessionView', () => {
     chatStoreState.sessionsByConversationId[conversationId].hasOlderMessages = false;
     chatStoreState.sessionsByConversationId[conversationId].isLoadingOlderMessages = false;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureMessage?: string | null; sendFailureRetryable?: boolean }).sendFailureMessage = null;
+    (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureAnnounced?: boolean }).sendFailureAnnounced = false;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryable?: boolean; sendFailureRetryContent?: string | null; sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryable = false;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryContent?: string | null }).sendFailureRetryContent = null;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryMediaFiles = [];
@@ -300,6 +302,7 @@ describe('ChatSessionView', () => {
     chatStoreState.cancelStreaming.mockReset();
     chatStoreState.clearConversationSendFailure.mockReset();
     chatStoreState.surfaceSessionsByKey = {};
+    handleErrorMock.mockReset();
     modalState.open = false;
     contextMenuState.visible = true;
     runtimeEventHandlers.clear();
@@ -486,12 +489,17 @@ describe('ChatSessionView', () => {
   it('embedded: mostra banner de erro e retry quando onSend falha', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockRejectedValueOnce(new Error('fail'));
-    renderWithPanel(<ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={onSend} showShortcutsHelp={false} />);
+    const chatSurface = surface({ surfaceType: 'embedded' });
+    renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={onSend} showShortcutsHelp={false} />);
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Falha ao enviar');
+    expect(await screen.findByText('Falha ao enviar')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(handleErrorMock).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({
+      userMessage: 'Falha ao enviar',
+      severity: 'recoverable',
+    }));
 
     onSend.mockResolvedValueOnce(undefined);
     await user.click(screen.getByRole('button', { name: 'chat.retryAriaLabel' }));
@@ -512,9 +520,73 @@ describe('ChatSessionView', () => {
     };
     renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />);
 
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Falha ao enviar pela sessão');
+    expect(await screen.findByText('Falha ao enviar pela sessão')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('Falha ao enviar pela sessão', 'assertive');
     expect(screen.queryByRole('button', { name: 'chat.retryAriaLabel' })).not.toBeInTheDocument();
+  });
+
+  it('embedded: não anuncia novamente falha que o controller já anunciou', async () => {
+    const chatSurface = surface({ surfaceType: 'embedded' });
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
+      sendFailureMessage: 'Falha já anunciada',
+      sendFailureAnnounced: true,
+      sendFailureRetryable: false,
+      sendFailureRetryContent: null,
+      sendFailureRetryMediaFiles: [],
+    };
+    renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />);
+
+    expect(await screen.findByText('Falha já anunciada')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(announce).not.toHaveBeenCalledWith('Falha já anunciada', 'assertive');
+  });
+
+  it('embedded: anuncia falha de sessão que aparece após o primeiro render', async () => {
+    const chatSurface = surface({ surfaceType: 'embedded' });
+    const { rerender } = renderWithPanel(
+      <ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />,
+    );
+
+    expect(announce).not.toHaveBeenCalledWith('Falha hidratada da sessão', 'assertive');
+
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
+      sendFailureMessage: 'Falha hidratada da sessão',
+      sendFailureRetryable: false,
+      sendFailureRetryContent: null,
+      sendFailureRetryMediaFiles: [],
+    };
+    rerender(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />
+      </WorkspacePanelProvider>,
+    );
+
+    expect(await screen.findByText('Falha hidratada da sessão')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('Falha hidratada da sessão', 'assertive');
+  });
+
+  it('page: anuncia falha de sessão mesmo com painel inativo', async () => {
+    const chatSurface = surface({ surfaceType: 'page' });
+    (chatStoreState.surfaceSessionsByKey as Record<string, ReturnType<typeof createEmptyChatSurfaceSession>>)[chatSurface.sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, chatSurface.sessionKey),
+      sendFailureMessage: 'Falha em aba inativa',
+      sendFailureRetryable: false,
+      sendFailureRetryContent: null,
+      sendFailureRetryMediaFiles: [],
+    };
+
+    render(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: false }}>
+        <ChatSessionView variant="page" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />
+      </WorkspacePanelProvider>,
+    );
+
+    expect(await screen.findByText('Falha em aba inativa')).toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('Falha em aba inativa', 'assertive');
   });
 
   it('embedded: Escape descarta e limpa falha persistida da sessão', async () => {
@@ -528,13 +600,14 @@ describe('ChatSessionView', () => {
     };
     renderWithPanel(<ChatSessionView variant="embedded" surface={chatSurface} onSend={vi.fn()} showShortcutsHelp={false} />);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Falha ao enviar pela sessão');
+    expect(await screen.findByText('Falha ao enviar pela sessão')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: 'Escape' });
 
     expect(chatStoreState.clearConversationSendFailure).toHaveBeenCalledWith(conversationId, chatSurface.sessionKey);
     await waitFor(() => {
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.queryByText('Falha ao enviar pela sessão')).not.toBeInTheDocument();
     });
   });
 
@@ -561,7 +634,8 @@ describe('ChatSessionView', () => {
       <ChatSessionView variant="embedded" surface={chatSurface} onSend={onSend} showShortcutsHelp={false} />,
     );
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Falha ao enviar pela sessão');
+    expect(await screen.findByText('Falha ao enviar pela sessão')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'send' }));
     rerender(
@@ -570,7 +644,8 @@ describe('ChatSessionView', () => {
       </WorkspacePanelProvider>,
     );
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Falha ao enviar pela sessão');
+    expect(await screen.findByText('Falha ao enviar pela sessão')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('embedded: permite retry de falha persistida com mídia sem texto', async () => {

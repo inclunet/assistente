@@ -1,7 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, createEvent } from '@testing-library/react';
 import { ImageViewerModal, type ImageViewerImage } from './ImageViewerModal';
 import { Modal } from './Modal';
+
+const announceMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announce: announceMock,
+  }),
+}));
 
 const single: ImageViewerImage[] = [
   { src: 'http://example.com/a.png', alt: 'Foto A' },
@@ -13,6 +21,10 @@ const multiple: ImageViewerImage[] = [
 ];
 
 describe('ImageViewerModal', () => {
+  afterEach(() => {
+    announceMock.mockReset();
+  });
+
   it('não renderiza nada quando fechado', () => {
     const { container } = render(
       <ImageViewerModal isOpen={false} images={single} onClose={vi.fn()} />,
@@ -52,9 +64,11 @@ describe('ImageViewerModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'ui.imageViewer.zoomIn' }));
     expect(screen.getByText('150%')).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith('Zoom 150%');
 
     fireEvent.click(screen.getByRole('button', { name: 'ui.imageViewer.zoomOut' }));
     expect(screen.getByText('100%')).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledTimes(2);
   });
 
   it('aplica zoom com o scroll do mouse e previne o scroll do container', () => {

@@ -29,7 +29,7 @@ import { useUIStore } from '../store/uiStore';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
-import { Button } from '../components';
+import { Button, PageLoading } from '../components';
 import { ChannelsTelegramSection, ChannelsSignalSection, ChannelsSlackSection } from '../components/channels';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
 import { DataGrid, type DataGridColumn } from '../components/ui/DataGrid';
@@ -518,7 +518,8 @@ export default function ChannelsPage() {
       const msg = getErrorMessage(error) || t('channels.error.signalApiConnectFailed');
       setSignalRegError(msg);
       setSignalAPIReady(false);
-      addToast(msg, 'error');
+      addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(msg, 'assertive');
     } finally {
       setSignalCheckingAPI(false);
     }
@@ -528,7 +529,8 @@ export default function ChannelsPage() {
     if (!signalForm.account || !signalForm.apiURL) {
       const msg = t('channels.error.signalAccountAndUrlRequired');
       setSignalRegError(msg);
-      addToast(msg, 'error');
+      addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(msg, 'assertive');
       return;
     }
     const apiToken = signalForm.apiToken.trim();
@@ -547,13 +549,16 @@ export default function ChannelsPage() {
       setSignalRegStep(signalSmsSent ? 'awaiting_code' : 'idle');
       const msg = getErrorMessage(error) || t('channels.error.signalRegisterFailed');
       setSignalRegError(msg);
-      addToast(msg, 'error');
+      addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(msg, 'assertive');
     }
   };
 
   const handleSignalVerify = async () => {
     if (!signalRegCode) {
-      setSignalRegError('Informe o código de verificação');
+      const msg = t('channels.error.verificationCodeRequired');
+      setSignalRegError(msg);
+      announce(msg, 'assertive');
       return;
     }
     const apiToken = signalForm.apiToken.trim();
@@ -570,7 +575,8 @@ export default function ChannelsPage() {
       setSignalRegStep('awaiting_code');
       const msg = getErrorMessage(error) || t('channels.error.signalVerifyFailed');
       setSignalRegError(msg);
-      addToast(msg, 'error');
+      addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(msg, 'assertive');
     }
   };
 
@@ -586,10 +592,10 @@ export default function ChannelsPage() {
     linkPollRef.current = setTimeout(async () => {
       if (Date.now() - startTime > POLL_TIMEOUT_MS) {
         setSignalLinking(false);
-        setSignalRegError(t('channels.error.signalLinkTimeoutDetails'));
         const linkTimeoutMessage = t('channels.announce.linkTimeout');
+        setSignalRegError(t('channels.error.signalLinkTimeoutDetails'));
         addToast(linkTimeoutMessage, 'error', undefined, undefined, { suppressAnnounce: true });
-        announce(linkTimeoutMessage);
+        announce(linkTimeoutMessage, 'assertive');
         return;
       }
       try {
@@ -614,7 +620,9 @@ export default function ChannelsPage() {
 
   const handleSignalLink = async () => {
     if (!signalForm.apiURL) {
-      setSignalRegError(t('channels.error.signalApiUrlRequired'));
+      const msg = t('channels.error.signalApiUrlRequired');
+      setSignalRegError(msg);
+      announce(msg, 'assertive');
       return;
     }
     const apiToken = signalForm.apiToken.trim();
@@ -630,7 +638,8 @@ export default function ChannelsPage() {
     } catch (error: unknown) {
       const errorMessage = getErrorMessage(error) || t('channels.error.signalLinkQrFailedDetailed');
       setSignalRegError(errorMessage);
-      addToast(errorMessage, 'error');
+      addToast(errorMessage, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(errorMessage, 'assertive');
       setSignalLinking(false);
     }
   };
@@ -861,7 +870,7 @@ export default function ChannelsPage() {
   if (loading) {
     return (
       <div className="channels-page">
-        <div className="channels-page__loading" role="status">{t('channels.loading', 'Carregando canais...')}</div>
+        <PageLoading className="channels-page__loading" message={t('channels.loading', 'Carregando canais...')} />
       </div>
     );
   }

@@ -456,7 +456,7 @@ export default function SkillsPage() {
 
       {/* Empty state when no skill is being edited */}
       {!crud.editingItem && crud.items.length > 0 && (
-        <div className="skills-empty" role="status">
+        <div className="skills-empty">
           <p>
             <Trans
               i18nKey="skills.selectHint"
@@ -469,7 +469,7 @@ export default function SkillsPage() {
 
       {/* Empty state when no skills exist */}
       {!crud.editingItem && crud.items.length === 0 && (
-        <div className="skills-empty" role="status">
+        <div className="skills-empty">
           <p>
             {t(
               'skills.noSkills',

@@ -327,15 +327,17 @@ test.describe('DataGrid — Enter ativa linha', () => {
 });
 
 test.describe('DataGrid — estado vazio acessível', () => {
-  test('grid vazio mostra placeholder com role="status"', async ({ page, wails }) => {
+  test('grid vazio mostra placeholder sem live region local', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', []);
     await wails.waitForApp();
 
     await page.goto('/#/history');
     await page.waitForSelector('.history-page', { timeout: 10_000 });
 
-    // Estado vazio deve ter role="status" para screen readers
-    const emptyState = page.locator('.datagrid-empty[role="status"]');
+    // AEP-0058: o estado estrutural permanece visível, mas anúncios transitórios
+    // passam pelo ScreenReaderAnnouncer global em vez de uma live region local.
+    const emptyState = page.locator('.datagrid-empty');
     await expect(emptyState).toBeVisible({ timeout: 5_000 });
+    await expect(emptyState).not.toHaveAttribute('role', 'status');
   });
 });

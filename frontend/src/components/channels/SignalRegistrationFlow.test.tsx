@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SignalRegistrationFlow } from './SignalRegistrationFlow';
+
+const announceMock = vi.hoisted(() => vi.fn());
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -30,6 +32,12 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announce: announceMock,
+  }),
+}));
+
 describe('SignalRegistrationFlow', () => {
   const mockOnSetRegCode = vi.fn();
   const mockOnSetRegCaptcha = vi.fn();
@@ -52,6 +60,15 @@ describe('SignalRegistrationFlow', () => {
     onReset: mockOnReset,
   };
 
+  beforeEach(() => {
+    announceMock.mockReset();
+    mockOnSetRegCode.mockReset();
+    mockOnSetRegCaptcha.mockReset();
+    mockOnRegister.mockReset();
+    mockOnVerify.mockReset();
+    mockOnReset.mockReset();
+  });
+
   it('mostra campo de captcha no estado idle', () => {
     render(<SignalRegistrationFlow {...defaultProps} />);
 
@@ -66,6 +83,19 @@ describe('SignalRegistrationFlow', () => {
     render(<SignalRegistrationFlow {...defaultProps} regStep="registering" />);
 
     expect(screen.getByText('Enviando código...')).toBeInTheDocument();
+  });
+
+  it('reanuncia progresso ao reiniciar registro', () => {
+    const { rerender } = render(
+      <SignalRegistrationFlow {...defaultProps} regStep="registering" />
+    );
+
+    expect(announceMock).toHaveBeenCalledWith('Enviando código...');
+
+    rerender(<SignalRegistrationFlow {...defaultProps} regStep="idle" />);
+    rerender(<SignalRegistrationFlow {...defaultProps} regStep="registering" />);
+
+    expect(announceMock).toHaveBeenCalledTimes(2);
   });
 
   it('mostra campo de código no estado awaiting_code', () => {
@@ -90,7 +120,9 @@ describe('SignalRegistrationFlow', () => {
       <SignalRegistrationFlow {...defaultProps} regError="Erro ao registrar" />
     );
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Erro: Erro ao registrar');
+    expect(screen.getByText(/Erro ao registrar/)).toHaveClass('channels-page__alert');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith('Erro: Erro ao registrar', 'assertive');
   });
 
   it('desabilita botão SMS quando faltam dados', () => {

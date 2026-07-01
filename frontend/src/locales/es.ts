@@ -645,6 +645,14 @@ const es = {
         registeredSuccess: '¡registrado con éxito!',
         ok: 'OK',
       },
+      signalLink: {
+        generateQr: 'Generar QR de vinculación',
+        regionLabel: 'Código QR de vinculación de Signal',
+        scanQr: 'Escanea el código QR con Signal en el teléfono:',
+        qrAlt: 'Código QR para vincular dispositivo Signal',
+        generating: 'Generando código QR...',
+        waiting: 'Esperando vinculación...',
+      },
       createModal: {
         configure: 'Configurar',
         title: 'Crear nuevo canal',
@@ -1524,6 +1532,7 @@ const es = {
     },
 
     pickers: {
+      base: { loading: 'Cargando...', loadError: 'Error al cargar', empty: 'Ninguna opción disponible', retry: 'Reintentar' },
       llmProvider: { label: 'Proveedor LLM', description: 'Selecciona el proveedor de modelo de lenguaje', noneConfigured: 'Ningún proveedor configurado. Configura un proveedor primero.', loadError: 'Error al cargar proveedores', placeholder: 'Selecciona un proveedor...', retry: 'Reintentar', loading: 'Cargando proveedores...' },
       model: { label: 'Modelo', filterPlaceholder: 'Filtrar modelos...', selectProvider: 'Selecciona un proveedor primero', noModels: 'Ningún modelo disponible para este proveedor.', noModelsGlobal: 'Ningún modelo disponible. Configura un proveedor primero.', configureApiKey: 'Configura la API key de este proveedor en Configuración → Credenciales', loadError: 'Error al cargar modelos:', typePlaceholder: 'Escribe el modelo...', notLoaded: 'Modelos no cargados. Escribe manualmente el nombre del modelo.', retry: 'Reintentar', loading: 'Cargando modelos...' },
       voice: { disabled: 'Desactivado', system: 'Sistema', windows: 'Windows (SAPI5)', openai: 'OpenAI (Premium)', label: 'Voz', description: 'Selecciona la voz para síntesis de habla', loadError: 'Error al cargar voces', screenReader: 'Desactivada (usar lector de pantalla)', accessibility: 'Accesibilidad', premium: '• Premium', loading: 'Cargando voces...' },
@@ -1633,6 +1642,7 @@ const es = {
         counter: '{{current}} de {{total}}',
         defaultAlt: 'Imagen',
         openHint: 'Clic, Enter o Espacio para ampliar',
+        zoomLevel: 'Nivel de zoom {{percent}}%',
       },
       toast: { close: 'Cerrar notificación' },
       dataGrid: {
@@ -2984,6 +2994,7 @@ const es = {
         treeCopiedTemplate: 'Copiado: {{path}}',
         testTool: 'Probar herramienta',
         testing: 'Probando...',
+        testSuccess: 'Prueba de herramienta completada con éxito.',
         testResult: 'Resultado de la prueba',
         lastTestOutput: 'Salida de la última prueba',
         outputReference: 'Haga clic en un campo del output para usarlo como for_each:',

@@ -10,6 +10,7 @@ import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { Toolbar } from '../components/ui/Toolbar';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
+import { PageLoading } from '../components/ui/PageLoading';
 import { useConfirm } from '../hooks/useConfirm';
 import './ContactsPage.css';
 
@@ -152,9 +153,7 @@ export default function ContactsPage() {
   if (loading) {
     return (
       <div className="contacts-page">
-        <div className="contacts-page__loading" role="status">
-          {t('contacts.loading', 'Carregando contatos...')}
-        </div>
+        <PageLoading className="contacts-page__loading" message={t('contacts.loading', 'Carregando contatos...')} />
       </div>
     );
   }
@@ -182,7 +181,7 @@ export default function ContactsPage() {
             onFocusChange={handleContactFocusChange}
           />
         ) : (
-          <p className="contacts-page__empty" role="status">
+          <p className="contacts-page__empty">
             {t('contacts.empty', 'Nenhum contato autorizado.')}
           </p>
         )}

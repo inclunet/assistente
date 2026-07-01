@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Combobox, ComboboxItem } from './Combobox';
+
+const announceMock = vi.hoisted(() => vi.fn());
 
 const mockItems: ComboboxItem[] = [
   { value: 'gpt-4', label: 'GPT-4' },
@@ -9,7 +11,23 @@ const mockItems: ComboboxItem[] = [
   { value: 'claude-3', label: 'Claude 3' },
 ];
 
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announce: announceMock,
+  }),
+}));
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, values?: { value?: string }) => values?.value ? `${key}:${values.value}` : key,
+  }),
+}));
+
 describe('Combobox - allowFreeInput', () => {
+  afterEach(() => {
+    announceMock.mockClear();
+  });
+
   it('renderiza com items normais mostrando label selecionado', () => {
     const onSelect = vi.fn();
     render(
@@ -133,6 +151,81 @@ describe('Combobox - allowFreeInput', () => {
     expect(screen.getByText('GPT-4')).toBeInTheDocument();
     expect(screen.getByText('GPT-3.5 Turbo')).toBeInTheDocument();
     expect(screen.queryByText('Claude 3')).not.toBeInTheDocument();
+  });
+
+  it('atualiza item destacado quando a seleção controlada muda com dropdown aberto', async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+
+    const { rerender } = render(
+      <Combobox
+        items={mockItems}
+        selected="gpt-4"
+        onSelect={onSelect}
+        placeholder="Filtrar..."
+      />
+    );
+
+    await user.click(screen.getByRole('button'));
+    rerender(
+      <Combobox
+        items={mockItems}
+        selected="claude-3"
+        onSelect={onSelect}
+        placeholder="Filtrar..."
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'Claude 3' })).toHaveClass('highlighted');
+    });
+  });
+
+  it('anuncia quando o filtro não retorna resultados', async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <Combobox
+        items={mockItems}
+        selected=""
+        onSelect={onSelect}
+        placeholder="Filtrar..."
+      />
+    );
+
+    await user.click(screen.getByRole('button'));
+    await user.type(screen.getByRole('combobox'), 'sem-match');
+
+    expect(screen.getByText('pickers.combobox.noResults')).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith('pickers.combobox.noResults', 'polite');
+  });
+
+  it('não repete anúncio de entrada livre a cada tecla sem resultados', async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <Combobox
+        items={[]}
+        selected=""
+        onSelect={onSelect}
+        placeholder="Filtrar..."
+        allowFreeInput={true}
+      />
+    );
+
+    await user.click(screen.getByRole('button'));
+    await waitFor(() => {
+      expect(announceMock).toHaveBeenCalledWith('pickers.combobox.typeToCreate', 'polite');
+    });
+    announceMock.mockClear();
+
+    await user.type(screen.getByRole('combobox'), 'abc');
+
+    expect(screen.getByText('pickers.combobox.pressEnterToUse:abc')).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledTimes(1);
+    expect(announceMock).toHaveBeenCalledWith('pickers.combobox.pressEnterToUse:a', 'polite');
   });
 
   it('fecha dropdown ao pressionar Escape', async () => {

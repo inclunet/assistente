@@ -151,6 +151,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
     onAuthTypeChange: (value: string) => void;
     onOAuth2CallbackHostChange: (value: string) => void;
     onOAuth2CallbackPortChange: (value: string) => void;
+    onManualOverride: () => void;
   }) => (
     <div data-testid="connection-section">
       <span data-testid="callback-host-value">{props.oauth2CallbackHost}</span>
@@ -187,6 +188,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
           onChange={(e) => props.onOAuth2CallbackPortChange(e.target.value)}
         />
       </label>
+      <button type="button" onClick={props.onManualOverride}>Configurar manualmente</button>
     </div>
   ),
 }));

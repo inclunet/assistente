@@ -45,7 +45,10 @@ export function handleError(error: unknown, context: ErrorContext): void {
   });
 
   // Announce to screen readers
-  announce(context.userMessage, context.severity === ErrorSeverity.FATAL ? 'assertive' : 'polite');
+  const priority = context.severity === ErrorSeverity.FATAL || context.severity === ErrorSeverity.RECOVERABLE
+    ? 'assertive'
+    : 'polite';
+  announce(context.userMessage, priority);
 
   // TODO: Send to error tracking service (Sentry, etc.)
   // if (context.severity === ErrorSeverity.FATAL) {

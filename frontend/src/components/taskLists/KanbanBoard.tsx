@@ -896,7 +896,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   if (!statuses.length) {
     return (
       <>
-        <div className="kanban-empty" role="status">
+        <div className="kanban-empty">
           {t('tasklist.noWorkflow', 'Sem workflow definido')}
         </div>
         <Modal

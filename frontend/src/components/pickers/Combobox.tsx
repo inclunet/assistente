@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect, useLayoutEffect, useId, useCallback, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useId, useCallback, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { playBumpSound } from '../../services/audioFeedback';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import './Combobox.css';
 
 export interface ComboboxItem {
@@ -43,23 +44,24 @@ export const Combobox = ({
     onAfterSelect,
 }: ComboboxProps) => {
     const { t } = useTranslation();
+    const { announce: announceGlobally } = useAnnouncer();
     const effectiveLabel = label ?? t('pickers.combobox.select');
     const effectivePlaceholder = placeholder ?? t('pickers.combobox.filterPlaceholder');
     const [isOpen, setIsOpen] = useState(false);
     const [filter, setFilter] = useState('');
     const [highlightIndex, setHighlightIndex] = useState(0);
-    const [liveMessage, setLiveMessage] = useState('');
 
     const inputRef = useRef<HTMLInputElement>(null);
     const buttonRef = useRef<HTMLButtonElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const listboxRef = useRef<HTMLUListElement>(null);
+    const previousEmptyResultsAnnouncementKeyRef = useRef('');
     const uniqueId = useId();
 
-    const filteredItems = items.filter(item =>
+    const filteredItems = useMemo(() => items.filter(item =>
         item.label.toLowerCase().includes(filter.toLowerCase()) ||
         (item.sublabel && item.sublabel.toLowerCase().includes(filter.toLowerCase()))
-    );
+    ), [filter, items]);
 
     const selectedItem = items.find(i => i.value === selected);
     const selectedLabel = selectedItem?.label || (selected ? selected : effectiveLabel);
@@ -67,14 +69,28 @@ export const Combobox = ({
         ? selectedLabel.substring(0, 17) + '...'
         : selectedLabel;
     const hasSelectedItem = Boolean(selected);
+    const emptyResultsMessage = filteredItems.length === 0
+        ? allowFreeInput && filter.trim()
+            ? t('pickers.combobox.pressEnterToUse', { value: filter.trim() })
+            : allowFreeInput
+                ? t('pickers.combobox.typeToCreate')
+                : t('pickers.combobox.noResults')
+        : '';
+    const emptyResultsAnnouncementKey = filteredItems.length === 0
+        ? allowFreeInput && filter.trim()
+            ? 'free-input-value'
+            : allowFreeInput
+                ? 'free-input-empty'
+                : 'no-results'
+        : '';
 
-    const announceMessage = useCallback((msg: string) => {
+    const announceMessage = useCallback((msg: string, priority: 'polite' | 'assertive' = 'assertive') => {
         if (onAnnounce) {
             onAnnounce(msg);
+            return;
         }
-        setLiveMessage('');
-        requestAnimationFrame(() => setLiveMessage(msg));
-    }, [onAnnounce]);
+        announceGlobally(msg, priority);
+    }, [announceGlobally, onAnnounce]);
 
     const announceHighlight = useCallback((index: number, list: ComboboxItem[]) => {
         if (index >= 0 && list[index]) {
@@ -113,7 +129,6 @@ export const Combobox = ({
         setIsOpen(false);
         setFilter('');
         setHighlightIndex(0);
-        setLiveMessage('');
 
         setTimeout(() => {
             if (reason === 'select' && onAfterSelect) {
@@ -133,13 +148,24 @@ export const Combobox = ({
         close('select');
     }, [onSelect, close]);
 
-    // Reset highlight when filter changes
+    // Keep highlighted option aligned with filter, controlled selection, and refreshed items.
     useEffect(() => {
         if (!isOpen) return;
         const currentIdx = filteredItems.findIndex(i => i.value === selected);
         const newIdx = currentIdx >= 0 ? currentIdx : 0;
         setHighlightIndex(newIdx);
-    }, [filter]);
+    }, [filteredItems, isOpen, selected]);
+
+    useEffect(() => {
+        if (!isOpen || !emptyResultsMessage) {
+            previousEmptyResultsAnnouncementKeyRef.current = '';
+            return;
+        }
+        if (emptyResultsAnnouncementKey === previousEmptyResultsAnnouncementKeyRef.current) return;
+
+        announceMessage(emptyResultsMessage, 'polite');
+        previousEmptyResultsAnnouncementKeyRef.current = emptyResultsAnnouncementKey;
+    }, [announceMessage, emptyResultsAnnouncementKey, emptyResultsMessage, isOpen]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -348,31 +374,23 @@ export const Combobox = ({
                             </li>
                         ))}
                         {filteredItems.length === 0 && !allowFreeInput && (
-                            <li className="no-results" role="status">
+                            <li className="no-results">
                                 {t('pickers.combobox.noResults')}
                             </li>
                         )}
                         {filteredItems.length === 0 && allowFreeInput && filter.trim() && (
-                            <li className="no-results free-input-hint" role="status">
+                            <li className="no-results free-input-hint">
                                 {t('pickers.combobox.pressEnterToUse', { value: filter.trim() })}
                             </li>
                         )}
                         {filteredItems.length === 0 && allowFreeInput && !filter.trim() && (
-                            <li className="no-results" role="status">
+                            <li className="no-results">
                                 {t('pickers.combobox.typeToCreate')}
                             </li>
                         )}
                     </ul>
                 </div>
             )}
-            <div
-                className="sr-only"
-                aria-live="assertive"
-                aria-atomic="true"
-                role="log"
-            >
-                {liveMessage}
-            </div>
         </div>
     );
 };

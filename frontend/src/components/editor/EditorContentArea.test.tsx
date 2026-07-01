@@ -13,6 +13,7 @@ const richEditorHandle = {
   applyMermaidById: vi.fn(),
   removeMermaidById: vi.fn(),
 };
+const announceMock = vi.hoisted(() => vi.fn());
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -41,6 +42,12 @@ vi.mock('./RichTextEditor', () => ({
   RichTextEditor: forwardRef((props: { markdown: string; readOnly?: boolean }, ref: Ref<RichTextEditorHandle>) => {
     useImperativeHandle(ref, () => richEditorHandle);
     return <div data-testid="rich-text-editor" data-readonly={props.readOnly ? 'true' : 'false'}>{props.markdown}</div>;
+  }),
+}));
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({
+    announce: announceMock,
   }),
 }));
 
@@ -76,6 +83,7 @@ describe('EditorContentArea Reveal rich mode', () => {
     richEditorHandle.openLinkDialog.mockReset();
     richEditorHandle.applyMermaidById.mockReset();
     richEditorHandle.removeMermaidById.mockReset();
+    announceMock.mockReset();
     useEditorStore.setState({ documents: {} });
   });
 
@@ -126,6 +134,7 @@ describe('EditorContentArea Reveal rich mode', () => {
     expect(richEditorHandle.flushMarkdown).toHaveBeenCalled();
     expect(nextMarkdown).toContain('<!-- .slide: class="title-slide" -->\n\n# Slide 1 editado');
     expect(nextMarkdown).toContain('## Slide 2');
+    expect(announceMock).toHaveBeenCalledWith('Slide 2 de 2');
   });
 
   it('não normaliza separadores dentro de blocos fenced', async () => {

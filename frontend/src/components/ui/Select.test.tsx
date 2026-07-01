@@ -24,7 +24,8 @@ describe('Select', () => {
 
     const describedBy = select.getAttribute('aria-describedby') || '';
     const hint = screen.getByText('Escolha um canal');
-    const error = screen.getByRole('alert', { name: '' });
+    const error = screen.getByText('Obrigatorio');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(describedBy).toContain(hint.getAttribute('id') || '');
     expect(describedBy).toContain(error.getAttribute('id') || '');
   });

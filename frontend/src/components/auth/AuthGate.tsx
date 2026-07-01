@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore, type AuthStatus } from '../../store/authStore';
@@ -36,6 +36,7 @@ export function AuthGate({ children }: AuthGateProps) {
   const [username, setUsername] = useState('');
   const [recoveryKey, setRecoveryKey] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
+  const wasAuthenticatedRef = useRef(isAuthenticated);
 
   const headingId = useId();
   const descriptionId = useId();
@@ -48,7 +49,7 @@ export function AuthGate({ children }: AuthGateProps) {
   }, [loadStatus]);
 
   // Anuncia erros do servidor para leitores de tela quando aparecerem.
-  // Em vez de role="alert" agressivo no markup (M30 do review), usamos a
+  // Em vez de agressivo no markup (M30 do review), usamos a
   // live region global do ScreenReaderAnnouncer; usuário com leitor de
   // tela ouve a mensagem sem perder o contexto do formulário.
   useEffect(() => {
@@ -64,10 +65,11 @@ export function AuthGate({ children }: AuthGateProps) {
   }, [recoveryKey, announce, t]);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (!wasAuthenticatedRef.current && isAuthenticated) {
       announce(t('auth.a11y.loginSuccess'), 'polite');
     }
-  }, [isAuthenticated, announce, t]);
+    wasAuthenticatedRef.current = isAuthenticated;
+  }, [announce, isAuthenticated, t]);
 
   const localizedError = useMemo(() => {
     if (validationError) return validationError;
@@ -94,7 +96,7 @@ export function AuthGate({ children }: AuthGateProps) {
             {t('auth.descriptions.unavailable')}
           </p>
           {localizedError && (
-            <p id={errorId} className="auth-gate__error" role="alert">
+            <p id={errorId} className="auth-gate__error">
               {localizedError}
             </p>
           )}
@@ -203,7 +205,7 @@ export function AuthGate({ children }: AuthGateProps) {
         </p>
 
         {recoveryKey && (
-          <div className="auth-gate__recovery" role="status">
+          <div className="auth-gate__recovery">
             <strong>{t('auth.recovery.title')}</strong>
             <code className="auth-gate__code">{recoveryKey}</code>
             <span>{t('auth.recovery.instructions')}</span>
@@ -244,7 +246,7 @@ export function AuthGate({ children }: AuthGateProps) {
         )}
 
         {localizedError && (
-          <p id={errorId} className="auth-gate__error" role="alert">
+          <p id={errorId} className="auth-gate__error">
             {localizedError}
           </p>
         )}
