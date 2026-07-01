@@ -291,15 +291,43 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 			if _, alreadyExported := exportedInvocationTurn[turnID]; alreadyExported {
 				continue
 			}
+			seenCallIDs := map[string]struct{}{}
 			for _, call := range displayByTurn[turnID] {
 				exportCall := toolInvocationDisplayToExportMap(call)
 				callID := strings.TrimSpace(call.ID)
+				if callID != "" {
+					seenCallIDs[callID] = struct{}{}
+				}
 				if byFallback := turnFallback; byFallback != nil {
 					if fb := strings.TrimSpace(byFallback[callID]); fb != "" {
 						exportCall["result"] = fb
 					}
 				}
 				calls = append(calls, exportCall)
+			}
+			fallbackCallIDs := make([]string, 0, len(turnFallback))
+			for callID := range turnFallback {
+				callID = strings.TrimSpace(callID)
+				if callID == "" {
+					continue
+				}
+				if _, ok := seenCallIDs[callID]; ok {
+					continue
+				}
+				fallbackCallIDs = append(fallbackCallIDs, callID)
+			}
+			sort.Strings(fallbackCallIDs)
+			for _, callID := range fallbackCallIDs {
+				result := strings.TrimSpace(turnFallback[callID])
+				if result == "" {
+					continue
+				}
+				calls = append(calls, map[string]interface{}{
+					"id":       callID,
+					"type":     "function",
+					"function": map[string]interface{}{"name": "tool_result", "arguments": ""},
+					"result":   result,
+				})
 			}
 			if len(calls) == 0 {
 				continue

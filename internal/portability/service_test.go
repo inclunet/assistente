@@ -776,6 +776,42 @@ func TestExportConversationBuildsToolCallsFromToolInvocationsWithoutMessageToolC
 	}
 }
 
+func TestExportConversationBuildsToolCallsFromRoleToolFallbackWithoutInvocations(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	turnID := "turn-fallback"
+	callID := "call-fallback"
+	convID := "conv-fallback"
+
+	conv := &database.Conversation{UUIDModel: database.UUIDModel{ID: convID}, UserID: portabilityTestUserID, Title: "Fallback"}
+	if err := database.DB().Create(conv).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: convID, Role: "user", Content: "hi"}).Error; err != nil {
+		t.Fatalf("create turn message: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: "assistant-fallback"}, ConversationID: convID, Role: "assistant", Content: "vou buscar", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create assistant without tool_calls: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: "tool-fallback"}, ConversationID: convID, Role: "tool", Content: "FALLBACK-RESULT", TurnID: &turnID, ToolCallID: callID}).Error; err != nil {
+		t.Fatalf("create role=tool fallback: %v", err)
+	}
+
+	file, err := BuildExportFileWithContext(ctx, []string{convID}, nil, nil, nil, ExportRequest{ExplicitSelection: true, ConversationIDs: []string{convID}}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext: %v", err)
+	}
+	msgs := file.Resources.Conversations[0].Messages
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &decoded); err != nil {
+		t.Fatalf("unmarshal synthesized fallback toolCalls: %v", err)
+	}
+	if len(decoded) != 1 || decoded[0]["id"] != callID || decoded[0]["result"] != "FALLBACK-RESULT" {
+		t.Fatalf("unexpected fallback tool call export: %#v", decoded)
+	}
+}
+
 func TestImportOverwriteClearsChatToolInvocationsToAvoidStaleExportHydration(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()
