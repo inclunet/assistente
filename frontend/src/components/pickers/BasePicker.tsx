@@ -1,7 +1,10 @@
-import { useEffect, useRef, type HTMLAttributes, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, type HTMLAttributes, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Combobox, ComboboxItem } from './Combobox';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { useOptionalWorkspacePanel } from '../workspace/WorkspacePanelContext';
+import { useWorkspaceStore } from '../../store/workspaceStore';
+import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
 
 type Variant = 'toolbar' | 'form';
 
@@ -138,15 +141,20 @@ export const BasePicker = ({
   onAfterSelect,
 }: BasePickerProps) => {
   const { t } = useTranslation();
-  const { announce } = useAnnouncer();
+  const { announceRequest } = useAnnouncer();
+  const workspacePanel = useOptionalWorkspacePanel();
+  const workspace = useWorkspaceStore((state) => state.workspace);
   const previousErrorRef = useRef<string | null | undefined>(null);
-  const previousLoadingRef = useRef(false);
+  const previousLoadingAnnouncementRef = useRef<string | null>(null);
   const resolvedLoadingLabel = resolveVariantValue(loadingLabel, variant) ?? t('pickers.base.loading', 'Carregando...');
   const resolvedErrorLabel = resolveVariantValue(errorLabel, variant) ?? error ?? t('pickers.base.loadError', 'Erro ao carregar');
   const resolvedEmptyLabel = resolveVariantValue(emptyLabel, variant) ?? t('pickers.base.empty', 'Nenhuma opção disponível');
   const resolvedErrorIcon = resolveVariantValue(errorIcon, variant);
   const resolvedLoadingHidden = resolveVariantValue(loadingLabelVisuallyHidden, variant) ?? false;
   const resolvedErrorHidden = resolveVariantValue(errorLabelVisuallyHidden, variant) ?? false;
+  const accessibilityOrigin = useMemo(() => (
+    workspacePanel ? buildVoiceAccessibilityOriginFromTab(workspacePanel.tab, workspace) : undefined
+  ), [workspace, workspacePanel]);
 
   const effectiveLoadingClassName = resolveVariantClassName(
     loadingClassName,
@@ -166,17 +174,42 @@ export const BasePicker = ({
 
   useEffect(() => {
     if (showErrorState && error && error !== previousErrorRef.current) {
-      announce(resolvedErrorLabel, 'assertive');
+      announceRequest({
+        message: resolvedErrorLabel,
+        origin: accessibilityOrigin,
+        eventType: 'error',
+        announcePriority: 'assertive',
+      });
     }
     previousErrorRef.current = error;
-  }, [announce, error, resolvedErrorLabel, showErrorState]);
+  }, [accessibilityOrigin, announceRequest, error, resolvedErrorLabel, showErrorState]);
 
   useEffect(() => {
-    if (showLoadingState && loading && !previousLoadingRef.current) {
-      announce(resolvedLoadingLabel);
+    const loadingAnnouncementKey = [
+      resolvedLoadingLabel,
+      accessibilityOrigin?.surfaceId ?? '',
+      accessibilityOrigin?.sessionKey ?? '',
+      accessibilityOrigin?.tabId ?? '',
+    ].join('|');
+    if (
+      showLoadingState
+      && loading
+      && previousLoadingAnnouncementRef.current !== loadingAnnouncementKey
+    ) {
+      const didAnnounce = announceRequest({
+        message: resolvedLoadingLabel,
+        origin: accessibilityOrigin,
+        eventType: 'progress',
+      });
+      if (didAnnounce) {
+        previousLoadingAnnouncementRef.current = loadingAnnouncementKey;
+      }
+      return;
     }
-    previousLoadingRef.current = loading;
-  }, [announce, loading, resolvedLoadingLabel, showLoadingState]);
+    if (!loading) {
+      previousLoadingAnnouncementRef.current = null;
+    }
+  }, [accessibilityOrigin, announceRequest, loading, resolvedLoadingLabel, showLoadingState]);
 
   if (showLoadingState && loading) {
     if (loadingState) {

@@ -23,6 +23,7 @@ import {
   playChatReceiveSoundIfActive,
   playChatErrorSoundIfActive,
 } from './chatArbitration';
+import { announceWithOrigin } from './voiceAccessibility/announcerBroker';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
 import { reloadConversationSnapshot } from './chatSessionLoader';
 import { INITIAL_MESSAGE_WINDOW_SIZE } from './messageWindowLimits';
@@ -479,8 +480,14 @@ export function startChatEventController({
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       flushStreamingUpdate();
       const errorMessage = translateBackendChatError(String(event.error || '').trim());
-      announce(errorMessage, 'assertive');
-      playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
+      const eventOrigin = getEventOrigin(event);
+      announceWithOrigin({
+        message: errorMessage,
+        origin: getChatConversationVoiceOrigin(conversationId, undefined, eventOrigin),
+        eventType: 'error',
+        announcePriority: 'assertive',
+      });
+      playChatErrorSoundIfActive(conversationId, eventOrigin);
       if (hasAssistantNode) {
         updateEmptyAssistantWithError(errorMessage);
       } else {
