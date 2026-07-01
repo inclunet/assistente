@@ -1,10 +1,10 @@
 package database
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 	"time"
@@ -485,16 +485,16 @@ func (r *MessageRepository) DeleteMessageWithContext(ctx context.Context, messag
 	if len(cleanup.OriginIDs) > 0 {
 		if err := deleteChatToolInvocationsForOriginIDs(ctx, db, cleanup.OriginIDs); err != nil {
 			// Best-effort: tool_invocations são registros técnicos; não bloquear a deleção do usuário.
-			log.Printf("[DB] aviso: falha ao limpar tool_invocations de mensagem %s: %v", messageID, err)
+			logging.Warnf(ctx, "database.message-repository", "[DB] aviso: falha ao limpar tool_invocations de mensagem %s: %v", messageID, err)
 		}
 	}
 	if cleanup.DeleteWholeTurn && strings.TrimSpace(cleanup.TurnID) != "" {
 		if err := deleteChatToolInvocationsForOriginIDs(ctx, db, []string{cleanup.TurnID}); err != nil {
-			log.Printf("[DB] aviso: falha ao limpar tool_invocations do turno %s: %v", cleanup.TurnID, err)
+			logging.Warnf(ctx, "database.message-repository", "[DB] aviso: falha ao limpar tool_invocations do turno %s: %v", cleanup.TurnID, err)
 		}
 	} else if strings.TrimSpace(cleanup.TurnID) != "" && len(cleanup.ToolCallIDs) > 0 {
 		if err := deleteChatToolInvocationsForTurnToolCallIDs(ctx, db, cleanup.TurnID, cleanup.ToolCallIDs); err != nil {
-			log.Printf("[DB] aviso: falha ao limpar tool_invocations por tool_call_id do turno %s: %v", cleanup.TurnID, err)
+			logging.Warnf(ctx, "database.message-repository", "[DB] aviso: falha ao limpar tool_invocations por tool_call_id do turno %s: %v", cleanup.TurnID, err)
 		}
 	}
 	var childIDs []string

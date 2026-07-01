@@ -1,10 +1,10 @@
 package credentials
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"errors"
 	"fmt"
-	"log"
 )
 
 // ErrDEKWouldOverwrite indica que `PersistDEKConsistent` recusou
@@ -34,7 +34,7 @@ var ErrDEKWouldOverwrite = errors.New("DEK do keychain divergiria da DEK informa
 //     - Se já é a mesma DEK, é no-op silencioso (idempotência).
 //     - Se existing == "" (keychain vazio), prossegue para gravar.
 //     - Se existing != "" e divergente, retorna `ErrDEKWouldOverwrite`.
-//       Use `OverwriteKeychainDEK` se a sobrescrita é deliberada.
+//     Use `OverwriteKeychainDEK` se a sobrescrita é deliberada.
 //  3. Grava `dek` no keychain via `saveDEKToKeychain`.
 //  4. Atualiza `dek_id` em todos os wraps existentes (master/recovery)
 //     que estiverem com `dek_id == ""`. Wraps sem `dek_id` são
@@ -67,7 +67,7 @@ func PersistDEKConsistent(ctx context.Context, store Store, dek []byte, loadKeyr
 		if existingID == newID {
 			return adoptDekIDInWrapsIfMissing(ctx, store, newID)
 		}
-		log.Printf("[Credentials] PersistDEKConsistent: keychain tem DEK %s e quiseram persistir DEK %s — recusando sobrescrita", existingID, newID)
+		logging.Errorf(ctx, "credentials.persist-dek", "[Credentials] PersistDEKConsistent: keychain tem DEK %s e quiseram persistir DEK %s — recusando sobrescrita", existingID, newID)
 		return ErrDEKWouldOverwrite
 	case err == nil && len(existing) == 0:
 	case IsKeychainNotFound(err):
@@ -130,7 +130,7 @@ func adoptDekIDInWrapsIfMissing(ctx context.Context, store Store, newID string) 
 			continue
 		}
 		if wrap.DekID != "" && wrap.DekID != newID {
-			log.Printf("[Credentials] AVISO: wrap %q tem dek_id=%s mas DEK do keychain=%s — wrap NÃO foi atualizado (regenerá-lo é responsabilidade do caller que rotacionou a DEK)", kind, wrap.DekID, newID)
+			logging.Warnf(ctx, "credentials.persist-dek", "[Credentials] AVISO: wrap %q tem dek_id=%s mas DEK do keychain=%s — wrap NÃO foi atualizado (regenerá-lo é responsabilidade do caller que rotacionou a DEK)", kind, wrap.DekID, newID)
 			continue
 		}
 		wrap.DekID = newID

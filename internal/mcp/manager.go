@@ -1,12 +1,12 @@
 package mcp
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os/exec"
 	"sort"
@@ -150,7 +150,7 @@ func (m *Manager) waitBackground(timeout time.Duration) {
 	select {
 	case <-done:
 	case <-time.After(timeout):
-		log.Printf("[MCP] Timeout aguardando goroutines de background no shutdown")
+		logging.Warnf(context.Background(), "mcp.manager", "[MCP] Timeout aguardando goroutines de background no shutdown")
 	}
 }
 
@@ -263,13 +263,13 @@ func (m *Manager) markServerToolsUnavailable(slug, reason string) {
 	ctx := m.credentialContext()
 	if _, err := database.RequireUserID(ctx); err != nil {
 		if ownerUserID == "" {
-			log.Printf("[MCP:%s] não foi possível marcar tools indisponíveis sem usuário autenticado: %v", slug, err)
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] não foi possível marcar tools indisponíveis sem usuário autenticado: %v", slug, err)
 			return
 		}
 		ctx = database.WithUserID(context.Background(), ownerUserID)
 	}
 	if _, err := catalog.MarkServerToolsUnavailable(ctx, serverID, nil, reason); err != nil {
-		log.Printf("[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", slug, err)
+		logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", slug, err)
 	}
 }
 
@@ -282,11 +282,11 @@ func (m *Manager) StartLogRetention(interval, maxAge time.Duration) {
 		clean := func() {
 			deleted, err := repo.CleanOldLogs(maxAge)
 			if err != nil {
-				log.Printf("[MCP] erro ao limpar logs antigos: %v", err)
+				logging.Errorf(context.Background(), "mcp.manager", "[MCP] erro ao limpar logs antigos: %v", err)
 				return
 			}
 			if deleted > 0 {
-				log.Printf("[MCP] logs antigos removidos: %d", deleted)
+				logging.Infof(context.Background(), "mcp.manager", "[MCP] logs antigos removidos: %d", deleted)
 			}
 		}
 		clean()
@@ -353,7 +353,7 @@ func (m *Manager) SetWorkspaceRoots(roots []Root) error {
 				}
 
 				// TODO: Quando SDK suportar, usar session.NotifyRootsListChanged(ctx)
-				log.Printf("[MCP] Roots disponíveis para '%s': %v", s, sdkRoots)
+				logging.Infof(context.Background(), "mcp.manager", "[MCP] Roots disponíveis para '%s': %v", s, sdkRoots)
 			}(slug, conn.session, roots)
 		}
 
@@ -364,7 +364,7 @@ func (m *Manager) SetWorkspaceRoots(roots []Root) error {
 	}
 	m.mu.Unlock()
 
-	log.Printf("[MCP] Workspace roots atualizados: %d roots", len(roots))
+	logging.Infof(context.Background(), "mcp.manager", "[MCP] Workspace roots atualizados: %d roots", len(roots))
 	m.emit("mcp:roots_changed", map[string]any{"rootCount": len(roots)})
 
 	return nil
@@ -394,7 +394,7 @@ func (m *Manager) LoadConfigs() error {
 	}
 	ctx := m.credentialContext()
 	if _, err := database.RequireUserID(ctx); err != nil {
-		log.Printf("[MCP] LoadConfigs aguardando usuário autenticado: %v", err)
+		logging.Infof(context.Background(), "mcp.manager", "[MCP] LoadConfigs aguardando usuário autenticado: %v", err)
 		return nil
 	}
 	configs, err := repo.ListServers(ctx)
@@ -406,7 +406,7 @@ func (m *Manager) LoadConfigs() error {
 	for _, cfg := range configs {
 		cfg.applyDefaults(cfg.Slug)
 		configBySlug[cfg.Slug] = cfg
-		log.Printf("[MCP] Servidor carregado do DB: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
+		logging.Infof(context.Background(), "mcp.manager", "[MCP] Servidor carregado do DB: %s (%s, transport=%s, enabled=%v, auto_connect=%v)",
 			cfg.Slug, cfg.Name, cfg.Transport, cfg.Enabled, cfg.AutoConnect)
 	}
 
@@ -420,7 +420,7 @@ func (m *Manager) LoadConfigs() error {
 	m.mu.RUnlock()
 	for _, slug := range removed {
 		if err := m.Disconnect(slug); err != nil {
-			log.Printf("[MCP] erro ao desconectar servidor removido '%s' durante LoadConfigs: %v", slug, err)
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP] erro ao desconectar servidor removido '%s' durante LoadConfigs: %v", slug, err)
 		}
 	}
 
@@ -475,12 +475,12 @@ func (m *Manager) AutoConnectAll(ctx context.Context) {
 	for _, slug := range slugs {
 		select {
 		case <-ctx.Done():
-			log.Printf("[MCP] AutoConnectAll cancelado: %v", ctx.Err())
+			logging.Errorf(ctx, "mcp.manager", "[MCP] AutoConnectAll cancelado: %v", ctx.Err())
 			return
 		default:
 		}
 		if err := m.connectWithContext(ctx, slug); err != nil {
-			log.Printf("[MCP] AutoConnectAll: erro ao conectar '%s': %v", slug, err)
+			logging.Errorf(ctx, "mcp.manager", "[MCP] AutoConnectAll: erro ao conectar '%s': %v", slug, err)
 		}
 	}
 }
@@ -538,7 +538,7 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	if cfg.Transport == TransportStreamable && !cfg.DisableSSE && cfg.URL != "" {
 		httpClient := m.buildAuthHTTPClient(slug, cfg)
 		if sseSupported, reason := probeSSESupport(cfg.URL, httpClient); !sseSupported {
-			log.Printf("[MCP:%s] SSE não suportado (%s) — usando polling", slug, reason)
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] SSE não suportado (%s) — usando polling", slug, reason)
 			cfg.DisableSSE = true
 		}
 	}
@@ -567,7 +567,7 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		// SSE failure: auto-fallback to polling (disable SSE and retry once)
 		if !cfg.DisableSSE && cfg.Transport == TransportStreamable &&
 			strings.Contains(err.Error(), "standalone SSE") {
-			log.Printf("[MCP:%s] SSE falhou — tentando reconectar sem SSE (polling)", slug)
+			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] SSE falhou — tentando reconectar sem SSE (polling)", slug)
 			cfg.DisableSSE = true
 			m.mu.Lock()
 			if s, ok := m.servers[slug]; ok {
@@ -593,7 +593,7 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	// Captura capabilities do servidor
 	// TODO: Quando SDK expor ServerCapabilities(), capturar capabilities reais
 	capabilities := ServerCapabilities{}
-	log.Printf("[MCP] Servidor '%s' conectado (capabilities não disponíveis no SDK v1.3.0)", slug)
+	logging.Infof(context.Background(), "mcp.manager", "[MCP] Servidor '%s' conectado (capabilities não disponíveis no SDK v1.3.0)", slug)
 
 	// TODO: Quando SDK suportar, configurar handlers:
 	// - session.SetLogHandler(logHandler)
@@ -610,7 +610,7 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	m.mu.RUnlock()
 
 	if len(currentRoots) > 0 {
-		log.Printf("[MCP] Roots disponíveis para '%s': %d roots", slug, len(currentRoots))
+		logging.Infof(context.Background(), "mcp.manager", "[MCP] Roots disponíveis para '%s': %d roots", slug, len(currentRoots))
 		// TODO: Quando SDK suportar, enviar via session.NotifyRootsListChanged
 	}
 
@@ -758,7 +758,7 @@ func (m *Manager) refreshServerOfferingsWithContext(parentCtx context.Context, s
 	}
 	for _, bridge := range bridges {
 		if err := m.registry.Register(bridge); err != nil {
-			log.Printf("[MCP] Aviso: tool '%s' já registrada: %v", bridge.Name(), err)
+			logging.Warnf(context.Background(), "mcp.manager", "[MCP] Aviso: tool '%s' já registrada: %v", bridge.Name(), err)
 		}
 	}
 	conn.bridges = bridges
@@ -779,7 +779,7 @@ func (m *Manager) refreshServerOfferingsWithContext(parentCtx context.Context, s
 	}
 	m.syncMCPToolsBestEffort(m.credentialContext(), slug, toolInfos)
 
-	log.Printf("[MCP] Servidor '%s' offerings atualizados: %d tools, %d resources, %d prompts",
+	logging.Infof(context.Background(), "mcp.manager", "[MCP] Servidor '%s' offerings atualizados: %d tools, %d resources, %d prompts",
 		slug, len(toolInfos), len(resourceInfos), len(promptInfos))
 
 	return nil
@@ -801,7 +801,7 @@ func (m *Manager) Disconnect(slug string) error {
 			}
 			m.mu.Unlock()
 			m.markServerToolsUnavailable(slug, "server disconnected")
-			log.Printf("[MCP] Conexão em andamento de '%s' cancelada pelo usuário", slug)
+			logging.Infof(context.Background(), "mcp.manager", "[MCP] Conexão em andamento de '%s' cancelada pelo usuário", slug)
 			m.emit("mcp:server_disconnected", map[string]string{"slug": slug})
 			m.logEvent(slug, "disconnected", "Conexão MCP cancelada pelo usuário", nil)
 			return nil
@@ -839,12 +839,12 @@ func (m *Manager) Disconnect(slug string) error {
 	// Fecha a sessão (fora do lock para evitar deadlock)
 	if conn.session != nil {
 		if err := conn.session.Close(); err != nil {
-			log.Printf("[MCP] Erro ao fechar sessão '%s': %v", slug, err)
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP] Erro ao fechar sessão '%s': %v", slug, err)
 		}
 	}
 
 	m.markServerToolsUnavailable(slug, "server disconnected")
-	log.Printf("[MCP] Servidor '%s' desconectado", slug)
+	logging.Infof(context.Background(), "mcp.manager", "[MCP] Servidor '%s' desconectado", slug)
 
 	m.emit("mcp:server_disconnected", map[string]string{"slug": slug})
 	m.emit("mcp:tools_changed", nil)
@@ -944,7 +944,7 @@ func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
 		}
 	}
 	m.mu.Unlock()
-	log.Printf("[MCP] Configuração salva no DB: %s", slug)
+	logging.Infof(context.Background(), "mcp.manager", "[MCP] Configuração salva no DB: %s", slug)
 	m.emit("mcp:config_changed", map[string]string{"slug": slug})
 	return nil
 }
@@ -1020,7 +1020,7 @@ func (m *Manager) DeleteConfig(slug string) error {
 	m.mu.Lock()
 	delete(m.servers, slug)
 	m.mu.Unlock()
-	log.Printf("[MCP] Configuração removida do DB: %s", slug)
+	logging.Infof(context.Background(), "mcp.manager", "[MCP] Configuração removida do DB: %s", slug)
 	m.emit("mcp:config_changed", map[string]string{"slug": slug})
 	return nil
 }
@@ -1040,7 +1040,7 @@ func (m *Manager) CloseAll() {
 	// Aguarda loops (health/token refresh) e reconexões em andamento encerrarem
 	// após o cancelamento do ctx, evitando goroutines órfãs no shutdown.
 	m.waitBackground(closeAllWaitTimeout)
-	log.Printf("[MCP] Todos os servidores MCP desconectados")
+	logging.Infof(context.Background(), "mcp.manager", "[MCP] Todos os servidores MCP desconectados")
 }
 
 // DisconnectAll fecha todas as conexões abertas SEM derrubar o
@@ -1062,7 +1062,7 @@ func (m *Manager) disconnectAllConnections(reason string) {
 
 	for _, slug := range slugs {
 		if err := m.Disconnect(slug); err != nil {
-			log.Printf("[MCP] Erro ao desconectar '%s' (%s): %v", slug, reason, err)
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP] Erro ao desconectar '%s' (%s): %v", slug, reason, err)
 		}
 	}
 }
@@ -1110,7 +1110,7 @@ func (m *Manager) createTransport(slug string, cfg ServerConfig) (mcpsdk.Transpo
 		}
 
 		if cfg.DisableSSE {
-			log.Printf("[MCP:%s] Standalone SSE desabilitado por configuração", slug)
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Standalone SSE desabilitado por configuração", slug)
 		}
 
 		return transport, nil
@@ -1128,21 +1128,21 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 	case AuthOAuth2PKCE:
 		onConfigUpdate := func(updated ServerConfig) {
 			if err := m.SaveConfig(slug, updated); err != nil {
-				log.Printf("[MCP:%s] Erro ao persistir config após atualização OAuth: %v", slug, err)
+				logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Erro ao persistir config após atualização OAuth: %v", slug, err)
 			}
 		}
 		client := buildPKCEHTTPClient(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate, m.credentialContext)
-		log.Printf("[MCP:%s] HTTP client configurado com OAuth2 PKCE", slug)
+		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com OAuth2 PKCE", slug)
 		return client
 
 	case AuthOAuth2ClientCredentials:
 		_, clientSecret := loadClientCreds(m.credentialContext(), m.credMgr, slug)
 		if clientSecret != "" {
 			client := buildClientCredentialsHTTPClient(cfg, clientSecret)
-			log.Printf("[MCP:%s] HTTP client configurado com OAuth2 Client Credentials", slug)
+			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com OAuth2 Client Credentials", slug)
 			return client
 		}
-		log.Printf("[MCP:%s] OAuth2 Client Credentials configurado mas sem client_secret no credential manager (mcp-client:%s)", slug, slug)
+		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] OAuth2 Client Credentials configurado mas sem client_secret no credential manager (mcp-client:%s)", slug, slug)
 		return nil
 
 	case AuthBearer:
@@ -1154,11 +1154,11 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 						token: auth.Token,
 					},
 				}
-				log.Printf("[MCP:%s] HTTP client configurado com Bearer token", slug)
+				logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com Bearer token", slug)
 				return client
 			}
 		}
-		log.Printf("[MCP:%s] Bearer auth configurado mas sem token no credential manager", slug)
+		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] Bearer auth configurado mas sem token no credential manager", slug)
 		return nil
 
 	case AuthBasic:
@@ -1171,11 +1171,11 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 						password: auth.Password,
 					},
 				}
-				log.Printf("[MCP:%s] HTTP client configurado com Basic auth", slug)
+				logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com Basic auth", slug)
 				return client
 			}
 		}
-		log.Printf("[MCP:%s] Basic auth configurado mas sem credenciais no credential manager", slug)
+		logging.Warnf(context.Background(), "mcp.manager", "[MCP:%s] Basic auth configurado mas sem credenciais no credential manager", slug)
 		return nil
 
 	default:
@@ -1265,7 +1265,7 @@ func probeSSESupport(mcpURL string, authClient *http.Client) (bool, string) {
 	case strings.Contains(ct, "text/event-stream"):
 		return true, ""
 	default:
-		log.Printf("[MCP:probe] SSE probe: HTTP %d, Content-Type: %s", resp.StatusCode, ct)
+		logging.Errorf(context.Background(), "mcp.manager", "[MCP:probe] SSE probe: HTTP %d, Content-Type: %s", resp.StatusCode, ct)
 		return true, "" // ambiguous — assume supported, let SDK handle it
 	}
 }
@@ -1304,7 +1304,7 @@ func (m *Manager) setError(slug, errMsg string) {
 	}
 	m.mu.Unlock()
 
-	log.Printf("[MCP] Erro no servidor '%s': %s", slug, errMsg)
+	logging.Errorf(context.Background(), "mcp.manager", "[MCP] Erro no servidor '%s': %s", slug, errMsg)
 	m.logEvent(slug, "error", errMsg, nil)
 	m.emit("mcp:server_error", map[string]string{
 		"slug":  slug,
@@ -1328,7 +1328,7 @@ func (m *Manager) logEvent(slug, eventType, message string, data map[string]any)
 	if len(data) > 0 {
 		b, err := json.Marshal(data)
 		if err != nil {
-			log.Printf("[MCP:%s] erro ao serializar log %s: %v", slug, eventType, err)
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao serializar log %s: %v", slug, eventType, err)
 			return
 		}
 		payload = b
@@ -1340,7 +1340,7 @@ func (m *Manager) logEvent(slug, eventType, message string, data map[string]any)
 		Data:      payload,
 		Timestamp: time.Now(),
 	}); err != nil {
-		log.Printf("[MCP:%s] erro ao persistir log %s: %v", slug, eventType, err)
+		logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao persistir log %s: %v", slug, eventType, err)
 	}
 }
 
@@ -1365,11 +1365,11 @@ func (m *Manager) tokenRefreshLoop(ctx context.Context, slug string) {
 func (m *Manager) checkAndRefreshToken(slug string) {
 	refreshed, err := m.refreshOAuthTokenBestEffort(m.ctx, slug, false)
 	if err != nil {
-		log.Printf("[MCP:%s] Refresh proativo falhou: %v", slug, err)
+		logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Refresh proativo falhou: %v", slug, err)
 		return
 	}
 	if refreshed {
-		log.Printf("[MCP:%s] Token renovado proativamente", slug)
+		logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Token renovado proativamente", slug)
 	}
 }
 
@@ -1412,9 +1412,9 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 	}
 
 	if force {
-		log.Printf("[MCP:%s] Executando refresh OAuth best-effort (expiry em %v)", slug, timeUntilExpiry.Round(time.Second))
+		logging.Infof(ctx, "mcp.manager", "[MCP:%s] Executando refresh OAuth best-effort (expiry em %v)", slug, timeUntilExpiry.Round(time.Second))
 	} else {
-		log.Printf("[MCP:%s] Token expira em %v — forçando refresh proativo", slug, timeUntilExpiry.Round(time.Second))
+		logging.Infof(ctx, "mcp.manager", "[MCP:%s] Token expira em %v — forçando refresh proativo", slug, timeUntilExpiry.Round(time.Second))
 	}
 
 	clientID, clientSecret := loadClientCreds(authCtx, m.credMgr, slug)
@@ -1424,7 +1424,7 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 
 	token := loadUserTokens(authCtx, m.credMgr, slug)
 	if token == nil || token.RefreshToken == "" {
-		log.Printf("[MCP:%s] Sem refresh_token disponível para refresh", slug)
+		logging.Infof(ctx, "mcp.manager", "[MCP:%s] Sem refresh_token disponível para refresh", slug)
 		return false, nil
 	}
 
@@ -1463,7 +1463,7 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 		return false, err
 	}
 
-	log.Printf("[MCP:%s] Token renovado (novo expiry: %v)", slug, newToken.Expiry.Format(time.RFC3339))
+	logging.Errorf(ctx, "mcp.manager", "[MCP:%s] Token renovado (novo expiry: %v)", slug, newToken.Expiry.Format(time.RFC3339))
 	return true, nil
 }
 
@@ -1573,7 +1573,7 @@ func (m *Manager) performHealthCheck(slug string) {
 	if s, ok := m.servers[slug]; ok {
 		if err != nil {
 			s.ConsecutiveHealthFailures++
-			log.Printf("[MCP] Health check falhou para '%s' (%d/%d): %v",
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP] Health check falhou para '%s' (%d/%d): %v",
 				slug, s.ConsecutiveHealthFailures, healthCheckFailThreshold, err)
 
 			if s.ConsecutiveHealthFailures >= healthCheckFailThreshold {
@@ -1612,7 +1612,7 @@ func (m *Manager) handleToolCallError(slug string, err error) {
 		return
 	}
 
-	log.Printf("[MCP] Erro de sessão/transporte em tool call para '%s': %v", slug, err)
+	logging.Errorf(context.Background(), "mcp.manager", "[MCP] Erro de sessão/transporte em tool call para '%s': %v", slug, err)
 
 	status.ConsecutiveHealthFailures = healthCheckFailThreshold
 	status.Status = StatusError
@@ -1684,13 +1684,13 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		var delay time.Duration
 		if retryCount >= maxRetries {
 			delay = maxRetryDelay
-			log.Printf("[MCP] Retries rápidos esgotados para '%s', nova tentativa em %v", slug, delay)
+			logging.Infof(context.Background(), "mcp.manager", "[MCP] Retries rápidos esgotados para '%s', nova tentativa em %v", slug, delay)
 		} else {
 			delay = baseRetryDelay * time.Duration(1<<uint(retryCount))
 			if delay > maxRetryDelay {
 				delay = maxRetryDelay
 			}
-			log.Printf("[MCP] Tentando reconectar '%s' em %v (tentativa %d/%d)",
+			logging.Infof(context.Background(), "mcp.manager", "[MCP] Tentando reconectar '%s' em %v (tentativa %d/%d)",
 				slug, delay, retryCount+1, maxRetries)
 		}
 
@@ -1717,11 +1717,11 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		_ = m.Disconnect(slug)
 
 		if err := m.Connect(slug); err != nil {
-			log.Printf("[MCP] Falha ao reconectar '%s': %v", slug, err)
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP] Falha ao reconectar '%s': %v", slug, err)
 			continue
 		}
 
-		log.Printf("[MCP] Reconexão bem-sucedida para '%s'", slug)
+		logging.Errorf(context.Background(), "mcp.manager", "[MCP] Reconexão bem-sucedida para '%s'", slug)
 		m.mu.Lock()
 		if s, ok := m.servers[slug]; ok {
 			s.RetryCount = 0
@@ -1803,7 +1803,7 @@ func (m *Manager) createLogHandler(slug string) func(LogEntry) {
 		entry.Timestamp = time.Now()
 
 		// Log local
-		log.Printf("[MCP:%s] [%s] %v", slug, entry.Level, entry.Data)
+		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] [%s] %v", slug, entry.Level, entry.Data)
 
 		// Emite para frontend
 		m.emit("mcp:log", entry)
@@ -1813,7 +1813,7 @@ func (m *Manager) createLogHandler(slug string) func(LogEntry) {
 // createProgressHandler cria um handler para notificações de progresso.
 func (m *Manager) createProgressHandler(slug string) func(ProgressNotification) {
 	return func(progress ProgressNotification) {
-		log.Printf("[MCP:%s] Progress: %.1f%%", slug, progress.Progress)
+		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] Progress: %.1f%%", slug, progress.Progress)
 
 		// Emite para frontend
 		m.emit("mcp:progress", map[string]any{
@@ -1828,7 +1828,7 @@ func (m *Manager) createProgressHandler(slug string) func(ProgressNotification) 
 // createResourceUpdateHandler cria um handler para notificações de resource updates.
 func (m *Manager) createResourceUpdateHandler(slug string) func(ResourceUpdated) {
 	return func(update ResourceUpdated) {
-		log.Printf("[MCP:%s] Resource updated: %s", slug, update.URI)
+		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] Resource updated: %s", slug, update.URI)
 
 		// Emite para frontend
 		m.emit("mcp:resource_updated", map[string]any{
@@ -1851,7 +1851,7 @@ func (m *Manager) createResourceUpdateHandler(slug string) func(ResourceUpdated)
 
 			resourcesResult, err := conn.session.ListResources(ctx, nil)
 			if err != nil {
-				log.Printf("[MCP:%s] Erro ao re-listar resources: %v", slug, err)
+				logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Erro ao re-listar resources: %v", slug, err)
 				return
 			}
 
@@ -1872,7 +1872,7 @@ func (m *Manager) createResourceUpdateHandler(slug string) func(ResourceUpdated)
 			}
 			m.mu.Unlock()
 
-			log.Printf("[MCP:%s] Resources atualizados: %d total", slug, len(resourceInfos))
+			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] Resources atualizados: %d total", slug, len(resourceInfos))
 		}()
 	}
 }
@@ -1895,7 +1895,7 @@ func (m *Manager) SubscribeToResource(slug, uri string) error {
 	m.mu.RUnlock()
 
 	// TODO: Implementar quando SDK expor SubscribeResource
-	log.Printf("[MCP:%s] Subscriptions ainda não suportadas pelo SDK (v1.3.0)", slug)
+	logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Subscriptions ainda não suportadas pelo SDK (v1.3.0)", slug)
 	return fmt.Errorf("resource subscriptions não disponíveis no SDK atual")
 }
 
@@ -1911,7 +1911,7 @@ func (m *Manager) UnsubscribeFromResource(slug, uri string) error {
 	m.mu.RUnlock()
 
 	// TODO: Implementar quando SDK expor UnsubscribeResource
-	log.Printf("[MCP:%s] Unsubscribe ainda não suportado pelo SDK (v1.3.0)", slug)
+	logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Unsubscribe ainda não suportado pelo SDK (v1.3.0)", slug)
 	return fmt.Errorf("resource subscriptions não disponíveis no SDK atual")
 }
 
@@ -1926,14 +1926,14 @@ func (m *Manager) HandleSamplingRequest(ctx context.Context, slug string, reques
 		return "", fmt.Errorf("nenhum handler LLM configurado para sampling")
 	}
 
-	log.Printf("[MCP:%s] Processando sampling request com %d mensagens", slug, len(request.Messages))
+	logging.Errorf(ctx, "mcp.manager", "[MCP:%s] Processando sampling request com %d mensagens", slug, len(request.Messages))
 
 	response, err := handler(ctx, request)
 	if err != nil {
 		return "", fmt.Errorf("erro no handler LLM: %w", err)
 	}
 
-	log.Printf("[MCP:%s] Sampling completado, resposta: %d chars", slug, len(response))
+	logging.Infof(ctx, "mcp.manager", "[MCP:%s] Sampling completado, resposta: %d chars", slug, len(response))
 	return response, nil
 }
 
@@ -2018,12 +2018,12 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 			continue
 		}
 		if status.Config.PreferBridge {
-			log.Printf("[MCP] servidor %q excluído do MCP nativo: prefer_bridge=true (bridge local será usado)",
+			logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q excluído do MCP nativo: prefer_bridge=true (bridge local será usado)",
 				slug)
 			continue
 		}
 		if !isNativeMCPEligibleURL(status.Config.URL) {
-			log.Printf("[MCP] servidor %q excluído do MCP nativo: URL %q não é HTTPS nem localhost (adapter será usado)",
+			logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q excluído do MCP nativo: URL %q não é HTTPS nem localhost (adapter será usado)",
 				slug, status.Config.URL)
 			continue
 		}
@@ -2045,19 +2045,19 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 			authCtx := m.credentialContext()
 			if auth, err := m.credMgr.GetByPatternWithContext(authCtx, userTokensPattern(slug)); err == nil && auth != nil && auth.Token != "" {
 				srv.AuthToken = auth.Token
-				log.Printf("[MCP] servidor %q: token OAuth resolvido (pattern=%s, len=%d, expires=%d)",
+				logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token OAuth resolvido (pattern=%s, len=%d, expires=%d)",
 					slug, userTokensPattern(slug), len(auth.Token), auth.ExpiresAt)
 			} else {
 				if hostname := hostnameFromURL(status.Config.URL); hostname != "" {
 					if auth, err := m.credMgr.GetByPatternWithContext(authCtx, hostname); err == nil && auth != nil && auth.Token != "" {
 						srv.AuthToken = auth.Token
-						log.Printf("[MCP] servidor %q: token resolvido por hostname (pattern=%s)", slug, hostname)
+						logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token resolvido por hostname (pattern=%s)", slug, hostname)
 					} else {
-						log.Printf("[MCP] servidor %q: NENHUM token encontrado (oauth=%s, hostname=%s)",
+						logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: NENHUM token encontrado (oauth=%s, hostname=%s)",
 							slug, userTokensPattern(slug), hostname)
 					}
 				} else {
-					log.Printf("[MCP] servidor %q: NENHUM token encontrado (oauth=%s, sem hostname)",
+					logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: NENHUM token encontrado (oauth=%s, sem hostname)",
 						slug, userTokensPattern(slug))
 				}
 			}

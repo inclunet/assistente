@@ -1,9 +1,9 @@
 package controllers
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -419,7 +419,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			}
 			keyError = ""
 
-			log.Printf("[Wizard] Validando conexão: %s (com key: %v)", baseURL, apiKey != "")
+			logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Validando conexão: %s (com key: %v)", baseURL, apiKey != "")
 			validation := c.ValidateWizardConnection(ctx, baseURL, apiKey)
 
 			needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
@@ -452,7 +452,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			}
 
 			validatedModels = validation.Models
-			log.Printf("[Wizard] Conexão validada com sucesso. Modelos disponíveis: %d", len(validatedModels))
+			logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Conexão validada com sucesso. Modelos disponíveis: %d", len(validatedModels))
 			currentStep = 5
 
 		case 5: // Etapa 5: Escolher modelo (conexão já validada)
@@ -529,7 +529,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 					Token: apiKey,
 				}
 				if err := c.credMgr.RegisterPatternWithContext(ctx, wizardHostname, wizardAuth); err != nil {
-					log.Printf("[Wizard] Erro ao registrar credencial temporária: %v", err)
+					logging.Errorf(ctx, "controllers.welcome-controller", "[Wizard] Erro ao registrar credencial temporária: %v", err)
 				}
 			}
 
@@ -545,9 +545,9 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			// Verificação final: confirma que o provider funciona com o modelo escolhido
 			finalModels, finalErr := c.providerSvc.GetModelsByProvider(ctx, providerID)
 			if finalErr != nil {
-				log.Printf("[Wizard] Verificação final: %v (provider pode não suportar /models)", finalErr)
+				logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Verificação final: %v (provider pode não suportar /models)", finalErr)
 			} else {
-				log.Printf("[Wizard] Verificação final OK: %d modelos via provider '%s'", len(finalModels), providerID)
+				logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Verificação final OK: %d modelos via provider '%s'", len(finalModels), providerID)
 				modelFound := false
 				for _, m := range finalModels {
 					if m == defaultModel {
@@ -556,7 +556,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 					}
 				}
 				if !modelFound && len(finalModels) > 0 {
-					log.Printf("[Wizard] Aviso: modelo '%s' não encontrado na lista do provider (%d modelos)", defaultModel, len(finalModels))
+					logging.Warnf(ctx, "controllers.welcome-controller", "[Wizard] Aviso: modelo '%s' não encontrado na lista do provider (%d modelos)", defaultModel, len(finalModels))
 				}
 			}
 
@@ -632,10 +632,10 @@ func (c *WelcomeController) CreateWizardProvider(ctx context.Context, providerCh
 	}
 
 	if err := c.providerSvc.SetDefault(ctx, info.ID); err != nil {
-		log.Printf("[Wizard] Aviso: erro ao marcar provedor como default: %v", err)
+		logging.Warnf(ctx, "controllers.welcome-controller", "[Wizard] Aviso: erro ao marcar provedor como default: %v", err)
 	}
 
-	log.Printf("[Wizard] Provedor '%s' (%s) criado como default, modelo padrão: %s", info.ID, info.Name, defaultModel)
+	logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Provedor '%s' (%s) criado como default, modelo padrão: %s", info.ID, info.Name, defaultModel)
 	return info.ID, nil
 }
 
@@ -644,27 +644,27 @@ func (c *WelcomeController) checkForUpdatesAfterWizard() {
 	time.Sleep(2 * time.Second)
 
 	if c.updater == nil {
-		log.Printf("[Wizard] Updater não inicializado, pulando verificação de atualizações")
+		logging.Warnf(context.Background(), "controllers.welcome-controller", "[Wizard] Updater não inicializado, pulando verificação de atualizações")
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	log.Printf("[Wizard] Verificando atualizações disponíveis...")
+	logging.Infof(context.Background(), "controllers.welcome-controller", "[Wizard] Verificando atualizações disponíveis...")
 
 	info, err := c.updater.CheckForUpdates(ctx)
 	if err != nil {
-		log.Printf("[Wizard] Erro ao verificar atualizações: %v", err)
+		logging.Errorf(context.Background(), "controllers.welcome-controller", "[Wizard] Erro ao verificar atualizações: %v", err)
 		return
 	}
 
 	if !info.Available {
-		log.Printf("[Wizard] Aplicativo está atualizado (v%s)", info.CurrentVersion)
+		logging.Infof(context.Background(), "controllers.welcome-controller", "[Wizard] Aplicativo está atualizado (v%s)", info.CurrentVersion)
 		return
 	}
 
-	log.Printf("[Wizard] Nova versão disponível: v%s -> v%s", info.CurrentVersion, info.LatestVersion)
+	logging.Infof(context.Background(), "controllers.welcome-controller", "[Wizard] Nova versão disponível: v%s -> v%s", info.CurrentVersion, info.LatestVersion)
 
 	if c.updaterCtrl != nil {
 		c.updaterCtrl.PromptForUpdate(ctx, info)

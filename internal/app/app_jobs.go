@@ -1,11 +1,11 @@
 package app
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -55,7 +55,7 @@ func (a *App) initJobs() {
 	// logada mas não aborta o boot (degradação aceitável: apenas registros
 	// legados com acentos/símbolos seguiriam não-encontráveis até a correção).
 	if err := jobs.RenormalizeLegacySlugs(database.DB()); err != nil {
-		log.Printf("[Jobs] AVISO: re-normalização de slugs legados falhou: %v", err)
+		logging.Warnf(context.Background(), "app.app-jobs", "[Jobs] AVISO: re-normalização de slugs legados falhou: %v", err)
 	}
 
 	a.jobMgr = jobs.NewManager(jobs.ManagerConfig{
@@ -82,7 +82,7 @@ func (a *App) GetJobs() []jobs.JobInfo {
 	}
 	result, err := a.jobsCtrl.GetJobsContext(ctx)
 	if err != nil {
-		log.Printf("[Jobs] erro ao listar jobs: %v", err)
+		logging.Errorf(context.Background(), "app.app-jobs", "[Jobs] erro ao listar jobs: %v", err)
 		return nil
 	}
 	return result
@@ -162,7 +162,7 @@ func (a *App) GetJobPipelines() []jobs.PipelineInfo {
 	}
 	result, err := a.jobsCtrl.GetJobPipelinesContext(ctx)
 	if err != nil {
-		log.Printf("[Jobs] erro ao listar pipelines: %v", err)
+		logging.Errorf(context.Background(), "app.app-jobs", "[Jobs] erro ao listar pipelines: %v", err)
 		return nil
 	}
 	return result
@@ -277,7 +277,7 @@ func (a *App) recordToolDryRunStatus(ctx context.Context, result *jobs.TestToolR
 	toolCatalogID := strings.TrimSpace(result.ToolCatalogID)
 	if toolCatalogID != "" {
 		if err := a.mcpMgr.RecordToolTestStatusByID(ctx, toolCatalogID, status, result.Error); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			log.Printf("[Tools] erro ao registrar resultado de dry-run para catálogo %s: %v", toolCatalogID, err)
+			logging.Errorf(ctx, "app.app-jobs", "[Tools] erro ao registrar resultado de dry-run para catálogo %s: %v", toolCatalogID, err)
 		}
 		return
 	}
@@ -286,7 +286,7 @@ func (a *App) recordToolDryRunStatus(ctx context.Context, result *jobs.TestToolR
 		return
 	}
 	if err := a.mcpMgr.RecordToolTestStatus(ctx, toolName, status, result.Error); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		log.Printf("[Tools] erro ao registrar resultado de dry-run para %s: %v", toolName, err)
+		logging.Errorf(ctx, "app.app-jobs", "[Tools] erro ao registrar resultado de dry-run para %s: %v", toolName, err)
 	}
 }
 

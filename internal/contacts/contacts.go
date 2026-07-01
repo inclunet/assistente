@@ -19,9 +19,10 @@ package contacts
 
 import (
 	"assistente/internal/configdir"
+	"assistente/internal/logging"
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -38,10 +39,10 @@ var mu sync.Mutex
 
 // AuthorizedContact representa um contato autorizado para um canal.
 type AuthorizedContact struct {
-	ID           string `json:"id"`                // Identificador primário (UUID, phone, chatID)
-	DisplayName  string `json:"display_name"`      // Nome de exibição
+	ID           string `json:"id"`                 // Identificador primário (UUID, phone, chatID)
+	DisplayName  string `json:"display_name"`       // Nome de exibição
 	Username     string `json:"username,omitempty"` // Identificador secundário
-	AuthorizedAt string `json:"authorized_at"`     // Data da autorização (ISO 8601)
+	AuthorizedAt string `json:"authorized_at"`      // Data da autorização (ISO 8601)
 }
 
 // ContactsFile é o mapa canal → lista de contatos autorizados.
@@ -62,13 +63,13 @@ func loadUnsafe() (ContactsFile, error) {
 
 	var contacts ContactsFile
 	if err := json.Unmarshal(data, &contacts); err != nil {
-		log.Printf("[Contacts] arquivo %s corrompido: %v", contactsFilename, err)
+		logging.Errorf(context.Background(), "contacts.contacts", "[Contacts] arquivo %s corrompido: %v", contactsFilename, err)
 		if resolved != nil {
 			backupCorruptedContactsFile(resolved.Path)
 		}
 		empty := make(ContactsFile)
 		if saveErr := saveUnsafe(empty); saveErr != nil {
-			log.Printf("[Contacts] falha ao recriar %s: %v", contactsFilename, saveErr)
+			logging.Errorf(context.Background(), "contacts.contacts", "[Contacts] falha ao recriar %s: %v", contactsFilename, saveErr)
 		}
 		return empty, nil
 	}

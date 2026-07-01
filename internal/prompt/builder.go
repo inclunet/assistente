@@ -4,7 +4,8 @@
 package prompt
 
 import (
-	"log"
+	"assistente/internal/logging"
+	"context"
 	"reflect"
 	"sort"
 	"strings"
@@ -415,7 +416,7 @@ func (b *Builder) modelOnDemandSkillAvailable(activeProfile *profiles.Profile) b
 	}
 	allSkills, err := b.Skills.GetAllSkillsFull()
 	if err != nil {
-		log.Printf("[prompt] Erro ao carregar política de skills para runtime tools: %v", err)
+		logging.Errorf(context.Background(), "prompt.builder", "[prompt] Erro ao carregar política de skills para runtime tools: %v", err)
 		return false
 	}
 	var enabledSkills []string

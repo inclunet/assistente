@@ -11,9 +11,10 @@ package channels
 
 import (
 	"assistente/internal/configdir"
+	"assistente/internal/logging"
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,7 +124,7 @@ func loadUnsafe(name string) (*ChannelConfig, error) {
 			// da lista. Combinado com AdoptOrphans/gateway, virava
 			// disabled invisível. Agora: se nenhum dos basePaths tem
 			// config válido, o erro do último parse é propagado.
-			log.Printf("[Channels] Erro ao parsear %s: %v", path, err)
+			logging.Errorf(context.Background(), "channels.channels", "[Channels] Erro ao parsear %s: %v", path, err)
 			lastParseErr = err
 			lastParsePath = path
 			continue
@@ -159,7 +160,7 @@ func saveUnsafe(name string, cfg *ChannelConfig) error {
 	// frouxo (ex.: instalações antigas pré-fix). os.MkdirAll é no-op se
 	// o diretório já existe — o Chmod garante 0700 em qualquer caso.
 	if err := os.Chmod(dir, 0700); err != nil {
-		log.Printf("[Channels] aviso: não foi possível ajustar permissões de %s para 0700: %v", dir, err)
+		logging.Warnf(context.Background(), "channels.channels", "[Channels] aviso: não foi possível ajustar permissões de %s para 0700: %v", dir, err)
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -216,7 +217,7 @@ func listAllUnsafe() (map[string]*ChannelConfig, error) {
 			path := filepath.Join(channelsPath, fname)
 			data, err := os.ReadFile(path)
 			if err != nil {
-				log.Printf("[Channels] Erro ao ler %s: %v", path, err)
+				logging.Errorf(context.Background(), "channels.channels", "[Channels] Erro ao ler %s: %v", path, err)
 				continue
 			}
 			var cfg ChannelConfig
@@ -225,7 +226,7 @@ func listAllUnsafe() (map[string]*ChannelConfig, error) {
 				// detalhes — JSON corrompido fica visível em logs e
 				// um eventual healthcheck pode varrer por essa
 				// substring para sinalizar na UI.
-				log.Printf("[Channels] Erro ao parsear %s (canal removido da listagem): %v", path, err)
+				logging.Errorf(context.Background(), "channels.channels", "[Channels] Erro ao parsear %s (canal removido da listagem): %v", path, err)
 				continue
 			}
 			result[name] = &cfg

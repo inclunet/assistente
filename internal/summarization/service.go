@@ -1,10 +1,10 @@
 package summarization
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"unicode/utf8"
 
@@ -96,7 +96,7 @@ func ShouldTriggerSummarization(
 	}
 
 	if estimated > budget {
-		log.Printf("[Summary] Trigger: estimated %d tokens > budget %d (window=%d, maxTokens=%d, margin=%d)",
+		logging.Infof(context.Background(), "summarization.service", "[Summary] Trigger: estimated %d tokens > budget %d (window=%d, maxTokens=%d, margin=%d)",
 			estimated, budget, contextWindow, maxTokens, safetyMargin)
 		return true
 	}
@@ -267,7 +267,7 @@ func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversation
 
 	allRootMessages, err := s.cfg.Repo.GetMessages(ctx, conversationID)
 	if err != nil {
-		log.Printf("[Summary] Erro ao carregar mensagens para check: %v", err)
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao carregar mensagens para check: %v", err)
 		return
 	}
 
@@ -318,7 +318,7 @@ func (s *Service) resolveConversationProfile(profileSlug string) *profiles.Profi
 		if err == nil && profile != nil {
 			return profile
 		}
-		log.Printf("[Summary] Não foi possível obter perfil da conversa %q (%v) — usando perfil ativo global", slug, err)
+		logging.Infof(context.Background(), "summarization.service", "[Summary] Não foi possível obter perfil da conversa %q (%v) — usando perfil ativo global", slug, err)
 	}
 
 	profile, err := s.cfg.ProfileManager.GetActive()
@@ -338,11 +338,11 @@ func (s *Service) TriggerSummarizationInBackground(
 ) {
 	inProgress, err := s.cfg.Repo.IsSummarizingInProgress(ctx, conversationID)
 	if err != nil {
-		log.Printf("[Summary] Erro ao verificar status: %v", err)
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao verificar status: %v", err)
 		return
 	}
 	if inProgress {
-		log.Printf("[Summary] Sumarização já em andamento para conversa %s", conversationID)
+		logging.Infof(ctx, "summarization.service", "[Summary] Sumarização já em andamento para conversa %s", conversationID)
 		return
 	}
 
@@ -350,7 +350,7 @@ func (s *Service) TriggerSummarizationInBackground(
 	totalMessages := len(allRootMessages)
 
 	if totalMessages <= minKeep {
-		log.Printf("[Summary] Apenas %d mensagens, mínimo é %d — nada a sumarizar", totalMessages, minKeep)
+		logging.Infof(ctx, "summarization.service", "[Summary] Apenas %d mensagens, mínimo é %d — nada a sumarizar", totalMessages, minKeep)
 		return
 	}
 
@@ -359,7 +359,7 @@ func (s *Service) TriggerSummarizationInBackground(
 		cutIndex--
 	}
 	if cutIndex <= 0 {
-		log.Printf("[Summary] Não encontrou ponto de corte válido (user message) — abortando")
+		logging.Infof(ctx, "summarization.service", "[Summary] Não encontrou ponto de corte válido (user message) — abortando")
 		return
 	}
 
@@ -368,7 +368,7 @@ func (s *Service) TriggerSummarizationInBackground(
 
 	existingSummary, currentUpToID, err := s.cfg.Repo.GetConversationSummary(ctx, conversationID)
 	if err != nil {
-		log.Printf("[Summary] Erro ao buscar resumo existente: %v", err)
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao buscar resumo existente: %v", err)
 		return
 	}
 
@@ -389,19 +389,19 @@ func (s *Service) TriggerSummarizationInBackground(
 		// If currentUpToID not found, newMessages stays nil → treated as "nothing new"
 	}
 	if len(newMessages) == 0 {
-		log.Printf("[Summary] Nenhuma mensagem nova para resumir (já resumido até ID %s)", currentUpToID)
+		logging.Infof(ctx, "summarization.service", "[Summary] Nenhuma mensagem nova para resumir (já resumido até ID %s)", currentUpToID)
 		return
 	}
 
 	if err := s.cfg.Repo.SetSummarizingInProgress(ctx, conversationID, true); err != nil {
-		log.Printf("[Summary] Erro ao marcar summarizing_in_progress: %v", err)
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao marcar summarizing_in_progress: %v", err)
 		return
 	}
 
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("🔴 [PANIC RECOVERED] executeSummarization (conversa %s): %v", conversationID, r)
+				logging.Errorf(ctx, "summarization.service", "🔴 [PANIC RECOVERED] executeSummarization (conversa %s): %v", conversationID, r)
 				_ = s.cfg.Repo.SetSummarizingInProgress(ctx, conversationID, false)
 			}
 		}()
@@ -429,7 +429,7 @@ func (s *Service) executeSummarization(
 
 	defer func() {
 		if err := s.cfg.Repo.SetSummarizingInProgress(ctx, conversationID, false); err != nil {
-			log.Printf("[Summary] Erro ao desmarcar summarizing_in_progress: %v", err)
+			logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao desmarcar summarizing_in_progress: %v", err)
 		}
 	}()
 
@@ -439,12 +439,12 @@ func (s *Service) executeSummarization(
 	invocationResults := loadSummarizationToolInvocationResults(ctx, newMessages)
 	userPrompt := BuildSummarizationUserPrompt(existingSummary, newMessages, invocationResults, fallbackResults)
 
-	log.Printf("[Summary] Iniciando sumarização: conversa=%s, modelo=%s, %d mensagens novas, resumo anterior=%d chars",
+	logging.Infof(ctx, "summarization.service", "[Summary] Iniciando sumarização: conversa=%s, modelo=%s, %d mensagens novas, resumo anterior=%d chars",
 		conversationID, model, len(newMessages), len(existingSummary))
 
 	provider := s.cfg.LLMRegistry.Get(profile.Chat.LLMProvider)
 	if provider == nil {
-		log.Printf("[Summary] Provider não encontrado: %s", profile.Chat.LLMProvider)
+		logging.Errorf(ctx, "summarization.service", "[Summary] Provider não encontrado: %s", profile.Chat.LLMProvider)
 		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
 			ConversationID: conversationID,
 			Error:          "Provider não encontrado",
@@ -462,7 +462,7 @@ func (s *Service) executeSummarization(
 	)
 	summary, err := cp.SimpleChat(ctx, model, SummaryPrompt, userPrompt)
 	if err != nil {
-		log.Printf("[Summary] Erro na chamada LLM: %v", err)
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro na chamada LLM: %v", err)
 		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
 			ConversationID: conversationID,
 			Error:          fmt.Sprintf("Erro ao gerar resumo: %v", err),
@@ -472,7 +472,7 @@ func (s *Service) executeSummarization(
 
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
-		log.Printf("[Summary] LLM retornou resumo vazio — abortando")
+		logging.Errorf(ctx, "summarization.service", "[Summary] LLM retornou resumo vazio — abortando")
 		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
 			ConversationID: conversationID,
 			Error:          "Resumo gerado está vazio",
@@ -481,7 +481,7 @@ func (s *Service) executeSummarization(
 	}
 
 	if err := s.cfg.Repo.UpdateConversationSummary(ctx, conversationID, summary, upToMessageID); err != nil {
-		log.Printf("[Summary] Erro ao salvar resumo: %v", err)
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao salvar resumo: %v", err)
 		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
 			ConversationID: conversationID,
 			Error:          "Erro ao salvar resumo",
@@ -489,7 +489,7 @@ func (s *Service) executeSummarization(
 		return
 	}
 
-	log.Printf("[Summary] Resumo salvo: conversa=%s, até msgID=%s, %d chars",
+	logging.Infof(ctx, "summarization.service", "[Summary] Resumo salvo: conversa=%s, até msgID=%s, %d chars",
 		conversationID, upToMessageID, len(summary))
 
 	s.cfg.Emitter.Emit("chat:summary_completed", ports.SummaryCompletedEvent{
@@ -531,7 +531,7 @@ func shouldTriggerSummarizationWithHydratedToolResults(
 	estimated += estimateHydratedToolResultTokens(contextMessages, invocationResults, fallbackResults)
 
 	if estimated > budget {
-		log.Printf("[Summary] Trigger: estimated %d tokens > budget %d (window=%d, maxTokens=%d, margin=%d)",
+		logging.Infof(context.Background(), "summarization.service", "[Summary] Trigger: estimated %d tokens > budget %d (window=%d, maxTokens=%d, margin=%d)",
 			estimated, budget, contextWindow, maxTokens, safetyMargin)
 		return true
 	}
@@ -654,7 +654,7 @@ func loadSummarizationToolInvocationResults(ctx context.Context, messages []chat
 
 	results, err := toolinvocations.LoadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
 	if err != nil {
-		log.Printf("[Summary] Erro ao hidratar tool invocations para sumarização: %v", err)
+		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao hidratar tool invocations para sumarização: %v", err)
 		return map[string]map[string]string{}
 	}
 	if len(results) == 0 {

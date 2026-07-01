@@ -1,10 +1,10 @@
 package llm
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -80,7 +80,7 @@ func (p *OpenAIProvider) streamChatResponses(
 	tools ...ToolDefinition,
 ) {
 	currentServers := cloneMCPServers(p.mcpServers)
-	log.Printf("[OpenAIProvider] Responses API: %d MCP servers, %d tools locais", len(currentServers), len(tools))
+	logging.Infof(ctx, "llm.openai-responses", "[OpenAIProvider] Responses API: %d MCP servers, %d tools locais", len(currentServers), len(tools))
 
 	const maxAttempts = 10
 	bk := 500 * time.Millisecond
@@ -110,7 +110,7 @@ func (p *OpenAIProvider) streamChatResponses(
 		if result.nativeMCPUnsupported {
 			// O modelo/endpoint rejeitou type:"mcp". Dispara o auto-ajuste persistido
 			// do perfil (nil→false) e degrada nativo→adapter.
-			log.Printf("[MCP-DEGRADE] attempt=%d provider=openai action=native_to_adapter reason=model_rejects_type_mcp servers=%d", attempt, len(currentServers))
+			logging.Infof(ctx, "llm.openai-responses", "[MCP-DEGRADE] attempt=%d provider=openai action=native_to_adapter reason=model_rejects_type_mcp servers=%d", attempt, len(currentServers))
 			if params.OnNativeMCPUnsupported != nil {
 				params.OnNativeMCPUnsupported()
 			}
@@ -127,7 +127,7 @@ func (p *OpenAIProvider) streamChatResponses(
 		}
 		if result.promptCacheHintUnsupported {
 			if effectivePromptCacheKey(params) != "" {
-				log.Printf("[PromptCache] provider=openai action=disable_provider_hint reason=prompt_cache_key_rejected")
+				logging.Infof(ctx, "llm.openai-responses", "[PromptCache] provider=openai action=disable_provider_hint reason=prompt_cache_key_rejected")
 				params.PromptCacheHintFallback.Disable()
 				if params.OnPromptCacheHintUnsupported != nil {
 					params.OnPromptCacheHintUnsupported()
@@ -207,7 +207,7 @@ func (p *OpenAIProvider) buildResponsesParams(
 		var fnParams map[string]any
 		if len(tool.Function.Parameters) > 0 {
 			if err := json.Unmarshal(tool.Function.Parameters, &fnParams); err != nil {
-				log.Printf("[OpenAIProvider] Erro ao parsear parameters de %s: %v", tool.Function.Name, err)
+				logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Erro ao parsear parameters de %s: %v", tool.Function.Name, err)
 				continue
 			}
 		}
@@ -411,7 +411,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 
 		case "response.mcp_call.failed":
 			ev := event.AsResponseMcpCallFailed()
-			log.Printf("[OpenAIProvider] MCP call FAILED: itemID=%s", ev.ItemID)
+			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP call FAILED: itemID=%s", ev.ItemID)
 			fallbackServer := ""
 			if mc, ok := activeMCPCalls[ev.ItemID]; ok {
 				fallbackServer = mc.ServerLabel
@@ -421,11 +421,11 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			}
 
 		case "response.mcp_list_tools.in_progress":
-			log.Printf("[OpenAIProvider] MCP listing tools (server-side)")
+			logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP listing tools (server-side)")
 		case "response.mcp_list_tools.completed":
-			log.Printf("[OpenAIProvider] MCP tool listing done (server-side)")
+			logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing done (server-side)")
 		case "response.mcp_list_tools.failed":
-			log.Printf("[OpenAIProvider] MCP tool listing FAILED (server-side)")
+			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing FAILED (server-side)")
 			ev := event.AsResponseMcpListToolsFailed()
 			if failure := inferMCPFailure(MCPFailureStageListTools, "", ev.RawJSON(), "", mcpServers); failure != nil && !emittedAnything {
 				return mcpStreamAttemptResult{mcpFailure: failure}
@@ -446,7 +446,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			if string(ev.Response.Model) != "" {
 				lastModel = string(ev.Response.Model)
 			}
-			log.Printf("[OpenAIProvider] Stream completed: %d events, response=%d bytes, toolCalls=%d, model=%s",
+			logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] Stream completed: %d events, response=%d bytes, toolCalls=%d, model=%s",
 				eventCount, fullResponse.Len(), len(finishedToolCalls), lastModel)
 
 		case "response.failed":
@@ -455,7 +455,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			if ev.Response.Error.Message != "" {
 				errMsg = ev.Response.Error.Message
 			}
-			log.Printf("[OpenAIProvider] Response FAILED: %s", errMsg)
+			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Response FAILED: %s", errMsg)
 			if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errMsg) {
 				return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 			}
@@ -472,13 +472,13 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			return mcpStreamAttemptResult{done: true}
 
 		default:
-			log.Printf("[OpenAIProvider] Unhandled event type: %s", event.Type)
+			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Unhandled event type: %s", event.Type)
 		}
 	}
 
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
-		log.Printf("[OpenAIProvider] Responses stream error: %s", errStr)
+		logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Responses stream error: %s", errStr)
 		if len(mcpServers) > 0 && !emittedAnything && looksLikeNativeMCPUnsupported(errStr) {
 			return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 		}
@@ -495,7 +495,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		return mcpStreamAttemptResult{done: true}
 	}
 
-	log.Printf("[OpenAIProvider] Stream loop ended: %d events, response=%d bytes, reasoning=%d bytes, toolCalls=%d",
+	logging.Infof(ctx, "llm.openai-responses", "[OpenAIProvider] Stream loop ended: %d events, response=%d bytes, reasoning=%d bytes, toolCalls=%d",
 		eventCount, fullResponse.Len(), fullReasoning.Len(), len(finishedToolCalls))
 
 	// Fallback de conclusão de MCP nativo para itens que receberam

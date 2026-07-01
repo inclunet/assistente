@@ -2,9 +2,10 @@ package skills
 
 import (
 	"assistente/internal/configdir"
+	"assistente/internal/logging"
 	"assistente/internal/slug"
+	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -121,7 +122,7 @@ func (m *Manager) List() ([]SkillInfo, error) {
 	for _, ds := range discovered {
 		skill, err := loadSkill(ds)
 		if err != nil {
-			log.Printf("[Skills] Ignorando skill %s: %v", ds.slug, err)
+			logging.Infof(context.Background(), "skills.manager", "[Skills] Ignorando skill %s: %v", ds.slug, err)
 			continue
 		}
 
@@ -327,7 +328,7 @@ func (m *Manager) GetUserInvocableSkills() ([]SkillInfo, error) {
 	for _, ds := range discovered {
 		skill, err := loadSkill(ds)
 		if err != nil {
-			log.Printf("[Skills] Ignorando skill %s: %v", ds.slug, err)
+			logging.Infof(context.Background(), "skills.manager", "[Skills] Ignorando skill %s: %v", ds.slug, err)
 			continue
 		}
 		if !skill.IsUserInvocable() {

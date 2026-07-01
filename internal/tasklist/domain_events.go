@@ -1,8 +1,8 @@
 package tasklist
 
 import (
+	"assistente/internal/logging"
 	"context"
-	"log"
 	"time"
 
 	"assistente/internal/database"
@@ -39,7 +39,7 @@ func (s *Service) publishDomain(ctx context.Context, name string, payload map[st
 	// uma falha (event bus não inicializado, ctx sem user_id, etc.) silenciaria
 	// um evento que alguém espera — logamos para não esconder o problema.
 	if err := s.domain.PublishDomainEvent(ctx, name, payload); err != nil {
-		log.Printf("[tasklist] falha ao publicar evento de domínio %q: %v", name, err)
+		logging.Errorf(ctx, "tasklist.domain-events", "[tasklist] falha ao publicar evento de domínio %q: %v", name, err)
 	}
 }
 
@@ -124,16 +124,16 @@ func taskPayload(t *database.Task, slug string) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"task_id":        t.ID,
-		"task_list_id":   t.TaskListID,
-		"task_list_slug": slug,
-		"code":           t.Code,
-		"title":          t.Title,
-		"status_id":      t.StatusID,
-		"parent_id":      parentOrEmpty(t.ParentID),
-		"assignee_id":    t.AssigneeID,
-		"assignee_name":  t.AssigneeName,
-		"creator_id":     t.CreatorID,
+		"task_id":         t.ID,
+		"task_list_id":    t.TaskListID,
+		"task_list_slug":  slug,
+		"code":            t.Code,
+		"title":           t.Title,
+		"status_id":       t.StatusID,
+		"parent_id":       parentOrEmpty(t.ParentID),
+		"assignee_id":     t.AssigneeID,
+		"assignee_name":   t.AssigneeName,
+		"creator_id":      t.CreatorID,
 		"due_date":        rfc3339OrEmpty(t.DueDate),
 		"completed_at":    rfc3339OrEmpty(t.CompletedAt),
 		"link":            t.Link,

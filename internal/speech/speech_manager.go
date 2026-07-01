@@ -1,10 +1,10 @@
 package speech
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/base64"
 	"fmt"
-	"log"
 	"sync"
 
 	"assistente/internal/credentials"
@@ -96,7 +96,7 @@ func NewSpeechManager(config SpeechConfig, credMgr *credentials.Manager) *Speech
 func (sm *SpeechManager) reinitClients() {
 	// Whisper STT client — usa SDK openai-go com CredentialTransport
 	if sm.config.STTCredentialPattern != "" {
-		log.Printf("[Speech] reinitClients: criando WhisperClient (baseURL=%q, credPattern=%q, model=%q, lang=%q)",
+		logging.Infof(context.Background(), "speech.speech-manager", "[Speech] reinitClients: criando WhisperClient (baseURL=%q, credPattern=%q, model=%q, lang=%q)",
 			sm.config.STTAPIBaseURL, sm.config.STTCredentialPattern,
 			sm.config.WhisperModel, sm.config.WhisperLanguage)
 		sm.whisperClient = NewWhisperClient(WhisperConfig{
@@ -120,7 +120,7 @@ func (sm *SpeechManager) reinitClients() {
 		{"system", sm.config.System},
 	} {
 		if entry.role.Provider == string(TTSProviderOpenAI) && (entry.role.CredentialPattern != "" || entry.role.BaseURL != "") {
-			log.Printf("[Speech] reinitClients: criando TTSClient[%s] (baseURL=%q, credPattern=%q, voice=%q, model=%q)",
+			logging.Infof(context.Background(), "speech.speech-manager", "[Speech] reinitClients: criando TTSClient[%s] (baseURL=%q, credPattern=%q, voice=%q, model=%q)",
 				entry.name, entry.role.BaseURL, entry.role.CredentialPattern,
 				entry.role.Voice, entry.role.Model)
 			speed := entry.role.Rate
@@ -139,7 +139,7 @@ func (sm *SpeechManager) reinitClients() {
 	}
 
 	if len(sm.ttsClients) == 0 {
-		log.Printf("[Speech] reinitClients: nenhum TTSClient criado (nenhum role com provider OpenAI e credenciais/baseURL)")
+		logging.Infof(context.Background(), "speech.speech-manager", "[Speech] reinitClients: nenhum TTSClient criado (nenhum role com provider OpenAI e credenciais/baseURL)")
 	}
 }
 

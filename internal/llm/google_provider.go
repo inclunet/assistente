@@ -1,10 +1,10 @@
 package llm
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -106,7 +106,7 @@ func (p *GoogleProvider) SendChat(ctx context.Context, messages []Message, param
 func (p *GoogleProvider) GetModels(ctx context.Context) (models []string, retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[GoogleProvider] PANIC no SDK Models.List: %v", r)
+			logging.Errorf(ctx, "llm.google-provider", "[GoogleProvider] PANIC no SDK Models.List: %v", r)
 			retErr = fmt.Errorf("panic no SDK: %v", r)
 		}
 	}()
@@ -222,7 +222,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 	for resp, err := range client.Models.GenerateContentStream(ctx, model, contents, config) {
 		if err != nil {
 			errStr := err.Error()
-			log.Printf("[GoogleProvider] Stream error: %s", errStr)
+			logging.Errorf(ctx, "llm.google-provider", "[GoogleProvider] Stream error: %s", errStr)
 
 			if !emittedAnything && isRetryableError(errStr) {
 				return false

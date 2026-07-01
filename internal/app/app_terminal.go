@@ -1,11 +1,11 @@
 package app
 
 import (
-	"log"
-
 	"assistente/internal/allowlist"
+	"assistente/internal/logging"
 	"assistente/internal/questionnaire"
 	"assistente/internal/terminal"
+	"context"
 )
 
 // ============================================================================
@@ -54,8 +54,8 @@ func (a *App) initTerminalAndAllowlists() {
 	a.questionnaireMgr = questionnaire.NewManager(emitEvent)
 	a.allowlistMgr = allowlist.NewManager()
 	if err := a.allowlistMgr.EnsureDefaults(); err != nil {
-		log.Printf("[Allowlist] Erro ao garantir allowlist padrão: %v", err)
+		logging.Errorf(context.Background(), "app.app-terminal", "[Allowlist] Erro ao garantir allowlist padrão: %v", err)
 	}
 
-	log.Printf("[Terminal] Managers de terminal, questionário e allowlist inicializados")
+	logging.Infof(context.Background(), "app.app-terminal", "[Terminal] Managers de terminal, questionário e allowlist inicializados")
 }

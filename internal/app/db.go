@@ -1,9 +1,9 @@
 package app
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 
 	"assistente/internal/chat"
@@ -128,7 +128,7 @@ func loadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID
 	}
 	results, err := toolinvocations.LoadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
 	if err != nil {
-		log.Printf("[Chat] load tool_invocations results failed: %v", err)
+		logging.Errorf(ctx, "app.db", "[Chat] load tool_invocations results failed: %v", err)
 		return map[string]map[string]string{}
 	}
 	return results

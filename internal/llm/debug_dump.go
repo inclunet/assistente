@@ -1,13 +1,14 @@
 package llm
 
 import (
+	"assistente/internal/logging"
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -163,7 +164,7 @@ func ensurePrivateDebugDir(path string) error {
 		return err
 	}
 	if err := os.Chmod(path, 0700); err != nil {
-		log.Printf("[LLMDebugDump] erro: dumps desabilitados porque não foi possível garantir permissão 0700 em %s: %v", path, err)
+		logging.Errorf(context.Background(), "llm.debug-dump", "[LLMDebugDump] erro: dumps desabilitados porque não foi possível garantir permissão 0700 em %s: %v", path, err)
 		return err
 	}
 	return nil
@@ -172,11 +173,11 @@ func ensurePrivateDebugDir(path string) error {
 func writeJSON(path string, value any) {
 	data, err := redactedJSON(value)
 	if err != nil {
-		log.Printf("[LLMDebugDump] aviso: não foi possível serializar dump %s: %v", path, err)
+		logging.Warnf(context.Background(), "llm.debug-dump", "[LLMDebugDump] aviso: não foi possível serializar dump %s: %v", path, err)
 		return
 	}
 	if err := os.WriteFile(path, data, 0600); err != nil {
-		log.Printf("[LLMDebugDump] aviso: não foi possível escrever dump %s: %v", path, err)
+		logging.Warnf(context.Background(), "llm.debug-dump", "[LLMDebugDump] aviso: não foi possível escrever dump %s: %v", path, err)
 	}
 }
 

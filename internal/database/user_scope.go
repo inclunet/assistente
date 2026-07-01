@@ -5,26 +5,21 @@ import (
 	"errors"
 	"strings"
 
+	"assistente/internal/userctx"
+
 	"gorm.io/gorm"
 )
-
-type userIDContextKey struct{}
 
 type bootstrapContextKey struct{}
 
 var ErrUserScopeRequired = errors.New("authenticated user required")
 
 func WithUserID(ctx context.Context, userID string) context.Context {
-	return context.WithValue(ctx, userIDContextKey{}, strings.TrimSpace(userID))
+	return userctx.WithUserID(ctx, userID)
 }
 
 func UserIDFromContext(ctx context.Context) (string, bool) {
-	if ctx == nil {
-		return "", false
-	}
-	userID, ok := ctx.Value(userIDContextKey{}).(string)
-	userID = strings.TrimSpace(userID)
-	return userID, ok && userID != ""
+	return userctx.UserIDFromContext(ctx)
 }
 
 func RequireUserID(ctx context.Context) (string, error) {

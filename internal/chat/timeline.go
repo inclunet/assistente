@@ -1,8 +1,9 @@
 package chat
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"encoding/json"
-	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -69,7 +70,7 @@ func ParseToolCalls(messageID string, raw string) []map[string]interface{} {
 		return []map[string]interface{}{call}
 	}
 	if shouldLogInvalidToolCalls(messageID) {
-		log.Printf("[Chat] tool_calls JSON inválido descartado message_id=%s: array=%v object=%v", messageID, arrayErr, singleErr)
+		logging.Infof(context.Background(), "chat.timeline", "[Chat] tool_calls JSON inválido descartado message_id=%s: array=%v object=%v", messageID, arrayErr, singleErr)
 	}
 	return nil
 }

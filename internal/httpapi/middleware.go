@@ -1,11 +1,12 @@
 package httpapi
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -101,7 +102,7 @@ func (s *Server) rateLimit(limiter *rateLimiter, op string, next http.HandlerFun
 		key := clientIP(r)
 		if !limiter.allow(key) {
 			w.Header().Set("Retry-After", "1")
-			log.Printf("[httpapi] rate-limit excedido op=%s ip=%s", op, key)
+			logging.Warnf(r.Context(), "httpapi.middleware", "[httpapi] rate-limit excedido op=%s ip=%s", op, key)
 			http.Error(w, "too many requests", http.StatusTooManyRequests)
 			return
 		}
@@ -126,8 +127,8 @@ func clientIP(r *http.Request) string {
 // writeError com o err cru, vazando paths de filesystem, mensagens do
 // signer/keyring, etc. Isso é especialmente sensível em /auth/login
 // onde a borda da API é escutada por atacantes.
-func (s *Server) writeInternalErr(w http.ResponseWriter, op string, err error) {
-	log.Printf("[httpapi] op=%s err=%v", op, err)
+func (s *Server) writeInternalErr(ctx context.Context, w http.ResponseWriter, op string, err error) {
+	logging.Errorf(ctx, "httpapi.middleware", "[httpapi] op=%s err=%v", op, err)
 	writeJSON(w, http.StatusInternalServerError, map[string]string{
 		"error": "erro interno",
 	})
@@ -137,9 +138,9 @@ func (s *Server) writeInternalErr(w http.ResponseWriter, op string, err error) {
 // idênticas e sem hint sobre estrutura interna do servidor. Logamos a
 // distinção para investigação posterior (combina com M2 do bloco 1 que
 // já mitigou timing attacks em AuthenticateLocal).
-func (s *Server) writeAuthErr(w http.ResponseWriter, op string, status int, err error) {
+func (s *Server) writeAuthErr(ctx context.Context, w http.ResponseWriter, op string, status int, err error) {
 	if err != nil {
-		log.Printf("[httpapi] op=%s status=%d err=%v", op, status, err)
+		logging.Errorf(ctx, "httpapi.middleware", "[httpapi] op=%s status=%d err=%v", op, status, err)
 	}
 	msg := "credenciais inválidas"
 	if status == http.StatusForbidden {

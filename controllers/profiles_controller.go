@@ -1,11 +1,11 @@
 package controllers
 
 import (
-	"fmt"
-	"log"
-
 	"assistente/internal/core/ports"
+	"assistente/internal/logging"
 	"assistente/internal/profiles"
+	"context"
+	"fmt"
 )
 
 // ProfilesController é o adapter primário (Inbound) para operações de perfis.
@@ -90,7 +90,7 @@ func (c *ProfilesController) UpdateProfile(slug string, profile profiles.Profile
 		return err
 	}
 	if slug == c.profileMgr.GetActiveSlug() && c.onProfileChanged != nil {
-		log.Printf("[Profile] Perfil ativo atualizado, disparando onProfileChanged")
+		logging.Infof(context.Background(), "controllers.profiles-controller", "[Profile] Perfil ativo atualizado, disparando onProfileChanged")
 		c.onProfileChanged(slug)
 	}
 	c.emitter.Emit("profile:updated", map[string]interface{}{"slug": slug, "name": profile.Name})
@@ -140,8 +140,8 @@ func (c *ProfilesController) UpdateProfileMediaSupport(mediaType string, support
 		return
 	}
 	if err := c.profileMgr.Update(slug, profile); err != nil {
-		log.Printf("[MediaSupport] Erro ao salvar perfil: %v", err)
+		logging.Errorf(context.Background(), "controllers.profiles-controller", "[MediaSupport] Erro ao salvar perfil: %v", err)
 	} else {
-		log.Printf("[MediaSupport] Perfil atualizado: %s=%v", mediaType, supported)
+		logging.Infof(context.Background(), "controllers.profiles-controller", "[MediaSupport] Perfil atualizado: %s=%v", mediaType, supported)
 	}
 }

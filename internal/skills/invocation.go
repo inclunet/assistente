@@ -1,8 +1,9 @@
 package skills
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"fmt"
-	"log"
 	"strings"
 )
 
@@ -85,7 +86,7 @@ func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID strin
 
 	skill, err := mgr.Get(slug)
 	if err != nil {
-		log.Printf("[Skills] Skill /%s não encontrado: %v", slug, err)
+		logging.Errorf(context.Background(), "skills.invocation", "[Skills] Skill /%s não encontrado: %v", slug, err)
 		return nil, false, nil
 	}
 
@@ -97,7 +98,7 @@ func Invoke(userContent string, mgr InvokerManager, tplData any, sessionID strin
 		return nil, true, fmt.Errorf("skill /%s está desabilitada no perfil ativo", slug)
 	}
 
-	log.Printf("[Skills] Slash command detectado: /%s args=%q", slug, args)
+	logging.Infof(context.Background(), "skills.invocation", "[Skills] Slash command detectado: /%s args=%q", slug, args)
 
 	// Substitui $ARGUMENTS, $N e variáveis de sessão no conteúdo
 	sessionVars := map[string]string{

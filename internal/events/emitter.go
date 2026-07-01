@@ -1,9 +1,9 @@
 package events
 
 import (
-	"log"
-
 	"assistente/internal/core/ports"
+	"assistente/internal/logging"
+	"context"
 )
 
 // Emitter é um alias de compatibilidade para ports.Emitter.
@@ -33,7 +33,7 @@ func HandlePanic(emitter Emitter, conversationID string, source string, r any) {
 	if r == nil {
 		return
 	}
-	log.Printf("🔴 [PANIC RECOVERED] %s (conversa %s): %v", source, conversationID, r)
+	logging.Errorf(context.Background(), "events.emitter", "🔴 [PANIC RECOVERED] %s (conversa %s): %v", source, conversationID, r)
 	func() {
 		defer func() { _ = recover() }()
 		if emitter != nil {
