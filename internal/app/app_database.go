@@ -1,8 +1,9 @@
 package app
 
 import (
+	"assistente/internal/logging"
+	"context"
 	"errors"
-	"log"
 
 	"assistente/internal/config"
 	"assistente/internal/database"
@@ -10,7 +11,7 @@ import (
 
 // ErrDatabaseResetFailed é o erro genérico devolvido ao caller quando
 // `ResetDatabase` falha. O detalhe real (paths de arquivo, syscalls,
-// corrupção, permissão negada) só vai para `log.Printf` local — defesa
+// corrupção, permissão negada) só vai para o logger local — defesa
 // contra leak de estrutura de filesystem em multi-user (review do
 // AEP-0052, Bloco 7, M53).
 var ErrDatabaseResetFailed = errors.New("database reset failed")
@@ -31,7 +32,7 @@ func (a *App) ResetDatabase() error {
 		return err
 	}
 	if err := a.settingsCtrl.ResetDatabase(); err != nil {
-		log.Printf("[ResetDatabase] falha: %v", err)
+		logging.Errorf(context.Background(), "app.app-database", "[ResetDatabase] falha: %v", err)
 		return ErrDatabaseResetFailed
 	}
 	return nil

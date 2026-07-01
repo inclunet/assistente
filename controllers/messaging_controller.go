@@ -1,16 +1,12 @@
 package controllers
 
 import (
-	"context"
-	"encoding/base64"
-	"fmt"
-	"log"
-
 	"assistente/internal/channels"
 	"assistente/internal/chat"
 	"assistente/internal/contacts"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
+	"assistente/internal/logging"
 	"assistente/internal/messaging"
 	"assistente/internal/messaging/signal"
 	"assistente/internal/messaging/slack"
@@ -20,6 +16,9 @@ import (
 	"assistente/internal/speech"
 	"assistente/internal/tools"
 	msgtool "assistente/internal/tools/messaging"
+	"context"
+	"encoding/base64"
+	"fmt"
 )
 
 // MessagingControllerConfig agrupa todas as dependências do MessagingController.
@@ -119,7 +118,7 @@ func (c *MessagingController) Init() {
 
 		if profile != nil {
 			if !profile.ShouldRespondWithAudio(incomingIsAudio) {
-				log.Printf("[TTS-Channel] Modo '%s': não gerar áudio para canal %s (incoming_audio=%v)",
+				logging.Infof(context.Background(), "controllers.messaging-controller", "[TTS-Channel] Modo '%s': não gerar áudio para canal %s (incoming_audio=%v)",
 					profile.GetChannelResponseMode(), channel, incomingIsAudio)
 				return nil, nil
 			}
@@ -132,12 +131,12 @@ func (c *MessagingController) Init() {
 
 		if profile != nil {
 			if profile.Voice.Assistant.Provider == "disabled" || profile.Voice.Assistant.Provider == "" {
-				log.Printf("[TTS-Channel] Voz desabilitada no perfil para canal %s — respondendo com texto", channel)
+				logging.Infof(context.Background(), "controllers.messaging-controller", "[TTS-Channel] Voz desabilitada no perfil para canal %s — respondendo com texto", channel)
 				return nil, nil
 			}
 			// WebSpeech e SAPI5 são providers locais do desktop — não funcionam para canais externos
 			if profile.Voice.Assistant.Provider == "webspeech" || profile.Voice.Assistant.Provider == "sapi5" {
-				log.Printf("[TTS-Channel] Provider '%s' é local e não suporta canais externos — respondendo com texto", profile.Voice.Assistant.Provider)
+				logging.Infof(context.Background(), "controllers.messaging-controller", "[TTS-Channel] Provider '%s' é local e não suporta canais externos — respondendo com texto", profile.Voice.Assistant.Provider)
 				return nil, nil
 			}
 		}
@@ -230,7 +229,7 @@ func (c *MessagingController) Init() {
 
 	enabledChannels, err := channels.LoadEnabled()
 	if err != nil {
-		log.Printf("[Messaging] Erro ao carregar canais: %v", err)
+		logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Erro ao carregar canais: %v", err)
 	}
 
 	if cfg, ok := enabledChannels["telegram"]; ok {
@@ -239,7 +238,7 @@ func (c *MessagingController) Init() {
 	if cfg, ok := enabledChannels["signal"]; ok {
 		c.connectSignal(cfg)
 	} else {
-		log.Printf("[Messaging] Signal não configurado ou desabilitado")
+		logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Signal não configurado ou desabilitado")
 	}
 	if cfg, ok := enabledChannels["slack"]; ok {
 		c.connectSlack(cfg)
@@ -248,14 +247,14 @@ func (c *MessagingController) Init() {
 	if c.toolRegistry != nil {
 		sendMsgTool := msgtool.NewSendMessageTool(c.msgGateway)
 		c.toolRegistry.MustRegister(sendMsgTool)
-		log.Printf("[Messaging] Tool 'send_message' registrada")
+		logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Tool 'send_message' registrada")
 
 		pairingTool := msgtool.NewValidatePairingCodeTool()
 		c.toolRegistry.MustRegister(pairingTool)
-		log.Printf("[Messaging] Tool 'validate_pairing_code' registrada")
+		logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Tool 'validate_pairing_code' registrada")
 	}
 
-	log.Printf("[Messaging] Gateway inicializado")
+	logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Gateway inicializado")
 }
 
 // ============================================================================
@@ -359,7 +358,7 @@ func (c *MessagingController) AuthorizeMessagingContactFull(channel, contactID, 
 	if err := contacts.Authorize(channel, contactID, displayName, username, maxContacts); err != nil {
 		return fmt.Errorf("erro ao autorizar: %w", err)
 	}
-	log.Printf("[Contacts] Contato %s (%s) autorizado no canal %s", displayName, contactID, channel)
+	logging.Infof(context.Background(), "controllers.messaging-controller", "[Contacts] Contato %s (%s) autorizado no canal %s", displayName, contactID, channel)
 	return nil
 }
 
@@ -371,7 +370,7 @@ func (c *MessagingController) RemoveAuthorizedContact(channel, contactID string)
 	if err := contacts.Remove(channel, contactID); err != nil {
 		return fmt.Errorf("erro ao remover contato: %w", err)
 	}
-	log.Printf("[Contacts] Contato %s removido do canal %s", contactID, channel)
+	logging.Infof(context.Background(), "controllers.messaging-controller", "[Contacts] Contato %s removido do canal %s", contactID, channel)
 	return nil
 }
 
@@ -431,7 +430,7 @@ func (c *MessagingController) AssignConversationToChannel(ctx context.Context, c
 	if err := c.convSvc.UpdateConversationChannel(ctx, conversationID, channel, contactID); err != nil {
 		return fmt.Errorf("erro ao atualizar conversa: %w", err)
 	}
-	log.Printf("[Bridge] Conversa %s atribuída ao canal %s (contato: %s)", conversationID, channel, contactID)
+	logging.Infof(ctx, "controllers.messaging-controller", "[Bridge] Conversa %s atribuída ao canal %s (contato: %s)", conversationID, channel, contactID)
 	return nil
 }
 
@@ -441,7 +440,7 @@ func (c *MessagingController) UnassignConversationFromChannel(ctx context.Contex
 	if err := c.convSvc.UpdateConversationChannel(ctx, conversationID, "", ""); err != nil {
 		return fmt.Errorf("erro ao remover canal da conversa: %w", err)
 	}
-	log.Printf("[Bridge] Conversa %s desvinculada de canal externo", conversationID)
+	logging.Infof(ctx, "controllers.messaging-controller", "[Bridge] Conversa %s desvinculada de canal externo", conversationID)
 	return nil
 }
 
@@ -462,12 +461,12 @@ func (c *MessagingController) GetConversationChannel(ctx context.Context, conver
 // restartChannel desconecta o adapter anterior (se houver) e reconecta com a nova config.
 func (c *MessagingController) restartChannel(channelName string, cfg *channels.ChannelConfig) {
 	if c.msgGateway == nil {
-		log.Printf("[Messaging] Gateway não inicializado, ignorando restart de %s", channelName)
+		logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Gateway não inicializado, ignorando restart de %s", channelName)
 		return
 	}
 	c.msgGateway.Unregister(channelName)
 	if !cfg.Enabled {
-		log.Printf("[Messaging] Canal %s desabilitado", channelName)
+		logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Canal %s desabilitado", channelName)
 		return
 	}
 	switch channelName {
@@ -478,7 +477,7 @@ func (c *MessagingController) restartChannel(channelName string, cfg *channels.C
 	case "slack":
 		c.connectSlack(cfg)
 	default:
-		log.Printf("[Messaging] Canal desconhecido: %s", channelName)
+		logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Canal desconhecido: %s", channelName)
 	}
 }
 
@@ -552,33 +551,33 @@ func (c *MessagingController) connectTelegram(cfg *channels.ChannelConfig) {
 		botToken = c.resolveCredentialRef(cfg.BotTokenRef)
 	}
 	if botToken == "" {
-		log.Printf("[Messaging] Telegram não configurado (bot token ausente)")
+		logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Telegram não configurado (bot token ausente)")
 		return
 	}
 	adapter := telegram.NewAdapter(botToken)
 	c.msgGateway.Register("telegram", adapter)
 	go func() {
 		if err := adapter.Connect(c.ctx); err != nil {
-			log.Printf("[Messaging] Erro ao conectar Telegram: %v", err)
+			logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Erro ao conectar Telegram: %v", err)
 		}
 	}()
-	log.Printf("[Messaging] Telegram conectado")
+	logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Telegram conectado")
 }
 
 // connectSignal cria e registra o adapter do Signal (via signal-cli-rest-api).
 func (c *MessagingController) connectSignal(cfg *channels.ChannelConfig) {
 	if cfg.Account == "" || cfg.APIURL == "" {
-		log.Printf("[Messaging] Signal não configurado (conta ou URL da API ausente)")
+		logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Signal não configurado (conta ou URL da API ausente)")
 		return
 	}
 	adapter := signal.NewAdapter(cfg.APIURL, cfg.Account, c.credMgr)
 	c.msgGateway.Register("signal", adapter)
 	go func() {
 		if err := adapter.Connect(c.ctx); err != nil {
-			log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
+			logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Erro ao conectar Signal: %v", err)
 		}
 	}()
-	log.Printf("[Messaging] Signal conectado (api=%s, account=%s)", cfg.APIURL, credentials.MaskIdentifier(cfg.Account))
+	logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Signal conectado (api=%s, account=%s)", cfg.APIURL, credentials.MaskIdentifier(cfg.Account))
 }
 
 // connectSlack cria e registra o adapter do Slack (Socket Mode).
@@ -592,17 +591,17 @@ func (c *MessagingController) connectSlack(cfg *channels.ChannelConfig) {
 		appToken = c.resolveCredentialRef(cfg.AppTokenRef)
 	}
 	if botToken == "" || appToken == "" {
-		log.Printf("[Messaging] Slack não configurado (bot/app token ausente)")
+		logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Slack não configurado (bot/app token ausente)")
 		return
 	}
 	adapter := slack.NewAdapter(botToken, appToken)
 	c.msgGateway.Register("slack", adapter)
 	go func() {
 		if err := adapter.Connect(c.ctx); err != nil {
-			log.Printf("[Messaging] Erro ao conectar Slack: %v", err)
+			logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Erro ao conectar Slack: %v", err)
 		}
 	}()
-	log.Printf("[Messaging] Slack conectado")
+	logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Slack conectado")
 }
 
 // getSupportedChannelTypes retorna os tipos de canais suportados.
@@ -622,7 +621,7 @@ func (c *MessagingController) resolveCredentialRef(ref string) string {
 	}
 	auth, err := c.credMgr.GetByPattern(ref)
 	if err != nil {
-		log.Printf("[Credentials] Erro ao resolver referência %s: %v", ref, err)
+		logging.Errorf(context.Background(), "controllers.messaging-controller", "[Credentials] Erro ao resolver referência %s: %v", ref, err)
 		return ""
 	}
 	return credentials.ResolveSecretFromAuth(auth)

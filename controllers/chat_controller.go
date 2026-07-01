@@ -1,20 +1,19 @@
 package controllers
 
 import (
-	"context"
-	"log"
-
 	"assistente/internal/agent"
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/core/usecases"
 	"assistente/internal/llm"
+	"assistente/internal/logging"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/providers"
 	"assistente/internal/speech"
 	"assistente/internal/subagent"
 	"assistente/internal/tools"
+	"context"
 )
 
 // ChatControllerConfig agrupa todas as dependências do ChatController.
@@ -143,7 +142,7 @@ func (c *ChatController) registerChannelBridge(ctx context.Context, conversation
 		return // Messenger não registrado.
 	}
 
-	log.Printf("[Bridge] Registrando bridge Wails→%s para conversa %s (contato: %s)", conv.Channel, conversationID, conv.ContactID)
+	logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Registrando bridge Wails→%s para conversa %s (contato: %s)", conv.Channel, conversationID, conv.ContactID)
 
 	c.responseNotifier.Register(conversationID, messaging.ResponseCallback{
 		Channel: conv.Channel,
@@ -154,9 +153,9 @@ func (c *ChatController) registerChannelBridge(ctx context.Context, conversation
 				Text:   response,
 			})
 			if err != nil {
-				log.Printf("[Bridge] Erro ao reenviar resposta para %s/%s: %v", conv.Channel, conv.ContactID, err)
+				logging.Errorf(ctx, "controllers.chat-controller", "[Bridge] Erro ao reenviar resposta para %s/%s: %v", conv.Channel, conv.ContactID, err)
 			} else {
-				log.Printf("[Bridge] Resposta reenviada para %s/%s", conv.Channel, conv.ContactID)
+				logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Resposta reenviada para %s/%s", conv.Channel, conv.ContactID)
 			}
 		},
 	})

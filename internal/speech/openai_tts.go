@@ -1,10 +1,10 @@
 package speech
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"time"
 
@@ -400,7 +400,7 @@ func (c *TTSClient) SetFormat(format TTSFormat) {
 func (c *TTSClient) listModelsSafe(ctx context.Context) (page *pagination.Page[openai.Model], retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[TTSClient] PANIC no SDK Models.List: %v", r)
+			logging.Errorf(ctx, "speech.openai-tts", "[TTSClient] PANIC no SDK Models.List: %v", r)
 			retErr = fmt.Errorf("panic no SDK: %v", r)
 		}
 	}()
@@ -726,7 +726,7 @@ func (c *TTSClient) FetchSTTModels(ctx context.Context) []SpeechModelInfo {
 
 	page, err := c.listModelsSafe(ctx)
 	if err != nil {
-		log.Printf("[FetchSTTModels] erro ao listar modelos: %v", err)
+		logging.Errorf(ctx, "speech.openai-tts", "[FetchSTTModels] erro ao listar modelos: %v", err)
 		return staticSTTModels
 	}
 	if page == nil {

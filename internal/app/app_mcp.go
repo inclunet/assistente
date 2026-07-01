@@ -1,7 +1,8 @@
 package app
 
 import (
-	"log"
+	"assistente/internal/logging"
+	"context"
 	"time"
 
 	"assistente/internal/database"
@@ -73,9 +74,9 @@ func (a *App) initMCP() {
 		if event == "mcp:tools_changed" && a.jobMgr != nil {
 			go func() {
 				if err := a.jobMgr.RegenerateCatalog(); err != nil {
-					log.Printf("[Jobs] Catalog regeneration on MCP change failed: %v", err)
+					logging.Errorf(context.Background(), "app.app-mcp", "[Jobs] Catalog regeneration on MCP change failed: %v", err)
 				} else {
-					log.Printf("[Jobs] Catalog regenerated after MCP tools change")
+					logging.Infof(context.Background(), "app.app-mcp", "[Jobs] Catalog regenerated after MCP tools change")
 				}
 			}()
 		}
@@ -98,15 +99,15 @@ func (a *App) initMCP() {
 		}
 		a.mcpMgr.StartLogRetention(24*time.Hour, 30*24*time.Hour)
 		if err := a.mcpMgr.SyncBuiltinTools(database.WithBootstrap(a.internalBootstrapCtx())); err != nil {
-			log.Printf("[MCP] Erro ao sincronizar catálogo de builtin tools: %v", err)
+			logging.Errorf(context.Background(), "app.app-mcp", "[MCP] Erro ao sincronizar catálogo de builtin tools: %v", err)
 		}
 		// Carrega configs somente do DB (NÃO importa filesystem e NÃO conecta).
 		// Importações legadas e auto-connect rodam no reloadUserScopedRuntime
 		// pós-login, quando as credenciais user-scoped já estão em memória.
 		if err := a.mcpMgr.LoadConfigs(); err != nil {
-			log.Printf("[MCP] Erro ao carregar configurações: %v", err)
+			logging.Errorf(context.Background(), "app.app-mcp", "[MCP] Erro ao carregar configurações: %v", err)
 		}
 	}
 
-	log.Printf("[MCP] Manager inicializado")
+	logging.Infof(context.Background(), "app.app-mcp", "[MCP] Manager inicializado")
 }

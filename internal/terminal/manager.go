@@ -1,9 +1,9 @@
 package terminal
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 )
@@ -135,7 +135,7 @@ func (m *Manager) Acquire(ctx context.Context, workDir string) (*Session, error)
 	m.mu.RUnlock()
 
 	if bestSession != nil {
-		log.Printf("[Terminal] Reutilizando sessão idle: id=%s cwd=%s", bestSession.id, bestSession.cwd)
+		logging.Infof(ctx, "terminal.manager", "[Terminal] Reutilizando sessão idle: id=%s cwd=%s", bestSession.id, bestSession.cwd)
 		return bestSession, nil
 	}
 
@@ -300,11 +300,11 @@ func (m *Manager) CloseAll() {
 
 	for _, s := range sessions {
 		if err := s.Close(); err != nil {
-			log.Printf("[Terminal] Erro ao fechar sessão %s: %v", s.id, err)
+			logging.Errorf(context.Background(), "terminal.manager", "[Terminal] Erro ao fechar sessão %s: %v", s.id, err)
 		}
 	}
 
-	log.Printf("[Terminal] Todas as %d sessões encerradas", len(sessions))
+	logging.Infof(context.Background(), "terminal.manager", "[Terminal] Todas as %d sessões encerradas", len(sessions))
 }
 
 // Stats retorna estatísticas do gerenciador.

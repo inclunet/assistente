@@ -1,7 +1,8 @@
 package controllers
 
 import (
-	"log"
+	"assistente/internal/logging"
+	"context"
 	"sync"
 	"time"
 
@@ -63,11 +64,11 @@ func (c *HotkeysController) IsGlobalHotkeySupported() bool {
 // Init inicializa o gerenciador de hotkeys.
 func (c *HotkeysController) Init() {
 	if !hotkey.IsSupported() {
-		log.Println("[Hotkey] Hotkeys globais não suportados neste sistema")
+		logging.Println(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Hotkeys globais não suportados neste sistema")
 		return
 	}
 	c.manager = hotkey.GetManager()
-	log.Println("[Hotkey] Manager inicializado. Hotkeys serão registrados pelos triggers dos perfis.")
+	logging.Println(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Manager inicializado. Hotkeys serão registrados pelos triggers dos perfis.")
 }
 
 // RegisterActiveProfileHotkeys registra os hotkeys do perfil ativo.
@@ -78,7 +79,7 @@ func (c *HotkeysController) RegisterActiveProfileHotkeys() {
 
 	activeProfile, err := c.profileMgr.GetActive()
 	if err != nil {
-		log.Printf("[Hotkey] Erro ao obter perfil ativo: %v", err)
+		logging.Errorf(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Erro ao obter perfil ativo: %v", err)
 		return
 	}
 
@@ -98,7 +99,7 @@ func (c *HotkeysController) RegisterActiveProfileHotkeys() {
 		t := trigger
 		triggerKey := uint(hotkeyCount)
 
-		log.Printf("[Hotkey] Registrando hotkey '%s' para trigger tipo %s...", t.Hotkey, t.Type)
+		logging.Infof(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Registrando hotkey '%s' para trigger tipo %s...", t.Hotkey, t.Type)
 		_, err := c.manager.RegisterProfileHotkey(
 			1,
 			t.Hotkey,
@@ -116,7 +117,7 @@ func (c *HotkeysController) RegisterActiveProfileHotkeys() {
 				c.lastFired[triggerKey] = now
 				c.mu.Unlock()
 
-				log.Printf("[Hotkey] HOTKEY ACIONADA! Trigger tipo %s", t.Type)
+				logging.Infof(context.Background(), "controllers.hotkeys-controller", "[Hotkey] HOTKEY ACIONADA! Trigger tipo %s", t.Type)
 				c.emitter.Emit("interaction:hotkey:triggered", map[string]interface{}{
 					"triggerType":  t.Type,
 					"bringToFront": t.HotkeyBringToFront,
@@ -128,13 +129,13 @@ func (c *HotkeysController) RegisterActiveProfileHotkeys() {
 			},
 		)
 		if err != nil {
-			log.Printf("[Hotkey] ERRO ao registrar hotkey '%s': %v", t.Hotkey, err)
+			logging.Errorf(context.Background(), "controllers.hotkeys-controller", "[Hotkey] ERRO ao registrar hotkey '%s': %v", t.Hotkey, err)
 		} else {
-			log.Printf("[Hotkey] Hotkey '%s' registrada com sucesso", t.Hotkey)
+			logging.Infof(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Hotkey '%s' registrada com sucesso", t.Hotkey)
 		}
 	}
 
-	log.Printf("[Hotkey] Total: %d hotkeys registradas para perfil ativo", hotkeyCount)
+	logging.Infof(context.Background(), "controllers.hotkeys-controller", "[Hotkey] Total: %d hotkeys registradas para perfil ativo", hotkeyCount)
 }
 
 // Stop para o gerenciador de hotkeys.

@@ -1,12 +1,11 @@
 package controllers
 
 import (
+	"assistente/internal/chat"
+	"assistente/internal/logging"
+	"assistente/internal/profiles"
 	"context"
 	"fmt"
-	"log"
-
-	"assistente/internal/chat"
-	"assistente/internal/profiles"
 )
 
 // TokensControllerConfig agrupa dependências do TokensController.
@@ -93,6 +92,6 @@ func (c *TokensController) CheckContextWindowThreshold(ctx context.Context, conv
 		return false, 0, err
 	}
 
-	log.Printf("[TokenStats] Conversa %s: %.1f%% de %d tokens", conversationID, percentage, contextLimit)
+	logging.Infof(ctx, "controllers.tokens-controller", "[TokenStats] Conversa %s: %.1f%% de %d tokens", conversationID, percentage, contextLimit)
 	return above, percentage, nil
 }

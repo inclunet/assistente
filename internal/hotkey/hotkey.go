@@ -3,9 +3,9 @@
 package hotkey
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 
@@ -100,7 +100,7 @@ func (m *Manager) Register(modifiers []hotkey.Modifier, key hotkey.Key, callback
 		cancel:    cancel,
 	}
 
-	log.Printf("Hotkey registrado: ID=%d, Modifiers=%v, Key=%v", id, modifiers, key)
+	logging.Infof(context.Background(), "hotkey.hotkey", "Hotkey registrado: ID=%d, Modifiers=%v, Key=%v", id, modifiers, key)
 	return id, nil
 }
 
@@ -128,11 +128,11 @@ func (m *Manager) Unregister(id int) error {
 
 	// Desregistra o hotkey
 	if err := hk.hotkey.Unregister(); err != nil {
-		log.Printf("Warning: failed to unregister hotkey %d: %v", id, err)
+		logging.Warnf(context.Background(), "hotkey.hotkey", "Warning: failed to unregister hotkey %d: %v", id, err)
 	}
 
 	delete(m.hotkeys, id)
-	log.Printf("Hotkey removido: ID=%d", id)
+	logging.Infof(context.Background(), "hotkey.hotkey", "Hotkey removido: ID=%d", id)
 	return nil
 }
 
@@ -148,7 +148,7 @@ func (m *Manager) UnregisterAll() {
 		if hk.hotkey != nil {
 			_ = hk.hotkey.Unregister()
 		}
-		log.Printf("Hotkey removido: ID=%d", id)
+		logging.Infof(context.Background(), "hotkey.hotkey", "Hotkey removido: ID=%d", id)
 	}
 	m.hotkeys = make(map[int]*RegisteredHotkey)
 }
@@ -297,7 +297,7 @@ func (m *Manager) RegisterProfileHotkey(profileID int, combination string, isPri
 	})
 	profileHotkeysMu.Unlock()
 
-	log.Printf("Profile hotkey registrado: ProfileID=%d, Combination=%s, Primary=%v, BringToFront=%v, HotkeyID=%d",
+	logging.Infof(context.Background(), "hotkey.hotkey", "Profile hotkey registrado: ProfileID=%d, Combination=%s, Primary=%v, BringToFront=%v, HotkeyID=%d",
 		profileID, combination, isPrimary, bringToFront, hotkeyID)
 
 	return hotkeyID, nil
@@ -317,7 +317,7 @@ func (m *Manager) UnregisterProfileHotkeys(profileID int) error {
 	var lastErr error
 	for _, hk := range hotkeys {
 		if err := m.Unregister(hk.HotkeyID); err != nil {
-			log.Printf("Warning: failed to unregister hotkey %d for profile %d: %v", hk.HotkeyID, profileID, err)
+			logging.Warnf(context.Background(), "hotkey.hotkey", "Warning: failed to unregister hotkey %d for profile %d: %v", hk.HotkeyID, profileID, err)
 			lastErr = err
 		}
 	}

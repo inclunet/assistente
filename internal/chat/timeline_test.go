@@ -3,7 +3,7 @@ package chat
 import (
 	"bytes"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"strconv"
 	"strings"
 	"testing"
@@ -329,9 +329,9 @@ func TestParseToolCalls_InvalidJSONLogsOncePerMessage(t *testing.T) {
 	resetInvalidToolCallsLogStateForTest(t)
 
 	var buf bytes.Buffer
-	previousWriter := log.Writer()
-	log.SetOutput(&buf)
-	defer log.SetOutput(previousWriter)
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(previousLogger)
 
 	messageID := "message-invalid-log-once"
 	ParseToolCalls(messageID, "{invalid")
@@ -346,9 +346,9 @@ func TestParseToolCalls_InvalidJSONLogCacheIsBounded(t *testing.T) {
 	resetInvalidToolCallsLogStateForTest(t)
 
 	var buf bytes.Buffer
-	previousWriter := log.Writer()
-	log.SetOutput(&buf)
-	defer log.SetOutput(previousWriter)
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(previousLogger)
 
 	for i := 0; i < invalidToolCallsLogLimit+10; i++ {
 		ParseToolCalls("message-invalid-"+strconv.Itoa(i), "{invalid")

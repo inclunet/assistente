@@ -1,9 +1,9 @@
 package credentials
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"errors"
-	"log"
 	"sync"
 )
 
@@ -124,7 +124,7 @@ func (m *Manager) verifyDEKConsistency(ctx context.Context) error {
 		// instalação tiver creds órfãs (cifradas com DEK que sumiu),
 		// elas vão aparecer em `UnreadableCredentialIDs` no scan
 		// abaixo.
-		log.Printf("[Credentials] master_wrap sem dek_id — adotando DEK do keychain (%s) como referência", status.KeychainDekID)
+		logging.Warnf(ctx, "credentials.vault-integrity", "[Credentials] master_wrap sem dek_id — adotando DEK do keychain (%s) como referência", status.KeychainDekID)
 		if err := adoptDekIDInWrapsIfMissing(ctx, m.store, status.KeychainDekID); err != nil {
 			status.OK = false
 			status.Reason = "falha ao popular dek_id em wraps legados: " + err.Error()
@@ -138,7 +138,7 @@ func (m *Manager) verifyDEKConsistency(ctx context.Context) error {
 	default:
 		// DIVERGÊNCIA: keychain tem uma DEK, wraps embrulham outra.
 		// Bloqueia novas gravações para não perpetuar dois universos.
-		log.Printf("[Credentials] CRITICAL: divergência DEK detectada — keychain=%s wraps=%s; bloqueando persistência até resolver", status.KeychainDekID, wrap.DekID)
+		logging.Errorf(ctx, "credentials.vault-integrity", "[Credentials] CRITICAL: divergência DEK detectada — keychain=%s wraps=%s; bloqueando persistência até resolver", status.KeychainDekID, wrap.DekID)
 		m.persist = false
 		status.OK = false
 		status.Reason = "divergência: keychain tem uma DEK e os wraps embrulham outra; use a senha mestre/recovery para reconciliar (UnlockOverwriteKeychain) ou reemita as credenciais ilegíveis"
@@ -149,7 +149,7 @@ func (m *Manager) verifyDEKConsistency(ctx context.Context) error {
 	if status.HasKeyringDEK {
 		ids, scanErr := m.scanUnreadableCredentialIDs(ctx)
 		if scanErr != nil {
-			log.Printf("[Credentials] scan de creds ilegíveis falhou: %v", scanErr)
+			logging.Infof(ctx, "credentials.vault-integrity", "[Credentials] scan de creds ilegíveis falhou: %v", scanErr)
 		}
 		status.UnreadableCredentialIDs = ids
 	}

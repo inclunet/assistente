@@ -1,11 +1,11 @@
 package llm
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -20,7 +20,7 @@ func (p *OpenAIProvider) GetModels(ctx context.Context) ([]string, error) {
 	}
 
 	// Se o SDK falhou (inclusive por panic capturado), tenta fallback HTTP direto
-	log.Printf("[OpenAIProvider] SDK falhou ao listar modelos: %v — tentando fallback HTTP", err)
+	logging.Errorf(ctx, "llm.openai-models", "[OpenAIProvider] SDK falhou ao listar modelos: %v — tentando fallback HTTP", err)
 	return p.getModelsHTTP(ctx)
 }
 
@@ -28,7 +28,7 @@ func (p *OpenAIProvider) GetModels(ctx context.Context) ([]string, error) {
 func (p *OpenAIProvider) getModelsSDK(ctx context.Context) (models []string, retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[OpenAIProvider] PANIC no SDK Models.List: %v", r)
+			logging.Errorf(ctx, "llm.openai-models", "[OpenAIProvider] PANIC no SDK Models.List: %v", r)
 			retErr = fmt.Errorf("panic no SDK: %v", r)
 		}
 	}()

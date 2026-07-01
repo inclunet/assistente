@@ -1,13 +1,13 @@
 package signal
 
 import (
+	"assistente/internal/logging"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -35,9 +35,9 @@ func base64Encode(data []byte) string {
 //   - GET  /v1/receive/{number} — recebe mensagens (HTTP polling em modo native, WebSocket em json-rpc)
 //   - GET  /v1/about — health check
 type SignalAdapter struct {
-	baseURL  string // URL base da API (ex: "http://signal-api:8080")
-	account  string // número de telefone da conta Signal (ex: "+5511999999999")
-	apiMode  string // modo da API: "native" ou "json-rpc"
+	baseURL string // URL base da API (ex: "http://signal-api:8080")
+	account string // número de telefone da conta Signal (ex: "+5511999999999")
+	apiMode string // modo da API: "native" ou "json-rpc"
 
 	handler messaging.IncomingMessageHandler
 	status  messaging.ConnectionStatus
@@ -103,12 +103,12 @@ func (s *SignalAdapter) Connect(ctx context.Context) error {
 			return fmt.Errorf("erro ao conectar WebSocket Signal: %w", err)
 		}
 		s.setStatus(messaging.StatusConnected)
-		log.Printf("[Signal] Conectado via WebSocket à API %s (account=%s, mode=%s)", s.baseURL, maskIdentifier(s.account), mode)
+		logging.Infof(ctx, "messaging.signal.adapter", "[Signal] Conectado via WebSocket à API %s (account=%s, mode=%s)", s.baseURL, maskIdentifier(s.account), mode)
 		go s.wsReadLoop()
 	} else {
 		// Modo native: usa HTTP polling
 		s.setStatus(messaging.StatusConnected)
-		log.Printf("[Signal] Conectado via HTTP polling à API %s (account=%s, mode=%s)", s.baseURL, maskIdentifier(s.account), mode)
+		logging.Infof(ctx, "messaging.signal.adapter", "[Signal] Conectado via HTTP polling à API %s (account=%s, mode=%s)", s.baseURL, maskIdentifier(s.account), mode)
 		go s.httpPollLoop()
 	}
 
@@ -130,7 +130,7 @@ func (s *SignalAdapter) Disconnect() error {
 		s.wsConn = nil
 	}
 	s.status = messaging.StatusDisconnected
-	log.Println("[Signal] Desconectado")
+	logging.Println(context.Background(), "messaging.signal.adapter", "[Signal] Desconectado")
 	return nil
 }
 
@@ -245,7 +245,7 @@ func (s *SignalAdapter) healthCheckAndDetectMode() (string, error) {
 		}
 	}
 
-	log.Printf("[Signal] Health check OK (%s, mode=%s)", reqURL, mode)
+	logging.Debugf(context.Background(), "messaging.signal.adapter", "[Signal] Health check OK (%s, mode=%s)", reqURL, mode)
 	return mode, nil
 }
 
@@ -269,7 +269,7 @@ func (s *SignalAdapter) connectWebSocket() error {
 	s.wsConn = conn
 	s.mu.Unlock()
 
-	log.Printf("[Signal] WebSocket conectado: %s", wsURL)
+	logging.Infof(context.Background(), "messaging.signal.adapter", "[Signal] WebSocket conectado: %s", wsURL)
 	return nil
 }
 
@@ -296,7 +296,7 @@ func (s *SignalAdapter) wsReadLoop() {
 		s.mu.RUnlock()
 
 		if conn == nil {
-			log.Println("[Signal] WebSocket desconectado, tentando reconectar...")
+			logging.Println(context.Background(), "messaging.signal.adapter", "[Signal] WebSocket desconectado, tentando reconectar...")
 			s.reconnectWebSocket()
 			continue
 		}
@@ -309,7 +309,7 @@ func (s *SignalAdapter) wsReadLoop() {
 			if s.ctx.Err() != nil {
 				return // Contexto cancelado
 			}
-			log.Printf("[Signal] Erro ao ler WebSocket: %v", err)
+			logging.Errorf(context.Background(), "messaging.signal.adapter", "[Signal] Erro ao ler WebSocket: %v", err)
 			s.reconnectWebSocket()
 			continue
 		}
@@ -322,7 +322,7 @@ func (s *SignalAdapter) wsReadLoop() {
 func (s *SignalAdapter) handleWSMessage(data []byte) {
 	var envelope wsEnvelope
 	if err := json.Unmarshal(data, &envelope); err != nil {
-		log.Printf("[Signal] Erro ao parsear mensagem: %v (dados: %s)", err, truncate(string(data), 200))
+		logging.Errorf(context.Background(), "messaging.signal.adapter", "[Signal] Erro ao parsear mensagem: %v (dados: %s)", err, truncate(string(data), 200))
 		return
 	}
 
@@ -343,7 +343,7 @@ func (s *SignalAdapter) handleWSMessage(data []byte) {
 		for _, att := range env.DataMessage.Attachments {
 			data, err := s.downloadAttachment(att.ID)
 			if err != nil {
-				log.Printf("[Signal] Erro ao baixar attachment %s (%s): %v", att.ID, att.ContentType, err)
+				logging.Errorf(context.Background(), "messaging.signal.adapter", "[Signal] Erro ao baixar attachment %s (%s): %v", att.ID, att.ContentType, err)
 				continue
 			}
 
@@ -418,7 +418,7 @@ func (s *SignalAdapter) handleWSMessage(data []byte) {
 func (s *SignalAdapter) httpPollLoop() {
 	pollInterval := 3 * time.Second
 
-	log.Printf("[Signal] Iniciando HTTP polling a cada %s", pollInterval)
+	logging.Infof(context.Background(), "messaging.signal.adapter", "[Signal] Iniciando HTTP polling a cada %s", pollInterval)
 
 	for {
 		select {
@@ -442,7 +442,7 @@ func (s *SignalAdapter) pollMessages() {
 	resp, err := s.client.Do(s.ctx, req)
 	if err != nil {
 		if s.ctx.Err() == nil {
-			log.Printf("[Signal] Erro no polling: %v", err)
+			logging.Errorf(context.Background(), "messaging.signal.adapter", "[Signal] Erro no polling: %v", err)
 		}
 		return
 	}
@@ -450,7 +450,7 @@ func (s *SignalAdapter) pollMessages() {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("[Signal] Polling retornou %d: %s", resp.StatusCode, truncate(string(body), 200))
+		logging.Infof(context.Background(), "messaging.signal.adapter", "[Signal] Polling retornou %d: %s", resp.StatusCode, truncate(string(body), 200))
 		return
 	}
 
@@ -496,10 +496,10 @@ func (s *SignalAdapter) reconnectWebSocket() {
 		case <-time.After(backoff):
 		}
 
-		log.Printf("[Signal] Tentando reconectar WebSocket (backoff=%s)...", backoff)
+		logging.Infof(context.Background(), "messaging.signal.adapter", "[Signal] Tentando reconectar WebSocket (backoff=%s)...", backoff)
 
 		if err := s.connectWebSocket(); err != nil {
-			log.Printf("[Signal] Reconexão falhou: %v", err)
+			logging.Infof(context.Background(), "messaging.signal.adapter", "[Signal] Reconexão falhou: %v", err)
 			backoff *= 2
 			if backoff > maxBackoff {
 				backoff = maxBackoff
@@ -507,7 +507,7 @@ func (s *SignalAdapter) reconnectWebSocket() {
 			continue
 		}
 
-		log.Println("[Signal] WebSocket reconectado com sucesso")
+		logging.Println(context.Background(), "messaging.signal.adapter", "[Signal] WebSocket reconectado com sucesso")
 		s.setStatus(messaging.StatusConnected)
 		return
 	}

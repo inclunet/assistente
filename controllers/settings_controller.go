@@ -1,9 +1,9 @@
 package controllers
 
 import (
+	"assistente/internal/logging"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -61,7 +61,7 @@ func NewSettingsController(cfg SettingsControllerConfig) *SettingsController {
 func (c *SettingsController) GetMaintenanceSettings() (config.MaintenanceSettings, error) {
 	settings, err := config.GetMaintenance()
 	if err != nil {
-		log.Printf("[Settings] falha ao ler manutenção do config.json; usando defaults: %v", err)
+		logging.Errorf(context.Background(), "controllers.settings-controller", "[Settings] falha ao ler manutenção do config.json; usando defaults: %v", err)
 		return config.DefaultMaintenanceSettings(), nil
 	}
 	return settings, nil
@@ -177,7 +177,7 @@ func (c *SettingsController) ClearAllCredentials(ctx context.Context) error {
 		}
 		deleted++
 	}
-	log.Printf("[ClearAllCredentials] %d credenciais apagadas (escopo do usuário autenticado)", deleted)
+	logging.Infof(ctx, "controllers.settings-controller", "[ClearAllCredentials] %d credenciais apagadas (escopo do usuário autenticado)", deleted)
 	c.emitter.Emit("credentials:cleared", nil)
 	return nil
 }
@@ -192,10 +192,10 @@ func (c *SettingsController) ClearAllProfiles() error {
 	}
 	for _, p := range list {
 		if err := c.profileMgr.Delete(p.Slug); err != nil {
-			log.Printf("[ClearAllProfiles] Erro ao deletar perfil %s: %v", p.Slug, err)
+			logging.Errorf(context.Background(), "controllers.settings-controller", "[ClearAllProfiles] Erro ao deletar perfil %s: %v", p.Slug, err)
 		}
 	}
-	log.Println("[ClearAllProfiles] Perfis apagados")
+	logging.Println(context.Background(), "controllers.settings-controller", "[ClearAllProfiles] Perfis apagados")
 	c.emitter.Emit("profiles:cleared", nil)
 	return nil
 }
@@ -210,10 +210,10 @@ func (c *SettingsController) ClearAllSkills() error {
 	}
 	for _, s := range list {
 		if err := c.skillMgr.Delete(s.Slug); err != nil {
-			log.Printf("[ClearAllSkills] Erro ao deletar skill %s: %v", s.Slug, err)
+			logging.Errorf(context.Background(), "controllers.settings-controller", "[ClearAllSkills] Erro ao deletar skill %s: %v", s.Slug, err)
 		}
 	}
-	log.Println("[ClearAllSkills] Skills apagados")
+	logging.Println(context.Background(), "controllers.settings-controller", "[ClearAllSkills] Skills apagados")
 	c.emitter.Emit("skills:cleared", nil)
 	return nil
 }
@@ -224,7 +224,7 @@ func (c *SettingsController) ClearAllChannels() error {
 	}
 	// sem acesso direto ao gateway — usa callback injetado
 	c.emitter.Emit("channels:cleared", nil)
-	log.Println("[ClearAllChannels] Evento channels:cleared emitido")
+	logging.Println(context.Background(), "controllers.settings-controller", "[ClearAllChannels] Evento channels:cleared emitido")
 	return nil
 }
 
@@ -252,7 +252,7 @@ func (c *SettingsController) ResetDatabase() error {
 	if err := database.Init(); err != nil {
 		return fmt.Errorf("erro ao reinicializar banco: %v", err)
 	}
-	log.Println("[ResetDatabase] Banco resetado com sucesso")
+	logging.Println(context.Background(), "controllers.settings-controller", "[ResetDatabase] Banco resetado com sucesso")
 	c.emitter.Emit("database:reset", nil)
 	return nil
 }
@@ -265,7 +265,7 @@ func (c *SettingsController) ClearMessages(ctx context.Context) error {
 	if err := database.ClearAllConversationsWithContext(ctx); err != nil {
 		return fmt.Errorf("erro ao limpar mensagens e conversas: %v", err)
 	}
-	log.Println("[ClearMessages] Mensagens e conversas apagadas")
+	logging.Println(ctx, "controllers.settings-controller", "[ClearMessages] Mensagens e conversas apagadas")
 	c.emitter.Emit("messages:cleared", nil)
 	return nil
 }

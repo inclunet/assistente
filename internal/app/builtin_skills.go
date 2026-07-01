@@ -1,10 +1,11 @@
 package app
 
 import (
+	"assistente/internal/logging"
 	"bytes"
+	"context"
 	"embed"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -29,19 +30,19 @@ func (a *App) installBuiltinSkills() {
 	resolver := configdir.NewResolver("skills")
 	homeDir := resolver.GetHomeDir()
 	if homeDir == "" {
-		log.Printf("[Skills] Home dir not available, skipping builtin skill install")
+		logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Home dir not available, skipping builtin skill install")
 		return
 	}
 
 	if err := os.MkdirAll(homeDir, 0755); err != nil {
-		log.Printf("[Skills] Error creating skills home dir: %v", err)
+		logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Error creating skills home dir: %v", err)
 		return
 	}
 	removeLegacyContextProviderSkills(homeDir)
 
 	skillEntries, err := fs.ReadDir(builtinSkillsFS, "builtin/skills")
 	if err != nil {
-		log.Printf("[Skills] Error reading embedded skills: %v", err)
+		logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Error reading embedded skills: %v", err)
 		return
 	}
 
@@ -60,7 +61,7 @@ func (a *App) installBuiltinSkills() {
 
 		embeddedMeta, _, err := skills.Parse(string(embeddedSkillData))
 		if err != nil {
-			log.Printf("[Skills] Error parsing embedded skill %s: %v", slug, err)
+			logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Error parsing embedded skill %s: %v", slug, err)
 			continue
 		}
 
@@ -71,19 +72,19 @@ func (a *App) installBuiltinSkills() {
 			existingMeta, _, err := skills.Parse(string(existingData))
 			if err == nil && !isVersionNewer(embeddedMeta.Version, existingMeta.Version) {
 				if bytes.Equal(embeddedSkillData, existingData) {
-					log.Printf("[Skills] Builtin %s v%s up to date (installed: v%s)", slug, embeddedMeta.Version, existingMeta.Version)
+					logging.Infof(context.Background(), "app.builtin-skills", "[Skills] Builtin %s v%s up to date (installed: v%s)", slug, embeddedMeta.Version, existingMeta.Version)
 					continue
 				}
-				log.Printf("[Skills] Updating builtin skill %s v%s (content changed)", slug, embeddedMeta.Version)
+				logging.Infof(context.Background(), "app.builtin-skills", "[Skills] Updating builtin skill %s v%s (content changed)", slug, embeddedMeta.Version)
 			} else {
-				log.Printf("[Skills] Updating builtin skill %s: v%s → v%s", slug, existingMeta.Version, embeddedMeta.Version)
+				logging.Infof(context.Background(), "app.builtin-skills", "[Skills] Updating builtin skill %s: v%s → v%s", slug, existingMeta.Version, embeddedMeta.Version)
 			}
 		} else {
-			log.Printf("[Skills] Installing builtin skill %s v%s", slug, embeddedMeta.Version)
+			logging.Infof(context.Background(), "app.builtin-skills", "[Skills] Installing builtin skill %s v%s", slug, embeddedMeta.Version)
 		}
 
 		if err := os.MkdirAll(targetDir, 0755); err != nil {
-			log.Printf("[Skills] Error creating dir for %s: %v", slug, err)
+			logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Error creating dir for %s: %v", slug, err)
 			continue
 		}
 
@@ -96,7 +97,7 @@ func removeLegacyContextProviderSkills(homeDir string) {
 	if _, err := os.Stat(markerFile); err == nil {
 		return
 	} else if err != nil && !os.IsNotExist(err) {
-		log.Printf("[Skills] Error checking legacy context provider cleanup marker: %v", err)
+		logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Error checking legacy context provider cleanup marker: %v", err)
 		return
 	}
 
@@ -106,30 +107,30 @@ func removeLegacyContextProviderSkills(homeDir string) {
 		targetDir := filepath.Join(homeDir, slug)
 		if _, err := os.Stat(targetDir); err != nil {
 			if !os.IsNotExist(err) {
-				log.Printf("[Skills] Error checking legacy context provider skill %s: %v", slug, err)
+				logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Error checking legacy context provider skill %s: %v", slug, err)
 				cleanupFailed = true
 			}
 			continue
 		}
 		backupDir := filepath.Join(backupRoot, slug)
 		if err := os.MkdirAll(filepath.Dir(backupDir), 0755); err != nil {
-			log.Printf("[Skills] Error creating legacy context provider backup dir for %s: %v", slug, err)
+			logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Error creating legacy context provider backup dir for %s: %v", slug, err)
 			cleanupFailed = true
 			continue
 		}
 		if err := os.Rename(targetDir, backupDir); err != nil {
-			log.Printf("[Skills] Error backing up legacy context provider skill %s: %v", slug, err)
+			logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Error backing up legacy context provider skill %s: %v", slug, err)
 			cleanupFailed = true
 			continue
 		}
-		log.Printf("[Skills] Backed up legacy context provider skill %s to %s", slug, backupDir)
+		logging.Infof(context.Background(), "app.builtin-skills", "[Skills] Backed up legacy context provider skill %s to %s", slug, backupDir)
 	}
 	if cleanupFailed {
-		log.Printf("[Skills] Legacy context provider cleanup incomplete; marker not written")
+		logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Legacy context provider cleanup incomplete; marker not written")
 		return
 	}
 	if err := os.WriteFile(markerFile, []byte(time.Now().Format(time.RFC3339)), 0644); err != nil {
-		log.Printf("[Skills] Error writing legacy context provider cleanup marker: %v", err)
+		logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Error writing legacy context provider cleanup marker: %v", err)
 	}
 }
 
@@ -147,13 +148,13 @@ func (a *App) copyEmbeddedSkillDir(embeddedBase, targetDir string) {
 
 		data, err := fs.ReadFile(builtinSkillsFS, embeddedBase+"/"+entry.Name())
 		if err != nil {
-			log.Printf("[Skills] Error reading embedded file %s: %v", entry.Name(), err)
+			logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Error reading embedded file %s: %v", entry.Name(), err)
 			continue
 		}
 
 		targetFile := filepath.Join(targetDir, entry.Name())
 		if err := os.WriteFile(targetFile, data, 0644); err != nil {
-			log.Printf("[Skills] Error writing %s: %v", targetFile, err)
+			logging.Errorf(context.Background(), "app.builtin-skills", "[Skills] Error writing %s: %v", targetFile, err)
 		}
 	}
 }

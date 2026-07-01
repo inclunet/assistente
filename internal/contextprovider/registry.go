@@ -1,8 +1,8 @@
 package contextprovider
 
 import (
+	"assistente/internal/logging"
 	"context"
-	"log"
 	"sort"
 	"strings"
 )
@@ -72,7 +72,7 @@ func (r *Registry) Build(ctx context.Context, req BuildRequest) ([]Block, error)
 		providerBlocks, err := provider.Build(ctx, req)
 		blocks = appendProviderBlocks(blocks, provider.Name(), providerBlocks)
 		if err != nil {
-			log.Printf("[context/providers] provider %q ignorado após erro: %v", provider.Name(), err)
+			logging.Errorf(ctx, "contextprovider.registry", "[context/providers] provider %q ignorado após erro: %v", provider.Name(), err)
 			continue
 		}
 	}
