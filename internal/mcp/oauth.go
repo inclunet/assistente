@@ -630,7 +630,7 @@ func (rt *pkceRoundTripper) resolveClientID(ctx context.Context) error {
 	callbackHost, listenIP := resolveCallbackHost(rt.cfg.OAuth2CallbackHost)
 	port := rt.cfg.OAuth2CallbackPort
 	if port == 0 {
-		l, err := net.Listen("tcp", listenIP+":0")
+		l, err := net.Listen("tcp", callbackListenAddr(listenIP, 0))
 		if err != nil {
 			return fmt.Errorf("failed to allocate port for DCR redirect_uri: %w", err)
 		}
@@ -665,7 +665,7 @@ func (rt *pkceRoundTripper) reRegisterClient(ctx context.Context) error {
 	callbackHost, listenIP := resolveCallbackHost(rt.cfg.OAuth2CallbackHost)
 	port := rt.cfg.OAuth2CallbackPort
 	if port == 0 {
-		l, err := net.Listen("tcp", listenIP+":0")
+		l, err := net.Listen("tcp", callbackListenAddr(listenIP, 0))
 		if err != nil {
 			return fmt.Errorf("failed to allocate port for DCR redirect_uri: %w", err)
 		}
@@ -889,9 +889,9 @@ func (rt *pkceRoundTripper) pollDeviceToken(clientID, deviceCode string) (*devic
 func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 	callbackHost, listenIP := resolveCallbackHost(rt.cfg.OAuth2CallbackHost)
 
-	listenAddr := listenIP + ":0"
+	listenAddr := callbackListenAddr(listenIP, 0)
 	if rt.cfg.OAuth2CallbackPort > 0 {
-		listenAddr = fmt.Sprintf("%s:%d", listenIP, rt.cfg.OAuth2CallbackPort)
+		listenAddr = callbackListenAddr(listenIP, rt.cfg.OAuth2CallbackPort)
 	}
 
 	listener, err := net.Listen("tcp", listenAddr)
@@ -899,7 +899,7 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 		if rt.cfg.OAuth2CallbackPort > 0 {
 			if isAddressInUse(err) && rt.cfg.OAuth2RegistrationURL != "" {
 				oldPort := rt.cfg.OAuth2CallbackPort
-				replacementListener, reserveErr := net.Listen("tcp", listenIP+":0")
+				replacementListener, reserveErr := net.Listen("tcp", callbackListenAddr(listenIP, 0))
 				if reserveErr != nil {
 					logging.Errorf(ctx, "mcp.oauth", "[MCP:%s] falha ao reservar porta alternativa após colisão da porta PKCE %d: %v", rt.serverSlug, oldPort, reserveErr)
 				} else {
@@ -1243,6 +1243,10 @@ func resolveCallbackHost(configured string) (host, listenIP string) {
 		listenIP = "::1"
 	}
 	return
+}
+
+func callbackListenAddr(listenIP string, port int) string {
+	return net.JoinHostPort(listenIP, fmt.Sprint(port))
 }
 
 func generateState() string {

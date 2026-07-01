@@ -114,24 +114,19 @@ func TestListenAddrFormat(t *testing.T) {
 			name:     "IPv6 random port",
 			listenIP: "::1",
 			port:     0,
-			wantAddr: "::1:0",
+			wantAddr: "[::1]:0",
 		},
 		{
 			name:     "IPv6 fixed port",
 			listenIP: "::1",
 			port:     8080,
-			wantAddr: "::1:8080",
+			wantAddr: "[::1]:8080",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var got string
-			if tc.port > 0 {
-				got = fmt.Sprintf("%s:%d", tc.listenIP, tc.port)
-			} else {
-				got = tc.listenIP + ":0"
-			}
+			got := callbackListenAddr(tc.listenIP, tc.port)
 
 			if got != tc.wantAddr {
 				t.Errorf("listenAddr: got %q, want %q", got, tc.wantAddr)
@@ -400,7 +395,7 @@ func TestCallbackListenerBinds(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, listenIP := resolveCallbackHost(tc.callbackHost)
-			addr := listenIP + ":0"
+			addr := callbackListenAddr(listenIP, 0)
 
 			listener, err := net.Listen("tcp", addr)
 			if err != nil {
