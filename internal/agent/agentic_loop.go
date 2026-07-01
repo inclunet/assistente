@@ -434,7 +434,7 @@ func (r *agenticLoopRunner) retryRetryableTools(ctx context.Context, toolCalls [
 				Attempt:            0,
 				SurfaceOrigin:      r.surfaceOrigin,
 			})
-			logging.Errorf(context.Background(), "agent.agentic-loop", "[Agent] tool %s falhou (kind=%s), tentando retry...", retryName, execResult.ErrorKind)
+			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] tool %s falhou (kind=%s), tentando retry...", retryName, execResult.ErrorKind)
 			// Emite tool_start para a nova tentativa (attempt=1)
 			EmitToolStart(r.svc.emitter, ports.ToolStartEvent{
 				ConversationID:     r.conversationID,

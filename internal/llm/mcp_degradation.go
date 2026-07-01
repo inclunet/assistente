@@ -108,7 +108,7 @@ func planMCPDegradationRetry(
 		return nil, false
 	}
 
-	logging.Errorf(ctx, "llm.mcp-degradation", "[MCP-DEGRADE] attempt=%d provider=%s server=%s stage=%s action=retry_without_server recoverable=%v",
+	logging.Infof(ctx, "llm.mcp-degradation", "[MCP-DEGRADE] attempt=%d provider=%s server=%s stage=%s action=retry_without_server recoverable=%v",
 		attempt, provider, removed.Name, failure.Stage, failure.Recoverable)
 
 	if removed.Recover != nil {
