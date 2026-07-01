@@ -3,6 +3,7 @@ package toolcatalog
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"assistente/internal/database"
@@ -114,6 +115,69 @@ func TestServiceCatalogToolQueriesPersistedCatalog(t *testing.T) {
 	}
 	if got["old_search"] {
 		t.Fatalf("catalog returned unavailable tool without include_unavailable: %#v", payload.SelectedTools)
+	}
+}
+
+func TestServiceCatalogToolPaginatesLargeMCPBridgeCatalog(t *testing.T) {
+	repo, userA, _ := setupCatalogTest(t)
+	serverID := seedServer(t, repo, "user-a", "big")
+	svc := NewService(repo)
+
+	descriptors := make([]MCPToolDescriptor, 0, 120)
+	for i := 0; i < 120; i++ {
+		name := fmt.Sprintf("tool_%03d", i)
+		descriptors = append(descriptors, MCPToolDescriptor{
+			Name:        name,
+			FullName:    "mcp_big__" + name,
+			Description: "Large catalog tool",
+			Schema:      json.RawMessage(`{"type":"object"}`),
+		})
+	}
+	if err := svc.SyncMCPServerTools(userA, "big", serverID, descriptors); err != nil {
+		t.Fatalf("SyncMCPServerTools: %v", err)
+	}
+
+	first, err := tools.NewCatalogTool(svc).Execute(userA, json.RawMessage(`{"package":"mcp:big","limit":50}`))
+	if err != nil {
+		t.Fatalf("catalog first page: %v", err)
+	}
+	if first.IsError {
+		t.Fatalf("first page returned error: %s", first.Content)
+	}
+	second, err := tools.NewCatalogTool(svc).Execute(userA, json.RawMessage(`{"package":"mcp:big","limit":50,"offset":50}`))
+	if err != nil {
+		t.Fatalf("catalog second page: %v", err)
+	}
+	if second.IsError {
+		t.Fatalf("second page returned error: %s", second.Content)
+	}
+
+	var firstPayload, secondPayload struct {
+		SelectedTools []string `json:"selected_tools"`
+		Count         int      `json:"count"`
+		Limit         int      `json:"limit"`
+		Offset        int      `json:"offset"`
+		HasMore       bool     `json:"has_more"`
+		NextOffset    int      `json:"next_offset"`
+	}
+	if err := json.Unmarshal([]byte(first.Content), &firstPayload); err != nil {
+		t.Fatalf("decode first page: %v", err)
+	}
+	if err := json.Unmarshal([]byte(second.Content), &secondPayload); err != nil {
+		t.Fatalf("decode second page: %v", err)
+	}
+
+	if firstPayload.Count != 50 || !firstPayload.HasMore || firstPayload.NextOffset != 50 {
+		t.Fatalf("unexpected first page metadata: %#v", firstPayload)
+	}
+	if secondPayload.Count != 50 || secondPayload.Offset != 50 || !secondPayload.HasMore || secondPayload.NextOffset != 100 {
+		t.Fatalf("unexpected second page metadata: %#v", secondPayload)
+	}
+	if secondPayload.SelectedTools[0] != "mcp_big__tool_050" {
+		t.Fatalf("second page starts with %q, want mcp_big__tool_050", secondPayload.SelectedTools[0])
+	}
+	if secondPayload.SelectedTools[49] != "mcp_big__tool_099" {
+		t.Fatalf("second page ends with %q, want mcp_big__tool_099", secondPayload.SelectedTools[49])
 	}
 }
 

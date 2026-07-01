@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -41,13 +42,17 @@ func TestCatalogToolReturnsSelectedTools(t *testing.T) {
 	if store.filter.Package != "coding_readonly" {
 		t.Fatalf("filter package = %q", store.filter.Package)
 	}
-	if store.filter.Limit != 1 {
-		t.Fatalf("filter limit = %d, want 1", store.filter.Limit)
+	if store.filter.Limit != 2 {
+		t.Fatalf("filter limit = %d, want 2", store.filter.Limit)
 	}
 
 	var payload struct {
 		SelectedTools []string `json:"selected_tools"`
 		Count         int      `json:"count"`
+		Limit         int      `json:"limit"`
+		Offset        int      `json:"offset"`
+		HasMore       bool     `json:"has_more"`
+		NextOffset    int      `json:"next_offset"`
 	}
 	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -55,13 +60,24 @@ func TestCatalogToolReturnsSelectedTools(t *testing.T) {
 	if payload.Count != 1 || len(payload.SelectedTools) != 1 || payload.SelectedTools[0] != "read_file" {
 		t.Fatalf("unexpected response: %#v", payload)
 	}
+	if payload.Limit != 1 || payload.Offset != 0 || !payload.HasMore || payload.NextOffset != 1 {
+		t.Fatalf("unexpected pagination metadata: %#v", payload)
+	}
 }
 
-func TestCatalogToolClampsLimitToMaximum(t *testing.T) {
+func TestCatalogToolClampsReturnedPageToMaximum(t *testing.T) {
+	entries := make([]ToolCatalogEntry, 0, 51)
+	for i := 0; i < 51; i++ {
+		name := fmt.Sprintf("tool_%03d", i)
+		entries = append(entries, ToolCatalogEntry{
+			Name:               name,
+			DisplayName:        name,
+			Origin:             ToolOriginBuiltin,
+			AvailabilityStatus: ToolAvailabilityAvailable,
+		})
+	}
 	store := &fakeCatalogToolStore{
-		entries: []ToolCatalogEntry{
-			{Name: "read_file", DisplayName: "read_file", Origin: ToolOriginBuiltin, AvailabilityStatus: ToolAvailabilityAvailable},
-		},
+		entries: entries,
 	}
 	tool := NewCatalogTool(store)
 
@@ -72,8 +88,73 @@ func TestCatalogToolClampsLimitToMaximum(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("unexpected tool error: %s", result.Content)
 	}
-	if store.filter.Limit != 50 {
-		t.Fatalf("filter limit = %d, want 50", store.filter.Limit)
+	if store.filter.Limit != 51 {
+		t.Fatalf("filter limit = %d, want 51", store.filter.Limit)
+	}
+
+	var payload struct {
+		SelectedTools []string `json:"selected_tools"`
+		Count         int      `json:"count"`
+		Limit         int      `json:"limit"`
+		Offset        int      `json:"offset"`
+		HasMore       bool     `json:"has_more"`
+		NextOffset    int      `json:"next_offset"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Count != 50 || len(payload.SelectedTools) != 50 {
+		t.Fatalf("unexpected clamped page size: %#v", payload)
+	}
+	if payload.Limit != 50 || payload.Offset != 0 || !payload.HasMore || payload.NextOffset != 50 {
+		t.Fatalf("unexpected pagination metadata: %#v", payload)
+	}
+}
+
+func TestCatalogToolPaginatesAfterFirstPage(t *testing.T) {
+	entries := make([]ToolCatalogEntry, 0, 51)
+	for i := 50; i < 101; i++ {
+		name := fmt.Sprintf("mcp_big__tool_%03d", i)
+		entries = append(entries, ToolCatalogEntry{
+			Name:               name,
+			DisplayName:        name,
+			Origin:             ToolOriginMCPBridge,
+			Category:           "mcp:big",
+			Class:              "mcp_tool",
+			Package:            "mcp:big",
+			Risk:               "network",
+			AvailabilityStatus: ToolAvailabilityAvailable,
+		})
+	}
+	store := &fakeCatalogToolStore{entries: entries}
+
+	result, err := NewCatalogTool(store).Execute(context.Background(), json.RawMessage(`{"package":"mcp:big","limit":50,"offset":50}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", result.Content)
+	}
+	if store.filter.Package != "mcp:big" || store.filter.Offset != 50 || store.filter.Limit != 51 {
+		t.Fatalf("unexpected filter: %#v", store.filter)
+	}
+
+	var payload struct {
+		SelectedTools []string `json:"selected_tools"`
+		Count         int      `json:"count"`
+		Limit         int      `json:"limit"`
+		Offset        int      `json:"offset"`
+		HasMore       bool     `json:"has_more"`
+		NextOffset    int      `json:"next_offset"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Count != 50 || len(payload.SelectedTools) != 50 {
+		t.Fatalf("unexpected page size: %#v", payload)
+	}
+	if payload.Offset != 50 || payload.Limit != 50 || !payload.HasMore || payload.NextOffset != 100 {
+		t.Fatalf("unexpected pagination metadata: %#v", payload)
 	}
 }
 

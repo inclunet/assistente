@@ -10,6 +10,9 @@ import (
 const (
 	ToolCatalogName = "tool_catalog"
 	LoadSkillName   = "load_skill"
+
+	defaultCatalogToolLimit = 20
+	maxCatalogToolPageSize  = 50
 )
 
 type CatalogToolStore interface {
@@ -29,12 +32,17 @@ type catalogToolRequest struct {
 	AvailabilityStatus string `json:"availability_status,omitempty"`
 	IncludeUnavailable bool   `json:"include_unavailable,omitempty"`
 	Limit              int    `json:"limit,omitempty"`
+	Offset             int    `json:"offset,omitempty"`
 }
 
 type catalogToolResponse struct {
 	Tools         []catalogToolItem `json:"tools"`
 	SelectedTools []string          `json:"selected_tools"`
 	Count         int               `json:"count"`
+	Limit         int               `json:"limit"`
+	Offset        int               `json:"offset"`
+	HasMore       bool              `json:"has_more"`
+	NextOffset    int               `json:"next_offset,omitempty"`
 }
 
 type catalogToolItem struct {
@@ -70,7 +78,8 @@ func (t *CatalogTool) Parameters() json.RawMessage {
     "risk": {"type": "string", "description": "Optional risk filter: read, write, destructive, network, shell."},
     "availability_status": {"type": "string", "description": "Optional availability filter: available or unavailable."},
     "include_unavailable": {"type": "boolean", "description": "Whether unavailable tools should be included."},
-    "limit": {"type": "integer", "description": "Maximum number of tools to return.", "minimum": 1, "maximum": 50}
+    "limit": {"type": "integer", "description": "Maximum number of tools to return in this page. Defaults to 20 and cannot exceed 50.", "minimum": 1, "maximum": 50},
+    "offset": {"type": "integer", "description": "Zero-based offset for pagination. When has_more is true, call again with next_offset to access the next page.", "minimum": 0}
   }
 }`)
 }
@@ -87,9 +96,13 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 	}
 	limit := req.Limit
 	if limit <= 0 {
-		limit = 20
-	} else if limit > 50 {
-		limit = 50
+		limit = defaultCatalogToolLimit
+	} else if limit > maxCatalogToolPageSize {
+		limit = maxCatalogToolPageSize
+	}
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
 	}
 	filter := ToolCatalogFilter{
 		Origin:             strings.TrimSpace(req.Origin),
@@ -99,12 +112,14 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 		Risk:               strings.TrimSpace(req.Risk),
 		AvailabilityStatus: strings.TrimSpace(req.AvailabilityStatus),
 		IncludeUnavailable: req.IncludeUnavailable,
-		Limit:              limit,
+		Limit:              limit + 1,
+		Offset:             offset,
 	}
 	entries, err := t.store.ListTools(ctx, filter)
 	if err != nil {
 		return ToolResult{Content: fmt.Sprintf("erro ao consultar catálogo de tools: %v", err), IsError: true}, nil
 	}
+	hasMore := len(entries) > limit
 	if len(entries) > limit {
 		entries = entries[:limit]
 	}
@@ -112,6 +127,12 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 		Tools:         make([]catalogToolItem, 0, len(entries)),
 		SelectedTools: make([]string, 0, len(entries)),
 		Count:         len(entries),
+		Limit:         limit,
+		Offset:        offset,
+		HasMore:       hasMore,
+	}
+	if hasMore {
+		resp.NextOffset = offset + len(entries)
 	}
 	for _, entry := range entries {
 		resp.SelectedTools = append(resp.SelectedTools, entry.Name)
