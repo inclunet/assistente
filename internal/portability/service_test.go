@@ -725,6 +725,57 @@ func TestExportConversationHydratesToolCallResultsFromToolInvocations(t *testing
 	}
 }
 
+func TestExportConversationBuildsToolCallsFromToolInvocationsWithoutMessageToolCalls(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	turnID := "turn-new"
+	assistantID := "assistant-new"
+	callID := "call-new"
+	convID := "conv-new"
+
+	conv := &database.Conversation{UUIDModel: database.UUIDModel{ID: convID}, UserID: portabilityTestUserID, Title: "L3 free"}
+	if err := database.DB().Create(conv).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: convID, Role: "user", Content: "hi"}).Error; err != nil {
+		t.Fatalf("create turn message: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: convID, Role: "assistant", Content: "vou buscar", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create assistant without tool_calls: %v", err)
+	}
+	if err := database.DB().Create(&database.ToolInvocation{
+		UserID:        portabilityTestUserID,
+		ToolCatalogID: "tool-1",
+		OriginType:    "chat",
+		OriginID:      turnID,
+		ToolCallID:    callID,
+		Status:        "succeeded",
+		DryRun:        false,
+		Output:        `{"content":"RESULT-NEW"}`,
+		Metadata:      `{"display":{"version":1,"type":"function","name":"search","arguments":"{\"q\":\"x\"}","origin":"builtin","iteration":2,"duration_ms":12}}`,
+	}).Error; err != nil {
+		t.Fatalf("create tool invocation: %v", err)
+	}
+
+	file, err := BuildExportFileWithContext(ctx, []string{convID}, nil, nil, nil, ExportRequest{ExplicitSelection: true, ConversationIDs: []string{convID}}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext: %v", err)
+	}
+	msgs := file.Resources.Conversations[0].Messages
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &decoded); err != nil {
+		t.Fatalf("unmarshal synthesized toolCalls: %v", err)
+	}
+	if len(decoded) != 1 {
+		t.Fatalf("expected 1 synthesized tool call, got %#v", decoded)
+	}
+	fn, _ := decoded[0]["function"].(map[string]any)
+	if decoded[0]["id"] != callID || decoded[0]["result"] != "RESULT-NEW" || fn["name"] != "search" {
+		t.Fatalf("unexpected synthesized tool call: %#v", decoded[0])
+	}
+}
+
 func TestImportOverwriteClearsChatToolInvocationsToAvoidStaleExportHydration(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()

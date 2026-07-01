@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -126,6 +127,7 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 		}
 		sb.WriteString(content)
 		if m.Role == "assistant" && strings.TrimSpace(m.ToolCalls) != "" {
+			usedInvocationResults := map[string]struct{}{}
 			for _, c := range parseSummarizationToolCalls(m.ToolCalls) {
 				turnID := ""
 				if m.TurnID != nil {
@@ -159,12 +161,16 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 				if len(res) > 2000 {
 					res = truncateUTF8Safe(res, 2000) + "... [truncated]"
 				}
+				usedInvocationResults[callID] = struct{}{}
 				sb.WriteString("\n\n")
 				sb.WriteString("Tool result (")
 				sb.WriteString(name)
 				sb.WriteString("): ")
 				sb.WriteString(res)
 			}
+			appendSummarizationInvocationResults(&sb, m, invocationResults, fallbackResults, usedInvocationResults)
+		} else if m.Role == "assistant" {
+			appendSummarizationInvocationResults(&sb, m, invocationResults, fallbackResults, nil)
 		}
 		sb.WriteString("\n\n")
 	}
@@ -176,6 +182,51 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 	}
 
 	return sb.String()
+}
+
+func appendSummarizationInvocationResults(sb *strings.Builder, m chat.Message, invocationResults map[string]map[string]string, fallbackResults map[string]map[string]string, skip map[string]struct{}) {
+	if m.TurnID == nil {
+		return
+	}
+	turnID := strings.TrimSpace(*m.TurnID)
+	if turnID == "" {
+		return
+	}
+	byCall := invocationResults[turnID]
+	if len(byCall) == 0 {
+		return
+	}
+	callIDs := make([]string, 0, len(byCall))
+	for callID := range byCall {
+		callID = strings.TrimSpace(callID)
+		if callID == "" {
+			continue
+		}
+		if _, ok := skip[callID]; ok {
+			continue
+		}
+		if byFallback := fallbackResults[turnID]; byFallback != nil {
+			if strings.TrimSpace(byFallback[callID]) != "" {
+				continue
+			}
+		}
+		callIDs = append(callIDs, callID)
+	}
+	sort.Strings(callIDs)
+	for _, callID := range callIDs {
+		res := strings.TrimSpace(byCall[callID])
+		if res == "" {
+			continue
+		}
+		if len(res) > 2000 {
+			res = truncateUTF8Safe(res, 2000) + "... [truncated]"
+		}
+		sb.WriteString("\n\n")
+		sb.WriteString("Tool result (")
+		sb.WriteString(callID)
+		sb.WriteString("): ")
+		sb.WriteString(res)
+	}
 }
 
 type summarizationToolCall struct {
@@ -576,9 +627,6 @@ func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults
 		if m.Role != "assistant" {
 			continue
 		}
-		if strings.TrimSpace(m.ToolCalls) == "" {
-			continue
-		}
 		if m.TurnID == nil {
 			continue
 		}
@@ -586,11 +634,13 @@ func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults
 		if turnID == "" {
 			continue
 		}
+		counted := map[string]struct{}{}
 		for _, c := range parseSummarizationToolCalls(m.ToolCalls) {
 			callID := strings.TrimSpace(c.ID)
 			if callID == "" {
 				continue
 			}
+			counted[callID] = struct{}{}
 			// Se já há result embutido no tool_calls, já foi contado por EstimateMessagesTokens.
 			if strings.TrimSpace(c.Result) != "" {
 				continue
@@ -605,6 +655,28 @@ func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults
 			if byCall := invocationResults[turnID]; byCall != nil {
 				res = strings.TrimSpace(byCall[callID])
 			}
+			if res == "" {
+				continue
+			}
+			if len(res) > 2000 {
+				res = truncateUTF8Safe(res, 2000)
+			}
+			total += EstimateTokens(res)
+		}
+		for callID, res := range invocationResults[turnID] {
+			callID = strings.TrimSpace(callID)
+			if callID == "" {
+				continue
+			}
+			if _, ok := counted[callID]; ok {
+				continue
+			}
+			if byCall := fallbackResults[turnID]; byCall != nil {
+				if strings.TrimSpace(byCall[callID]) != "" {
+					continue
+				}
+			}
+			res = strings.TrimSpace(res)
 			if res == "" {
 				continue
 			}
@@ -630,9 +702,6 @@ func loadSummarizationToolInvocationResults(ctx context.Context, messages []chat
 	turnIDs := make([]string, 0)
 	for _, msg := range messages {
 		if msg.Role != "assistant" {
-			continue
-		}
-		if strings.TrimSpace(msg.ToolCalls) == "" {
 			continue
 		}
 		if msg.TurnID == nil {

@@ -158,7 +158,7 @@ func TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence(t *t
 	}
 }
 
-func TestRunAgenticLoop_ToolCalls_FallbackRoleToolWhenAssistantToolCallsSaveFails(t *testing.T) {
+func TestRunAgenticLoop_ToolCalls_NoFallbackRoleToolWhenInvocationPersistenceSucceeds(t *testing.T) {
 	db, cleanup := setupAgenticToolCallDB(t)
 	t.Cleanup(cleanup)
 
@@ -200,11 +200,15 @@ func TestRunAgenticLoop_ToolCalls_FallbackRoleToolWhenAssistantToolCallsSaveFail
 		return &testIterationHandler{}
 	}, nil, false, 0)
 
-	if msgRepo.toolResultCount != 1 {
-		t.Fatalf("expected 1 fallback role=tool message, got=%d", msgRepo.toolResultCount)
+	if msgRepo.toolResultCount != 0 {
+		t.Fatalf("expected no fallback role=tool message when tool_invocations persisted, got=%d", msgRepo.toolResultCount)
 	}
-	if msgRepo.lastToolResultCall != "call-1" {
-		t.Fatalf("toolCallID=%q want call-1", msgRepo.lastToolResultCall)
+	rows, err := repo.List(ctx, toolinvocations.Filter{OriginType: toolinvocations.OriginChat, OriginID: turn.ID, Limit: 10})
+	if err != nil {
+		t.Fatalf("list invocations: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ToolCallID != "call-1" {
+		t.Fatalf("expected persisted invocation for call-1, got %+v", rows)
 	}
 }
 

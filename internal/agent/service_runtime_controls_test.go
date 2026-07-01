@@ -75,7 +75,7 @@ func TestExecuteToolCallsWithRuntimeControlsAppliesLoadSkillScopeBeforeRegularTo
 	batch := svc.executeToolCallsWithRuntimeControls(context.Background(), []tools.ToolCall{
 		{ID: "regular", Type: "function", Function: tools.FunctionCall{Name: "scope_probe", Arguments: `{}`}},
 		{ID: "load", Type: "function", Function: tools.FunctionCall{Name: tools.LoadSkillName, Arguments: `{"skill":"review"}`}},
-	}, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: "turn-1"}, "conv-1", "turn-1", nil)
+	}, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: "turn-1"}, "conv-1", "turn-1", 0, nil)
 
 	if len(batch.Executions) != 2 {
 		t.Fatalf("expected two executions, got %#v", batch.Executions)

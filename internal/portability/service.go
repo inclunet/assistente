@@ -244,7 +244,7 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 	turnIDs := make([]string, 0)
 	seenTurnIDs := map[string]struct{}{}
 	for _, msg := range messages {
-		if strings.TrimSpace(msg.ToolCalls) == "" {
+		if msg.Role != "assistant" {
 			continue
 		}
 		if msg.TurnID == nil {
@@ -264,18 +264,20 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 		return nil
 	}
 
-	resultsByTurn, err := loadChatToolInvocationResultsForTurnIDs(ctx, userID, turnIDs)
+	displayByTurn, err := loadChatToolInvocationDisplaysForTurnIDs(ctx, userID, turnIDs)
 	if err != nil {
 		// Best-effort: export não deve falhar por problemas na tabela tool_invocations.
-		resultsByTurn = map[string]map[string]string{}
+		displayByTurn = map[string][]toolinvocations.ChatToolInvocationDisplay{}
 	}
+	resultsByTurn := toolInvocationDisplayResultsByTurn(displayByTurn)
 	if len(resultsByTurn) == 0 && len(fallbackResultsByTurn) == 0 {
 		return nil
 	}
 
+	exportedInvocationTurn := map[string]struct{}{}
 	for i := range messages {
 		msg := &messages[i]
-		if strings.TrimSpace(msg.ToolCalls) == "" || msg.TurnID == nil {
+		if msg.Role != "assistant" || msg.TurnID == nil {
 			continue
 		}
 		turnID := strings.TrimSpace(*msg.TurnID)
@@ -285,6 +287,29 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 			continue
 		}
 		calls := parseToolCalls(msg.ToolCalls)
+		if len(calls) == 0 {
+			if _, alreadyExported := exportedInvocationTurn[turnID]; alreadyExported {
+				continue
+			}
+			for _, call := range displayByTurn[turnID] {
+				exportCall := toolInvocationDisplayToExportMap(call)
+				callID := strings.TrimSpace(call.ID)
+				if byFallback := turnFallback; byFallback != nil {
+					if fb := strings.TrimSpace(byFallback[callID]); fb != "" {
+						exportCall["result"] = fb
+					}
+				}
+				calls = append(calls, exportCall)
+			}
+			if len(calls) == 0 {
+				continue
+			}
+			if encoded, err := json.Marshal(calls); err == nil {
+				msg.ToolCalls = string(encoded)
+				exportedInvocationTurn[turnID] = struct{}{}
+			}
+			continue
+		}
 		if len(calls) == 0 {
 			continue
 		}
@@ -349,6 +374,64 @@ func parseToolCalls(raw string) []map[string]interface{} {
 
 func loadChatToolInvocationResultsForTurnIDs(ctx context.Context, userID string, turnIDs []string) (map[string]map[string]string, error) {
 	return toolinvocations.LoadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
+}
+
+func loadChatToolInvocationDisplaysForTurnIDs(ctx context.Context, userID string, turnIDs []string) (map[string][]toolinvocations.ChatToolInvocationDisplay, error) {
+	return toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, turnIDs)
+}
+
+func toolInvocationDisplayResultsByTurn(displays map[string][]toolinvocations.ChatToolInvocationDisplay) map[string]map[string]string {
+	results := make(map[string]map[string]string, len(displays))
+	for turnID, calls := range displays {
+		for _, call := range calls {
+			callID := strings.TrimSpace(call.ID)
+			if callID == "" {
+				continue
+			}
+			byCall := results[turnID]
+			if byCall == nil {
+				byCall = map[string]string{}
+				results[turnID] = byCall
+			}
+			byCall[callID] = call.Result
+		}
+	}
+	return results
+}
+
+func toolInvocationDisplayToExportMap(call toolinvocations.ChatToolInvocationDisplay) map[string]interface{} {
+	tipo := strings.TrimSpace(call.Type)
+	if tipo == "" {
+		tipo = "function"
+	}
+	name := strings.TrimSpace(call.Name)
+	if name == "" {
+		name = "tool_result"
+	}
+	out := map[string]interface{}{
+		"id":   call.ID,
+		"type": tipo,
+		"function": map[string]interface{}{
+			"name":      name,
+			"arguments": call.Arguments,
+		},
+	}
+	if strings.TrimSpace(call.Result) != "" {
+		out["result"] = call.Result
+	}
+	if strings.TrimSpace(call.Origin) != "" {
+		out["origin"] = call.Origin
+	}
+	if strings.TrimSpace(call.ServerLabel) != "" {
+		out["server_label"] = call.ServerLabel
+	}
+	if call.Iteration != 0 {
+		out["iteration"] = call.Iteration
+	}
+	if call.DurationMs != 0 {
+		out["duration_ms"] = call.DurationMs
+	}
+	return out
 }
 
 func ImportConversations(jsonData string, credMgr *credentials.Manager, credentialPassword string) (*ImportResult, error) {

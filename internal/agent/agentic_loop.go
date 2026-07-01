@@ -3,7 +3,6 @@ package agent
 import (
 	"assistente/internal/logging"
 	"context"
-	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -245,7 +244,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 		return ctx, true
 	}
 	r.svc.emitToolStarts(r.conversationID, r.turnID, r.assistantMessageID, result.ToolCalls, r.surfaceOrigin)
-	execBatch := r.svc.executeToolCallsWithRuntimeControls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: r.turnID}, r.conversationID, r.turnID, r.surfaceOrigin)
+	execBatch := r.svc.executeToolCallsWithRuntimeControls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: r.turnID}, r.conversationID, r.turnID, iteration, r.surfaceOrigin)
 	ctx = execBatch.Context
 	execResults := execBatch.Executions
 
@@ -264,19 +263,18 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	}
 	preCheck := PreCheckContextWindow(r.params.ContextWindow, r.params.MaxTokens, r.messages, toolContents)
 
-	// 5f-iii. AEP-0039 Fase 5: persiste assistant tool_calls com metadata enriquecida
-	enrichedCalls := buildEnrichedToolCalls(result.ToolCalls, execResults, iteration)
-	toolCallsJSON, _ := json.Marshal(enrichedCalls)
+	// 5f-iii. Persiste o texto intermediário do assistant. AEP-0078 depreca o L3:
+	// novas mensagens não gravam mais o JSON tool_calls; o snapshot exibível fica
+	// em tool_invocations.metadata, associado por tool_call_id.
 	_, err := r.svc.msgRepo.AddAssistantToolMessage(
 		ctx,
 		r.conversationID,
 		r.turnID,
 		result.FullResponse,
-		string(toolCallsJSON),
+		"",
 		result.Reasoning,
 		result.Model,
 	)
-	assistantToolCallsSaved := err == nil
 	if err != nil {
 		if errors.Is(err, chat.ErrConversationDeleted) {
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] conversa %s deletada — abortando", r.conversationID)
@@ -295,10 +293,10 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 		if preCheck.Truncated {
 			content = toolContents[i]
 		}
-		// PersistedByCallID indica que a linha técnica foi escrita. Porém, a UI/export/sumarização
-		// descobrem esses resultados a partir de mensagens de chat; se a mensagem assistant tool_calls
-		// falhou, precisamos cair no fallback role=tool para não orfanar o output.
-		persisted := execBatch.PersistedByCallID[execResult.CallID] && assistantToolCallsSaved
+		// PersistedByCallID indica que a linha técnica foi escrita. A associação
+		// call↔result agora vem de tool_invocations.tool_call_id, então a falha de
+		// salvar a mensagem intermediária não exige fallback role=tool.
+		persisted := execBatch.PersistedByCallID[execResult.CallID]
 		if !persisted {
 			persistedContent := execResult.Result.Content
 			if _, err := r.svc.msgRepo.AddToolResultMessage(ctx, r.conversationID, r.turnID, persistedContent, execResult.CallID); err != nil {
@@ -448,7 +446,7 @@ func (r *agenticLoopRunner) retryRetryableTools(ctx context.Context, toolCalls [
 				Attempt:            1,
 				SurfaceOrigin:      r.surfaceOrigin,
 			})
-			retried, retriedPersisted := r.svc.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: r.turnID})
+			retried, retriedPersisted := r.svc.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: r.turnID}, iteration)
 			execResults[i] = retried
 			persistedByCallID[retried.CallID] = retriedPersisted
 		}

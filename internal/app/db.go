@@ -103,14 +103,18 @@ func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []dat
 		return []chat.MessageNode{}
 	}
 
-	invocationToolResults := loadChatToolInvocationResultsForTurnIDs(ctx, chat.CollectTurnIDsWithToolCalls(messages))
-	nodes := chat.BuildNodesWithTimelineConsolidation(messages, parentID, map[string]int{}, invocationToolResults)
+	turnIDs := chat.CollectTurnIDsWithToolCalls(messages)
+	invocationToolResults := loadChatToolInvocationResultsForTurnIDs(ctx, turnIDs)
+	invocationToolCalls := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
+	nodes := chat.BuildNodesWithTimelineConsolidation(messages, parentID, map[string]int{}, invocationToolResults, invocationToolCalls)
 	return assignMessageNodeChildCounts(ctx, nodes)
 }
 
 func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
-	invocationToolResults := loadChatToolInvocationResultsForTurnIDs(ctx, chat.CollectTurnIDsWithToolCalls(messages))
-	nodes := chat.BuildTimelineMessageNodes(items, messages, parentID, map[string]int{}, invocationToolResults)
+	turnIDs := chat.CollectTurnIDsWithToolCalls(messages)
+	invocationToolResults := loadChatToolInvocationResultsForTurnIDs(ctx, turnIDs)
+	invocationToolCalls := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
+	nodes := chat.BuildTimelineMessageNodes(items, messages, parentID, map[string]int{}, invocationToolResults, invocationToolCalls)
 	return assignMessageNodeChildCounts(ctx, nodes)
 }
 
@@ -132,6 +136,41 @@ func loadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID
 		return map[string]map[string]string{}
 	}
 	return results
+}
+
+func loadChatToolInvocationDisplaysForTurnIDs(ctx context.Context, turnIDs []string) map[string][]chat.TurnSegmentToolCall {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return map[string][]chat.TurnSegmentToolCall{}
+	}
+	if len(turnIDs) == 0 {
+		return map[string][]chat.TurnSegmentToolCall{}
+	}
+	results, err := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, turnIDs)
+	if err != nil {
+		logging.Errorf(ctx, "app.db", "[Chat] load tool_invocations display failed: %v", err)
+		return map[string][]chat.TurnSegmentToolCall{}
+	}
+	return toolInvocationDisplaysToTurnSegments(results)
+}
+
+func toolInvocationDisplaysToTurnSegments(displays map[string][]toolinvocations.ChatToolInvocationDisplay) map[string][]chat.TurnSegmentToolCall {
+	out := make(map[string][]chat.TurnSegmentToolCall, len(displays))
+	for turnID, calls := range displays {
+		for _, call := range calls {
+			out[turnID] = append(out[turnID], chat.TurnSegmentToolCall{
+				ID:          call.ID,
+				Type:        call.Type,
+				Function:    chat.TurnSegmentToolFunction{Name: call.Name, Arguments: call.Arguments},
+				Result:      call.Result,
+				Origin:      call.Origin,
+				ServerLabel: call.ServerLabel,
+				Iteration:   call.Iteration,
+				DurationMs:  call.DurationMs,
+			})
+		}
+	}
+	return out
 }
 
 // GetRecentMessages retorna as mensagens raiz mais recentes de uma conversa.

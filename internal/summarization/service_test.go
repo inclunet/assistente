@@ -93,6 +93,22 @@ func TestBuildSummarizationUserPrompt_HydratesToolInvocationResults(t *testing.T
 	}
 }
 
+func TestBuildSummarizationUserPrompt_UsesInvocationResultsWithoutMessageToolCalls(t *testing.T) {
+	turnID := "turn-1"
+	callID := "call-1"
+	msgs := []database.ChatMessage{{
+		Role:    "assistant",
+		Content: "vou buscar",
+		TurnID:  &turnID,
+	}}
+
+	invResults := map[string]map[string]string{turnID: {callID: "RESULT"}}
+	prompt := BuildSummarizationUserPrompt("", msgs, invResults, nil)
+	if !strings.Contains(prompt, "Tool result (call-1): RESULT") {
+		t.Fatalf("prompt did not include invocation-only tool result, got:\n%s", prompt)
+	}
+}
+
 func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 	makeProfile := func(contextWindow, maxTokens int) *profiles.Profile {
 		return &profiles.Profile{
@@ -108,7 +124,7 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 		turnID := "turn-1"
 		callID := "call-1"
 		toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"files.read","arguments":"{}"}}]`
-		msgs := []database.ChatMessage{ {
+		msgs := []database.ChatMessage{{
 			Role:      "assistant",
 			Content:   "ok",
 			ToolCalls: toolCalls,
