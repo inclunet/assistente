@@ -113,6 +113,7 @@ export function McpConnectionSection({
   const discoveryLiveId = `${uid}-discovery-live`;
   const callbackHintId = `${uid}-callback-hint`;
   const previousDiscoveryAnnouncementRef = useRef('');
+  const isWorkspacePanelActive = workspacePanel?.isActive;
   const accessibilityOrigin = useMemo(() => (
     workspacePanel ? buildVoiceAccessibilityOriginFromTab(workspacePanel.tab, workspace) : undefined
   ), [workspace, workspacePanel]);
@@ -149,13 +150,15 @@ export function McpConnectionSection({
     }
     if (discoveryLiveText === previousDiscoveryAnnouncementRef.current) return;
 
-    previousDiscoveryAnnouncementRef.current = discoveryLiveText;
-    announceRequest({
+    const didAnnounce = announceRequest({
       message: discoveryLiveText,
       origin: accessibilityOrigin,
       eventType: 'progress',
     });
-  }, [accessibilityOrigin, announceRequest, discoveryLiveText]);
+    if (didAnnounce) {
+      previousDiscoveryAnnouncementRef.current = discoveryLiveText;
+    }
+  }, [accessibilityOrigin, announceRequest, discoveryLiveText, isWorkspacePanelActive]);
 
   return (
     <section className="mcp-section" aria-labelledby="mcp-section-connection">

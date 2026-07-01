@@ -98,6 +98,13 @@ function renderWith(overrides: Partial<ComponentProps<typeof McpConnectionSectio
 }
 
 function renderWithPanel(overrides: Partial<ComponentProps<typeof McpConnectionSection>> = {}) {
+  return renderWithPanelState(false, overrides);
+}
+
+function renderWithPanelState(
+  isActive: boolean,
+  overrides: Partial<ComponentProps<typeof McpConnectionSection>> = {}
+) {
   const tab: WorkspaceTab = {
     id: 'tab-mcp',
     type: 'editor',
@@ -106,7 +113,7 @@ function renderWithPanel(overrides: Partial<ComponentProps<typeof McpConnectionS
   };
 
   return render(
-    <WorkspacePanelProvider value={{ tab, isActive: false }}>
+    <WorkspacePanelProvider value={{ tab, isActive }}>
       <McpConnectionSection {...baseProps} {...overrides} />
     </WorkspacePanelProvider>
   );
@@ -206,6 +213,55 @@ describe('McpConnectionSection — Discovery states', () => {
     expect(announceRequestMock).toHaveBeenCalledWith({
       message: 'Verificando configuração OAuth do servidor…',
       origin: undefined,
+      eventType: 'progress',
+    });
+  });
+
+  it('não deduplica discovery quando broker rejeita anúncio em painel inativo', () => {
+    announceRequestMock.mockReturnValueOnce(false).mockReturnValue(true);
+    const { rerender } = renderWithPanelState(false, { discoveryStatus: 'loading' });
+
+    expect(announceRequestMock).toHaveBeenCalledTimes(1);
+    expect(announceRequestMock).toHaveBeenLastCalledWith({
+      message: 'Verificando configuração OAuth do servidor…',
+      origin: {
+        tabId: 'tab-mcp',
+        surfaceId: 'tab-mcp',
+        conversationId: undefined,
+        surfaceType: 'editor',
+        profileSlug: null,
+        title: 'MCP',
+      },
+      eventType: 'progress',
+    });
+
+    rerender(
+      <WorkspacePanelProvider
+        value={{
+          tab: {
+            id: 'tab-mcp',
+            type: 'editor',
+            title: 'MCP',
+            position: 0,
+          },
+          isActive: true,
+        }}
+      >
+        <McpConnectionSection {...baseProps} discoveryStatus="loading" />
+      </WorkspacePanelProvider>
+    );
+
+    expect(announceRequestMock).toHaveBeenCalledTimes(2);
+    expect(announceRequestMock).toHaveBeenLastCalledWith({
+      message: 'Verificando configuração OAuth do servidor…',
+      origin: {
+        tabId: 'tab-mcp',
+        surfaceId: 'tab-mcp',
+        conversationId: undefined,
+        surfaceType: 'editor',
+        profileSlug: null,
+        title: 'MCP',
+      },
       eventType: 'progress',
     });
   });
