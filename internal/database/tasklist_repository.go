@@ -87,14 +87,16 @@ func CreateTaskListWithContext(ctx context.Context, title, description string, t
 // com workflow e tasks.
 func GetTaskListWithContext(ctx context.Context, id string) (*TaskList, error) {
 	var taskList TaskList
-	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
-		Preload("Tasks", func(db *gorm.DB) *gorm.DB {
-			return db.Where("parent_id IS NULL").Order("`order` ASC")
-		}).
-		Preload("Tasks.Subtasks", func(db *gorm.DB) *gorm.DB {
-			return db.Order("`order` ASC")
-		}).
-		First(&taskList, "id = ?", id).Error
+	err := WithSQLiteBusyRetry(ctx, "tasklist.get", func() error {
+		return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
+			Preload("Tasks", func(db *gorm.DB) *gorm.DB {
+				return db.Where("parent_id IS NULL").Order("`order` ASC")
+			}).
+			Preload("Tasks.Subtasks", func(db *gorm.DB) *gorm.DB {
+				return db.Order("`order` ASC")
+			}).
+			First(&taskList, "id = ?", id).Error
+	})
 
 	return &taskList, err
 }
@@ -103,12 +105,14 @@ func GetTaskListWithContext(ctx context.Context, id string) (*TaskList, error) {
 // contexto, ordenadas por data de criação.
 func GetAllTaskListsWithContext(ctx context.Context) ([]TaskList, error) {
 	var taskLists []TaskList
-	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
-		Preload("Tasks", func(db *gorm.DB) *gorm.DB {
-			return db.Where("parent_id IS NULL").Order("`order` ASC")
-		}).
-		Order("created_at DESC").
-		Find(&taskLists).Error
+	err := WithSQLiteBusyRetry(ctx, "tasklist.list_all", func() error {
+		return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
+			Preload("Tasks", func(db *gorm.DB) *gorm.DB {
+				return db.Where("parent_id IS NULL").Order("`order` ASC")
+			}).
+			Order("created_at DESC").
+			Find(&taskLists).Error
+	})
 	return taskLists, err
 }
 
@@ -256,9 +260,11 @@ func createWorkflowForTaskListWithContext(ctx context.Context, taskListID string
 // contexto.
 func GetWorkflowWithContext(ctx context.Context, taskListID string) (*TaskListWorkflow, error) {
 	var workflow TaskListWorkflow
-	err := taskListWorkflowQuery(ctx, db.Model(&TaskListWorkflow{})).
-		Where("task_list_workflows.task_list_id = ?", taskListID).
-		First(&workflow).Error
+	err := WithSQLiteBusyRetry(ctx, "tasklist.workflow.get", func() error {
+		return taskListWorkflowQuery(ctx, db.Model(&TaskListWorkflow{})).
+			Where("task_list_workflows.task_list_id = ?", taskListID).
+			First(&workflow).Error
+	})
 	return &workflow, err
 }
 
@@ -389,11 +395,13 @@ func GetTaskCountsByStatusWithContext(ctx context.Context, taskListID string) (m
 		StatusID int
 		Count    int64
 	}
-	err := taskQuery(ctx, db.Model(&Task{})).
-		Where("tasks.task_list_id = ?", taskListID).
-		Group("tasks.status_id").
-		Select("tasks.status_id, count(*) as count").
-		Scan(&counts).Error
+	err := WithSQLiteBusyRetry(ctx, "tasklist.status_counts", func() error {
+		return taskQuery(ctx, db.Model(&Task{})).
+			Where("tasks.task_list_id = ?", taskListID).
+			Group("tasks.status_id").
+			Select("tasks.status_id, count(*) as count").
+			Scan(&counts).Error
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -450,13 +458,15 @@ func SetTaskListConversationWithContext(ctx context.Context, id string, conversa
 // contexto vinculadas a uma conversa, com workflow e tasks raiz.
 func GetTaskListsByConversationIDWithContext(ctx context.Context, conversationID string) ([]TaskList, error) {
 	var taskLists []TaskList
-	err := ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
-		Preload("Tasks", func(db *gorm.DB) *gorm.DB {
-			return db.Where("parent_id IS NULL").Order("`order` ASC")
-		}).
-		Where("conversation_id = ?", conversationID).
-		Order("created_at DESC").
-		Find(&taskLists).Error
+	err := WithSQLiteBusyRetry(ctx, "tasklist.list_by_conversation", func() error {
+		return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
+			Preload("Tasks", func(db *gorm.DB) *gorm.DB {
+				return db.Where("parent_id IS NULL").Order("`order` ASC")
+			}).
+			Where("conversation_id = ?", conversationID).
+			Order("created_at DESC").
+			Find(&taskLists).Error
+	})
 	return taskLists, err
 }
 
@@ -1253,9 +1263,11 @@ func GetTaskListWithHierarchyWithContext(ctx context.Context, id string) (*TaskL
 
 	// Busca todas as tasks de uma vez
 	var allTasks []Task
-	if err := taskQuery(ctx, db.Model(&Task{})).Where("tasks.task_list_id = ?", id).
-		Order(`tasks."order" ASC, tasks.created_at ASC`).
-		Find(&allTasks).Error; err != nil {
+	if err := WithSQLiteBusyRetry(ctx, "tasklist.hierarchy.tasks", func() error {
+		return taskQuery(ctx, db.Model(&Task{})).Where("tasks.task_list_id = ?", id).
+			Order(`tasks."order" ASC, tasks.created_at ASC`).
+			Find(&allTasks).Error
+	}); err != nil {
 		return nil, err
 	}
 

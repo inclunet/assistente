@@ -36,11 +36,13 @@ func (s *DBStore) PromptCandidates(ctx context.Context, filter PromptCandidateFi
 		limit = 1000
 	}
 	var records []database.MemoryRecord
-	err := q.Order("CASE load_policy WHEN 'core' THEN 0 WHEN 'pinned' THEN 1 WHEN 'auto' THEN 2 ELSE 9 END ASC").
-		Order("importance DESC").
-		Order("updated_at DESC").
-		Limit(limit).
-		Find(&records).Error
+	err := database.WithSQLiteBusyRetry(ctx, "memory.prompt_candidates", func() error {
+		return q.Order("CASE load_policy WHEN 'core' THEN 0 WHEN 'pinned' THEN 1 WHEN 'auto' THEN 2 ELSE 9 END ASC").
+			Order("importance DESC").
+			Order("updated_at DESC").
+			Limit(limit).
+			Find(&records).Error
+	})
 	return records, err
 }
 
@@ -102,7 +104,9 @@ func (s *DBStore) List(ctx context.Context, filter Filter) (ListResult, error) {
 	q := s.applyFilter(ctx, s.scoped(ctx), filter)
 
 	var total int64
-	if err := q.Count(&total).Error; err != nil {
+	if err := database.WithSQLiteBusyRetry(ctx, "memory.list.count", func() error {
+		return q.Count(&total).Error
+	}); err != nil {
 		return ListResult{}, err
 	}
 
@@ -115,17 +119,21 @@ func (s *DBStore) List(ctx context.Context, filter Filter) (ListResult, error) {
 	}
 
 	var records []database.MemoryRecord
-	err := q.Order("importance DESC").
-		Order("updated_at DESC").
-		Limit(limit).
-		Offset(filter.Offset).
-		Find(&records).Error
+	err := database.WithSQLiteBusyRetry(ctx, "memory.list.find", func() error {
+		return q.Order("importance DESC").
+			Order("updated_at DESC").
+			Limit(limit).
+			Offset(filter.Offset).
+			Find(&records).Error
+	})
 	return ListResult{Records: records, Total: total}, err
 }
 
 func (s *DBStore) Get(ctx context.Context, id string) (*database.MemoryRecord, error) {
 	var record database.MemoryRecord
-	err := s.scoped(ctx).First(&record, "id = ?", id).Error
+	err := database.WithSQLiteBusyRetry(ctx, "memory.get", func() error {
+		return s.scoped(ctx).First(&record, "id = ?", id).Error
+	})
 	return &record, err
 }
 
@@ -136,7 +144,9 @@ func (s *DBStore) Create(ctx context.Context, record *database.MemoryRecord) (*d
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
 	}
-	if err := s.dbOrDefault().WithContext(ctx).Create(record).Error; err != nil {
+	if err := database.WithSQLiteBusyRetry(ctx, "memory.create", func() error {
+		return s.dbOrDefault().WithContext(ctx).Create(record).Error
+	}); err != nil {
 		return nil, err
 	}
 	return s.Get(ctx, record.ID)
@@ -150,19 +160,25 @@ func (s *DBStore) Upsert(ctx context.Context, record *database.MemoryRecord) (*d
 		return nil, err
 	}
 	var existing database.MemoryRecord
-	err := s.scoped(ctx).Where("id = ?", record.ID).First(&existing).Error
+	err := database.WithSQLiteBusyRetry(ctx, "memory.upsert.lookup", func() error {
+		return s.scoped(ctx).Where("id = ?", record.ID).First(&existing).Error
+	})
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return nil, err
 	}
 	if err == gorm.ErrRecordNotFound {
-		if err := s.dbOrDefault().WithContext(ctx).Create(record).Error; err != nil {
+		if err := database.WithSQLiteBusyRetry(ctx, "memory.upsert.create", func() error {
+			return s.dbOrDefault().WithContext(ctx).Create(record).Error
+		}); err != nil {
 			return nil, err
 		}
 		return s.Get(ctx, record.ID)
 	}
 	record.UserID = existing.UserID
 	record.CreatedAt = existing.CreatedAt
-	if err := s.dbOrDefault().WithContext(ctx).Save(record).Error; err != nil {
+	if err := database.WithSQLiteBusyRetry(ctx, "memory.upsert.save", func() error {
+		return s.dbOrDefault().WithContext(ctx).Save(record).Error
+	}); err != nil {
 		return nil, err
 	}
 	return s.Get(ctx, record.ID)
@@ -172,7 +188,9 @@ func (s *DBStore) Update(ctx context.Context, id string, updates map[string]any)
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
 	}
-	if err := s.scoped(ctx).Where("id = ?", id).Updates(updates).Error; err != nil {
+	if err := database.WithSQLiteBusyRetry(ctx, "memory.update", func() error {
+		return s.scoped(ctx).Where("id = ?", id).Updates(updates).Error
+	}); err != nil {
 		return nil, err
 	}
 	return s.Get(ctx, id)
@@ -182,7 +200,9 @@ func (s *DBStore) Delete(ctx context.Context, id string) error {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return err
 	}
-	return s.scoped(ctx).Where("id = ?", id).Delete(&database.MemoryRecord{}).Error
+	return database.WithSQLiteBusyRetry(ctx, "memory.delete", func() error {
+		return s.scoped(ctx).Where("id = ?", id).Delete(&database.MemoryRecord{}).Error
+	})
 }
 
 func (s *DBStore) PolicySummary(ctx context.Context) (PolicySummary, error) {
@@ -190,7 +210,9 @@ func (s *DBStore) PolicySummary(ctx context.Context) (PolicySummary, error) {
 		LoadPolicy string
 		Count      int64
 	}
-	err := s.scoped(ctx).Select("load_policy, count(*) as count").Group("load_policy").Scan(&rows).Error
+	err := database.WithSQLiteBusyRetry(ctx, "memory.policy_summary", func() error {
+		return s.scoped(ctx).Select("load_policy, count(*) as count").Group("load_policy").Scan(&rows).Error
+	})
 	if err != nil {
 		return PolicySummary{}, err
 	}

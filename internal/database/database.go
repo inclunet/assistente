@@ -79,11 +79,14 @@ func Init() error {
 		dbPath = resolved.Path
 	}
 
-	db, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+	db, err = gorm.Open(sqlite.Open(sqliteDSN(dbPath)), &gorm.Config{
 		Logger: logger.Default.LogMode(gormLogLevel),
 	})
 	if err != nil {
 		return err
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		configureSQLitePool(sqlDB)
 	}
 
 	// auto_vacuum=INCREMENTAL: bancos NOVOS nascem podendo devolver páginas
@@ -96,9 +99,9 @@ func Init() error {
 	// Ativa modo WAL para melhor performance com arquivos grandes
 	db.Exec("PRAGMA journal_mode=WAL")
 	db.Exec("PRAGMA synchronous=NORMAL")
-	// busy_timeout: sob contenção (WAL com writers de background) operações
-	// como VACUUM aguardam o lock em vez de falhar com SQLITE_BUSY (AEP-0074).
-	db.Exec("PRAGMA busy_timeout=5000")
+	// busy_timeout também é aplicado via DSN para cobrir todas as conexões do
+	// pool; este PRAGMA mantém compatibilidade com a conexão inicial.
+	db.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", sqliteBusyTimeout.Milliseconds()))
 
 	// Versionamento de schema (AEP-0076): migrações da fase PRÉ-AutoMigrate.
 	// Inclui a conversão de IDs INTEGER → UUIDv7 (AEP-0046) e o dedup de
