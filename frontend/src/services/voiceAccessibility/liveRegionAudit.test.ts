@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const srcRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const srcRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..'); // frontend/src
 const allowedLiveRegionFiles = new Set([
   join('components', 'ui', 'ScreenReaderAnnouncer.tsx'),
 ]);

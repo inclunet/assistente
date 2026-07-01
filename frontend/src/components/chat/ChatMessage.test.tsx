@@ -78,6 +78,7 @@ vi.mock('./ToolCallsSection', () => ({
 
 describe('ChatMessage', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     buildAriaLabelMock.mockClear();
     announceRequestMock.mockClear();
@@ -373,6 +374,53 @@ describe('ChatMessage', () => {
       origin,
       eventType: 'completion',
     });
+  });
+
+  it('mantem apenas um timer de limpeza para conclusao agêntica sem texto final', () => {
+    vi.useFakeTimers();
+    const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout');
+    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const streamingMessage = new chat.EnrichedMessage({
+      id: 'assistant-empty-cleanup-1',
+      conversationId,
+      role: 'assistant',
+      content: '',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+    const completedMessage = new chat.EnrichedMessage({
+      ...streamingMessage,
+      isStreaming: false,
+      turnSegments: [
+        {
+          type: 'tool_calls',
+          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+        },
+      ],
+    });
+
+    const { rerender } = render(
+      <ChatMessage
+        message={streamingMessage}
+        origin={origin}
+        completedSegments={[
+          {
+            type: 'tool_calls',
+            toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+          },
+        ]}
+      />
+    );
+    rerender(<ChatMessage message={completedMessage} origin={origin} />);
+    expect(vi.getTimerCount()).toBe(1);
+
+    rerender(<ChatMessage message={completedMessage} origin={{ ...origin }} />);
+
+    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(1);
+    clearTimeoutSpy.mockRestore();
   });
 
   it('anuncia conclusão final quando texto chega após conclusão agêntica genérica', () => {

@@ -309,10 +309,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
           eventType: 'completion',
         });
       }
-      window.setTimeout(() => {
+      if (announcementState.cleanupTimer !== undefined) {
+        window.clearTimeout(announcementState.cleanupTimer);
+      }
+      announcementState.cleanupTimer = window.setTimeout(() => {
         const latestState = streamingAnnouncementStates.get(message.id);
-        if (latestState === announcementState && !latestState.previous) {
-          streamingAnnouncementStates.delete(message.id);
+        if (latestState === announcementState) {
+          latestState.cleanupTimer = undefined;
+          if (!latestState.previous) {
+            streamingAnnouncementStates.delete(message.id);
+          }
         }
       }, EMPTY_STREAM_CLEANUP_MS);
       return;
@@ -329,6 +335,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   useEffect(() => () => {
     const announcementState = streamingAnnouncementStates.get(message.id);
     if (!announcementState) return;
+    if (announcementState.cleanupTimer !== undefined) {
+      window.clearTimeout(announcementState.cleanupTimer);
+    }
     announcementState.cleanupTimer = window.setTimeout(() => {
       if (streamingAnnouncementStates.get(message.id) === announcementState) {
         streamingAnnouncementStates.delete(message.id);
