@@ -109,6 +109,21 @@ func TestBuildSummarizationUserPrompt_UsesInvocationResultsWithoutMessageToolCal
 	}
 }
 
+func TestBuildSummarizationUserPrompt_DeduplicatesInvocationResultsPerTurnCall(t *testing.T) {
+	turnID := "turn-1"
+	callID := "call-1"
+	msgs := []database.ChatMessage{
+		{Role: "assistant", Content: "vou buscar", TurnID: &turnID},
+		{Role: "assistant", Content: "resposta final", TurnID: &turnID},
+	}
+
+	invResults := map[string]map[string]string{turnID: {callID: "RESULT"}}
+	prompt := BuildSummarizationUserPrompt("", msgs, invResults, nil)
+	if got := strings.Count(prompt, "Tool result (call-1): RESULT"); got != 1 {
+		t.Fatalf("expected invocation result once, got %d occurrences in:\n%s", got, prompt)
+	}
+}
+
 func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 	makeProfile := func(contextWindow, maxTokens int) *profiles.Profile {
 		return &profiles.Profile{

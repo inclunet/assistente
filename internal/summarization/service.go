@@ -119,6 +119,7 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 		sb.WriteString("## Conversation to Summarize\n\n")
 	}
 
+	usedInvocationResults := map[string]struct{}{}
 	for _, m := range messages {
 		_, _ = fmt.Fprintf(&sb, "**[%s]**: ", m.Role)
 		content := m.Content
@@ -127,7 +128,6 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 		}
 		sb.WriteString(content)
 		if m.Role == "assistant" && strings.TrimSpace(m.ToolCalls) != "" {
-			usedInvocationResults := map[string]struct{}{}
 			for _, c := range parseSummarizationToolCalls(m.ToolCalls) {
 				turnID := ""
 				if m.TurnID != nil {
@@ -161,7 +161,7 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 				if len(res) > 2000 {
 					res = truncateUTF8Safe(res, 2000) + "... [truncated]"
 				}
-				usedInvocationResults[callID] = struct{}{}
+				usedInvocationResults[summarizationInvocationResultKey(turnID, callID)] = struct{}{}
 				sb.WriteString("\n\n")
 				sb.WriteString("Tool result (")
 				sb.WriteString(name)
@@ -170,7 +170,7 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 			}
 			appendSummarizationInvocationResults(&sb, m, invocationResults, fallbackResults, usedInvocationResults)
 		} else if m.Role == "assistant" {
-			appendSummarizationInvocationResults(&sb, m, invocationResults, fallbackResults, nil)
+			appendSummarizationInvocationResults(&sb, m, invocationResults, fallbackResults, usedInvocationResults)
 		}
 		sb.WriteString("\n\n")
 	}
@@ -202,7 +202,7 @@ func appendSummarizationInvocationResults(sb *strings.Builder, m chat.Message, i
 		if callID == "" {
 			continue
 		}
-		if _, ok := skip[callID]; ok {
+		if _, ok := skip[summarizationInvocationResultKey(turnID, callID)]; ok {
 			continue
 		}
 		if byFallback := fallbackResults[turnID]; byFallback != nil {
@@ -226,7 +226,14 @@ func appendSummarizationInvocationResults(sb *strings.Builder, m chat.Message, i
 		sb.WriteString(callID)
 		sb.WriteString("): ")
 		sb.WriteString(res)
+		if skip != nil {
+			skip[summarizationInvocationResultKey(turnID, callID)] = struct{}{}
+		}
 	}
+}
+
+func summarizationInvocationResultKey(turnID, callID string) string {
+	return strings.TrimSpace(turnID) + "\x00" + strings.TrimSpace(callID)
 }
 
 type summarizationToolCall struct {
