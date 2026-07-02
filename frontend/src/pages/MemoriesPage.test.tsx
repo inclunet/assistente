@@ -453,5 +453,38 @@ describe('MemoriesPage', () => {
     expect(screen.getByText('primeira página')).toBeInTheDocument();
     expect(screen.queryByText('segunda memória')).not.toBeInTheDocument();
   });
+
+  it('permite nova tentativa incremental depois de erro em reset', async () => {
+    const user = userEvent.setup();
+    mockListMemoryRecords
+      .mockResolvedValueOnce({
+        records: [{ id: 'mem-1', content: 'memória carregada', loadPolicy: 'core', kind: 'user_preference', scope: 'user' }],
+        total: 1,
+      })
+      .mockRejectedValueOnce(new Error('reset failed'))
+      .mockResolvedValueOnce({
+        records: [{ id: 'mem-retry', content: 'memória após retry', loadPolicy: 'core', kind: 'user_preference', scope: 'user' }],
+        total: 1,
+      });
+
+    render(<MemoriesPage />);
+
+    await screen.findByText('memória carregada');
+    fireEvent.change(screen.getByLabelText('search'), { target: { value: 'falha' } });
+    await waitFor(() => {
+      expect(mockListMemoryRecords).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('memória carregada')).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+
+    await waitFor(() => {
+      expect(mockListMemoryRecords).toHaveBeenCalledTimes(3);
+    });
+    expect(mockListMemoryRecords.mock.calls[2][0]).toEqual(expect.objectContaining({ offset: 0 }));
+    expect(await screen.findByText('memória após retry')).toBeInTheDocument();
+  });
 });
 

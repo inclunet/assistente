@@ -150,6 +150,7 @@ export default function MemoriesPage() {
           recordsRef.current = [];
           setTotalRecords(0);
           totalRecordsRef.current = 0;
+          hasLoadedRecordsRef.current = false;
         }
         addToast(t('memories.errors.loadFailed'), 'error');
         if (!reset && options?.announceProgress) {
