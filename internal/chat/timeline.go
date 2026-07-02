@@ -358,10 +358,23 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 	}
 	finalMsgIdx := -1
 	if hasToolBearingAssistant {
+		firstAssistantIdx := -1
+		firstFinalCandidateIdx := -1
+		lastFinalCandidateIdx := -1
 		for i, message := range messages {
-			if message.Role == "assistant" && strings.TrimSpace(message.Content) != "" && !MessageHasToolCalls(message) && len(invocationCallsByAssistantID[message.ID]) == 0 {
-				finalMsgIdx = i
+			if message.Role == "assistant" && firstAssistantIdx < 0 {
+				firstAssistantIdx = i
 			}
+			if message.Role == "assistant" && strings.TrimSpace(message.Content) != "" && !MessageHasToolCalls(message) && len(invocationCallsByAssistantID[message.ID]) == 0 {
+				if firstFinalCandidateIdx < 0 {
+					firstFinalCandidateIdx = i
+				}
+				lastFinalCandidateIdx = i
+			}
+		}
+		finalMsgIdx = lastFinalCandidateIdx
+		if firstFinalCandidateIdx == firstAssistantIdx {
+			finalMsgIdx = firstFinalCandidateIdx
 		}
 	}
 	var finalTextSegment *TurnSegment

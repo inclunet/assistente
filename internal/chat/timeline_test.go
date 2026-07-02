@@ -433,13 +433,19 @@ func TestConsolidateTimelineTurn_UsesLastFinalCandidateWhenInvocationLacksAssist
 	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
 	result := ConsolidateTimelineTurn([]database.ChatMessage{
 		{
-			UUIDModel: database.UUIDModel{ID: "assistant-intermediate", CreatedAt: baseTime},
+			UUIDModel: database.UUIDModel{ID: "assistant-placeholder", CreatedAt: baseTime},
+			Role:      "assistant",
+			Content:   "",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-intermediate", CreatedAt: baseTime.Add(time.Minute)},
 			Role:      "assistant",
 			Content:   "vou consultar uma ferramenta",
 			TurnID:    &turnID,
 		},
 		{
-			UUIDModel: database.UUIDModel{ID: "assistant-final", CreatedAt: baseTime.Add(time.Minute)},
+			UUIDModel: database.UUIDModel{ID: "assistant-final", CreatedAt: baseTime.Add(2 * time.Minute)},
 			Role:      "assistant",
 			Content:   "resposta final",
 			TurnID:    &turnID,
@@ -465,6 +471,49 @@ func TestConsolidateTimelineTurn_UsesLastFinalCandidateWhenInvocationLacksAssist
 	}
 	if result.Segments[2].Type != "text" || result.Segments[2].Content != "resposta final" {
 		t.Fatalf("expected last assistant as final text segment, got %+v", result.Segments[2])
+	}
+}
+
+func TestConsolidateTimelineTurn_KeepsInitialPlaceholderFinalWhenInvocationLacksAssistantID(t *testing.T) {
+	turnID := "turn-1"
+	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	result := ConsolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-final", CreatedAt: baseTime},
+			Role:      "assistant",
+			Content:   "conclusao do turno",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-intermediate", CreatedAt: baseTime.Add(time.Minute)},
+			Role:      "assistant",
+			Content:   "vou consultar uma ferramenta",
+			TurnID:    &turnID,
+		},
+	}, nil, []TurnSegmentToolCall{
+		{
+			ID:        "tool-a",
+			Type:      "function",
+			Function:  TurnSegmentToolFunction{Name: "search", Arguments: "{}"},
+			Result:    "resultado a",
+			Iteration: 1,
+		},
+	})
+
+	if result.Message.Content != "conclusao do turno" {
+		t.Fatalf("expected initial placeholder conclusion as canonical content, got %q", result.Message.Content)
+	}
+	if len(result.Segments) != 3 {
+		t.Fatalf("expected intermediate text, tool call and final placeholder text segments, got %+v", result.Segments)
+	}
+	if result.Segments[0].Type != "text" || result.Segments[0].Content != "vou consultar uma ferramenta" {
+		t.Fatalf("expected intermediate text first, got %+v", result.Segments[0])
+	}
+	if result.Segments[1].Type != "tool_calls" || len(result.Segments[1].ToolCalls) != 1 || result.Segments[1].ToolCalls[0].ID != "tool-a" {
+		t.Fatalf("expected invocation fallback attached before final text, got %+v", result.Segments[1])
+	}
+	if result.Segments[2].Type != "text" || result.Segments[2].Content != "conclusao do turno" {
+		t.Fatalf("expected initial placeholder conclusion as final text segment, got %+v", result.Segments[2])
 	}
 }
 
