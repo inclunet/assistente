@@ -49,18 +49,19 @@ type MediaSupport struct {
 
 // ChatConfig define as configurações do modelo LLM
 type ChatConfig struct {
-	LLMProvider        string   `json:"llm_provider"` // ID do provedor LLM a usar (ex: "openai-default")
-	Model              string   `json:"model,omitempty"`
-	Temperature        float64  `json:"temperature"`                    // 0.0 a 2.0
-	MaxTokens          int      `json:"max_tokens"`                     // Limite de tokens na resposta
-	MaxTokensMode      string   `json:"max_tokens_mode,omitempty"`      // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
-	ContextWindow      int      `json:"context_window,omitempty"`       // Tamanho da janela de contexto do modelo (0 = não definido)
-	MaxContextMessages int      `json:"max_context_messages,omitempty"` // Máx de mensagens no contexto (0 = padrão 50)
-	MinContextMessages int      `json:"min_context_messages,omitempty"` // Mín de mensagens preservadas após sumarização (0 = padrão 10)
-	TopP               float64  `json:"top_p"`                          // 0.0 a 1.0
-	ResponseTimeout    int      `json:"response_timeout"`               // Timeout em segundos
-	ReasoningEffort    string   `json:"reasoning_effort,omitempty"`     // off, low, medium, high (vazio = off)
-	EnabledTools       []string `json:"enabled_tools"`                  // Ferramentas habilitadas (nil = seleção dinâmica/catalogo quando disponível)
+	LLMProvider        string            `json:"llm_provider"` // ID do provedor LLM a usar (ex: "openai-default")
+	Model              string            `json:"model,omitempty"`
+	Temperature        float64           `json:"temperature"`                    // 0.0 a 2.0
+	MaxTokens          int               `json:"max_tokens"`                     // Limite de tokens na resposta
+	MaxTokensMode      string            `json:"max_tokens_mode,omitempty"`      // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
+	ContextWindow      int               `json:"context_window,omitempty"`       // Tamanho da janela de contexto do modelo (0 = não definido)
+	MaxContextMessages int               `json:"max_context_messages,omitempty"` // Máx de mensagens no contexto (0 = padrão 50)
+	MinContextMessages int               `json:"min_context_messages,omitempty"` // Mín de mensagens preservadas após sumarização (0 = padrão 10)
+	TopP               float64           `json:"top_p"`                          // 0.0 a 1.0
+	ResponseTimeout    int               `json:"response_timeout"`               // Timeout em segundos
+	ReasoningEffort    string            `json:"reasoning_effort,omitempty"`     // off, low, medium, high (vazio = off)
+	EnabledTools       []string          `json:"enabled_tools"`                  // Ferramentas habilitadas (nil = seleção dinâmica/catalogo quando disponível)
+	ToolPolicy         map[string]string `json:"tool_policy,omitempty"`          // Política tri-state por tool: disabled, on_demand, preloaded
 	// EnabledSkills é tri-state:
 	//   - nil: perfil legado, usa fallback por auto_load;
 	//   - []: seleção explícita vazia, todas as skills ficam disabled;

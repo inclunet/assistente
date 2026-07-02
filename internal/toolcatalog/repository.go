@@ -22,6 +22,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const toolNameFilterChunkSize = 900
+
 // Repository persiste e consulta o catálogo de tools (tabela tool_catalog).
 type Repository interface {
 	UpsertTool(ctx context.Context, entry *tools.ToolCatalogEntry) error
@@ -113,6 +115,13 @@ func (r *DBRepository) ListTools(ctx context.Context, filter tools.ToolCatalogFi
 	}
 	query := r.db.WithContext(ctx).
 		Where("((origin = ? AND (user_id IS NULL OR user_id = '')) OR user_id = ?)", tools.ToolOriginBuiltin, userID)
+	if filter.NameIn != nil {
+		names := normalizeToolNameFilter(filter.NameIn)
+		if len(names) == 0 {
+			return []tools.ToolCatalogEntry{}, nil
+		}
+		query = applyNameInFilter(query, names)
+	}
 	if filter.Origin != "" {
 		query = query.Where("origin = ?", filter.Origin)
 	}
@@ -155,6 +164,43 @@ func (r *DBRepository) ListTools(ctx context.Context, filter tools.ToolCatalogFi
 		result = append(result, entry)
 	}
 	return result, nil
+}
+
+func applyNameInFilter(query *gorm.DB, names []string) *gorm.DB {
+	if len(names) <= toolNameFilterChunkSize {
+		return query.Where("name IN ?", names)
+	}
+	grouped := query.Session(&gorm.Session{NewDB: true})
+	for start := 0; start < len(names); start += toolNameFilterChunkSize {
+		end := start + toolNameFilterChunkSize
+		if end > len(names) {
+			end = len(names)
+		}
+		chunk := names[start:end]
+		if start == 0 {
+			grouped = grouped.Where("name IN ?", chunk)
+			continue
+		}
+		grouped = grouped.Or("name IN ?", chunk)
+	}
+	return query.Where(grouped)
+}
+
+func normalizeToolNameFilter(names []string) []string {
+	out := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }
 
 func (r *DBRepository) MarkServerToolsUnavailable(ctx context.Context, serverID string, seenNames []string, reason string) (int, error) {

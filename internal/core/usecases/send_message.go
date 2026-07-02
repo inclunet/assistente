@@ -267,10 +267,12 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// Constrói tool definitions para o LLM.
 	disableTools := activeProfile != nil && activeProfile.Chat.DisableTools
 	var profileEnabledTools []string
+	var profileToolPolicy map[string]string
 	var toolSchemaBudgetBytes int
 	var preferredToolPackages []string
 	if activeProfile != nil {
 		profileEnabledTools = activeProfile.Chat.EnabledTools
+		profileToolPolicy = activeProfile.Chat.ToolPolicy
 		toolSchemaBudgetBytes = activeProfile.Chat.ToolSchemaBudgetBytes
 		preferredToolPackages = activeProfile.Chat.PreferredToolPackages
 	}
@@ -285,6 +287,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	toolPolicy := chat.NewToolSelectionPolicy(uc.toolRegistry)
 	toolCfg := chat.ProfileToolConfig{
 		EnabledTools:      profileEnabledTools,
+		ToolPolicy:        profileToolPolicy,
 		DisableTools:      disableTools,
 		RuntimeTools:      runtimeTools,
 		SchemaBytesBudget: toolSchemaBudgetBytes,
@@ -378,6 +381,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				Filesystem:       invokedFilesystemScope,
 			})
 		}
+		agentCtx = tools.WithToolCatalogVisibleNames(agentCtx, toolPolicy.ResolveEffectiveToolPolicy(toolCfg).CatalogVisibleNames())
 		// Injeta caminhos de arquivos abertos em abas de editor para que
 		// filesystem tools possam ler/editar esses arquivos fora do workDir.
 		if uc.openEditorPaths != nil {

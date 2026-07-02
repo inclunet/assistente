@@ -1202,6 +1202,28 @@ func TestComputeEnabledToolNames_ProfileFilter_OnlySelected(t *testing.T) {
 	}
 }
 
+func TestComputeEnabledToolNames_UsesTriStateToolPolicy(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = reg.Register(&fakeTool{name: tools.ToolCatalogName})
+	_ = reg.Register(&fakeTool{name: "read_file"})
+	_ = reg.Register(&fakeTool{name: "write_file"})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledTools = []string{"write_file"}
+	profile.Chat.ToolPolicy = map[string]string{
+		"read_file": "on_demand",
+	}
+	b := &prompt.Builder{Tools: reg}
+
+	names := b.ComputeEnabledToolNames(profile)
+	if len(names) != 1 || names[0] != tools.ToolCatalogName {
+		t.Fatalf("TemplateData deve refletir policy tri-state/catalog-first, got %v", names)
+	}
+	data := b.BuildTemplateData(profile, llm.ChatParams{}, "conv-1")
+	if !data.ToolCallingEnabled || data.EnabledToolCount != 1 || data.EnabledTools[0] != tools.ToolCatalogName {
+		t.Fatalf("TemplateData desalinhado com tool_policy: %+v", data)
+	}
+}
+
 type fakeTool struct{ name string }
 
 func (f *fakeTool) Name() string                { return f.name }

@@ -37,6 +37,21 @@ func GetExecutionContext(ctx context.Context) (ExecutionContext, bool) {
 	return ec, ok
 }
 
+type toolCatalogVisibilityKey struct{}
+
+// WithToolCatalogVisibleNames restringe a descoberta do tool_catalog aos nomes
+// visíveis pela política efetiva do perfil. nil significa sem restrição; slice
+// vazio significa nenhuma tool visível.
+func WithToolCatalogVisibleNames(ctx context.Context, names []string) context.Context {
+	return context.WithValue(ctx, toolCatalogVisibilityKey{}, names)
+}
+
+func ToolCatalogVisibleNamesFromContext(ctx context.Context) ([]string, bool) {
+	v := ctx.Value(toolCatalogVisibilityKey{})
+	names, ok := v.([]string)
+	return names, ok
+}
+
 type maxResultSizeKey struct{}
 
 // WithMaxResultSize injeta no ctx o limite efetivo de tamanho de resultado que o
