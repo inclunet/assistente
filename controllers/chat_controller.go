@@ -42,19 +42,23 @@ type ChatController struct {
 	msgGateway       *messaging.Gateway
 	responseNotifier *messaging.ResponseNotifier
 	sendMsgUC        *usecases.SendMessageUseCase
+	loadedToolStore  *tools.LoadedToolStore
 }
 
 // NewChatController cria um ChatController com todas as suas dependências.
 func NewChatController(cfg ChatControllerConfig) *ChatController {
+	loadedToolStore := tools.NewLoadedToolStore()
 	return &ChatController{
 		emitter:          cfg.Emitter,
 		streamMgr:        cfg.StreamMgr,
 		convRepo:         cfg.ConvRepo,
 		msgGateway:       cfg.MsgGateway,
 		responseNotifier: cfg.ResponseNotifier,
+		loadedToolStore:  loadedToolStore,
 		sendMsgUC: usecases.NewSendMessageUseCase(usecases.SendMessageConfig{
 			ChatInteractor:  cfg.ChatInteractor,
 			ToolRegistry:    cfg.ToolRegistry,
+			LoadedToolStore: loadedToolStore,
 			ProviderSvc:     cfg.ProviderSvc,
 			MCPMgr:          cfg.MCPMgr,
 			AgentSvc:        cfg.AgentSvc,

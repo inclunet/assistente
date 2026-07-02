@@ -52,6 +52,27 @@ func ToolCatalogVisibleNamesFromContext(ctx context.Context) ([]string, bool) {
 	return names, ok
 }
 
+type toolCatalogRuntimeKey struct{}
+
+type ToolCatalogRuntime struct {
+	Store          *LoadedToolStore
+	ConversationID string
+	ProfileSlug    string
+	VisibleNames   []string
+	PreloadedNames []string
+	ControlPlane   []string
+}
+
+func WithToolCatalogRuntime(ctx context.Context, runtime ToolCatalogRuntime) context.Context {
+	return context.WithValue(ctx, toolCatalogRuntimeKey{}, runtime)
+}
+
+func ToolCatalogRuntimeFromContext(ctx context.Context) (ToolCatalogRuntime, bool) {
+	v := ctx.Value(toolCatalogRuntimeKey{})
+	runtime, ok := v.(ToolCatalogRuntime)
+	return runtime, ok
+}
+
 type maxResultSizeKey struct{}
 
 // WithMaxResultSize injeta no ctx o limite efetivo de tamanho de resultado que o

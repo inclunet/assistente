@@ -13,6 +13,11 @@ const (
 
 	defaultCatalogToolLimit = 20
 	maxCatalogToolPageSize  = 50
+
+	catalogActionSearch     = "search"
+	catalogActionLoad       = "load"
+	catalogActionUnload     = "unload"
+	catalogActionListLoaded = "list_loaded"
 )
 
 type CatalogToolStore interface {
@@ -24,25 +29,31 @@ type CatalogTool struct {
 }
 
 type catalogToolRequest struct {
-	Origin             string `json:"origin,omitempty"`
-	Category           string `json:"category,omitempty"`
-	Class              string `json:"class,omitempty"`
-	Package            string `json:"package,omitempty"`
-	Risk               string `json:"risk,omitempty"`
-	AvailabilityStatus string `json:"availability_status,omitempty"`
-	IncludeUnavailable bool   `json:"include_unavailable,omitempty"`
-	Limit              int    `json:"limit,omitempty"`
-	Offset             int    `json:"offset,omitempty"`
+	Action             string   `json:"action,omitempty"`
+	Tools              []string `json:"tools,omitempty"`
+	Origin             string   `json:"origin,omitempty"`
+	Category           string   `json:"category,omitempty"`
+	Class              string   `json:"class,omitempty"`
+	Package            string   `json:"package,omitempty"`
+	Risk               string   `json:"risk,omitempty"`
+	AvailabilityStatus string   `json:"availability_status,omitempty"`
+	IncludeUnavailable bool     `json:"include_unavailable,omitempty"`
+	Limit              int      `json:"limit,omitempty"`
+	Offset             int      `json:"offset,omitempty"`
 }
 
 type catalogToolResponse struct {
-	Tools         []catalogToolItem `json:"tools"`
-	SelectedTools []string          `json:"selected_tools"`
-	Count         int               `json:"count"`
-	Limit         int               `json:"limit"`
-	Offset        int               `json:"offset"`
-	HasMore       bool              `json:"has_more"`
-	NextOffset    int               `json:"next_offset,omitempty"`
+	Tools         []catalogToolItem      `json:"tools"`
+	SelectedTools []string               `json:"selected_tools"`
+	LoadedTools   []string               `json:"loaded_tools,omitempty"`
+	UnloadedTools []string               `json:"unloaded_tools,omitempty"`
+	RejectedTools []catalogToolRejection `json:"rejected_tools,omitempty"`
+	Loaded        []LoadedToolRecord     `json:"loaded,omitempty"`
+	Count         int                    `json:"count"`
+	Limit         int                    `json:"limit"`
+	Offset        int                    `json:"offset"`
+	HasMore       bool                   `json:"has_more"`
+	NextOffset    int                    `json:"next_offset,omitempty"`
 }
 
 type catalogToolItem struct {
@@ -57,6 +68,11 @@ type catalogToolItem struct {
 	AvailabilityStatus string `json:"availability_status"`
 }
 
+type catalogToolRejection struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
 func NewCatalogTool(store CatalogToolStore) *CatalogTool {
 	return &CatalogTool{store: store}
 }
@@ -64,13 +80,15 @@ func NewCatalogTool(store CatalogToolStore) *CatalogTool {
 func (t *CatalogTool) Name() string { return ToolCatalogName }
 
 func (t *CatalogTool) Description() string {
-	return "Discover and select tool capabilities from the persisted catalog (filter by origin, category, class, package, risk or availability); the tools you select only become available on the next turn. When tool access in the session is gated by the catalog, this may be the only tool available initially and you must call it first to unlock the tools you need. In sessions where other tools are already provided, use it only when you need a capability that is not yet available."
+	return "Discover, load, unload, and list tool capabilities from the persisted catalog. Optional action defaults to search for compatibility. Use action=search to find visible tools, action=load with tools:[name] to make specific on-demand tools available, action=unload to remove loaded on-demand tools, and action=list_loaded to inspect tools currently available in this conversation/session. Disabled-by-profile tools are hidden and cannot be loaded."
 }
 
 func (t *CatalogTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
+    "action": {"type": "string", "enum": ["search", "load", "unload", "list_loaded"], "description": "Control action. Defaults to search when omitted."},
+    "tools": {"type": "array", "items": {"type": "string"}, "description": "Tool names for action=load or action=unload. Load tools one at a time or in a small granular set."},
     "origin": {"type": "string", "description": "Optional origin filter: builtin, mcp_bridge, or mcp_native."},
     "category": {"type": "string", "description": "Optional category filter, for example filesystem, web, tasklist, or mcp:<server>."},
     "class": {"type": "string", "description": "Optional capability class, for example read_context, edit_files, web_lookup, task_management, mcp_tool."},
@@ -94,6 +112,25 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 			return ToolResult{Content: fmt.Sprintf("argumentos inválidos para tool_catalog: %v", err), IsError: true}, nil
 		}
 	}
+	action := strings.TrimSpace(req.Action)
+	if action == "" {
+		action = catalogActionSearch
+	}
+	switch action {
+	case catalogActionSearch:
+		return t.executeSearch(ctx, req)
+	case catalogActionLoad:
+		return t.executeLoad(ctx, req)
+	case catalogActionUnload:
+		return t.executeUnload(ctx, req)
+	case catalogActionListLoaded:
+		return t.executeListLoaded(ctx)
+	default:
+		return ToolResult{Content: fmt.Sprintf("ação inválida para tool_catalog: %s", action), IsError: true}, nil
+	}
+}
+
+func (t *CatalogTool) executeSearch(ctx context.Context, req catalogToolRequest) (ToolResult, error) {
 	limit := req.Limit
 	if limit <= 0 {
 		limit = defaultCatalogToolLimit
@@ -142,7 +179,7 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 	}
 	resp := catalogToolResponse{
 		Tools:         make([]catalogToolItem, 0, len(entries)),
-		SelectedTools: make([]string, 0, len(entries)),
+		SelectedTools: []string{},
 		Count:         len(entries),
 		Limit:         limit,
 		Offset:        offset,
@@ -152,7 +189,6 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 		resp.NextOffset = offset + len(entries)
 	}
 	for _, entry := range entries {
-		resp.SelectedTools = append(resp.SelectedTools, entry.Name)
 		resp.Tools = append(resp.Tools, catalogToolItem{
 			Name:               entry.Name,
 			DisplayName:        entry.DisplayName,
@@ -170,6 +206,96 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 		return ToolResult{Content: fmt.Sprintf("erro ao serializar resposta do catálogo de tools: %v", err), IsError: true}, nil
 	}
 	return ToolResult{Content: string(data)}, nil
+}
+
+func (t *CatalogTool) executeLoad(ctx context.Context, req catalogToolRequest) (ToolResult, error) {
+	runtime, ok := ToolCatalogRuntimeFromContext(ctx)
+	if !ok || runtime.Store == nil {
+		return ToolResult{Content: "estado runtime do catálogo de tools não configurado", IsError: true}, nil
+	}
+	requested := normalizeRequestedToolNames(req.Tools)
+	if len(requested) == 0 {
+		return marshalCatalogToolResponse(catalogToolResponse{LoadedTools: []string{}, SelectedTools: []string{}, RejectedTools: []catalogToolRejection{}})
+	}
+	available, unavailable, err := t.partitionAvailableTools(ctx, requested, runtime.VisibleNames)
+	if err != nil {
+		return ToolResult{Content: fmt.Sprintf("erro ao consultar catálogo de tools: %v", err), IsError: true}, nil
+	}
+	loaded, rejected := runtime.Store.Load(runtime.ConversationID, runtime.ProfileSlug, available, runtime.VisibleNames, runtime.PreloadedNames, runtime.ControlPlane)
+	rejected = append(rejected, unavailable...)
+	resp := catalogToolResponse{
+		SelectedTools: loadedToolChangeNames(loaded),
+		LoadedTools:   loadedToolChangeNames(loaded),
+		RejectedTools: catalogToolRejections(rejected),
+		Count:         len(loaded),
+	}
+	return marshalCatalogToolResponse(resp)
+}
+
+func (t *CatalogTool) executeUnload(ctx context.Context, req catalogToolRequest) (ToolResult, error) {
+	runtime, ok := ToolCatalogRuntimeFromContext(ctx)
+	if !ok || runtime.Store == nil {
+		return ToolResult{Content: "estado runtime do catálogo de tools não configurado", IsError: true}, nil
+	}
+	unloaded, rejected := runtime.Store.Unload(runtime.ConversationID, runtime.ProfileSlug, normalizeRequestedToolNames(req.Tools), runtime.PreloadedNames, runtime.ControlPlane)
+	resp := catalogToolResponse{
+		UnloadedTools: loadedToolChangeNames(unloaded),
+		RejectedTools: catalogToolRejections(rejected),
+		Count:         len(unloaded),
+	}
+	return marshalCatalogToolResponse(resp)
+}
+
+func (t *CatalogTool) executeListLoaded(ctx context.Context) (ToolResult, error) {
+	runtime, ok := ToolCatalogRuntimeFromContext(ctx)
+	if !ok || runtime.Store == nil {
+		return ToolResult{Content: "estado runtime do catálogo de tools não configurado", IsError: true}, nil
+	}
+	loaded := runtime.Store.List(runtime.ConversationID, runtime.ProfileSlug, runtime.PreloadedNames, runtime.ControlPlane, runtime.VisibleNames)
+	resp := catalogToolResponse{
+		Loaded: loaded,
+		Count:  len(loaded),
+	}
+	return marshalCatalogToolResponse(resp)
+}
+
+func (t *CatalogTool) partitionAvailableTools(ctx context.Context, requested, visible []string) (available []string, rejected []LoadedToolChange, err error) {
+	visibleSet, constrained := nameSet(visible)
+	checkNames := requested
+	if constrained {
+		checkNames = make([]string, 0, len(requested))
+		for _, name := range requested {
+			if _, ok := visibleSet[name]; !ok {
+				rejected = append(rejected, LoadedToolChange{Name: name, Reason: LoadedToolRejectDisabled})
+				continue
+			}
+			checkNames = append(checkNames, name)
+		}
+	}
+	if len(checkNames) == 0 {
+		return nil, rejected, nil
+	}
+	entries, err := t.store.ListTools(ctx, ToolCatalogFilter{
+		NameIn:             checkNames,
+		AvailabilityStatus: ToolAvailabilityAvailable,
+		IncludeUnavailable: false,
+		Limit:              len(checkNames),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	found := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		found[entry.Name] = struct{}{}
+	}
+	for _, name := range checkNames {
+		if _, ok := found[name]; ok {
+			available = append(available, name)
+			continue
+		}
+		rejected = append(rejected, LoadedToolChange{Name: name, Reason: LoadedToolRejectUnavailable})
+	}
+	return available, rejected, nil
 }
 
 func toolCatalogVisibleNames(ctx context.Context) []string {
@@ -201,4 +327,51 @@ func filterCatalogEntriesByVisibleNames(entries []ToolCatalogEntry, visible []st
 		}
 	}
 	return filtered
+}
+
+func normalizeRequestedToolNames(names []string) []string {
+	normalized := make([]string, 0, len(names))
+	seen := map[string]struct{}{}
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		normalized = append(normalized, name)
+	}
+	return normalized
+}
+
+func loadedToolChangeNames(changes []LoadedToolChange) []string {
+	names := make([]string, 0, len(changes))
+	for _, change := range changes {
+		names = append(names, change.Name)
+	}
+	return names
+}
+
+func catalogToolRejections(changes []LoadedToolChange) []catalogToolRejection {
+	rejections := make([]catalogToolRejection, 0, len(changes))
+	for _, change := range changes {
+		rejections = append(rejections, catalogToolRejection{Name: change.Name, Reason: change.Reason})
+	}
+	return rejections
+}
+
+func marshalCatalogToolResponse(resp catalogToolResponse) (ToolResult, error) {
+	if resp.Tools == nil {
+		resp.Tools = []catalogToolItem{}
+	}
+	if resp.SelectedTools == nil {
+		resp.SelectedTools = []string{}
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return ToolResult{Content: fmt.Sprintf("erro ao serializar resposta do catálogo de tools: %v", err), IsError: true}, nil
+	}
+	return ToolResult{Content: string(data)}, nil
 }

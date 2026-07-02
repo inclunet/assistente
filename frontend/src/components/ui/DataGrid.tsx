@@ -36,6 +36,7 @@ export interface DataGridProps<T = unknown> {
   onGridReady?: (focusFirstCell: () => void) => void;
   onMoveItem?: (fromIndex: number, toIndex: number) => void;
   onFocusChange?: (item: T | null, rowIndex: number) => void;
+  onItemToggle?: (item: T, rowIndex: number) => void;
   className?: string;
   showHeader?: boolean;
   /**
@@ -62,6 +63,7 @@ export function DataGrid<T = unknown>({
   onGridReady,
   onMoveItem,
   onFocusChange,
+  onItemToggle,
   className,
   showHeader = true,
   getRowActions,
@@ -303,6 +305,10 @@ export function DataGrid<T = unknown>({
   };
 
   const toggleSelection = (rowIndex: number) => {
+    if (onItemToggle) {
+      onItemToggle(items[rowIndex], rowIndex);
+      return;
+    }
     const itemId = getItemId(items[rowIndex]);
     const newSelected = new Set(localSelectedIds);
     

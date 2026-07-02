@@ -40,14 +40,15 @@ func resolveStreamingRecoverySettings(activeProfile *profiles.Profile) (enabled 
 
 // SendMessageConfig agrupa as dependências do SendMessageUseCase.
 type SendMessageConfig struct {
-	ChatInteractor *chat.Interactor
-	ToolRegistry   *tools.Registry
-	ProviderSvc    *providers.Service
-	MCPMgr         *mcpmgr.Manager
-	AgentSvc       *agent.Service
-	StreamMgr      *chat.StreamingManager
-	SpeechSvc      *speech.Service
-	Emitter        ports.Emitter
+	ChatInteractor  *chat.Interactor
+	ToolRegistry    *tools.Registry
+	LoadedToolStore *tools.LoadedToolStore
+	ProviderSvc     *providers.Service
+	MCPMgr          *mcpmgr.Manager
+	AgentSvc        *agent.Service
+	StreamMgr       *chat.StreamingManager
+	SpeechSvc       *speech.Service
+	Emitter         ports.Emitter
 	// OnSpeechRequest é chamado após salvar a mensagem do usuário para disparar TTS proativo.
 	OnSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 	// OpenEditorPaths retorna os caminhos de arquivos abertos em abas de editor.
@@ -60,6 +61,7 @@ type SendMessageConfig struct {
 type SendMessageUseCase struct {
 	chatInteractor  *chat.Interactor
 	toolRegistry    *tools.Registry
+	loadedToolStore *tools.LoadedToolStore
 	providerSvc     *providers.Service
 	mcpMgr          *mcpmgr.Manager
 	agentSvc        *agent.Service
@@ -72,9 +74,14 @@ type SendMessageUseCase struct {
 
 // NewSendMessageUseCase cria um SendMessageUseCase com todas as dependências.
 func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
+	loadedToolStore := cfg.LoadedToolStore
+	if loadedToolStore == nil {
+		loadedToolStore = tools.NewLoadedToolStore()
+	}
 	return &SendMessageUseCase{
 		chatInteractor:  cfg.ChatInteractor,
 		toolRegistry:    cfg.ToolRegistry,
+		loadedToolStore: loadedToolStore,
 		providerSvc:     cfg.ProviderSvc,
 		mcpMgr:          cfg.MCPMgr,
 		agentSvc:        cfg.AgentSvc,
@@ -293,6 +300,20 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		SchemaBytesBudget: toolSchemaBudgetBytes,
 		PreferredPackages: preferredToolPackages,
 	}
+	if disableTools && uc.loadedToolStore != nil {
+		uc.loadedToolStore.ResetConversation(req.ConversationID)
+	}
+	baseEffectiveToolPolicy := toolPolicy.ResolveEffectiveToolPolicy(toolCfg)
+	basePreloadedToolNames := baseEffectiveToolPolicy.PreloadedNames()
+	toolCatalogVisibleNames := baseEffectiveToolPolicy.CatalogVisibleNames()
+	controlPlaneToolNames := controlPlaneNamesFromPolicy(baseEffectiveToolPolicy)
+	if uc.loadedToolStore != nil && !disableTools {
+		loadedRuntimeTools := uc.loadedToolStore.Loaded(req.ConversationID, params.ProfileSlug, toolCatalogVisibleNames)
+		if len(loadedRuntimeTools) > 0 {
+			runtimeTools = append(runtimeTools, loadedRuntimeTools...)
+			toolCfg.RuntimeTools = runtimeTools
+		}
+	}
 
 	// Resolve o ChatProvider para o provedor do perfil ativo.
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
@@ -381,7 +402,16 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				Filesystem:       invokedFilesystemScope,
 			})
 		}
-		agentCtx = tools.WithToolCatalogVisibleNames(agentCtx, toolPolicy.ResolveEffectiveToolPolicy(toolCfg).CatalogVisibleNames())
+		effectiveToolPolicy := toolPolicy.ResolveEffectiveToolPolicy(toolCfg)
+		agentCtx = tools.WithToolCatalogVisibleNames(agentCtx, effectiveToolPolicy.CatalogVisibleNames())
+		agentCtx = tools.WithToolCatalogRuntime(agentCtx, tools.ToolCatalogRuntime{
+			Store:          uc.loadedToolStore,
+			ConversationID: req.ConversationID,
+			ProfileSlug:    params.ProfileSlug,
+			VisibleNames:   effectiveToolPolicy.CatalogVisibleNames(),
+			PreloadedNames: basePreloadedToolNames,
+			ControlPlane:   controlPlaneToolNames,
+		})
 		// Injeta caminhos de arquivos abertos em abas de editor para que
 		// filesystem tools possam ler/editar esses arquivos fora do workDir.
 		if uc.openEditorPaths != nil {
@@ -432,4 +462,15 @@ func (uc *SendMessageUseCase) whisperTranscribeFunc() chat.TranscribeFunc {
 		}
 		return result.Text, nil
 	}
+}
+
+func controlPlaneNamesFromPolicy(policy chat.EffectiveToolPolicy) []string {
+	names := make([]string, 0, 2)
+	if policy.State(tools.ToolCatalogName) == chat.ToolPolicyPreloaded {
+		names = append(names, tools.ToolCatalogName)
+	}
+	if policy.State(tools.LoadSkillName) == chat.ToolPolicyPreloaded {
+		names = append(names, tools.LoadSkillName)
+	}
+	return names
 }

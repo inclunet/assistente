@@ -764,13 +764,13 @@ func selectedToolsFromCatalog(results []tools.ToolExecutionResult) []string {
 			continue
 		}
 		var payload struct {
-			SelectedTools []string `json:"selected_tools"`
+			LoadedTools []string `json:"loaded_tools"`
 		}
 		if err := json.Unmarshal([]byte(result.Result.Content), &payload); err != nil {
 			logging.Infof(context.Background(), "agent.service", "[Agent] resposta inválida de %s: %v", tools.ToolCatalogName, err)
 			continue
 		}
-		for _, name := range payload.SelectedTools {
+		for _, name := range payload.LoadedTools {
 			name = strings.TrimSpace(name)
 			if name == "" || name == tools.ToolCatalogName {
 				continue

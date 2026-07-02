@@ -12,13 +12,28 @@ func TestSelectedToolsFromCatalog(t *testing.T) {
 		{
 			ToolName: tools.ToolCatalogName,
 			Result: tools.ToolResult{
-				Content: `{"selected_tools":["read_file","grep_search","read_file","tool_catalog"]}`,
+				Content: `{"loaded_tools":["read_file","grep_search","read_file","tool_catalog"]}`,
 			},
 		},
 	})
 
 	if len(selected) != 2 || selected[0] != "read_file" || selected[1] != "grep_search" {
 		t.Fatalf("selected = %#v", selected)
+	}
+}
+
+func TestSelectedToolsFromCatalogIgnoresSearchResults(t *testing.T) {
+	selected := selectedToolsFromCatalog([]tools.ToolExecutionResult{
+		{
+			ToolName: tools.ToolCatalogName,
+			Result: tools.ToolResult{
+				Content: `{"selected_tools":["read_file","grep_search"]}`,
+			},
+		},
+	})
+
+	if len(selected) != 0 {
+		t.Fatalf("search results must not load tools, selected = %#v", selected)
 	}
 }
 
@@ -40,7 +55,7 @@ func TestExpandToolDefsFromCatalogResults(t *testing.T) {
 		{
 			ToolName: tools.ToolCatalogName,
 			Result: tools.ToolResult{
-				Content: `{"selected_tools":["read_file","grep_search"]}`,
+				Content: `{"loaded_tools":["read_file","grep_search"]}`,
 			},
 		},
 	}
