@@ -44,8 +44,8 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 			}
 			policy.states[name] = normalizeToolPolicyState(state)
 		}
-		policy.ensureCatalogForOnDemandTools()
-		policy.applyRuntimeTools(cfg.RuntimeTools, true)
+		policy.ensureCatalogForOnDemandTools(cfg.ToolPolicy)
+		policy.applyRuntimeTools(cfg.RuntimeTools, true, true)
 		return policy
 	}
 
@@ -59,7 +59,7 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 				}
 				policy.states[name] = ToolPolicyPreloaded
 			}
-			policy.applyRuntimeTools(cfg.RuntimeTools, true)
+			policy.applyRuntimeTools(cfg.RuntimeTools, true, false)
 			return policy
 		}
 		for _, name := range names {
@@ -70,7 +70,7 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 			policy.states[name] = ToolPolicyOnDemand
 		}
 		policy.states[tools.ToolCatalogName] = ToolPolicyPreloaded
-		policy.applyRuntimeTools(cfg.RuntimeTools, true)
+		policy.applyRuntimeTools(cfg.RuntimeTools, true, false)
 		return policy
 	}
 
@@ -85,7 +85,7 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 		}
 		policy.states[name] = ToolPolicyPreloaded
 	}
-	policy.applyRuntimeTools(cfg.RuntimeTools, allowRuntime)
+	policy.applyRuntimeTools(cfg.RuntimeTools, allowRuntime, false)
 	return policy
 }
 
@@ -158,7 +158,7 @@ func (p EffectiveToolPolicy) NativePreloadedAllowlist() []string {
 	return p.PreloadedNames()
 }
 
-func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow bool) {
+func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow bool, respectDisabled bool) {
 	if !allow {
 		return
 	}
@@ -167,15 +167,23 @@ func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow boo
 		if name == "" {
 			continue
 		}
-		if _, ok := p.states[name]; ok || p.legacyAllPreloaded {
+		if state, ok := p.states[name]; ok || p.legacyAllPreloaded {
+			if respectDisabled && state == ToolPolicyDisabled {
+				continue
+			}
 			p.states[name] = ToolPolicyPreloaded
 		}
 	}
 }
 
-func (p *EffectiveToolPolicy) ensureCatalogForOnDemandTools() {
+func (p *EffectiveToolPolicy) ensureCatalogForOnDemandTools(configured map[string]string) {
 	if p.State(tools.ToolCatalogName) == ToolPolicyPreloaded {
 		return
+	}
+	if normalizeToolPolicyState(configured[tools.ToolCatalogName]) == ToolPolicyDisabled {
+		if _, ok := configured[tools.ToolCatalogName]; ok {
+			return
+		}
 	}
 	if _, ok := p.states[tools.ToolCatalogName]; !ok {
 		for name, state := range p.states {

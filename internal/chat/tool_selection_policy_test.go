@@ -174,6 +174,25 @@ func TestToolSelectionPolicy_ToolPolicyPreloadsCatalogWhenOnDemandExists(t *test
 	assertNames(t, "preloaded", effective.PreloadedNames(), []string{tools.ToolCatalogName})
 }
 
+func TestToolSelectionPolicy_ToolPolicyDoesNotElevateDisabledCatalog(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			tools.ToolCatalogName: string(ToolPolicyDisabled),
+			"read_file":           string(ToolPolicyOnDemand),
+		},
+	})
+
+	if effective.State(tools.ToolCatalogName) != ToolPolicyDisabled {
+		t.Fatalf("tool_catalog disabled não deveria ser promovido, got %s", effective.State(tools.ToolCatalogName))
+	}
+	if effective.State("read_file") != ToolPolicyOnDemand {
+		t.Fatalf("read_file deveria permanecer on_demand, got %s", effective.State("read_file"))
+	}
+	assertNames(t, "preloaded", effective.PreloadedNames(), []string{})
+}
+
 func TestToolSelectionPolicy_ToolPolicyPreloadsOnDemandWhenCatalogUnavailable(t *testing.T) {
 	r := charRegistryNoCatalog(t)
 	policy := NewToolSelectionPolicy(r)
@@ -185,6 +204,23 @@ func TestToolSelectionPolicy_ToolPolicyPreloadsOnDemandWhenCatalogUnavailable(t 
 
 	if effective.State("read_file") != ToolPolicyPreloaded {
 		t.Fatalf("read_file deveria degradar para preloaded sem tool_catalog, got %s", effective.State("read_file"))
+	}
+	assertNames(t, "preloaded", effective.PreloadedNames(), []string{"read_file"})
+}
+
+func TestToolSelectionPolicy_ToolPolicyRuntimeDoesNotElevateDisabledLoadSkill(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			tools.LoadSkillName: string(ToolPolicyDisabled),
+			"read_file":         string(ToolPolicyPreloaded),
+		},
+		RuntimeTools: []string{tools.LoadSkillName},
+	})
+
+	if effective.State(tools.LoadSkillName) != ToolPolicyDisabled {
+		t.Fatalf("load_skill disabled não deveria ser promovida por RuntimeTools, got %s", effective.State(tools.LoadSkillName))
 	}
 	assertNames(t, "preloaded", effective.PreloadedNames(), []string{"read_file"})
 }

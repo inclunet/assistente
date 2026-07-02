@@ -107,11 +107,13 @@ func (p *ToolSelectionPolicy) InitialToolDefs(cfg ProfileToolConfig) []llm.ToolD
 // (usado no fallback nativo→adapter do mesmo turno). O streamer adapter é o
 // próprio streamer recebido, inalterado.
 func (p *ToolSelectionPolicy) PlanTurnToolDefs(streamer llm.ChatProvider, mcpMgr NativeMCPManager, cfg ProfileToolConfig) (nativeStreamer llm.ChatProvider, nativeDefs, adapterDefs []llm.ToolDefinition) {
-	raw := p.rawInitialToolDefs(cfg)
+	effective := p.ResolveEffectiveToolPolicy(cfg)
+	preloadedNames := effective.PreloadedNames()
+	raw := p.buildLLMToolDefs(preloadedNames, cfg.DisableTools)
 	// Adapter: bridges contam no budget (são enviadas como function schemas).
 	adapterDefs = p.applyPlanner(raw, cfg, "adapter")
 	// Nativo: remove as bridges nativas ANTES de orçar (passthrough não consome budget).
-	nativeStreamer, reduced := applyNativeMCP(streamer, raw, mcpMgr, p.ResolveEffectiveToolPolicy(cfg).NativePreloadedAllowlist(), cfg.DisableTools, cfg.NativeMCP)
+	nativeStreamer, reduced := applyNativeMCP(streamer, raw, mcpMgr, preloadedNames, cfg.DisableTools, cfg.NativeMCP)
 	nativeDefs = p.applyPlanner(reduced, cfg, "nativo")
 	return nativeStreamer, nativeDefs, adapterDefs
 }
