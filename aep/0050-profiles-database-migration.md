@@ -277,7 +277,7 @@ A junction table `profile_skills` referencia skills por slug. Para integridade r
 | `id` | TEXT | PK | UUIDv7 |
 | `profile_id` | TEXT | FK→profiles.id NOT NULL INDEX | Cascade delete |
 | `tool_name` | TEXT | NOT NULL | Nome da tool no registry |
-| `state` | TEXT | NOT NULL DEFAULT 'preloaded' | `disabled` / `on_demand` / `preloaded` conforme AEP-0081 |
+| `state` | TEXT | NOT NULL | `disabled` / `on_demand` / `preloaded` conforme AEP-0081; deve ser definido explicitamente pela migração |
 
 **Constraint**: UNIQUE(profile_id, tool_name)
 
