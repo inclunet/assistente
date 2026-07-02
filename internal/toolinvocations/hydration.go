@@ -108,7 +108,7 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 			}
 			q := db.WithContext(ctx).
 				Model(&database.ToolInvocation{}).
-				Select("tool_invocations.*, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name, tool_catalog.origin AS tool_origin").
+				Select("tool_invocations.id, tool_invocations.origin_id, tool_invocations.tool_call_id, tool_invocations.output, tool_invocations.metadata, tool_invocations.queued_at, tool_invocations.duration_ms, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name, tool_catalog.origin AS tool_origin").
 				Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
 				Where(
 					"tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND tool_invocations.origin_id IN ? AND tool_invocations.tool_call_id <> '' AND (tool_invocations.completed_at IS NOT NULL OR tool_invocations.status IN (?, ?, ?, ?))",
