@@ -491,21 +491,18 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 		consolidated.Source = ToolOnlyTurnPlaceholderSource
 		placeholderCalls := make([]map[string]interface{}, 0, len(toolResults)+len(invocationToolCalls))
 		segmentToolCalls := make([]TurnSegmentToolCall, 0, len(toolResults)+len(invocationToolCalls))
+		invocationCallIDs := make(map[string]struct{}, len(invocationToolCalls))
 		for _, call := range invocationToolCalls {
 			placeholderCalls = append(placeholderCalls, turnSegmentToolCallToMap(call))
+			if callID := strings.TrimSpace(call.ID); callID != "" {
+				invocationCallIDs[callID] = struct{}{}
+			}
 		}
 		for callID, result := range toolResults {
 			if callID == "" {
 				continue
 			}
-			alreadyIncluded := false
-			for _, call := range invocationToolCalls {
-				if call.ID == callID {
-					alreadyIncluded = true
-					break
-				}
-			}
-			if alreadyIncluded {
+			if _, alreadyIncluded := invocationCallIDs[callID]; alreadyIncluded {
 				continue
 			}
 			placeholderCalls = append(placeholderCalls, map[string]interface{}{

@@ -366,9 +366,8 @@ func TestBuildInvocationDisplayMetadataTruncatesArguments(t *testing.T) {
 	}
 	var payload struct {
 		Display struct {
-			Arguments                 string `json:"arguments"`
-			ArgumentsTruncated        bool   `json:"_arguments_truncated"`
-			ArgumentsOriginalSizeByte int    `json:"_arguments_original_size_bytes"`
+			ArgumentsTruncated        bool `json:"_arguments_truncated"`
+			ArgumentsOriginalSizeByte int  `json:"_arguments_original_size_bytes"`
 		} `json:"display"`
 	}
 	if err := json.Unmarshal(metadata, &payload); err != nil {
@@ -376,6 +375,16 @@ func TestBuildInvocationDisplayMetadataTruncatesArguments(t *testing.T) {
 	}
 	if !payload.Display.ArgumentsTruncated || payload.Display.ArgumentsOriginalSizeByte == 0 {
 		t.Fatalf("expected display arguments truncation metadata, got %#v", payload.Display)
+	}
+	var raw map[string]map[string]any
+	if err := json.Unmarshal(metadata, &raw); err != nil {
+		t.Fatalf("unmarshal raw metadata: %v", err)
+	}
+	if _, ok := raw["display"]["arguments"]; ok {
+		t.Fatalf("expected truncated display arguments to be omitted, got %s", string(metadata))
+	}
+	if strings.Contains(string(metadata), "TRUNCADO") {
+		t.Fatalf("metadata should not contain textual truncation suffix: %s", string(metadata))
 	}
 }
 

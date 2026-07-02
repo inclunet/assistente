@@ -594,11 +594,7 @@ func looksSensitiveString(value string) bool {
 	return false
 }
 
-func (s *Service) ExecuteAll(ctx context.Context, calls []tools.ToolCall, origin Origin, iterationArg ...int) []ExecuteResult {
-	iteration := 0
-	if len(iterationArg) > 0 {
-		iteration = iterationArg[0]
-	}
+func (s *Service) ExecuteAll(ctx context.Context, calls []tools.ToolCall, origin Origin, iteration int) []ExecuteResult {
 	results := make([]ExecuteResult, len(calls))
 	var wg sync.WaitGroup
 	for i, call := range calls {
@@ -758,29 +754,10 @@ func buildInvocationDisplayMetadata(call tools.ToolCall, arguments string, itera
 	}
 
 	origSize := len(arguments)
-	suffix := fmt.Sprintf("\n\n[TRUNCADO: argumentos exibíveis tinham %d bytes, limite de metadata é %d bytes]", origSize, maxBytes)
 	basePayload := buildInvocationDisplayPayload(call, "", iteration, durationMs, external, true, origSize)
 	baseBytes, _ := json.Marshal(basePayload)
 	if len(baseBytes) >= maxBytes {
 		return compactInvocationDisplayMetadata(origSize, maxBytes)
-	}
-
-	budget := maxBytes - len(baseBytes) - len(suffix) - 16
-	if budget < 1 {
-		return baseBytes
-	}
-	for attempt := 0; attempt < 3; attempt++ {
-		truncatedArguments := truncateUTF8Safe(arguments, budget) + suffix
-		payload = buildInvocationDisplayPayload(call, truncatedArguments, iteration, durationMs, external, true, origSize)
-		metadata, _ = json.Marshal(payload)
-		if len(metadata) <= maxBytes {
-			return metadata
-		}
-		over := len(metadata) - maxBytes
-		budget -= over + 64
-		if budget < 1 {
-			break
-		}
 	}
 	return baseBytes
 }
@@ -831,26 +808,27 @@ func buildInvocationDisplayPayload(call tools.ToolCall, arguments string, iterat
 	if displayName == "" {
 		displayName = name
 	}
+	display := map[string]any{
+		"version":      1,
+		"type":         firstNonEmpty(call.Type, "function"),
+		"name":         displayName,
+		"origin":       origin,
+		"server_label": serverLabel,
+		"iteration":    iteration,
+		"duration_ms":  durationMs,
+	}
+	if !(truncated && arguments == "") {
+		display["arguments"] = arguments
+	}
 	payload := map[string]any{
-		"display": map[string]any{
-			"version":      1,
-			"type":         firstNonEmpty(call.Type, "function"),
-			"name":         displayName,
-			"arguments":    arguments,
-			"origin":       origin,
-			"server_label": serverLabel,
-			"iteration":    iteration,
-			"duration_ms":  durationMs,
-		},
+		"display": display,
 	}
 	if truncated {
-		display := payload["display"].(map[string]any)
 		display["_arguments_truncated"] = true
 		display["_arguments_original_size_bytes"] = originalSize
 	}
 	if external {
 		payload["external"] = true
-		display := payload["display"].(map[string]any)
 		display["origin"] = "mcp_native"
 	}
 	return payload
