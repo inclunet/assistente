@@ -140,10 +140,11 @@ func (p *ToolSelectionPolicy) ApplyNativeMCP(streamer llm.ChatProvider, toolDefs
 // entram no orçamento remanescente. O loop agêntico passa aqui as activeToolDefs
 // correntes e usa o retorno como novo conjunto acumulado.
 func (p *ToolSelectionPolicy) ResolveExpandedToolDefs(streamer llm.ChatProvider, mcpMgr NativeMCPManager, active []llm.ToolDefinition, names []string, cfg ProfileToolConfig) []llm.ToolDefinition {
-	names = p.filterExpandedToolNames(names, cfg)
+	effective := p.ResolveEffectiveToolPolicy(cfg)
+	names = p.filterExpandedToolNames(names, cfg, effective)
 	// O filtro nativo já remove aqui as bridges servidas via passthrough, então o
 	// planner orça apenas os schemas realmente enviados como função.
-	names = filterToolNamesForNativeMCPAllowlist(streamer, mcpMgr, names, cfg.DisableTools, cfg.NativeMCP, p.ResolveEffectiveToolPolicy(cfg).NativePreloadedAllowlist())
+	names = filterToolNamesForNativeMCPAllowlist(streamer, mcpMgr, names, cfg.DisableTools, cfg.NativeMCP, effective.NativePreloadedAllowlist())
 	newDefs := p.buildLLMToolDefsByNames(names, cfg.DisableTools)
 	return p.planAccumulatedToolDefs(active, newDefs, cfg)
 }
@@ -262,11 +263,10 @@ func (p *ToolSelectionPolicy) buildLLMToolDefsByNames(names []string, disableToo
 // allowlist do perfil e — quando o perfil não fixa tools (enabledTools nil) —
 // remove as tools opt-in (que só entram via seleção explícita). Antes vivia como
 // helper privado no use case de envio.
-func (p *ToolSelectionPolicy) filterExpandedToolNames(names []string, cfg ProfileToolConfig) []string {
+func (p *ToolSelectionPolicy) filterExpandedToolNames(names []string, cfg ProfileToolConfig, effective EffectiveToolPolicy) []string {
 	if cfg.DisableTools || len(names) == 0 {
 		return nil
 	}
-	effective := p.ResolveEffectiveToolPolicy(cfg)
 	filtered := make([]string, 0, len(names))
 	for _, name := range names {
 		name = strings.TrimSpace(name)

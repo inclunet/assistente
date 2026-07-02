@@ -240,6 +240,22 @@ func TestToolSelectionPolicy_ToolPolicyRuntimeDoesNotElevateDisabledLoadSkill(t 
 	assertNames(t, "preloaded", effective.PreloadedNames(), []string{"read_file"})
 }
 
+func TestToolSelectionPolicy_ToolPolicyRuntimePreloadsUnspecifiedLoadSkill(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			"read_file": string(ToolPolicyPreloaded),
+		},
+		RuntimeTools: []string{tools.LoadSkillName},
+	})
+
+	if effective.State(tools.LoadSkillName) != ToolPolicyPreloaded {
+		t.Fatalf("load_skill runtime ausente do tool_policy deveria ser preloaded, got %s", effective.State(tools.LoadSkillName))
+	}
+	assertNames(t, "preloaded", effective.PreloadedNames(), []string{tools.LoadSkillName, "read_file"})
+}
+
 func TestToolSelectionPolicy_CatalogVisibleNamesHideDisabledTools(t *testing.T) {
 	r := charRegistry(t)
 	policy := NewToolSelectionPolicy(r)

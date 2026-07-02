@@ -45,7 +45,7 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 			policy.states[name] = normalizeToolPolicyState(state)
 		}
 		policy.ensureCatalogForOnDemandTools(cfg.ToolPolicy)
-		policy.applyRuntimeTools(cfg.RuntimeTools, true, true)
+		policy.applyRuntimeTools(cfg.RuntimeTools, true, explicitDisabledToolPolicyNames(cfg.ToolPolicy))
 		return policy
 	}
 
@@ -59,7 +59,7 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 				}
 				policy.states[name] = ToolPolicyPreloaded
 			}
-			policy.applyRuntimeTools(cfg.RuntimeTools, true, false)
+			policy.applyRuntimeTools(cfg.RuntimeTools, true, nil)
 			return policy
 		}
 		for _, name := range names {
@@ -70,7 +70,7 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 			policy.states[name] = ToolPolicyOnDemand
 		}
 		policy.states[tools.ToolCatalogName] = ToolPolicyPreloaded
-		policy.applyRuntimeTools(cfg.RuntimeTools, true, false)
+		policy.applyRuntimeTools(cfg.RuntimeTools, true, nil)
 		return policy
 	}
 
@@ -85,7 +85,7 @@ func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) 
 		}
 		policy.states[name] = ToolPolicyPreloaded
 	}
-	policy.applyRuntimeTools(cfg.RuntimeTools, allowRuntime, false)
+	policy.applyRuntimeTools(cfg.RuntimeTools, allowRuntime, nil)
 	return policy
 }
 
@@ -158,7 +158,7 @@ func (p EffectiveToolPolicy) NativePreloadedAllowlist() []string {
 	return p.PreloadedNames()
 }
 
-func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow bool, respectDisabled bool) {
+func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow bool, explicitlyDisabled map[string]struct{}) {
 	if !allow {
 		return
 	}
@@ -167,13 +167,33 @@ func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow boo
 		if name == "" {
 			continue
 		}
-		if state, ok := p.states[name]; ok || p.legacyAllPreloaded {
-			if respectDisabled && state == ToolPolicyDisabled {
-				continue
-			}
+		if _, blocked := explicitlyDisabled[name]; blocked {
+			continue
+		}
+		if _, ok := p.states[name]; ok || p.legacyAllPreloaded {
 			p.states[name] = ToolPolicyPreloaded
 		}
 	}
+}
+
+func explicitDisabledToolPolicyNames(configured map[string]string) map[string]struct{} {
+	if len(configured) == 0 {
+		return nil
+	}
+	disabled := make(map[string]struct{})
+	for name, state := range configured {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if normalizeToolPolicyState(state) == ToolPolicyDisabled {
+			disabled[name] = struct{}{}
+		}
+	}
+	if len(disabled) == 0 {
+		return nil
+	}
+	return disabled
 }
 
 func (p *EffectiveToolPolicy) ensureCatalogForOnDemandTools(configured map[string]string) {
