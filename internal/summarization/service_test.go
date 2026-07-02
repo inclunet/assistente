@@ -173,6 +173,23 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 			t.Fatal("expected summarization NOT to trigger when fallback tool message already accounts for the result")
 		}
 	})
+
+	t.Run("does not double-count invocation-only results across assistant messages", func(t *testing.T) {
+		p := makeProfile(1100, 200) // budget = 1100 - 200 - 275 = 625 tokens
+		turnID := "turn-1"
+		callID := "call-1"
+		msgs := []database.ChatMessage{
+			{Role: "assistant", Content: "placeholder", TurnID: &turnID},
+			{Role: "assistant", Content: "resposta final", TurnID: &turnID},
+		}
+		invResults := map[string]map[string]string{
+			turnID: {callID: strings.Repeat("z", 2000)}, // 500 tokens; duplicated would exceed budget.
+		}
+
+		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, nil) {
+			t.Fatal("expected summarization NOT to trigger when the same invocation result appears across assistant messages")
+		}
+	})
 }
 
 func TestShouldTriggerSummarization(t *testing.T) {

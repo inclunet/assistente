@@ -630,6 +630,7 @@ func collectSummarizationFallbackToolResults(messages []chat.Message) map[string
 
 func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults map[string]map[string]string, fallbackResults map[string]map[string]string) int {
 	total := 0
+	counted := map[string]struct{}{}
 	for _, m := range messages {
 		if m.Role != "assistant" {
 			continue
@@ -641,13 +642,16 @@ func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults
 		if turnID == "" {
 			continue
 		}
-		counted := map[string]struct{}{}
 		for _, c := range parseSummarizationToolCalls(m.ToolCalls) {
 			callID := strings.TrimSpace(c.ID)
 			if callID == "" {
 				continue
 			}
-			counted[callID] = struct{}{}
+			countedKey := turnID + "\x00" + callID
+			if _, ok := counted[countedKey]; ok {
+				continue
+			}
+			counted[countedKey] = struct{}{}
 			// Se já há result embutido no tool_calls, já foi contado por EstimateMessagesTokens.
 			if strings.TrimSpace(c.Result) != "" {
 				continue
@@ -675,9 +679,11 @@ func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults
 			if callID == "" {
 				continue
 			}
-			if _, ok := counted[callID]; ok {
+			countedKey := turnID + "\x00" + callID
+			if _, ok := counted[countedKey]; ok {
 				continue
 			}
+			counted[countedKey] = struct{}{}
 			if byCall := fallbackResults[turnID]; byCall != nil {
 				if strings.TrimSpace(byCall[callID]) != "" {
 					continue
