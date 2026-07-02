@@ -217,12 +217,12 @@ func (t *CatalogTool) executeLoad(ctx context.Context, req catalogToolRequest) (
 	if len(requested) == 0 {
 		return marshalCatalogToolResponse(catalogToolResponse{LoadedTools: []string{}, SelectedTools: []string{}, RejectedTools: []catalogToolRejection{}})
 	}
-	available, unavailable, err := t.partitionAvailableTools(ctx, requested, runtime.VisibleNames)
+	available, loadRejected, err := t.partitionAvailableTools(ctx, requested, runtime.VisibleNames)
 	if err != nil {
 		return ToolResult{Content: fmt.Sprintf("erro ao consultar catálogo de tools: %v", err), IsError: true}, nil
 	}
 	loaded, rejected := runtime.Store.Load(runtime.ConversationID, runtime.ProfileSlug, available, runtime.VisibleNames, runtime.PreloadedNames, runtime.ControlPlane)
-	rejected = append(rejected, unavailable...)
+	rejected = append(rejected, loadRejected...)
 	resp := catalogToolResponse{
 		SelectedTools: loadedToolChangeNames(loaded),
 		LoadedTools:   loadedToolChangeNames(loaded),

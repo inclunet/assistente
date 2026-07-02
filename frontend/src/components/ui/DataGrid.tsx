@@ -305,11 +305,14 @@ export function DataGrid<T = unknown>({
   };
 
   const toggleSelection = (rowIndex: number) => {
+    const item = items[rowIndex];
+    if (!item) return;
+
     if (onItemToggle) {
-      onItemToggle(items[rowIndex], rowIndex);
+      onItemToggle(item, rowIndex);
       return;
     }
-    const itemId = getItemId(items[rowIndex]);
+    const itemId = getItemId(item);
     const newSelected = new Set(localSelectedIds);
     
     if (newSelected.has(itemId)) {
