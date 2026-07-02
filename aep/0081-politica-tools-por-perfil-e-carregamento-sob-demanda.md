@@ -161,7 +161,7 @@ Regras:
 `tool_catalog` e `load_skill` são capacidades de bootstrap/control-plane. Para não quebrar descoberta:
 
 - `tool_catalog` deve permanecer disponível como control-plane quando tool calling estiver habilitado e o perfil permitir descoberta de tools;
-- `load_skill`, quando existir como tool, segue a política da AEP-0072: só é exposta quando tool calling estiver habilitado e skills `on_demand` puderem ser autoativadas pelo modelo;
+- `load_skill` ou mecanismo equivalente de autoativação de skill pelo modelo segue a política da AEP-0072: não deve ser exposto ao modelo, e skills `on_demand` não podem ser autoativadas pelo modelo;
 - a UI pode mostrar essas capacidades como sistema/read-only ou sempre disponíveis conforme a política final;
 - o usuário não deve precisar habilitar manualmente `tool_catalog` para conseguir descobrir tools em um perfil que permite tools sob demanda.
 
@@ -238,6 +238,6 @@ SurfaceContext (AEP-0080) pode influenciar ranking e pacotes preferenciais, mas 
 - `search` não revela tools `disabled` para o perfil.
 - `load` não carrega tools fora da allowlist/estado do perfil e retorna motivos estruturados de rejeição.
 - Tools carregadas sob demanda persistem por conversa/sessão até restart, TTL, `unload`, mudança de `schema_hash`, indisponibilidade, mudança de perfil ou budget.
-- `tool_catalog` e `load_skill` são tratados como bootstrap/control-plane conforme a política de tool calling e AEP-0072.
+- `tool_catalog` é tratado como bootstrap/control-plane conforme a política de tool calling, e `load_skill`/autoativação de skills pelo modelo permanece indisponível conforme AEP-0072.
 - MCP bridge/native, tools destrutivas e budgets de schema respeitam a mesma política central.
 - Nenhum fluxo alternativo de envio de mensagens é criado.
