@@ -103,14 +103,14 @@ func (t *Tool) Parameters() json.RawMessage {
     "description": {"type": "string"},
     "transport": {"type": "string", "enum": ["stdio", "sse", "streamable"], "description": "MCP transport. Required when creating unless command or url allows backend defaults."},
     "command": {"type": "string", "description": "Command for stdio servers."},
-    "args": {"type": "array", "items": {"type": "string"}, "description": "Arguments for stdio servers."},
-    "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Environment variables for stdio servers. Values may be sensitive; they are never returned by this tool. Send {} to clear env on update."},
+    "args": {"type": "array", "items": {"type": "string"}, "description": "Arguments for stdio servers. Send [] to clear args on update; null is rejected."},
+    "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Environment variables for stdio servers. Values may be sensitive; they are never returned by this tool. On update, omitted env preserves existing values, a non-empty object merges keys into the existing env, and {} clears env explicitly; null is rejected."},
     "url": {"type": "string", "description": "URL for sse or streamable servers."},
     "auth_type": {"type": "string", "enum": ["none", "bearer", "basic", "oauth2_client_credentials", "oauth2_pkce"]},
     "oauth2_client_id": {"type": "string"},
     "oauth2_auth_url": {"type": "string"},
     "oauth2_token_url": {"type": "string"},
-    "oauth2_scopes": {"type": "array", "items": {"type": "string"}},
+    "oauth2_scopes": {"type": "array", "items": {"type": "string"}, "description": "OAuth2 scopes. Send [] to clear scopes on update; null is rejected."},
     "oauth2_callback_port": {"type": "integer"},
     "oauth2_callback_host": {"type": "string"},
     "oauth2_registration_url": {"type": "string"},
@@ -194,10 +194,20 @@ func parseRequest(args json.RawMessage) (request, error) {
 	if err := json.Unmarshal(args, &req.present); err != nil {
 		return req, err
 	}
-	if raw, ok := req.present["env"]; ok && strings.TrimSpace(string(raw)) == "null" {
+	if raw, ok := req.present["env"]; ok && rawJSONIsNull(raw) {
 		return req, errors.New("env não aceita null; omita o campo para preservar ou envie {} para limpar")
 	}
+	if raw, ok := req.present["args"]; ok && rawJSONIsNull(raw) {
+		return req, errors.New("args não aceita null; omita o campo para preservar ou envie [] para limpar")
+	}
+	if raw, ok := req.present["oauth2_scopes"]; ok && rawJSONIsNull(raw) {
+		return req, errors.New("oauth2_scopes não aceita null; omita o campo para preservar ou envie [] para limpar")
+	}
 	return req, nil
+}
+
+func rawJSONIsNull(raw json.RawMessage) bool {
+	return strings.TrimSpace(string(raw)) == "null"
 }
 
 func (p request) has(field string) bool {
@@ -292,6 +302,9 @@ func getServer(mgr Manager, slug string) (tools.ToolResult, error) {
 	}
 	cfg, err := mgr.GetConfig(slug)
 	if err != nil {
+		if isNotFound(err) {
+			return tools.ToolResult{Content: fmt.Sprintf("servidor MCP %q não encontrado", slug), IsError: true}, nil
+		}
 		return tools.ToolResult{Content: fmt.Sprintf("erro ao ler servidor MCP %q: %v", slug, err), IsError: true}, nil
 	}
 	info, ok := serverInfoBySlug(mgr.List(), slug)
@@ -320,8 +333,7 @@ func getServer(mgr Manager, slug string) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"slug": slug, "action": "get"}, Structured: true}, nil
 }
 
-func saveServer(ctx context.Context, mgr Manager, req request, create bool) (tools.ToolResult, error) {
-	_ = ctx
+func saveServer(_ context.Context, mgr Manager, req request, create bool) (tools.ToolResult, error) {
 	slug := strings.TrimSpace(req.Slug)
 	if slug == "" {
 		return tools.ToolResult{Content: "slug é obrigatório para criar ou atualizar servidor MCP", IsError: true}, nil
@@ -504,6 +516,9 @@ func connectionAction(mgr Manager, slug, action, actionLabel string, fn func(str
 	if slug == "" {
 		return tools.ToolResult{Content: fmt.Sprintf("slug é obrigatório para %s servidor MCP", actionLabel), IsError: true}, nil
 	}
+	if result, ok := ensureServerLoaded(mgr, slug, actionLabel); !ok {
+		return result, nil
+	}
 	if err := fn(slug); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("erro ao executar %s em servidor MCP %q: %v", actionLabel, slug, err), IsError: true}, nil
 	}
@@ -511,6 +526,25 @@ func connectionAction(mgr Manager, slug, action, actionLabel string, fn func(str
 	payload := map[string]any{"action": action, "slug": slug, "server": toListServerResponse(info)}
 	data, _ := json.Marshal(payload)
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"slug": slug, "action": action}, Structured: true}, nil
+}
+
+func ensureServerLoaded(mgr Manager, slug, actionLabel string) (tools.ToolResult, bool) {
+	if _, ok := serverInfoBySlug(mgr.List(), slug); ok {
+		return tools.ToolResult{}, true
+	}
+	if _, err := mgr.GetConfig(slug); err != nil {
+		if isNotFound(err) {
+			return tools.ToolResult{Content: fmt.Sprintf("servidor MCP %q não encontrado para %s", slug, actionLabel), IsError: true}, false
+		}
+		return tools.ToolResult{Content: fmt.Sprintf("erro ao ler servidor MCP %q para %s: %v", slug, actionLabel, err), IsError: true}, false
+	}
+	if err := mgr.LoadConfigs(); err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("erro ao recarregar configurações MCP antes de %s servidor MCP %q: %v", actionLabel, slug, err), IsError: true}, false
+	}
+	if _, ok := serverInfoBySlug(mgr.List(), slug); !ok {
+		return tools.ToolResult{Content: fmt.Sprintf("servidor MCP %q não foi carregado para %s", slug, actionLabel), IsError: true}, false
+	}
+	return tools.ToolResult{}, true
 }
 
 func reloadServers(mgr Manager) (tools.ToolResult, error) {

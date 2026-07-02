@@ -92,6 +92,21 @@ func (m *fakeManager) Reconnect(slug string) error {
 
 func (m *fakeManager) LoadConfigs() error {
 	m.loadCalled = true
+	if m.err == nil && len(m.servers) == 0 && len(m.configs) > 0 {
+		for _, cfg := range m.configs {
+			m.servers = append(m.servers, mcpmgr.ServerInfo{
+				Slug:        cfg.Slug,
+				Name:        cfg.Name,
+				Transport:   cfg.Transport,
+				Status:      mcpmgr.StatusDisconnected,
+				Enabled:     cfg.Enabled,
+				AutoConnect: cfg.AutoConnect,
+				Command:     cfg.Command,
+				Args:        cfg.Args,
+				URL:         cfg.URL,
+			})
+		}
+	}
 	return m.err
 }
 
@@ -273,6 +288,16 @@ func TestToolGetDefaultsStatusWhenServerIsMissingFromRuntimeList(t *testing.T) {
 	}
 }
 
+func TestToolGetMissingServerReturnsUserFacingNotFound(t *testing.T) {
+	result, err := New(&fakeManager{}).Execute(context.Background(), json.RawMessage(`{"slug":"missing"}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, `servidor MCP "missing" não encontrado`) || strings.Contains(result.Content, "record not found") {
+		t.Fatalf("expected user-facing missing server error, got %#v", result)
+	}
+}
+
 func TestToolCreateSavesConfigThroughManager(t *testing.T) {
 	mgr := &fakeManager{}
 
@@ -417,6 +442,51 @@ func TestToolRejectsNullEnv(t *testing.T) {
 	}
 	if mgr.savedSlug != "" {
 		t.Fatalf("null env should not save config, saved %q", mgr.savedSlug)
+	}
+}
+
+func TestToolRejectsNullSliceFields(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		args      json.RawMessage
+		wantError string
+	}{
+		{
+			name:      "args",
+			args:      json.RawMessage(`{"action":"update","slug":"remote","args":null}`),
+			wantError: "args não aceita null",
+		},
+		{
+			name:      "oauth2 scopes",
+			args:      json.RawMessage(`{"action":"update","slug":"remote","oauth2_scopes":null}`),
+			wantError: "oauth2_scopes não aceita null",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr := &fakeManager{
+				configs: map[string]mcpmgr.ServerConfig{
+					"remote": {
+						Slug:         "remote",
+						Name:         "Remote",
+						Transport:    mcpmgr.TransportStdio,
+						Command:      "npx",
+						Args:         []string{"-y", "server"},
+						OAuth2Scopes: []string{"openid"},
+					},
+				},
+			}
+
+			result, err := New(mgr).Execute(context.Background(), tt.args)
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if !result.IsError || !strings.Contains(result.Content, tt.wantError) {
+				t.Fatalf("expected null validation error, got %#v", result)
+			}
+			if mgr.savedSlug != "" {
+				t.Fatalf("null slice field should not save config, saved %q", mgr.savedSlug)
+			}
+		})
 	}
 }
 
@@ -646,6 +716,42 @@ func TestToolRuntimeActionsAndLogs(t *testing.T) {
 	}
 	if mgr.logLimit != 500 {
 		t.Fatalf("logs limit should cap at 500, got %d", mgr.logLimit)
+	}
+}
+
+func TestToolConnectLoadsPersistedConfigWhenRuntimeListIsEmpty(t *testing.T) {
+	mgr := &fakeManager{
+		configs: map[string]mcpmgr.ServerConfig{
+			"remote": {
+				Slug:      "remote",
+				Name:      "Remote",
+				Transport: mcpmgr.TransportStdio,
+				Command:   "npx",
+				Enabled:   true,
+			},
+		},
+	}
+
+	result, err := New(mgr).Execute(context.Background(), json.RawMessage(`{"action":"connect","slug":"remote"}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected connect error: %s", result.Content)
+	}
+	if !mgr.loadCalled || mgr.connected != "remote" {
+		t.Fatalf("connect should load persisted config before connecting, loadCalled=%v connected=%q", mgr.loadCalled, mgr.connected)
+	}
+	var payload struct {
+		Server struct {
+			Slug string `json:"slug"`
+		} `json:"server"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("decode connect result: %v", err)
+	}
+	if payload.Server.Slug != "remote" {
+		t.Fatalf("connect should return loaded server info, got %#v", payload.Server)
 	}
 }
 
