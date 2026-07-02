@@ -88,14 +88,14 @@ func (t *Tool) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *Tool) Description() string {
-	return "Manage persisted MCP server configurations using the existing MCP manager. No params lists servers. slug reads safe details without env values. action supports create, update, delete, duplicate, connect, disconnect, reconnect, reload and logs. Writes require slug and use the same user-scoped backend contracts as the MCP page; env values are accepted for create/update but are redacted from read responses."
+	return "Manage persisted MCP server configurations using the existing MCP manager. No params lists servers. slug reads safe details without env values. action supports create, update, delete, duplicate, connect, disconnect, reconnect, reload and logs. When action is omitted, slug plus any configuration field infers create for a missing server or update for an existing server. Writes require slug and use the same user-scoped backend contracts as the MCP page; env values are accepted for create/update but are redacted from read responses."
 }
 
 func (t *Tool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "action": {"type": "string", "enum": ["list", "get", "create", "update", "delete", "duplicate", "connect", "disconnect", "reconnect", "reload", "logs"], "description": "Operation to perform. Omit to list servers. With slug and no action, reads server details."},
+    "action": {"type": "string", "enum": ["list", "get", "create", "update", "delete", "duplicate", "connect", "disconnect", "reconnect", "reload", "logs"], "description": "Operation to perform. Omit to list servers. With slug and no action, reads server details unless configuration fields are present; slug plus configuration fields infers create for a missing server or update for an existing server."},
     "slug": {"type": "string", "description": "User-scoped MCP server slug. Required for get/update/delete/duplicate/connect/disconnect/reconnect/logs. For create, this is the new slug."},
     "new_slug": {"type": "string", "description": "Reserved for future explicit duplicate target slugs. The current backend generates copy slugs; do not use unless supported by the backend."},
     "limit": {"type": "integer", "description": "Log limit for action=logs. Defaults to 100 and caps at 500.", "minimum": 1, "maximum": 500},
@@ -255,7 +255,11 @@ func listServers(mgr Manager) tools.ToolResult {
 		}
 		return servers[i].Name < servers[j].Name
 	})
-	data, _ := json.Marshal(servers)
+	payload := make([]listServerResponse, 0, len(servers))
+	for _, server := range servers {
+		payload = append(payload, toListServerResponse(server))
+	}
+	data, _ := json.Marshal(payload)
 	return tools.ToolResult{
 		Content:    string(data),
 		Metadata:   map[string]any{"count": len(servers), "action": "list"},
@@ -518,10 +522,29 @@ type detailResponse struct {
 	DisableSSE   bool             `json:"disable_sse,omitempty"`
 }
 
+type listServerResponse struct {
+	ID            string                  `json:"id,omitempty"`
+	Slug          string                  `json:"slug"`
+	Name          string                  `json:"name"`
+	Description   string                  `json:"description,omitempty"`
+	Transport     mcpmgr.TransportType    `json:"transport"`
+	Status        mcpmgr.ConnectionStatus `json:"status"`
+	Error         string                  `json:"error,omitempty"`
+	ToolCount     int                     `json:"toolCount"`
+	ResourceCount int                     `json:"resourceCount"`
+	PromptCount   int                     `json:"promptCount"`
+	Enabled       bool                    `json:"enabled"`
+	AutoConnect   bool                    `json:"autoConnect"`
+	ConnectedAt   string                  `json:"connectedAt,omitempty"`
+	LastPing      string                  `json:"lastPing,omitempty"`
+	Command       string                  `json:"command,omitempty"`
+	Args          []string                `json:"args,omitempty"`
+	URL           string                  `json:"url,omitempty"`
+}
+
 type safeServerConfig struct {
 	ID                    string               `json:"id,omitempty"`
 	Slug                  string               `json:"slug,omitempty"`
-	UserID                string               `json:"user_id,omitempty"`
 	Name                  string               `json:"name"`
 	Description           string               `json:"description,omitempty"`
 	Transport             mcpmgr.TransportType `json:"transport"`
@@ -547,7 +570,6 @@ func safeConfig(cfg mcpmgr.ServerConfig) safeServerConfig {
 	return safeServerConfig{
 		ID:                    cfg.ID,
 		Slug:                  cfg.Slug,
-		UserID:                cfg.UserID,
 		Name:                  cfg.Name,
 		Description:           cfg.Description,
 		Transport:             cfg.Transport,
@@ -567,6 +589,28 @@ func safeConfig(cfg mcpmgr.ServerConfig) safeServerConfig {
 		PreferBridge:          cfg.PreferBridge,
 		Enabled:               cfg.Enabled,
 		AutoConnect:           cfg.AutoConnect,
+	}
+}
+
+func toListServerResponse(server mcpmgr.ServerInfo) listServerResponse {
+	return listServerResponse{
+		ID:            server.ID,
+		Slug:          server.Slug,
+		Name:          server.Name,
+		Description:   server.Description,
+		Transport:     server.Transport,
+		Status:        server.Status,
+		Error:         server.Error,
+		ToolCount:     server.ToolCount,
+		ResourceCount: server.ResourceCount,
+		PromptCount:   server.PromptCount,
+		Enabled:       server.Enabled,
+		AutoConnect:   server.AutoConnect,
+		ConnectedAt:   server.ConnectedAt,
+		LastPing:      server.LastPing,
+		Command:       server.Command,
+		Args:          append([]string{}, server.Args...),
+		URL:           server.URL,
 	}
 }
 

@@ -104,7 +104,19 @@ func (m *fakeManager) GetLogs(slug string, limit int) ([]mcpmgr.MCPServerLog, er
 func TestToolListsServersAsStructuredJSON(t *testing.T) {
 	mgr := &fakeManager{
 		servers: []mcpmgr.ServerInfo{
-			{Slug: "zeta", Name: "Zeta", Transport: mcpmgr.TransportStdio, Status: mcpmgr.StatusDisconnected, Enabled: true},
+			{
+				Slug:          "zeta",
+				Name:          "Zeta",
+				Transport:     mcpmgr.TransportStdio,
+				Status:        mcpmgr.StatusDisconnected,
+				ToolCount:     1,
+				Tools:         []mcpmgr.MCPToolInfo{{Name: "large-tool", Schema: json.RawMessage(`{"type":"object"}`)}},
+				ResourceCount: 1,
+				Resources:     []mcpmgr.MCPResourceInfo{{URI: "file://large", Name: "Large"}},
+				PromptCount:   1,
+				Prompts:       []mcpmgr.MCPPromptInfo{{Name: "prompt"}},
+				Enabled:       true,
+			},
 			{Slug: "alpha", Name: "Alpha", Transport: mcpmgr.TransportStreamable, Status: mcpmgr.StatusConnected, Enabled: true},
 		},
 	}
@@ -119,12 +131,26 @@ func TestToolListsServersAsStructuredJSON(t *testing.T) {
 	if !result.Structured {
 		t.Fatal("list result should be structured")
 	}
-	var payload []mcpmgr.ServerInfo
+	var payload []struct {
+		Slug          string          `json:"slug"`
+		ToolCount     int             `json:"toolCount"`
+		ResourceCount int             `json:"resourceCount"`
+		PromptCount   int             `json:"promptCount"`
+		Tools         json.RawMessage `json:"tools"`
+		Resources     json.RawMessage `json:"resources"`
+		Prompts       json.RawMessage `json:"prompts"`
+	}
 	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
 		t.Fatalf("decode result: %v", err)
 	}
 	if len(payload) != 2 || payload[0].Slug != "alpha" || payload[1].Slug != "zeta" {
 		t.Fatalf("servers not sorted by slug: %#v", payload)
+	}
+	if payload[1].ToolCount != 1 || payload[1].ResourceCount != 1 || payload[1].PromptCount != 1 {
+		t.Fatalf("list should preserve item counts: %#v", payload[1])
+	}
+	if len(payload[1].Tools) != 0 || len(payload[1].Resources) != 0 || len(payload[1].Prompts) != 0 {
+		t.Fatalf("list should omit large tools/resources/prompts arrays: %s", result.Content)
 	}
 }
 
@@ -134,6 +160,7 @@ func TestToolGetRedactsEnvValues(t *testing.T) {
 		configs: map[string]mcpmgr.ServerConfig{
 			"github": {
 				Slug:        "github",
+				UserID:      "user-123",
 				Name:        "GitHub",
 				Transport:   mcpmgr.TransportStdio,
 				Command:     "npx",
@@ -154,6 +181,9 @@ func TestToolGetRedactsEnvValues(t *testing.T) {
 	}
 	if strings.Contains(result.Content, "secret") || strings.Contains(result.Content, "value") {
 		t.Fatalf("env values leaked in response: %s", result.Content)
+	}
+	if strings.Contains(result.Content, "user-123") || strings.Contains(result.Content, "user_id") {
+		t.Fatalf("user identifier leaked in response: %s", result.Content)
 	}
 	var payload struct {
 		EnvKeys     []string `json:"env_keys"`
