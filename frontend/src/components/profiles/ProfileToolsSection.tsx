@@ -196,10 +196,15 @@ export function ProfileToolsSection({
     setToolsState(filteredNames, TOOL_POLICY_DISABLED);
   }, [isFiltered, allNames, filteredNames, setToolsState]);
 
-  const allFilteredSelected = [...filteredNames].every((n) => selectedIds.has(n));
-  const noneFilteredSelected = [...filteredNames].every((n) => !selectedIds.has(n));
-  const showSelectAll = !allFilteredSelected;
-  const showDeselectAll = !noneFilteredSelected;
+  const filteredToolNames = [...filteredNames];
+  const allFilteredPreloaded = filteredToolNames.every(
+    (name) => effectiveToolPolicy[name] === TOOL_POLICY_PRELOADED,
+  );
+  const noneFilteredAvailable = filteredToolNames.every(
+    (name) => effectiveToolPolicy[name] === TOOL_POLICY_DISABLED,
+  );
+  const showSelectAll = !allFilteredPreloaded;
+  const showDeselectAll = !noneFilteredAvailable;
 
   const handleToolToggle = useCallback((item: ToolRow) => {
     const current = effectiveToolPolicy[item.name] ?? TOOL_POLICY_DISABLED;

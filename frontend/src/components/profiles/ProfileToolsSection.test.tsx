@@ -764,6 +764,26 @@ describe('ProfileToolsSection', () => {
       });
     });
 
+    it('"Pré-carregar filtradas" aparece para itens sob demanda filtrados', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockToolsMixed}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          onChange={onChange}
+        />
+      );
+      selectFilter('tools-filter', 'Atlassian');
+      fireEvent.click(screen.getByTestId('tools-select-all'));
+      expect(onChange).toHaveBeenCalledWith('tool_policy', {
+        local_tool: 'on_demand',
+        mcp_atlassian__search: 'preloaded',
+        mcp_atlassian__create: 'preloaded',
+        mcp_slack__send: 'on_demand',
+      });
+    });
+
     it('"Desabilitar filtradas" altera apenas itens filtrados', () => {
       const onChange = vi.fn();
       render(
