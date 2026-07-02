@@ -204,6 +204,25 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByLabelText('Tool 2: Desabilitada')).toBeInTheDocument();
   });
 
+  it('mantém control-plane preloaded em perfil legado com enabledTools vazio', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('tool_catalog', 'Tool catalog'),
+          tool('load_skill', 'Load skill'),
+          tool('read_file', 'Read file'),
+        ]}
+        enabledTools={[]}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    expect(screen.getByLabelText('tool_catalog: Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('load_skill: Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('read_file: Desabilitada')).toBeInTheDocument();
+  });
+
   it('chama onChange ao promover ferramenta sob demanda via Space', () => {
     const onChange = vi.fn();
     render(

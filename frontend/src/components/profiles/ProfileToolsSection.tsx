@@ -136,7 +136,9 @@ export function ProfileToolsSection({
     }
     const enabledSet = new Set(enabledTools);
     for (const name of allNames) {
-      policy[name] = enabledSet.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
+      policy[name] = enabledSet.has(name) || CONTROL_PLANE_TOOLS.has(name)
+        ? TOOL_POLICY_PRELOADED
+        : TOOL_POLICY_DISABLED;
     }
     return policy;
   }, [allNames, enabledTools, toolPolicy]);
