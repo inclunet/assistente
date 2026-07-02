@@ -293,6 +293,15 @@ func groupInvocationToolCallsByAssistantID(calls []TurnSegmentToolCall) map[stri
 	return out
 }
 
+func invocationGroupHasUnseenCall(group []TurnSegmentToolCall, seenToolCallIDs map[string]struct{}) bool {
+	for _, call := range group {
+		if _, seen := seenToolCallIDs[call.ID]; !seen {
+			return true
+		}
+	}
+	return false
+}
+
 func ConsolidateTimelineTurnMessages(messages []Message, invocationToolResults map[string]string) Message {
 	return ConsolidateTimelineTurn(messages, invocationToolResults, nil).Message
 }
@@ -434,6 +443,9 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 				iterationCalls = append(iterationCalls, call)
 			}
 		}
+		for nextInvocationGroup < len(invocationGroups) && !invocationGroupHasUnseenCall(invocationGroups[nextInvocationGroup], seenToolCallIDs) {
+			nextInvocationGroup++
+		}
 		if len(parsedToolCalls) == 0 && len(iterationCalls) == 0 && strings.TrimSpace(message.Content) != "" && len(invocationGroups) > 0 && i != finalMsgIdx && nextInvocationGroup < len(invocationGroups) {
 			for _, call := range invocationGroups[nextInvocationGroup] {
 				if _, seen := seenToolCallIDs[call.ID]; seen {
@@ -453,6 +465,10 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 		}
 	}
 	for nextInvocationGroup < len(invocationGroups) {
+		if !invocationGroupHasUnseenCall(invocationGroups[nextInvocationGroup], seenToolCallIDs) {
+			nextInvocationGroup++
+			continue
+		}
 		iterationCalls := make([]TurnSegmentToolCall, 0, len(invocationGroups[nextInvocationGroup]))
 		for _, call := range invocationGroups[nextInvocationGroup] {
 			if _, seen := seenToolCallIDs[call.ID]; seen {

@@ -361,6 +361,57 @@ func TestConsolidateTimelineTurn_AttachesInvocationByAssistantMessageID(t *testi
 	}
 }
 
+func TestConsolidateTimelineTurn_SkipsAssistantScopedInvocationGroupBeforeFallback(t *testing.T) {
+	turnID := "turn-1"
+	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	result := ConsolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-iter1", CreatedAt: baseTime},
+			Role:      "assistant",
+			Content:   "primeira iteracao",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-iter2", CreatedAt: baseTime.Add(time.Minute)},
+			Role:      "assistant",
+			Content:   "segunda iteracao",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-final", CreatedAt: baseTime.Add(2 * time.Minute)},
+			Role:      "assistant",
+			Content:   "resposta final",
+			TurnID:    &turnID,
+		},
+	}, nil, []TurnSegmentToolCall{
+		{
+			ID:                 "tool-a",
+			Type:               "function",
+			Function:           TurnSegmentToolFunction{Name: "search", Arguments: "{}"},
+			Result:             "resultado a",
+			Iteration:          1,
+			AssistantMessageID: "assistant-iter1",
+		},
+		{
+			ID:        "tool-b",
+			Type:      "function",
+			Function:  TurnSegmentToolFunction{Name: "fetch", Arguments: "{}"},
+			Result:    "resultado b",
+			Iteration: 2,
+		},
+	})
+
+	if len(result.Segments) != 5 {
+		t.Fatalf("expected text/tool/text/tool/final segments, got %+v", result.Segments)
+	}
+	if result.Segments[1].Type != "tool_calls" || result.Segments[1].ToolCalls[0].ID != "tool-a" {
+		t.Fatalf("expected assistant-scoped first invocation, got %+v", result.Segments[1])
+	}
+	if result.Segments[3].Type != "tool_calls" || result.Segments[3].ToolCalls[0].ID != "tool-b" {
+		t.Fatalf("expected fallback to skip consumed group and attach second invocation, got %+v", result.Segments[3])
+	}
+}
+
 func TestNormalizeInvocationToolCallsPreservesInputOrderWithinIteration(t *testing.T) {
 	normalized := normalizeInvocationToolCalls([]TurnSegmentToolCall{
 		{
