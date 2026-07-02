@@ -361,7 +361,6 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolResults map[strin
 		for i, message := range messages {
 			if message.Role == "assistant" && strings.TrimSpace(message.Content) != "" && !MessageHasToolCalls(message) && len(invocationCallsByAssistantID[message.ID]) == 0 {
 				finalMsgIdx = i
-				break
 			}
 		}
 	}

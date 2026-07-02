@@ -428,6 +428,46 @@ func TestConsolidateTimelineTurn_DoesNotPromoteIntermediateTextAsFinalContent(t 
 	}
 }
 
+func TestConsolidateTimelineTurn_UsesLastFinalCandidateWhenInvocationLacksAssistantID(t *testing.T) {
+	turnID := "turn-1"
+	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	result := ConsolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-intermediate", CreatedAt: baseTime},
+			Role:      "assistant",
+			Content:   "vou consultar uma ferramenta",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-final", CreatedAt: baseTime.Add(time.Minute)},
+			Role:      "assistant",
+			Content:   "resposta final",
+			TurnID:    &turnID,
+		},
+	}, nil, []TurnSegmentToolCall{
+		{
+			ID:        "tool-a",
+			Type:      "function",
+			Function:  TurnSegmentToolFunction{Name: "search", Arguments: "{}"},
+			Result:    "resultado a",
+			Iteration: 1,
+		},
+	})
+
+	if len(result.Segments) != 3 {
+		t.Fatalf("expected text, tool call and final text segments, got %+v", result.Segments)
+	}
+	if result.Segments[0].Type != "text" || result.Segments[0].Content != "vou consultar uma ferramenta" {
+		t.Fatalf("expected intermediate text first, got %+v", result.Segments[0])
+	}
+	if result.Segments[1].Type != "tool_calls" || len(result.Segments[1].ToolCalls) != 1 || result.Segments[1].ToolCalls[0].ID != "tool-a" {
+		t.Fatalf("expected invocation fallback attached before final text, got %+v", result.Segments[1])
+	}
+	if result.Segments[2].Type != "text" || result.Segments[2].Content != "resposta final" {
+		t.Fatalf("expected last assistant as final text segment, got %+v", result.Segments[2])
+	}
+}
+
 func TestParseToolCalls_InvalidJSONReturnsNil(t *testing.T) {
 	resetInvalidToolCallsLogStateForTest(t)
 
