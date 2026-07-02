@@ -1055,6 +1055,9 @@ func (s *Service) tagChatToolInvocationsWithAssistantMessage(ctx context.Context
 		if display == nil {
 			display = map[string]any{"version": 1}
 		}
+		if currentID, _ := display["assistant_message_id"].(string); strings.TrimSpace(currentID) == assistantMessageID {
+			continue
+		}
 		display["assistant_message_id"] = assistantMessageID
 		metadata["display"] = display
 		encoded, err := json.Marshal(metadata)
