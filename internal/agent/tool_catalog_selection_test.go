@@ -37,6 +37,21 @@ func TestSelectedToolsFromCatalogIgnoresSearchResults(t *testing.T) {
 	}
 }
 
+func TestUnloadedToolsFromCatalog(t *testing.T) {
+	unloaded := unloadedToolsFromCatalog([]tools.ToolExecutionResult{
+		{
+			ToolName: tools.ToolCatalogName,
+			Result: tools.ToolResult{
+				Content: `{"unloaded_tools":["read_file","grep_search","read_file","tool_catalog"]}`,
+			},
+		},
+	})
+
+	if len(unloaded) != 2 || unloaded[0] != "read_file" || unloaded[1] != "grep_search" {
+		t.Fatalf("unloaded = %#v", unloaded)
+	}
+}
+
 func TestAppendUniqueToolDefs(t *testing.T) {
 	existing := []llm.ToolDefinition{{Function: llm.FunctionDefinition{Name: tools.ToolCatalogName}}}
 	result := appendUniqueToolDefs(existing,
@@ -74,6 +89,34 @@ func TestExpandToolDefsFromCatalogResults(t *testing.T) {
 		t.Fatalf("expanded len = %d, want 3: %#v", len(expanded), expanded)
 	}
 	if expanded[0].Function.Name != tools.ToolCatalogName || expanded[1].Function.Name != "read_file" || expanded[2].Function.Name != "grep_search" {
+		t.Fatalf("unexpected expanded defs: %#v", expanded)
+	}
+}
+
+func TestExpandToolDefsFromCatalogResultsRemovesUnloaded(t *testing.T) {
+	existing := []llm.ToolDefinition{
+		{Function: llm.FunctionDefinition{Name: tools.ToolCatalogName}},
+		{Function: llm.FunctionDefinition{Name: "read_file"}},
+		{Function: llm.FunctionDefinition{Name: "grep_search"}},
+	}
+	results := []tools.ToolExecutionResult{
+		{
+			ToolName: tools.ToolCatalogName,
+			Result: tools.ToolResult{
+				Content: `{"unloaded_tools":["read_file"]}`,
+			},
+		},
+	}
+	expanded := expandToolDefsFromCatalogResults(existing, results, func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition {
+		if len(names) != 0 {
+			t.Fatalf("resolver received names = %#v", names)
+		}
+		return active
+	})
+	if len(expanded) != 2 {
+		t.Fatalf("expanded len = %d, want 2: %#v", len(expanded), expanded)
+	}
+	if expanded[0].Function.Name != tools.ToolCatalogName || expanded[1].Function.Name != "grep_search" {
 		t.Fatalf("unexpected expanded defs: %#v", expanded)
 	}
 }

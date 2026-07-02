@@ -263,6 +263,32 @@ describe('ProfileToolsSection', () => {
     });
   });
 
+  it('usa o estado recém-commitado em Space repetido na mesma linha', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={mockTools}
+        enabledTools={null}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+    fireEvent.keyDown(grid, { key: ' ' });
+    expect(onChange).toHaveBeenNthCalledWith(1, 'tool_policy', {
+      'Tool 1': 'preloaded',
+      'Tool 2': 'on_demand',
+      'Tool 3': 'on_demand',
+    });
+    expect(onChange).toHaveBeenNthCalledWith(2, 'tool_policy', {
+      'Tool 1': 'disabled',
+      'Tool 2': 'on_demand',
+      'Tool 3': 'on_demand',
+    });
+  });
+
   it('chama onChange ao desabilitar ferramenta preloaded via Space', () => {
     const onChange = vi.fn();
     render(

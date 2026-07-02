@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { FilterOutlined } from '@ant-design/icons';
 import { controllers, allowlist } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
@@ -147,6 +147,8 @@ export function ProfileToolsSection({
     }
     return policy;
   }, [allNames, enabledTools, toolPolicy]);
+  const effectiveToolPolicyRef = useRef(effectiveToolPolicy);
+  effectiveToolPolicyRef.current = effectiveToolPolicy;
 
   const selectedIds: Set<string | number> = useMemo(
     () => new Set<string | number>(
@@ -156,6 +158,7 @@ export function ProfileToolsSection({
   );
 
   const commitToolPolicy = useCallback((nextPolicy: Record<string, ToolPolicyState>) => {
+    effectiveToolPolicyRef.current = nextPolicy;
     if (onPolicyChange) {
       onPolicyChange(nextPolicy);
       return;
@@ -223,14 +226,15 @@ export function ProfileToolsSection({
   const showDeselectAll = !noneFilteredAvailable;
 
   const handleToolToggle = useCallback((item: ToolRow) => {
-    const current = effectiveToolPolicy[item.name] ?? TOOL_POLICY_DISABLED;
+    const currentPolicy = effectiveToolPolicyRef.current;
+    const current = currentPolicy[item.name] ?? TOOL_POLICY_DISABLED;
     const nextState = nextToolPolicyState(current);
-    commitToolPolicy({ ...effectiveToolPolicy, [item.name]: nextState });
+    commitToolPolicy({ ...currentPolicy, [item.name]: nextState });
     announce(t('profiles.toolPolicyChanged', '{{tool}} agora está {{state}}', {
       tool: item.displayName,
       state: toolPolicyStateLabel(t, nextState).toLowerCase(),
     }));
-  }, [announce, commitToolPolicy, effectiveToolPolicy, t]);
+  }, [announce, commitToolPolicy, t]);
 
   const columns: DataGridColumn<ToolRow>[] = [
     {
