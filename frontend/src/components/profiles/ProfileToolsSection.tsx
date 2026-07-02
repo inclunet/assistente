@@ -3,12 +3,11 @@ import { FilterOutlined } from '@ant-design/icons';
 import { controllers, allowlist } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
 import { useMCPStore } from '../../store/mcpStore';
-import { CollapsibleSection } from '../ui/CollapsibleSection';
-import { DataGrid, DataGridColumn } from '../ui/DataGrid';
+import { type DataGridColumn } from '../ui/DataGrid';
 import { RangeSlider } from '../ui/RangeSlider';
 import { Combobox, type ComboboxItem } from '../pickers/Combobox';
-import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { parseToolSource, extractMcpServers } from '../../utils/toolSource';
+import { ResourceSelectionSection } from './ResourceSelectionSection';
 
 export type ToolFilter = 'all' | 'local' | 'mcp' | `mcp:${string}`;
 
@@ -159,8 +158,6 @@ export function ProfileToolsSection({
     return !enabledTools || enabledTools.includes(name);
   }, [enabledTools]);
 
-  const toolbarRef = useToolbarKeyboardNav();
-
   const columns: DataGridColumn<ToolRow>[] = [
     {
       key: 'checked',
@@ -208,88 +205,53 @@ export function ProfileToolsSection({
   ];
 
   return (
-    <CollapsibleSection
+    <ResourceSelectionSection<ToolRow>
       title={t('profiles.collapseTools', 'Ferramentas (Tool Calling)')}
       isOpen={!toolsDisabled}
       onToggle={() => onChange('disable_tools', !toolsDisabled)}
       disabled={disabled}
       badge={toolsDisabled ? 'off' : 'on'}
-    >
-      {availableTools.length > 0 ? (
-        <>
-          <p className="profiles-field__hint">
-            {t('profiles.toolsHint', 'Selecione quais ferramentas este perfil pode usar. Nenhuma seleção = todas habilitadas.')}
-          </p>
-          <input
-            type="text"
-            className="profiles-field__filter-search"
-            placeholder={t('profiles.toolsSearchPlaceholder', 'Buscar ferramenta…')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            aria-label={t('profiles.toolsSearchLabel', 'Filtrar ferramentas por nome')}
-            data-testid="tools-search"
+      hasItems={availableTools.length > 0}
+      hint={t('profiles.toolsHint', 'Selecione quais ferramentas este perfil pode usar. Nenhuma seleção = todas habilitadas.')}
+      searchValue={search}
+      onSearchChange={setSearch}
+      searchPlaceholder={t('profiles.toolsSearchPlaceholder', 'Buscar ferramenta…')}
+      searchLabel={t('profiles.toolsSearchLabel', 'Filtrar ferramentas por nome')}
+      searchTestId="tools-search"
+      toolbarLabel={t('profiles.toolsActionsLabel', 'Ações de seleção de ferramentas')}
+      toolbarTestId="tools-toolbar"
+      filterNode={(
+        <div data-testid="tools-filter">
+          <Combobox
+            items={filterItems}
+            selected={filter}
+            onSelect={(value) => setFilter(value as ToolFilter)}
+            label={t('profiles.toolsFilterLabel', 'Filtrar por origem')}
+            icon={<FilterOutlined aria-hidden="true" />}
+            maxWidth="200px"
+            disabled={disabled}
           />
-          <div
-            ref={toolbarRef}
-            className="profiles-field__tools-actions"
-            role="toolbar"
-            aria-label={t('profiles.toolsActionsLabel', 'Ações de seleção de ferramentas')}
-            data-testid="tools-toolbar"
-          >
-            <div data-testid="tools-filter">
-              <Combobox
-                items={filterItems}
-                selected={filter}
-                onSelect={(value) => setFilter(value as ToolFilter)}
-                label={t('profiles.toolsFilterLabel', 'Filtrar por origem')}
-                icon={<FilterOutlined />}
-                maxWidth="200px"
-                disabled={disabled}
-              />
-            </div>
-            {showSelectAll && (
-              <button
-                type="button"
-                className="profiles-field__tools-toggle"
-                onClick={handleSelectFiltered}
-                disabled={disabled}
-                data-testid="tools-select-all"
-              >
-                {t('profiles.toolsSelectAll', 'Selecionar todas')}
-              </button>
-            )}
-            {showDeselectAll && (
-              <button
-                type="button"
-                className="profiles-field__tools-toggle"
-                onClick={handleDeselectFiltered}
-                disabled={disabled}
-                data-testid="tools-deselect-all"
-              >
-                {t('profiles.toolsDeselectAll', 'Desmarcar todas')}
-              </button>
-            )}
-          </div>
-          {filteredRows.length > 0 ? (
-            <DataGrid<ToolRow>
-              items={filteredRows}
-              columns={columns}
-              label={t('profiles.toolsGridLabel', 'Lista de ferramentas disponíveis')}
-              getItemId={(item) => item.name}
-              selectedIds={selectedIds}
-              selectionMode="checkbox"
-              onSelectionChange={handleSelectionChange}
-              showHeader={true}
-              autoFocusOnMount={false}
-              className="profiles-tools-datagrid"
-            />
-          ) : (
-            <p className="profiles-field__hint profiles-field__no-results">
-              {t('profiles.toolsNoResults', 'Nenhuma ferramenta corresponde ao filtro.')}
-            </p>
-          )}
-
-          <div className="profiles-field">
+        </div>
+      )}
+      showSelectAll={showSelectAll}
+      showDeselectAll={showDeselectAll}
+      onSelectFiltered={handleSelectFiltered}
+      onDeselectFiltered={handleDeselectFiltered}
+      selectAllLabel={t('profiles.toolsSelectAll', 'Selecionar todas')}
+      deselectAllLabel={t('profiles.toolsDeselectAll', 'Desmarcar todas')}
+      selectAllTestId="tools-select-all"
+      deselectAllTestId="tools-deselect-all"
+      rows={filteredRows}
+      columns={columns}
+      gridLabel={t('profiles.toolsGridLabel', 'Lista de ferramentas disponíveis')}
+      getItemId={(item) => item.name}
+      selectedIds={selectedIds}
+      onSelectionChange={handleSelectionChange}
+      gridClassName="profiles-tools-datagrid"
+      noResultsMessage={t('profiles.toolsNoResults', 'Nenhuma ferramenta corresponde ao filtro.')}
+      emptyMessage={t('profiles.noToolsAvailable', 'Nenhuma ferramenta encontrada.')}
+    >
+      <div className="profiles-field">
             <RangeSlider
               id="agentic-max-iterations"
               label={t('profiles.agenticMaxIterations', 'Máximo de Iterações')}
@@ -315,9 +277,9 @@ export function ProfileToolsSection({
                     ? t('profiles.agenticIterationsModerate', 'Modo moderado - respostas mais detalhadas')
                     : t('profiles.agenticIterationsAggressive', 'Modo agressivo - análise profunda')}
             </span>
-          </div>
+      </div>
 
-          <div className="profiles-field">
+      <div className="profiles-field">
             <label htmlFor="pf-response-timeout" className="profiles-field__label">
               {t('profiles.responseTimeout', 'Timeout de Resposta (segundos)')}
             </label>
@@ -335,9 +297,9 @@ export function ProfileToolsSection({
             <span className="profiles-field__hint">
               {t('profiles.responseTimeoutHint', '2ª camada de proteção contra loops. Respostas acima desse tempo são interrompidas.')}
             </span>
-          </div>
+      </div>
 
-          <div className="profiles-field">
+      <div className="profiles-field">
             <label htmlFor="pf-command-allowlist" className="profiles-field__label">
               {t('profiles.fieldCommandAllowlist', 'Allowlist de Comandos')}
             </label>
@@ -359,9 +321,9 @@ export function ProfileToolsSection({
             <span className="profiles-field__hint">
               {t('profiles.allowlistHint', 'Define quais comandos shell são executados automaticamente, bloqueados ou pedem confirmação.')}
             </span>
-          </div>
+      </div>
 
-          <div className="profiles-field">
+      <div className="profiles-field">
             <label htmlFor="pf-native-mcp" className="profiles-field__label">
               {t('profiles.nativeMcpLabel', 'MCP nativo (Responses/Anthropic)')}
             </label>
@@ -383,13 +345,7 @@ export function ProfileToolsSection({
             <span className="profiles-field__hint">
               {t('profiles.nativeMcpHint', "Como os servidores MCP são entregues ao provider. O modo nativo usa o formato do provider (OpenAI Responses → type:mcp; Anthropic → mcp_servers). Automático = tenta MCP nativo e, se o modelo não suportar, o app ajusta este perfil para adapter automaticamente. 'Forçar nativo' só tem efeito em providers fisicamente capazes (Responses/Anthropic).")}
             </span>
-          </div>
-        </>
-      ) : (
-        <p className="profiles-field__hint" style={{ margin: 0 }}>
-          {t('profiles.noToolsAvailable', 'Nenhuma ferramenta encontrada.')}
-        </p>
-      )}
-    </CollapsibleSection>
+      </div>
+    </ResourceSelectionSection>
   );
 }
