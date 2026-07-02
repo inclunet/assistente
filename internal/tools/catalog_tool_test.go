@@ -49,17 +49,17 @@ func TestCatalogToolReturnsSelectedTools(t *testing.T) {
 	}
 
 	var payload struct {
-		SelectedTools []string `json:"selected_tools"`
-		Count         int      `json:"count"`
-		Limit         int      `json:"limit"`
-		Offset        int      `json:"offset"`
-		HasMore       bool     `json:"has_more"`
-		NextOffset    int      `json:"next_offset"`
+		Tools      []catalogToolItem `json:"tools"`
+		Count      int               `json:"count"`
+		Limit      int               `json:"limit"`
+		Offset     int               `json:"offset"`
+		HasMore    bool              `json:"has_more"`
+		NextOffset int               `json:"next_offset"`
 	}
 	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.Count != 1 || len(payload.SelectedTools) != 1 || payload.SelectedTools[0] != "read_file" {
+	if payload.Count != 1 || len(payload.Tools) != 1 || payload.Tools[0].Name != "read_file" {
 		t.Fatalf("unexpected response: %#v", payload)
 	}
 	if payload.Limit != 1 || payload.Offset != 0 || !payload.HasMore || payload.NextOffset != 1 {
@@ -95,17 +95,17 @@ func TestCatalogToolClampsReturnedPageToMaximum(t *testing.T) {
 	}
 
 	var payload struct {
-		SelectedTools []string `json:"selected_tools"`
-		Count         int      `json:"count"`
-		Limit         int      `json:"limit"`
-		Offset        int      `json:"offset"`
-		HasMore       bool     `json:"has_more"`
-		NextOffset    int      `json:"next_offset"`
+		Tools      []catalogToolItem `json:"tools"`
+		Count      int               `json:"count"`
+		Limit      int               `json:"limit"`
+		Offset     int               `json:"offset"`
+		HasMore    bool              `json:"has_more"`
+		NextOffset int               `json:"next_offset"`
 	}
 	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.Count != 50 || len(payload.SelectedTools) != 50 {
+	if payload.Count != 50 || len(payload.Tools) != 50 {
 		t.Fatalf("unexpected clamped page size: %#v", payload)
 	}
 	if payload.Limit != 50 || payload.Offset != 0 || !payload.HasMore || payload.NextOffset != 50 {
@@ -142,17 +142,17 @@ func TestCatalogToolPaginatesAfterFirstPage(t *testing.T) {
 	}
 
 	var payload struct {
-		SelectedTools []string `json:"selected_tools"`
-		Count         int      `json:"count"`
-		Limit         int      `json:"limit"`
-		Offset        int      `json:"offset"`
-		HasMore       bool     `json:"has_more"`
-		NextOffset    int      `json:"next_offset"`
+		Tools      []catalogToolItem `json:"tools"`
+		Count      int               `json:"count"`
+		Limit      int               `json:"limit"`
+		Offset     int               `json:"offset"`
+		HasMore    bool              `json:"has_more"`
+		NextOffset int               `json:"next_offset"`
 	}
 	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.Count != 50 || len(payload.SelectedTools) != 50 {
+	if payload.Count != 50 || len(payload.Tools) != 50 {
 		t.Fatalf("unexpected page size: %#v", payload)
 	}
 	if payload.Offset != 50 || payload.Limit != 50 || !payload.HasMore || payload.NextOffset != 100 {
@@ -181,13 +181,13 @@ func TestCatalogToolFiltersByProfileVisibleNames(t *testing.T) {
 	}
 
 	var payload struct {
-		SelectedTools []string `json:"selected_tools"`
-		Count         int      `json:"count"`
+		Tools []catalogToolItem `json:"tools"`
+		Count int               `json:"count"`
 	}
 	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.Count != 1 || len(payload.SelectedTools) != 1 || payload.SelectedTools[0] != "read_file" {
+	if payload.Count != 1 || len(payload.Tools) != 1 || payload.Tools[0].Name != "read_file" {
 		t.Fatalf("unexpected filtered response: %#v", payload)
 	}
 }
@@ -220,6 +220,128 @@ func TestCatalogToolEmptyVisibleNamesReturnsNoTools(t *testing.T) {
 	}
 	if payload.Count != 0 || len(payload.SelectedTools) != 0 {
 		t.Fatalf("expected no visible tools, got %#v", payload)
+	}
+}
+
+func TestCatalogToolLoadPersistsRuntimeTool(t *testing.T) {
+	store := &fakeCatalogToolStore{
+		entries: []ToolCatalogEntry{
+			{Name: "read_file", DisplayName: "read_file", Origin: ToolOriginBuiltin, AvailabilityStatus: ToolAvailabilityAvailable},
+		},
+	}
+	loadedStore := NewLoadedToolStore()
+	ctx := WithToolCatalogRuntime(context.Background(), ToolCatalogRuntime{
+		Store:          loadedStore,
+		ConversationID: "conv-1",
+		ProfileSlug:    "padrao",
+		VisibleNames:   []string{"read_file", ToolCatalogName},
+		PreloadedNames: []string{ToolCatalogName},
+		ControlPlane:   []string{ToolCatalogName},
+	})
+
+	result, err := NewCatalogTool(store).Execute(ctx, json.RawMessage(`{"action":"load","tools":["read_file"]}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", result.Content)
+	}
+
+	var payload struct {
+		LoadedTools   []string `json:"loaded_tools"`
+		SelectedTools []string `json:"selected_tools"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload.LoadedTools) != 1 || payload.LoadedTools[0] != "read_file" {
+		t.Fatalf("unexpected loaded tools: %#v", payload)
+	}
+	if got := loadedStore.Loaded("conv-1", "padrao", []string{"read_file"}); len(got) != 1 || got[0] != "read_file" {
+		t.Fatalf("runtime store did not persist loaded tool: %#v", got)
+	}
+}
+
+func TestCatalogToolLoadRejectsDisabledByProfile(t *testing.T) {
+	store := &fakeCatalogToolStore{
+		entries: []ToolCatalogEntry{
+			{Name: "write_file", DisplayName: "write_file", Origin: ToolOriginBuiltin, AvailabilityStatus: ToolAvailabilityAvailable},
+		},
+	}
+	ctx := WithToolCatalogRuntime(context.Background(), ToolCatalogRuntime{
+		Store:          NewLoadedToolStore(),
+		ConversationID: "conv-1",
+		ProfileSlug:    "padrao",
+		VisibleNames:   []string{"read_file"},
+	})
+
+	result, err := NewCatalogTool(store).Execute(ctx, json.RawMessage(`{"action":"load","tools":["write_file"]}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", result.Content)
+	}
+	var payload struct {
+		LoadedTools   []string `json:"loaded_tools"`
+		RejectedTools []struct {
+			Name   string `json:"name"`
+			Reason string `json:"reason"`
+		} `json:"rejected_tools"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload.LoadedTools) != 0 || len(payload.RejectedTools) != 1 || payload.RejectedTools[0].Reason != LoadedToolRejectDisabled {
+		t.Fatalf("unexpected load response: %#v", payload)
+	}
+}
+
+func TestCatalogToolListAndUnloadLoadedTools(t *testing.T) {
+	loadedStore := NewLoadedToolStore()
+	loadedStore.Load("conv-1", "padrao", []string{"read_file"}, []string{"read_file"}, []string{ToolCatalogName}, []string{ToolCatalogName})
+	ctx := WithToolCatalogRuntime(context.Background(), ToolCatalogRuntime{
+		Store:          loadedStore,
+		ConversationID: "conv-1",
+		ProfileSlug:    "padrao",
+		VisibleNames:   []string{"read_file", ToolCatalogName},
+		PreloadedNames: []string{ToolCatalogName},
+		ControlPlane:   []string{ToolCatalogName},
+	})
+
+	result, err := NewCatalogTool(&fakeCatalogToolStore{}).Execute(ctx, json.RawMessage(`{"action":"list_loaded"}`))
+	if err != nil {
+		t.Fatalf("Execute list_loaded: %v", err)
+	}
+	var listPayload struct {
+		Loaded []LoadedToolRecord `json:"loaded"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &listPayload); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(listPayload.Loaded) != 2 || listPayload.Loaded[0].State != LoadedToolStateControlPlane || listPayload.Loaded[1].State != LoadedToolStateOnDemand {
+		t.Fatalf("unexpected loaded list: %#v", listPayload.Loaded)
+	}
+
+	result, err = NewCatalogTool(&fakeCatalogToolStore{}).Execute(ctx, json.RawMessage(`{"action":"unload","tools":["read_file","tool_catalog"]}`))
+	if err != nil {
+		t.Fatalf("Execute unload: %v", err)
+	}
+	var unloadPayload struct {
+		UnloadedTools []string `json:"unloaded_tools"`
+		RejectedTools []struct {
+			Name   string `json:"name"`
+			Reason string `json:"reason"`
+		} `json:"rejected_tools"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &unloadPayload); err != nil {
+		t.Fatalf("decode unload response: %v", err)
+	}
+	if len(unloadPayload.UnloadedTools) != 1 || unloadPayload.UnloadedTools[0] != "read_file" {
+		t.Fatalf("unexpected unloaded tools: %#v", unloadPayload)
+	}
+	if len(unloadPayload.RejectedTools) != 1 || unloadPayload.RejectedTools[0].Reason != LoadedToolRejectControlPlane {
+		t.Fatalf("expected control-plane rejection, got %#v", unloadPayload.RejectedTools)
 	}
 }
 

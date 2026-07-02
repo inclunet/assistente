@@ -8,7 +8,13 @@ vi.mock('@wailsjs/go/models', () => ({}));
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (_key: string, defaultValue: string) => defaultValue,
+    t: (_key: string, defaultValue: string, options?: Record<string, string>) => {
+      if (!options) return defaultValue;
+      return Object.entries(options).reduce(
+        (text, [key, value]) => text.replace(new RegExp(`{{${key}}}`, 'g'), value),
+        defaultValue,
+      );
+    },
   }),
 }));
 
@@ -184,7 +190,7 @@ describe('ProfileToolsSection', () => {
     expect(rows[3]).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('renderiza checkboxes acessíveis dentro das células', () => {
+  it('renderiza estados tri-state acessíveis dentro das células', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -194,17 +200,49 @@ describe('ProfileToolsSection', () => {
         onChange={onChange}
       />
     );
-    const checkboxes = screen.getAllByRole('checkbox');
-    const tool1Cb = checkboxes.find(cb => cb.getAttribute('aria-label')?.includes('Tool 1'));
-    expect(tool1Cb).toBeTruthy();
-    expect((tool1Cb as HTMLInputElement).checked).toBe(true);
-
-    const tool2Cb = checkboxes.find(cb => cb.getAttribute('aria-label')?.includes('Tool 2'));
-    expect(tool2Cb).toBeTruthy();
-    expect((tool2Cb as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByLabelText('Tool 1: Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('Tool 2: Desabilitada')).toBeInTheDocument();
   });
 
-  it('chama onChange ao desmarcar ferramenta de todas selecionadas via Space', () => {
+  it('mantém control-plane disabled em perfil legado com enabledTools vazio', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('tool_catalog', 'Tool catalog'),
+          tool('load_skill', 'Load skill'),
+          tool('read_file', 'Read file'),
+        ]}
+        enabledTools={[]}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    expect(screen.getByLabelText('tool_catalog: Desabilitada')).toBeInTheDocument();
+    expect(screen.getByLabelText('load_skill: Desabilitada')).toBeInTheDocument();
+    expect(screen.getByLabelText('read_file: Desabilitada')).toBeInTheDocument();
+  });
+
+  it('promove tool_catalog ausente quando tool_policy explícito tem on_demand', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('tool_catalog', 'Tool catalog'),
+          tool('read_file', 'Read file'),
+          tool('write_file', 'Write file'),
+        ]}
+        toolPolicy={{ read_file: 'on_demand', write_file: 'disabled' }}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    expect(screen.getByLabelText('tool_catalog: Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('read_file: Sob demanda')).toBeInTheDocument();
+    expect(screen.getByLabelText('write_file: Desabilitada')).toBeInTheDocument();
+  });
+
+  it('chama onChange ao promover ferramenta sob demanda via Space', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -215,13 +253,43 @@ describe('ProfileToolsSection', () => {
       />
     );
     const grid = screen.getByRole('grid');
-    // Space toggles first tool (Tool 1) — removes it from "all"
+    // Perfil legado aberto: tools começam sob demanda; Space promove para preloaded.
     fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: ' ' });
-    expect(onChange).toHaveBeenCalledWith('enabled_tools', ['Tool 2', 'Tool 3']);
+    expect(onChange).toHaveBeenCalledWith('tool_policy', {
+      'Tool 1': 'preloaded',
+      'Tool 2': 'on_demand',
+      'Tool 3': 'on_demand',
+    });
   });
 
-  it('chama onChange ao desmarcar uma ferramenta específica via Space', () => {
+  it('usa o estado recém-commitado em Space repetido na mesma linha', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={mockTools}
+        enabledTools={null}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+    fireEvent.keyDown(grid, { key: ' ' });
+    expect(onChange).toHaveBeenNthCalledWith(1, 'tool_policy', {
+      'Tool 1': 'preloaded',
+      'Tool 2': 'on_demand',
+      'Tool 3': 'on_demand',
+    });
+    expect(onChange).toHaveBeenNthCalledWith(2, 'tool_policy', {
+      'Tool 1': 'disabled',
+      'Tool 2': 'on_demand',
+      'Tool 3': 'on_demand',
+    });
+  });
+
+  it('chama onChange ao desabilitar ferramenta preloaded via Space', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -234,10 +302,14 @@ describe('ProfileToolsSection', () => {
     const grid = screen.getByRole('grid');
     fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: ' ' });
-    expect(onChange).toHaveBeenCalledWith('enabled_tools', ['Tool 2']);
+    expect(onChange).toHaveBeenCalledWith('tool_policy', {
+      'Tool 1': 'disabled',
+      'Tool 2': 'preloaded',
+      'Tool 3': 'disabled',
+    });
   });
 
-  it('chama onChange ao marcar uma ferramenta desmarcada', () => {
+  it('chama onChange ao mover ferramenta disabled para on_demand', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -252,10 +324,14 @@ describe('ProfileToolsSection', () => {
     fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     fireEvent.keyDown(grid, { key: ' ' });
-    expect(onChange).toHaveBeenCalledWith('enabled_tools', ['Tool 1', 'Tool 2']);
+    expect(onChange).toHaveBeenCalledWith('tool_policy', {
+      'Tool 1': 'preloaded',
+      'Tool 2': 'on_demand',
+      'Tool 3': 'disabled',
+    });
   });
 
-  it('envia null quando todas as ferramentas são selecionadas', () => {
+  it('cicla ferramenta disabled para on_demand sem promover lote inteiro', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -271,7 +347,73 @@ describe('ProfileToolsSection', () => {
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     fireEvent.keyDown(grid, { key: ' ' });
-    expect(onChange).toHaveBeenCalledWith('enabled_tools', null);
+    expect(onChange).toHaveBeenCalledWith('tool_policy', {
+      'Tool 1': 'preloaded',
+      'Tool 2': 'preloaded',
+      'Tool 3': 'on_demand',
+    });
+  });
+
+  it('preserva control-plane preloaded ao limpar seleção com Escape', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('tool_catalog', 'Tool catalog'),
+          tool('load_skill', 'Load skill'),
+          tool('read_file', 'Read file'),
+        ]}
+        enabledTools={null}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: 'Escape' });
+    expect(onChange).toHaveBeenCalledWith('tool_policy', {
+      tool_catalog: 'preloaded',
+      load_skill: 'preloaded',
+      read_file: 'disabled',
+    });
+  });
+
+  it('preserva control-plane preloaded ao desabilitar tudo pelo botão global', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('tool_catalog', 'Tool catalog'),
+          tool('load_skill', 'Load skill'),
+          tool('read_file', 'Read file'),
+        ]}
+        enabledTools={null}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    fireEvent.click(screen.getByTestId('tools-deselect-all'));
+    expect(onChange).toHaveBeenCalledWith('tool_policy', {
+      tool_catalog: 'preloaded',
+      load_skill: 'preloaded',
+      read_file: 'disabled',
+    });
+  });
+
+  it('não promove tools sob demanda ao pressionar Ctrl+A quando todas já estão selecionadas', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={mockTools}
+        enabledTools={null}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: 'a', ctrlKey: true });
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('mostra badge com status da feature', () => {
@@ -302,7 +444,7 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByTestId('badge-off')).toBeInTheDocument();
   });
 
-  it('mostra botão "Selecionar todas" quando há ferramentas desmarcadas', () => {
+  it('mostra botão de pré-carregar quando há ferramentas não carregadas', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -315,7 +457,7 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByTestId('tools-select-all')).toBeInTheDocument();
   });
 
-  it('chama onChange com null ao clicar "Selecionar todas"', () => {
+  it('chama onChange com tool_policy preloaded ao clicar pré-carregar', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -327,10 +469,14 @@ describe('ProfileToolsSection', () => {
     );
     const selectAllBtn = screen.getByTestId('tools-select-all');
     fireEvent.click(selectAllBtn);
-    expect(onChange).toHaveBeenCalledWith('enabled_tools', null);
+    expect(onChange).toHaveBeenCalledWith('tool_policy', {
+      'Tool 1': 'preloaded',
+      'Tool 2': 'preloaded',
+      'Tool 3': 'preloaded',
+    });
   });
 
-  it('mostra botão "Desmarcar todas" quando pelo menos uma ferramenta selecionada', () => {
+  it('mostra botão de desabilitar quando pelo menos uma ferramenta está disponível', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -343,7 +489,7 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByTestId('tools-deselect-all')).toBeInTheDocument();
   });
 
-  it('chama onChange com array vazio ao clicar "Desmarcar todas"', () => {
+  it('chama onChange com tool_policy disabled ao clicar desabilitar', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -355,7 +501,11 @@ describe('ProfileToolsSection', () => {
     );
     const deselectAllBtn = screen.getByTestId('tools-deselect-all');
     fireEvent.click(deselectAllBtn);
-    expect(onChange).toHaveBeenCalledWith('enabled_tools', []);
+    expect(onChange).toHaveBeenCalledWith('tool_policy', {
+      'Tool 1': 'disabled',
+      'Tool 2': 'disabled',
+      'Tool 3': 'disabled',
+    });
   });
 
   it('renderiza select de allowlist com opções', () => {
@@ -720,7 +870,7 @@ describe('ProfileToolsSection', () => {
       expect(screen.getByText('Nenhuma ferramenta corresponde ao filtro.')).toBeInTheDocument();
     });
 
-    it('"Selecionar todas" com filtro ativo seleciona apenas itens filtrados', () => {
+    it('"Pré-carregar filtradas" altera apenas itens filtrados', () => {
       const onChange = vi.fn();
       render(
         <ProfileToolsSection
@@ -732,10 +882,35 @@ describe('ProfileToolsSection', () => {
       );
       selectFilter('tools-filter', 'Atlassian');
       fireEvent.click(screen.getByTestId('tools-select-all'));
-      expect(onChange).toHaveBeenCalledWith('enabled_tools', ['mcp_atlassian__search', 'mcp_atlassian__create']);
+      expect(onChange).toHaveBeenCalledWith('tool_policy', {
+        local_tool: 'disabled',
+        mcp_atlassian__search: 'preloaded',
+        mcp_atlassian__create: 'preloaded',
+        mcp_slack__send: 'disabled',
+      });
     });
 
-    it('"Desmarcar todas" com filtro ativo desmarca apenas itens filtrados', () => {
+    it('"Pré-carregar filtradas" aparece para itens sob demanda filtrados', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockToolsMixed}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          onChange={onChange}
+        />
+      );
+      selectFilter('tools-filter', 'Atlassian');
+      fireEvent.click(screen.getByTestId('tools-select-all'));
+      expect(onChange).toHaveBeenCalledWith('tool_policy', {
+        local_tool: 'on_demand',
+        mcp_atlassian__search: 'preloaded',
+        mcp_atlassian__create: 'preloaded',
+        mcp_slack__send: 'on_demand',
+      });
+    });
+
+    it('"Desabilitar filtradas" altera apenas itens filtrados', () => {
       const onChange = vi.fn();
       render(
         <ProfileToolsSection
@@ -748,12 +923,13 @@ describe('ProfileToolsSection', () => {
       selectFilter('tools-filter', 'Atlassian');
       fireEvent.click(screen.getByTestId('tools-deselect-all'));
       const call = onChange.mock.calls[0];
-      expect(call[0]).toBe('enabled_tools');
-      const result = call[1] as string[];
-      expect(result).toContain('local_tool');
-      expect(result).toContain('mcp_slack__send');
-      expect(result).not.toContain('mcp_atlassian__search');
-      expect(result).not.toContain('mcp_atlassian__create');
+      expect(call[0]).toBe('tool_policy');
+      expect(call[1]).toEqual({
+        local_tool: 'on_demand',
+        mcp_atlassian__search: 'disabled',
+        mcp_atlassian__create: 'disabled',
+        mcp_slack__send: 'on_demand',
+      });
     });
 
     it('combina busca de texto com filtro de origem', () => {
@@ -850,7 +1026,7 @@ describe('ProfileToolsSection', () => {
       expect(screen.queryByText('local_tool')).not.toBeInTheDocument();
     });
 
-    it('aria-label do checkbox inclui displayName e sourceLabel para MCP', () => {
+    it('aria-label do estado inclui displayName e sourceLabel para MCP', () => {
       render(
         <ProfileToolsSection
           availableTools={mockToolsMixed}
@@ -859,9 +1035,9 @@ describe('ProfileToolsSection', () => {
           onChange={vi.fn()}
         />
       );
-      expect(screen.getByLabelText('search (Atlassian) ativada')).toBeInTheDocument();
-      expect(screen.getByLabelText('send (Slack) ativada')).toBeInTheDocument();
-      expect(screen.getByLabelText('local_tool ativada')).toBeInTheDocument();
+      expect(screen.getByLabelText('search (Atlassian): Sob demanda')).toBeInTheDocument();
+      expect(screen.getByLabelText('send (Slack): Sob demanda')).toBeInTheDocument();
+      expect(screen.getByLabelText('local_tool: Sob demanda')).toBeInTheDocument();
     });
 
     it('enabled_tools continua usando nomes namespaced internos', () => {
@@ -874,10 +1050,10 @@ describe('ProfileToolsSection', () => {
           onChange={onChange}
         />
       );
-      expect(screen.getByLabelText('search (Atlassian) ativada')).toBeInTheDocument();
-      expect(screen.getByLabelText('local_tool ativada')).toBeInTheDocument();
-      expect(screen.getByLabelText('create (Atlassian) desativada')).toBeInTheDocument();
-      expect(screen.getByLabelText('send (Slack) desativada')).toBeInTheDocument();
+      expect(screen.getByLabelText('search (Atlassian): Pré-carregada')).toBeInTheDocument();
+      expect(screen.getByLabelText('local_tool: Pré-carregada')).toBeInTheDocument();
+      expect(screen.getByLabelText('create (Atlassian): Desabilitada')).toBeInTheDocument();
+      expect(screen.getByLabelText('send (Slack): Desabilitada')).toBeInTheDocument();
     });
   });
 });

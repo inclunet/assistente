@@ -36,6 +36,7 @@ export interface ResourceSelectionSectionProps<TRow> {
   onSelectionChange: (selectedIds: Set<string | number>) => void;
   onMoveItem?: (fromIndex: number, toIndex: number) => void;
   onFocusChange?: (item: TRow | null) => void;
+  onItemToggle?: (item: TRow, rowIndex: number) => void;
   gridClassName?: string;
   noResultsMessage: string;
   emptyMessage: string;
@@ -75,6 +76,7 @@ export function ResourceSelectionSection<TRow>({
   onSelectionChange,
   onMoveItem,
   onFocusChange,
+  onItemToggle,
   gridClassName,
   noResultsMessage,
   emptyMessage,
@@ -145,6 +147,7 @@ export function ResourceSelectionSection<TRow>({
               onSelectionChange={onSelectionChange}
               onMoveItem={onMoveItem}
               onFocusChange={onFocusChange}
+              onItemToggle={onItemToggle}
               showHeader={true}
               autoFocusOnMount={false}
               className={gridClassName}

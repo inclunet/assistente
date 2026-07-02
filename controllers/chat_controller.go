@@ -42,19 +42,23 @@ type ChatController struct {
 	msgGateway       *messaging.Gateway
 	responseNotifier *messaging.ResponseNotifier
 	sendMsgUC        *usecases.SendMessageUseCase
+	loadedToolStore  *tools.LoadedToolStore
 }
 
 // NewChatController cria um ChatController com todas as suas dependências.
 func NewChatController(cfg ChatControllerConfig) *ChatController {
+	loadedToolStore := tools.NewLoadedToolStore()
 	return &ChatController{
 		emitter:          cfg.Emitter,
 		streamMgr:        cfg.StreamMgr,
 		convRepo:         cfg.ConvRepo,
 		msgGateway:       cfg.MsgGateway,
 		responseNotifier: cfg.ResponseNotifier,
+		loadedToolStore:  loadedToolStore,
 		sendMsgUC: usecases.NewSendMessageUseCase(usecases.SendMessageConfig{
 			ChatInteractor:  cfg.ChatInteractor,
 			ToolRegistry:    cfg.ToolRegistry,
+			LoadedToolStore: loadedToolStore,
 			ProviderSvc:     cfg.ProviderSvc,
 			MCPMgr:          cfg.MCPMgr,
 			AgentSvc:        cfg.AgentSvc,
@@ -127,6 +131,15 @@ func (c *ChatController) SendForSubagent(ctx context.Context, conversationID, pr
 // CancelStreamingForConversation cancela um streaming LLM em andamento (barge-in).
 func (c *ChatController) CancelStreamingForConversation(conversationID string) {
 	c.streamMgr.Cancel(conversationID)
+}
+
+// ResetLoadedToolsForConversation descarta tools carregadas sob demanda para uma
+// conversa que foi recriada, reciclada ou removida logicamente.
+func (c *ChatController) ResetLoadedToolsForConversation(conversationID string) {
+	if c == nil || c.loadedToolStore == nil {
+		return
+	}
+	c.loadedToolStore.ResetConversation(conversationID)
 }
 
 // registerChannelBridge registra um callback para reenviar a resposta do assistente

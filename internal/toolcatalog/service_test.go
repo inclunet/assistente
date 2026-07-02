@@ -101,20 +101,22 @@ func TestServiceCatalogToolQueriesPersistedCatalog(t *testing.T) {
 		t.Fatalf("catalog returned error: %s", result.Content)
 	}
 	var payload struct {
-		SelectedTools []string `json:"selected_tools"`
+		Tools []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
 	}
 	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
 		t.Fatalf("decode catalog response: %v", err)
 	}
 	got := map[string]bool{}
-	for _, name := range payload.SelectedTools {
-		got[name] = true
+	for _, tool := range payload.Tools {
+		got[tool.Name] = true
 	}
 	if !got["read_file"] || !got["grep_search"] {
-		t.Fatalf("catalog did not return synced builtin tools: %#v", payload.SelectedTools)
+		t.Fatalf("catalog did not return synced builtin tools: %#v", payload.Tools)
 	}
 	if got["old_search"] {
-		t.Fatalf("catalog returned unavailable tool without include_unavailable: %#v", payload.SelectedTools)
+		t.Fatalf("catalog returned unavailable tool without include_unavailable: %#v", payload.Tools)
 	}
 }
 
@@ -153,12 +155,14 @@ func TestServiceCatalogToolPaginatesLargeMCPBridgeCatalog(t *testing.T) {
 	}
 
 	var firstPayload, secondPayload struct {
-		SelectedTools []string `json:"selected_tools"`
-		Count         int      `json:"count"`
-		Limit         int      `json:"limit"`
-		Offset        int      `json:"offset"`
-		HasMore       bool     `json:"has_more"`
-		NextOffset    int      `json:"next_offset"`
+		Tools []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+		Count      int  `json:"count"`
+		Limit      int  `json:"limit"`
+		Offset     int  `json:"offset"`
+		HasMore    bool `json:"has_more"`
+		NextOffset int  `json:"next_offset"`
 	}
 	if err := json.Unmarshal([]byte(first.Content), &firstPayload); err != nil {
 		t.Fatalf("decode first page: %v", err)
@@ -173,11 +177,11 @@ func TestServiceCatalogToolPaginatesLargeMCPBridgeCatalog(t *testing.T) {
 	if secondPayload.Count != 50 || secondPayload.Offset != 50 || !secondPayload.HasMore || secondPayload.NextOffset != 100 {
 		t.Fatalf("unexpected second page metadata: %#v", secondPayload)
 	}
-	if secondPayload.SelectedTools[0] != "mcp_big__tool_050" {
-		t.Fatalf("second page starts with %q, want mcp_big__tool_050", secondPayload.SelectedTools[0])
+	if secondPayload.Tools[0].Name != "mcp_big__tool_050" {
+		t.Fatalf("second page starts with %q, want mcp_big__tool_050", secondPayload.Tools[0].Name)
 	}
-	if secondPayload.SelectedTools[49] != "mcp_big__tool_099" {
-		t.Fatalf("second page ends with %q, want mcp_big__tool_099", secondPayload.SelectedTools[49])
+	if secondPayload.Tools[49].Name != "mcp_big__tool_099" {
+		t.Fatalf("second page ends with %q, want mcp_big__tool_099", secondPayload.Tools[49].Name)
 	}
 }
 

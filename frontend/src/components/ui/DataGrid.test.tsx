@@ -230,6 +230,35 @@ describe('DataGrid (checkbox mode)', () => {
     renderCheckbox();
     expect(getGrid().classList.contains('datagrid-container--checkbox')).toBe(true);
   });
+
+  it('ignora toggle customizado quando a linha focada sai da lista', () => {
+    const onItemToggle = vi.fn();
+    const { rerender } = render(
+      <DataGrid
+        items={items}
+        columns={columns}
+        selectionMode="checkbox"
+        onItemToggle={onItemToggle}
+        autoFocusOnMount={false}
+      />
+    );
+    focusGrid();
+    fireEvent.keyDown(getGrid(), { key: 'ArrowDown' });
+    fireEvent.keyDown(getGrid(), { key: 'ArrowDown' });
+
+    rerender(
+      <DataGrid
+        items={[items[0]]}
+        columns={columns}
+        selectionMode="checkbox"
+        onItemToggle={onItemToggle}
+        autoFocusOnMount={false}
+      />
+    );
+    fireEvent.keyDown(getGrid(), { key: ' ' });
+
+    expect(onItemToggle).not.toHaveBeenCalled();
+  });
 });
 
 // ─── Move item (Alt+Up/Down) ───────────────────────────────────────

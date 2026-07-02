@@ -764,13 +764,13 @@ func selectedToolsFromCatalog(results []tools.ToolExecutionResult) []string {
 			continue
 		}
 		var payload struct {
-			SelectedTools []string `json:"selected_tools"`
+			LoadedTools []string `json:"loaded_tools"`
 		}
 		if err := json.Unmarshal([]byte(result.Result.Content), &payload); err != nil {
 			logging.Infof(context.Background(), "agent.service", "[Agent] resposta inválida de %s: %v", tools.ToolCatalogName, err)
 			continue
 		}
-		for _, name := range payload.SelectedTools {
+		for _, name := range payload.LoadedTools {
 			name = strings.TrimSpace(name)
 			if name == "" || name == tools.ToolCatalogName {
 				continue
@@ -783,6 +783,59 @@ func selectedToolsFromCatalog(results []tools.ToolExecutionResult) []string {
 		}
 	}
 	return selected
+}
+
+func unloadedToolsFromCatalog(results []tools.ToolExecutionResult) []string {
+	var unloaded []string
+	seen := map[string]struct{}{}
+	for _, result := range results {
+		if result.ToolName != tools.ToolCatalogName || result.Result.IsError {
+			continue
+		}
+		var payload struct {
+			UnloadedTools []string `json:"unloaded_tools"`
+		}
+		if err := json.Unmarshal([]byte(result.Result.Content), &payload); err != nil {
+			logging.Infof(context.Background(), "agent.service", "[Agent] resposta inválida de %s: %v", tools.ToolCatalogName, err)
+			continue
+		}
+		for _, name := range payload.UnloadedTools {
+			name = strings.TrimSpace(name)
+			if name == "" || name == tools.ToolCatalogName {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			unloaded = append(unloaded, name)
+		}
+	}
+	return unloaded
+}
+
+func removeToolDefs(existing []llm.ToolDefinition, names []string) []llm.ToolDefinition {
+	if len(existing) == 0 || len(names) == 0 {
+		return existing
+	}
+	remove := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name != "" && name != tools.ToolCatalogName {
+			remove[name] = struct{}{}
+		}
+	}
+	if len(remove) == 0 {
+		return existing
+	}
+	filtered := existing[:0]
+	for _, def := range existing {
+		if _, ok := remove[def.Function.Name]; ok {
+			continue
+		}
+		filtered = append(filtered, def)
+	}
+	return filtered
 }
 
 func appendUniqueToolDefs(existing []llm.ToolDefinition, additions ...llm.ToolDefinition) []llm.ToolDefinition {
@@ -811,6 +864,7 @@ func expandToolDefsFromCatalogResults(
 	results []tools.ToolExecutionResult,
 	resolveToolDefs func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition,
 ) []llm.ToolDefinition {
+	existing = removeToolDefs(existing, unloadedToolsFromCatalog(results))
 	if resolveToolDefs == nil {
 		return existing
 	}
