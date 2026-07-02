@@ -296,9 +296,6 @@ func getServer(mgr Manager, slug string) (tools.ToolResult, error) {
 		Config:             safeConfig(*cfg),
 		EnvKeys:            sortedEnvKeys(cfg.Env),
 		EnvRedacted:        len(cfg.Env) > 0,
-		AuthType:           cfg.AuthType,
-		PreferBridge:       cfg.PreferBridge,
-		DisableSSE:         cfg.DisableSSE,
 	}
 	data, _ := json.Marshal(payload)
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"slug": slug, "action": "get"}, Structured: true}, nil
@@ -374,7 +371,7 @@ func applyConfigFields(cfg *mcpmgr.ServerConfig, slug string, req request) {
 		cfg.Args = append([]string{}, req.Args...)
 	}
 	if req.has("env") {
-		cfg.Env = copyStringMap(req.Env)
+		cfg.Env = mergeEnv(cfg.Env, req.Env)
 	}
 	if req.has("url") {
 		cfg.URL = strings.TrimSpace(req.URL)
@@ -418,6 +415,20 @@ func applyConfigFields(cfg *mcpmgr.ServerConfig, slug string, req request) {
 	if req.has("auto_connect") {
 		cfg.AutoConnect = req.AutoConnect
 	}
+}
+
+func mergeEnv(existing, updates map[string]string) map[string]string {
+	if len(updates) == 0 {
+		return map[string]string{}
+	}
+	env := copyStringMap(existing)
+	if env == nil {
+		env = map[string]string{}
+	}
+	for key, value := range updates {
+		env[key] = value
+	}
+	return env
 }
 
 func validateConfigForSave(cfg mcpmgr.ServerConfig) error {
@@ -520,12 +531,9 @@ func actionResult(action, slug string) tools.ToolResult {
 
 type detailResponse struct {
 	listServerResponse
-	Config       safeServerConfig `json:"config"`
-	EnvKeys      []string         `json:"env_keys,omitempty"`
-	EnvRedacted  bool             `json:"env_redacted,omitempty"`
-	AuthType     mcpmgr.AuthType  `json:"auth_type,omitempty"`
-	PreferBridge bool             `json:"prefer_bridge,omitempty"`
-	DisableSSE   bool             `json:"disable_sse,omitempty"`
+	Config      safeServerConfig `json:"config"`
+	EnvKeys     []string         `json:"env_keys,omitempty"`
+	EnvRedacted bool             `json:"env_redacted,omitempty"`
 }
 
 type listServerResponse struct {

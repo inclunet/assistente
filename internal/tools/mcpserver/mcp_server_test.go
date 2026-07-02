@@ -172,15 +172,18 @@ func TestToolGetRedactsEnvValues(t *testing.T) {
 		}},
 		configs: map[string]mcpmgr.ServerConfig{
 			"github": {
-				Slug:        "github",
-				UserID:      "user-123",
-				Name:        "GitHub",
-				Transport:   mcpmgr.TransportStdio,
-				Command:     "npx",
-				Args:        []string{"-y", "@modelcontextprotocol/server-github"},
-				Env:         map[string]string{"GITHUB_TOKEN": "secret", "OTHER": "value"},
-				Enabled:     true,
-				AutoConnect: true,
+				Slug:         "github",
+				UserID:       "user-123",
+				Name:         "GitHub",
+				Transport:    mcpmgr.TransportStdio,
+				Command:      "npx",
+				Args:         []string{"-y", "@modelcontextprotocol/server-github"},
+				Env:          map[string]string{"GITHUB_TOKEN": "secret", "OTHER": "value"},
+				AuthType:     mcpmgr.AuthBearer,
+				DisableSSE:   true,
+				PreferBridge: true,
+				Enabled:      true,
+				AutoConnect:  true,
 			},
 		},
 	}
@@ -207,9 +210,15 @@ func TestToolGetRedactsEnvValues(t *testing.T) {
 		Tools         json.RawMessage `json:"tools"`
 		Resources     json.RawMessage `json:"resources"`
 		Prompts       json.RawMessage `json:"prompts"`
+		AuthType      json.RawMessage `json:"auth_type"`
+		DisableSSE    json.RawMessage `json:"disable_sse"`
+		PreferBridge  json.RawMessage `json:"prefer_bridge"`
 		Config        struct {
-			Command string            `json:"command"`
-			Env     map[string]string `json:"env"`
+			Command      string            `json:"command"`
+			Env          map[string]string `json:"env"`
+			AuthType     mcpmgr.AuthType   `json:"auth_type"`
+			DisableSSE   bool              `json:"disable_sse"`
+			PreferBridge bool              `json:"prefer_bridge"`
 		} `json:"config"`
 	}
 	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
@@ -223,6 +232,12 @@ func TestToolGetRedactsEnvValues(t *testing.T) {
 	}
 	if len(payload.Tools) != 0 || len(payload.Resources) != 0 || len(payload.Prompts) != 0 {
 		t.Fatalf("get should omit large tools/resources/prompts arrays: %s", result.Content)
+	}
+	if len(payload.AuthType) != 0 || len(payload.DisableSSE) != 0 || len(payload.PreferBridge) != 0 {
+		t.Fatalf("get should keep auth/transport toggles only inside config: %s", result.Content)
+	}
+	if payload.Config.AuthType != mcpmgr.AuthBearer || !payload.Config.DisableSSE || !payload.Config.PreferBridge {
+		t.Fatalf("config should include auth/transport toggles: %#v", payload.Config)
 	}
 }
 
@@ -321,6 +336,7 @@ func TestToolUpdatePreservesExistingFieldsAndCanDisable(t *testing.T) {
 				Name:        "Remote",
 				Transport:   mcpmgr.TransportStreamable,
 				URL:         "https://example.test/mcp",
+				Env:         map[string]string{"TOKEN": "secret", "KEEP": "same"},
 				Enabled:     true,
 				AutoConnect: true,
 			},
@@ -336,6 +352,46 @@ func TestToolUpdatePreservesExistingFieldsAndCanDisable(t *testing.T) {
 	}
 	if mgr.savedConfig.URL != "https://example.test/mcp" || mgr.savedConfig.Enabled {
 		t.Fatalf("update did not preserve URL or disable server: %#v", mgr.savedConfig)
+	}
+	if mgr.savedConfig.Env["TOKEN"] != "secret" || mgr.savedConfig.Env["KEEP"] != "same" {
+		t.Fatalf("update should preserve existing env when env is omitted: %#v", mgr.savedConfig.Env)
+	}
+}
+
+func TestToolUpdateMergesEnvAndCanClearExplicitly(t *testing.T) {
+	mgr := &fakeManager{
+		configs: map[string]mcpmgr.ServerConfig{
+			"remote": {
+				Slug:      "remote",
+				Name:      "Remote",
+				Transport: mcpmgr.TransportStdio,
+				Command:   "npx",
+				Env:       map[string]string{"TOKEN": "secret", "KEEP": "same"},
+			},
+		},
+	}
+	tool := New(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"update","slug":"remote","env":{"NEW":"value"}}`))
+	if err != nil {
+		t.Fatalf("merge env Execute: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected merge env error: %s", result.Content)
+	}
+	if mgr.savedConfig.Env["TOKEN"] != "secret" || mgr.savedConfig.Env["KEEP"] != "same" || mgr.savedConfig.Env["NEW"] != "value" {
+		t.Fatalf("update should merge env values without dropping existing secrets: %#v", mgr.savedConfig.Env)
+	}
+
+	result, err = tool.Execute(context.Background(), json.RawMessage(`{"action":"update","slug":"remote","env":{}}`))
+	if err != nil {
+		t.Fatalf("clear env Execute: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected clear env error: %s", result.Content)
+	}
+	if len(mgr.savedConfig.Env) != 0 {
+		t.Fatalf("empty env object should clear env explicitly: %#v", mgr.savedConfig.Env)
 	}
 }
 
@@ -484,6 +540,42 @@ func TestToolRuntimeActionsAndLogs(t *testing.T) {
 		t.Fatalf("unexpected reload result: %#v", result)
 	}
 
+	result, err = tool.Execute(context.Background(), json.RawMessage(`{"action":"disconnect","slug":"remote"}`))
+	if err != nil {
+		t.Fatalf("disconnect Execute: %v", err)
+	}
+	if result.IsError || mgr.disconnected != "remote" {
+		t.Fatalf("unexpected disconnect result: %#v disconnected=%q", result, mgr.disconnected)
+	}
+	var disconnectPayload struct {
+		Action string `json:"action"`
+		Slug   string `json:"slug"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &disconnectPayload); err != nil {
+		t.Fatalf("decode disconnect result: %v", err)
+	}
+	if disconnectPayload.Action != "disconnected" || disconnectPayload.Slug != "remote" {
+		t.Fatalf("unexpected disconnect payload: %#v", disconnectPayload)
+	}
+
+	result, err = tool.Execute(context.Background(), json.RawMessage(`{"action":"reconnect","slug":"remote"}`))
+	if err != nil {
+		t.Fatalf("reconnect Execute: %v", err)
+	}
+	if result.IsError || mgr.reconnected != "remote" {
+		t.Fatalf("unexpected reconnect result: %#v reconnected=%q", result, mgr.reconnected)
+	}
+	var reconnectPayload struct {
+		Action string `json:"action"`
+		Slug   string `json:"slug"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &reconnectPayload); err != nil {
+		t.Fatalf("decode reconnect result: %v", err)
+	}
+	if reconnectPayload.Action != "reconnected" || reconnectPayload.Slug != "remote" {
+		t.Fatalf("unexpected reconnect payload: %#v", reconnectPayload)
+	}
+
 	result, err = tool.Execute(context.Background(), json.RawMessage(`{"action":"logs","slug":"remote","limit":999}`))
 	if err != nil {
 		t.Fatalf("logs Execute: %v", err)
@@ -500,6 +592,52 @@ func TestToolRuntimeActionsAndLogs(t *testing.T) {
 	}
 	if mgr.logLimit != 500 {
 		t.Fatalf("logs limit should cap at 500, got %d", mgr.logLimit)
+	}
+}
+
+func TestToolDeleteAndDuplicateActions(t *testing.T) {
+	mgr := &fakeManager{
+		configs: map[string]mcpmgr.ServerConfig{
+			"remote": {Slug: "remote", Name: "Remote", Transport: mcpmgr.TransportStdio, Command: "npx"},
+		},
+	}
+	tool := New(mgr)
+
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"duplicate","slug":"remote"}`))
+	if err != nil {
+		t.Fatalf("duplicate Execute: %v", err)
+	}
+	if result.IsError || mgr.duplicated != "remote" {
+		t.Fatalf("unexpected duplicate result: %#v duplicated=%q", result, mgr.duplicated)
+	}
+	var duplicatePayload struct {
+		Action  string `json:"action"`
+		Slug    string `json:"slug"`
+		NewSlug string `json:"new_slug"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &duplicatePayload); err != nil {
+		t.Fatalf("decode duplicate result: %v", err)
+	}
+	if duplicatePayload.Action != "duplicated" || duplicatePayload.Slug != "remote" || duplicatePayload.NewSlug != "remote-copia" {
+		t.Fatalf("unexpected duplicate payload: %#v", duplicatePayload)
+	}
+
+	result, err = tool.Execute(context.Background(), json.RawMessage(`{"action":"delete","slug":"remote"}`))
+	if err != nil {
+		t.Fatalf("delete Execute: %v", err)
+	}
+	if result.IsError || mgr.deletedSlug != "remote" {
+		t.Fatalf("unexpected delete result: %#v deleted=%q", result, mgr.deletedSlug)
+	}
+	var deletePayload struct {
+		Action string `json:"action"`
+		Slug   string `json:"slug"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &deletePayload); err != nil {
+		t.Fatalf("decode delete result: %v", err)
+	}
+	if deletePayload.Action != "deleted" || deletePayload.Slug != "remote" {
+		t.Fatalf("unexpected delete payload: %#v", deletePayload)
 	}
 }
 
