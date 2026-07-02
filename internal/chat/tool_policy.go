@@ -177,14 +177,20 @@ func (p *EffectiveToolPolicy) ensureCatalogForOnDemandTools() {
 	if p.State(tools.ToolCatalogName) == ToolPolicyPreloaded {
 		return
 	}
+	if _, ok := p.states[tools.ToolCatalogName]; !ok {
+		for name, state := range p.states {
+			if state == ToolPolicyOnDemand {
+				p.states[name] = ToolPolicyPreloaded
+			}
+		}
+		return
+	}
 	for name, state := range p.states {
 		if name == tools.ToolCatalogName {
 			continue
 		}
 		if state == ToolPolicyOnDemand {
-			if _, ok := p.states[tools.ToolCatalogName]; ok {
-				p.states[tools.ToolCatalogName] = ToolPolicyPreloaded
-			}
+			p.states[tools.ToolCatalogName] = ToolPolicyPreloaded
 			return
 		}
 	}

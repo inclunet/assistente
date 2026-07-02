@@ -174,6 +174,21 @@ func TestToolSelectionPolicy_ToolPolicyPreloadsCatalogWhenOnDemandExists(t *test
 	assertNames(t, "preloaded", effective.PreloadedNames(), []string{tools.ToolCatalogName})
 }
 
+func TestToolSelectionPolicy_ToolPolicyPreloadsOnDemandWhenCatalogUnavailable(t *testing.T) {
+	r := charRegistryNoCatalog(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			"read_file": string(ToolPolicyOnDemand),
+		},
+	})
+
+	if effective.State("read_file") != ToolPolicyPreloaded {
+		t.Fatalf("read_file deveria degradar para preloaded sem tool_catalog, got %s", effective.State("read_file"))
+	}
+	assertNames(t, "preloaded", effective.PreloadedNames(), []string{"read_file"})
+}
+
 func TestToolSelectionPolicy_CatalogVisibleNamesHideDisabledTools(t *testing.T) {
 	r := charRegistry(t)
 	policy := NewToolSelectionPolicy(r)
