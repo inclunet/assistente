@@ -260,6 +260,10 @@ A solução deste PR deixa alguns pontos deliberadamente funcionais, mas que dev
 - **Metadados declarativos nas builtin tools**: os metadados de categoria/classe/pacote/risco das builtin tools estão centralizados em mapa determinístico. No futuro, cada builtin tool deve declarar seus próprios metadados no descriptor/registro da tool. Issue: <https://github.com/inclunet/assistente/issues/122>.
 - **Importações legadas como serviço observável**: o gatilho pós-login atual é suficiente para MCP, mas quando skills e outros recursos entrarem no fluxo, a importação legada deve virar um serviço registrável e observável, com resultados estruturados. Issue: <https://github.com/inclunet/assistente/issues/123>.
 
+#### Refinamento posterior — AEP-0081
+
+AEP-0081 refina a D16 sem substituir o catálogo persistido desta AEP: `tool_catalog` passa a ser a interface única de control-plane para `search`, `load`, `unload` e `list_loaded`, com `action` opcional e default `search` para compatibilidade. A seleção por perfil deixa de ser apenas `EnabledTools=nil|[]|lista` e passa a resolver estados tri-state (`disabled`, `on_demand`, `preloaded`), preservando a semântica legada como migração.
+
 ### D17 — Dry run/teste de tools
 
 Builtin tools e MCP tools devem poder ser testadas por um fluxo de dry run semelhante ao dos jobs:
