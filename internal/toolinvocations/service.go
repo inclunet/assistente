@@ -186,6 +186,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		Status:             StatusQueued,
 		DryRun:             req.DryRun,
 		Input:              input,
+		Metadata:           s.buildInvocationDisplayMetadata(req.Call, req.Iteration, 0, false),
 		QueuedAt:           queuedAt,
 	}
 	if inv.OriginType == "" {

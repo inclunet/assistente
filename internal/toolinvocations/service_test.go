@@ -122,6 +122,82 @@ func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 	}
 }
 
+func TestServicePersistsDisplayMetadataBeforeExecutionCompletes(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	started := make(chan struct{}, 1)
+	registry := tools.NewRegistry()
+	registry.MustRegister(ctxBlockTool{started: started})
+	if err := database.DB().Create(&database.ToolCatalog{
+		Name:               "ctx_block",
+		DisplayName:        "ctx_block",
+		Origin:             tools.ToolOriginBuiltin,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}).Error; err != nil {
+		t.Fatalf("seed tool catalog: %v", err)
+	}
+	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+
+	ctx, cancel := context.WithCancel(userA)
+	done := make(chan ExecuteResult, 1)
+	go func() {
+		done <- svc.Execute(ctx, ExecuteRequest{
+			Call: tools.ToolCall{
+				ID:   "call-running-metadata",
+				Type: "function",
+				Function: tools.FunctionCall{
+					Name:      "ctx_block",
+					Arguments: `{"value":"running"}`,
+				},
+			},
+			Origin:    Origin{Type: OriginChat, ID: "turn-running"},
+			Iteration: 7,
+		})
+	}()
+	t.Cleanup(cancel)
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("tool did not start")
+	}
+
+	var inv database.ToolInvocation
+	if err := database.DB().First(&inv, "tool_call_id = ?", "call-running-metadata").Error; err != nil {
+		t.Fatalf("load running invocation: %v", err)
+	}
+	if inv.Status != StatusRunning {
+		t.Fatalf("expected invocation to be running, got %s", inv.Status)
+	}
+	var metadata struct {
+		Display struct {
+			Name       string `json:"name"`
+			Arguments  string `json:"arguments"`
+			Iteration  int    `json:"iteration"`
+			DurationMs int64  `json:"duration_ms"`
+		} `json:"display"`
+	}
+	if err := json.Unmarshal([]byte(inv.Metadata), &metadata); err != nil {
+		t.Fatalf("unmarshal running metadata: %v (metadata=%q)", err, inv.Metadata)
+	}
+	if metadata.Display.Name != "ctx_block" || metadata.Display.Iteration != 7 || metadata.Display.DurationMs != 0 {
+		t.Fatalf("unexpected running metadata: %#v", metadata.Display)
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(metadata.Display.Arguments), &args); err != nil {
+		t.Fatalf("running display arguments should remain JSON parseable: %v", err)
+	}
+	if args["value"] != "running" {
+		t.Fatalf("unexpected running display arguments: %#v", args)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("execution did not finish after cancel")
+	}
+}
+
 // captureInvocationTool registra o ID da invocação corrente visto via ctx
 // (AEP-0068): permite verificar que o Service carimba WithCurrentInvocationID.
 type captureInvocationTool struct {

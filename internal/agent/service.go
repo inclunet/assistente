@@ -1038,6 +1038,7 @@ func (s *Service) tagChatToolInvocationsWithAssistantMessage(ctx context.Context
 	}
 	var rows []database.ToolInvocation
 	if err := database.ScopeByUser(ctx, db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+		Select("id", "metadata").
 		Where("origin_type = ? AND origin_id = ? AND tool_call_id IN ?", toolinvocations.OriginChat, turnID, callIDs).
 		Find(&rows).Error; err != nil {
 		logging.Warnf(ctx, "agent.service", "[Agent] falha ao carregar tool_invocations para marcar assistant_message_id: %v", err)
