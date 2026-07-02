@@ -402,11 +402,30 @@ func TestToolUpdateDoesNotUpsertOnReadError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !result.IsError || !strings.Contains(result.Content, "não encontrado para atualização") {
+	if !result.IsError || !strings.Contains(result.Content, "erro ao ler servidor MCP") || !strings.Contains(result.Content, "database offline") {
 		t.Fatalf("expected update read error, got %#v", result)
 	}
 	if mgr.savedSlug != "" {
 		t.Fatalf("update should not save after read error, saved %q", mgr.savedSlug)
+	}
+}
+
+func TestToolUpdateReportsMissingServerSeparately(t *testing.T) {
+	mgr := &fakeManager{}
+
+	result, err := New(mgr).Execute(context.Background(), json.RawMessage(`{
+		"action":"update",
+		"slug":"missing",
+		"name":"Missing"
+	}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "não encontrado para atualização") || strings.Contains(result.Content, "record not found") {
+		t.Fatalf("expected missing update error, got %#v", result)
+	}
+	if mgr.savedSlug != "" {
+		t.Fatalf("update should not save missing config, saved %q", mgr.savedSlug)
 	}
 }
 

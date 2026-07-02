@@ -95,7 +95,7 @@ func (t *Tool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "action": {"type": "string", "enum": ["list", "get", "create", "update", "delete", "duplicate", "connect", "disconnect", "reconnect", "reload", "logs"], "description": "Operation to perform. Omit to list servers. With slug and no action, reads server details unless configuration fields are present; slug plus configuration fields infers create for a missing server or update for an existing server."},
+    "action": {"type": "string", "enum": ["list", "get", "create", "update", "delete", "duplicate", "connect", "disconnect", "reconnect", "reload", "logs"], "description": "Operation to perform. When omitted, no slug lists servers; slug without configuration fields reads server details; slug plus configuration fields infers create for a missing server or update for an existing server."},
     "slug": {"type": "string", "description": "User-scoped MCP server slug. Required for get/update/delete/duplicate/connect/disconnect/reconnect/logs. For create, this is the new slug."},
     "new_slug": {"type": "string", "description": "Reserved for future explicit duplicate target slugs. The current backend generates copy slugs; do not use unless supported by the backend."},
     "limit": {"type": "integer", "description": "Log limit for action=logs. Defaults to 100 and caps at 500.", "minimum": 1, "maximum": 500},
@@ -333,7 +333,10 @@ func saveServer(ctx context.Context, mgr Manager, req request, create bool) (too
 	} else {
 		existing, err := mgr.GetConfig(slug)
 		if err != nil {
-			return tools.ToolResult{Content: fmt.Sprintf("servidor MCP %q não encontrado para atualização: %v", slug, err), IsError: true}, nil
+			if isNotFound(err) {
+				return tools.ToolResult{Content: fmt.Sprintf("servidor MCP %q não encontrado para atualização", slug), IsError: true}, nil
+			}
+			return tools.ToolResult{Content: fmt.Sprintf("erro ao ler servidor MCP %q para atualização: %v", slug, err), IsError: true}, nil
 		}
 		if existing != nil {
 			cfg = *existing
