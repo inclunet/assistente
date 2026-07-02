@@ -687,6 +687,7 @@ func (a *App) ClearConversation(conversationID string) error {
 	if err := database.DeleteAllMessagesWithContext(ctx, conversationID); err != nil {
 		return err
 	}
+	a.resetLoadedToolsForConversation(conversationID)
 
 	a.emitter.Emit("conversation:cleared", map[string]interface{}{
 		"conversation_id": conversationID,
