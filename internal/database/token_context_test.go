@@ -107,6 +107,86 @@ func TestGetDetailedTokenStats_ContextVsCumulative(t *testing.T) {
 	}
 }
 
+func TestGetDetailedTokenStats_CountsL3FreeAssistantToolInvocation(t *testing.T) {
+	setupOrderingTestDB(t)
+	if err := db.AutoMigrate(&User{}, &ToolCatalog{}, &ToolInvocation{}); err != nil {
+		t.Fatalf("migrate tool invocations: %v", err)
+	}
+	tool := ToolCatalog{
+		Name:               "search",
+		DisplayName:        "search",
+		Origin:             "builtin",
+		AvailabilityStatus: "available",
+	}
+	if err := db.Create(&tool).Error; err != nil {
+		t.Fatalf("create tool catalog: %v", err)
+	}
+	conv := &Conversation{Title: "l3-free-calls", UserID: testUserID}
+	if err := db.Create(conv).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	turnID := "01972002-0000-7000-8000-000000000001"
+	user := ChatMessage{
+		UUIDModel:      UUIDModel{ID: turnID},
+		ConversationID: conv.ID,
+		Role:           "user",
+		Content:        "pergunta",
+	}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create user message: %v", err)
+	}
+	assistantTool := ChatMessage{
+		UUIDModel:      UUIDModel{ID: "01972002-0000-7000-8000-000000000002"},
+		ConversationID: conv.ID,
+		TurnID:         &turnID,
+		Role:           "assistant",
+		Content:        "vou buscar",
+	}
+	if err := db.Create(&assistantTool).Error; err != nil {
+		t.Fatalf("create assistant tool message: %v", err)
+	}
+	finalAssistant := ChatMessage{
+		UUIDModel:        UUIDModel{ID: "01972002-0000-7000-8000-000000000003"},
+		ConversationID:   conv.ID,
+		TurnID:           &turnID,
+		Role:             "assistant",
+		Content:          "resposta final",
+		PromptTokens:     100,
+		CompletionTokens: 20,
+		TotalTokens:      120,
+	}
+	if err := db.Create(&finalAssistant).Error; err != nil {
+		t.Fatalf("create final assistant message: %v", err)
+	}
+	if err := db.Create(&ToolInvocation{
+		UserID:        testUserID,
+		ToolCatalogID: tool.ID,
+		OriginType:    "chat",
+		OriginID:      turnID,
+		ToolCallID:    "call-search",
+		Status:        "succeeded",
+		Metadata:      `{"display":{"version":1,"assistant_message_id":"` + assistantTool.ID + `","name":"search","arguments":"{}"}}`,
+		QueuedAt:      time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("create tool invocation: %v", err)
+	}
+
+	turnStats, err := GetTurnTokenStatsWithContext(testCtx(), conv.ID, turnID)
+	if err != nil {
+		t.Fatalf("GetTurnTokenStats: %v", err)
+	}
+	if turnStats.ModelCallCount != 2 {
+		t.Fatalf("turn ModelCallCount: esperado 2 chamadas ao modelo, obtido %d", turnStats.ModelCallCount)
+	}
+	stats, err := GetDetailedTokenStatsWithContext(testCtx(), conv.ID, "")
+	if err != nil {
+		t.Fatalf("GetDetailedTokenStats: %v", err)
+	}
+	if stats.ModelCallCount != 2 {
+		t.Fatalf("detailed ModelCallCount: esperado 2 chamadas ao modelo, obtido %d", stats.ModelCallCount)
+	}
+}
+
 func TestGetDetailedTokenStats_EmptyConversationReturnsZeroes(t *testing.T) {
 	setupOrderingTestDB(t)
 	conv := &Conversation{Title: "empty", UserID: testUserID}

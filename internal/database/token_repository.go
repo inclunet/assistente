@@ -12,6 +12,25 @@ type TokenRepository struct {
 	db *gorm.DB
 }
 
+func modelCallCountSelect(db *gorm.DB) string {
+	modelCallConditions := "chat_messages.total_tokens > 0 OR (chat_messages.tool_calls IS NOT NULL AND TRIM(chat_messages.tool_calls) NOT IN ('', '[]', 'null'))"
+	if db != nil && db.Migrator().HasTable(&ToolInvocation{}) {
+		modelCallConditions += ` OR EXISTS (
+			SELECT 1
+			FROM tool_invocations ti
+			WHERE ti.user_id = chat_messages.user_id
+				AND ti.origin_type = 'chat'
+				AND ti.origin_id = chat_messages.turn_id
+				AND TRIM(ti.tool_call_id) <> ''
+				AND CASE
+					WHEN json_valid(ti.metadata) THEN json_extract(ti.metadata, '$.display.assistant_message_id')
+					ELSE NULL
+				END = chat_messages.id
+		)`
+	}
+	return "COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND (" + modelCallConditions + ") THEN 1 ELSE 0 END), 0) as model_call_count"
+}
+
 // NewTokenRepository cria um TokenRepository com o *gorm.DB injetado.
 func NewTokenRepository(database *gorm.DB) *TokenRepository {
 	return &TokenRepository{db: database}
@@ -174,7 +193,7 @@ func (r *TokenRepository) GetTurnTokenStatsWithContext(ctx context.Context, conv
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id = ?", conversationID, turnID).
-		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND (chat_messages.total_tokens > 0 OR (chat_messages.tool_calls IS NOT NULL AND TRIM(chat_messages.tool_calls) NOT IN ('', '[]', 'null'))) THEN 1 ELSE 0 END), 0) as model_call_count").
+		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, " + modelCallCountSelect(db)).
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -217,7 +236,7 @@ func (r *TokenRepository) GetConversationDetailedTokenStatsWithContext(ctx conte
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ?", conversationID).
-		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND (chat_messages.total_tokens > 0 OR (chat_messages.tool_calls IS NOT NULL AND TRIM(chat_messages.tool_calls) NOT IN ('', '[]', 'null'))) THEN 1 ELSE 0 END), 0) as model_call_count").
+		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, " + modelCallCountSelect(db)).
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
