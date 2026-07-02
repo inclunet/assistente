@@ -2,7 +2,7 @@
 
 **Status**: Proposta — implementação ADIADA (2026-06-08)  
 **Criado em**: 2026-04-21  
-**Atualizado em**: 2026-06-08  
+**Atualizado em**: 2026-07-02<br>
 **Depende de**: AEP-0046 (UUIDv7 Migration), AEP-0051 (Skills DB Migration)  
 **Relacionado**: AEP-0025 (Interaction Profiles), AEP-0027 (Profiles Refactor), AEP-0044 (Profile Settings Revamp), AEP-0048 (Jobs DB), AEP-0049 (MCP DB), AEP-0081 (Tools por Perfil)
 
