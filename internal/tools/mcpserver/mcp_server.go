@@ -291,13 +291,13 @@ func getServer(mgr Manager, slug string) (tools.ToolResult, error) {
 		}
 	}
 	payload := detailResponse{
-		ServerInfo:   info,
-		Config:       safeConfig(*cfg),
-		EnvKeys:      sortedEnvKeys(cfg.Env),
-		EnvRedacted:  len(cfg.Env) > 0,
-		AuthType:     cfg.AuthType,
-		PreferBridge: cfg.PreferBridge,
-		DisableSSE:   cfg.DisableSSE,
+		listServerResponse: toListServerResponse(info),
+		Config:             safeConfig(*cfg),
+		EnvKeys:            sortedEnvKeys(cfg.Env),
+		EnvRedacted:        len(cfg.Env) > 0,
+		AuthType:           cfg.AuthType,
+		PreferBridge:       cfg.PreferBridge,
+		DisableSSE:         cfg.DisableSSE,
 	}
 	data, _ := json.Marshal(payload)
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"slug": slug, "action": "get"}, Structured: true}, nil
@@ -513,7 +513,7 @@ func actionResult(action, slug string) tools.ToolResult {
 }
 
 type detailResponse struct {
-	mcpmgr.ServerInfo
+	listServerResponse
 	Config       safeServerConfig `json:"config"`
 	EnvKeys      []string         `json:"env_keys,omitempty"`
 	EnvRedacted  bool             `json:"env_redacted,omitempty"`

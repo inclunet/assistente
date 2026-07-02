@@ -156,7 +156,18 @@ func TestToolListsServersAsStructuredJSON(t *testing.T) {
 
 func TestToolGetRedactsEnvValues(t *testing.T) {
 	mgr := &fakeManager{
-		servers: []mcpmgr.ServerInfo{{Slug: "github", Name: "GitHub", Transport: mcpmgr.TransportStdio, Enabled: true}},
+		servers: []mcpmgr.ServerInfo{{
+			Slug:          "github",
+			Name:          "GitHub",
+			Transport:     mcpmgr.TransportStdio,
+			ToolCount:     1,
+			Tools:         []mcpmgr.MCPToolInfo{{Name: "large-tool", Schema: json.RawMessage(`{"type":"object"}`)}},
+			ResourceCount: 1,
+			Resources:     []mcpmgr.MCPResourceInfo{{URI: "file://large", Name: "Large"}},
+			PromptCount:   1,
+			Prompts:       []mcpmgr.MCPPromptInfo{{Name: "prompt"}},
+			Enabled:       true,
+		}},
 		configs: map[string]mcpmgr.ServerConfig{
 			"github": {
 				Slug:        "github",
@@ -186,9 +197,15 @@ func TestToolGetRedactsEnvValues(t *testing.T) {
 		t.Fatalf("user identifier leaked in response: %s", result.Content)
 	}
 	var payload struct {
-		EnvKeys     []string `json:"env_keys"`
-		EnvRedacted bool     `json:"env_redacted"`
-		Config      struct {
+		EnvKeys       []string        `json:"env_keys"`
+		EnvRedacted   bool            `json:"env_redacted"`
+		ToolCount     int             `json:"toolCount"`
+		ResourceCount int             `json:"resourceCount"`
+		PromptCount   int             `json:"promptCount"`
+		Tools         json.RawMessage `json:"tools"`
+		Resources     json.RawMessage `json:"resources"`
+		Prompts       json.RawMessage `json:"prompts"`
+		Config        struct {
 			Command string            `json:"command"`
 			Env     map[string]string `json:"env"`
 		} `json:"config"`
@@ -198,6 +215,12 @@ func TestToolGetRedactsEnvValues(t *testing.T) {
 	}
 	if !payload.EnvRedacted || len(payload.EnvKeys) != 2 || payload.Config.Env != nil {
 		t.Fatalf("unexpected env redaction payload: %#v", payload)
+	}
+	if payload.ToolCount != 1 || payload.ResourceCount != 1 || payload.PromptCount != 1 {
+		t.Fatalf("get should preserve item counts: %#v", payload)
+	}
+	if len(payload.Tools) != 0 || len(payload.Resources) != 0 || len(payload.Prompts) != 0 {
+		t.Fatalf("get should omit large tools/resources/prompts arrays: %s", result.Content)
 	}
 }
 
