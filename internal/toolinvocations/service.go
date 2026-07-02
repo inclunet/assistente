@@ -817,7 +817,7 @@ func buildInvocationDisplayPayload(call tools.ToolCall, arguments string, iterat
 		"iteration":    iteration,
 		"duration_ms":  durationMs,
 	}
-	if !(truncated && arguments == "") {
+	if !truncated || arguments != "" {
 		display["arguments"] = arguments
 	}
 	payload := map[string]any{
