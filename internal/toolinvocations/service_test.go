@@ -128,9 +128,11 @@ type captureInvocationTool struct {
 	seen *string
 }
 
-func (captureInvocationTool) Name() string                { return "echo" }
-func (captureInvocationTool) Description() string         { return "echo" }
-func (captureInvocationTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (captureInvocationTool) Name() string        { return "echo" }
+func (captureInvocationTool) Description() string { return "echo" }
+func (captureInvocationTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
 func (t captureInvocationTool) Execute(ctx context.Context, _ json.RawMessage) (tools.ToolResult, error) {
 	if t.seen != nil {
 		*t.seen = CurrentInvocationID(ctx)
@@ -310,6 +312,70 @@ func TestBuildInvocationInputRedactsInvalidJSON(t *testing.T) {
 	args, _ := fn["arguments"].(string)
 	if strings.TrimSpace(args) != `{"_redacted":true}` {
 		t.Fatalf("expected invalid JSON args to be replaced with redaction marker, got=%q", args)
+	}
+}
+
+func TestBuildInvocationDisplayMetadataRedactsArguments(t *testing.T) {
+	svc := &Service{persistMaxInputSize: tools.DefaultMaxResultSize}
+	metadata := svc.buildInvocationDisplayMetadata(tools.ToolCall{
+		ID:   "call-display-redact",
+		Type: "function",
+		Function: tools.FunctionCall{
+			Name: "echo",
+			Arguments: `{
+				"password":"123",
+				"authorization":"Bearer abc.def.ghi",
+				"note":"hello"
+			}`,
+		},
+	}, 1, 12, false)
+	raw := string(metadata)
+	if strings.Contains(raw, "123") || strings.Contains(raw, "Bearer abc.def.ghi") {
+		t.Fatalf("display metadata leaked sensitive arguments: %s", raw)
+	}
+	var payload struct {
+		Display struct {
+			Arguments string `json:"arguments"`
+		} `json:"display"`
+	}
+	if err := json.Unmarshal(metadata, &payload); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(payload.Display.Arguments), &args); err != nil {
+		t.Fatalf("unmarshal redacted display args: %v", err)
+	}
+	if args["password"] != "[redacted]" || args["authorization"] != "[redacted]" || args["note"] != "hello" {
+		t.Fatalf("unexpected redacted display args: %#v", args)
+	}
+}
+
+func TestBuildInvocationDisplayMetadataTruncatesArguments(t *testing.T) {
+	max := 256
+	svc := &Service{persistMaxInputSize: max}
+	metadata := svc.buildInvocationDisplayMetadata(tools.ToolCall{
+		ID:   "call-display-truncate",
+		Type: "function",
+		Function: tools.FunctionCall{
+			Name:      "echo",
+			Arguments: `{"value":"` + strings.Repeat("a", 4096) + `"}`,
+		},
+	}, 2, 34, false)
+	if len(metadata) > max {
+		t.Fatalf("metadata size = %d, want <= %d", len(metadata), max)
+	}
+	var payload struct {
+		Display struct {
+			Arguments                 string `json:"arguments"`
+			ArgumentsTruncated        bool   `json:"_arguments_truncated"`
+			ArgumentsOriginalSizeByte int    `json:"_arguments_original_size_bytes"`
+		} `json:"display"`
+	}
+	if err := json.Unmarshal(metadata, &payload); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	if !payload.Display.ArgumentsTruncated || payload.Display.ArgumentsOriginalSizeByte == 0 {
+		t.Fatalf("expected display arguments truncation metadata, got %#v", payload.Display)
 	}
 }
 

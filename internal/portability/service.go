@@ -288,11 +288,18 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 		}
 		calls := parseToolCalls(msg.ToolCalls)
 		if len(calls) == 0 {
-			if _, alreadyExported := exportedInvocationTurn[turnID]; alreadyExported {
+			turnDisplays := displayByTurn[turnID]
+			assistantScopedDisplays := invocationDisplaysHaveAssistantMessageID(turnDisplays)
+			if assistantScopedDisplays {
+				turnDisplays = filterInvocationDisplaysForAssistantMessage(turnDisplays, msg.ID)
+				if len(turnDisplays) == 0 {
+					continue
+				}
+			} else if _, alreadyExported := exportedInvocationTurn[turnID]; alreadyExported {
 				continue
 			}
 			seenCallIDs := map[string]struct{}{}
-			for _, call := range displayByTurn[turnID] {
+			for _, call := range turnDisplays {
 				exportCall := toolInvocationDisplayToExportMap(call)
 				callID := strings.TrimSpace(call.ID)
 				if callID != "" {
@@ -305,36 +312,40 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 				}
 				calls = append(calls, exportCall)
 			}
-			fallbackCallIDs := make([]string, 0, len(turnFallback))
-			for callID := range turnFallback {
-				callID = strings.TrimSpace(callID)
-				if callID == "" {
-					continue
+			if !assistantScopedDisplays {
+				fallbackCallIDs := make([]string, 0, len(turnFallback))
+				for callID := range turnFallback {
+					callID = strings.TrimSpace(callID)
+					if callID == "" {
+						continue
+					}
+					if _, ok := seenCallIDs[callID]; ok {
+						continue
+					}
+					fallbackCallIDs = append(fallbackCallIDs, callID)
 				}
-				if _, ok := seenCallIDs[callID]; ok {
-					continue
+				sort.Strings(fallbackCallIDs)
+				for _, callID := range fallbackCallIDs {
+					result := strings.TrimSpace(turnFallback[callID])
+					if result == "" {
+						continue
+					}
+					calls = append(calls, map[string]interface{}{
+						"id":       callID,
+						"type":     "function",
+						"function": map[string]interface{}{"name": "tool_result", "arguments": ""},
+						"result":   result,
+					})
 				}
-				fallbackCallIDs = append(fallbackCallIDs, callID)
-			}
-			sort.Strings(fallbackCallIDs)
-			for _, callID := range fallbackCallIDs {
-				result := strings.TrimSpace(turnFallback[callID])
-				if result == "" {
-					continue
-				}
-				calls = append(calls, map[string]interface{}{
-					"id":       callID,
-					"type":     "function",
-					"function": map[string]interface{}{"name": "tool_result", "arguments": ""},
-					"result":   result,
-				})
 			}
 			if len(calls) == 0 {
 				continue
 			}
 			if encoded, err := json.Marshal(calls); err == nil {
 				msg.ToolCalls = string(encoded)
-				exportedInvocationTurn[turnID] = struct{}{}
+				if !assistantScopedDisplays {
+					exportedInvocationTurn[turnID] = struct{}{}
+				}
 			}
 			continue
 		}
@@ -400,10 +411,6 @@ func parseToolCalls(raw string) []map[string]interface{} {
 	return nil
 }
 
-func loadChatToolInvocationResultsForTurnIDs(ctx context.Context, userID string, turnIDs []string) (map[string]map[string]string, error) {
-	return toolinvocations.LoadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
-}
-
 func loadChatToolInvocationDisplaysForTurnIDs(ctx context.Context, userID string, turnIDs []string) (map[string][]toolinvocations.ChatToolInvocationDisplay, error) {
 	return toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, turnIDs)
 }
@@ -425,6 +432,29 @@ func toolInvocationDisplayResultsByTurn(displays map[string][]toolinvocations.Ch
 		}
 	}
 	return results
+}
+
+func invocationDisplaysHaveAssistantMessageID(displays []toolinvocations.ChatToolInvocationDisplay) bool {
+	for _, call := range displays {
+		if strings.TrimSpace(call.AssistantMessageID) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func filterInvocationDisplaysForAssistantMessage(displays []toolinvocations.ChatToolInvocationDisplay, assistantMessageID string) []toolinvocations.ChatToolInvocationDisplay {
+	assistantMessageID = strings.TrimSpace(assistantMessageID)
+	if assistantMessageID == "" {
+		return nil
+	}
+	out := make([]toolinvocations.ChatToolInvocationDisplay, 0, len(displays))
+	for _, call := range displays {
+		if strings.TrimSpace(call.AssistantMessageID) == assistantMessageID {
+			out = append(out, call)
+		}
+	}
+	return out
 }
 
 func toolInvocationDisplayToExportMap(call toolinvocations.ChatToolInvocationDisplay) map[string]interface{} {

@@ -251,7 +251,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		inv.Retryable = exec.Retryable
 		inv.CompletedAt = &completedAt
 		inv.DurationMs = exec.DurationMs
-		inv.Metadata = buildInvocationDisplayMetadata(req.Call, req.Iteration, exec.DurationMs, false)
+		inv.Metadata = s.buildInvocationDisplayMetadata(req.Call, req.Iteration, exec.DurationMs, false)
 		opCtx, cancel := s.persistOpCtx(persistCtx)
 		err := s.repo.Complete(opCtx, inv.ID, &inv)
 		cancel()
@@ -709,7 +709,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	inv.Retryable = req.Retryable
 	inv.CompletedAt = &completedAt
 	inv.DurationMs = req.DurationMs
-	inv.Metadata = buildInvocationDisplayMetadata(req.Call, req.Iteration, req.DurationMs, true)
+	inv.Metadata = s.buildInvocationDisplayMetadata(req.Call, req.Iteration, req.DurationMs, true)
 
 	// Revalida a origem do chat antes de finalizar. Native MCP pode correr com
 	// deleção de turno/mensagem após o pre-check do chamador.
@@ -742,7 +742,50 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	return inv, nil
 }
 
-func buildInvocationDisplayMetadata(call tools.ToolCall, iteration int, durationMs int64, external bool) json.RawMessage {
+func (s *Service) buildInvocationDisplayMetadata(call tools.ToolCall, iteration int, durationMs int64, external bool) json.RawMessage {
+	arguments := ""
+	if strings.TrimSpace(call.Function.Arguments) != "" {
+		arguments = redactArgumentsJSON(call.Function.Arguments)
+	}
+	return buildInvocationDisplayMetadata(call, arguments, iteration, durationMs, external, s.persistMaxInputSize)
+}
+
+func buildInvocationDisplayMetadata(call tools.ToolCall, arguments string, iteration int, durationMs int64, external bool, maxBytes int) json.RawMessage {
+	payload := buildInvocationDisplayPayload(call, arguments, iteration, durationMs, external, false, 0)
+	metadata, _ := json.Marshal(payload)
+	if maxBytes <= 0 || len(metadata) <= maxBytes {
+		return metadata
+	}
+
+	origSize := len(arguments)
+	suffix := fmt.Sprintf("\n\n[TRUNCADO: argumentos exibíveis tinham %d bytes, limite de metadata é %d bytes]", origSize, maxBytes)
+	basePayload := buildInvocationDisplayPayload(call, "", iteration, durationMs, external, true, origSize)
+	baseBytes, _ := json.Marshal(basePayload)
+	if len(baseBytes) >= maxBytes {
+		return baseBytes
+	}
+
+	budget := maxBytes - len(baseBytes) - len(suffix) - 16
+	if budget < 1 {
+		return baseBytes
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		truncatedArguments := truncateUTF8Safe(arguments, budget) + suffix
+		payload = buildInvocationDisplayPayload(call, truncatedArguments, iteration, durationMs, external, true, origSize)
+		metadata, _ = json.Marshal(payload)
+		if len(metadata) <= maxBytes {
+			return metadata
+		}
+		over := len(metadata) - maxBytes
+		budget -= over + 64
+		if budget < 1 {
+			break
+		}
+	}
+	return baseBytes
+}
+
+func buildInvocationDisplayPayload(call tools.ToolCall, arguments string, iteration int, durationMs int64, external bool, truncated bool, originalSize int) map[string]any {
 	name := strings.TrimSpace(call.Function.Name)
 	displayName := name
 	origin := "builtin"
@@ -760,20 +803,24 @@ func buildInvocationDisplayMetadata(call tools.ToolCall, iteration int, duration
 			"version":      1,
 			"type":         firstNonEmpty(call.Type, "function"),
 			"name":         displayName,
-			"arguments":    call.Function.Arguments,
+			"arguments":    arguments,
 			"origin":       origin,
 			"server_label": serverLabel,
 			"iteration":    iteration,
 			"duration_ms":  durationMs,
 		},
 	}
+	if truncated {
+		display := payload["display"].(map[string]any)
+		display["_arguments_truncated"] = true
+		display["_arguments_original_size_bytes"] = originalSize
+	}
 	if external {
 		payload["external"] = true
 		display := payload["display"].(map[string]any)
 		display["origin"] = "mcp_native"
 	}
-	metadata, _ := json.Marshal(payload)
-	return metadata
+	return payload
 }
 
 func firstNonEmpty(value, fallback string) string {
