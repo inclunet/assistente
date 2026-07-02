@@ -371,7 +371,17 @@ func TestToolUpdateDoesNotUpsertOnReadError(t *testing.T) {
 func TestToolRuntimeActionsAndLogs(t *testing.T) {
 	now := time.Now()
 	mgr := &fakeManager{
-		servers: []mcpmgr.ServerInfo{{Slug: "remote", Name: "Remote", Status: mcpmgr.StatusDisconnected}},
+		servers: []mcpmgr.ServerInfo{{
+			Slug:          "remote",
+			Name:          "Remote",
+			Status:        mcpmgr.StatusDisconnected,
+			ToolCount:     1,
+			Tools:         []mcpmgr.MCPToolInfo{{Name: "large-tool", Schema: json.RawMessage(`{"type":"object"}`)}},
+			ResourceCount: 1,
+			Resources:     []mcpmgr.MCPResourceInfo{{URI: "file://large", Name: "Large"}},
+			PromptCount:   1,
+			Prompts:       []mcpmgr.MCPPromptInfo{{Name: "prompt"}},
+		}},
 		logs: map[string][]mcpmgr.MCPServerLog{
 			"remote": {{Slug: "remote", Type: "connected", Timestamp: now}},
 		},
@@ -384,6 +394,25 @@ func TestToolRuntimeActionsAndLogs(t *testing.T) {
 	}
 	if result.IsError || mgr.connected != "remote" {
 		t.Fatalf("unexpected connect result: %#v connected=%q", result, mgr.connected)
+	}
+	var connectPayload struct {
+		Server struct {
+			ToolCount     int             `json:"toolCount"`
+			ResourceCount int             `json:"resourceCount"`
+			PromptCount   int             `json:"promptCount"`
+			Tools         json.RawMessage `json:"tools"`
+			Resources     json.RawMessage `json:"resources"`
+			Prompts       json.RawMessage `json:"prompts"`
+		} `json:"server"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &connectPayload); err != nil {
+		t.Fatalf("decode connect result: %v", err)
+	}
+	if connectPayload.Server.ToolCount != 1 || connectPayload.Server.ResourceCount != 1 || connectPayload.Server.PromptCount != 1 {
+		t.Fatalf("connect should preserve item counts: %#v", connectPayload.Server)
+	}
+	if len(connectPayload.Server.Tools) != 0 || len(connectPayload.Server.Resources) != 0 || len(connectPayload.Server.Prompts) != 0 {
+		t.Fatalf("connect should omit large tools/resources/prompts arrays: %s", result.Content)
 	}
 
 	result, err = tool.Execute(context.Background(), json.RawMessage(`{"action":"reload"}`))

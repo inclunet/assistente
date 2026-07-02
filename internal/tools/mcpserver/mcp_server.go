@@ -474,7 +474,7 @@ func connectionAction(mgr Manager, slug, action string, fn func(string) error) (
 		return tools.ToolResult{Content: fmt.Sprintf("erro ao executar %s em servidor MCP %q: %v", action, slug, err), IsError: true}, nil
 	}
 	info, _ := serverInfoBySlug(mgr.List(), slug)
-	payload := map[string]any{"action": action, "slug": slug, "server": info}
+	payload := map[string]any{"action": action, "slug": slug, "server": toListServerResponse(info)}
 	data, _ := json.Marshal(payload)
 	return tools.ToolResult{Content: string(data), Metadata: map[string]any{"slug": slug, "action": action}, Structured: true}, nil
 }
