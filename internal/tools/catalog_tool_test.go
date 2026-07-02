@@ -13,9 +13,11 @@ type fakeCatalogToolStore struct {
 	entries []ToolCatalogEntry
 	filter  ToolCatalogFilter
 	err     error
+	calls   int
 }
 
 func (s *fakeCatalogToolStore) ListTools(_ context.Context, filter ToolCatalogFilter) ([]ToolCatalogEntry, error) {
+	s.calls++
 	s.filter = filter
 	if s.err != nil {
 		return nil, s.err
@@ -204,6 +206,9 @@ func TestCatalogToolEmptyVisibleNamesReturnsNoTools(t *testing.T) {
 	}
 	if result.IsError {
 		t.Fatalf("unexpected tool error: %s", result.Content)
+	}
+	if store.calls != 0 {
+		t.Fatalf("store não deveria ser consultado sem tools visíveis, calls=%d", store.calls)
 	}
 
 	var payload struct {

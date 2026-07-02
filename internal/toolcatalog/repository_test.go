@@ -137,6 +137,33 @@ func TestDBRepositoryListToolsAppliesLimit(t *testing.T) {
 	}
 }
 
+func TestDBRepositoryListToolsChunksLargeNameInFilter(t *testing.T) {
+	repo, userA, _ := setupCatalogTest(t)
+	rows := make([]database.ToolCatalog, 0, toolNameFilterChunkSize+2)
+	names := make([]string, 0, toolNameFilterChunkSize+2)
+	for i := 0; i < toolNameFilterChunkSize+2; i++ {
+		name := fmt.Sprintf("tool_%04d", i)
+		names = append(names, name)
+		rows = append(rows, database.ToolCatalog{
+			Name:               name,
+			DisplayName:        name,
+			Origin:             tools.ToolOriginBuiltin,
+			AvailabilityStatus: tools.ToolAvailabilityAvailable,
+		})
+	}
+	if err := repo.db.CreateInBatches(rows, 200).Error; err != nil {
+		t.Fatalf("create catalog rows: %v", err)
+	}
+
+	entries, err := repo.ListTools(userA, tools.ToolCatalogFilter{NameIn: names, IncludeUnavailable: true})
+	if err != nil {
+		t.Fatalf("ListTools with large NameIn: %v", err)
+	}
+	if len(entries) != len(names) {
+		t.Fatalf("len(entries) = %d, want %d", len(entries), len(names))
+	}
+}
+
 func TestDBRepositoryMarksMissingServerToolsUnavailable(t *testing.T) {
 	repo, userA, _ := setupCatalogTest(t)
 

@@ -104,8 +104,23 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 	if offset < 0 {
 		offset = 0
 	}
+	visibleNames := toolCatalogVisibleNames(ctx)
+	if visibleNames != nil && len(visibleNames) == 0 {
+		data, err := json.Marshal(catalogToolResponse{
+			Tools:         []catalogToolItem{},
+			SelectedTools: []string{},
+			Count:         0,
+			Limit:         limit,
+			Offset:        offset,
+			HasMore:       false,
+		})
+		if err != nil {
+			return ToolResult{Content: fmt.Sprintf("erro ao serializar resposta do catálogo de tools: %v", err), IsError: true}, nil
+		}
+		return ToolResult{Content: string(data)}, nil
+	}
 	filter := ToolCatalogFilter{
-		NameIn:             toolCatalogVisibleNames(ctx),
+		NameIn:             visibleNames,
 		Origin:             strings.TrimSpace(req.Origin),
 		Category:           strings.TrimSpace(req.Category),
 		Class:              strings.TrimSpace(req.Class),

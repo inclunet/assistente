@@ -174,6 +174,21 @@ func TestToolSelectionPolicy_ToolPolicyPreloadsCatalogWhenOnDemandExists(t *test
 	assertNames(t, "preloaded", effective.PreloadedNames(), []string{tools.ToolCatalogName})
 }
 
+func TestToolSelectionPolicy_ToolPolicyPreloadsOnDemandCatalog(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			tools.ToolCatalogName: string(ToolPolicyOnDemand),
+		},
+	})
+
+	if effective.State(tools.ToolCatalogName) != ToolPolicyPreloaded {
+		t.Fatalf("tool_catalog on_demand deveria virar preloaded para bootstrap, got %s", effective.State(tools.ToolCatalogName))
+	}
+	assertNames(t, "preloaded", effective.PreloadedNames(), []string{tools.ToolCatalogName})
+}
+
 func TestToolSelectionPolicy_ToolPolicyDoesNotElevateDisabledCatalog(t *testing.T) {
 	r := charRegistry(t)
 	policy := NewToolSelectionPolicy(r)

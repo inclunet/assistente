@@ -185,6 +185,10 @@ func (p *EffectiveToolPolicy) ensureCatalogForOnDemandTools(configured map[strin
 			return
 		}
 	}
+	if p.State(tools.ToolCatalogName) == ToolPolicyOnDemand {
+		p.states[tools.ToolCatalogName] = ToolPolicyPreloaded
+		return
+	}
 	if _, ok := p.states[tools.ToolCatalogName]; !ok {
 		for name, state := range p.states {
 			if state == ToolPolicyOnDemand {
