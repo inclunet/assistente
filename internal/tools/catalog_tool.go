@@ -104,7 +104,23 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 	if offset < 0 {
 		offset = 0
 	}
+	visibleNames := toolCatalogVisibleNames(ctx)
+	if visibleNames != nil && len(visibleNames) == 0 {
+		data, err := json.Marshal(catalogToolResponse{
+			Tools:         []catalogToolItem{},
+			SelectedTools: []string{},
+			Count:         0,
+			Limit:         limit,
+			Offset:        offset,
+			HasMore:       false,
+		})
+		if err != nil {
+			return ToolResult{Content: fmt.Sprintf("erro ao serializar resposta do catálogo de tools: %v", err), IsError: true}, nil
+		}
+		return ToolResult{Content: string(data)}, nil
+	}
 	filter := ToolCatalogFilter{
+		NameIn:             visibleNames,
 		Origin:             strings.TrimSpace(req.Origin),
 		Category:           strings.TrimSpace(req.Category),
 		Class:              strings.TrimSpace(req.Class),
@@ -119,6 +135,7 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 	if err != nil {
 		return ToolResult{Content: fmt.Sprintf("erro ao consultar catálogo de tools: %v", err), IsError: true}, nil
 	}
+	entries = filterCatalogEntriesByVisibleNames(entries, filter.NameIn)
 	hasMore := len(entries) > limit
 	if len(entries) > limit {
 		entries = entries[:limit]
@@ -153,4 +170,35 @@ func (t *CatalogTool) Execute(ctx context.Context, args json.RawMessage) (ToolRe
 		return ToolResult{Content: fmt.Sprintf("erro ao serializar resposta do catálogo de tools: %v", err), IsError: true}, nil
 	}
 	return ToolResult{Content: string(data)}, nil
+}
+
+func toolCatalogVisibleNames(ctx context.Context) []string {
+	names, ok := ToolCatalogVisibleNamesFromContext(ctx)
+	if !ok {
+		return nil
+	}
+	return names
+}
+
+func filterCatalogEntriesByVisibleNames(entries []ToolCatalogEntry, visible []string) []ToolCatalogEntry {
+	if visible == nil {
+		return entries
+	}
+	if len(visible) == 0 {
+		return nil
+	}
+	allowed := make(map[string]struct{}, len(visible))
+	for _, name := range visible {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			allowed[name] = struct{}{}
+		}
+	}
+	filtered := make([]ToolCatalogEntry, 0, len(entries))
+	for _, entry := range entries {
+		if _, ok := allowed[entry.Name]; ok {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
 }

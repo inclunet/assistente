@@ -53,16 +53,17 @@ type ToolCatalogEntry struct {
 }
 
 type ToolCatalogFilter struct {
-	Origin             string `json:"origin,omitempty"`
-	MCPServerID        string `json:"mcp_server_id,omitempty"`
-	Category           string `json:"category,omitempty"`
-	Class              string `json:"class,omitempty"`
-	Package            string `json:"package,omitempty"`
-	Risk               string `json:"risk,omitempty"`
-	AvailabilityStatus string `json:"availability_status,omitempty"`
-	IncludeUnavailable bool   `json:"include_unavailable,omitempty"`
-	Limit              int    `json:"limit,omitempty"`
-	Offset             int    `json:"offset,omitempty"`
+	NameIn             []string `json:"name_in,omitempty"`
+	Origin             string   `json:"origin,omitempty"`
+	MCPServerID        string   `json:"mcp_server_id,omitempty"`
+	Category           string   `json:"category,omitempty"`
+	Class              string   `json:"class,omitempty"`
+	Package            string   `json:"package,omitempty"`
+	Risk               string   `json:"risk,omitempty"`
+	AvailabilityStatus string   `json:"availability_status,omitempty"`
+	IncludeUnavailable bool     `json:"include_unavailable,omitempty"`
+	Limit              int      `json:"limit,omitempty"`
+	Offset             int      `json:"offset,omitempty"`
 }
 
 func CatalogEntryFromTool(tool Tool) ToolCatalogEntry {
