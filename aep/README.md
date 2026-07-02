@@ -94,10 +94,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0078](0078-deprecacao-toolcalls-em-mensagens.md) | Deprecação de `tool_calls` em Mensagens | 📝 Draft |
 | [0079](0079-editor-modo-apresentacao-reveal.md) | Modo Apresentação Reveal.js no Editor | 📝 Draft |
 | [0080](0080-surface-context-unificado.md) | SurfaceContext Unificado | 📝 Draft |
+| [0081](0081-politica-tools-por-perfil-e-carregamento-sob-demanda.md) | Política de Tools por Perfil e Carregamento sob Demanda | 📝 Draft |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0080 → próximo
-> 0081), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0081 → próximo
+> 0082), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 

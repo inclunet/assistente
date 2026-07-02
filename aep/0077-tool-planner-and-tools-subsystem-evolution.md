@@ -4,7 +4,7 @@
 |-------|-------|
 | Status | ✅ Done |
 | Issues | [#122](https://github.com/inclunet/assistente/issues/122), [#120](https://github.com/inclunet/assistente/issues/120), [#119](https://github.com/inclunet/assistente/issues/119), [#121](https://github.com/inclunet/assistente/issues/121); rede de segurança: [#245](https://github.com/inclunet/assistente/issues/245) |
-| Relacionados | AEP-0039 (Tool Calling Revamp), AEP-0063 (Tool Invocations & Executor Comum), AEP-0021 (MCP Native Mode), AEP-0040 (Backend-Driven Messaging), AEP-0071 (Structured Tool Output Size), AEP-0072 (Skill Loading Runtime), AEP-0075 (Context Providers) |
+| Relacionados | AEP-0039 (Tool Calling Revamp), AEP-0063 (Tool Invocations & Executor Comum), AEP-0021 (MCP Native Mode), AEP-0040 (Backend-Driven Messaging), AEP-0071 (Structured Tool Output Size), AEP-0072 (Skill Loading Runtime), AEP-0075 (Context Providers), AEP-0081 (Tools por Perfil) |
 
 ## Resumo
 
@@ -13,6 +13,8 @@ O subsistema de tools funciona, mas sua **política de seleção está distribu�
 Este AEP consolida quatro evoluções incrementais (#122 → #120 → #119 → #121) em um caminho único, precedido por uma fase de **rede de segurança** (#245: refatorar `RunAgenticLoop` e subir cobertura), de modo que cada mudança na fontanaria de tools seja feita sobre testes confiáveis. O capstone é o **ToolPlanner**: seleção determinística por **budget de schema bytes**, **ranking por perfil/superfície**, **pacotes preferenciais** e **resolução formal de conflitos bridge × native**.
 
 Este AEP **estende** AEP-0039 e AEP-0063 (não os substitui). O registry runtime continua sendo a **fonte executável**; o catálogo permanece **índice/metadata** e `tool_invocations` continua sendo o storage canônico de resultados.
+
+> **Evolução posterior (AEP-0081).** O ToolPlanner entregue aqui define ranking, budget de schema, pacotes preferenciais e resolução bridge×native. A política tri-state por perfil (`disabled` / `on_demand` / `preloaded`), o `tool_catalog` com `action=load|unload|list_loaded` e a persistência de tools carregadas por conversa/sessão são definidos separadamente na AEP-0081.
 
 ## Motivação
 
@@ -78,3 +80,4 @@ Este AEP **estende** AEP-0039 e AEP-0063 (não os substitui). O registry runtime
 - **AEP-0021 (MCP Native Mode)**: a resolução bridge×native do planner reusa a política tri-state existente.
 - **AEP-0072 (Skill Loading Runtime)**: progressive disclosure de skills é o análogo já entregue; o ToolPlanner traz disciplina semelhante (budget/catálogo leve) para tools.
 - **AEP-0071 (Structured Tool Output Size)**: o budget de *entrada* (schema bytes) do planner complementa o teto de *saída* já definido lá.
+- **AEP-0081 (Tools por Perfil)**: estende o planner com estados tri-state por perfil, carregamento sob demanda via `tool_catalog` e persistência por conversa/sessão.

@@ -4,7 +4,7 @@
 **Criado em**: 2026-04-21  
 **Atualizado em**: 2026-06-08  
 **Depende de**: AEP-0046 (UUIDv7 Migration), AEP-0051 (Skills DB Migration)  
-**Relacionado**: AEP-0025 (Interaction Profiles), AEP-0027 (Profiles Refactor), AEP-0044 (Profile Settings Revamp), AEP-0048 (Jobs DB), AEP-0049 (MCP DB)
+**Relacionado**: AEP-0025 (Interaction Profiles), AEP-0027 (Profiles Refactor), AEP-0044 (Profile Settings Revamp), AEP-0048 (Jobs DB), AEP-0049 (MCP DB), AEP-0081 (Tools por Perfil)
 
 > **Nota de Status (2026-06-08).** A implementação desta AEP foi **adiada** e está fora do escopo atual (que cobre apenas skills — ver AEP-0051 e AEP-0072). O documento permanece como decisão registrada; a implementação é rastreada pela issue #213. A AEP-0051 (Skills DB) é independente e pode ser implementada sem esta.
 
@@ -111,11 +111,25 @@ A semântica atual de `EnabledTools` e `EnabledSkills` é:
 - `["a", "b"]` → lista explícita
 
 No schema normalizado:
-- **Ausência de registros na junction table + flag `use_default_tools=true`** → usar padrão
+- **Ausência de registros na junction table + flag `use_default_tools=true`** → usar padrão legado
 - **Ausência de registros + `use_default_tools=false`** → desabilitar tudo
 - **Registros presentes na junction table** → lista explícita (flag ignorado)
 
 Mesma lógica para skills com `use_default_skills`.
+
+#### Revisão para tools após AEP-0081
+
+A semântica acima permanece válida como compatibilidade de importação de `enabled_tools`, mas não é suficiente para o schema final de tools por perfil. AEP-0081 define que cada tool deve resolver para um estado tri-state:
+
+- `disabled`: bloqueada; não aparece nem carrega via `tool_catalog`;
+- `on_demand`: descobrível/carregável via `tool_catalog`, mas não nasce no payload inicial;
+- `preloaded`: disponível no início do turno/conversa, sujeito a budget e availability.
+
+Quando esta AEP for retomada, `profile_tools` deve persistir esse estado explicitamente, por exemplo com coluna `state`, em vez de representar apenas presença/ausência da tool. A migração de `enabled_tools` deve seguir a AEP-0081:
+
+- `nil`/ausente → defaults do ToolPlanner, com tools elegíveis como `on_demand` e bootstrap/control-plane como `preloaded`;
+- `[]` → todas as tools `disabled`, salvo bootstrap/control-plane obrigatório quando permitido;
+- lista explícita → itens listados como `preloaded`; ausentes como `disabled`.
 
 ### D4. Builtin profiles via seed no DB
 
@@ -263,6 +277,7 @@ A junction table `profile_skills` referencia skills por slug. Para integridade r
 | `id` | TEXT | PK | UUIDv7 |
 | `profile_id` | TEXT | FK→profiles.id NOT NULL INDEX | Cascade delete |
 | `tool_name` | TEXT | NOT NULL | Nome da tool no registry |
+| `state` | TEXT | NOT NULL DEFAULT 'preloaded' | `disabled` / `on_demand` / `preloaded` conforme AEP-0081 |
 
 **Constraint**: UNIQUE(profile_id, tool_name)
 
