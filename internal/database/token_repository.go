@@ -4,12 +4,33 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"encoding/json"
+	"strings"
+
 	"gorm.io/gorm"
 )
 
 // TokenRepository encapsula estatisticas de tokens e janela de contexto com um *gorm.DB injetado.
 type TokenRepository struct {
 	db *gorm.DB
+}
+
+func modelCallCountSelect(db *gorm.DB) string {
+	modelCallConditions := "chat_messages.total_tokens > 0 OR (chat_messages.tool_calls IS NOT NULL AND TRIM(chat_messages.tool_calls) NOT IN ('', '[]', 'null'))"
+	if db != nil && db.Migrator().HasTable(&ToolInvocation{}) {
+		modelCallConditions += ` OR EXISTS (
+			SELECT 1
+			FROM tool_invocations ti
+			WHERE ti.user_id = conversations.user_id
+				AND ti.origin_type = 'chat'
+				AND ti.origin_id = chat_messages.turn_id
+				AND TRIM(ti.tool_call_id) <> ''
+				AND CASE
+					WHEN json_valid(ti.metadata) THEN json_extract(ti.metadata, '$.display.assistant_message_id')
+					ELSE NULL
+				END = chat_messages.id
+		)`
+	}
+	return "COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND (" + modelCallConditions + ") THEN 1 ELSE 0 END), 0) as model_call_count"
 }
 
 // NewTokenRepository cria um TokenRepository com o *gorm.DB injetado.
@@ -174,7 +195,7 @@ func (r *TokenRepository) GetTurnTokenStatsWithContext(ctx context.Context, conv
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id = ?", conversationID, turnID).
-		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND (chat_messages.total_tokens > 0 OR (chat_messages.tool_calls IS NOT NULL AND TRIM(chat_messages.tool_calls) NOT IN ('', '[]', 'null'))) THEN 1 ELSE 0 END), 0) as model_call_count").
+		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, " + modelCallCountSelect(db)).
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -217,7 +238,7 @@ func (r *TokenRepository) GetConversationDetailedTokenStatsWithContext(ctx conte
 	}
 	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
 		Where("chat_messages.conversation_id = ?", conversationID).
-		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, COALESCE(SUM(CASE WHEN chat_messages.role = 'assistant' AND (chat_messages.total_tokens > 0 OR (chat_messages.tool_calls IS NOT NULL AND TRIM(chat_messages.tool_calls) NOT IN ('', '[]', 'null'))) THEN 1 ELSE 0 END), 0) as model_call_count").
+		Select("COALESCE(SUM(chat_messages.prompt_tokens), 0) as total_prompt_tokens, COALESCE(SUM(chat_messages.completion_tokens), 0) as total_completion_tokens, COALESCE(SUM(chat_messages.total_tokens), 0) as total_tokens, COALESCE(SUM(chat_messages.cache_read_tokens), 0) as total_cache_read_tokens, COALESCE(SUM(chat_messages.cache_write_tokens), 0) as total_cache_write_tokens, COALESCE(SUM(chat_messages.cache_miss_tokens), 0) as total_cache_miss_tokens, COUNT(*) as message_count, " + modelCallCountSelect(db)).
 		Scan(&result).Error
 	if err != nil {
 		return nil, err
@@ -364,6 +385,10 @@ func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, 
 // getToolUsageBreakdown extrai informações de uso de tools das mensagens
 func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, conversationID string) ([]ToolUsageBreakdown, int, error) {
 	db := r.db
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
 	var messages []ChatMessage
 	// Propaga falha de DB em vez de degradar silenciosamente para um
 	// breakdown vazio — um erro de query mascarado distorceria as estatísticas
@@ -377,6 +402,7 @@ func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, 
 
 	// Map para agregar tool usage
 	toolMap := make(map[string]*ToolUsageBreakdown)
+	seenCallIDs := map[string]struct{}{}
 
 	for _, msg := range messages {
 		if msg.ToolCalls == "" {
@@ -388,22 +414,50 @@ func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, 
 		toolCalls := parseToolCallObjects(msg.ToolCalls)
 
 		for _, toolCall := range toolCalls {
+			callID, _ := toolCall["id"].(string)
+			callID = strings.TrimSpace(callID)
+			if callID != "" {
+				seenCallIDs[callID] = struct{}{}
+			}
 			if funcData, ok := toolCall["function"].(map[string]interface{}); ok {
 				if toolName, ok := funcData["name"].(string); ok {
-					if _, exists := toolMap[toolName]; !exists {
-						toolMap[toolName] = &ToolUsageBreakdown{
-							ToolName: toolName,
-						}
-					}
-					toolMap[toolName].CallCount++
 					// Distribuir tokens igualmente entre tools usados nessa mensagem
 					toolCount := len(toolCalls)
-					if toolCount > 0 {
-						toolMap[toolName].TotalPromptTokens += msg.PromptTokens / toolCount
-						toolMap[toolName].TotalCompletionTokens += msg.CompletionTokens / toolCount
-					}
+					addToolUsage(toolMap, toolName, msg.PromptTokens, msg.CompletionTokens, toolCount)
 				}
 			}
+		}
+	}
+	if db != nil && db.Migrator().HasTable(&ToolInvocation{}) {
+		type invocationToolUsageRow struct {
+			ToolCallID      string
+			Metadata        string
+			ToolName        string
+			ToolDisplayName string
+		}
+		turnIDQuery := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).
+			Select("DISTINCT chat_messages.turn_id").
+			Where("chat_messages.conversation_id = ? AND chat_messages.turn_id IS NOT NULL AND TRIM(chat_messages.turn_id) <> ''", conversationID))
+		var rows []invocationToolUsageRow
+		if err := db.WithContext(ctx).
+			Model(&ToolInvocation{}).
+			Select("tool_invocations.tool_call_id, tool_invocations.metadata, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name").
+			Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
+			Where("tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND tool_invocations.origin_id IN (?) AND tool_invocations.tool_call_id <> ''", userID, "chat", turnIDQuery).
+			Find(&rows).Error; err != nil {
+			return nil, 0, err
+		}
+		for _, row := range rows {
+			callID := strings.TrimSpace(row.ToolCallID)
+			if callID == "" {
+				continue
+			}
+			if _, seen := seenCallIDs[callID]; seen {
+				continue
+			}
+			seenCallIDs[callID] = struct{}{}
+			toolName := invocationToolUsageName(row.Metadata, row.ToolDisplayName, row.ToolName, callID)
+			addToolUsage(toolMap, toolName, 0, 0, 1)
 		}
 	}
 
@@ -415,6 +469,36 @@ func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, 
 	}
 
 	return result, len(toolMap), nil
+}
+
+func addToolUsage(toolMap map[string]*ToolUsageBreakdown, toolName string, promptTokens, completionTokens, toolCount int) {
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		return
+	}
+	if _, exists := toolMap[toolName]; !exists {
+		toolMap[toolName] = &ToolUsageBreakdown{ToolName: toolName}
+	}
+	toolMap[toolName].CallCount++
+	if toolCount > 0 {
+		toolMap[toolName].TotalPromptTokens += promptTokens / toolCount
+		toolMap[toolName].TotalCompletionTokens += completionTokens / toolCount
+	}
+}
+
+func invocationToolUsageName(metadata, displayName, catalogName, fallback string) string {
+	var meta struct {
+		Display struct {
+			Name string `json:"name"`
+		} `json:"display"`
+	}
+	_ = json.Unmarshal([]byte(strings.TrimSpace(metadata)), &meta)
+	for _, candidate := range []string{meta.Display.Name, displayName, catalogName, fallback} {
+		if name := strings.TrimSpace(candidate); name != "" {
+			return name
+		}
+	}
+	return ""
 }
 
 // parseToolCallObjects decodifica o payload JSON de tool_calls aceitando tanto

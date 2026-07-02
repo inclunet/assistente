@@ -566,9 +566,10 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 						Arguments: args,
 					},
 				},
-				Origin: toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID},
-				DryRun: false,
-				Result: result,
+				Origin:    toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID},
+				DryRun:    false,
+				Iteration: iteration,
+				Result:    result,
 				// Sem sinalização de timeout/cancel no contrato do MCP event hoje.
 				ErrorKind:    errKind,
 				ErrorMessage: errMsg,
@@ -586,41 +587,20 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		}
 	}
 
-	var toolCalls []llm.EnrichedToolCall
+	hasCompletedToolCall := false
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted {
 			continue
 		}
-		args := ev.Arguments
-		if strings.TrimSpace(args) == "" {
-			args = argsByID[ev.ID]
-		}
-		call := llm.EnrichedToolCall{
-			ID:   ev.ID,
-			Type: "function",
-			Function: llm.FunctionCall{
-				Name:      ev.Name,
-				Arguments: args,
-			},
-			Origin:      OriginMCPNative,
-			ServerLabel: ev.ServerLabel,
-			Iteration:   iteration,
-		}
-		toolCalls = append(toolCalls, call)
+		hasCompletedToolCall = true
 	}
-	if len(toolCalls) == 0 {
+	if !hasCompletedToolCall {
 		return
 	}
-	toolCallsJSON, err := json.Marshal(toolCalls)
+	assistantMarker, err := s.msgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, "", "", "", "")
 	if err != nil {
-		logging.Errorf(ctx, "agent.service", "[MCP Native] Erro ao serializar tool calls: %v", err)
-		return
-	}
-	if _, err := s.msgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, "", string(toolCallsJSON), "", ""); err != nil {
-		logging.Errorf(ctx, "agent.service", "[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
+		logging.Errorf(ctx, "agent.service", "[MCP Native] Erro ao salvar marcador assistant de tools: %v", err)
 		// Ainda assim, tenta persistir resultados como role=tool (melhor que perder output).
-		// Inclui também eventos que foram registrados em tool_invocations, pois sem a mensagem assistant
-		// não há como hidratar esses resultados a partir do histórico.
 		for _, ev := range mcpEvents {
 			if !ev.IsCompleted {
 				continue
@@ -638,6 +618,15 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 			}
 		}
 		return
+	}
+	if assistantMarker != nil {
+		execResults := make([]tools.ToolExecutionResult, 0, len(mcpEvents))
+		for _, ev := range mcpEvents {
+			if ev.IsCompleted {
+				execResults = append(execResults, tools.ToolExecutionResult{CallID: ev.ID})
+			}
+		}
+		s.tagChatToolInvocationsWithAssistantMessage(ctx, turnID, execResults, assistantMarker.ID)
 	}
 	for _, fb := range fallbackResults {
 		if strings.TrimSpace(fb.CallID) == "" {
@@ -952,7 +941,7 @@ type toolExecutionBatch struct {
 	Context           context.Context
 }
 
-func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin, conversationID, turnID string, surfaceOrigin *ports.ChatSurfaceOrigin) toolExecutionBatch {
+func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin, conversationID, turnID string, iteration int, surfaceOrigin *ports.ChatSurfaceOrigin) toolExecutionBatch {
 	// Runtime control tools can change the execution context for the rest of the
 	// batch. Run load_skill first even when the model emitted it after regular
 	// tools, then place results back in the original order for persistence/history.
@@ -970,14 +959,14 @@ func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls
 		regularIndexes = append(regularIndexes, i)
 	}
 	if len(loadSkillCalls) == 0 {
-		batch := s.executeToolCalls(ctx, calls, origin)
+		batch := s.executeToolCalls(ctx, calls, origin, iteration)
 		batch.Context = ctx
 		return batch
 	}
 
 	executions := make([]tools.ToolExecutionResult, len(calls))
 	persisted := make(map[string]bool, len(calls))
-	loadBatch := s.executeToolCalls(ctx, loadSkillCalls, origin)
+	loadBatch := s.executeToolCalls(ctx, loadSkillCalls, origin, iteration)
 	for i, result := range loadBatch.Executions {
 		executions[loadSkillIndexes[i]] = result
 		persisted[result.CallID] = loadBatch.PersistedByCallID[result.CallID]
@@ -985,7 +974,7 @@ func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls
 	ctx = applyLoadedSkillExecutionContext(ctx, loadBatch.Executions, s.emitter, conversationID, turnID, surfaceOrigin)
 
 	if len(regularCalls) > 0 {
-		regularBatch := s.executeToolCalls(ctx, regularCalls, origin)
+		regularBatch := s.executeToolCalls(ctx, regularCalls, origin, iteration)
 		for i, result := range regularBatch.Executions {
 			executions[regularIndexes[i]] = result
 			persisted[result.CallID] = regularBatch.PersistedByCallID[result.CallID]
@@ -994,7 +983,7 @@ func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls
 	return toolExecutionBatch{Executions: executions, PersistedByCallID: persisted, Context: ctx}
 }
 
-func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin) toolExecutionBatch {
+func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin, iteration int) toolExecutionBatch {
 	if s.toolInvocations == nil {
 		execs := s.toolExecutor.ExecuteAll(ctx, calls)
 		persisted := make(map[string]bool, len(execs))
@@ -1003,7 +992,7 @@ func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, 
 		}
 		return toolExecutionBatch{Executions: execs, PersistedByCallID: persisted, Context: ctx}
 	}
-	results := s.toolInvocations.ExecuteAll(ctx, calls, origin)
+	results := s.toolInvocations.ExecuteAll(ctx, calls, origin, iteration)
 	out := make([]tools.ToolExecutionResult, len(results))
 	persisted := make(map[string]bool, len(results))
 	for i, result := range results {
@@ -1013,12 +1002,75 @@ func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, 
 	return toolExecutionBatch{Executions: out, PersistedByCallID: persisted, Context: ctx}
 }
 
-func (s *Service) executeToolCall(ctx context.Context, call tools.ToolCall, origin toolinvocations.Origin) (tools.ToolExecutionResult, bool) {
+func (s *Service) executeToolCall(ctx context.Context, call tools.ToolCall, origin toolinvocations.Origin, iteration int) (tools.ToolExecutionResult, bool) {
 	if s.toolInvocations == nil {
 		return s.toolExecutor.ExecuteOne(ctx, call), false
 	}
-	res := s.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{Call: call, Origin: origin})
+	res := s.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{Call: call, Origin: origin, Iteration: iteration})
 	return res.Execution, res.Persisted
+}
+
+func (s *Service) tagChatToolInvocationsWithAssistantMessage(ctx context.Context, turnID string, execResults []tools.ToolExecutionResult, assistantMessageID string) {
+	turnID = strings.TrimSpace(turnID)
+	assistantMessageID = strings.TrimSpace(assistantMessageID)
+	if turnID == "" || assistantMessageID == "" || len(execResults) == 0 {
+		return
+	}
+	db := database.DB()
+	if db == nil || !db.Migrator().HasTable(&database.ToolInvocation{}) {
+		return
+	}
+	callIDs := make([]string, 0, len(execResults))
+	seen := map[string]struct{}{}
+	for _, result := range execResults {
+		callID := strings.TrimSpace(result.CallID)
+		if callID == "" {
+			continue
+		}
+		if _, ok := seen[callID]; ok {
+			continue
+		}
+		seen[callID] = struct{}{}
+		callIDs = append(callIDs, callID)
+	}
+	if len(callIDs) == 0 {
+		return
+	}
+	var rows []database.ToolInvocation
+	if err := database.ScopeByUser(ctx, db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+		Select("id", "metadata").
+		Where("origin_type = ? AND origin_id = ? AND tool_call_id IN ?", toolinvocations.OriginChat, turnID, callIDs).
+		Find(&rows).Error; err != nil {
+		logging.Warnf(ctx, "agent.service", "[Agent] falha ao carregar tool_invocations para marcar assistant_message_id: %v", err)
+		return
+	}
+	for _, row := range rows {
+		var metadata map[string]any
+		if strings.TrimSpace(row.Metadata) != "" {
+			_ = json.Unmarshal([]byte(row.Metadata), &metadata)
+		}
+		if metadata == nil {
+			metadata = map[string]any{}
+		}
+		display, _ := metadata["display"].(map[string]any)
+		if display == nil {
+			display = map[string]any{"version": 1}
+		}
+		if currentID, _ := display["assistant_message_id"].(string); strings.TrimSpace(currentID) == assistantMessageID {
+			continue
+		}
+		display["assistant_message_id"] = assistantMessageID
+		metadata["display"] = display
+		encoded, err := json.Marshal(metadata)
+		if err != nil {
+			continue
+		}
+		if err := database.ScopeByUser(ctx, db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+			Where("id = ?", row.ID).
+			Update("metadata", string(encoded)).Error; err != nil {
+			logging.Warnf(ctx, "agent.service", "[Agent] falha ao marcar tool_invocation %s com assistant_message_id: %v", row.ID, err)
+		}
+	}
 }
 
 func truncateString(s string, maxLen int) string {

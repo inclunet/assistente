@@ -725,6 +725,220 @@ func TestExportConversationHydratesToolCallResultsFromToolInvocations(t *testing
 	}
 }
 
+func TestExportConversationBuildsToolCallsFromToolInvocationsWithoutMessageToolCalls(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	turnID := "turn-new"
+	assistantID := "assistant-new"
+	callID := "call-new"
+	convID := "conv-new"
+
+	conv := &database.Conversation{UUIDModel: database.UUIDModel{ID: convID}, UserID: portabilityTestUserID, Title: "L3 free"}
+	if err := database.DB().Create(conv).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: convID, Role: "user", Content: "hi"}).Error; err != nil {
+		t.Fatalf("create turn message: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: convID, Role: "assistant", Content: "vou buscar", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create assistant without tool_calls: %v", err)
+	}
+	if err := database.DB().Create(&database.ToolInvocation{
+		UserID:        portabilityTestUserID,
+		ToolCatalogID: "tool-1",
+		OriginType:    "chat",
+		OriginID:      turnID,
+		ToolCallID:    callID,
+		Status:        "succeeded",
+		DryRun:        false,
+		Output:        `{"content":"RESULT-NEW"}`,
+		Metadata:      `{"display":{"version":1,"type":"function","name":"search","arguments":"{\"q\":\"x\"}","origin":"builtin","iteration":2,"duration_ms":12}}`,
+	}).Error; err != nil {
+		t.Fatalf("create tool invocation: %v", err)
+	}
+
+	file, err := BuildExportFileWithContext(ctx, []string{convID}, nil, nil, nil, ExportRequest{ExplicitSelection: true, ConversationIDs: []string{convID}}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext: %v", err)
+	}
+	msgs := file.Resources.Conversations[0].Messages
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &decoded); err != nil {
+		t.Fatalf("unmarshal synthesized toolCalls: %v", err)
+	}
+	if len(decoded) != 1 {
+		t.Fatalf("expected 1 synthesized tool call, got %#v", decoded)
+	}
+	fn, _ := decoded[0]["function"].(map[string]any)
+	if decoded[0]["id"] != callID || decoded[0]["result"] != "RESULT-NEW" || fn["name"] != "search" {
+		t.Fatalf("unexpected synthesized tool call: %#v", decoded[0])
+	}
+}
+
+func TestExportConversationBuildsToolCallsOnAssistantMessageID(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	turnID := "turn-assistant-scoped"
+	placeholderID := "assistant-placeholder"
+	iterationID := "assistant-iteration"
+	callID := "call-scoped"
+	convID := "conv-assistant-scoped"
+
+	conv := &database.Conversation{UUIDModel: database.UUIDModel{ID: convID}, UserID: portabilityTestUserID, Title: "L3 free scoped"}
+	if err := database.DB().Create(conv).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: convID, Role: "user", Content: "hi"}).Error; err != nil {
+		t.Fatalf("create turn message: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: placeholderID}, ConversationID: convID, Role: "assistant", Content: "placeholder", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create placeholder assistant: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: iterationID}, ConversationID: convID, Role: "assistant", Content: "iteracao", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create iteration assistant: %v", err)
+	}
+	if err := database.DB().Create(&database.ToolInvocation{
+		UserID:        portabilityTestUserID,
+		ToolCatalogID: "tool-1",
+		OriginType:    "chat",
+		OriginID:      turnID,
+		ToolCallID:    callID,
+		Status:        "succeeded",
+		DryRun:        false,
+		Output:        `{"content":"RESULT-SCOPED"}`,
+		Metadata:      `{"display":{"version":1,"type":"function","name":"search","arguments":"{\"q\":\"x\"}","origin":"builtin","iteration":2,"duration_ms":12,"assistant_message_id":"` + iterationID + `"}}`,
+	}).Error; err != nil {
+		t.Fatalf("create tool invocation: %v", err)
+	}
+
+	file, err := BuildExportFileWithContext(ctx, []string{convID}, nil, nil, nil, ExportRequest{ExplicitSelection: true, ConversationIDs: []string{convID}}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext: %v", err)
+	}
+	msgs := file.Resources.Conversations[0].Messages
+	if len(msgs) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(msgs))
+	}
+	if strings.TrimSpace(msgs[1].ToolCalls) != "" {
+		t.Fatalf("placeholder should not receive synthesized tool_calls, got %q", msgs[1].ToolCalls)
+	}
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(msgs[2].ToolCalls), &decoded); err != nil {
+		t.Fatalf("unmarshal scoped toolCalls: %v", err)
+	}
+	if len(decoded) != 1 || decoded[0]["id"] != callID || decoded[0]["result"] != "RESULT-SCOPED" {
+		t.Fatalf("unexpected scoped tool call export: %#v", decoded)
+	}
+}
+
+func TestExportConversationPreservesMixedScopedAndLegacyInvocations(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	turnID := "turn-mixed-scoped"
+	placeholderID := "assistant-mixed-placeholder"
+	iterationID := "assistant-mixed-iteration"
+	legacyCallID := "call-legacy"
+	scopedCallID := "call-scoped"
+	convID := "conv-mixed-scoped"
+
+	conv := &database.Conversation{UUIDModel: database.UUIDModel{ID: convID}, UserID: portabilityTestUserID, Title: "L3 mixed scoped"}
+	if err := database.DB().Create(conv).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: convID, Role: "user", Content: "hi"}).Error; err != nil {
+		t.Fatalf("create turn message: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: placeholderID}, ConversationID: convID, Role: "assistant", Content: "placeholder", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create placeholder assistant: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: iterationID}, ConversationID: convID, Role: "assistant", Content: "iteracao", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create iteration assistant: %v", err)
+	}
+	rows := []database.ToolInvocation{{
+		UserID:        portabilityTestUserID,
+		ToolCatalogID: "tool-1",
+		OriginType:    "chat",
+		OriginID:      turnID,
+		ToolCallID:    legacyCallID,
+		Status:        "succeeded",
+		DryRun:        false,
+		Output:        `{"content":"RESULT-LEGACY"}`,
+		Metadata:      `{"display":{"version":1,"type":"function","name":"legacy","arguments":"{}","origin":"builtin"}}`,
+	}, {
+		UserID:        portabilityTestUserID,
+		ToolCatalogID: "tool-1",
+		OriginType:    "chat",
+		OriginID:      turnID,
+		ToolCallID:    scopedCallID,
+		Status:        "succeeded",
+		DryRun:        false,
+		Output:        `{"content":"RESULT-SCOPED"}`,
+		Metadata:      `{"display":{"version":1,"type":"function","name":"search","arguments":"{}","origin":"builtin","assistant_message_id":"` + iterationID + `"}}`,
+	}}
+	if err := database.DB().Create(&rows).Error; err != nil {
+		t.Fatalf("create tool invocations: %v", err)
+	}
+
+	file, err := BuildExportFileWithContext(ctx, []string{convID}, nil, nil, nil, ExportRequest{ExplicitSelection: true, ConversationIDs: []string{convID}}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext: %v", err)
+	}
+	msgs := file.Resources.Conversations[0].Messages
+	var legacyDecoded []map[string]any
+	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &legacyDecoded); err != nil {
+		t.Fatalf("unmarshal legacy toolCalls: %v", err)
+	}
+	if len(legacyDecoded) != 1 || legacyDecoded[0]["id"] != legacyCallID || legacyDecoded[0]["result"] != "RESULT-LEGACY" {
+		t.Fatalf("unexpected legacy tool call export: %#v", legacyDecoded)
+	}
+	var scopedDecoded []map[string]any
+	if err := json.Unmarshal([]byte(msgs[2].ToolCalls), &scopedDecoded); err != nil {
+		t.Fatalf("unmarshal scoped toolCalls: %v", err)
+	}
+	if len(scopedDecoded) != 1 || scopedDecoded[0]["id"] != scopedCallID || scopedDecoded[0]["result"] != "RESULT-SCOPED" {
+		t.Fatalf("unexpected scoped tool call export: %#v", scopedDecoded)
+	}
+}
+
+func TestExportConversationBuildsToolCallsFromRoleToolFallbackWithoutInvocations(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+
+	turnID := "turn-fallback"
+	callID := "call-fallback"
+	convID := "conv-fallback"
+
+	conv := &database.Conversation{UUIDModel: database.UUIDModel{ID: convID}, UserID: portabilityTestUserID, Title: "Fallback"}
+	if err := database.DB().Create(conv).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: convID, Role: "user", Content: "hi"}).Error; err != nil {
+		t.Fatalf("create turn message: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: "assistant-fallback"}, ConversationID: convID, Role: "assistant", Content: "vou buscar", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create assistant without tool_calls: %v", err)
+	}
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: "tool-fallback"}, ConversationID: convID, Role: "tool", Content: "FALLBACK-RESULT", TurnID: &turnID, ToolCallID: callID}).Error; err != nil {
+		t.Fatalf("create role=tool fallback: %v", err)
+	}
+
+	file, err := BuildExportFileWithContext(ctx, []string{convID}, nil, nil, nil, ExportRequest{ExplicitSelection: true, ConversationIDs: []string{convID}}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext: %v", err)
+	}
+	msgs := file.Resources.Conversations[0].Messages
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &decoded); err != nil {
+		t.Fatalf("unmarshal synthesized fallback toolCalls: %v", err)
+	}
+	if len(decoded) != 1 || decoded[0]["id"] != callID || decoded[0]["result"] != "FALLBACK-RESULT" {
+		t.Fatalf("unexpected fallback tool call export: %#v", decoded)
+	}
+}
+
 func TestImportOverwriteClearsChatToolInvocationsToAvoidStaleExportHydration(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()

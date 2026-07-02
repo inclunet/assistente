@@ -55,6 +55,7 @@ type ExecuteRequest struct {
 	ParentInvocationID string
 	ToolCatalogID      string
 	DryRun             bool
+	Iteration          int
 
 	// ExecutionMaxResultSize permite que um chamador (ex.: jobs) execute com
 	// um limite maior de resultado para processamento interno, sem precisar
@@ -81,6 +82,7 @@ type RecordRequest struct {
 	Origin        Origin
 	ToolCatalogID string
 	DryRun        bool
+	Iteration     int
 
 	Result       tools.ToolResult
 	ErrorKind    tools.ErrorKind

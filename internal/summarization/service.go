@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -103,11 +104,167 @@ func ShouldTriggerSummarization(
 	return false
 }
 
+type summarizationInvocationResult struct {
+	Result             string
+	ToolName           string
+	Iteration          int
+	AssistantMessageID string
+}
+
+func summarizationInvocationResultsFromStrings(results map[string]map[string]string) map[string]map[string]summarizationInvocationResult {
+	out := make(map[string]map[string]summarizationInvocationResult, len(results))
+	for turnID, byCall := range results {
+		if len(byCall) == 0 {
+			continue
+		}
+		out[turnID] = make(map[string]summarizationInvocationResult, len(byCall))
+		for callID, result := range byCall {
+			out[turnID][callID] = summarizationInvocationResult{Result: result}
+		}
+	}
+	return out
+}
+
+func summarizationInvocationResultsFromDisplays(displays map[string][]toolinvocations.ChatToolInvocationDisplay) map[string]map[string]summarizationInvocationResult {
+	out := make(map[string]map[string]summarizationInvocationResult, len(displays))
+	for turnID, calls := range displays {
+		for _, call := range calls {
+			callID := strings.TrimSpace(call.ID)
+			if callID == "" {
+				continue
+			}
+			byCall := out[turnID]
+			if byCall == nil {
+				byCall = map[string]summarizationInvocationResult{}
+				out[turnID] = byCall
+			}
+			if _, ok := byCall[callID]; ok {
+				continue
+			}
+			byCall[callID] = summarizationInvocationResult{
+				Result:             call.Result,
+				ToolName:           call.Name,
+				Iteration:          call.Iteration,
+				AssistantMessageID: call.AssistantMessageID,
+			}
+		}
+	}
+	return out
+}
+
+func summarizationInvocationResultMatchesMessage(m chat.Message, result summarizationInvocationResult) bool {
+	assistantMessageID := strings.TrimSpace(result.AssistantMessageID)
+	messageID := strings.TrimSpace(m.ID)
+	if assistantMessageID == "" {
+		return messageID == ""
+	}
+	return messageID == assistantMessageID
+}
+
+func assignUnscopedSummarizationInvocationResults(messages []chat.Message, invocationResults map[string]map[string]summarizationInvocationResult) map[string]map[string]summarizationInvocationResult {
+	if len(invocationResults) == 0 {
+		return invocationResults
+	}
+	assistantsByTurn := map[string][]chat.Message{}
+	for _, msg := range messages {
+		if msg.Role != "assistant" || msg.TurnID == nil {
+			continue
+		}
+		turnID := strings.TrimSpace(*msg.TurnID)
+		if turnID == "" {
+			continue
+		}
+		assistantsByTurn[turnID] = append(assistantsByTurn[turnID], msg)
+	}
+	out := make(map[string]map[string]summarizationInvocationResult, len(invocationResults))
+	for turnID, byCall := range invocationResults {
+		if len(byCall) == 0 {
+			continue
+		}
+		out[turnID] = make(map[string]summarizationInvocationResult, len(byCall))
+		for callID, result := range byCall {
+			out[turnID][callID] = result
+		}
+		assignUnscopedSummarizationTurnResults(assistantsByTurn[turnID], out[turnID])
+	}
+	return out
+}
+
+func assignUnscopedSummarizationTurnResults(assistants []chat.Message, byCall map[string]summarizationInvocationResult) {
+	if len(assistants) == 0 || len(byCall) == 0 {
+		return
+	}
+	candidates := summarizationInvocationFallbackCandidates(assistants)
+	if len(candidates) == 0 {
+		return
+	}
+	type pendingInvocation struct {
+		CallID    string
+		Iteration int
+	}
+	pending := make([]pendingInvocation, 0)
+	for callID, result := range byCall {
+		if strings.TrimSpace(result.AssistantMessageID) != "" || strings.TrimSpace(result.Result) == "" {
+			continue
+		}
+		pending = append(pending, pendingInvocation{CallID: callID, Iteration: result.Iteration})
+	}
+	sort.SliceStable(pending, func(i, j int) bool {
+		if pending[i].Iteration != pending[j].Iteration {
+			return pending[i].Iteration < pending[j].Iteration
+		}
+		return pending[i].CallID < pending[j].CallID
+	})
+	groupIndex := -1
+	lastIteration := 0
+	for _, item := range pending {
+		if groupIndex < 0 || item.Iteration != lastIteration {
+			groupIndex++
+			lastIteration = item.Iteration
+		}
+		targetIndex := groupIndex
+		if targetIndex >= len(candidates) {
+			targetIndex = len(candidates) - 1
+		}
+		target := candidates[targetIndex]
+		result := byCall[item.CallID]
+		result.AssistantMessageID = target.ID
+		byCall[item.CallID] = result
+	}
+}
+
+func summarizationInvocationFallbackCandidates(assistants []chat.Message) []chat.Message {
+	if len(assistants) <= 1 {
+		return assistants
+	}
+	finalIdx := len(assistants) - 1
+	first := assistants[0]
+	if strings.TrimSpace(first.Content) != "" && strings.TrimSpace(first.ToolCalls) == "" {
+		finalIdx = 0
+	}
+	candidates := make([]chat.Message, 0, len(assistants)-1)
+	for i, msg := range assistants {
+		if i == finalIdx {
+			continue
+		}
+		candidates = append(candidates, msg)
+	}
+	if len(candidates) == 0 {
+		return []chat.Message{assistants[finalIdx]}
+	}
+	return candidates
+}
+
 // BuildSummarizationUserPrompt monta o user message para a chamada LLM de sumarização.
 // invocationResults: resultados hidratados de tool_invocations (best-effort).
 // fallbackResults: resultados persistidos como mensagens role=tool (best-effort); quando presente e não-vazio, é autoritativo.
 func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Message, invocationResults map[string]map[string]string, fallbackResults map[string]map[string]string) string {
+	return buildSummarizationUserPrompt(existingSummary, messages, summarizationInvocationResultsFromStrings(invocationResults), fallbackResults)
+}
+
+func buildSummarizationUserPrompt(existingSummary string, messages []chat.Message, invocationResults map[string]map[string]summarizationInvocationResult, fallbackResults map[string]map[string]string) string {
 	var sb strings.Builder
+	invocationResults = assignUnscopedSummarizationInvocationResults(messages, invocationResults)
 
 	if existingSummary != "" {
 		sb.WriteString("## Previous Summary\n\n")
@@ -118,6 +275,7 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 		sb.WriteString("## Conversation to Summarize\n\n")
 	}
 
+	usedInvocationResults := map[string]struct{}{}
 	for _, m := range messages {
 		_, _ = fmt.Fprintf(&sb, "**[%s]**: ", m.Role)
 		content := m.Content
@@ -146,7 +304,10 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 				res := strings.TrimSpace(c.Result)
 				if res == "" && turnID != "" && callID != "" {
 					if byCall := invocationResults[turnID]; byCall != nil {
-						res = strings.TrimSpace(byCall[callID])
+						result := byCall[callID]
+						if summarizationInvocationResultMatchesMessage(m, result) {
+							res = strings.TrimSpace(result.Result)
+						}
 					}
 				}
 				if res == "" {
@@ -159,12 +320,16 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 				if len(res) > 2000 {
 					res = truncateUTF8Safe(res, 2000) + "... [truncated]"
 				}
+				usedInvocationResults[summarizationInvocationResultKey(turnID, callID)] = struct{}{}
 				sb.WriteString("\n\n")
 				sb.WriteString("Tool result (")
 				sb.WriteString(name)
 				sb.WriteString("): ")
 				sb.WriteString(res)
 			}
+			appendSummarizationInvocationResults(&sb, m, invocationResults, fallbackResults, usedInvocationResults)
+		} else if m.Role == "assistant" {
+			appendSummarizationInvocationResults(&sb, m, invocationResults, fallbackResults, usedInvocationResults)
 		}
 		sb.WriteString("\n\n")
 	}
@@ -176,6 +341,66 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 	}
 
 	return sb.String()
+}
+
+func appendSummarizationInvocationResults(sb *strings.Builder, m chat.Message, invocationResults map[string]map[string]summarizationInvocationResult, fallbackResults map[string]map[string]string, skip map[string]struct{}) {
+	if m.TurnID == nil {
+		return
+	}
+	turnID := strings.TrimSpace(*m.TurnID)
+	if turnID == "" {
+		return
+	}
+	byCall := invocationResults[turnID]
+	if len(byCall) == 0 {
+		return
+	}
+	callIDs := make([]string, 0, len(byCall))
+	for callID := range byCall {
+		callID = strings.TrimSpace(callID)
+		if callID == "" {
+			continue
+		}
+		if _, ok := skip[summarizationInvocationResultKey(turnID, callID)]; ok {
+			continue
+		}
+		if byFallback := fallbackResults[turnID]; byFallback != nil {
+			if strings.TrimSpace(byFallback[callID]) != "" {
+				continue
+			}
+		}
+		if !summarizationInvocationResultMatchesMessage(m, byCall[callID]) {
+			continue
+		}
+		callIDs = append(callIDs, callID)
+	}
+	sort.Strings(callIDs)
+	for _, callID := range callIDs {
+		callResult := byCall[callID]
+		res := strings.TrimSpace(callResult.Result)
+		if res == "" {
+			continue
+		}
+		if len(res) > 2000 {
+			res = truncateUTF8Safe(res, 2000) + "... [truncated]"
+		}
+		sb.WriteString("\n\n")
+		sb.WriteString("Tool result (")
+		name := strings.TrimSpace(callResult.ToolName)
+		if name == "" {
+			name = callID
+		}
+		sb.WriteString(name)
+		sb.WriteString("): ")
+		sb.WriteString(res)
+		if skip != nil {
+			skip[summarizationInvocationResultKey(turnID, callID)] = struct{}{}
+		}
+	}
+}
+
+func summarizationInvocationResultKey(turnID, callID string) string {
+	return strings.TrimSpace(turnID) + "\x00" + strings.TrimSpace(callID)
 }
 
 type summarizationToolCall struct {
@@ -437,7 +662,7 @@ func (s *Service) executeSummarization(
 
 	fallbackResults := collectSummarizationFallbackToolResults(newMessages)
 	invocationResults := loadSummarizationToolInvocationResults(ctx, newMessages)
-	userPrompt := BuildSummarizationUserPrompt(existingSummary, newMessages, invocationResults, fallbackResults)
+	userPrompt := buildSummarizationUserPrompt(existingSummary, newMessages, invocationResults, fallbackResults)
 
 	logging.Infof(ctx, "summarization.service", "[Summary] Iniciando sumarização: conversa=%s, modelo=%s, %d mensagens novas, resumo anterior=%d chars",
 		conversationID, model, len(newMessages), len(existingSummary))
@@ -504,7 +729,7 @@ func shouldTriggerSummarizationWithHydratedToolResults(
 	profile *profiles.Profile,
 	contextMessages []chat.Message,
 	existingSummary string,
-	invocationResults map[string]map[string]string,
+	invocationResults map[string]map[string]summarizationInvocationResult,
 	fallbackResults map[string]map[string]string,
 ) bool {
 	if profile == nil || profile.Chat.ContextWindow <= 0 {
@@ -528,6 +753,7 @@ func shouldTriggerSummarizationWithHydratedToolResults(
 		estimated += EstimateTokens(existingSummary)
 	}
 	// Soma somente resultados que serão adicionados como "Tool result (...)".
+	invocationResults = assignUnscopedSummarizationInvocationResults(contextMessages, invocationResults)
 	estimated += estimateHydratedToolResultTokens(contextMessages, invocationResults, fallbackResults)
 
 	if estimated > budget {
@@ -570,13 +796,11 @@ func collectSummarizationFallbackToolResults(messages []chat.Message) map[string
 	return results
 }
 
-func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults map[string]map[string]string, fallbackResults map[string]map[string]string) int {
+func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults map[string]map[string]summarizationInvocationResult, fallbackResults map[string]map[string]string) int {
 	total := 0
+	counted := map[string]struct{}{}
 	for _, m := range messages {
 		if m.Role != "assistant" {
-			continue
-		}
-		if strings.TrimSpace(m.ToolCalls) == "" {
 			continue
 		}
 		if m.TurnID == nil {
@@ -591,23 +815,62 @@ func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults
 			if callID == "" {
 				continue
 			}
+			countedKey := turnID + "\x00" + callID
+			if _, ok := counted[countedKey]; ok {
+				continue
+			}
 			// Se já há result embutido no tool_calls, já foi contado por EstimateMessagesTokens.
 			if strings.TrimSpace(c.Result) != "" {
+				counted[countedKey] = struct{}{}
 				continue
 			}
 			// Se há fallback role=tool não-vazio, o conteúdo já foi contado por EstimateMessagesTokens.
 			if byCall := fallbackResults[turnID]; byCall != nil {
 				if strings.TrimSpace(byCall[callID]) != "" {
+					counted[countedKey] = struct{}{}
 					continue
 				}
 			}
-			res := ""
+			var result summarizationInvocationResult
 			if byCall := invocationResults[turnID]; byCall != nil {
-				res = strings.TrimSpace(byCall[callID])
+				result = byCall[callID]
 			}
+			if !summarizationInvocationResultMatchesMessage(m, result) {
+				continue
+			}
+			res := strings.TrimSpace(result.Result)
 			if res == "" {
 				continue
 			}
+			counted[countedKey] = struct{}{}
+			if len(res) > 2000 {
+				res = truncateUTF8Safe(res, 2000)
+			}
+			total += EstimateTokens(res)
+		}
+		for callID, result := range invocationResults[turnID] {
+			callID = strings.TrimSpace(callID)
+			if callID == "" {
+				continue
+			}
+			countedKey := turnID + "\x00" + callID
+			if _, ok := counted[countedKey]; ok {
+				continue
+			}
+			if !summarizationInvocationResultMatchesMessage(m, result) {
+				continue
+			}
+			if byCall := fallbackResults[turnID]; byCall != nil {
+				if strings.TrimSpace(byCall[callID]) != "" {
+					counted[countedKey] = struct{}{}
+					continue
+				}
+			}
+			res := strings.TrimSpace(result.Result)
+			if res == "" {
+				continue
+			}
+			counted[countedKey] = struct{}{}
 			if len(res) > 2000 {
 				res = truncateUTF8Safe(res, 2000)
 			}
@@ -617,22 +880,19 @@ func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults
 	return total
 }
 
-func loadSummarizationToolInvocationResults(ctx context.Context, messages []chat.Message) map[string]map[string]string {
+func loadSummarizationToolInvocationResults(ctx context.Context, messages []chat.Message) map[string]map[string]summarizationInvocationResult {
 	if len(messages) == 0 {
-		return map[string]map[string]string{}
+		return map[string]map[string]summarizationInvocationResult{}
 	}
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
-		return map[string]map[string]string{}
+		return map[string]map[string]summarizationInvocationResult{}
 	}
 
 	seen := map[string]struct{}{}
 	turnIDs := make([]string, 0)
 	for _, msg := range messages {
 		if msg.Role != "assistant" {
-			continue
-		}
-		if strings.TrimSpace(msg.ToolCalls) == "" {
 			continue
 		}
 		if msg.TurnID == nil {
@@ -649,16 +909,16 @@ func loadSummarizationToolInvocationResults(ctx context.Context, messages []chat
 		turnIDs = append(turnIDs, turnID)
 	}
 	if len(turnIDs) == 0 {
-		return map[string]map[string]string{}
+		return map[string]map[string]summarizationInvocationResult{}
 	}
 
-	results, err := toolinvocations.LoadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
+	displays, err := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, turnIDs)
 	if err != nil {
 		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao hidratar tool invocations para sumarização: %v", err)
-		return map[string]map[string]string{}
+		return map[string]map[string]summarizationInvocationResult{}
 	}
-	if len(results) == 0 {
-		return map[string]map[string]string{}
+	if len(displays) == 0 {
+		return map[string]map[string]summarizationInvocationResult{}
 	}
-	return results
+	return summarizationInvocationResultsFromDisplays(displays)
 }

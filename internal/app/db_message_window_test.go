@@ -290,6 +290,85 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 	}
 }
 
+func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMessageToolCalls(t *testing.T) {
+	setupMessageWindowAppTestDB(t)
+	app := newMessageWindowTestApp()
+
+	conv := createMessageWindowTestConversation(t, "Conversa")
+	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
+	user, err := database.AddMessageWithContext(ctx, conv.ID, "user", "pergunta")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	finalAssistant, err := database.AddMessageWithTokensWithContext(ctx, conv.ID, "assistant", "resposta final", 0, 0, 0, "")
+	if err != nil {
+		t.Fatalf("create final assistant: %v", err)
+	}
+	finalAssistant.TurnID = &user.ID
+	if err := database.DB().Save(finalAssistant).Error; err != nil {
+		t.Fatalf("save final assistant turn: %v", err)
+	}
+	_, err = database.AddAssistantToolMessageWithContext(
+		ctx,
+		conv.ID,
+		user.ID,
+		"vou buscar",
+		"",
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("create assistant tool marker without L3: %v", err)
+	}
+
+	var catalog database.ToolCatalog
+	if err := database.DB().WithContext(ctx).First(&catalog, "name = ?", "search").Error; err != nil {
+		t.Fatalf("load tool catalog: %v", err)
+	}
+	if err := database.DB().WithContext(ctx).Create(&database.ToolInvocation{
+		UUIDModel:     database.UUIDModel{ID: "inv-new-l3-free"},
+		UserID:        messageWindowTestUserID,
+		ToolCatalogID: catalog.ID,
+		OriginType:    "chat",
+		OriginID:      user.ID,
+		ToolCallID:    "tool-1",
+		Status:        "succeeded",
+		DryRun:        false,
+		Input:         `{"query":"foo"}`,
+		Output:        `{"content":"resultado por invocacao","is_error":false}`,
+		Metadata:      `{"display":{"version":1,"type":"function","name":"search","arguments":"{\"q\":\"foo\"}","origin":"builtin","iteration":1,"duration_ms":42}}`,
+		QueuedAt:      time.Now(),
+		DurationMs:    42,
+	}).Error; err != nil {
+		t.Fatalf("create tool invocation: %v", err)
+	}
+
+	window, err := app.GetConversationMessageWindow(chat.MessageWindowRequest{
+		ConversationID: conv.ID,
+		Scope:          chat.MessageWindowScopeConversation,
+		Anchor:         chat.MessageWindowAnchorEnd,
+		Direction:      chat.MessageWindowDirectionBefore,
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatalf("get window: %v", err)
+	}
+	if len(window.Nodes) != 2 {
+		t.Fatalf("expected user + consolidated assistant turn, got %d nodes", len(window.Nodes))
+	}
+	turnNode := window.Nodes[1]
+	if !strings.Contains(turnNode.Message.ToolCalls, "resultado por invocacao") {
+		t.Fatalf("expected synthesized toolCalls from tool_invocations, got %s", turnNode.Message.ToolCalls)
+	}
+	if len(turnNode.Message.TurnSegments) != 3 {
+		t.Fatalf("expected text -> tool_calls -> final text segments, got %+v", turnNode.Message.TurnSegments)
+	}
+	call := turnNode.Message.TurnSegments[1].ToolCalls[0]
+	if call.ID != "tool-1" || call.Function.Name != "search" || call.Result != "resultado por invocacao" || call.DurationMs != 42 {
+		t.Fatalf("expected hydrated invocation display, got %+v", call)
+	}
+}
+
 func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
 	app := newMessageWindowTestApp()

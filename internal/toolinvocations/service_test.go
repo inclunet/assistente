@@ -122,15 +122,93 @@ func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 	}
 }
 
+func TestServicePersistsDisplayMetadataBeforeExecutionCompletes(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	started := make(chan struct{}, 1)
+	registry := tools.NewRegistry()
+	registry.MustRegister(ctxBlockTool{started: started})
+	if err := database.DB().Create(&database.ToolCatalog{
+		Name:               "ctx_block",
+		DisplayName:        "ctx_block",
+		Origin:             tools.ToolOriginBuiltin,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}).Error; err != nil {
+		t.Fatalf("seed tool catalog: %v", err)
+	}
+	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+
+	ctx, cancel := context.WithCancel(userA)
+	done := make(chan ExecuteResult, 1)
+	go func() {
+		done <- svc.Execute(ctx, ExecuteRequest{
+			Call: tools.ToolCall{
+				ID:   "call-running-metadata",
+				Type: "function",
+				Function: tools.FunctionCall{
+					Name:      "ctx_block",
+					Arguments: `{"value":"running"}`,
+				},
+			},
+			Origin:    Origin{Type: OriginChat, ID: "turn-running"},
+			Iteration: 7,
+		})
+	}()
+	t.Cleanup(cancel)
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("tool did not start")
+	}
+
+	var inv database.ToolInvocation
+	if err := database.DB().First(&inv, "tool_call_id = ?", "call-running-metadata").Error; err != nil {
+		t.Fatalf("load running invocation: %v", err)
+	}
+	if inv.Status != StatusRunning {
+		t.Fatalf("expected invocation to be running, got %s", inv.Status)
+	}
+	var metadata struct {
+		Display struct {
+			Name       string `json:"name"`
+			Arguments  string `json:"arguments"`
+			Iteration  int    `json:"iteration"`
+			DurationMs int64  `json:"duration_ms"`
+		} `json:"display"`
+	}
+	if err := json.Unmarshal([]byte(inv.Metadata), &metadata); err != nil {
+		t.Fatalf("unmarshal running metadata: %v (metadata=%q)", err, inv.Metadata)
+	}
+	if metadata.Display.Name != "ctx_block" || metadata.Display.Iteration != 7 || metadata.Display.DurationMs != 0 {
+		t.Fatalf("unexpected running metadata: %#v", metadata.Display)
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(metadata.Display.Arguments), &args); err != nil {
+		t.Fatalf("running display arguments should remain JSON parseable: %v", err)
+	}
+	if args["value"] != "running" {
+		t.Fatalf("unexpected running display arguments: %#v", args)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("execution did not finish after cancel")
+	}
+}
+
 // captureInvocationTool registra o ID da invocação corrente visto via ctx
 // (AEP-0068): permite verificar que o Service carimba WithCurrentInvocationID.
 type captureInvocationTool struct {
 	seen *string
 }
 
-func (captureInvocationTool) Name() string                { return "echo" }
-func (captureInvocationTool) Description() string         { return "echo" }
-func (captureInvocationTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (captureInvocationTool) Name() string        { return "echo" }
+func (captureInvocationTool) Description() string { return "echo" }
+func (captureInvocationTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
 func (t captureInvocationTool) Execute(ctx context.Context, _ json.RawMessage) (tools.ToolResult, error) {
 	if t.seen != nil {
 		*t.seen = CurrentInvocationID(ctx)
@@ -310,6 +388,140 @@ func TestBuildInvocationInputRedactsInvalidJSON(t *testing.T) {
 	args, _ := fn["arguments"].(string)
 	if strings.TrimSpace(args) != `{"_redacted":true}` {
 		t.Fatalf("expected invalid JSON args to be replaced with redaction marker, got=%q", args)
+	}
+}
+
+func TestBuildInvocationDisplayMetadataRedactsArguments(t *testing.T) {
+	svc := &Service{persistMaxInputSize: tools.DefaultMaxResultSize}
+	metadata := svc.buildInvocationDisplayMetadata(tools.ToolCall{
+		ID:   "call-display-redact",
+		Type: "function",
+		Function: tools.FunctionCall{
+			Name: "echo",
+			Arguments: `{
+				"password":"123",
+				"authorization":"Bearer abc.def.ghi",
+				"note":"hello"
+			}`,
+		},
+	}, 1, 12, false)
+	raw := string(metadata)
+	if strings.Contains(raw, "123") || strings.Contains(raw, "Bearer abc.def.ghi") {
+		t.Fatalf("display metadata leaked sensitive arguments: %s", raw)
+	}
+	var payload struct {
+		Display struct {
+			Arguments string `json:"arguments"`
+		} `json:"display"`
+	}
+	if err := json.Unmarshal(metadata, &payload); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(payload.Display.Arguments), &args); err != nil {
+		t.Fatalf("unmarshal redacted display args: %v", err)
+	}
+	if args["password"] != "[redacted]" || args["authorization"] != "[redacted]" || args["note"] != "hello" {
+		t.Fatalf("unexpected redacted display args: %#v", args)
+	}
+}
+
+func TestBuildInvocationDisplayMetadataTruncatesArguments(t *testing.T) {
+	max := 256
+	svc := &Service{persistMaxInputSize: max}
+	metadata := svc.buildInvocationDisplayMetadata(tools.ToolCall{
+		ID:   "call-display-truncate",
+		Type: "function",
+		Function: tools.FunctionCall{
+			Name:      "echo",
+			Arguments: `{"value":"` + strings.Repeat("a", 4096) + `"}`,
+		},
+	}, 2, 34, false)
+	if len(metadata) > max {
+		t.Fatalf("metadata size = %d, want <= %d", len(metadata), max)
+	}
+	var payload struct {
+		Display struct {
+			ArgumentsTruncated        bool `json:"_arguments_truncated"`
+			ArgumentsOriginalSizeByte int  `json:"_arguments_original_size_bytes"`
+		} `json:"display"`
+	}
+	if err := json.Unmarshal(metadata, &payload); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	if !payload.Display.ArgumentsTruncated || payload.Display.ArgumentsOriginalSizeByte == 0 {
+		t.Fatalf("expected display arguments truncation metadata, got %#v", payload.Display)
+	}
+	var raw map[string]map[string]any
+	if err := json.Unmarshal(metadata, &raw); err != nil {
+		t.Fatalf("unmarshal raw metadata: %v", err)
+	}
+	if _, ok := raw["display"]["arguments"]; ok {
+		t.Fatalf("expected truncated display arguments to be omitted, got %s", string(metadata))
+	}
+	if strings.Contains(string(metadata), "TRUNCADO") {
+		t.Fatalf("metadata should not contain textual truncation suffix: %s", string(metadata))
+	}
+}
+
+func TestBuildInvocationDisplayMetadataUsesCompactFallbackWithinLimit(t *testing.T) {
+	max := 64
+	metadata := buildInvocationDisplayMetadata(tools.ToolCall{
+		ID:   "call-display-compact",
+		Type: "function",
+		Function: tools.FunctionCall{
+			Name:      "mcp_" + strings.Repeat("server", 20) + "__" + strings.Repeat("tool", 20),
+			Arguments: `{"value":"` + strings.Repeat("a", 1024) + `"}`,
+		},
+	}, strings.Repeat("a", 1024), 1, 12, false, max)
+	if len(metadata) > max {
+		t.Fatalf("metadata size = %d, want <= %d: %s", len(metadata), max, string(metadata))
+	}
+	if !json.Valid(metadata) {
+		t.Fatalf("metadata should remain valid json: %s", string(metadata))
+	}
+}
+
+func TestBuildInvocationDisplayPayloadDetectsOnlyOfficialMCPBridgeNames(t *testing.T) {
+	tests := []struct {
+		name            string
+		wantOrigin      string
+		wantServerLabel string
+		wantName        string
+	}{
+		{
+			name:            "mcp_github__search_code",
+			wantOrigin:      "mcp_bridge",
+			wantServerLabel: "github",
+			wantName:        "search_code",
+		},
+		{
+			name:            "builtin__with_separator",
+			wantOrigin:      "builtin",
+			wantServerLabel: "",
+			wantName:        "builtin__with_separator",
+		},
+		{
+			name:            "mcp___missing_server",
+			wantOrigin:      "builtin",
+			wantServerLabel: "",
+			wantName:        "mcp___missing_server",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := buildInvocationDisplayPayload(tools.ToolCall{
+				Type: "function",
+				Function: tools.FunctionCall{
+					Name:      tt.name,
+					Arguments: "{}",
+				},
+			}, "{}", 1, 12, false, false, 0)
+			display, _ := payload["display"].(map[string]any)
+			if display["origin"] != tt.wantOrigin || display["server_label"] != tt.wantServerLabel || display["name"] != tt.wantName {
+				t.Fatalf("unexpected display payload: %#v", display)
+			}
+		})
 	}
 }
 

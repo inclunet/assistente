@@ -298,6 +298,276 @@ func TestConsolidateTimelineTurn_ToolOnlyPlaceholderEmitsSegment(t *testing.T) {
 	}
 }
 
+func TestConsolidateTimelineTurn_UsesRoleToolFallbackWithoutMessageToolCalls(t *testing.T) {
+	turnID := "turn-1"
+	result := ConsolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-marker"},
+			Role:      "assistant",
+			Content:   "",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel:  database.UUIDModel{ID: "tool-a-message"},
+			Role:       "tool",
+			Content:    "resultado a",
+			TurnID:     &turnID,
+			ToolCallID: "tool-a",
+		},
+	}, nil)
+
+	if len(result.Segments) != 1 {
+		t.Fatalf("expected fallback tool segment, got %+v", result.Segments)
+	}
+	call := result.Segments[0].ToolCalls[0]
+	if call.ID != "tool-a" || call.Result != "resultado a" {
+		t.Fatalf("expected role=tool fallback call/result, got %+v", call)
+	}
+}
+
+func TestConsolidateTimelineTurn_AttachesInvocationByAssistantMessageID(t *testing.T) {
+	turnID := "turn-1"
+	result := ConsolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-marker"},
+			Role:      "assistant",
+			Content:   "",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-text"},
+			Role:      "assistant",
+			Content:   "texto posterior",
+			TurnID:    &turnID,
+		},
+	}, nil, []TurnSegmentToolCall{
+		{
+			ID:                 "tool-a",
+			Type:               "function",
+			Function:           TurnSegmentToolFunction{Name: "search", Arguments: "{}"},
+			Result:             "resultado a",
+			AssistantMessageID: "assistant-marker",
+		},
+	})
+
+	if len(result.Segments) != 2 {
+		t.Fatalf("expected tool segment attached to marker before later text, got %+v", result.Segments)
+	}
+	if result.Segments[0].Type != "tool_calls" || result.Segments[0].ToolCalls[0].ID != "tool-a" {
+		t.Fatalf("expected first segment to be marker tool call, got %+v", result.Segments[0])
+	}
+	if result.Segments[1].Type != "text" || result.Segments[1].Content != "texto posterior" {
+		t.Fatalf("expected second segment to be later text, got %+v", result.Segments[1])
+	}
+}
+
+func TestConsolidateTimelineTurn_SkipsAssistantScopedInvocationGroupBeforeFallback(t *testing.T) {
+	turnID := "turn-1"
+	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	result := ConsolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-iter1", CreatedAt: baseTime},
+			Role:      "assistant",
+			Content:   "primeira iteracao",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-iter2", CreatedAt: baseTime.Add(time.Minute)},
+			Role:      "assistant",
+			Content:   "segunda iteracao",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-final", CreatedAt: baseTime.Add(2 * time.Minute)},
+			Role:      "assistant",
+			Content:   "resposta final",
+			TurnID:    &turnID,
+		},
+	}, nil, []TurnSegmentToolCall{
+		{
+			ID:                 "tool-a",
+			Type:               "function",
+			Function:           TurnSegmentToolFunction{Name: "search", Arguments: "{}"},
+			Result:             "resultado a",
+			Iteration:          1,
+			AssistantMessageID: "assistant-iter1",
+		},
+		{
+			ID:        "tool-b",
+			Type:      "function",
+			Function:  TurnSegmentToolFunction{Name: "fetch", Arguments: "{}"},
+			Result:    "resultado b",
+			Iteration: 2,
+		},
+	})
+
+	if len(result.Segments) != 5 {
+		t.Fatalf("expected text/tool/text/tool/final segments, got %+v", result.Segments)
+	}
+	if result.Segments[1].Type != "tool_calls" || result.Segments[1].ToolCalls[0].ID != "tool-a" {
+		t.Fatalf("expected assistant-scoped first invocation, got %+v", result.Segments[1])
+	}
+	if result.Segments[3].Type != "tool_calls" || result.Segments[3].ToolCalls[0].ID != "tool-b" {
+		t.Fatalf("expected fallback to skip consumed group and attach second invocation, got %+v", result.Segments[3])
+	}
+}
+
+func TestNormalizeInvocationToolCallsPreservesInputOrderWithinIteration(t *testing.T) {
+	normalized := normalizeInvocationToolCalls([]TurnSegmentToolCall{
+		{
+			ID:        "tool-z",
+			Type:      "function",
+			Iteration: 1,
+			Function:  TurnSegmentToolFunction{Name: "second", Arguments: "{}"},
+		},
+		{
+			ID:        "tool-a",
+			Type:      "function",
+			Iteration: 1,
+			Function:  TurnSegmentToolFunction{Name: "first", Arguments: "{}"},
+		},
+		{
+			ID:        "tool-later",
+			Type:      "function",
+			Iteration: 2,
+			Function:  TurnSegmentToolFunction{Name: "later", Arguments: "{}"},
+		},
+	}, nil)
+
+	if len(normalized) != 3 {
+		t.Fatalf("expected 3 normalized calls, got %+v", normalized)
+	}
+	got := []string{normalized[0].ID, normalized[1].ID, normalized[2].ID}
+	want := []string{"tool-z", "tool-a", "tool-later"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected order %v, got %v", want, got)
+		}
+	}
+}
+
+func TestConsolidateTimelineTurn_DoesNotPromoteIntermediateTextAsFinalContent(t *testing.T) {
+	turnID := "turn-1"
+	result := ConsolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-placeholder"},
+			Role:      "assistant",
+			Content:   "",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-iter1"},
+			Role:      "assistant",
+			Content:   "vou buscar",
+			TurnID:    &turnID,
+		},
+	}, nil, []TurnSegmentToolCall{
+		{
+			ID:                 "tool-a",
+			Type:               "function",
+			Function:           TurnSegmentToolFunction{Name: "search", Arguments: "{}"},
+			Result:             "resultado a",
+			AssistantMessageID: "assistant-iter1",
+		},
+	})
+
+	if result.Message.Content != "" {
+		t.Fatalf("expected no canonical final content while placeholder is still empty, got %q", result.Message.Content)
+	}
+	if len(result.Segments) != 2 {
+		t.Fatalf("expected intermediate text and tool segment, got %+v", result.Segments)
+	}
+}
+
+func TestConsolidateTimelineTurn_UsesLastFinalCandidateWhenInvocationLacksAssistantID(t *testing.T) {
+	turnID := "turn-1"
+	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	result := ConsolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-placeholder", CreatedAt: baseTime},
+			Role:      "assistant",
+			Content:   "",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-intermediate", CreatedAt: baseTime.Add(time.Minute)},
+			Role:      "assistant",
+			Content:   "vou consultar uma ferramenta",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-final", CreatedAt: baseTime.Add(2 * time.Minute)},
+			Role:      "assistant",
+			Content:   "resposta final",
+			TurnID:    &turnID,
+		},
+	}, nil, []TurnSegmentToolCall{
+		{
+			ID:        "tool-a",
+			Type:      "function",
+			Function:  TurnSegmentToolFunction{Name: "search", Arguments: "{}"},
+			Result:    "resultado a",
+			Iteration: 1,
+		},
+	})
+
+	if len(result.Segments) != 3 {
+		t.Fatalf("expected text, tool call and final text segments, got %+v", result.Segments)
+	}
+	if result.Segments[0].Type != "text" || result.Segments[0].Content != "vou consultar uma ferramenta" {
+		t.Fatalf("expected intermediate text first, got %+v", result.Segments[0])
+	}
+	if result.Segments[1].Type != "tool_calls" || len(result.Segments[1].ToolCalls) != 1 || result.Segments[1].ToolCalls[0].ID != "tool-a" {
+		t.Fatalf("expected invocation fallback attached before final text, got %+v", result.Segments[1])
+	}
+	if result.Segments[2].Type != "text" || result.Segments[2].Content != "resposta final" {
+		t.Fatalf("expected last assistant as final text segment, got %+v", result.Segments[2])
+	}
+}
+
+func TestConsolidateTimelineTurn_KeepsInitialPlaceholderFinalWhenInvocationLacksAssistantID(t *testing.T) {
+	turnID := "turn-1"
+	baseTime := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	result := ConsolidateTimelineTurn([]database.ChatMessage{
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-final", CreatedAt: baseTime},
+			Role:      "assistant",
+			Content:   "conclusao do turno",
+			TurnID:    &turnID,
+		},
+		{
+			UUIDModel: database.UUIDModel{ID: "assistant-intermediate", CreatedAt: baseTime.Add(time.Minute)},
+			Role:      "assistant",
+			Content:   "vou consultar uma ferramenta",
+			TurnID:    &turnID,
+		},
+	}, nil, []TurnSegmentToolCall{
+		{
+			ID:        "tool-a",
+			Type:      "function",
+			Function:  TurnSegmentToolFunction{Name: "search", Arguments: "{}"},
+			Result:    "resultado a",
+			Iteration: 1,
+		},
+	})
+
+	if result.Message.Content != "conclusao do turno" {
+		t.Fatalf("expected initial placeholder conclusion as canonical content, got %q", result.Message.Content)
+	}
+	if len(result.Segments) != 3 {
+		t.Fatalf("expected intermediate text, tool call and final placeholder text segments, got %+v", result.Segments)
+	}
+	if result.Segments[0].Type != "text" || result.Segments[0].Content != "vou consultar uma ferramenta" {
+		t.Fatalf("expected intermediate text first, got %+v", result.Segments[0])
+	}
+	if result.Segments[1].Type != "tool_calls" || len(result.Segments[1].ToolCalls) != 1 || result.Segments[1].ToolCalls[0].ID != "tool-a" {
+		t.Fatalf("expected invocation fallback attached before final text, got %+v", result.Segments[1])
+	}
+	if result.Segments[2].Type != "text" || result.Segments[2].Content != "conclusao do turno" {
+		t.Fatalf("expected initial placeholder conclusion as final text segment, got %+v", result.Segments[2])
+	}
+}
+
 func TestParseToolCalls_InvalidJSONReturnsNil(t *testing.T) {
 	resetInvalidToolCallsLogStateForTest(t)
 

@@ -186,6 +186,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		Status:             StatusQueued,
 		DryRun:             req.DryRun,
 		Input:              input,
+		Metadata:           s.buildInvocationDisplayMetadata(req.Call, req.Iteration, 0, false),
 		QueuedAt:           queuedAt,
 	}
 	if inv.OriginType == "" {
@@ -251,7 +252,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		inv.Retryable = exec.Retryable
 		inv.CompletedAt = &completedAt
 		inv.DurationMs = exec.DurationMs
-		inv.Metadata = nil
+		inv.Metadata = s.buildInvocationDisplayMetadata(req.Call, req.Iteration, exec.DurationMs, false)
 		opCtx, cancel := s.persistOpCtx(persistCtx)
 		err := s.repo.Complete(opCtx, inv.ID, &inv)
 		cancel()
@@ -594,14 +595,14 @@ func looksSensitiveString(value string) bool {
 	return false
 }
 
-func (s *Service) ExecuteAll(ctx context.Context, calls []tools.ToolCall, origin Origin) []ExecuteResult {
+func (s *Service) ExecuteAll(ctx context.Context, calls []tools.ToolCall, origin Origin, iteration int) []ExecuteResult {
 	results := make([]ExecuteResult, len(calls))
 	var wg sync.WaitGroup
 	for i, call := range calls {
 		wg.Add(1)
 		go func(idx int, tc tools.ToolCall) {
 			defer wg.Done()
-			results[idx] = s.Execute(ctx, ExecuteRequest{Call: tc, Origin: origin})
+			results[idx] = s.Execute(ctx, ExecuteRequest{Call: tc, Origin: origin, Iteration: iteration})
 		}(i, call)
 	}
 	wg.Wait()
@@ -705,8 +706,7 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	inv.Retryable = req.Retryable
 	inv.CompletedAt = &completedAt
 	inv.DurationMs = req.DurationMs
-	metadata, _ := json.Marshal(map[string]any{"external": true})
-	inv.Metadata = metadata
+	inv.Metadata = s.buildInvocationDisplayMetadata(req.Call, req.Iteration, req.DurationMs, true)
 
 	// Revalida a origem do chat antes de finalizar. Native MCP pode correr com
 	// deleção de turno/mensagem após o pre-check do chamador.
@@ -737,6 +737,110 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 		return inv, err
 	}
 	return inv, nil
+}
+
+func (s *Service) buildInvocationDisplayMetadata(call tools.ToolCall, iteration int, durationMs int64, external bool) json.RawMessage {
+	arguments := ""
+	if strings.TrimSpace(call.Function.Arguments) != "" {
+		arguments = redactArgumentsJSON(call.Function.Arguments)
+	}
+	return buildInvocationDisplayMetadata(call, arguments, iteration, durationMs, external, s.persistMaxInputSize)
+}
+
+func buildInvocationDisplayMetadata(call tools.ToolCall, arguments string, iteration int, durationMs int64, external bool, maxBytes int) json.RawMessage {
+	payload := buildInvocationDisplayPayload(call, arguments, iteration, durationMs, external, false, 0)
+	metadata, _ := json.Marshal(payload)
+	if maxBytes <= 0 || len(metadata) <= maxBytes {
+		return metadata
+	}
+
+	origSize := len(arguments)
+	basePayload := buildInvocationDisplayPayload(call, "", iteration, durationMs, external, true, origSize)
+	baseBytes, _ := json.Marshal(basePayload)
+	if len(baseBytes) >= maxBytes {
+		return compactInvocationDisplayMetadata(origSize, maxBytes)
+	}
+	return baseBytes
+}
+
+func compactInvocationDisplayMetadata(originalSize int, maxBytes int) json.RawMessage {
+	candidates := []map[string]any{
+		{
+			"display": map[string]any{
+				"version":                        1,
+				"_metadata_truncated":            true,
+				"_arguments_truncated":           true,
+				"_arguments_original_size_bytes": originalSize,
+			},
+		},
+		{
+			"display": map[string]any{
+				"_metadata_truncated": true,
+			},
+		},
+	}
+	for _, candidate := range candidates {
+		metadata, _ := json.Marshal(candidate)
+		if maxBytes <= 0 || len(metadata) <= maxBytes {
+			return metadata
+		}
+	}
+	if maxBytes >= len([]byte(`{}`)) {
+		return json.RawMessage(`{}`)
+	}
+	return nil
+}
+
+func buildInvocationDisplayPayload(call tools.ToolCall, arguments string, iteration int, durationMs int64, external bool, truncated bool, originalSize int) map[string]any {
+	name := strings.TrimSpace(call.Function.Name)
+	displayName := name
+	origin := "builtin"
+	serverLabel := ""
+	if strings.HasPrefix(name, "mcp_") {
+		idx := strings.Index(name, "__")
+		if idx > len("mcp_") && idx+2 < len(name) {
+			serverLabel = strings.TrimSpace(name[len("mcp_"):idx])
+			displayName = strings.TrimSpace(name[idx+2:])
+		}
+	}
+	if serverLabel != "" && displayName != "" {
+		origin = "mcp_bridge"
+	}
+	if displayName == "" {
+		displayName = name
+	}
+	display := map[string]any{
+		"version":      1,
+		"type":         firstNonEmpty(call.Type, "function"),
+		"name":         displayName,
+		"origin":       origin,
+		"server_label": serverLabel,
+		"iteration":    iteration,
+		"duration_ms":  durationMs,
+	}
+	if !truncated || arguments != "" {
+		display["arguments"] = arguments
+	}
+	payload := map[string]any{
+		"display": display,
+	}
+	if truncated {
+		display["_arguments_truncated"] = true
+		display["_arguments_original_size_bytes"] = originalSize
+	}
+	if external {
+		payload["external"] = true
+		display["origin"] = "mcp_native"
+	}
+	return payload
+}
+
+func firstNonEmpty(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		return value
+	}
+	return fallback
 }
 
 func statusForRecord(req RecordRequest) (string, string) {

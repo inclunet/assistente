@@ -50,8 +50,7 @@ func EnsureAssistantPlaceholder(ctx context.Context, msgRepo MessageRepository, 
 	if err != nil {
 		return "", err
 	}
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m := msgs[i]
+	for _, m := range msgs {
 		if strings.TrimSpace(m.Role) == "assistant" && strings.TrimSpace(m.ToolCalls) == "" {
 			return m.ID, nil
 		}

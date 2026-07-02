@@ -31,10 +31,17 @@ type MessageWindowRequest struct {
 // (AEP-0039) para que o frontend renderize segmentos canônicos vindos do histórico
 // com o mesmo componente usado durante o streaming.
 type TurnSegmentToolCall struct {
-	ID       string                  `json:"id"`
-	Type     string                  `json:"type"`
-	Function TurnSegmentToolFunction `json:"function"`
-	Result   string                  `json:"result,omitempty"`
+	ID          string                  `json:"id"`
+	Type        string                  `json:"type"`
+	Function    TurnSegmentToolFunction `json:"function"`
+	Result      string                  `json:"result,omitempty"`
+	Origin      string                  `json:"origin,omitempty"`
+	ServerLabel string                  `json:"server_label,omitempty"`
+	Iteration   int                     `json:"iteration,omitempty"`
+	DurationMs  int64                   `json:"duration_ms,omitempty"`
+	// AssistantMessageID é metadado interno de hidratação para associar a
+	// invocação L3-free à mensagem assistant que representou a iteração.
+	AssistantMessageID string `json:"-"`
 }
 
 // TurnSegmentToolFunction encapsula o nome e os argumentos de uma tool call.

@@ -93,6 +93,99 @@ func TestBuildSummarizationUserPrompt_HydratesToolInvocationResults(t *testing.T
 	}
 }
 
+func TestBuildSummarizationUserPrompt_UsesInvocationResultsWithoutMessageToolCalls(t *testing.T) {
+	turnID := "turn-1"
+	callID := "call-1"
+	msgs := []database.ChatMessage{{
+		Role:    "assistant",
+		Content: "vou buscar",
+		TurnID:  &turnID,
+	}}
+
+	invResults := map[string]map[string]string{turnID: {callID: "RESULT"}}
+	prompt := BuildSummarizationUserPrompt("", msgs, invResults, nil)
+	if !strings.Contains(prompt, "Tool result (call-1): RESULT") {
+		t.Fatalf("prompt did not include invocation-only tool result, got:\n%s", prompt)
+	}
+}
+
+func TestBuildSummarizationUserPrompt_DeduplicatesInvocationResultsPerTurnCall(t *testing.T) {
+	turnID := "turn-1"
+	callID := "call-1"
+	msgs := []database.ChatMessage{
+		{Role: "assistant", Content: "vou buscar", TurnID: &turnID},
+		{Role: "assistant", Content: "resposta final", TurnID: &turnID},
+	}
+
+	invResults := map[string]map[string]string{turnID: {callID: "RESULT"}}
+	prompt := BuildSummarizationUserPrompt("", msgs, invResults, nil)
+	if got := strings.Count(prompt, "Tool result (call-1): RESULT"); got != 1 {
+		t.Fatalf("expected invocation result once, got %d occurrences in:\n%s", got, prompt)
+	}
+}
+
+func TestBuildSummarizationUserPrompt_ScopesInvocationResultsToAssistantMessage(t *testing.T) {
+	turnID := "turn-1"
+	callID := "call-1"
+	msgs := []database.ChatMessage{
+		{UUIDModel: database.UUIDModel{ID: "placeholder"}, Role: "assistant", Content: "resposta final", TurnID: &turnID},
+		{UUIDModel: database.UUIDModel{ID: "assistant-iteration"}, Role: "assistant", Content: "vou buscar", TurnID: &turnID},
+	}
+
+	invResults := map[string]map[string]summarizationInvocationResult{
+		turnID: {
+			callID: {
+				Result:             "RESULT",
+				ToolName:           "files.read",
+				AssistantMessageID: "assistant-iteration",
+			},
+		},
+	}
+	prompt := buildSummarizationUserPrompt("", msgs, invResults, nil)
+
+	resultMarker := "Tool result (files.read): RESULT"
+	if got := strings.Count(prompt, resultMarker); got != 1 {
+		t.Fatalf("expected scoped invocation result once, got %d occurrences in:\n%s", got, prompt)
+	}
+	if strings.Index(prompt, resultMarker) < strings.Index(prompt, "vou buscar") {
+		t.Fatalf("expected scoped invocation result after matching assistant message, got:\n%s", prompt)
+	}
+}
+
+func TestBuildSummarizationUserPrompt_AttachesUnscopedInvocationAfterIterationMessage(t *testing.T) {
+	turnID := "turn-1"
+	callID := "call-1"
+	msgs := []database.ChatMessage{
+		{UUIDModel: database.UUIDModel{ID: "placeholder"}, Role: "assistant", Content: "resposta final", TurnID: &turnID},
+		{UUIDModel: database.UUIDModel{ID: "assistant-iteration"}, Role: "assistant", Content: "vou buscar", TurnID: &turnID},
+	}
+
+	invResults := map[string]map[string]summarizationInvocationResult{
+		turnID: {
+			callID: {
+				Result:    "RESULT",
+				ToolName:  "files.read",
+				Iteration: 1,
+			},
+		},
+	}
+	prompt := buildSummarizationUserPrompt("", msgs, invResults, nil)
+
+	resultMarker := "Tool result (files.read): RESULT"
+	if got := strings.Count(prompt, resultMarker); got != 1 {
+		t.Fatalf("expected unscoped invocation result once, got %d occurrences in:\n%s", got, prompt)
+	}
+	resultIndex := strings.Index(prompt, resultMarker)
+	iterationIndex := strings.Index(prompt, "vou buscar")
+	if resultIndex < iterationIndex {
+		t.Fatalf("expected unscoped invocation result after iteration message, got:\n%s", prompt)
+	}
+	placeholderIndex := strings.Index(prompt, "resposta final")
+	if resultIndex < placeholderIndex {
+		t.Fatalf("expected unscoped invocation result not to attach to placeholder, got:\n%s", prompt)
+	}
+}
+
 func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 	makeProfile := func(contextWindow, maxTokens int) *profiles.Profile {
 		return &profiles.Profile{
@@ -108,7 +201,7 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 		turnID := "turn-1"
 		callID := "call-1"
 		toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"files.read","arguments":"{}"}}]`
-		msgs := []database.ChatMessage{ {
+		msgs := []database.ChatMessage{{
 			Role:      "assistant",
 			Content:   "ok",
 			ToolCalls: toolCalls,
@@ -118,7 +211,7 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 			turnID: {callID: strings.Repeat("x", 5000)}, // capped to 2000 chars in estimator => 500 tokens
 		}
 
-		if !shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, nil) {
+		if !shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", summarizationInvocationResultsFromStrings(invResults), nil) {
 			t.Fatal("expected summarization to trigger when hydrated tool result pushes estimate over budget")
 		}
 	})
@@ -138,8 +231,48 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 		}
 		fallback := collectSummarizationFallbackToolResults(msgs)
 
-		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, fallback) {
+		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", summarizationInvocationResultsFromStrings(invResults), fallback) {
 			t.Fatal("expected summarization NOT to trigger when fallback tool message already accounts for the result")
+		}
+	})
+
+	t.Run("does not double-count invocation-only results across assistant messages", func(t *testing.T) {
+		p := makeProfile(1100, 200) // budget = 1100 - 200 - 275 = 625 tokens
+		turnID := "turn-1"
+		callID := "call-1"
+		msgs := []database.ChatMessage{
+			{Role: "assistant", Content: "placeholder", TurnID: &turnID},
+			{Role: "assistant", Content: "resposta final", TurnID: &turnID},
+		}
+		invResults := map[string]map[string]string{
+			turnID: {callID: strings.Repeat("z", 2000)}, // 500 tokens; duplicated would exceed budget.
+		}
+
+		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", summarizationInvocationResultsFromStrings(invResults), nil) {
+			t.Fatal("expected summarization NOT to trigger when the same invocation result appears across assistant messages")
+		}
+	})
+
+	t.Run("triggers for unscoped invocation assigned to iteration message", func(t *testing.T) {
+		p := makeProfile(900, 200) // budget = 900 - 200 - 225 = 475 tokens
+		turnID := "turn-1"
+		callID := "call-1"
+		msgs := []database.ChatMessage{
+			{UUIDModel: database.UUIDModel{ID: "placeholder"}, Role: "assistant", Content: "resposta final", TurnID: &turnID},
+			{UUIDModel: database.UUIDModel{ID: "assistant-iteration"}, Role: "assistant", Content: "vou buscar", TurnID: &turnID},
+		}
+		invResults := map[string]map[string]summarizationInvocationResult{
+			turnID: {
+				callID: {
+					Result:    strings.Repeat("z", 2000), // 500 tokens; must be counted after assignment.
+					ToolName:  "files.read",
+					Iteration: 1,
+				},
+			},
+		}
+
+		if !shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, nil) {
+			t.Fatal("expected summarization to trigger after assigning unscoped invocation to iteration message")
 		}
 	})
 }
