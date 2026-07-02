@@ -11,6 +11,7 @@ import (
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
 	"assistente/internal/speech"
+	"assistente/internal/toolcatalog"
 	"assistente/internal/tools"
 	"context"
 	"fmt"
@@ -309,6 +310,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	controlPlaneToolNames := controlPlaneNamesFromPolicy(baseEffectiveToolPolicy)
 	if uc.loadedToolStore != nil && !disableTools {
 		loadedRuntimeTools := uc.loadedToolStore.Loaded(req.ConversationID, params.ProfileSlug, toolCatalogVisibleNames)
+		loadedRuntimeTools = availableLoadedRuntimeTools(ctx, loadedRuntimeTools)
 		if len(loadedRuntimeTools) > 0 {
 			runtimeTools = append(runtimeTools, loadedRuntimeTools...)
 			toolCfg.RuntimeTools = runtimeTools
@@ -462,6 +464,31 @@ func (uc *SendMessageUseCase) whisperTranscribeFunc() chat.TranscribeFunc {
 		}
 		return result.Text, nil
 	}
+}
+
+func availableLoadedRuntimeTools(ctx context.Context, names []string) []string {
+	if len(names) == 0 || database.DB() == nil {
+		return nil
+	}
+	entries, err := toolcatalog.NewDBRepository(database.DB()).ListTools(ctx, tools.ToolCatalogFilter{
+		NameIn:             names,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	})
+	if err != nil {
+		logging.Errorf(ctx, "core.usecases.send-message", "[SendMessage] falha ao revalidar tools carregadas: %v", err)
+		return nil
+	}
+	available := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		available[entry.Name] = struct{}{}
+	}
+	filtered := make([]string, 0, len(names))
+	for _, name := range names {
+		if _, ok := available[name]; ok {
+			filtered = append(filtered, name)
+		}
+	}
+	return filtered
 }
 
 func controlPlaneNamesFromPolicy(policy chat.EffectiveToolPolicy) []string {
