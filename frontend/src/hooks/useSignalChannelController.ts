@@ -223,7 +223,7 @@ export function useSignalChannelController({
     setSignalLinking(true);
     stopLinkPolling();
     try {
-      const qr = await SignalLink(signalForm.apiURL, t('common.chat.assistant'), apiToken);
+      const qr = await SignalLink(signalForm.apiURL, t('chat.assistant'), apiToken);
       setSignalLinkQR(qr);
       announce(t('channels.announce.qrGenerated'));
       startLinkPolling(Date.now());
