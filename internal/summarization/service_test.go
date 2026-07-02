@@ -124,6 +124,33 @@ func TestBuildSummarizationUserPrompt_DeduplicatesInvocationResultsPerTurnCall(t
 	}
 }
 
+func TestBuildSummarizationUserPrompt_ScopesInvocationResultsToAssistantMessage(t *testing.T) {
+	turnID := "turn-1"
+	callID := "call-1"
+	msgs := []database.ChatMessage{
+		{UUIDModel: database.UUIDModel{ID: "placeholder"}, Role: "assistant", Content: "resposta final", TurnID: &turnID},
+		{UUIDModel: database.UUIDModel{ID: "assistant-iteration"}, Role: "assistant", Content: "vou buscar", TurnID: &turnID},
+	}
+
+	invResults := map[string]map[string]summarizationInvocationResult{
+		turnID: {
+			callID: {
+				Result:             "RESULT",
+				AssistantMessageID: "assistant-iteration",
+			},
+		},
+	}
+	prompt := buildSummarizationUserPrompt("", msgs, invResults, nil)
+
+	resultMarker := "Tool result (call-1): RESULT"
+	if got := strings.Count(prompt, resultMarker); got != 1 {
+		t.Fatalf("expected scoped invocation result once, got %d occurrences in:\n%s", got, prompt)
+	}
+	if strings.Index(prompt, resultMarker) < strings.Index(prompt, "vou buscar") {
+		t.Fatalf("expected scoped invocation result after matching assistant message, got:\n%s", prompt)
+	}
+}
+
 func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 	makeProfile := func(contextWindow, maxTokens int) *profiles.Profile {
 		return &profiles.Profile{
@@ -149,7 +176,7 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 			turnID: {callID: strings.Repeat("x", 5000)}, // capped to 2000 chars in estimator => 500 tokens
 		}
 
-		if !shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, nil) {
+		if !shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", summarizationInvocationResultsFromStrings(invResults), nil) {
 			t.Fatal("expected summarization to trigger when hydrated tool result pushes estimate over budget")
 		}
 	})
@@ -169,7 +196,7 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 		}
 		fallback := collectSummarizationFallbackToolResults(msgs)
 
-		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, fallback) {
+		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", summarizationInvocationResultsFromStrings(invResults), fallback) {
 			t.Fatal("expected summarization NOT to trigger when fallback tool message already accounts for the result")
 		}
 	})
@@ -186,7 +213,7 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 			turnID: {callID: strings.Repeat("z", 2000)}, // 500 tokens; duplicated would exceed budget.
 		}
 
-		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, nil) {
+		if shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", summarizationInvocationResultsFromStrings(invResults), nil) {
 			t.Fatal("expected summarization NOT to trigger when the same invocation result appears across assistant messages")
 		}
 	})
