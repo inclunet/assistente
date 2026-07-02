@@ -143,9 +143,7 @@ export function ProfileToolsSection({
     }
     const enabledSet = new Set(enabledTools);
     for (const name of allNames) {
-      policy[name] = enabledSet.has(name) || CONTROL_PLANE_TOOLS.has(name)
-        ? TOOL_POLICY_PRELOADED
-        : TOOL_POLICY_DISABLED;
+      policy[name] = enabledSet.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
     }
     return policy;
   }, [allNames, enabledTools, toolPolicy]);
@@ -175,6 +173,7 @@ export function ProfileToolsSection({
 
   const handleSelectionChange = useCallback((newSelectedIds: Set<string | number>) => {
     if (newSelectedIds.size === allNames.length) {
+      if (selectedIds.size === allNames.length) return;
       setToolsState(allNames, TOOL_POLICY_PRELOADED);
       return;
     }
@@ -191,7 +190,7 @@ export function ProfileToolsSection({
       next[name] = newSelectedIds.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
     }
     commitToolPolicy(next);
-  }, [allNames, commitToolPolicy, effectiveToolPolicy, setToolsState]);
+  }, [allNames, commitToolPolicy, effectiveToolPolicy, selectedIds.size, setToolsState]);
 
   const handleSelectFiltered = useCallback(() => {
     if (!isFiltered) {
@@ -203,11 +202,15 @@ export function ProfileToolsSection({
 
   const handleDeselectFiltered = useCallback(() => {
     if (!isFiltered) {
-      setToolsState(allNames, TOOL_POLICY_DISABLED);
+      const next = { ...effectiveToolPolicy };
+      for (const name of allNames) {
+        next[name] = CONTROL_PLANE_TOOLS.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
+      }
+      commitToolPolicy(next);
       return;
     }
     setToolsState(filteredNames, TOOL_POLICY_DISABLED);
-  }, [isFiltered, allNames, filteredNames, setToolsState]);
+  }, [isFiltered, allNames, commitToolPolicy, effectiveToolPolicy, filteredNames, setToolsState]);
 
   const filteredToolNames = [...filteredNames];
   const allFilteredPreloaded = filteredToolNames.every(

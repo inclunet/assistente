@@ -204,7 +204,7 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByLabelText('Tool 2: Desabilitada')).toBeInTheDocument();
   });
 
-  it('mantém control-plane preloaded em perfil legado com enabledTools vazio', () => {
+  it('mantém control-plane disabled em perfil legado com enabledTools vazio', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -218,8 +218,8 @@ describe('ProfileToolsSection', () => {
         onChange={onChange}
       />
     );
-    expect(screen.getByLabelText('tool_catalog: Pré-carregada')).toBeInTheDocument();
-    expect(screen.getByLabelText('load_skill: Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('tool_catalog: Desabilitada')).toBeInTheDocument();
+    expect(screen.getByLabelText('load_skill: Desabilitada')).toBeInTheDocument();
     expect(screen.getByLabelText('read_file: Desabilitada')).toBeInTheDocument();
   });
 
@@ -350,6 +350,44 @@ describe('ProfileToolsSection', () => {
       load_skill: 'preloaded',
       read_file: 'disabled',
     });
+  });
+
+  it('preserva control-plane preloaded ao desabilitar tudo pelo botão global', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('tool_catalog', 'Tool catalog'),
+          tool('load_skill', 'Load skill'),
+          tool('read_file', 'Read file'),
+        ]}
+        enabledTools={null}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    fireEvent.click(screen.getByTestId('tools-deselect-all'));
+    expect(onChange).toHaveBeenCalledWith('tool_policy', {
+      tool_catalog: 'preloaded',
+      load_skill: 'preloaded',
+      read_file: 'disabled',
+    });
+  });
+
+  it('não promove tools sob demanda ao pressionar Ctrl+A quando todas já estão selecionadas', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={mockTools}
+        enabledTools={null}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: 'a', ctrlKey: true });
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('mostra badge com status da feature', () => {
