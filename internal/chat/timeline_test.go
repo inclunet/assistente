@@ -361,6 +361,40 @@ func TestConsolidateTimelineTurn_AttachesInvocationByAssistantMessageID(t *testi
 	}
 }
 
+func TestNormalizeInvocationToolCallsPreservesInputOrderWithinIteration(t *testing.T) {
+	normalized := normalizeInvocationToolCalls([]TurnSegmentToolCall{
+		{
+			ID:        "tool-z",
+			Type:      "function",
+			Iteration: 1,
+			Function:  TurnSegmentToolFunction{Name: "second", Arguments: "{}"},
+		},
+		{
+			ID:        "tool-a",
+			Type:      "function",
+			Iteration: 1,
+			Function:  TurnSegmentToolFunction{Name: "first", Arguments: "{}"},
+		},
+		{
+			ID:        "tool-later",
+			Type:      "function",
+			Iteration: 2,
+			Function:  TurnSegmentToolFunction{Name: "later", Arguments: "{}"},
+		},
+	}, nil)
+
+	if len(normalized) != 3 {
+		t.Fatalf("expected 3 normalized calls, got %+v", normalized)
+	}
+	got := []string{normalized[0].ID, normalized[1].ID, normalized[2].ID}
+	want := []string{"tool-z", "tool-a", "tool-later"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected order %v, got %v", want, got)
+		}
+	}
+}
+
 func TestConsolidateTimelineTurn_DoesNotPromoteIntermediateTextAsFinalContent(t *testing.T) {
 	turnID := "turn-1"
 	result := ConsolidateTimelineTurn([]database.ChatMessage{

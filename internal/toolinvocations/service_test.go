@@ -379,6 +379,67 @@ func TestBuildInvocationDisplayMetadataTruncatesArguments(t *testing.T) {
 	}
 }
 
+func TestBuildInvocationDisplayMetadataUsesCompactFallbackWithinLimit(t *testing.T) {
+	max := 64
+	metadata := buildInvocationDisplayMetadata(tools.ToolCall{
+		ID:   "call-display-compact",
+		Type: "function",
+		Function: tools.FunctionCall{
+			Name:      "mcp_" + strings.Repeat("server", 20) + "__" + strings.Repeat("tool", 20),
+			Arguments: `{"value":"` + strings.Repeat("a", 1024) + `"}`,
+		},
+	}, strings.Repeat("a", 1024), 1, 12, false, max)
+	if len(metadata) > max {
+		t.Fatalf("metadata size = %d, want <= %d: %s", len(metadata), max, string(metadata))
+	}
+	if !json.Valid(metadata) {
+		t.Fatalf("metadata should remain valid json: %s", string(metadata))
+	}
+}
+
+func TestBuildInvocationDisplayPayloadDetectsOnlyOfficialMCPBridgeNames(t *testing.T) {
+	tests := []struct {
+		name            string
+		wantOrigin      string
+		wantServerLabel string
+		wantName        string
+	}{
+		{
+			name:            "mcp_github__search_code",
+			wantOrigin:      "mcp_bridge",
+			wantServerLabel: "github",
+			wantName:        "search_code",
+		},
+		{
+			name:            "builtin__with_separator",
+			wantOrigin:      "builtin",
+			wantServerLabel: "",
+			wantName:        "builtin__with_separator",
+		},
+		{
+			name:            "mcp___missing_server",
+			wantOrigin:      "builtin",
+			wantServerLabel: "",
+			wantName:        "mcp___missing_server",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := buildInvocationDisplayPayload(tools.ToolCall{
+				Type: "function",
+				Function: tools.FunctionCall{
+					Name:      tt.name,
+					Arguments: "{}",
+				},
+			}, "{}", 1, 12, false, false, 0)
+			display, _ := payload["display"].(map[string]any)
+			if display["origin"] != tt.wantOrigin || display["server_label"] != tt.wantServerLabel || display["name"] != tt.wantName {
+				t.Fatalf("unexpected display payload: %#v", display)
+			}
+		})
+	}
+}
+
 func TestServicePersistsStatusesAndRetryable(t *testing.T) {
 	repo, userA, _ := setupRepositoryTest(t)
 	registry := tools.NewRegistry()

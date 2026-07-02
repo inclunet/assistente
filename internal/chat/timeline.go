@@ -221,10 +221,7 @@ func normalizeInvocationToolCalls(calls []TurnSegmentToolCall, toolResults map[s
 		normalized = append(normalized, call)
 	}
 	sort.SliceStable(normalized, func(i, j int) bool {
-		if normalized[i].Iteration != normalized[j].Iteration {
-			return normalized[i].Iteration < normalized[j].Iteration
-		}
-		return normalized[i].ID < normalized[j].ID
+		return normalized[i].Iteration < normalized[j].Iteration
 	})
 	return normalized
 }

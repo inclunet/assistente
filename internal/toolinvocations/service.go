@@ -762,7 +762,7 @@ func buildInvocationDisplayMetadata(call tools.ToolCall, arguments string, itera
 	basePayload := buildInvocationDisplayPayload(call, "", iteration, durationMs, external, true, origSize)
 	baseBytes, _ := json.Marshal(basePayload)
 	if len(baseBytes) >= maxBytes {
-		return baseBytes
+		return compactInvocationDisplayMetadata(origSize, maxBytes)
 	}
 
 	budget := maxBytes - len(baseBytes) - len(suffix) - 16
@@ -785,15 +785,48 @@ func buildInvocationDisplayMetadata(call tools.ToolCall, arguments string, itera
 	return baseBytes
 }
 
+func compactInvocationDisplayMetadata(originalSize int, maxBytes int) json.RawMessage {
+	candidates := []map[string]any{
+		{
+			"display": map[string]any{
+				"version":                        1,
+				"_metadata_truncated":            true,
+				"_arguments_truncated":           true,
+				"_arguments_original_size_bytes": originalSize,
+			},
+		},
+		{
+			"display": map[string]any{
+				"_metadata_truncated": true,
+			},
+		},
+	}
+	for _, candidate := range candidates {
+		metadata, _ := json.Marshal(candidate)
+		if maxBytes <= 0 || len(metadata) <= maxBytes {
+			return metadata
+		}
+	}
+	if maxBytes >= len([]byte(`{}`)) {
+		return json.RawMessage(`{}`)
+	}
+	return nil
+}
+
 func buildInvocationDisplayPayload(call tools.ToolCall, arguments string, iteration int, durationMs int64, external bool, truncated bool, originalSize int) map[string]any {
 	name := strings.TrimSpace(call.Function.Name)
 	displayName := name
 	origin := "builtin"
 	serverLabel := ""
-	if parts := strings.SplitN(name, "__", 2); len(parts) == 2 && strings.TrimSpace(parts[0]) != "" {
+	if strings.HasPrefix(name, "mcp_") {
+		idx := strings.Index(name, "__")
+		if idx > len("mcp_") && idx+2 < len(name) {
+			serverLabel = strings.TrimSpace(name[len("mcp_"):idx])
+			displayName = strings.TrimSpace(name[idx+2:])
+		}
+	}
+	if serverLabel != "" && displayName != "" {
 		origin = "mcp_bridge"
-		serverLabel = strings.TrimSpace(parts[0])
-		displayName = strings.TrimSpace(parts[1])
 	}
 	if displayName == "" {
 		displayName = name
