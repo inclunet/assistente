@@ -22,6 +22,14 @@
   border-bottom: 1px solid var(--border-default);
 }
 
+.history-page__load-status {
+  margin: 0;
+  padding: 0.5rem 1rem;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
 /* Célula de título com snippet */
 .history-page__title-cell {
   display: flex;

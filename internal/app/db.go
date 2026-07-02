@@ -15,6 +15,7 @@ import (
 
 // Re-exporta tipos do pacote database para manter compatibilidade
 type Conversation = database.Conversation
+type ConversationListResult = database.ConversationListResult
 type ChatMessage = database.ChatMessage
 
 // Re-exporta funções que não dependem de App
@@ -39,6 +40,22 @@ func (a *App) GetConversations() ([]Conversation, error) {
 		return nil, err
 	}
 	return database.GetConversationsWithContext(ctx)
+}
+
+func (a *App) GetConversationsPage(limit, offset int) (ConversationListResult, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return ConversationListResult{}, err
+	}
+	return database.GetConversationsPageWithContext(ctx, limit, offset)
+}
+
+func (a *App) GetConversationsByIDs(ids []string) ([]Conversation, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return database.GetConversationsByIDsWithContext(ctx, ids)
 }
 
 func (a *App) GetConversation(id string) (*Conversation, error) {

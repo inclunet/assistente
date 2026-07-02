@@ -12,7 +12,7 @@ import {
   FolderOpenOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ExportConversationsToFile, SearchConversationHistory } from '@wailsjs/go/app/App';
+import { GetConversationsByIDs, GetConversationsPage, DeleteConversation, UpdateConversation, ExportConversations, ExportConversationsToFile, SearchConversationHistory } from '@wailsjs/go/app/App';
 import { portability } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -49,6 +49,7 @@ interface Conversation {
 // Status de run de sub-agente considerados "ativos" — só nesses casos exibimos o
 // indicador de status ao lado do título (AEP-0068 Fase 5).
 const ACTIVE_SUBAGENT_STATUSES = new Set(['queued', 'running']);
+const HISTORY_PAGE_SIZE = 100;
 
 type RichExportFormat = 'html' | 'pdf' | 'md';
 
@@ -75,10 +76,14 @@ export default function HistoryPage() {
   const confirm = useConfirm();
   const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [totalConversations, setTotalConversations] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [autoFillRetryTick, setAutoFillRetryTick] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchResultIds, setSearchResultIds] = useState<Set<string> | null>(null);
+  const [searchConversations, setSearchConversations] = useState<Conversation[]>([]);
   const [snippetsMap, setSnippetsMap] = useState<Map<string, string>>(new Map());
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -86,51 +91,114 @@ export default function HistoryPage() {
   const [showSubAgents, setShowSubAgents] = useState(true);
   const [exportRequest, setExportRequest] = useState<ActiveRichExport | null>(null);
   const [exportOptions, setExportOptions] = useState<ContentExportOptions>(DEFAULT_EXPORT_OPTIONS);
+  const conversationsRef = useRef<Conversation[]>([]);
+  const totalConversationsRef = useRef(0);
+  const hasLoadedConversationsRef = useRef(false);
+  const loadingPageRef = useRef(false);
+  const loadRequestRef = useRef(0);
+  const autoFillRetryAttemptsRef = useRef(0);
+  const autoFillRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRequestRef = useRef(0);
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'history-page' });
   const moveTabToWorkspace = useWorkspaceStore(state => state.moveTabToWorkspace);
   const addWorkspaceTab = useWorkspaceStore(state => state.addTab);
   const workspaces = useWorkspaceStore(state => state.workspaces);
 
-  const loadConversations = useCallback(async () => {
-    setLoading(true);
+  const loadConversations = useCallback(async (options?: { reset?: boolean; announceProgress?: boolean; autoFill?: boolean }) => {
+    const reset = options?.reset ?? false;
+    if (loadingPageRef.current && !reset) return;
+    const offset = reset ? 0 : conversationsRef.current.length;
+    if (!reset && hasLoadedConversationsRef.current && offset >= totalConversationsRef.current) {
+      return;
+    }
+    const requestId = loadRequestRef.current + 1;
+    loadRequestRef.current = requestId;
+    loadingPageRef.current = true;
+    if (reset) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+      if (options?.announceProgress) {
+        announce(t('history.loadingMore'));
+      }
+    }
     try {
       // Listagem unificada (AEP-0068): GetConversations retorna conversas comuns
       // E sub-conversas de sub-agentes (kind=subagent), já ordenadas por recência,
-      // com latestStatus preenchido para sub-agentes. Uma única chamada.
-      const result = await GetConversations();
-      const mapped: Conversation[] = (result || []).map((c) => ({
-        id: c.id,
-        title: c.title || t('history.untitled', 'Sem título'),
-        createdAt: String(c.createdAt ?? ''),
-        updatedAt: String(c.updatedAt ?? ''),
-        message_count: c.message_count || 0,
-        isSubAgent: c.kind === 'subagent',
-        subAgentStatus: c.latestStatus || undefined,
-      }));
-      setConversations(mapped);
+      // com latestStatus preenchido para sub-agentes.
+      const result = await GetConversationsPage(HISTORY_PAGE_SIZE, offset);
+      if (loadRequestRef.current !== requestId) {
+        return;
+      }
+      const mapped = mapConversations(result.conversations || [], t);
+      const total = result.total || 0;
+      setTotalConversations(total);
+      totalConversationsRef.current = total;
+      hasLoadedConversationsRef.current = true;
+      if (options?.autoFill) {
+        autoFillRetryAttemptsRef.current = 0;
+      }
+      setConversations((previous) => {
+        const next = reset ? mapped : mergeConversations(previous, mapped);
+        conversationsRef.current = next;
+        return next;
+      });
+      if (!reset && options?.announceProgress && mapped.length > 0) {
+        announce(t('history.loadedMore', { count: mapped.length }));
+      }
     } catch (error) {
       logger.error('Erro ao carregar conversas:', error);
+      if (loadRequestRef.current === requestId && !reset && options?.announceProgress) {
+        announce(t('history.loadMoreFailed'), 'assertive');
+      }
+      if (loadRequestRef.current === requestId && options?.autoFill && autoFillRetryAttemptsRef.current < 3) {
+        autoFillRetryAttemptsRef.current += 1;
+        if (autoFillRetryTimerRef.current) {
+          clearTimeout(autoFillRetryTimerRef.current);
+        }
+        autoFillRetryTimerRef.current = setTimeout(() => {
+          autoFillRetryTimerRef.current = null;
+          setAutoFillRetryTick((value) => value + 1);
+        }, 1000);
+      }
     } finally {
-      setLoading(false);
+      if (loadRequestRef.current === requestId) {
+        loadingPageRef.current = false;
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
-  }, [t]);
+  }, [announce, t]);
 
   useEffect(() => {
-    void loadConversations();
+    void loadConversations({ reset: true });
   }, [loadConversations]);
 
+  useEffect(() => () => {
+    if (autoFillRetryTimerRef.current) {
+      clearTimeout(autoFillRetryTimerRef.current);
+    }
+  }, []);
+
   const doSearch = useCallback(async (query: string) => {
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
     if (!query.trim()) {
       setSearchResultIds(null);
+      setSearchConversations([]);
       setSnippetsMap(new Map());
       return;
     }
     setSearching(true);
     try {
       const results = await SearchConversationHistory(query, 50);
+      if (searchRequestRef.current !== requestId) {
+        return;
+      }
       if (!results || results.length === 0) {
         setSearchResultIds(new Set());
+        setSearchConversations([]);
         setSnippetsMap(new Map());
       } else {
         const ids = new Set<string>();
@@ -143,22 +211,36 @@ export default function HistoryPage() {
             snippets.set(r.conversation_id, snippet);
           }
         }
+        const orderedIds = Array.from(ids);
+        const searchRows = await GetConversationsByIDs(orderedIds);
+        if (searchRequestRef.current !== requestId) {
+          return;
+        }
         setSearchResultIds(ids);
+        setSearchConversations(mapConversations(orderConversationsByIds(searchRows || [], orderedIds), t));
         setSnippetsMap(snippets);
       }
     } catch (error) {
+      if (searchRequestRef.current !== requestId) {
+        return;
+      }
       logger.error('Erro na busca:', error);
       setSearchResultIds(new Set());
+      setSearchConversations([]);
       setSnippetsMap(new Map());
     } finally {
-      setSearching(false);
+      if (searchRequestRef.current === requestId) {
+        setSearching(false);
+      }
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     if (!searchTerm.trim()) {
+      searchRequestRef.current += 1;
       setSearchResultIds(null);
+      setSearchConversations([]);
       setSnippetsMap(new Map());
       return;
     }
@@ -202,7 +284,7 @@ export default function HistoryPage() {
   }, [announce, t]);
 
   const handleDeleteConversation = useCallback(async (conversationId: string) => {
-    const conv = conversations.find((c) => c.id === conversationId);
+    const conv = conversations.find((c) => c.id === conversationId) ?? searchConversations.find((c) => c.id === conversationId);
     const title = conv?.title || t('history.untitled');
     const ok = await confirm({
       title: t('history.confirmDeleteTitle'),
@@ -215,7 +297,16 @@ export default function HistoryPage() {
 
     try {
       await DeleteConversation(conversationId);
-      setConversations(prev => prev.filter(c => c.id !== conversationId));
+      const existed = conversationsRef.current.some((conversation) => conversation.id === conversationId) ||
+        searchConversations.some((conversation) => conversation.id === conversationId);
+      const nextConversations = conversationsRef.current.filter(c => c.id !== conversationId);
+      conversationsRef.current = nextConversations;
+      setConversations(nextConversations);
+      setSearchConversations((prev) => prev.filter(c => c.id !== conversationId));
+      if (existed) {
+        totalConversationsRef.current = Math.max(0, totalConversationsRef.current - 1);
+        setTotalConversations(totalConversationsRef.current);
+      }
       setSelectedIds(prev => {
         const newSet = new Set(prev);
         newSet.delete(conversationId);
@@ -224,7 +315,7 @@ export default function HistoryPage() {
     } catch (error) {
       logger.error('Erro ao deletar conversa:', error);
     }
-  }, [confirm, conversations, t]);
+  }, [confirm, conversations, searchConversations, t]);
 
   const handleDeleteSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
@@ -242,18 +333,31 @@ export default function HistoryPage() {
     try {
       await Promise.all(ids.map((id) => DeleteConversation(id)));
       const idSet = new Set(ids);
-      setConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
+      const knownDeleted = new Set([
+        ...conversationsRef.current.filter((conversation) => idSet.has(conversation.id)).map((conversation) => conversation.id),
+        ...searchConversations.filter((conversation) => idSet.has(conversation.id)).map((conversation) => conversation.id),
+      ]).size;
+      const previousLength = conversationsRef.current.length;
+      const nextConversations = conversationsRef.current.filter((c) => !idSet.has(c.id));
+      conversationsRef.current = nextConversations;
+      setConversations(nextConversations);
+      setSearchConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
+      totalConversationsRef.current = Math.max(0, totalConversationsRef.current - Math.max(knownDeleted, previousLength - nextConversations.length));
+      setTotalConversations(totalConversationsRef.current);
       setSelectedIds(new Set());
     } catch (error) {
       logger.error('Erro ao deletar conversas:', error);
     }
-  }, [confirm, selectedIds, t]);
+  }, [confirm, searchConversations, selectedIds, t]);
 
-  const getContextConversationIds = useCallback(() => (
-    selectedIds.size > 0
-      ? Array.from(selectedIds).map(String)
-      : (focusedRow && conversations.some((conversation) => conversation.id === focusedRow.id) ? [focusedRow.id] : [])
-  ), [conversations, focusedRow, selectedIds]);
+  const getContextConversationIds = useCallback(() => {
+    if (selectedIds.size > 0) {
+      return Array.from(selectedIds).map(String);
+    }
+    const source = searchResultIds === null ? conversations : searchConversations;
+    const visible = showSubAgents ? source : source.filter((conversation) => !conversation.isSubAgent);
+    return focusedRow && visible.some((conversation) => conversation.id === focusedRow.id) ? [focusedRow.id] : [];
+  }, [conversations, focusedRow, searchConversations, searchResultIds, selectedIds, showSubAgents]);
 
   const exportJsonByIds = useCallback(async (idsToExport: string[]) => {
     if (idsToExport.length === 0) {
@@ -334,14 +438,27 @@ export default function HistoryPage() {
   }, [focusedRow, handleDeleteConversation, handleDeleteSelected, selectedIds]);
 
   const displayItems = useMemo(() => {
-    const base = showSubAgents ? conversations : conversations.filter((c) => !c.isSubAgent);
+    const source = searchResultIds === null ? conversations : searchConversations;
+    const base = showSubAgents ? source : source.filter((c) => !c.isSubAgent);
     if (searchResultIds === null) return base;
     // A busca FTS (SearchConversationHistory) já cobre TODAS as conversas do
     // usuário — o índice de mensagens não filtra por kind, então sub-conversas
     // de sub-agentes entram nos resultados como qualquer outra. Busca uniforme:
     // o mesmo conjunto de ids vale para conversas comuns e sub-agentes.
     return base.filter((c) => searchResultIds.has(c.id));
-  }, [conversations, searchResultIds, showSubAgents]);
+  }, [conversations, searchConversations, searchResultIds, showSubAgents]);
+  const hasMoreConversations = conversations.length < totalConversations;
+
+  useEffect(() => {
+    if (searchResultIds !== null || showSubAgents || displayItems.length > 0 || !hasMoreConversations) {
+      autoFillRetryAttemptsRef.current = 0;
+      return;
+    }
+    if (autoFillRetryAttemptsRef.current >= 3) {
+      return;
+    }
+    void loadConversations({ autoFill: true });
+  }, [autoFillRetryTick, conversations.length, displayItems.length, hasMoreConversations, loadConversations, searchResultIds, showSubAgents]);
 
   // Reconcilia foco e seleção com o que está visível: ao ocultar sub-agentes
   // (toggle) ou aplicar busca, itens saem de displayItems. Sem isso, as ações
@@ -362,6 +479,11 @@ export default function HistoryPage() {
   const handleFocusChange = useCallback((item: Conversation | null) => {
     setFocusedRow(item);
   }, []);
+
+  const handleNearEnd = useCallback(() => {
+    if (searchResultIds !== null) return;
+    void loadConversations({ announceProgress: true });
+  }, [loadConversations, searchResultIds]);
 
   const handleDeleteRow = useCallback((item: Conversation) => {
     handleDeleteConversation(item.id);
@@ -555,11 +677,14 @@ export default function HistoryPage() {
     if (column.key === 'title') {
       try {
         await UpdateConversation(item.id, newValue, '');
-        setConversations(prev =>
-          prev.map(conv =>
-            conv.id === item.id ? { ...conv, title: newValue } : conv
-          )
+        const nextConversations = conversationsRef.current.map(conv =>
+          conv.id === item.id ? { ...conv, title: newValue } : conv
         );
+        conversationsRef.current = nextConversations;
+        setConversations(nextConversations);
+        setSearchConversations((prev) => prev.map(conv =>
+          conv.id === item.id ? { ...conv, title: newValue } : conv
+        ));
       } catch (error) {
         logger.error('Erro ao atualizar título:', error);
       }
@@ -672,8 +797,15 @@ export default function HistoryPage() {
         onSelectionChange={(ids: Set<string | number>) => setSelectedIds(new Set([...ids].map(String)))}
         onGridReady={handleGridReady}
         onFocusChange={handleFocusChange}
+        onNearEnd={handleNearEnd}
         getRowActions={getRowActions}
       />
+
+      {loadingMore && hasMoreConversations && (
+        <p className="history-page__load-status">
+          {t('history.loadingMore')}
+        </p>
+      )}
 
       <Modal
         isOpen={exportRequest !== null}
@@ -736,4 +868,45 @@ function exportFormatLabel(format: RichExportFormat, t: TFunction): string {
     default:
       return format;
   }
+}
+
+function mapConversations(rows: Array<{
+  id: string;
+  title?: string;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+  message_count?: number;
+  kind?: string;
+  latestStatus?: string;
+}>, t: TFunction): Conversation[] {
+  return rows.map((c) => ({
+    id: c.id,
+    title: c.title || t('history.untitled', 'Sem título'),
+    createdAt: String(c.createdAt ?? ''),
+    updatedAt: String(c.updatedAt ?? ''),
+    message_count: c.message_count || 0,
+    isSubAgent: c.kind === 'subagent',
+    subAgentStatus: c.latestStatus || undefined,
+  }));
+}
+
+function orderConversationsByIds<T extends { id: string }>(rows: T[], ids: string[]): T[] {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return ids.flatMap((id) => {
+    const row = byId.get(id);
+    return row ? [row] : [];
+  });
+}
+
+function mergeConversations(previous: Conversation[], nextPage: Conversation[]): Conversation[] {
+  if (nextPage.length === 0) return previous;
+  const seen = new Set(previous.map((conversation) => conversation.id));
+  const merged = [...previous];
+  for (const conversation of nextPage) {
+    if (!seen.has(conversation.id)) {
+      seen.add(conversation.id);
+      merged.push(conversation);
+    }
+  }
+  return merged;
 }

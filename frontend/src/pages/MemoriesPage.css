@@ -113,13 +113,11 @@
   padding: 8px 10px;
 }
 
-.memories-page__pagination {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+.memories-page__load-status {
+  margin: 0;
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
+  text-align: center;
 }
 
 .memories-page__modal-actions {

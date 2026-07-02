@@ -88,3 +88,60 @@ func TestGetConversationsUnifiedListing(t *testing.T) {
 		t.Fatalf("ordenação inesperada: %s, %s, %s", rows[0].ID, rows[1].ID, rows[2].ID)
 	}
 }
+
+func TestGetConversationsPageWithContext(t *testing.T) {
+	setupTestDB(t)
+	ctx := testCtx()
+
+	now := time.Now()
+	first := createSubConvForList(t, "Mais recente", "parent-1", now)
+	second := createTestConversation(t, "Intermediária")
+	if err := db.Model(&Conversation{}).Where("id = ?", second).Update("updated_at", now.Add(-time.Minute)).Error; err != nil {
+		t.Fatalf("ajustar updated_at second: %v", err)
+	}
+	third := createSubConvForList(t, "Mais antiga", "parent-2", now.Add(-2*time.Minute))
+
+	page, err := GetConversationsPageWithContext(ctx, 2, 1)
+	if err != nil {
+		t.Fatalf("GetConversationsPageWithContext: %v", err)
+	}
+	if page.Total != 3 {
+		t.Fatalf("total = %d, want 3", page.Total)
+	}
+	if len(page.Conversations) != 2 {
+		t.Fatalf("len page = %d, want 2 (%#v)", len(page.Conversations), page.Conversations)
+	}
+	if page.Conversations[0].ID != second || page.Conversations[1].ID != third {
+		t.Fatalf("pagina inesperada depois de %s: %#v", first, page.Conversations)
+	}
+}
+
+func TestGetConversationsByIDsWithContext(t *testing.T) {
+	setupTestDB(t)
+	ctx := testCtx()
+
+	first := createTestConversation(t, "Primeira")
+	second := createTestConversation(t, "Segunda")
+	otherUser, err := CreateConversationWithContext(WithUserID(testCtx(), "other-user"), "Outra", "")
+	if err != nil {
+		t.Fatalf("create other user: %v", err)
+	}
+
+	rows, err := GetConversationsByIDsWithContext(ctx, []string{second, otherUser.ID, first, second})
+	if err != nil {
+		t.Fatalf("GetConversationsByIDsWithContext: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("esperava 2 conversas escopadas, veio %d (%#v)", len(rows), rows)
+	}
+	got := map[string]bool{}
+	for _, row := range rows {
+		if row.UserID != testUserID {
+			t.Fatalf("vazou conversa de outro usuário: %#v", row)
+		}
+		got[row.ID] = true
+	}
+	if !got[first] || !got[second] || got[otherUser.ID] {
+		t.Fatalf("ids retornados inesperados: %#v", got)
+	}
+}

@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-const mockGetConversations = vi.fn();
+const mockGetConversationsPage = vi.fn();
+const mockGetConversationsByIDs = vi.fn();
 const mockDeleteConversation = vi.fn();
 const mockUpdateConversation = vi.fn();
 const mockExportConversations = vi.fn();
@@ -60,7 +61,8 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
-  GetConversations: () => mockGetConversations(),
+  GetConversationsByIDs: (ids: string[]) => mockGetConversationsByIDs(ids),
+  GetConversationsPage: (limit: number, offset: number) => mockGetConversationsPage(limit, offset),
   DeleteConversation: (id: string) => mockDeleteConversation(id),
   UpdateConversation: (id: string, title: string, snippet: string) => mockUpdateConversation(id, title, snippet),
   ExportConversations: (ids: string[]) => mockExportConversations(ids),
@@ -107,11 +109,26 @@ vi.mock('../store/workspaceStore', () => ({
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
-  Toolbar: ({ left, actions }: { left?: ReactNode; actions?: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> }) => {
+  Toolbar: ({
+    left,
+    actions,
+    searchValue,
+    onSearchChange,
+  }: {
+    left?: ReactNode;
+    actions?: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }>;
+    searchValue?: string;
+    onSearchChange?: (value: string) => void;
+  }) => {
     lastToolbarActions = actions ?? [];
     return (
       <div>
         {left}
+        <input
+          aria-label="history-search"
+          value={searchValue ?? ''}
+          onChange={(event) => onSearchChange?.(event.target.value)}
+        />
         {actions?.map((action) => (
           <button key={action.key} onClick={action.onClick} disabled={action.disabled}>
             {action.label}
@@ -128,11 +145,13 @@ vi.mock('../components/ui/DataGrid', () => ({
     onSelectionChange,
     onFocusChange,
     getRowActions,
+    onNearEnd,
   }: {
     items?: ConversationItem[];
     onSelectionChange?: (selected: Set<string | number>) => void;
     onFocusChange?: (item: ConversationItem | null) => void;
     getRowActions?: (item: ConversationItem) => Array<{ id: string; label?: string; action?: () => void }>;
+    onNearEnd?: () => void;
   }) => (
     <div>
       <button type="button" onClick={() => onSelectionChange?.(new Set(items?.map(i => i.id) ?? []))}>
@@ -149,6 +168,9 @@ vi.mock('../components/ui/DataGrid', () => ({
       </button>
       <button type="button" onClick={() => onFocusChange?.(items?.[1] ?? null)}>
         focus-second
+      </button>
+      <button type="button" onClick={() => onNearEnd?.()}>
+        near-end
       </button>
       {items?.map((item) => (
         <div key={item.id}>
@@ -188,7 +210,8 @@ import HistoryPage from './HistoryPage';
 describe('HistoryPage', { timeout: 60_000 }, () => {
   beforeEach(() => {
     mockLocationSearch = '';
-    mockGetConversations.mockResolvedValue(conversations);
+    mockGetConversationsPage.mockResolvedValue({ conversations, total: conversations.length });
+    mockGetConversationsByIDs.mockResolvedValue([]);
     mockDeleteConversation.mockResolvedValue(undefined);
     mockUpdateConversation.mockResolvedValue(undefined);
     mockExportConversations.mockResolvedValue('{}');
@@ -286,8 +309,9 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
 
   it('mescla sub-agentes na lista e o toggle os oculta', async () => {
     const user = userEvent.setup();
-    // Listagem unificada: GetConversations já retorna sub-agentes (kind=subagent).
-    mockGetConversations.mockResolvedValue([
+    // Listagem unificada: GetConversationsPage já retorna sub-agentes (kind=subagent).
+    mockGetConversationsPage.mockResolvedValue({
+      conversations: [
       {
         id: '01926b90-7a5a-7c4e-8d3f-0000000000aa',
         title: 'Sub-conversa A',
@@ -298,7 +322,9 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
         updatedAt: '2025-01-03T00:00:00Z',
       },
       ...conversations,
-    ]);
+      ],
+      total: conversations.length + 1,
+    });
 
     render(<HistoryPage />);
 
@@ -313,6 +339,164 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       expect(screen.queryByText('Sub-conversa A')).not.toBeInTheDocument();
     });
     expect(screen.getByText('Conversa 1')).toBeInTheDocument();
+  });
+
+  it('carrega mais conversas quando o grid chega perto do fim', async () => {
+    const user = userEvent.setup();
+    mockGetConversationsPage
+      .mockResolvedValueOnce({ conversations, total: 3 })
+      .mockResolvedValueOnce({
+        conversations: [{
+          id: '01926b90-7a5a-7c4e-8d3f-000000000003',
+          title: 'Conversa 3',
+          createdAt: '2024-12-31T00:00:00Z',
+          updatedAt: '2024-12-31T00:00:00Z',
+          message_count: 1,
+        }],
+        total: 3,
+      });
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Conversa 3')).toBeInTheDocument();
+    });
+    expect(mockGetConversationsPage).toHaveBeenNthCalledWith(1, 100, 0);
+    expect(mockGetConversationsPage).toHaveBeenNthCalledWith(2, 100, 2);
+  });
+
+  it('carrega outra pagina quando ocultar sub-agentes esvazia a grade', async () => {
+    const user = userEvent.setup();
+    mockGetConversationsPage
+      .mockResolvedValueOnce({
+        conversations: [{
+          id: '01926b90-7a5a-7c4e-8d3f-0000000000aa',
+          title: 'Sub-conversa única',
+          kind: 'subagent',
+          latestStatus: 'running',
+          message_count: 1,
+          createdAt: '2025-01-03T00:00:00Z',
+          updatedAt: '2025-01-03T00:00:00Z',
+        }],
+        total: 2,
+      })
+      .mockResolvedValueOnce({
+        conversations: [{
+          id: '01926b90-7a5a-7c4e-8d3f-000000000004',
+          title: 'Conversa normal seguinte',
+          message_count: 1,
+          createdAt: '2025-01-02T00:00:00Z',
+          updatedAt: '2025-01-02T00:00:00Z',
+        }],
+        total: 2,
+      });
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Sub-conversa única');
+    const toggle = lastToolbarActions.find((action) => action.key === 'toggle-subagents');
+    expect(toggle).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: toggle!.label }));
+
+    await waitFor(() => {
+      expect(mockGetConversationsPage).toHaveBeenNthCalledWith(2, 100, 1);
+      expect(screen.getByText('Conversa normal seguinte')).toBeInTheDocument();
+    });
+  });
+
+  it('renderiza resultado de busca fora da pagina inicial', async () => {
+    const user = userEvent.setup();
+    const olderConversation = {
+      id: '01926b90-7a5a-7c4e-8d3f-000000000099',
+      title: 'Conversa antiga encontrada',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+      message_count: 9,
+    };
+    mockSearchConversationHistory.mockResolvedValue([{
+      conversation_id: olderConversation.id,
+      snippet: 'resultado >>>especial<<<',
+    }]);
+    mockGetConversationsByIDs.mockResolvedValue([olderConversation]);
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.type(screen.getByLabelText('history-search'), 'especial');
+
+    await waitFor(() => {
+      expect(mockGetConversationsByIDs).toHaveBeenCalledWith([olderConversation.id]);
+      expect(screen.getByText('Conversa antiga encontrada')).toBeInTheDocument();
+    });
+  });
+
+  it('exporta conversa encontrada pela busca mesmo fora da pagina carregada', async () => {
+    const user = userEvent.setup();
+    const olderConversation = {
+      id: '01926b90-7a5a-7c4e-8d3f-000000000088',
+      title: 'Conversa exportável encontrada',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+      message_count: 3,
+    };
+    mockSearchConversationHistory.mockResolvedValue([{
+      conversation_id: olderConversation.id,
+      snippet: 'resultado exportável',
+    }]);
+    mockGetConversationsByIDs.mockResolvedValue([olderConversation]);
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.type(screen.getByLabelText('history-search'), 'exportável');
+    await screen.findByText('Conversa exportável encontrada');
+    await user.click(screen.getByRole('button', { name: 'focus-first' }));
+    await user.click(screen.getByRole('button', { name: 'Exportar JSON' }));
+
+    await waitFor(() => {
+      expect(mockExportConversations).toHaveBeenCalledWith([olderConversation.id]);
+    });
+  });
+
+  it('ignora resultado de busca que termina depois do campo ser limpo', async () => {
+    const user = userEvent.setup();
+    const staleConversation = {
+      id: '01926b90-7a5a-7c4e-8d3f-000000000077',
+      title: 'Busca obsoleta',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+      message_count: 1,
+    };
+    let resolveSearchRows: ((value: unknown) => void) | undefined;
+    mockSearchConversationHistory.mockResolvedValue([{
+      conversation_id: staleConversation.id,
+      snippet: 'resultado antigo',
+    }]);
+    mockGetConversationsByIDs.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveSearchRows = resolve;
+    }));
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    const search = screen.getByLabelText('history-search');
+    await user.type(search, 'antigo');
+    await waitFor(() => {
+      expect(mockGetConversationsByIDs).toHaveBeenCalledWith([staleConversation.id]);
+    });
+    await user.clear(search);
+
+    await act(async () => {
+      resolveSearchRows?.([staleConversation]);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Busca obsoleta')).not.toBeInTheDocument();
+      expect(screen.getByText('Conversa 1')).toBeInTheDocument();
+    });
   });
 
   it('nao mostra importacao administrativa no historico', async () => {

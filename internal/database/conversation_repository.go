@@ -175,12 +175,38 @@ func GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
 }
 
 func (r *ConversationRepository) GetConversationsWithContext(ctx context.Context) ([]Conversation, error) {
-	db := r.db
-	userID, err := RequireUserID(ctx)
+	result, err := r.GetConversationsPageWithContext(ctx, 0, 0)
 	if err != nil {
 		return nil, err
 	}
+	return result.Conversations, nil
+}
+
+type ConversationListResult struct {
+	Conversations []Conversation `json:"conversations"`
+	Total         int64          `json:"total"`
+}
+
+func GetConversationsPageWithContext(ctx context.Context, limit, offset int) (ConversationListResult, error) {
+	return NewConversationRepository(db).GetConversationsPageWithContext(ctx, limit, offset)
+}
+
+func GetConversationsByIDsWithContext(ctx context.Context, ids []string) ([]Conversation, error) {
+	return NewConversationRepository(db).GetConversationsByIDsWithContext(ctx, ids)
+}
+
+func (r *ConversationRepository) GetConversationsPageWithContext(ctx context.Context, limit, offset int) (ConversationListResult, error) {
+	db := r.db
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return ConversationListResult{}, err
+	}
 	var conversations []Conversation
+	var total int64
+	countQuery := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
+	if err := countQuery.Count(&total).Error; err != nil {
+		return ConversationListResult{}, err
+	}
 
 	// Listagem unificada (AEP-0068): inclui conversas comuns E sub-conversas de
 	// sub-agentes (kind=subagent) — são a mesma entidade do ponto de vista do
@@ -195,6 +221,58 @@ func (r *ConversationRepository) GetConversationsWithContext(ctx context.Context
 	// kind=subagent, então sem essa condição um run órfão poderia popular
 	// latest_status numa conversa comum e vazar o dado para o cliente.
 	query := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
+	query = query.
+		Select("conversations.*, COALESCE(msg_counts.count, 0) as message_count, COALESCE(latest_run.status, '') as latest_status").
+		Joins("LEFT JOIN (SELECT conversation_id, COUNT(*) as count FROM chat_messages GROUP BY conversation_id) as msg_counts ON msg_counts.conversation_id = conversations.id").
+		Joins(`LEFT JOIN (
+			SELECT child_conversation_id, status FROM (
+				SELECT child_conversation_id, status,
+				       ROW_NUMBER() OVER (PARTITION BY child_conversation_id ORDER BY turn_index DESC, created_at DESC, id DESC) AS rn
+				FROM sub_agent_runs
+				WHERE user_id = ?
+			) WHERE rn = 1
+		) as latest_run ON latest_run.child_conversation_id = conversations.id AND conversations.kind = 'subagent'`, userID).
+		Order("conversations.updated_at DESC")
+	if limit > 0 {
+		if limit > 500 {
+			limit = 500
+		}
+		if offset < 0 {
+			offset = 0
+		}
+		query = query.Limit(limit).Offset(offset)
+	}
+	err = query.Find(&conversations).Error
+
+	if err != nil {
+		return ConversationListResult{}, err
+	}
+
+	return ConversationListResult{Conversations: conversations, Total: total}, nil
+}
+
+func (r *ConversationRepository) GetConversationsByIDsWithContext(ctx context.Context, ids []string) ([]Conversation, error) {
+	db := r.db
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cleanIDs := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		cleanIDs = append(cleanIDs, id)
+	}
+	if len(cleanIDs) == 0 {
+		return []Conversation{}, nil
+	}
+
+	var conversations []Conversation
+	query := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
 	err = query.
 		Select("conversations.*, COALESCE(msg_counts.count, 0) as message_count, COALESCE(latest_run.status, '') as latest_status").
 		Joins("LEFT JOIN (SELECT conversation_id, COUNT(*) as count FROM chat_messages GROUP BY conversation_id) as msg_counts ON msg_counts.conversation_id = conversations.id").
@@ -206,13 +284,12 @@ func (r *ConversationRepository) GetConversationsWithContext(ctx context.Context
 				WHERE user_id = ?
 			) WHERE rn = 1
 		) as latest_run ON latest_run.child_conversation_id = conversations.id AND conversations.kind = 'subagent'`, userID).
+		Where("conversations.id IN ?", cleanIDs).
 		Order("conversations.updated_at DESC").
 		Find(&conversations).Error
-
 	if err != nil {
 		return nil, err
 	}
-
 	return conversations, nil
 }
 
