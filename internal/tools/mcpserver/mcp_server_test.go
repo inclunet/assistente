@@ -21,6 +21,7 @@ type fakeManager struct {
 	savedConfig  mcpmgr.ServerConfig
 	deletedSlug  string
 	duplicated   string
+	logLimit     int
 	connected    string
 	disconnected string
 	reconnected  string
@@ -98,6 +99,7 @@ func (m *fakeManager) GetLogs(slug string, limit int) ([]mcpmgr.MCPServerLog, er
 	if m.err != nil {
 		return nil, m.err
 	}
+	m.logLimit = limit
 	return append([]mcpmgr.MCPServerLog{}, m.logs[slug]...), nil
 }
 
@@ -436,6 +438,9 @@ func TestToolRuntimeActionsAndLogs(t *testing.T) {
 	}
 	if len(logs) != 1 || logs[0].Type != "connected" {
 		t.Fatalf("unexpected logs: %#v", logs)
+	}
+	if mgr.logLimit != 500 {
+		t.Fatalf("logs limit should cap at 500, got %d", mgr.logLimit)
 	}
 }
 

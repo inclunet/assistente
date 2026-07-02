@@ -495,8 +495,10 @@ func logs(mgr Manager, slug string, limit int) (tools.ToolResult, error) {
 	if slug == "" {
 		return tools.ToolResult{Content: "slug é obrigatório para listar logs MCP", IsError: true}, nil
 	}
-	if limit <= 0 || limit > 500 {
+	if limit <= 0 {
 		limit = 100
+	} else if limit > 500 {
+		limit = 500
 	}
 	entries, err := mgr.GetLogs(slug, limit)
 	if err != nil {
