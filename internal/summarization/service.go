@@ -106,6 +106,7 @@ func ShouldTriggerSummarization(
 
 type summarizationInvocationResult struct {
 	Result             string
+	ToolName           string
 	AssistantMessageID string
 }
 
@@ -141,6 +142,7 @@ func summarizationInvocationResultsFromDisplays(displays map[string][]toolinvoca
 			}
 			byCall[callID] = summarizationInvocationResult{
 				Result:             call.Result,
+				ToolName:           call.Name,
 				AssistantMessageID: call.AssistantMessageID,
 			}
 		}
@@ -273,7 +275,8 @@ func appendSummarizationInvocationResults(sb *strings.Builder, m chat.Message, i
 	}
 	sort.Strings(callIDs)
 	for _, callID := range callIDs {
-		res := strings.TrimSpace(byCall[callID].Result)
+		callResult := byCall[callID]
+		res := strings.TrimSpace(callResult.Result)
 		if res == "" {
 			continue
 		}
@@ -282,7 +285,11 @@ func appendSummarizationInvocationResults(sb *strings.Builder, m chat.Message, i
 		}
 		sb.WriteString("\n\n")
 		sb.WriteString("Tool result (")
-		sb.WriteString(callID)
+		name := strings.TrimSpace(callResult.ToolName)
+		if name == "" {
+			name = callID
+		}
+		sb.WriteString(name)
 		sb.WriteString("): ")
 		sb.WriteString(res)
 		if skip != nil {

@@ -136,13 +136,14 @@ func TestBuildSummarizationUserPrompt_ScopesInvocationResultsToAssistantMessage(
 		turnID: {
 			callID: {
 				Result:             "RESULT",
+				ToolName:           "files.read",
 				AssistantMessageID: "assistant-iteration",
 			},
 		},
 	}
 	prompt := buildSummarizationUserPrompt("", msgs, invResults, nil)
 
-	resultMarker := "Tool result (call-1): RESULT"
+	resultMarker := "Tool result (files.read): RESULT"
 	if got := strings.Count(prompt, resultMarker); got != 1 {
 		t.Fatalf("expected scoped invocation result once, got %d occurrences in:\n%s", got, prompt)
 	}

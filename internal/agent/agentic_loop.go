@@ -280,7 +280,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] conversa %s deletada — abortando", r.conversationID)
 			return ctx, true
 		}
-		logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar assistant com tool_calls: %v", err)
+		logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar mensagem assistant intermediária de tool invocation: %v", err)
 	} else if assistantToolMsg != nil {
 		r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.turnID, execResults, assistantToolMsg.ID)
 	}
