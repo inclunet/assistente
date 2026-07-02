@@ -158,6 +158,66 @@ func TestCatalogToolPaginatesAfterFirstPage(t *testing.T) {
 	}
 }
 
+func TestCatalogToolFiltersByProfileVisibleNames(t *testing.T) {
+	store := &fakeCatalogToolStore{
+		entries: []ToolCatalogEntry{
+			{Name: "read_file", DisplayName: "read_file", Origin: ToolOriginBuiltin, AvailabilityStatus: ToolAvailabilityAvailable},
+			{Name: "write_file", DisplayName: "write_file", Origin: ToolOriginBuiltin, AvailabilityStatus: ToolAvailabilityAvailable},
+		},
+	}
+	ctx := WithToolCatalogVisibleNames(context.Background(), []string{"read_file"})
+
+	result, err := NewCatalogTool(store).Execute(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", result.Content)
+	}
+	if len(store.filter.NameIn) != 1 || store.filter.NameIn[0] != "read_file" {
+		t.Fatalf("expected NameIn filter from profile visibility, got %#v", store.filter.NameIn)
+	}
+
+	var payload struct {
+		SelectedTools []string `json:"selected_tools"`
+		Count         int      `json:"count"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Count != 1 || len(payload.SelectedTools) != 1 || payload.SelectedTools[0] != "read_file" {
+		t.Fatalf("unexpected filtered response: %#v", payload)
+	}
+}
+
+func TestCatalogToolEmptyVisibleNamesReturnsNoTools(t *testing.T) {
+	store := &fakeCatalogToolStore{
+		entries: []ToolCatalogEntry{
+			{Name: "read_file", DisplayName: "read_file", Origin: ToolOriginBuiltin, AvailabilityStatus: ToolAvailabilityAvailable},
+		},
+	}
+	ctx := WithToolCatalogVisibleNames(context.Background(), []string{})
+
+	result, err := NewCatalogTool(store).Execute(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", result.Content)
+	}
+
+	var payload struct {
+		SelectedTools []string `json:"selected_tools"`
+		Count         int      `json:"count"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Count != 0 || len(payload.SelectedTools) != 0 {
+		t.Fatalf("expected no visible tools, got %#v", payload)
+	}
+}
+
 func TestCatalogToolErrorsArePortuguese(t *testing.T) {
 	result, err := NewCatalogTool(nil).Execute(context.Background(), nil)
 	if err != nil {

@@ -90,7 +90,7 @@ func dedupToolDefs(defs []llm.ToolDefinition) []llm.ToolDefinition {
 // buildPlannerCandidates monta as candidatas neutras do planner a partir das
 // tool definitions e dos metadados de catálogo (origem/pacote) do registry.
 func (p *ToolSelectionPolicy) buildPlannerCandidates(defs []llm.ToolDefinition, cfg ProfileToolConfig) []toolcatalog.ToolCandidate {
-	pinned := pinnedToolSet(cfg.EnabledTools)
+	pinned := pinnedToolSet(p.ResolveEffectiveToolPolicy(cfg).PreloadedNames())
 	cands := make([]toolcatalog.ToolCandidate, 0, len(defs))
 	for _, d := range defs {
 		cands = append(cands, p.plannerCandidate(d, pinned))
@@ -128,7 +128,7 @@ func (p *ToolSelectionPolicy) plannerCandidate(d llm.ToolDefinition, pinned map[
 // couberam, na ordem de entrada). Com budget ilimitado (default), o resultado é
 // idêntico ao append determinístico anterior (ativas + novas deduplicadas).
 func (p *ToolSelectionPolicy) planAccumulatedToolDefs(active, newDefs []llm.ToolDefinition, cfg ProfileToolConfig) []llm.ToolDefinition {
-	pinned := pinnedToolSet(cfg.EnabledTools)
+	pinned := pinnedToolSet(p.ResolveEffectiveToolPolicy(cfg).PreloadedNames())
 
 	activeNames := make(map[string]struct{}, len(active))
 	for _, d := range active {

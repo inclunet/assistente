@@ -113,6 +113,13 @@ func (r *DBRepository) ListTools(ctx context.Context, filter tools.ToolCatalogFi
 	}
 	query := r.db.WithContext(ctx).
 		Where("((origin = ? AND (user_id IS NULL OR user_id = '')) OR user_id = ?)", tools.ToolOriginBuiltin, userID)
+	if filter.NameIn != nil {
+		names := normalizeToolNameFilter(filter.NameIn)
+		if len(names) == 0 {
+			return []tools.ToolCatalogEntry{}, nil
+		}
+		query = query.Where("name IN ?", names)
+	}
 	if filter.Origin != "" {
 		query = query.Where("origin = ?", filter.Origin)
 	}
@@ -155,6 +162,23 @@ func (r *DBRepository) ListTools(ctx context.Context, filter tools.ToolCatalogFi
 		result = append(result, entry)
 	}
 	return result, nil
+}
+
+func normalizeToolNameFilter(names []string) []string {
+	out := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }
 
 func (r *DBRepository) MarkServerToolsUnavailable(ctx context.Context, serverID string, seenNames []string, reason string) (int, error) {

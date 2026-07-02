@@ -35,12 +35,16 @@ func NewToolSelectionPolicy(registry *tools.Registry) *ToolSelectionPolicy {
 }
 
 // ProfileToolConfig descreve a configuração de perfil/turno que governa a
-// seleção. Semântica de EnabledTools:
+// seleção. Semântica legada de EnabledTools:
 //   - nil   → todas as tools (gateado pelo catálogo quando ele existe no registry);
 //   - []    → seleção explícita de zero tools (tool calling desligado);
 //   - lista → allowlist explícita do perfil.
+//
+// ToolPolicy, quando presente, representa a política tri-state nova da AEP-0081
+// por nome de tool: disabled, on_demand ou preloaded.
 type ProfileToolConfig struct {
 	EnabledTools []string
+	ToolPolicy   map[string]string
 	DisableTools bool
 	// NativeMCP é o override tri-state de MCP nativo do perfil ativo (AEP-0021):
 	// nil=auto otimista, true=forçar nativo (se capaz), false=forçar adapter.
@@ -65,7 +69,7 @@ type ProfileToolConfig struct {
 // InitialEnabledToolNames resolve os nomes de tools habilitadas para o início do
 // turno (perfil + runtime tools), antes de qualquer expansão dinâmica.
 func (p *ToolSelectionPolicy) InitialEnabledToolNames(cfg ProfileToolConfig) []string {
-	return p.resolveInitialEnabledToolsWithRuntime(cfg.EnabledTools, cfg.DisableTools, cfg.RuntimeTools)
+	return p.ResolveEffectiveToolPolicy(cfg).PreloadedNames()
 }
 
 // rawInitialToolDefs monta as tool definitions iniciais do turno SEM aplicar o
@@ -73,7 +77,7 @@ func (p *ToolSelectionPolicy) InitialEnabledToolNames(cfg ProfileToolConfig) []s
 // o budget precisa ser aplicado ao conjunto FINAL de cada caminho, e não antes
 // da remoção das bridges servidas via MCP nativo.
 func (p *ToolSelectionPolicy) rawInitialToolDefs(cfg ProfileToolConfig) []llm.ToolDefinition {
-	initial := p.resolveInitialEnabledToolsWithRuntime(cfg.EnabledTools, cfg.DisableTools, cfg.RuntimeTools)
+	initial := p.ResolveEffectiveToolPolicy(cfg).PreloadedNames()
 	return p.buildLLMToolDefs(initial, cfg.DisableTools)
 }
 
@@ -107,7 +111,7 @@ func (p *ToolSelectionPolicy) PlanTurnToolDefs(streamer llm.ChatProvider, mcpMgr
 	// Adapter: bridges contam no budget (são enviadas como function schemas).
 	adapterDefs = p.applyPlanner(raw, cfg, "adapter")
 	// Nativo: remove as bridges nativas ANTES de orçar (passthrough não consome budget).
-	nativeStreamer, reduced := applyNativeMCP(streamer, raw, mcpMgr, cfg.EnabledTools, cfg.DisableTools, cfg.NativeMCP)
+	nativeStreamer, reduced := applyNativeMCP(streamer, raw, mcpMgr, p.ResolveEffectiveToolPolicy(cfg).NativePreloadedAllowlist(), cfg.DisableTools, cfg.NativeMCP)
 	nativeDefs = p.applyPlanner(reduced, cfg, "nativo")
 	return nativeStreamer, nativeDefs, adapterDefs
 }
@@ -117,7 +121,7 @@ func (p *ToolSelectionPolicy) PlanTurnToolDefs(streamer llm.ChatProvider, mcpMgr
 // toolDefs. Sem efeito quando disableTools, sem manager, provider incapaz ou
 // override=false.
 func (p *ToolSelectionPolicy) ApplyNativeMCP(streamer llm.ChatProvider, toolDefs []llm.ToolDefinition, mcpMgr NativeMCPManager, cfg ProfileToolConfig) (llm.ChatProvider, []llm.ToolDefinition) {
-	return applyNativeMCP(streamer, toolDefs, mcpMgr, cfg.EnabledTools, cfg.DisableTools, cfg.NativeMCP)
+	return applyNativeMCP(streamer, toolDefs, mcpMgr, p.ResolveEffectiveToolPolicy(cfg).NativePreloadedAllowlist(), cfg.DisableTools, cfg.NativeMCP)
 }
 
 // ResolveExpandedToolDefs é o ponto único da EXPANSÃO DINÂMICA: dada a lista de
@@ -134,7 +138,7 @@ func (p *ToolSelectionPolicy) ApplyNativeMCP(streamer llm.ChatProvider, toolDefs
 // entram no orçamento remanescente. O loop agêntico passa aqui as activeToolDefs
 // correntes e usa o retorno como novo conjunto acumulado.
 func (p *ToolSelectionPolicy) ResolveExpandedToolDefs(streamer llm.ChatProvider, mcpMgr NativeMCPManager, active []llm.ToolDefinition, names []string, cfg ProfileToolConfig) []llm.ToolDefinition {
-	names = p.filterExpandedToolNames(names, cfg.EnabledTools, cfg.DisableTools)
+	names = p.filterExpandedToolNames(names, cfg)
 	// O filtro nativo já remove aqui as bridges servidas via passthrough, então o
 	// planner orça apenas os schemas realmente enviados como função.
 	names = filterToolNamesForNativeMCP(streamer, mcpMgr, names, cfg.DisableTools, cfg.NativeMCP)
@@ -256,12 +260,20 @@ func (p *ToolSelectionPolicy) buildLLMToolDefsByNames(names []string, disableToo
 // allowlist do perfil e — quando o perfil não fixa tools (enabledTools nil) —
 // remove as tools opt-in (que só entram via seleção explícita). Antes vivia como
 // helper privado no use case de envio.
-func (p *ToolSelectionPolicy) filterExpandedToolNames(names, enabledTools []string, disableTools bool) []string {
-	names = filterToolNamesByEnabledTools(names, enabledTools, disableTools)
-	if enabledTools == nil && p.registry != nil {
-		names = p.registry.FilterOutOptInNames(names)
+func (p *ToolSelectionPolicy) filterExpandedToolNames(names []string, cfg ProfileToolConfig) []string {
+	if cfg.DisableTools || len(names) == 0 {
+		return nil
 	}
-	return names
+	effective := p.ResolveEffectiveToolPolicy(cfg)
+	filtered := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" || !effective.AllowsRuntimeLoad(name) {
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	return filtered
 }
 
 // ---------------------------------------------------------------------------
