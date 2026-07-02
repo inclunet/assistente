@@ -252,6 +252,29 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 			t.Fatal("expected summarization NOT to trigger when the same invocation result appears across assistant messages")
 		}
 	})
+
+	t.Run("triggers for unscoped invocation assigned to iteration message", func(t *testing.T) {
+		p := makeProfile(900, 200) // budget = 900 - 200 - 225 = 475 tokens
+		turnID := "turn-1"
+		callID := "call-1"
+		msgs := []database.ChatMessage{
+			{UUIDModel: database.UUIDModel{ID: "placeholder"}, Role: "assistant", Content: "resposta final", TurnID: &turnID},
+			{UUIDModel: database.UUIDModel{ID: "assistant-iteration"}, Role: "assistant", Content: "vou buscar", TurnID: &turnID},
+		}
+		invResults := map[string]map[string]summarizationInvocationResult{
+			turnID: {
+				callID: {
+					Result:    strings.Repeat("z", 2000), // 500 tokens; must be counted after assignment.
+					ToolName:  "files.read",
+					Iteration: 1,
+				},
+			},
+		}
+
+		if !shouldTriggerSummarizationWithHydratedToolResults(p, msgs, "", invResults, nil) {
+			t.Fatal("expected summarization to trigger after assigning unscoped invocation to iteration message")
+		}
+	})
 }
 
 func TestShouldTriggerSummarization(t *testing.T) {

@@ -753,6 +753,7 @@ func shouldTriggerSummarizationWithHydratedToolResults(
 		estimated += EstimateTokens(existingSummary)
 	}
 	// Soma somente resultados que serão adicionados como "Tool result (...)".
+	invocationResults = assignUnscopedSummarizationInvocationResults(contextMessages, invocationResults)
 	estimated += estimateHydratedToolResultTokens(contextMessages, invocationResults, fallbackResults)
 
 	if estimated > budget {
