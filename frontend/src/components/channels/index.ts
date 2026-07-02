@@ -7,3 +7,10 @@ export {
   ChannelStoredCredentialActions,
   ChannelVaultFields,
 } from './ChannelCommonFields';
+export type {
+  SignalConnectionMode,
+  SignalForm,
+  SignalRegisterStep,
+  SlackForm,
+  TelegramForm,
+} from './channelTypes';

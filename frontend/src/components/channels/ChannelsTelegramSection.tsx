@@ -5,14 +5,7 @@ import {
   ChannelLimitsProfileFields,
   ChannelVaultFields,
 } from './ChannelCommonFields';
-
-interface TelegramForm {
-  enabled: boolean;
-  botToken: string;
-  profile: string;
-  maxHistory: number;
-  maxContacts: number;
-}
+import type { TelegramForm } from './channelTypes';
 
 interface ChannelsTelegramSectionProps {
   form: TelegramForm;
