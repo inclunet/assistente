@@ -104,38 +104,18 @@ func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []dat
 	}
 
 	turnIDs := chat.CollectTurnIDsWithToolCalls(messages)
-	invocationToolResults := loadChatToolInvocationResultsForTurnIDs(ctx, turnIDs)
 	invocationToolCalls := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
+	invocationToolResults := toolInvocationResultsFromTurnSegments(invocationToolCalls)
 	nodes := chat.BuildNodesWithTimelineConsolidation(messages, parentID, map[string]int{}, invocationToolResults, invocationToolCalls)
 	return assignMessageNodeChildCounts(ctx, nodes)
 }
 
 func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
 	turnIDs := chat.CollectTurnIDsWithToolCalls(messages)
-	invocationToolResults := loadChatToolInvocationResultsForTurnIDs(ctx, turnIDs)
 	invocationToolCalls := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
+	invocationToolResults := toolInvocationResultsFromTurnSegments(invocationToolCalls)
 	nodes := chat.BuildTimelineMessageNodes(items, messages, parentID, map[string]int{}, invocationToolResults, invocationToolCalls)
 	return assignMessageNodeChildCounts(ctx, nodes)
-}
-
-func loadChatToolInvocationResultsForTurnIDs(ctx context.Context, turnIDs []string) map[string]map[string]string {
-	userID, err := database.RequireUserID(ctx)
-	if err != nil {
-		return map[string]map[string]string{}
-	}
-	return loadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
-}
-
-func loadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID string, turnIDs []string) map[string]map[string]string {
-	if len(turnIDs) == 0 {
-		return map[string]map[string]string{}
-	}
-	results, err := toolinvocations.LoadChatToolInvocationResultsForTurnIDsWithUser(ctx, userID, turnIDs)
-	if err != nil {
-		logging.Errorf(ctx, "app.db", "[Chat] load tool_invocations results failed: %v", err)
-		return map[string]map[string]string{}
-	}
-	return results
 }
 
 func loadChatToolInvocationDisplaysForTurnIDs(ctx context.Context, turnIDs []string) map[string][]chat.TurnSegmentToolCall {
@@ -152,6 +132,28 @@ func loadChatToolInvocationDisplaysForTurnIDs(ctx context.Context, turnIDs []str
 		return map[string][]chat.TurnSegmentToolCall{}
 	}
 	return toolInvocationDisplaysToTurnSegments(results)
+}
+
+func toolInvocationResultsFromTurnSegments(callsByTurn map[string][]chat.TurnSegmentToolCall) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(callsByTurn))
+	for turnID, calls := range callsByTurn {
+		for _, call := range calls {
+			callID := strings.TrimSpace(call.ID)
+			if callID == "" {
+				continue
+			}
+			byCall := out[turnID]
+			if byCall == nil {
+				byCall = map[string]string{}
+				out[turnID] = byCall
+			}
+			if _, ok := byCall[callID]; ok {
+				continue
+			}
+			byCall[callID] = call.Result
+		}
+	}
+	return out
 }
 
 func toolInvocationDisplaysToTurnSegments(displays map[string][]toolinvocations.ChatToolInvocationDisplay) map[string][]chat.TurnSegmentToolCall {

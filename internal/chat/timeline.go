@@ -673,6 +673,8 @@ func CollectTurnIDsWithToolCalls(messages []Message) []string {
 		if msg.TurnID == nil {
 			continue
 		}
+		// Assistant/tool turns without legacy tool_calls are still candidates for
+		// hydration from tool_invocations in the L3-free message path.
 		if msg.Role == "user" || msg.Role == "system" {
 			continue
 		}
