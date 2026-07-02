@@ -421,6 +421,35 @@ func TestToolRejectsInvalidActionCombinations(t *testing.T) {
 	}
 }
 
+func TestToolRejectsInvalidSlugBeforeManagerOperations(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		args json.RawMessage
+	}{
+		{name: "space", args: json.RawMessage(`{"action":"get","slug":"bad slug"}`)},
+		{name: "reserved separator", args: json.RawMessage(`{"slug":"bad__slug","name":"Bad","transport":"stdio","command":"npx"}`)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr := &fakeManager{
+				configs: map[string]mcpmgr.ServerConfig{
+					"bad__slug": {Slug: "bad__slug", Name: "Bad", Transport: mcpmgr.TransportStdio, Command: "npx"},
+				},
+			}
+
+			result, err := New(mgr).Execute(context.Background(), tt.args)
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if !result.IsError || !strings.Contains(result.Content, "slug MCP inválido") {
+				t.Fatalf("expected invalid slug error, got %#v", result)
+			}
+			if mgr.savedSlug != "" || mgr.deletedSlug != "" || mgr.duplicated != "" || mgr.connected != "" {
+				t.Fatalf("invalid slug should not call write/runtime manager methods: %#v", mgr)
+			}
+		})
+	}
+}
+
 func TestToolCreateRejectsExistingSlug(t *testing.T) {
 	mgr := &fakeManager{
 		configs: map[string]mcpmgr.ServerConfig{

@@ -96,7 +96,7 @@ func (t *Tool) Parameters() json.RawMessage {
   "type": "object",
   "properties": {
     "action": {"type": "string", "enum": ["list", "get", "create", "update", "delete", "duplicate", "connect", "disconnect", "reconnect", "reload", "logs"], "description": "Operation to perform. When omitted, no slug lists servers; slug without configuration fields reads server details; slug plus configuration fields infers create for a missing server or update for an existing server."},
-    "slug": {"type": "string", "description": "User-scoped MCP server slug. Required for get/update/delete/duplicate/connect/disconnect/reconnect/logs. For create, this is the new slug."},
+    "slug": {"type": "string", "pattern": "^(?!.*__)[A-Za-z0-9_-]+$", "description": "User-scoped MCP server slug. Required for get/update/delete/duplicate/connect/disconnect/reconnect/logs. For create, this is the new slug. Use only letters, numbers, underscore or hyphen; the substring __ is reserved for MCP bridge tool names."},
     "new_slug": {"type": "string", "description": "Reserved for future explicit duplicate target slugs. The current backend generates copy slugs; do not use unless supported by the backend."},
     "limit": {"type": "integer", "description": "Log limit for action=logs. Defaults to 100 and caps at 500.", "minimum": 1, "maximum": 500},
     "name": {"type": "string", "description": "Display name. Required when creating."},
@@ -135,6 +135,9 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	}
 	action := strings.ToLower(strings.TrimSpace(req.Action))
 	slug := strings.TrimSpace(req.Slug)
+	if slug != "" && !validServerSlug(slug) {
+		return tools.ToolResult{Content: fmt.Sprintf("slug MCP inválido %q: use apenas letras, números, '_' ou '-' e não use '__'", slug), IsError: true}, nil
+	}
 	if action == "" {
 		if slug == "" {
 			action = "list"
@@ -211,6 +214,19 @@ func (p request) hasWriteFields() bool {
 		}
 	}
 	return false
+}
+
+func validServerSlug(slug string) bool {
+	if slug == "" || strings.Contains(slug, "__") {
+		return false
+	}
+	for _, r := range slug {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (t *Tool) manager() Manager {
