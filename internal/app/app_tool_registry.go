@@ -17,6 +17,7 @@ import (
 	"assistente/internal/tools/filesystem"
 	"assistente/internal/tools/history"
 	jobtool "assistente/internal/tools/job"
+	mcpservertool "assistente/internal/tools/mcpserver"
 	memorytool "assistente/internal/tools/memory"
 	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
@@ -289,6 +290,12 @@ func (a *App) initToolRegistry() {
 	}
 	a.toolRegistry.MustRegisterDiscoverableOptIn(jobtool.NewJobWithProvider(jobMgr))
 	a.toolRegistry.MustRegisterDiscoverableOptIn(jobtool.NewPipelineWithProvider(jobMgr))
+	a.toolRegistry.MustRegisterDiscoverableOptIn(mcpservertool.NewWithProvider(func() mcpservertool.Manager {
+		if a.mcpMgr == nil {
+			return nil
+		}
+		return a.mcpMgr
+	}))
 
 	// Sub-agentes (AEP-0068): opt-in para não inflar o payload padrão, mas
 	// descobrível na UI/catálogo. O gate de profundidade é o próprio profile —
