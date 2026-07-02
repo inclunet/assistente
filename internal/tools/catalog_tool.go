@@ -357,7 +357,7 @@ func loadedToolChangeNames(changes []LoadedToolChange) []string {
 func catalogToolRejections(changes []LoadedToolChange) []catalogToolRejection {
 	rejections := make([]catalogToolRejection, 0, len(changes))
 	for _, change := range changes {
-		rejections = append(rejections, catalogToolRejection{Name: change.Name, Reason: change.Reason})
+		rejections = append(rejections, catalogToolRejection(change))
 	}
 	return rejections
 }
