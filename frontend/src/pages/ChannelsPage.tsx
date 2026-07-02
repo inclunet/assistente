@@ -594,7 +594,7 @@ export default function ChannelsPage() {
       onToggleVault={setTelegramUseVault}
       credentialStored={Boolean(credentialSummaries[channelCredentialPattern('telegram', 'bot_token')])}
       credentialMasked={credentialSummaries[channelCredentialPattern('telegram', 'bot_token')]?.masked || ''}
-      onRemoveCredential={() => handleRemoveCredential(channelCredentialPattern('telegram', 'bot_token'), 'Telegram Bot Token')}
+      onRemoveCredential={() => handleRemoveCredential(channelCredentialPattern('telegram', 'bot_token'), t('channels.telegram.botToken'))}
     />
   );
 
@@ -609,7 +609,7 @@ export default function ChannelsPage() {
       onToggleVault={setSignalUseVault}
       tokenStored={Boolean(credentialSummaries[channelCredentialPattern('signal', 'api_token')])}
       tokenMasked={credentialSummaries[channelCredentialPattern('signal', 'api_token')]?.masked || ''}
-      onRemoveToken={() => handleRemoveCredential(channelCredentialPattern('signal', 'api_token'), 'Signal API Token')}
+      onRemoveToken={() => handleRemoveCredential(channelCredentialPattern('signal', 'api_token'), t('channels.signal.apiToken'))}
       apiReady={signalAPIReady}
       apiInfo={signalAPIInfo}
       regError={signalRegError}
@@ -656,8 +656,8 @@ export default function ChannelsPage() {
       botTokenMasked={credentialSummaries[channelCredentialPattern('slack', 'bot_token')]?.masked || ''}
       appTokenStored={Boolean(credentialSummaries[channelCredentialPattern('slack', 'app_token')])}
       appTokenMasked={credentialSummaries[channelCredentialPattern('slack', 'app_token')]?.masked || ''}
-      onRemoveBotToken={() => handleRemoveCredential(channelCredentialPattern('slack', 'bot_token'), 'Slack Bot Token')}
-      onRemoveAppToken={() => handleRemoveCredential(channelCredentialPattern('slack', 'app_token'), 'Slack App Token')}
+      onRemoveBotToken={() => handleRemoveCredential(channelCredentialPattern('slack', 'bot_token'), t('channels.slack.botToken'))}
+      onRemoveAppToken={() => handleRemoveCredential(channelCredentialPattern('slack', 'app_token'), t('channels.slack.appToken'))}
     />
   );
 
