@@ -152,6 +152,40 @@ func TestBuildSummarizationUserPrompt_ScopesInvocationResultsToAssistantMessage(
 	}
 }
 
+func TestBuildSummarizationUserPrompt_AttachesUnscopedInvocationAfterIterationMessage(t *testing.T) {
+	turnID := "turn-1"
+	callID := "call-1"
+	msgs := []database.ChatMessage{
+		{UUIDModel: database.UUIDModel{ID: "placeholder"}, Role: "assistant", Content: "resposta final", TurnID: &turnID},
+		{UUIDModel: database.UUIDModel{ID: "assistant-iteration"}, Role: "assistant", Content: "vou buscar", TurnID: &turnID},
+	}
+
+	invResults := map[string]map[string]summarizationInvocationResult{
+		turnID: {
+			callID: {
+				Result:    "RESULT",
+				ToolName:  "files.read",
+				Iteration: 1,
+			},
+		},
+	}
+	prompt := buildSummarizationUserPrompt("", msgs, invResults, nil)
+
+	resultMarker := "Tool result (files.read): RESULT"
+	if got := strings.Count(prompt, resultMarker); got != 1 {
+		t.Fatalf("expected unscoped invocation result once, got %d occurrences in:\n%s", got, prompt)
+	}
+	resultIndex := strings.Index(prompt, resultMarker)
+	iterationIndex := strings.Index(prompt, "vou buscar")
+	if resultIndex < iterationIndex {
+		t.Fatalf("expected unscoped invocation result after iteration message, got:\n%s", prompt)
+	}
+	placeholderIndex := strings.Index(prompt, "resposta final")
+	if resultIndex < placeholderIndex {
+		t.Fatalf("expected unscoped invocation result not to attach to placeholder, got:\n%s", prompt)
+	}
+}
+
 func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 	makeProfile := func(contextWindow, maxTokens int) *profiles.Profile {
 		return &profiles.Profile{
