@@ -226,6 +226,38 @@ func TestToolGetRedactsEnvValues(t *testing.T) {
 	}
 }
 
+func TestToolGetDefaultsStatusWhenServerIsMissingFromRuntimeList(t *testing.T) {
+	mgr := &fakeManager{
+		configs: map[string]mcpmgr.ServerConfig{
+			"runtime-missing": {
+				Slug:        "runtime-missing",
+				Name:        "Runtime Missing",
+				Transport:   mcpmgr.TransportStdio,
+				Command:     "npx",
+				Enabled:     true,
+				AutoConnect: true,
+			},
+		},
+	}
+
+	result, err := New(mgr).Execute(context.Background(), json.RawMessage(`{"slug":"runtime-missing"}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	var payload struct {
+		Status mcpmgr.ConnectionStatus `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if payload.Status != mcpmgr.StatusDisconnected {
+		t.Fatalf("fallback status should be disconnected, got %q in %s", payload.Status, result.Content)
+	}
+}
+
 func TestToolCreateSavesConfigThroughManager(t *testing.T) {
 	mgr := &fakeManager{}
 
@@ -314,6 +346,14 @@ func TestToolRejectsInvalidActionCombinations(t *testing.T) {
 	}
 	if !result.IsError || !strings.Contains(result.Content, "slug é obrigatório") {
 		t.Fatalf("unexpected delete validation result: %#v", result)
+	}
+
+	result, err = New(&fakeManager{}).Execute(context.Background(), json.RawMessage(`{"action":"connect"}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "conectar servidor MCP") || strings.Contains(result.Content, "connected") {
+		t.Fatalf("unexpected connect validation result: %#v", result)
 	}
 
 	result, err = New(&fakeManager{}).Execute(context.Background(), json.RawMessage(`{"action":"create","slug":"bad","name":"Bad","transport":"stdio"}`))

@@ -166,11 +166,11 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	case "duplicate":
 		return duplicateServer(mgr, slug)
 	case "connect":
-		return connectionAction(mgr, slug, "connected", mgr.Connect)
+		return connectionAction(mgr, slug, "connected", "conectar", mgr.Connect)
 	case "disconnect":
-		return connectionAction(mgr, slug, "disconnected", mgr.Disconnect)
+		return connectionAction(mgr, slug, "disconnected", "desconectar", mgr.Disconnect)
 	case "reconnect":
-		return connectionAction(mgr, slug, "reconnected", mgr.Reconnect)
+		return connectionAction(mgr, slug, "reconnected", "reconectar", mgr.Reconnect)
 	case "reload":
 		return reloadServers(mgr)
 	case "logs":
@@ -283,6 +283,7 @@ func getServer(mgr Manager, slug string) (tools.ToolResult, error) {
 			Name:        cfg.Name,
 			Description: cfg.Description,
 			Transport:   cfg.Transport,
+			Status:      mcpmgr.StatusDisconnected,
 			Enabled:     cfg.Enabled,
 			AutoConnect: cfg.AutoConnect,
 			Command:     cfg.Command,
@@ -466,12 +467,12 @@ func duplicateServer(mgr Manager, slug string) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: string(data), Metadata: payload, Structured: true}, nil
 }
 
-func connectionAction(mgr Manager, slug, action string, fn func(string) error) (tools.ToolResult, error) {
+func connectionAction(mgr Manager, slug, action, actionLabel string, fn func(string) error) (tools.ToolResult, error) {
 	if slug == "" {
-		return tools.ToolResult{Content: fmt.Sprintf("slug é obrigatório para %s servidor MCP", action), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("slug é obrigatório para %s servidor MCP", actionLabel), IsError: true}, nil
 	}
 	if err := fn(slug); err != nil {
-		return tools.ToolResult{Content: fmt.Sprintf("erro ao executar %s em servidor MCP %q: %v", action, slug, err), IsError: true}, nil
+		return tools.ToolResult{Content: fmt.Sprintf("erro ao executar %s em servidor MCP %q: %v", actionLabel, slug, err), IsError: true}, nil
 	}
 	info, _ := serverInfoBySlug(mgr.List(), slug)
 	payload := map[string]any{"action": action, "slug": slug, "server": toListServerResponse(info)}
