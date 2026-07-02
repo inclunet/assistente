@@ -133,6 +133,15 @@ func (c *ChatController) CancelStreamingForConversation(conversationID string) {
 	c.streamMgr.Cancel(conversationID)
 }
 
+// ResetLoadedToolsForConversation descarta tools carregadas sob demanda para uma
+// conversa que foi recriada, reciclada ou removida logicamente.
+func (c *ChatController) ResetLoadedToolsForConversation(conversationID string) {
+	if c == nil || c.loadedToolStore == nil {
+		return
+	}
+	c.loadedToolStore.ResetConversation(conversationID)
+}
+
 // registerChannelBridge registra um callback para reenviar a resposta do assistente
 // ao canal de mensageria de origem (bridge Wails → canal externo).
 func (c *ChatController) registerChannelBridge(ctx context.Context, conversationID string) {

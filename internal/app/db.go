@@ -30,7 +30,12 @@ func (a *App) CreateConversation(title, model string) (*Conversation, error) {
 	if err != nil {
 		return nil, err
 	}
-	return database.CreateConversationWithContext(ctx, title, model)
+	conv, err := database.CreateConversationWithContext(ctx, title, model)
+	if err != nil {
+		return nil, err
+	}
+	a.resetLoadedToolsForConversation(conv.ID)
+	return conv, nil
 }
 
 func (a *App) GetConversations() ([]Conversation, error) {
@@ -63,7 +68,15 @@ func (a *App) EnsureConversation(title string) (*Conversation, error) {
 	if err != nil {
 		return nil, fmt.Errorf("erro ao garantir conversa: %w", err)
 	}
+	a.resetLoadedToolsForConversation(conv.ID)
 	return conv, nil
+}
+
+func (a *App) resetLoadedToolsForConversation(conversationID string) {
+	if a == nil || a.chatCtrl == nil {
+		return
+	}
+	a.chatCtrl.ResetLoadedToolsForConversation(conversationID)
 }
 
 // GetMessages retorna mensagens com filtro por parent (API unificada com LAZY LOADING)
@@ -444,6 +457,7 @@ func (a *App) DeleteConversation(id string) error {
 	if err := database.DeleteConversationWithContext(ctx, id); err != nil {
 		return err
 	}
+	a.resetLoadedToolsForConversation(id)
 
 	a.emitter.Emit("conversation:deleted", map[string]interface{}{
 		"conversation_id": id,
