@@ -114,6 +114,14 @@ func TestGetConversationsPageWithContext(t *testing.T) {
 	if page.Conversations[0].ID != second || page.Conversations[1].ID != third {
 		t.Fatalf("pagina inesperada depois de %s: %#v", first, page.Conversations)
 	}
+
+	unpaged, err := GetConversationsPageWithContext(ctx, 0, 0)
+	if err != nil {
+		t.Fatalf("GetConversationsPageWithContext unpaged: %v", err)
+	}
+	if unpaged.Total != int64(len(unpaged.Conversations)) || unpaged.Total != 3 {
+		t.Fatalf("total sem paginação = %d, len = %d, want 3", unpaged.Total, len(unpaged.Conversations))
+	}
 }
 
 func TestGetConversationsByIDsWithContext(t *testing.T) {

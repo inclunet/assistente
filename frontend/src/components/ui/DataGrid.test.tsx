@@ -335,6 +335,53 @@ describe('DataGrid (onFocusChange)', () => {
   });
 });
 
+// ─── Infinite loading trigger ───────────────────────────────────────
+
+describe('DataGrid (onNearEnd)', () => {
+  it('deduplica foco perto do fim por tamanho da lista', () => {
+    const onNearEnd = vi.fn();
+    render(
+      <DataGrid
+        items={items}
+        columns={columns}
+        onNearEnd={onNearEnd}
+        nearEndThreshold={items.length}
+        autoFocusOnMount={false}
+      />
+    );
+
+    focusGrid();
+    expect(onNearEnd).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(getGrid(), { key: 'End', ctrlKey: true });
+    expect(onNearEnd).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(getGrid(), { key: 'ArrowUp' });
+    expect(onNearEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispara por scroll perto do fim sem loopar no mesmo tamanho de lista', () => {
+    const onNearEnd = vi.fn();
+    const { container } = render(
+      <DataGrid
+        items={items}
+        columns={columns}
+        onNearEnd={onNearEnd}
+        autoFocusOnMount={false}
+      />
+    );
+    const body = container.querySelector('.datagrid-body') as HTMLDivElement;
+    Object.defineProperty(body, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(body, 'clientHeight', { configurable: true, value: 500 });
+    Object.defineProperty(body, 'scrollTop', { configurable: true, value: 360 });
+
+    fireEvent.scroll(body);
+    fireEvent.scroll(body);
+
+    expect(onNearEnd).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ─── Regressão: loop infinito de re-renders ─────────────────────────
 
 describe('DataGrid (regressão: loop infinito de re-renders)', () => {

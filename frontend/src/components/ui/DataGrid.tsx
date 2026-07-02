@@ -98,7 +98,7 @@ export function DataGrid<T = unknown>({
   onNearEndRef.current = onNearEnd;
   const focusedRowRef = useRef(focusedRow);
   const focusedColRef = useRef(focusedCol);
-  const nearEndSignalRef = useRef<string | null>(null);
+  const nearEndSignalRef = useRef<number | null>(null);
   const scrollNearEndSignalRef = useRef<number | null>(null);
   const scrollNearEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -144,6 +144,9 @@ export function DataGrid<T = unknown>({
     scrollNearEndTimerRef.current = setTimeout(() => {
       if (scrollNearEndSignalRef.current === itemCount) {
         scrollNearEndSignalRef.current = null;
+      }
+      if (nearEndSignalRef.current === itemCount) {
+        nearEndSignalRef.current = null;
       }
       scrollNearEndTimerRef.current = null;
     }, 1000);
@@ -259,9 +262,9 @@ export function DataGrid<T = unknown>({
         onFocusChangeRef.current?.(items[focusedRow], focusedRow);
       }
       if (items.length - focusedRow <= nearEndThreshold) {
-        const signalKey = `${newId}:${items.length}`;
-        if (nearEndSignalRef.current !== signalKey) {
-          nearEndSignalRef.current = signalKey;
+        if (nearEndSignalRef.current !== items.length) {
+          nearEndSignalRef.current = items.length;
+          markScrollNearEndSignaled(items.length);
           onNearEndRef.current?.();
         }
       } else {
@@ -278,8 +281,9 @@ export function DataGrid<T = unknown>({
     const target = event.currentTarget;
     const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
     if (remaining <= 160) {
-      if (scrollNearEndSignalRef.current === items.length) return;
+      if (scrollNearEndSignalRef.current === items.length || nearEndSignalRef.current === items.length) return;
       markScrollNearEndSignaled(items.length);
+      nearEndSignalRef.current = items.length;
       onNearEndRef.current();
     } else {
       scrollNearEndSignalRef.current = null;
@@ -291,8 +295,9 @@ export function DataGrid<T = unknown>({
     const target = bodyRef.current;
     const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
     if (remaining <= 160) {
-      if (scrollNearEndSignalRef.current === items.length) return;
+      if (scrollNearEndSignalRef.current === items.length || nearEndSignalRef.current === items.length) return;
       markScrollNearEndSignaled(items.length);
+      nearEndSignalRef.current = items.length;
       onNearEndRef.current();
     } else {
       scrollNearEndSignalRef.current = null;

@@ -47,6 +47,12 @@ func (a *App) GetConversationsPage(limit, offset int) (ConversationListResult, e
 	if err != nil {
 		return ConversationListResult{}, err
 	}
+	if limit <= 0 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
 	return database.GetConversationsPageWithContext(ctx, limit, offset)
 }
 

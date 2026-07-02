@@ -203,9 +203,12 @@ func (r *ConversationRepository) GetConversationsPageWithContext(ctx context.Con
 	}
 	var conversations []Conversation
 	var total int64
-	countQuery := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
-	if err := countQuery.Count(&total).Error; err != nil {
-		return ConversationListResult{}, err
+	paginated := limit > 0
+	if paginated {
+		countQuery := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
+		if err := countQuery.Count(&total).Error; err != nil {
+			return ConversationListResult{}, err
+		}
 	}
 
 	// Listagem unificada (AEP-0068): inclui conversas comuns E sub-conversas de
@@ -233,7 +236,7 @@ func (r *ConversationRepository) GetConversationsPageWithContext(ctx context.Con
 			) WHERE rn = 1
 		) as latest_run ON latest_run.child_conversation_id = conversations.id AND conversations.kind = 'subagent'`, userID).
 		Order("conversations.updated_at DESC")
-	if limit > 0 {
+	if paginated {
 		if limit > 500 {
 			limit = 500
 		}
@@ -246,6 +249,9 @@ func (r *ConversationRepository) GetConversationsPageWithContext(ctx context.Con
 
 	if err != nil {
 		return ConversationListResult{}, err
+	}
+	if !paginated {
+		total = int64(len(conversations))
 	}
 
 	return ConversationListResult{Conversations: conversations, Total: total}, nil
