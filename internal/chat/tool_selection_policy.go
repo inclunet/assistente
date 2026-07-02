@@ -141,7 +141,7 @@ func (p *ToolSelectionPolicy) ResolveExpandedToolDefs(streamer llm.ChatProvider,
 	names = p.filterExpandedToolNames(names, cfg)
 	// O filtro nativo já remove aqui as bridges servidas via passthrough, então o
 	// planner orça apenas os schemas realmente enviados como função.
-	names = filterToolNamesForNativeMCP(streamer, mcpMgr, names, cfg.DisableTools, cfg.NativeMCP)
+	names = filterToolNamesForNativeMCPAllowlist(streamer, mcpMgr, names, cfg.DisableTools, cfg.NativeMCP, p.ResolveEffectiveToolPolicy(cfg).NativePreloadedAllowlist())
 	newDefs := p.buildLLMToolDefsByNames(names, cfg.DisableTools)
 	return p.planAccumulatedToolDefs(active, newDefs, cfg)
 }
@@ -345,6 +345,10 @@ func resolveNativeMCPEnabled(streamer llm.ChatProvider, override *bool) bool {
 // filterToolNamesForNativeMCP remove, de uma lista expandida dinamicamente, os
 // nomes das bridge tools que serão atendidas via MCP nativo (para não duplicar).
 func filterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, disableTools bool, nativeMCPOverride *bool) []string {
+	return filterToolNamesForNativeMCPAllowlist(streamer, mcpMgr, names, disableTools, nativeMCPOverride, nil)
+}
+
+func filterToolNamesForNativeMCPAllowlist(streamer llm.ChatProvider, mcpMgr NativeMCPManager, names []string, disableTools bool, nativeMCPOverride *bool, nativeAllowedTools []string) []string {
 	if disableTools {
 		return nil
 	}
@@ -360,9 +364,24 @@ func filterToolNamesForNativeMCP(streamer llm.ChatProvider, mcpMgr NativeMCPMana
 	}
 	nativeServers = cloneNativeMCPServers(nativeServers)
 	sortNativeMCPServers(nativeServers)
+	var allowedSet map[string]struct{}
+	if nativeAllowedTools != nil {
+		allowedSet = make(map[string]struct{}, len(nativeAllowedTools))
+		for _, name := range nativeAllowedTools {
+			name = strings.TrimSpace(name)
+			if name != "" {
+				allowedSet[name] = struct{}{}
+			}
+		}
+	}
 	nativeToolNames := make(map[string]struct{})
 	for _, srv := range nativeServers {
 		for _, name := range srv.ToolNames {
+			if allowedSet != nil {
+				if _, ok := allowedSet[name]; !ok {
+					continue
+				}
+			}
 			nativeToolNames[name] = struct{}{}
 		}
 	}

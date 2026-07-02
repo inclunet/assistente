@@ -30,7 +30,7 @@ func TestToolSelectionPolicy_InitialToolDefs_MatchesLegacy(t *testing.T) {
 
 func TestToolSelectionPolicy_ResolveExpandedToolDefs_MatchesLegacy(t *testing.T) {
 	r := charRegistry(t)
-	for _, tc := range dynamicExpansionCases() {
+	for _, tc := range policyDynamicExpansionCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			streamer, mgr := expansionStreamerAndMgr(tc.native)
 			policy := NewToolSelectionPolicy(r)
@@ -39,10 +39,32 @@ func TestToolSelectionPolicy_ResolveExpandedToolDefs_MatchesLegacy(t *testing.T)
 			got := defNames(policy.ResolveExpandedToolDefs(streamer, mgr, nil, tc.names, cfg))
 			assertNames(t, tc.name, got, tc.want)
 
-			legacy := defNames(legacyExpandedDefs(r, streamer, mgr, tc.names, tc.enabled, tc.disable, tc.override))
-			assertNames(t, tc.name+" legacy", got, legacy)
+			if !tc.intentionalAEP0081Change {
+				legacy := defNames(legacyExpandedDefs(r, streamer, mgr, tc.names, tc.enabled, tc.disable, tc.override))
+				assertNames(t, tc.name+" legacy", got, legacy)
+			}
 		})
 	}
+}
+
+type policyDynamicExpansionCase struct {
+	dynamicExpansionCase
+	intentionalAEP0081Change bool
+}
+
+func policyDynamicExpansionCases() []policyDynamicExpansionCase {
+	base := dynamicExpansionCases()
+	out := make([]policyDynamicExpansionCase, 0, len(base))
+	for _, tc := range base {
+		policyCase := policyDynamicExpansionCase{dynamicExpansionCase: tc}
+		if tc.name == "mcpNativoForcado_removeBridge" {
+			policyCase.name = "mcpNativoForcado_mantemBridgeOnDemand"
+			policyCase.want = []string{"mcp_srv__do", "read_file"}
+			policyCase.intentionalAEP0081Change = true
+		}
+		out = append(out, policyCase)
+	}
+	return out
 }
 
 func TestToolSelectionPolicy_ApplyNativeMCP_RemovesNativeBridge(t *testing.T) {
@@ -177,4 +199,16 @@ func TestToolSelectionPolicy_NativeMCPUsesPreloadedAllowlist(t *testing.T) {
 	if len(nativeDefs) != 0 {
 		t.Fatalf("bridge explicitamente preloaded deveria ser removida no caminho nativo, got %#v", nativeDefs)
 	}
+}
+
+func TestToolSelectionPolicy_OnDemandMCPBridgeIsNotRemovedBeforeLoad(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	capable := &mockChatProvider{nativeCapable: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
+	}}
+
+	got := policy.ResolveExpandedToolDefs(capable, mgr, nil, []string{"mcp_srv__do"}, ProfileToolConfig{NativeMCP: boolPtr(true)})
+	assertNames(t, "on_demand bridge stays as function schema", defNames(got), []string{"mcp_srv__do"})
 }
