@@ -153,7 +153,25 @@ func TestToolSelectionPolicy_ExplicitToolPolicyOverridesLegacyEnabledTools(t *te
 	if effective.State("write_file") != ToolPolicyDisabled {
 		t.Fatalf("write_file deveria ficar disabled pelo tool_policy, got %s", effective.State("write_file"))
 	}
-	assertNames(t, "preloaded", effective.PreloadedNames(), []string{"grep_search"})
+	assertNames(t, "preloaded", effective.PreloadedNames(), []string{tools.ToolCatalogName, "grep_search"})
+}
+
+func TestToolSelectionPolicy_ToolPolicyPreloadsCatalogWhenOnDemandExists(t *testing.T) {
+	r := charRegistry(t)
+	policy := NewToolSelectionPolicy(r)
+	effective := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{
+		ToolPolicy: map[string]string{
+			"read_file": string(ToolPolicyOnDemand),
+		},
+	})
+
+	if effective.State(tools.ToolCatalogName) != ToolPolicyPreloaded {
+		t.Fatalf("tool_catalog deveria ser preloaded para permitir descoberta on_demand, got %s", effective.State(tools.ToolCatalogName))
+	}
+	if effective.State("read_file") != ToolPolicyOnDemand {
+		t.Fatalf("read_file deveria permanecer on_demand, got %s", effective.State("read_file"))
+	}
+	assertNames(t, "preloaded", effective.PreloadedNames(), []string{tools.ToolCatalogName})
 }
 
 func TestToolSelectionPolicy_CatalogVisibleNamesHideDisabledTools(t *testing.T) {
