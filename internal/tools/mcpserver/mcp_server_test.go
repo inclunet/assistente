@@ -523,6 +523,7 @@ func TestToolRejectsInvalidSlugBeforeManagerOperations(t *testing.T) {
 	}{
 		{name: "space", args: json.RawMessage(`{"action":"get","slug":"bad slug"}`)},
 		{name: "reserved separator", args: json.RawMessage(`{"slug":"bad__slug","name":"Bad","transport":"stdio","command":"npx"}`)},
+		{name: "reserved native", args: json.RawMessage(`{"slug":"Native","name":"Native","transport":"stdio","command":"npx"}`)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			mgr := &fakeManager{
