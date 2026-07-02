@@ -147,3 +147,67 @@ func TestDeleteMessageWithContext_DeletesTurnInvocationsForAssistantWithoutToolC
 		t.Fatalf("expected l3-free assistant deletion to remove turn invocation, got %d", count)
 	}
 }
+
+func TestDeleteMessageWithContext_DeletesUntaggedInvocationForL3FreeAssistant(t *testing.T) {
+	setupDeleteMessageToolInvocationsTestDB(t)
+
+	ctx := WithUserID(context.Background(), "user-a")
+	conv, err := CreateConversationWithContext(ctx, "Conv", "")
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	userMsg, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: conv.ID, Role: "user", Content: "u1"})
+	if err != nil {
+		t.Fatalf("create user message: %v", err)
+	}
+	turnID := userMsg.ID
+	assistantMsg, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: conv.ID, Role: "assistant", Content: "vou buscar", TurnID: &turnID})
+	if err != nil {
+		t.Fatalf("create assistant message: %v", err)
+	}
+	otherAssistant, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: conv.ID, Role: "assistant", Content: "outra iteracao", TurnID: &turnID})
+	if err != nil {
+		t.Fatalf("create other assistant message: %v", err)
+	}
+	var tool ToolCatalog
+	if err := db.WithContext(ctx).First(&tool, "name = ?", "echo").Error; err != nil {
+		t.Fatalf("load tool catalog: %v", err)
+	}
+	rows := []ToolInvocation{
+		{
+			UUIDModel:     UUIDModel{ID: "inv-untagged"},
+			UserID:        "user-a",
+			ToolCatalogID: tool.ID,
+			OriginType:    "chat",
+			OriginID:      turnID,
+			ToolCallID:    "call-untagged",
+			Status:        "succeeded",
+			QueuedAt:      time.Now(),
+		},
+		{
+			UUIDModel:     UUIDModel{ID: "inv-other-assistant"},
+			UserID:        "user-a",
+			ToolCatalogID: tool.ID,
+			OriginType:    "chat",
+			OriginID:      turnID,
+			ToolCallID:    "call-other",
+			Status:        "succeeded",
+			Metadata:      `{"display":{"assistant_message_id":"` + otherAssistant.ID + `"}}`,
+			QueuedAt:      time.Now(),
+		},
+	}
+	if err := db.WithContext(ctx).Create(&rows).Error; err != nil {
+		t.Fatalf("seed invocations: %v", err)
+	}
+
+	if err := DeleteMessageWithContext(ctx, assistantMsg.ID); err != nil {
+		t.Fatalf("delete assistant message: %v", err)
+	}
+	var remaining []ToolInvocation
+	if err := db.WithContext(ctx).Where("user_id = ? AND origin_type = ?", "user-a", "chat").Find(&remaining).Error; err != nil {
+		t.Fatalf("load remaining tool invocations: %v", err)
+	}
+	if len(remaining) != 1 || remaining[0].ToolCallID != "call-other" {
+		t.Fatalf("expected only invocation tagged to other assistant to remain, got %+v", remaining)
+	}
+}

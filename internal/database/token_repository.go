@@ -18,7 +18,7 @@ func modelCallCountSelect(db *gorm.DB) string {
 		modelCallConditions += ` OR EXISTS (
 			SELECT 1
 			FROM tool_invocations ti
-			WHERE ti.user_id = chat_messages.user_id
+			WHERE ti.user_id = conversations.user_id
 				AND ti.origin_type = 'chat'
 				AND ti.origin_id = chat_messages.turn_id
 				AND TRIM(ti.tool_call_id) <> ''

@@ -637,9 +637,13 @@ func chatToolInvocationCallIDsForAssistantMessage(ctx context.Context, exec *gor
 			} `json:"display"`
 		}
 		if err := json.Unmarshal([]byte(strings.TrimSpace(row.Metadata)), &metadata); err != nil {
+			if callID := strings.TrimSpace(row.ToolCallID); callID != "" {
+				out = append(out, callID)
+			}
 			continue
 		}
-		if strings.TrimSpace(metadata.Display.AssistantMessageID) != strings.TrimSpace(assistantMessageID) {
+		marker := strings.TrimSpace(metadata.Display.AssistantMessageID)
+		if marker != "" && marker != strings.TrimSpace(assistantMessageID) {
 			continue
 		}
 		if callID := strings.TrimSpace(row.ToolCallID); callID != "" {
