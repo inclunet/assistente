@@ -4,6 +4,7 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -548,7 +549,7 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.D
 	// scopedMessageQuery garante que não vazamos cross-user.
 	var msg ChatMessage
 	err := scopedMessageQuery(ctx, exec.Model(&ChatMessage{})).
-		Select("chat_messages.id", "chat_messages.role", "chat_messages.turn_id", "chat_messages.tool_calls", "chat_messages.tool_call_id").
+		Select("chat_messages.id", "chat_messages.role", "chat_messages.turn_id", "chat_messages.tool_calls", "chat_messages.tool_call_id", "chat_messages.created_at").
 		First(&msg, "chat_messages.id = ?", messageID).Error
 	if err != nil {
 		return chatToolInvocationCleanup{}
@@ -586,7 +587,7 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.D
 	if msg.Role == "assistant" {
 		toolCallsJSON := strings.TrimSpace(msg.ToolCalls)
 		if toolCallsJSON == "" {
-			cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, chatToolInvocationCallIDsForAssistantMessage(ctx, exec, turn, msg.ID)...)
+			cleanup.ToolCallIDs = append(cleanup.ToolCallIDs, chatToolInvocationCallIDsForAssistantMessage(ctx, exec, turn, msg.ID, msg.CreatedAt)...)
 			return dedupCleanup(cleanup)
 		}
 		// Aceita tanto `[{...}]` quanto `{...}`.
@@ -613,7 +614,7 @@ func deleteChatToolInvocationCleanupForMessage(ctx context.Context, exec *gorm.D
 	return dedupCleanup(cleanup)
 }
 
-func chatToolInvocationCallIDsForAssistantMessage(ctx context.Context, exec *gorm.DB, turnID string, assistantMessageID string) []string {
+func chatToolInvocationCallIDsForAssistantMessage(ctx context.Context, exec *gorm.DB, turnID string, assistantMessageID string, assistantCreatedAt time.Time) []string {
 	userID, err := RequireUserID(ctx)
 	if err != nil || strings.TrimSpace(turnID) == "" || strings.TrimSpace(assistantMessageID) == "" {
 		return nil
@@ -621,9 +622,23 @@ func chatToolInvocationCallIDsForAssistantMessage(ctx context.Context, exec *gor
 	if exec == nil || !exec.Migrator().HasTable(&ToolInvocation{}) {
 		return nil
 	}
+	var previousAssistant ChatMessage
+	hasPreviousAssistant := false
+	if !assistantCreatedAt.IsZero() {
+		err := scopedMessageQuery(ctx, exec.Model(&ChatMessage{})).
+			Select("chat_messages.created_at").
+			Where("chat_messages.turn_id = ? AND chat_messages.role = ? AND chat_messages.id <> ? AND chat_messages.created_at < ?", strings.TrimSpace(turnID), "assistant", strings.TrimSpace(assistantMessageID), assistantCreatedAt).
+			Order("chat_messages.created_at DESC").
+			First(&previousAssistant).Error
+		if err == nil {
+			hasPreviousAssistant = true
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			logging.Warnf(ctx, "database.message-repository", "[DB] aviso: falha ao localizar assistant anterior do turno %s: %v", turnID, err)
+		}
+	}
 	var rows []ToolInvocation
 	if err := exec.WithContext(ctx).
-		Select("tool_call_id", "metadata").
+		Select("tool_call_id", "metadata", "queued_at").
 		Where("user_id = ? AND origin_type = ? AND origin_id = ? AND tool_call_id <> ''", userID, "chat", strings.TrimSpace(turnID)).
 		Find(&rows).Error; err != nil {
 		logging.Warnf(ctx, "database.message-repository", "[DB] aviso: falha ao listar tool_call_id de tool_invocations do turno %s: %v", turnID, err)
@@ -637,14 +652,19 @@ func chatToolInvocationCallIDsForAssistantMessage(ctx context.Context, exec *gor
 			} `json:"display"`
 		}
 		if err := json.Unmarshal([]byte(strings.TrimSpace(row.Metadata)), &metadata); err != nil {
-			if callID := strings.TrimSpace(row.ToolCallID); callID != "" {
-				out = append(out, callID)
-			}
-			continue
+			metadata.Display.AssistantMessageID = ""
 		}
 		marker := strings.TrimSpace(metadata.Display.AssistantMessageID)
 		if marker != "" && marker != strings.TrimSpace(assistantMessageID) {
 			continue
+		}
+		if marker == "" {
+			if assistantCreatedAt.IsZero() || row.QueuedAt.After(assistantCreatedAt) {
+				continue
+			}
+			if hasPreviousAssistant && !row.QueuedAt.After(previousAssistant.CreatedAt) {
+				continue
+			}
 		}
 		if callID := strings.TrimSpace(row.ToolCallID); callID != "" {
 			out = append(out, callID)

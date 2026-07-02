@@ -169,6 +169,8 @@ func TestDeleteMessageWithContext_DeletesUntaggedInvocationForL3FreeAssistant(t 
 	if err != nil {
 		t.Fatalf("create other assistant message: %v", err)
 	}
+	queuedAt := assistantMsg.CreatedAt.Add(-time.Second)
+	futureQueuedAt := otherAssistant.CreatedAt.Add(time.Second)
 	var tool ToolCatalog
 	if err := db.WithContext(ctx).First(&tool, "name = ?", "echo").Error; err != nil {
 		t.Fatalf("load tool catalog: %v", err)
@@ -182,7 +184,17 @@ func TestDeleteMessageWithContext_DeletesUntaggedInvocationForL3FreeAssistant(t 
 			OriginID:      turnID,
 			ToolCallID:    "call-untagged",
 			Status:        "succeeded",
-			QueuedAt:      time.Now(),
+			QueuedAt:      queuedAt,
+		},
+		{
+			UUIDModel:     UUIDModel{ID: "inv-future-untagged"},
+			UserID:        "user-a",
+			ToolCatalogID: tool.ID,
+			OriginType:    "chat",
+			OriginID:      turnID,
+			ToolCallID:    "call-future",
+			Status:        "succeeded",
+			QueuedAt:      futureQueuedAt,
 		},
 		{
 			UUIDModel:     UUIDModel{ID: "inv-other-assistant"},
@@ -193,7 +205,7 @@ func TestDeleteMessageWithContext_DeletesUntaggedInvocationForL3FreeAssistant(t 
 			ToolCallID:    "call-other",
 			Status:        "succeeded",
 			Metadata:      `{"display":{"assistant_message_id":"` + otherAssistant.ID + `"}}`,
-			QueuedAt:      time.Now(),
+			QueuedAt:      futureQueuedAt,
 		},
 	}
 	if err := db.WithContext(ctx).Create(&rows).Error; err != nil {
@@ -207,7 +219,11 @@ func TestDeleteMessageWithContext_DeletesUntaggedInvocationForL3FreeAssistant(t 
 	if err := db.WithContext(ctx).Where("user_id = ? AND origin_type = ?", "user-a", "chat").Find(&remaining).Error; err != nil {
 		t.Fatalf("load remaining tool invocations: %v", err)
 	}
-	if len(remaining) != 1 || remaining[0].ToolCallID != "call-other" {
-		t.Fatalf("expected only invocation tagged to other assistant to remain, got %+v", remaining)
+	got := map[string]bool{}
+	for _, inv := range remaining {
+		got[inv.ToolCallID] = true
+	}
+	if len(got) != 2 || !got["call-other"] || !got["call-future"] {
+		t.Fatalf("expected other assistant and future untagged invocations to remain, got %+v", remaining)
 	}
 }
