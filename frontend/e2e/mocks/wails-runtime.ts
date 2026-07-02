@@ -251,6 +251,25 @@ export function buildWailsMockScript(): string {
             const val = _config.responses.GetMessages;
             return Promise.resolve(typeof val === 'function' ? val(...args) : val);
           }
+          if (fnName === 'GetConversationsPage' && 'GetConversations' in _config.responses) {
+            const val = _config.responses.GetConversations;
+            const rows = typeof val === 'function' ? val(...args) : val;
+            const conversations = Array.isArray(rows) ? rows : [];
+            const limit = Number(args[0] || conversations.length || 0);
+            const offset = Number(args[1] || 0);
+            const pageRows = limit > 0 ? conversations.slice(offset, offset + limit) : conversations.slice(offset);
+            return Promise.resolve({ conversations: pageRows, total: conversations.length });
+          }
+          if (fnName === 'GetConversationsByIDs' && 'GetConversations' in _config.responses) {
+            const val = _config.responses.GetConversations;
+            const rows = typeof val === 'function' ? val(...args) : val;
+            const conversations = Array.isArray(rows) ? rows : [];
+            const ids = Array.isArray(args[0]) ? args[0].map(String) : [];
+            return Promise.resolve(ids.flatMap((id) => {
+              const row = conversations.find((conversation) => String(conversation?.id) === id);
+              return row ? [row] : [];
+            }));
+          }
           if (
             fnName === 'GetConversationMessageWindow'
             && !('GetConversationMessageWindow' in _config.responses)
@@ -310,6 +329,16 @@ export function buildWailsMockScript(): string {
           if (fnName in defaults) {
             const val = defaults[fnName];
             return Promise.resolve(typeof val === 'function' ? val(...args) : JSON.parse(JSON.stringify(val)));
+          }
+          if (fnName === 'GetConversationsPage') {
+            const conversations = Array.isArray(defaults.GetConversations) ? defaults.GetConversations : [];
+            const limit = Number(args[0] || conversations.length || 0);
+            const offset = Number(args[1] || 0);
+            const pageRows = limit > 0 ? conversations.slice(offset, offset + limit) : conversations.slice(offset);
+            return Promise.resolve({ conversations: pageRows, total: conversations.length });
+          }
+          if (fnName === 'GetConversationsByIDs') {
+            return Promise.resolve([]);
           }
           return Promise.resolve(undefined);
         };
