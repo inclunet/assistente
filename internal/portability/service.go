@@ -290,9 +290,15 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 		if len(calls) == 0 {
 			turnDisplays := displayByTurn[turnID]
 			assistantScopedDisplays := invocationDisplaysHaveAssistantMessageID(turnDisplays)
+			exportUnscopedDisplays := false
 			if assistantScopedDisplays {
-				turnDisplays = filterInvocationDisplaysForAssistantMessage(turnDisplays, msg.ID)
-				if len(turnDisplays) == 0 {
+				scopedDisplays := filterInvocationDisplaysForAssistantMessage(turnDisplays, msg.ID)
+				if _, alreadyExported := exportedInvocationTurn[turnID]; !alreadyExported {
+					exportUnscopedDisplays = true
+					scopedDisplays = append(scopedDisplays, filterInvocationDisplaysWithoutAssistantMessageID(turnDisplays)...)
+				}
+				turnDisplays = scopedDisplays
+				if len(turnDisplays) == 0 && (!exportUnscopedDisplays || len(turnFallback) == 0) {
 					continue
 				}
 			} else if _, alreadyExported := exportedInvocationTurn[turnID]; alreadyExported {
@@ -312,7 +318,7 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 				}
 				calls = append(calls, exportCall)
 			}
-			if !assistantScopedDisplays {
+			if !assistantScopedDisplays || exportUnscopedDisplays {
 				fallbackCallIDs := make([]string, 0, len(turnFallback))
 				for callID := range turnFallback {
 					callID = strings.TrimSpace(callID)
@@ -343,7 +349,7 @@ func hydrateToolCallResultsForExport(ctx context.Context, messages []database.Ch
 			}
 			if encoded, err := json.Marshal(calls); err == nil {
 				msg.ToolCalls = string(encoded)
-				if !assistantScopedDisplays {
+				if !assistantScopedDisplays || exportUnscopedDisplays {
 					exportedInvocationTurn[turnID] = struct{}{}
 				}
 			}
@@ -451,6 +457,16 @@ func filterInvocationDisplaysForAssistantMessage(displays []toolinvocations.Chat
 	out := make([]toolinvocations.ChatToolInvocationDisplay, 0, len(displays))
 	for _, call := range displays {
 		if strings.TrimSpace(call.AssistantMessageID) == assistantMessageID {
+			out = append(out, call)
+		}
+	}
+	return out
+}
+
+func filterInvocationDisplaysWithoutAssistantMessageID(displays []toolinvocations.ChatToolInvocationDisplay) []toolinvocations.ChatToolInvocationDisplay {
+	out := make([]toolinvocations.ChatToolInvocationDisplay, 0, len(displays))
+	for _, call := range displays {
+		if strings.TrimSpace(call.AssistantMessageID) == "" {
 			out = append(out, call)
 		}
 	}
