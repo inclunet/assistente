@@ -126,6 +126,13 @@ export function ProfileToolsSection({
         if (!allNames.includes(name)) continue;
         policy[name] = normalizeToolPolicyState(state);
       }
+      if (
+        allNames.includes('tool_catalog')
+        && !Object.prototype.hasOwnProperty.call(toolPolicy, 'tool_catalog')
+        && Object.values(policy).some((state) => state === TOOL_POLICY_ON_DEMAND)
+      ) {
+        policy.tool_catalog = TOOL_POLICY_PRELOADED;
+      }
       return policy;
     }
     if (enabledTools == null) {

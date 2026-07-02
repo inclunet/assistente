@@ -223,6 +223,25 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByLabelText('read_file: Desabilitada')).toBeInTheDocument();
   });
 
+  it('promove tool_catalog ausente quando tool_policy explícito tem on_demand', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('tool_catalog', 'Tool catalog'),
+          tool('read_file', 'Read file'),
+          tool('write_file', 'Write file'),
+        ]}
+        toolPolicy={{ read_file: 'on_demand', write_file: 'disabled' }}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    expect(screen.getByLabelText('tool_catalog: Pré-carregada')).toBeInTheDocument();
+    expect(screen.getByLabelText('read_file: Sob demanda')).toBeInTheDocument();
+    expect(screen.getByLabelText('write_file: Desabilitada')).toBeInTheDocument();
+  });
+
   it('chama onChange ao promover ferramenta sob demanda via Space', () => {
     const onChange = vi.fn();
     render(
