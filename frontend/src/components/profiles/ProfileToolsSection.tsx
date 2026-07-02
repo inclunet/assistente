@@ -170,7 +170,11 @@ export function ProfileToolsSection({
       return;
     }
     if (newSelectedIds.size === 0) {
-      setToolsState(allNames, TOOL_POLICY_DISABLED);
+      const next = { ...effectiveToolPolicy };
+      for (const name of allNames) {
+        next[name] = CONTROL_PLANE_TOOLS.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
+      }
+      commitToolPolicy(next);
       return;
     }
     const next = { ...effectiveToolPolicy };

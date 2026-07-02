@@ -290,6 +290,30 @@ describe('ProfileToolsSection', () => {
     });
   });
 
+  it('preserva control-plane preloaded ao limpar seleção com Escape', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={[
+          tool('tool_catalog', 'Tool catalog'),
+          tool('load_skill', 'Load skill'),
+          tool('read_file', 'Read file'),
+        ]}
+        enabledTools={null}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: 'Escape' });
+    expect(onChange).toHaveBeenCalledWith('tool_policy', {
+      tool_catalog: 'preloaded',
+      load_skill: 'preloaded',
+      read_file: 'disabled',
+    });
+  });
+
   it('mostra badge com status da feature', () => {
     const onChange = vi.fn();
     render(
