@@ -96,7 +96,7 @@ func TestGetConversationsPageWithContext(t *testing.T) {
 	now := time.Now()
 	first := createSubConvForList(t, "Mais recente", "parent-1", now)
 	second := createTestConversation(t, "Intermediária")
-	if err := db.Model(&Conversation{}).Where("id = ?", second).Update("updated_at", now.Add(-time.Minute)).Error; err != nil {
+	if err := db.Model(&Conversation{}).Where("id = ?", second).Update("updated_at", now).Error; err != nil {
 		t.Fatalf("ajustar updated_at second: %v", err)
 	}
 	third := createSubConvForList(t, "Mais antiga", "parent-2", now.Add(-2*time.Minute))
@@ -111,8 +111,13 @@ func TestGetConversationsPageWithContext(t *testing.T) {
 	if len(page.Conversations) != 2 {
 		t.Fatalf("len page = %d, want 2 (%#v)", len(page.Conversations), page.Conversations)
 	}
-	if page.Conversations[0].ID != second || page.Conversations[1].ID != third {
-		t.Fatalf("pagina inesperada depois de %s: %#v", first, page.Conversations)
+	expectedFirst := first
+	expectedSecond := second
+	if second > first {
+		expectedFirst, expectedSecond = second, first
+	}
+	if page.Conversations[0].ID != expectedSecond || page.Conversations[1].ID != third {
+		t.Fatalf("pagina inesperada depois de %s: %#v", expectedFirst, page.Conversations)
 	}
 
 	unpaged, err := GetConversationsPageWithContext(ctx, 0, 0)
@@ -130,6 +135,10 @@ func TestGetConversationsByIDsWithContext(t *testing.T) {
 
 	first := createTestConversation(t, "Primeira")
 	second := createTestConversation(t, "Segunda")
+	now := time.Now()
+	if err := db.Model(&Conversation{}).Where("id IN ?", []string{first, second}).Update("updated_at", now).Error; err != nil {
+		t.Fatalf("ajustar updated_at empatado: %v", err)
+	}
 	otherUser, err := CreateConversationWithContext(WithUserID(testCtx(), "other-user"), "Outra", "")
 	if err != nil {
 		t.Fatalf("create other user: %v", err)
@@ -151,5 +160,8 @@ func TestGetConversationsByIDsWithContext(t *testing.T) {
 	}
 	if !got[first] || !got[second] || got[otherUser.ID] {
 		t.Fatalf("ids retornados inesperados: %#v", got)
+	}
+	if rows[0].ID < rows[1].ID {
+		t.Fatalf("ordenação por id desc com updated_at empatado inesperada: %s, %s", rows[0].ID, rows[1].ID)
 	}
 }

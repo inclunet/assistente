@@ -235,7 +235,7 @@ func (r *ConversationRepository) GetConversationsPageWithContext(ctx context.Con
 				WHERE user_id = ?
 			) WHERE rn = 1
 		) as latest_run ON latest_run.child_conversation_id = conversations.id AND conversations.kind = 'subagent'`, userID).
-		Order("conversations.updated_at DESC")
+		Order("conversations.updated_at DESC, conversations.id DESC")
 	if paginated {
 		if limit > 500 {
 			limit = 500
@@ -291,7 +291,7 @@ func (r *ConversationRepository) GetConversationsByIDsWithContext(ctx context.Co
 			) WHERE rn = 1
 		) as latest_run ON latest_run.child_conversation_id = conversations.id AND conversations.kind = 'subagent'`, userID).
 		Where("conversations.id IN ?", cleanIDs).
-		Order("conversations.updated_at DESC").
+		Order("conversations.updated_at DESC, conversations.id DESC").
 		Find(&conversations).Error
 	if err != nil {
 		return nil, err
