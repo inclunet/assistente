@@ -194,6 +194,9 @@ func parseRequest(args json.RawMessage) (request, error) {
 	if err := json.Unmarshal(args, &req.present); err != nil {
 		return req, err
 	}
+	if raw, ok := req.present["env"]; ok && strings.TrimSpace(string(raw)) == "null" {
+		return req, errors.New("env não aceita null; omita o campo para preservar ou envie {} para limpar")
+	}
 	return req, nil
 }
 
@@ -560,13 +563,13 @@ type listServerResponse struct {
 	Transport     mcpmgr.TransportType    `json:"transport"`
 	Status        mcpmgr.ConnectionStatus `json:"status"`
 	Error         string                  `json:"error,omitempty"`
-	ToolCount     int                     `json:"toolCount"`
-	ResourceCount int                     `json:"resourceCount"`
-	PromptCount   int                     `json:"promptCount"`
+	ToolCount     int                     `json:"tool_count"`
+	ResourceCount int                     `json:"resource_count"`
+	PromptCount   int                     `json:"prompt_count"`
 	Enabled       bool                    `json:"enabled"`
-	AutoConnect   bool                    `json:"autoConnect"`
-	ConnectedAt   string                  `json:"connectedAt,omitempty"`
-	LastPing      string                  `json:"lastPing,omitempty"`
+	AutoConnect   bool                    `json:"auto_connect"`
+	ConnectedAt   string                  `json:"connected_at,omitempty"`
+	LastPing      string                  `json:"last_ping,omitempty"`
 	Command       string                  `json:"command,omitempty"`
 	Args          []string                `json:"args,omitempty"`
 	URL           string                  `json:"url,omitempty"`

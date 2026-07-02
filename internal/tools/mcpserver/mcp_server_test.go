@@ -135,9 +135,9 @@ func TestToolListsServersAsStructuredJSON(t *testing.T) {
 	}
 	var payload []struct {
 		Slug          string          `json:"slug"`
-		ToolCount     int             `json:"toolCount"`
-		ResourceCount int             `json:"resourceCount"`
-		PromptCount   int             `json:"promptCount"`
+		ToolCount     int             `json:"tool_count"`
+		ResourceCount int             `json:"resource_count"`
+		PromptCount   int             `json:"prompt_count"`
 		Tools         json.RawMessage `json:"tools"`
 		Resources     json.RawMessage `json:"resources"`
 		Prompts       json.RawMessage `json:"prompts"`
@@ -204,9 +204,9 @@ func TestToolGetRedactsEnvValues(t *testing.T) {
 	var payload struct {
 		EnvKeys       []string        `json:"env_keys"`
 		EnvRedacted   bool            `json:"env_redacted"`
-		ToolCount     int             `json:"toolCount"`
-		ResourceCount int             `json:"resourceCount"`
-		PromptCount   int             `json:"promptCount"`
+		ToolCount     int             `json:"tool_count"`
+		ResourceCount int             `json:"resource_count"`
+		PromptCount   int             `json:"prompt_count"`
 		Tools         json.RawMessage `json:"tools"`
 		Resources     json.RawMessage `json:"resources"`
 		Prompts       json.RawMessage `json:"prompts"`
@@ -395,6 +395,31 @@ func TestToolUpdateMergesEnvAndCanClearExplicitly(t *testing.T) {
 	}
 }
 
+func TestToolRejectsNullEnv(t *testing.T) {
+	mgr := &fakeManager{
+		configs: map[string]mcpmgr.ServerConfig{
+			"remote": {
+				Slug:      "remote",
+				Name:      "Remote",
+				Transport: mcpmgr.TransportStdio,
+				Command:   "npx",
+				Env:       map[string]string{"TOKEN": "secret"},
+			},
+		},
+	}
+
+	result, err := New(mgr).Execute(context.Background(), json.RawMessage(`{"action":"update","slug":"remote","env":null}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "env não aceita null") {
+		t.Fatalf("expected null env validation error, got %#v", result)
+	}
+	if mgr.savedSlug != "" {
+		t.Fatalf("null env should not save config, saved %q", mgr.savedSlug)
+	}
+}
+
 func TestToolRejectsInvalidActionCombinations(t *testing.T) {
 	result, err := New(&fakeManager{}).Execute(context.Background(), json.RawMessage(`{"action":"delete"}`))
 	if err != nil {
@@ -543,9 +568,9 @@ func TestToolRuntimeActionsAndLogs(t *testing.T) {
 	}
 	var connectPayload struct {
 		Server struct {
-			ToolCount     int             `json:"toolCount"`
-			ResourceCount int             `json:"resourceCount"`
-			PromptCount   int             `json:"promptCount"`
+			ToolCount     int             `json:"tool_count"`
+			ResourceCount int             `json:"resource_count"`
+			PromptCount   int             `json:"prompt_count"`
 			Tools         json.RawMessage `json:"tools"`
 			Resources     json.RawMessage `json:"resources"`
 			Prompts       json.RawMessage `json:"prompts"`
