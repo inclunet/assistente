@@ -2,10 +2,9 @@ import { useState, useCallback, useMemo } from 'react';
 import { FilterOutlined, UpOutlined, DownOutlined } from '@ant-design/icons';
 import { skills } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
-import { CollapsibleSection } from '../ui/CollapsibleSection';
-import { DataGrid, DataGridColumn } from '../ui/DataGrid';
+import { type DataGridColumn } from '../ui/DataGrid';
 import { Combobox, type ComboboxItem } from '../pickers/Combobox';
-import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
+import { ResourceSelectionSection } from './ResourceSelectionSection';
 
 export type SkillFilter = 'all' | 'exe' | 'home' | 'workdir';
 
@@ -199,8 +198,6 @@ export function ProfileSkillsSection({
   const canMoveUp = focusedIsEnabled && focusedEnabledIdx > 0;
   const canMoveDown = focusedIsEnabled && focusedEnabledIdx >= 0 && focusedEnabledIdx < effectiveEnabledSkills.length - 1;
 
-  const toolbarRef = useToolbarKeyboardNav();
-
   const columns: DataGridColumn<SkillRow>[] = [
     {
       key: 'checked',
@@ -254,131 +251,92 @@ export function ProfileSkillsSection({
   ];
 
   return (
-    <CollapsibleSection
+    <ResourceSelectionSection<SkillRow>
       title={t('profiles.collapseSkills', 'Skills')}
       isOpen={!skillsDisabled}
       onToggle={() => onChange('disable_skills', !skillsDisabled)}
       disabled={disabled}
       badge={skillsDisabled ? 'off' : 'on'}
-    >
-      {availableSkills.length > 0 ? (
-        <>
-          <p className="profiles-field__hint">
-            {t('profiles.skillsHint', 'Ordene as skills por prioridade: a primeira marcada é base, as demais marcadas ficam sob demanda, e desmarcadas ficam desabilitadas.')}
-          </p>
-          <input
-            type="text"
-            className="profiles-field__filter-search"
-            placeholder={t('profiles.skillsSearchPlaceholder', 'Buscar skill…')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            aria-label={t('profiles.skillsSearchLabel', 'Filtrar skills por nome')}
-            data-testid="skills-search"
+      hasItems={availableSkills.length > 0}
+      hint={t('profiles.skillsHint', 'Ordene as skills por prioridade: a primeira marcada é base, as demais marcadas ficam sob demanda, e desmarcadas ficam desabilitadas.')}
+      searchValue={search}
+      onSearchChange={setSearch}
+      searchPlaceholder={t('profiles.skillsSearchPlaceholder', 'Buscar skill…')}
+      searchLabel={t('profiles.skillsSearchLabel', 'Filtrar skills por nome')}
+      searchTestId="skills-search"
+      toolbarLabel={t('profiles.skillsActionsLabel', 'Ações de seleção de skills')}
+      toolbarTestId="skills-toolbar"
+      filterNode={availableSources.length > 1 ? (
+        <div data-testid="skills-filter">
+          <Combobox
+            items={filterItems}
+            selected={filter}
+            onSelect={(value) => setFilter(value as SkillFilter)}
+            label={t('profiles.skillsFilterLabel', 'Filtrar por origem')}
+            icon={<FilterOutlined aria-hidden="true" />}
+            maxWidth="180px"
+            disabled={disabled}
           />
-          <div
-            ref={toolbarRef}
-            className="profiles-field__tools-actions"
-            role="toolbar"
-            aria-label={t('profiles.skillsActionsLabel', 'Ações de seleção de skills')}
-            data-testid="skills-toolbar"
+        </div>
+      ) : undefined}
+      showSelectAll={showSelectAll}
+      showDeselectAll={showDeselectAll}
+      onSelectFiltered={handleSelectFiltered}
+      onDeselectFiltered={handleDeselectFiltered}
+      selectAllLabel={t('profiles.skillsSelectAll', 'Selecionar todas')}
+      deselectAllLabel={t('profiles.skillsDeselectAll', 'Desmarcar todas')}
+      selectAllTestId="skills-select-all"
+      deselectAllTestId="skills-deselect-all"
+      extraToolbarActions={(
+        <>
+          <button
+            type="button"
+            className="profiles-field__tools-toggle"
+            tabIndex={-1}
+            onClick={() => handleMoveButton('up')}
+            disabled={disabled || !canMoveUp}
+            aria-label={t('profiles.skillMoveUp', 'Subir skill')}
+            data-testid="skills-move-up"
           >
-            {availableSources.length > 1 && (
-              <div data-testid="skills-filter">
-                <Combobox
-                  items={filterItems}
-                  selected={filter}
-                  onSelect={(value) => setFilter(value as SkillFilter)}
-                  label={t('profiles.skillsFilterLabel', 'Filtrar por origem')}
-                  icon={<FilterOutlined aria-hidden="true" />}
-                  maxWidth="180px"
-                  disabled={disabled}
-                />
-              </div>
-            )}
-            {showSelectAll && (
-              <button
-                type="button"
-                className="profiles-field__tools-toggle"
-                onClick={handleSelectFiltered}
-                disabled={disabled}
-                data-testid="skills-select-all"
-              >
-                {t('profiles.skillsSelectAll', 'Selecionar todas')}
-              </button>
-            )}
-            {showDeselectAll && (
-              <button
-                type="button"
-                className="profiles-field__tools-toggle"
-                onClick={handleDeselectFiltered}
-                disabled={disabled}
-                data-testid="skills-deselect-all"
-              >
-                {t('profiles.skillsDeselectAll', 'Desmarcar todas')}
-              </button>
-            )}
-            <button
-              type="button"
-              className="profiles-field__tools-toggle"
-              tabIndex={-1}
-              onClick={() => handleMoveButton('up')}
-              disabled={disabled || !canMoveUp}
-              aria-label={t('profiles.skillMoveUp', 'Subir skill')}
-              data-testid="skills-move-up"
-            >
-              <UpOutlined aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className="profiles-field__tools-toggle"
-              tabIndex={-1}
-              onClick={() => handleMoveButton('down')}
-              disabled={disabled || !canMoveDown}
-              aria-label={t('profiles.skillMoveDown', 'Descer skill')}
-              data-testid="skills-move-down"
-            >
-              <DownOutlined aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className={`profiles-field__tools-toggle ${disableOnDemand ? 'profiles-field__tools-toggle--active' : ''}`}
-              tabIndex={-1}
-              onClick={() => onChange('disable_on_demand_skills', !disableOnDemand)}
-              disabled={disabled}
-              aria-pressed={disableOnDemand}
-              data-testid="skills-toggle-on-demand"
-            >
-              {disableOnDemand
-                ? t('profiles.skillsOnDemandOff', 'Sob demanda: desativado')
-                : t('profiles.skillsOnDemandOn', 'Sob demanda: ativado')}
-            </button>
-          </div>
-          {filteredSkills.length > 0 ? (
-            <DataGrid<SkillRow>
-              items={filteredSkills}
-              columns={columns}
-              label={t('profiles.skillsGridLabel', 'Lista de skills')}
-              getItemId={(item) => item.slug}
-              selectedIds={selectedIds}
-              selectionMode="checkbox"
-              onSelectionChange={handleSelectionChange}
-              onMoveItem={handleMoveItem}
-              onFocusChange={handleFocusChange}
-              showHeader={true}
-              autoFocusOnMount={false}
-              className="profiles-skills-datagrid"
-            />
-          ) : (
-            <p className="profiles-field__hint profiles-field__no-results">
-              {t('profiles.skillsNoResults', 'Nenhum skill corresponde ao filtro.')}
-            </p>
-          )}
+            <UpOutlined aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="profiles-field__tools-toggle"
+            tabIndex={-1}
+            onClick={() => handleMoveButton('down')}
+            disabled={disabled || !canMoveDown}
+            aria-label={t('profiles.skillMoveDown', 'Descer skill')}
+            data-testid="skills-move-down"
+          >
+            <DownOutlined aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className={`profiles-field__tools-toggle ${disableOnDemand ? 'profiles-field__tools-toggle--active' : ''}`}
+            tabIndex={-1}
+            onClick={() => onChange('disable_on_demand_skills', !disableOnDemand)}
+            disabled={disabled}
+            aria-pressed={disableOnDemand}
+            data-testid="skills-toggle-on-demand"
+          >
+            {disableOnDemand
+              ? t('profiles.skillsOnDemandOff', 'Sob demanda: desativado')
+              : t('profiles.skillsOnDemandOn', 'Sob demanda: ativado')}
+          </button>
         </>
-      ) : (
-        <p className="profiles-field__hint" style={{ margin: 0 }}>
-          {t('profiles.noSkillsAvailable', 'Nenhum skill encontrado.')}
-        </p>
       )}
-    </CollapsibleSection>
+      rows={filteredSkills}
+      columns={columns}
+      gridLabel={t('profiles.skillsGridLabel', 'Lista de skills')}
+      getItemId={(item) => item.slug}
+      selectedIds={selectedIds}
+      onSelectionChange={handleSelectionChange}
+      onMoveItem={handleMoveItem}
+      onFocusChange={handleFocusChange}
+      gridClassName="profiles-skills-datagrid"
+      noResultsMessage={t('profiles.skillsNoResults', 'Nenhum skill corresponde ao filtro.')}
+      emptyMessage={t('profiles.noSkillsAvailable', 'Nenhum skill encontrado.')}
+    />
   );
 }

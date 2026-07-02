@@ -8,18 +8,7 @@ import {
 import { SignalRegistrationFlow } from './SignalRegistrationFlow';
 import { SignalLinkFlow } from './SignalLinkFlow';
 import { SignalAccountManagement } from './SignalAccountManagement';
-
-interface SignalForm {
-  enabled: boolean;
-  apiURL: string;
-  account: string;
-  apiToken: string;
-  profile: string;
-  maxHistory: number;
-  maxContacts: number;
-}
-
-type SignalRegisterStep = 'idle' | 'registering' | 'awaiting_code' | 'verifying' | 'done';
+import type { SignalConnectionMode, SignalForm, SignalRegisterStep } from './channelTypes';
 
 interface ChannelsSignalSectionProps {
   form: SignalForm;
@@ -38,7 +27,7 @@ interface ChannelsSignalSectionProps {
   regCaptcha: string;
   smsSent: boolean;
   accounts: string[];
-  connectionMode: 'register' | 'link';
+  connectionMode: SignalConnectionMode;
   linkQR: string;
   linking: boolean;
   unregistering: string | null;
@@ -51,7 +40,7 @@ interface ChannelsSignalSectionProps {
   onSetRegCaptcha: (captcha: string) => void;
   onSetSmsSent: (sent: boolean) => void;
   onSetAccounts: (accounts: string[]) => void;
-  onSetConnectionMode: (mode: 'register' | 'link') => void;
+  onSetConnectionMode: (mode: SignalConnectionMode) => void;
   onSetLinkQR: (qr: string) => void;
   onSetLinking: (linking: boolean) => void;
   onCheckAPI: () => Promise<void>;
