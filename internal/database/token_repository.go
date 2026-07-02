@@ -4,6 +4,8 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"encoding/json"
+	"strings"
+
 	"gorm.io/gorm"
 )
 
@@ -383,6 +385,10 @@ func (r *TokenRepository) GetDetailedTokenStatsWithContext(ctx context.Context, 
 // getToolUsageBreakdown extrai informações de uso de tools das mensagens
 func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, conversationID string) ([]ToolUsageBreakdown, int, error) {
 	db := r.db
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
 	var messages []ChatMessage
 	// Propaga falha de DB em vez de degradar silenciosamente para um
 	// breakdown vazio — um erro de query mascarado distorceria as estatísticas
@@ -396,6 +402,7 @@ func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, 
 
 	// Map para agregar tool usage
 	toolMap := make(map[string]*ToolUsageBreakdown)
+	seenCallIDs := map[string]struct{}{}
 
 	for _, msg := range messages {
 		if msg.ToolCalls == "" {
@@ -407,22 +414,50 @@ func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, 
 		toolCalls := parseToolCallObjects(msg.ToolCalls)
 
 		for _, toolCall := range toolCalls {
+			callID, _ := toolCall["id"].(string)
+			callID = strings.TrimSpace(callID)
+			if callID != "" {
+				seenCallIDs[callID] = struct{}{}
+			}
 			if funcData, ok := toolCall["function"].(map[string]interface{}); ok {
 				if toolName, ok := funcData["name"].(string); ok {
-					if _, exists := toolMap[toolName]; !exists {
-						toolMap[toolName] = &ToolUsageBreakdown{
-							ToolName: toolName,
-						}
-					}
-					toolMap[toolName].CallCount++
 					// Distribuir tokens igualmente entre tools usados nessa mensagem
 					toolCount := len(toolCalls)
-					if toolCount > 0 {
-						toolMap[toolName].TotalPromptTokens += msg.PromptTokens / toolCount
-						toolMap[toolName].TotalCompletionTokens += msg.CompletionTokens / toolCount
-					}
+					addToolUsage(toolMap, toolName, msg.PromptTokens, msg.CompletionTokens, toolCount)
 				}
 			}
+		}
+	}
+	if db != nil && db.Migrator().HasTable(&ToolInvocation{}) {
+		type invocationToolUsageRow struct {
+			ToolCallID      string
+			Metadata        string
+			ToolName        string
+			ToolDisplayName string
+		}
+		turnIDQuery := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).
+			Select("DISTINCT chat_messages.turn_id").
+			Where("chat_messages.conversation_id = ? AND chat_messages.turn_id IS NOT NULL AND TRIM(chat_messages.turn_id) <> ''", conversationID))
+		var rows []invocationToolUsageRow
+		if err := db.WithContext(ctx).
+			Model(&ToolInvocation{}).
+			Select("tool_invocations.tool_call_id, tool_invocations.metadata, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name").
+			Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
+			Where("tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND tool_invocations.origin_id IN (?) AND tool_invocations.tool_call_id <> ''", userID, "chat", turnIDQuery).
+			Find(&rows).Error; err != nil {
+			return nil, 0, err
+		}
+		for _, row := range rows {
+			callID := strings.TrimSpace(row.ToolCallID)
+			if callID == "" {
+				continue
+			}
+			if _, seen := seenCallIDs[callID]; seen {
+				continue
+			}
+			seenCallIDs[callID] = struct{}{}
+			toolName := invocationToolUsageName(row.Metadata, row.ToolDisplayName, row.ToolName, callID)
+			addToolUsage(toolMap, toolName, 0, 0, 1)
 		}
 	}
 
@@ -434,6 +469,36 @@ func (r *TokenRepository) getToolUsageBreakdownWithContext(ctx context.Context, 
 	}
 
 	return result, len(toolMap), nil
+}
+
+func addToolUsage(toolMap map[string]*ToolUsageBreakdown, toolName string, promptTokens, completionTokens, toolCount int) {
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		return
+	}
+	if _, exists := toolMap[toolName]; !exists {
+		toolMap[toolName] = &ToolUsageBreakdown{ToolName: toolName}
+	}
+	toolMap[toolName].CallCount++
+	if toolCount > 0 {
+		toolMap[toolName].TotalPromptTokens += promptTokens / toolCount
+		toolMap[toolName].TotalCompletionTokens += completionTokens / toolCount
+	}
+}
+
+func invocationToolUsageName(metadata, displayName, catalogName, fallback string) string {
+	var meta struct {
+		Display struct {
+			Name string `json:"name"`
+		} `json:"display"`
+	}
+	_ = json.Unmarshal([]byte(strings.TrimSpace(metadata)), &meta)
+	for _, candidate := range []string{meta.Display.Name, displayName, catalogName, fallback} {
+		if name := strings.TrimSpace(candidate); name != "" {
+			return name
+		}
+	}
+	return ""
 }
 
 // parseToolCallObjects decodifica o payload JSON de tool_calls aceitando tanto

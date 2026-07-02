@@ -185,6 +185,12 @@ func TestGetDetailedTokenStats_CountsL3FreeAssistantToolInvocation(t *testing.T)
 	if stats.ModelCallCount != 2 {
 		t.Fatalf("detailed ModelCallCount: esperado 2 chamadas ao modelo, obtido %d", stats.ModelCallCount)
 	}
+	if stats.ToolsUsedCount != 1 {
+		t.Fatalf("ToolsUsedCount: esperado 1 tool, obtido %d", stats.ToolsUsedCount)
+	}
+	if len(stats.ToolBreakdown) != 1 || stats.ToolBreakdown[0].ToolName != "search" || stats.ToolBreakdown[0].CallCount != 1 {
+		t.Fatalf("ToolBreakdown inesperado: %+v", stats.ToolBreakdown)
+	}
 }
 
 func TestGetDetailedTokenStats_EmptyConversationReturnsZeroes(t *testing.T) {
