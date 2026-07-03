@@ -162,6 +162,16 @@ anti-SSRF em `internal/tools/http`. A proteção é feita em camadas:
 > e normaliza IPv4-mapped IPv6 via `To4()` para fechar bypass de broadcast/privado
 > em forma mapeada.
 
+> **Autorização explícita para destinos bloqueados (AEP-0082):** o hard-deny
+> anti-SSRF deixou de ser terminal. Quando o guard pós-DNS barra um destino
+> (`BlockedIPError`) e há um `NetworkAuthorizer` configurado, o `Client.Do`
+> abre um fluxo de **consentimento explícito + allowlist escopável** (sessão /
+> workspace / perfil / global) e **reexecuta** a request liberando apenas o(s)
+> **IP(s) resolvido(s)** do host autorizado (trust por-request via
+> `WithTrustedIPs`, nunca a faixa inteira). Sem authorizer ou com o usuário
+> negando, o erro passa a ser acionável (`BlockedDestinationError`: host, IP,
+> categoria, ações). Detalhes e decisões em `aep/0082-network-trust-allowlist.md`.
+
 > **Proxy desabilitado (conexão direta obrigatória):** o `GuardedTransport` define
 > `Transport.Proxy = nil`, **ignorando `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`**. Isso
 > é deliberado: com um proxy ativo, o `DialContext` validaria/dialaria o IP do

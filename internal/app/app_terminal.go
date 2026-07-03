@@ -3,6 +3,7 @@ package app
 import (
 	"assistente/internal/allowlist"
 	"assistente/internal/logging"
+	"assistente/internal/nettrust"
 	"assistente/internal/questionnaire"
 	"assistente/internal/terminal"
 	"context"
@@ -56,6 +57,10 @@ func (a *App) initTerminalAndAllowlists() {
 	if err := a.allowlistMgr.EnsureDefaults(); err != nil {
 		logging.Errorf(context.Background(), "app.app-terminal", "[Allowlist] Erro ao garantir allowlist padrão: %v", err)
 	}
+
+	// Allowlist de rede (override anti-SSRF escopável). Sem defaults: começa vazia
+	// e só cresce por autorização explícita do usuário.
+	a.netTrustMgr = nettrust.NewManager()
 
 	logging.Infof(context.Background(), "app.app-terminal", "[Terminal] Managers de terminal, questionário e allowlist inicializados")
 }

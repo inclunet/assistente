@@ -310,6 +310,8 @@ export function GetModelsByProvider(arg1:string):Promise<Array<string>>;
 
 export function GetNativeTTSProviders():Promise<Array<string>>;
 
+export function GetNetworkAllowlist():Promise<Array<app.NetworkAllowlistView>>;
+
 export function GetOpenAITTSVoices():Promise<Array<speech.TTSVoiceInfo>>;
 
 export function GetProfile(arg1:string):Promise<profiles.Profile>;
@@ -437,6 +439,8 @@ export function RegenerateJobCatalog():Promise<void>;
 export function ReloadLLMClient():Promise<void>;
 
 export function RemoveAuthorizedContact(arg1:string,arg2:string):Promise<void>;
+
+export function RemoveNetworkAllowlistEntry(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function RemoveWorkspaceTab(arg1:string):Promise<workspace.Workspace>;
 

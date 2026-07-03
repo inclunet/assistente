@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -37,6 +38,18 @@ func (e *BlockedIPError) Error() string {
 // allowPrivate libera a checagem em runtime (ex.: testes com httptest, que usam
 // 127.0.0.1); pode ser nil (= sempre barrar).
 func ssrfControl(allowPrivate func() bool) func(network, address string, c syscall.RawConn) error {
+	return ssrfControlWithTrust(allowPrivate, nil)
+}
+
+// ssrfControlWithTrust é o ssrfControl com um conjunto adicional de IPs
+// confiáveis (chaves normalizadas via normalizeIPKey) liberados apesar de caírem
+// em faixa bloqueada. É o resultado de uma autorização explícita do usuário para
+// ESTA request (ver NetworkAuthorizer / WithTrustedIPs). trusted pode ser nil.
+//
+// A ordem importa para segurança: a checagem de trust é por IP EXATO já resolvido
+// (o mesmo que será conectado), então não afrouxa a faixa inteira — outros IPs
+// privados/CGNAT continuam barrados, fechando SSRF por hosts vizinhos.
+func ssrfControlWithTrust(allowPrivate func() bool, trusted map[string]bool) func(network, address string, c syscall.RawConn) error {
 	return func(_, address string, _ syscall.RawConn) error {
 		if allowPrivate != nil && allowPrivate() {
 			return nil
@@ -48,6 +61,9 @@ func ssrfControl(allowPrivate func() bool) func(network, address string, c sysca
 		ip := net.ParseIP(host)
 		if ip == nil {
 			return fmt.Errorf("anti-SSRF: endereço de conexão sem IP válido: %q", address)
+		}
+		if len(trusted) > 0 && trusted[normalizeIPKey(ip)] {
+			return nil
 		}
 		if isBlockedIP(ip) {
 			return &BlockedIPError{IP: ip}
@@ -86,11 +102,20 @@ func NewGuardedTransport(allowPrivate func() bool) *http.Transport {
 	// proxy público sem o IP do destino ser validado). A política anti-SSRF aqui é
 	// conexão direta com o IP real validado no momento do connect.
 	base.Proxy = nil
-	base.DialContext = (&net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-		Control:   ssrfControl(allowPrivate),
-	}).DialContext
+	// DialContext embrulhado para ler o trust POR-REQUEST do ctx: o hook Control
+	// de um net.Dialer não recebe ctx, mas o DialContext sim. Reconstruímos o
+	// net.Dialer por chamada com um Control ciente dos IPs confiáveis daquela
+	// request (autorizados pelo usuário). Preserva Happy Eyeballs (o net.Dialer
+	// nativo resolve e dialha IPv6/IPv4 concorrentes, com o Control validando cada
+	// IP concreto antes do connect).
+	base.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		d := &net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			Control:   ssrfControlWithTrust(allowPrivate, trustedIPSet(ctx)),
+		}
+		return d.DialContext(ctx, network, address)
+	}
 	return base
 }
 

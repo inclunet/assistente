@@ -2,6 +2,7 @@ package http
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 )
@@ -37,6 +38,13 @@ func RedirectGuard(maxRedirects int, allowPrivate func() bool) func(req *http.Re
 			return ValidateNetworkScope(req.Context(), req.URL.Hostname())
 		}
 		if IsPrivateHost(req.URL.Hostname()) {
+			// Redirect para IP literal privado é liberado apenas se esse IP exato
+			// consta no trust por-request (autorização explícita). A barreira
+			// pós-DNS (DialContext) revalida o IP real de qualquer forma; aqui
+			// evitamos barrar cedo um destino que o usuário já autorizou.
+			if ip := net.ParseIP(normalizeNetworkHost(req.URL.Hostname())); ip != nil && isTrustedIP(req.Context(), ip) {
+				return ValidateNetworkScope(req.Context(), req.URL.Hostname())
+			}
 			return fmt.Errorf("redirect para host local/privado bloqueado: %s", req.URL.Host)
 		}
 		return ValidateNetworkScope(req.Context(), req.URL.Hostname())

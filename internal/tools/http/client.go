@@ -2,7 +2,9 @@ package http
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -16,6 +18,10 @@ type Config struct {
 	RetryPolicy       *RetryPolicy
 	Timeout           time.Duration
 	LogFn             func(msg string) // opcional
+	// Authorizer, quando presente, é consultado se uma request for barrada pela
+	// política anti-SSRF (BlockedIPError). Permite o fluxo de consentimento +
+	// allowlist e a reexecução da request. nil => comportamento hard-deny padrão.
+	Authorizer NetworkAuthorizer
 }
 
 // RetryPolicy define política de retry
@@ -32,6 +38,7 @@ type Client struct {
 	retryPolicy    *RetryPolicy
 	logFn          func(msg string)
 	domainPatterns map[string]string // domínio → padrão de credencial
+	authorizer     NetworkAuthorizer // opcional: fluxo de autorização anti-SSRF
 }
 
 // New cria um novo cliente HTTP centralizado
@@ -58,7 +65,15 @@ func New(cfg *Config, domainPatterns map[string]string) *Client {
 		retryPolicy:    cfg.RetryPolicy,
 		logFn:          cfg.LogFn,
 		domainPatterns: domainPatterns,
+		authorizer:     cfg.Authorizer,
 	}
+}
+
+// SetNetworkAuthorizer instala (ou substitui) o authorizer anti-SSRF depois da
+// construção. Usado pelo wiring de app, que só monta o authorizer (com UI de
+// consentimento + store de allowlist) após o Client já existir.
+func (c *Client) SetNetworkAuthorizer(a NetworkAuthorizer) {
+	c.authorizer = a
 }
 
 // Do executa uma requisição HTTP com interceptação de autenticação. Este é o
@@ -81,7 +96,126 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 	c.applyAuth(ctx, req)
 
 	// Executar com retry
-	return c.doWithRetry(ctx, req)
+	resp, err := c.doWithRetry(ctx, req)
+	if err == nil {
+		return resp, nil
+	}
+
+	// Fluxo anti-SSRF: se o guard pós-DNS barrou o destino e há um authorizer,
+	// oferecemos consentimento/allowlist e, se autorizado, reexecutamos a request
+	// com os IPs liberados. Caso contrário, devolvemos um erro ACIONÁVEL (não o
+	// BlockedIPError seco), preservando a detecção do bloqueio por padrão.
+	var blocked *BlockedIPError
+	if !errors.As(err, &blocked) {
+		return nil, err
+	}
+	return c.handleBlocked(ctx, req, blocked)
+}
+
+// handleBlocked orquestra a autorização de um destino barrado por anti-SSRF.
+func (c *Client) handleBlocked(ctx context.Context, req *http.Request, blocked *BlockedIPError) (*http.Response, error) {
+	dest := c.buildBlockedDestination(ctx, req, blocked)
+
+	if c.authorizer == nil {
+		return nil, &BlockedDestinationError{
+			Host:        dest.Host,
+			URL:         dest.URL,
+			IPs:         dest.IPs,
+			Category:    dest.Category,
+			Reason:      dest.Reason,
+			Suggestions: defaultBlockSuggestions,
+		}
+	}
+
+	trustedIPs, ok, aerr := c.authorizer.Authorize(ctx, dest)
+	if aerr != nil {
+		return nil, fmt.Errorf("falha ao solicitar autorização de rede: %w", aerr)
+	}
+	if !ok || len(trustedIPs) == 0 {
+		return nil, &BlockedDestinationError{
+			Host:        dest.Host,
+			URL:         dest.URL,
+			IPs:         dest.IPs,
+			Category:    dest.Category,
+			Reason:      dest.Reason,
+			Suggestions: defaultBlockSuggestions,
+		}
+	}
+
+	// Reexecuta com o trust por-request. Reseta o body quando disponível
+	// (http.NewRequestWithContext popula GetBody para bodies comuns).
+	if err := resetRequestBody(req); err != nil {
+		return nil, fmt.Errorf("não foi possível reexecutar a request após autorização: %w", err)
+	}
+	trustedCtx := WithTrustedIPs(ctx, trustedIPs)
+	return c.doWithRetry(trustedCtx, req)
+}
+
+// buildBlockedDestination resolve os IPs do host e classifica o bloqueio para
+// montar o pedido de autorização / a mensagem de erro. Sempre inclui o IP que o
+// guard reportou (blocked.IP); complementa com a resolução completa quando
+// possível, registrando o(s) IP(s) real(is) — nunca confia só no hostname.
+func (c *Client) buildBlockedDestination(ctx context.Context, req *http.Request, blocked *BlockedIPError) BlockedDestination {
+	host := req.URL.Hostname()
+	port := req.URL.Port()
+	if port == "" {
+		switch req.URL.Scheme {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+
+	category := Classify(blocked.IP)
+	ips := resolveHostIPs(ctx, host)
+	if len(ips) == 0 && blocked.IP != nil {
+		ips = []net.IP{blocked.IP}
+	}
+
+	return BlockedDestination{
+		Host:     host,
+		Port:     port,
+		URL:      req.URL.Redacted(),
+		IPs:      ips,
+		Category: category,
+		Reason:   fmt.Sprintf("%s address blocked by anti-SSRF policy", category),
+	}
+}
+
+// resolveHostIPs resolve os IPs de um host respeitando o ctx. Se o host já for um
+// IP literal, devolve-o direto. Falhas de DNS não são fatais (o chamador tem
+// fallback para o IP reportado pelo guard).
+func resolveHostIPs(ctx context.Context, host string) []net.IP {
+	if ip := net.ParseIP(host); ip != nil {
+		return []net.IP{ip}
+	}
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil
+	}
+	ips := make([]net.IP, 0, len(addrs))
+	for _, a := range addrs {
+		ips = append(ips, a.IP)
+	}
+	return ips
+}
+
+// resetRequestBody reposiciona o body para uma reexecução. Sem body (GET/HEAD),
+// é no-op. Com body, usa GetBody (populado pelo net/http para readers conhecidos).
+func resetRequestBody(req *http.Request) error {
+	if req.Body == nil || req.Body == http.NoBody {
+		return nil
+	}
+	if req.GetBody == nil {
+		return errors.New("body não é reproduzível (GetBody ausente)")
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return err
+	}
+	req.Body = body
+	return nil
 }
 
 // applyAuth aplica autenticação baseada no domínio da requisição
