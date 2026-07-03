@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { restoreDefaultFocus } from './useDefaultFocus';
 
@@ -164,10 +164,26 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
 });
 
 describe('useWorkspaceKeyboardShortcuts - foco apos troca global de aba', () => {
-  beforeEach(() => {
+  let originalRequestAnimationFrame: typeof window.requestAnimationFrame | undefined;
+
+  beforeEach(async () => {
     setActiveTab.mockClear();
-    vi.mocked(restoreDefaultFocus).mockClear();
     modalOpen.mockReturnValue(false);
+    originalRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    }) as typeof window.requestAnimationFrame;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    vi.mocked(restoreDefaultFocus).mockClear();
+  });
+
+  afterEach(() => {
+    if (originalRequestAnimationFrame) {
+      window.requestAnimationFrame = originalRequestAnimationFrame;
+    } else {
+      Reflect.deleteProperty(window, 'requestAnimationFrame');
+    }
   });
 
   it.each([
