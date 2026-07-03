@@ -904,14 +904,15 @@ function orderConversationsByIds<T extends { id: string }>(rows: T[], ids: strin
 function mergeConversations(previous: Conversation[], nextPage: Conversation[]): Conversation[] {
   if (nextPage.length === 0) return previous;
   const seen = new Set(previous.map((conversation) => conversation.id));
-  const merged = [...previous];
+  let merged: Conversation[] | null = null;
   for (const conversation of nextPage) {
     if (!seen.has(conversation.id)) {
       seen.add(conversation.id);
+      merged ??= [...previous];
       merged.push(conversation);
     }
   }
-  return merged;
+  return merged ?? previous;
 }
 
 function compareConversationsByUpdatedAt(a: Conversation, b: Conversation): number {

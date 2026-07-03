@@ -549,12 +549,13 @@ function scopeRefFallbackForScope(scope: string, currentScopeRef: string): strin
 function mergeMemoryRecords(previous: MemoryRecord[], nextPage: MemoryRecord[]): MemoryRecord[] {
   if (nextPage.length === 0) return previous;
   const seen = new Set(previous.map((record) => record.id));
-  const merged = [...previous];
+  let merged: MemoryRecord[] | null = null;
   for (const record of nextPage) {
     if (!seen.has(record.id)) {
       seen.add(record.id);
+      merged ??= [...previous];
       merged.push(record);
     }
   }
-  return merged;
+  return merged ?? previous;
 }
