@@ -119,14 +119,13 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 	// log não deve afirmar que foi salva num escopo persistente.
 	effectiveScope := scope
 	if scope != ScopeOnce {
-		switch {
-		case a.mgr == nil:
+		if a.mgr == nil {
 			// Sem manager não há onde persistir: mantém a auditabilidade correta.
 			logging.Errorf(ctx, "nettrust.authorizer",
 				"[NetTrust] sem manager para persistir allowlist (escopo %s) para host=%s — liberando apenas esta request (once)",
 				scope, host)
 			effectiveScope = ScopeOnce
-		default:
+		} else {
 			// A autorização é por HOST: só gravamos a porta quando ela veio
 			// EXPLÍCITA na URL. Porta derivada do scheme (443/80) não deve tornar
 			// a entrada específica de porta — senão o mesmo host via http vs https
