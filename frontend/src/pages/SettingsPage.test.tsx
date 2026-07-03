@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -35,33 +34,16 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('../components/ui/tabs', () => ({
-  Tabs: ({ children, value }: { children: ReactNode; value: string }) => (
-    <div data-testid="tabs" data-value={value}>{children}</div>
-  ),
-  TabList: ({ children, ariaLabel }: { children: ReactNode; ariaLabel?: string }) => (
-    <div role="tablist" aria-label={ariaLabel}>{children}</div>
-  ),
-  Tab: ({ children, value, className, activeClassName }: { children: ReactNode; value: string; className?: string; activeClassName?: string }) => (
-    <button role="tab" data-value={value} className={`${className ?? ''} ${activeClassName ?? ''}`}>
-      {children}
-    </button>
-  ),
-  TabPanel: ({ children, value }: { children: ReactNode; value: string }) => (
-    <div role="tabpanel" data-value={value}>{children}</div>
-  ),
-}));
-
-vi.mock('./ProvidersPage', () => ({ default: () => <div>ProvidersPage</div> }));
-vi.mock('./McpPage', () => ({ default: () => <div>McpPage</div> }));
-vi.mock('./SkillsPage', () => ({ default: () => <div>SkillsPage</div> }));
-vi.mock('./ChannelsPage', () => ({ default: () => <div>ChannelsPage</div> }));
-vi.mock('./ContactsPage', () => ({ default: () => <div>ContactsPage</div> }));
-vi.mock('./CredentialsPage', () => ({ default: () => <div>CredentialsPage</div> }));
-vi.mock('./AllowlistPage', () => ({ default: () => <div>AllowlistPage</div> }));
-vi.mock('./AppearancePage', () => ({ default: () => <div>AppearancePage</div> }));
-vi.mock('./DataManagementPage', () => ({ default: () => <div>DataManagementPage</div> }));
-vi.mock('./RestoreDefaultsPage', () => ({ default: () => <div>RestoreDefaultsPage</div> }));
+vi.mock('./ProvidersPage', () => ({ default: () => <button data-testid="providers-default">ProvidersPage</button> }));
+vi.mock('./McpPage', () => ({ default: () => <button data-testid="mcp-default">McpPage</button> }));
+vi.mock('./SkillsPage', () => ({ default: () => <button data-testid="skills-default">SkillsPage</button> }));
+vi.mock('./ChannelsPage', () => ({ default: () => <button data-testid="channels-default">ChannelsPage</button> }));
+vi.mock('./ContactsPage', () => ({ default: () => <button data-testid="contacts-default">ContactsPage</button> }));
+vi.mock('./CredentialsPage', () => ({ default: () => <button data-testid="credentials-default">CredentialsPage</button> }));
+vi.mock('./AllowlistPage', () => ({ default: () => <button data-testid="allowlists-default">AllowlistPage</button> }));
+vi.mock('./AppearancePage', () => ({ default: () => <button data-testid="appearance-default">AppearancePage</button> }));
+vi.mock('./DataManagementPage', () => ({ default: () => <button data-testid="data-default">DataManagementPage</button> }));
+vi.mock('./RestoreDefaultsPage', () => ({ default: () => <button data-testid="restore-defaults-default">RestoreDefaultsPage</button> }));
 
 import SettingsPage from './SettingsPage';
 
@@ -93,24 +75,21 @@ describe('SettingsPage', () => {
   it('usa providers como tab padrão quando nenhuma tab é especificada', () => {
     render(<SettingsPage />);
 
-    const tabs = screen.getByTestId('tabs');
-    expect(tabs).toHaveAttribute('data-value', 'providers');
+    expect(screen.getByRole('tab', { name: 'Provedores LLM' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('seleciona a tab correta quando parametro de URL é fornecido', () => {
     mockTab = 'mcp';
     render(<SettingsPage />);
 
-    const tabs = screen.getByTestId('tabs');
-    expect(tabs).toHaveAttribute('data-value', 'mcp');
+    expect(screen.getByRole('tab', { name: 'MCP' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('volta para tab padrão quando parametro de URL é inválido', () => {
     mockTab = 'invalid-tab';
     render(<SettingsPage />);
 
-    const tabs = screen.getByTestId('tabs');
-    expect(tabs).toHaveAttribute('data-value', 'providers');
+    expect(screen.getByRole('tab', { name: 'Provedores LLM' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('possui tablist acessível com aria-label', () => {
@@ -130,7 +109,7 @@ describe('SettingsPage', () => {
   it('renderiza todos os 10 tabpanels', () => {
     render(<SettingsPage />);
 
-    const panels = screen.getAllByRole('tabpanel');
+    const panels = screen.getAllByRole('tabpanel', { hidden: true });
     expect(panels).toHaveLength(10);
   });
 
@@ -149,14 +128,13 @@ describe('SettingsPage', () => {
     const mcpTab = screen.getByText('MCP');
     await user.click(mcpTab);
 
-    // The Tab mock doesn't call onValueChange, but we verify the tabs render
-    expect(mcpTab).toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/mcp', { replace: true });
   });
 
   it('possui data-tab-scope no container', () => {
     render(<SettingsPage />);
 
-    const container = screen.getByTestId('tabs').closest('.settings-page');
+    const container = screen.getByRole('tablist').closest('.settings-page');
     expect(container).toHaveAttribute('data-tab-scope');
   });
 
@@ -165,7 +143,7 @@ describe('SettingsPage', () => {
       mockTab = 'providers';
       render(<SettingsPage />);
 
-      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      const container = screen.getByRole('tablist').closest('.settings-page')!;
       fireEvent.keyDown(container, { key: 'Tab', ctrlKey: true });
 
       expect(mockNavigate).toHaveBeenCalledWith('/settings/mcp', { replace: true });
@@ -175,7 +153,7 @@ describe('SettingsPage', () => {
       mockTab = 'mcp';
       render(<SettingsPage />);
 
-      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      const container = screen.getByRole('tablist').closest('.settings-page')!;
       fireEvent.keyDown(container, { key: 'Tab', ctrlKey: true, shiftKey: true });
 
       expect(mockNavigate).toHaveBeenCalledWith('/settings/providers', { replace: true });
@@ -185,7 +163,7 @@ describe('SettingsPage', () => {
       mockTab = 'skills';
       render(<SettingsPage />);
 
-      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      const container = screen.getByRole('tablist').closest('.settings-page')!;
       fireEvent.keyDown(container, { key: 'PageDown', ctrlKey: true });
 
       expect(mockNavigate).toHaveBeenCalledWith('/settings/channels', { replace: true });
@@ -195,7 +173,7 @@ describe('SettingsPage', () => {
       mockTab = 'skills';
       render(<SettingsPage />);
 
-      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      const container = screen.getByRole('tablist').closest('.settings-page')!;
       fireEvent.keyDown(container, { key: 'PageUp', ctrlKey: true });
 
       expect(mockNavigate).toHaveBeenCalledWith('/settings/mcp', { replace: true });
@@ -205,7 +183,7 @@ describe('SettingsPage', () => {
       mockTab = 'restore-defaults';
       render(<SettingsPage />);
 
-      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      const container = screen.getByRole('tablist').closest('.settings-page')!;
       fireEvent.keyDown(container, { key: 'Tab', ctrlKey: true });
 
       expect(mockNavigate).toHaveBeenCalledWith('/settings/providers', { replace: true });
@@ -215,7 +193,7 @@ describe('SettingsPage', () => {
       mockTab = 'providers';
       render(<SettingsPage />);
 
-      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      const container = screen.getByRole('tablist').closest('.settings-page')!;
       fireEvent.keyDown(container, { key: 'Tab', ctrlKey: true, shiftKey: true });
 
       expect(mockNavigate).toHaveBeenCalledWith('/settings/restore-defaults', { replace: true });
@@ -225,10 +203,54 @@ describe('SettingsPage', () => {
       mockTab = 'providers';
       render(<SettingsPage />);
 
-      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      const container = screen.getByRole('tablist').closest('.settings-page')!;
       fireEvent.keyDown(container, { key: 'Tab', ctrlKey: true });
 
       expect(mockAnnounce).toHaveBeenCalledWith('MCP');
     });
+
+    it.each([
+      ['Ctrl+Tab', { key: 'Tab', ctrlKey: true }, 'mcp', 'mcp-default'],
+      ['Ctrl+Shift+Tab', { key: 'Tab', ctrlKey: true, shiftKey: true }, 'restore-defaults', 'restore-defaults-default'],
+      ['Ctrl+PageDown', { key: 'PageDown', ctrlKey: true }, 'mcp', 'mcp-default'],
+      ['Ctrl+PageUp', { key: 'PageUp', ctrlKey: true }, 'restore-defaults', 'restore-defaults-default'],
+    ])('%s restaura foco para o conteúdo', async (_label, init, nextTab, defaultTarget) => {
+      mockTab = 'providers';
+      const { rerender } = render(<SettingsPage />);
+
+      const tab = screen.getByRole('tab', { name: 'Provedores LLM' });
+      tab.focus();
+      fireEvent.keyDown(tab, init);
+      mockTab = nextTab;
+      rerender(<SettingsPage />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId(defaultTarget)).toHaveFocus();
+      });
+    });
+
+    it('setas mantêm foco na lista de abas', () => {
+      render(<SettingsPage />);
+
+      const providersTab = screen.getByRole('tab', { name: 'Provedores LLM' });
+      providersTab.focus();
+      fireEvent.keyDown(providersTab, { key: 'ArrowRight' });
+
+      expect(screen.getByRole('tab', { name: 'MCP' })).toHaveFocus();
+      expect(screen.getByTestId('providers-default')).not.toHaveFocus();
+    });
+
+    it('Enter na guia leva foco para o conteúdo', async () => {
+      render(<SettingsPage />);
+
+      const providersTab = screen.getByRole('tab', { name: 'Provedores LLM' });
+      providersTab.focus();
+      fireEvent.keyDown(providersTab, { key: 'Enter' });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('providers-default')).toHaveFocus();
+      });
+    });
+
   });
 });

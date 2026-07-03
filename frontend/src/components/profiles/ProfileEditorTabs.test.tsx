@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProfileEditorTabs } from './ProfileEditorTabs';
 
 /* ── Mocks ─────────────────────────────────────────────── */
+
+const mockAnnounce = vi.fn();
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -12,8 +14,9 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('../../hooks/useAnnouncer', () => ({
+  announce: (...args: unknown[]) => mockAnnounce(...args),
   useAnnouncer: () => ({
-    announce: vi.fn(),
+    announce: mockAnnounce,
   }),
 }));
 
@@ -29,27 +32,27 @@ vi.mock('@wailsjs/go/models', () => ({
 }));
 
 vi.mock('./ProfileGeneralSection', () => ({
-  ProfileGeneralSection: () => <div data-testid="general-section">General</div>,
+  ProfileGeneralSection: () => <button data-testid="general-section">General</button>,
 }));
 
 vi.mock('./ProfileChatSection', () => ({
-  ProfileChatSection: () => <div data-testid="chat-section">Chat</div>,
+  ProfileChatSection: () => <button data-testid="chat-section">Chat</button>,
 }));
 
 vi.mock('./ProfileSkillsSection', () => ({
-  ProfileSkillsSection: () => <div data-testid="skills-section">Skills</div>,
+  ProfileSkillsSection: () => <button data-testid="skills-section">Skills</button>,
 }));
 
 vi.mock('./ProfileContextProvidersSection', () => ({
-  ProfileContextProvidersSection: () => <div data-testid="context-providers-section">Context Providers</div>,
+  ProfileContextProvidersSection: () => <button data-testid="context-providers-section">Context Providers</button>,
 }));
 
 vi.mock('./ProfileToolsSection', () => ({
-  ProfileToolsSection: () => <div data-testid="tools-section">Tools</div>,
+  ProfileToolsSection: () => <button data-testid="tools-section">Tools</button>,
 }));
 
 vi.mock('./ProfileAudioTab', () => ({
-  ProfileAudioTab: () => <div data-testid="audio-tab">Audio</div>,
+  ProfileAudioTab: () => <button data-testid="audio-tab">Audio</button>,
 }));
 
 /* ── Helper ────────────────────────────────────────────── */
@@ -168,6 +171,58 @@ describe('ProfileEditorTabs', () => {
     fireEvent.keyDown(container, { key: 'PageDown', ctrlKey: true });
 
     expect(screen.getByTestId('chat-section')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['Ctrl+Tab', { key: 'Tab', ctrlKey: true }, 'chat-section'],
+    ['Ctrl+Shift+Tab', { key: 'Tab', ctrlKey: true, shiftKey: true }, 'audio-tab'],
+    ['Ctrl+PageDown', { key: 'PageDown', ctrlKey: true }, 'chat-section'],
+    ['Ctrl+PageUp', { key: 'PageUp', ctrlKey: true }, 'audio-tab'],
+  ])('%s restaura foco para o conteúdo da aba destino', async (_label, init, defaultTarget) => {
+    renderTabs();
+
+    const generalTab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'general')!;
+    generalTab.focus();
+    fireEvent.keyDown(generalTab, init);
+
+    await waitFor(() => {
+      expect(screen.getByTestId(defaultTarget)).toHaveFocus();
+    });
+  });
+
+  it('anuncia a seção ao navegar com Ctrl+Tab', () => {
+    mockAnnounce.mockClear();
+    renderTabs();
+
+    const generalTab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'general')!;
+    generalTab.focus();
+    fireEvent.keyDown(generalTab, { key: 'Tab', ctrlKey: true });
+
+    expect(mockAnnounce).toHaveBeenCalledWith('profiles.editorTabs.models');
+  });
+
+  it('setas mantêm foco na tablist', () => {
+    renderTabs();
+
+    const generalTab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'general')!;
+    generalTab.focus();
+    fireEvent.keyDown(generalTab, { key: 'ArrowRight' });
+
+    const modelsTab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'models')!;
+    expect(modelsTab).toHaveFocus();
+    expect(screen.getByTestId('general-section')).not.toHaveFocus();
+  });
+
+  it('Enter na guia leva foco para o conteúdo', async () => {
+    renderTabs();
+
+    const generalTab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'general')!;
+    generalTab.focus();
+    fireEvent.keyDown(generalTab, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('general-section')).toHaveFocus();
+    });
   });
 
   it('navega com Ctrl+PageUp para aba anterior (wrap)', () => {

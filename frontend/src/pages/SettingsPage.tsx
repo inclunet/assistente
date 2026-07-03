@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Spin } from 'antd';
@@ -36,6 +36,8 @@ const DEFAULT_TAB = SETTINGS_TABS[0].id;
 type SettingsTabId = typeof SETTINGS_TABS[number]['id'];
 
 const VALID_TAB_IDS = new Set<string>(SETTINGS_TABS.map((t) => t.id));
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function resolveTab(param: string | undefined): SettingsTabId {
   if (param && VALID_TAB_IDS.has(param)) return param as SettingsTabId;
@@ -47,13 +49,180 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
+  const pendingShortcutFocusRef = useRef<SettingsTabId | null>(null);
+  const pendingShortcutFocusTimerRef = useRef<number | null>(null);
+  const cleanupPendingContentFocusRef = useRef<(() => void) | null>(null);
+  const activeTabRef = useRef<SettingsTabId>(DEFAULT_TAB);
+  const focusRequestIdRef = useRef(0);
 
   const activeTab = useMemo(() => resolveTab(tab), [tab]);
+  activeTabRef.current = activeTab;
+
+  const clearPendingShortcutFocus = useCallback(() => {
+    pendingShortcutFocusRef.current = null;
+    if (pendingShortcutFocusTimerRef.current !== null) {
+      window.clearTimeout(pendingShortcutFocusTimerRef.current);
+      pendingShortcutFocusTimerRef.current = null;
+    }
+  }, []);
+
+  const setPendingShortcutFocus = useCallback(
+    (tabId: SettingsTabId) => {
+      clearPendingShortcutFocus();
+      cleanupPendingContentFocusRef.current?.();
+      cleanupPendingContentFocusRef.current = null;
+      pendingShortcutFocusRef.current = tabId;
+      pendingShortcutFocusTimerRef.current = window.setTimeout(() => {
+        clearPendingShortcutFocus();
+      }, 2000);
+    },
+    [clearPendingShortcutFocus],
+  );
 
   const handleTabChange = useCallback(
-    (tabId: string) => navigate(`/settings/${tabId}`, { replace: true }),
-    [navigate],
+    (tabId: string) => {
+      clearPendingShortcutFocus();
+      cleanupPendingContentFocusRef.current?.();
+      cleanupPendingContentFocusRef.current = null;
+      navigate(`/settings/${tabId}`, { replace: true });
+    },
+    [clearPendingShortcutFocus, navigate],
   );
+
+  const focusSettingsContent = useCallback(
+    (tabId: SettingsTabId = activeTab, allowPanelFallback = true): boolean => {
+      const el = containerRef.current;
+      if (!el) return false;
+
+      const targetPanel = document.getElementById(`settings-tabpanel-${tabId}`) as HTMLElement | null;
+      const panel =
+        targetPanel && !targetPanel.hidden
+          ? targetPanel
+          : (el.querySelector('[role="tabpanel"]:not([hidden])') as HTMLElement | null);
+      if (!panel) return false;
+
+      const grid = panel.querySelector('[role="grid"]') as HTMLElement | null;
+      if (grid) {
+        const cell = panel.querySelector(
+          '.datagrid-container [role="gridcell"][tabindex="0"], .datagrid-container [role="gridcell"]',
+        ) as HTMLElement | null;
+        if (cell) {
+          cell.focus();
+          return true;
+        }
+        grid.focus();
+        return true;
+      }
+
+      const toolbar = panel.querySelector('[role="toolbar"]');
+      const focusable = Array.from(panel.querySelectorAll(FOCUSABLE_SELECTOR)).find(
+        (candidate) => !toolbar?.contains(candidate),
+      ) as HTMLElement | undefined;
+      if (focusable) {
+        focusable.focus();
+        return true;
+      }
+
+      if (!allowPanelFallback) return false;
+
+      panel.setAttribute('tabindex', '-1');
+      panel.focus();
+      return true;
+    },
+    [activeTab],
+  );
+
+  const focusSettingsContentWhenReady = useCallback(
+    (tabId: SettingsTabId = activeTab) => {
+      cleanupPendingContentFocusRef.current?.();
+      cleanupPendingContentFocusRef.current = null;
+      const requestId = focusRequestIdRef.current + 1;
+      focusRequestIdRef.current = requestId;
+
+      const isCurrentRequest = () =>
+        focusRequestIdRef.current === requestId && activeTabRef.current === tabId;
+
+      const cleanupHandles: Array<() => void> = [];
+      const cleanup = () => {
+        for (const dispose of cleanupHandles.splice(0)) dispose();
+        if (focusRequestIdRef.current === requestId) {
+          focusRequestIdRef.current += 1;
+        }
+        if (cleanupPendingContentFocusRef.current === cleanup) {
+          cleanupPendingContentFocusRef.current = null;
+        }
+      };
+      cleanupPendingContentFocusRef.current = cleanup;
+
+      const tryFocusContent = () => {
+        if (focusSettingsContent(tabId, false)) {
+          cleanup();
+          return true;
+        }
+        return false;
+      };
+
+      if (tryFocusContent()) return;
+
+      // Keep focus out of the panel that just became hidden while lazy content mounts.
+      focusSettingsContent(tabId, true);
+
+      requestAnimationFrame(() => {
+        if (!isCurrentRequest()) {
+          cleanup();
+          return;
+        }
+        if (tryFocusContent()) return;
+
+        const panel = document.getElementById(`settings-tabpanel-${tabId}`);
+        const target = panel || containerRef.current;
+        if (!target) {
+          cleanup();
+          return;
+        }
+
+        const observer = new MutationObserver(() => {
+          if (!isCurrentRequest()) {
+            cleanup();
+            return;
+          }
+          if (tryFocusContent()) return;
+          if (panel && document.activeElement !== panel) {
+            cleanup();
+          }
+        });
+        observer.observe(target, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['hidden', 'aria-hidden', 'tabindex'],
+        });
+        cleanupHandles.push(() => observer.disconnect());
+
+        const timeoutId = window.setTimeout(() => {
+          cleanup();
+        }, 2000);
+        cleanupHandles.push(() => window.clearTimeout(timeoutId));
+      });
+    },
+    [activeTab, focusSettingsContent],
+  );
+
+  useEffect(
+    () => () => {
+      clearPendingShortcutFocus();
+      cleanupPendingContentFocusRef.current?.();
+    },
+    [clearPendingShortcutFocus],
+  );
+
+  useLayoutEffect(() => {
+    if (!pendingShortcutFocusRef.current) return;
+    if (pendingShortcutFocusRef.current !== activeTab) return;
+    clearPendingShortcutFocus();
+
+    focusSettingsContentWhenReady(activeTab);
+  }, [activeTab, clearPendingShortcutFocus, focusSettingsContentWhenReady]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -78,22 +247,16 @@ export default function SettingsPage() {
       if (nextIndex < 0) nextIndex = SETTINGS_TABS.length - 1;
 
       const nextTabId = SETTINGS_TABS[nextIndex].id;
-      handleTabChange(nextTabId);
+      setPendingShortcutFocus(nextTabId);
+      navigate(`/settings/${nextTabId}`, { replace: true });
 
       const label = t(`settingsPage.tabs.${nextTabId}`, nextTabId);
       announce(label);
-
-      requestAnimationFrame(() => {
-        const btn = el.querySelector(
-          `button[role="tab"][data-tab-value="${nextTabId}"]`,
-        ) as HTMLButtonElement | null;
-        btn?.focus();
-      });
     };
 
     el.addEventListener('keydown', handleKeyDown);
     return () => el.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab, handleTabChange, t]);
+  }, [activeTab, navigate, setPendingShortcutFocus, t]);
 
   return (
     <div ref={containerRef} className="settings-page" data-tab-scope>
@@ -102,6 +265,11 @@ export default function SettingsPage() {
         onValueChange={handleTabChange}
         activationMode="auto"
         idBase="settings"
+        onActivate={() => {
+          const focused = focusSettingsContent(activeTab, true);
+          focusSettingsContentWhenReady(activeTab);
+          return focused;
+        }}
       >
         <TabList className="settings-tabs__list" ariaLabel={t('settingsPage.tabListLabel', 'Configurações')}>
           {SETTINGS_TABS.map(({ id }) => (
