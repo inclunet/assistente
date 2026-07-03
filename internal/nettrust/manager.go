@@ -78,12 +78,6 @@ func NewManagerWithDirs(homeDir, workDir string) *Manager {
 	}
 }
 
-// SetWorkspaceDirFunc injeta um resolvedor dinâmico do diretório .assistente do
-// workspace ATIVO. Necessário porque configdir.GetWorkDir() congela o os.Getwd()
-// na primeira chamada, enquanto a troca de workspace em runtime só muda o
-// activePath do workspace.Manager (o cwd do processo não muda). Sem isto, o
-// escopo "workspace" ficaria amarrado ao diretório de lançamento. f é avaliado a
-// cada operação; se devolver "", cai no comportamento anterior (configdir).
 // SetActiveProfileSlugFunc injeta o resolvedor do slug do perfil ativo, usado
 // como fallback quando o invocationctx não traz ProfileSlug. Mantém a persistência
 // e o match do escopo de perfil consistentes com a API de gestão (GetActiveSlug).
@@ -93,6 +87,12 @@ func (m *Manager) SetActiveProfileSlugFunc(f func() string) {
 	m.mu.Unlock()
 }
 
+// SetWorkspaceDirFunc injeta um resolvedor dinâmico do diretório .assistente do
+// workspace ATIVO. Necessário porque configdir.GetWorkDir() congela o os.Getwd()
+// na primeira chamada, enquanto a troca de workspace em runtime só muda o
+// activePath do workspace.Manager (o cwd do processo não muda). Sem isto, o
+// escopo "workspace" ficaria amarrado ao diretório de lançamento. f é avaliado a
+// cada operação; se devolver "", cai no comportamento anterior (configdir).
 func (m *Manager) SetWorkspaceDirFunc(f func() string) {
 	if f == nil {
 		return

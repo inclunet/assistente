@@ -66,7 +66,7 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 	if len(req.IPs) > 0 {
 		fmt.Fprintf(&details, "IP resolvido: %s\n", strings.Join(req.IPs, ", "))
 	}
-	fmt.Fprintf(&details, "Regra: %s\n", req.Reason)
+	fmt.Fprintf(&details, "Motivo: %s\n", req.Reason)
 	if req.SkillSlug != "" {
 		fmt.Fprintf(&details, "Skill: %s\n", req.SkillSlug)
 	}
