@@ -96,6 +96,12 @@ export function buildWailsMockScript(): string {
     return Math.min(limit, 500);
   }
 
+  function normalizeConversationPageOffset(value) {
+    const offset = Number(value);
+    if (!Number.isFinite(offset) || offset < 0) return 0;
+    return offset;
+  }
+
   const defaults = {
     /* App init */
     NeedsWelcomeWizard: false,
@@ -264,7 +270,7 @@ export function buildWailsMockScript(): string {
             const rows = typeof val === 'function' ? val(...args) : val;
             const conversations = Array.isArray(rows) ? rows : [];
             const limit = normalizeConversationPageLimit(args[0]);
-            const offset = Math.max(0, Number(args[1] || 0));
+            const offset = normalizeConversationPageOffset(args[1]);
             const pageRows = conversations.slice(offset, offset + limit);
             return Promise.resolve({ conversations: pageRows, total: conversations.length });
           }
@@ -341,7 +347,7 @@ export function buildWailsMockScript(): string {
           if (fnName === 'GetConversationsPage') {
             const conversations = Array.isArray(defaults.GetConversations) ? defaults.GetConversations : [];
             const limit = normalizeConversationPageLimit(args[0]);
-            const offset = Math.max(0, Number(args[1] || 0));
+            const offset = normalizeConversationPageOffset(args[1]);
             const pageRows = conversations.slice(offset, offset + limit);
             return Promise.resolve({ conversations: pageRows, total: conversations.length });
           }
