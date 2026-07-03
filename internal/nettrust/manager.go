@@ -52,6 +52,11 @@ type Manager struct {
 	// homeDir/workDir são injetáveis para testes; por padrão vêm do configdir.
 	homeDir func() string
 	workDir func() string
+	// activeProfileSlug resolve o slug do perfil ATIVO quando o invocationctx não
+	// o traz (o que ocorre em várias origens/estados). Sem esse fallback, o escopo
+	// de perfil falharia em persistir/casar de forma inconsistente com a API de
+	// gestão (que usa GetActiveSlug). Opcional; nil = só usa o slug do contexto.
+	activeProfileSlug func() string
 }
 
 // NewManager cria um Manager usando os diretórios canônicos do configdir.
@@ -79,6 +84,15 @@ func NewManagerWithDirs(homeDir, workDir string) *Manager {
 // activePath do workspace.Manager (o cwd do processo não muda). Sem isto, o
 // escopo "workspace" ficaria amarrado ao diretório de lançamento. f é avaliado a
 // cada operação; se devolver "", cai no comportamento anterior (configdir).
+// SetActiveProfileSlugFunc injeta o resolvedor do slug do perfil ativo, usado
+// como fallback quando o invocationctx não traz ProfileSlug. Mantém a persistência
+// e o match do escopo de perfil consistentes com a API de gestão (GetActiveSlug).
+func (m *Manager) SetActiveProfileSlugFunc(f func() string) {
+	m.mu.Lock()
+	m.activeProfileSlug = f
+	m.mu.Unlock()
+}
+
 func (m *Manager) SetWorkspaceDirFunc(f func() string) {
 	if f == nil {
 		return
@@ -92,7 +106,7 @@ func (m *Manager) SetWorkspaceDirFunc(f func() string) {
 // sessão → perfil → workspace → global. Devolve a decisão com a entrada/escopo
 // que casou (Prompted=false: match veio de allowlist existente).
 func (m *Manager) Match(ctx context.Context, host, port string) NetworkTrustDecision {
-	convID, profileSlug := identityFromContext(ctx)
+	convID, profileSlug := m.identity(ctx)
 
 	// RLock cobre a leitura do mapa de sessão E dos arquivos: fica bloqueado
 	// durante uma escrita (Add/Remove usam Lock), evitando leitura parcial.
@@ -140,6 +154,10 @@ func (m *Manager) Add(ctx context.Context, entry AllowlistEntry) error {
 		entry.CreatedAt = time.Now().UTC()
 	}
 
+	// Resolve a identidade ANTES do lock (identity pode consultar o resolvedor de
+	// perfil, que usa outro mutex) — evita reentrância no m.mu.
+	convID, profileSlug := m.identity(ctx)
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -147,7 +165,6 @@ func (m *Manager) Add(ctx context.Context, entry AllowlistEntry) error {
 	case ScopeOnce:
 		return nil
 	case ScopeSession:
-		convID, _ := identityFromContext(ctx)
 		if convID == "" {
 			return fmt.Errorf("escopo de sessão requer ConversationID no contexto")
 		}
@@ -156,7 +173,6 @@ func (m *Manager) Add(ctx context.Context, entry AllowlistEntry) error {
 	case ScopeWorkspace:
 		return m.addToFile(m.workspacePath(), entry)
 	case ScopeProfile:
-		_, profileSlug := identityFromContext(ctx)
 		if profileSlug == "" {
 			return fmt.Errorf("escopo de perfil requer ProfileSlug no contexto")
 		}
@@ -173,7 +189,7 @@ func (m *Manager) Add(ctx context.Context, entry AllowlistEntry) error {
 // seu Scope preenchido. Para UI/depuração.
 func (m *Manager) List(ctx context.Context) []AllowlistEntry {
 	var out []AllowlistEntry
-	convID, profileSlug := identityFromContext(ctx)
+	convID, profileSlug := m.identity(ctx)
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -193,12 +209,14 @@ func (m *Manager) List(ctx context.Context) []AllowlistEntry {
 func (m *Manager) Remove(ctx context.Context, scope Scope, host, port string) error {
 	host = normalizeHost(host)
 
+	// Resolve a identidade ANTES do lock (ver Add).
+	convID, profileSlug := m.identity(ctx)
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	switch scope {
 	case ScopeSession:
-		convID, _ := identityFromContext(ctx)
 		if convID == "" {
 			return fmt.Errorf("escopo de sessão requer ConversationID no contexto")
 		}
@@ -211,7 +229,6 @@ func (m *Manager) Remove(ctx context.Context, scope Scope, host, port string) er
 	case ScopeWorkspace:
 		return m.removeFromFile(m.workspacePath(), host, port)
 	case ScopeProfile:
-		_, profileSlug := identityFromContext(ctx)
 		if profileSlug == "" {
 			return fmt.Errorf("escopo de perfil requer ProfileSlug no contexto")
 		}
@@ -385,6 +402,24 @@ func identityFromContext(ctx context.Context) (conversationID, profileSlug strin
 		return inv.ConversationID, inv.ProfileSlug
 	}
 	return "", ""
+}
+
+// identity resolve conversa/perfil do ctx, com fallback do slug de perfil ativo
+// (activeProfileSlug) quando o contexto não o traz — mantendo persistência e
+// match do escopo de perfil consistentes com a API de gestão. Deve ser chamado
+// FORA de m.mu (adquire RLock brevemente para ler o resolvedor).
+func (m *Manager) identity(ctx context.Context) (conversationID, profileSlug string) {
+	conversationID, profileSlug = identityFromContext(ctx)
+	if profileSlug != "" {
+		return conversationID, profileSlug
+	}
+	m.mu.RLock()
+	f := m.activeProfileSlug
+	m.mu.RUnlock()
+	if f != nil {
+		profileSlug = f()
+	}
+	return conversationID, profileSlug
 }
 
 // sanitizeSlug remove separadores de caminho de um slug de perfil para evitar

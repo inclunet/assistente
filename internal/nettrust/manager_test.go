@@ -185,6 +185,33 @@ func TestManager_RemoveNotFound(t *testing.T) {
 	}
 }
 
+// Quando o invocationctx não traz ProfileSlug, o escopo de perfil deve usar o
+// fallback do perfil ativo (SetActiveProfileSlugFunc) para persistir e casar —
+// consistente com a API de gestão.
+func TestManager_ProfileSlugFallback(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	m.SetActiveProfileSlugFunc(func() string { return "programacao" })
+
+	// ctx SEM ProfileSlug (só conversa).
+	ctx := ctxWith("conv-1", "")
+
+	if err := m.Add(ctx, AllowlistEntry{Host: "api.internal", Scope: ScopeProfile}); err != nil {
+		t.Fatalf("Add com fallback de perfil deveria funcionar: %v", err)
+	}
+	d := m.Match(ctx, "api.internal", "")
+	if !d.Allowed || d.Scope != ScopeProfile {
+		t.Fatalf("deveria casar no escopo de perfil via fallback, got %+v", d)
+	}
+
+	// Um Manager novo lendo o mesmo dir, mas com o slug explícito no ctx, também
+	// deve encontrar (persistiu no arquivo do slug do fallback).
+	m2 := NewManagerWithDirs(dir, dir)
+	if d := m2.Match(ctxWith("", "programacao"), "api.internal", ""); !d.Allowed {
+		t.Fatal("entrada deveria ter sido persistida no arquivo do slug ativo")
+	}
+}
+
 // Add não pode sobrescrever um arquivo de allowlist ilegível (JSON inválido ou
 // erro de leitura), pois apagaria silenciosamente entradas ainda no disco.
 func TestManager_AddDoesNotOverwriteOnReadError(t *testing.T) {

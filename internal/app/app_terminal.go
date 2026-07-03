@@ -74,6 +74,15 @@ func (a *App) initTerminalAndAllowlists() {
 		}
 		return configdir.GetWorkDir()
 	})
+	// Fallback do slug de perfil ativo: garante que o escopo "profile" persista e
+	// case mesmo quando o invocationctx da chamada não traz ProfileSlug — e de
+	// forma consistente com a API de gestão (networkManagementContext).
+	a.netTrustMgr.SetActiveProfileSlugFunc(func() string {
+		if a.profileManager != nil {
+			return a.profileManager.GetActiveSlug()
+		}
+		return ""
+	})
 
 	logging.Infof(context.Background(), "app.app-terminal", "[Terminal] Managers de terminal, questionário e allowlist inicializados")
 }
