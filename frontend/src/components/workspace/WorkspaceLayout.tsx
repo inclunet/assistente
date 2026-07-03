@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Spin } from 'antd';
@@ -18,6 +18,7 @@ import { WorkspaceContent } from './WorkspaceContent';
 import { WorkspaceChatModal } from './WorkspaceChatModal';
 import { useWorkspacePanelRenameHandlers } from './useWorkspacePanelRenameHandlers';
 import { useWorkspacePanelLifecycleCleanup } from './useWorkspacePanelLifecycleCleanup';
+import { WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT } from './workspaceFocusEvents';
 import './WorkspaceLayout.css';
 
 export function WorkspaceLayout() {
@@ -38,13 +39,39 @@ export function WorkspaceLayout() {
     return cleanup;
   }, [setupEventListeners]);
 
-  useWorkspaceKeyboardShortcuts();
+  const restoreFocusAfterTabShortcutRef = useRef<string | null>(null);
+  const restoreFocusToTablistRef = useRef<string | null>(null);
+  const markTabShortcutNavigation = useCallback((tabId: string) => {
+    restoreFocusAfterTabShortcutRef.current = tabId;
+  }, []);
+
+  useWorkspaceKeyboardShortcuts({
+    onTabShortcutNavigation: markTabShortcutNavigation,
+  });
   useWorkspaceChatBridge();
   useWorkspacePanelRenameHandlers();
   useWorkspacePanelLifecycleCleanup();
   useVoiceAccessibilityWorkspaceResolver();
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
+
+  useEffect(() => {
+    if (!isWorkspaceRoute) {
+      restoreFocusToTablistRef.current = null;
+      restoreFocusAfterTabShortcutRef.current = null;
+      return;
+    }
+
+    const handleTablistActivation = (event: Event) => {
+      const tabId = (event as CustomEvent<{ tabId?: string }>).detail?.tabId;
+      if (tabId) {
+        restoreFocusToTablistRef.current = tabId;
+      }
+    };
+
+    window.addEventListener(WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT, handleTablistActivation);
+    return () => window.removeEventListener(WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT, handleTablistActivation);
+  }, [isWorkspaceRoute]);
 
   const landmarks = useMemo((): Landmark[] => {
     const focusTopbar = () => {
@@ -260,6 +287,25 @@ export function WorkspaceLayout() {
     if (activeTabId === prevActiveTabIdRef.current) return;
     prevActiveTabIdRef.current = activeTabId;
 
+    if (restoreFocusToTablistRef.current === activeTabId) {
+      restoreFocusToTablistRef.current = null;
+      restoreFocusAfterTabShortcutRef.current = null;
+      requestAnimationFrame(() => {
+        const tab = Array.from(document.querySelectorAll<HTMLElement>('.ws-tabs [role="tab"]'))
+          .find((element) => element.getAttribute('data-tab-value') === activeTabId);
+        tab?.focus();
+      });
+      return;
+    }
+
+    restoreFocusToTablistRef.current = null;
+
+    if (restoreFocusAfterTabShortcutRef.current !== activeTabId) {
+      restoreFocusAfterTabShortcutRef.current = null;
+      return;
+    }
+
+    restoreFocusAfterTabShortcutRef.current = null;
     requestAnimationFrame(() => restoreDefaultFocus());
   }, [activeTabId, isWorkspaceRoute]);
 
