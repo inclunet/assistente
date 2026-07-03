@@ -367,6 +367,20 @@ describe('DataGrid (onFocusChange)', () => {
 // ─── Infinite loading trigger ───────────────────────────────────────
 
 describe('DataGrid (onNearEnd)', () => {
+  it('nao dispara por viewport no mount sem foco ou scroll', () => {
+    const onNearEnd = vi.fn();
+    render(
+      <DataGrid
+        items={items}
+        columns={columns}
+        onNearEnd={onNearEnd}
+        autoFocusOnMount={false}
+      />
+    );
+
+    expect(onNearEnd).not.toHaveBeenCalled();
+  });
+
   it('deduplica foco perto do fim por tamanho da lista', () => {
     const onNearEnd = vi.fn();
     render(

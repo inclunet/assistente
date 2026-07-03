@@ -103,6 +103,7 @@ export function DataGrid<T = unknown>({
   const nearEndSignalRef = useRef<number | null>(null);
   const scrollNearEndSignalRef = useRef<number | null>(null);
   const scrollNearEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasNearEndInteractionRef = useRef(false);
 
   const isCheckboxMode = selectionMode === 'checkbox';
   const isMultiSelect = multiSelect || isCheckboxMode;
@@ -244,6 +245,7 @@ export function DataGrid<T = unknown>({
   // posiciona focusedRow/Col. Chamada no primeiro foco real do usuário.
   const activateFocus = useCallback((row: number, col: number) => {
     hasReceivedFocusRef.current = true;
+    hasNearEndInteractionRef.current = true;
     setFocusedRow(row);
     setFocusedCol(col);
     focusedRowRef.current = row;
@@ -280,6 +282,7 @@ export function DataGrid<T = unknown>({
 
   const handleBodyScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     if (!onNearEndRef.current) return;
+    hasNearEndInteractionRef.current = true;
     const target = event.currentTarget;
     const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
     if (remaining <= 160) {
@@ -293,7 +296,7 @@ export function DataGrid<T = unknown>({
   }, [items.length, markScrollNearEndSignaled]);
 
   useEffect(() => {
-    if (!onNearEndRef.current || !bodyRef.current) return;
+    if (!onNearEndRef.current || !bodyRef.current || items.length === 0 || !hasNearEndInteractionRef.current) return;
     const target = bodyRef.current;
     const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
     if (remaining <= 160) {

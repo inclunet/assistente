@@ -499,6 +499,33 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     });
   });
 
+  it('limpa indicador de busca ao apagar termo durante requisicao pendente', async () => {
+    const user = userEvent.setup();
+    let resolveSearch: ((value: unknown) => void) | undefined;
+    mockSearchConversationHistory.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveSearch = resolve;
+    }));
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    const search = screen.getByLabelText('history-search');
+    await user.type(search, 'pendente');
+    await waitFor(() => {
+      expect(screen.getByText('Buscando...')).toBeInTheDocument();
+    });
+
+    await user.clear(search);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Buscando...')).not.toBeInTheDocument();
+    });
+    await act(async () => {
+      resolveSearch?.([]);
+    });
+    expect(screen.queryByText('Buscando...')).not.toBeInTheDocument();
+  });
+
   it('nao mostra importacao administrativa no historico', async () => {
     render(<HistoryPage />);
 

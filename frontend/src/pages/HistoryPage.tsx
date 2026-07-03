@@ -239,6 +239,7 @@ export default function HistoryPage() {
       setSearchResultIds(null);
       setSearchConversations([]);
       setSnippetsMap(new Map());
+      setSearching(false);
       return;
     }
     searchDebounceRef.current = setTimeout(() => doSearch(searchTerm), 300);
