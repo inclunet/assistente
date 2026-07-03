@@ -403,6 +403,32 @@ describe('DataGrid (onNearEnd)', () => {
     expect(onNearEnd).toHaveBeenCalledTimes(1);
   });
 
+  it('nao sinaliza foco perto do fim quando onNearEnd nao foi informado', () => {
+    const onNearEnd = vi.fn();
+    const { rerender } = render(
+      <DataGrid
+        items={items}
+        columns={columns}
+        nearEndThreshold={items.length}
+        autoFocusOnMount={false}
+      />
+    );
+
+    focusGrid();
+    rerender(
+      <DataGrid
+        items={items}
+        columns={columns}
+        onNearEnd={onNearEnd}
+        nearEndThreshold={items.length}
+        autoFocusOnMount={false}
+      />
+    );
+    fireEvent.keyDown(getGrid(), { key: 'ArrowDown' });
+
+    expect(onNearEnd).toHaveBeenCalledTimes(1);
+  });
+
   it('dispara por scroll perto do fim sem loopar no mesmo tamanho de lista', () => {
     const onNearEnd = vi.fn();
     const { container } = render(

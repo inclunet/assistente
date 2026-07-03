@@ -265,7 +265,7 @@ export function DataGrid<T = unknown>({
         focusedItemIdRef.current = newId;
         onFocusChangeRef.current?.(items[focusedRow], focusedRow);
       }
-      if (items.length - focusedRow <= nearEndThreshold) {
+      if (onNearEndRef.current && items.length - focusedRow <= nearEndThreshold) {
         if (nearEndSignalRef.current !== items.length) {
           nearEndSignalRef.current = items.length;
           markScrollNearEndSignaled(items.length);
