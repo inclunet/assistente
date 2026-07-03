@@ -25,7 +25,11 @@ vi.mock('@wailsjs/go/app/App', () => ({
 }));
 
 vi.mock('react-i18next', () => {
-  const t = (key: string, fallback?: string | Record<string, unknown>) => (typeof fallback === 'string' ? fallback : key);
+  const t = (key: string, fallback?: string | Record<string, unknown>) => {
+    if (typeof fallback === 'string') return fallback;
+    if (typeof fallback?.count === 'number') return `${key}:${fallback.count}`;
+    return key;
+  };
   return {
     useTranslation: () => ({ t }),
   };
@@ -168,6 +172,49 @@ describe('MemoriesPage', () => {
       expect(mockListMemoryRecords).toHaveBeenCalled();
       expect(screen.getByText('Usuário prefere respostas curtas.')).toBeInTheDocument();
     });
+  });
+
+  it('anuncia apenas memórias realmente adicionadas ao carregar pagina com duplicatas', async () => {
+    const user = userEvent.setup();
+    mockListMemoryRecords
+      .mockResolvedValueOnce({
+        records: [{
+          id: 'mem-1',
+          content: 'primeira memória',
+          loadPolicy: 'core',
+          kind: 'user_preference',
+          scope: 'user',
+        }],
+        total: 3,
+      })
+      .mockResolvedValueOnce({
+        records: [
+          {
+            id: 'mem-1',
+            content: 'primeira memória',
+            loadPolicy: 'core',
+            kind: 'user_preference',
+            scope: 'user',
+          },
+          {
+            id: 'mem-2',
+            content: 'segunda memória',
+            loadPolicy: 'core',
+            kind: 'user_preference',
+            scope: 'user',
+          },
+        ],
+        total: 3,
+      });
+
+    render(<MemoriesPage />);
+
+    await screen.findByText('primeira memória');
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+
+    await screen.findByText('segunda memória');
+    expect(mockAnnounce).toHaveBeenCalledWith('memories.announcements.loadedMore:1');
+    expect(mockAnnounce).not.toHaveBeenCalledWith('memories.announcements.loadedMore:2');
   });
 
   it('renderiza busca, filtros e acao principal na mesma toolbar ARIA', async () => {

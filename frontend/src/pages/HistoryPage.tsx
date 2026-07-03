@@ -140,13 +140,14 @@ export default function HistoryPage() {
       if (options?.autoFill) {
         autoFillRetryAttemptsRef.current = 0;
       }
+      const addedConversationCount = reset ? mapped.length : countNewConversations(conversationsRef.current, mapped);
       setConversations((previous) => {
         const next = reset ? mapped : mergeConversations(previous, mapped);
         conversationsRef.current = next;
         return next;
       });
-      if (!reset && options?.announceProgress && mapped.length > 0) {
-        announce(t('history.loadedMore', { count: mapped.length }));
+      if (!reset && options?.announceProgress && addedConversationCount > 0) {
+        announce(t('history.loadedMore', { count: addedConversationCount }));
       }
     } catch (error) {
       logger.error('Erro ao carregar conversas:', error);
@@ -913,6 +914,19 @@ function mergeConversations(previous: Conversation[], nextPage: Conversation[]):
     }
   }
   return merged ?? previous;
+}
+
+function countNewConversations(previous: Conversation[], nextPage: Conversation[]): number {
+  if (nextPage.length === 0) return 0;
+  const seen = new Set(previous.map((conversation) => conversation.id));
+  let addedCount = 0;
+  for (const conversation of nextPage) {
+    if (!seen.has(conversation.id)) {
+      seen.add(conversation.id);
+      addedCount += 1;
+    }
+  }
+  return addedCount;
 }
 
 function compareConversationsByUpdatedAt(a: Conversation, b: Conversation): number {

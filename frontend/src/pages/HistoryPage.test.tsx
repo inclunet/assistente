@@ -15,6 +15,7 @@ const mockAddTab = vi.fn().mockResolvedValue('tab-1');
 const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockNavigate = vi.fn();
 const mockExecuteDeepLink = vi.fn().mockResolvedValue(undefined);
+const mockAnnounce = vi.fn();
 
 let mockLocationSearch = '';
 
@@ -25,6 +26,7 @@ const stableT = (key: string, fallback?: string | { defaultValue?: string; count
   if (fallback?.defaultValue) {
     return fallback.defaultValue.replace('{{count}}', String(fallback.count ?? ''));
   }
+  if (fallback?.count !== undefined) return `${key}:${fallback.count}`;
   return key;
 };
 
@@ -87,6 +89,10 @@ vi.mock('../hooks/useGridFocus', () => ({
 
 vi.mock('../hooks/useGridPageLandmarks', () => ({
   useGridPageLandmarks: vi.fn(),
+}));
+
+vi.mock('../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({ announce: mockAnnounce }),
 }));
 
 const mockRequestConfirm = vi.fn(() => Promise.resolve(true));
@@ -371,6 +377,34 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     });
     expect(mockGetConversationsPage).toHaveBeenNthCalledWith(1, 100, 0);
     expect(mockGetConversationsPage).toHaveBeenNthCalledWith(2, 100, 2);
+  });
+
+  it('anuncia apenas conversas realmente adicionadas ao carregar pagina com duplicatas', async () => {
+    const user = userEvent.setup();
+    mockGetConversationsPage
+      .mockResolvedValueOnce({ conversations, total: 4 })
+      .mockResolvedValueOnce({
+        conversations: [
+          conversations[1],
+          {
+            id: '01926b90-7a5a-7c4e-8d3f-000000000003',
+            title: 'Conversa 3',
+            createdAt: '2024-12-31T00:00:00Z',
+            updatedAt: '2024-12-31T00:00:00Z',
+            message_count: 1,
+          },
+        ],
+        total: 4,
+      });
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+
+    await screen.findByText('Conversa 3');
+    expect(mockAnnounce).toHaveBeenCalledWith('history.loadedMore:1');
+    expect(mockAnnounce).not.toHaveBeenCalledWith('history.loadedMore:2');
   });
 
   it('carrega outra pagina quando ocultar sub-agentes esvazia a grade', async () => {

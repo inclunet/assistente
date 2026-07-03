@@ -135,13 +135,14 @@ export default function MemoriesPage() {
       setTotalRecords(total);
       totalRecordsRef.current = total;
       hasLoadedRecordsRef.current = true;
+      const addedRecordCount = reset ? nextRecords.length : countNewMemoryRecords(recordsRef.current, nextRecords);
       setRecords((previous) => {
         const next = reset ? nextRecords : mergeMemoryRecords(previous, nextRecords);
         recordsRef.current = next;
         return next;
       });
-      if (!reset && options?.announceProgress && nextRecords.length > 0) {
-        announce(t('memories.announcements.loadedMore', { count: nextRecords.length }));
+      if (!reset && options?.announceProgress && addedRecordCount > 0) {
+        announce(t('memories.announcements.loadedMore', { count: addedRecordCount }));
       }
     } catch {
       if (loadRequestRef.current === requestId) {
@@ -558,4 +559,17 @@ function mergeMemoryRecords(previous: MemoryRecord[], nextPage: MemoryRecord[]):
     }
   }
   return merged ?? previous;
+}
+
+function countNewMemoryRecords(previous: MemoryRecord[], nextPage: MemoryRecord[]): number {
+  if (nextPage.length === 0) return 0;
+  const seen = new Set(previous.map((record) => record.id));
+  let addedCount = 0;
+  for (const record of nextPage) {
+    if (!seen.has(record.id)) {
+      seen.add(record.id);
+      addedCount += 1;
+    }
+  }
+  return addedCount;
 }
