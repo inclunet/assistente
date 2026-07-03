@@ -679,13 +679,14 @@ export default function HistoryPage() {
     if (column.key === 'title') {
       try {
         await UpdateConversation(item.id, newValue, '');
+        const updatedAt = new Date().toISOString();
         const nextConversations = conversationsRef.current.map(conv =>
-          conv.id === item.id ? { ...conv, title: newValue } : conv
-        );
+          conv.id === item.id ? { ...conv, title: newValue, updatedAt } : conv
+        ).sort(compareConversationsByUpdatedAt);
         conversationsRef.current = nextConversations;
         setConversations(nextConversations);
         setSearchConversations((prev) => prev.map(conv =>
-          conv.id === item.id ? { ...conv, title: newValue } : conv
+          conv.id === item.id ? { ...conv, title: newValue, updatedAt } : conv
         ));
       } catch (error) {
         logger.error('Erro ao atualizar título:', error);
@@ -911,4 +912,13 @@ function mergeConversations(previous: Conversation[], nextPage: Conversation[]):
     }
   }
   return merged;
+}
+
+function compareConversationsByUpdatedAt(a: Conversation, b: Conversation): number {
+  const aTime = new Date(a.updatedAt).getTime();
+  const bTime = new Date(b.updatedAt).getTime();
+  if (aTime !== bTime) {
+    return bTime - aTime;
+  }
+  return b.id.localeCompare(a.id);
 }

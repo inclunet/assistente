@@ -146,12 +146,14 @@ vi.mock('../components/ui/DataGrid', () => ({
     onFocusChange,
     getRowActions,
     onNearEnd,
+    onCellEdit,
   }: {
     items?: ConversationItem[];
     onSelectionChange?: (selected: Set<string | number>) => void;
     onFocusChange?: (item: ConversationItem | null) => void;
     getRowActions?: (item: ConversationItem) => Array<{ id: string; label?: string; action?: () => void }>;
     onNearEnd?: () => void;
+    onCellEdit?: (item: ConversationItem, column: { key: string }, newValue: string, rowIndex: number, colIndex: number) => void;
   }) => (
     <div>
       <button type="button" onClick={() => onSelectionChange?.(new Set(items?.map(i => i.id) ?? []))}>
@@ -171,6 +173,9 @@ vi.mock('../components/ui/DataGrid', () => ({
       </button>
       <button type="button" onClick={() => onNearEnd?.()}>
         near-end
+      </button>
+      <button type="button" onClick={() => items?.[1] && onCellEdit?.(items[1], { key: 'title' }, 'Conversa 2 renomeada', 1, 0)}>
+        edit-second-title
       </button>
       {items?.map((item) => (
         <div key={item.id}>
@@ -596,5 +601,28 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     await user.click(screen.getByRole('button', { name: 'Exportar JSON' }));
 
     expect(mockExportConversations).not.toHaveBeenCalled();
+  });
+
+  it('atualiza updatedAt e reordena conversa após editar título', async () => {
+    const user = userEvent.setup();
+    const toISOStringSpy = vi.spyOn(Date.prototype, 'toISOString').mockReturnValueOnce('2026-01-01T00:00:00.000Z');
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'edit-second-title' }));
+
+    await waitFor(() => {
+      expect(mockUpdateConversation).toHaveBeenCalledWith(
+        '01926b90-7a5a-7c4e-8d3f-000000000002',
+        'Conversa 2 renomeada',
+        '',
+      );
+    });
+    const first = screen.getByText('Conversa 2 renomeada');
+    const second = screen.getByText('Conversa 1');
+    expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    toISOStringSpy.mockRestore();
   });
 });
