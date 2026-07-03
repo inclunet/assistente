@@ -2,6 +2,7 @@ package nettrust
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -159,6 +160,58 @@ func TestManager_Remove(t *testing.T) {
 	}
 	if d := m.Match(ctx, "api.internal", ""); d.Allowed {
 		t.Fatal("não deveria estar autorizado após remove")
+	}
+}
+
+// Remove sem entrada correspondente deve sinalizar ErrEntryNotFound, para a UI
+// não reportar revogação bem sucedida.
+func TestManager_RemoveNotFound(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+
+	if err := m.Remove(ctx, ScopeGlobal, "inexistente.internal", ""); err == nil {
+		t.Fatal("Remove de entrada inexistente deveria falhar")
+	} else if !errors.Is(err, ErrEntryNotFound) {
+		t.Fatalf("erro esperado ErrEntryNotFound, got %v", err)
+	}
+
+	// Sessão também.
+	sctx := ctxWith("conv-x", "")
+	if err := m.Remove(sctx, ScopeSession, "inexistente.internal", ""); !errors.Is(err, ErrEntryNotFound) {
+		t.Fatalf("Remove de sessão inexistente deveria retornar ErrEntryNotFound, got %v", err)
+	}
+}
+
+// SetWorkspaceDirFunc deve fazer o escopo workspace acompanhar o diretório ativo
+// resolvido em runtime, em vez de um caminho congelado.
+func TestManager_WorkspaceDirFuncDynamic(t *testing.T) {
+	home := t.TempDir()
+	wsA := t.TempDir()
+	wsB := t.TempDir()
+
+	active := wsA
+	m := NewManagerWithDirs(home, home)
+	m.SetWorkspaceDirFunc(func() string { return active })
+
+	ctx := context.Background()
+	if err := m.Add(ctx, AllowlistEntry{Host: "svc.internal", Scope: ScopeWorkspace}); err != nil {
+		t.Fatalf("Add workspace: %v", err)
+	}
+	if d := m.Match(ctx, "svc.internal", ""); !d.Allowed || d.Scope != ScopeWorkspace {
+		t.Fatalf("deveria casar no workspace A, got %+v", d)
+	}
+
+	// Troca de workspace ativo: a entrada de A não deve aparecer em B.
+	active = wsB
+	if d := m.Match(ctx, "svc.internal", ""); d.Allowed {
+		t.Fatal("entrada do workspace A não deveria vazar para o workspace B")
+	}
+
+	// Voltando para A, a entrada reaparece (persistida no dir de A).
+	active = wsA
+	if d := m.Match(ctx, "svc.internal", ""); !d.Allowed {
+		t.Fatal("entrada do workspace A deveria reaparecer ao voltar")
 	}
 }
 

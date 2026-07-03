@@ -3,6 +3,7 @@ package nettrust
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,11 @@ import (
 	"assistente/internal/logging"
 	"assistente/internal/tools/invocationctx"
 )
+
+// ErrEntryNotFound é devolvido por Remove quando nenhuma entrada casa com o
+// (host, port) informado no escopo — a UI não deve reportar revogação bem
+// sucedida nesse caso.
+var ErrEntryNotFound = errors.New("entrada de allowlist de rede não encontrada")
 
 // subdir é o subdiretório dentro de .assistente/ onde as allowlists de rede
 // persistentes ficam. Separado das allowlists de comando (allowlists/), que têm
@@ -65,6 +71,21 @@ func NewManagerWithDirs(homeDir, workDir string) *Manager {
 		homeDir: func() string { return homeDir },
 		workDir: func() string { return workDir },
 	}
+}
+
+// SetWorkspaceDirFunc injeta um resolvedor dinâmico do diretório .assistente do
+// workspace ATIVO. Necessário porque configdir.GetWorkDir() congela o os.Getwd()
+// na primeira chamada, enquanto a troca de workspace em runtime só muda o
+// activePath do workspace.Manager (o cwd do processo não muda). Sem isto, o
+// escopo "workspace" ficaria amarrado ao diretório de lançamento. f é avaliado a
+// cada operação; se devolver "", cai no comportamento anterior (configdir).
+func (m *Manager) SetWorkspaceDirFunc(f func() string) {
+	if f == nil {
+		return
+	}
+	m.mu.Lock()
+	m.workDir = f
+	m.mu.Unlock()
 }
 
 // Match procura uma autorização para host(:port) em todos os escopos, na ordem
@@ -181,7 +202,11 @@ func (m *Manager) Remove(ctx context.Context, scope Scope, host, port string) er
 		if convID == "" {
 			return fmt.Errorf("escopo de sessão requer ConversationID no contexto")
 		}
-		m.session[convID] = removeMatch(m.session[convID], host, port)
+		entries, removed := removeMatch(m.session[convID], host, port)
+		if !removed {
+			return ErrEntryNotFound
+		}
+		m.session[convID] = entries
 		return nil
 	case ScopeWorkspace:
 		return m.removeFromFile(m.workspacePath(), host, port)
@@ -250,7 +275,10 @@ func (m *Manager) removeFromFile(path string, host, port string) error {
 	if path == "" {
 		return fmt.Errorf("caminho de allowlist indisponível")
 	}
-	entries := removeMatch(m.loadFile(path), host, port)
+	entries, removed := removeMatch(m.loadFile(path), host, port)
+	if !removed {
+		return ErrEntryNotFound
+	}
 	return m.saveFile(path, entries)
 }
 
@@ -310,8 +338,10 @@ func upsert(entries []AllowlistEntry, entry AllowlistEntry) []AllowlistEntry {
 	return append(entries, entry)
 }
 
-func removeMatch(entries []AllowlistEntry, host, port string) []AllowlistEntry {
-	out := entries[:0]
+// removeMatch devolve as entradas sem a primeira que casar (host, port) e se
+// alguma foi de fato removida. Não muta o slice de entrada.
+func removeMatch(entries []AllowlistEntry, host, port string) ([]AllowlistEntry, bool) {
+	out := make([]AllowlistEntry, 0, len(entries))
 	removed := false
 	for _, e := range entries {
 		if !removed && strings.EqualFold(normalizeHost(e.Host), normalizeHost(host)) && strings.EqualFold(e.Port, port) {
@@ -320,7 +350,7 @@ func removeMatch(entries []AllowlistEntry, host, port string) []AllowlistEntry {
 		}
 		out = append(out, e)
 	}
-	return out
+	return out, removed
 }
 
 func identityFromContext(ctx context.Context) (conversationID, profileSlug string) {

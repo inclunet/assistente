@@ -114,6 +114,10 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 		scope = ScopeOnce
 	}
 
+	// effectiveScope reflete o que de fato aconteceu: se a persistência falhar,
+	// a liberação vale só para esta request (degrada para once) — o log não deve
+	// afirmar que a entrada foi salva num escopo persistente.
+	effectiveScope := scope
 	if scope != ScopeOnce && a.mgr != nil {
 		entry := AllowlistEntry{
 			Host:        host,
@@ -127,12 +131,15 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 		if err := a.mgr.Add(ctx, entry); err != nil {
 			// Falha ao persistir não deve abortar o acesso já autorizado nesta
 			// request: logamos e seguimos como ScopeOnce.
-			logging.Errorf(ctx, "nettrust.authorizer", "[NetTrust] falha ao persistir allowlist (%s): %v", scope, err)
+			logging.Errorf(ctx, "nettrust.authorizer",
+				"[NetTrust] falha ao persistir allowlist (escopo %s) para host=%s: %v — liberando apenas esta request (once)",
+				scope, host, err)
+			effectiveScope = ScopeOnce
 		}
 	}
 
 	logging.Infof(ctx, "nettrust.authorizer",
-		"[NetTrust] autorização concedida: host=%s escopo=%s ips=%v", host, scope, req.IPs)
+		"[NetTrust] autorização concedida: host=%s escopo=%s ips=%v", host, effectiveScope, req.IPs)
 	return dest.IPs, true, nil
 }
 
