@@ -351,11 +351,31 @@ func (m *Manager) saveFile(path string, entries []AllowlistEntry) error {
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("erro ao finalizar allowlist de rede: %w", err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := replaceFile(tmpName, path); err != nil {
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("erro ao substituir allowlist de rede: %w", err)
 	}
 	return nil
+}
+
+// replaceFile substitui path pelo conteúdo de tmpName via rename atômico.
+//
+// os.Rename já sobrescreve o destino existente no Windows (usa MoveFileEx com
+// MOVEFILE_REPLACE_EXISTING), então "o destino já existe" não é um problema. O
+// que PODE ocorrer no Windows é uma falha transitória (ERROR_ACCESS_DENIED /
+// sharing violation) quando antivírus, indexador ou um leitor concorrente estão
+// segurando o destino por um instante — nesse caso re-tentamos com um backoff
+// curto antes de desistir. Em POSIX o rename é atômico e não sofre disso.
+func replaceFile(tmpName, path string) error {
+	const attempts = 5
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = os.Rename(tmpName, path); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(i+1) * 10 * time.Millisecond)
+	}
+	return err
 }
 
 // ---- helpers ----

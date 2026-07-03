@@ -211,11 +211,12 @@ func newBlockedDestinationError(dest BlockedDestination) *BlockedDestinationErro
 // redirectBlockedError descreve um bloqueio ocorrido num salto de redirect, sem
 // atribuir o IP interno ao host da URL original (evita mensagem incoerente).
 func redirectBlockedError(ip net.IP) *BlockedDestinationError {
-	cat := Classify(ip)
 	return &BlockedDestinationError{
-		IPs:         []net.IP{ip},
-		Category:    cat,
-		Reason:      fmt.Sprintf("%s address blocked by anti-SSRF policy (redirect)", cat),
+		IPs:      []net.IP{ip},
+		Category: Classify(ip),
+		// Reason em pt-BR e sem repetir a categoria (já exibida em Category):
+		// acrescenta a informação de que o bloqueio veio de um redirecionamento.
+		Reason:      "redirecionamento para endereço interno não permitido",
 		Suggestions: defaultBlockSuggestions,
 	}
 }
@@ -251,7 +252,8 @@ func (c *Client) buildBlockedDestination(ctx context.Context, req *http.Request,
 		URL:          req.URL.Redacted(),
 		IPs:          ips,
 		Category:     category,
-		Reason:       fmt.Sprintf("%s address blocked by anti-SSRF policy", category),
+		// Reason em pt-BR e sem repetir a categoria (já exibida em Category).
+		Reason: "host resolve para uma faixa de IP não permitida",
 	}
 }
 
