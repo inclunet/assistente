@@ -11,6 +11,8 @@ assistente.exe
 build/bin/
 docs/public/
 *.log
+# Wails/Windows resource object gerado no build (não versionar)
+*.syso
 
 # Go
 *.test
