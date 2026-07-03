@@ -369,6 +369,7 @@ export default function MemoriesPage() {
     { key: 'importance', label: t('memories.columns.importance'), width: '110px' },
   ], [t]);
   const hasMoreRecords = recordPageOffset < totalRecords;
+  const canLoadMoreRecords = hasMoreRecords || !hasLoadedRecordsRef.current;
   const handleNearEnd = useCallback(() => {
     void loadRecords({ announceProgress: true });
   }, [loadRecords]);
@@ -419,7 +420,7 @@ export default function MemoriesPage() {
         getItemId={(record) => record.id}
         onActivate={openEdit}
         onGridReady={handleGridReady}
-        onNearEnd={handleNearEnd}
+        onNearEnd={canLoadMoreRecords ? handleNearEnd : undefined}
         getRowActions={(record) => [
           {
             id: 'archive',

@@ -103,6 +103,8 @@ export function DataGrid<T = unknown>({
   onFocusChangeRef.current = onFocusChange;
   const onNearEndRef = useRef(onNearEnd);
   onNearEndRef.current = onNearEnd;
+  const itemsLengthRef = useRef(items.length);
+  itemsLengthRef.current = items.length;
   const focusedRowRef = useRef(focusedRow);
   const focusedColRef = useRef(focusedCol);
   const nearEndSignalRef = useRef<number | null>(null);
@@ -144,7 +146,7 @@ export function DataGrid<T = unknown>({
     };
   }, []);
 
-  const markScrollNearEndSignaled = useCallback((itemCount: number) => {
+  const markScrollNearEndSignaled = useCallback(function markNearEndSignaled(itemCount: number) {
     scrollNearEndSignalRef.current = itemCount;
     if (scrollNearEndTimerRef.current) {
       clearTimeout(scrollNearEndTimerRef.current);
@@ -157,6 +159,21 @@ export function DataGrid<T = unknown>({
         nearEndSignalRef.current = null;
       }
       scrollNearEndTimerRef.current = null;
+      if (
+        onNearEndRef.current &&
+        hasNearEndInteractionRef.current &&
+        itemsLengthRef.current === itemCount &&
+        bodyRef.current
+      ) {
+        const target = bodyRef.current;
+        const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+        if (remaining <= NEAR_END_SCROLL_THRESHOLD_PX) {
+          scrollNearEndSignalRef.current = itemCount;
+          nearEndSignalRef.current = itemCount;
+          onNearEndRef.current();
+          markNearEndSignaled(itemCount);
+        }
+      }
     }, NEAR_END_SIGNAL_RESET_DELAY_MS);
   }, []);
 

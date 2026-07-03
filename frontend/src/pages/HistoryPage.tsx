@@ -470,6 +470,7 @@ export default function HistoryPage() {
     return base.filter((c) => searchResultIds.has(c.id));
   }, [conversations, searchConversations, searchResultIds, showSubAgents]);
   const hasMoreConversations = conversationPageOffset < totalConversations;
+  const canLoadMoreConversations = hasMoreConversations || !hasLoadedConversationsRef.current;
 
   useEffect(() => {
     if (searchResultIds !== null || showSubAgents || displayItems.length > 0 || !hasMoreConversations) {
@@ -820,7 +821,7 @@ export default function HistoryPage() {
         onSelectionChange={(ids: Set<string | number>) => setSelectedIds(new Set([...ids].map(String)))}
         onGridReady={handleGridReady}
         onFocusChange={handleFocusChange}
-        onNearEnd={handleNearEnd}
+        onNearEnd={canLoadMoreConversations ? handleNearEnd : undefined}
         getRowActions={getRowActions}
       />
 

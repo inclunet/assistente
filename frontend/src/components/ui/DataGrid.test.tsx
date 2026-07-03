@@ -449,6 +449,36 @@ describe('DataGrid (onNearEnd)', () => {
 
     expect(onNearEnd).toHaveBeenCalledTimes(1);
   });
+
+  it('tenta novamente se continuar perto do fim sem novos itens visiveis', async () => {
+    vi.useFakeTimers();
+    try {
+      const onNearEnd = vi.fn();
+      const { container } = render(
+        <DataGrid
+          items={items}
+          columns={columns}
+          onNearEnd={onNearEnd}
+          autoFocusOnMount={false}
+        />
+      );
+      const body = container.querySelector('.datagrid-body') as HTMLDivElement;
+      Object.defineProperty(body, 'scrollHeight', { configurable: true, value: 1000 });
+      Object.defineProperty(body, 'clientHeight', { configurable: true, value: 500 });
+      Object.defineProperty(body, 'scrollTop', { configurable: true, value: 360 });
+
+      fireEvent.scroll(body);
+      expect(onNearEnd).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      expect(onNearEnd).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // ─── Regressão: loop infinito de re-renders ─────────────────────────
