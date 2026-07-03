@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { profiles, controllers, allowlist, contextprovider, skills } from '@wailsjs/go/models';
 import { Tabs, TabList, Tab, TabPanel } from '../ui/tabs';
+import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { announce } from '../../hooks/useAnnouncer';
 import { ProfileGeneralSection } from './ProfileGeneralSection';
 import { ProfileChatSection } from './ProfileChatSection';
 import { ProfileSkillsSection } from './ProfileSkillsSection';
@@ -12,6 +14,14 @@ import './ProfileEditorTabs.css';
 
 const EDITOR_TABS = ['general', 'models', 'skills', 'contextProviders', 'tools', 'audio'] as const;
 type EditorTabId = (typeof EDITOR_TABS)[number];
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const PRIMARY_FOCUSABLE_SELECTOR =
+  'button[aria-haspopup="listbox"]:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable]';
+
+function isVisibleFocusTarget(element: HTMLElement): boolean {
+  return !element.closest('[hidden], [aria-hidden="true"]');
+}
 
 export interface ProfileEditorTabsProps {
   editingProfile: profiles.Profile & { id?: string; source?: string; isActive?: boolean };
@@ -38,10 +48,79 @@ export function ProfileEditorTabs({
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<EditorTabId>('general');
   const containerRef = useRef<HTMLDivElement>(null);
+  const pendingShortcutFocusRef = useRef<EditorTabId | null>(null);
 
   const handleTabChange = useCallback((v: string) => {
+    pendingShortcutFocusRef.current = null;
     setActiveTab(v as EditorTabId);
   }, []);
+
+  const focusProfileContent = useCallback(
+    (tabId: EditorTabId = activeTab): boolean => {
+      const el = containerRef.current;
+      if (!el) return false;
+
+      const targetPanel = document.getElementById(`profile-editor-tabpanel-${tabId}`) as HTMLElement | null;
+      const panel =
+        targetPanel && !targetPanel.hidden
+          ? targetPanel
+          : (el.querySelector('[role="tabpanel"]:not([hidden])') as HTMLElement | null);
+      if (!panel) return false;
+
+      const grid = panel.querySelector('[role="grid"]') as HTMLElement | null;
+      if (grid && isVisibleFocusTarget(grid)) {
+        const cell = panel.querySelector(
+          '.datagrid-container [role="gridcell"][tabindex="0"], .datagrid-container [role="gridcell"]',
+        ) as HTMLElement | null;
+        if (cell && isVisibleFocusTarget(cell)) {
+          cell.focus();
+          return true;
+        }
+        grid.focus();
+        return true;
+      }
+
+      const primary = Array.from(panel.querySelectorAll(PRIMARY_FOCUSABLE_SELECTOR)).find((candidate) =>
+        isVisibleFocusTarget(candidate as HTMLElement),
+      ) as HTMLElement | undefined;
+      if (primary) {
+        primary.focus();
+        return true;
+      }
+
+      const focusable = Array.from(panel.querySelectorAll(FOCUSABLE_SELECTOR)).find(
+        (candidate) =>
+          candidate.getAttribute('aria-expanded') === null &&
+          isVisibleFocusTarget(candidate as HTMLElement),
+      ) as HTMLElement | undefined;
+      if (focusable) {
+        focusable.focus();
+        return true;
+      }
+
+      const collapsibleToggle = Array.from(panel.querySelectorAll(FOCUSABLE_SELECTOR)).find((candidate) =>
+        isVisibleFocusTarget(candidate as HTMLElement),
+      ) as HTMLElement | undefined;
+      if (collapsibleToggle) {
+        collapsibleToggle.focus();
+        return true;
+      }
+
+      panel.setAttribute('tabindex', '-1');
+      panel.focus();
+      return true;
+    },
+    [activeTab],
+  );
+
+  useLayoutEffect(() => {
+    if (pendingShortcutFocusRef.current !== activeTab) return;
+    pendingShortcutFocusRef.current = null;
+
+    if (!focusProfileContent(activeTab)) {
+      restoreDefaultFocus();
+    }
+  }, [activeTab, focusProfileContent]);
 
   // Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+PageDown / Ctrl+PageUp
   useEffect(() => {
@@ -69,29 +148,14 @@ export function ProfileEditorTabs({
       const nextTabId = EDITOR_TABS[nextIndex];
 
       // Update React state first.
-      handleTabChange(nextTabId);
-
-      // Now sync DOM immediately before the event loop processes the keyup/focus fully.
-      // This pattern ensures the SR sees the 'aria-selected' change as part of the focus movement.
-      const prevBtn = el.querySelector('button[role="tab"][aria-selected="true"]') as HTMLElement | null;
-      const nextBtn = el.querySelector(
-        `button[role="tab"][data-tab-value="${nextTabId}"]`,
-      ) as HTMLButtonElement | null;
-
-      if (prevBtn) {
-        prevBtn.setAttribute('aria-selected', 'false');
-        prevBtn.tabIndex = -1;
-      }
-      if (nextBtn) {
-        nextBtn.setAttribute('aria-selected', 'true');
-        nextBtn.tabIndex = 0;
-        nextBtn.focus();
-      }
+      pendingShortcutFocusRef.current = nextTabId;
+      setActiveTab(nextTabId);
+      announce(t(`profiles.editorTabs.${nextTabId}`));
     };
 
     el.addEventListener('keydown', handleKeyDown);
     return () => el.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab, handleTabChange]);
+  }, [activeTab, t]);
 
   return (
     <div ref={containerRef} className="profile-editor-tabs" data-tab-scope>
@@ -100,6 +164,9 @@ export function ProfileEditorTabs({
         onValueChange={handleTabChange}
         activationMode="auto"
         idBase="profile-editor"
+        onActivate={() => {
+          return focusProfileContent();
+        }}
       >
         <TabList className="profile-editor-tabs__list" ariaLabel={t('profiles.editorTabsLabel', 'Seções do perfil')}>
           {EDITOR_TABS.map((id) => (
