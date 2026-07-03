@@ -2,6 +2,8 @@ package nettrust
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	"assistente/internal/tools/invocationctx"
@@ -157,5 +159,48 @@ func TestManager_Remove(t *testing.T) {
 	}
 	if d := m.Match(ctx, "api.internal", ""); d.Allowed {
 		t.Fatal("não deveria estar autorizado após remove")
+	}
+}
+
+// Add/Remove/Match concorrentes num escopo persistido não podem perder entradas
+// nem provocar data race (rodar com -race). Exercita o read-modify-write dos
+// arquivos sob concorrência — a regressão que o RWMutex + escrita atômica corrige.
+func TestManager_ConcurrentAddMatchNoRace(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+
+	const workers = 16
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			defer wg.Done()
+			host := fmt.Sprintf("svc-%d.internal", i)
+			if err := m.Add(ctx, AllowlistEntry{Host: host, Scope: ScopeGlobal}); err != nil {
+				t.Errorf("Add concorrente: %v", err)
+				return
+			}
+			// Leituras concorrentes durante as escritas de outras goroutines.
+			m.Match(ctx, host, "")
+			m.List(ctx)
+		}(i)
+	}
+	wg.Wait()
+
+	// Nenhuma entrada pode ter sido perdida pelo read-modify-write concorrente.
+	for i := 0; i < workers; i++ {
+		host := fmt.Sprintf("svc-%d.internal", i)
+		if d := m.Match(ctx, host, ""); !d.Allowed {
+			t.Errorf("entrada perdida sob concorrência: %s", host)
+		}
+	}
+	// Recarrega de disco para garantir persistência íntegra.
+	m2 := NewManagerWithDirs(dir, dir)
+	for i := 0; i < workers; i++ {
+		host := fmt.Sprintf("svc-%d.internal", i)
+		if d := m2.Match(ctx, host, ""); !d.Allowed {
+			t.Errorf("entrada não persistida sob concorrência: %s", host)
+		}
 	}
 }

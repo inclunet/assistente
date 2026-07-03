@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"net"
+	"strings"
 )
 
 // Category classifica por que um IP/host é barrado pela política anti-SSRF. É
@@ -68,6 +69,25 @@ func Classify(ip net.IP) Category {
 	}
 }
 
+// ClassifyDestination classifica o bloqueio de um destino considerando TANTO o
+// host textual quanto o IP resolvido. Hosts "localhost"/".localhost" (RFC 6761)
+// recebem CategoryLocalhostAlias — mais informativo que o loopback do IP, já que
+// a barra é sobre o nome (que em muitos sistemas resolve para loopback). Para os
+// demais casos, classifica pelo IP real (Classify).
+func ClassifyDestination(host string, ip net.IP) Category {
+	if isLocalhostAlias(host) {
+		return CategoryLocalhostAlias
+	}
+	return Classify(ip)
+}
+
+// isLocalhostAlias reporta se o host textual é "localhost" ou o TLD reservado
+// ".localhost" (após normalização). Mesma regra de IsPrivateHost.
+func isLocalhostAlias(host string) bool {
+	host = normalizeNetworkHost(host)
+	return host == "localhost" || strings.HasSuffix(host, ".localhost")
+}
+
 // normalizeIPKey devolve uma chave canônica de comparação para um IP, colapsando
 // IPv4-mapped IPv6 (::ffff:10.0.0.1) para a forma IPv4 — sem isto o mesmo IP
 // poderia gerar duas chaves e furar a checagem de trust.
@@ -127,4 +147,11 @@ func isTrustedIP(ctx context.Context, ip net.IP) bool {
 		return false
 	}
 	return set[normalizeIPKey(ip)]
+}
+
+// hasTrustedIPs reporta se a request carrega QUALQUER IP confiável por-request,
+// ou seja, se este destino foi explicitamente autorizado. Usado para delegar a
+// decisão final à barreira pós-DNS (DialContext), que revalida o IP real.
+func hasTrustedIPs(ctx context.Context) bool {
+	return len(trustedIPSet(ctx)) > 0
 }

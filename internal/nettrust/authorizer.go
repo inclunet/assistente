@@ -56,12 +56,15 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 	host := dest.Host
 	port := dest.Port
 
-	// 1) Allowlist existente
-	if decision := a.mgr.Match(ctx, host, port); decision.Allowed {
-		logging.Infof(ctx, "nettrust.authorizer",
-			"[NetTrust] match em allowlist: host=%s port=%s escopo=%s categoria=%s ips=%v",
-			host, port, decision.Scope, dest.Category, ipsToStrings(dest.IPs))
-		return dest.IPs, true, nil
+	// 1) Allowlist existente. mgr pode ser nil se o authorizer foi mal
+	// inicializado; nesse caso não há allowlist para consultar (nem persistir).
+	if a.mgr != nil {
+		if decision := a.mgr.Match(ctx, host, port); decision.Allowed {
+			logging.Infof(ctx, "nettrust.authorizer",
+				"[NetTrust] match em allowlist: host=%s port=%s escopo=%s categoria=%s ips=%v",
+				host, port, decision.Scope, dest.Category, ipsToStrings(dest.IPs))
+			return dest.IPs, true, nil
+		}
 	}
 
 	// 2) Consentimento explícito
@@ -101,7 +104,7 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 		scope = ScopeOnce
 	}
 
-	if scope != ScopeOnce {
+	if scope != ScopeOnce && a.mgr != nil {
 		entry := AllowlistEntry{
 			Host:        host,
 			Port:        port,

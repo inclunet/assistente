@@ -230,3 +230,27 @@ func TestClassify_Categories(t *testing.T) {
 		}
 	}
 }
+
+// ClassifyDestination deve priorizar o host textual "localhost"/".localhost"
+// (RFC 6761) sobre o IP loopback, para que a categoria reportada seja a mais
+// informativa e a constante CategoryLocalhostAlias seja de fato exercida.
+func TestClassifyDestination_LocalhostAlias(t *testing.T) {
+	cases := []struct {
+		host string
+		ip   net.IP
+		want Category
+	}{
+		{"localhost", net.ParseIP("127.0.0.1"), CategoryLocalhostAlias},
+		{"LOCALHOST.", net.ParseIP("127.0.0.1"), CategoryLocalhostAlias},
+		{"api.localhost", net.ParseIP("127.0.0.1"), CategoryLocalhostAlias},
+		// Host não-alias cai na classificação por IP.
+		{"127.0.0.1", net.ParseIP("127.0.0.1"), CategoryLoopback},
+		{"internal.corp", net.ParseIP("10.0.0.1"), CategoryPrivateRFC1918},
+		{"api.nu.workflows.dev", net.ParseIP("100.64.1.112"), CategoryCGNAT},
+	}
+	for _, c := range cases {
+		if got := ClassifyDestination(c.host, c.ip); got != c.want {
+			t.Errorf("ClassifyDestination(%q, %s) = %q, want %q", c.host, c.ip, got, c.want)
+		}
+	}
+}

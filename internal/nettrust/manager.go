@@ -36,7 +36,11 @@ type storeFile struct {
 // .assistente/network-allowlist/. Reutiliza configdir para localizar os
 // diretórios canônicos (home e workdir) — sem armazenamento paralelo.
 type Manager struct {
-	mu      sync.Mutex
+	// mu serializa TODO acesso ao estado (mapa de sessão e arquivos persistidos).
+	// Escritas em disco fazem read-modify-write, então precisam de exclusão mútua
+	// para não perder entradas em autorizações concorrentes; leituras usam RLock
+	// e ficam bloqueadas durante uma escrita, evitando leitura parcial.
+	mu      sync.RWMutex
 	session map[string][]AllowlistEntry // conversationID -> entradas de sessão
 
 	// homeDir/workDir são injetáveis para testes; por padrão vêm do configdir.
@@ -69,12 +73,14 @@ func NewManagerWithDirs(homeDir, workDir string) *Manager {
 func (m *Manager) Match(ctx context.Context, host, port string) NetworkTrustDecision {
 	convID, profileSlug := identityFromContext(ctx)
 
+	// RLock cobre a leitura do mapa de sessão E dos arquivos: fica bloqueado
+	// durante uma escrita (Add/Remove usam Lock), evitando leitura parcial.
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	// Sessão
 	if convID != "" {
-		m.mu.Lock()
-		entries := append([]AllowlistEntry(nil), m.session[convID]...)
-		m.mu.Unlock()
-		if e := firstMatch(entries, host, port); e != nil {
+		if e := firstMatch(m.session[convID], host, port); e != nil {
 			return NetworkTrustDecision{Allowed: true, Scope: ScopeSession, Entry: e}
 		}
 	}
@@ -113,6 +119,9 @@ func (m *Manager) Add(ctx context.Context, entry AllowlistEntry) error {
 		entry.CreatedAt = time.Now().UTC()
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	switch entry.Scope {
 	case ScopeOnce:
 		return nil
@@ -121,9 +130,7 @@ func (m *Manager) Add(ctx context.Context, entry AllowlistEntry) error {
 		if convID == "" {
 			return fmt.Errorf("escopo de sessão requer ConversationID no contexto")
 		}
-		m.mu.Lock()
 		m.session[convID] = upsert(m.session[convID], entry)
-		m.mu.Unlock()
 		return nil
 	case ScopeWorkspace:
 		return m.addToFile(m.workspacePath(), entry)
@@ -147,10 +154,11 @@ func (m *Manager) List(ctx context.Context) []AllowlistEntry {
 	var out []AllowlistEntry
 	convID, profileSlug := identityFromContext(ctx)
 
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if convID != "" {
-		m.mu.Lock()
 		out = append(out, m.session[convID]...)
-		m.mu.Unlock()
 	}
 	if profileSlug != "" {
 		out = append(out, m.loadFile(m.profilePath(profileSlug))...)
@@ -163,15 +171,17 @@ func (m *Manager) List(ctx context.Context) []AllowlistEntry {
 // Remove apaga a primeira entrada que casar host(:port) no escopo indicado.
 func (m *Manager) Remove(ctx context.Context, scope Scope, host, port string) error {
 	host = normalizeHost(host)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	switch scope {
 	case ScopeSession:
 		convID, _ := identityFromContext(ctx)
 		if convID == "" {
 			return fmt.Errorf("escopo de sessão requer ConversationID no contexto")
 		}
-		m.mu.Lock()
 		m.session[convID] = removeMatch(m.session[convID], host, port)
-		m.mu.Unlock()
 		return nil
 	case ScopeWorkspace:
 		return m.removeFromFile(m.workspacePath(), host, port)
@@ -252,8 +262,26 @@ func (m *Manager) saveFile(path string, entries []AllowlistEntry) error {
 	if err != nil {
 		return fmt.Errorf("erro ao serializar allowlist de rede: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	// Escrita atômica: grava num arquivo temporário e renomeia por cima. Evita
+	// que um leitor (mesmo em outro processo) veja um arquivo truncado no meio da
+	// escrita — o rename é atômico no mesmo diretório.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".allowlist-*.tmp")
+	if err != nil {
+		return fmt.Errorf("erro ao criar arquivo temporário de allowlist de rede: %w", err)
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		return fmt.Errorf("erro ao gravar allowlist de rede: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("erro ao finalizar allowlist de rede: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("erro ao substituir allowlist de rede: %w", err)
 	}
 	return nil
 }

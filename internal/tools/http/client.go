@@ -167,7 +167,7 @@ func (c *Client) buildBlockedDestination(ctx context.Context, req *http.Request,
 		}
 	}
 
-	category := Classify(blocked.IP)
+	category := ClassifyDestination(host, blocked.IP)
 	ips := resolveHostIPs(ctx, host)
 	if len(ips) == 0 && blocked.IP != nil {
 		ips = []net.IP{blocked.IP}
