@@ -187,7 +187,7 @@ type ConversationListResult struct {
 	Total         int64          `json:"total"`
 }
 
-const defaultConversationPageLimit = 100
+const DefaultConversationPageLimit = 100
 const maxConversationIDLookupLimit = 500
 const maxConversationPageLimit = maxConversationIDLookupLimit
 
@@ -211,7 +211,7 @@ func (r *ConversationRepository) GetConversationsPageWithContext(ctx context.Con
 		offset = 0
 	}
 	if limit <= 0 && offset > 0 {
-		limit = defaultConversationPageLimit
+		limit = DefaultConversationPageLimit
 	}
 	paginated := limit > 0
 	if paginated {

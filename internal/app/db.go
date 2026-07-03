@@ -47,15 +47,13 @@ func (a *App) GetConversations() ([]Conversation, error) {
 	return database.GetConversationsWithContext(ctx)
 }
 
-const defaultConversationPageLimit = 100
-
 func (a *App) GetConversationsPage(limit, offset int) (ConversationListResult, error) {
 	ctx, err := a.requireAuthenticatedContext()
 	if err != nil {
 		return ConversationListResult{}, err
 	}
 	if limit <= 0 {
-		limit = defaultConversationPageLimit
+		limit = database.DefaultConversationPageLimit
 	}
 	if offset < 0 {
 		offset = 0
