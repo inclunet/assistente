@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Spin } from 'antd';
@@ -38,7 +38,14 @@ export function WorkspaceLayout() {
     return cleanup;
   }, [setupEventListeners]);
 
-  useWorkspaceKeyboardShortcuts();
+  const restoreFocusAfterTabShortcutRef = useRef<string | null>(null);
+  const markTabShortcutNavigation = useCallback((tabId: string) => {
+    restoreFocusAfterTabShortcutRef.current = tabId;
+  }, []);
+
+  useWorkspaceKeyboardShortcuts({
+    onTabShortcutNavigation: markTabShortcutNavigation,
+  });
   useWorkspaceChatBridge();
   useWorkspacePanelRenameHandlers();
   useWorkspacePanelLifecycleCleanup();
@@ -260,6 +267,12 @@ export function WorkspaceLayout() {
     if (activeTabId === prevActiveTabIdRef.current) return;
     prevActiveTabIdRef.current = activeTabId;
 
+    if (restoreFocusAfterTabShortcutRef.current !== activeTabId) {
+      restoreFocusAfterTabShortcutRef.current = null;
+      return;
+    }
+
+    restoreFocusAfterTabShortcutRef.current = null;
     requestAnimationFrame(() => restoreDefaultFocus());
   }, [activeTabId, isWorkspaceRoute]);
 

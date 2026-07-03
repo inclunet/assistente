@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
+import { restoreDefaultFocus } from './useDefaultFocus';
 
 const toggle = vi.fn();
 const addTab = vi.fn(() => Promise.resolve());
 const removeTab = vi.fn(() => Promise.resolve());
 const requestOpen = vi.fn(() => Promise.resolve());
 const modalOpen = vi.fn(() => false);
+const setActiveTab = vi.fn();
 
 vi.mock('zustand/shallow', () => ({
   useShallow: <T,>(fn: T) => fn,
@@ -17,7 +19,7 @@ vi.mock('../store/workspaceStore', () => ({
       workspace: { tabs: [{ id: 't1' }, { id: 't2' }], activeTabId: 't1' },
       addTab,
       removeTab,
-      setActiveTab: vi.fn(),
+      setActiveTab,
       createWorkspace: vi.fn(),
     }),
 }));
@@ -55,6 +57,7 @@ describe('useWorkspaceKeyboardShortcuts - atalho Ctrl+?', () => {
     toggle.mockClear();
     addTab.mockClear();
     removeTab.mockClear();
+    setActiveTab.mockClear();
     modalOpen.mockReturnValue(false);
   });
 
@@ -91,7 +94,9 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
     toggle.mockClear();
     addTab.mockClear();
     removeTab.mockClear();
+    setActiveTab.mockClear();
     requestOpen.mockClear();
+    vi.mocked(restoreDefaultFocus).mockClear();
     modalOpen.mockReturnValue(false);
   });
 
@@ -155,5 +160,38 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
     modalOpen.mockReturnValue(false);
     dispatchKey({ ctrlKey: true, key: 't' });
     expect(addTab).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useWorkspaceKeyboardShortcuts - foco apos troca global de aba', () => {
+  beforeEach(() => {
+    setActiveTab.mockClear();
+    vi.mocked(restoreDefaultFocus).mockClear();
+    modalOpen.mockReturnValue(false);
+  });
+
+  it.each([
+    ['Ctrl+Tab', { ctrlKey: true, key: 'Tab' }],
+    ['Ctrl+Shift+Tab', { ctrlKey: true, shiftKey: true, key: 'Tab' }],
+    ['Ctrl+PageDown', { ctrlKey: true, key: 'PageDown' }],
+    ['Ctrl+PageUp', { ctrlKey: true, key: 'PageUp' }],
+  ])('%s troca aba e restaura a area default', async (_label, init) => {
+    renderHook(() => useWorkspaceKeyboardShortcuts());
+
+    const event = dispatchKey(init);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(setActiveTab).toHaveBeenCalledWith('t2');
+    await vi.waitFor(() => expect(restoreDefaultFocus).toHaveBeenCalled());
+  });
+
+  it('Ctrl+numero troca diretamente sem restaurar a area default', async () => {
+    renderHook(() => useWorkspaceKeyboardShortcuts());
+
+    dispatchKey({ ctrlKey: true, key: '2' });
+
+    expect(setActiveTab).toHaveBeenCalledWith('t2');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
   });
 });
