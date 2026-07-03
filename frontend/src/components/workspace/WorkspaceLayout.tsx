@@ -39,6 +39,7 @@ export function WorkspaceLayout() {
   }, [setupEventListeners]);
 
   const restoreFocusAfterTabShortcutRef = useRef<string | null>(null);
+  const restoreFocusToTablistRef = useRef<string | null>(null);
   const markTabShortcutNavigation = useCallback((tabId: string) => {
     restoreFocusAfterTabShortcutRef.current = tabId;
   }, []);
@@ -50,6 +51,18 @@ export function WorkspaceLayout() {
   useWorkspacePanelRenameHandlers();
   useWorkspacePanelLifecycleCleanup();
   useVoiceAccessibilityWorkspaceResolver();
+
+  useEffect(() => {
+    const handleTablistActivation = (event: Event) => {
+      const tabId = (event as CustomEvent<{ tabId?: string }>).detail?.tabId;
+      if (tabId) {
+        restoreFocusToTablistRef.current = tabId;
+      }
+    };
+
+    window.addEventListener('workspace:tablist-tab-activated', handleTablistActivation);
+    return () => window.removeEventListener('workspace:tablist-tab-activated', handleTablistActivation);
+  }, []);
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
 
@@ -266,6 +279,19 @@ export function WorkspaceLayout() {
     if (!isWorkspaceRoute || !activeTabId) return;
     if (activeTabId === prevActiveTabIdRef.current) return;
     prevActiveTabIdRef.current = activeTabId;
+
+    if (restoreFocusToTablistRef.current === activeTabId) {
+      restoreFocusToTablistRef.current = null;
+      restoreFocusAfterTabShortcutRef.current = null;
+      requestAnimationFrame(() => {
+        const tab = Array.from(document.querySelectorAll<HTMLElement>('.ws-tabs [role="tab"]'))
+          .find((element) => element.getAttribute('data-tab-value') === activeTabId);
+        tab?.focus();
+      });
+      return;
+    }
+
+    restoreFocusToTablistRef.current = null;
 
     if (restoreFocusAfterTabShortcutRef.current !== activeTabId) {
       restoreFocusAfterTabShortcutRef.current = null;

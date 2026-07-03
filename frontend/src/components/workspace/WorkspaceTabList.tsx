@@ -50,6 +50,7 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
     const activeElement = document.activeElement as HTMLElement | null;
     if (activeElement?.closest?.('button[role="tab"]')) {
       pendingFocusTabIdRef.current = tabId;
+      window.dispatchEvent(new CustomEvent('workspace:tablist-tab-activated', { detail: { tabId } }));
     }
     void setActiveTab(tabId);
   }, [setActiveTab]);
@@ -169,7 +170,18 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
 
   const handleListKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (editingTabId) return;
-    if (e.defaultPrevented) return;
+    if (e.defaultPrevented) {
+      const tabNavigationKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'];
+      if (!e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && tabNavigationKeys.includes(e.key)) {
+        const selected = tabListRef.current?.querySelector('button[role="tab"][aria-selected="true"]') as HTMLButtonElement | null;
+        const selectedTabId = selected?.getAttribute('data-tab-value');
+        if (selectedTabId) {
+          pendingFocusTabIdRef.current = selectedTabId;
+          window.dispatchEvent(new CustomEvent('workspace:tablist-tab-activated', { detail: { tabId: selectedTabId } }));
+        }
+      }
+      return;
+    }
 
     const focused = tabListRef.current?.querySelector('button[role="tab"]:focus') as HTMLButtonElement | null;
     const tabId = focused?.getAttribute('data-tab-value');

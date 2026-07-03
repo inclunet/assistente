@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures';
+import { test, expect, type WailsMock } from '../fixtures';
 
 /**
  * Testes de navegação por landmarks usando F6/Shift+F6.
@@ -28,6 +28,30 @@ function messagesFixture() {
 
 function activeChatTextarea(page: import('@playwright/test').Page) {
   return page.locator('.ws-content__panel[data-active="true"] .chat-input__textarea');
+}
+
+async function setupTwoTabWorkspace(page: import('@playwright/test').Page, wails: WailsMock) {
+  const now = new Date().toISOString();
+  const ws = {
+    id: 'ws-1',
+    name: 'Workspace',
+    profile: '',
+    created_at: now,
+    last_used: now,
+    tabs: {
+      active: 'tab-1',
+      items: [
+        { id: 'tab-1', type: 'chat', conversation_id: '01926b90-0000-7000-8000-000000000001', title: 'Aba 1', position: 0 },
+        { id: 'tab-2', type: 'chat', conversation_id: '01926b90-0000-7000-8000-000000000002', title: 'Aba 2', position: 1 },
+      ],
+    },
+  };
+  await wails.setResponse('GetActiveWorkspace', ws);
+  await wails.setResponse('SetActiveWorkspaceTab', undefined);
+  await wails.setResponse('EnsureConversation', {
+    id: '01926b90-0000-7000-8000-000000000002', title: 'Aba 2', created_at: now, updated_at: now, messages: [], message_count: 0,
+  });
+  await wails.waitForApp();
 }
 
 test.describe('Landmark navigation — F6 / Shift+F6', () => {
@@ -114,38 +138,27 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
     await expect(textarea).toBeFocused({ timeout: 3_000 });
   });
 
-  test('trocar de aba restaura foco na área padrão', async ({ page, wails }) => {
-    const now = new Date().toISOString();
-    const ws = {
-      id: 'ws-1',
-      name: 'Workspace',
-      profile: '',
-      created_at: now,
-      last_used: now,
-      tabs: {
-        active: 'tab-1',
-        items: [
-          { id: 'tab-1', type: 'chat', conversation_id: '01926b90-0000-7000-8000-000000000001', title: 'Aba 1', position: 0 },
-          { id: 'tab-2', type: 'chat', conversation_id: '01926b90-0000-7000-8000-000000000002', title: 'Aba 2', position: 1 },
-        ],
-      },
-    };
-    await wails.setResponse('GetActiveWorkspace', ws);
-    await wails.setResponse('SetActiveWorkspaceTab', undefined);
-    await wails.setResponse('EnsureConversation', {
-      id: '01926b90-0000-7000-8000-000000000002', title: 'Aba 2', created_at: now, updated_at: now, messages: [], message_count: 0,
-    });
-    await wails.waitForApp();
+  test('setas na tablist trocam aba mantendo foco na tablist', async ({ page, wails }) => {
+    await setupTwoTabWorkspace(page, wails);
 
-    // Navega para a lista de abas via F6
+    const tab1 = page.locator('.ws-tabs [role="tab"]').nth(0);
     const tab2 = page.locator('.ws-tabs [role="tab"]').nth(1);
-    await tab2.focus();
+    await tab1.focus();
 
-    // Clica na segunda aba
-    await tab2.click();
+    await page.keyboard.press('ArrowRight');
 
-    // O foco deve ir à área padrão (textarea)
+    await expect(tab2).toBeFocused({ timeout: 5_000 });
+    await expect(tab2).toHaveAttribute('aria-selected', 'true');
+    await expect(activeChatTextarea(page)).not.toBeFocused();
+  });
+
+  test('atalho global de aba restaura foco na área padrão', async ({ page, wails }) => {
+    await setupTwoTabWorkspace(page, wails);
+
+    await page.keyboard.press('Control+Tab');
+
     const textarea = activeChatTextarea(page);
     await expect(textarea).toBeFocused({ timeout: 5_000 });
+    await expect(page.locator('.ws-tabs [role="tab"]').nth(1)).toHaveAttribute('aria-selected', 'true');
   });
 });
