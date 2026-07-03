@@ -191,6 +191,18 @@ const DefaultConversationPageLimit = 100
 const maxConversationIDLookupLimit = 500
 const maxConversationPageLimit = maxConversationIDLookupLimit
 
+const conversationListCorrelatedSelect = `conversations.*,
+	(SELECT COUNT(*) FROM chat_messages WHERE chat_messages.conversation_id = conversations.id) as message_count,
+	COALESCE((
+		SELECT status
+		FROM sub_agent_runs
+		WHERE user_id = ?
+			AND child_conversation_id = conversations.id
+			AND conversations.kind = 'subagent'
+		ORDER BY turn_index DESC, created_at DESC, id DESC
+		LIMIT 1
+	), '') as latest_status`
+
 func GetConversationsPageWithContext(ctx context.Context, limit, offset int) (ConversationListResult, error) {
 	return NewConversationRepository(db).GetConversationsPageWithContext(ctx, limit, offset)
 }
@@ -223,29 +235,25 @@ func (r *ConversationRepository) GetConversationsPageWithContext(ctx context.Con
 
 	// Listagem unificada (AEP-0068): inclui conversas comuns E sub-conversas de
 	// sub-agentes (kind=subagent) — são a mesma entidade do ponto de vista do
-	// usuário. Dois LEFT JOINs em uma única query (evita N+1):
-	//   - msg_counts: contagem de mensagens por conversa.
-	//   - latest_run: status do run de sub-agente MAIS RECENTE (mesmo critério
-	//     canônico turn_index DESC, created_at DESC, id DESC), vazio quando a
-	//     conversa não é de sub-agente. Escopado por user_id (AEP-0052).
-	//
-	// O JOIN de latest_run é condicionado a conversations.kind='subagent': não há
-	// FK garantindo que SubAgentRun.ChildConversationID aponte para uma conversa
-	// kind=subagent, então sem essa condição um run órfão poderia popular
-	// latest_status numa conversa comum e vazar o dado para o cliente.
+	// usuário. A listagem paginada calcula agregados por conversa retornada para
+	// evitar varrer chat_messages/sub_agent_runs inteiros a cada page load.
 	query := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
-	query = query.
-		Select("conversations.*, COALESCE(msg_counts.count, 0) as message_count, COALESCE(latest_run.status, '') as latest_status").
-		Joins("LEFT JOIN (SELECT conversation_id, COUNT(*) as count FROM chat_messages GROUP BY conversation_id) as msg_counts ON msg_counts.conversation_id = conversations.id").
-		Joins(`LEFT JOIN (
+	if paginated {
+		query = query.Select(conversationListCorrelatedSelect, userID)
+	} else {
+		query = query.
+			Select("conversations.*, COALESCE(msg_counts.count, 0) as message_count, COALESCE(latest_run.status, '') as latest_status").
+			Joins("LEFT JOIN (SELECT conversation_id, COUNT(*) as count FROM chat_messages GROUP BY conversation_id) as msg_counts ON msg_counts.conversation_id = conversations.id").
+			Joins(`LEFT JOIN (
 			SELECT child_conversation_id, status FROM (
 				SELECT child_conversation_id, status,
 				       ROW_NUMBER() OVER (PARTITION BY child_conversation_id ORDER BY turn_index DESC, created_at DESC, id DESC) AS rn
 				FROM sub_agent_runs
 				WHERE user_id = ?
 			) WHERE rn = 1
-		) as latest_run ON latest_run.child_conversation_id = conversations.id AND conversations.kind = 'subagent'`, userID).
-		Order("conversations.updated_at DESC, conversations.id DESC")
+		) as latest_run ON latest_run.child_conversation_id = conversations.id AND conversations.kind = 'subagent'`, userID)
+	}
+	query = query.Order("conversations.updated_at DESC, conversations.id DESC")
 	if paginated {
 		if limit > maxConversationPageLimit {
 			limit = maxConversationPageLimit
@@ -290,16 +298,7 @@ func (r *ConversationRepository) GetConversationsByIDsWithContext(ctx context.Co
 	var conversations []Conversation
 	query := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
 	err = query.
-		Select("conversations.*, COALESCE(msg_counts.count, 0) as message_count, COALESCE(latest_run.status, '') as latest_status").
-		Joins("LEFT JOIN (SELECT conversation_id, COUNT(*) as count FROM chat_messages GROUP BY conversation_id) as msg_counts ON msg_counts.conversation_id = conversations.id").
-		Joins(`LEFT JOIN (
-			SELECT child_conversation_id, status FROM (
-				SELECT child_conversation_id, status,
-				       ROW_NUMBER() OVER (PARTITION BY child_conversation_id ORDER BY turn_index DESC, created_at DESC, id DESC) AS rn
-				FROM sub_agent_runs
-				WHERE user_id = ?
-			) WHERE rn = 1
-		) as latest_run ON latest_run.child_conversation_id = conversations.id AND conversations.kind = 'subagent'`, userID).
+		Select(conversationListCorrelatedSelect, userID).
 		Where("conversations.id IN ?", cleanIDs).
 		Order("conversations.updated_at DESC, conversations.id DESC").
 		Find(&conversations).Error
