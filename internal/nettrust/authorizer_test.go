@@ -165,6 +165,21 @@ func TestAuthorizer_AllowlistMatch_SameCategoryRotationAllowed(t *testing.T) {
 	}
 }
 
+// Com mgr=nil, aprovar um escopo persistente não deve entrar em pânico nem
+// tentar persistir: a liberação vale só para esta request (degrada para once).
+func TestAuthorizer_NilManagerPersistentScopeDegrades(t *testing.T) {
+	prompt := &spyPrompter{decision: PromptDecision{Approve: true, Scope: ScopeGlobal}}
+	auth := NewAuthorizer(nil, prompt)
+
+	ips, ok, err := auth.Authorize(context.Background(), blockedDest())
+	if err != nil {
+		t.Fatalf("não deveria retornar erro: %v", err)
+	}
+	if !ok || len(ips) == 0 {
+		t.Fatal("deveria liberar a request corrente mesmo sem manager")
+	}
+}
+
 func TestAuthorizer_PromptDeny(t *testing.T) {
 	dir := t.TempDir()
 	m := NewManagerWithDirs(dir, dir)

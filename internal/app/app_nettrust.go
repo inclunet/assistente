@@ -143,8 +143,12 @@ func (a *App) networkManagementContext() context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if slug := a.profileManager.GetActiveSlug(); slug != "" {
-		ctx = invocationctx.With(ctx, invocationctx.InvocationContext{ProfileSlug: slug})
+	// profileManager pode ser nil em inicialização parcial/testes; sem ele não há
+	// perfil ativo a considerar.
+	if a.profileManager != nil {
+		if slug := a.profileManager.GetActiveSlug(); slug != "" {
+			ctx = invocationctx.With(ctx, invocationctx.InvocationContext{ProfileSlug: slug})
+		}
 	}
 	return ctx
 }

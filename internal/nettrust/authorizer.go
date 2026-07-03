@@ -114,27 +114,36 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 		scope = ScopeOnce
 	}
 
-	// effectiveScope reflete o que de fato aconteceu: se a persistência falhar,
-	// a liberação vale só para esta request (degrada para once) — o log não deve
-	// afirmar que a entrada foi salva num escopo persistente.
+	// effectiveScope reflete o que de fato aconteceu: se a entrada não puder ser
+	// persistida, a liberação vale só para esta request (degrada para once) — o
+	// log não deve afirmar que foi salva num escopo persistente.
 	effectiveScope := scope
-	if scope != ScopeOnce && a.mgr != nil {
-		entry := AllowlistEntry{
-			Host:        host,
-			Port:        port,
-			Scope:       scope,
-			Category:    string(dest.Category),
-			ResolvedIPs: ipsToStrings(dest.IPs),
-			CreatedBy:   creatorFor(skillSlug),
-			Reason:      decision.Reason,
-		}
-		if err := a.mgr.Add(ctx, entry); err != nil {
-			// Falha ao persistir não deve abortar o acesso já autorizado nesta
-			// request: logamos e seguimos como ScopeOnce.
+	if scope != ScopeOnce {
+		switch {
+		case a.mgr == nil:
+			// Sem manager não há onde persistir: mantém a auditabilidade correta.
 			logging.Errorf(ctx, "nettrust.authorizer",
-				"[NetTrust] falha ao persistir allowlist (escopo %s) para host=%s: %v — liberando apenas esta request (once)",
-				scope, host, err)
+				"[NetTrust] sem manager para persistir allowlist (escopo %s) para host=%s — liberando apenas esta request (once)",
+				scope, host)
 			effectiveScope = ScopeOnce
+		default:
+			entry := AllowlistEntry{
+				Host:        host,
+				Port:        port,
+				Scope:       scope,
+				Category:    string(dest.Category),
+				ResolvedIPs: ipsToStrings(dest.IPs),
+				CreatedBy:   creatorFor(skillSlug),
+				Reason:      decision.Reason,
+			}
+			if err := a.mgr.Add(ctx, entry); err != nil {
+				// Falha ao persistir não deve abortar o acesso já autorizado nesta
+				// request: logamos e seguimos como ScopeOnce.
+				logging.Errorf(ctx, "nettrust.authorizer",
+					"[NetTrust] falha ao persistir allowlist (escopo %s) para host=%s: %v — liberando apenas esta request (once)",
+					scope, host, err)
+				effectiveScope = ScopeOnce
+			}
 		}
 	}
 
