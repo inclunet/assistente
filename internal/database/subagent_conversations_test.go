@@ -179,3 +179,28 @@ func TestGetConversationsByIDsWithContext(t *testing.T) {
 		t.Fatalf("ordenação por id desc com updated_at empatado inesperada: %s, %s", rows[0].ID, rows[1].ID)
 	}
 }
+
+func TestGetConversationsByIDsWithContextLimitsIDs(t *testing.T) {
+	setupTestDB(t)
+	ctx := testCtx()
+
+	kept := make([]string, 0, maxConversationIDLookupLimit)
+	for i := 0; i < maxConversationIDLookupLimit; i++ {
+		kept = append(kept, createTestConversation(t, "Dentro do limite"))
+	}
+	excluded := createTestConversation(t, "Fora do limite")
+	ids := append(append([]string{}, kept...), excluded)
+
+	rows, err := GetConversationsByIDsWithContext(ctx, ids)
+	if err != nil {
+		t.Fatalf("GetConversationsByIDsWithContext: %v", err)
+	}
+	if len(rows) != maxConversationIDLookupLimit {
+		t.Fatalf("len rows = %d, want %d", len(rows), maxConversationIDLookupLimit)
+	}
+	for _, row := range rows {
+		if row.ID == excluded {
+			t.Fatalf("id além do limite foi retornado: %s", excluded)
+		}
+	}
+}

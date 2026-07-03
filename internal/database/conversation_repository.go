@@ -188,6 +188,7 @@ type ConversationListResult struct {
 }
 
 const defaultConversationPageLimit = 100
+const maxConversationIDLookupLimit = 500
 
 func GetConversationsPageWithContext(ctx context.Context, limit, offset int) (ConversationListResult, error) {
 	return NewConversationRepository(db).GetConversationsPageWithContext(ctx, limit, offset)
@@ -280,6 +281,9 @@ func (r *ConversationRepository) GetConversationsByIDsWithContext(ctx context.Co
 	}
 	if len(cleanIDs) == 0 {
 		return []Conversation{}, nil
+	}
+	if len(cleanIDs) > maxConversationIDLookupLimit {
+		cleanIDs = cleanIDs[:maxConversationIDLookupLimit]
 	}
 
 	var conversations []Conversation

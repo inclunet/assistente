@@ -50,7 +50,7 @@ interface Conversation {
 // indicador de status ao lado do título (AEP-0068 Fase 5).
 const ACTIVE_SUBAGENT_STATUSES = new Set(['queued', 'running']);
 const HISTORY_PAGE_SIZE = 100;
-const HISTORY_AUTO_FILL_PAGE_LIMIT = 3;
+const HISTORY_AUTO_FILL_ERROR_RETRY_LIMIT = 3;
 
 type RichExportFormat = 'html' | 'pdf' | 'md';
 
@@ -137,6 +137,9 @@ export default function HistoryPage() {
       setTotalConversations(total);
       totalConversationsRef.current = total;
       hasLoadedConversationsRef.current = true;
+      if (options?.autoFill) {
+        autoFillRetryAttemptsRef.current = 0;
+      }
       setConversations((previous) => {
         const next = reset ? mapped : mergeConversations(previous, mapped);
         conversationsRef.current = next;
@@ -150,7 +153,8 @@ export default function HistoryPage() {
       if (loadRequestRef.current === requestId && !reset && options?.announceProgress) {
         announce(t('history.loadMoreFailed'), 'assertive');
       }
-      if (loadRequestRef.current === requestId && options?.autoFill && autoFillRetryAttemptsRef.current < HISTORY_AUTO_FILL_PAGE_LIMIT) {
+      if (loadRequestRef.current === requestId && options?.autoFill && autoFillRetryAttemptsRef.current < HISTORY_AUTO_FILL_ERROR_RETRY_LIMIT) {
+        autoFillRetryAttemptsRef.current += 1;
         if (autoFillRetryTimerRef.current) {
           clearTimeout(autoFillRetryTimerRef.current);
         }
@@ -452,13 +456,9 @@ export default function HistoryPage() {
       autoFillRetryAttemptsRef.current = 0;
       return;
     }
-    if (autoFillRetryAttemptsRef.current >= HISTORY_AUTO_FILL_PAGE_LIMIT) {
-      return;
-    }
     if (loadingPageRef.current) {
       return;
     }
-    autoFillRetryAttemptsRef.current += 1;
     void loadConversations({ autoFill: true });
   }, [autoFillRetryTick, conversations.length, displayItems.length, hasMoreConversations, loadConversations, searchResultIds, showSubAgents]);
 

@@ -412,6 +412,46 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     });
   });
 
+  it('continua auto-fill ate encontrar conversa comum quando sub-agentes ocultos esvaziam a grade', async () => {
+    const user = userEvent.setup();
+    const subAgentPages = Array.from({ length: 4 }, (_, index) => ({
+      id: `01926b90-7a5a-7c4e-8d3f-0000000000a${index}`,
+      title: `Sub-conversa ${index + 1}`,
+      kind: 'subagent',
+      latestStatus: 'running',
+      message_count: 1,
+      createdAt: `2025-01-0${5 - index}T00:00:00Z`,
+      updatedAt: `2025-01-0${5 - index}T00:00:00Z`,
+    }));
+    mockGetConversationsPage
+      .mockResolvedValueOnce({ conversations: [subAgentPages[0]], total: 5 })
+      .mockResolvedValueOnce({ conversations: [subAgentPages[1]], total: 5 })
+      .mockResolvedValueOnce({ conversations: [subAgentPages[2]], total: 5 })
+      .mockResolvedValueOnce({ conversations: [subAgentPages[3]], total: 5 })
+      .mockResolvedValueOnce({
+        conversations: [{
+          id: '01926b90-7a5a-7c4e-8d3f-000000000005',
+          title: 'Conversa comum distante',
+          message_count: 1,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        }],
+        total: 5,
+      });
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Sub-conversa 1');
+    const toggle = lastToolbarActions.find((action) => action.key === 'toggle-subagents');
+    expect(toggle).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: toggle!.label }));
+
+    await waitFor(() => {
+      expect(mockGetConversationsPage).toHaveBeenNthCalledWith(5, 100, 4);
+      expect(screen.getByText('Conversa comum distante')).toBeInTheDocument();
+    });
+  });
+
   it('renderiza resultado de busca fora da pagina inicial', async () => {
     const user = userEvent.setup();
     const olderConversation = {
