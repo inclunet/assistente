@@ -189,6 +189,7 @@ type ConversationListResult struct {
 
 const defaultConversationPageLimit = 100
 const maxConversationIDLookupLimit = 500
+const maxConversationPageLimit = maxConversationIDLookupLimit
 
 func GetConversationsPageWithContext(ctx context.Context, limit, offset int) (ConversationListResult, error) {
 	return NewConversationRepository(db).GetConversationsPageWithContext(ctx, limit, offset)
@@ -246,8 +247,8 @@ func (r *ConversationRepository) GetConversationsPageWithContext(ctx context.Con
 		) as latest_run ON latest_run.child_conversation_id = conversations.id AND conversations.kind = 'subagent'`, userID).
 		Order("conversations.updated_at DESC, conversations.id DESC")
 	if paginated {
-		if limit > 500 {
-			limit = 500
+		if limit > maxConversationPageLimit {
+			limit = maxConversationPageLimit
 		}
 		query = query.Limit(limit).Offset(offset)
 	}
