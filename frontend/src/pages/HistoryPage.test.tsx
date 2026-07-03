@@ -606,6 +606,13 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
   it('atualiza updatedAt e reordena conversa após editar título', async () => {
     const user = userEvent.setup();
     const toISOStringSpy = vi.spyOn(Date.prototype, 'toISOString').mockReturnValueOnce('2026-01-01T00:00:00.000Z');
+    mockGetConversationsPage.mockResolvedValue({
+      conversations: [
+        { ...conversations[0], updatedAt: '' },
+        conversations[1],
+      ],
+      total: conversations.length,
+    });
 
     render(<HistoryPage />);
 

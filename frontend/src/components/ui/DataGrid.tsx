@@ -278,7 +278,7 @@ export function DataGrid<T = unknown>({
       focusedItemIdRef.current = null;
       onFocusChangeRef.current?.(null, -1);
     }
-  }, [focusedRow, items, getItemId, nearEndThreshold]);
+  }, [focusedRow, items, getItemId, nearEndThreshold, markScrollNearEndSignaled]);
 
   const handleBodyScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     if (!onNearEndRef.current) return;

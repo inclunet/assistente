@@ -915,10 +915,15 @@ function mergeConversations(previous: Conversation[], nextPage: Conversation[]):
 }
 
 function compareConversationsByUpdatedAt(a: Conversation, b: Conversation): number {
-  const aTime = new Date(a.updatedAt).getTime();
-  const bTime = new Date(b.updatedAt).getTime();
+  const aTime = parseConversationUpdatedAt(a.updatedAt);
+  const bTime = parseConversationUpdatedAt(b.updatedAt);
   if (aTime !== bTime) {
     return bTime - aTime;
   }
   return b.id.localeCompare(a.id);
+}
+
+function parseConversationUpdatedAt(value: string): number {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
