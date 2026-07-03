@@ -19,6 +19,9 @@ const DefaultMaxRedirects = 10
 // privados em runtime (ex.: testes com httptest); pode ser nil.
 func RedirectGuard(maxRedirects int, allowPrivate func() bool) func(req *http.Request, via []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
+		// Sinaliza que a request seguiu um redirect (o dial inicial teve sucesso).
+		// handleBlocked usa isso para não abrir prompt em bloqueios pós-redirect.
+		markRedirected(req.Context())
 		// via contém as requisições já feitas; permitimos até maxRedirects saltos e
 		// só barramos a partir do seguinte.
 		if len(via) > maxRedirects {

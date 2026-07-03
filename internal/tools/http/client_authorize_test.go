@@ -194,26 +194,26 @@ func TestSSRFControlWithTrust_OnlyTrustsExactIP(t *testing.T) {
 	}
 }
 
-// originalTargetBlocked distingue um bloqueio na URL diretamente requisitada de
-// um bloqueio ocorrido num salto de redirect (que não deve abrir prompt).
-func TestOriginalTargetBlocked(t *testing.T) {
-	ctx := context.Background()
+// didRedirect distingue um bloqueio na URL diretamente requisitada (sem
+// redirect) de um bloqueio ocorrido após um salto de redirect (não abre prompt).
+func TestRedirectTracker(t *testing.T) {
+	base := context.Background()
 
-	// Host literal igual ao IP barrado → é o alvo direto.
-	reqLit, _ := http.NewRequest("GET", "http://100.64.1.112:443/x", nil)
-	if !originalTargetBlocked(ctx, reqLit, net.ParseIP("100.64.1.112")) {
-		t.Fatal("IP literal do host deveria contar como alvo direto")
+	// Sem tracker no ctx → false.
+	if didRedirect(base) {
+		t.Fatal("ctx sem tracker não deveria reportar redirect")
 	}
 
-	// Host público cujo IP barrado (interno) NÃO pertence a ele → veio de redirect.
-	reqPub, _ := http.NewRequest("GET", "http://8.8.8.8/x", nil)
-	if originalTargetBlocked(ctx, reqPub, net.ParseIP("10.0.0.1")) {
-		t.Fatal("IP interno alheio ao host não deveria contar como alvo direto")
+	// Com tracker mas sem marcação → false.
+	ctx := withRedirectTracker(base)
+	if didRedirect(ctx) {
+		t.Fatal("tracker não marcado não deveria reportar redirect")
 	}
 
-	// IP nil nunca é alvo direto.
-	if originalTargetBlocked(ctx, reqLit, nil) {
-		t.Fatal("IP nil não deveria contar como alvo direto")
+	// Após marcar (como faz o RedirectGuard) → true.
+	markRedirected(ctx)
+	if !didRedirect(ctx) {
+		t.Fatal("após markRedirected deveria reportar redirect")
 	}
 }
 

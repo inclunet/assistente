@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -180,6 +182,32 @@ func TestManager_RemoveNotFound(t *testing.T) {
 	sctx := ctxWith("conv-x", "")
 	if err := m.Remove(sctx, ScopeSession, "inexistente.internal", ""); !errors.Is(err, ErrEntryNotFound) {
 		t.Fatalf("Remove de sessão inexistente deveria retornar ErrEntryNotFound, got %v", err)
+	}
+}
+
+// Add não pode sobrescrever um arquivo de allowlist ilegível (JSON inválido ou
+// erro de leitura), pois apagaria silenciosamente entradas ainda no disco.
+func TestManager_AddDoesNotOverwriteOnReadError(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+
+	path := filepath.Join(dir, "network-allowlist", "global.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const corrupt = "{invalido"
+	if err := os.WriteFile(path, []byte(corrupt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Add(ctx, AllowlistEntry{Host: "api.internal", Scope: ScopeGlobal}); err == nil {
+		t.Fatal("Add deveria falhar quando o arquivo existente está ilegível")
+	}
+	// O conteúdo original permanece intacto (não foi sobrescrito).
+	data, _ := os.ReadFile(path)
+	if string(data) != corrupt {
+		t.Fatalf("arquivo não deveria ter sido sobrescrito, got %q", string(data))
 	}
 }
 

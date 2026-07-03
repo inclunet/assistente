@@ -7,10 +7,37 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"assistente/internal/credentials"
 )
+
+// redirectTracker sinaliza se uma request seguiu ao menos um redirect. É
+// compartilhado por ponteiro no context para que o RedirectGuard (invocado
+// dentro do net/http) possa marcar e o Client ler depois que Do retorna. Como o
+// net/http chama CheckRedirect de forma síncrona no mesmo fluxo, não há
+// concorrência real, mas usamos atomic por segurança com o race detector.
+type redirectTracker struct{ redirected atomic.Bool }
+
+type redirectTrackerKey struct{}
+
+func withRedirectTracker(ctx context.Context) context.Context {
+	return context.WithValue(ctx, redirectTrackerKey{}, &redirectTracker{})
+}
+
+// markRedirected marca que a request seguiu um redirect (chamado pelo guard).
+func markRedirected(ctx context.Context) {
+	if rt, ok := ctx.Value(redirectTrackerKey{}).(*redirectTracker); ok {
+		rt.redirected.Store(true)
+	}
+}
+
+// didRedirect reporta se a request associada ao ctx seguiu algum redirect.
+func didRedirect(ctx context.Context) bool {
+	rt, ok := ctx.Value(redirectTrackerKey{}).(*redirectTracker)
+	return ok && rt.redirected.Load()
+}
 
 // Config define a configuração do cliente HTTP centralizado
 type Config struct {
@@ -95,6 +122,10 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 	// que cobre tanto estes headers quanto os custom passados pelo chamador.
 	c.applyAuth(ctx, req)
 
+	// Rastreia se a request seguirá redirects: handleBlocked usa isso para saber
+	// se um bloqueio veio do alvo direto (sem redirect) ou de um salto de redirect.
+	ctx = withRedirectTracker(ctx)
+
 	// Executar com retry
 	resp, err := c.doWithRetry(ctx, req)
 	if err == nil {
@@ -115,14 +146,13 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 // handleBlocked orquestra a autorização de um destino barrado por anti-SSRF.
 func (c *Client) handleBlocked(ctx context.Context, req *http.Request, blocked *BlockedIPError) (*http.Response, error) {
 	// Apenas o destino DIRETAMENTE requisitado pode ser autorizado por
-	// consentimento. Um BlockedIPError originado no meio de uma cadeia de
-	// redirects (URL inicial pública → host que só revela IP privado no dial)
-	// NÃO deve abrir prompt: seria um vetor de open-redirect→SSRF, induzindo o
-	// usuário a aprovar um destino interno que não escolheu. Detectamos comparando
-	// o IP barrado com os IPs do host da URL ORIGINAL (o net/http não muta req ao
-	// seguir redirects). Nesse caso devolvemos um erro acionável, sem prompt e sem
-	// atribuir o IP interno ao host público.
-	if !originalTargetBlocked(ctx, req, blocked.IP) {
+	// consentimento. Se a request já seguiu ao menos um redirect, o dial inicial
+	// teve sucesso e este bloqueio veio de um salto de redirect (URL inicial
+	// pública → host que só revela IP privado no dial): NÃO abrimos prompt — seria
+	// um vetor de open-redirect→SSRF, induzindo o usuário a aprovar um destino
+	// interno que não escolheu. O sinal é confiável e não depende de re-resolução
+	// DNS. Devolvemos erro acionável sem atribuir o IP interno ao host público.
+	if didRedirect(ctx) {
 		return nil, redirectBlockedError(blocked.IP)
 	}
 
@@ -145,7 +175,7 @@ func (c *Client) handleBlocked(ctx context.Context, req *http.Request, blocked *
 	if err := resetRequestBody(req); err != nil {
 		return nil, fmt.Errorf("não foi possível reexecutar a request após autorização: %w", err)
 	}
-	trustedCtx := WithTrustedIPs(ctx, trustedIPs)
+	trustedCtx := withRedirectTracker(WithTrustedIPs(ctx, trustedIPs))
 	resp, err := c.doWithRetry(trustedCtx, req)
 	if err == nil {
 		return resp, nil
@@ -157,12 +187,11 @@ func (c *Client) handleBlocked(ctx context.Context, req *http.Request, blocked *
 	var blocked2 *BlockedIPError
 	if errors.As(err, &blocked2) {
 		// Mesma distinção do fluxo inicial: se o bloqueio subsequente veio de um
-		// salto de redirect (IP não pertence ao host da URL original), não
-		// atribuímos o IP interno ao host público.
-		if originalTargetBlocked(trustedCtx, req, blocked2.IP) {
-			return nil, newBlockedDestinationError(c.buildBlockedDestination(trustedCtx, req, blocked2))
+		// salto de redirect, não atribuímos o IP interno ao host da URL original.
+		if didRedirect(trustedCtx) {
+			return nil, redirectBlockedError(blocked2.IP)
 		}
-		return nil, redirectBlockedError(blocked2.IP)
+		return nil, newBlockedDestinationError(c.buildBlockedDestination(trustedCtx, req, blocked2))
 	}
 	return nil, err
 }
@@ -189,22 +218,6 @@ func redirectBlockedError(ip net.IP) *BlockedDestinationError {
 		Reason:      fmt.Sprintf("%s address blocked by anti-SSRF policy (redirect)", cat),
 		Suggestions: defaultBlockSuggestions,
 	}
-}
-
-// originalTargetBlocked reporta se o IP barrado pertence ao host da URL
-// diretamente requisitada (e não a um alvo de redirect). Host literal casa
-// direto; hostnames são resolvidos.
-func originalTargetBlocked(ctx context.Context, req *http.Request, ip net.IP) bool {
-	if ip == nil {
-		return false
-	}
-	key := normalizeIPKey(ip)
-	for _, hostIP := range resolveHostIPs(ctx, req.URL.Hostname()) {
-		if normalizeIPKey(hostIP) == key {
-			return true
-		}
-	}
-	return false
 }
 
 // buildBlockedDestination resolve os IPs do host e classifica o bloqueio para

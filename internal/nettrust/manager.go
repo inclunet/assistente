@@ -108,18 +108,18 @@ func (m *Manager) Match(ctx context.Context, host, port string) NetworkTrustDeci
 
 	// Perfil
 	if profileSlug != "" {
-		if e := firstMatch(m.loadFile(m.profilePath(profileSlug)), host, port); e != nil {
+		if e := firstMatch(m.loadFileOrEmpty(m.profilePath(profileSlug)), host, port); e != nil {
 			return NetworkTrustDecision{Allowed: true, Scope: ScopeProfile, Entry: e}
 		}
 	}
 
 	// Workspace
-	if e := firstMatch(m.loadFile(m.workspacePath()), host, port); e != nil {
+	if e := firstMatch(m.loadFileOrEmpty(m.workspacePath()), host, port); e != nil {
 		return NetworkTrustDecision{Allowed: true, Scope: ScopeWorkspace, Entry: e}
 	}
 
 	// Global
-	if e := firstMatch(m.loadFile(m.globalPath()), host, port); e != nil {
+	if e := firstMatch(m.loadFileOrEmpty(m.globalPath()), host, port); e != nil {
 		return NetworkTrustDecision{Allowed: true, Scope: ScopeGlobal, Entry: e}
 	}
 
@@ -182,10 +182,10 @@ func (m *Manager) List(ctx context.Context) []AllowlistEntry {
 		out = append(out, m.session[convID]...)
 	}
 	if profileSlug != "" {
-		out = append(out, m.loadFile(m.profilePath(profileSlug))...)
+		out = append(out, m.loadFileOrEmpty(m.profilePath(profileSlug))...)
 	}
-	out = append(out, m.loadFile(m.workspacePath())...)
-	out = append(out, m.loadFile(m.globalPath())...)
+	out = append(out, m.loadFileOrEmpty(m.workspacePath())...)
+	out = append(out, m.loadFileOrEmpty(m.globalPath())...)
 	return out
 }
 
@@ -247,35 +247,62 @@ func (m *Manager) profilePath(slug string) string {
 
 // ---- file I/O ----
 
-func (m *Manager) loadFile(path string) []AllowlistEntry {
+// loadFile lê as entradas persistidas. Distingue "arquivo ausente" (allowlist
+// vazia, sem erro) de "erro de leitura/JSON inválido" (erro) — crucial para que
+// uma escrita subsequente NÃO sobrescreva dados que ainda estão no disco por
+// causa de uma falha transitória de leitura.
+func (m *Manager) loadFile(path string) ([]AllowlistEntry, error) {
 	if path == "" {
-		return nil
+		return nil, nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil // arquivo ausente = allowlist vazia
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil // arquivo ausente = allowlist vazia
+		}
+		return nil, fmt.Errorf("erro ao ler allowlist de rede %s: %w", path, err)
 	}
 	var sf storeFile
 	if err := json.Unmarshal(data, &sf); err != nil {
-		logging.Errorf(context.Background(), "nettrust.manager", "[NetTrust] arquivo inválido %s: %v", path, err)
+		return nil, fmt.Errorf("allowlist de rede inválida %s: %w", path, err)
+	}
+	return sf.Entries, nil
+}
+
+// loadFileOrEmpty é a versão tolerante usada em leituras (Match/List): trata
+// ausência OU erro como allowlist vazia (logando o erro). Nunca é usada antes de
+// uma escrita — para isso usa-se loadFile, que propaga o erro.
+func (m *Manager) loadFileOrEmpty(path string) []AllowlistEntry {
+	entries, err := m.loadFile(path)
+	if err != nil {
+		logging.Errorf(context.Background(), "nettrust.manager", "[NetTrust] %v", err)
 		return nil
 	}
-	return sf.Entries
+	return entries
 }
 
 func (m *Manager) addToFile(path string, entry AllowlistEntry) error {
 	if path == "" {
 		return fmt.Errorf("caminho de allowlist indisponível para o escopo %q", entry.Scope)
 	}
-	entries := upsert(m.loadFile(path), entry)
-	return m.saveFile(path, entries)
+	existing, err := m.loadFile(path)
+	if err != nil {
+		// Não gravar por cima de um arquivo ilegível: sobrescreveria entradas
+		// ainda presentes no disco por uma falha transitória.
+		return fmt.Errorf("não foi possível ler a allowlist antes de gravar (evitando perda de dados): %w", err)
+	}
+	return m.saveFile(path, upsert(existing, entry))
 }
 
 func (m *Manager) removeFromFile(path string, host, port string) error {
 	if path == "" {
 		return fmt.Errorf("caminho de allowlist indisponível")
 	}
-	entries, removed := removeMatch(m.loadFile(path), host, port)
+	existing, err := m.loadFile(path)
+	if err != nil {
+		return fmt.Errorf("não foi possível ler a allowlist antes de remover: %w", err)
+	}
+	entries, removed := removeMatch(existing, host, port)
 	if !removed {
 		return ErrEntryNotFound
 	}
