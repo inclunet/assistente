@@ -18,6 +18,7 @@ import { WorkspaceContent } from './WorkspaceContent';
 import { WorkspaceChatModal } from './WorkspaceChatModal';
 import { useWorkspacePanelRenameHandlers } from './useWorkspacePanelRenameHandlers';
 import { useWorkspacePanelLifecycleCleanup } from './useWorkspacePanelLifecycleCleanup';
+import { WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT } from './workspaceFocusEvents';
 import './WorkspaceLayout.css';
 
 export function WorkspaceLayout() {
@@ -52,7 +53,15 @@ export function WorkspaceLayout() {
   useWorkspacePanelLifecycleCleanup();
   useVoiceAccessibilityWorkspaceResolver();
 
+  const isWorkspaceRoute = pathname === '/' || pathname === '';
+
   useEffect(() => {
+    if (!isWorkspaceRoute) {
+      restoreFocusToTablistRef.current = null;
+      restoreFocusAfterTabShortcutRef.current = null;
+      return;
+    }
+
     const handleTablistActivation = (event: Event) => {
       const tabId = (event as CustomEvent<{ tabId?: string }>).detail?.tabId;
       if (tabId) {
@@ -60,11 +69,9 @@ export function WorkspaceLayout() {
       }
     };
 
-    window.addEventListener('workspace:tablist-tab-activated', handleTablistActivation);
-    return () => window.removeEventListener('workspace:tablist-tab-activated', handleTablistActivation);
-  }, []);
-
-  const isWorkspaceRoute = pathname === '/' || pathname === '';
+    window.addEventListener(WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT, handleTablistActivation);
+    return () => window.removeEventListener(WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT, handleTablistActivation);
+  }, [isWorkspaceRoute]);
 
   const landmarks = useMemo((): Landmark[] => {
     const focusTopbar = () => {

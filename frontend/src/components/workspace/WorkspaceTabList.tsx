@@ -15,6 +15,7 @@ import { playBumpSound } from '../../services/audioFeedback';
 import { Tabs, TabList, Tab } from '../ui/tabs';
 import { ContextMenu } from '../menu';
 import type { MenuItem } from '../menu';
+import { WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT } from './workspaceFocusEvents';
 import './WorkspaceTabList.css';
 
 const TAB_TYPE_ICONS: Record<TabType, ReactNode> = {
@@ -50,7 +51,7 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
     const activeElement = document.activeElement as HTMLElement | null;
     if (activeElement?.closest?.('button[role="tab"]')) {
       pendingFocusTabIdRef.current = tabId;
-      window.dispatchEvent(new CustomEvent('workspace:tablist-tab-activated', { detail: { tabId } }));
+      window.dispatchEvent(new CustomEvent(WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT, { detail: { tabId } }));
     }
     void setActiveTab(tabId);
   }, [setActiveTab]);
@@ -177,7 +178,7 @@ export const WorkspaceTabList = React.memo(function WorkspaceTabList() {
         const selectedTabId = selected?.getAttribute('data-tab-value');
         if (selectedTabId) {
           pendingFocusTabIdRef.current = selectedTabId;
-          window.dispatchEvent(new CustomEvent('workspace:tablist-tab-activated', { detail: { tabId: selectedTabId } }));
+          window.dispatchEvent(new CustomEvent(WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT, { detail: { tabId: selectedTabId } }));
         }
       }
       return;
