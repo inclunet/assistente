@@ -227,6 +227,7 @@ func redirectBlockedError(ip net.IP) *BlockedDestinationError {
 func (c *Client) buildBlockedDestination(ctx context.Context, req *http.Request, blocked *BlockedIPError) BlockedDestination {
 	host := req.URL.Hostname()
 	port := req.URL.Port()
+	portExplicit := port != ""
 	if port == "" {
 		switch req.URL.Scheme {
 		case "https":
@@ -244,12 +245,13 @@ func (c *Client) buildBlockedDestination(ctx context.Context, req *http.Request,
 	ips := appendUniqueIP(resolveHostIPs(ctx, host), blocked.IP)
 
 	return BlockedDestination{
-		Host:     host,
-		Port:     port,
-		URL:      req.URL.Redacted(),
-		IPs:      ips,
-		Category: category,
-		Reason:   fmt.Sprintf("%s address blocked by anti-SSRF policy", category),
+		Host:         host,
+		Port:         port,
+		PortExplicit: portExplicit,
+		URL:          req.URL.Redacted(),
+		IPs:          ips,
+		Category:     category,
+		Reason:       fmt.Sprintf("%s address blocked by anti-SSRF policy", category),
 	}
 }
 

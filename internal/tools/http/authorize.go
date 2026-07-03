@@ -12,12 +12,17 @@ import (
 // mensagem de erro acionável. É produzida pelo Client quando o guard pós-DNS
 // devolve BlockedIPError e há um NetworkAuthorizer configurado.
 type BlockedDestination struct {
-	Host     string   // hostname da URL (ex.: api.nu.workflows.dev)
-	Port     string   // porta efetiva (ex.: 443), vazio se não determinada
-	URL      string   // URL solicitada (sem query sensível quando possível)
-	IPs      []net.IP // IP(s) resolvido(s) do host
-	Category Category // categoria do bloqueio (cgnat, loopback, metadata, ...)
-	Reason   string   // motivo textual legível
+	Host string // hostname da URL (ex.: api.nu.workflows.dev)
+	Port string // porta efetiva (ex.: 443), vazio se não determinada
+	// PortExplicit indica se a porta veio EXPLÍCITA na URL (host:porta) e não
+	// apenas derivada do scheme (443/80). A allowlist persistida só grava a porta
+	// quando ela é explícita — caso contrário a autorização é por host (qualquer
+	// porta default), como descreve o AEP-0082.
+	PortExplicit bool
+	URL          string   // URL solicitada (sem query sensível quando possível)
+	IPs          []net.IP // IP(s) resolvido(s) do host
+	Category     Category // categoria do bloqueio (cgnat, loopback, metadata, ...)
+	Reason       string   // motivo textual legível
 }
 
 // HostPort devolve "host:port" quando há porta, senão só o host. Útil como chave

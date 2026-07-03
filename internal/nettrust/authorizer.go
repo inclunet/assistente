@@ -127,9 +127,17 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 				scope, host)
 			effectiveScope = ScopeOnce
 		default:
+			// A autorização é por HOST: só gravamos a porta quando ela veio
+			// EXPLÍCITA na URL. Porta derivada do scheme (443/80) não deve tornar
+			// a entrada específica de porta — senão o mesmo host via http vs https
+			// (ou outra porta default) voltaria a ser bloqueado/promptado.
+			entryPort := ""
+			if dest.PortExplicit {
+				entryPort = port
+			}
 			entry := AllowlistEntry{
 				Host:        host,
-				Port:        port,
+				Port:        entryPort,
 				Scope:       scope,
 				Category:    string(dest.Category),
 				ResolvedIPs: ipsToStrings(dest.IPs),

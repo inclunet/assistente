@@ -165,6 +165,55 @@ func TestAuthorizer_AllowlistMatch_SameCategoryRotationAllowed(t *testing.T) {
 	}
 }
 
+// Porta derivada do scheme (implícita) deve persistir a entrada por HOST
+// (Port vazio), valendo para qualquer porta default depois.
+func TestAuthorizer_ImplicitPortPersistsHostLevel(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+	prompt := &spyPrompter{decision: PromptDecision{Approve: true, Scope: ScopeGlobal}}
+	auth := NewAuthorizer(m, prompt)
+
+	// blockedDest tem Port "443" mas PortExplicit=false (derivada do scheme).
+	if _, ok, err := auth.Authorize(ctx, blockedDest()); err != nil || !ok {
+		t.Fatalf("esperado autorizado, ok=%v err=%v", ok, err)
+	}
+	d := m.Match(ctx, "api.nu.workflows.dev", "443")
+	if !d.Allowed || d.Entry == nil {
+		t.Fatalf("deveria ter persistido, got %+v", d)
+	}
+	if d.Entry.Port != "" {
+		t.Fatalf("porta implícita não deveria ser persistida, got %q", d.Entry.Port)
+	}
+	// Mesmo host via outra porta default (ex.: http:80) também deve casar.
+	if d := m.Match(ctx, "api.nu.workflows.dev", "80"); !d.Allowed {
+		t.Fatal("autorização por host deveria valer para qualquer porta default")
+	}
+}
+
+// Porta explícita na URL deve ser persistida e restringir a autorização.
+func TestAuthorizer_ExplicitPortPersisted(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+	prompt := &spyPrompter{decision: PromptDecision{Approve: true, Scope: ScopeGlobal}}
+	auth := NewAuthorizer(m, prompt)
+
+	dest := blockedDest()
+	dest.Port = "8443"
+	dest.PortExplicit = true
+	if _, ok, err := auth.Authorize(ctx, dest); err != nil || !ok {
+		t.Fatalf("esperado autorizado, ok=%v err=%v", ok, err)
+	}
+	d := m.Match(ctx, "api.nu.workflows.dev", "8443")
+	if !d.Allowed || d.Entry == nil || d.Entry.Port != "8443" {
+		t.Fatalf("porta explícita deveria ser persistida, got %+v", d)
+	}
+	if d := m.Match(ctx, "api.nu.workflows.dev", "443"); d.Allowed {
+		t.Fatal("entrada com porta explícita não deveria casar outra porta")
+	}
+}
+
 // Com mgr=nil, aprovar um escopo persistente não deve entrar em pânico nem
 // tentar persistir: a liberação vale só para esta request (degrada para once).
 func TestAuthorizer_NilManagerPersistentScopeDegrades(t *testing.T) {
