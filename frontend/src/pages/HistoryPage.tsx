@@ -884,7 +884,7 @@ function mapConversations(rows: Array<{
 }>, t: TFunction): Conversation[] {
   return rows.map((c) => ({
     id: c.id,
-    title: c.title || t('history.untitled', 'Sem título'),
+    title: c.title || t('history.untitled'),
     createdAt: String(c.createdAt ?? ''),
     updatedAt: String(c.updatedAt ?? ''),
     message_count: c.message_count || 0,
