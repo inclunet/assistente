@@ -156,7 +156,13 @@ func (c *Client) handleBlocked(ctx context.Context, req *http.Request, blocked *
 	// vez de vazar o erro seco do guard. Não reabrimos prompt (evita laço).
 	var blocked2 *BlockedIPError
 	if errors.As(err, &blocked2) {
-		return nil, newBlockedDestinationError(c.buildBlockedDestination(trustedCtx, req, blocked2))
+		// Mesma distinção do fluxo inicial: se o bloqueio subsequente veio de um
+		// salto de redirect (IP não pertence ao host da URL original), não
+		// atribuímos o IP interno ao host público.
+		if originalTargetBlocked(trustedCtx, req, blocked2.IP) {
+			return nil, newBlockedDestinationError(c.buildBlockedDestination(trustedCtx, req, blocked2))
+		}
+		return nil, redirectBlockedError(blocked2.IP)
 	}
 	return nil, err
 }
