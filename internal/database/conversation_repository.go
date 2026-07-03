@@ -187,6 +187,8 @@ type ConversationListResult struct {
 	Total         int64          `json:"total"`
 }
 
+const defaultConversationPageLimit = 100
+
 func GetConversationsPageWithContext(ctx context.Context, limit, offset int) (ConversationListResult, error) {
 	return NewConversationRepository(db).GetConversationsPageWithContext(ctx, limit, offset)
 }
@@ -203,6 +205,12 @@ func (r *ConversationRepository) GetConversationsPageWithContext(ctx context.Con
 	}
 	var conversations []Conversation
 	var total int64
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 && offset > 0 {
+		limit = defaultConversationPageLimit
+	}
 	paginated := limit > 0
 	if paginated {
 		countQuery := ScopeByUser(ctx, db.WithContext(ctx).Table("conversations"), "conversations.user_id")
@@ -239,9 +247,6 @@ func (r *ConversationRepository) GetConversationsPageWithContext(ctx context.Con
 	if paginated {
 		if limit > 500 {
 			limit = 500
-		}
-		if offset < 0 {
-			offset = 0
 		}
 		query = query.Limit(limit).Offset(offset)
 	}

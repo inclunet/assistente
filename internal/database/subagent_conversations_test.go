@@ -127,6 +127,20 @@ func TestGetConversationsPageWithContext(t *testing.T) {
 	if unpaged.Total != int64(len(unpaged.Conversations)) || unpaged.Total != 3 {
 		t.Fatalf("total sem paginação = %d, len = %d, want 3", unpaged.Total, len(unpaged.Conversations))
 	}
+
+	defaultLimitedPage, err := GetConversationsPageWithContext(ctx, 0, 1)
+	if err != nil {
+		t.Fatalf("GetConversationsPageWithContext default limit: %v", err)
+	}
+	if defaultLimitedPage.Total != 3 {
+		t.Fatalf("total com limit padrão = %d, want 3", defaultLimitedPage.Total)
+	}
+	if len(defaultLimitedPage.Conversations) != 2 {
+		t.Fatalf("len default limited page = %d, want 2 (%#v)", len(defaultLimitedPage.Conversations), defaultLimitedPage.Conversations)
+	}
+	if defaultLimitedPage.Conversations[0].ID != expectedSecond || defaultLimitedPage.Conversations[1].ID != third {
+		t.Fatalf("pagina com limit padrão inesperada depois de %s: %#v", expectedFirst, defaultLimitedPage.Conversations)
+	}
 }
 
 func TestGetConversationsByIDsWithContext(t *testing.T) {

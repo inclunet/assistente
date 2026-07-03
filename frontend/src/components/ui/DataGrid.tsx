@@ -38,6 +38,7 @@ export interface DataGridProps<T = unknown> {
   onFocusChange?: (item: T | null, rowIndex: number) => void;
   onNearEnd?: () => void;
   nearEndThreshold?: number;
+  onItemToggle?: (item: T, rowIndex: number) => void;
   className?: string;
   showHeader?: boolean;
   /**
@@ -66,6 +67,7 @@ export function DataGrid<T = unknown>({
   onFocusChange,
   onNearEnd,
   nearEndThreshold = 8,
+  onItemToggle,
   className,
   showHeader = true,
   getRowActions,
@@ -369,7 +371,14 @@ export function DataGrid<T = unknown>({
   };
 
   const toggleSelection = (rowIndex: number) => {
-    const itemId = getItemId(items[rowIndex]);
+    const item = items[rowIndex];
+    if (!item) return;
+
+    if (onItemToggle) {
+      onItemToggle(item, rowIndex);
+      return;
+    }
+    const itemId = getItemId(item);
     const newSelected = new Set(localSelectedIds);
     
     if (newSelected.has(itemId)) {

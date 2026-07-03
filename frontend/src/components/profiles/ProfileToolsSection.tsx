@@ -1,19 +1,28 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { FilterOutlined } from '@ant-design/icons';
 import { controllers, allowlist } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useMCPStore } from '../../store/mcpStore';
 import { type DataGridColumn } from '../ui/DataGrid';
 import { RangeSlider } from '../ui/RangeSlider';
 import { Combobox, type ComboboxItem } from '../pickers/Combobox';
 import { parseToolSource, extractMcpServers } from '../../utils/toolSource';
 import { ResourceSelectionSection } from './ResourceSelectionSection';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 
 export type ToolFilter = 'all' | 'local' | 'mcp' | `mcp:${string}`;
+type ToolPolicyState = 'disabled' | 'on_demand' | 'preloaded';
+
+const TOOL_POLICY_DISABLED: ToolPolicyState = 'disabled';
+const TOOL_POLICY_ON_DEMAND: ToolPolicyState = 'on_demand';
+const TOOL_POLICY_PRELOADED: ToolPolicyState = 'preloaded';
+const CONTROL_PLANE_TOOLS = new Set(['tool_catalog', 'load_skill']);
 
 export interface ProfileToolsSectionProps {
   availableTools: controllers.ToolInfo[];
   enabledTools?: string[] | null;
+  toolPolicy?: Record<string, string> | null;
   toolsDisabled?: boolean;
   commandAllowlist?: string;
   availableAllowlists: allowlist.AllowlistInfo[];
@@ -22,9 +31,10 @@ export interface ProfileToolsSectionProps {
   /** Override tri-state de MCP nativo: true=força nativo, false=força adapter, null/undefined=auto. */
   nativeMcp?: boolean | null;
   onChange: (
-    field: 'enabled_tools' | 'command_allowlist' | 'disable_tools' | 'max_agentic_iterations' | 'response_timeout' | 'native_mcp',
-    value: string[] | string | boolean | number | null
+    field: 'enabled_tools' | 'tool_policy' | 'command_allowlist' | 'disable_tools' | 'max_agentic_iterations' | 'response_timeout' | 'native_mcp',
+    value: string[] | string | boolean | number | null | Record<string, string>
   ) => void;
+  onPolicyChange?: (policy: Record<string, string>) => void;
   disabled?: boolean;
 }
 
@@ -40,6 +50,7 @@ interface ToolRow {
 export function ProfileToolsSection({
   availableTools,
   enabledTools = null,
+  toolPolicy = null,
   toolsDisabled = false,
   commandAllowlist = '',
   availableAllowlists = [],
@@ -47,15 +58,17 @@ export function ProfileToolsSection({
   responseTimeout = 180,
   nativeMcp = null,
   onChange,
+  onPolicyChange,
   disabled = false,
 }: ProfileToolsSectionProps) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const mcpServers = useMCPStore((s) => s.servers);
 
   const [filter, setFilter] = useState<ToolFilter>('all');
   const [search, setSearch] = useState('');
 
-  const allNames = availableTools.map(tool => tool.name);
+  const allNames = useMemo(() => availableTools.map(tool => tool.name), [availableTools]);
 
   const mcpServerEntries = useMemo(
     () => extractMcpServers(allNames, mcpServers.map((s) => ({ slug: s.slug, name: s.name }))),
@@ -105,80 +118,158 @@ export function ProfileToolsSection({
   const filteredNames = useMemo(() => new Set(filteredRows.map((r) => r.name)), [filteredRows]);
   const isFiltered = filter !== 'all' || search.trim() !== '';
 
-  const selectedIds: Set<string | number> = !enabledTools
-    ? new Set<string | number>(allNames)
-    : new Set<string | number>(enabledTools);
+  const effectiveToolPolicy = useMemo(() => {
+    const policy: Record<string, ToolPolicyState> = {};
+    if (toolPolicy && Object.keys(toolPolicy).length > 0) {
+      for (const name of allNames) policy[name] = TOOL_POLICY_DISABLED;
+      for (const [name, state] of Object.entries(toolPolicy)) {
+        if (!allNames.includes(name)) continue;
+        policy[name] = normalizeToolPolicyState(state);
+      }
+      if (
+        allNames.includes('tool_catalog')
+        && !Object.prototype.hasOwnProperty.call(toolPolicy, 'tool_catalog')
+        && Object.values(policy).some((state) => state === TOOL_POLICY_ON_DEMAND)
+      ) {
+        policy.tool_catalog = TOOL_POLICY_PRELOADED;
+      }
+      return policy;
+    }
+    if (enabledTools == null) {
+      for (const name of allNames) {
+        policy[name] = CONTROL_PLANE_TOOLS.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_ON_DEMAND;
+      }
+      return policy;
+    }
+    const enabledSet = new Set(enabledTools);
+    for (const name of allNames) {
+      policy[name] = enabledSet.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
+    }
+    return policy;
+  }, [allNames, enabledTools, toolPolicy]);
+  const effectiveToolPolicyRef = useRef(effectiveToolPolicy);
+  effectiveToolPolicyRef.current = effectiveToolPolicy;
+
+  const selectedIds: Set<string | number> = useMemo(
+    () => new Set<string | number>(
+      allNames.filter((name) => effectiveToolPolicy[name] !== TOOL_POLICY_DISABLED)
+    ),
+    [allNames, effectiveToolPolicy],
+  );
+
+  const commitToolPolicy = useCallback((nextPolicy: Record<string, ToolPolicyState>) => {
+    effectiveToolPolicyRef.current = nextPolicy;
+    if (onPolicyChange) {
+      onPolicyChange(nextPolicy);
+      return;
+    }
+    onChange('tool_policy', nextPolicy);
+  }, [onChange, onPolicyChange]);
+
+  const isExplicitlyDisabled = useCallback((name: string) => (
+    toolPolicy != null
+    && Object.prototype.hasOwnProperty.call(toolPolicy, name)
+    && toolPolicy[name] === TOOL_POLICY_DISABLED
+  ), [toolPolicy]);
+
+  const setToolsState = useCallback((names: Iterable<string>, state: ToolPolicyState) => {
+    const next = { ...effectiveToolPolicy };
+    for (const name of names) {
+      if (!allNames.includes(name)) continue;
+      if (state === TOOL_POLICY_PRELOADED && isExplicitlyDisabled(name)) continue;
+      next[name] = state;
+    }
+    commitToolPolicy(next);
+  }, [allNames, commitToolPolicy, effectiveToolPolicy, isExplicitlyDisabled]);
 
   const handleSelectionChange = useCallback((newSelectedIds: Set<string | number>) => {
     if (newSelectedIds.size === allNames.length) {
-      onChange('enabled_tools', null);
-    } else if (newSelectedIds.size === 0) {
-      onChange('enabled_tools', []);
-    } else {
-      onChange('enabled_tools', Array.from(newSelectedIds) as string[]);
+      if (selectedIds.size === allNames.length) return;
+      setToolsState(allNames, TOOL_POLICY_PRELOADED);
+      return;
     }
-  }, [allNames.length, onChange]);
+    const scopeNames = isFiltered ? filteredNames : allNames;
+    if (newSelectedIds.size === 0) {
+      const next = { ...effectiveToolPolicy };
+      for (const name of scopeNames) {
+        next[name] = CONTROL_PLANE_TOOLS.has(name) && !isExplicitlyDisabled(name)
+          ? TOOL_POLICY_PRELOADED
+          : TOOL_POLICY_DISABLED;
+      }
+      commitToolPolicy(next);
+      return;
+    }
+    const next = { ...effectiveToolPolicy };
+    for (const name of scopeNames) {
+      next[name] = newSelectedIds.has(name) && !isExplicitlyDisabled(name)
+        ? TOOL_POLICY_PRELOADED
+        : TOOL_POLICY_DISABLED;
+    }
+    commitToolPolicy(next);
+  }, [allNames, commitToolPolicy, effectiveToolPolicy, filteredNames, isExplicitlyDisabled, isFiltered, selectedIds.size, setToolsState]);
 
   const handleSelectFiltered = useCallback(() => {
     if (!isFiltered) {
-      onChange('enabled_tools', null);
+      setToolsState(allNames, TOOL_POLICY_PRELOADED);
       return;
     }
-    const current = new Set<string>(enabledTools ?? allNames);
-    for (const name of filteredNames) current.add(name);
-    if (current.size === allNames.length) {
-      onChange('enabled_tools', null);
-    } else {
-      onChange('enabled_tools', Array.from(current));
-    }
-  }, [isFiltered, enabledTools, allNames, filteredNames, onChange]);
+    setToolsState(filteredNames, TOOL_POLICY_PRELOADED);
+  }, [isFiltered, allNames, filteredNames, setToolsState]);
 
   const handleDeselectFiltered = useCallback(() => {
     if (!isFiltered) {
-      onChange('enabled_tools', []);
+      const next = { ...effectiveToolPolicy };
+      for (const name of allNames) {
+        next[name] = CONTROL_PLANE_TOOLS.has(name) && !isExplicitlyDisabled(name)
+          ? TOOL_POLICY_PRELOADED
+          : TOOL_POLICY_DISABLED;
+      }
+      commitToolPolicy(next);
       return;
     }
-    const current = new Set<string>(enabledTools ?? allNames);
-    for (const name of filteredNames) current.delete(name);
-    if (current.size === 0) {
-      onChange('enabled_tools', []);
-    } else if (current.size === allNames.length) {
-      onChange('enabled_tools', null);
-    } else {
-      onChange('enabled_tools', Array.from(current));
-    }
-  }, [isFiltered, enabledTools, allNames, filteredNames, onChange]);
+    setToolsState(filteredNames, TOOL_POLICY_DISABLED);
+  }, [isFiltered, allNames, commitToolPolicy, effectiveToolPolicy, filteredNames, isExplicitlyDisabled, setToolsState]);
 
-  const allFilteredSelected = [...filteredNames].every((n) => selectedIds.has(n));
-  const noneFilteredSelected = [...filteredNames].every((n) => !selectedIds.has(n));
-  const showSelectAll = !allFilteredSelected;
-  const showDeselectAll = !noneFilteredSelected;
+  const filteredToolNames = [...filteredNames];
+  const allFilteredPreloaded = filteredToolNames.every(
+    (name) => effectiveToolPolicy[name] === TOOL_POLICY_PRELOADED,
+  );
+  const noneFilteredAvailable = filteredToolNames.every(
+    (name) => effectiveToolPolicy[name] === TOOL_POLICY_DISABLED,
+  );
+  const showSelectAll = !allFilteredPreloaded;
+  const showDeselectAll = !noneFilteredAvailable;
 
-  const isToolEnabled = useCallback((name: string) => {
-    return !enabledTools || enabledTools.includes(name);
-  }, [enabledTools]);
+  const handleToolToggle = useCallback((item: ToolRow) => {
+    const currentPolicy = effectiveToolPolicyRef.current;
+    const current = currentPolicy[item.name] ?? TOOL_POLICY_DISABLED;
+    const nextState = nextToolPolicyState(current);
+    commitToolPolicy({ ...currentPolicy, [item.name]: nextState });
+    announce(t('profiles.toolPolicyChanged', '{{tool}} agora está {{state}}', {
+      tool: item.displayName,
+      state: toolPolicyStateLabel(t, nextState).toLowerCase(),
+    }));
+  }, [announce, commitToolPolicy, t]);
 
   const columns: DataGridColumn<ToolRow>[] = [
     {
       key: 'checked',
-      label: t('common.enabled'),
-      width: '40px',
+      label: t('profiles.toolColState', 'Estado'),
+      width: '130px',
       format: (_value: unknown, item: ToolRow) => {
-        const checked = isToolEnabled(item.name);
+        const state = effectiveToolPolicy[item.name] ?? TOOL_POLICY_DISABLED;
         const label = item.sourceType === 'mcp'
           ? `${item.displayName} (${item.sourceLabel})`
           : item.displayName;
         return (
-          <input
-            type="checkbox"
-            checked={checked}
-            readOnly
-            tabIndex={-1}
-            aria-label={checked
-              ? t('profiles.toolEnabled', `${label} ativada`)
-              : t('profiles.toolDisabled', `${label} desativada`)}
-            style={{ pointerEvents: 'none' }}
-          />
+          <span
+            aria-label={t('profiles.toolStateAria', '{{tool}}: {{state}}', {
+              tool: label,
+              state: toolPolicyStateLabel(t, state),
+            })}
+          >
+            {toolPolicyStateLabel(t, state)}
+          </span>
         );
       },
     },
@@ -212,7 +303,7 @@ export function ProfileToolsSection({
       disabled={disabled}
       badge={toolsDisabled ? 'off' : 'on'}
       hasItems={availableTools.length > 0}
-      hint={t('profiles.toolsHint', 'Selecione quais ferramentas este perfil pode usar. Nenhuma seleção = todas habilitadas.')}
+      hint={t('profiles.toolsHint', 'Defina o estado de cada ferramenta: desabilitada, sob demanda ou pré-carregada. Use Espaço para alternar o estado da linha focada.')}
       searchValue={search}
       onSearchChange={setSearch}
       searchPlaceholder={t('profiles.toolsSearchPlaceholder', 'Buscar ferramenta…')}
@@ -237,8 +328,8 @@ export function ProfileToolsSection({
       showDeselectAll={showDeselectAll}
       onSelectFiltered={handleSelectFiltered}
       onDeselectFiltered={handleDeselectFiltered}
-      selectAllLabel={t('profiles.toolsSelectAll', 'Selecionar todas')}
-      deselectAllLabel={t('profiles.toolsDeselectAll', 'Desmarcar todas')}
+      selectAllLabel={t('profiles.toolsSelectAll', 'Pré-carregar filtradas')}
+      deselectAllLabel={t('profiles.toolsDeselectAll', 'Desabilitar filtradas')}
       selectAllTestId="tools-select-all"
       deselectAllTestId="tools-deselect-all"
       rows={filteredRows}
@@ -247,6 +338,7 @@ export function ProfileToolsSection({
       getItemId={(item) => item.name}
       selectedIds={selectedIds}
       onSelectionChange={handleSelectionChange}
+      onItemToggle={handleToolToggle}
       gridClassName="profiles-tools-datagrid"
       noResultsMessage={t('profiles.toolsNoResults', 'Nenhuma ferramenta corresponde ao filtro.')}
       emptyMessage={t('profiles.noToolsAvailable', 'Nenhuma ferramenta encontrada.')}
@@ -348,4 +440,21 @@ export function ProfileToolsSection({
       </div>
     </ResourceSelectionSection>
   );
+}
+
+function normalizeToolPolicyState(state: string): ToolPolicyState {
+  if (state === TOOL_POLICY_ON_DEMAND || state === TOOL_POLICY_PRELOADED) return state;
+  return TOOL_POLICY_DISABLED;
+}
+
+function nextToolPolicyState(state: ToolPolicyState): ToolPolicyState {
+  if (state === TOOL_POLICY_DISABLED) return TOOL_POLICY_ON_DEMAND;
+  if (state === TOOL_POLICY_ON_DEMAND) return TOOL_POLICY_PRELOADED;
+  return TOOL_POLICY_DISABLED;
+}
+
+function toolPolicyStateLabel(t: TFunction, state: ToolPolicyState): string {
+  if (state === TOOL_POLICY_PRELOADED) return t('profiles.toolStatePreloaded', 'Pré-carregada');
+  if (state === TOOL_POLICY_ON_DEMAND) return t('profiles.toolStateOnDemand', 'Sob demanda');
+  return t('profiles.toolStateDisabled', 'Desabilitada');
 }

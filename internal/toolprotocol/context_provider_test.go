@@ -30,6 +30,9 @@ func TestContextProviderBuildsCatalogFirstProtocol(t *testing.T) {
 	if !strings.Contains(block.Content, "<tool_selection_protocol>") || !strings.Contains(block.Content, tools.ToolCatalogName) {
 		t.Fatalf("unexpected protocol content: %q", block.Content)
 	}
+	if !strings.Contains(block.Content, `action="load"`) || !strings.Contains(block.Content, "loaded_tools") {
+		t.Fatalf("protocol must instruct explicit catalog load flow: %q", block.Content)
+	}
 }
 
 func TestContextProviderOmitsProtocolWhenCatalogFirstInactive(t *testing.T) {

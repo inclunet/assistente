@@ -178,6 +178,7 @@ export function ProfileEditorTabs({
           <ProfileToolsSection
             availableTools={availableTools}
             enabledTools={editingProfile.chat?.enabled_tools ?? null}
+            toolPolicy={editingProfile.chat?.tool_policy ?? null}
             toolsDisabled={editingProfile.chat?.disable_tools ?? false}
             commandAllowlist={editingProfile.chat?.command_allowlist || ''}
             availableAllowlists={availableAllowlists}
@@ -185,6 +186,10 @@ export function ProfileEditorTabs({
             responseTimeout={editingProfile.chat?.response_timeout ?? 180}
             nativeMcp={editingProfile.chat?.native_mcp ?? null}
             onChange={(field, value) => updateField(`chat.${field}`, value)}
+            onPolicyChange={(policy) => updateFields({
+              'chat.tool_policy': policy,
+              'chat.enabled_tools': null,
+            })}
           />
         </TabPanel>
 
