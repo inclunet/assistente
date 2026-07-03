@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { WorkspaceLayout } from './WorkspaceLayout';
@@ -169,15 +169,21 @@ function renderWorkspaceLayout() {
 }
 
 describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
+  let requestAnimationFrameSpy: { mockRestore: () => void };
+
   beforeEach(() => {
     storeMock.state.workspace.activeTabId = 'tab-1';
     storeMock.setActiveTab.mockClear();
     shortcutMock.useWorkspaceKeyboardShortcuts.mockClear();
     vi.mocked(restoreDefaultFocus).mockClear();
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+    requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
       callback(0);
       return 1;
     });
+  });
+
+  afterEach(() => {
+    requestAnimationFrameSpy.mockRestore();
   });
 
   it('setas na tablist trocam aba mantendo foco na tablist', () => {

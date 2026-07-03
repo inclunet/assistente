@@ -30,7 +30,7 @@ function activeChatTextarea(page: import('@playwright/test').Page) {
   return page.locator('.ws-content__panel[data-active="true"] .chat-input__textarea');
 }
 
-async function setupTwoTabWorkspace(page: import('@playwright/test').Page, wails: WailsMock) {
+async function setupTwoTabWorkspace(wails: WailsMock) {
   const now = new Date().toISOString();
   const ws = {
     id: 'ws-1',
@@ -139,7 +139,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
   });
 
   test('setas na tablist trocam aba mantendo foco na tablist', async ({ page, wails }) => {
-    await setupTwoTabWorkspace(page, wails);
+    await setupTwoTabWorkspace(wails);
 
     const tab1 = page.locator('.ws-tabs [role="tab"]').nth(0);
     const tab2 = page.locator('.ws-tabs [role="tab"]').nth(1);
@@ -153,7 +153,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
   });
 
   test('atalho global de aba restaura foco na área padrão', async ({ page, wails }) => {
-    await setupTwoTabWorkspace(page, wails);
+    await setupTwoTabWorkspace(wails);
 
     await page.keyboard.press('Control+Tab');
 
