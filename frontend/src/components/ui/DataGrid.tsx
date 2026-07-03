@@ -6,6 +6,11 @@ import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { playBumpSound } from '../../services/audioFeedback';
 import './DataGrid.css';
 
+// Tempo em ms para permitir nova tentativa de onNearEnd se uma carga incremental falhar.
+const NEAR_END_SIGNAL_RESET_DELAY_MS = 1000;
+// Distância em px até o fim visível do grid para iniciar carregamento incremental.
+const NEAR_END_SCROLL_THRESHOLD_PX = 160;
+
 export interface DataGridColumn<T = unknown> {
   key: string;
   label: string;
@@ -152,7 +157,7 @@ export function DataGrid<T = unknown>({
         nearEndSignalRef.current = null;
       }
       scrollNearEndTimerRef.current = null;
-    }, 1000);
+    }, NEAR_END_SIGNAL_RESET_DELAY_MS);
   }, []);
 
   const announce = (message: string) => {
@@ -285,7 +290,7 @@ export function DataGrid<T = unknown>({
     hasNearEndInteractionRef.current = true;
     const target = event.currentTarget;
     const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
-    if (remaining <= 160) {
+    if (remaining <= NEAR_END_SCROLL_THRESHOLD_PX) {
       if (scrollNearEndSignalRef.current === items.length || nearEndSignalRef.current === items.length) return;
       markScrollNearEndSignaled(items.length);
       nearEndSignalRef.current = items.length;
@@ -299,7 +304,7 @@ export function DataGrid<T = unknown>({
     if (!onNearEndRef.current || !bodyRef.current || items.length === 0 || !hasNearEndInteractionRef.current) return;
     const target = bodyRef.current;
     const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
-    if (remaining <= 160) {
+    if (remaining <= NEAR_END_SCROLL_THRESHOLD_PX) {
       if (scrollNearEndSignalRef.current === items.length || nearEndSignalRef.current === items.length) return;
       markScrollNearEndSignaled(items.length);
       nearEndSignalRef.current = items.length;
