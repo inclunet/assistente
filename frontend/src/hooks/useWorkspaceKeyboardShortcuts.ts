@@ -35,7 +35,12 @@ const CHORD_MAP: Record<string, { type: TabType; titleKey: string }> = {
   t: { type: 'tasklist', titleKey: 'workspace.newTasklist' },
 };
 
-export function useWorkspaceKeyboardShortcuts() {
+export interface UseWorkspaceKeyboardShortcutsOptions {
+  onTabShortcutNavigation?: (tabId: string) => void;
+}
+
+export function useWorkspaceKeyboardShortcuts(options: UseWorkspaceKeyboardShortcutsOptions = {}) {
+  const { onTabShortcutNavigation } = options;
   const { workspace, addTab, removeTab, setActiveTab, createWorkspace } = useWorkspaceStore(
     useShallow((s) => ({ workspace: s.workspace, addTab: s.addTab, removeTab: s.removeTab, setActiveTab: s.setActiveTab, createWorkspace: s.createWorkspace }))
   );
@@ -242,11 +247,16 @@ export function useWorkspaceKeyboardShortcuts() {
       const nextTab = tabs[nextIndex];
       if (nextTab) {
         setActiveTab(nextTab.id);
+        if (onTabShortcutNavigation) {
+          onTabShortcutNavigation(nextTab.id);
+        } else {
+          requestAnimationFrame(() => restoreDefaultFocus());
+        }
         announce(i18next.t('workspace.announce.tabPosition', { title: nextTab.title, position: nextIndex + 1, total: tabs.length }));
       }
     }
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [tabs, activeTabId, addTab, removeTab, setActiveTab, createWorkspace, announce]);
+  }, [tabs, activeTabId, addTab, removeTab, setActiveTab, createWorkspace, announce, onTabShortcutNavigation]);
 }
