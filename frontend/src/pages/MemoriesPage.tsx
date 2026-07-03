@@ -80,6 +80,8 @@ export default function MemoriesPage() {
   const loadRequestRef = useRef(0);
   const recordsRef = useRef<MemoryRecord[]>([]);
   const totalRecordsRef = useRef(0);
+  const [recordPageOffset, setRecordPageOffset] = useState(0);
+  const recordPageOffsetRef = useRef(0);
   const hasLoadedRecordsRef = useRef(false);
   const loadingRecordsRef = useRef(false);
   const savingRef = useRef(false);
@@ -103,7 +105,7 @@ export default function MemoriesPage() {
   const loadRecords = useCallback(async (options?: { reset?: boolean; announceProgress?: boolean }) => {
     const reset = options?.reset ?? false;
     if (loadingRecordsRef.current && !reset) return;
-    const offset = reset ? 0 : recordsRef.current.length;
+    const offset = reset ? 0 : recordPageOffsetRef.current;
     if (!reset && hasLoadedRecordsRef.current && offset >= totalRecordsRef.current) {
       return;
     }
@@ -132,8 +134,11 @@ export default function MemoriesPage() {
       }
       const total = result.total || 0;
       const nextRecords = result.records || [];
+      const nextPageOffset = nextRecords.length > 0 ? offset + nextRecords.length : total;
       setTotalRecords(total);
       totalRecordsRef.current = total;
+      recordPageOffsetRef.current = nextPageOffset;
+      setRecordPageOffset(nextPageOffset);
       hasLoadedRecordsRef.current = true;
       const addedRecordCount = reset ? nextRecords.length : countNewMemoryRecords(recordsRef.current, nextRecords);
       setRecords((previous) => {
@@ -151,6 +156,8 @@ export default function MemoriesPage() {
           recordsRef.current = [];
           setTotalRecords(0);
           totalRecordsRef.current = 0;
+          recordPageOffsetRef.current = 0;
+          setRecordPageOffset(0);
           hasLoadedRecordsRef.current = false;
         }
         addToast(t('memories.errors.loadFailed'), 'error');
@@ -361,7 +368,7 @@ export default function MemoriesPage() {
     },
     { key: 'importance', label: t('memories.columns.importance'), width: '110px' },
   ], [t]);
-  const hasMoreRecords = records.length < totalRecords;
+  const hasMoreRecords = recordPageOffset < totalRecords;
   const handleNearEnd = useCallback(() => {
     void loadRecords({ announceProgress: true });
   }, [loadRecords]);

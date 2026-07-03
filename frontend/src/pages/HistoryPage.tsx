@@ -94,6 +94,8 @@ export default function HistoryPage() {
   const [exportOptions, setExportOptions] = useState<ContentExportOptions>(DEFAULT_EXPORT_OPTIONS);
   const conversationsRef = useRef<Conversation[]>([]);
   const totalConversationsRef = useRef(0);
+  const [conversationPageOffset, setConversationPageOffset] = useState(0);
+  const conversationPageOffsetRef = useRef(0);
   const hasLoadedConversationsRef = useRef(false);
   const loadingPageRef = useRef(false);
   const loadRequestRef = useRef(0);
@@ -106,10 +108,17 @@ export default function HistoryPage() {
   const addWorkspaceTab = useWorkspaceStore(state => state.addTab);
   const workspaces = useWorkspaceStore(state => state.workspaces);
 
+  const reduceConversationPageOffset = useCallback((deletedCount: number) => {
+    if (deletedCount <= 0) return;
+    const nextOffset = Math.max(0, conversationPageOffsetRef.current - deletedCount);
+    conversationPageOffsetRef.current = nextOffset;
+    setConversationPageOffset(nextOffset);
+  }, []);
+
   const loadConversations = useCallback(async (options?: { reset?: boolean; announceProgress?: boolean; autoFill?: boolean }) => {
     const reset = options?.reset ?? false;
     if (loadingPageRef.current && !reset) return;
-    const offset = reset ? 0 : conversationsRef.current.length;
+    const offset = reset ? 0 : conversationPageOffsetRef.current;
     if (!reset && hasLoadedConversationsRef.current && offset >= totalConversationsRef.current) {
       return;
     }
@@ -134,8 +143,12 @@ export default function HistoryPage() {
       }
       const mapped = mapConversations(result.conversations || [], t);
       const total = result.total || 0;
+      const pageRowCount = result.conversations?.length || 0;
+      const nextPageOffset = pageRowCount > 0 ? offset + pageRowCount : total;
       setTotalConversations(total);
       totalConversationsRef.current = total;
+      conversationPageOffsetRef.current = nextPageOffset;
+      setConversationPageOffset(nextPageOffset);
       hasLoadedConversationsRef.current = true;
       if (options?.autoFill) {
         autoFillRetryAttemptsRef.current = 0;
@@ -300,8 +313,8 @@ export default function HistoryPage() {
 
     try {
       await DeleteConversation(conversationId);
-      const existed = conversationsRef.current.some((conversation) => conversation.id === conversationId) ||
-        searchConversations.some((conversation) => conversation.id === conversationId);
+      const existedInPage = conversationsRef.current.some((conversation) => conversation.id === conversationId);
+      const existed = existedInPage || searchConversations.some((conversation) => conversation.id === conversationId);
       const nextConversations = conversationsRef.current.filter(c => c.id !== conversationId);
       conversationsRef.current = nextConversations;
       setConversations(nextConversations);
@@ -309,6 +322,7 @@ export default function HistoryPage() {
       if (existed) {
         totalConversationsRef.current = Math.max(0, totalConversationsRef.current - 1);
         setTotalConversations(totalConversationsRef.current);
+        reduceConversationPageOffset(existedInPage ? 1 : 0);
       }
       setSelectedIds(prev => {
         const newSet = new Set(prev);
@@ -318,7 +332,7 @@ export default function HistoryPage() {
     } catch (error) {
       logger.error('Erro ao deletar conversa:', error);
     }
-  }, [confirm, conversations, searchConversations, t]);
+  }, [confirm, conversations, reduceConversationPageOffset, searchConversations, t]);
 
   const handleDeleteSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
@@ -336,6 +350,9 @@ export default function HistoryPage() {
     try {
       await Promise.all(ids.map((id) => DeleteConversation(id)));
       const idSet = new Set(ids);
+      const paginatedDeleted = new Set(
+        conversationsRef.current.filter((conversation) => idSet.has(conversation.id)).map((conversation) => conversation.id),
+      ).size;
       const knownDeleted = new Set([
         ...conversationsRef.current.filter((conversation) => idSet.has(conversation.id)).map((conversation) => conversation.id),
         ...searchConversations.filter((conversation) => idSet.has(conversation.id)).map((conversation) => conversation.id),
@@ -345,13 +362,15 @@ export default function HistoryPage() {
       conversationsRef.current = nextConversations;
       setConversations(nextConversations);
       setSearchConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
-      totalConversationsRef.current = Math.max(0, totalConversationsRef.current - Math.max(knownDeleted, previousLength - nextConversations.length));
+      const deletedCount = Math.max(knownDeleted, previousLength - nextConversations.length);
+      totalConversationsRef.current = Math.max(0, totalConversationsRef.current - deletedCount);
       setTotalConversations(totalConversationsRef.current);
+      reduceConversationPageOffset(paginatedDeleted);
       setSelectedIds(new Set());
     } catch (error) {
       logger.error('Erro ao deletar conversas:', error);
     }
-  }, [confirm, searchConversations, selectedIds, t]);
+  }, [confirm, reduceConversationPageOffset, searchConversations, selectedIds, t]);
 
   const getContextConversationIds = useCallback(() => {
     if (selectedIds.size > 0) {
@@ -450,7 +469,7 @@ export default function HistoryPage() {
     // o mesmo conjunto de ids vale para conversas comuns e sub-agentes.
     return base.filter((c) => searchResultIds.has(c.id));
   }, [conversations, searchConversations, searchResultIds, showSubAgents]);
-  const hasMoreConversations = conversations.length < totalConversations;
+  const hasMoreConversations = conversationPageOffset < totalConversations;
 
   useEffect(() => {
     if (searchResultIds !== null || showSubAgents || displayItems.length > 0 || !hasMoreConversations) {

@@ -407,6 +407,71 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
     expect(mockAnnounce).not.toHaveBeenCalledWith('history.loadedMore:2');
   });
 
+  it('avanca offset mesmo quando pagina incremental contem apenas duplicatas', async () => {
+    const user = userEvent.setup();
+    mockGetConversationsPage
+      .mockResolvedValueOnce({ conversations, total: 4 })
+      .mockResolvedValueOnce({
+        conversations: [conversations[1]],
+        total: 4,
+      })
+      .mockResolvedValueOnce({
+        conversations: [{
+          id: '01926b90-7a5a-7c4e-8d3f-000000000003',
+          title: 'Conversa 3',
+          createdAt: '2024-12-31T00:00:00Z',
+          updatedAt: '2024-12-31T00:00:00Z',
+          message_count: 1,
+        }],
+        total: 4,
+      });
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+    await waitFor(() => {
+      expect(mockGetConversationsPage).toHaveBeenNthCalledWith(2, 100, 2);
+    });
+
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+    await waitFor(() => {
+      expect(mockGetConversationsPage).toHaveBeenNthCalledWith(3, 100, 3);
+    });
+    expect(await screen.findByText('Conversa 3')).toBeInTheDocument();
+  });
+
+  it('reajusta offset incremental ao excluir conversa ja consumida pela paginacao', async () => {
+    const user = userEvent.setup();
+    mockGetConversationsPage
+      .mockResolvedValueOnce({ conversations, total: 4 })
+      .mockResolvedValueOnce({
+        conversations: [{
+          id: '01926b90-7a5a-7c4e-8d3f-000000000003',
+          title: 'Conversa 3',
+          createdAt: '2024-12-31T00:00:00Z',
+          updatedAt: '2024-12-31T00:00:00Z',
+          message_count: 1,
+        }],
+        total: 3,
+      });
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'focus-second' }));
+    await user.click(screen.getAllByRole('button', { name: 'Excluir conversa' })[0]);
+    await waitFor(() => {
+      expect(mockDeleteConversation).toHaveBeenCalledWith('01926b90-7a5a-7c4e-8d3f-000000000002');
+    });
+
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+    await waitFor(() => {
+      expect(mockGetConversationsPage).toHaveBeenNthCalledWith(2, 100, 1);
+    });
+    expect(await screen.findByText('Conversa 3')).toBeInTheDocument();
+  });
+
   it('carrega outra pagina quando ocultar sub-agentes esvazia a grade', async () => {
     const user = userEvent.setup();
     mockGetConversationsPage
@@ -510,6 +575,55 @@ describe('HistoryPage', { timeout: 60_000 }, () => {
       expect(mockGetConversationsByIDs).toHaveBeenCalledWith([olderConversation.id]);
       expect(screen.getByText('Conversa antiga encontrada')).toBeInTheDocument();
     });
+  });
+
+  it('nao reduz offset incremental ao excluir conversa encontrada apenas pela busca', async () => {
+    const user = userEvent.setup();
+    const olderConversation = {
+      id: '01926b90-7a5a-7c4e-8d3f-000000000099',
+      title: 'Conversa antiga encontrada',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+      message_count: 9,
+    };
+    mockGetConversationsPage
+      .mockResolvedValueOnce({ conversations, total: 4 })
+      .mockResolvedValueOnce({
+        conversations: [{
+          id: '01926b90-7a5a-7c4e-8d3f-000000000003',
+          title: 'Conversa 3',
+          createdAt: '2024-12-31T00:00:00Z',
+          updatedAt: '2024-12-31T00:00:00Z',
+          message_count: 1,
+        }],
+        total: 3,
+      });
+    mockSearchConversationHistory.mockResolvedValue([{
+      conversation_id: olderConversation.id,
+      snippet: 'resultado >>>especial<<<',
+    }]);
+    mockGetConversationsByIDs.mockResolvedValue([olderConversation]);
+
+    render(<HistoryPage />);
+
+    await screen.findByText('Conversa 1');
+    const search = screen.getByLabelText('history-search');
+    await user.type(search, 'especial');
+    await screen.findByText('Conversa antiga encontrada');
+    const deleteButtons = screen.getAllByRole('button', { name: 'Excluir conversa' });
+    await user.click(deleteButtons[deleteButtons.length - 1]);
+    await waitFor(() => {
+      expect(mockDeleteConversation).toHaveBeenCalledWith(olderConversation.id);
+    });
+
+    await user.clear(search);
+    await screen.findByText('Conversa 1');
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+
+    await waitFor(() => {
+      expect(mockGetConversationsPage).toHaveBeenNthCalledWith(2, 100, 2);
+    });
+    expect(await screen.findByText('Conversa 3')).toBeInTheDocument();
   });
 
   it('exporta conversa encontrada pela busca mesmo fora da pagina carregada', async () => {

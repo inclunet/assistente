@@ -217,6 +217,55 @@ describe('MemoriesPage', () => {
     expect(mockAnnounce).not.toHaveBeenCalledWith('memories.announcements.loadedMore:2');
   });
 
+  it('avanca offset mesmo quando pagina incremental contem apenas duplicatas', async () => {
+    const user = userEvent.setup();
+    mockListMemoryRecords
+      .mockResolvedValueOnce({
+        records: [{
+          id: 'mem-1',
+          content: 'primeira memória',
+          loadPolicy: 'core',
+          kind: 'user_preference',
+          scope: 'user',
+        }],
+        total: 3,
+      })
+      .mockResolvedValueOnce({
+        records: [{
+          id: 'mem-1',
+          content: 'primeira memória',
+          loadPolicy: 'core',
+          kind: 'user_preference',
+          scope: 'user',
+        }],
+        total: 3,
+      })
+      .mockResolvedValueOnce({
+        records: [{
+          id: 'mem-2',
+          content: 'segunda memória',
+          loadPolicy: 'core',
+          kind: 'user_preference',
+          scope: 'user',
+        }],
+        total: 3,
+      });
+
+    render(<MemoriesPage />);
+
+    await screen.findByText('primeira memória');
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+    await waitFor(() => {
+      expect(mockListMemoryRecords.mock.calls[1][0]).toEqual(expect.objectContaining({ offset: 1 }));
+    });
+
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+    await waitFor(() => {
+      expect(mockListMemoryRecords.mock.calls[2][0]).toEqual(expect.objectContaining({ offset: 2 }));
+    });
+    expect(await screen.findByText('segunda memória')).toBeInTheDocument();
+  });
+
   it('renderiza busca, filtros e acao principal na mesma toolbar ARIA', async () => {
     render(<MemoriesPage />);
 
