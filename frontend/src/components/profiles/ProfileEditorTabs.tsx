@@ -155,7 +155,7 @@ export function ProfileEditorTabs({
 
     el.addEventListener('keydown', handleKeyDown);
     return () => el.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab]);
+  }, [activeTab, t]);
 
   return (
     <div ref={containerRef} className="profile-editor-tabs" data-tab-scope>
