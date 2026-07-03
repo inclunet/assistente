@@ -140,15 +140,6 @@ func trustedIPSet(ctx context.Context) map[string]bool {
 	return set
 }
 
-// isTrustedIP reporta se um IP consta no trust por-request do ctx.
-func isTrustedIP(ctx context.Context, ip net.IP) bool {
-	set := trustedIPSet(ctx)
-	if len(set) == 0 {
-		return false
-	}
-	return set[normalizeIPKey(ip)]
-}
-
 // hasTrustedIPs reporta se a request carrega QUALQUER IP confiável por-request,
 // ou seja, se este destino foi explicitamente autorizado. Usado para delegar a
 // decisão final à barreira pós-DNS (DialContext), que revalida o IP real.
