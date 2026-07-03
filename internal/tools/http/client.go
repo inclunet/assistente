@@ -114,17 +114,22 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 
 // handleBlocked orquestra a autorização de um destino barrado por anti-SSRF.
 func (c *Client) handleBlocked(ctx context.Context, req *http.Request, blocked *BlockedIPError) (*http.Response, error) {
+	// Apenas o destino DIRETAMENTE requisitado pode ser autorizado por
+	// consentimento. Um BlockedIPError originado no meio de uma cadeia de
+	// redirects (URL inicial pública → host que só revela IP privado no dial)
+	// NÃO deve abrir prompt: seria um vetor de open-redirect→SSRF, induzindo o
+	// usuário a aprovar um destino interno que não escolheu. Detectamos comparando
+	// o IP barrado com os IPs do host da URL ORIGINAL (o net/http não muta req ao
+	// seguir redirects). Nesse caso devolvemos um erro acionável, sem prompt e sem
+	// atribuir o IP interno ao host público.
+	if !originalTargetBlocked(ctx, req, blocked.IP) {
+		return nil, redirectBlockedError(blocked.IP)
+	}
+
 	dest := c.buildBlockedDestination(ctx, req, blocked)
 
 	if c.authorizer == nil {
-		return nil, &BlockedDestinationError{
-			Host:        dest.Host,
-			URL:         dest.URL,
-			IPs:         dest.IPs,
-			Category:    dest.Category,
-			Reason:      dest.Reason,
-			Suggestions: defaultBlockSuggestions,
-		}
+		return nil, newBlockedDestinationError(dest)
 	}
 
 	trustedIPs, ok, aerr := c.authorizer.Authorize(ctx, dest)
@@ -132,14 +137,7 @@ func (c *Client) handleBlocked(ctx context.Context, req *http.Request, blocked *
 		return nil, fmt.Errorf("falha ao solicitar autorização de rede: %w", aerr)
 	}
 	if !ok || len(trustedIPs) == 0 {
-		return nil, &BlockedDestinationError{
-			Host:        dest.Host,
-			URL:         dest.URL,
-			IPs:         dest.IPs,
-			Category:    dest.Category,
-			Reason:      dest.Reason,
-			Suggestions: defaultBlockSuggestions,
-		}
+		return nil, newBlockedDestinationError(dest)
 	}
 
 	// Reexecuta com o trust por-request. Reseta o body quando disponível
@@ -148,7 +146,59 @@ func (c *Client) handleBlocked(ctx context.Context, req *http.Request, blocked *
 		return nil, fmt.Errorf("não foi possível reexecutar a request após autorização: %w", err)
 	}
 	trustedCtx := WithTrustedIPs(ctx, trustedIPs)
-	return c.doWithRetry(trustedCtx, req)
+	resp, err := c.doWithRetry(trustedCtx, req)
+	if err == nil {
+		return resp, nil
+	}
+	// A reexecução pós-consentimento pode falhar de novo (redirect para IP não
+	// confiável, rotação DNS, Happy Eyeballs num endereço fora do trust).
+	// Normalizamos um eventual BlockedIPError para um erro acionável coerente em
+	// vez de vazar o erro seco do guard. Não reabrimos prompt (evita laço).
+	var blocked2 *BlockedIPError
+	if errors.As(err, &blocked2) {
+		return nil, newBlockedDestinationError(c.buildBlockedDestination(trustedCtx, req, blocked2))
+	}
+	return nil, err
+}
+
+// newBlockedDestinationError monta o erro acionável para um destino barrado.
+func newBlockedDestinationError(dest BlockedDestination) *BlockedDestinationError {
+	return &BlockedDestinationError{
+		Host:        dest.Host,
+		URL:         dest.URL,
+		IPs:         dest.IPs,
+		Category:    dest.Category,
+		Reason:      dest.Reason,
+		Suggestions: defaultBlockSuggestions,
+	}
+}
+
+// redirectBlockedError descreve um bloqueio ocorrido num salto de redirect, sem
+// atribuir o IP interno ao host da URL original (evita mensagem incoerente).
+func redirectBlockedError(ip net.IP) *BlockedDestinationError {
+	cat := Classify(ip)
+	return &BlockedDestinationError{
+		IPs:         []net.IP{ip},
+		Category:    cat,
+		Reason:      fmt.Sprintf("%s address blocked by anti-SSRF policy (redirect)", cat),
+		Suggestions: defaultBlockSuggestions,
+	}
+}
+
+// originalTargetBlocked reporta se o IP barrado pertence ao host da URL
+// diretamente requisitada (e não a um alvo de redirect). Host literal casa
+// direto; hostnames são resolvidos.
+func originalTargetBlocked(ctx context.Context, req *http.Request, ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	key := normalizeIPKey(ip)
+	for _, hostIP := range resolveHostIPs(ctx, req.URL.Hostname()) {
+		if normalizeIPKey(hostIP) == key {
+			return true
+		}
+	}
+	return false
 }
 
 // buildBlockedDestination resolve os IPs do host e classifica o bloqueio para

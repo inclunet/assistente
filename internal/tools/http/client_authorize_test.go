@@ -194,6 +194,44 @@ func TestSSRFControlWithTrust_OnlyTrustsExactIP(t *testing.T) {
 	}
 }
 
+// originalTargetBlocked distingue um bloqueio na URL diretamente requisitada de
+// um bloqueio ocorrido num salto de redirect (que não deve abrir prompt).
+func TestOriginalTargetBlocked(t *testing.T) {
+	ctx := context.Background()
+
+	// Host literal igual ao IP barrado → é o alvo direto.
+	reqLit, _ := http.NewRequest("GET", "http://100.64.1.112:443/x", nil)
+	if !originalTargetBlocked(ctx, reqLit, net.ParseIP("100.64.1.112")) {
+		t.Fatal("IP literal do host deveria contar como alvo direto")
+	}
+
+	// Host público cujo IP barrado (interno) NÃO pertence a ele → veio de redirect.
+	reqPub, _ := http.NewRequest("GET", "http://8.8.8.8/x", nil)
+	if originalTargetBlocked(ctx, reqPub, net.ParseIP("10.0.0.1")) {
+		t.Fatal("IP interno alheio ao host não deveria contar como alvo direto")
+	}
+
+	// IP nil nunca é alvo direto.
+	if originalTargetBlocked(ctx, reqLit, nil) {
+		t.Fatal("IP nil não deveria contar como alvo direto")
+	}
+}
+
+// redirectBlockedError não deve atribuir o IP interno a um host, mas ainda
+// classifica e traz o IP para a mensagem acionável.
+func TestRedirectBlockedError(t *testing.T) {
+	err := redirectBlockedError(net.ParseIP("169.254.169.254"))
+	if err.Host != "" {
+		t.Fatalf("não deveria atribuir host, got %q", err.Host)
+	}
+	if err.Category != CategoryMetadata {
+		t.Fatalf("categoria esperada metadata, got %q", err.Category)
+	}
+	if len(err.IPs) != 1 || !err.IPs[0].Equal(net.ParseIP("169.254.169.254")) {
+		t.Fatalf("IP esperado no erro, got %v", err.IPs)
+	}
+}
+
 // appendUniqueIP garante que o IP barrado (o que falhou no dial) sempre entra no
 // trust, sem duplicar, mesmo quando a resolução DNS devolve um conjunto diferente.
 func TestAppendUniqueIP(t *testing.T) {
