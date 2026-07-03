@@ -98,6 +98,73 @@ func TestAuthorizer_PromptOnceDoesNotPersist(t *testing.T) {
 	}
 }
 
+// Proteção DNS rebinding: uma entrada por host autorizada para CGNAT não pode
+// liberar silenciosamente o endpoint de metadados quando o DNS passa a apontar
+// para lá — deve exigir novo consentimento (prompt).
+func TestAuthorizer_AllowlistMatch_CategoryEscalationReprompts(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+	_ = m.Add(ctx, AllowlistEntry{
+		Host:     "api.nu.workflows.dev",
+		Port:     "443",
+		Scope:    ScopeGlobal,
+		Category: string(httpclient.CategoryCGNAT),
+	})
+
+	prompt := &spyPrompter{decision: PromptDecision{Approve: false}}
+	auth := NewAuthorizer(m, prompt)
+
+	// Destino agora resolve para o endpoint de metadados (categoria mais sensível).
+	dest := httpclient.BlockedDestination{
+		Host:     "api.nu.workflows.dev",
+		Port:     "443",
+		URL:      "https://api.nu.workflows.dev/x",
+		IPs:      []net.IP{net.ParseIP("169.254.169.254")},
+		Category: httpclient.CategoryMetadata,
+		Reason:   "metadata address blocked by anti-SSRF policy",
+	}
+
+	_, ok, err := auth.Authorize(ctx, dest)
+	if err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	if ok {
+		t.Fatal("escalonamento para metadados não deveria ser liberado pela allowlist")
+	}
+	if prompt.called != 1 {
+		t.Fatalf("deveria cair para novo consentimento, prompts=%d", prompt.called)
+	}
+}
+
+// A rotação normal entre IPs privados (mesma categoria) continua sendo liberada
+// pela allowlist, sem novo prompt.
+func TestAuthorizer_AllowlistMatch_SameCategoryRotationAllowed(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+	_ = m.Add(ctx, AllowlistEntry{
+		Host:     "api.nu.workflows.dev",
+		Port:     "443",
+		Scope:    ScopeGlobal,
+		Category: string(httpclient.CategoryCGNAT),
+	})
+
+	prompt := &spyPrompter{}
+	auth := NewAuthorizer(m, prompt)
+
+	dest := blockedDest()
+	dest.IPs = []net.IP{net.ParseIP("100.64.9.9")} // outro IP CGNAT
+
+	_, ok, err := auth.Authorize(ctx, dest)
+	if err != nil || !ok {
+		t.Fatalf("rotação na mesma categoria deveria ser liberada, ok=%v err=%v", ok, err)
+	}
+	if prompt.called != 0 {
+		t.Fatalf("não deveria pedir consentimento em rotação de mesma categoria, prompts=%d", prompt.called)
+	}
+}
+
 func TestAuthorizer_PromptDeny(t *testing.T) {
 	dir := t.TempDir()
 	m := NewManagerWithDirs(dir, dir)

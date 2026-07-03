@@ -60,10 +60,20 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 	// inicializado; nesse caso não há allowlist para consultar (nem persistir).
 	if a.mgr != nil {
 		if decision := a.mgr.Match(ctx, host, port); decision.Allowed {
+			// Proteção contra DNS rebinding: uma entrada é por HOST, mas os IPs
+			// resolvidos podem ter mudado desde a autorização. Se o DNS passou a
+			// apontar para uma categoria MAIS sensível (ex.: era CGNAT e agora
+			// resolve para o endpoint de metadados/loopback), não liberamos
+			// silenciosamente — caímos para novo consentimento explícito.
+			if !categoryEscalated(dest, decision.Entry) {
+				logging.Infof(ctx, "nettrust.authorizer",
+					"[NetTrust] match em allowlist: host=%s port=%s escopo=%s categoria=%s ips=%v",
+					host, port, decision.Scope, dest.Category, ipsToStrings(dest.IPs))
+				return dest.IPs, true, nil
+			}
 			logging.Infof(ctx, "nettrust.authorizer",
-				"[NetTrust] match em allowlist: host=%s port=%s escopo=%s categoria=%s ips=%v",
-				host, port, decision.Scope, dest.Category, ipsToStrings(dest.IPs))
-			return dest.IPs, true, nil
+				"[NetTrust] allowlist ignorada por escalonamento de categoria via DNS: host=%s escopo=%s categoria_atual=%s ips=%v — exigindo novo consentimento",
+				host, decision.Scope, dest.Category, ipsToStrings(dest.IPs))
 		}
 	}
 
@@ -124,6 +134,54 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 	logging.Infof(ctx, "nettrust.authorizer",
 		"[NetTrust] autorização concedida: host=%s escopo=%s ips=%v", host, scope, req.IPs)
 	return dest.IPs, true, nil
+}
+
+// categoryRank ordena as categorias anti-SSRF por sensibilidade (maior = mais
+// perigoso). Usado para detectar escalonamento via DNS numa entrada de allowlist
+// por host: só liberamos silenciosamente enquanto a categoria atual não for MAIS
+// sensível do que a que o usuário efetivamente autorizou.
+var categoryRank = map[httpclient.Category]int{
+	httpclient.CategoryPublic:         0,
+	httpclient.CategoryReserved:       1,
+	httpclient.CategoryMulticast:      1,
+	httpclient.CategoryLinkLocal:      2,
+	httpclient.CategoryCGNAT:          2,
+	httpclient.CategoryPrivateRFC1918: 2,
+	httpclient.CategoryLoopback:       3,
+	httpclient.CategoryLocalhostAlias: 3,
+	httpclient.CategoryMetadata:       4,
+}
+
+// unknownCategoryRank é o nível assumido quando a categoria é vazia/desconhecida
+// (ex.: entradas antigas ou adicionadas programaticamente sem categoria). Trata
+// como "privado genérico": permite rotação entre IPs privados/CGNAT, mas ainda
+// bloqueia escalonamento para loopback/metadados.
+const unknownCategoryRank = 2
+
+func rankOf(cat httpclient.Category) int {
+	if r, ok := categoryRank[cat]; ok {
+		return r
+	}
+	return unknownCategoryRank
+}
+
+// categoryEscalated reporta se o destino ATUAL é mais sensível do que a entrada
+// de allowlist previamente autorizada. Considera tanto a categoria do destino
+// (que já captura aliases textuais como "localhost") quanto a reclassificação de
+// cada IP resolvido agora — pega o pior caso.
+func categoryEscalated(dest httpclient.BlockedDestination, entry *AllowlistEntry) bool {
+	stored := unknownCategoryRank
+	if entry != nil && entry.Category != "" {
+		stored = rankOf(httpclient.Category(entry.Category))
+	}
+
+	current := rankOf(dest.Category)
+	for _, ip := range dest.IPs {
+		if r := rankOf(httpclient.Classify(ip)); r > current {
+			current = r
+		}
+	}
+	return current > stored
 }
 
 func ipsToStrings(ips []net.IP) []string {

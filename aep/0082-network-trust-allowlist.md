@@ -111,6 +111,18 @@ Ações possíveis — sem esconder que houve bloqueio por política.
   de conexão direta do AEP-0017 mantida).
 - Escopo `profile` usa arquivo por slug em `network-allowlist/` (não um campo no
   JSON do perfil) — persistente e por perfil, sem alterar o schema de profiles.
+- **Redirects para hosts privados não acionam o fluxo interativo.** Apenas a URL
+  diretamente requisitada (escolhida pelo agente/usuário) passa por consentimento.
+  Se um destino público redireciona para um host privado/`localhost`, o
+  `RedirectGuard` mantém o *hard deny* (sem prompt): decisão deliberada para não
+  transformar um open-redirect em vetor de SSRF, onde o usuário poderia ser
+  induzido a aprovar um destino que não escolheu. Um host privado legítimo deve
+  ser autorizado pela URL direta; requests já autorizados (com trust por-request)
+  delegam a validação do redirect ao `DialContext`, que revalida o IP real.
+- **Rebinding de categoria:** o match de allowlist é por host, mas se o DNS passar
+  a resolver para uma categoria mais sensível (ex.: de CGNAT para o endpoint de
+  metadados ou loopback), a liberação silenciosa é negada e exige novo
+  consentimento. Rotação entre IPs da mesma categoria segue liberada.
 
 ## Critérios de aceitação
 

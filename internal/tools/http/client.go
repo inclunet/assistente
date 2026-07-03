@@ -168,10 +168,11 @@ func (c *Client) buildBlockedDestination(ctx context.Context, req *http.Request,
 	}
 
 	category := ClassifyDestination(host, blocked.IP)
-	ips := resolveHostIPs(ctx, host)
-	if len(ips) == 0 && blocked.IP != nil {
-		ips = []net.IP{blocked.IP}
-	}
+	// Sempre inclui o IP que o guard reportou (o que de fato falhou no dial).
+	// A resolução abaixo pode divergir (TTL/cache, IPv4/IPv6), e se o IP barrado
+	// ficasse de fora do trust por-request, a reexecução após consentimento
+	// continuaria bloqueada nesse endereço.
+	ips := appendUniqueIP(resolveHostIPs(ctx, host), blocked.IP)
 
 	return BlockedDestination{
 		Host:     host,
@@ -199,6 +200,21 @@ func resolveHostIPs(ctx context.Context, host string) []net.IP {
 		ips = append(ips, a.IP)
 	}
 	return ips
+}
+
+// appendUniqueIP acrescenta ip a ips se ainda não estiver presente (comparação
+// canônica por normalizeIPKey). ip nil é ignorado.
+func appendUniqueIP(ips []net.IP, ip net.IP) []net.IP {
+	if ip == nil {
+		return ips
+	}
+	key := normalizeIPKey(ip)
+	for _, existing := range ips {
+		if normalizeIPKey(existing) == key {
+			return ips
+		}
+	}
+	return append(ips, ip)
 }
 
 // resetRequestBody reposiciona o body para uma reexecução. Sem body (GET/HEAD),

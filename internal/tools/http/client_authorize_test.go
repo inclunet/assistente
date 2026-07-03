@@ -194,6 +194,29 @@ func TestSSRFControlWithTrust_OnlyTrustsExactIP(t *testing.T) {
 	}
 }
 
+// appendUniqueIP garante que o IP barrado (o que falhou no dial) sempre entra no
+// trust, sem duplicar, mesmo quando a resolução DNS devolve um conjunto diferente.
+func TestAppendUniqueIP(t *testing.T) {
+	base := []net.IP{net.ParseIP("100.64.1.112")}
+
+	// IP diferente é acrescentado.
+	got := appendUniqueIP(base, net.ParseIP("10.0.0.1"))
+	if len(got) != 2 {
+		t.Fatalf("esperado 2 IPs, got %v", got)
+	}
+
+	// IP já presente não duplica (inclusive forma IPv4-in-IPv6).
+	got = appendUniqueIP(base, net.ParseIP("100.64.1.112"))
+	if len(got) != 1 {
+		t.Fatalf("IP duplicado não deveria ser acrescentado, got %v", got)
+	}
+
+	// nil é ignorado.
+	if got := appendUniqueIP(base, nil); len(got) != 1 {
+		t.Fatalf("nil deveria ser ignorado, got %v", got)
+	}
+}
+
 // Cenário 8: mensagem de erro estruturada contém host, IP e categoria.
 func TestBlockedDestinationError_Message(t *testing.T) {
 	err := &BlockedDestinationError{
