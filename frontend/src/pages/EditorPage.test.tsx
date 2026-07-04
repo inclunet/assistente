@@ -29,8 +29,12 @@ const editorPageMocks = vi.hoisted(() => {
     markdownSelectionStartOffset: 0,
     markdownSelectionEndOffset: 0,
     markdownCursorOffset: 0,
+    markdownHasFocus: true,
+    markdownSelectionListener: null as (() => void) | null,
+    richSelectionListener: null as (() => void) | null,
     markdownEditor: null as unknown,
     richEditor: null as unknown,
+    requestOpen: vi.fn(),
   };
   state.markdownEditor = {
     getModel: () => ({
@@ -43,6 +47,15 @@ const editorPageMocks = vi.hoisted(() => {
       getEndPosition: () => offsetToPosition(state.markdownModelValue, state.markdownSelectionEndOffset),
     }),
     getPosition: () => offsetToPosition(state.markdownModelValue, state.markdownCursorOffset),
+    hasTextFocus: () => state.markdownHasFocus,
+    onDidChangeCursorSelection: (listener: () => void) => {
+      state.markdownSelectionListener = listener;
+      return {
+        dispose: () => {
+          if (state.markdownSelectionListener === listener) state.markdownSelectionListener = null;
+        },
+      };
+    },
     focus: vi.fn(),
   };
   state.richEditor = {
@@ -70,7 +83,16 @@ const editorPageMocks = vi.hoisted(() => {
       },
     },
     commands: { focus: vi.fn() },
-    view: { focus: vi.fn() },
+    view: { focus: vi.fn(), hasFocus: () => true },
+    isFocused: true,
+    on: (event: string, listener: () => void) => {
+      if (event === 'selectionUpdate') state.richSelectionListener = listener;
+    },
+    off: (event: string, listener: () => void) => {
+      if (event === 'selectionUpdate' && state.richSelectionListener === listener) {
+        state.richSelectionListener = null;
+      }
+    },
   };
   return state;
 });
@@ -180,20 +202,20 @@ vi.mock('../hooks/useAnchoredContextMenu', () => ({
 vi.mock('../components/ui/Toolbar', async () => {
   const React = await import('react');
   return {
-    Toolbar: ({ left, right, actions }: { left?: ReactNode; right?: ReactNode; actions?: Array<{ key: string; label: string; onClick?: () => void; disabled?: boolean }> }) => (
+    Toolbar: ({ left, right, actions }: { left?: ReactNode; right?: ReactNode; actions?: Array<{ key: string; label: string; onClick?: () => void; onMouseDown?: () => void; disabled?: boolean }> }) => (
       <div>
         {left}
         {right}
         {actions?.map((action) => (
-          <button key={action.key} onClick={action.onClick} disabled={action.disabled}>
+          <button key={action.key} onClick={action.onClick} onMouseDown={action.onMouseDown} disabled={action.disabled}>
             {action.label}
           </button>
         ))}
       </div>
     ),
-    ToolbarButton: React.forwardRef<HTMLButtonElement, { label: string; onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void; disabled?: boolean }>(
-      ({ label, onClick, disabled }, ref) => (
-        <button ref={ref} type="button" onClick={onClick} disabled={disabled}>
+    ToolbarButton: React.forwardRef<HTMLButtonElement, { label: string; onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void; onMouseDown?: (event: React.MouseEvent<HTMLButtonElement>) => void; disabled?: boolean }>(
+      ({ label, onClick, onMouseDown, disabled }, ref) => (
+        <button ref={ref} type="button" onClick={onClick} onMouseDown={onMouseDown} disabled={disabled}>
           {label}
         </button>
       )
@@ -252,7 +274,7 @@ vi.mock('../store/workspaceChatModalStore', () => ({
       const state = { isOpen: false };
       return typeof selector === 'function' ? selector(state) : state;
     },
-    { getState: () => ({ requestOpen: vi.fn(), close: vi.fn(), setAdapterError: vi.fn(), bumpFocus: vi.fn() }) },
+    { getState: () => ({ requestOpen: editorPageMocks.requestOpen, close: vi.fn(), setAdapterError: vi.fn(), bumpFocus: vi.fn() }) },
   ),
 }));
 
@@ -298,12 +320,20 @@ describe('EditorPage', () => {
     editorPageMocks.markdownSelectionStartOffset = 0;
     editorPageMocks.markdownSelectionEndOffset = 0;
     editorPageMocks.markdownCursorOffset = 0;
+    editorPageMocks.markdownHasFocus = true;
+    editorPageMocks.markdownSelectionListener = null;
+    editorPageMocks.richSelectionListener = null;
+    editorPageMocks.requestOpen.mockReset();
     const richEditor = editorPageMocks.richEditor as {
       state: { selection: { from: number; to: number; empty: boolean } };
+      isFocused: boolean;
+      view: { hasFocus: () => boolean };
     };
     richEditor.state.selection.from = 1;
     richEditor.state.selection.to = 19;
     richEditor.state.selection.empty = false;
+    richEditor.isFocused = true;
+    richEditor.view.hasFocus = () => true;
     openToolbarMenuSpy.mockReset();
     editorStoreState.setDocMode.mockReset();
     vi.mocked(EditorWriteFile).mockReset();
@@ -387,6 +417,187 @@ describe('EditorPage', () => {
     await user.keyboard('{Control>}s{/Control}');
 
     expect(EditorWriteFile).not.toHaveBeenCalled();
+  });
+
+  it('envia a seleção Markdown no SurfaceContext ao abrir pelo botão mesmo após perda de foco', async () => {
+    const markdown = 'Alpha\nselected markdown\nOmega';
+    const selectedText = 'selected markdown';
+    const selectionStart = markdown.indexOf(selectedText);
+    editorPageMocks.markdownModelValue = markdown;
+    editorPageMocks.markdownSelectionStartOffset = selectionStart;
+    editorPageMocks.markdownSelectionEndOffset = selectionStart + selectedText.length;
+    editorPageMocks.markdownCursorOffset = selectionStart;
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown,
+        mode: 'markdown',
+        filePath: 'doc.md',
+      },
+    };
+
+    render(
+      <EditorPage
+        workspaceTab={{
+          id: 'tab-1',
+          type: 'editor',
+          title: 'Doc',
+          position: 0,
+          conversationId: 'conv-1',
+          state: { filePath: 'doc.md' },
+        }}
+      />
+    );
+
+    fireEvent.mouseDown(screen.getByRole('button', { name: 'editor.actions.askChat' }));
+    editorPageMocks.markdownHasFocus = false;
+    editorPageMocks.markdownSelectionEndOffset = editorPageMocks.markdownSelectionStartOffset;
+
+    const adapter = editorPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; meta: unknown }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ paramsOverride?: { surfaceContextJson?: string } } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const plan = await adapter.send('Explique este trecho', undefined, prepared.meta, {
+      tabId: 'tab-1',
+      conversationId: 'conv-1',
+    });
+    const surfaceContext = JSON.parse(String(plan?.paramsOverride?.surfaceContextJson || '{}'));
+
+    expect(surfaceContext.selection).toMatchObject({
+      kind: 'text',
+      text: selectedText,
+      isEmpty: false,
+      explicit: true,
+    });
+    expect(surfaceContext.selection.range.startOffset).toBe(selectionStart);
+    expect(surfaceContext.selection.range.endOffset).toBe(selectionStart + selectedText.length);
+  });
+
+  it('envia a seleção Markdown preservada pelo listener de seleção usado no atalho', async () => {
+    const markdown = 'Antes\ntexto do atalho\nDepois';
+    const selectedText = 'texto do atalho';
+    const selectionStart = markdown.indexOf(selectedText);
+    editorPageMocks.markdownModelValue = markdown;
+    editorPageMocks.markdownSelectionStartOffset = selectionStart;
+    editorPageMocks.markdownSelectionEndOffset = selectionStart + selectedText.length;
+    editorPageMocks.markdownCursorOffset = selectionStart;
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown,
+        mode: 'markdown',
+        filePath: 'doc.md',
+      },
+    };
+
+    render(
+      <EditorPage
+        workspaceTab={{
+          id: 'tab-1',
+          type: 'editor',
+          title: 'Doc',
+          position: 0,
+          conversationId: 'conv-1',
+          state: { filePath: 'doc.md' },
+        }}
+      />
+    );
+    await vi.waitFor(() => expect(editorPageMocks.markdownSelectionListener).toBeTruthy());
+    act(() => {
+      editorPageMocks.markdownSelectionListener?.();
+    });
+    editorPageMocks.markdownHasFocus = false;
+    editorPageMocks.markdownSelectionEndOffset = editorPageMocks.markdownSelectionStartOffset;
+
+    const adapter = editorPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; meta: unknown }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ paramsOverride?: { surfaceContextJson?: string } } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const plan = await adapter.send('Explique este trecho', undefined, prepared.meta, {
+      tabId: 'tab-1',
+      conversationId: 'conv-1',
+    });
+    const surfaceContext = JSON.parse(String(plan?.paramsOverride?.surfaceContextJson || '{}'));
+
+    expect(surfaceContext.selection.text).toBe(selectedText);
+    expect(surfaceContext.selection.explicit).toBe(true);
+  });
+
+  it('envia a seleção rica preservada antes da perda de foco', async () => {
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown: '## Slide 2\nselected rich text',
+        mode: 'rich',
+        filePath: 'doc.md',
+      },
+    };
+
+    render(
+      <EditorPage
+        workspaceTab={{
+          id: 'tab-1',
+          type: 'editor',
+          title: 'Doc',
+          position: 0,
+          conversationId: 'conv-1',
+          state: { filePath: 'doc.md' },
+        }}
+      />
+    );
+    await vi.waitFor(() => expect(editorPageMocks.richSelectionListener).toBeTruthy());
+    act(() => {
+      editorPageMocks.richSelectionListener?.();
+    });
+
+    const richEditor = editorPageMocks.richEditor as {
+      state: { selection: { from: number; to: number; empty: boolean } };
+      isFocused: boolean;
+      view: { hasFocus: () => boolean };
+    };
+    richEditor.isFocused = false;
+    richEditor.view.hasFocus = () => false;
+    richEditor.state.selection.to = richEditor.state.selection.from;
+    richEditor.state.selection.empty = true;
+
+    const adapter = editorPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; meta: unknown }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ paramsOverride?: { surfaceContextJson?: string } } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const plan = await adapter.send('Explique este trecho', undefined, prepared.meta, {
+      tabId: 'tab-1',
+      conversationId: 'conv-1',
+    });
+    const surfaceContext = JSON.parse(String(plan?.paramsOverride?.surfaceContextJson || '{}'));
+
+    expect(surfaceContext.selection).toMatchObject({
+      kind: 'text',
+      text: 'selected rich text',
+      markdown: '## Slide 2\nselected rich text',
+      isEmpty: false,
+      explicit: true,
+    });
   });
 
   it('mantém o slide Reveal rico e o total do deck capturados no prepare ao enviar', async () => {
