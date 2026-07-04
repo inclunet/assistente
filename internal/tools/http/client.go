@@ -238,12 +238,16 @@ func (c *Client) buildBlockedDestination(ctx context.Context, req *http.Request,
 		}
 	}
 
-	category := ClassifyDestination(host, blocked.IP)
 	// Sempre inclui o IP que o guard reportou (o que de fato falhou no dial).
 	// A resolução abaixo pode divergir (TTL/cache, IPv4/IPv6), e se o IP barrado
 	// ficasse de fora do trust por-request, a reexecução após consentimento
 	// continuaria bloqueada nesse endereço.
 	ips := appendUniqueIP(resolveHostIPs(ctx, host), blocked.IP)
+	// Classifica pelo PIOR caso entre TODOS os IPs (não só o blocked.IP): o trust
+	// pós-consentimento libera todos os IPs resolvidos, então o usuário precisa
+	// ver a categoria mais sensível que está de fato autorizando (ex.: se o host
+	// resolve para cgnat E metadata, o prompt/entrada não pode dizer só "cgnat").
+	category := MostSensitiveCategory(host, ips)
 
 	return BlockedDestination{
 		Host:         host,

@@ -218,6 +218,24 @@ func TestSSRFControlWithTrust_IPv6ZoneID(t *testing.T) {
 	}
 }
 
+// MostSensitiveCategory deve escolher o pior caso entre todos os IPs (evita que
+// o prompt descreva categoria branda enquanto o trust libera IP mais crítico).
+func TestMostSensitiveCategory(t *testing.T) {
+	// cgnat + metadata na mesma resposta -> metadata (pior caso).
+	ips := []net.IP{net.ParseIP("100.64.1.10"), net.ParseIP("169.254.169.254")}
+	if got := MostSensitiveCategory("host.example", ips); got != CategoryMetadata {
+		t.Fatalf("esperado metadata (pior caso), got %q", got)
+	}
+	// Só cgnat -> cgnat.
+	if got := MostSensitiveCategory("host.example", []net.IP{net.ParseIP("100.64.1.10")}); got != CategoryCGNAT {
+		t.Fatalf("esperado cgnat, got %q", got)
+	}
+	// Host localhost textual prevalece como localhost-alias quando não há IP mais sensível.
+	if got := MostSensitiveCategory("localhost", []net.IP{net.ParseIP("127.0.0.1")}); got != CategoryLocalhostAlias {
+		t.Fatalf("esperado localhost-alias, got %q", got)
+	}
+}
+
 // allowedTrustPorts: porta explícita libera só ela; host-level libera default.
 func TestAllowedTrustPorts(t *testing.T) {
 	if got := allowedTrustPorts("8443", true); len(got) != 1 || got[0] != "8443" {

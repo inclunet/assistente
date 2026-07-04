@@ -98,7 +98,15 @@ func (m *Manager) SetWorkspaceDirFunc(f func() string) {
 		return
 	}
 	m.mu.Lock()
-	m.workDir = f
+	// Embrulha f garantindo a semântica documentada: se o resolvedor devolver ""
+	// (ex.: nenhum workspace ativo), cai no comportamento anterior (configdir),
+	// para o escopo workspace não deixar de enxergar o arquivo.
+	m.workDir = func() string {
+		if dir := f(); dir != "" {
+			return dir
+		}
+		return configdir.GetWorkDir()
+	}
 	m.mu.Unlock()
 }
 

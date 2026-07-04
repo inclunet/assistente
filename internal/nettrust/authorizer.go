@@ -159,48 +159,20 @@ func (a *Authorizer) Authorize(ctx context.Context, dest httpclient.BlockedDesti
 	return dest.IPs, true, nil
 }
 
-// categoryRank ordena as categorias anti-SSRF por sensibilidade (maior = mais
-// perigoso). Usado para detectar escalonamento via DNS numa entrada de allowlist
-// por host: só liberamos silenciosamente enquanto a categoria atual não for MAIS
-// sensível do que a que o usuário efetivamente autorizou.
-var categoryRank = map[httpclient.Category]int{
-	httpclient.CategoryPublic:         0,
-	httpclient.CategoryReserved:       1,
-	httpclient.CategoryMulticast:      1,
-	httpclient.CategoryLinkLocal:      2,
-	httpclient.CategoryCGNAT:          2,
-	httpclient.CategoryPrivateRFC1918: 2,
-	httpclient.CategoryLoopback:       3,
-	httpclient.CategoryLocalhostAlias: 3,
-	httpclient.CategoryMetadata:       4,
-}
-
-// unknownCategoryRank é o nível assumido quando a categoria é vazia/desconhecida
-// (ex.: entradas antigas ou adicionadas programaticamente sem categoria). Trata
-// como "privado genérico": permite rotação entre IPs privados/CGNAT, mas ainda
-// bloqueia escalonamento para loopback/metadados.
-const unknownCategoryRank = 2
-
-func rankOf(cat httpclient.Category) int {
-	if r, ok := categoryRank[cat]; ok {
-		return r
-	}
-	return unknownCategoryRank
-}
-
 // categoryEscalated reporta se o destino ATUAL é mais sensível do que a entrada
 // de allowlist previamente autorizada. Considera tanto a categoria do destino
 // (que já captura aliases textuais como "localhost") quanto a reclassificação de
-// cada IP resolvido agora — pega o pior caso.
+// cada IP resolvido agora — pega o pior caso. O rank de sensibilidade é a fonte
+// única em internal/tools/http (httpclient.RankOf).
 func categoryEscalated(dest httpclient.BlockedDestination, entry *AllowlistEntry) bool {
-	stored := unknownCategoryRank
+	stored := httpclient.UnknownCategoryRank
 	if entry != nil && entry.Category != "" {
-		stored = rankOf(httpclient.Category(entry.Category))
+		stored = httpclient.RankOf(httpclient.Category(entry.Category))
 	}
 
-	current := rankOf(dest.Category)
+	current := httpclient.RankOf(dest.Category)
 	for _, ip := range dest.IPs {
-		if r := rankOf(httpclient.Classify(ip)); r > current {
+		if r := httpclient.RankOf(httpclient.Classify(ip)); r > current {
 			current = r
 		}
 	}

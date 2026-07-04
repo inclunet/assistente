@@ -270,6 +270,19 @@ func TestManager_WorkspaceDirFuncDynamic(t *testing.T) {
 	}
 }
 
+// Quando o resolvedor de workspace devolve "", o Manager deve cair no fallback
+// (configdir), mantendo o workspacePath resolvível — semântica documentada.
+func TestManager_WorkspaceDirFuncEmptyFallsBack(t *testing.T) {
+	home := t.TempDir()
+	m := NewManagerWithDirs(home, home)
+	m.SetWorkspaceDirFunc(func() string { return "" })
+
+	// Sem o fallback, workspacePath() seria "" e o escopo workspace falharia.
+	if got := m.workspacePath(); got == "" {
+		t.Fatal("resolvedor vazio deveria cair no fallback (configdir), não zerar o workspacePath")
+	}
+}
+
 // Add/Remove/Match concorrentes num escopo persistido não podem perder entradas
 // nem provocar data race (rodar com -race). Exercita o read-modify-write dos
 // arquivos sob concorrência — a regressão que o RWMutex + escrita atômica corrige.

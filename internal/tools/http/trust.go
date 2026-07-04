@@ -81,6 +81,59 @@ func ClassifyDestination(host string, ip net.IP) Category {
 	return Classify(ip)
 }
 
+// categoryRank ordena as categorias anti-SSRF por sensibilidade (maior = mais
+// perigoso). Fonte ÚNICA usada tanto para escolher o pior caso de um destino
+// (MostSensitiveCategory) quanto para detectar escalonamento via DNS numa entrada
+// de allowlist (internal/nettrust).
+var categoryRank = map[Category]int{
+	CategoryPublic:         0,
+	CategoryReserved:       1,
+	CategoryMulticast:      1,
+	CategoryLinkLocal:      2,
+	CategoryCGNAT:          2,
+	CategoryPrivateRFC1918: 2,
+	CategoryLoopback:       3,
+	CategoryLocalhostAlias: 3,
+	CategoryMetadata:       4,
+}
+
+// UnknownCategoryRank é o nível assumido quando a categoria é vazia/desconhecida
+// (ex.: entradas antigas ou adicionadas programaticamente sem categoria). Trata
+// como "privado genérico": permite rotação entre IPs privados/CGNAT, mas ainda
+// bloqueia escalonamento para loopback/metadados.
+const UnknownCategoryRank = 2
+
+// RankOf devolve o nível de sensibilidade de uma categoria (ver categoryRank).
+func RankOf(cat Category) int {
+	if r, ok := categoryRank[cat]; ok {
+		return r
+	}
+	return UnknownCategoryRank
+}
+
+// MostSensitiveCategory devolve a categoria MAIS sensível entre o host textual
+// (aliases como "localhost") e TODOS os IPs resolvidos — o pior caso que o
+// usuário está de fato autorizando. Evita que o prompt/entrada descreva uma
+// categoria branda (ex.: cgnat) enquanto o trust libera IPs mais críticos (ex.:
+// metadata) presentes na MESMA resposta DNS.
+func MostSensitiveCategory(host string, ips []net.IP) Category {
+	worst := Category("")
+	worstRank := -1
+	if isLocalhostAlias(host) {
+		worst, worstRank = CategoryLocalhostAlias, RankOf(CategoryLocalhostAlias)
+	}
+	for _, ip := range ips {
+		c := Classify(ip)
+		if r := RankOf(c); r > worstRank {
+			worst, worstRank = c, r
+		}
+	}
+	if worstRank < 0 {
+		return ClassifyDestination(host, nil)
+	}
+	return worst
+}
+
 // isLocalhostAlias reporta se o host textual é "localhost" ou o TLD reservado
 // ".localhost" (após normalização). Mesma regra de IsPrivateHost.
 func isLocalhostAlias(host string) bool {
