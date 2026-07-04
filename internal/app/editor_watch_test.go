@@ -252,3 +252,47 @@ func TestEditorAssistedWriteMarkerWaitsForCommit(t *testing.T) {
 		t.Fatalf("origin = %q, want assistant_tool", origin)
 	}
 }
+
+func TestEditorAssistedWriteMarkerUncommittedReturnsWithoutConsuming(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	app := &App{}
+
+	norm, err := normalizeWatchPath(filePath)
+	if err != nil {
+		t.Fatalf("normalizeWatchPath: %v", err)
+	}
+	normDir, err := normalizeWatchPath(filepath.Dir(filePath))
+	if err != nil {
+		t.Fatalf("normalizeWatchPath dir: %v", err)
+	}
+	app.editorDirWatches = map[string]*editorDirWatch{
+		normDir: {
+			files:    map[string]int{norm: 1},
+			lastEmit: map[string]time.Time{},
+		},
+	}
+	app.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+
+	commit := app.markEditorAssistedWrite(filePath)
+	if commit == nil {
+		t.Fatal("expected commit function")
+	}
+
+	start := time.Now()
+	if origin, ok := app.consumeEditorAssistedWrite(norm); ok {
+		t.Fatalf("uncommitted marker should not be consumed, got origin %q", origin)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("consume waited too long: %s", elapsed)
+	}
+
+	app.editorWatchMu.Lock()
+	_, stillPresent := app.editorAssistedWriteByPath[norm]
+	app.editorWatchMu.Unlock()
+	if !stillPresent {
+		t.Fatal("uncommitted marker should remain for a later event")
+	}
+
+	commit(false)
+}

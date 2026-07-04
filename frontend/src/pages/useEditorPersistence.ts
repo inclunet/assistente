@@ -336,13 +336,6 @@ export function useEditorPersistence({
       const changedPath = String(data?.path || data?.filePath || '').trim();
       if (!changedPath) return;
       const assisted = data?.assisted === true || String(data?.origin || '') === 'assistant_tool';
-      if (assisted) {
-        flushActiveRichMarkdownNow();
-      }
-
-      if (!assisted && isProbablySelfWrite(changedPath)) {
-        return;
-      }
 
       const key = normalizePathKey(changedPath);
       if (!key) return;
@@ -352,6 +345,17 @@ export function useEditorPersistence({
         (tab) => tab.filePath && normalizePathKey(String(tab.filePath)) === key
       );
       if (affected.length === 0) return;
+      if (assisted) {
+        const activeTab = currentDocumentId ? currentDocs[currentDocumentId] || null : null;
+        const activePathKey = activeTab?.filePath ? normalizePathKey(String(activeTab.filePath)) : '';
+        if (activeTab?.mode === 'rich' && activePathKey === key) {
+          flushActiveRichMarkdownNow();
+        }
+      }
+
+      if (!assisted && isProbablySelfWrite(changedPath)) {
+        return;
+      }
       let diskContent = '';
       let diskReadError = '';
       try {

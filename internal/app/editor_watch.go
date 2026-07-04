@@ -33,6 +33,7 @@ type editorAssistedWrite struct {
 }
 
 const editorAssistedWriteTTL = 5 * time.Second
+const editorAssistedWriteCommitWait = 200 * time.Millisecond
 
 func normalizeWatchPath(p string) (string, error) {
 	s := strings.TrimSpace(p)
@@ -175,7 +176,7 @@ func (a *App) clearExpiredEditorAssistedWritesLocked(now time.Time) {
 	}
 }
 
-func (a *App) assistedWriteMatchesCurrentFileLocked(normalizedAbsPath string, write editorAssistedWrite) bool {
+func (a *App) assistedWriteMatchesCurrentFile(normalizedAbsPath string, write editorAssistedWrite) bool {
 	if !write.committed {
 		return false
 	}
@@ -187,6 +188,7 @@ func (a *App) assistedWriteMatchesCurrentFileLocked(normalizedAbsPath string, wr
 }
 
 func (a *App) consumeEditorAssistedWrite(normalizedAbsPath string) (string, bool) {
+	deadline := time.Now().Add(editorAssistedWriteCommitWait)
 	for {
 		a.ensureEditorWatchInit()
 		a.editorWatchMu.Lock()
@@ -198,15 +200,26 @@ func (a *App) consumeEditorAssistedWrite(normalizedAbsPath string) (string, bool
 			return "", false
 		}
 		if write.committed {
-			delete(a.editorAssistedWriteByPath, normalizedAbsPath)
-			matches := !now.After(write.expiresAt) && a.assistedWriteMatchesCurrentFileLocked(normalizedAbsPath, write)
 			a.editorWatchMu.Unlock()
+			matches := !time.Now().After(write.expiresAt) && a.assistedWriteMatchesCurrentFile(normalizedAbsPath, write)
+			a.editorWatchMu.Lock()
+			current, stillCurrent := a.editorAssistedWriteByPath[normalizedAbsPath]
+			if stillCurrent && current.token == write.token {
+				delete(a.editorAssistedWriteByPath, normalizedAbsPath)
+			}
+			a.editorWatchMu.Unlock()
+			if !stillCurrent || current.token != write.token {
+				return "", false
+			}
 			if !matches {
 				return "", false
 			}
 			return write.origin, true
 		}
 		a.editorWatchMu.Unlock()
+		if time.Now().After(deadline) {
+			return "", false
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 }

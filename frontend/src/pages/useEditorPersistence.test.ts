@@ -106,15 +106,21 @@ function makeDiskInfoFromBackend(info: unknown): DiskInfo {
   };
 }
 
-function renderPersistence(doc: EditorDocument, merge: UseEditorMergeResult, flushActiveRichMarkdownNow = vi.fn()) {
-  useEditorStore.getState().hydrate({ documents: { [doc.id]: doc } });
+function renderPersistence(
+  doc: EditorDocument,
+  merge: UseEditorMergeResult,
+  flushActiveRichMarkdownNow = vi.fn(),
+  opts: { allDocs?: EditorDocument[]; currentDocumentId?: string } = {}
+) {
+  const allDocs = opts.allDocs ?? [doc];
+  useEditorStore.getState().hydrate({ documents: Object.fromEntries(allDocs.map((d) => [d.id, d])) });
 
   return renderHook(() =>
     useEditorPersistence({
       merge,
       sessionLoaded: true,
-      currentDocumentId: doc.id,
-      allDocs: [doc],
+      currentDocumentId: opts.currentDocumentId ?? doc.id,
+      allDocs,
       flushActiveRichMarkdownNow,
       saveEditorState: vi.fn(),
     })
@@ -199,6 +205,28 @@ describe('useEditorPersistence', () => {
 
     expect(flushActiveRichMarkdownNow).toHaveBeenCalled();
     expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('depois da tool');
+  });
+
+  it('não faz flush do editor rico ativo quando evento assistido é de outro arquivo', async () => {
+    const activeDoc = makeDoc({ id: 'tab-1', filePath: 'C:/tmp/active.md', mode: 'rich', markdown: 'ativo' });
+    const affectedDoc = makeDoc({ id: 'tab-2', filePath: 'C:/tmp/other.md', markdown: 'antes da tool', isDirty: false });
+    const merge = makeMerge('ativo', makeDiskInfo(5, 1000));
+    merge.latestMarkdownByTabRef.current['tab-2'] = 'antes da tool';
+    merge.diskContentHashByTabRef.current['tab-2'] = hashStringFNV1a32('antes da tool');
+    const flushActiveRichMarkdownNow = vi.fn();
+    vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
+
+    renderPersistence(activeDoc, merge, flushActiveRichMarkdownNow, {
+      allDocs: [activeDoc, affectedDoc],
+      currentDocumentId: 'tab-1',
+    });
+
+    await act(async () => {
+      await fileChangedHandler?.({ path: 'C:/tmp/other.md', origin: 'assistant_tool', assisted: true });
+    });
+
+    expect(flushActiveRichMarkdownNow).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().documents['tab-2'].markdown).toBe('depois da tool');
   });
 
   it('mantém prompt para tool assistida quando há edição local divergente do baseline', async () => {
