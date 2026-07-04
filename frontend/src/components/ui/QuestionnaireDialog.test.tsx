@@ -1,6 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { ReactNode } from 'react';
-import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QuestionnaireDialog } from './QuestionnaireDialog';
 
@@ -12,12 +11,49 @@ vi.mock('../../hooks/useAnnouncer', () => ({
   }),
 }));
 
-vi.mock('./Modal', () => ({
-  Modal: ({ isOpen, title, children }: { isOpen: boolean; title?: string; children: ReactNode }) =>
-    (isOpen ? <div role="dialog" aria-label={title}>{children}</div> : null),
-}));
-
 describe('QuestionnaireDialog', () => {
+  beforeEach(() => {
+    announceMock.mockClear();
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+      configurable: true,
+      get() {
+        return document.body;
+      },
+    });
+  });
+
+  it('move foco para o primeiro controle e anuncia a abertura', async () => {
+    render(
+      <QuestionnaireDialog
+        isOpen
+        data={{
+          id: 'q-focus',
+          title: 'Conflito de edição',
+          description: 'Escolha como resolver a alteração externa.',
+          questions: [
+            {
+              id: 'choice',
+              type: 'single_choice',
+              prompt: 'Ação',
+              required: true,
+              options: ['Usar disco', 'Usar minha versão'],
+            },
+          ],
+        }}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('radio', { name: 'Usar disco' })).toHaveFocus();
+    });
+
+    expect(announceMock).toHaveBeenCalledWith(
+      'Conflito de edição. Escolha como resolver a alteração externa.',
+      'assertive'
+    );
+  });
+
   it('anuncia todos os erros de validação obrigatória', async () => {
     const user = userEvent.setup();
     render(

@@ -59,8 +59,15 @@ export function WorkspaceChatModal() {
   useEffect(() => {
     if (!isOpen) return;
     const id = requestAnimationFrame(() => {
-      const ta = document.querySelector(
-        '.workspace-chat-modal .chat-input__textarea',
+      const modalRoot = document.querySelector('.workspace-chat-modal');
+      const modalOverlay = modalRoot?.closest('.modal-overlay');
+      const overlays = Array.from(document.querySelectorAll('.modal-overlay'));
+      if (modalOverlay && overlays.length > 0 && modalOverlay !== overlays[overlays.length - 1]) {
+        return;
+      }
+
+      const ta = modalRoot?.querySelector(
+        '.chat-input__textarea',
       ) as HTMLTextAreaElement | null;
       ta?.focus();
     });

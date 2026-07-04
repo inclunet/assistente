@@ -35,7 +35,7 @@ vi.mock('react-i18next', () => ({
 vi.mock('../ui/Modal', () => ({
   Modal: ({ isOpen, title, children }: { isOpen: boolean; title: string; children: React.ReactNode }) => (
     isOpen ? (
-      <section aria-label={title}>
+      <section aria-label={title} className="modal-overlay">
         <h1>{title}</h1>
         {children}
       </section>
@@ -54,7 +54,12 @@ vi.mock('../chat/ChatPanel', () => ({
     onRequestConversationChange?: (id: string, conversation: { title?: string }) => void;
   }) => {
     capturedChatPanelProps.onRequestConversationChange = onRequestConversationChange;
-    return <div data-session-key={surface.sessionKey}>chat-panel</div>;
+    return (
+      <div data-session-key={surface.sessionKey}>
+        chat-panel
+        <textarea aria-label="Mensagem" className="chat-input__textarea" />
+      </div>
+    );
   },
 }));
 
@@ -141,5 +146,24 @@ describe('WorkspaceChatModal', () => {
     capturedChatPanelProps.onRequestConversationChange?.('nova-conversa', { title: 'Outra' });
 
     expect(mockSetBoundConversation).toHaveBeenCalledWith('nova-conversa');
+  });
+
+  it('nao rouba foco quando outro modal esta no topo', async () => {
+    render(
+      <>
+        <WorkspaceChatModal />
+        <div className="modal-overlay">
+          <button>Confirmar conflito</button>
+        </div>
+      </>
+    );
+
+    const questionnaireControl = screen.getByRole('button', { name: 'Confirmar conflito' });
+    questionnaireControl.focus();
+
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    expect(screen.getByRole('textbox', { name: 'Mensagem' })).not.toHaveFocus();
+    expect(questionnaireControl).toHaveFocus();
   });
 });

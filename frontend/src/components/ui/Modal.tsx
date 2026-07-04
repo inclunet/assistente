@@ -147,7 +147,8 @@ export function Modal({
     if (!isOpen || !modalRef.current) return;
 
     // Aguarda o DOM renderizar completamente
-    requestAnimationFrame(() => {
+    const frameId = requestAnimationFrame(() => {
+      if (!isTopMost() || !modalRef.current) return;
       const focusableElements = getFocusableElements();
       // Procura primeiro um input/textarea/select, senão usa o primeiro focável
       const firstInput = focusableElements.find(el => 
@@ -159,7 +160,9 @@ export function Modal({
         firstFocusable.focus();
       }
     });
-  }, [isOpen, getFocusableElements]);
+
+    return () => cancelAnimationFrame(frameId);
+  }, [isOpen, getFocusableElements, isTopMost]);
 
   useEffect(() => {
     if (!isOpen) return;
