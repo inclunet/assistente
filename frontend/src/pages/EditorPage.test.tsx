@@ -537,6 +537,64 @@ describe('EditorPage', () => {
     expect(surfaceContext.selection.explicit).toBe(true);
   });
 
+  it('não reutiliza seleção Markdown antiga quando o editor está focado no cursor', async () => {
+    const markdown = 'Antes\ntexto antigo\nDepois';
+    const selectedText = 'texto antigo';
+    const selectionStart = markdown.indexOf(selectedText);
+    editorPageMocks.markdownModelValue = markdown;
+    editorPageMocks.markdownSelectionStartOffset = selectionStart;
+    editorPageMocks.markdownSelectionEndOffset = selectionStart + selectedText.length;
+    editorPageMocks.markdownCursorOffset = selectionStart;
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown,
+        mode: 'markdown',
+        filePath: 'doc.md',
+      },
+    };
+
+    render(
+      <EditorPage
+        workspaceTab={{
+          id: 'tab-1',
+          type: 'editor',
+          title: 'Doc',
+          position: 0,
+          conversationId: 'conv-1',
+          state: { filePath: 'doc.md' },
+        }}
+      />
+    );
+    await vi.waitFor(() => expect(editorPageMocks.markdownSelectionListener).toBeTruthy());
+    act(() => {
+      editorPageMocks.markdownSelectionListener?.();
+    });
+
+    editorPageMocks.markdownHasFocus = true;
+    editorPageMocks.markdownSelectionEndOffset = editorPageMocks.markdownSelectionStartOffset;
+
+    const adapter = editorPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; meta: unknown }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ paramsOverride?: { surfaceContextJson?: string } } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const plan = await adapter.send('Explique o cursor', undefined, prepared.meta, {
+      tabId: 'tab-1',
+      conversationId: 'conv-1',
+    });
+    const surfaceContext = JSON.parse(String(plan?.paramsOverride?.surfaceContextJson || '{}'));
+
+    expect(surfaceContext.selection.text).toBe('');
+    expect(surfaceContext.selection.explicit).toBe(false);
+  });
+
   it('envia a seleção rica preservada antes da perda de foco', async () => {
     editorStoreState.documents = {
       'tab-1': {

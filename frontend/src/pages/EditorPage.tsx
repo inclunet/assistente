@@ -489,6 +489,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     if (!hasExplicitSelection(cached.selection)) return live;
     if (Date.now() - cached.capturedAt > 120000) return live;
     if (live && hasExplicitSelection(live)) return live;
+    if (live && isEditorFocusedForMode(activeTab.mode)) return live;
     if (!isCachedSelectionStillValid(cached.selection)) return live;
     return cached.selection;
   };
