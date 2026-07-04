@@ -389,6 +389,7 @@ const ptBR = {
       gridLabel: 'Memórias salvas',
       searchPlaceholder: 'Buscar memórias...',
       empty: 'Nenhuma memória encontrada.',
+      loadingMore: 'Carregando mais memórias...',
       pagination: {
         summary: '{{start}}-{{end}} de {{total}}',
         previous: 'Anterior',
@@ -468,6 +469,9 @@ const ptBR = {
         archived: 'Memória arquivada.',
         unarchived: 'Memória restaurada.',
         deleted: 'Memória excluída.',
+        loadingMore: 'Carregando mais memórias.',
+        loadedMore: '{{count}} memórias carregadas.',
+        loadMoreFailed: 'Erro ao carregar mais memórias.',
       },
       errors: {
         loadFailed: 'Erro ao carregar memórias.',
@@ -2495,6 +2499,9 @@ const ptBR = {
 
     history: {
       loading: 'Carregando histórico...',
+      loadingMore: 'Carregando mais conversas...',
+      loadedMore: '{{count}} conversas carregadas.',
+      loadMoreFailed: 'Erro ao carregar mais conversas.',
       untitled: 'Sem título',
       pickerLabel: 'Histórico (Ctrl+H)',
       loadingShort: 'Carregando...',

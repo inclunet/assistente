@@ -416,6 +416,30 @@ describe('ProfileToolsSection', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('preserva tool_policy disabled explícito ao pressionar Ctrl+A', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={mockTools}
+        toolPolicy={{
+          'Tool 1': 'disabled',
+          'Tool 2': 'on_demand',
+          'Tool 3': 'on_demand',
+        }}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: 'a', ctrlKey: true });
+    expect(onChange).toHaveBeenCalledWith('tool_policy', {
+      'Tool 1': 'disabled',
+      'Tool 2': 'preloaded',
+      'Tool 3': 'preloaded',
+    });
+  });
+
   it('mostra badge com status da feature', () => {
     const onChange = vi.fn();
     render(
@@ -902,6 +926,58 @@ describe('ProfileToolsSection', () => {
       );
       selectFilter('tools-filter', 'Atlassian');
       fireEvent.click(screen.getByTestId('tools-select-all'));
+      expect(onChange).toHaveBeenCalledWith('tool_policy', {
+        local_tool: 'on_demand',
+        mcp_atlassian__search: 'preloaded',
+        mcp_atlassian__create: 'preloaded',
+        mcp_slack__send: 'on_demand',
+      });
+    });
+
+    it('"Pré-carregar filtradas" preserva tools disabled explicitamente', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockToolsMixed}
+          toolPolicy={{
+            local_tool: 'on_demand',
+            mcp_atlassian__search: 'disabled',
+            mcp_atlassian__create: 'on_demand',
+            mcp_slack__send: 'on_demand',
+          }}
+          availableAllowlists={mockAllowlists}
+          onChange={onChange}
+        />
+      );
+      selectFilter('tools-filter', 'Atlassian');
+      fireEvent.click(screen.getByTestId('tools-select-all'));
+      expect(onChange).toHaveBeenCalledWith('tool_policy', {
+        local_tool: 'on_demand',
+        mcp_atlassian__search: 'disabled',
+        mcp_atlassian__create: 'preloaded',
+        mcp_slack__send: 'on_demand',
+      });
+    });
+
+    it('Ctrl+A com filtro altera apenas itens filtrados', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockToolsMixed}
+          toolPolicy={{
+            local_tool: 'on_demand',
+            mcp_atlassian__search: 'on_demand',
+            mcp_atlassian__create: 'on_demand',
+            mcp_slack__send: 'on_demand',
+          }}
+          availableAllowlists={mockAllowlists}
+          onChange={onChange}
+        />
+      );
+      selectFilter('tools-filter', 'Atlassian');
+      const grid = screen.getByRole('grid');
+      fireEvent.focus(grid);
+      fireEvent.keyDown(grid, { key: 'a', ctrlKey: true });
       expect(onChange).toHaveBeenCalledWith('tool_policy', {
         local_tool: 'on_demand',
         mcp_atlassian__search: 'preloaded',
