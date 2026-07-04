@@ -1,9 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QuestionnaireDialog } from './QuestionnaireDialog';
 
 const announceMock = vi.hoisted(() => vi.fn());
+const originalOffsetParentDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  'offsetParent',
+);
 
 vi.mock('../../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
@@ -20,6 +24,14 @@ describe('QuestionnaireDialog', () => {
         return document.body;
       },
     });
+  });
+
+  afterEach(() => {
+    if (originalOffsetParentDescriptor) {
+      Object.defineProperty(HTMLElement.prototype, 'offsetParent', originalOffsetParentDescriptor);
+    } else {
+      delete (HTMLElement.prototype as { offsetParent?: unknown }).offsetParent;
+    }
   });
 
   it('move foco para o primeiro controle e anuncia a abertura', async () => {

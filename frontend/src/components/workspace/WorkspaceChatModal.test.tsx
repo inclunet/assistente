@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 
 const mockSetBoundConversation = vi.fn();
+const isWorkspaceModalTopmost = vi.fn(() => true);
 
 const workspaceChatModalState = {
   isOpen: true,
@@ -41,6 +42,7 @@ vi.mock('../ui/Modal', () => ({
       </section>
     ) : null
   ),
+  useModalIsTopmost: () => isWorkspaceModalTopmost,
 }));
 
 const capturedChatPanelProps: {
@@ -117,6 +119,8 @@ describe('WorkspaceChatModal', () => {
   beforeEach(() => {
     capturedChatPanelProps.onRequestConversationChange = undefined;
     mockSetBoundConversation.mockClear();
+    isWorkspaceModalTopmost.mockClear();
+    isWorkspaceModalTopmost.mockReturnValue(true);
   });
 
   it('usa timeline canônica no título quando sessão legada não existe', () => {
@@ -149,12 +153,12 @@ describe('WorkspaceChatModal', () => {
   });
 
   it('nao rouba foco quando outro modal esta no topo', async () => {
+    isWorkspaceModalTopmost.mockReturnValue(false);
+
     render(
       <>
         <WorkspaceChatModal />
-        <div className="modal-overlay">
-          <button>Confirmar conflito</button>
-        </div>
+        <button>Confirmar conflito</button>
       </>
     );
 
