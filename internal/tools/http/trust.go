@@ -103,26 +103,54 @@ func normalizeIPKey(ip net.IP) string {
 
 type trustedIPsKey struct{}
 
-// WithTrustedIPs injeta no ctx o conjunto de IPs que podem ser conectados NESTA
-// request apesar de caírem em faixa bloqueada — o resultado de uma autorização
-// explícita do usuário (ver NetworkAuthorizer). O trust é por IP RESOLVIDO (não
-// por hostname): amarra a permissão ao endereço concreto autorizado, mantendo
-// fechados DNS rebinding e o acesso a outros hosts/IPs da mesma faixa.
-func WithTrustedIPs(ctx context.Context, ips []net.IP) context.Context {
+// trustKey monta a chave canônica de um destino confiável: IP normalizado +
+// porta. O trust é por IP:porta (não só por IP) para honrar a semântica de porta
+// do AEP-0082 — uma autorização por host (portas default) não deve liberar portas
+// não-default no mesmo IP, inclusive via redirect.
+func trustKey(ipKey, port string) string {
+	return ipKey + "|" + port
+}
+
+// allowedTrustPorts devolve as portas que uma autorização cobre. Porta explícita
+// libera exatamente aquela porta; porta derivada do scheme (host-level) libera
+// apenas as portas default (80/443), espelhando AllowlistEntry.Matches.
+func allowedTrustPorts(port string, explicit bool) []string {
+	if explicit && port != "" {
+		return []string{port}
+	}
+	return []string{"80", "443"}
+}
+
+// WithTrustedIPs injeta no ctx o conjunto de destinos (IP:porta) que podem ser
+// conectados NESTA request apesar de caírem em faixa bloqueada — o resultado de
+// uma autorização explícita do usuário (ver NetworkAuthorizer). O trust é por IP
+// RESOLVIDO + PORTA (não por hostname): amarra a permissão ao endereço concreto
+// autorizado, mantendo fechados DNS rebinding, o acesso a outros hosts/IPs da
+// mesma faixa e o acesso a portas não autorizadas no mesmo IP (ex.: via redirect).
+//
+// port é a porta efetiva do destino e portExplicit indica se ela veio explícita
+// na URL (ver BlockedDestination): host-level cobre portas default (80/443),
+// porta explícita cobre apenas ela.
+func WithTrustedIPs(ctx context.Context, ips []net.IP, port string, portExplicit bool) context.Context {
 	if len(ips) == 0 {
 		return ctx
 	}
-	set := make(map[string]bool, len(ips))
+	ports := allowedTrustPorts(port, portExplicit)
+	set := make(map[string]bool, len(ips)*len(ports))
 	for _, ip := range ips {
-		if key := normalizeIPKey(ip); key != "" {
-			set[key] = true
+		key := normalizeIPKey(ip)
+		if key == "" {
+			continue
+		}
+		for _, p := range ports {
+			set[trustKey(key, p)] = true
 		}
 	}
 	if len(set) == 0 {
 		return ctx
 	}
 	// Mescla com um trust preexistente no ctx (ex.: redirect dentro da mesma
-	// request que já herdou IPs confiáveis).
+	// request que já herdou destinos confiáveis).
 	if existing, ok := ctx.Value(trustedIPsKey{}).(map[string]bool); ok {
 		for k := range existing {
 			set[k] = true
@@ -131,7 +159,8 @@ func WithTrustedIPs(ctx context.Context, ips []net.IP) context.Context {
 	return context.WithValue(ctx, trustedIPsKey{}, set)
 }
 
-// trustedIPSet devolve o conjunto de IPs confiáveis do ctx (nil se nenhum).
+// trustedIPSet devolve o conjunto de destinos confiáveis (IP:porta) do ctx (nil
+// se nenhum). As chaves seguem trustKey (ver WithTrustedIPs).
 func trustedIPSet(ctx context.Context) map[string]bool {
 	if ctx == nil {
 		return nil
@@ -140,9 +169,9 @@ func trustedIPSet(ctx context.Context) map[string]bool {
 	return set
 }
 
-// hasTrustedIPs reporta se a request carrega QUALQUER IP confiável por-request,
-// ou seja, se este destino foi explicitamente autorizado. Usado para delegar a
-// decisão final à barreira pós-DNS (DialContext), que revalida o IP real.
+// hasTrustedIPs reporta se a request carrega QUALQUER destino confiável por-request,
+// ou seja, se algum destino foi explicitamente autorizado. Usado para delegar a
+// decisão final à barreira pós-DNS (DialContext), que revalida o IP:porta real.
 func hasTrustedIPs(ctx context.Context) bool {
 	return len(trustedIPSet(ctx)) > 0
 }

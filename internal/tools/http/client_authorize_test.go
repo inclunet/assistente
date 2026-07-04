@@ -176,13 +176,19 @@ func TestClientDo_AuthorizerDenies(t *testing.T) {
 	}
 }
 
-// Cenário 6: trust é por IP exato — outro IP privado continua bloqueado.
+// Cenário 6: trust é por IP:porta exato — outro IP privado (e outra porta no
+// mesmo IP) continua bloqueado.
 func TestSSRFControlWithTrust_OnlyTrustsExactIP(t *testing.T) {
-	trusted := map[string]bool{normalizeIPKey(net.ParseIP("100.64.1.112")): true}
+	trusted := map[string]bool{trustKey(normalizeIPKey(net.ParseIP("100.64.1.112")), "443"): true}
 	ctl := ssrfControlWithTrust(nil, trusted)
 
 	if err := ctl("tcp", "100.64.1.112:443", nil); err != nil {
-		t.Fatalf("IP confiável deveria passar: %v", err)
+		t.Fatalf("IP:porta confiável deveria passar: %v", err)
+	}
+	// Mesmo IP confiável, mas em porta NÃO autorizada -> bloqueado (fecha o
+	// bypass de porta via redirect).
+	if err := ctl("tcp", "100.64.1.112:8443", nil); err == nil {
+		t.Fatal("porta não autorizada no mesmo IP deveria continuar bloqueada")
 	}
 	// Outro IP CGNAT (mesma faixa) NÃO está no trust -> bloqueado.
 	if err := ctl("tcp", "100.64.1.113:443", nil); err == nil {
@@ -191,6 +197,41 @@ func TestSSRFControlWithTrust_OnlyTrustsExactIP(t *testing.T) {
 	// IP público sem trust -> passa normalmente.
 	if err := ctl("tcp", "8.8.8.8:443", nil); err != nil {
 		t.Fatalf("IP público deveria passar: %v", err)
+	}
+}
+
+// allowedTrustPorts: porta explícita libera só ela; host-level libera default.
+func TestAllowedTrustPorts(t *testing.T) {
+	if got := allowedTrustPorts("8443", true); len(got) != 1 || got[0] != "8443" {
+		t.Fatalf("porta explícita deveria liberar apenas ela, got %v", got)
+	}
+	got := allowedTrustPorts("443", false)
+	has80, has443 := false, false
+	for _, p := range got {
+		switch p {
+		case "80":
+			has80 = true
+		case "443":
+			has443 = true
+		}
+	}
+	if !has80 || !has443 {
+		t.Fatalf("host-level deveria liberar portas default (80/443), got %v", got)
+	}
+}
+
+// WithTrustedIPs (host-level) confia nas portas default; porta não-default no
+// mesmo IP não entra no trust.
+func TestWithTrustedIPs_HostLevelDefaultPortsOnly(t *testing.T) {
+	ip := net.ParseIP("100.64.1.112")
+	ctx := WithTrustedIPs(context.Background(), []net.IP{ip}, "443", false)
+	set := trustedIPSet(ctx)
+	key := normalizeIPKey(ip)
+	if !set[trustKey(key, "443")] || !set[trustKey(key, "80")] {
+		t.Fatalf("host-level deveria confiar em 80/443, got %v", set)
+	}
+	if set[trustKey(key, "8443")] {
+		t.Fatal("host-level não deveria confiar em porta não-default")
 	}
 }
 

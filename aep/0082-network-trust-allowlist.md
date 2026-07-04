@@ -32,16 +32,19 @@ um `NetworkAuthorizer` (injetável). Assim as três tools ganham o comportamento
 sem duplicação, e o pré-check textual seco (`IsPrivateHost`) foi removido das
 tools — o bloqueio agora sempre passa pelo caminho estruturado.
 
-### D2. Trust por **IP resolvido**, por request, via `context`
+### D2. Trust por **IP resolvido + porta**, por request, via `context`
 
 O hook `Control` do `net.Dialer` não recebe `context`. Trocamos o
-`Transport.DialContext` por um wrapper que lê do `ctx` o conjunto de IPs
-confiáveis (`WithTrustedIPs`) e reconstrói o `net.Dialer` por chamada com um
-`Control` ciente desse conjunto. Isso:
+`Transport.DialContext` por um wrapper que lê do `ctx` o conjunto de destinos
+confiáveis (`WithTrustedIPs`, chaveado por **IP:porta**) e reconstrói o
+`net.Dialer` por chamada com um `Control` ciente desse conjunto. Isso:
 
 - preserva Happy Eyeballs e os defaults do transporte;
 - amarra a autorização ao(s) **IP(s) concreto(s)** resolvido(s) do host — não à
   faixa inteira nem só ao hostname;
+- amarra também à **porta** autorizada (host-level cobre apenas 80/443; porta
+  explícita cobre só ela), fechando o acesso a portas não autorizadas no mesmo
+  IP inclusive via redirect;
 - mantém bloqueados DNS rebinding e outros hosts/IPs vizinhos da mesma faixa.
 
 ### D3. Classificação como extensão da fonte única de ranges
@@ -55,7 +58,12 @@ categorias: `loopback`, `private-rfc1918`, `cgnat`, `link-local`, `metadata`
 
 `AllowlistEntry{Host, Port, Scope, Category, ResolvedIPs, CreatedBy, CreatedAt,
 Reason}` com match exato + wildcard `*.dominio` (não casa o apex) + porta
-opcional. Escopos e persistência:
+opcional. Semântica de porta: a porta só é persistida quando veio **explícita**
+na URL; porta derivada do scheme (80/443) grava a entrada "por host" (`Port`
+vazia). Uma entrada por host casa **apenas portas default** (80/443) — portas
+não-default (ex.: 8443) exigem autorização explícita daquela porta, evitando que
+uma autorização implícita para `https://host` libere outros serviços no mesmo
+host. Escopos e persistência:
 
 | Escopo | Armazenamento |
 |---|---|

@@ -187,7 +187,12 @@ func TestAuthorizer_ImplicitPortPersistsHostLevel(t *testing.T) {
 	}
 	// Mesmo host via outra porta default (ex.: http:80) também deve casar.
 	if d := m.Match(ctx, "api.nu.workflows.dev", "80"); !d.Allowed {
-		t.Fatal("autorização por host deveria valer para qualquer porta default")
+		t.Fatal("autorização por host deveria valer para portas default")
+	}
+	// Porta NÃO-default (ex.: 8443) NÃO deve ser liberada por uma autorização por
+	// host — exige consentimento explícito daquela porta (evita afrouxamento).
+	if d := m.Match(ctx, "api.nu.workflows.dev", "8443"); d.Allowed {
+		t.Fatal("autorização por host não deveria valer para porta não-default")
 	}
 }
 

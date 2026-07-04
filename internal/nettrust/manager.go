@@ -122,18 +122,18 @@ func (m *Manager) Match(ctx context.Context, host, port string) NetworkTrustDeci
 
 	// Perfil
 	if profileSlug != "" {
-		if e := firstMatch(m.loadFileOrEmpty(m.profilePath(profileSlug)), host, port); e != nil {
+		if e := firstMatch(m.loadFileOrEmpty(ctx, m.profilePath(profileSlug)), host, port); e != nil {
 			return NetworkTrustDecision{Allowed: true, Scope: ScopeProfile, Entry: e}
 		}
 	}
 
 	// Workspace
-	if e := firstMatch(m.loadFileOrEmpty(m.workspacePath()), host, port); e != nil {
+	if e := firstMatch(m.loadFileOrEmpty(ctx, m.workspacePath()), host, port); e != nil {
 		return NetworkTrustDecision{Allowed: true, Scope: ScopeWorkspace, Entry: e}
 	}
 
 	// Global
-	if e := firstMatch(m.loadFileOrEmpty(m.globalPath()), host, port); e != nil {
+	if e := firstMatch(m.loadFileOrEmpty(ctx, m.globalPath()), host, port); e != nil {
 		return NetworkTrustDecision{Allowed: true, Scope: ScopeGlobal, Entry: e}
 	}
 
@@ -198,10 +198,10 @@ func (m *Manager) List(ctx context.Context) []AllowlistEntry {
 		out = append(out, m.session[convID]...)
 	}
 	if profileSlug != "" {
-		out = append(out, m.loadFileOrEmpty(m.profilePath(profileSlug))...)
+		out = append(out, m.loadFileOrEmpty(ctx, m.profilePath(profileSlug))...)
 	}
-	out = append(out, m.loadFileOrEmpty(m.workspacePath())...)
-	out = append(out, m.loadFileOrEmpty(m.globalPath())...)
+	out = append(out, m.loadFileOrEmpty(ctx, m.workspacePath())...)
+	out = append(out, m.loadFileOrEmpty(ctx, m.globalPath())...)
 	return out
 }
 
@@ -288,11 +288,12 @@ func (m *Manager) loadFile(path string) ([]AllowlistEntry, error) {
 
 // loadFileOrEmpty é a versão tolerante usada em leituras (Match/List): trata
 // ausência OU erro como allowlist vazia (logando o erro). Nunca é usada antes de
-// uma escrita — para isso usa-se loadFile, que propaga o erro.
-func (m *Manager) loadFileOrEmpty(path string) []AllowlistEntry {
+// uma escrita — para isso usa-se loadFile, que propaga o erro. Recebe o ctx da
+// operação para o log preservar correlação (conversation/profile/trace).
+func (m *Manager) loadFileOrEmpty(ctx context.Context, path string) []AllowlistEntry {
 	entries, err := m.loadFile(path)
 	if err != nil {
-		logging.Errorf(context.Background(), "nettrust.manager", "[NetTrust] %v", err)
+		logging.Errorf(ctx, "nettrust.manager", "[NetTrust] %v", err)
 		return nil
 	}
 	return entries

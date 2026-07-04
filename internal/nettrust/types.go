@@ -73,11 +73,35 @@ type AllowlistEntry struct {
 }
 
 // Matches reporta se esta entrada autoriza um dado host(:port).
+//
+// Semântica de porta (AEP-0082):
+//   - Port preenchida: casa exatamente aquela porta (autorização explícita da
+//     porta que veio na URL).
+//   - Port vazia: autorização "por host", que cobre APENAS portas default
+//     (80/443 ou porta ausente). Isso evita que uma autorização implícita para
+//     https://host (443) libere serviços diferentes no MESMO host em portas
+//     não-default (ex.: 8443) — o que seria um afrouxamento não-intencional.
+//     Portas não-default sempre exigem autorização explícita daquela porta.
 func (e AllowlistEntry) Matches(host, port string) bool {
-	if e.Port != "" && !strings.EqualFold(e.Port, port) {
+	if e.Port != "" {
+		if !strings.EqualFold(e.Port, port) {
+			return false
+		}
+	} else if !isDefaultPort(port) {
 		return false
 	}
 	return hostMatchesPattern(e.Host, host)
+}
+
+// isDefaultPort reporta se port é uma porta default de HTTP(S) — ou ausente.
+// Uma autorização por host (sem porta) só vale para essas portas.
+func isDefaultPort(port string) bool {
+	switch port {
+	case "", "80", "443":
+		return true
+	default:
+		return false
+	}
 }
 
 // NetworkTrustDecision é o resultado de uma consulta de autorização: se o destino

@@ -175,7 +175,7 @@ func (c *Client) handleBlocked(ctx context.Context, req *http.Request, blocked *
 	if err := resetRequestBody(req); err != nil {
 		return nil, fmt.Errorf("não foi possível reexecutar a request após autorização: %w", err)
 	}
-	trustedCtx := withRedirectTracker(WithTrustedIPs(ctx, trustedIPs))
+	trustedCtx := withRedirectTracker(WithTrustedIPs(ctx, trustedIPs, dest.Port, dest.PortExplicit))
 	resp, err := c.doWithRetry(trustedCtx, req)
 	if err == nil {
 		return resp, nil

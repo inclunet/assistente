@@ -41,28 +41,30 @@ func ssrfControl(allowPrivate func() bool) func(network, address string, c sysca
 	return ssrfControlWithTrust(allowPrivate, nil)
 }
 
-// ssrfControlWithTrust é o ssrfControl com um conjunto adicional de IPs
-// confiáveis (chaves normalizadas via normalizeIPKey) liberados apesar de caírem
-// em faixa bloqueada. É o resultado de uma autorização explícita do usuário para
-// ESTA request (ver NetworkAuthorizer / WithTrustedIPs). trusted pode ser nil.
+// ssrfControlWithTrust é o ssrfControl com um conjunto adicional de destinos
+// confiáveis (chaves IP:porta via trustKey) liberados apesar de caírem em faixa
+// bloqueada. É o resultado de uma autorização explícita do usuário para ESTA
+// request (ver NetworkAuthorizer / WithTrustedIPs). trusted pode ser nil.
 //
 // A ordem importa para segurança: a checagem de trust é por IP EXATO já resolvido
-// (o mesmo que será conectado), então não afrouxa a faixa inteira — outros IPs
-// privados/CGNAT continuam barrados, fechando SSRF por hosts vizinhos.
+// (o mesmo que será conectado) E pela porta autorizada, então não afrouxa a faixa
+// inteira nem outras portas do mesmo IP — outros IPs privados/CGNAT e portas não
+// autorizadas continuam barrados, fechando SSRF por hosts vizinhos e por porta.
 func ssrfControlWithTrust(allowPrivate func() bool, trusted map[string]bool) func(network, address string, c syscall.RawConn) error {
 	return func(_, address string, _ syscall.RawConn) error {
 		if allowPrivate != nil && allowPrivate() {
 			return nil
 		}
-		host, _, err := net.SplitHostPort(address)
+		host, port, err := net.SplitHostPort(address)
 		if err != nil {
 			host = address
+			port = ""
 		}
 		ip := net.ParseIP(host)
 		if ip == nil {
 			return fmt.Errorf("anti-SSRF: endereço de conexão sem IP válido: %q", address)
 		}
-		if len(trusted) > 0 && trusted[normalizeIPKey(ip)] {
+		if len(trusted) > 0 && trusted[trustKey(normalizeIPKey(ip), port)] {
 			return nil
 		}
 		if isBlockedIP(ip) {
