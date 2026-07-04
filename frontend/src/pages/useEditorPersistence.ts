@@ -146,6 +146,76 @@ export function useEditorPersistence({
     }, Math.max(0, delayMs));
   };
 
+  const syncOrPromptExternalChangeForTab = async (
+    tab: EditorDocument,
+    opts?: {
+      diskContent?: string;
+      diskReadError?: string;
+      diskHash?: number;
+      notifyAutoReload?: boolean;
+      allowAutoReload?: boolean;
+    }
+  ) => {
+    const filePath = tab.filePath ? String(tab.filePath).trim() : '';
+    if (!filePath) return;
+    if (isExternalConflictLocked(tab.id)) return;
+
+    let diskContent = typeof opts?.diskContent === 'string' ? String(opts.diskContent) : '';
+    let diskReadError = typeof opts?.diskReadError === 'string' ? String(opts.diskReadError) : '';
+
+    if (!diskReadError && opts?.diskContent === undefined) {
+      try {
+        diskContent = String((await EditorReadFile(filePath)) || '');
+      } catch (e) {
+        diskReadError = String((e as Error)?.message || e || '').trim();
+      }
+    }
+
+    if (!diskReadError) {
+      const localContent = getCachedMarkdownForTab(tab);
+      const diskHash = typeof opts?.diskHash === 'number' ? opts.diskHash : hashStringFNV1a32(diskContent);
+      const localHash = hashStringFNV1a32(localContent);
+      const lastDiskHash = Number(diskContentHashByTabRef.current[String(tab.id)] || 0);
+
+      // Sem conflito real: disco e editor já convergiram para o mesmo conteúdo.
+      if (diskHash === localHash) {
+        setDiskBaselineForTab(tab.id, localContent);
+        setDocDirty(tab.id, false);
+        void refreshDiskInfoForTab(tab);
+        return;
+      }
+
+      // Mudou o metadado, mas o conteúdo continua sendo o baseline conhecido.
+      if (lastDiskHash && lastDiskHash === diskHash) {
+        void refreshDiskInfoForTab(tab);
+        return;
+      }
+
+      // Aba limpa pode acompanhar uma escrita externa/assistida sem intervenção.
+      if (opts?.allowAutoReload && !tab.isDirty) {
+        try {
+          setDocMarkdown(tab.id, diskContent);
+          updateLatestMarkdownForTab(tab.id, diskContent);
+          setDiskBaselineForTab(tab.id, diskContent);
+          setDocDirty(tab.id, false);
+          void refreshDiskInfoForTab(tab);
+          if (opts?.notifyAutoReload && tab.id === currentDocumentId) {
+            addToast(t('editor.toast.externalReloaded'), 'info');
+          }
+          return;
+        } catch {
+          // Se não der pra aplicar automaticamente, cai pro fluxo de decisão explícita.
+        }
+      }
+    }
+
+    setExternalConflictLocked(tab.id, true);
+    setDocDirty(tab.id, true);
+    if (!isExternalPromptInFlight(tab.id)) {
+      void promptResolveExternalChangeForTab(tab.id, filePath, { diskContent, diskReadError });
+    }
+  };
+
   // Flush imediato ao fechar/minimizar para reduzir chance de perder o estado.
   useEffect(() => {
     if (!sessionLoaded) return;
@@ -174,10 +244,7 @@ export function useEditorPersistence({
       if (!currentDisk) return;
 
       if (lastDisk && !diskInfoEquals(lastDisk, currentDisk)) {
-        setExternalConflictLocked(tab.id, true);
-        setDocDirty(tab.id, true);
-        addToast(t('editor.toast.fileModified'), 'warning');
-        void promptResolveExternalChangeForTab(tab.id, String(tab.filePath));
+        await syncOrPromptExternalChangeForTab(tab, { notifyAutoReload: true });
       }
     };
 
@@ -284,60 +351,16 @@ export function useEditorPersistence({
       } catch (e) {
         diskReadError = String((e as Error)?.message || e || '').trim();
       }
-
-      const diskHash = !diskReadError ? hashStringFNV1a32(diskContent) : 0;
+      const diskHash = !diskReadError ? hashStringFNV1a32(diskContent) : undefined;
 
       for (const tab of affected) {
-        if (!tab.filePath) continue;
-        if (isExternalConflictLocked(tab.id)) continue;
-
-        // Se conseguimos ler o disco, podemos decidir se há conflito real.
-        if (!diskReadError) {
-          const localContent = getCachedMarkdownForTab(tab);
-          const localHash = hashStringFNV1a32(localContent);
-          const lastDiskHash = Number(diskContentHashByTabRef.current[String(tab.id)] || 0);
-
-          // Caso comum: ferramenta externa salvou sem mudar o conteúdo (touch/reformat idêntico).
-          if (lastDiskHash && lastDiskHash === diskHash) {
-            void refreshDiskInfoForTab(tab);
-            continue;
-          }
-
-          // Caso comum: o arquivo no disco já está igual ao que temos localmente.
-          if (diskHash === localHash) {
-            setDiskBaselineForTab(tab.id, localContent);
-            setDocDirty(tab.id, false);
-            void refreshDiskInfoForTab(tab);
-            // Não abre prompt.
-            continue;
-          }
-
-          // Aba limpa: recarrega automaticamente, mas só se realmente mudou.
-          if (!tab.isDirty) {
-            try {
-              setDocMarkdown(tab.id, diskContent);
-              updateLatestMarkdownForTab(tab.id, diskContent);
-              setDiskBaselineForTab(tab.id, diskContent);
-              setDocDirty(tab.id, false);
-              void refreshDiskInfoForTab(tab);
-              if (tab.id === currentDocumentId) addToast(t('editor.toast.externalReloaded'), 'info');
-            } catch {
-              // Se não der pra aplicar automaticamente, cai pro fluxo existente.
-              setExternalConflictLocked(tab.id, true);
-              setDocDirty(tab.id, true);
-              if (!isExternalPromptInFlight(tab.id)) {
-                void promptResolveExternalChangeForTab(tab.id, String(tab.filePath), { diskContent, diskReadError });
-              }
-            }
-            continue;
-          }
-        }
-        // Aba dirty (ou falha ao ler o disco): pede decisão explícita.
-        setExternalConflictLocked(tab.id, true);
-        setDocDirty(tab.id, true);
-        if (!isExternalPromptInFlight(tab.id)) {
-          void promptResolveExternalChangeForTab(tab.id, String(tab.filePath), { diskContent, diskReadError });
-        }
+        await syncOrPromptExternalChangeForTab(tab, {
+          diskContent,
+          diskReadError,
+          diskHash,
+          allowAutoReload: true,
+          notifyAutoReload: true,
+        });
       }
     });
 
