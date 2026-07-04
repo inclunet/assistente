@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 
 const mockSetBoundConversation = vi.fn();
+const isWorkspaceModalTopmost = vi.fn(() => true);
 
 const workspaceChatModalState = {
   isOpen: true,
@@ -35,12 +36,13 @@ vi.mock('react-i18next', () => ({
 vi.mock('../ui/Modal', () => ({
   Modal: ({ isOpen, title, children }: { isOpen: boolean; title: string; children: React.ReactNode }) => (
     isOpen ? (
-      <section aria-label={title}>
+      <section aria-label={title} className="modal-overlay">
         <h1>{title}</h1>
         {children}
       </section>
     ) : null
   ),
+  useModalIsTopmost: () => isWorkspaceModalTopmost,
 }));
 
 const capturedChatPanelProps: {
@@ -54,7 +56,12 @@ vi.mock('../chat/ChatPanel', () => ({
     onRequestConversationChange?: (id: string, conversation: { title?: string }) => void;
   }) => {
     capturedChatPanelProps.onRequestConversationChange = onRequestConversationChange;
-    return <div data-session-key={surface.sessionKey}>chat-panel</div>;
+    return (
+      <div data-session-key={surface.sessionKey}>
+        chat-panel
+        <textarea aria-label="Mensagem" className="chat-input__textarea" />
+      </div>
+    );
   },
 }));
 
@@ -112,6 +119,8 @@ describe('WorkspaceChatModal', () => {
   beforeEach(() => {
     capturedChatPanelProps.onRequestConversationChange = undefined;
     mockSetBoundConversation.mockClear();
+    isWorkspaceModalTopmost.mockClear();
+    isWorkspaceModalTopmost.mockReturnValue(true);
   });
 
   it('usa timeline canônica no título quando sessão legada não existe', () => {
@@ -141,5 +150,24 @@ describe('WorkspaceChatModal', () => {
     capturedChatPanelProps.onRequestConversationChange?.('nova-conversa', { title: 'Outra' });
 
     expect(mockSetBoundConversation).toHaveBeenCalledWith('nova-conversa');
+  });
+
+  it('nao rouba foco quando outro modal esta no topo', async () => {
+    isWorkspaceModalTopmost.mockReturnValue(false);
+
+    render(
+      <>
+        <WorkspaceChatModal />
+        <button>Confirmar conflito</button>
+      </>
+    );
+
+    const questionnaireControl = screen.getByRole('button', { name: 'Confirmar conflito' });
+    questionnaireControl.focus();
+
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    expect(screen.getByRole('textbox', { name: 'Mensagem' })).not.toHaveFocus();
+    expect(questionnaireControl).toHaveFocus();
   });
 });
