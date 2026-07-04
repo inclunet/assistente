@@ -75,6 +75,12 @@ interface EditorPageProps {
   isPanelActive?: boolean;
 }
 
+type EditorSelectionSnapshot =
+  | { mode: 'markdown'; snapshot: MarkdownSelectionSnapshot }
+  | { mode: 'rich'; snapshot: RichSelectionSnapshot };
+
+const EDITOR_SELECTION_CACHE_STALE_AFTER_MS = 120000;
+
 export default function EditorPage({ documentId, workspaceTab, isPanelActive = true }: EditorPageProps = {}) {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
@@ -111,6 +117,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   const richEditorRef = useRef<TipTapEditor | null>(null);
   const richEditorHandleRef = useRef<RichTextEditorHandle | null>(null);
   const currentRevealSlideIndexRef = useRef(0);
+  const lastExplicitSelectionRef = useRef<{
+    tabId: string;
+    capturedAt: number;
+    selection: EditorSelectionSnapshot;
+  } | null>(null);
 
   const [isAsking, setIsAsking] = useState(false);
   const [currentRevealSlideIndex, setCurrentRevealSlideIndex] = useState(0);
@@ -399,6 +410,120 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       snapshot,
     };
   };
+
+  const hasExplicitSelection = (selection: EditorSelectionSnapshot) => {
+    if (selection.mode === 'markdown') {
+      return !selection.snapshot.selectionIsEmpty && !!selection.snapshot.selectedText;
+    }
+    return !selection.snapshot.selectionIsEmpty && !!(selection.snapshot.selectedText || selection.snapshot.selectedMarkdown);
+  };
+
+  const isEditorFocusedForMode = (mode: EditorMode) => {
+    if (mode === 'markdown') return !!editorRef.current?.hasTextFocus?.();
+    if (mode === 'rich') {
+      const rich = richEditorRef.current;
+      return !!(rich?.view?.hasFocus?.() ?? rich?.isFocused);
+    }
+    return false;
+  };
+
+  const readCurrentSelectionSnapshot = (): EditorSelectionSnapshot | null => {
+    if (!activeTab) return null;
+    if (activeTab.mode === 'markdown') {
+      const snapshot = getSelectionSnapshot();
+      return snapshot ? { mode: 'markdown', snapshot } : null;
+    }
+    if (activeTab.mode === 'rich') {
+      const snapshot = getRichSelectionSnapshot();
+      return snapshot ? { mode: 'rich', snapshot } : null;
+    }
+    return null;
+  };
+
+  const rememberCurrentExplicitSelection = () => {
+    if (!activeTab) return null;
+    const selection = readCurrentSelectionSnapshot();
+    if (!selection) return null;
+
+    if (hasExplicitSelection(selection)) {
+      lastExplicitSelectionRef.current = {
+        tabId: activeTab.id,
+        capturedAt: Date.now(),
+        selection,
+      };
+      return selection;
+    }
+
+    if (isEditorFocusedForMode(activeTab.mode)) {
+      lastExplicitSelectionRef.current = null;
+    }
+    return selection;
+  };
+
+  const isCachedSelectionStillValid = (cached: EditorSelectionSnapshot) => {
+    try {
+      if (cached.mode === 'markdown') {
+        const model = editorRef.current?.getModel?.();
+        if (!model) return false;
+        const current = model.getValue?.() ?? activeTab?.markdown ?? '';
+        const expected = cached.snapshot.selectedText;
+        return current.slice(cached.snapshot.startOffset, cached.snapshot.endOffset) === expected;
+      }
+
+      const rich = richEditorRef.current;
+      if (!rich) return false;
+      const expected = cached.snapshot.selectedText;
+      const current = String(
+        rich.state?.doc?.textBetween?.(cached.snapshot.from, cached.snapshot.to, '\n') ?? '',
+      );
+      return current === expected;
+    } catch {
+      return false;
+    }
+  };
+
+  const getPreparedSelectionSnapshot = (): EditorSelectionSnapshot | null => {
+    const live = readCurrentSelectionSnapshot();
+    const cached = lastExplicitSelectionRef.current;
+    if (!activeTab || !cached) return live;
+    if (cached.tabId !== activeTab.id) return live;
+    if (cached.selection.mode !== activeTab.mode) return live;
+    if (!hasExplicitSelection(cached.selection)) return live;
+    if (Date.now() - cached.capturedAt > EDITOR_SELECTION_CACHE_STALE_AFTER_MS) return live;
+    if (live && hasExplicitSelection(live)) return live;
+    if (live && isEditorFocusedForMode(activeTab.mode)) return live;
+    if (!isCachedSelectionStillValid(cached.selection)) return live;
+    return cached.selection;
+  };
+
+  useEffect(() => {
+    if (!activeTab || activeTab.mode !== 'markdown') return;
+    const editor = editorRef.current;
+    const onDidChangeCursorSelection = editor?.onDidChangeCursorSelection;
+    if (typeof onDidChangeCursorSelection !== 'function') return;
+
+    const disposable = onDidChangeCursorSelection.call(editor, () => {
+      rememberCurrentExplicitSelection();
+    }) as { dispose?: () => void } | undefined;
+
+    return () => disposable?.dispose?.();
+  }, [activeTab?.id, activeTab?.mode, editorReadyNonce]);
+
+  useEffect(() => {
+    if (!activeTab || activeTab.mode !== 'rich') return;
+    const rich = richEditorRef.current as unknown as {
+      on?: (event: string, callback: () => void) => void;
+      off?: (event: string, callback: () => void) => void;
+    } | null;
+    if (typeof rich?.on !== 'function') return;
+
+    const onSelectionUpdate = () => {
+      rememberCurrentExplicitSelection();
+    };
+
+    rich.on('selectionUpdate', onSelectionUpdate);
+    return () => rich.off?.('selectionUpdate', onSelectionUpdate);
+  }, [activeTab?.id, activeTab?.mode, editorReadyNonce]);
 
   function focusEditorSoon() {
     window.setTimeout(() => {
@@ -1129,12 +1254,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           return { ok: false, message: t('workspace.chatModal.panelLoading') };
         }
 
+        const preparedSnapshot = getPreparedSelectionSnapshot();
         const selectionRaw =
-          activeTab.mode === 'markdown'
-            ? getSelectionSnapshot()
-            : activeTab.mode === 'rich'
-              ? getRichSelectionSnapshot()
-              : null;
+          preparedSnapshot?.mode === activeTab.mode
+            ? preparedSnapshot.snapshot
+            : null;
 
         if (!selectionRaw) {
           addToast(t('editor.chatModal.prepareSelectionFailed'), 'error');
@@ -1726,9 +1850,12 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     return [
       {
         key: 'ask',
-        label: 'Perguntar ao chat',
+        label: t('editor.actions.askChat'),
         icon: <MessageOutlined />,
         shortcut: 'Ctrl+Shift+I',
+        onMouseDown: () => {
+          rememberCurrentExplicitSelection();
+        },
         onClick: async () => {
           if (isAsking) return;
           if (activeTab?.mode === 'view') {
