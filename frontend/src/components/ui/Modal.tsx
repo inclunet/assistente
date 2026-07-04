@@ -3,6 +3,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useCallback,
@@ -52,6 +53,10 @@ export function useModalIsTopmost(): () => boolean {
 const FOCUSABLE_SELECTOR = 
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
   'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable]';
+
+function isVisibleFocusableElement(el: HTMLElement): boolean {
+  return el.offsetParent !== null || el.getClientRects().length > 0;
+}
 
 function restorePageFocus() {
   requestAnimationFrame(() => {
@@ -116,7 +121,7 @@ export function Modal({
   const topmostValue = useMemo(() => isTopMost, [isTopMost]);
 
   // Mantém o stack em sync com abertura/fechamento.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const id = modalInstanceIdRef.current;
     if (!isOpen) return;
 
@@ -131,7 +136,7 @@ export function Modal({
   const getFocusableElements = useCallback(() => {
     if (!modalRef.current) return [];
     return Array.from(modalRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
-      .filter(el => el.offsetParent !== null); // Filtra elementos visíveis
+      .filter(isVisibleFocusableElement); // Filtra elementos visíveis
   }, []);
 
   // Restaura foco na área padrão quando isOpen transita de true → false
@@ -143,25 +148,18 @@ export function Modal({
   }, [isOpen, returnFocusOnClose]);
 
   // Auto-focus no primeiro elemento focável quando o modal abre
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isOpen || !modalRef.current) return;
 
-    // Aguarda o DOM renderizar completamente
-    const frameId = requestAnimationFrame(() => {
-      if (!isTopMost() || !modalRef.current) return;
-      const focusableElements = getFocusableElements();
-      // Procura primeiro um input/textarea/select, senão usa o primeiro focável
-      const firstInput = focusableElements.find(el => 
-        el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
-      );
-      const firstFocusable = firstInput || focusableElements[0];
-      
-      if (firstFocusable) {
-        firstFocusable.focus();
-      }
-    });
+    if (!isTopMost()) return;
+    const focusableElements = getFocusableElements();
+    // Procura primeiro um input/textarea/select, senão usa o primeiro focável
+    const firstInput = focusableElements.find(el =>
+      el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
+    );
+    const firstFocusable = firstInput || focusableElements[0] || modalRef.current;
 
-    return () => cancelAnimationFrame(frameId);
+    firstFocusable.focus();
   }, [isOpen, getFocusableElements, isTopMost]);
 
   useEffect(() => {
@@ -235,7 +233,11 @@ export function Modal({
         aria-labelledby={titleId}
         aria-describedby={ariaDescribedBy}
       >
-        <div ref={modalRef} className={`modal-content ${size}${className ? ` ${className}` : ''}`}>
+        <div
+          ref={modalRef}
+          className={`modal-content ${size}${className ? ` ${className}` : ''}`}
+          tabIndex={-1}
+        >
           <div className="modal-header">
             {allowClose && (
               <button 
