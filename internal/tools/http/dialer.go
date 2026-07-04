@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -59,6 +60,13 @@ func ssrfControlWithTrust(allowPrivate func() bool, trusted map[string]bool) fun
 		if err != nil {
 			host = address
 			port = ""
+		}
+		// Remove o zone id de IPv6 link-local (RFC 6874, ex.: fe80::1%en0) antes
+		// de parsear: net.ParseIP falha com a zona presente, o que faria o guard
+		// devolver um erro genérico (não *BlockedIPError), pulando o fluxo de
+		// autorização/erro acionável para destinos link-local.
+		if i := strings.IndexByte(host, '%'); i >= 0 {
+			host = host[:i]
 		}
 		ip := net.ParseIP(host)
 		if ip == nil {

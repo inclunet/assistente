@@ -200,6 +200,24 @@ func TestSSRFControlWithTrust_OnlyTrustsExactIP(t *testing.T) {
 	}
 }
 
+// IPv6 link-local com zone id (RFC 6874) deve ser barrado como *BlockedIPError
+// (não erro genérico), preservando o fluxo de autorização/erro acionável.
+func TestSSRFControlWithTrust_IPv6ZoneID(t *testing.T) {
+	ctl := ssrfControlWithTrust(nil, nil)
+
+	err := ctl("tcp", "[fe80::1%en0]:443", nil)
+	var blocked *BlockedIPError
+	if !errors.As(err, &blocked) {
+		t.Fatalf("link-local com zone id deveria virar *BlockedIPError, got %v", err)
+	}
+
+	// Mesmo endereço, se estiver no trust (IP sem zona), deve passar.
+	trusted := map[string]bool{trustKey(normalizeIPKey(net.ParseIP("fe80::1")), "443"): true}
+	if err := ssrfControlWithTrust(nil, trusted)("tcp", "[fe80::1%en0]:443", nil); err != nil {
+		t.Fatalf("link-local confiável (com zone id) deveria passar: %v", err)
+	}
+}
+
 // allowedTrustPorts: porta explícita libera só ela; host-level libera default.
 func TestAllowedTrustPorts(t *testing.T) {
 	if got := allowedTrustPorts("8443", true); len(got) != 1 || got[0] != "8443" {
