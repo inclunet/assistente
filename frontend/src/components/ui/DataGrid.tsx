@@ -6,6 +6,11 @@ import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { playBumpSound } from '../../services/audioFeedback';
 import './DataGrid.css';
 
+// Tempo em ms para permitir nova tentativa de onNearEnd se uma carga incremental falhar.
+const NEAR_END_SIGNAL_RESET_DELAY_MS = 1000;
+// Distância em px até o fim visível do grid para iniciar carregamento incremental.
+const NEAR_END_SCROLL_THRESHOLD_PX = 160;
+
 export interface DataGridColumn<T = unknown> {
   key: string;
   label: string;
@@ -36,6 +41,8 @@ export interface DataGridProps<T = unknown> {
   onGridReady?: (focusFirstCell: () => void) => void;
   onMoveItem?: (fromIndex: number, toIndex: number) => void;
   onFocusChange?: (item: T | null, rowIndex: number) => void;
+  onNearEnd?: () => void;
+  nearEndThreshold?: number;
   onItemToggle?: (item: T, rowIndex: number) => void;
   className?: string;
   showHeader?: boolean;
@@ -63,6 +70,8 @@ export function DataGrid<T = unknown>({
   onGridReady,
   onMoveItem,
   onFocusChange,
+  onNearEnd,
+  nearEndThreshold = 8,
   onItemToggle,
   className,
   showHeader = true,
@@ -81,6 +90,7 @@ export function DataGrid<T = unknown>({
   const [localSelectedIds, setLocalSelectedIds] = useState<Set<string | number>>(new Set(selectedIds || []));
   
   const gridRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const instructionsId = useId().replace(/[^a-zA-Z0-9_-]/g, '') + '-instructions';
   const cellRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -91,8 +101,16 @@ export function DataGrid<T = unknown>({
   const focusedItemIdRef = useRef<string | number | null>(null);
   const onFocusChangeRef = useRef(onFocusChange);
   onFocusChangeRef.current = onFocusChange;
+  const onNearEndRef = useRef(onNearEnd);
+  onNearEndRef.current = onNearEnd;
+  const itemsLengthRef = useRef(items.length);
+  itemsLengthRef.current = items.length;
   const focusedRowRef = useRef(focusedRow);
   const focusedColRef = useRef(focusedCol);
+  const nearEndSignalRef = useRef<number | null>(null);
+  const scrollNearEndSignalRef = useRef<number | null>(null);
+  const scrollNearEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasNearEndInteractionRef = useRef(false);
 
   const isCheckboxMode = selectionMode === 'checkbox';
   const isMultiSelect = multiSelect || isCheckboxMode;
@@ -122,7 +140,41 @@ export function DataGrid<T = unknown>({
       if (focusTimerRef.current) {
         clearTimeout(focusTimerRef.current);
       }
+      if (scrollNearEndTimerRef.current) {
+        clearTimeout(scrollNearEndTimerRef.current);
+      }
     };
+  }, []);
+
+  const markScrollNearEndSignaled = useCallback(function markNearEndSignaled(itemCount: number) {
+    scrollNearEndSignalRef.current = itemCount;
+    if (scrollNearEndTimerRef.current) {
+      clearTimeout(scrollNearEndTimerRef.current);
+    }
+    scrollNearEndTimerRef.current = setTimeout(() => {
+      if (scrollNearEndSignalRef.current === itemCount) {
+        scrollNearEndSignalRef.current = null;
+      }
+      if (nearEndSignalRef.current === itemCount) {
+        nearEndSignalRef.current = null;
+      }
+      scrollNearEndTimerRef.current = null;
+      if (
+        onNearEndRef.current &&
+        hasNearEndInteractionRef.current &&
+        itemsLengthRef.current === itemCount &&
+        bodyRef.current
+      ) {
+        const target = bodyRef.current;
+        const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+        if (remaining <= NEAR_END_SCROLL_THRESHOLD_PX) {
+          scrollNearEndSignalRef.current = itemCount;
+          nearEndSignalRef.current = itemCount;
+          onNearEndRef.current();
+          markNearEndSignaled(itemCount);
+        }
+      }
+    }, NEAR_END_SIGNAL_RESET_DELAY_MS);
   }, []);
 
   const announce = (message: string) => {
@@ -215,6 +267,7 @@ export function DataGrid<T = unknown>({
   // posiciona focusedRow/Col. Chamada no primeiro foco real do usuário.
   const activateFocus = useCallback((row: number, col: number) => {
     hasReceivedFocusRef.current = true;
+    hasNearEndInteractionRef.current = true;
     setFocusedRow(row);
     setFocusedCol(col);
     focusedRowRef.current = row;
@@ -234,11 +287,49 @@ export function DataGrid<T = unknown>({
         focusedItemIdRef.current = newId;
         onFocusChangeRef.current?.(items[focusedRow], focusedRow);
       }
+      if (onNearEndRef.current && items.length - focusedRow <= nearEndThreshold) {
+        if (nearEndSignalRef.current !== items.length) {
+          nearEndSignalRef.current = items.length;
+          markScrollNearEndSignaled(items.length);
+          onNearEndRef.current?.();
+        }
+      } else {
+        nearEndSignalRef.current = null;
+      }
     } else if (items.length === 0 && focusedItemIdRef.current !== null) {
       focusedItemIdRef.current = null;
       onFocusChangeRef.current?.(null, -1);
     }
-  }, [focusedRow, items, getItemId]);
+  }, [focusedRow, items, getItemId, nearEndThreshold, markScrollNearEndSignaled]);
+
+  const handleBodyScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    if (!onNearEndRef.current) return;
+    hasNearEndInteractionRef.current = true;
+    const target = event.currentTarget;
+    const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (remaining <= NEAR_END_SCROLL_THRESHOLD_PX) {
+      if (scrollNearEndSignalRef.current === items.length || nearEndSignalRef.current === items.length) return;
+      markScrollNearEndSignaled(items.length);
+      nearEndSignalRef.current = items.length;
+      onNearEndRef.current();
+    } else {
+      scrollNearEndSignalRef.current = null;
+    }
+  }, [items.length, markScrollNearEndSignaled]);
+
+  useEffect(() => {
+    if (!onNearEndRef.current || !bodyRef.current || items.length === 0 || !hasNearEndInteractionRef.current) return;
+    const target = bodyRef.current;
+    const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (remaining <= NEAR_END_SCROLL_THRESHOLD_PX) {
+      if (scrollNearEndSignalRef.current === items.length || nearEndSignalRef.current === items.length) return;
+      markScrollNearEndSignaled(items.length);
+      nearEndSignalRef.current = items.length;
+      onNearEndRef.current();
+    } else {
+      scrollNearEndSignalRef.current = null;
+    }
+  }, [items.length, markScrollNearEndSignaled]);
 
   // Segue o item quando a lista é reordenada
   useEffect(() => {
@@ -852,7 +943,7 @@ export function DataGrid<T = unknown>({
         </div>
       )}
       
-      <div className="datagrid-body">
+      <div ref={bodyRef} className="datagrid-body" onScroll={handleBodyScroll}>
         {items.map((item, rowIndex) => {
           const itemId = getItemId(item);
           const isSelected = localSelectedIds.has(itemId);
