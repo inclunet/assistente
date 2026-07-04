@@ -152,6 +152,7 @@ export function useEditorPersistence({
       diskContent?: string;
       diskReadError?: string;
       diskHash?: number;
+      assisted?: boolean;
       notifyAutoReload?: boolean;
       allowAutoReload?: boolean;
     }
@@ -176,6 +177,7 @@ export function useEditorPersistence({
       const diskHash = typeof opts?.diskHash === 'number' ? opts.diskHash : hashStringFNV1a32(diskContent);
       const localHash = hashStringFNV1a32(localContent);
       const lastDiskHash = Number(diskContentHashByTabRef.current[String(tab.id)] || 0);
+      const localMatchesKnownDisk = !!lastDiskHash && lastDiskHash === localHash;
 
       // Sem conflito real: disco e editor já convergiram para o mesmo conteúdo.
       if (diskHash === localHash) {
@@ -192,7 +194,7 @@ export function useEditorPersistence({
       }
 
       // Aba limpa pode acompanhar uma escrita externa/assistida sem intervenção.
-      if (opts?.allowAutoReload && !tab.isDirty) {
+      if (opts?.allowAutoReload && (!tab.isDirty || (opts?.assisted && localMatchesKnownDisk))) {
         try {
           setDocMarkdown(tab.id, diskContent);
           updateLatestMarkdownForTab(tab.id, diskContent);
@@ -331,8 +333,12 @@ export function useEditorPersistence({
     const unsub = EventsOn('editor:fileChanged', async (data: EditorFileChangedEvent) => {
       const changedPath = String(data?.path || data?.filePath || '').trim();
       if (!changedPath) return;
+      const assisted = data?.assisted === true || String(data?.origin || '') === 'assistant_tool';
+      if (assisted) {
+        flushActiveRichMarkdownNow();
+      }
 
-      if (isProbablySelfWrite(changedPath)) {
+      if (!assisted && isProbablySelfWrite(changedPath)) {
         return;
       }
 
@@ -358,6 +364,7 @@ export function useEditorPersistence({
           diskContent,
           diskReadError,
           diskHash,
+          assisted,
           allowAutoReload: true,
           notifyAutoReload: true,
         });

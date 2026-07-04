@@ -14,11 +14,28 @@ import (
 // Cria diretórios intermediários automaticamente se necessário.
 type WriteFile struct {
 	workDir string
+	onWrite FileWriteObserver
+}
+
+// WriteFileOption configura integrações opcionais da tool.
+type WriteFileOption func(*WriteFile)
+
+// WithWriteFileWriteObserver registra um observador para escritas feitas pela tool.
+func WithWriteFileWriteObserver(observer FileWriteObserver) WriteFileOption {
+	return func(t *WriteFile) {
+		t.onWrite = observer
+	}
 }
 
 // NewWriteFile cria uma nova instância de WriteFile.
-func NewWriteFile(workDir string) *WriteFile {
-	return &WriteFile{workDir: workDir}
+func NewWriteFile(workDir string, opts ...WriteFileOption) *WriteFile {
+	t := &WriteFile{workDir: workDir}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(t)
+		}
+	}
+	return t
 }
 
 func (t *WriteFile) Name() string { return "write_file" }
@@ -104,11 +121,21 @@ func (t *WriteFile) Execute(ctx context.Context, args json.RawMessage) (tools.To
 	}
 
 	// Escreve o arquivo (criando diretórios intermediários se necessário)
+	var cancelWriteMarker func(bool)
+	if t.onWrite != nil {
+		cancelWriteMarker = t.onWrite(fullPath)
+	}
 	if err := WriteFileBytes(fullPath, []byte(a.Content), 0644); err != nil {
+		if cancelWriteMarker != nil {
+			cancelWriteMarker(false)
+		}
 		return tools.ToolResult{
 			Content: fmt.Sprintf("Erro ao escrever arquivo: %v", err),
 			IsError: true,
 		}, nil
+	}
+	if cancelWriteMarker != nil {
+		cancelWriteMarker(true)
 	}
 
 	// Conta linhas

@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -20,6 +21,16 @@ type editorDirWatch struct {
 	files    map[string]int
 	lastEmit map[string]time.Time
 }
+
+type editorAssistedWrite struct {
+	origin    string
+	expiresAt time.Time
+	size      int64
+	modTime   time.Time
+	committed bool
+}
+
+const editorAssistedWriteTTL = 5 * time.Second
 
 func normalizeWatchPath(p string) (string, error) {
 	s := strings.TrimSpace(p)
@@ -88,6 +99,104 @@ func (a *App) ensureEditorWatchInit() {
 	defer a.editorWatchMu.Unlock()
 	if a.editorDirWatches == nil {
 		a.editorDirWatches = map[string]*editorDirWatch{}
+	}
+	if a.editorAssistedWriteByPath == nil {
+		a.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+	}
+}
+
+func (a *App) markEditorAssistedWrite(path string) func(bool) {
+	a.ensureEditorWatchInit()
+	norm, err := normalizeWatchPath(path)
+	if err != nil {
+		return nil
+	}
+	normDir, err := normalizeWatchPath(filepath.Dir(norm))
+	if err != nil {
+		return nil
+	}
+	a.editorWatchMu.Lock()
+	dw := a.editorDirWatches[normDir]
+	a.editorWatchMu.Unlock()
+	if dw == nil || !dw.isWatchingFile(norm) {
+		return nil
+	}
+	a.editorWatchMu.Lock()
+	a.editorAssistedWriteByPath[norm] = editorAssistedWrite{
+		origin:    "assistant_tool",
+		expiresAt: time.Now().Add(editorAssistedWriteTTL),
+	}
+	a.editorWatchMu.Unlock()
+
+	return func(committed bool) {
+		a.editorWatchMu.Lock()
+		defer a.editorWatchMu.Unlock()
+		if !committed {
+			delete(a.editorAssistedWriteByPath, norm)
+			return
+		}
+		info, err := os.Stat(norm)
+		if err != nil || info.IsDir() {
+			delete(a.editorAssistedWriteByPath, norm)
+			return
+		}
+		write := a.editorAssistedWriteByPath[norm]
+		write.size = info.Size()
+		write.modTime = info.ModTime()
+		write.committed = true
+		write.expiresAt = time.Now().Add(editorAssistedWriteTTL)
+		a.editorAssistedWriteByPath[norm] = write
+	}
+}
+
+func (a *App) clearEditorAssistedWrite(normalizedAbsPath string) {
+	a.ensureEditorWatchInit()
+	a.editorWatchMu.Lock()
+	defer a.editorWatchMu.Unlock()
+	delete(a.editorAssistedWriteByPath, normalizedAbsPath)
+}
+
+func (a *App) clearExpiredEditorAssistedWritesLocked(now time.Time) {
+	for path, write := range a.editorAssistedWriteByPath {
+		if now.After(write.expiresAt) {
+			delete(a.editorAssistedWriteByPath, path)
+		}
+	}
+}
+
+func (a *App) assistedWriteMatchesCurrentFileLocked(normalizedAbsPath string, write editorAssistedWrite) bool {
+	if !write.committed {
+		return false
+	}
+	info, err := os.Stat(normalizedAbsPath)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	return info.Size() == write.size && info.ModTime().Equal(write.modTime)
+}
+
+func (a *App) consumeEditorAssistedWrite(normalizedAbsPath string) (string, bool) {
+	for {
+		a.ensureEditorWatchInit()
+		a.editorWatchMu.Lock()
+		now := time.Now()
+		a.clearExpiredEditorAssistedWritesLocked(now)
+		write, ok := a.editorAssistedWriteByPath[normalizedAbsPath]
+		if !ok {
+			a.editorWatchMu.Unlock()
+			return "", false
+		}
+		if write.committed {
+			delete(a.editorAssistedWriteByPath, normalizedAbsPath)
+			matches := !now.After(write.expiresAt) && a.assistedWriteMatchesCurrentFileLocked(normalizedAbsPath, write)
+			a.editorWatchMu.Unlock()
+			if !matches {
+				return "", false
+			}
+			return write.origin, true
+		}
+		a.editorWatchMu.Unlock()
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -168,6 +277,9 @@ func (a *App) editorUnwatchFile(path string) error {
 	}
 
 	dw.removeFile(normFile)
+	if !dw.isWatchingFile(normFile) {
+		a.clearEditorAssistedWrite(normFile)
+	}
 
 	if !dw.isEmpty() {
 		return nil
@@ -229,11 +341,16 @@ func (a *App) runEditorDirWatch(dw *editorDirWatch) {
 			}
 
 			if a.ctx != nil {
-				a.emitter.Emit( "editor:fileChanged", map[string]any{
+				payload := map[string]any{
 					"path": ev.Name,
 					"op":   ev.Op.String(),
 					"ts":   time.Now().UnixMilli(),
-				})
+				}
+				if origin, ok := a.consumeEditorAssistedWrite(normEv); ok {
+					payload["origin"] = origin
+					payload["assisted"] = true
+				}
+				a.emitter.Emit("editor:fileChanged", payload)
 			}
 		case <-dw.watcher.Errors:
 			// best-effort: ignore
