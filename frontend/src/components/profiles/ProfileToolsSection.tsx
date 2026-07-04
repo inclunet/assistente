@@ -166,13 +166,21 @@ export function ProfileToolsSection({
     onChange('tool_policy', nextPolicy);
   }, [onChange, onPolicyChange]);
 
+  const isExplicitlyDisabled = useCallback((name: string) => (
+    toolPolicy != null
+    && Object.prototype.hasOwnProperty.call(toolPolicy, name)
+    && toolPolicy[name] === TOOL_POLICY_DISABLED
+  ), [toolPolicy]);
+
   const setToolsState = useCallback((names: Iterable<string>, state: ToolPolicyState) => {
     const next = { ...effectiveToolPolicy };
     for (const name of names) {
-      if (allNames.includes(name)) next[name] = state;
+      if (!allNames.includes(name)) continue;
+      if (state === TOOL_POLICY_PRELOADED && isExplicitlyDisabled(name)) continue;
+      next[name] = state;
     }
     commitToolPolicy(next);
-  }, [allNames, commitToolPolicy, effectiveToolPolicy]);
+  }, [allNames, commitToolPolicy, effectiveToolPolicy, isExplicitlyDisabled]);
 
   const handleSelectionChange = useCallback((newSelectedIds: Set<string | number>) => {
     if (newSelectedIds.size === allNames.length) {
@@ -180,20 +188,25 @@ export function ProfileToolsSection({
       setToolsState(allNames, TOOL_POLICY_PRELOADED);
       return;
     }
+    const scopeNames = isFiltered ? filteredNames : allNames;
     if (newSelectedIds.size === 0) {
       const next = { ...effectiveToolPolicy };
-      for (const name of allNames) {
-        next[name] = CONTROL_PLANE_TOOLS.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
+      for (const name of scopeNames) {
+        next[name] = CONTROL_PLANE_TOOLS.has(name) && !isExplicitlyDisabled(name)
+          ? TOOL_POLICY_PRELOADED
+          : TOOL_POLICY_DISABLED;
       }
       commitToolPolicy(next);
       return;
     }
     const next = { ...effectiveToolPolicy };
-    for (const name of allNames) {
-      next[name] = newSelectedIds.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
+    for (const name of scopeNames) {
+      next[name] = newSelectedIds.has(name) && !isExplicitlyDisabled(name)
+        ? TOOL_POLICY_PRELOADED
+        : TOOL_POLICY_DISABLED;
     }
     commitToolPolicy(next);
-  }, [allNames, commitToolPolicy, effectiveToolPolicy, selectedIds.size, setToolsState]);
+  }, [allNames, commitToolPolicy, effectiveToolPolicy, filteredNames, isExplicitlyDisabled, isFiltered, selectedIds.size, setToolsState]);
 
   const handleSelectFiltered = useCallback(() => {
     if (!isFiltered) {
@@ -207,13 +220,15 @@ export function ProfileToolsSection({
     if (!isFiltered) {
       const next = { ...effectiveToolPolicy };
       for (const name of allNames) {
-        next[name] = CONTROL_PLANE_TOOLS.has(name) ? TOOL_POLICY_PRELOADED : TOOL_POLICY_DISABLED;
+        next[name] = CONTROL_PLANE_TOOLS.has(name) && !isExplicitlyDisabled(name)
+          ? TOOL_POLICY_PRELOADED
+          : TOOL_POLICY_DISABLED;
       }
       commitToolPolicy(next);
       return;
     }
     setToolsState(filteredNames, TOOL_POLICY_DISABLED);
-  }, [isFiltered, allNames, commitToolPolicy, effectiveToolPolicy, filteredNames, setToolsState]);
+  }, [isFiltered, allNames, commitToolPolicy, effectiveToolPolicy, filteredNames, isExplicitlyDisabled, setToolsState]);
 
   const filteredToolNames = [...filteredNames];
   const allFilteredPreloaded = filteredToolNames.every(

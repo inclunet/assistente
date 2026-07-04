@@ -254,6 +254,10 @@ export function GetConversationWithThreads(arg1:string):Promise<chat.Conversatio
 
 export function GetConversations():Promise<Array<database.Conversation>>;
 
+export function GetConversationsByIDs(arg1:Array<string>):Promise<Array<database.Conversation>>;
+
+export function GetConversationsPage(arg1:number,arg2:number):Promise<app.ConversationListResult>;
+
 export function GetDatabaseStats():Promise<database.DatabaseStats>;
 
 export function GetEffectiveModel():Promise<string>;

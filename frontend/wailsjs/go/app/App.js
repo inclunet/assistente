@@ -462,6 +462,14 @@ export function GetConversations() {
   return window['go']['app']['App']['GetConversations']();
 }
 
+export function GetConversationsByIDs(arg1) {
+  return window['go']['app']['App']['GetConversationsByIDs'](arg1);
+}
+
+export function GetConversationsPage(arg1, arg2) {
+  return window['go']['app']['App']['GetConversationsPage'](arg1, arg2);
+}
+
 export function GetDatabaseStats() {
   return window['go']['app']['App']['GetDatabaseStats']();
 }

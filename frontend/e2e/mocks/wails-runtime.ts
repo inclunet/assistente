@@ -88,6 +88,20 @@ export function buildWailsMockScript(): string {
     role: 'admin',
   };
 
+  const DEFAULT_CONVERSATION_PAGE_LIMIT = 100;
+
+  function normalizeConversationPageLimit(value) {
+    const limit = Number(value);
+    if (!Number.isFinite(limit) || limit <= 0) return DEFAULT_CONVERSATION_PAGE_LIMIT;
+    return Math.min(limit, 500);
+  }
+
+  function normalizeConversationPageOffset(value) {
+    const offset = Number(value);
+    if (!Number.isFinite(offset) || offset < 0) return 0;
+    return offset;
+  }
+
   const defaults = {
     /* App init */
     NeedsWelcomeWizard: false,
@@ -251,6 +265,25 @@ export function buildWailsMockScript(): string {
             const val = _config.responses.GetMessages;
             return Promise.resolve(typeof val === 'function' ? val(...args) : val);
           }
+          if (fnName === 'GetConversationsPage' && 'GetConversations' in _config.responses) {
+            const val = _config.responses.GetConversations;
+            const rows = typeof val === 'function' ? val() : val;
+            const conversations = Array.isArray(rows) ? rows : [];
+            const limit = normalizeConversationPageLimit(args[0]);
+            const offset = normalizeConversationPageOffset(args[1]);
+            const pageRows = conversations.slice(offset, offset + limit);
+            return Promise.resolve({ conversations: pageRows, total: conversations.length });
+          }
+          if (fnName === 'GetConversationsByIDs' && 'GetConversations' in _config.responses) {
+            const val = _config.responses.GetConversations;
+            const rows = typeof val === 'function' ? val() : val;
+            const conversations = Array.isArray(rows) ? rows : [];
+            const ids = Array.isArray(args[0]) ? args[0].map(String) : [];
+            return Promise.resolve(ids.flatMap((id) => {
+              const row = conversations.find((conversation) => String(conversation?.id) === id);
+              return row ? [row] : [];
+            }));
+          }
           if (
             fnName === 'GetConversationMessageWindow'
             && !('GetConversationMessageWindow' in _config.responses)
@@ -310,6 +343,16 @@ export function buildWailsMockScript(): string {
           if (fnName in defaults) {
             const val = defaults[fnName];
             return Promise.resolve(typeof val === 'function' ? val(...args) : JSON.parse(JSON.stringify(val)));
+          }
+          if (fnName === 'GetConversationsPage') {
+            const conversations = Array.isArray(defaults.GetConversations) ? defaults.GetConversations : [];
+            const limit = normalizeConversationPageLimit(args[0]);
+            const offset = normalizeConversationPageOffset(args[1]);
+            const pageRows = conversations.slice(offset, offset + limit);
+            return Promise.resolve({ conversations: pageRows, total: conversations.length });
+          }
+          if (fnName === 'GetConversationsByIDs') {
+            return Promise.resolve([]);
           }
           return Promise.resolve(undefined);
         };
