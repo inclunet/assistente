@@ -66,6 +66,79 @@ describe('QuestionnaireDialog', () => {
     );
   });
 
+  it('toma foco imediatamente quando alteração externa abre com editor focado', () => {
+    const externalChangeData = {
+      id: 'ui-editor-external-change-test',
+      title: 'Alteração externa detectada',
+      description: 'O arquivo foi alterado fora do Assistente.',
+      submitLabel: 'Aplicar',
+      cancelLabel: 'Agora não',
+      questions: [
+        {
+          id: 'path',
+          type: 'readonly_code' as const,
+          prompt: 'Arquivo',
+          content: 'C:/tmp/documento.md',
+        },
+        {
+          id: 'disk',
+          type: 'readonly_code' as const,
+          prompt: 'Versão no disco',
+          content: 'conteúdo externo',
+        },
+        {
+          id: 'local',
+          type: 'readonly_code' as const,
+          prompt: 'Minha versão',
+          content: 'conteúdo local',
+        },
+        {
+          id: 'choice',
+          type: 'single_choice' as const,
+          prompt: 'Ação',
+          required: true,
+          options: ['Usar versão do disco', 'Resolver merge', 'Usar minha versão'],
+          default: 'Usar versão do disco',
+        },
+      ],
+    };
+
+    const { rerender } = render(
+      <>
+        <textarea aria-label="Editor Markdown" />
+        <QuestionnaireDialog
+          isOpen={false}
+          data={externalChangeData}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      </>
+    );
+
+    const editor = screen.getByRole('textbox', { name: 'Editor Markdown' });
+    editor.focus();
+    expect(editor).toHaveFocus();
+
+    rerender(
+      <>
+        <textarea aria-label="Editor Markdown" />
+        <QuestionnaireDialog
+          isOpen
+          data={externalChangeData}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      </>
+    );
+
+    expect(editor).not.toHaveFocus();
+    expect(screen.getByRole('radio', { name: 'Usar versão do disco' })).toHaveFocus();
+    expect(announceMock).toHaveBeenCalledWith(
+      'Alteração externa detectada. O arquivo foi alterado fora do Assistente.',
+      'assertive'
+    );
+  });
+
   it('anuncia todos os erros de validação obrigatória', async () => {
     const user = userEvent.setup();
     render(
