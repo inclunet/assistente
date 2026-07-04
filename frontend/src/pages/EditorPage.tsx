@@ -79,6 +79,8 @@ type EditorSelectionSnapshot =
   | { mode: 'markdown'; snapshot: MarkdownSelectionSnapshot }
   | { mode: 'rich'; snapshot: RichSelectionSnapshot };
 
+const EDITOR_SELECTION_CACHE_STALE_AFTER_MS = 120000;
+
 export default function EditorPage({ documentId, workspaceTab, isPanelActive = true }: EditorPageProps = {}) {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
@@ -487,7 +489,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     if (cached.tabId !== activeTab.id) return live;
     if (cached.selection.mode !== activeTab.mode) return live;
     if (!hasExplicitSelection(cached.selection)) return live;
-    if (Date.now() - cached.capturedAt > 120000) return live;
+    if (Date.now() - cached.capturedAt > EDITOR_SELECTION_CACHE_STALE_AFTER_MS) return live;
     if (live && hasExplicitSelection(live)) return live;
     if (live && isEditorFocusedForMode(activeTab.mode)) return live;
     if (!isCachedSelectionStillValid(cached.selection)) return live;
