@@ -83,6 +83,14 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
     setErrors({});
   }, [isOpen, data]);
 
+  useEffect(() => {
+    if (!isOpen || !data) return;
+    const message = [title, description].filter(Boolean).join('. ');
+    if (message) {
+      announce(message, 'assertive');
+    }
+  }, [isOpen, data, title, description, announce]);
+
   const handleSubmit = () => {
     if (!data) return;
 

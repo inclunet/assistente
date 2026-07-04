@@ -1,7 +1,7 @@
 import { logger } from '../../utils/logger';
 import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Modal } from '../ui/Modal';
+import { Modal, useModalIsTopmost } from '../ui/Modal';
 import { ChatPanel, useEffectiveProfileSlug, type ChatPanelSendContext } from '../chat/ChatPanel';
 import { sendChatSurfaceMessage, useChatConversationTimeline } from '../chat/ChatSurfaceController';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
@@ -15,6 +15,26 @@ import { WorkspacePanelProvider } from './WorkspacePanelContext';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 
 import './WorkspaceChatModal.css';
+
+function WorkspaceChatModalFocus({ isOpen, focusNonce }: { isOpen: boolean; focusNonce: number }) {
+  const isModalTopmost = useModalIsTopmost();
+
+  /** `bumpFocus()` altera o nonce; sem isto o textarea do ChatInput não volta a receber foco. */
+  useEffect(() => {
+    if (!isOpen) return;
+    const id = requestAnimationFrame(() => {
+      if (!isModalTopmost()) return;
+      const modalRoot = document.querySelector('.workspace-chat-modal');
+      const ta = modalRoot?.querySelector(
+        '.chat-input__textarea',
+      ) as HTMLTextAreaElement | null;
+      ta?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isOpen, focusNonce, isModalTopmost]);
+
+  return null;
+}
 
 export function WorkspaceChatModal() {
   const { t } = useTranslation();
@@ -54,18 +74,6 @@ export function WorkspaceChatModal() {
     },
     [setBoundConversation],
   );
-
-  /** `bumpFocus()` altera o nonce; sem isto o textarea do ChatInput não volta a receber foco. */
-  useEffect(() => {
-    if (!isOpen) return;
-    const id = requestAnimationFrame(() => {
-      const ta = document.querySelector(
-        '.workspace-chat-modal .chat-input__textarea',
-      ) as HTMLTextAreaElement | null;
-      ta?.focus();
-    });
-    return () => cancelAnimationFrame(id);
-  }, [isOpen, focusNonce]);
 
   useEffect(() => {
     if (isOpen && adapterError) {
@@ -147,6 +155,8 @@ export function WorkspaceChatModal() {
   return (
     <Modal isOpen={isOpen} title={modalTitle} onClose={handleClose} size="lg">
       <div className="workspace-chat-modal">
+        <WorkspaceChatModalFocus isOpen={isOpen} focusNonce={focusNonce} />
+
         <details className="workspace-chat-modal__context">
           <summary className="workspace-chat-modal__context-summary">
             {t('editor.chatModal.contextBtn')}
