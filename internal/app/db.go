@@ -52,13 +52,18 @@ func (a *App) GetConversationsPage(limit, offset int) (ConversationListResult, e
 	if err != nil {
 		return ConversationListResult{}, err
 	}
-	if limit <= 0 {
-		limit = database.DefaultConversationPageLimit
-	}
+	limit, offset = normalizeConversationPageRequest(limit, offset)
+	return database.GetConversationsPageWithContext(ctx, limit, offset)
+}
+
+func normalizeConversationPageRequest(limit, offset int) (int, int) {
 	if offset < 0 {
 		offset = 0
 	}
-	return database.GetConversationsPageWithContext(ctx, limit, offset)
+	if limit <= 0 && offset > 0 {
+		limit = database.DefaultConversationPageLimit
+	}
+	return limit, offset
 }
 
 func (a *App) GetConversationsByIDs(ids []string) ([]Conversation, error) {
