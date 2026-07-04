@@ -388,6 +388,7 @@ const es = {
       gridLabel: 'Memorias guardadas',
       searchPlaceholder: 'Buscar memorias...',
       empty: 'No se encontraron memorias.',
+      loadingMore: 'Cargando más memorias...',
       pagination: {
         summary: '{{start}}-{{end}} de {{total}}',
         previous: 'Anterior',
@@ -467,6 +468,9 @@ const es = {
         archived: 'Memoria archivada.',
         unarchived: 'Memoria restaurada.',
         deleted: 'Memoria eliminada.',
+        loadingMore: 'Cargando más memorias.',
+        loadedMore: '{{count}} memorias cargadas.',
+        loadMoreFailed: 'Error al cargar más memorias.',
       },
       errors: {
         loadFailed: 'Error al cargar memorias.',
@@ -2520,6 +2524,9 @@ const es = {
 
     history: {
       loading: 'Cargando historial...',
+      loadingMore: 'Cargando más conversaciones...',
+      loadedMore: '{{count}} conversaciones cargadas.',
+      loadMoreFailed: 'Error al cargar más conversaciones.',
       untitled: 'Sin título',
       pickerLabel: 'Historial (Ctrl+H)',
       loadingShort: 'Cargando...',

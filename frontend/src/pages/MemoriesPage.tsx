@@ -67,17 +67,23 @@ export default function MemoriesPage() {
 
   const [records, setRecords] = useState<MemoryRecord[]>([]);
   const [totalRecords, setTotalRecords] = useState(0);
-  const [page, setPage] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [policyFilter, setPolicyFilter] = useState('');
   const [includeArchived, setIncludeArchived] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<MemoryRecord | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const loadRequestRef = useRef(0);
+  const recordsRef = useRef<MemoryRecord[]>([]);
+  const totalRecordsRef = useRef(0);
+  const [recordPageOffset, setRecordPageOffset] = useState(0);
+  const recordPageOffsetRef = useRef(0);
+  const hasLoadedRecordsRef = useRef(false);
+  const loadingRecordsRef = useRef(false);
   const savingRef = useRef(false);
 
   const policyOptions = useMemo(
@@ -96,44 +102,77 @@ export default function MemoriesPage() {
   );
   const includeArchivedDisabled = policyFilter !== '' && policyFilter !== 'archived';
 
-  const loadRecords = useCallback(async () => {
+  const loadRecords = useCallback(async (options?: { reset?: boolean; announceProgress?: boolean }) => {
+    const reset = options?.reset ?? false;
+    if (loadingRecordsRef.current && !reset) return;
+    const offset = reset ? 0 : recordPageOffsetRef.current;
+    if (!reset && hasLoadedRecordsRef.current && offset >= totalRecordsRef.current) {
+      return;
+    }
     const requestId = loadRequestRef.current + 1;
     loadRequestRef.current = requestId;
-    setLoading(true);
+    loadingRecordsRef.current = true;
+    if (reset) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
+    if (!reset && options?.announceProgress) {
+      announce(t('memories.announcements.loadingMore'));
+    }
     try {
       const filter = memory.Filter.createFrom({
         query: debouncedSearchTerm.trim(),
         loadPolicies: policyFilter ? [policyFilter] : undefined,
         includeArchived,
         limit: PAGE_SIZE,
-        offset: page * PAGE_SIZE,
+        offset,
       });
       const result = await ListMemoryRecords(filter);
       if (loadRequestRef.current !== requestId) {
         return;
       }
       const total = result.total || 0;
-      const lastPage = Math.max(0, Math.ceil(total / PAGE_SIZE) - 1);
-      if (page > lastPage) {
-        setRecords([]);
-        setTotalRecords(total);
-        setPage(lastPage);
-        return;
-      }
-      setRecords(result.records || []);
+      const nextRecords = result.records || [];
+      const nextPageOffset = nextRecords.length > 0 ? offset + nextRecords.length : total;
       setTotalRecords(total);
+      totalRecordsRef.current = total;
+      recordPageOffsetRef.current = nextPageOffset;
+      setRecordPageOffset(nextPageOffset);
+      hasLoadedRecordsRef.current = true;
+      const addedRecordCount = reset ? nextRecords.length : countNewMemoryRecords(recordsRef.current, nextRecords);
+      setRecords((previous) => {
+        const next = reset ? nextRecords : mergeMemoryRecords(previous, nextRecords);
+        recordsRef.current = next;
+        return next;
+      });
+      if (!reset && options?.announceProgress && addedRecordCount > 0) {
+        announce(t('memories.announcements.loadedMore', { count: addedRecordCount }));
+      }
     } catch {
       if (loadRequestRef.current === requestId) {
-        setRecords([]);
-        setTotalRecords(0);
+        if (reset) {
+          setRecords([]);
+          recordsRef.current = [];
+          setTotalRecords(0);
+          totalRecordsRef.current = 0;
+          recordPageOffsetRef.current = 0;
+          setRecordPageOffset(0);
+          hasLoadedRecordsRef.current = false;
+        }
         addToast(t('memories.errors.loadFailed'), 'error');
+        if (!reset && options?.announceProgress) {
+          announce(t('memories.announcements.loadMoreFailed'), 'assertive');
+        }
       }
     } finally {
       if (loadRequestRef.current === requestId) {
+        loadingRecordsRef.current = false;
         setLoading(false);
+        setLoadingMore(false);
       }
     }
-  }, [addToast, debouncedSearchTerm, includeArchived, page, policyFilter, t]);
+  }, [addToast, announce, debouncedSearchTerm, includeArchived, policyFilter, t]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedSearchTerm(searchTerm), 250);
@@ -141,16 +180,14 @@ export default function MemoriesPage() {
   }, [searchTerm]);
 
   useEffect(() => {
-    void loadRecords();
+    void loadRecords({ reset: true });
   }, [loadRecords]);
 
   const handleSearchChange = useCallback((value: string) => {
-    setPage(0);
     setSearchTerm(value);
   }, []);
 
   const handlePolicyFilterChange = useCallback((value: string) => {
-    setPage(0);
     setPolicyFilter(value);
     if (value === 'archived') {
       setIncludeArchived(true);
@@ -163,7 +200,6 @@ export default function MemoriesPage() {
   }, [announce, includeArchived, t]);
 
   const handleIncludeArchivedChange = useCallback((checked: boolean) => {
-    setPage(0);
     setIncludeArchived(checked);
     if (!checked && policyFilter === 'archived') {
       setPolicyFilter('');
@@ -259,10 +295,10 @@ export default function MemoriesPage() {
           changedFilter = true;
         }
         if (!changedFilter) {
-          await loadRecords();
+          await loadRecords({ reset: true });
         }
       } else {
-        await loadRecords();
+        await loadRecords({ reset: true });
       }
     } catch {
       addToast(t('memories.errors.saveFailed'), 'error');
@@ -281,7 +317,7 @@ export default function MemoriesPage() {
         await ArchiveMemoryRecord(record.id);
         announce(t('memories.announcements.archived'));
       }
-      await loadRecords();
+      await loadRecords({ reset: true });
     } catch {
       addToast(t('memories.errors.archiveFailed'), 'error');
     }
@@ -298,7 +334,7 @@ export default function MemoriesPage() {
     try {
       await DeleteMemoryRecord(record.id);
       announce(t('memories.announcements.deleted'));
-      await loadRecords();
+      await loadRecords({ reset: true });
     } catch {
       addToast(t('memories.errors.deleteFailed'), 'error');
     }
@@ -332,6 +368,11 @@ export default function MemoriesPage() {
     },
     { key: 'importance', label: t('memories.columns.importance'), width: '110px' },
   ], [t]);
+  const hasMoreRecords = recordPageOffset < totalRecords;
+  const canLoadMoreRecords = hasMoreRecords || !hasLoadedRecordsRef.current;
+  const handleNearEnd = useCallback(() => {
+    void loadRecords({ announceProgress: true });
+  }, [loadRecords]);
 
   return (
     <div className="memories-page">
@@ -341,7 +382,7 @@ export default function MemoriesPage() {
         searchValue={searchTerm}
         onSearchChange={handleSearchChange}
         searchPlaceholder={t('memories.searchPlaceholder')}
-        isLoading={loading}
+        isLoading={loading || loadingMore}
         right={(
           <div className="memories-page__filters">
             <Combobox
@@ -379,6 +420,7 @@ export default function MemoriesPage() {
         getItemId={(record) => record.id}
         onActivate={openEdit}
         onGridReady={handleGridReady}
+        onNearEnd={canLoadMoreRecords ? handleNearEnd : undefined}
         getRowActions={(record) => [
           {
             id: 'archive',
@@ -400,15 +442,11 @@ export default function MemoriesPage() {
         <p className="memories-page__empty">{t('memories.empty')}</p>
       )}
 
-      <div className="memories-page__pagination">
-        <span>{t('memories.pagination.summary', { start: totalRecords === 0 ? 0 : page * PAGE_SIZE + 1, end: Math.min((page + 1) * PAGE_SIZE, totalRecords), total: totalRecords })}</span>
-        <Button type="button" variant="secondary" onClick={() => setPage((value) => Math.max(0, value - 1))} disabled={page === 0 || loading}>
-          {t('memories.pagination.previous')}
-        </Button>
-        <Button type="button" variant="secondary" onClick={() => setPage((value) => value + 1)} disabled={(page + 1) * PAGE_SIZE >= totalRecords || loading}>
-          {t('memories.pagination.next')}
-        </Button>
-      </div>
+      {loadingMore && records.length > 0 && hasMoreRecords && (
+        <p className="memories-page__load-status">
+          {t('memories.loadingMore')}
+        </p>
+      )}
 
       <Modal
         isOpen={modalOpen}
@@ -515,4 +553,31 @@ function scopeRequiresRef(scope: string): boolean {
 
 function scopeRefFallbackForScope(scope: string, currentScopeRef: string): string {
   return scope === 'project' ? currentScopeRef : '';
+}
+
+function mergeMemoryRecords(previous: MemoryRecord[], nextPage: MemoryRecord[]): MemoryRecord[] {
+  if (nextPage.length === 0) return previous;
+  const seen = new Set(previous.map((record) => record.id));
+  let merged: MemoryRecord[] | null = null;
+  for (const record of nextPage) {
+    if (!seen.has(record.id)) {
+      seen.add(record.id);
+      merged ??= [...previous];
+      merged.push(record);
+    }
+  }
+  return merged ?? previous;
+}
+
+function countNewMemoryRecords(previous: MemoryRecord[], nextPage: MemoryRecord[]): number {
+  if (nextPage.length === 0) return 0;
+  const seen = new Set(previous.map((record) => record.id));
+  let addedCount = 0;
+  for (const record of nextPage) {
+    if (!seen.has(record.id)) {
+      seen.add(record.id);
+      addedCount += 1;
+    }
+  }
+  return addedCount;
 }

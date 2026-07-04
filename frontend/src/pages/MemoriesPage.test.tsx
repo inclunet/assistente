@@ -25,7 +25,11 @@ vi.mock('@wailsjs/go/app/App', () => ({
 }));
 
 vi.mock('react-i18next', () => {
-  const t = (key: string, fallback?: string | Record<string, unknown>) => (typeof fallback === 'string' ? fallback : key);
+  const t = (key: string, fallback?: string | Record<string, unknown>) => {
+    if (typeof fallback === 'string') return fallback;
+    if (typeof fallback?.count === 'number') return `${key}:${fallback.count}`;
+    return key;
+  };
   return {
     useTranslation: () => ({ t }),
   };
@@ -85,13 +89,15 @@ vi.mock('../components/ui/Toolbar', () => ({
 }));
 
 vi.mock('../components/ui/DataGrid', () => ({
-  DataGrid: ({ items, columns, onActivate, getRowActions }: {
+  DataGrid: ({ items, columns, onActivate, getRowActions, onNearEnd }: {
     items: Array<Record<string, unknown>>;
     columns: Array<{ key: string; format?: (value: unknown, item: Record<string, unknown>) => ReactNode }>;
     onActivate?: (item: Record<string, unknown>, index: number) => void;
     getRowActions?: (item: Record<string, unknown>) => Array<{ id: string; label?: string; action?: () => void }>;
+    onNearEnd?: () => void;
   }) => (
     <div role="grid">
+      <button type="button" onClick={() => onNearEnd?.()}>near-end</button>
       {items.map((item, index) => (
         <div key={String(item.id)} role="row">
           <button type="button" onClick={() => onActivate?.(item, index)}>
@@ -166,6 +172,98 @@ describe('MemoriesPage', () => {
       expect(mockListMemoryRecords).toHaveBeenCalled();
       expect(screen.getByText('Usuário prefere respostas curtas.')).toBeInTheDocument();
     });
+  });
+
+  it('anuncia apenas memórias realmente adicionadas ao carregar pagina com duplicatas', async () => {
+    const user = userEvent.setup();
+    mockListMemoryRecords
+      .mockResolvedValueOnce({
+        records: [{
+          id: 'mem-1',
+          content: 'primeira memória',
+          loadPolicy: 'core',
+          kind: 'user_preference',
+          scope: 'user',
+        }],
+        total: 3,
+      })
+      .mockResolvedValueOnce({
+        records: [
+          {
+            id: 'mem-1',
+            content: 'primeira memória',
+            loadPolicy: 'core',
+            kind: 'user_preference',
+            scope: 'user',
+          },
+          {
+            id: 'mem-2',
+            content: 'segunda memória',
+            loadPolicy: 'core',
+            kind: 'user_preference',
+            scope: 'user',
+          },
+        ],
+        total: 3,
+      });
+
+    render(<MemoriesPage />);
+
+    await screen.findByText('primeira memória');
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+
+    await screen.findByText('segunda memória');
+    expect(mockAnnounce).toHaveBeenCalledWith('memories.announcements.loadedMore:1');
+    expect(mockAnnounce).not.toHaveBeenCalledWith('memories.announcements.loadedMore:2');
+  });
+
+  it('avanca offset mesmo quando pagina incremental contem apenas duplicatas', async () => {
+    const user = userEvent.setup();
+    mockListMemoryRecords
+      .mockResolvedValueOnce({
+        records: [{
+          id: 'mem-1',
+          content: 'primeira memória',
+          loadPolicy: 'core',
+          kind: 'user_preference',
+          scope: 'user',
+        }],
+        total: 3,
+      })
+      .mockResolvedValueOnce({
+        records: [{
+          id: 'mem-1',
+          content: 'primeira memória',
+          loadPolicy: 'core',
+          kind: 'user_preference',
+          scope: 'user',
+        }],
+        total: 3,
+      })
+      .mockResolvedValueOnce({
+        records: [{
+          id: 'mem-2',
+          content: 'segunda memória',
+          loadPolicy: 'core',
+          kind: 'user_preference',
+          scope: 'user',
+        }],
+        total: 3,
+      });
+
+    render(<MemoriesPage />);
+
+    await screen.findByText('primeira memória');
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+    await waitFor(() => {
+      expect(mockListMemoryRecords.mock.calls[1][0]).toEqual(expect.objectContaining({ offset: 1 }));
+    });
+
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+    await waitFor(() => {
+      expect(mockListMemoryRecords.mock.calls[2][0]).toEqual(expect.objectContaining({ offset: 2 }));
+    });
+    expect(await screen.findByText('segunda memória')).toBeInTheDocument();
   });
 
   it('renderiza busca, filtros e acao principal na mesma toolbar ARIA', async () => {
@@ -269,21 +367,30 @@ describe('MemoriesPage', () => {
     });
   });
 
-  it('reseta pagina antes de carregar novo filtro', async () => {
+  it('reseta offset antes de carregar novo filtro', async () => {
     const user = userEvent.setup();
-    mockListMemoryRecords.mockResolvedValue({
-      records: [{ id: 'mem-1', content: 'memória paginada', loadPolicy: 'core', kind: 'user_preference', scope: 'user' }],
-      total: 251,
-    });
+    mockListMemoryRecords
+      .mockResolvedValueOnce({
+        records: [{ id: 'mem-1', content: 'memória paginada', loadPolicy: 'core', kind: 'user_preference', scope: 'user' }],
+        total: 251,
+      })
+      .mockResolvedValueOnce({
+        records: [{ id: 'mem-251', content: 'memória seguinte', loadPolicy: 'core', kind: 'user_preference', scope: 'user' }],
+        total: 251,
+      })
+      .mockResolvedValue({
+        records: [{ id: 'mem-filtered', content: 'memória filtrada', loadPolicy: 'core', kind: 'user_preference', scope: 'user' }],
+        total: 1,
+      });
 
     render(<MemoriesPage />);
 
     await waitFor(() => {
       expect(mockListMemoryRecords).toHaveBeenCalledWith(expect.objectContaining({ offset: 0 }));
     });
-    await user.click(screen.getByText('memories.pagination.next'));
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
     await waitFor(() => {
-      expect(mockListMemoryRecords).toHaveBeenCalledWith(expect.objectContaining({ offset: 250 }));
+      expect(mockListMemoryRecords).toHaveBeenCalledWith(expect.objectContaining({ offset: 1 }));
     });
 
     await selectPolicy('memories.loadPolicies.core');
@@ -296,7 +403,7 @@ describe('MemoriesPage', () => {
     });
     expect(mockListMemoryRecords.mock.calls.some(([filter]) => (
       (filter as { loadPolicies?: string[]; offset?: number }).loadPolicies?.[0] === 'core' &&
-      (filter as { offset?: number }).offset === 250
+      (filter as { offset?: number }).offset === 1
     ))).toBe(false);
   });
 
@@ -403,22 +510,18 @@ describe('MemoriesPage', () => {
     });
   });
 
-  it('reajusta a pagina quando o total diminui apos exclusao', async () => {
+  it('recarrega do inicio quando o total diminui apos exclusao', async () => {
     const user = userEvent.setup();
-    let resolvePageCorrection: ((value: unknown) => void) | undefined;
     let resolveReload: ((value: unknown) => void) | undefined;
     mockListMemoryRecords
       .mockResolvedValueOnce({
         records: [{ id: 'mem-1', content: 'primeira página', loadPolicy: 'core', kind: 'user_preference', scope: 'user' }],
-        total: 251,
+        total: 2,
       })
       .mockResolvedValueOnce({
-        records: [{ id: 'mem-251', content: 'última página', loadPolicy: 'core', kind: 'user_preference', scope: 'user' }],
-        total: 251,
+        records: [{ id: 'mem-2', content: 'segunda memória', loadPolicy: 'core', kind: 'user_preference', scope: 'user' }],
+        total: 2,
       })
-      .mockImplementationOnce(() => new Promise((resolve) => {
-        resolvePageCorrection = resolve;
-      }))
       .mockImplementationOnce(() => new Promise((resolve) => {
         resolveReload = resolve;
       }));
@@ -426,33 +529,58 @@ describe('MemoriesPage', () => {
     render(<MemoriesPage />);
 
     await screen.findByText('primeira página');
-    await user.click(screen.getByText('memories.pagination.next'));
-    await screen.findByText('última página');
-    await user.click(screen.getByText('memories.actions.delete'));
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+    await screen.findByText('segunda memória');
+    const deleteButtons = screen.getAllByText('memories.actions.delete');
+    await user.click(deleteButtons[1]);
 
     await waitFor(() => {
       expect(mockListMemoryRecords).toHaveBeenCalledTimes(3);
     });
     await act(async () => {
-      resolvePageCorrection?.({
-        records: [],
-        total: 249,
-      });
-    });
-    await waitFor(() => {
-      expect(screen.queryByText('última página')).not.toBeInTheDocument();
-      expect(mockListMemoryRecords).toHaveBeenCalledTimes(4);
-    });
-    await act(async () => {
       resolveReload?.({
         records: [{ id: 'mem-1', content: 'primeira página', loadPolicy: 'core', kind: 'user_preference', scope: 'user' }],
-        total: 249,
+        total: 1,
       });
     });
-    expect(mockListMemoryRecords.mock.calls[3][0]).toEqual(expect.objectContaining({
+    expect(mockListMemoryRecords.mock.calls[2][0]).toEqual(expect.objectContaining({
       offset: 0,
     }));
     expect(screen.getByText('primeira página')).toBeInTheDocument();
+    expect(screen.queryByText('segunda memória')).not.toBeInTheDocument();
+  });
+
+  it('permite nova tentativa incremental depois de erro em reset', async () => {
+    const user = userEvent.setup();
+    mockListMemoryRecords
+      .mockResolvedValueOnce({
+        records: [{ id: 'mem-1', content: 'memória carregada', loadPolicy: 'core', kind: 'user_preference', scope: 'user' }],
+        total: 1,
+      })
+      .mockRejectedValueOnce(new Error('reset failed'))
+      .mockResolvedValueOnce({
+        records: [{ id: 'mem-retry', content: 'memória após retry', loadPolicy: 'core', kind: 'user_preference', scope: 'user' }],
+        total: 1,
+      });
+
+    render(<MemoriesPage />);
+
+    await screen.findByText('memória carregada');
+    fireEvent.change(screen.getByLabelText('search'), { target: { value: 'falha' } });
+    await waitFor(() => {
+      expect(mockListMemoryRecords).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('memória carregada')).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'near-end' }));
+
+    await waitFor(() => {
+      expect(mockListMemoryRecords).toHaveBeenCalledTimes(3);
+    });
+    expect(mockListMemoryRecords.mock.calls[2][0]).toEqual(expect.objectContaining({ offset: 0 }));
+    expect(await screen.findByText('memória após retry')).toBeInTheDocument();
   });
 });
 
