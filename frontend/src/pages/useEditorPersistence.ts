@@ -148,10 +148,16 @@ export function useEditorPersistence({
 
   const syncOrPromptExternalChangeForTab = async (
     tab: EditorDocument,
-    filePath: string,
-    opts?: { diskContent?: string; diskReadError?: string; notifyAutoReload?: boolean; allowAutoReload?: boolean }
+    opts?: {
+      diskContent?: string;
+      diskReadError?: string;
+      diskHash?: number;
+      notifyAutoReload?: boolean;
+      allowAutoReload?: boolean;
+    }
   ) => {
-    if (!tab.filePath) return;
+    const filePath = tab.filePath ? String(tab.filePath).trim() : '';
+    if (!filePath) return;
     if (isExternalConflictLocked(tab.id)) return;
 
     let diskContent = typeof opts?.diskContent === 'string' ? String(opts.diskContent) : '';
@@ -167,7 +173,7 @@ export function useEditorPersistence({
 
     if (!diskReadError) {
       const localContent = getCachedMarkdownForTab(tab);
-      const diskHash = hashStringFNV1a32(diskContent);
+      const diskHash = typeof opts?.diskHash === 'number' ? opts.diskHash : hashStringFNV1a32(diskContent);
       const localHash = hashStringFNV1a32(localContent);
       const lastDiskHash = Number(diskContentHashByTabRef.current[String(tab.id)] || 0);
 
@@ -238,7 +244,7 @@ export function useEditorPersistence({
       if (!currentDisk) return;
 
       if (lastDisk && !diskInfoEquals(lastDisk, currentDisk)) {
-        await syncOrPromptExternalChangeForTab(tab, String(tab.filePath), { notifyAutoReload: true });
+        await syncOrPromptExternalChangeForTab(tab, { notifyAutoReload: true });
       }
     };
 
@@ -345,11 +351,13 @@ export function useEditorPersistence({
       } catch (e) {
         diskReadError = String((e as Error)?.message || e || '').trim();
       }
+      const diskHash = !diskReadError ? hashStringFNV1a32(diskContent) : undefined;
 
       for (const tab of affected) {
-        await syncOrPromptExternalChangeForTab(tab, String(tab.filePath), {
+        await syncOrPromptExternalChangeForTab(tab, {
           diskContent,
           diskReadError,
+          diskHash,
           allowAutoReload: true,
           notifyAutoReload: true,
         });
