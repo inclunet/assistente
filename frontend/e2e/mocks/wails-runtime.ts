@@ -267,7 +267,7 @@ export function buildWailsMockScript(): string {
           }
           if (fnName === 'GetConversationsPage' && 'GetConversations' in _config.responses) {
             const val = _config.responses.GetConversations;
-            const rows = typeof val === 'function' ? val(...args) : val;
+            const rows = typeof val === 'function' ? val() : val;
             const conversations = Array.isArray(rows) ? rows : [];
             const limit = normalizeConversationPageLimit(args[0]);
             const offset = normalizeConversationPageOffset(args[1]);
@@ -276,7 +276,7 @@ export function buildWailsMockScript(): string {
           }
           if (fnName === 'GetConversationsByIDs' && 'GetConversations' in _config.responses) {
             const val = _config.responses.GetConversations;
-            const rows = typeof val === 'function' ? val(...args) : val;
+            const rows = typeof val === 'function' ? val() : val;
             const conversations = Array.isArray(rows) ? rows : [];
             const ids = Array.isArray(args[0]) ? args[0].map(String) : [];
             return Promise.resolve(ids.flatMap((id) => {
