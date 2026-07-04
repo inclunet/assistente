@@ -100,6 +100,7 @@ type App struct {
 	editorWatchMu             sync.Mutex
 	editorDirWatches          map[string]*editorDirWatch
 	editorAssistedWriteByPath map[string]editorAssistedWrite
+	editorAssistedWriteSeq    int64
 
 	// Workspace manager (unified tabs)
 	workspaceMgr *workspace.Manager

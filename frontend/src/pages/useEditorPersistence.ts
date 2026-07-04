@@ -176,8 +176,10 @@ export function useEditorPersistence({
       const localContent = getCachedMarkdownForTab(tab);
       const diskHash = typeof opts?.diskHash === 'number' ? opts.diskHash : hashStringFNV1a32(diskContent);
       const localHash = hashStringFNV1a32(localContent);
-      const lastDiskHash = Number(diskContentHashByTabRef.current[String(tab.id)] || 0);
-      const localMatchesKnownDisk = !!lastDiskHash && lastDiskHash === localHash;
+      const tabDiskHashKey = String(tab.id);
+      const hasLastDiskHash = Object.prototype.hasOwnProperty.call(diskContentHashByTabRef.current, tabDiskHashKey);
+      const lastDiskHash = hasLastDiskHash ? Number(diskContentHashByTabRef.current[tabDiskHashKey]) : 0;
+      const localMatchesKnownDisk = hasLastDiskHash && lastDiskHash === localHash;
 
       // Sem conflito real: disco e editor já convergiram para o mesmo conteúdo.
       if (diskHash === localHash) {
@@ -188,7 +190,7 @@ export function useEditorPersistence({
       }
 
       // Mudou o metadado, mas o conteúdo continua sendo o baseline conhecido.
-      if (lastDiskHash && lastDiskHash === diskHash) {
+      if (hasLastDiskHash && lastDiskHash === diskHash) {
         void refreshDiskInfoForTab(tab);
         return;
       }

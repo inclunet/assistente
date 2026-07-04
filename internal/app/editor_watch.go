@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -28,6 +29,7 @@ type editorAssistedWrite struct {
 	size      int64
 	modTime   time.Time
 	committed bool
+	token     int64
 }
 
 const editorAssistedWriteTTL = 5 * time.Second
@@ -121,26 +123,35 @@ func (a *App) markEditorAssistedWrite(path string) func(bool) {
 	if dw == nil || !dw.isWatchingFile(norm) {
 		return nil
 	}
+	token := atomic.AddInt64(&a.editorAssistedWriteSeq, 1)
 	a.editorWatchMu.Lock()
 	a.editorAssistedWriteByPath[norm] = editorAssistedWrite{
 		origin:    "assistant_tool",
 		expiresAt: time.Now().Add(editorAssistedWriteTTL),
+		token:     token,
 	}
 	a.editorWatchMu.Unlock()
 
 	return func(committed bool) {
-		a.editorWatchMu.Lock()
-		defer a.editorWatchMu.Unlock()
 		if !committed {
+			a.editorWatchMu.Lock()
+			defer a.editorWatchMu.Unlock()
 			delete(a.editorAssistedWriteByPath, norm)
 			return
 		}
 		info, err := os.Stat(norm)
 		if err != nil || info.IsDir() {
+			a.editorWatchMu.Lock()
+			defer a.editorWatchMu.Unlock()
 			delete(a.editorAssistedWriteByPath, norm)
 			return
 		}
-		write := a.editorAssistedWriteByPath[norm]
+		a.editorWatchMu.Lock()
+		defer a.editorWatchMu.Unlock()
+		write, ok := a.editorAssistedWriteByPath[norm]
+		if !ok || write.token != token || time.Now().After(write.expiresAt) {
+			return
+		}
 		write.size = info.Size()
 		write.modTime = info.ModTime()
 		write.committed = true
