@@ -389,6 +389,7 @@ const en = {
       gridLabel: 'Saved memories',
       searchPlaceholder: 'Search memories...',
       empty: 'No memories found.',
+      loadingMore: 'Loading more memories...',
       pagination: {
         summary: '{{start}}-{{end}} of {{total}}',
         previous: 'Previous',
@@ -468,6 +469,9 @@ const en = {
         archived: 'Memory archived.',
         unarchived: 'Memory restored.',
         deleted: 'Memory deleted.',
+        loadingMore: 'Loading more memories.',
+        loadedMore: '{{count}} memories loaded.',
+        loadMoreFailed: 'Error loading more memories.',
       },
       errors: {
         loadFailed: 'Error loading memories.',
@@ -2521,6 +2525,9 @@ const en = {
 
     history: {
       loading: 'Loading history...',
+      loadingMore: 'Loading more conversations...',
+      loadedMore: '{{count}} conversations loaded.',
+      loadMoreFailed: 'Error loading more conversations.',
       untitled: 'Untitled',
       pickerLabel: 'History (Ctrl+H)',
       loadingShort: 'Loading...',
