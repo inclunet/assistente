@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -120,12 +119,18 @@ func (a *App) markEditorAssistedWrite(path string) func(bool) {
 	}
 	a.editorWatchMu.Lock()
 	dw := a.editorDirWatches[normDir]
+	a.editorAssistedWriteSeq++
+	token := a.editorAssistedWriteSeq
 	a.editorWatchMu.Unlock()
 	if dw == nil || !dw.isWatchingFile(norm) {
 		return nil
 	}
-	token := atomic.AddInt64(&a.editorAssistedWriteSeq, 1)
 	a.editorWatchMu.Lock()
+	currentWatch := a.editorDirWatches[normDir]
+	if currentWatch == nil || !currentWatch.isWatchingFile(norm) {
+		a.editorWatchMu.Unlock()
+		return nil
+	}
 	a.editorAssistedWriteByPath[norm] = editorAssistedWrite{
 		origin:    "assistant_tool",
 		expiresAt: time.Now().Add(editorAssistedWriteTTL),
