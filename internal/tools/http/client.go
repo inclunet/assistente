@@ -208,6 +208,20 @@ func newBlockedDestinationError(dest BlockedDestination) *BlockedDestinationErro
 	}
 }
 
+// redirectHostBlockedError monta o erro acionável para um redirect barrado ainda
+// na checagem pré-dial por hostname (RedirectGuard): host local/privado literal
+// (ex.: 127.0.0.1) ou alias (localhost) sem trust por-request. Mantém o mesmo
+// formato de BlockedDestinationError (com sugestões) usado no resto do fluxo
+// anti-SSRF, em vez de um erro seco.
+func redirectHostBlockedError(host string) *BlockedDestinationError {
+	return &BlockedDestinationError{
+		Host:        host,
+		Category:    ClassifyDestination(host, net.ParseIP(host)),
+		Reason:      "redirecionamento para host local/privado não permitido",
+		Suggestions: defaultBlockSuggestions,
+	}
+}
+
 // redirectBlockedError descreve um bloqueio ocorrido num salto de redirect, sem
 // atribuir o IP interno ao host da URL original (evita mensagem incoerente).
 func redirectBlockedError(ip net.IP) *BlockedDestinationError {

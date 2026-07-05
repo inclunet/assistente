@@ -49,7 +49,9 @@ func RedirectGuard(maxRedirects int, allowPrivate func() bool) func(req *http.Re
 			if hasTrustedIPs(req.Context()) {
 				return ValidateNetworkScope(req.Context(), req.URL.Hostname())
 			}
-			return fmt.Errorf("redirect para host local/privado bloqueado: %s", req.URL.Host)
+			// Erro acionável (BlockedDestinationError com sugestões), coerente com
+			// o restante do fluxo anti-SSRF, em vez de um erro seco.
+			return redirectHostBlockedError(req.URL.Hostname())
 		}
 		return ValidateNetworkScope(req.Context(), req.URL.Hostname())
 	}

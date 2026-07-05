@@ -177,9 +177,17 @@ func (a *App) GetNetworkAllowlist() []NetworkAllowlistView {
 }
 
 // RemoveNetworkAllowlistEntry remove uma entrada persistida por (scope, host, port).
+// Aceita apenas escopos PERSISTIDOS (workspace/profile/global): once nunca é
+// persistido e session vive em memória por conversa, sem relação com esta API de
+// gestão — passar esses valores retorna erro de escopo inválido direto, em vez de
+// um erro confuso vindo do Manager.
 func (a *App) RemoveNetworkAllowlistEntry(scope, host, port string) error {
 	if a.netTrustMgr == nil {
 		return fmt.Errorf("gerenciador de allowlist de rede não inicializado")
 	}
-	return a.netTrustMgr.Remove(a.networkManagementContext(), nettrust.Scope(scope), host, port)
+	s := nettrust.Scope(scope)
+	if !s.IsPersistent() {
+		return fmt.Errorf("escopo inválido para remoção: %q (use workspace, profile ou global)", scope)
+	}
+	return a.netTrustMgr.Remove(a.networkManagementContext(), s, host, port)
 }

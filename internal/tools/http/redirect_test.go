@@ -1,6 +1,9 @@
 package http
 
 import (
+	"context"
+	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"testing"
@@ -45,6 +48,58 @@ func TestRedirectGuard(t *testing.T) {
 	over := make([]*http.Request, DefaultMaxRedirects+1)
 	if err := denyPrivate(mustReq(t, "https://example.com/x"), over); err == nil {
 		t.Error("acima do limite de redirects deveria falhar")
+	}
+}
+
+// Redirect barrado por host privado literal deve devolver o erro acionável
+// (*BlockedDestinationError com sugestões), não um erro seco.
+func TestRedirectGuard_PrivateHostActionableError(t *testing.T) {
+	guard := RedirectGuard(DefaultMaxRedirects, func() bool { return false })
+
+	err := guard(mustReq(t, "http://127.0.0.1/x"), nil)
+	var bde *BlockedDestinationError
+	if !errors.As(err, &bde) {
+		t.Fatalf("esperado *BlockedDestinationError, got %v", err)
+	}
+	if bde.Category != CategoryLoopback {
+		t.Errorf("categoria esperada loopback, got %q", bde.Category)
+	}
+	if len(bde.Suggestions) == 0 {
+		t.Error("erro acionável deveria trazer sugestões")
+	}
+}
+
+// markRedirected (chamado pelo guard) deve fazer didRedirect(ctx)=true.
+func TestRedirectGuard_MarksRedirect(t *testing.T) {
+	guard := RedirectGuard(DefaultMaxRedirects, func() bool { return false })
+	ctx := withRedirectTracker(context.Background())
+	if didRedirect(ctx) {
+		t.Fatal("ctx recém-criado não deveria reportar redirect")
+	}
+	req := mustReq(t, "https://example.com/x").WithContext(ctx)
+	if err := guard(req, nil); err != nil {
+		t.Fatalf("host público não deveria ser bloqueado: %v", err)
+	}
+	if !didRedirect(ctx) {
+		t.Fatal("após o guard rodar, didRedirect(ctx) deveria ser true")
+	}
+}
+
+// Com trust por-request (WithTrustedIPs), um redirect para host privado literal
+// é permitido pelo guard (a revalidação do IP real fica a cargo do DialContext).
+func TestRedirectGuard_TrustedPrivateRedirectAllowed(t *testing.T) {
+	guard := RedirectGuard(DefaultMaxRedirects, func() bool { return false })
+
+	// Sem trust: bloqueado.
+	if err := guard(mustReq(t, "http://127.0.0.1/x"), nil); err == nil {
+		t.Fatal("sem trust, redirect para host privado deveria ser bloqueado")
+	}
+
+	// Com trust por-request: permitido.
+	ctx := WithTrustedIPs(context.Background(), []net.IP{net.ParseIP("127.0.0.1")}, "80", false)
+	req := mustReq(t, "http://127.0.0.1/x").WithContext(ctx)
+	if err := guard(req, nil); err != nil {
+		t.Fatalf("com trust por-request, redirect para host privado deveria passar: %v", err)
 	}
 }
 
