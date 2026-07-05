@@ -169,6 +169,100 @@ func TestEditorAssistedWriteMarkerCommitDoesNotStampNewerGeneration(t *testing.T
 	}
 }
 
+func TestEditorAssistedWriteMarkerCancelDoesNotDeleteNewerGeneration(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	app := &App{}
+
+	norm, err := normalizeWatchPath(filePath)
+	if err != nil {
+		t.Fatalf("normalizeWatchPath: %v", err)
+	}
+	normDir, err := normalizeWatchPath(filepath.Dir(filePath))
+	if err != nil {
+		t.Fatalf("normalizeWatchPath dir: %v", err)
+	}
+	app.editorDirWatches = map[string]*editorDirWatch{
+		normDir: {
+			files:    map[string]int{norm: 1},
+			lastEmit: map[string]time.Time{},
+		},
+	}
+	app.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+
+	oldCommit := app.markEditorAssistedWrite(filePath)
+	if oldCommit == nil {
+		t.Fatal("expected old commit function")
+	}
+	newCommit := app.markEditorAssistedWrite(filePath)
+	if newCommit == nil {
+		t.Fatal("expected new commit function")
+	}
+	oldCommit(false)
+
+	app.editorWatchMu.Lock()
+	_, stillPresent := app.editorAssistedWriteByPath[norm]
+	app.editorWatchMu.Unlock()
+	if !stillPresent {
+		t.Fatal("old cancel should not delete newer marker generation")
+	}
+
+	if err := os.WriteFile(filePath, []byte("tool content"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	newCommit(true)
+	if origin, ok := app.consumeEditorAssistedWrite(norm); !ok || origin != "assistant_tool" {
+		t.Fatalf("expected newer assisted marker, got origin=%q ok=%v", origin, ok)
+	}
+}
+
+func TestEditorAssistedWriteMarkerStatErrorDoesNotDeleteNewerGeneration(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	app := &App{}
+
+	norm, err := normalizeWatchPath(filePath)
+	if err != nil {
+		t.Fatalf("normalizeWatchPath: %v", err)
+	}
+	normDir, err := normalizeWatchPath(filepath.Dir(filePath))
+	if err != nil {
+		t.Fatalf("normalizeWatchPath dir: %v", err)
+	}
+	app.editorDirWatches = map[string]*editorDirWatch{
+		normDir: {
+			files:    map[string]int{norm: 1},
+			lastEmit: map[string]time.Time{},
+		},
+	}
+	app.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+
+	oldCommit := app.markEditorAssistedWrite(filePath)
+	if oldCommit == nil {
+		t.Fatal("expected old commit function")
+	}
+	newCommit := app.markEditorAssistedWrite(filePath)
+	if newCommit == nil {
+		t.Fatal("expected new commit function")
+	}
+	oldCommit(true)
+
+	app.editorWatchMu.Lock()
+	_, stillPresent := app.editorAssistedWriteByPath[norm]
+	app.editorWatchMu.Unlock()
+	if !stillPresent {
+		t.Fatal("old stat error should not delete newer marker generation")
+	}
+
+	if err := os.WriteFile(filePath, []byte("tool content"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	newCommit(true)
+	if origin, ok := app.consumeEditorAssistedWrite(norm); !ok || origin != "assistant_tool" {
+		t.Fatalf("expected newer assisted marker, got origin=%q ok=%v", origin, ok)
+	}
+}
+
 func TestEditorAssistedWriteMarkerRejectsDifferentFileState(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "doc.md")

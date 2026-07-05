@@ -140,16 +140,12 @@ func (a *App) markEditorAssistedWrite(path string) func(bool) {
 
 	return func(committed bool) {
 		if !committed {
-			a.editorWatchMu.Lock()
-			defer a.editorWatchMu.Unlock()
-			delete(a.editorAssistedWriteByPath, norm)
+			a.deleteEditorAssistedWriteIfToken(norm, token)
 			return
 		}
 		info, err := os.Stat(norm)
 		if err != nil || info.IsDir() {
-			a.editorWatchMu.Lock()
-			defer a.editorWatchMu.Unlock()
-			delete(a.editorAssistedWriteByPath, norm)
+			a.deleteEditorAssistedWriteIfToken(norm, token)
 			return
 		}
 		a.editorWatchMu.Lock()
@@ -163,6 +159,16 @@ func (a *App) markEditorAssistedWrite(path string) func(bool) {
 		write.committed = true
 		write.expiresAt = time.Now().Add(editorAssistedWriteTTL)
 		a.editorAssistedWriteByPath[norm] = write
+	}
+}
+
+func (a *App) deleteEditorAssistedWriteIfToken(normalizedAbsPath string, token int64) {
+	a.ensureEditorWatchInit()
+	a.editorWatchMu.Lock()
+	defer a.editorWatchMu.Unlock()
+	write, ok := a.editorAssistedWriteByPath[normalizedAbsPath]
+	if ok && write.token == token {
+		delete(a.editorAssistedWriteByPath, normalizedAbsPath)
 	}
 }
 
