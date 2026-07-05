@@ -106,16 +106,22 @@ function makeDiskInfoFromBackend(info: unknown): DiskInfo {
   };
 }
 
-function renderPersistence(doc: EditorDocument, merge: UseEditorMergeResult) {
-  useEditorStore.getState().hydrate({ documents: { [doc.id]: doc } });
+function renderPersistence(
+  doc: EditorDocument,
+  merge: UseEditorMergeResult,
+  flushActiveRichMarkdownNow = vi.fn(),
+  opts: { allDocs?: EditorDocument[]; currentDocumentId?: string } = {}
+) {
+  const allDocs = opts.allDocs ?? [doc];
+  useEditorStore.getState().hydrate({ documents: Object.fromEntries(allDocs.map((d) => [d.id, d])) });
 
   return renderHook(() =>
     useEditorPersistence({
       merge,
       sessionLoaded: true,
-      currentDocumentId: doc.id,
-      allDocs: [doc],
-      flushActiveRichMarkdownNow: vi.fn(),
+      currentDocumentId: opts.currentDocumentId ?? doc.id,
+      allDocs,
+      flushActiveRichMarkdownNow,
       saveEditorState: vi.fn(),
     })
   );
@@ -150,6 +156,97 @@ describe('useEditorPersistence', () => {
     expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('depois');
     expect(useEditorStore.getState().documents['tab-1'].isDirty).toBe(false);
     expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+  });
+
+  it('sincroniza tool edit_file assistida mesmo quando a aba está dirty mas ainda está no baseline', async () => {
+    const doc = makeDoc({ markdown: 'antes da tool', isDirty: true });
+    const merge = makeMerge('antes da tool', makeDiskInfo(5, 1000));
+    vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
+
+    renderPersistence(doc, merge);
+    await waitFor(() => expect(EditorWatchFile).toHaveBeenCalledWith('C:/tmp/doc.md'));
+
+    await act(async () => {
+      await fileChangedHandler?.({ path: 'C:/tmp/doc.md', origin: 'assistant_tool', assisted: true });
+    });
+
+    expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('depois da tool');
+    expect(useEditorStore.getState().documents['tab-1'].isDirty).toBe(false);
+    expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+  });
+
+  it('não descarta evento assistido dentro da janela de self-write do editor', async () => {
+    const doc = makeDoc({ markdown: 'antes da tool', isDirty: true });
+    const merge = makeMerge('antes da tool', makeDiskInfo(5, 1000));
+    vi.mocked(merge.isProbablySelfWrite).mockReturnValue(true);
+    vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
+
+    renderPersistence(doc, merge);
+
+    await act(async () => {
+      await fileChangedHandler?.({ path: 'C:/tmp/doc.md', origin: 'assistant_tool', assisted: true });
+    });
+
+    expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('depois da tool');
+    expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+  });
+
+  it('faz flush do editor rico antes de processar evento assistido', async () => {
+    const doc = makeDoc({ markdown: 'antes da tool', mode: 'rich', isDirty: true });
+    const merge = makeMerge('antes da tool', makeDiskInfo(5, 1000));
+    const flushActiveRichMarkdownNow = vi.fn();
+    vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
+
+    renderPersistence(doc, merge, flushActiveRichMarkdownNow);
+
+    await act(async () => {
+      await fileChangedHandler?.({ path: 'C:/tmp/doc.md', origin: 'assistant_tool', assisted: true });
+    });
+
+    expect(flushActiveRichMarkdownNow).toHaveBeenCalled();
+    expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('depois da tool');
+  });
+
+  it('não faz flush do editor rico ativo quando evento assistido é de outro arquivo', async () => {
+    const activeDoc = makeDoc({ id: 'tab-1', filePath: 'C:/tmp/active.md', mode: 'rich', markdown: 'ativo' });
+    const affectedDoc = makeDoc({ id: 'tab-2', filePath: 'C:/tmp/other.md', markdown: 'antes da tool', isDirty: false });
+    const merge = makeMerge('ativo', makeDiskInfo(5, 1000));
+    merge.latestMarkdownByTabRef.current['tab-2'] = 'antes da tool';
+    merge.diskContentHashByTabRef.current['tab-2'] = hashStringFNV1a32('antes da tool');
+    const flushActiveRichMarkdownNow = vi.fn();
+    vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
+
+    renderPersistence(activeDoc, merge, flushActiveRichMarkdownNow, {
+      allDocs: [activeDoc, affectedDoc],
+      currentDocumentId: 'tab-1',
+    });
+
+    await act(async () => {
+      await fileChangedHandler?.({ path: 'C:/tmp/other.md', origin: 'assistant_tool', assisted: true });
+    });
+
+    expect(flushActiveRichMarkdownNow).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().documents['tab-2'].markdown).toBe('depois da tool');
+  });
+
+  it('mantém prompt para tool assistida quando há edição local divergente do baseline', async () => {
+    const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
+    const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
+    merge.diskContentHashByTabRef.current['tab-1'] = hashStringFNV1a32('baseline antes da tool');
+    vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
+
+    renderPersistence(doc, merge);
+
+    await act(async () => {
+      await fileChangedHandler?.({ path: 'C:/tmp/doc.md', origin: 'assistant_tool', assisted: true });
+    });
+
+    expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('minha edicao local');
+    expect(useEditorStore.getState().documents['tab-1'].isDirty).toBe(true);
+    expect(promptResolveExternalChangeForTab).toHaveBeenCalledWith('tab-1', 'C:/tmp/doc.md', {
+      diskContent: 'depois da tool',
+      diskReadError: '',
+    });
   });
 
   it('não pergunta conflito no foco quando disco e editor já têm o mesmo conteúdo', async () => {

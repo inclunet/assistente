@@ -31,11 +31,32 @@ const (
 type EditFile struct {
 	workDir  string
 	questMgr QuestionnaireRequester
+	onWrite  FileWriteObserver
+}
+
+// FileWriteObserver é chamado imediatamente antes de uma tool escrever no disco.
+// Retorna uma função opcional que recebe se a escrita foi concluída com sucesso.
+type FileWriteObserver func(path string) func(committed bool)
+
+// EditFileOption configura integrações opcionais da tool.
+type EditFileOption func(*EditFile)
+
+// WithEditFileWriteObserver registra um observador para escritas feitas pela tool.
+func WithEditFileWriteObserver(observer FileWriteObserver) EditFileOption {
+	return func(t *EditFile) {
+		t.onWrite = observer
+	}
 }
 
 // NewEditFile cria uma nova instância de EditFile.
-func NewEditFile(workDir string, questMgr QuestionnaireRequester) *EditFile {
-	return &EditFile{workDir: workDir, questMgr: questMgr}
+func NewEditFile(workDir string, questMgr QuestionnaireRequester, opts ...EditFileOption) *EditFile {
+	t := &EditFile{workDir: workDir, questMgr: questMgr}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(t)
+		}
+	}
+	return t
 }
 
 func (t *EditFile) Name() string { return "edit_file" }
@@ -182,8 +203,18 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	// Escreve o arquivo modificado
+	var cancelWriteMarker func(bool)
+	if t.onWrite != nil {
+		cancelWriteMarker = t.onWrite(fullPath)
+	}
 	if err := WriteFileBytes(fullPath, []byte(newContent), info.Mode()); err != nil {
+		if cancelWriteMarker != nil {
+			cancelWriteMarker(false)
+		}
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao escrever arquivo: %v", err), IsError: true}, nil
+	}
+	if cancelWriteMarker != nil {
+		cancelWriteMarker(true)
 	}
 
 	// Calcula diff resumido
