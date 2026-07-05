@@ -189,7 +189,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     }
   }, [currentDocumentId]);
 
-  const { schedulePersistForTab } = useEditorPersistence({
+  const { schedulePersistForTab, syncAssistedChangeForTab } = useEditorPersistence({
     merge,
     sessionLoaded,
     currentDocumentId,
@@ -1191,8 +1191,10 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
             if (runId !== inlineChatRunIdRef.current) return;
 
             // Tool calling: edit_file já fez tudo (questionnaire + escrita no disco).
-            // O fsnotify detecta a mudança e recarrega o arquivo automaticamente.
+            // Sincroniza pelo mesmo reconciliador do watcher antes de fechar o modal;
+            // o evento fsnotify posterior fica idempotente.
             if (canUseToolCalling) {
+              await syncAssistedChangeForTab(inlineChatSelection.tabId);
               useWorkspaceChatModalStore.getState().setAdapterError(null);
               useWorkspaceChatModalStore.getState().close();
               setIsAsking(false);
