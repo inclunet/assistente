@@ -31,6 +31,8 @@ export interface MergeSession {
 export interface EditorFileChangedEvent {
   path?: string;
   filePath?: string;
+  origin?: string;
+  assisted?: boolean;
 }
 
 /** Patch de edição extraído da resposta do chat inline. */

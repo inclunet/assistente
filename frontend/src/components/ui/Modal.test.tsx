@@ -1,8 +1,30 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { Modal } from './Modal';
 
+const originalOffsetParentDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  'offsetParent',
+);
+
 describe('Modal', () => {
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+      configurable: true,
+      get() {
+        return document.body;
+      },
+    });
+  });
+
+  afterEach(() => {
+    if (originalOffsetParentDescriptor) {
+      Object.defineProperty(HTMLElement.prototype, 'offsetParent', originalOffsetParentDescriptor);
+    } else {
+      delete (HTMLElement.prototype as { offsetParent?: unknown }).offsetParent;
+    }
+  });
+
   it('renderiza conteudo quando aberto e fecha no botao', () => {
     const onClose = vi.fn();
 
@@ -50,6 +72,19 @@ describe('Modal', () => {
     );
 
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('nao move foco inicial para controle oculto da arvore acessivel', () => {
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Titulo" allowClose={false}>
+        <div aria-hidden="true">
+          <button>Oculto</button>
+        </div>
+        <button>Visivel</button>
+      </Modal>
+    );
+
+    expect(screen.getByRole('button', { name: 'Visivel' })).toHaveFocus();
   });
 
   it('aplica role="application" no corpo por padrao (forca focus mode no NVDA)', () => {
