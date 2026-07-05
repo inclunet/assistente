@@ -175,6 +175,23 @@ describe('useEditorPersistence', () => {
     expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
   });
 
+  it('sincroniza escrita assistida explicitamente antes do watcher tardio', async () => {
+    const doc = makeDoc({ markdown: 'antes da tool', isDirty: true });
+    const merge = makeMerge('antes da tool', makeDiskInfo(5, 1000));
+    vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
+
+    const { result } = renderPersistence(doc, merge);
+    await waitFor(() => expect(EditorWatchFile).toHaveBeenCalledWith('C:/tmp/doc.md'));
+
+    await act(async () => {
+      await result.current.syncAssistedChangeForTab('tab-1');
+    });
+
+    expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('depois da tool');
+    expect(useEditorStore.getState().documents['tab-1'].isDirty).toBe(false);
+    expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+  });
+
   it('não descarta evento assistido dentro da janela de self-write do editor', async () => {
     const doc = makeDoc({ markdown: 'antes da tool', isDirty: true });
     const merge = makeMerge('antes da tool', makeDiskInfo(5, 1000));
