@@ -2,8 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QuestionnaireDialog } from './QuestionnaireDialog';
+import { Modal } from './Modal';
 
 const announceMock = vi.hoisted(() => vi.fn());
+const restoreDefaultFocusMock = vi.hoisted(() => vi.fn(() => {
+  document.querySelector<HTMLElement>('[aria-label="Editor Markdown"]')?.focus();
+  return true;
+}));
 const originalOffsetParentDescriptor = Object.getOwnPropertyDescriptor(
   HTMLElement.prototype,
   'offsetParent',
@@ -15,9 +20,14 @@ vi.mock('../../hooks/useAnnouncer', () => ({
   }),
 }));
 
+vi.mock('../../hooks/useDefaultFocus', () => ({
+  restoreDefaultFocus: restoreDefaultFocusMock,
+}));
+
 describe('QuestionnaireDialog', () => {
   beforeEach(() => {
     announceMock.mockClear();
+    restoreDefaultFocusMock.mockClear();
     Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
       configurable: true,
       get() {
@@ -137,6 +147,73 @@ describe('QuestionnaireDialog', () => {
       'Alteração externa detectada. O arquivo foi alterado fora do Assistente.',
       'assertive'
     );
+  });
+
+  it('mantem foco no conflito externo quando chat modal fecha na mesma abertura', async () => {
+    const externalChangeData = {
+      id: 'ui-editor-external-change-chat-close',
+      title: 'Alteração externa detectada',
+      description: 'O arquivo foi alterado fora do Assistente.',
+      submitLabel: 'Aplicar',
+      cancelLabel: 'Agora não',
+      questions: [
+        {
+          id: 'path',
+          type: 'readonly_code' as const,
+          prompt: 'Arquivo',
+          content: 'C:/tmp/documento.md',
+        },
+        {
+          id: 'choice',
+          type: 'single_choice' as const,
+          prompt: 'Ação',
+          required: true,
+          options: ['Usar versão do disco', 'Resolver merge', 'Usar minha versão'],
+          default: 'Usar versão do disco',
+        },
+      ],
+    };
+
+    const { rerender } = render(
+      <>
+        <textarea aria-label="Editor Markdown" />
+        <Modal isOpen onClose={vi.fn()} title="Chat do editor">
+          <textarea aria-label="Mensagem" />
+        </Modal>
+        <QuestionnaireDialog
+          isOpen={false}
+          data={externalChangeData}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      </>
+    );
+
+    const chatInput = screen.getByRole('textbox', { name: 'Mensagem' });
+    expect(chatInput).toHaveFocus();
+
+    rerender(
+      <>
+        <textarea aria-label="Editor Markdown" />
+        <Modal isOpen={false} onClose={vi.fn()} title="Chat do editor">
+          <textarea aria-label="Mensagem" />
+        </Modal>
+        <QuestionnaireDialog
+          isOpen
+          data={externalChangeData}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      </>
+    );
+
+    const decisionControl = screen.getByRole('radio', { name: 'Usar versão do disco' });
+    expect(decisionControl).toHaveFocus();
+
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    expect(decisionControl).toHaveFocus();
+    expect(restoreDefaultFocusMock).not.toHaveBeenCalled();
   });
 
   it('anuncia todos os erros de validação obrigatória', async () => {
