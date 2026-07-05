@@ -77,7 +77,11 @@ func (e *BlockedDestinationError) Error() string {
 	}
 	fmt.Fprintf(&b, "\n- Regra: %s", rule)
 	if len(e.Suggestions) > 0 {
-		fmt.Fprintf(&b, "\n- Ação possível: %s", strings.Join(e.Suggestions, " | "))
+		label := "Ação possível"
+		if len(e.Suggestions) > 1 {
+			label = "Ações possíveis"
+		}
+		fmt.Fprintf(&b, "\n- %s: %s", label, strings.Join(e.Suggestions, " | "))
 	}
 	return b.String()
 }
