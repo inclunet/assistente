@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { EditorWriteFile } from '@wailsjs/go/app/App';
+import { EditorGetFileInfo, EditorReadFile, EditorWriteFile, GetProfile } from '@wailsjs/go/app/App';
 
 const openToolbarMenuSpy = vi.fn();
 const editorPageMocks = vi.hoisted(() => {
@@ -35,6 +35,11 @@ const editorPageMocks = vi.hoisted(() => {
     markdownEditor: null as unknown,
     richEditor: null as unknown,
     requestOpen: vi.fn(),
+    chatClose: vi.fn(),
+    setAdapterError: vi.fn(),
+    waitForChatDone: vi.fn(),
+    waitForEditorPatch: vi.fn(),
+    getMaxMessageId: vi.fn(),
   };
   state.markdownEditor = {
     getModel: () => ({
@@ -98,7 +103,10 @@ const editorPageMocks = vi.hoisted(() => {
 });
 
 const editorStoreState = {
-  documents: {} as Record<string, { id: string; title: string; markdown: string; mode: string; filePath?: string | null; draftId?: string | null }>,
+  documents: {} as Record<
+    string,
+    { id: string; title: string; markdown: string; mode: string; filePath?: string | null; draftId?: string | null; isDirty?: boolean }
+  >,
   autoSaveEnabled: true,
   editorProfileSlug: 'editor-texto',
   createDocument: vi.fn(),
@@ -158,9 +166,10 @@ vi.mock('../store/chatStore', () => ({
 }));
 
 vi.mock('../store/questionnaireUIStore', () => ({
-  useQuestionnaireUIStore: () => ({
-    request: vi.fn(),
-  }),
+  useQuestionnaireUIStore: (selector?: (s: { request: () => void }) => unknown) => {
+    const state = { request: vi.fn() };
+    return selector ? selector(state) : state;
+  },
 }));
 
 vi.mock('../store/uiStore', () => ({
@@ -176,9 +185,9 @@ vi.mock('../hooks/useEditorTabsKeyboardShortcuts', () => ({
 
 vi.mock('../hooks/useEditorInlineChatPatch', () => ({
   useEditorInlineChatPatch: () => ({
-    waitForChatDone: vi.fn(),
-    waitForEditorPatch: vi.fn(),
-    getMaxMessageId: vi.fn(),
+    waitForChatDone: editorPageMocks.waitForChatDone,
+    waitForEditorPatch: editorPageMocks.waitForEditorPatch,
+    getMaxMessageId: editorPageMocks.getMaxMessageId,
   }),
 }));
 
@@ -274,7 +283,14 @@ vi.mock('../store/workspaceChatModalStore', () => ({
       const state = { isOpen: false };
       return typeof selector === 'function' ? selector(state) : state;
     },
-    { getState: () => ({ requestOpen: editorPageMocks.requestOpen, close: vi.fn(), setAdapterError: vi.fn(), bumpFocus: vi.fn() }) },
+    {
+      getState: () => ({
+        requestOpen: editorPageMocks.requestOpen,
+        close: editorPageMocks.chatClose,
+        setAdapterError: editorPageMocks.setAdapterError,
+        bumpFocus: vi.fn(),
+      }),
+    },
   ),
 }));
 
@@ -324,6 +340,13 @@ describe('EditorPage', () => {
     editorPageMocks.markdownSelectionListener = null;
     editorPageMocks.richSelectionListener = null;
     editorPageMocks.requestOpen.mockReset();
+    editorPageMocks.chatClose.mockReset();
+    editorPageMocks.setAdapterError.mockReset();
+    editorPageMocks.waitForChatDone.mockReset();
+    editorPageMocks.waitForChatDone.mockResolvedValue('conv-1');
+    editorPageMocks.waitForEditorPatch.mockReset();
+    editorPageMocks.getMaxMessageId.mockReset();
+    editorPageMocks.getMaxMessageId.mockReturnValue(0);
     const richEditor = editorPageMocks.richEditor as {
       state: { selection: { from: number; to: number; empty: boolean } };
       isFocused: boolean;
@@ -335,8 +358,15 @@ describe('EditorPage', () => {
     richEditor.isFocused = true;
     richEditor.view.hasFocus = () => true;
     openToolbarMenuSpy.mockReset();
+    editorStoreState.setDocMarkdown.mockReset();
+    editorStoreState.setDocDirty.mockReset();
     editorStoreState.setDocMode.mockReset();
     vi.mocked(EditorWriteFile).mockReset();
+    vi.mocked(EditorReadFile).mockReset();
+    vi.mocked(EditorGetFileInfo).mockReset();
+    vi.mocked(EditorGetFileInfo).mockResolvedValue({ exists: true, isDir: false, size: 20, modTimeMs: 2000 } as never);
+    vi.mocked(GetProfile).mockReset();
+    vi.mocked(GetProfile).mockResolvedValue({ chat: { disable_tools: false } } as never);
   });
 
   it('desabilita botoes de formato/inserir/modo sem aba ativa', () => {
@@ -788,5 +818,58 @@ describe('EditorPage', () => {
     expect(surfaceContext.focus.entity.slideIndex).toBe(1);
     expect(surfaceContext.content.markdown).toContain('Slide 2');
     expect(surfaceContext.content.markdown).not.toContain('Slide 3');
+  });
+
+  it('sincroniza edição por tool antes de fechar o chat modal', async () => {
+    editorPageMocks.markdownModelValue = 'antes da tool';
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown: 'antes da tool',
+        mode: 'markdown',
+        filePath: 'doc.md',
+        isDirty: false,
+      },
+    };
+    vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
+
+    render(
+      <EditorPage
+        workspaceTab={{
+          id: 'tab-1',
+          type: 'editor',
+          title: 'Doc',
+          position: 0,
+          conversationId: 'conv-1',
+          state: { filePath: 'doc.md' },
+        }}
+      />
+    );
+
+    const adapter = editorPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; meta: unknown }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ afterSend?: () => Promise<void> } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const plan = await adapter.send('Reescreva', undefined, prepared.meta, {
+      tabId: 'tab-1',
+      conversationId: 'conv-1',
+    });
+
+    await act(async () => {
+      await plan?.afterSend?.();
+    });
+
+    expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith('tab-1', 'depois da tool');
+    expect(editorPageMocks.chatClose).toHaveBeenCalled();
+    expect(editorStoreState.setDocMarkdown.mock.invocationCallOrder[0]).toBeLessThan(
+      editorPageMocks.chatClose.mock.invocationCallOrder[0]
+    );
   });
 });
