@@ -34,6 +34,7 @@ const editorPageMocks = vi.hoisted(() => {
     markdownSelectionListener: null as (() => void) | null,
     markdownModelContentListener: null as (() => void) | null,
     richSelectionListener: null as (() => void) | null,
+    richDocText: 'selected rich text',
     markdownEditor: null as unknown,
     markdownFocus: vi.fn(),
     markdownSetSelection: vi.fn(),
@@ -110,8 +111,13 @@ const editorPageMocks = vi.hoisted(() => {
       doc: {
         content: { size: revealSlideMarkdown.length },
         textBetween: (from: number, to: number) => {
-          if (from === 1 && to === 19) return 'selected rich text';
-          return revealSlideMarkdown;
+          const text = state.richDocText || revealSlideMarkdown;
+          const start = Math.max(0, from - 1);
+          const end = Math.max(start, to - 1);
+          return text.slice(start, end);
+        },
+        descendants: (callback: (node: { text?: string }, pos: number) => void) => {
+          callback({ text: state.richDocText }, 1);
         },
         cut: () => ({ markdown: revealSlideMarkdown }),
       },
@@ -406,6 +412,7 @@ describe('EditorPage', () => {
     editorPageMocks.markdownSelectionListener = null;
     editorPageMocks.markdownModelContentListener = null;
     editorPageMocks.richSelectionListener = null;
+    editorPageMocks.richDocText = 'selected rich text';
     editorPageMocks.markdownFocus.mockReset();
     editorPageMocks.markdownSetSelection.mockReset();
     editorPageMocks.markdownSetPosition.mockReset();
@@ -1151,6 +1158,28 @@ describe('EditorPage', () => {
     expect(editorPageMocks.markdownFocus).toHaveBeenCalled();
   });
 
+  it('trata falha do Monaco como best-effort durante restauração Markdown', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({
+      chat: { disable_tools: true },
+    } as Awaited<ReturnType<typeof GetProfile>>);
+    editorPageMocks.waitForEditorPatch.mockResolvedValueOnce({
+      ok: true,
+      patch: { replacement: 'texto best-effort', format: 'plain' },
+    });
+    const plan = await createEditorChatSendPlan();
+    editorPageMocks.markdownSetSelection.mockImplementationOnce(() => {
+      throw new Error('disposed editor');
+    });
+
+    await expect(
+      act(async () => {
+        await plan.afterSend?.();
+      }),
+    ).resolves.toBeUndefined();
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+  });
+
   it('restaura foco e seleção Markdown perto do trecho alterado após sync de edit_file', async () => {
     const plan = await createEditorChatSendPlan();
     vi.mocked(EditorReadFile).mockResolvedValue('Alpha\ntexto da tool\nOmega' as never);
@@ -1259,6 +1288,31 @@ describe('EditorPage', () => {
     expect(editorPageMocks.richSetTextSelection).toHaveBeenNthCalledWith(1, { from: 1, to: 19 });
     expect(editorPageMocks.richInsertContent).toHaveBeenCalledWith('texto rico restaurado');
     expect(editorPageMocks.richSetTextSelection).toHaveBeenLastCalledWith({ from: 1, to: 1 });
+    expect(editorPageMocks.richViewFocus).toHaveBeenCalled();
+  });
+
+  it('restaura foco e seleção rich após sync de tool edit_file', async () => {
+    const plan = await createRichEditorChatSendPlan();
+    vi.mocked(EditorReadFile).mockResolvedValue('## Slide 2\nselected rich text alterado' as never);
+    editorPageMocks.richDocText = 'selected rich text alterado';
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.richSetTextSelection).toHaveBeenCalled());
+
+    expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith('tab-1', '## Slide 2\nselected rich text alterado');
+    expect(editorPageMocks.richSetTextSelection).toHaveBeenLastCalledWith({ from: 1, to: 19 });
     expect(editorPageMocks.richViewFocus).toHaveBeenCalled();
   });
 

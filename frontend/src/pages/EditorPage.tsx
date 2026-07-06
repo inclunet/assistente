@@ -95,6 +95,9 @@ type PendingInlineChatEditorRestore =
       tabId: string;
       from: number;
       to: number;
+      anchorText?: string;
+      anchorTextBefore?: string;
+      anchorTextAfter?: string;
     };
 
 const EDITOR_SELECTION_CACHE_STALE_AFTER_MS = 120000;
@@ -166,6 +169,70 @@ function getChangedRangeAfterTextReplacement(params: {
   const fallbackStart = clampNumber(params.fallbackStartOffset, 0, after.length);
   const fallbackEnd = clampNumber(params.fallbackEndOffset, fallbackStart, after.length);
   return { startOffset: fallbackStart, endOffset: fallbackEnd };
+}
+
+function getRichDocTextBefore(doc: unknown, pos: number): string {
+  const textBetween = (doc as { textBetween?: (from: number, to: number, separator?: string) => string } | null)?.textBetween;
+  if (typeof textBetween !== 'function') return '';
+  try {
+    return String(textBetween.call(doc, 0, Math.max(0, pos), '\n') ?? '');
+  } catch {
+    return '';
+  }
+}
+
+function getRichDocPosForTextOffset(doc: unknown, targetOffset: number, side: 'start' | 'end'): number | null {
+  const docSize = Number((doc as { content?: { size?: number } } | null)?.content?.size ?? 0);
+  if (!Number.isFinite(docSize) || docSize < 0) return null;
+
+  const target = Math.max(0, targetOffset);
+  for (let pos = 0; pos <= docSize; pos += 1) {
+    const length = getRichDocTextBefore(doc, pos).length;
+    if (side === 'start' && length > target) return Math.max(0, pos - 1);
+    if (side === 'end' && length >= target) return pos;
+  }
+  return null;
+}
+
+function findTextRangeInRichDoc(doc: unknown, text: string, textBefore?: string): { from: number; to: number } | null {
+  const needle = String(text || '').trim();
+  if (!needle) return null;
+
+  const docSize = Number((doc as { content?: { size?: number } } | null)?.content?.size ?? 0);
+  const flatText = getRichDocTextBefore(doc, docSize);
+  let startInFlatText = -1;
+  let searchFrom = 0;
+  const before = String(textBefore || '');
+  while (searchFrom <= flatText.length) {
+    const found = flatText.indexOf(needle, searchFrom);
+    if (found < 0) break;
+    if (!before || flatText.slice(0, found).endsWith(before)) {
+      startInFlatText = found;
+      break;
+    }
+    searchFrom = found + needle.length;
+  }
+  if (startInFlatText < 0) return null;
+  const endInFlatText = startInFlatText + needle.length;
+  const from = getRichDocPosForTextOffset(doc, startInFlatText, 'start');
+  const to = getRichDocPosForTextOffset(doc, endInFlatText, 'end');
+
+  return from !== null && to !== null && to >= from ? { from, to } : null;
+}
+
+function findTextRangeInRichDocByContext(doc: unknown, textBefore?: string, textAfter?: string): { from: number; to: number } | null {
+  const docSize = Number((doc as { content?: { size?: number } } | null)?.content?.size ?? 0);
+  const fullText = getRichDocTextBefore(doc, docSize);
+  const before = String(textBefore || '');
+  const after = String(textAfter || '');
+  if (before && !fullText.startsWith(before)) return null;
+  if (after && !fullText.endsWith(after)) return null;
+
+  const startOffset = before.length;
+  const endOffset = Math.max(startOffset, after ? fullText.length - after.length : fullText.length);
+  const from = getRichDocPosForTextOffset(doc, startOffset, 'start');
+  const to = getRichDocPosForTextOffset(doc, endOffset, 'end');
+  return from !== null && to !== null && to >= from ? { from, to } : null;
 }
 
 export default function EditorPage({ documentId, workspaceTab, isPanelActive = true }: EditorPageProps = {}) {
@@ -341,24 +408,35 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       endColumn: endPos.column,
     };
 
-    editor.setSelection(range);
-    if (startOffset === endOffset) {
-      editor.setPosition?.(startPos);
-      editor.revealPositionInCenter?.(startPos);
-    } else {
-      editor.revealRangeInCenter?.(range);
+    try {
+      editor.setSelection(range);
+      if (startOffset === endOffset) {
+        editor.setPosition?.(startPos);
+        editor.revealPositionInCenter?.(startPos);
+      } else {
+        editor.revealRangeInCenter?.(range);
+      }
+      editor.focus();
+      return true;
+    } catch {
+      return false;
     }
-    editor.focus();
-    return true;
   };
 
   const restoreRichEditorSelection = (restore: Extract<PendingInlineChatEditorRestore, { mode: 'rich' }>) => {
     const rich = richEditorRef.current;
     if (!rich) return false;
 
-    const docSize = Number(rich.state?.doc?.content?.size ?? restore.to);
-    const from = clampNumber(restore.from, 0, Math.max(0, docSize));
-    const to = clampNumber(restore.to, from, Math.max(from, docSize));
+    const doc = rich.state?.doc;
+    const docSize = Number(doc?.content?.size ?? restore.to);
+    const contextRange = restore.anchorTextAfter
+      ? findTextRangeInRichDocByContext(doc, restore.anchorTextBefore, restore.anchorTextAfter)
+      : null;
+    const anchorRange = contextRange ?? (restore.anchorText
+      ? findTextRangeInRichDoc(doc, restore.anchorText, restore.anchorTextBefore)
+      : null);
+    const from = clampNumber(anchorRange?.from ?? restore.from, 0, Math.max(0, docSize));
+    const to = clampNumber(anchorRange?.to ?? restore.to, from, Math.max(from, docSize));
 
     try {
       rich.chain?.().focus().setTextSelection({ from, to }).run();
@@ -418,6 +496,18 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       });
       return;
     }
+
+    const richAnchorSource = String(selection.selectedText || selection.selectedMarkdown || '').trim();
+    clearPendingInlineChatEditorRestore();
+    pendingInlineChatEditorRestoreRef.current = {
+      mode: 'rich',
+      tabId: selection.tabId,
+      from: selection.from,
+      to: selection.from,
+      anchorText: richAnchorSource || selection.selectedText,
+      anchorTextBefore: selection.textBeforeSelection,
+      anchorTextAfter: selection.textAfterSelection,
+    };
   };
 
   useEffect(() => {
@@ -443,7 +533,6 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     }
 
     if (!restoreRichEditorSelection(pending)) {
-      clearPendingInlineChatEditorRestore();
       focusEditorSoon();
       return;
     }
@@ -603,6 +692,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
     const { from, to, empty } = sel;
     const selectedText = editor.state.doc.textBetween(from, to, '\n');
+    const textBeforeSelection = editor.state.doc.textBetween(0, from, '\n');
+    const docSizeForSelection = Number(editor.state.doc.content?.size ?? to);
+    const textAfterSelection = editor.state.doc.textBetween(to, Math.max(to, docSizeForSelection), '\n');
 
     const markdownStorage = (editor.storage as unknown as Record<string, unknown> | undefined)?.markdown as
       | { serializer?: { serialize?: (node: unknown) => string }; getMarkdown?: () => string }
@@ -690,6 +782,8 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       cursorContext,
       displayText,
       displayMarkdown: displayForContextPanel || undefined,
+      textBeforeSelection,
+      textAfterSelection,
       from,
       to,
       snapshot,
@@ -1726,6 +1820,8 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
                   cursorContext: rich.cursorContext,
                   displayText: rich.displayText,
                   displayMarkdown: rich.displayMarkdown,
+                  textBeforeSelection: rich.textBeforeSelection,
+                  textAfterSelection: rich.textAfterSelection,
                   from: rich.from,
                   to: rich.to,
                   snapshot: rich.snapshot ?? activeTab.markdown,
