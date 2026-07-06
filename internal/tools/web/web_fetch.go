@@ -49,6 +49,12 @@ func NewWebFetch(credMgr *credentials.Manager) *WebFetch {
 	return t
 }
 
+// SetNetworkAuthorizer instala o authorizer anti-SSRF (consentimento + allowlist)
+// no cliente HTTP desta tool.
+func (t *WebFetch) SetNetworkAuthorizer(a httpclient.NetworkAuthorizer) {
+	t.client.SetNetworkAuthorizer(a)
+}
+
 func (t *WebFetch) Name() string { return "web_fetch" }
 
 // CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
@@ -115,10 +121,10 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: "URL deve usar http:// ou https://", IsError: true}, nil
 	}
 
-	// Bloqueia hosts locais/privados (exceto em modo teste)
-	if !t.allowPrivateHosts && httpclient.IsPrivateHost(parsedURL.Hostname()) {
-		return tools.ToolResult{Content: "Acesso a hosts locais/privados não é permitido", IsError: true}, nil
-	}
+	// Hosts locais/privados/CGNAT/etc. são barrados pela política anti-SSRF na
+	// barreira pós-DNS do cliente centralizado (client.Do). Com authorizer
+	// configurado, abre o fluxo de consentimento/allowlist e reexecuta; sem
+	// authorizer, devolve um erro acionável. Não barramos aqui de forma seca.
 
 	maxLength := fetchDefaultMaxLength
 	if a.MaxLength != nil && *a.MaxLength > 0 {

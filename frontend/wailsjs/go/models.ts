@@ -139,38 +139,6 @@ export namespace app {
 	        this.interrupt = source["interrupt"];
 	    }
 	}
-	export class ConversationListResult {
-	    conversations: database.Conversation[];
-	    total: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new ConversationListResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.conversations = this.convertValues(source["conversations"], database.Conversation);
-	        this.total = source["total"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class ConversationSummaryInfo {
 	    summary: string;
 	    summary_up_to_message_id: string;
@@ -341,6 +309,32 @@ export namespace app {
 	        this.refreshToken = source["refreshToken"];
 	    }
 	}
+	export class NetworkAllowlistView {
+	    host: string;
+	    port?: string;
+	    scope: string;
+	    category?: string;
+	    resolvedIps?: string[];
+	    createdBy?: string;
+	    createdAt: string;
+	    reason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NetworkAllowlistView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.scope = source["scope"];
+	        this.category = source["category"];
+	        this.resolvedIps = source["resolvedIps"];
+	        this.createdBy = source["createdBy"];
+	        this.createdAt = source["createdAt"];
+	        this.reason = source["reason"];
+	    }
+	}
 	export class RefreshRequest {
 	    refreshToken: string;
 	
@@ -490,6 +484,7 @@ export namespace app {
 	    availabilityStatus?: string;
 	    includeUnavailable?: boolean;
 	    limit?: number;
+	    offset?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new RuntimeToolCatalogFilter(source);
@@ -506,6 +501,7 @@ export namespace app {
 	        this.availabilityStatus = source["availabilityStatus"];
 	        this.includeUnavailable = source["includeUnavailable"];
 	        this.limit = source["limit"];
+	        this.offset = source["offset"];
 	    }
 	}
 	export class SynthesisResultInfo {
@@ -657,6 +653,10 @@ export namespace chat {
 	    type: string;
 	    function: TurnSegmentToolFunction;
 	    result?: string;
+	    origin?: string;
+	    server_label?: string;
+	    iteration?: number;
+	    duration_ms?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new TurnSegmentToolCall(source);
@@ -668,6 +668,10 @@ export namespace chat {
 	        this.type = source["type"];
 	        this.function = this.convertValues(source["function"], TurnSegmentToolFunction);
 	        this.result = source["result"];
+	        this.origin = source["origin"];
+	        this.server_label = source["server_label"];
+	        this.iteration = source["iteration"];
+	        this.duration_ms = source["duration_ms"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1583,6 +1587,38 @@ export namespace database {
 	        this.summary = source["summary"];
 	        this.summary_up_to_message_id = source["summary_up_to_message_id"];
 	        this.summarizing_in_progress = source["summarizing_in_progress"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ConversationListResult {
+	    conversations: Conversation[];
+	    total: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConversationListResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversations = this.convertValues(source["conversations"], Conversation);
+	        this.total = source["total"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2802,6 +2838,30 @@ export namespace llm {
 	        this.surfaceTabId = source["surfaceTabId"];
 	    }
 	}
+	export class DebugDumpConfig {
+	    Enabled: boolean;
+	    DumpRequests: boolean;
+	    DumpResponses: boolean;
+	    MaxFiles: number;
+	    ProfileSlug: string;
+	    ConversationID: string;
+	    TurnID: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DebugDumpConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Enabled = source["Enabled"];
+	        this.DumpRequests = source["DumpRequests"];
+	        this.DumpResponses = source["DumpResponses"];
+	        this.MaxFiles = source["MaxFiles"];
+	        this.ProfileSlug = source["ProfileSlug"];
+	        this.ConversationID = source["ConversationID"];
+	        this.TurnID = source["TurnID"];
+	    }
+	}
 	export class FunctionCall {
 	    name: string;
 	    arguments: string;
@@ -3900,6 +3960,24 @@ export namespace profiles {
 		    return a;
 		}
 	}
+	export class ChatDebugConfig {
+	    enabled: boolean;
+	    dump_requests: boolean;
+	    dump_responses: boolean;
+	    max_files: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatDebugConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.dump_requests = source["dump_requests"];
+	        this.dump_responses = source["dump_responses"];
+	        this.max_files = source["max_files"];
+	    }
+	}
 	export class PromptCacheConfig {
 	    enabled?: boolean;
 	    provider_hints?: boolean;
@@ -3914,24 +3992,6 @@ export namespace profiles {
 	        this.enabled = source["enabled"];
 	        this.provider_hints = source["provider_hints"];
 	        this.explicit_cache_control = source["explicit_cache_control"];
-	    }
-	}
-	export class ChatDebugConfig {
-	    enabled?: boolean;
-	    dump_requests?: boolean;
-	    dump_responses?: boolean;
-	    max_files?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new ChatDebugConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.enabled = source["enabled"];
-	        this.dump_requests = source["dump_requests"];
-	        this.dump_responses = source["dump_responses"];
-	        this.max_files = source["max_files"];
 	    }
 	}
 	export class ChatConfig {
@@ -4098,6 +4158,7 @@ export namespace profiles {
 		    return a;
 		}
 	}
+	
 	
 	
 	

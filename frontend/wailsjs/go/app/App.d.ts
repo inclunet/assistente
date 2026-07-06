@@ -256,7 +256,7 @@ export function GetConversations():Promise<Array<database.Conversation>>;
 
 export function GetConversationsByIDs(arg1:Array<string>):Promise<Array<database.Conversation>>;
 
-export function GetConversationsPage(arg1:number,arg2:number):Promise<app.ConversationListResult>;
+export function GetConversationsPage(arg1:number,arg2:number):Promise<database.ConversationListResult>;
 
 export function GetDatabaseStats():Promise<database.DatabaseStats>;
 
@@ -313,6 +313,8 @@ export function GetModels():Promise<Array<string>>;
 export function GetModelsByProvider(arg1:string):Promise<Array<string>>;
 
 export function GetNativeTTSProviders():Promise<Array<string>>;
+
+export function GetNetworkAllowlist():Promise<Array<app.NetworkAllowlistView>>;
 
 export function GetOpenAITTSVoices():Promise<Array<speech.TTSVoiceInfo>>;
 
@@ -441,6 +443,8 @@ export function RegenerateJobCatalog():Promise<void>;
 export function ReloadLLMClient():Promise<void>;
 
 export function RemoveAuthorizedContact(arg1:string,arg2:string):Promise<void>;
+
+export function RemoveNetworkAllowlistEntry(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function RemoveWorkspaceTab(arg1:string):Promise<workspace.Workspace>;
 

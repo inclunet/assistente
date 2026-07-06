@@ -19,6 +19,9 @@ const DefaultMaxRedirects = 10
 // privados em runtime (ex.: testes com httptest); pode ser nil.
 func RedirectGuard(maxRedirects int, allowPrivate func() bool) func(req *http.Request, via []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
+		// Sinaliza que a request seguiu um redirect (o dial inicial teve sucesso).
+		// handleBlocked usa isso para não abrir prompt em bloqueios pós-redirect.
+		markRedirected(req.Context())
 		// via contém as requisições já feitas; permitimos até maxRedirects saltos e
 		// só barramos a partir do seguinte.
 		if len(via) > maxRedirects {
@@ -37,7 +40,18 @@ func RedirectGuard(maxRedirects int, allowPrivate func() bool) func(req *http.Re
 			return ValidateNetworkScope(req.Context(), req.URL.Hostname())
 		}
 		if IsPrivateHost(req.URL.Hostname()) {
-			return fmt.Errorf("redirect para host local/privado bloqueado: %s", req.URL.Host)
+			// Se a request carrega trust por-request (autorização explícita),
+			// delega a decisão à barreira pós-DNS (DialContext), que revalida o
+			// IP real e só libera IPs exatamente confiáveis. Isso cobre tanto IP
+			// literal quanto hosts textuais como "localhost"/".localhost" (que o
+			// net.ParseIP não reconhece) sem afrouxar a proteção: um redirect
+			// para um IP não confiável continua barrado no dial.
+			if hasTrustedIPs(req.Context()) {
+				return ValidateNetworkScope(req.Context(), req.URL.Hostname())
+			}
+			// Erro acionável (BlockedDestinationError com sugestões), coerente com
+			// o restante do fluxo anti-SSRF, em vez de um erro seco.
+			return redirectHostBlockedError(req.URL.Hostname())
 		}
 		return ValidateNetworkScope(req.Context(), req.URL.Hostname())
 	}

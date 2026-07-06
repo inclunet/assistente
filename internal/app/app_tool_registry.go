@@ -9,6 +9,7 @@ import (
 	"assistente/internal/allowlist"
 	"assistente/internal/database"
 	"assistente/internal/events"
+	"assistente/internal/nettrust"
 	"assistente/internal/questionnaire"
 	"assistente/internal/tasklist"
 	"assistente/internal/tools"
@@ -158,11 +159,27 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(filesystem.NewDeleteFile(workDir))
 	a.toolRegistry.MustRegister(filesystem.NewMakeDirectory(workDir))
 
+	// Authorizer anti-SSRF: liga a allowlist de rede escopável (netTrustMgr) ao
+	// fluxo de consentimento via questionnaire. Instalado nas tools de rede para
+	// que hosts privados/CGNAT passem por autorização explícita + allowlist em vez
+	// de hard-deny seco. nil-safe: sem manager, as tools mantêm o bloqueio padrão.
+	var netAuthorizer *nettrust.Authorizer
+	if a.netTrustMgr != nil {
+		netAuthorizer = nettrust.NewAuthorizer(a.netTrustMgr, &appNetworkPrompter{qm: a.questionnaireMgr})
+	}
+
 	// Registra ferramentas web (credMgr já foi inicializado antes)
-	a.toolRegistry.MustRegister(web.NewWebFetch(a.credMgr)) // GET simples, foco em leitura
+	webFetchTool := web.NewWebFetch(a.credMgr) // GET simples, foco em leitura
+	if netAuthorizer != nil {
+		webFetchTool.SetNetworkAuthorizer(netAuthorizer)
+	}
+	a.toolRegistry.MustRegister(webFetchTool)
 
 	// HTTPRequest com CredentialManager (autenticação automática por domínio)
 	httpReqTool := web.NewHTTPRequest(a.credMgr)
+	if netAuthorizer != nil {
+		httpReqTool.SetNetworkAuthorizer(netAuthorizer)
+	}
 
 	// Confirmação para operações destrutivas
 	httpReqTool.SetConfirmFunc(func(ctx context.Context, method, url, body string) (bool, error) {
@@ -205,7 +222,11 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(web.NewWebSearch(a.credMgr))
 
 	// feed_read: RSS/Atom/JSON Feed/podcast -> JSON canônico (auth por domínio)
-	a.toolRegistry.MustRegister(feedtool.NewFeedRead(a.credMgr))
+	feedReadTool := feedtool.NewFeedRead(a.credMgr)
+	if netAuthorizer != nil {
+		feedReadTool.SetNetworkAuthorizer(netAuthorizer)
+	}
+	a.toolRegistry.MustRegister(feedReadTool)
 
 	// Registra ferramenta de shell (run_command)
 	confirmFn := func(ctx context.Context, cmd, wd string) (bool, error) {

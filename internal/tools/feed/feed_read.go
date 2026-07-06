@@ -49,6 +49,12 @@ func NewFeedRead(credMgr *credentials.Manager) *FeedRead {
 	return t
 }
 
+// SetNetworkAuthorizer instala o authorizer anti-SSRF (consentimento + allowlist)
+// no cliente HTTP desta tool.
+func (t *FeedRead) SetNetworkAuthorizer(a httpclient.NetworkAuthorizer) {
+	t.client.SetNetworkAuthorizer(a)
+}
+
 func (t *FeedRead) Name() string { return "feed_read" }
 
 // CatalogMetadata declara os metadados de catálogo da tool (AEP-0077, Fase 1).
@@ -122,9 +128,10 @@ func (t *FeedRead) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return tools.ToolResult{Content: "URL deve usar http:// ou https://", IsError: true}, nil
 	}
-	if !t.allowPrivateHosts && httpclient.IsPrivateHost(parsedURL.Hostname()) {
-		return tools.ToolResult{Content: "Acesso a hosts locais/privados não é permitido", IsError: true}, nil
-	}
+	// Hosts locais/privados/CGNAT/etc. são barrados pela política anti-SSRF na
+	// barreira pós-DNS do cliente centralizado (client.Do). Com authorizer
+	// configurado, abre o fluxo de consentimento/allowlist e reexecuta; sem
+	// authorizer, devolve um erro acionável. Não barramos aqui de forma seca.
 
 	opts := parseOptions{
 		MaxItems:       feedDefaultMaxItems,

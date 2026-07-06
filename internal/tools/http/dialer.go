@@ -1,9 +1,11 @@
 package http
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -37,17 +39,41 @@ func (e *BlockedIPError) Error() string {
 // allowPrivate libera a checagem em runtime (ex.: testes com httptest, que usam
 // 127.0.0.1); pode ser nil (= sempre barrar).
 func ssrfControl(allowPrivate func() bool) func(network, address string, c syscall.RawConn) error {
+	return ssrfControlWithTrust(allowPrivate, nil)
+}
+
+// ssrfControlWithTrust é o ssrfControl com um conjunto adicional de destinos
+// confiáveis (chaves IP:porta via trustKey) liberados apesar de caírem em faixa
+// bloqueada. É o resultado de uma autorização explícita do usuário para ESTA
+// request (ver NetworkAuthorizer / WithTrustedIPs). trusted pode ser nil.
+//
+// A ordem importa para segurança: a checagem de trust é por IP EXATO já resolvido
+// (o mesmo que será conectado) E pela porta autorizada, então não afrouxa a faixa
+// inteira nem outras portas do mesmo IP — outros IPs privados/CGNAT e portas não
+// autorizadas continuam barrados, fechando SSRF por hosts vizinhos e por porta.
+func ssrfControlWithTrust(allowPrivate func() bool, trusted map[string]bool) func(network, address string, c syscall.RawConn) error {
 	return func(_, address string, _ syscall.RawConn) error {
 		if allowPrivate != nil && allowPrivate() {
 			return nil
 		}
-		host, _, err := net.SplitHostPort(address)
+		host, port, err := net.SplitHostPort(address)
 		if err != nil {
 			host = address
+			port = ""
+		}
+		// Remove o zone id de IPv6 link-local (RFC 6874, ex.: fe80::1%en0) antes
+		// de parsear: net.ParseIP falha com a zona presente, o que faria o guard
+		// devolver um erro genérico (não *BlockedIPError), pulando o fluxo de
+		// autorização/erro acionável para destinos link-local.
+		if i := strings.IndexByte(host, '%'); i >= 0 {
+			host = host[:i]
 		}
 		ip := net.ParseIP(host)
 		if ip == nil {
 			return fmt.Errorf("anti-SSRF: endereço de conexão sem IP válido: %q", address)
+		}
+		if len(trusted) > 0 && trusted[trustKey(normalizeIPKey(ip), port)] {
+			return nil
 		}
 		if isBlockedIP(ip) {
 			return &BlockedIPError{IP: ip}
@@ -86,11 +112,20 @@ func NewGuardedTransport(allowPrivate func() bool) *http.Transport {
 	// proxy público sem o IP do destino ser validado). A política anti-SSRF aqui é
 	// conexão direta com o IP real validado no momento do connect.
 	base.Proxy = nil
-	base.DialContext = (&net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-		Control:   ssrfControl(allowPrivate),
-	}).DialContext
+	// DialContext embrulhado para ler o trust POR-REQUEST do ctx: o hook Control
+	// de um net.Dialer não recebe ctx, mas o DialContext sim. Reconstruímos o
+	// net.Dialer por chamada com um Control ciente dos IPs confiáveis daquela
+	// request (autorizados pelo usuário). Preserva Happy Eyeballs (o net.Dialer
+	// nativo resolve e dialha IPv6/IPv4 concorrentes, com o Control validando cada
+	// IP concreto antes do connect).
+	base.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		d := &net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			Control:   ssrfControlWithTrust(allowPrivate, trustedIPSet(ctx)),
+		}
+		return d.DialContext(ctx, network, address)
+	}
 	return base
 }
 

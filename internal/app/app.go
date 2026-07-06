@@ -26,6 +26,7 @@ import (
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/memory"
 	"assistente/internal/messaging"
+	"assistente/internal/nettrust"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
 	"assistente/internal/providers"
@@ -76,6 +77,7 @@ type App struct {
 	terminalMgr       *terminal.Manager           // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
 	questionnaireMgr  *questionnaire.Manager      // Gerenciador de questionários (coleta estruturada)
 	allowlistMgr      *allowlist.Manager          // Gerenciador de allowlists de comandos
+	netTrustMgr       *nettrust.Manager           // Allowlist de rede escopável (anti-SSRF override)
 	mcpMgr            *mcpmgr.Manager             // Gerenciador de servidores MCP
 	skillMgr          *skills.Manager             // Gerenciador de skills
 	responseNotifier  *messaging.ResponseNotifier // Notificador de respostas para mensageiros

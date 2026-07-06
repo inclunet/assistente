@@ -1,0 +1,350 @@
+package nettrust
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+
+	"assistente/internal/tools/invocationctx"
+)
+
+func ctxWith(convID, profileSlug string) context.Context {
+	return invocationctx.With(context.Background(), invocationctx.InvocationContext{
+		ConversationID: convID,
+		ProfileSlug:    profileSlug,
+	})
+}
+
+func TestManager_GlobalPersistenceMatch(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+
+	if d := m.Match(ctx, "api.nu.workflows.dev", "443"); d.Allowed {
+		t.Fatal("host não deveria estar autorizado antes de persistir")
+	}
+
+	if err := m.Add(ctx, AllowlistEntry{Host: "api.nu.workflows.dev", Port: "443", Scope: ScopeGlobal}); err != nil {
+		t.Fatalf("Add global: %v", err)
+	}
+
+	// Um Manager novo lendo os mesmos diretórios deve enxergar a entrada persistida.
+	m2 := NewManagerWithDirs(dir, dir)
+	d := m2.Match(ctx, "api.nu.workflows.dev", "443")
+	if !d.Allowed || d.Scope != ScopeGlobal {
+		t.Fatalf("esperado match global persistido, got %+v", d)
+	}
+}
+
+func TestManager_WildcardMatchAndApex(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+
+	if err := m.Add(ctx, AllowlistEntry{Host: "*.nu.workflows.dev", Scope: ScopeGlobal}); err != nil {
+		t.Fatalf("Add wildcard: %v", err)
+	}
+
+	if d := m.Match(ctx, "api.nu.workflows.dev", "443"); !d.Allowed {
+		t.Fatal("wildcard deveria casar subdomínio")
+	}
+	if d := m.Match(ctx, "a.b.nu.workflows.dev", ""); !d.Allowed {
+		t.Fatal("wildcard deveria casar subdomínio profundo")
+	}
+	// Apex NÃO deve casar o wildcard "*.dominio".
+	if d := m.Match(ctx, "nu.workflows.dev", "443"); d.Allowed {
+		t.Fatal("wildcard não deve casar o apex")
+	}
+}
+
+func TestManager_SimilarHostStillBlocked(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+
+	if err := m.Add(ctx, AllowlistEntry{Host: "api.nu.workflows.dev", Scope: ScopeGlobal}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// Hosts parecidos, mas diferentes, continuam bloqueados mesmo que caiam na
+	// mesma faixa de IP interna.
+	for _, h := range []string{
+		"api.nu.workflows.dev.evil.com",
+		"evil-api.nu.workflows.dev",
+		"apinu.workflows.dev",
+		"api.nu.workflows.dev.",
+	} {
+		d := m.Match(ctx, h, "")
+		if h == "api.nu.workflows.dev." {
+			// FQDN com ponto final é o MESMO host (normalizado) — deve casar.
+			if !d.Allowed {
+				t.Fatalf("host %q (FQDN com ponto) deveria casar após normalização", h)
+			}
+			continue
+		}
+		if d.Allowed {
+			t.Fatalf("host semelhante %q não deveria estar autorizado", h)
+		}
+	}
+}
+
+func TestManager_PortScopedMatch(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+
+	if err := m.Add(ctx, AllowlistEntry{Host: "svc.internal", Port: "8443", Scope: ScopeGlobal}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if d := m.Match(ctx, "svc.internal", "8443"); !d.Allowed {
+		t.Fatal("porta correta deveria casar")
+	}
+	if d := m.Match(ctx, "svc.internal", "443"); d.Allowed {
+		t.Fatal("porta diferente não deveria casar quando a entrada fixa porta")
+	}
+}
+
+func TestManager_SessionScopeIsolatedPerConversation(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+
+	ctxA := ctxWith("conv-A", "")
+	ctxB := ctxWith("conv-B", "")
+
+	if err := m.Add(ctxA, AllowlistEntry{Host: "api.internal", Scope: ScopeSession}); err != nil {
+		t.Fatalf("Add session: %v", err)
+	}
+	if d := m.Match(ctxA, "api.internal", ""); !d.Allowed || d.Scope != ScopeSession {
+		t.Fatalf("sessão A deveria estar autorizada, got %+v", d)
+	}
+	if d := m.Match(ctxB, "api.internal", ""); d.Allowed {
+		t.Fatal("sessão B não deveria herdar autorização da sessão A")
+	}
+	// Sessão não é persistida em disco.
+	m2 := NewManagerWithDirs(dir, dir)
+	if d := m2.Match(ctxA, "api.internal", ""); d.Allowed {
+		t.Fatal("escopo de sessão não deveria persistir entre managers")
+	}
+}
+
+func TestManager_ProfileScopePersistsPerSlug(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+
+	ctxP := ctxWith("", "programacao")
+	if err := m.Add(ctxP, AllowlistEntry{Host: "api.internal", Scope: ScopeProfile}); err != nil {
+		t.Fatalf("Add profile: %v", err)
+	}
+	if d := m.Match(ctxP, "api.internal", ""); !d.Allowed || d.Scope != ScopeProfile {
+		t.Fatalf("perfil deveria estar autorizado, got %+v", d)
+	}
+	// Outro perfil não vê a entrada.
+	if d := m.Match(ctxWith("", "revisor"), "api.internal", ""); d.Allowed {
+		t.Fatal("outro perfil não deveria ver a entrada")
+	}
+}
+
+func TestManager_Remove(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+
+	_ = m.Add(ctx, AllowlistEntry{Host: "api.internal", Scope: ScopeGlobal})
+	if d := m.Match(ctx, "api.internal", ""); !d.Allowed {
+		t.Fatal("deveria estar autorizado antes do remove")
+	}
+	if err := m.Remove(ctx, ScopeGlobal, "api.internal", ""); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if d := m.Match(ctx, "api.internal", ""); d.Allowed {
+		t.Fatal("não deveria estar autorizado após remove")
+	}
+}
+
+// Remove sem entrada correspondente deve sinalizar ErrEntryNotFound, para a UI
+// não reportar revogação bem sucedida.
+func TestManager_RemoveNotFound(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+
+	if err := m.Remove(ctx, ScopeGlobal, "inexistente.internal", ""); err == nil {
+		t.Fatal("Remove de entrada inexistente deveria falhar")
+	} else if !errors.Is(err, ErrEntryNotFound) {
+		t.Fatalf("erro esperado ErrEntryNotFound, got %v", err)
+	}
+
+	// Sessão também.
+	sctx := ctxWith("conv-x", "")
+	if err := m.Remove(sctx, ScopeSession, "inexistente.internal", ""); !errors.Is(err, ErrEntryNotFound) {
+		t.Fatalf("Remove de sessão inexistente deveria retornar ErrEntryNotFound, got %v", err)
+	}
+}
+
+// Quando o invocationctx não traz ProfileSlug, o escopo de perfil deve usar o
+// fallback do perfil ativo (SetActiveProfileSlugFunc) para persistir e casar —
+// consistente com a API de gestão.
+func TestManager_ProfileSlugFallback(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	m.SetActiveProfileSlugFunc(func() string { return "programacao" })
+
+	// ctx SEM ProfileSlug (só conversa).
+	ctx := ctxWith("conv-1", "")
+
+	if err := m.Add(ctx, AllowlistEntry{Host: "api.internal", Scope: ScopeProfile}); err != nil {
+		t.Fatalf("Add com fallback de perfil deveria funcionar: %v", err)
+	}
+	d := m.Match(ctx, "api.internal", "")
+	if !d.Allowed || d.Scope != ScopeProfile {
+		t.Fatalf("deveria casar no escopo de perfil via fallback, got %+v", d)
+	}
+
+	// Um Manager novo lendo o mesmo dir, mas com o slug explícito no ctx, também
+	// deve encontrar (persistiu no arquivo do slug do fallback).
+	m2 := NewManagerWithDirs(dir, dir)
+	if d := m2.Match(ctxWith("", "programacao"), "api.internal", ""); !d.Allowed {
+		t.Fatal("entrada deveria ter sido persistida no arquivo do slug ativo")
+	}
+}
+
+// Add não pode sobrescrever um arquivo de allowlist ilegível (JSON inválido ou
+// erro de leitura), pois apagaria silenciosamente entradas ainda no disco.
+func TestManager_AddDoesNotOverwriteOnReadError(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+
+	path := filepath.Join(dir, "network-allowlist", "global.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const corrupt = "{invalido"
+	if err := os.WriteFile(path, []byte(corrupt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Add(ctx, AllowlistEntry{Host: "api.internal", Scope: ScopeGlobal}); err == nil {
+		t.Fatal("Add deveria falhar quando o arquivo existente está ilegível")
+	}
+	// O conteúdo original permanece intacto (não foi sobrescrito).
+	data, _ := os.ReadFile(path)
+	if string(data) != corrupt {
+		t.Fatalf("arquivo não deveria ter sido sobrescrito, got %q", string(data))
+	}
+}
+
+// SetWorkspaceDirFunc deve fazer o escopo workspace acompanhar o diretório ativo
+// resolvido em runtime, em vez de um caminho congelado.
+func TestManager_WorkspaceDirFuncDynamic(t *testing.T) {
+	home := t.TempDir()
+	wsA := t.TempDir()
+	wsB := t.TempDir()
+
+	active := wsA
+	m := NewManagerWithDirs(home, home)
+	m.SetWorkspaceDirFunc(func() string { return active })
+
+	ctx := context.Background()
+	if err := m.Add(ctx, AllowlistEntry{Host: "svc.internal", Scope: ScopeWorkspace}); err != nil {
+		t.Fatalf("Add workspace: %v", err)
+	}
+	if d := m.Match(ctx, "svc.internal", ""); !d.Allowed || d.Scope != ScopeWorkspace {
+		t.Fatalf("deveria casar no workspace A, got %+v", d)
+	}
+
+	// Troca de workspace ativo: a entrada de A não deve aparecer em B.
+	active = wsB
+	if d := m.Match(ctx, "svc.internal", ""); d.Allowed {
+		t.Fatal("entrada do workspace A não deveria vazar para o workspace B")
+	}
+
+	// Voltando para A, a entrada reaparece (persistida no dir de A).
+	active = wsA
+	if d := m.Match(ctx, "svc.internal", ""); !d.Allowed {
+		t.Fatal("entrada do workspace A deveria reaparecer ao voltar")
+	}
+}
+
+// ClearSession remove as entradas de sessão de uma conversa, para que um novo
+// chat que reutilize o mesmo ID não herde autorizações da sessão anterior.
+func TestManager_ClearSession(t *testing.T) {
+	home := t.TempDir()
+	m := NewManagerWithDirs(home, home)
+	ctx := ctxWith("conv-1", "")
+
+	if err := m.Add(ctx, AllowlistEntry{Host: "svc.internal", Scope: ScopeSession}); err != nil {
+		t.Fatalf("Add sessão: %v", err)
+	}
+	if d := m.Match(ctx, "svc.internal", ""); !d.Allowed {
+		t.Fatal("entrada de sessão deveria casar antes do clear")
+	}
+
+	m.ClearSession("conv-1")
+	if d := m.Match(ctx, "svc.internal", ""); d.Allowed {
+		t.Fatal("após ClearSession a entrada não deveria mais casar")
+	}
+
+	// Outra conversa não é afetada e id vazio é no-op (não entra em pânico).
+	m.ClearSession("")
+}
+
+// Quando o resolvedor de workspace devolve "", o Manager deve cair no fallback
+// (configdir), mantendo o workspacePath resolvível — semântica documentada.
+func TestManager_WorkspaceDirFuncEmptyFallsBack(t *testing.T) {
+	home := t.TempDir()
+	m := NewManagerWithDirs(home, home)
+	m.SetWorkspaceDirFunc(func() string { return "" })
+
+	// Sem o fallback, workspacePath() seria "" e o escopo workspace falharia.
+	if got := m.workspacePath(); got == "" {
+		t.Fatal("resolvedor vazio deveria cair no fallback (configdir), não zerar o workspacePath")
+	}
+}
+
+// Add/Remove/Match concorrentes num escopo persistido não podem perder entradas
+// nem provocar data race (rodar com -race). Exercita o read-modify-write dos
+// arquivos sob concorrência — a regressão que o RWMutex + escrita atômica corrige.
+func TestManager_ConcurrentAddMatchNoRace(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManagerWithDirs(dir, dir)
+	ctx := context.Background()
+
+	const workers = 16
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			defer wg.Done()
+			host := fmt.Sprintf("svc-%d.internal", i)
+			if err := m.Add(ctx, AllowlistEntry{Host: host, Scope: ScopeGlobal}); err != nil {
+				t.Errorf("Add concorrente: %v", err)
+				return
+			}
+			// Leituras concorrentes durante as escritas de outras goroutines.
+			m.Match(ctx, host, "")
+			m.List(ctx)
+		}(i)
+	}
+	wg.Wait()
+
+	// Nenhuma entrada pode ter sido perdida pelo read-modify-write concorrente.
+	for i := 0; i < workers; i++ {
+		host := fmt.Sprintf("svc-%d.internal", i)
+		if d := m.Match(ctx, host, ""); !d.Allowed {
+			t.Errorf("entrada perdida sob concorrência: %s", host)
+		}
+	}
+	// Recarrega de disco para garantir persistência íntegra.
+	m2 := NewManagerWithDirs(dir, dir)
+	for i := 0; i < workers; i++ {
+		host := fmt.Sprintf("svc-%d.internal", i)
+		if d := m2.Match(ctx, host, ""); !d.Allowed {
+			t.Errorf("entrada não persistida sob concorrência: %s", host)
+		}
+	}
+}
