@@ -210,7 +210,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     }
   }, [currentDocumentId]);
 
-  const { schedulePersistForTab } = useEditorPersistence({
+  const { schedulePersistForTab, syncAssistedChangeForTab } = useEditorPersistence({
     merge,
     sessionLoaded,
     currentDocumentId,
@@ -1231,7 +1231,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         unsubscribeAssistedFileChange = null;
         inlineChatToolCloseCleanupsRef.current.delete(stopTrackingAssistedFileChange);
       };
-      const closeModalAfterAppliedToolEdit = () => {
+      const closeModalAfterAppliedToolEdit = async (syncBeforeClose = true) => {
         if (runId !== inlineChatRunIdRef.current) {
           stopTrackingAssistedFileChange();
           return;
@@ -1241,6 +1241,9 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           return;
         }
         stopTrackingAssistedFileChange();
+        if (syncBeforeClose) {
+          await syncAssistedChangeForTab(inlineChatSelection.tabId);
+        }
         useWorkspaceChatModalStore.getState().setAdapterError(null);
         useWorkspaceChatModalStore.getState().close();
         setIsAsking(false);
@@ -1272,7 +1275,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           if (sawEditorApplyTool && assisted && changedPath === filePathBeforeToolTurn) {
             sawAssistedFileChange = true;
             if (toolTurnDone) {
-              closeModalAfterAppliedToolEdit();
+              void closeModalAfterAppliedToolEdit();
             }
           }
         });
@@ -1306,10 +1309,16 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
                 return;
               }
               if (sawAssistedFileChange) {
-                closeModalAfterAppliedToolEdit();
+                await closeModalAfterAppliedToolEdit();
               } else {
-                useWorkspaceChatModalStore.getState().bumpFocus();
-                setIsAsking(false);
+                const appliedBySync = await syncAssistedChangeForTab(inlineChatSelection.tabId);
+                if (appliedBySync) {
+                  await closeModalAfterAppliedToolEdit(false);
+                } else {
+                  stopTrackingAssistedFileChange();
+                  useWorkspaceChatModalStore.getState().bumpFocus();
+                  setIsAsking(false);
+                }
               }
               return;
             }

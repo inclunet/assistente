@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { EditorReadFile, EditorWriteFile, GetProfile } from '@wailsjs/go/app/App';
+import { EditorGetFileInfo, EditorReadFile, EditorWriteFile, GetProfile } from '@wailsjs/go/app/App';
 
 const openToolbarMenuSpy = vi.fn();
 const editorPageMocks = vi.hoisted(() => {
@@ -111,7 +111,10 @@ const editorPageMocks = vi.hoisted(() => {
 });
 
 const editorStoreState = {
-  documents: {} as Record<string, { id: string; title: string; markdown: string; mode: string; filePath?: string | null; draftId?: string | null }>,
+  documents: {} as Record<
+    string,
+    { id: string; title: string; markdown: string; mode: string; filePath?: string | null; draftId?: string | null; isDirty?: boolean }
+  >,
   autoSaveEnabled: true,
   editorProfileSlug: 'editor-texto',
   createDocument: vi.fn(),
@@ -171,9 +174,10 @@ vi.mock('../store/chatStore', () => ({
 }));
 
 vi.mock('../store/questionnaireUIStore', () => ({
-  useQuestionnaireUIStore: () => ({
-    request: vi.fn(),
-  }),
+  useQuestionnaireUIStore: (selector?: (s: { request: () => void }) => unknown) => {
+    const state = { request: vi.fn() };
+    return selector ? selector(state) : state;
+  },
 }));
 
 vi.mock('../store/uiStore', () => ({
@@ -377,10 +381,14 @@ describe('EditorPage', () => {
     richEditor.isFocused = true;
     richEditor.view.hasFocus = () => true;
     openToolbarMenuSpy.mockReset();
+    editorStoreState.setDocMarkdown.mockReset();
+    editorStoreState.setDocDirty.mockReset();
     editorStoreState.setDocMode.mockReset();
     vi.mocked(EditorReadFile).mockReset();
     vi.mocked(EditorReadFile).mockResolvedValue('Alpha\nselected markdown\nOmega' as never);
     vi.mocked(EditorWriteFile).mockReset();
+    vi.mocked(EditorGetFileInfo).mockReset();
+    vi.mocked(EditorGetFileInfo).mockResolvedValue({ exists: true, isDir: false, size: 20, modTimeMs: 2000 } as never);
     vi.mocked(GetProfile).mockReset();
     vi.mocked(GetProfile).mockResolvedValue({ chat: { disable_tools: false } } as Awaited<ReturnType<typeof GetProfile>>);
   });
@@ -908,6 +916,26 @@ describe('EditorPage', () => {
     expect(editorPageMocks.bumpFocus).toHaveBeenCalled();
   });
 
+  it('mantém o chat modal aberto quando a tool termina sem alteração no arquivo', async () => {
+    const plan = await createEditorChatSendPlan();
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'done',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+    expect(editorPageMocks.bumpFocus).toHaveBeenCalled();
+  });
+
   it('fecha o chat modal quando a edição aprovada altera o documento do editor', async () => {
     const plan = await createEditorChatSendPlan();
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
@@ -949,7 +977,7 @@ describe('EditorPage', () => {
     expect(editorStoreState.documents['tab-1'].markdown).toBe('Alpha\nselected markdown\nOmega');
   });
 
-  it('fecha o chat modal se o evento assistido chegar depois do chat:done', async () => {
+  it('ignora evento assistido tardio depois de tool sem alteração no arquivo', async () => {
     const plan = await createEditorChatSendPlan();
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
       conversationId: 'conv-1',
@@ -975,7 +1003,7 @@ describe('EditorPage', () => {
       });
     });
 
-    expect(editorPageMocks.closeModal).toHaveBeenCalledTimes(1);
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
   });
 
   it('mantém o chat modal aberto quando a confirmação da edição é rejeitada', async () => {
@@ -1017,5 +1045,67 @@ describe('EditorPage', () => {
 
     expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
     expect(editorPageMocks.bumpFocus).toHaveBeenCalled();
+  });
+
+  it('sincroniza edição por tool antes de fechar o chat modal', async () => {
+    editorPageMocks.markdownModelValue = 'antes da tool';
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown: 'antes da tool',
+        mode: 'markdown',
+        filePath: 'doc.md',
+        isDirty: false,
+      },
+    };
+    vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
+
+    render(
+      <EditorPage
+        workspaceTab={{
+          id: 'tab-1',
+          type: 'editor',
+          title: 'Doc',
+          position: 0,
+          conversationId: 'conv-1',
+          state: { filePath: 'doc.md' },
+        }}
+      />
+    );
+
+    const adapter = editorPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; meta: unknown }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ afterSend?: () => Promise<void> } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const plan = await adapter.send('Reescreva', undefined, prepared.meta, {
+      tabId: 'tab-1',
+      conversationId: 'conv-1',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'done',
+    });
+
+    await act(async () => {
+      await plan?.afterSend?.();
+    });
+
+    expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith('tab-1', 'depois da tool');
+    expect(editorPageMocks.closeModal).toHaveBeenCalled();
+    expect(editorStoreState.setDocMarkdown.mock.invocationCallOrder[0]).toBeLessThan(
+      editorPageMocks.closeModal.mock.invocationCallOrder[0]
+    );
   });
 });

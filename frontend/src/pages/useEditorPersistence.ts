@@ -158,8 +158,8 @@ export function useEditorPersistence({
     }
   ) => {
     const filePath = tab.filePath ? String(tab.filePath).trim() : '';
-    if (!filePath) return;
-    if (isExternalConflictLocked(tab.id)) return;
+    if (!filePath) return false;
+    if (isExternalConflictLocked(tab.id)) return false;
 
     let diskContent = typeof opts?.diskContent === 'string' ? String(opts.diskContent) : '';
     let diskReadError = typeof opts?.diskReadError === 'string' ? String(opts.diskReadError) : '';
@@ -176,6 +176,7 @@ export function useEditorPersistence({
       const localContent = getCachedMarkdownForTab(tab);
       const diskHash = typeof opts?.diskHash === 'number' ? opts.diskHash : hashStringFNV1a32(diskContent);
       const localHash = hashStringFNV1a32(localContent);
+      const currentHash = hashStringFNV1a32(String(tab.markdown ?? ''));
       const tabDiskHashKey = String(tab.id);
       const hasLastDiskHash = Object.prototype.hasOwnProperty.call(diskContentHashByTabRef.current, tabDiskHashKey);
       const lastDiskHash = hasLastDiskHash ? Number(diskContentHashByTabRef.current[tabDiskHashKey]) : 0;
@@ -186,13 +187,13 @@ export function useEditorPersistence({
         setDiskBaselineForTab(tab.id, localContent);
         setDocDirty(tab.id, false);
         void refreshDiskInfoForTab(tab);
-        return;
+        return false;
       }
 
       // Mudou o metadado, mas o conteúdo continua sendo o baseline conhecido.
       if (hasLastDiskHash && lastDiskHash === diskHash) {
         void refreshDiskInfoForTab(tab);
-        return;
+        return false;
       }
 
       // Aba limpa pode acompanhar uma escrita externa/assistida sem intervenção.
@@ -206,7 +207,7 @@ export function useEditorPersistence({
           if (opts?.notifyAutoReload && tab.id === currentDocumentId) {
             addToast(t('editor.toast.externalReloaded'), 'info');
           }
-          return;
+          return diskHash !== currentHash;
         } catch {
           // Se não der pra aplicar automaticamente, cai pro fluxo de decisão explícita.
         }
@@ -218,6 +219,28 @@ export function useEditorPersistence({
     if (!isExternalPromptInFlight(tab.id)) {
       void promptResolveExternalChangeForTab(tab.id, filePath, { diskContent, diskReadError });
     }
+    return false;
+  };
+
+  const syncAssistedChangeForTab = async (tabId: string) => {
+    const id = String(tabId || '');
+    if (!sessionLoaded || !id) return false;
+    const { documents: currentDocs } = useEditorStore.getState();
+    const tab = currentDocs[id] || null;
+    if (!tab?.filePath) return false;
+
+    const activeTab = currentDocumentId ? currentDocs[currentDocumentId] || null : null;
+    const activePathKey = activeTab?.filePath ? normalizePathKey(String(activeTab.filePath)) : '';
+    const tabPathKey = tab.filePath ? normalizePathKey(String(tab.filePath)) : '';
+    if (activeTab?.mode === 'rich' && activePathKey && activePathKey === tabPathKey) {
+      flushActiveRichMarkdownNow();
+    }
+
+    return syncOrPromptExternalChangeForTab(tab, {
+      assisted: true,
+      allowAutoReload: true,
+      notifyAutoReload: true,
+    });
   };
 
   // Flush imediato ao fechar/minimizar para reduzir chance de perder o estado.
@@ -404,5 +427,6 @@ export function useEditorPersistence({
   return {
     persistTabContentNow,
     schedulePersistForTab,
+    syncAssistedChangeForTab,
   };
 }
