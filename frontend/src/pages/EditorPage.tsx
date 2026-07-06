@@ -2,6 +2,7 @@ import { logger } from '../utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 import { Menu, type MenuItem } from '../components/menu';
 import { useAnchoredContextMenu } from '../hooks/useAnchoredContextMenu';
 import { MermaidEditorModal } from '../components/editor/MermaidEditorModal';
@@ -59,6 +60,7 @@ import { useEditorDocument } from './useEditorDocument';
 import { useEditorPersistence } from './useEditorPersistence';
 import type {
   EditorPatch,
+  EditorFileChangedEvent,
   InlineChatSelection,
   MarkdownSelectionSnapshot,
   MonacoCodeEditor,
@@ -80,6 +82,7 @@ type EditorSelectionSnapshot =
   | { mode: 'rich'; snapshot: RichSelectionSnapshot };
 
 const EDITOR_SELECTION_CACHE_STALE_AFTER_MS = 120000;
+const EDITOR_APPLY_TOOL_NAMES = new Set(['edit_file', 'text_edit', 'write_file']);
 
 export default function EditorPage({ documentId, workspaceTab, isPanelActive = true }: EditorPageProps = {}) {
   const { t } = useTranslation();
@@ -138,7 +141,25 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   const [pendingInsert, setPendingInsert] = useState<EditorInsertRequest | null>(null);
 
   const inlineChatRunIdRef = useRef(0);
+  const inlineChatToolCloseCleanupsRef = useRef<Set<() => void>>(new Set());
   const chatModalOpen = useWorkspaceChatModalStore((s) => s.isOpen);
+
+  useEffect(() => {
+    if (chatModalOpen) return;
+    for (const cleanup of inlineChatToolCloseCleanupsRef.current) {
+      cleanup();
+    }
+    inlineChatToolCloseCleanupsRef.current.clear();
+  }, [chatModalOpen]);
+
+  useEffect(() => {
+    return () => {
+      for (const cleanup of inlineChatToolCloseCleanupsRef.current) {
+        cleanup();
+      }
+      inlineChatToolCloseCleanupsRef.current.clear();
+    };
+  }, []);
   const prevChatModalOpenRef = useRef(false);
 
   // Foco previsível após fechar o modal Mermaid.
@@ -1167,19 +1188,109 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       setIsAsking(true);
 
       // Regra importante:
-      // - tools ON  => edit_file com confirmação contextual (Go-side); frontend fecha o chat modal
+      // - tools ON  => edit_file com confirmação contextual (Go-side); fecha só se o documento mudou
       // - tools OFF => body-only (extrai ```editor_patch``` do texto e confirma aqui)
       const toolCallingEnabled = await isToolCallingEnabledForProfileSlug(effectiveProfileSlug);
 
       // Drafts sem filePath não conseguem usar edit_file; nesse caso, cai para o
       // mesmo fluxo principal com fallback body-only e aplicação local do patch.
-      const canUseToolCalling = toolCallingEnabled && !!activeTab?.filePath;
+      const toolTurnTab = useEditorStore.getState().documents[latestActiveTab.id] ?? latestActiveTab;
+      const toolTurnFilePath = String(toolTurnTab.filePath || latestActiveTab.filePath || activeTab?.filePath || '');
+      const canUseToolCalling = toolCallingEnabled && !!toolTurnFilePath;
+      const filePathBeforeToolTurn = canUseToolCalling ? normalizePathKey(toolTurnFilePath) : '';
+      const markdownBeforeToolTurn = canUseToolCalling ? String(toolTurnTab.markdown ?? latestActiveTab.markdown ?? activeTab?.markdown ?? '') : '';
+      let sawEditorApplyTool = false;
+      let sawEditorApplyToolSuccess = false;
+      let sawAssistedFileChange = false;
+      let toolTurnDone = false;
+      let unsubscribeEditorApplyToolStart: (() => void) | null = null;
+      let unsubscribeEditorApplyToolEnd: (() => void) | null = null;
+      let unsubscribeAssistedFileChange: (() => void) | null = null;
+      const stopTrackingAssistedFileChange = () => {
+        if (unsubscribeEditorApplyToolStart) {
+          try {
+            unsubscribeEditorApplyToolStart();
+          } catch {
+            // best-effort cleanup
+          }
+          unsubscribeEditorApplyToolStart = null;
+        }
+        if (unsubscribeEditorApplyToolEnd) {
+          try {
+            unsubscribeEditorApplyToolEnd();
+          } catch {
+            // best-effort cleanup
+          }
+          unsubscribeEditorApplyToolEnd = null;
+        }
+        if (!unsubscribeAssistedFileChange) return;
+        try {
+          unsubscribeAssistedFileChange();
+        } catch {
+          // best-effort cleanup
+        }
+        unsubscribeAssistedFileChange = null;
+        inlineChatToolCloseCleanupsRef.current.delete(stopTrackingAssistedFileChange);
+      };
+      const didToolTurnChangeEditorMarkdown = () => {
+        const currentTab = useEditorStore.getState().documents[latestActiveTab.id] ?? null;
+        return String(currentTab?.markdown ?? '') !== markdownBeforeToolTurn;
+      };
+      const closeModalAfterAppliedToolEdit = async (syncBeforeClose = true) => {
+        if (runId !== inlineChatRunIdRef.current) {
+          stopTrackingAssistedFileChange();
+          return;
+        }
+        if (!useWorkspaceChatModalStore.getState().isOpen) {
+          stopTrackingAssistedFileChange();
+          return;
+        }
+        stopTrackingAssistedFileChange();
+        if (syncBeforeClose) {
+          await syncAssistedChangeForTab(inlineChatSelection.tabId);
+        }
+        if (!didToolTurnChangeEditorMarkdown()) {
+          useWorkspaceChatModalStore.getState().bumpFocus();
+          setIsAsking(false);
+          return;
+        }
+        useWorkspaceChatModalStore.getState().setAdapterError(null);
+        useWorkspaceChatModalStore.getState().close();
+        setIsAsking(false);
+        focusEditorSoon();
+      };
       const surfaceParams = buildChatSurfaceParams(editorSurfaceTab, {
         profileSlug: effectiveProfileSlug,
         context: surfaceContext,
       });
 
       const donePromise = waitForChatDone(expectedConversationId);
+      if (filePathBeforeToolTurn) {
+        unsubscribeEditorApplyToolStart = EventsOn('chat:tool_start', (data: { conversationId?: string; name?: string }) => {
+          if (String(data?.conversationId || '') !== expectedConversationId) return;
+          if (EDITOR_APPLY_TOOL_NAMES.has(String(data?.name || ''))) {
+            sawEditorApplyTool = true;
+          }
+        });
+        unsubscribeEditorApplyToolEnd = EventsOn('chat:tool_end', (data: { conversationId?: string; name?: string; status?: string }) => {
+          if (String(data?.conversationId || '') !== expectedConversationId) return;
+          if (!EDITOR_APPLY_TOOL_NAMES.has(String(data?.name || ''))) return;
+          if (String(data?.status || '') !== 'error') {
+            sawEditorApplyToolSuccess = true;
+          }
+        });
+        unsubscribeAssistedFileChange = EventsOn('editor:fileChanged', (data: EditorFileChangedEvent) => {
+          const changedPath = normalizePathKey(String(data?.path || data?.filePath || ''));
+          const assisted = data?.assisted === true || String(data?.origin || '') === 'assistant_tool';
+          if (sawEditorApplyTool && assisted && changedPath === filePathBeforeToolTurn) {
+            sawAssistedFileChange = true;
+            if (toolTurnDone) {
+              void closeModalAfterAppliedToolEdit();
+            }
+          }
+        });
+        inlineChatToolCloseCleanupsRef.current.add(stopTrackingAssistedFileChange);
+      }
       return {
         content: prompt,
         mediaFiles,
@@ -1188,17 +1299,37 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           try {
             const completedConversationId = await donePromise;
 
-            if (runId !== inlineChatRunIdRef.current) return;
+            if (runId !== inlineChatRunIdRef.current) {
+              stopTrackingAssistedFileChange();
+              return;
+            }
 
-            // Tool calling: edit_file já fez tudo (questionnaire + escrita no disco).
-            // Sincroniza pelo mesmo reconciliador do watcher antes de fechar o modal;
-            // o evento fsnotify posterior fica idempotente.
             if (canUseToolCalling) {
-              await syncAssistedChangeForTab(inlineChatSelection.tabId);
-              useWorkspaceChatModalStore.getState().setAdapterError(null);
-              useWorkspaceChatModalStore.getState().close();
-              setIsAsking(false);
-              focusEditorSoon();
+              toolTurnDone = true;
+              if (!sawEditorApplyTool) {
+                stopTrackingAssistedFileChange();
+                useWorkspaceChatModalStore.getState().bumpFocus();
+                setIsAsking(false);
+                return;
+              }
+              if (!sawEditorApplyToolSuccess) {
+                stopTrackingAssistedFileChange();
+                useWorkspaceChatModalStore.getState().bumpFocus();
+                setIsAsking(false);
+                return;
+              }
+              if (sawAssistedFileChange) {
+                await closeModalAfterAppliedToolEdit();
+              } else {
+                const appliedBySync = await syncAssistedChangeForTab(inlineChatSelection.tabId);
+                if (appliedBySync) {
+                  await closeModalAfterAppliedToolEdit(false);
+                } else {
+                  stopTrackingAssistedFileChange();
+                  useWorkspaceChatModalStore.getState().bumpFocus();
+                  setIsAsking(false);
+                }
+              }
               return;
             }
 
@@ -1220,12 +1351,14 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
             await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
           } catch (e: unknown) {
+            stopTrackingAssistedFileChange();
             logger.error('[EditorPage] inline chat error:', e);
             useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
             setIsAsking(false);
           }
         },
         onSendError: (e: unknown) => {
+          stopTrackingAssistedFileChange();
           logger.error('[EditorPage] inline chat error:', e);
           useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
           setIsAsking(false);
