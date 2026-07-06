@@ -49,6 +49,10 @@ export function useModalIsTopmost(): () => boolean {
   return ctx ?? ALWAYS_TOPMOST;
 }
 
+export function useIsInsideModal(): boolean {
+  return useContext(ModalTopmostContext) !== null;
+}
+
 // Seletor para elementos focáveis
 const FOCUSABLE_SELECTOR = 
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
@@ -169,6 +173,7 @@ export function Modal({
     const handleEscape = (e: KeyboardEvent) => {
       if (!isTopMost()) return;
       if (!allowClose) return;
+      if (e.defaultPrevented) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
         onClose();

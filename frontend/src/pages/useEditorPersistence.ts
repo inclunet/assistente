@@ -220,6 +220,27 @@ export function useEditorPersistence({
     }
   };
 
+  const syncAssistedChangeForTab = async (tabId: string) => {
+    const id = String(tabId || '');
+    if (!sessionLoaded || !id) return;
+    const { documents: currentDocs } = useEditorStore.getState();
+    const tab = currentDocs[id] || null;
+    if (!tab?.filePath) return;
+
+    const activeTab = currentDocumentId ? currentDocs[currentDocumentId] || null : null;
+    const activePathKey = activeTab?.filePath ? normalizePathKey(String(activeTab.filePath)) : '';
+    const tabPathKey = tab.filePath ? normalizePathKey(String(tab.filePath)) : '';
+    if (activeTab?.mode === 'rich' && activePathKey && activePathKey === tabPathKey) {
+      flushActiveRichMarkdownNow();
+    }
+
+    await syncOrPromptExternalChangeForTab(tab, {
+      assisted: true,
+      allowAutoReload: true,
+      notifyAutoReload: true,
+    });
+  };
+
   // Flush imediato ao fechar/minimizar para reduzir chance de perder o estado.
   useEffect(() => {
     if (!sessionLoaded) return;
@@ -404,5 +425,6 @@ export function useEditorPersistence({
   return {
     persistTabContentNow,
     schedulePersistForTab,
+    syncAssistedChangeForTab,
   };
 }

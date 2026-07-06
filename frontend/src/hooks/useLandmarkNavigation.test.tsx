@@ -38,6 +38,22 @@ function Fixture({ landmarks, enabled, defaultLandmarkId }: {
   );
 }
 
+function ModalScopedFixture({
+  landmarks,
+  shouldHandleKey = () => true,
+}: {
+  landmarks: Landmark[];
+  shouldHandleKey?: () => boolean;
+}) {
+  useLandmarkNavigation({
+    landmarks,
+    allowWhenModalOpen: true,
+    shouldHandleKey,
+    defaultLandmarkId: landmarks[0]?.id,
+  });
+  return <button data-testid="modal">Modal</button>;
+}
+
 function pressF6(shift = false) {
   fireEvent.keyDown(window, { key: 'F6', shiftKey: shift });
 }
@@ -148,6 +164,28 @@ describe('useLandmarkNavigation', () => {
     pressF6();
 
     expect(tabs.focusFn).not.toHaveBeenCalled();
+  });
+
+  it('permite navegação quando o escopo modal opta por tratar teclas', () => {
+    mockedIsModalOpen.mockReturnValue(true);
+    const composer = createLandmark('composer', 'Campo de mensagem');
+
+    render(<ModalScopedFixture landmarks={[composer]} />);
+
+    pressF6();
+
+    expect(composer.focusFn).toHaveBeenCalled();
+  });
+
+  it('bloqueia navegação do escopo modal quando o guard retorna false', () => {
+    mockedIsModalOpen.mockReturnValue(true);
+    const composer = createLandmark('composer', 'Campo de mensagem');
+
+    render(<ModalScopedFixture landmarks={[composer]} shouldHandleKey={() => false} />);
+
+    pressF6();
+
+    expect(composer.focusFn).not.toHaveBeenCalled();
   });
 
   it('não faz nada quando enabled=false', () => {
