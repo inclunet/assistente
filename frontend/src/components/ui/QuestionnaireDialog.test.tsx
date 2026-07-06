@@ -149,7 +149,7 @@ describe('QuestionnaireDialog', () => {
     );
   });
 
-  it('mantem foco no conflito externo quando chat modal fecha na mesma abertura', async () => {
+  it('mantém foco no conflito externo quando chat modal fecha na mesma abertura', async () => {
     const externalChangeData = {
       id: 'ui-editor-external-change-chat-close',
       title: 'Alteração externa detectada',
