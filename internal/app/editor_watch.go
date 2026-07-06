@@ -113,24 +113,10 @@ func (a *App) markEditorAssistedWrite(path string) func(bool) {
 	if err != nil {
 		return nil
 	}
-	normDir, err := normalizeWatchPath(filepath.Dir(norm))
-	if err != nil {
-		return nil
-	}
 	a.editorWatchMu.Lock()
-	dw := a.editorDirWatches[normDir]
+	a.clearExpiredEditorAssistedWritesLocked(time.Now())
 	a.editorAssistedWriteSeq++
 	token := a.editorAssistedWriteSeq
-	a.editorWatchMu.Unlock()
-	if dw == nil || !dw.isWatchingFile(norm) {
-		return nil
-	}
-	a.editorWatchMu.Lock()
-	currentWatch := a.editorDirWatches[normDir]
-	if currentWatch == nil || !currentWatch.isWatchingFile(norm) {
-		a.editorWatchMu.Unlock()
-		return nil
-	}
 	a.editorAssistedWriteByPath[norm] = editorAssistedWrite{
 		origin:    "assistant_tool",
 		expiresAt: time.Now().Add(editorAssistedWriteTTL),

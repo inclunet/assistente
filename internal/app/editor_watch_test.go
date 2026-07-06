@@ -50,6 +50,47 @@ func TestEditorAssistedWriteMarkerConsumedOnce(t *testing.T) {
 	}
 }
 
+func TestEditorAssistedWriteMarkerDoesNotRequireActiveWatchAtWriteStart(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	app := &App{}
+
+	norm, err := normalizeWatchPath(filePath)
+	if err != nil {
+		t.Fatalf("normalizeWatchPath: %v", err)
+	}
+	normDir, err := normalizeWatchPath(filepath.Dir(filePath))
+	if err != nil {
+		t.Fatalf("normalizeWatchPath dir: %v", err)
+	}
+
+	commit := app.markEditorAssistedWrite(filePath)
+	if commit == nil {
+		t.Fatal("expected commit function")
+	}
+	if err := os.WriteFile(filePath, []byte("depois"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	commit(true)
+
+	app.editorWatchMu.Lock()
+	app.editorDirWatches = map[string]*editorDirWatch{
+		normDir: {
+			files:    map[string]int{norm: 1},
+			lastEmit: map[string]time.Time{},
+		},
+	}
+	app.editorWatchMu.Unlock()
+
+	origin, ok := app.consumeEditorAssistedWrite(norm)
+	if !ok {
+		t.Fatal("expected assisted write marker registered before watch")
+	}
+	if origin != "assistant_tool" {
+		t.Fatalf("origin = %q, want assistant_tool", origin)
+	}
+}
+
 func TestEditorAssistedWriteMarkerCanBeCancelled(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "doc.md")
