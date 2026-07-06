@@ -13,7 +13,7 @@ import { Menu, type MenuItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
-import { isModalOpen } from '../ui/Modal';
+import { isModalOpen, useIsInsideModal, useModalIsTopmost } from '../ui/Modal';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useUIStore } from '../../store/uiStore';
 import { TokenStatsButton } from './TokenStatsButton';
@@ -63,6 +63,8 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const { announce, announceRequest } = useAnnouncer();
   const announceRequestRef = useRef(announceRequest);
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
+  const isInsideModal = useIsInsideModal();
+  const isModalTopmost = useModalIsTopmost();
 
   const workspace = useWorkspaceStore((s) => s.workspace);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
@@ -184,25 +186,31 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     focusInput();
   }, [announce, activeConversation, clearConversationMessages, effectiveConversationId, focusInput, loadConversationSession]);
 
+  const canHandleShortcut = useCallback(() => {
+    if (!isModalOpen()) return true;
+    return isInsideModal && isModalTopmost();
+  }, [isInsideModal, isModalTopmost]);
+
   useEffect(() => {
     if (!enableShortcuts) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Sempre previne o default do navegador (Ctrl+L/H/P) mas não age na UI de
-      // fundo enquanto um modal está aberto (ex.: painel de atalhos).
-      if (e.ctrlKey && e.key === 'l') {
+      const key = e.key.toLowerCase();
+      // Sempre previne o default do navegador (Ctrl+L/H/P), mas só age quando
+      // não há modal aberto ou quando este toolbar pertence ao modal do topo.
+      if (e.ctrlKey && key === 'l') {
         e.preventDefault();
-        if (isModalOpen()) return;
+        if (!canHandleShortcut()) return;
         void handleClearConversation();
       }
-      else if (e.ctrlKey && e.key === 'h') {
+      else if (e.ctrlKey && key === 'h') {
         e.preventDefault();
-        if (isModalOpen()) return;
+        if (!canHandleShortcut()) return;
         const btn = historyContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
         btn?.click();
       }
-      else if (e.ctrlKey && e.key === 'p') {
+      else if (e.ctrlKey && key === 'p') {
         e.preventDefault();
-        if (isModalOpen()) return;
+        if (!canHandleShortcut()) return;
         const btn = profileContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
         btn?.click();
       }
@@ -210,7 +218,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [enableShortcuts, handleClearConversation]);
+  }, [canHandleShortcut, enableShortcuts, handleClearConversation]);
 
   const handleProfileChange = useCallback(async (slug: string) => {
     try {
