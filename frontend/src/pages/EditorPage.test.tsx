@@ -7,6 +7,7 @@ import { EditorGetFileInfo, EditorReadFile, EditorWriteFile, GetProfile } from '
 const openToolbarMenuSpy = vi.fn();
 const editorPageMocks = vi.hoisted(() => {
   const revealSlideMarkdown = '## Slide 2\nselected rich text';
+  const runtimeHandlers: Record<string, Array<(data: unknown) => void>> = {};
   const offsetToPosition = (text: string, offset: number) => {
     const safeOffset = Math.max(0, Math.min(offset, text.length));
     const before = text.slice(0, safeOffset);
@@ -34,12 +35,20 @@ const editorPageMocks = vi.hoisted(() => {
     richSelectionListener: null as (() => void) | null,
     markdownEditor: null as unknown,
     richEditor: null as unknown,
+    chatModalIsOpen: true,
     requestOpen: vi.fn(),
-    chatClose: vi.fn(),
+    closeModal: vi.fn(),
     setAdapterError: vi.fn(),
+    bumpFocus: vi.fn(),
     waitForChatDone: vi.fn(),
     waitForEditorPatch: vi.fn(),
     getMaxMessageId: vi.fn(),
+    runtimeHandlers,
+    emitRuntimeEvent: (name: string, data: unknown) => {
+      for (const handler of [...(runtimeHandlers[name] ?? [])]) {
+        handler(data);
+      }
+    },
   };
   state.markdownEditor = {
     getModel: () => ({
@@ -280,15 +289,16 @@ vi.mock('../components/editor/MermaidEditorModal', () => ({
 vi.mock('../store/workspaceChatModalStore', () => ({
   useWorkspaceChatModalStore: Object.assign(
     (selector?: (s: { isOpen: boolean }) => unknown) => {
-      const state = { isOpen: false };
+      const state = { isOpen: editorPageMocks.chatModalIsOpen };
       return typeof selector === 'function' ? selector(state) : state;
     },
     {
       getState: () => ({
+        isOpen: editorPageMocks.chatModalIsOpen,
         requestOpen: editorPageMocks.requestOpen,
-        close: editorPageMocks.chatClose,
+        close: editorPageMocks.closeModal,
         setAdapterError: editorPageMocks.setAdapterError,
-        bumpFocus: vi.fn(),
+        bumpFocus: editorPageMocks.bumpFocus,
       }),
     },
   ),
@@ -305,7 +315,15 @@ vi.mock('../components/menu', () => ({
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
-  EventsOn: () => () => {},
+  EventsOn: (name: string, handler: (data: unknown) => void) => {
+    const handlers = editorPageMocks.runtimeHandlers[name] ?? [];
+    handlers.push(handler);
+    editorPageMocks.runtimeHandlers[name] = handlers;
+    return () => {
+      const current = editorPageMocks.runtimeHandlers[name] ?? [];
+      editorPageMocks.runtimeHandlers[name] = current.filter((item) => item !== handler);
+    };
+  },
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
@@ -317,6 +335,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
   EditorReadDraft: vi.fn(),
   EditorReadFile: vi.fn(),
   EditorSaveFileDialog: vi.fn(),
+  EditorSaveState: vi.fn().mockResolvedValue(undefined),
   EditorSaveSession: vi.fn(),
   EditorUnwatchFile: vi.fn().mockResolvedValue(undefined),
   EditorWatchFile: vi.fn().mockResolvedValue(undefined),
@@ -337,16 +356,22 @@ describe('EditorPage', () => {
     editorPageMocks.markdownSelectionEndOffset = 0;
     editorPageMocks.markdownCursorOffset = 0;
     editorPageMocks.markdownHasFocus = true;
+    editorPageMocks.chatModalIsOpen = true;
     editorPageMocks.markdownSelectionListener = null;
     editorPageMocks.richSelectionListener = null;
     editorPageMocks.requestOpen.mockReset();
-    editorPageMocks.chatClose.mockReset();
+    editorPageMocks.closeModal.mockReset();
     editorPageMocks.setAdapterError.mockReset();
+    editorPageMocks.bumpFocus.mockReset();
     editorPageMocks.waitForChatDone.mockReset();
     editorPageMocks.waitForChatDone.mockResolvedValue('conv-1');
     editorPageMocks.waitForEditorPatch.mockReset();
+    editorPageMocks.waitForEditorPatch.mockResolvedValue({ ok: false, error: 'Nenhum patch encontrado' });
     editorPageMocks.getMaxMessageId.mockReset();
-    editorPageMocks.getMaxMessageId.mockReturnValue(0);
+    editorPageMocks.getMaxMessageId.mockReturnValue('');
+    for (const key of Object.keys(editorPageMocks.runtimeHandlers)) {
+      delete editorPageMocks.runtimeHandlers[key];
+    }
     const richEditor = editorPageMocks.richEditor as {
       state: { selection: { from: number; to: number; empty: boolean } };
       isFocused: boolean;
@@ -359,15 +384,69 @@ describe('EditorPage', () => {
     richEditor.view.hasFocus = () => true;
     openToolbarMenuSpy.mockReset();
     editorStoreState.setDocMarkdown.mockReset();
+    editorStoreState.setDocMarkdown.mockImplementation((tabId: string, markdown: string) => {
+      const tab = editorStoreState.documents[tabId];
+      if (tab) tab.markdown = markdown;
+    });
     editorStoreState.setDocDirty.mockReset();
     editorStoreState.setDocMode.mockReset();
-    vi.mocked(EditorWriteFile).mockReset();
     vi.mocked(EditorReadFile).mockReset();
+    vi.mocked(EditorReadFile).mockResolvedValue('Alpha\nselected markdown\nOmega' as never);
+    vi.mocked(EditorWriteFile).mockReset();
     vi.mocked(EditorGetFileInfo).mockReset();
     vi.mocked(EditorGetFileInfo).mockResolvedValue({ exists: true, isDir: false, size: 20, modTimeMs: 2000 } as never);
     vi.mocked(GetProfile).mockReset();
-    vi.mocked(GetProfile).mockResolvedValue({ chat: { disable_tools: false } } as never);
+    vi.mocked(GetProfile).mockResolvedValue({ chat: { disable_tools: false } } as Awaited<ReturnType<typeof GetProfile>>);
   });
+
+  async function createEditorChatSendPlan(markdown = 'Alpha\nselected markdown\nOmega') {
+    const selectedText = 'selected markdown';
+    const selectionStart = markdown.indexOf(selectedText);
+    editorPageMocks.markdownModelValue = markdown;
+    editorPageMocks.markdownSelectionStartOffset = selectionStart;
+    editorPageMocks.markdownSelectionEndOffset = selectionStart + selectedText.length;
+    editorPageMocks.markdownCursorOffset = selectionStart;
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown,
+        mode: 'markdown',
+        filePath: 'doc.md',
+      },
+    };
+
+    render(
+      <EditorPage
+        workspaceTab={{
+          id: 'tab-1',
+          type: 'editor',
+          title: 'Doc',
+          position: 0,
+          conversationId: 'conv-1',
+          state: { filePath: 'doc.md' },
+        }}
+      />
+    );
+
+    const adapter = editorPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; meta: unknown }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ afterSend?: () => Promise<void> } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const plan = await adapter.send('Altere o trecho', undefined, prepared.meta, {
+      tabId: 'tab-1',
+      conversationId: 'conv-1',
+    });
+
+    expect(plan?.afterSend).toBeDefined();
+    return plan!;
+  }
 
   it('desabilita botoes de formato/inserir/modo sem aba ativa', () => {
     render(<EditorPage />);
@@ -820,6 +899,165 @@ describe('EditorPage', () => {
     expect(surfaceContext.content.markdown).not.toContain('Slide 3');
   });
 
+  it('mantém o chat modal aberto quando o turno com tools termina com erro', async () => {
+    editorPageMocks.waitForChatDone.mockRejectedValueOnce(new Error('falha do modelo'));
+    const plan = await createEditorChatSendPlan();
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+    expect(editorPageMocks.setAdapterError).toHaveBeenCalledWith('falha do modelo');
+  });
+
+  it('mantém o chat modal aberto em resposta textual sem edição no editor', async () => {
+    const plan = await createEditorChatSendPlan();
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+    expect(editorPageMocks.bumpFocus).toHaveBeenCalled();
+  });
+
+  it('mantém o chat modal aberto quando a tool termina sem alteração no arquivo', async () => {
+    const plan = await createEditorChatSendPlan();
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+    expect(editorPageMocks.bumpFocus).toHaveBeenCalled();
+  });
+
+  it('fecha o chat modal quando a edição aprovada altera o documento do editor', async () => {
+    const plan = await createEditorChatSendPlan();
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorStoreState.documents['tab-1'].markdown = 'Alpha\nselected markdown alterado\nOmega';
+    editorPageMocks.emitRuntimeEvent('editor:fileChanged', {
+      path: 'doc.md',
+      origin: 'assistant_tool',
+      assisted: true,
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.closeModal).toHaveBeenCalledTimes(1);
+    expect(editorPageMocks.setAdapterError).toHaveBeenCalledWith(null);
+  });
+
+  it('fecha o chat modal quando a edição aprovada altera o arquivo mesmo sem auto-reload do editor', async () => {
+    const plan = await createEditorChatSendPlan();
+    vi.mocked(EditorReadFile).mockResolvedValue('Alpha\nselected markdown alterado no disco\nOmega' as never);
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.closeModal).toHaveBeenCalledTimes(1);
+    expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith('tab-1', 'Alpha\nselected markdown alterado no disco\nOmega');
+  });
+
+  it('ignora evento assistido tardio depois de tool sem alteração no arquivo', async () => {
+    const plan = await createEditorChatSendPlan();
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+
+    act(() => {
+      editorPageMocks.emitRuntimeEvent('editor:fileChanged', {
+        path: 'doc.md',
+        origin: 'assistant_tool',
+        assisted: true,
+      });
+    });
+
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+  });
+
+  it('mantém o chat modal aberto quando a confirmação da edição é rejeitada', async () => {
+    const plan = await createEditorChatSendPlan();
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('editor:fileChanged', {
+      path: 'doc.md',
+      origin: 'assistant_tool',
+      assisted: true,
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'error',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+    expect(editorStoreState.documents['tab-1'].markdown).toBe('Alpha\nselected markdown\nOmega');
+  });
+
+  it('mantém o chat modal aberto quando a policy não permite edit_file e nada muda', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({
+      chat: { disable_tools: false },
+      enabled_tools: [],
+    } as unknown as Awaited<ReturnType<typeof GetProfile>>);
+    const plan = await createEditorChatSendPlan();
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+    expect(editorPageMocks.bumpFocus).toHaveBeenCalled();
+  });
+
   it('sincroniza edição por tool antes de fechar o chat modal', async () => {
     editorPageMocks.markdownModelValue = 'antes da tool';
     editorStoreState.documents = {
@@ -861,15 +1099,24 @@ describe('EditorPage', () => {
       tabId: 'tab-1',
       conversationId: 'conv-1',
     });
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+    });
 
     await act(async () => {
       await plan?.afterSend?.();
     });
 
     expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith('tab-1', 'depois da tool');
-    expect(editorPageMocks.chatClose).toHaveBeenCalled();
+    expect(editorPageMocks.closeModal).toHaveBeenCalled();
     expect(editorStoreState.setDocMarkdown.mock.invocationCallOrder[0]).toBeLessThan(
-      editorPageMocks.chatClose.mock.invocationCallOrder[0]
+      editorPageMocks.closeModal.mock.invocationCallOrder[0]
     );
   });
 });
