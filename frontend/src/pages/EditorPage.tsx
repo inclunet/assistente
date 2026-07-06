@@ -115,11 +115,12 @@ function getChangedRangeAfterTextReplacement(params: {
   const before = String(params.before ?? '');
   const after = String(params.after ?? '');
   const fallbackStartOffset = clampNumber(params.fallbackStartOffset, 0, after.length);
+  const fallbackEndOffset = clampNumber(params.fallbackEndOffset, fallbackStartOffset, after.length);
   const fallbackSelectedText = String(params.fallbackSelectedText || '');
-  const fallbackEndOffset = fallbackStartOffset + fallbackSelectedText.length;
+  const fallbackSelectedEndOffset = fallbackStartOffset + fallbackSelectedText.length;
   if (
     fallbackSelectedText &&
-    after.slice(fallbackStartOffset, fallbackEndOffset) === fallbackSelectedText &&
+    after.slice(fallbackStartOffset, fallbackSelectedEndOffset) === fallbackSelectedText &&
     (before[fallbackEndOffset] ?? '') === (after[fallbackEndOffset] ?? '')
   ) {
     return {
@@ -154,9 +155,9 @@ function getChangedRangeAfterTextReplacement(params: {
   const endOffset = clampNumber(after.length - suffixLength, startOffset, after.length);
   if (
     fallbackSelectedText &&
-    prefixLength >= fallbackEndOffset &&
-    after.slice(fallbackStartOffset, fallbackEndOffset) === fallbackSelectedText &&
-    endOffset > fallbackEndOffset
+    prefixLength >= fallbackSelectedEndOffset &&
+    after.slice(fallbackStartOffset, fallbackSelectedEndOffset) === fallbackSelectedText &&
+    endOffset > fallbackSelectedEndOffset
   ) {
     return { startOffset: fallbackStartOffset, endOffset };
   }
@@ -405,7 +406,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         before: params.markdownBefore,
         after: params.markdownAfter,
         fallbackStartOffset: selection.startOffset,
-        fallbackEndOffset: selection.startOffset + String(selection.selectedText || '').length,
+        fallbackEndOffset: selection.endOffset,
         fallbackSelectedText: selection.selectedText,
       });
       queueMarkdownEditorRestore({

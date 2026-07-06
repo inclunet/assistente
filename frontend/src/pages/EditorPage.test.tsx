@@ -40,6 +40,11 @@ const editorPageMocks = vi.hoisted(() => {
     markdownSetPosition: vi.fn(),
     markdownRevealRangeInCenter: vi.fn(),
     markdownRevealPositionInCenter: vi.fn(),
+    richChainFocus: vi.fn(),
+    richSetTextSelection: vi.fn(),
+    richInsertContent: vi.fn(),
+    richRun: vi.fn().mockReturnValue(true),
+    richViewFocus: vi.fn(),
     requestQuestionnaire: vi.fn(),
     richEditor: null as unknown,
     chatModalIsOpen: true,
@@ -120,7 +125,25 @@ const editorPageMocks = vi.hoisted(() => {
       },
     },
     commands: { focus: vi.fn() },
-    view: { focus: vi.fn(), hasFocus: () => true },
+    chain: () => {
+      const chain = {
+        focus: (position?: unknown) => {
+          state.richChainFocus(position);
+          return chain;
+        },
+        setTextSelection: (range: { from: number; to: number }) => {
+          state.richSetTextSelection(range);
+          return chain;
+        },
+        insertContent: (content: unknown) => {
+          state.richInsertContent(content);
+          return chain;
+        },
+        run: () => state.richRun(),
+      };
+      return chain;
+    },
+    view: { focus: state.richViewFocus, hasFocus: () => true },
     isFocused: true,
     on: (event: string, listener: () => void) => {
       if (event === 'selectionUpdate') state.richSelectionListener = listener;
@@ -388,6 +411,12 @@ describe('EditorPage', () => {
     editorPageMocks.markdownSetPosition.mockReset();
     editorPageMocks.markdownRevealRangeInCenter.mockReset();
     editorPageMocks.markdownRevealPositionInCenter.mockReset();
+    editorPageMocks.richChainFocus.mockReset();
+    editorPageMocks.richSetTextSelection.mockReset();
+    editorPageMocks.richInsertContent.mockReset();
+    editorPageMocks.richRun.mockReset();
+    editorPageMocks.richRun.mockReturnValue(true);
+    editorPageMocks.richViewFocus.mockReset();
     editorPageMocks.requestQuestionnaire.mockReset();
     editorPageMocks.requestQuestionnaire.mockResolvedValue({ cancelled: false });
     editorPageMocks.requestOpen.mockReset();
@@ -475,6 +504,49 @@ describe('EditorPage', () => {
     };
     const prepared = await adapter.prepare();
     const plan = await adapter.send('Altere o trecho', undefined, prepared.meta, {
+      tabId: 'tab-1',
+      conversationId: 'conv-1',
+    });
+
+    expect(plan?.afterSend).toBeDefined();
+    return plan!;
+  }
+
+  async function createRichEditorChatSendPlan(markdown = '## Slide 2\nselected rich text') {
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown,
+        mode: 'rich',
+        filePath: 'doc.md',
+      },
+    };
+
+    render(
+      <EditorPage
+        workspaceTab={{
+          id: 'tab-1',
+          type: 'editor',
+          title: 'Doc',
+          position: 0,
+          conversationId: 'conv-1',
+          state: { filePath: 'doc.md' },
+        }}
+      />
+    );
+
+    const adapter = editorPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; meta: unknown }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ afterSend?: () => Promise<void> } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const plan = await adapter.send('Altere o trecho rico', undefined, prepared.meta, {
       tabId: 'tab-1',
       conversationId: 'conv-1',
     });
@@ -1166,6 +1238,28 @@ describe('EditorPage', () => {
       endLineNumber: 2,
       endColumn: 27,
     });
+  });
+
+  it('restaura foco e seleção no editor rico após aplicar patch inline local', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({
+      chat: { disable_tools: true },
+    } as Awaited<ReturnType<typeof GetProfile>>);
+    editorPageMocks.waitForEditorPatch.mockResolvedValueOnce({
+      ok: true,
+      patch: { replacement: 'texto rico restaurado', format: 'plain' },
+    });
+    const plan = await createRichEditorChatSendPlan();
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.richSetTextSelection).toHaveBeenCalled());
+
+    expect(editorPageMocks.richSetTextSelection).toHaveBeenNthCalledWith(1, { from: 1, to: 19 });
+    expect(editorPageMocks.richInsertContent).toHaveBeenCalledWith('texto rico restaurado');
+    expect(editorPageMocks.richSetTextSelection).toHaveBeenLastCalledWith({ from: 1, to: 1 });
+    expect(editorPageMocks.richViewFocus).toHaveBeenCalled();
   });
 
   it('fecha o chat modal quando a edição aprovada altera o documento do editor', async () => {
