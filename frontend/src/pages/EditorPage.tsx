@@ -1198,6 +1198,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       const toolTurnFilePath = String(toolTurnTab.filePath || latestActiveTab.filePath || activeTab?.filePath || '');
       const canUseToolCalling = toolCallingEnabled && !!toolTurnFilePath;
       const filePathBeforeToolTurn = canUseToolCalling ? normalizePathKey(toolTurnFilePath) : '';
+      const markdownBeforeToolTurn = canUseToolCalling ? String(toolTurnTab.markdown ?? latestActiveTab.markdown ?? activeTab?.markdown ?? '') : '';
       let sawEditorApplyTool = false;
       let sawEditorApplyToolSuccess = false;
       let sawAssistedFileChange = false;
@@ -1231,6 +1232,10 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         unsubscribeAssistedFileChange = null;
         inlineChatToolCloseCleanupsRef.current.delete(stopTrackingAssistedFileChange);
       };
+      const didToolTurnChangeEditorMarkdown = () => {
+        const currentTab = useEditorStore.getState().documents[latestActiveTab.id] ?? null;
+        return String(currentTab?.markdown ?? '') !== markdownBeforeToolTurn;
+      };
       const closeModalAfterAppliedToolEdit = async (syncBeforeClose = true) => {
         if (runId !== inlineChatRunIdRef.current) {
           stopTrackingAssistedFileChange();
@@ -1243,6 +1248,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         stopTrackingAssistedFileChange();
         if (syncBeforeClose) {
           await syncAssistedChangeForTab(inlineChatSelection.tabId);
+        }
+        if (!didToolTurnChangeEditorMarkdown()) {
+          useWorkspaceChatModalStore.getState().bumpFocus();
+          setIsAsking(false);
+          return;
         }
         useWorkspaceChatModalStore.getState().setAdapterError(null);
         useWorkspaceChatModalStore.getState().close();

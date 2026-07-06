@@ -384,6 +384,10 @@ describe('EditorPage', () => {
     richEditor.view.hasFocus = () => true;
     openToolbarMenuSpy.mockReset();
     editorStoreState.setDocMarkdown.mockReset();
+    editorStoreState.setDocMarkdown.mockImplementation((tabId: string, markdown: string) => {
+      const tab = editorStoreState.documents[tabId];
+      if (tab) tab.markdown = markdown;
+    });
     editorStoreState.setDocDirty.mockReset();
     editorStoreState.setDocMode.mockReset();
     vi.mocked(EditorReadFile).mockReset();
@@ -927,7 +931,7 @@ describe('EditorPage', () => {
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
       conversationId: 'conv-1',
       name: 'edit_file',
-      status: 'done',
+      status: 'ok',
     });
 
     await act(async () => {
@@ -953,7 +957,7 @@ describe('EditorPage', () => {
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
       conversationId: 'conv-1',
       name: 'edit_file',
-      status: 'done',
+      status: 'ok',
     });
 
     await act(async () => {
@@ -966,19 +970,15 @@ describe('EditorPage', () => {
 
   it('fecha o chat modal quando a edição aprovada altera o arquivo mesmo sem auto-reload do editor', async () => {
     const plan = await createEditorChatSendPlan();
+    vi.mocked(EditorReadFile).mockResolvedValue('Alpha\nselected markdown alterado no disco\nOmega' as never);
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
       conversationId: 'conv-1',
       name: 'edit_file',
     });
-    editorPageMocks.emitRuntimeEvent('editor:fileChanged', {
-      path: 'doc.md',
-      origin: 'assistant_tool',
-      assisted: true,
-    });
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
       conversationId: 'conv-1',
       name: 'edit_file',
-      status: 'done',
+      status: 'ok',
     });
 
     await act(async () => {
@@ -986,7 +986,7 @@ describe('EditorPage', () => {
     });
 
     expect(editorPageMocks.closeModal).toHaveBeenCalledTimes(1);
-    expect(editorStoreState.documents['tab-1'].markdown).toBe('Alpha\nselected markdown\nOmega');
+    expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith('tab-1', 'Alpha\nselected markdown alterado no disco\nOmega');
   });
 
   it('ignora evento assistido tardio depois de tool sem alteração no arquivo', async () => {
@@ -998,7 +998,7 @@ describe('EditorPage', () => {
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
       conversationId: 'conv-1',
       name: 'edit_file',
-      status: 'done',
+      status: 'ok',
     });
 
     await act(async () => {
@@ -1106,7 +1106,7 @@ describe('EditorPage', () => {
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
       conversationId: 'conv-1',
       name: 'edit_file',
-      status: 'done',
+      status: 'ok',
     });
 
     await act(async () => {
