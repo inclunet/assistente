@@ -17,6 +17,7 @@ import {
   registerOpenModal,
   unregisterOpenModal,
   isTopmostModal,
+  isModalOpen,
 } from '../../lib/modalRegistry';
 import './Modal.css';
 
@@ -65,6 +66,7 @@ function isVisibleFocusableElement(el: HTMLElement): boolean {
 
 function restorePageFocus() {
   requestAnimationFrame(() => {
+    if (isModalOpen()) return;
     restoreDefaultFocus();
   });
 }
