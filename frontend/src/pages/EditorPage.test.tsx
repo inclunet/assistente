@@ -32,8 +32,21 @@ const editorPageMocks = vi.hoisted(() => {
     markdownCursorOffset: 0,
     markdownHasFocus: true,
     markdownSelectionListener: null as (() => void) | null,
+    markdownModelContentListener: null as (() => void) | null,
     richSelectionListener: null as (() => void) | null,
+    richDocText: 'selected rich text',
     markdownEditor: null as unknown,
+    markdownFocus: vi.fn(),
+    markdownSetSelection: vi.fn(),
+    markdownSetPosition: vi.fn(),
+    markdownRevealRangeInCenter: vi.fn(),
+    markdownRevealPositionInCenter: vi.fn(),
+    richChainFocus: vi.fn(),
+    richSetTextSelection: vi.fn(),
+    richInsertContent: vi.fn(),
+    richRun: vi.fn().mockReturnValue(true),
+    richViewFocus: vi.fn(),
+    requestQuestionnaire: vi.fn(),
     richEditor: null as unknown,
     chatModalIsOpen: true,
     requestOpen: vi.fn(),
@@ -49,12 +62,16 @@ const editorPageMocks = vi.hoisted(() => {
         handler(data);
       }
     },
+    emitMarkdownModelContentChange: () => {
+      state.markdownModelContentListener?.();
+    },
   };
   state.markdownEditor = {
     getModel: () => ({
       getValue: () => state.markdownModelValue,
       getValueInRange: () => state.markdownModelValue.slice(state.markdownSelectionStartOffset, state.markdownSelectionEndOffset),
       getOffsetAt: (position: { lineNumber: number; column: number }) => positionToOffset(state.markdownModelValue, position),
+      getPositionAt: (offset: number) => offsetToPosition(state.markdownModelValue, offset),
     }),
     getSelection: () => ({
       getStartPosition: () => offsetToPosition(state.markdownModelValue, state.markdownSelectionStartOffset),
@@ -70,7 +87,19 @@ const editorPageMocks = vi.hoisted(() => {
         },
       };
     },
-    focus: vi.fn(),
+    onDidChangeModelContent: (listener: () => void) => {
+      state.markdownModelContentListener = listener;
+      return {
+        dispose: () => {
+          if (state.markdownModelContentListener === listener) state.markdownModelContentListener = null;
+        },
+      };
+    },
+    focus: state.markdownFocus,
+    setSelection: state.markdownSetSelection,
+    setPosition: state.markdownSetPosition,
+    revealRangeInCenter: state.markdownRevealRangeInCenter,
+    revealPositionInCenter: state.markdownRevealPositionInCenter,
   };
   state.richEditor = {
     state: {
@@ -82,8 +111,13 @@ const editorPageMocks = vi.hoisted(() => {
       doc: {
         content: { size: revealSlideMarkdown.length },
         textBetween: (from: number, to: number) => {
-          if (from === 1 && to === 19) return 'selected rich text';
-          return revealSlideMarkdown;
+          const text = state.richDocText || revealSlideMarkdown;
+          const start = Math.max(0, from - 1);
+          const end = Math.max(start, to - 1);
+          return text.slice(start, end);
+        },
+        descendants: (callback: (node: { text?: string }, pos: number) => void) => {
+          callback({ text: state.richDocText }, 1);
         },
         cut: () => ({ markdown: revealSlideMarkdown }),
       },
@@ -97,7 +131,25 @@ const editorPageMocks = vi.hoisted(() => {
       },
     },
     commands: { focus: vi.fn() },
-    view: { focus: vi.fn(), hasFocus: () => true },
+    chain: () => {
+      const chain = {
+        focus: (position?: unknown) => {
+          state.richChainFocus(position);
+          return chain;
+        },
+        setTextSelection: (range: { from: number; to: number }) => {
+          state.richSetTextSelection(range);
+          return chain;
+        },
+        insertContent: (content: unknown) => {
+          state.richInsertContent(content);
+          return chain;
+        },
+        run: () => state.richRun(),
+      };
+      return chain;
+    },
+    view: { focus: state.richViewFocus, hasFocus: () => true },
     isFocused: true,
     on: (event: string, listener: () => void) => {
       if (event === 'selectionUpdate') state.richSelectionListener = listener;
@@ -176,7 +228,7 @@ vi.mock('../store/chatStore', () => ({
 
 vi.mock('../store/questionnaireUIStore', () => ({
   useQuestionnaireUIStore: (selector?: (s: { request: () => void }) => unknown) => {
-    const state = { request: vi.fn() };
+    const state = { request: editorPageMocks.requestQuestionnaire };
     return selector ? selector(state) : state;
   },
 }));
@@ -358,9 +410,27 @@ describe('EditorPage', () => {
     editorPageMocks.markdownHasFocus = true;
     editorPageMocks.chatModalIsOpen = true;
     editorPageMocks.markdownSelectionListener = null;
+    editorPageMocks.markdownModelContentListener = null;
     editorPageMocks.richSelectionListener = null;
+    editorPageMocks.richDocText = 'selected rich text';
+    editorPageMocks.markdownFocus.mockReset();
+    editorPageMocks.markdownSetSelection.mockReset();
+    editorPageMocks.markdownSetPosition.mockReset();
+    editorPageMocks.markdownRevealRangeInCenter.mockReset();
+    editorPageMocks.markdownRevealPositionInCenter.mockReset();
+    editorPageMocks.richChainFocus.mockReset();
+    editorPageMocks.richSetTextSelection.mockReset();
+    editorPageMocks.richInsertContent.mockReset();
+    editorPageMocks.richRun.mockReset();
+    editorPageMocks.richRun.mockReturnValue(true);
+    editorPageMocks.richViewFocus.mockReset();
+    editorPageMocks.requestQuestionnaire.mockReset();
+    editorPageMocks.requestQuestionnaire.mockResolvedValue({ cancelled: false });
     editorPageMocks.requestOpen.mockReset();
     editorPageMocks.closeModal.mockReset();
+    editorPageMocks.closeModal.mockImplementation(() => {
+      editorPageMocks.chatModalIsOpen = false;
+    });
     editorPageMocks.setAdapterError.mockReset();
     editorPageMocks.bumpFocus.mockReset();
     editorPageMocks.waitForChatDone.mockReset();
@@ -387,6 +457,7 @@ describe('EditorPage', () => {
     editorStoreState.setDocMarkdown.mockImplementation((tabId: string, markdown: string) => {
       const tab = editorStoreState.documents[tabId];
       if (tab) tab.markdown = markdown;
+      if (tab?.mode === 'markdown') editorPageMocks.markdownModelValue = markdown;
     });
     editorStoreState.setDocDirty.mockReset();
     editorStoreState.setDocMode.mockReset();
@@ -440,6 +511,49 @@ describe('EditorPage', () => {
     };
     const prepared = await adapter.prepare();
     const plan = await adapter.send('Altere o trecho', undefined, prepared.meta, {
+      tabId: 'tab-1',
+      conversationId: 'conv-1',
+    });
+
+    expect(plan?.afterSend).toBeDefined();
+    return plan!;
+  }
+
+  async function createRichEditorChatSendPlan(markdown = '## Slide 2\nselected rich text') {
+    editorStoreState.documents = {
+      'tab-1': {
+        id: 'tab-1',
+        title: 'Doc',
+        markdown,
+        mode: 'rich',
+        filePath: 'doc.md',
+      },
+    };
+
+    render(
+      <EditorPage
+        workspaceTab={{
+          id: 'tab-1',
+          type: 'editor',
+          title: 'Doc',
+          position: 0,
+          conversationId: 'conv-1',
+          state: { filePath: 'doc.md' },
+        }}
+      />
+    );
+
+    const adapter = editorPageMocks.registeredAdapter as {
+      prepare: () => Promise<{ ok: true; meta: unknown }>;
+      send: (
+        instruction: string,
+        media: undefined,
+        meta: unknown,
+        session: { tabId: string; conversationId: string },
+      ) => Promise<{ afterSend?: () => Promise<void> } | null>;
+    };
+    const prepared = await adapter.prepare();
+    const plan = await adapter.send('Altere o trecho rico', undefined, prepared.meta, {
       tabId: 'tab-1',
       conversationId: 'conv-1',
     });
@@ -940,6 +1054,266 @@ describe('EditorPage', () => {
 
     expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
     expect(editorPageMocks.bumpFocus).toHaveBeenCalled();
+  });
+
+  it('restaura foco e seleção Markdown no trecho editado após aplicar patch inline local', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({
+      chat: { disable_tools: true },
+    } as Awaited<ReturnType<typeof GetProfile>>);
+    editorPageMocks.waitForEditorPatch.mockResolvedValueOnce({
+      ok: true,
+      patch: { replacement: 'texto restaurado', format: 'plain' },
+    });
+    const plan = await createEditorChatSendPlan();
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+
+    expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith('tab-1', 'Alpha\ntexto restaurado\nOmega');
+    expect(editorPageMocks.markdownSetSelection).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 17,
+    });
+    expect(editorPageMocks.markdownRevealRangeInCenter).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 17,
+    });
+    expect(editorPageMocks.markdownFocus).toHaveBeenCalled();
+  });
+
+  it('aguarda o Monaco sincronizar o model antes de restaurar a seleção Markdown', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({
+      chat: { disable_tools: true },
+    } as Awaited<ReturnType<typeof GetProfile>>);
+    editorPageMocks.waitForEditorPatch.mockResolvedValueOnce({
+      ok: true,
+      patch: { replacement: 'texto tardio', format: 'plain' },
+    });
+    editorStoreState.setDocMarkdown.mockImplementation((tabId: string, markdown: string) => {
+      const tab = editorStoreState.documents[tabId];
+      if (tab) tab.markdown = markdown;
+    });
+    const plan = await createEditorChatSendPlan();
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.markdownSetSelection).not.toHaveBeenCalled();
+
+    act(() => {
+      editorPageMocks.markdownModelValue = 'Alpha\ntexto tardio\nOmega';
+      editorPageMocks.emitMarkdownModelContentChange();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+    expect(editorPageMocks.markdownSetSelection).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 13,
+    });
+    expect(editorPageMocks.markdownFocus).toHaveBeenCalled();
+  });
+
+  it('registra a restauração atrasada mesmo quando a edição esvazia o documento', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({
+      chat: { disable_tools: true },
+    } as Awaited<ReturnType<typeof GetProfile>>);
+    editorPageMocks.waitForEditorPatch.mockResolvedValueOnce({
+      ok: true,
+      patch: { replacement: '', format: 'plain' },
+    });
+    editorStoreState.setDocMarkdown.mockImplementation((tabId: string, markdown: string) => {
+      const tab = editorStoreState.documents[tabId];
+      if (tab) tab.markdown = markdown;
+    });
+    const plan = await createEditorChatSendPlan('selected markdown');
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.markdownSetSelection).not.toHaveBeenCalled();
+
+    act(() => {
+      editorPageMocks.markdownModelValue = '';
+      editorPageMocks.emitMarkdownModelContentChange();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+    expect(editorPageMocks.markdownSetSelection).toHaveBeenLastCalledWith({
+      startLineNumber: 1,
+      startColumn: 1,
+      endLineNumber: 1,
+      endColumn: 1,
+    });
+    expect(editorPageMocks.markdownFocus).toHaveBeenCalled();
+  });
+
+  it('trata falha do Monaco como best-effort durante restauração Markdown', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({
+      chat: { disable_tools: true },
+    } as Awaited<ReturnType<typeof GetProfile>>);
+    editorPageMocks.waitForEditorPatch.mockResolvedValueOnce({
+      ok: true,
+      patch: { replacement: 'texto best-effort', format: 'plain' },
+    });
+    const plan = await createEditorChatSendPlan();
+    editorPageMocks.markdownSetSelection.mockImplementationOnce(() => {
+      throw new Error('disposed editor');
+    });
+
+    await expect(
+      act(async () => {
+        await plan.afterSend?.();
+      }),
+    ).resolves.toBeUndefined();
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+  });
+
+  it('restaura foco e seleção Markdown perto do trecho alterado após sync de edit_file', async () => {
+    const plan = await createEditorChatSendPlan();
+    vi.mocked(EditorReadFile).mockResolvedValue('Alpha\ntexto da tool\nOmega' as never);
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+
+    expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith('tab-1', 'Alpha\ntexto da tool\nOmega');
+    expect(editorPageMocks.markdownSetSelection).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 14,
+    });
+    expect(editorPageMocks.markdownRevealRangeInCenter).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 14,
+    });
+    expect(editorPageMocks.markdownFocus).toHaveBeenCalled();
+  });
+
+  it('mantém a restauração ancorada na seleção quando a tool apenas acrescenta texto depois dela', async () => {
+    const plan = await createEditorChatSendPlan();
+    vi.mocked(EditorReadFile).mockResolvedValue('Alpha\nselected markdown\n\nNovo parágrafo\nOmega' as never);
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+
+    expect(editorPageMocks.markdownSetSelection).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 18,
+    });
+  });
+
+  it('inclui a expansão do trecho selecionado na restauração Markdown pós-tool', async () => {
+    const plan = await createEditorChatSendPlan();
+    vi.mocked(EditorReadFile).mockResolvedValue('Alpha\nselected markdown alterado\nOmega' as never);
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+
+    expect(editorPageMocks.markdownSetSelection).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 27,
+    });
+  });
+
+  it('restaura foco e seleção no editor rico após aplicar patch inline local', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({
+      chat: { disable_tools: true },
+    } as Awaited<ReturnType<typeof GetProfile>>);
+    editorPageMocks.waitForEditorPatch.mockResolvedValueOnce({
+      ok: true,
+      patch: { replacement: 'texto rico restaurado', format: 'plain' },
+    });
+    const plan = await createRichEditorChatSendPlan();
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.richSetTextSelection).toHaveBeenCalled());
+
+    expect(editorPageMocks.richSetTextSelection).toHaveBeenNthCalledWith(1, { from: 1, to: 19 });
+    expect(editorPageMocks.richInsertContent).toHaveBeenCalledWith('texto rico restaurado');
+    expect(editorPageMocks.richSetTextSelection).toHaveBeenLastCalledWith({ from: 1, to: 1 });
+    expect(editorPageMocks.richViewFocus).toHaveBeenCalled();
+  });
+
+  it('restaura foco e seleção rich após sync de tool edit_file', async () => {
+    const plan = await createRichEditorChatSendPlan();
+    vi.mocked(EditorReadFile).mockResolvedValue('## Slide 2\nselected rich text alterado' as never);
+    editorPageMocks.richDocText = 'selected rich text alterado';
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.richSetTextSelection).toHaveBeenCalled());
+
+    expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith('tab-1', '## Slide 2\nselected rich text alterado');
+    expect(editorPageMocks.richSetTextSelection).toHaveBeenLastCalledWith({ from: 1, to: 19 });
+    expect(editorPageMocks.richViewFocus).toHaveBeenCalled();
   });
 
   it('fecha o chat modal quando a edição aprovada altera o documento do editor', async () => {

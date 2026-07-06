@@ -76,6 +76,8 @@ export interface RichSelectionSnapshot {
   cursorContext: string;
   displayText: string;
   displayMarkdown?: string;
+  textBeforeSelection?: string;
+  textAfterSelection?: string;
   from: number;
   to: number;
   snapshot: string;
@@ -118,6 +120,8 @@ export type InlineChatSelection =
       cursorContext?: string;
       displayText?: string;
       displayMarkdown?: string;
+      textBeforeSelection?: string;
+      textAfterSelection?: string;
       from: number;
       to: number;
       snapshot: string;
