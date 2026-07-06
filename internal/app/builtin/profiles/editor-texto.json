@@ -1,7 +1,7 @@
 {
-  "_builtin_version": "4.1.0",
+  "_builtin_version": "4.2.0",
   "name": "Editor de Texto",
-  "description": "Perfil para edição dentro do editor de texto (sem ferramentas de filesystem).",
+  "description": "Perfil para edição dentro do editor de texto e do arquivo aberto.",
   "icon": "create-outline",
   "chat": {
     "llm_provider": "$default",
@@ -11,7 +11,10 @@
     "top_p": 1.0,
     "response_timeout": 180,
     "enable_thinking": false,
-    "enabled_tools": ["text_edit"],
+    "tool_policy": {
+      "text_edit": "preloaded",
+      "edit_file": "preloaded"
+    },
     "enabled_skills": ["editor-texto", "slides-reveal-markdown"]
   },
   "voice": {
