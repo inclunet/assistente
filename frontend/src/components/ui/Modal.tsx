@@ -175,6 +175,7 @@ export function Modal({
     const handleEscape = (e: KeyboardEvent) => {
       if (!isTopMost()) return;
       if (!allowClose) return;
+      if (e.defaultPrevented) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
         onClose();
