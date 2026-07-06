@@ -50,6 +50,10 @@ export function useModalIsTopmost(): () => boolean {
   return ctx ?? ALWAYS_TOPMOST;
 }
 
+export function useIsInsideModal(): boolean {
+  return useContext(ModalTopmostContext) !== null;
+}
+
 // Seletor para elementos focáveis
 const FOCUSABLE_SELECTOR = 
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
