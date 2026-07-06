@@ -29,17 +29,35 @@ var networkScopeOptions = []scopeOption{
 	{"Global (todos os workspaces e perfis)", nettrust.ScopeGlobal},
 }
 
-func scopeLabels() []string {
+// scopeOptionSep separa o valor ESTÁVEL do escopo (parseável pelo backend) do
+// rótulo humano dentro da mesma option. O parse (scopeFromOption) usa apenas o
+// prefixo estável, então o copy pode mudar — ou ganhar i18n — sem quebrar o
+// fluxo de consentimento. Ex.: "session — Durante esta conversa".
+const scopeOptionSep = " — "
+
+func scopeOptionText(o scopeOption) string {
+	return string(o.scope) + scopeOptionSep + o.label
+}
+
+func scopeOptions() []string {
 	out := make([]string, 0, len(networkScopeOptions))
 	for _, o := range networkScopeOptions {
-		out = append(out, o.label)
+		out = append(out, scopeOptionText(o))
 	}
 	return out
 }
 
-func scopeFromLabel(label string) (nettrust.Scope, bool) {
+// scopeFromOption extrai o Scope da option escolhida usando apenas o prefixo
+// estável antes de scopeOptionSep (com tolerância a uma resposta que já venha só
+// com o valor do escopo). Não depende do rótulo humano.
+func scopeFromOption(option string) (nettrust.Scope, bool) {
+	value := option
+	if i := strings.Index(option, scopeOptionSep); i >= 0 {
+		value = option[:i]
+	}
+	value = strings.TrimSpace(value)
 	for _, o := range networkScopeOptions {
-		if o.label == label {
+		if string(o.scope) == value {
 			return o.scope, true
 		}
 	}
@@ -92,8 +110,8 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 				Type:     "single_choice",
 				Prompt:   "Por quanto tempo autorizar este host?",
 				Required: true,
-				Options:  scopeLabels(),
-				Default:  networkScopeOptions[0].label,
+				Options:  scopeOptions(),
+				Default:  scopeOptionText(networkScopeOptions[0]),
 			},
 			{
 				ID:          "reason",
@@ -110,10 +128,10 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 		return nettrust.PromptDecision{Approve: false}, nil
 	}
 
-	label, _ := resp.Answers["scope"].(string)
-	scope, ok := scopeFromLabel(label)
+	option, _ := resp.Answers["scope"].(string)
+	scope, ok := scopeFromOption(option)
 	if !ok {
-		return nettrust.PromptDecision{}, fmt.Errorf("escopo de autorização inválido: %q", label)
+		return nettrust.PromptDecision{}, fmt.Errorf("escopo de autorização inválido: %q", option)
 	}
 	reason, _ := resp.Answers["reason"].(string)
 

@@ -85,6 +85,11 @@ A implementação do `Prompter` (`internal/app/app_nettrust.go`) usa o
 destrutivas de HTTP e execução de comandos. Apresenta host/IP/categoria, um
 `single_choice` de escopo e um campo de observação. Cancelar = negar.
 
+Cada option de escopo carrega um **valor estável** como prefixo (`session — …`,
+`workspace — …`) e o backend faz o parse apenas por esse prefixo
+(`scopeFromOption`), nunca pelo rótulo humano — assim o copy pode mudar ou ganhar
+i18n sem quebrar o consentimento.
+
 Skills que declaram `NetworkPermissions.AllowedHosts` têm esses hosts exibidos
 como sugestão no pedido — melhora a UX, mas **não** dispensa o consentimento.
 
