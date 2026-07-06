@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -267,12 +268,24 @@ func (c *Client) buildBlockedDestination(ctx context.Context, req *http.Request,
 		Host:         host,
 		Port:         port,
 		PortExplicit: portExplicit,
-		URL:          req.URL.Redacted(),
+		URL:          sanitizeURL(req.URL),
 		IPs:          ips,
 		Category:     category,
 		// Reason em pt-BR e sem repetir a categoria (já exibida em Category).
 		Reason: "host resolve para uma faixa de IP não permitida",
 	}
+}
+
+// sanitizeURL devolve uma forma segura da URL para exibição/log/telemetria:
+// scheme://host/path, SEM query, fragment ou userinfo. req.URL.Redacted() só
+// oculta a senha do userinfo e mantém a RawQuery, que frequentemente carrega
+// tokens/segredos — este struct pode acabar serializado em logs/erros.
+func sanitizeURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	safe := &url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}
+	return safe.String()
 }
 
 // resolveHostIPs resolve os IPs de um host respeitando o ctx. Se o host já for um

@@ -19,7 +19,7 @@ type BlockedDestination struct {
 	// quando ela é explícita — caso contrário a autorização é por host (qualquer
 	// porta default), como descreve o AEP-0082.
 	PortExplicit bool
-	URL          string   // URL solicitada (sem query sensível quando possível)
+	URL          string   // URL solicitada sanitizada: scheme://host/path (sem query/fragment/userinfo)
 	IPs          []net.IP // IP(s) resolvido(s) do host
 	Category     Category // categoria do bloqueio (cgnat, loopback, metadata, ...)
 	Reason       string   // motivo textual legível

@@ -35,7 +35,7 @@ func (a *App) CreateConversation(title, model string) (*Conversation, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.resetLoadedToolsForConversation(conv.ID)
+	a.resetConversationScopedState(conv.ID)
 	return conv, nil
 }
 
@@ -96,7 +96,7 @@ func (a *App) EnsureConversation(title string) (*Conversation, error) {
 	if err != nil {
 		return nil, fmt.Errorf("erro ao garantir conversa: %w", err)
 	}
-	a.resetLoadedToolsForConversation(conv.ID)
+	a.resetConversationScopedState(conv.ID)
 	return conv, nil
 }
 
@@ -105,6 +105,17 @@ func (a *App) resetLoadedToolsForConversation(conversationID string) {
 		return
 	}
 	a.chatCtrl.ResetLoadedToolsForConversation(conversationID)
+}
+
+// resetConversationScopedState limpa o estado efêmero amarrado a uma conversa
+// (tools carregadas + allowlist de rede do escopo de sessão) quando ela é
+// criada/reciclada, limpa ou excluída — evitando que um novo chat que reutilize o
+// mesmo ConversationID herde estado da sessão anterior sem novo consentimento.
+func (a *App) resetConversationScopedState(conversationID string) {
+	a.resetLoadedToolsForConversation(conversationID)
+	if a != nil && a.netTrustMgr != nil {
+		a.netTrustMgr.ClearSession(conversationID)
+	}
 }
 
 // GetMessages retorna mensagens com filtro por parent (API unificada com LAZY LOADING)
@@ -485,7 +496,7 @@ func (a *App) DeleteConversation(id string) error {
 	if err := database.DeleteConversationWithContext(ctx, id); err != nil {
 		return err
 	}
-	a.resetLoadedToolsForConversation(id)
+	a.resetConversationScopedState(id)
 
 	a.emitter.Emit("conversation:deleted", map[string]interface{}{
 		"conversation_id": id,
@@ -715,7 +726,7 @@ func (a *App) ClearConversation(conversationID string) error {
 	if err := database.DeleteAllMessagesWithContext(ctx, conversationID); err != nil {
 		return err
 	}
-	a.resetLoadedToolsForConversation(conversationID)
+	a.resetConversationScopedState(conversationID)
 
 	a.emitter.Emit("conversation:cleared", map[string]interface{}{
 		"conversation_id": conversationID,

@@ -270,6 +270,29 @@ func TestManager_WorkspaceDirFuncDynamic(t *testing.T) {
 	}
 }
 
+// ClearSession remove as entradas de sessão de uma conversa, para que um novo
+// chat que reutilize o mesmo ID não herde autorizações da sessão anterior.
+func TestManager_ClearSession(t *testing.T) {
+	home := t.TempDir()
+	m := NewManagerWithDirs(home, home)
+	ctx := ctxWith("conv-1", "")
+
+	if err := m.Add(ctx, AllowlistEntry{Host: "svc.internal", Scope: ScopeSession}); err != nil {
+		t.Fatalf("Add sessão: %v", err)
+	}
+	if d := m.Match(ctx, "svc.internal", ""); !d.Allowed {
+		t.Fatal("entrada de sessão deveria casar antes do clear")
+	}
+
+	m.ClearSession("conv-1")
+	if d := m.Match(ctx, "svc.internal", ""); d.Allowed {
+		t.Fatal("após ClearSession a entrada não deveria mais casar")
+	}
+
+	// Outra conversa não é afetada e id vazio é no-op (não entra em pânico).
+	m.ClearSession("")
+}
+
 // Quando o resolvedor de workspace devolve "", o Manager deve cair no fallback
 // (configdir), mantendo o workspacePath resolvível — semântica documentada.
 func TestManager_WorkspaceDirFuncEmptyFallsBack(t *testing.T) {

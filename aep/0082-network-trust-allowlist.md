@@ -68,7 +68,7 @@ host. Escopos e persistência:
 | Escopo | Armazenamento |
 |---|---|
 | `once` | não persiste (libera só a request atual) |
-| `session` | memória, por `ConversationID` (`invocationctx`) |
+| `session` | memória, por `ConversationID` (`invocationctx`); invalidada quando a conversa é criada/reciclada, limpa ou excluída (`Manager.ClearSession`), para que um novo chat que reutilize o mesmo ID não herde autorizações sem novo consentimento |
 | `workspace` | `<workdir>/.assistente/network-allowlist/workspace.json` |
 | `profile` | `~/.assistente/network-allowlist/profile-<slug>.json` |
 | `global` | `~/.assistente/network-allowlist/global.json` |

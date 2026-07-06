@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -233,6 +234,28 @@ func TestMostSensitiveCategory(t *testing.T) {
 	// Host localhost textual prevalece como localhost-alias quando não há IP mais sensível.
 	if got := MostSensitiveCategory("localhost", []net.IP{net.ParseIP("127.0.0.1")}); got != CategoryLocalhostAlias {
 		t.Fatalf("esperado localhost-alias, got %q", got)
+	}
+}
+
+// sanitizeURL deve remover query, fragment e userinfo (evita vazar tokens em
+// logs/telemetria quando o struct for serializado).
+func TestSanitizeURL(t *testing.T) {
+	cases := map[string]string{
+		"https://user:pass@host.example/path?token=segredo#frag": "https://host.example/path",
+		"http://host.example:8080/a/b?x=1":                       "http://host.example:8080/a/b",
+		"https://host.example":                                   "https://host.example",
+	}
+	for in, want := range cases {
+		u, err := url.Parse(in)
+		if err != nil {
+			t.Fatalf("url.Parse(%q): %v", in, err)
+		}
+		if got := sanitizeURL(u); got != want {
+			t.Errorf("sanitizeURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := sanitizeURL(nil); got != "" {
+		t.Errorf("sanitizeURL(nil) = %q, want \"\"", got)
 	}
 }
 

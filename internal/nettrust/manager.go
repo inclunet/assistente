@@ -110,6 +110,20 @@ func (m *Manager) SetWorkspaceDirFunc(f func() string) {
 	m.mu.Unlock()
 }
 
+// ClearSession remove todas as entradas do escopo de sessão de uma conversa.
+// Deve ser chamado quando a conversa é criada/reciclada, limpa ou excluída, para
+// que um novo chat que reutilize o mesmo ConversationID NÃO herde autorizações de
+// rede concedidas na sessão anterior (exigindo novo consentimento). No-op se o
+// id for vazio ou não houver entradas.
+func (m *Manager) ClearSession(conversationID string) {
+	if conversationID == "" {
+		return
+	}
+	m.mu.Lock()
+	delete(m.session, conversationID)
+	m.mu.Unlock()
+}
+
 // Match procura uma autorização para host(:port) em todos os escopos, na ordem
 // sessão → perfil → workspace → global. Devolve a decisão com a entrada/escopo
 // que casou (Prompted=false: match veio de allowlist existente).
