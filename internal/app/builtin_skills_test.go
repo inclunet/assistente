@@ -242,10 +242,12 @@ func TestEditorTextoProfileEnablesSlidesRevealMarkdownOnDemand(t *testing.T) {
 	if profile.Chat.Model != profiles.DefaultProviderSentinel {
 		t.Fatalf("chat.model should use default sentinel, got %q", profile.Chat.Model)
 	}
-	if chatRaw, ok := raw["chat"].(map[string]any); ok {
-		if _, hasLegacyEnabledTools := chatRaw["enabled_tools"]; hasLegacyEnabledTools {
-			t.Fatalf("editor-texto should use tool_policy instead of legacy enabled_tools")
-		}
+	chatRaw, ok := raw["chat"].(map[string]any)
+	if !ok {
+		t.Fatalf("editor-texto chat should be an object, got %#v", raw["chat"])
+	}
+	if _, hasLegacyEnabledTools := chatRaw["enabled_tools"]; hasLegacyEnabledTools {
+		t.Fatalf("editor-texto should use tool_policy instead of legacy enabled_tools")
 	}
 	wantPolicy := map[string]string{
 		"text_edit": "preloaded",

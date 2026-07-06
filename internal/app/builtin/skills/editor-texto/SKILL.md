@@ -38,7 +38,7 @@ Objetivo: produzir uma alteração no texto selecionado pelo usuário de forma *
 - A ferramenta irá abrir um questionário de confirmação (Aplicar/Rejeitar). Só prossiga após a confirmação.
 - Preencha `original` com o texto selecionado e `replacement` com o conteúdo final.
 - `replacement` deve conter **somente** o texto final (Markdown ou texto puro), sem explicações.
-- Se o turno tiver um arquivo aberto e a edição precisar ser aplicada diretamente no arquivo, use `edit_file` com `path` vindo de `<metadata key="file_path">` e `old_string` igual ao trecho selecionado, incluindo contexto adicional somente quando necessário para tornar a substituição única.
+- Se o turno tiver um arquivo aberto e a edição precisar ser aplicada diretamente no arquivo, use `edit_file` com `path` vindo de `<metadata key="file_path">`. O `old_string` deve conter o trecho selecionado; somente se necessário para tornar a ocorrência única, inclua algumas linhas ao redor junto com a seleção.
 
 Parâmetros recomendados:
 
