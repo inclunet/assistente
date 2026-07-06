@@ -457,7 +457,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
   useEffect(() => {
     const pending = pendingInlineChatEditorRestoreRef.current;
-    if (!pending || pending.mode !== 'markdown' || !pending.expectedMarkdown) return;
+    if (!pending || pending.mode !== 'markdown' || pending.expectedMarkdown === undefined) return;
     if (!activeTab) return;
     if (pending.runId !== inlineChatRunIdRef.current) {
       clearPendingInlineChatEditorRestore();

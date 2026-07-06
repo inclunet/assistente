@@ -1041,6 +1041,41 @@ describe('EditorPage', () => {
     expect(editorPageMocks.markdownFocus).toHaveBeenCalled();
   });
 
+  it('registra a restauração atrasada mesmo quando a edição esvazia o documento', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({
+      chat: { disable_tools: true },
+    } as Awaited<ReturnType<typeof GetProfile>>);
+    editorPageMocks.waitForEditorPatch.mockResolvedValueOnce({
+      ok: true,
+      patch: { replacement: '', format: 'plain' },
+    });
+    editorStoreState.setDocMarkdown.mockImplementation((tabId: string, markdown: string) => {
+      const tab = editorStoreState.documents[tabId];
+      if (tab) tab.markdown = markdown;
+    });
+    const plan = await createEditorChatSendPlan('selected markdown');
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.markdownSetSelection).not.toHaveBeenCalled();
+
+    act(() => {
+      editorPageMocks.markdownModelValue = '';
+      editorPageMocks.emitMarkdownModelContentChange();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+    expect(editorPageMocks.markdownSetSelection).toHaveBeenLastCalledWith({
+      startLineNumber: 1,
+      startColumn: 1,
+      endLineNumber: 1,
+      endColumn: 1,
+    });
+    expect(editorPageMocks.markdownFocus).toHaveBeenCalled();
+  });
+
   it('restaura foco e seleção Markdown perto do trecho alterado após sync de edit_file', async () => {
     const plan = await createEditorChatSendPlan();
     vi.mocked(EditorReadFile).mockResolvedValue('Alpha\ntexto da tool\nOmega' as never);
