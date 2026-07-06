@@ -81,8 +81,93 @@ type EditorSelectionSnapshot =
   | { mode: 'markdown'; snapshot: MarkdownSelectionSnapshot }
   | { mode: 'rich'; snapshot: RichSelectionSnapshot };
 
+type PendingInlineChatEditorRestore =
+  | {
+      mode: 'markdown';
+      tabId: string;
+      runId: number;
+      startOffset: number;
+      endOffset: number;
+      sourceMarkdown?: string;
+      expectedMarkdown?: string;
+    }
+  | {
+      mode: 'rich';
+      tabId: string;
+      runId: number;
+      from: number;
+      to: number;
+    };
+
 const EDITOR_SELECTION_CACHE_STALE_AFTER_MS = 120000;
 const EDITOR_APPLY_TOOL_NAMES = new Set(['edit_file', 'text_edit', 'write_file']);
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function getChangedRangeAfterTextReplacement(params: {
+  before: string;
+  after: string;
+  fallbackStartOffset: number;
+  fallbackEndOffset: number;
+  fallbackSelectedText?: string;
+}): { startOffset: number; endOffset: number } {
+  const before = String(params.before ?? '');
+  const after = String(params.after ?? '');
+  const fallbackStartOffset = clampNumber(params.fallbackStartOffset, 0, after.length);
+  const fallbackSelectedText = String(params.fallbackSelectedText || '');
+  const fallbackEndOffset = fallbackStartOffset + fallbackSelectedText.length;
+  if (
+    fallbackSelectedText &&
+    after.slice(fallbackStartOffset, fallbackEndOffset) === fallbackSelectedText &&
+    (before[fallbackEndOffset] ?? '') === (after[fallbackEndOffset] ?? '')
+  ) {
+    return {
+      startOffset: fallbackStartOffset,
+      endOffset: fallbackEndOffset,
+    };
+  }
+
+  const minLength = Math.min(before.length, after.length);
+
+  let prefixLength = 0;
+  while (prefixLength < minLength && before[prefixLength] === after[prefixLength]) {
+    prefixLength += 1;
+  }
+
+  let suffixLength = 0;
+  while (
+    suffixLength < before.length - prefixLength &&
+    suffixLength < after.length - prefixLength &&
+    before[before.length - 1 - suffixLength] === after[after.length - 1 - suffixLength]
+  ) {
+    suffixLength += 1;
+  }
+
+  if (prefixLength === before.length && prefixLength === after.length) {
+    const startOffset = clampNumber(params.fallbackStartOffset, 0, after.length);
+    const endOffset = clampNumber(params.fallbackEndOffset, startOffset, after.length);
+    return { startOffset, endOffset };
+  }
+
+  const startOffset = clampNumber(prefixLength, 0, after.length);
+  const endOffset = clampNumber(after.length - suffixLength, startOffset, after.length);
+  if (
+    fallbackSelectedText &&
+    prefixLength >= fallbackEndOffset &&
+    after.slice(fallbackStartOffset, fallbackEndOffset) === fallbackSelectedText &&
+    endOffset > fallbackEndOffset
+  ) {
+    return { startOffset: fallbackStartOffset, endOffset };
+  }
+  if (endOffset > startOffset) return { startOffset, endOffset };
+
+  const fallbackStart = clampNumber(params.fallbackStartOffset, 0, after.length);
+  const fallbackEnd = clampNumber(params.fallbackEndOffset, fallbackStart, after.length);
+  return { startOffset: fallbackStart, endOffset: fallbackEnd };
+}
 
 export default function EditorPage({ documentId, workspaceTab, isPanelActive = true }: EditorPageProps = {}) {
   const { t } = useTranslation();
@@ -125,6 +210,8 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     capturedAt: number;
     selection: EditorSelectionSnapshot;
   } | null>(null);
+  const pendingInlineChatEditorRestoreRef = useRef<PendingInlineChatEditorRestore | null>(null);
+  const pendingInlineChatEditorRestoreDisposeRef = useRef<(() => void) | null>(null);
 
   const [isAsking, setIsAsking] = useState(false);
   const [currentRevealSlideIndex, setCurrentRevealSlideIndex] = useState(0);
@@ -154,6 +241,8 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
   useEffect(() => {
     return () => {
+      pendingInlineChatEditorRestoreDisposeRef.current?.();
+      pendingInlineChatEditorRestoreDisposeRef.current = null;
       for (const cleanup of inlineChatToolCloseCleanupsRef.current) {
         cleanup();
       }
@@ -227,6 +316,189 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     [activeTab?.markdown]
   );
   const isRevealToolbarDocument = revealToolbarDeck.detection.kind === 'reveal' && revealToolbarDeck.slides.length > 0;
+
+  const clearPendingInlineChatEditorRestore = () => {
+    pendingInlineChatEditorRestoreDisposeRef.current?.();
+    pendingInlineChatEditorRestoreDisposeRef.current = null;
+    pendingInlineChatEditorRestoreRef.current = null;
+  };
+
+  const restoreMarkdownEditorSelection = (restore: Extract<PendingInlineChatEditorRestore, { mode: 'markdown' }>) => {
+    const editor = editorRef.current;
+    const model = editor?.getModel?.();
+    if (!editor || !model) return false;
+
+    const current = String(model.getValue?.() ?? activeTab?.markdown ?? '');
+    if (restore.expectedMarkdown !== undefined && current !== restore.expectedMarkdown) return false;
+
+    const startOffset = clampNumber(restore.startOffset, 0, current.length);
+    const endOffset = clampNumber(restore.endOffset, startOffset, current.length);
+    const startPos = model.getPositionAt(startOffset);
+    const endPos = model.getPositionAt(endOffset);
+    const range = {
+      startLineNumber: startPos.lineNumber,
+      startColumn: startPos.column,
+      endLineNumber: endPos.lineNumber,
+      endColumn: endPos.column,
+    };
+
+    editor.setSelection(range);
+    if (startOffset === endOffset) {
+      editor.setPosition?.(startPos);
+      editor.revealPositionInCenter?.(startPos);
+    } else {
+      editor.revealRangeInCenter?.(range);
+    }
+    editor.focus();
+    return true;
+  };
+
+  const restoreRichEditorSelection = (restore: Extract<PendingInlineChatEditorRestore, { mode: 'rich' }>) => {
+    const rich = richEditorRef.current;
+    if (!rich) return false;
+
+    const docSize = Number(rich.state?.doc?.content?.size ?? restore.to);
+    const from = clampNumber(restore.from, 0, Math.max(0, docSize));
+    const to = clampNumber(restore.to, from, Math.max(from, docSize));
+
+    try {
+      rich.chain?.().focus().setTextSelection({ from, to }).run();
+      rich.view?.focus?.();
+      return true;
+    } catch {
+      try {
+        rich.commands?.focus?.();
+        rich.view?.focus?.();
+      } catch {
+        // best-effort
+      }
+      return false;
+    }
+  };
+
+  const queueMarkdownEditorRestore = (params: {
+    tabId: string;
+    startOffset: number;
+    endOffset: number;
+    sourceMarkdown?: string;
+    expectedMarkdown?: string;
+  }) => {
+    pendingInlineChatEditorRestoreDisposeRef.current?.();
+    pendingInlineChatEditorRestoreDisposeRef.current = null;
+    pendingInlineChatEditorRestoreRef.current = {
+      mode: 'markdown',
+      tabId: params.tabId,
+      runId: inlineChatRunIdRef.current,
+      startOffset: params.startOffset,
+      endOffset: params.endOffset,
+      sourceMarkdown: params.sourceMarkdown,
+      expectedMarkdown: params.expectedMarkdown,
+    };
+  };
+
+  const queueEditorRestoreForInlineSelection = (params: {
+    selection: InlineChatSelection;
+    markdownBefore: string;
+    markdownAfter: string;
+    expectedMarkdown?: string;
+  }) => {
+    const { selection } = params;
+    if (selection.mode === 'markdown') {
+      const range = getChangedRangeAfterTextReplacement({
+        before: params.markdownBefore,
+        after: params.markdownAfter,
+        fallbackStartOffset: selection.startOffset,
+        fallbackEndOffset: selection.startOffset + String(selection.selectedText || '').length,
+        fallbackSelectedText: selection.selectedText,
+      });
+      queueMarkdownEditorRestore({
+        tabId: selection.tabId,
+        startOffset: range.startOffset,
+        endOffset: range.endOffset,
+        sourceMarkdown: params.markdownBefore,
+        expectedMarkdown: params.expectedMarkdown,
+      });
+      return;
+    }
+  };
+
+  useEffect(() => {
+    const pending = pendingInlineChatEditorRestoreRef.current;
+    if (!pending || !activeTab) return;
+    if (pending.runId !== inlineChatRunIdRef.current) {
+      clearPendingInlineChatEditorRestore();
+      return;
+    }
+    if (pending.tabId !== activeTab.id) return;
+    if (pending.mode !== activeTab.mode) {
+      clearPendingInlineChatEditorRestore();
+      return;
+    }
+
+    if (pending.mode === 'markdown') {
+      if (pending.expectedMarkdown !== undefined && activeTab.markdown !== pending.expectedMarkdown) {
+        if (pending.sourceMarkdown !== undefined && activeTab.markdown !== pending.sourceMarkdown) {
+          clearPendingInlineChatEditorRestore();
+        }
+        return;
+      }
+      if (!restoreMarkdownEditorSelection(pending)) return;
+      clearPendingInlineChatEditorRestore();
+      return;
+    }
+
+    if (!restoreRichEditorSelection(pending)) {
+      clearPendingInlineChatEditorRestore();
+      focusEditorSoon();
+      return;
+    }
+    clearPendingInlineChatEditorRestore();
+  }, [activeTab?.id, activeTab?.mode, activeTab?.markdown, editorReadyNonce]);
+
+  useEffect(() => {
+    const pending = pendingInlineChatEditorRestoreRef.current;
+    if (!pending || pending.mode !== 'markdown' || !pending.expectedMarkdown) return;
+    if (!activeTab) return;
+    if (pending.runId !== inlineChatRunIdRef.current) {
+      clearPendingInlineChatEditorRestore();
+      return;
+    }
+    if (pending.tabId !== activeTab.id) return;
+    if (activeTab.mode !== 'markdown') {
+      clearPendingInlineChatEditorRestore();
+      return;
+    }
+    if (activeTab.markdown !== pending.expectedMarkdown) return;
+    if (restoreMarkdownEditorSelection(pending)) {
+      clearPendingInlineChatEditorRestore();
+      return;
+    }
+
+    const editor = editorRef.current;
+    const onDidChangeModelContent = editor?.onDidChangeModelContent;
+    if (typeof onDidChangeModelContent !== 'function') {
+      focusEditorSoon();
+      return;
+    }
+
+    const disposable = onDidChangeModelContent.call(editor, () => {
+      const latestPending = pendingInlineChatEditorRestoreRef.current;
+      if (!latestPending || latestPending.mode !== 'markdown') return;
+      if (latestPending.tabId !== activeTab.id) return;
+      if (restoreMarkdownEditorSelection(latestPending)) {
+        clearPendingInlineChatEditorRestore();
+      }
+    }) as { dispose?: () => void } | undefined;
+
+    const dispose = () => disposable?.dispose?.();
+    pendingInlineChatEditorRestoreDisposeRef.current = dispose;
+    return () => {
+      if (pendingInlineChatEditorRestoreDisposeRef.current === dispose) {
+        pendingInlineChatEditorRestoreDisposeRef.current = null;
+      }
+      dispose();
+    };
+  }, [activeTab?.id, activeTab?.mode, activeTab?.markdown, editorReadyNonce]);
 
   // Ao entrar no Editor (e ao trocar de aba/modo), foca automaticamente a área de texto.
   // Não rouba foco de modais nem de campos de digitação.
@@ -961,6 +1233,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       staleAfterMs: 120000,
     };
 
+    clearPendingInlineChatEditorRestore();
     const runId = (inlineChatRunIdRef.current += 1);
     useWorkspaceChatModalStore.getState().setAdapterError(null);
 
@@ -1044,30 +1317,17 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         }
 
         const nextMarkdown = applied.nextText;
+        queueMarkdownEditorRestore({
+          tabId: s.tabId,
+          startOffset: s.startOffset,
+          endOffset: s.startOffset + replacement.length,
+          sourceMarkdown: current,
+          expectedMarkdown: nextMarkdown,
+        });
         setDocMarkdown(s.tabId, nextMarkdown);
         updateLatestMarkdownForTab(s.tabId, nextMarkdown);
         schedulePersistForTab(s.tabId);
         addToast(t('editor.chatModal.patchApplied'), 'success');
-
-        requestAnimationFrame(() => {
-          try {
-            const editor = editorRef.current;
-            const m = editor?.getModel?.();
-            if (!editor || !m) return;
-            if (currentDocumentId !== s.tabId) return;
-            const startPos = m.getPositionAt(s.startOffset);
-            const endPos = m.getPositionAt(s.startOffset + replacement.length);
-            editor.setSelection({
-              startLineNumber: startPos.lineNumber,
-              startColumn: startPos.column,
-              endLineNumber: endPos.lineNumber,
-              endColumn: endPos.column,
-            });
-            editor.focus();
-          } catch {
-            // best-effort
-          }
-        });
       } else {
         const s = selection;
         if (currentDocumentId !== s.tabId) {
@@ -1129,6 +1389,15 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         const isMarkdown = patch?.format === 'markdown';
         const contentToInsert = !isMarkdown ? replacement : markdownToHtml(replacement);
         applyRichTextInsert({ rich: rich as unknown as RichTextEditorLike, from: s.from, to: s.to, contentToInsert });
+        pendingInlineChatEditorRestoreDisposeRef.current?.();
+        pendingInlineChatEditorRestoreDisposeRef.current = null;
+        pendingInlineChatEditorRestoreRef.current = {
+          mode: 'rich',
+          tabId: s.tabId,
+          runId: inlineChatRunIdRef.current,
+          from: s.from,
+          to: s.from,
+        };
         addToast(t('editor.chatModal.patchApplied'), 'success');
         flushActiveRichMarkdownNow();
       }
@@ -1194,7 +1463,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
       // Drafts sem filePath não conseguem usar edit_file; nesse caso, cai para o
       // mesmo fluxo principal com fallback body-only e aplicação local do patch.
-      const toolTurnTab = useEditorStore.getState().documents[latestActiveTab.id] ?? latestActiveTab;
+      const toolTurnTab = useEditorStore.getState().documents[inlineChatSelection.tabId] ?? latestActiveTab;
       const toolTurnFilePath = String(toolTurnTab.filePath || latestActiveTab.filePath || activeTab?.filePath || '');
       const canUseToolCalling = toolCallingEnabled && !!toolTurnFilePath;
       const filePathBeforeToolTurn = canUseToolCalling ? normalizePathKey(toolTurnFilePath) : '';
@@ -1233,7 +1502,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         inlineChatToolCloseCleanupsRef.current.delete(stopTrackingAssistedFileChange);
       };
       const didToolTurnChangeEditorMarkdown = () => {
-        const currentTab = useEditorStore.getState().documents[latestActiveTab.id] ?? null;
+        const currentTab = useEditorStore.getState().documents[inlineChatSelection.tabId] ?? null;
         return String(currentTab?.markdown ?? '') !== markdownBeforeToolTurn;
       };
       const closeModalAfterAppliedToolEdit = async (syncBeforeClose = true) => {
@@ -1254,6 +1523,13 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
           setIsAsking(false);
           return;
         }
+        const markdownAfterToolTurn = String(useEditorStore.getState().documents[inlineChatSelection.tabId]?.markdown ?? '');
+        queueEditorRestoreForInlineSelection({
+          selection: inlineChatSelection,
+          markdownBefore: markdownBeforeToolTurn,
+          markdownAfter: markdownAfterToolTurn,
+          expectedMarkdown: inlineChatSelection.mode === 'markdown' ? markdownAfterToolTurn : undefined,
+        });
         useWorkspaceChatModalStore.getState().setAdapterError(null);
         useWorkspaceChatModalStore.getState().close();
         setIsAsking(false);

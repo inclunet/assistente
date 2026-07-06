@@ -32,8 +32,15 @@ const editorPageMocks = vi.hoisted(() => {
     markdownCursorOffset: 0,
     markdownHasFocus: true,
     markdownSelectionListener: null as (() => void) | null,
+    markdownModelContentListener: null as (() => void) | null,
     richSelectionListener: null as (() => void) | null,
     markdownEditor: null as unknown,
+    markdownFocus: vi.fn(),
+    markdownSetSelection: vi.fn(),
+    markdownSetPosition: vi.fn(),
+    markdownRevealRangeInCenter: vi.fn(),
+    markdownRevealPositionInCenter: vi.fn(),
+    requestQuestionnaire: vi.fn(),
     richEditor: null as unknown,
     chatModalIsOpen: true,
     requestOpen: vi.fn(),
@@ -49,12 +56,16 @@ const editorPageMocks = vi.hoisted(() => {
         handler(data);
       }
     },
+    emitMarkdownModelContentChange: () => {
+      state.markdownModelContentListener?.();
+    },
   };
   state.markdownEditor = {
     getModel: () => ({
       getValue: () => state.markdownModelValue,
       getValueInRange: () => state.markdownModelValue.slice(state.markdownSelectionStartOffset, state.markdownSelectionEndOffset),
       getOffsetAt: (position: { lineNumber: number; column: number }) => positionToOffset(state.markdownModelValue, position),
+      getPositionAt: (offset: number) => offsetToPosition(state.markdownModelValue, offset),
     }),
     getSelection: () => ({
       getStartPosition: () => offsetToPosition(state.markdownModelValue, state.markdownSelectionStartOffset),
@@ -70,7 +81,19 @@ const editorPageMocks = vi.hoisted(() => {
         },
       };
     },
-    focus: vi.fn(),
+    onDidChangeModelContent: (listener: () => void) => {
+      state.markdownModelContentListener = listener;
+      return {
+        dispose: () => {
+          if (state.markdownModelContentListener === listener) state.markdownModelContentListener = null;
+        },
+      };
+    },
+    focus: state.markdownFocus,
+    setSelection: state.markdownSetSelection,
+    setPosition: state.markdownSetPosition,
+    revealRangeInCenter: state.markdownRevealRangeInCenter,
+    revealPositionInCenter: state.markdownRevealPositionInCenter,
   };
   state.richEditor = {
     state: {
@@ -176,7 +199,7 @@ vi.mock('../store/chatStore', () => ({
 
 vi.mock('../store/questionnaireUIStore', () => ({
   useQuestionnaireUIStore: (selector?: (s: { request: () => void }) => unknown) => {
-    const state = { request: vi.fn() };
+    const state = { request: editorPageMocks.requestQuestionnaire };
     return selector ? selector(state) : state;
   },
 }));
@@ -358,7 +381,15 @@ describe('EditorPage', () => {
     editorPageMocks.markdownHasFocus = true;
     editorPageMocks.chatModalIsOpen = true;
     editorPageMocks.markdownSelectionListener = null;
+    editorPageMocks.markdownModelContentListener = null;
     editorPageMocks.richSelectionListener = null;
+    editorPageMocks.markdownFocus.mockReset();
+    editorPageMocks.markdownSetSelection.mockReset();
+    editorPageMocks.markdownSetPosition.mockReset();
+    editorPageMocks.markdownRevealRangeInCenter.mockReset();
+    editorPageMocks.markdownRevealPositionInCenter.mockReset();
+    editorPageMocks.requestQuestionnaire.mockReset();
+    editorPageMocks.requestQuestionnaire.mockResolvedValue({ cancelled: false });
     editorPageMocks.requestOpen.mockReset();
     editorPageMocks.closeModal.mockReset();
     editorPageMocks.setAdapterError.mockReset();
@@ -387,6 +418,7 @@ describe('EditorPage', () => {
     editorStoreState.setDocMarkdown.mockImplementation((tabId: string, markdown: string) => {
       const tab = editorStoreState.documents[tabId];
       if (tab) tab.markdown = markdown;
+      if (tab?.mode === 'markdown') editorPageMocks.markdownModelValue = markdown;
     });
     editorStoreState.setDocDirty.mockReset();
     editorStoreState.setDocMode.mockReset();
@@ -940,6 +972,162 @@ describe('EditorPage', () => {
 
     expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
     expect(editorPageMocks.bumpFocus).toHaveBeenCalled();
+  });
+
+  it('restaura foco e seleção Markdown no trecho editado após aplicar patch inline local', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({
+      chat: { disable_tools: true },
+    } as Awaited<ReturnType<typeof GetProfile>>);
+    editorPageMocks.waitForEditorPatch.mockResolvedValueOnce({
+      ok: true,
+      patch: { replacement: 'texto restaurado', format: 'plain' },
+    });
+    const plan = await createEditorChatSendPlan();
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+
+    expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith('tab-1', 'Alpha\ntexto restaurado\nOmega');
+    expect(editorPageMocks.markdownSetSelection).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 17,
+    });
+    expect(editorPageMocks.markdownRevealRangeInCenter).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 17,
+    });
+    expect(editorPageMocks.markdownFocus).toHaveBeenCalled();
+  });
+
+  it('aguarda o Monaco sincronizar o model antes de restaurar a seleção Markdown', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({
+      chat: { disable_tools: true },
+    } as Awaited<ReturnType<typeof GetProfile>>);
+    editorPageMocks.waitForEditorPatch.mockResolvedValueOnce({
+      ok: true,
+      patch: { replacement: 'texto tardio', format: 'plain' },
+    });
+    editorStoreState.setDocMarkdown.mockImplementation((tabId: string, markdown: string) => {
+      const tab = editorStoreState.documents[tabId];
+      if (tab) tab.markdown = markdown;
+    });
+    const plan = await createEditorChatSendPlan();
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.markdownSetSelection).not.toHaveBeenCalled();
+
+    act(() => {
+      editorPageMocks.markdownModelValue = 'Alpha\ntexto tardio\nOmega';
+      editorPageMocks.emitMarkdownModelContentChange();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+    expect(editorPageMocks.markdownSetSelection).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 13,
+    });
+    expect(editorPageMocks.markdownFocus).toHaveBeenCalled();
+  });
+
+  it('restaura foco e seleção Markdown perto do trecho alterado após sync de edit_file', async () => {
+    const plan = await createEditorChatSendPlan();
+    vi.mocked(EditorReadFile).mockResolvedValue('Alpha\ntexto da tool\nOmega' as never);
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+
+    expect(editorStoreState.setDocMarkdown).toHaveBeenCalledWith('tab-1', 'Alpha\ntexto da tool\nOmega');
+    expect(editorPageMocks.markdownSetSelection).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 14,
+    });
+    expect(editorPageMocks.markdownRevealRangeInCenter).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 14,
+    });
+    expect(editorPageMocks.markdownFocus).toHaveBeenCalled();
+  });
+
+  it('mantém a restauração ancorada na seleção quando a tool apenas acrescenta texto depois dela', async () => {
+    const plan = await createEditorChatSendPlan();
+    vi.mocked(EditorReadFile).mockResolvedValue('Alpha\nselected markdown\n\nNovo parágrafo\nOmega' as never);
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+
+    expect(editorPageMocks.markdownSetSelection).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 18,
+    });
+  });
+
+  it('inclui a expansão do trecho selecionado na restauração Markdown pós-tool', async () => {
+    const plan = await createEditorChatSendPlan();
+    vi.mocked(EditorReadFile).mockResolvedValue('Alpha\nselected markdown alterado\nOmega' as never);
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    await vi.waitFor(() => expect(editorPageMocks.markdownSetSelection).toHaveBeenCalled());
+
+    expect(editorPageMocks.markdownSetSelection).toHaveBeenLastCalledWith({
+      startLineNumber: 2,
+      startColumn: 1,
+      endLineNumber: 2,
+      endColumn: 27,
+    });
   });
 
   it('fecha o chat modal quando a edição aprovada altera o documento do editor', async () => {
