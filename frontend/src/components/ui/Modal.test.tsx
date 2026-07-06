@@ -62,6 +62,30 @@ describe('Modal', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('nao fecha no Escape quando o evento ja foi tratado', () => {
+    const onClose = vi.fn();
+
+    render(
+      <Modal isOpen={true} onClose={onClose} title="Titulo">
+        <button
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+            }
+          }}
+        >
+          Acao
+        </button>
+      </Modal>
+    );
+
+    const button = screen.getByRole('button', { name: 'Acao' });
+    button.focus();
+    fireEvent.keyDown(button, { key: 'Escape' });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('nao renderiza quando fechado', () => {
     const onClose = vi.fn();
 

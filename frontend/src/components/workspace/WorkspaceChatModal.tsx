@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type KeyboardEvent, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal, useModalIsTopmost } from '../ui/Modal';
 import { ChatPanel, useEffectiveProfileSlug, type ChatPanelSendContext } from '../chat/ChatPanel';
@@ -13,8 +13,22 @@ import type { MediaFile } from '../../services/mediaService';
 import { normalizeChatSurfaceOrigin } from '../../services/chatSessionRegistry';
 import { WorkspacePanelProvider } from './WorkspacePanelContext';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
 
 import './WorkspaceChatModal.css';
+
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
+  'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable]';
+
+function focusElement(element: HTMLElement | null): boolean {
+  if (!element) return false;
+  if (!element.hasAttribute('tabindex') && element.tabIndex < 0) {
+    element.setAttribute('tabindex', '-1');
+  }
+  element.focus();
+  return document.activeElement === element;
+}
 
 function WorkspaceChatModalFocus({ isOpen, focusNonce }: { isOpen: boolean; focusNonce: number }) {
   const isModalTopmost = useModalIsTopmost();
@@ -36,6 +50,69 @@ function WorkspaceChatModalFocus({ isOpen, focusNonce }: { isOpen: boolean; focu
   return null;
 }
 
+function WorkspaceChatModalLandmarks({
+  rootRef,
+  isOpen,
+}: {
+  rootRef: RefObject<HTMLDivElement>;
+  isOpen: boolean;
+}) {
+  const { t } = useTranslation();
+  const isModalTopmost = useModalIsTopmost();
+
+  const landmarks = useMemo<Landmark[]>(() => {
+    const getRoot = () => rootRef.current;
+    const find = (selector: string) => getRoot()?.querySelector<HTMLElement>(selector) ?? null;
+    const contains = (selector: string) => {
+      const element = find(selector);
+      const active = document.activeElement;
+      return !!element && !!active && element.contains(active);
+    };
+
+    return [
+      {
+        id: 'chatModalToolbar',
+        label: t('landmarks.chatModalToolbar'),
+        focus: () => {
+          const toolbar = find('.workspace-chat-modal__session .ws-content-toolbar');
+          const focusable = toolbar?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ?? null;
+          return focusElement(focusable ?? toolbar);
+        },
+        contains: () => contains('.workspace-chat-modal__session .ws-content-toolbar'),
+      },
+      {
+        id: 'chatModalMessages',
+        label: t('landmarks.chatModalMessages'),
+        focus: () => (
+          focusElement(find('.workspace-chat-modal__session .message-list__list'))
+          || focusElement(find('.workspace-chat-modal__session .message-list'))
+          || focusElement(find('.workspace-chat-modal__context-summary'))
+        ),
+        contains: () => (
+          contains('.workspace-chat-modal__session .message-list')
+          || contains('.workspace-chat-modal__context')
+        ),
+      },
+      {
+        id: 'chatModalComposer',
+        label: t('landmarks.chatModalComposer'),
+        focus: () => focusElement(find('.workspace-chat-modal__session .chat-input__textarea')),
+        contains: () => contains('.workspace-chat-modal__session .chat-input'),
+      },
+    ];
+  }, [rootRef, t]);
+
+  useLandmarkNavigation({
+    landmarks,
+    enabled: isOpen,
+    defaultLandmarkId: 'chatModalComposer',
+    allowWhenModalOpen: true,
+    shouldHandleKey: isModalTopmost,
+  });
+
+  return null;
+}
+
 export function WorkspaceChatModal() {
   const { t } = useTranslation();
   const isOpen = useWorkspaceChatModalStore((s) => s.isOpen);
@@ -51,6 +128,8 @@ export function WorkspaceChatModal() {
   const activeConversation = useChatConversationTimeline(boundConversationId);
   const activeWorkspaceTab = useActiveTab();
   const { announce } = useAnnouncer();
+  const modalRootRef = useRef<HTMLDivElement>(null);
+  const isModalTopmost = useModalIsTopmost();
   const boundWorkspaceTab = useMemo(
     () => workspaceTabs.find((tab) => tab.id === boundTabId) ?? null,
     [boundTabId, workspaceTabs],
@@ -74,6 +153,32 @@ export function WorkspaceChatModal() {
     },
     [setBoundConversation],
   );
+
+  const handleModalKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Escape' || event.defaultPrevented) return;
+    const root = modalRootRef.current;
+    if (!root) return;
+    if (!root.contains(event.target as Node | null)) return;
+
+    if (!isModalTopmost()) return;
+
+    const composer = root.querySelector<HTMLElement>('.workspace-chat-modal__session .chat-input__textarea');
+    if (!composer || composer.contains(document.activeElement)) return;
+
+    const active = document.activeElement;
+    const shouldReturnToComposer =
+      !!active
+      && (
+        !!active.closest('.workspace-chat-modal__session .ws-content-toolbar')
+        || !!active.closest('.workspace-chat-modal__session .message-list')
+        || !!active.closest('.workspace-chat-modal__context')
+      );
+    if (!shouldReturnToComposer) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    focusElement(composer);
+  }, [isModalTopmost]);
 
   useEffect(() => {
     if (isOpen && adapterError) {
@@ -154,8 +259,9 @@ export function WorkspaceChatModal() {
 
   return (
     <Modal isOpen={isOpen} title={modalTitle} onClose={handleClose} size="lg">
-      <div className="workspace-chat-modal">
+      <div className="workspace-chat-modal" ref={modalRootRef} onKeyDown={handleModalKeyDown}>
         <WorkspaceChatModalFocus isOpen={isOpen} focusNonce={focusNonce} />
+        <WorkspaceChatModalLandmarks rootRef={modalRootRef} isOpen={isOpen} />
 
         <details className="workspace-chat-modal__context">
           <summary className="workspace-chat-modal__context-summary">

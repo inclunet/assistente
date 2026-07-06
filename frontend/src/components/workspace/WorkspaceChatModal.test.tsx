@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
 
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 
@@ -43,6 +44,7 @@ vi.mock('../ui/Modal', () => ({
     ) : null
   ),
   useModalIsTopmost: () => isWorkspaceModalTopmost,
+  isModalOpen: () => true,
 }));
 
 const capturedChatPanelProps: {
@@ -59,7 +61,29 @@ vi.mock('../chat/ChatPanel', () => ({
     return (
       <div data-session-key={surface.sessionKey}>
         chat-panel
-        <textarea aria-label="Mensagem" className="chat-input__textarea" />
+        <div className="ws-content-toolbar">
+          <button type="button">Ação da toolbar</button>
+        </div>
+        <div className="ws-content-area">
+          <div className="message-list">
+            <div className="message-list__list" tabIndex={0} aria-label="Lista de mensagens">
+              mensagens
+              <button
+                type="button"
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                  }
+                }}
+              >
+                Mensagem com Escape local
+              </button>
+            </div>
+          </div>
+          <div className="chat-input">
+            <textarea aria-label="Mensagem" className="chat-input__textarea" />
+          </div>
+        </div>
       </div>
     );
   },
@@ -115,10 +139,22 @@ vi.mock('../../lib/workspaceConversation', () => ({
 
 import { WorkspaceChatModal } from './WorkspaceChatModal';
 
+function BackgroundLandmarks({ onFocus }: { onFocus: () => boolean }) {
+  const landmarks: Landmark[] = [{
+    id: 'workspaceToolbar',
+    label: 'Workspace',
+    focus: onFocus,
+    contains: () => false,
+  }];
+  useLandmarkNavigation({ landmarks, defaultLandmarkId: 'workspaceToolbar' });
+  return <button type="button">Workspace atrás</button>;
+}
+
 describe('WorkspaceChatModal', () => {
   beforeEach(() => {
     capturedChatPanelProps.onRequestConversationChange = undefined;
     mockSetBoundConversation.mockClear();
+    workspaceChatModalState.close.mockClear();
     isWorkspaceModalTopmost.mockClear();
     isWorkspaceModalTopmost.mockReturnValue(true);
   });
@@ -169,5 +205,62 @@ describe('WorkspaceChatModal', () => {
 
     expect(screen.getByRole('textbox', { name: 'Mensagem' })).not.toHaveFocus();
     expect(questionnaireControl).toHaveFocus();
+  });
+
+  it('F6 navega para landmarks do chat modal quando ele esta no topo', () => {
+    render(<WorkspaceChatModal />);
+
+    screen.getByRole('textbox', { name: 'Mensagem' }).focus();
+    fireEvent.keyDown(window, { key: 'F6' });
+
+    expect(screen.getByRole('button', { name: 'Ação da toolbar' })).toHaveFocus();
+  });
+
+  it('Shift+F6 navega para mensagens/contexto dentro do chat modal', () => {
+    render(<WorkspaceChatModal />);
+
+    screen.getByRole('textbox', { name: 'Mensagem' }).focus();
+    fireEvent.keyDown(window, { key: 'F6', shiftKey: true });
+
+    expect(screen.getByLabelText('Lista de mensagens')).toHaveFocus();
+  });
+
+  it('Escape a partir de outro landmark retorna ao composer do chat modal', () => {
+    render(<WorkspaceChatModal />);
+
+    const toolbarButton = screen.getByRole('button', { name: 'Ação da toolbar' });
+    toolbarButton.focus();
+    fireEvent.keyDown(toolbarButton, { key: 'Escape' });
+
+    expect(screen.getByRole('textbox', { name: 'Mensagem' })).toHaveFocus();
+    expect(workspaceChatModalState.close).not.toHaveBeenCalled();
+  });
+
+  it('Escape respeita handlers locais dentro das mensagens', () => {
+    render(<WorkspaceChatModal />);
+
+    const messageButton = screen.getByRole('button', { name: 'Mensagem com Escape local' });
+    messageButton.focus();
+    fireEvent.keyDown(messageButton, { key: 'Escape' });
+
+    expect(messageButton).toHaveFocus();
+    expect(screen.getByRole('textbox', { name: 'Mensagem' })).not.toHaveFocus();
+  });
+
+  it('F6 nao navega para landmarks do workspace atras do modal', () => {
+    const focusBehind = vi.fn(() => true);
+
+    render(
+      <>
+        <BackgroundLandmarks onFocus={focusBehind} />
+        <WorkspaceChatModal />
+      </>,
+    );
+
+    screen.getByRole('textbox', { name: 'Mensagem' }).focus();
+    fireEvent.keyDown(window, { key: 'F6' });
+
+    expect(focusBehind).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Ação da toolbar' })).toHaveFocus();
   });
 });
