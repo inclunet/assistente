@@ -1302,7 +1302,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
                 setIsAsking(false);
                 return;
               }
-              if (!sawEditorApplyToolSuccess && !sawAssistedFileChange) {
+              if (!sawEditorApplyToolSuccess) {
                 stopTrackingAssistedFileChange();
                 useWorkspaceChatModalStore.getState().bumpFocus();
                 setIsAsking(false);

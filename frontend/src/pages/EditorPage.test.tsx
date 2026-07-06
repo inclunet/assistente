@@ -35,6 +35,7 @@ const editorPageMocks = vi.hoisted(() => {
     richSelectionListener: null as (() => void) | null,
     markdownEditor: null as unknown,
     richEditor: null as unknown,
+    chatModalIsOpen: true,
     requestOpen: vi.fn(),
     closeModal: vi.fn(),
     setAdapterError: vi.fn(),
@@ -288,12 +289,12 @@ vi.mock('../components/editor/MermaidEditorModal', () => ({
 vi.mock('../store/workspaceChatModalStore', () => ({
   useWorkspaceChatModalStore: Object.assign(
     (selector?: (s: { isOpen: boolean }) => unknown) => {
-      const state = { isOpen: false };
+      const state = { isOpen: editorPageMocks.chatModalIsOpen };
       return typeof selector === 'function' ? selector(state) : state;
     },
     {
       getState: () => ({
-        isOpen: true,
+        isOpen: editorPageMocks.chatModalIsOpen,
         requestOpen: editorPageMocks.requestOpen,
         close: editorPageMocks.closeModal,
         setAdapterError: editorPageMocks.setAdapterError,
@@ -355,6 +356,7 @@ describe('EditorPage', () => {
     editorPageMocks.markdownSelectionEndOffset = 0;
     editorPageMocks.markdownCursorOffset = 0;
     editorPageMocks.markdownHasFocus = true;
+    editorPageMocks.chatModalIsOpen = true;
     editorPageMocks.markdownSelectionListener = null;
     editorPageMocks.richSelectionListener = null;
     editorPageMocks.requestOpen.mockReset();
@@ -948,6 +950,11 @@ describe('EditorPage', () => {
       origin: 'assistant_tool',
       assisted: true,
     });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'done',
+    });
 
     await act(async () => {
       await plan.afterSend?.();
@@ -967,6 +974,11 @@ describe('EditorPage', () => {
       path: 'doc.md',
       origin: 'assistant_tool',
       assisted: true,
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'done',
     });
 
     await act(async () => {
@@ -1012,6 +1024,11 @@ describe('EditorPage', () => {
       conversationId: 'conv-1',
       name: 'edit_file',
     });
+    editorPageMocks.emitRuntimeEvent('editor:fileChanged', {
+      path: 'doc.md',
+      origin: 'assistant_tool',
+      assisted: true,
+    });
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
       conversationId: 'conv-1',
       name: 'edit_file',
@@ -1020,12 +1037,6 @@ describe('EditorPage', () => {
 
     await act(async () => {
       await plan.afterSend?.();
-    });
-
-    editorPageMocks.emitRuntimeEvent('editor:fileChanged', {
-      path: 'doc.md',
-      origin: 'assistant_tool',
-      assisted: true,
     });
 
     expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
