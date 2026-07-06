@@ -85,7 +85,6 @@ type PendingInlineChatEditorRestore =
   | {
       mode: 'markdown';
       tabId: string;
-      runId: number;
       startOffset: number;
       endOffset: number;
       sourceMarkdown?: string;
@@ -94,7 +93,6 @@ type PendingInlineChatEditorRestore =
   | {
       mode: 'rich';
       tabId: string;
-      runId: number;
       from: number;
       to: number;
     };
@@ -388,7 +386,6 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     pendingInlineChatEditorRestoreRef.current = {
       mode: 'markdown',
       tabId: params.tabId,
-      runId: inlineChatRunIdRef.current,
       startOffset: params.startOffset,
       endOffset: params.endOffset,
       sourceMarkdown: params.sourceMarkdown,
@@ -425,10 +422,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   useEffect(() => {
     const pending = pendingInlineChatEditorRestoreRef.current;
     if (!pending || !activeTab) return;
-    if (pending.runId !== inlineChatRunIdRef.current) {
-      clearPendingInlineChatEditorRestore();
-      return;
-    }
+    if (chatModalOpen) return;
     if (pending.tabId !== activeTab.id) return;
     if (pending.mode !== activeTab.mode) {
       clearPendingInlineChatEditorRestore();
@@ -453,16 +447,13 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       return;
     }
     clearPendingInlineChatEditorRestore();
-  }, [activeTab?.id, activeTab?.mode, activeTab?.markdown, editorReadyNonce]);
+  }, [activeTab?.id, activeTab?.mode, activeTab?.markdown, chatModalOpen, editorReadyNonce]);
 
   useEffect(() => {
     const pending = pendingInlineChatEditorRestoreRef.current;
     if (!pending || pending.mode !== 'markdown' || pending.expectedMarkdown === undefined) return;
     if (!activeTab) return;
-    if (pending.runId !== inlineChatRunIdRef.current) {
-      clearPendingInlineChatEditorRestore();
-      return;
-    }
+    if (chatModalOpen) return;
     if (pending.tabId !== activeTab.id) return;
     if (activeTab.mode !== 'markdown') {
       clearPendingInlineChatEditorRestore();
@@ -498,7 +489,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       }
       dispose();
     };
-  }, [activeTab?.id, activeTab?.mode, activeTab?.markdown, editorReadyNonce]);
+  }, [activeTab?.id, activeTab?.mode, activeTab?.markdown, chatModalOpen, editorReadyNonce]);
 
   // Ao entrar no Editor (e ao trocar de aba/modo), foca automaticamente a área de texto.
   // Não rouba foco de modais nem de campos de digitação.
@@ -1394,7 +1385,6 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         pendingInlineChatEditorRestoreRef.current = {
           mode: 'rich',
           tabId: s.tabId,
-          runId: inlineChatRunIdRef.current,
           from: s.from,
           to: s.from,
         };

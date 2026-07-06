@@ -392,6 +392,9 @@ describe('EditorPage', () => {
     editorPageMocks.requestQuestionnaire.mockResolvedValue({ cancelled: false });
     editorPageMocks.requestOpen.mockReset();
     editorPageMocks.closeModal.mockReset();
+    editorPageMocks.closeModal.mockImplementation(() => {
+      editorPageMocks.chatModalIsOpen = false;
+    });
     editorPageMocks.setAdapterError.mockReset();
     editorPageMocks.bumpFocus.mockReset();
     editorPageMocks.waitForChatDone.mockReset();
