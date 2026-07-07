@@ -176,7 +176,10 @@ func buildSurfaceContextBlock(surface *contextprovider.Surface, budgetChars int)
 	if surfaceSelectionText(normalized) == "" || strings.Contains(trimmed, "<selection") {
 		return trimmed
 	}
-	return buildMinimalSurfaceSelectionBlock(normalized, budgetChars)
+	if minimal := buildMinimalSurfaceSelectionBlock(normalized, budgetChars); minimal != "" {
+		return minimal
+	}
+	return trimmed
 }
 
 func buildMinimalSurfaceSelectionBlock(surface *normalizedSurfaceContext, budgetChars int) string {
@@ -194,7 +197,7 @@ func buildMinimalSurfaceSelectionBlock(surface *normalizedSurfaceContext, budget
 		var body strings.Builder
 		writeStructuredSelectionWithLimit(&body, surface, mid)
 		bodyContent := strings.TrimRight(body.String(), "\n")
-		content := buildSurfaceOpenTag(surface) + "\nCurrent active surface context. Treat this as turn-specific dynamic state.\n" + bodyContent
+		content := buildSurfaceOpenTag(surface) + "\n" + bodyContent
 		trimmed := trimSurfaceContextBlock(content, budgetChars)
 		if strings.Contains(trimmed, "<selection") {
 			best = trimmed

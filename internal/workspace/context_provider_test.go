@@ -270,6 +270,48 @@ func TestContextProviderPreservesSurfaceContextWhenOpeningTagIsLongUnderTightBud
 	}
 }
 
+func TestSurfaceContextFallsBackToIdentityWhenSelectionCannotFit(t *testing.T) {
+	surfaceID := "tab-" + strings.Repeat("x", 80)
+	snapshotVersion := "editor:" + surfaceID + ":" + strings.Repeat("v", 80)
+	preservedContent := "<surface_context\n  surface_type=\"editor\"\n  surface_id=\"" + surfaceID + "\"\n  snapshot_version=\"" + snapshotVersion + "\"\n>"
+	budget := runeLen(preservedContent) + runeLen(surfaceContextTruncationNotice) + runeLen(surfaceContextSuffix)
+
+	blocks, err := NewSurfaceContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+		ProviderBudgets: map[string]int{
+			"surface_context": budget,
+		},
+		Surface: &contextprovider.Surface{
+			Type: "editor",
+			Context: map[string]any{
+				"surfaceType":     "editor",
+				"surfaceId":       surfaceID,
+				"snapshotVersion": snapshotVersion,
+				"selection": map[string]any{
+					"kind":     "text",
+					"text":     "seleção",
+					"explicit": true,
+					"range": map[string]any{
+						"startOffset": strings.Repeat("1", 80),
+						"endOffset":   strings.Repeat("9", 80),
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want surface context", len(blocks))
+	}
+	if strings.Contains(blocks[0].Content, "<selection") {
+		t.Fatalf("selection should not fit this budget: %q", blocks[0].Content)
+	}
+	if !strings.Contains(blocks[0].Content, `surface_id="`+surfaceID+`"`) || !strings.Contains(blocks[0].Content, "omitted due to context budget") {
+		t.Fatalf("surface identity/truncation should survive, got %q", blocks[0].Content)
+	}
+}
+
 func TestTrimSurfaceContextBlockOmitsUnclosedOpeningTagUnderTightBudget(t *testing.T) {
 	preservedContent := "<surface_context\n  surface_type=\"editor\""
 	content := preservedContent + "\n  surface_id=\"tab-1\"\n>\nCurrent active surface context. Treat this as turn-specific dynamic state.\n<selection kind=\"text\">seleção</selection>"
