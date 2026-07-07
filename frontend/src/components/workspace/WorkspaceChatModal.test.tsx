@@ -3,30 +3,58 @@ import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
 
-const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
-
-const mockSetBoundConversation = vi.fn();
-const isWorkspaceModalTopmost = vi.fn(() => true);
-
-const workspaceChatModalState = {
-  isOpen: true,
-  boundTabId: 'tab-editor',
-  boundConversationId: conversationId,
-  boundSurface: {
+const hoisted = vi.hoisted(() => {
+  const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
+  const mockSetBoundConversation = vi.fn();
+  const isWorkspaceModalTopmost = vi.fn(() => true);
+  const boundSendMock = vi.fn();
+  const sendChatSurfaceMessageMock = vi.fn();
+  const workspaceChatModalState = {
+    isOpen: true,
+    boundTabId: 'tab-editor',
+    boundConversationId: conversationId,
+    boundSurface: {
+      conversationId,
+      sessionKey: `modal:workspace-chat:tab-editor:${conversationId}`,
+      surfaceId: 'modal:workspace-chat:tab-editor',
+      surfaceType: 'modal' as const,
+      tabId: 'tab-editor',
+    },
+    contextDisplay: 'contexto',
+    sessionMeta: null as unknown,
+    boundSend: boundSendMock,
+    focusNonce: 1,
+    adapterError: null,
+    close: vi.fn(),
+    setBoundConversation: mockSetBoundConversation,
+  };
+  const activeTab = { id: 'tab-editor', type: 'editor' as const, title: 'Editor', position: 0 };
+  const capturedChatPanelProps: {
+    onRequestConversationChange?: (id: string, conversation: { title?: string }) => void;
+    onSend?: (content: string, mediaFiles: undefined, context: { origin: typeof workspaceChatModalState.boundSurface }) => Promise<void>;
+  } = {};
+  return {
+    activeTab,
+    boundSendMock,
+    capturedChatPanelProps,
     conversationId,
-    sessionKey: `modal:workspace-chat:tab-editor:${conversationId}`,
-    surfaceId: 'modal:workspace-chat:tab-editor',
-    surfaceType: 'modal' as const,
-    tabId: 'tab-editor',
-  },
-  contextDisplay: 'contexto',
-  focusNonce: 1,
-  adapterError: null,
-  close: vi.fn(),
-  setBoundConversation: mockSetBoundConversation,
-};
+    isWorkspaceModalTopmost,
+    mockSetBoundConversation,
+    sendChatSurfaceMessageMock,
+    workspaceChatModalState,
+  };
+});
 
-const activeTab = { id: 'tab-editor', type: 'editor' as const, title: 'Editor', position: 0 };
+const {
+  activeTab,
+  boundSendMock,
+  capturedChatPanelProps,
+  conversationId,
+  isWorkspaceModalTopmost,
+  mockSetBoundConversation,
+  sendChatSurfaceMessageMock,
+  workspaceChatModalState,
+} = hoisted;
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -43,21 +71,19 @@ vi.mock('../ui/Modal', () => ({
       </section>
     ) : null
   ),
-  useModalIsTopmost: () => isWorkspaceModalTopmost,
+  useModalIsTopmost: () => hoisted.isWorkspaceModalTopmost,
   isModalOpen: () => true,
 }));
 
-const capturedChatPanelProps: {
-  onRequestConversationChange?: (id: string, conversation: { title?: string }) => void;
-} = {};
-
 vi.mock('../chat/ChatPanel', () => ({
   useEffectiveProfileSlug: () => undefined,
-  ChatPanel: ({ surface, onRequestConversationChange }: {
+  ChatPanel: ({ surface, onRequestConversationChange, onSend }: {
     surface: { sessionKey: string };
     onRequestConversationChange?: (id: string, conversation: { title?: string }) => void;
+    onSend?: (content: string, mediaFiles: undefined, context: { origin: typeof workspaceChatModalState.boundSurface }) => Promise<void>;
   }) => {
-    capturedChatPanelProps.onRequestConversationChange = onRequestConversationChange;
+    hoisted.capturedChatPanelProps.onRequestConversationChange = onRequestConversationChange;
+    hoisted.capturedChatPanelProps.onSend = onSend;
     return (
       <div data-session-key={surface.sessionKey}>
         chat-panel
@@ -89,23 +115,37 @@ vi.mock('../chat/ChatPanel', () => ({
   },
 }));
 
+vi.mock('../chat/ChatSurfaceController', () => ({
+  sendChatSurfaceMessage: hoisted.sendChatSurfaceMessageMock,
+  useChatConversationTimeline: () => ({
+    id: hoisted.conversationId,
+    title: 'Título da timeline',
+    threadedMessages: [],
+  }),
+}));
+
 vi.mock('../../store/workspaceChatModalStore', () => ({
-  useWorkspaceChatModalStore: (selector?: (state: typeof workspaceChatModalState) => unknown) => (
-    typeof selector === 'function' ? selector(workspaceChatModalState) : workspaceChatModalState
+  useWorkspaceChatModalStore: Object.assign(
+    (selector?: (state: typeof workspaceChatModalState) => unknown) => (
+      typeof selector === 'function' ? selector(hoisted.workspaceChatModalState) : hoisted.workspaceChatModalState
+    ),
+    {
+      getState: () => hoisted.workspaceChatModalState,
+    },
   ),
 }));
 
 vi.mock('../../store/workspaceStore', () => ({
   useWorkspaceStore: Object.assign(
     (selector?: (state: { workspace: { tabs: Array<typeof activeTab> } }) => unknown) => {
-      const state = { workspace: { tabs: [activeTab] } };
+      const state = { workspace: { tabs: [hoisted.activeTab] } };
       return typeof selector === 'function' ? selector(state) : state;
     },
     {
-      getState: () => ({ workspace: { tabs: [activeTab] } }),
+      getState: () => ({ workspace: { tabs: [hoisted.activeTab] } }),
     },
   ),
-  useActiveTab: () => activeTab,
+  useActiveTab: () => hoisted.activeTab,
 }));
 
 vi.mock('../../store/chatStore', () => ({
@@ -116,8 +156,8 @@ vi.mock('../../store/chatStore', () => ({
     const state = {
       sessionsByConversationId: {},
       timelinesByConversationId: {
-        [conversationId]: {
-          id: conversationId,
+        [hoisted.conversationId]: {
+          id: hoisted.conversationId,
           title: 'Título da timeline',
           threadedMessages: [],
         },
@@ -153,7 +193,12 @@ function BackgroundLandmarks({ onFocus }: { onFocus: () => boolean }) {
 describe('WorkspaceChatModal', () => {
   beforeEach(() => {
     capturedChatPanelProps.onRequestConversationChange = undefined;
+    capturedChatPanelProps.onSend = undefined;
     mockSetBoundConversation.mockClear();
+    boundSendMock.mockReset();
+    sendChatSurfaceMessageMock.mockReset();
+    workspaceChatModalState.sessionMeta = null;
+    workspaceChatModalState.boundSend = boundSendMock;
     workspaceChatModalState.close.mockClear();
     isWorkspaceModalTopmost.mockClear();
     isWorkspaceModalTopmost.mockReturnValue(true);
@@ -186,6 +231,46 @@ describe('WorkspaceChatModal', () => {
     capturedChatPanelProps.onRequestConversationChange?.('nova-conversa', { title: 'Outra' });
 
     expect(mockSetBoundConversation).toHaveBeenCalledWith('nova-conversa');
+  });
+
+  it('encaminha paramsOverride do adapter para o envio do chat', async () => {
+    const paramsOverride = {
+      tabType: 'editor',
+      surfaceContextJson: JSON.stringify({
+        surfaceType: 'editor',
+        surfaceId: 'tab-editor',
+        snapshotVersion: 'editor:tab-editor:1',
+        selection: {
+          kind: 'text',
+          text: 'texto selecionado',
+          explicit: true,
+        },
+      }),
+    };
+    workspaceChatModalState.sessionMeta = { selectedText: 'texto selecionado' };
+    boundSendMock.mockResolvedValue({
+      content: 'Explique',
+      paramsOverride,
+    });
+
+    render(<WorkspaceChatModal />);
+    await capturedChatPanelProps.onSend?.('Explique', undefined, {
+      origin: workspaceChatModalState.boundSurface,
+    });
+
+    expect(boundSendMock).toHaveBeenCalledWith(
+      'Explique',
+      undefined,
+      workspaceChatModalState.sessionMeta,
+      { tabId: 'tab-editor', conversationId },
+    );
+    expect(sendChatSurfaceMessageMock).toHaveBeenCalledWith(
+      conversationId,
+      'Explique',
+      undefined,
+      paramsOverride,
+      expect.objectContaining({ conversationId, tabId: 'tab-editor' }),
+    );
   });
 
   it('nao rouba foco quando outro modal esta no topo', async () => {
