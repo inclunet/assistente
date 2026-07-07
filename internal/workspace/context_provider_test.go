@@ -20,13 +20,14 @@ func mustAbsPath(t *testing.T, name string) string {
 }
 
 func TestContextProviderBuildsLowDynamicWorkspaceAndTurnDynamicSurfaceBlocks(t *testing.T) {
-	provider := NewContextProvider()
+	provider := contextprovider.NewRegistry(NewContextProvider(), NewSurfaceContextProvider())
 	editorPath := mustAbsPath(t, "main.go")
 	blocks, err := provider.Build(context.Background(), contextprovider.BuildRequest{
 		WorkspaceName: "Workspace <Atual>",
 		TabCount:      4,
 		ProviderBudgets: map[string]int{
-			"workspace": 2000,
+			"workspace":       2000,
+			"surface_context": 2000,
 		},
 		Tabs: []contextprovider.Tab{
 			{Title: "Chat", Type: "chat", ContentID: "conv-1"},
@@ -127,7 +128,7 @@ func TestContextProviderBuildsLowDynamicWorkspaceAndTurnDynamicSurfaceBlocks(t *
 	if strings.Contains(blocks[2].Content, "unsafeNested") || strings.Contains(blocks[2].Content, "do-not-render") || strings.Contains(blocks[2].Content, "tasklistId") {
 		t.Fatalf("surface block rendered metadata outside allowlist: %s", blocks[2].Content)
 	}
-	if blocks[2].Provider != "workspace" || blocks[2].Name != "surface_context" || blocks[2].Volatility != contextprovider.VolatilityTurnDynamic {
+	if blocks[2].Provider != "surface_context" || blocks[2].Name != "surface_context" || blocks[2].Volatility != contextprovider.VolatilityTurnDynamic {
 		t.Fatalf("unexpected surface block metadata: %+v", blocks[2])
 	}
 	if strings.Contains(block.Content, "\n\n</workspace_context>") {
@@ -146,9 +147,9 @@ func TestContextProviderReturnsNoBlockWithoutWorkspaceState(t *testing.T) {
 }
 
 func TestContextProviderBuildsSurfaceBlockWithoutWorkspaceBlock(t *testing.T) {
-	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+	blocks, err := NewSurfaceContextProvider().Build(context.Background(), contextprovider.BuildRequest{
 		ProviderBudgets: map[string]int{
-			"workspace": 1000,
+			"surface_context": 1000,
 		},
 		Surface: &contextprovider.Surface{
 			Type:    "editor",
@@ -159,24 +160,24 @@ func TestContextProviderBuildsSurfaceBlockWithoutWorkspaceBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(blocks) != 2 {
-		t.Fatalf("len(blocks) = %d, want instructions and surface context", len(blocks))
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want surface context", len(blocks))
 	}
-	if blocks[1].Name != "surface_context" || blocks[1].Volatility != contextprovider.VolatilityTurnDynamic {
-		t.Fatalf("unexpected surface block: %+v", blocks[1])
+	if blocks[0].Name != "surface_context" || blocks[0].Volatility != contextprovider.VolatilityTurnDynamic {
+		t.Fatalf("unexpected surface block: %+v", blocks[0])
 	}
-	if strings.Contains(blocks[1].Content, "<workspace_context>") {
-		t.Fatalf("surface-only request should not emit workspace context: %q", blocks[1].Content)
+	if strings.Contains(blocks[0].Content, "<workspace_context>") {
+		t.Fatalf("surface-only request should not emit workspace context: %q", blocks[0].Content)
 	}
-	if !strings.Contains(blocks[1].Content, `incomplete="true"`) || !strings.Contains(blocks[1].Content, `<selection kind="text" explicit="true">seleção</selection>`) {
-		t.Fatalf("surface block missing selected text: %q", blocks[1].Content)
+	if !strings.Contains(blocks[0].Content, `incomplete="true"`) || !strings.Contains(blocks[0].Content, `<selection kind="text" explicit="true">seleção</selection>`) {
+		t.Fatalf("surface block missing selected text: %q", blocks[0].Content)
 	}
 }
 
 func TestContextProviderOmitsEmptyStructuredSurfaceContext(t *testing.T) {
-	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+	blocks, err := NewSurfaceContextProvider().Build(context.Background(), contextprovider.BuildRequest{
 		ProviderBudgets: map[string]int{
-			"workspace": 1000,
+			"surface_context": 1000,
 		},
 		Surface: &contextprovider.Surface{
 			Type:  "editor",
@@ -191,15 +192,15 @@ func TestContextProviderOmitsEmptyStructuredSurfaceContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(blocks) != 1 {
-		t.Fatalf("len(blocks) = %d, want only instructions block", len(blocks))
+	if len(blocks) != 0 {
+		t.Fatalf("len(blocks) = %d, want no surface context block", len(blocks))
 	}
 }
 
 func TestContextProviderMapsLegacyTasklistIDToAllowlistedMetadata(t *testing.T) {
-	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+	blocks, err := NewSurfaceContextProvider().Build(context.Background(), contextprovider.BuildRequest{
 		ProviderBudgets: map[string]int{
-			"workspace": 1000,
+			"surface_context": 1000,
 		},
 		Surface: &contextprovider.Surface{
 			Type:  "tasklist",
@@ -213,14 +214,14 @@ func TestContextProviderMapsLegacyTasklistIDToAllowlistedMetadata(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(blocks) != 2 {
-		t.Fatalf("len(blocks) = %d, want instructions and surface context", len(blocks))
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want surface context", len(blocks))
 	}
-	if !strings.Contains(blocks[1].Content, `<metadata key="task_list_id">tl-legacy</metadata>`) {
-		t.Fatalf("legacy tasklist ID should render with allowlisted key: %q", blocks[1].Content)
+	if !strings.Contains(blocks[0].Content, `<metadata key="task_list_id">tl-legacy</metadata>`) {
+		t.Fatalf("legacy tasklist ID should render with allowlisted key: %q", blocks[0].Content)
 	}
-	if strings.Contains(blocks[1].Content, `key="tasklist_id"`) {
-		t.Fatalf("legacy tasklist ID should not render with non-allowlisted key: %q", blocks[1].Content)
+	if strings.Contains(blocks[0].Content, `key="tasklist_id"`) {
+		t.Fatalf("legacy tasklist ID should not render with non-allowlisted key: %q", blocks[0].Content)
 	}
 }
 
@@ -230,9 +231,9 @@ func TestContextProviderPreservesSurfaceContextWhenOpeningTagIsLongUnderTightBud
 	preservedContent := "<surface_context\n  surface_type=\"editor\"\n  surface_id=\"" + surfaceID + "\"\n  snapshot_version=\"" + snapshotVersion + "\"\n>"
 	budget := runeLen(preservedContent) + runeLen(surfaceContextTruncationNotice) + runeLen(surfaceContextSuffix)
 
-	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
+	blocks, err := NewSurfaceContextProvider().Build(context.Background(), contextprovider.BuildRequest{
 		ProviderBudgets: map[string]int{
-			"workspace": budget,
+			"surface_context": budget,
 		},
 		Surface: &contextprovider.Surface{
 			Type:  "editor",
@@ -252,20 +253,20 @@ func TestContextProviderPreservesSurfaceContextWhenOpeningTagIsLongUnderTightBud
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(blocks) != 2 {
-		t.Fatalf("len(blocks) = %d, want instructions and surface context", len(blocks))
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want surface context", len(blocks))
 	}
-	if blocks[1].Name != "surface_context" {
-		t.Fatalf("unexpected surface block: %+v", blocks[1])
+	if blocks[0].Name != "surface_context" {
+		t.Fatalf("unexpected surface block: %+v", blocks[0])
 	}
-	if !strings.Contains(blocks[1].Content, `surface_type="editor"`) || !strings.Contains(blocks[1].Content, `surface_id="`+surfaceID+`"`) {
-		t.Fatalf("surface context should preserve identity under tight budget, got %q", blocks[1].Content)
+	if !strings.Contains(blocks[0].Content, `surface_type="editor"`) || !strings.Contains(blocks[0].Content, `surface_id="`+surfaceID+`"`) {
+		t.Fatalf("surface context should preserve identity under tight budget, got %q", blocks[0].Content)
 	}
-	if !strings.Contains(blocks[1].Content, "omitted due to context budget") {
-		t.Fatalf("expected truncation notice, got %q", blocks[1].Content)
+	if !strings.Contains(blocks[0].Content, "omitted due to context budget") {
+		t.Fatalf("expected truncation notice, got %q", blocks[0].Content)
 	}
-	if got := runeLen(blocks[1].Content); got > budget {
-		t.Fatalf("surface block length = %d, want <= %d: %q", got, budget, blocks[1].Content)
+	if got := runeLen(blocks[0].Content); got > budget {
+		t.Fatalf("surface block length = %d, want <= %d: %q", got, budget, blocks[0].Content)
 	}
 }
 
@@ -340,12 +341,11 @@ func TestContextProviderTabLinkFallsBackToStateReference(t *testing.T) {
 	}
 }
 
-func TestContextProviderRespectsProfileBudget(t *testing.T) {
+func TestSurfaceContextProviderRespectsOwnProfileBudget(t *testing.T) {
 	const budget = 420
-	blocks, err := NewContextProvider().Build(context.Background(), contextprovider.BuildRequest{
-		WorkspaceName: "Workspace",
+	blocks, err := NewSurfaceContextProvider().Build(context.Background(), contextprovider.BuildRequest{
 		ProviderBudgets: map[string]int{
-			"workspace": budget,
+			"surface_context": budget,
 		},
 		Surface: &contextprovider.Surface{
 			Type: "editor",
@@ -357,14 +357,63 @@ func TestContextProviderRespectsProfileBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(blocks) != 3 {
-		t.Fatalf("len(blocks) = %d, want instructions, workspace context and surface context", len(blocks))
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want surface context", len(blocks))
 	}
-	if got := runeLen(blocks[1].Content) + runeLen(blocks[2].Content); got > budget {
-		t.Fatalf("workspace provider dynamic block length = %d, want <= %d: workspace=%q surface=%q", got, budget, blocks[1].Content, blocks[2].Content)
+	if got := runeLen(blocks[0].Content); got > budget {
+		t.Fatalf("surface context length = %d, want <= %d: surface=%q", got, budget, blocks[0].Content)
 	}
-	if blocks[2].Name != "surface_context" || !strings.Contains(blocks[2].Content, "omitted due to context budget") {
-		t.Fatalf("expected truncated surface context, got %+v", blocks[2])
+	if blocks[0].Name != "surface_context" || !strings.Contains(blocks[0].Content, "field truncated") {
+		t.Fatalf("expected truncated surface context, got %+v", blocks[0])
+	}
+}
+
+func TestSurfaceContextProviderHasIndependentBudgetFromWorkspaceTabs(t *testing.T) {
+	const budget = 500
+	tabs := make([]contextprovider.Tab, 0, 12)
+	for i := 0; i < 12; i++ {
+		tabs = append(tabs, contextprovider.Tab{
+			Title:     strings.Repeat("aba muito longa ", 8),
+			Type:      "chat",
+			ContentID: "conv-" + strings.Repeat("x", 24),
+		})
+	}
+
+	blocks, err := contextprovider.NewRegistry(NewContextProvider(), NewSurfaceContextProvider()).Build(context.Background(), contextprovider.BuildRequest{
+		WorkspaceName: "Workspace com muitas abas",
+		TabCount:      len(tabs),
+		ProviderBudgets: map[string]int{
+			"workspace":       120,
+			"surface_context": budget,
+		},
+		Tabs: tabs,
+		Surface: &contextprovider.Surface{
+			Type:  "editor",
+			Title: "Editor",
+			Context: map[string]any{
+				"surfaceType":     "editor",
+				"surfaceId":       "tab-editor",
+				"snapshotVersion": "editor:tab-editor:1",
+				"selection": map[string]any{
+					"kind":     "text",
+					"text":     "texto selecionado que o modelo precisa enxergar",
+					"explicit": true,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	var surfaceBlock string
+	for _, block := range blocks {
+		if block.Name == "surface_context" {
+			surfaceBlock = block.Content
+		}
+	}
+	if !strings.Contains(surfaceBlock, `<selection kind="text" explicit="true">texto selecionado que o modelo precisa enxergar</selection>`) {
+		t.Fatalf("surface context should preserve explicit selection, got %q", surfaceBlock)
 	}
 }
 
