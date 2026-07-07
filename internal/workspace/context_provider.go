@@ -20,22 +20,41 @@ const surfaceContextTruncationNotice = "\n... Additional surface context omitted
 const surfaceFieldTruncationNotice = "\n... field truncated ..."
 const maxSurfaceTextFieldChars = 1600
 const maxTerminalTextFieldChars = 900
+const defaultSurfacePromptBudget = 1200
 
 type ContextProvider struct{}
+type SurfaceContextProvider struct{}
 
 func NewContextProvider() *ContextProvider {
 	return &ContextProvider{}
 }
 
+func NewSurfaceContextProvider() *SurfaceContextProvider {
+	return &SurfaceContextProvider{}
+}
+
 func (p *ContextProvider) Name() string { return "workspace" }
+
+func (p *SurfaceContextProvider) Name() string { return "surface_context" }
 
 func (p *ContextProvider) Metadata() contextprovider.ProviderMetadata {
 	return contextprovider.ProviderMetadata{
 		Name:             p.Name(),
 		DisplayName:      "Workspace",
-		Description:      "Current workspace, tabs, active surface, and editor state for this turn.",
+		Description:      "Current workspace and open tabs.",
 		DefaultEnabled:   true,
 		DefaultBudget:    defaultPromptBudget,
+		SupportsSettings: false,
+	}
+}
+
+func (p *SurfaceContextProvider) Metadata() contextprovider.ProviderMetadata {
+	return contextprovider.ProviderMetadata{
+		Name:             p.Name(),
+		DisplayName:      "Surface Context",
+		Description:      "Turn-specific context from the active surface, such as editor selection, terminal output, or tasklist focus.",
+		DefaultEnabled:   true,
+		DefaultBudget:    defaultSurfacePromptBudget,
 		SupportsSettings: false,
 	}
 }
@@ -59,21 +78,21 @@ func (p *ContextProvider) Build(_ context.Context, req contextprovider.BuildRequ
 			Content:    content,
 		})
 	}
-	surfaceBudget := budget - runeLen(content)
-	if surfaceBudget < 0 {
-		surfaceBudget = 0
-	}
-	surfaceContent := buildSurfaceContextBlock(req.Surface, surfaceBudget)
-	if surfaceContent != "" {
-		blocks = append(blocks, contextprovider.Block{
-			Provider:   p.Name(),
-			Name:       "surface_context",
-			Volatility: contextprovider.VolatilityTurnDynamic,
-			Priority:   100,
-			Content:    surfaceContent,
-		})
-	}
 	return blocks, nil
+}
+
+func (p *SurfaceContextProvider) Build(_ context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
+	content := buildSurfaceContextBlock(req.Surface, req.Budget(p.Name(), defaultSurfacePromptBudget))
+	if content == "" {
+		return nil, nil
+	}
+	return []contextprovider.Block{{
+		Provider:   p.Name(),
+		Name:       "surface_context",
+		Volatility: contextprovider.VolatilityTurnDynamic,
+		Priority:   100,
+		Content:    content,
+	}}, nil
 }
 
 func workspaceInstructionsBlock() string {
@@ -153,7 +172,52 @@ func buildSurfaceContextBlock(surface *contextprovider.Surface, budgetChars int)
 		return ""
 	}
 	content := buildSurfaceOpenTag(normalized) + "\nCurrent active surface context. Treat this as turn-specific dynamic state.\n" + bodyContent
-	return trimSurfaceContextBlock(content, budgetChars)
+	trimmed := trimSurfaceContextBlock(content, budgetChars)
+	if surfaceSelectionText(normalized) == "" || strings.Contains(trimmed, "<selection") {
+		return trimmed
+	}
+	if minimal := buildMinimalSurfaceSelectionBlock(normalized, budgetChars); minimal != "" {
+		return minimal
+	}
+	return trimmed
+}
+
+func buildMinimalSurfaceSelectionBlock(surface *normalizedSurfaceContext, budgetChars int) string {
+	if surface == nil || budgetChars <= 0 || surfaceSelectionText(surface) == "" {
+		return ""
+	}
+	maxLimit := surfaceTextLimit(surface.SurfaceType)
+	if textLen := runeLen(surfaceSelectionText(surface)); textLen < maxLimit {
+		maxLimit = textLen
+	}
+	best := ""
+	low, high := 1, maxLimit
+	for low <= high {
+		mid := (low + high) / 2
+		var body strings.Builder
+		writeStructuredSelectionWithLimit(&body, surface, mid)
+		bodyContent := strings.TrimRight(body.String(), "\n")
+		content := buildSurfaceOpenTag(surface) + "\n" + bodyContent
+		trimmed := trimSurfaceContextBlock(content, budgetChars)
+		if strings.Contains(trimmed, "<selection") {
+			best = trimmed
+			low = mid + 1
+			continue
+		}
+		high = mid - 1
+	}
+	return best
+}
+
+func surfaceSelectionText(surface *normalizedSurfaceContext) string {
+	if surface == nil || len(surface.Selection) == 0 {
+		return ""
+	}
+	text := firstNonEmpty(stringFromMap(surface.Selection, "markdown"), stringFromMap(surface.Selection, "text"))
+	if text != "" {
+		return text
+	}
+	return arraySummary(surface.Selection["items"])
 }
 
 type normalizedSurfaceContext struct {
@@ -296,6 +360,10 @@ func buildSurfaceOpenTag(surface *normalizedSurfaceContext) string {
 }
 
 func writeStructuredSelection(sb *strings.Builder, surface *normalizedSurfaceContext) {
+	writeStructuredSelectionWithLimit(sb, surface, surfaceTextLimit(surface.SurfaceType))
+}
+
+func writeStructuredSelectionWithLimit(sb *strings.Builder, surface *normalizedSurfaceContext, limit int) {
 	if surface == nil || len(surface.Selection) == 0 {
 		return
 	}
@@ -315,7 +383,7 @@ func writeStructuredSelection(sb *strings.Builder, surface *normalizedSurfaceCon
 			text = items
 		}
 	}
-	writeXMLTextElement(sb, "selection", attrs, text, surfaceTextLimit(surface.SurfaceType))
+	writeXMLTextElement(sb, "selection", attrs, text, limit)
 }
 
 func writeStructuredFocus(sb *strings.Builder, surface *normalizedSurfaceContext) {

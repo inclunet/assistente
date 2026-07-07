@@ -143,8 +143,18 @@ func (b *capturingPromptBuilder) BuildWithContextBlocks(messages []llm.Message, 
 	return messages
 }
 
-func (b *capturingPromptBuilder) BuildTemplateData(_ *profiles.Profile, _ llm.ChatParams, conversationID string) TemplateData {
-	return TemplateData{ConversationID: conversationID}
+func (b *capturingPromptBuilder) BuildTemplateData(_ *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData {
+	data := TemplateData{ConversationID: conversationID}
+	surfaceState := DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[test] surface state json")
+	surfaceContext := DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[test] surface context json")
+	if strings.TrimSpace(params.TabType) != "" || surfaceState != nil || surfaceContext != nil {
+		data.Surface = &SurfaceInfo{
+			Type:    params.TabType,
+			State:   surfaceState,
+			Context: surfaceContext,
+		}
+	}
+	return data
 }
 
 func (b *capturingPromptBuilder) slashSkillContent() string {
@@ -856,6 +866,49 @@ func TestPrepareMessagesMarksTurnContextTargetByTurnID(t *testing.T) {
 	}
 	if promptBuilder.messages[2].TurnContextTarget {
 		t.Fatalf("later user message should not be marked: %+v", promptBuilder.messages[2])
+	}
+}
+
+func TestPrepareMessagesBuildsSurfaceContextFromChatParams(t *testing.T) {
+	promptBuilder := &capturingPromptBuilder{}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder:    promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(workspace.NewSurfaceContextProvider()),
+	})
+
+	selectedText := "texto selecionado que deve chegar ao backend"
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "explique isto", MessageID: "turn-1"}},
+		UserContent:    "explique isto",
+		ConversationID: "conv-1",
+		TurnID:         "turn-1",
+		Params: llm.ChatParams{
+			TabType: "editor",
+			SurfaceContextJSON: `{
+				"surfaceType": "editor",
+				"surfaceId": "tab-editor",
+				"snapshotVersion": "editor:tab-editor:1",
+				"selection": {
+					"kind": "text",
+					"text": "` + selectedText + `",
+					"explicit": true
+				}
+			}`,
+		},
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if len(promptBuilder.contextBlocks) != 1 {
+		t.Fatalf("contextBlocks = %+v, want only surface context", promptBuilder.contextBlocks)
+	}
+	block := promptBuilder.contextBlocks[0]
+	if block.Provider != "surface_context" || block.Name != "surface_context" {
+		t.Fatalf("unexpected surface context block: %+v", block)
+	}
+	if !strings.Contains(block.Content, `<selection kind="text" explicit="true">`+selectedText+`</selection>`) {
+		t.Fatalf("surface context should contain selected text, got %q", block.Content)
 	}
 }
 

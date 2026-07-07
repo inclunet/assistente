@@ -378,6 +378,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		toolprotocol.NewContextProvider(),
 		deeplinkprotocol.NewContextProvider(),
 		workspace.NewContextProvider(),
+		workspace.NewSurfaceContextProvider(),
 	)
 
 	// Inicializa o ChatInteractor (após skillMgr e promptBuilder estarem prontos)
