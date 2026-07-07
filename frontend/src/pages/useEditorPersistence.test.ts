@@ -158,7 +158,7 @@ describe('useEditorPersistence', () => {
     expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
   });
 
-  it('sincroniza tool edit_file assistida mesmo quando a aba está dirty mas ainda está no baseline', async () => {
+  it('atualiza o editor aberto com escrita assistida de outra aba quando não há divergência local', async () => {
     const doc = makeDoc({ markdown: 'antes da tool', isDirty: true });
     const merge = makeMerge('antes da tool', makeDiskInfo(5, 1000));
     vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
@@ -172,6 +172,7 @@ describe('useEditorPersistence', () => {
 
     expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('depois da tool');
     expect(useEditorStore.getState().documents['tab-1'].isDirty).toBe(false);
+    expect(merge.latestMarkdownByTabRef.current['tab-1']).toBe('depois da tool');
     expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
   });
 
