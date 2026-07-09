@@ -1012,6 +1012,7 @@ const ptBR = {
         },
       },
       modal: { askChat: 'Perguntar ao chat', mermaidTitle: 'Editar diagrama Mermaid' },
+      selection: { cursorPlaceholder: '(cursor)' },
       menuItems: { new: 'Novo', open: 'Abrir', save: 'Salvar', abortMerge: 'Abortar merge (Git)', abortMergeHint: 'Descarta marcadores de conflito', saveAs: 'Salvar como...', autosave: 'Auto-salvar', autosaveOn: 'Ligado', autosaveOff: 'Desligado' },
       actions: { askChat: 'Perguntar ao chat' },
       tabs: {

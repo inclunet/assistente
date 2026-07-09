@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { EditorDocument, EditorMode } from '../store/editorStore';
 import type {
@@ -38,6 +39,7 @@ export function useEditorSelectionSnapshots({
   monacoRef,
   richEditorRef,
 }: UseEditorSelectionSnapshotsArgs) {
+  const { t } = useTranslation();
   const lastExplicitSelectionRef = useRef<{
     tabId: string;
     capturedAt: number;
@@ -171,8 +173,10 @@ export function useEditorSelectionSnapshots({
       }
     }
 
-    const displayText = selectionIsEmpty ? (cursorContext || '(cursor)') : selectedText;
-    const displayForContextPanel = displayMarkdown || (selectionIsEmpty ? (cursorContext || '(cursor)') : selectedText);
+    const cursorPlaceholder = t('editor.selection.cursorPlaceholder');
+    const displayText = selectionIsEmpty ? (cursorContext || cursorPlaceholder) : selectedText;
+    const displayForContextPanel =
+      displayMarkdown || (selectionIsEmpty ? (cursorContext || cursorPlaceholder) : selectedText);
 
     // Snapshot do documento (para debug/consistência): prefere o Markdown atual do TipTap.
     let snapshot = '';
