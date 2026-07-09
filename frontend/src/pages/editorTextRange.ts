@@ -90,12 +90,27 @@ export function getRichDocPosForTextOffset(doc: unknown, targetOffset: number, s
   if (!Number.isFinite(docSize) || docSize < 0) return null;
 
   const target = Math.max(0, targetOffset);
-  for (let pos = 0; pos <= docSize; pos += 1) {
+  // O comprimento de textBetween(0, pos) é monotônico não-decrescente em pos,
+  // então a menor posição que satisfaz o predicado pode ser achada por busca
+  // binária (lower bound) — O(log n) chamadas a textBetween em vez de O(n).
+  const matches = (pos: number) => {
     const length = getRichDocTextBefore(doc, pos).length;
-    if (side === 'start' && length > target) return Math.max(0, pos - 1);
-    if (side === 'end' && length >= target) return pos;
+    return side === 'start' ? length > target : length >= target;
+  };
+
+  if (!matches(docSize)) return null;
+
+  let lo = 0;
+  let hi = docSize;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (matches(mid)) {
+      hi = mid;
+    } else {
+      lo = mid + 1;
+    }
   }
-  return null;
+  return side === 'start' ? Math.max(0, lo - 1) : lo;
 }
 
 export function findTextRangeInRichDoc(doc: unknown, text: string, textBefore?: string): { from: number; to: number } | null {

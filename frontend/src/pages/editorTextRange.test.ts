@@ -115,6 +115,49 @@ describe('getRichDocTextBefore', () => {
   });
 });
 
+/**
+ * Doc onde o mapeamento posição→texto NÃO é 1:1: algumas posições são
+ * "fronteiras de nó" que não acrescentam texto (como em docs TipTap reais,
+ * onde abrir/fechar blocos consome posições sem emitir caracteres).
+ */
+function makeRichDocWithBoundaries(paragraphs: string[]) {
+  // Posições: 1 de abertura + texto + 1 de fechamento por parágrafo.
+  const size = paragraphs.reduce((acc, p) => acc + p.length + 2, 0);
+  const textUpTo = (pos: number) => {
+    let remaining = pos;
+    let out = '';
+    for (const p of paragraphs) {
+      if (remaining <= 0) break;
+      remaining -= 1; // abertura do bloco
+      if (remaining <= 0) break;
+      out += p.slice(0, Math.min(p.length, remaining));
+      remaining -= p.length;
+      if (remaining <= 0) break;
+      remaining -= 1; // fechamento do bloco
+    }
+    return out;
+  };
+  return {
+    content: { size },
+    textBetween: (from: number, to: number) => textUpTo(to).slice(textUpTo(from).length),
+  };
+}
+
+/** Referência: o loop linear original, para validar a busca binária. */
+function linearPosForTextOffset(
+  doc: { content: { size: number }; textBetween: (from: number, to: number) => string },
+  targetOffset: number,
+  side: 'start' | 'end'
+): number | null {
+  const target = Math.max(0, targetOffset);
+  for (let pos = 0; pos <= doc.content.size; pos += 1) {
+    const length = doc.textBetween(0, pos).length;
+    if (side === 'start' && length > target) return Math.max(0, pos - 1);
+    if (side === 'end' && length >= target) return pos;
+  }
+  return null;
+}
+
 describe('getRichDocPosForTextOffset', () => {
   it('mapeia offsets de texto para posições do doc', () => {
     const doc = makeRichDoc('hello world');
@@ -125,6 +168,39 @@ describe('getRichDocPosForTextOffset', () => {
   it('retorna null quando o offset está além do doc', () => {
     const doc = makeRichDoc('abc');
     expect(getRichDocPosForTextOffset(doc, 50, 'start')).toBeNull();
+  });
+
+  it('equivale ao loop linear original em todos os offsets (docs 1:1 e com fronteiras de nó)', () => {
+    const docs = [
+      makeRichDoc('hello world'),
+      makeRichDoc(''),
+      makeRichDocWithBoundaries(['abc', 'de', '', 'fghi']),
+      makeRichDocWithBoundaries(['x']),
+    ];
+    for (const doc of docs) {
+      const textLength = doc.textBetween(0, doc.content.size).length;
+      for (let offset = 0; offset <= textLength + 2; offset += 1) {
+        for (const side of ['start', 'end'] as const) {
+          expect(getRichDocPosForTextOffset(doc, offset, side)).toBe(
+            linearPosForTextOffset(doc, offset, side)
+          );
+        }
+      }
+    }
+  });
+
+  it('usa O(log n) chamadas a textBetween em vez de O(n)', () => {
+    const text = 'a'.repeat(4096);
+    let calls = 0;
+    const doc = {
+      content: { size: text.length },
+      textBetween: (from: number, to: number) => {
+        calls += 1;
+        return text.slice(from, to);
+      },
+    };
+    expect(getRichDocPosForTextOffset(doc, 4000, 'end')).toBe(4000);
+    expect(calls).toBeLessThan(20);
   });
 });
 
