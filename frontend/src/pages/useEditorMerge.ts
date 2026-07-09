@@ -75,6 +75,12 @@ export function useEditorMerge() {
     return mergeSessionByTabRef.current[id] || null;
   };
 
+  // markSelfWrite/isProbablySelfWrite são apenas um fallback defensivo por
+  // janela de tempo: a supressão principal de eventos da própria gravação é
+  // feita no backend, que marca EditorWriteFile/EditorWriteDraft por token e
+  // emite `editor:fileChanged` com origin 'editor_ui' + selfWrite. Este
+  // fallback só atua em eventos SEM origin (ex.: duplicados do SO que chegam
+  // após o TTL da marcação).
   const markSelfWrite = (filePath: string) => {
     const key = normalizePathKey(String(filePath || ''));
     if (!key) return;
