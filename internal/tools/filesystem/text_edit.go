@@ -192,7 +192,7 @@ func (t *TextEdit) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 	description := strings.TrimSpace(a.Description)
 	if description == "" {
-		description = fmt.Sprintf("Revise a alteração em **%s** e clique em Aplicar para confirmar.", fullPath)
+		description = confirmDescriptionForPath(fullPath)
 	}
 	if notes := strings.TrimSpace(a.Notes); notes != "" {
 		description += "\n\n" + notes

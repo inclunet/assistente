@@ -7,22 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"assistente/internal/questionnaire"
 	"assistente/internal/tools"
-	"assistente/internal/tools/invocationctx"
-)
-
-// QuestionnaireRequester abstrai o gerenciador de questionários para injeção de dependência.
-type QuestionnaireRequester interface {
-	RequestQuestionnaire(ctx context.Context, payload questionnaire.RequestPayload) (questionnaire.Response, error)
-}
-
-// editPolicy descreve o comportamento de confirmação da tool.
-type editPolicy int
-
-const (
-	policyDirect          editPolicy = iota // edita direto, sem confirmação
-	policyConfirmWithDiff                   // mostra diff e pede confirmação antes de editar
 )
 
 // EditFile realiza edições cirúrgicas em arquivos existentes usando substituição de texto.
@@ -183,10 +168,10 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	// Resolve política de confirmação baseada no contexto de invocação
-	policy := t.resolvePolicy(ctx, fullPath)
+	policy := resolveEditPolicy(ctx, fullPath)
 
 	if policy == policyConfirmWithDiff {
-		if confirmed, toolResult := t.confirmWithDiff(ctx, a.Path, a.OldString, a.NewString); !confirmed {
+		if confirmed, toolResult := confirmBeforeAfter(ctx, t.questMgr, "Confirmar edição", a.Path, a.OldString, a.NewString); !confirmed {
 			return toolResult, nil
 		}
 	}
@@ -241,56 +226,6 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 			"total_lines":  totalLines,
 		},
 	}, nil
-}
-
-// resolvePolicy determina o comportamento de confirmação com base no contexto de invocação.
-func (t *EditFile) resolvePolicy(ctx context.Context, fullPath string) editPolicy {
-	inv, ok := invocationctx.Get(ctx)
-	if !ok {
-		return policyDirect
-	}
-	if inv.TabType == "editor" && inv.ActiveFilePath == fullPath {
-		return policyConfirmWithDiff
-	}
-	return policyDirect
-}
-
-// confirmWithDiff exibe um questionário com o diff antes/depois e aguarda confirmação do usuário.
-// Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou em erro.
-// Sem gerenciador de questionários (contextos não-UI: CLI/testes), aprova direto.
-func (t *EditFile) confirmWithDiff(ctx context.Context, displayPath, oldString, newString string) (bool, tools.ToolResult) {
-	title := "Confirmar edição"
-	description := fmt.Sprintf("Revise a alteração em **%s** e clique em Aplicar para confirmar.", displayPath)
-	return confirmEditWithDiff(ctx, t.questMgr, title, description, oldString, newString)
-}
-
-// confirmEditWithDiff exibe um questionário Antes/Depois (Aplicar/Rejeitar) e aguarda
-// a confirmação do usuário. Compartilhado por edit_file e text_edit.
-// Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou em erro.
-func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, title, description, before, after string) (bool, tools.ToolResult) {
-	if questMgr == nil {
-		// Sem gerenciador de questionários: edita direto (seguro para contextos não-UI)
-		return true, tools.ToolResult{}
-	}
-
-	resp, err := questMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       title,
-		Description: description,
-		Questions: []questionnaire.Question{
-			{ID: "before", Type: "readonly_code", Prompt: "Antes", Content: before},
-			{ID: "after", Type: "readonly_code", Prompt: "Depois", Content: after},
-		},
-		AllowCancel: true,
-		SubmitLabel: "Aplicar",
-		CancelLabel: "Rejeitar",
-	})
-	if err != nil {
-		return false, tools.ToolResult{Content: fmt.Sprintf("Erro ao solicitar confirmação: %v", err), IsError: true}
-	}
-	if resp.Cancelled {
-		return false, tools.ToolResult{Content: "Alteração rejeitada pelo usuário", IsError: true}
-	}
-	return true, tools.ToolResult{}
 }
 
 func (t *EditFile) resolvePath(path string) (string, error) {
