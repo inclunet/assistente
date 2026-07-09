@@ -134,16 +134,21 @@ export function useMermaidSession({
 
   const requestEditRichMermaid = (ctx: RichMermaidEditRequest) => {
     const mermaidBlockId = String(ctx.mermaidBlockId || '').trim();
-    const api = richEditorHandleRef.current;
     setRichMermaidSession({
       mermaidBlockId,
       initialCode: String(ctx.code || ''),
       insertText: String(ctx.insertText || ''),
+      // O handle é lido no momento do apply/remove (não na abertura do modal):
+      // o editor rico pode montar/remontar enquanto o usuário edita o diagrama,
+      // e um handle capturado cedo poderia estar null ou apontar para uma
+      // instância destruída, forçando o fallback ctx.apply/remove sem motivo.
       apply: (nextCode: string) => {
+        const api = richEditorHandleRef.current;
         if (mermaidBlockId && api?.applyMermaidById?.(mermaidBlockId, nextCode)) return;
         ctx.apply(nextCode);
       },
       remove: () => {
+        const api = richEditorHandleRef.current;
         if (mermaidBlockId && api?.removeMermaidById?.(mermaidBlockId)) return;
         ctx.remove();
       },
