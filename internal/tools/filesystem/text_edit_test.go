@@ -17,11 +17,17 @@ type fakeQuestionnaireRequester struct {
 	response    questionnaire.Response
 	err         error
 	called      bool
+	// onRequest, se definido, roda durante a exibição do questionário —
+	// útil para simular mudanças no disco enquanto o usuário revisa.
+	onRequest func()
 }
 
 func (f *fakeQuestionnaireRequester) RequestQuestionnaire(ctx context.Context, payload questionnaire.RequestPayload) (questionnaire.Response, error) {
 	f.called = true
 	f.lastPayload = payload
+	if f.onRequest != nil {
+		f.onRequest()
+	}
 	return f.response, f.err
 }
 
@@ -281,6 +287,67 @@ func TestTextEdit_BlocksSensitive(t *testing.T) {
 	}
 	if !result.IsError {
 		t.Error("deve bloquear edição de .env")
+	}
+}
+
+func TestTextEdit_DiskChangedDuringReview_PreservesOtherChanges(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	_ = os.WriteFile(filePath, []byte("# Título\n\nalvo\n"), 0644)
+
+	quest := &fakeQuestionnaireRequester{}
+	// Simula outra escrita durante a revisão: adiciona uma linha nova mantendo o alvo único.
+	quest.onRequest = func() {
+		_ = os.WriteFile(filePath, []byte("# Título\n\nlinha nova durante revisão\n\nalvo\n"), 0644)
+	}
+
+	tool := NewTextEdit(dir, quest)
+	args := `{"original": "alvo", "replacement": "substituído"}`
+	result, err := tool.Execute(editorCtx(filePath), json.RawMessage(args))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("resultado é erro: %s", result.Content)
+	}
+
+	data, _ := os.ReadFile(filePath)
+	got := string(data)
+	if !containsString(got, "linha nova durante revisão") {
+		t.Error("alterações feitas durante a revisão foram perdidas (snapshot antigo sobrescreveu o disco)")
+	}
+	if !containsString(got, "substituído") || containsString(got, "alvo") {
+		t.Errorf("substituição não foi aplicada sobre o conteúdo atual: %q", got)
+	}
+}
+
+func TestTextEdit_DiskChangedDuringReview_OriginalGoneAborts(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	_ = os.WriteFile(filePath, []byte("alvo\n"), 0644)
+
+	changed := "conteúdo totalmente diferente\n"
+	quest := &fakeQuestionnaireRequester{}
+	quest.onRequest = func() {
+		_ = os.WriteFile(filePath, []byte(changed), 0644)
+	}
+
+	tool := NewTextEdit(dir, quest)
+	args := `{"original": "alvo", "replacement": "substituído"}`
+	result, err := tool.Execute(editorCtx(filePath), json.RawMessage(args))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("deve abortar quando o arquivo mudou e 'original' não é mais único")
+	}
+	if !containsString(result.Content, "modificado durante a revisão") {
+		t.Errorf("mensagem deveria explicar a mudança durante a revisão: %s", result.Content)
+	}
+
+	data, _ := os.ReadFile(filePath)
+	if string(data) != changed {
+		t.Errorf("arquivo não deveria ser sobrescrito após abortar: %q", string(data))
 	}
 }
 

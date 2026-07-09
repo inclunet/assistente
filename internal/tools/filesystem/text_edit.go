@@ -199,6 +199,28 @@ func (t *TextEdit) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return toolResult, nil
 	}
 
+	// Relê o arquivo após a confirmação: o disco pode ter mudado enquanto o
+	// usuário revisava (outra aba, autosave tardio, processo externo). Aplicar
+	// a substituição sobre o snapshot antigo descartaria essas alterações.
+	freshData, err := ReadFileBytes(fullPath)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Erro ao reler arquivo após confirmação: %v", err), IsError: true}, nil
+	}
+	if fresh := string(freshData); fresh != content {
+		freshCount := strings.Count(fresh, a.Original)
+		if freshCount != 1 {
+			return tools.ToolResult{
+				Content: fmt.Sprintf(
+					"O arquivo '%s' foi modificado durante a revisão e 'original' agora ocorre %d vez(es). "+
+						"Nenhuma alteração foi aplicada. Releia o conteúdo atual e tente novamente.",
+					fullPath, freshCount,
+				),
+				IsError: true,
+			}, nil
+		}
+		content = fresh
+	}
+
 	// Realiza a substituição (única ocorrência garantida acima)
 	newContent := strings.Replace(content, a.Original, a.Replacement, 1)
 
