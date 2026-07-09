@@ -365,7 +365,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     }
   }, [currentDocumentId]);
 
-  const { schedulePersistForTab, syncAssistedChangeForTab } = useEditorPersistence({
+  const { persistTabContentNow, schedulePersistForTab, syncAssistedChangeForTab } = useEditorPersistence({
     merge,
     sessionLoaded,
     currentDocumentId,
@@ -1136,6 +1136,10 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     if (activeTab.mode === 'rich') {
       flushActiveRichMarkdownNow();
     }
+    // Persiste o buffer no disco antes do turno: tools de edição do editor
+    // (text_edit/edit_file) leem o arquivo do disco, e o autosave debounced
+    // pode deixar o disco atrás do que o usuário está vendo.
+    await persistTabContentNow(activeTab.id);
     const latestActiveTab = useEditorStore.getState().documents[activeTab.id] ?? activeTab;
     const editorSurfaceTab = workspaceTab ?? {
       id: latestActiveTab.id,
