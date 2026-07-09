@@ -136,9 +136,16 @@ func (t *WriteFile) Execute(ctx context.Context, args json.RawMessage) (tools.To
 	if resolveEditPolicy(ctx, fullPath) == policyConfirmWithDiff {
 		before := ""
 		if existed {
-			if data, err := ReadFileBytes(fullPath); err == nil {
-				before = string(data)
+			prefix, err := readFilePrefixForPreview(fullPath)
+			if err != nil {
+				// Sem o conteúdo atual não dá para o usuário revisar o que será
+				// perdido — aborta em vez de mostrar um "Antes" vazio.
+				return tools.ToolResult{
+					Content: fmt.Sprintf("Erro ao ler conteúdo atual para confirmação: %v", err),
+					IsError: true,
+				}, nil
 			}
+			before = prefix
 		}
 		if confirmed, toolResult := confirmBeforeAfter(ctx, t.questMgr, "Confirmar sobrescrita",
 			a.Path, truncateForPreview(before), truncateForPreview(a.Content)); !confirmed {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -235,6 +236,80 @@ func TestWriteFile_ConfirmPreviewTruncated(t *testing.T) {
 	}
 	if got := len(after); got > previewMaxBytes+len(previewTruncationMarker) {
 		t.Errorf("preview 'Depois' deve ter no máximo %d bytes, tem %d", previewMaxBytes+len(previewTruncationMarker), got)
+	}
+}
+
+func TestWriteFile_EditorActiveFile_CaseInsensitivePathWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("comparação case-insensitive só se aplica ao Windows")
+	}
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	_ = os.WriteFile(filePath, []byte("antigo"), 0644)
+
+	quest := &fakeQuestionnaireRequester{}
+	tool := NewWriteFile(dir, WithWriteFileQuestionnaire(quest))
+
+	// ActiveFilePath com capitalização diferente do path resolvido pela tool.
+	ctx := editorCtx(strings.ToUpper(filePath))
+	result, err := tool.Execute(ctx, writeArgs(t, "doc.md", "novo"))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("resultado é erro: %s", result.Content)
+	}
+	if len(quest.calls) != 1 {
+		t.Errorf("capitalização diferente não pode burlar a confirmação: questionário foi exibido %d vez(es)", len(quest.calls))
+	}
+}
+
+func TestSameFilePath_Normalization(t *testing.T) {
+	if !sameFilePath(filepath.Join("a", "b", "..", "c.md"), filepath.Join("a", "c.md")) {
+		t.Error("sameFilePath deve normalizar '..' via filepath.Clean")
+	}
+	if sameFilePath(filepath.Join("a", "c.md"), filepath.Join("a", "d.md")) {
+		t.Error("sameFilePath não pode igualar arquivos diferentes")
+	}
+	if runtime.GOOS == "windows" {
+		if !sameFilePath(`C:\Users\user\DOC.md`, `c:\users\user\doc.md`) {
+			t.Error("sameFilePath deve ser case-insensitive no Windows")
+		}
+	}
+}
+
+func TestReadFilePrefixForPreview(t *testing.T) {
+	dir := t.TempDir()
+
+	small := filepath.Join(dir, "small.txt")
+	_ = os.WriteFile(small, []byte("abc"), 0644)
+	got, err := readFilePrefixForPreview(small)
+	if err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	if got != "abc" {
+		t.Errorf("prefixo de arquivo pequeno deve ser o conteúdo inteiro, obtido %q", got)
+	}
+
+	big := filepath.Join(dir, "big.txt")
+	_ = os.WriteFile(big, []byte(strings.Repeat("x", previewMaxBytes*4)), 0644)
+	got, err = readFilePrefixForPreview(big)
+	if err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	if len(got) != previewMaxBytes+1 {
+		t.Errorf("prefixo deve ler no máximo previewMaxBytes+1 bytes, leu %d", len(got))
+	}
+	// O preview final precisa sinalizar o corte.
+	if !strings.HasSuffix(truncateForPreview(got), previewTruncationMarker) {
+		t.Error("preview de arquivo grande deve conter marcador de truncamento")
+	}
+}
+
+func TestReadFilePrefixForPreview_Error(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := readFilePrefixForPreview(filepath.Join(dir, "inexistente.txt")); err == nil {
+		t.Error("leitura de arquivo inexistente deve retornar erro")
 	}
 }
 

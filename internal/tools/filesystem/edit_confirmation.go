@@ -3,6 +3,10 @@ package filesystem
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"unicode/utf8"
 
@@ -32,10 +36,22 @@ func resolveEditPolicy(ctx context.Context, fullPath string) editPolicy {
 	if !ok {
 		return policyDirect
 	}
-	if inv.TabType == "editor" && inv.ActiveFilePath == fullPath {
+	if inv.TabType == "editor" && inv.ActiveFilePath != "" && sameFilePath(inv.ActiveFilePath, fullPath) {
 		return policyConfirmWithDiff
 	}
 	return policyDirect
+}
+
+// sameFilePath compara caminhos com a mesma normalização de IsOpenEditorFile
+// (filepath.Clean e case-insensitive no Windows), para que capitalização ou
+// separadores diferentes não burlem a política de confirmação.
+func sameFilePath(a, b string) bool {
+	ca := filepath.Clean(a)
+	cb := filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(ca, cb)
+	}
+	return ca == cb
 }
 
 // confirmBeforeAfter exibe um questionário com conteúdo Antes/Depois e aguarda confirmação do usuário.
@@ -75,6 +91,24 @@ const (
 
 // previewTruncationMarker sinaliza que o preview foi cortado.
 const previewTruncationMarker = "\n… (conteúdo truncado)"
+
+// readFilePrefixForPreview lê apenas o prefixo necessário para montar o preview
+// truncado (previewMaxBytes + 1 byte para detectar o corte), evitando carregar
+// arquivos grandes inteiros em memória.
+func readFilePrefixForPreview(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	buf := make([]byte, previewMaxBytes+1)
+	n, err := io.ReadFull(f, buf)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return "", err
+	}
+	return string(buf[:n]), nil
+}
 
 // truncateForPreview limita o conteúdo a previewMaxLines linhas e previewMaxBytes bytes,
 // anexando um marcador quando houver corte.
