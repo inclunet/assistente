@@ -128,6 +128,8 @@ export function EditorContentArea({
   const lastRevealAppendNonceRef = useRef(revealAppendNonce);
   const lastRevealSlideNavigationNonceRef = useRef(revealSlideNavigationRequest?.nonce ?? 0);
   const previousRevealSlideAnnouncementRef = useRef<string | null>(null);
+  const richEditorInstanceRef = useRef<TipTapEditor | null>(null);
+  const pendingRevealSlideFocusRef = useRef(false);
   const revealDeck = useMemo(
     () => parseRevealMarkdown(activeTab?.markdown || ''),
     [activeTab?.markdown]
@@ -147,11 +149,10 @@ export function EditorContentArea({
   const activeRevealSlideHasRawHtml = activeRevealSlideEditableMarkdown
     ? hasRawHtmlOutsideFences(activeRevealSlideEditableMarkdown)
     : false;
-  const richEditorKey = activeTab
-    ? isRevealDocument && activeRevealSlide
-      ? `${activeTab.id}:reveal-slide:${activeRevealSlide.index}`
-      : `${activeTab.id}:document`
-    : 'empty';
+  // A key é estável por aba (não inclui o índice do slide): trocar de slide NÃO
+  // pode remontar o TipTap (perderia undo, seleção, IME e foco). O conteúdo do
+  // novo slide chega pela prop `markdown` e é aplicado via syncFromExternal.
+  const richEditorKey = activeTab ? `${activeTab.id}:document` : 'empty';
   const activeRevealSlideLabel = isRevealDocument && activeRevealSlide
     ? t('editor.presentation.slideLabel', {
         current: activeRevealSlide.index + 1,
@@ -180,6 +181,17 @@ export function EditorContentArea({
   useEffect(() => {
     onRevealSlideIndexChange?.(activeRevealSlide?.index ?? 0);
   }, [activeRevealSlide?.index, onRevealSlideIndexChange]);
+
+  // Após uma troca de slide iniciada pelo usuário, posiciona o cursor no início
+  // do conteúdo do novo slide e mantém o foco no editor (o foco não pode cair
+  // para o body — isso quebraria a navegação por teclado). Este efeito roda
+  // depois do syncFromExternal do RichTextEditor (efeitos do filho executam
+  // antes dos do pai), então o conteúdo do novo slide já foi aplicado.
+  useEffect(() => {
+    if (!pendingRevealSlideFocusRef.current) return;
+    pendingRevealSlideFocusRef.current = false;
+    richEditorInstanceRef.current?.commands?.focus?.('start');
+  }, [activeRevealSlide?.index]);
 
   useEffect(() => {
     if (!activeRevealSlideLabel) {
@@ -210,6 +222,9 @@ export function EditorContentArea({
     if (revealAppendNonce === lastRevealAppendNonceRef.current) return;
     if (!isRevealDocument || activeTab?.mode !== 'rich' || revealDeck.slides.length === 0) return;
     lastRevealAppendNonceRef.current = revealAppendNonce;
+    if (revealDeck.slides.length - 1 !== activeRevealSlide?.index) {
+      pendingRevealSlideFocusRef.current = true;
+    }
     setActiveRevealSlideIndex(revealDeck.slides.length - 1);
   }, [activeTab?.mode, isRevealDocument, revealAppendNonce, revealDeck.slides.length]);
 
@@ -233,6 +248,9 @@ export function EditorContentArea({
 
   const switchRevealSlide = (nextIndex: number) => {
     const clampedIndex = Math.max(0, Math.min(nextIndex, revealDeck.slides.length - 1));
+    if (clampedIndex !== activeRevealSlide?.index) {
+      pendingRevealSlideFocusRef.current = true;
+    }
     const nextMarkdown = getMarkdownWithCurrentRevealSlide();
     if (nextMarkdown === null) {
       setActiveRevealSlideIndex(clampedIndex);
@@ -251,6 +269,11 @@ export function EditorContentArea({
     if (!isRevealDocument || revealDeck.slides.length === 0) return;
     switchRevealSlide(revealSlideNavigationRequest.index);
   }, [isRevealDocument, revealDeck.slides.length, revealSlideNavigationRequest]);
+
+  const handleRichEditorReady = (editor: TipTapEditor | null) => {
+    richEditorInstanceRef.current = editor;
+    onRichEditorReady(editor);
+  };
 
   const handleRichMarkdownChange = (markdown: string) => {
     if (!activeTab) return;
@@ -386,7 +409,7 @@ export function EditorContentArea({
                 onMarkdownChange={handleRichMarkdownChange}
                 readOnly={isAsking || activeRevealSlideHasRawHtml}
                 placeholder={t('editor.placeholders.rich')}
-                onEditorReady={onRichEditorReady}
+                onEditorReady={handleRichEditorReady}
                 onRequestEditMermaid={onRequestEditMermaid}
               />
             </div>

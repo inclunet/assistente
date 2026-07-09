@@ -1,4 +1,4 @@
-import { type Ref, forwardRef, useImperativeHandle } from 'react';
+import { type Ref, forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,6 +14,11 @@ const richEditorHandle = {
   removeMermaidById: vi.fn(),
 };
 const announceMock = vi.hoisted(() => vi.fn());
+const fakeRichEditorInstance = vi.hoisted(() => ({
+  commands: {
+    focus: vi.fn(),
+  },
+}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -39,10 +44,23 @@ vi.mock('./RevealRenderer', () => ({
 }));
 
 vi.mock('./RichTextEditor', () => ({
-  RichTextEditor: forwardRef((props: { markdown: string; readOnly?: boolean }, ref: Ref<RichTextEditorHandle>) => {
-    useImperativeHandle(ref, () => richEditorHandle);
-    return <div data-testid="rich-text-editor" data-readonly={props.readOnly ? 'true' : 'false'}>{props.markdown}</div>;
-  }),
+  RichTextEditor: forwardRef(
+    (
+      props: { markdown: string; readOnly?: boolean; onEditorReady?: (editor: unknown) => void },
+      ref: Ref<RichTextEditorHandle>
+    ) => {
+      useImperativeHandle(ref, () => richEditorHandle);
+      const onEditorReadyRef = useRef(props.onEditorReady);
+      onEditorReadyRef.current = props.onEditorReady;
+      // Espelha o RichTextEditor real: notifica a instância na montagem e null na desmontagem,
+      // permitindo detectar remontagens indevidas nos testes.
+      useEffect(() => {
+        onEditorReadyRef.current?.(fakeRichEditorInstance);
+        return () => onEditorReadyRef.current?.(null);
+      }, []);
+      return <div data-testid="rich-text-editor" data-readonly={props.readOnly ? 'true' : 'false'}>{props.markdown}</div>;
+    }
+  ),
 }));
 
 vi.mock('../../hooks/useAnnouncer', () => ({
@@ -84,7 +102,67 @@ describe('EditorContentArea Reveal rich mode', () => {
     richEditorHandle.applyMermaidById.mockReset();
     richEditorHandle.removeMermaidById.mockReset();
     announceMock.mockReset();
+    fakeRichEditorInstance.commands.focus.mockReset();
     useEditorStore.setState({ documents: {} });
+  });
+
+  it('troca de slide sem remontar o editor, aplica o novo conteúdo e foca o início', async () => {
+    // Formato byte-idêntico ao round-trip de replaceRevealSlide (sem linha em
+    // branco antes do separador), para poder afirmar zero emissões na troca.
+    const markdown = `<!-- .slide: class="title-slide" -->
+
+# Slide 1
+---
+
+## Slide 2`;
+    const activeTab: EditorDocument = {
+      id: 'doc-1',
+      title: 'Deck',
+      markdown,
+      mode: 'rich',
+    };
+    const onRichEditorReady = vi.fn();
+    const onRichMarkdownChange = vi.fn();
+    // Conteúdo do slide atual sem edições pendentes: a troca não deve emitir nada.
+    richEditorHandle.getMarkdown.mockReturnValue('# Slide 1');
+    useEditorStore.getState().hydrate({ documents: { [activeTab.id]: activeTab } });
+
+    const { rerender, getByTestId } = renderContentArea(activeTab, { onRichEditorReady, onRichMarkdownChange });
+
+    expect(onRichEditorReady).toHaveBeenCalledTimes(1);
+    expect(onRichEditorReady).toHaveBeenCalledWith(fakeRichEditorInstance);
+    expect(getByTestId('rich-text-editor').textContent).toBe('# Slide 1');
+
+    rerender(
+      <EditorContentArea
+        activeTab={activeTab}
+        isAsking={false}
+        debouncedMarkdownForPreview={markdown}
+        onMarkdownChange={vi.fn()}
+        onMonacoMount={vi.fn()}
+        onRichMarkdownChange={onRichMarkdownChange}
+        onRichEditorReady={onRichEditorReady}
+        revealAppendNonce={0}
+        revealSlideNavigationRequest={{ index: 1, nonce: 1 }}
+        revealFullscreenRequestNonce={0}
+        richEditorHandleRef={{ current: richEditorHandle }}
+        onRequestEditMermaid={vi.fn()}
+        onOpenMermaid={vi.fn()}
+        onRemoveMermaid={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(getByTestId('rich-text-editor').textContent).toBe('## Slide 2');
+    });
+
+    // Sem remontagem: onEditorReady não é chamado de novo nem recebe null.
+    expect(onRichEditorReady).toHaveBeenCalledTimes(1);
+    expect(onRichEditorReady).not.toHaveBeenCalledWith(null);
+    // Cursor no início do novo slide, foco mantido no editor.
+    expect(fakeRichEditorInstance.commands.focus).toHaveBeenCalledWith('start');
+    // Slide anterior sem edições: nenhuma emissão espúria de markdown na troca.
+    expect(onRichMarkdownChange).not.toHaveBeenCalled();
   });
 
   it('mescla edições pendentes ao navegar para outro slide', async () => {
