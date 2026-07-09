@@ -156,24 +156,23 @@ export function useEditorFileActions({
 
     const resp = await requestQuestionnaire({
       id: `ui-editor-abort-merge-${Date.now()}`,
-      title: 'Abortar merge (estilo Git)?',
-      description:
-        'Isso vai descartar o texto com marcadores de conflito nesta aba e restaurar a sua versão original. O arquivo continuará com salvamento travado até você escolher como resolver a modificação externa.',
-      submitLabel: 'Abortar merge',
-      cancelLabel: 'Continuar editando',
+      title: t('editor.questionnaire.abortMergeTitle'),
+      description: t('editor.questionnaire.abortMergeDesc'),
+      submitLabel: t('editor.questionnaire.abortMergeSubmit'),
+      cancelLabel: t('editor.questionnaire.abortMergeCancel'),
       allowCancel: true,
       questions: [
         {
           id: 'path',
           type: 'readonly_code' as const,
-          prompt: 'Arquivo',
+          prompt: t('editor.prompts.file'),
           content: String(activeTab.filePath || ''),
         },
         {
           id: 'mine',
           type: 'readonly_code' as const,
-          prompt: 'Sua versão original (preview)',
-          content: minePreviewText || '(vazio)',
+          prompt: t('editor.questionnaire.abortMergeMinePreview'),
+          content: minePreviewText || t('editor.questionnaire.emptyPreview'),
         },
       ],
     });

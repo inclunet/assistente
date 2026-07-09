@@ -343,22 +343,22 @@ export function useEditorInlineChat({
 
       const resp = await requestQuestionnaire({
         id: `ui-editor-inline-patch-confirm-${Date.now()}`,
-        title: 'Aplicar alteração?',
-        description: notes || 'Revise o antes/depois. Se estiver ok, confirme para aplicar no trecho selecionado.',
-        submitLabel: 'Sim, aplicar',
-        cancelLabel: 'Não, cancelar',
+        title: t('editor.questionnaire.patchConfirmTitle'),
+        description: notes || t('editor.questionnaire.patchConfirmDesc'),
+        submitLabel: t('editor.questionnaire.patchConfirmSubmit'),
+        cancelLabel: t('editor.questionnaire.patchConfirmCancel'),
         allowCancel: true,
         questions: [
           {
             id: 'before',
             type: 'readonly_code',
-            prompt: 'Antes',
+            prompt: t('editor.questionnaire.patchBefore'),
             content: before,
           },
           {
             id: 'after',
             type: 'readonly_code',
-            prompt: 'Depois',
+            prompt: t('editor.questionnaire.patchAfter'),
             content: after,
           },
         ],

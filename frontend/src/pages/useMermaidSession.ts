@@ -94,17 +94,17 @@ export function useMermaidSession({
 
     const confirm = await requestQuestionnaire({
       id: `ui-editor-mermaid-remove-${Date.now()}`,
-      title: 'Remover diagrama Mermaid',
-      description: 'Tem certeza que deseja remover este bloco Mermaid do documento?',
-      submitLabel: 'Remover',
-      cancelLabel: 'Cancelar',
+      title: t('editor.mermaid.removeConfirmTitle'),
+      description: t('editor.mermaid.removeConfirmMessage'),
+      submitLabel: t('editor.mermaid.removeBtn'),
+      cancelLabel: t('common.cancel'),
       allowCancel: true,
       questions: [
         {
           id: 'note',
           type: 'readonly_code',
-          prompt: 'Dica',
-          content: 'Essa ação remove o bloco ```mermaid``` inteiro.',
+          prompt: t('editor.mermaid.removeHintPrompt'),
+          content: t('editor.mermaid.removeHint'),
         },
       ],
     });
@@ -149,6 +149,7 @@ export function useMermaidSession({
   };
 
   const isMermaidModalOpen = activeMermaidIndex !== null || richMermaidSession !== null;
+  const mermaidModalTitle = t('editor.modal.mermaidTitle');
   const mermaidModalInitialCode =
     activeMermaidIndex !== null
       ? mermaidInitialCode
@@ -195,17 +196,17 @@ export function useMermaidSession({
     if (richMermaidSession) {
       const confirm = await requestQuestionnaire({
         id: `ui-editor-rich-mermaid-remove-${Date.now()}`,
-        title: 'Remover diagrama Mermaid',
-        description: 'Tem certeza que deseja remover este bloco Mermaid do documento? ',
-        submitLabel: 'Remover',
-        cancelLabel: 'Cancelar',
+        title: t('editor.mermaid.removeConfirmTitle'),
+        description: t('editor.mermaid.removeConfirmMessage'),
+        submitLabel: t('editor.mermaid.removeBtn'),
+        cancelLabel: t('common.cancel'),
         allowCancel: true,
         questions: [
           {
             id: 'note',
             type: 'readonly_code',
-            prompt: 'Dica',
-            content: 'Essa ação remove o bloco ```mermaid``` inteiro.',
+            prompt: t('editor.mermaid.removeHintPrompt'),
+            content: t('editor.mermaid.removeHint'),
           },
         ],
       });
@@ -222,6 +223,7 @@ export function useMermaidSession({
     removeMermaidBlockByIndex,
     requestEditRichMermaid,
     isMermaidModalOpen,
+    mermaidModalTitle,
     mermaidModalInitialCode,
     mermaidModalInitialInsertText,
     consumeMermaidInsertText,

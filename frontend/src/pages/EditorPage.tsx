@@ -240,6 +240,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     removeMermaidBlockByIndex,
     requestEditRichMermaid,
     isMermaidModalOpen,
+    mermaidModalTitle,
     mermaidModalInitialCode,
     mermaidModalInitialInsertText,
     consumeMermaidInsertText,
@@ -376,7 +377,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
       <MermaidEditorModal
         isOpen={isMermaidModalOpen}
-        title="Editar diagrama Mermaid"
+        title={mermaidModalTitle}
         initialCode={mermaidModalInitialCode}
         initialInsertText={mermaidModalInitialInsertText}
         onConsumeInsertText={consumeMermaidInsertText}

@@ -108,20 +108,20 @@ export function useEditorMenus({
     const hasMergeSession = !!activeTab && !!getMergeSession(activeTab.id);
 
     const items = [
-      { value: 'new', label: 'Novo', sublabel: 'Ctrl+N' },
-      { value: 'open', label: 'Abrir', sublabel: 'Ctrl+O' },
-      { value: 'save', label: 'Salvar', sublabel: 'Ctrl+S', disabled: !canSave },
+      { value: 'new', label: t('editor.menuItems.new'), sublabel: 'Ctrl+N' },
+      { value: 'open', label: t('editor.menuItems.open'), sublabel: 'Ctrl+O' },
+      { value: 'save', label: t('editor.menuItems.save'), sublabel: 'Ctrl+S', disabled: !canSave },
       ...(hasMergeSession
-        ? [{ value: 'abort-merge', label: 'Abortar merge (Git)', sublabel: 'Descarta marcadores de conflito' }]
+        ? [{ value: 'abort-merge', label: t('editor.menuItems.abortMerge'), sublabel: t('editor.menuItems.abortMergeHint') }]
         : []),
-      { value: 'saveas', label: 'Salvar como...', sublabel: 'Ctrl+Shift+S', disabled: !canSaveAs },
+      { value: 'saveas', label: t('editor.menuItems.saveAs'), sublabel: 'Ctrl+Shift+S', disabled: !canSaveAs },
     ];
 
     return items;
     // `mergeStateRevision` força recomputo quando a merge session muda (lida
     // via ref em `getMergeSession` para o item "Abortar merge"), já que esse
     // estado não deriva de `activeTab`.
-  }, [activeTab, mergeStateRevision]);
+  }, [activeTab, mergeStateRevision, t]);
 
   const onFileMenuSelect = useCallback(
     async (value: string) => {
@@ -132,7 +132,7 @@ export function useEditorMenus({
         case 'new': {
           const draftId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `editor-${Date.now()}`;
           const draftPath = String(await EditorGetDraftPath(draftId) ?? '');
-          const tabId = await addWorkspaceTab('editor', 'Novo documento', { filePath: draftPath, draftId });
+          const tabId = await addWorkspaceTab('editor', t('editor.fallback.newDoc'), { filePath: draftPath, draftId });
           createDocument({ id: tabId, draftId, filePath: draftPath });
           focusEditorSoon();
           return;
@@ -153,7 +153,7 @@ export function useEditorMenus({
           return;
       }
     },
-    [createDocument, addWorkspaceTab, openFile, saveFile, abortMerge, saveFileAsCopy, activeTab]
+    [createDocument, addWorkspaceTab, openFile, saveFile, abortMerge, saveFileAsCopy, activeTab, t]
   );
 
   const appendMarkdownToDocument = useCallback((content: string) => {
