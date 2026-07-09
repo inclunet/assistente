@@ -201,7 +201,9 @@ describe('syncFromExternal com editor TipTap real (integração)', () => {
     disposeRichMarkdownSync(refs);
   });
 
-  it('não emite onMarkdownChange durante a aplicação externa', async () => {
+  it('não emite onMarkdownChange durante a aplicação externa', () => {
+    vi.useFakeTimers();
+
     const initial = 'Um\n\nDois';
     const editor = track(createRealEditor(initial));
     const refs = mountRefs(editor, initial);
@@ -219,7 +221,8 @@ describe('syncFromExternal com editor TipTap real (integração)', () => {
 
     syncFromExternal({ refs, editor: editor as unknown as EditorLike, nextMarkdown: 'Um\n\nDois novo' });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Esgota o debounce do onUpdate e o release do guard de forma determinística.
+    vi.runAllTimers();
     expect(onMarkdownChange).not.toHaveBeenCalled();
     expect(serialize(editor)).toContain('Dois novo');
 

@@ -92,8 +92,10 @@ export function applyExternalMarkdownIncrementally(
 ): boolean {
   try {
     const state = editor.state;
-    const dispatch = editor.view?.dispatch;
-    if (!state?.doc?.content || typeof dispatch !== 'function') return false;
+    // dispatch é chamado via view (view.dispatch(tr)) para preservar o binding
+    // de `this` — no ProseMirror clássico, dispatch solto quebraria.
+    const view = editor.view;
+    if (!state?.doc?.content || typeof view?.dispatch !== 'function') return false;
 
     const nextDoc = parseExternalMarkdownToDoc(editor, nextMarkdown);
     if (!nextDoc) return false;
@@ -121,7 +123,7 @@ export function applyExternalMarkdownIncrementally(
     tr.replace(start, endCurrent, nextDoc.slice(start, endNext));
     tr.setMeta('addToHistory', false);
     tr.setMeta('preventUpdate', true);
-    dispatch(tr);
+    view.dispatch(tr);
     return true;
   } catch {
     return false;
