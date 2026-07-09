@@ -258,17 +258,26 @@ func (t *EditFile) resolvePolicy(ctx context.Context, fullPath string) editPolic
 // confirmWithDiff exibe um questionário com o diff antes/depois e aguarda confirmação do usuário.
 // Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou gerenciador indisponível.
 func (t *EditFile) confirmWithDiff(ctx context.Context, displayPath, oldString, newString string) (bool, tools.ToolResult) {
-	if t.questMgr == nil {
+	title := "Confirmar edição"
+	description := fmt.Sprintf("Revise a alteração em **%s** e clique em Aplicar para confirmar.", displayPath)
+	return confirmEditWithDiff(ctx, t.questMgr, title, description, oldString, newString)
+}
+
+// confirmEditWithDiff exibe um questionário Antes/Depois (Aplicar/Rejeitar) e aguarda
+// a confirmação do usuário. Compartilhado por edit_file e text_edit.
+// Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou em erro.
+func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, title, description, before, after string) (bool, tools.ToolResult) {
+	if questMgr == nil {
 		// Sem gerenciador de questionários: edita direto (seguro para contextos não-UI)
 		return true, tools.ToolResult{}
 	}
 
-	resp, err := t.questMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       "Confirmar edição",
-		Description: fmt.Sprintf("Revise a alteração em **%s** e clique em Aplicar para confirmar.", displayPath),
+	resp, err := questMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+		Title:       title,
+		Description: description,
 		Questions: []questionnaire.Question{
-			{ID: "before", Type: "readonly_code", Prompt: "Antes", Content: oldString},
-			{ID: "after", Type: "readonly_code", Prompt: "Depois", Content: newString},
+			{ID: "before", Type: "readonly_code", Prompt: "Antes", Content: before},
+			{ID: "after", Type: "readonly_code", Prompt: "Depois", Content: after},
 		},
 		AllowCancel: true,
 		SubmitLabel: "Aplicar",
