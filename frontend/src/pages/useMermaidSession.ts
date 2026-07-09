@@ -1,0 +1,241 @@
+import { useEffect, useRef, useState } from 'react';
+import type { RefObject } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
+import { useUIStore } from '../store/uiStore';
+import type { EditorDocument } from '../store/editorStore';
+import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
+import type { RichTextEditorHandle } from '../components/editor/RichTextEditor';
+import type { RichMermaidSession } from './editorTypes';
+
+/** Contexto recebido do editor rico ao pedir edição de um bloco Mermaid. */
+export interface RichMermaidEditRequest {
+  mermaidBlockId?: string;
+  code?: string;
+  insertText?: string;
+  apply: (nextCode: string) => void;
+  remove: () => void;
+}
+
+interface UseMermaidSessionArgs {
+  activeTab: EditorDocument | null;
+  richEditorHandleRef: RefObject<RichTextEditorHandle | null>;
+  setDocMarkdown: (tabId: string, markdown: string) => void;
+  updateLatestMarkdownForTab: (tabId: string, markdown: string) => void;
+  schedulePersistForTab: (tabId: string) => void;
+  focusEditorSoon: () => void;
+}
+
+/**
+ * Hook que gerencia a sessão de edição de diagramas Mermaid do editor:
+ * - modo Markdown: blocos endereçados por índice de fence no documento;
+ * - modo rico: sessão vinda do TipTap (`RichMermaidSession`), com apply/remove
+ *   preferindo a API por id do editor rico.
+ * Expõe os handlers prontos para o `MermaidEditorModal`.
+ */
+export function useMermaidSession({
+  activeTab,
+  richEditorHandleRef,
+  setDocMarkdown,
+  updateLatestMarkdownForTab,
+  schedulePersistForTab,
+  focusEditorSoon,
+}: UseMermaidSessionArgs) {
+  const { t } = useTranslation();
+  const addToast = useUIStore((s) => s.addToast);
+  const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
+
+  const [activeMermaidIndex, setActiveMermaidIndex] = useState<number | null>(null);
+  const [mermaidInitialCode, setMermaidInitialCode] = useState('');
+  const [mermaidInsertText, setMermaidInsertText] = useState('');
+  const [richMermaidSession, setRichMermaidSession] = useState<RichMermaidSession | null>(null);
+
+  const isMermaidModalOpen = activeMermaidIndex !== null || richMermaidSession !== null;
+
+  // Foco previsível após fechar o modal Mermaid — tanto na sessão por índice
+  // do modo Markdown quanto na sessão vinda do editor rico.
+  const prevMermaidOpenRef = useRef(false);
+  useEffect(() => {
+    if (prevMermaidOpenRef.current && !isMermaidModalOpen) {
+      focusEditorSoon();
+    }
+    prevMermaidOpenRef.current = isMermaidModalOpen;
+  }, [isMermaidModalOpen]);
+
+  const openMermaidEditorByIndex = (index: number, opts?: { insertText?: string }) => {
+    if (!activeTab) return;
+    const fence = findMermaidFenceByIndex(activeTab.markdown, index);
+    if (!fence) {
+      addToast(t('editor.chatModal.mermaidBlockNotFound'), 'error');
+      return;
+    }
+    setActiveMermaidIndex(index);
+    setMermaidInitialCode(fence.code);
+    setMermaidInsertText(opts?.insertText ? String(opts.insertText) : '');
+  };
+
+  const applyMermaidCode = (code: string) => {
+    if (!activeTab) return;
+    if (activeMermaidIndex === null) return;
+    const fence = findMermaidFenceByIndex(activeTab.markdown, activeMermaidIndex);
+    if (!fence) {
+      addToast(t('editor.toast.mermaidBlockGone'), 'error');
+      return;
+    }
+    const nextMarkdown = replaceMermaidFenceCode(activeTab.markdown, fence, code);
+    setDocMarkdown(activeTab.id, nextMarkdown);
+    updateLatestMarkdownForTab(activeTab.id, nextMarkdown);
+    schedulePersistForTab(activeTab.id);
+    addToast(t('editor.toast.mermaidUpdated'), 'success');
+    setActiveMermaidIndex(null);
+  };
+
+  const removeMermaidBlockByIndex = async (index: number, reopenOnCancel?: { code: string }) => {
+    if (!activeTab) return;
+
+    const confirm = await requestQuestionnaire({
+      id: `ui-editor-mermaid-remove-${Date.now()}`,
+      title: t('editor.mermaid.removeConfirmTitle'),
+      description: t('editor.mermaid.removeConfirmMessage'),
+      submitLabel: t('editor.mermaid.removeBtn'),
+      cancelLabel: t('common.cancel'),
+      allowCancel: true,
+      questions: [
+        {
+          id: 'note',
+          type: 'readonly_code',
+          prompt: t('editor.mermaid.removeHintPrompt'),
+          content: t('editor.mermaid.removeHint'),
+        },
+      ],
+    });
+
+    if (confirm.cancelled) {
+      if (reopenOnCancel) {
+        setActiveMermaidIndex(index);
+        setMermaidInitialCode(reopenOnCancel.code);
+      }
+      return;
+    }
+
+    const fence = findMermaidFenceByIndex(activeTab.markdown, index);
+    if (!fence) {
+      addToast(t('editor.toast.mermaidBlockGone'), 'error');
+      return;
+    }
+
+    const nextMarkdown = removeMermaidFence(activeTab.markdown, fence);
+    setDocMarkdown(activeTab.id, nextMarkdown);
+    updateLatestMarkdownForTab(activeTab.id, nextMarkdown);
+    schedulePersistForTab(activeTab.id);
+    addToast(t('editor.toast.mermaidRemoved'), 'success');
+  };
+
+  const requestEditRichMermaid = (ctx: RichMermaidEditRequest) => {
+    const mermaidBlockId = String(ctx.mermaidBlockId || '').trim();
+    setRichMermaidSession({
+      mermaidBlockId,
+      initialCode: String(ctx.code || ''),
+      insertText: String(ctx.insertText || ''),
+      // O handle é lido no momento do apply/remove (não na abertura do modal):
+      // o editor rico pode montar/remontar enquanto o usuário edita o diagrama,
+      // e um handle capturado cedo poderia estar null ou apontar para uma
+      // instância destruída, forçando o fallback ctx.apply/remove sem motivo.
+      apply: (nextCode: string) => {
+        const api = richEditorHandleRef.current;
+        if (mermaidBlockId && api?.applyMermaidById?.(mermaidBlockId, nextCode)) return;
+        ctx.apply(nextCode);
+      },
+      remove: () => {
+        const api = richEditorHandleRef.current;
+        if (mermaidBlockId && api?.removeMermaidById?.(mermaidBlockId)) return;
+        ctx.remove();
+      },
+    });
+  };
+
+  const mermaidModalTitle = t('editor.modal.mermaidTitle');
+  const mermaidModalInitialCode =
+    activeMermaidIndex !== null
+      ? mermaidInitialCode
+      : richMermaidSession?.initialCode || '';
+  const mermaidModalInitialInsertText =
+    activeMermaidIndex !== null
+      ? mermaidInsertText
+      : String(richMermaidSession?.insertText || '');
+
+  const consumeMermaidInsertText = () => {
+    if (activeMermaidIndex !== null) setMermaidInsertText('');
+    if (richMermaidSession) {
+      setRichMermaidSession((prev) => (prev ? { ...prev, insertText: '' } : prev));
+    }
+  };
+
+  const cancelMermaidModal = () => {
+    if (activeMermaidIndex !== null) setActiveMermaidIndex(null);
+    if (richMermaidSession) setRichMermaidSession(null);
+  };
+
+  const applyMermaidModal = (code: string) => {
+    if (activeMermaidIndex !== null) {
+      applyMermaidCode(code);
+      return;
+    }
+    if (richMermaidSession) {
+      richMermaidSession.apply(code);
+      addToast(t('editor.toast.mermaidUpdated'), 'success');
+      setRichMermaidSession(null);
+    }
+  };
+
+  const removeMermaidFromModal = async () => {
+    // A sessão por índice também é aberta a partir do Preview (mode === 'view'),
+    // então a condição é a própria sessão ativa, e não o modo da aba.
+    if (activeMermaidIndex !== null) {
+      const index = activeMermaidIndex;
+      const code = mermaidInitialCode;
+      setActiveMermaidIndex(null);
+      await removeMermaidBlockByIndex(index, { code });
+      return;
+    }
+
+    if (richMermaidSession) {
+      const confirm = await requestQuestionnaire({
+        id: `ui-editor-rich-mermaid-remove-${Date.now()}`,
+        title: t('editor.mermaid.removeConfirmTitle'),
+        description: t('editor.mermaid.removeConfirmMessage'),
+        submitLabel: t('editor.mermaid.removeBtn'),
+        cancelLabel: t('common.cancel'),
+        allowCancel: true,
+        questions: [
+          {
+            id: 'note',
+            type: 'readonly_code',
+            prompt: t('editor.mermaid.removeHintPrompt'),
+            content: t('editor.mermaid.removeHint'),
+          },
+        ],
+      });
+
+      if (confirm.cancelled) return;
+      richMermaidSession.remove();
+      addToast(t('editor.toast.mermaidRemoved'), 'success');
+      setRichMermaidSession(null);
+    }
+  };
+
+  return {
+    openMermaidEditorByIndex,
+    removeMermaidBlockByIndex,
+    requestEditRichMermaid,
+    isMermaidModalOpen,
+    mermaidModalTitle,
+    mermaidModalInitialCode,
+    mermaidModalInitialInsertText,
+    consumeMermaidInsertText,
+    cancelMermaidModal,
+    applyMermaidModal,
+    removeMermaidFromModal,
+  };
+}
