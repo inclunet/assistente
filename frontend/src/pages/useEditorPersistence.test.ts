@@ -158,6 +158,64 @@ describe('useEditorPersistence', () => {
     expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
   });
 
+  it('evento selfWrite do editor apenas atualiza baseline de disco, sem reload nem prompt', async () => {
+    const doc = makeDoc({ markdown: 'conteudo local', isDirty: true });
+    const merge = makeMerge('conteudo local', makeDiskInfo(5, 1000));
+    vi.mocked(EditorReadFile).mockResolvedValue('conteudo em disco' as never);
+
+    renderPersistence(doc, merge);
+    await waitFor(() => expect(EditorWatchFile).toHaveBeenCalledWith('C:/tmp/doc.md'));
+
+    await act(async () => {
+      await fileChangedHandler?.({ path: 'C:/tmp/doc.md', origin: 'editor_ui', selfWrite: true });
+    });
+
+    // Não recarrega conteúdo, não reconcilia e não abre prompt.
+    expect(EditorReadFile).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('conteudo local');
+    expect(useEditorStore.getState().documents['tab-1'].isDirty).toBe(true);
+    expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+
+    // Apenas o baseline de disco (size+mtime) da aba é atualizado.
+    expect(merge.refreshDiskInfoForTab).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(merge.diskInfoByTabRef.current['tab-1']).toEqual(makeDiskInfo(20, 2000)));
+  });
+
+  it('trata origin editor_ui sem flag selfWrite da mesma forma', async () => {
+    const doc = makeDoc({ markdown: 'conteudo local', isDirty: false });
+    const merge = makeMerge('conteudo local', makeDiskInfo(5, 1000));
+    vi.mocked(EditorReadFile).mockResolvedValue('conteudo em disco' as never);
+
+    renderPersistence(doc, merge);
+    await waitFor(() => expect(EditorWatchFile).toHaveBeenCalledWith('C:/tmp/doc.md'));
+
+    await act(async () => {
+      await fileChangedHandler?.({ path: 'C:/tmp/doc.md', origin: 'editor_ui' });
+    });
+
+    expect(EditorReadFile).not.toHaveBeenCalled();
+    expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+    expect(merge.refreshDiskInfoForTab).toHaveBeenCalledTimes(1);
+  });
+
+  it('evento sem origin ainda usa o fallback isProbablySelfWrite', async () => {
+    const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
+    const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
+    vi.mocked(merge.isProbablySelfWrite).mockReturnValue(true);
+    vi.mocked(EditorReadFile).mockResolvedValue('mudanca externa' as never);
+
+    renderPersistence(doc, merge);
+
+    await act(async () => {
+      await fileChangedHandler?.({ path: 'C:/tmp/doc.md' });
+    });
+
+    // Suprimido pelo fallback: nada é lido nem reconciliado.
+    expect(EditorReadFile).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('minha edicao local');
+    expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+  });
+
   it('atualiza o editor aberto com escrita assistida de outra aba quando não há divergência local', async () => {
     const doc = makeDoc({ markdown: 'antes da tool', isDirty: true });
     const merge = makeMerge('antes da tool', makeDiskInfo(5, 1000));

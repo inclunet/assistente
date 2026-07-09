@@ -42,12 +42,9 @@ export function useRichMarkdownSync({ markdown, onMarkdownChange, debounceMs = 3
     [debounceMs, onMarkdownChange]
   );
 
-  const syncFromExternal = useCallback(
-    (editor: EditorLike | null, nextMarkdown: string) => {
-      syncFromExternalPure({ refs: refs.current, editor, nextMarkdown, onMarkdownChange });
-    },
-    [onMarkdownChange]
-  );
+  const syncFromExternal = useCallback((editor: EditorLike | null, nextMarkdown: string) => {
+    syncFromExternalPure({ refs: refs.current, editor, nextMarkdown });
+  }, []);
 
   useEffect(() => {
     disposeOnMarkdownChangeRef.current = onMarkdownChange;
