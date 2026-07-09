@@ -5,9 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"assistente/internal/configdir"
 )
 
-func TestEditorAssistedWriteMarkerConsumedOnce(t *testing.T) {
+// A marcação NÃO é consumida no primeiro match: no Windows uma única gravação
+// pode gerar múltiplos eventos Write, e todos devem ser atribuídos à mesma
+// escrita enquanto size+mtime continuarem batendo (até o TTL expirar).
+func TestEditorAssistedWriteMarkerSurvivesRepeatedEventsWhileFileMatches(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "doc.md")
 	app := &App{}
@@ -37,16 +42,22 @@ func TestEditorAssistedWriteMarkerConsumedOnce(t *testing.T) {
 	}
 	commit(true)
 
-	origin, ok := app.consumeEditorAssistedWrite(norm)
-	if !ok {
-		t.Fatal("expected assisted write marker")
-	}
-	if origin != "assistant_tool" {
-		t.Fatalf("origin = %q, want assistant_tool", origin)
+	for i := 0; i < 3; i++ {
+		origin, ok := app.resolveEditorSelfWrite(norm)
+		if !ok {
+			t.Fatalf("event %d: expected marker to stay alive while file matches", i+1)
+		}
+		if origin != "assistant_tool" {
+			t.Fatalf("event %d: origin = %q, want assistant_tool", i+1, origin)
+		}
 	}
 
-	if origin, ok := app.consumeEditorAssistedWrite(norm); ok {
-		t.Fatalf("marker should be consumed once, got origin %q", origin)
+	// Uma mudança externa real invalida a marcação para os próximos eventos.
+	if err := os.WriteFile(filePath, []byte("conteudo externo diferente"), 0644); err != nil {
+		t.Fatalf("overwrite file: %v", err)
+	}
+	if origin, ok := app.resolveEditorSelfWrite(norm); ok {
+		t.Fatalf("marker should be invalidated after external change, got origin %q", origin)
 	}
 }
 
@@ -82,7 +93,7 @@ func TestEditorAssistedWriteMarkerDoesNotRequireActiveWatchAtWriteStart(t *testi
 	}
 	app.editorWatchMu.Unlock()
 
-	origin, ok := app.consumeEditorAssistedWrite(norm)
+	origin, ok := app.resolveEditorSelfWrite(norm)
 	if !ok {
 		t.Fatal("expected assisted write marker registered before watch")
 	}
@@ -118,7 +129,7 @@ func TestEditorAssistedWriteMarkerCanBeCancelled(t *testing.T) {
 	}
 	commit(false)
 
-	if origin, ok := app.consumeEditorAssistedWrite(norm); ok {
+	if origin, ok := app.resolveEditorSelfWrite(norm); ok {
 		t.Fatalf("cancelled marker should not be consumed, got origin %q", origin)
 	}
 }
@@ -154,7 +165,7 @@ func TestEditorAssistedWriteMarkerCommitDoesNotRecreateClearedMarker(t *testing.
 	}
 	commit(true)
 
-	if origin, ok := app.consumeEditorAssistedWrite(norm); ok {
+	if origin, ok := app.resolveEditorSelfWrite(norm); ok {
 		t.Fatalf("cleared marker should not be recreated, got origin %q", origin)
 	}
 }
@@ -201,7 +212,7 @@ func TestEditorAssistedWriteMarkerCommitDoesNotStampNewerGeneration(t *testing.T
 	}
 
 	newCommit(true)
-	origin, ok := app.consumeEditorAssistedWrite(norm)
+	origin, ok := app.resolveEditorSelfWrite(norm)
 	if !ok {
 		t.Fatal("expected assisted marker from newer generation")
 	}
@@ -252,7 +263,7 @@ func TestEditorAssistedWriteMarkerCancelDoesNotDeleteNewerGeneration(t *testing.
 		t.Fatalf("write file: %v", err)
 	}
 	newCommit(true)
-	if origin, ok := app.consumeEditorAssistedWrite(norm); !ok || origin != "assistant_tool" {
+	if origin, ok := app.resolveEditorSelfWrite(norm); !ok || origin != "assistant_tool" {
 		t.Fatalf("expected newer assisted marker, got origin=%q ok=%v", origin, ok)
 	}
 }
@@ -299,7 +310,7 @@ func TestEditorAssistedWriteMarkerStatErrorDoesNotDeleteNewerGeneration(t *testi
 		t.Fatalf("write file: %v", err)
 	}
 	newCommit(true)
-	if origin, ok := app.consumeEditorAssistedWrite(norm); !ok || origin != "assistant_tool" {
+	if origin, ok := app.resolveEditorSelfWrite(norm); !ok || origin != "assistant_tool" {
 		t.Fatalf("expected newer assisted marker, got origin=%q ok=%v", origin, ok)
 	}
 }
@@ -337,7 +348,7 @@ func TestEditorAssistedWriteMarkerRejectsDifferentFileState(t *testing.T) {
 		t.Fatalf("overwrite file: %v", err)
 	}
 
-	if origin, ok := app.consumeEditorAssistedWrite(norm); ok {
+	if origin, ok := app.resolveEditorSelfWrite(norm); ok {
 		t.Fatalf("changed file state should not be assisted, got origin %q", origin)
 	}
 }
@@ -378,7 +389,7 @@ func TestEditorAssistedWriteMarkerWaitsForCommit(t *testing.T) {
 		commit(true)
 	}()
 
-	origin, ok := app.consumeEditorAssistedWrite(norm)
+	origin, ok := app.resolveEditorSelfWrite(norm)
 	<-done
 	if !ok {
 		t.Fatal("expected assisted marker after delayed commit")
@@ -415,7 +426,7 @@ func TestEditorAssistedWriteMarkerUncommittedReturnsWithoutConsuming(t *testing.
 	}
 
 	start := time.Now()
-	if origin, ok := app.consumeEditorAssistedWrite(norm); ok {
+	if origin, ok := app.resolveEditorSelfWrite(norm); ok {
 		t.Fatalf("uncommitted marker should not be consumed, got origin %q", origin)
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
@@ -430,4 +441,103 @@ func TestEditorAssistedWriteMarkerUncommittedReturnsWithoutConsuming(t *testing.
 	}
 
 	commit(false)
+}
+
+func TestEditorWriteFileMarksSelfWriteWithEditorUIOrigin(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	app := &App{}
+
+	norm, err := normalizeWatchPath(filePath)
+	if err != nil {
+		t.Fatalf("normalizeWatchPath: %v", err)
+	}
+
+	if err := app.EditorWriteFile(filePath, "conteudo salvo pelo editor"); err != nil {
+		t.Fatalf("EditorWriteFile: %v", err)
+	}
+
+	origin, ok := app.resolveEditorSelfWrite(norm)
+	if !ok {
+		t.Fatal("expected self-write marker after EditorWriteFile")
+	}
+	if origin != "editor_ui" {
+		t.Fatalf("origin = %q, want editor_ui", origin)
+	}
+
+	// Eventos duplicados da mesma gravação continuam resolvendo como self-write.
+	if origin, ok := app.resolveEditorSelfWrite(norm); !ok || origin != "editor_ui" {
+		t.Fatalf("expected marker alive for duplicated event, got origin=%q ok=%v", origin, ok)
+	}
+}
+
+func TestEditorWriteFileMarkerInvalidatedByExternalChange(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	app := &App{}
+
+	norm, err := normalizeWatchPath(filePath)
+	if err != nil {
+		t.Fatalf("normalizeWatchPath: %v", err)
+	}
+
+	if err := app.EditorWriteFile(filePath, "conteudo salvo pelo editor"); err != nil {
+		t.Fatalf("EditorWriteFile: %v", err)
+	}
+	if err := os.WriteFile(filePath, []byte("conteudo escrito por outro programa"), 0644); err != nil {
+		t.Fatalf("overwrite file: %v", err)
+	}
+
+	if origin, ok := app.resolveEditorSelfWrite(norm); ok {
+		t.Fatalf("external change should not resolve as self-write, got origin %q", origin)
+	}
+}
+
+func TestExternalWriteWithoutMarkerIsNotSelfWrite(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	app := &App{}
+
+	norm, err := normalizeWatchPath(filePath)
+	if err != nil {
+		t.Fatalf("normalizeWatchPath: %v", err)
+	}
+
+	if err := os.WriteFile(filePath, []byte("escrita externa"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	if origin, ok := app.resolveEditorSelfWrite(norm); ok {
+		t.Fatalf("external write should have no marker, got origin %q", origin)
+	}
+}
+
+func TestEditorWriteDraftMarksSelfWriteWithEditorUIOrigin(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	app := &App{}
+	if err := app.EditorWriteDraft("draft-teste", "conteudo do draft"); err != nil {
+		t.Fatalf("EditorWriteDraft: %v", err)
+	}
+
+	p, err := draftPath("draft-teste")
+	if err != nil {
+		t.Fatalf("draftPath: %v", err)
+	}
+	norm, err := normalizeWatchPath(p)
+	if err != nil {
+		t.Fatalf("normalizeWatchPath: %v", err)
+	}
+
+	origin, ok := app.resolveEditorSelfWrite(norm)
+	if !ok {
+		t.Fatal("expected self-write marker after EditorWriteDraft")
+	}
+	if origin != "editor_ui" {
+		t.Fatalf("origin = %q, want editor_ui", origin)
+	}
 }
