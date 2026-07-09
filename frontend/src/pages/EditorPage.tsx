@@ -12,9 +12,7 @@ import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
 import { useEditorStore, type EditorMode } from '../store/editorStore';
 import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
-import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
 import { parseRevealMarkdown } from '../lib/revealMarkdown';
 import { normalizePathKey } from '../utils/path';
 import { isModalOpen } from '../components/ui/Modal';
@@ -30,13 +28,13 @@ import { useEditorSelectionSnapshots } from './useEditorSelectionSnapshots';
 import { useEditorInsert } from './useEditorInsert';
 import { useEditorInlineChat } from './useEditorInlineChat';
 import { useEditorFileActions } from './useEditorFileActions';
+import { useMermaidSession } from './useMermaidSession';
 import { useEditorMerge } from './useEditorMerge';
 import { useEditorDocument } from './useEditorDocument';
 import { useEditorPersistence } from './useEditorPersistence';
 import type {
   MonacoCodeEditor,
   MonacoNamespace,
-  RichMermaidSession,
   TipTapEditor,
 } from './editorTypes';
 import './EditorPage.css';
@@ -50,7 +48,6 @@ interface EditorPageProps {
 export default function EditorPage({ documentId, workspaceTab, isPanelActive = true }: EditorPageProps = {}) {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
-  const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
   const documents = useEditorStore((s) => s.documents);
   const createDocument = useEditorStore((s) => s.createDocument);
@@ -80,25 +77,10 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   const [revealSlideNavigationRequest, setRevealSlideNavigationRequest] = useState<{ index: number; nonce: number } | null>(null);
   const [revealFullscreenRequestNonce, setRevealFullscreenRequestNonce] = useState(0);
 
-  const [activeMermaidIndex, setActiveMermaidIndex] = useState<number | null>(null);
-  const [mermaidInitialCode, setMermaidInitialCode] = useState('');
-  const [mermaidInsertText, setMermaidInsertText] = useState('');
-  const [richMermaidSession, setRichMermaidSession] = useState<RichMermaidSession | null>(null);
-
   const [editorReadyNonce, setEditorReadyNonce] = useState(0);
   const [revealAppendNonce, setRevealAppendNonce] = useState(0);
 
   const chatModalOpen = useWorkspaceChatModalStore((s) => s.isOpen);
-
-  // Foco previsível após fechar o modal Mermaid.
-  const prevMermaidOpenRef = useRef(false);
-  useEffect(() => {
-    const isOpen = activeMermaidIndex !== null;
-    if (prevMermaidOpenRef.current && !isOpen) {
-      focusEditorSoon();
-    }
-    prevMermaidOpenRef.current = isOpen;
-  }, [activeMermaidIndex]);
 
   // ----- Hooks de lógica extraída -----
   const merge = useEditorMerge();
@@ -268,74 +250,25 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     focusEditorSoon,
   });
 
-  const openMermaidEditorByIndex = (index: number, opts?: { insertText?: string }) => {
-    if (!activeTab) return;
-    const fence = findMermaidFenceByIndex(activeTab.markdown, index);
-    if (!fence) {
-      addToast(t('editor.chatModal.mermaidBlockNotFound'), 'error');
-      return;
-    }
-    setActiveMermaidIndex(index);
-    setMermaidInitialCode(fence.code);
-    setMermaidInsertText(opts?.insertText ? String(opts.insertText) : '');
-  };
-
-  const applyMermaidCode = (code: string) => {
-    if (!activeTab) return;
-    if (activeMermaidIndex === null) return;
-    const fence = findMermaidFenceByIndex(activeTab.markdown, activeMermaidIndex);
-    if (!fence) {
-      addToast(t('editor.toast.mermaidBlockGone'), 'error');
-      return;
-    }
-    const nextMarkdown = replaceMermaidFenceCode(activeTab.markdown, fence, code);
-    setDocMarkdown(activeTab.id, nextMarkdown);
-    updateLatestMarkdownForTab(activeTab.id, nextMarkdown);
-    schedulePersistForTab(activeTab.id);
-    addToast(t('editor.toast.mermaidUpdated'), 'success');
-    setActiveMermaidIndex(null);
-  };
-
-  const removeMermaidBlockByIndex = async (index: number, reopenOnCancel?: { code: string }) => {
-    if (!activeTab) return;
-
-    const confirm = await requestQuestionnaire({
-      id: `ui-editor-mermaid-remove-${Date.now()}`,
-      title: 'Remover diagrama Mermaid',
-      description: 'Tem certeza que deseja remover este bloco Mermaid do documento?',
-      submitLabel: 'Remover',
-      cancelLabel: 'Cancelar',
-      allowCancel: true,
-      questions: [
-        {
-          id: 'note',
-          type: 'readonly_code',
-          prompt: 'Dica',
-          content: 'Essa ação remove o bloco ```mermaid``` inteiro.',
-        },
-      ],
-    });
-
-    if (confirm.cancelled) {
-      if (reopenOnCancel) {
-        setActiveMermaidIndex(index);
-        setMermaidInitialCode(reopenOnCancel.code);
-      }
-      return;
-    }
-
-    const fence = findMermaidFenceByIndex(activeTab.markdown, index);
-    if (!fence) {
-      addToast(t('editor.toast.mermaidBlockGone'), 'error');
-      return;
-    }
-
-    const nextMarkdown = removeMermaidFence(activeTab.markdown, fence);
-    setDocMarkdown(activeTab.id, nextMarkdown);
-    updateLatestMarkdownForTab(activeTab.id, nextMarkdown);
-    schedulePersistForTab(activeTab.id);
-    addToast(t('editor.toast.mermaidRemoved'), 'success');
-  };
+  const {
+    openMermaidEditorByIndex,
+    removeMermaidBlockByIndex,
+    requestEditRichMermaid,
+    isMermaidModalOpen,
+    mermaidModalInitialCode,
+    mermaidModalInitialInsertText,
+    consumeMermaidInsertText,
+    cancelMermaidModal,
+    applyMermaidModal,
+    removeMermaidFromModal,
+  } = useMermaidSession({
+    activeTab,
+    richEditorHandleRef,
+    setDocMarkdown,
+    updateLatestMarkdownForTab,
+    schedulePersistForTab,
+    focusEditorSoon,
+  });
 
   const fileMenuItems = useMemo(() => {
     // "Salvar" funciona em qualquer aba ativa: grava o arquivo quando há
@@ -744,23 +677,7 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         revealSlideNavigationRequest={revealSlideNavigationRequest}
         revealFullscreenRequestNonce={revealFullscreenRequestNonce}
         richEditorHandleRef={richEditorHandleRef}
-        onRequestEditMermaid={(ctx) => {
-          const mermaidBlockId = String(ctx.mermaidBlockId || '').trim();
-          const api = richEditorHandleRef.current;
-          setRichMermaidSession({
-            mermaidBlockId,
-            initialCode: String(ctx.code || ''),
-            insertText: String(ctx.insertText || ''),
-            apply: (nextCode: string) => {
-              if (mermaidBlockId && api?.applyMermaidById?.(mermaidBlockId, nextCode)) return;
-              ctx.apply(nextCode);
-            },
-            remove: () => {
-              if (mermaidBlockId && api?.removeMermaidById?.(mermaidBlockId)) return;
-              ctx.remove();
-            },
-          });
-        }}
+        onRequestEditMermaid={requestEditRichMermaid}
         onOpenMermaid={openMermaidEditorByIndex}
         onRemoveMermaid={(index) => {
           void removeMermaidBlockByIndex(index);
@@ -768,73 +685,14 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
       />
 
       <MermaidEditorModal
-        isOpen={activeMermaidIndex !== null || richMermaidSession !== null}
+        isOpen={isMermaidModalOpen}
         title="Editar diagrama Mermaid"
-        initialCode={
-          activeMermaidIndex !== null
-            ? mermaidInitialCode
-            : richMermaidSession?.initialCode || ''
-        }
-        initialInsertText={
-          activeMermaidIndex !== null
-            ? mermaidInsertText
-            : String(richMermaidSession?.insertText || '')
-        }
-        onConsumeInsertText={() => {
-          if (activeMermaidIndex !== null) setMermaidInsertText('');
-          if (richMermaidSession) {
-            setRichMermaidSession((prev) => (prev ? { ...prev, insertText: '' } : prev));
-          }
-        }}
-        onCancel={() => {
-          if (activeMermaidIndex !== null) setActiveMermaidIndex(null);
-          if (richMermaidSession) setRichMermaidSession(null);
-        }}
-        onApply={(code) => {
-          if (activeMermaidIndex !== null) {
-            applyMermaidCode(code);
-            return;
-          }
-          if (richMermaidSession) {
-            richMermaidSession.apply(code);
-            addToast(t('editor.toast.mermaidUpdated'), 'success');
-            setRichMermaidSession(null);
-          }
-        }}
-        onRemove={async () => {
-          if (activeTab?.mode === 'markdown') {
-            if (activeMermaidIndex === null) return;
-            const index = activeMermaidIndex;
-            const code = mermaidInitialCode;
-            setActiveMermaidIndex(null);
-            await removeMermaidBlockByIndex(index, { code });
-            return;
-          }
-
-          if (richMermaidSession) {
-            const confirm = await requestQuestionnaire({
-              id: `ui-editor-rich-mermaid-remove-${Date.now()}`,
-              title: 'Remover diagrama Mermaid',
-              description: 'Tem certeza que deseja remover este bloco Mermaid do documento? ',
-              submitLabel: 'Remover',
-              cancelLabel: 'Cancelar',
-              allowCancel: true,
-              questions: [
-                {
-                  id: 'note',
-                  type: 'readonly_code',
-                  prompt: 'Dica',
-                  content: 'Essa ação remove o bloco ```mermaid``` inteiro.',
-                },
-              ],
-            });
-
-            if (confirm.cancelled) return;
-            richMermaidSession.remove();
-            addToast(t('editor.toast.mermaidRemoved'), 'success');
-            setRichMermaidSession(null);
-          }
-        }}
+        initialCode={mermaidModalInitialCode}
+        initialInsertText={mermaidModalInitialInsertText}
+        onConsumeInsertText={consumeMermaidInsertText}
+        onCancel={cancelMermaidModal}
+        onApply={applyMermaidModal}
+        onRemove={removeMermaidFromModal}
       />
 
       <Menu
