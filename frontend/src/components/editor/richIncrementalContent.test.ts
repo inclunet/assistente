@@ -6,6 +6,7 @@ import type { Transaction } from '@tiptap/pm/state';
 
 import {
   applyExternalMarkdownIncrementally,
+  computeIncrementalReplaceRange,
   parseExternalMarkdownToDoc,
   type IncrementalEditorLike,
 } from './richIncrementalContent';
@@ -104,7 +105,77 @@ describe('parseExternalMarkdownToDoc', () => {
   });
 });
 
+describe('computeIncrementalReplaceRange', () => {
+  it('sem overlap, retorna diffEnd inalterado', () => {
+    expect(computeIncrementalReplaceRange(2, { a: 8, b: 10 }, 20, 20)).toEqual({
+      endCurrent: 8,
+      endNext: 10,
+    });
+  });
+
+  it('com overlap, empurra os fins para frente', () => {
+    // diffEnd antes do diffStart (trechos repetidos): overlap = 5 - 3 = 2.
+    expect(computeIncrementalReplaceRange(5, { a: 3, b: 7 }, 20, 20)).toEqual({
+      endCurrent: 5,
+      endNext: 9,
+    });
+  });
+
+  it('clampa os fins ao tamanho dos docs quando o overlap os empurra além', () => {
+    // overlap = 6 - 4 = 2 empurra endNext de 10 para 12 (> size 10): deve ser
+    // clampado ao size; endCurrent vai de 4 para 6 e permanece válido.
+    expect(computeIncrementalReplaceRange(6, { a: 4, b: 10 }, 7, 10)).toEqual({
+      endCurrent: 6,
+      endNext: 10,
+    });
+    // endNext empurrado além do size do próximo doc: clampado a 11.
+    expect(computeIncrementalReplaceRange(9, { a: 5, b: 8 }, 10, 11)).toEqual({
+      endCurrent: 9,
+      endNext: 11,
+    });
+    // endCurrent empurrado além do size do doc atual: clampado a 10.
+    expect(computeIncrementalReplaceRange(9, { a: 8, b: 5 }, 10, 11)).toEqual({
+      endCurrent: 10,
+      endNext: 9,
+    });
+  });
+
+  it('nunca retorna fim menor que o start', () => {
+    const range = computeIncrementalReplaceRange(9, { a: 3, b: 3 }, 10, 10);
+    expect(range.endCurrent).toBeGreaterThanOrEqual(9);
+    expect(range.endNext).toBeGreaterThanOrEqual(9);
+  });
+});
+
 describe('applyExternalMarkdownIncrementally (editor TipTap real)', () => {
+  it('conteúdo com trechos repetidos aplica incrementalmente sem cair no fallback', () => {
+    // Parágrafos idênticos maximizam a chance de diffEnd < diffStart (overlap).
+    const initial = 'repetido\n\nrepetido\n\nrepetido';
+    const editor = track(createRealEditor(initial));
+    const docChanges = collectDocChanges(editor);
+
+    const ok = applyExternalMarkdownIncrementally(
+      editor as unknown as IncrementalEditorLike,
+      'repetido\n\nrepetido\n\nrepetido\n\nrepetido'
+    );
+
+    expect(ok).toBe(true);
+    expect(docChanges).toHaveLength(1);
+    expect(serialize(editor)).toBe('repetido\n\nrepetido\n\nrepetido\n\nrepetido');
+  });
+
+  it('remoção de trecho repetido no fim aplica incrementalmente', () => {
+    const editor = track(createRealEditor('repetido\n\nrepetido\n\nrepetido'));
+
+    const ok = applyExternalMarkdownIncrementally(
+      editor as unknown as IncrementalEditorLike,
+      'repetido\n\nrepetido'
+    );
+
+    expect(ok).toBe(true);
+    expect(serialize(editor)).toBe('repetido\n\nrepetido');
+  });
+
   it('mudança pequena no meio do doc preserva seleção fora do range alterado', () => {
     const initial = 'Primeiro parágrafo\n\nSegundo parágrafo\n\nTerceiro parágrafo';
     const editor = track(createRealEditor(initial));

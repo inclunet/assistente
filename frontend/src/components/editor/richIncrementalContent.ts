@@ -85,6 +85,33 @@ export function parseExternalMarkdownToDoc(
 }
 
 /**
+ * Calcula o range de substituição a partir do diffStart/diffEnd de ProseMirror.
+ * Docs com trechos repetidos podem ter diffEnd antes do diffStart (o range
+ * "compartilhado" se sobrepõe); o overlap empurra os fins para frente, como o
+ * ProseMirror faz internamente. Esse empurrão pode ultrapassar o tamanho dos
+ * docs, então os fins são clampados a [start, size] — sem isso, `tr.replace`/
+ * `slice` lançariam e o chamador cairia no fallback de `setContent` justamente
+ * nos casos com conteúdo repetido.
+ */
+export function computeIncrementalReplaceRange(
+  start: number,
+  diffEnd: { a: number; b: number },
+  currentSize: number,
+  nextSize: number
+): { endCurrent: number; endNext: number } {
+  let endCurrent = diffEnd.a;
+  let endNext = diffEnd.b;
+  const overlap = start - Math.min(endCurrent, endNext);
+  if (overlap > 0) {
+    endCurrent += overlap;
+    endNext += overlap;
+  }
+  endCurrent = Math.max(start, Math.min(endCurrent, currentSize));
+  endNext = Math.max(start, Math.min(endNext, nextSize));
+  return { endCurrent, endNext };
+}
+
+/**
  * Aplica `nextMarkdown` ao editor substituindo apenas o range mínimo alterado
  * (Fragment.findDiffStart/findDiffEnd), em UMA transação. A seleção, o cursor
  * e o scroll são remapeados automaticamente pelo mapping da transação — ao
@@ -121,15 +148,12 @@ export function applyExternalMarkdownIncrementally(
     const diffEnd = currentDoc.content.findDiffEnd(nextDoc.content);
     if (!diffEnd) return false;
 
-    let endCurrent = diffEnd.a;
-    let endNext = diffEnd.b;
-    // Docs com trechos repetidos podem ter diffEnd antes do diffStart (o range
-    // "compartilhado" se sobrepõe). Clampa como o ProseMirror faz internamente.
-    const overlap = start - Math.min(endCurrent, endNext);
-    if (overlap > 0) {
-      endCurrent += overlap;
-      endNext += overlap;
-    }
+    const { endCurrent, endNext } = computeIncrementalReplaceRange(
+      start,
+      diffEnd,
+      currentDoc.content.size,
+      nextDoc.content.size
+    );
 
     const tr = state.tr;
     tr.replace(start, endCurrent, nextDoc.slice(start, endNext));
