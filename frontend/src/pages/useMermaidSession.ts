@@ -185,8 +185,9 @@ export function useMermaidSession({
   };
 
   const removeMermaidFromModal = async () => {
-    if (activeTab?.mode === 'markdown') {
-      if (activeMermaidIndex === null) return;
+    // A sessão por índice também é aberta a partir do Preview (mode === 'view'),
+    // então a condição é a própria sessão ativa, e não o modo da aba.
+    if (activeMermaidIndex !== null) {
       const index = activeMermaidIndex;
       const code = mermaidInitialCode;
       setActiveMermaidIndex(null);
