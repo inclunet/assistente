@@ -215,6 +215,32 @@ func TestTextEdit_MultipleOccurrences(t *testing.T) {
 	}
 }
 
+func TestTextEdit_OverlappingOccurrencesAreAmbiguous(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	// "aaaaa" contém 3 ocorrências (sobrepostas) de "aaa"; strings.Count veria só 1.
+	_ = os.WriteFile(filePath, []byte("aaaaa"), 0644)
+
+	quest := &fakeQuestionnaireRequester{}
+	tool := NewTextEdit(dir, quest)
+	args := `{"original": "aaa", "replacement": "bbb"}`
+	result, err := tool.Execute(editorCtx(filePath), json.RawMessage(args))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("ocorrências sobrepostas devem ser tratadas como ambíguas")
+	}
+	if quest.called {
+		t.Error("questionário não deveria ser exibido quando a ocorrência é ambígua")
+	}
+
+	data, _ := os.ReadFile(filePath)
+	if string(data) != "aaaaa" {
+		t.Errorf("arquivo não deveria ser modificado: %q", string(data))
+	}
+}
+
 func TestTextEdit_EmptyOriginal(t *testing.T) {
 	tool := NewTextEdit(t.TempDir(), nil)
 	args := `{"original": "", "replacement": "novo"}`

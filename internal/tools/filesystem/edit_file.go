@@ -256,7 +256,8 @@ func (t *EditFile) resolvePolicy(ctx context.Context, fullPath string) editPolic
 }
 
 // confirmWithDiff exibe um questionário com o diff antes/depois e aguarda confirmação do usuário.
-// Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou gerenciador indisponível.
+// Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou em erro.
+// Sem gerenciador de questionários (contextos não-UI: CLI/testes), aprova direto.
 func (t *EditFile) confirmWithDiff(ctx context.Context, displayPath, oldString, newString string) (bool, tools.ToolResult) {
 	title := "Confirmar edição"
 	description := fmt.Sprintf("Revise a alteração em **%s** e clique em Aplicar para confirmar.", displayPath)

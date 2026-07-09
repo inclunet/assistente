@@ -155,8 +155,11 @@ func (t *TextEdit) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 	content := string(data)
 
-	// Conta ocorrências — 'original' deve ser único no arquivo
-	count := strings.Count(content, a.Original)
+	// Conta ocorrências — 'original' deve ser único no arquivo. Usa
+	// findOccurrenceLines (que avança 1 byte por match) para também contar
+	// ocorrências sobrepostas, que strings.Count ignoraria.
+	occurrenceLines := findOccurrenceLines(content, a.Original)
+	count := len(occurrenceLines)
 
 	if count == 0 {
 		hint := ""
@@ -171,7 +174,6 @@ func (t *TextEdit) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	if count > 1 {
-		occurrenceLines := findOccurrenceLines(content, a.Original)
 		return tools.ToolResult{
 			Content: fmt.Sprintf(
 				"'original' encontrado %d vezes no arquivo ativo '%s' (linhas: %v). "+
@@ -207,7 +209,7 @@ func (t *TextEdit) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao reler arquivo após confirmação: %v", err), IsError: true}, nil
 	}
 	if fresh := string(freshData); fresh != content {
-		freshCount := strings.Count(fresh, a.Original)
+		freshCount := len(findOccurrenceLines(fresh, a.Original))
 		if freshCount != 1 {
 			return tools.ToolResult{
 				Content: fmt.Sprintf(
