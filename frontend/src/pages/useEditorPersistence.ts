@@ -35,6 +35,16 @@ async function readDiskContent(filePath: string): Promise<DiskReadResult> {
   }
 }
 
+/**
+ * Garante que uma leitura bem-sucedida sempre tenha `hash` preenchido
+ * (calculado do conteúdo quando ausente). `hash` é opcional em DiskReadResult,
+ * e o reconciliador/auto-reload dependem dele para decidir de forma consistente.
+ */
+function normalizeDiskRead(read: DiskReadResult): DiskReadResult {
+  if (read.error || typeof read.hash === 'number') return read;
+  return { ...read, hash: hashStringFNV1a32(read.content) };
+}
+
 interface UseEditorPersistenceArgs {
   merge: UseEditorMergeResult;
   sessionLoaded: boolean;
@@ -222,7 +232,7 @@ export function useEditorPersistence({
     let decision = decideExternalChange(buildInput());
 
     if (decision.action === 'defer_read') {
-      diskRead = await (opts.readDisk ? opts.readDisk() : readDiskContent(filePath));
+      diskRead = normalizeDiskRead(await (opts.readDisk ? opts.readDisk() : readDiskContent(filePath)));
       decision = decideExternalChange(buildInput(diskRead));
     }
 
@@ -265,7 +275,8 @@ export function useEditorPersistence({
           if (opts.notifyAutoReload && tab.id === currentDocumentId) {
             addToast(t('editor.toast.externalReloaded'), 'info');
           }
-          return diskRead?.hash !== visibleHashBeforeReload;
+          const diskHash = diskRead?.hash ?? hashStringFNV1a32(diskContent);
+          return diskHash !== visibleHashBeforeReload;
         } catch {
           // Se não der pra aplicar automaticamente, cai pro fluxo de decisão explícita.
           openConflictPrompt();
