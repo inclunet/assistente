@@ -74,6 +74,8 @@ func (a *App) EditorGetDraftPath(draftId string) (string, error) {
 }
 
 // EditorWriteDraft persiste o conteúdo de um draft em disco.
+// Documentos novos têm filePath apontando para o diretório de drafts e também
+// são observados pelo watcher, então a escrita é marcada como self-write.
 func (a *App) EditorWriteDraft(draftId string, content string) error {
 	p, err := draftPath(draftId)
 	if err != nil {
@@ -82,8 +84,15 @@ func (a *App) EditorWriteDraft(draftId string, content string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 		return fmt.Errorf("falha ao criar diretório de drafts: %w", err)
 	}
+	commit := a.markEditorSelfWrite(p)
 	if err := filesystem.WriteFileBytes(p, []byte(content), 0644); err != nil {
+		if commit != nil {
+			commit(false)
+		}
 		return fmt.Errorf("falha ao salvar draft: %w", err)
+	}
+	if commit != nil {
+		commit(true)
 	}
 	return nil
 }
@@ -229,13 +238,22 @@ func (a *App) EditorGetFileInfo(path string) (*EditorFileInfo, error) {
 }
 
 // EditorWriteFile escreve conteúdo em um arquivo existente/destino escolhido.
+// A escrita é marcada como self-write para que o evento `editor:fileChanged`
+// correspondente carregue `origin: "editor_ui"` em vez de parecer externa.
 func (a *App) EditorWriteFile(path string, content string) error {
 	p := strings.TrimSpace(path)
 	if p == "" {
 		return fmt.Errorf("path vazio")
 	}
+	commit := a.markEditorSelfWrite(p)
 	if err := filesystem.WriteFileBytes(p, []byte(content), 0644); err != nil {
+		if commit != nil {
+			commit(false)
+		}
 		return fmt.Errorf("falha ao salvar arquivo: %w", err)
+	}
+	if commit != nil {
+		commit(true)
 	}
 	return nil
 }
