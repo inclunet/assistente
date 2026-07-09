@@ -1,5 +1,6 @@
-export type EditorLike = {
-  storage?: unknown;
+import { applyExternalMarkdownIncrementally, type IncrementalEditorLike } from './richIncrementalContent';
+
+export type EditorLike = IncrementalEditorLike & {
   commands?: {
     setContent?: (markdown: string) => void;
   };
@@ -165,7 +166,13 @@ export function syncFromExternal(args: {
 
   refs.isApplyingExternalMarkdownRef.current = true;
   try {
-    editor.commands?.setContent?.(nextMarkdown);
+    // Caminho preferencial: aplica só o range mínimo alterado em uma transação
+    // (seleção/cursor/scroll são remapeados pelo mapping; nada entra no undo).
+    // Se o parse/diff falhar por qualquer motivo, fallback para o setContent
+    // total (comportamento anterior).
+    if (!applyExternalMarkdownIncrementally(editor, nextMarkdown)) {
+      editor.commands?.setContent?.(nextMarkdown);
+    }
     // Baseline = round-trip serializado, não o texto bruto de entrada.
     refs.lastMarkdownRef.current = getMarkdownNow(editor);
     refs.lastExternalMarkdownRef.current = nextMarkdown;
