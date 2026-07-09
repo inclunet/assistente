@@ -24,6 +24,7 @@ import {
   safeDraftIdPart,
 } from '../lib/editorMergeUtils';
 import type { MergeSession } from './editorTypes';
+import { createEmptyTabDiskState, type TabDiskState } from './editorReconciler';
 
 const errorMessage = (e: unknown): string => String((e as Error)?.message || e || '').trim();
 
@@ -50,9 +51,11 @@ export function useEditorMerge() {
   // Autosave robusto: mantém a última versão conhecida do markdown por aba.
   const latestMarkdownByTabRef = useRef<Record<string, string>>({});
 
-  const diskInfoByTabRef = useRef<Record<string, DiskInfo>>({});
-  const diskContentHashByTabRef = useRef<Record<string, number>>({});
-  const diskBaselineContentByTabRef = useRef<Record<string, string>>({});
+  // Estado de disco consolidado por aba (metadados + baseline de conteúdo).
+  // Única fonte de verdade para o reconciliador de mudanças externas
+  // (antes espalhado em diskInfoByTabRef + diskContentHashByTabRef +
+  // diskBaselineContentByTabRef).
+  const diskStateByTabRef = useRef<Record<string, TabDiskState>>({});
   const externalConflictLockedByTabRef = useRef<Record<string, boolean>>({});
   const lastSelfWriteAtByPathRef = useRef<Record<string, number>>({});
   const mergeSessionByTabRef = useRef<Record<string, MergeSession>>({});
@@ -120,12 +123,31 @@ export function useEditorMerge() {
     return !!externalConflictLockedByTabRef.current[String(tabId || '')];
   };
 
+  const ensureDiskStateForTab = (tabId: string): TabDiskState => {
+    const id = String(tabId || '');
+    let state = diskStateByTabRef.current[id];
+    if (!state) {
+      state = createEmptyTabDiskState();
+      diskStateByTabRef.current[id] = state;
+    }
+    return state;
+  };
+
+  /** Snapshot (somente leitura) do estado de disco conhecido da aba. */
+  const getDiskStateForTab = (tabId: string): TabDiskState => {
+    return diskStateByTabRef.current[String(tabId || '')] ?? createEmptyTabDiskState();
+  };
+
+  const setDiskInfoForTab = (tabId: string, info: DiskInfo | null) => {
+    ensureDiskStateForTab(tabId).info = info;
+  };
+
   const refreshDiskInfoForTab = async (tab: EditorDocument): Promise<DiskInfo | null> => {
     const filePath = tab?.filePath ? String(tab.filePath) : '';
     if (!filePath) return null;
     try {
       const di = normalizeDiskInfo(await EditorGetFileInfo(filePath));
-      diskInfoByTabRef.current[String(tab.id)] = di;
+      setDiskInfoForTab(tab.id, di);
       return di;
     } catch {
       return null;
@@ -138,8 +160,9 @@ export function useEditorMerge() {
   };
 
   const setDiskBaselineForTab = (tabId: string, content: string) => {
-    diskContentHashByTabRef.current[String(tabId || '')] = hashStringFNV1a32(content);
-    diskBaselineContentByTabRef.current[String(tabId || '')] = String(content ?? '');
+    const state = ensureDiskStateForTab(tabId);
+    state.baselineHash = hashStringFNV1a32(content);
+    state.baselineContent = String(content ?? '');
   };
 
   const startMergeSessionForTab = async (tabId: string, filePath: string, diskContent: string, localContent: string) => {
@@ -377,8 +400,7 @@ export function useEditorMerge() {
 
     // Refs compartilhadas (somente leitura/escrita pontual por outros hooks).
     latestMarkdownByTabRef,
-    diskInfoByTabRef,
-    diskContentHashByTabRef,
+    diskStateByTabRef,
     mergeSessionByTabRef,
 
     // Helpers de estado.
@@ -391,6 +413,8 @@ export function useEditorMerge() {
     isExternalConflictLocked,
     isExternalPromptInFlight,
     setExternalPromptInFlight,
+    getDiskStateForTab,
+    setDiskInfoForTab,
     refreshDiskInfoForTab,
     setDiskBaselineForTab,
 
