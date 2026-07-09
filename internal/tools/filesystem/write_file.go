@@ -12,9 +12,12 @@ import (
 
 // WriteFile cria ou sobrescreve um arquivo no disco.
 // Cria diretórios intermediários automaticamente se necessário.
+// Quando invocada de uma aba de editor com o arquivo ativo, exibe confirmação
+// com previews Antes/Depois antes de gravar (mesma política do edit_file).
 type WriteFile struct {
-	workDir string
-	onWrite FileWriteObserver
+	workDir  string
+	questMgr QuestionnaireRequester
+	onWrite  FileWriteObserver
 }
 
 // WriteFileOption configura integrações opcionais da tool.
@@ -24,6 +27,14 @@ type WriteFileOption func(*WriteFile)
 func WithWriteFileWriteObserver(observer FileWriteObserver) WriteFileOption {
 	return func(t *WriteFile) {
 		t.onWrite = observer
+	}
+}
+
+// WithWriteFileQuestionnaire registra o gerenciador de questionários usado para
+// pedir confirmação quando a tool sobrescreve o arquivo ativo de uma aba de editor.
+func WithWriteFileQuestionnaire(questMgr QuestionnaireRequester) WriteFileOption {
+	return func(t *WriteFile) {
+		t.questMgr = questMgr
 	}
 }
 
@@ -118,6 +129,21 @@ func (t *WriteFile) Execute(ctx context.Context, args json.RawMessage) (tools.To
 			Content: fmt.Sprintf("'%s' é um diretório, não pode ser sobrescrito como arquivo", a.Path),
 			IsError: true,
 		}, nil
+	}
+
+	// Resolve política de confirmação baseada no contexto de invocação (AEP-0032:
+	// sobrescrever o arquivo ativo do editor exige revisão humana).
+	if resolveEditPolicy(ctx, fullPath) == policyConfirmWithDiff {
+		before := ""
+		if existed {
+			if data, err := ReadFileBytes(fullPath); err == nil {
+				before = string(data)
+			}
+		}
+		if confirmed, toolResult := confirmBeforeAfter(ctx, t.questMgr, "Confirmar sobrescrita",
+			a.Path, truncateForPreview(before), truncateForPreview(a.Content)); !confirmed {
+			return toolResult, nil
+		}
 	}
 
 	// Escreve o arquivo (criando diretórios intermediários se necessário)
