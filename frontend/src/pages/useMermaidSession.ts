@@ -51,15 +51,17 @@ export function useMermaidSession({
   const [mermaidInsertText, setMermaidInsertText] = useState('');
   const [richMermaidSession, setRichMermaidSession] = useState<RichMermaidSession | null>(null);
 
-  // Foco previsível após fechar o modal Mermaid.
+  const isMermaidModalOpen = activeMermaidIndex !== null || richMermaidSession !== null;
+
+  // Foco previsível após fechar o modal Mermaid — tanto na sessão por índice
+  // do modo Markdown quanto na sessão vinda do editor rico.
   const prevMermaidOpenRef = useRef(false);
   useEffect(() => {
-    const isOpen = activeMermaidIndex !== null;
-    if (prevMermaidOpenRef.current && !isOpen) {
+    if (prevMermaidOpenRef.current && !isMermaidModalOpen) {
       focusEditorSoon();
     }
-    prevMermaidOpenRef.current = isOpen;
-  }, [activeMermaidIndex]);
+    prevMermaidOpenRef.current = isMermaidModalOpen;
+  }, [isMermaidModalOpen]);
 
   const openMermaidEditorByIndex = (index: number, opts?: { insertText?: string }) => {
     if (!activeTab) return;
@@ -148,7 +150,6 @@ export function useMermaidSession({
     });
   };
 
-  const isMermaidModalOpen = activeMermaidIndex !== null || richMermaidSession !== null;
   const mermaidModalTitle = t('editor.modal.mermaidTitle');
   const mermaidModalInitialCode =
     activeMermaidIndex !== null
