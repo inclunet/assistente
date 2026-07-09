@@ -19,6 +19,7 @@ import {
   type MarkdownFenceMarker,
 } from '../../lib/markdownFence';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { clearRichEditorHistory } from './richEditorHistory';
 
 const RAW_HTML_RE = /<\/?[a-z][a-z0-9-]*(?:\s|>|\/>)/i;
 
@@ -182,12 +183,16 @@ export function EditorContentArea({
     onRevealSlideIndexChange?.(activeRevealSlide?.index ?? 0);
   }, [activeRevealSlide?.index, onRevealSlideIndexChange]);
 
-  // Após uma troca de slide iniciada pelo usuário, posiciona o cursor no início
-  // do conteúdo do novo slide e mantém o foco no editor (o foco não pode cair
-  // para o body — isso quebraria a navegação por teclado). Este efeito roda
-  // depois do syncFromExternal do RichTextEditor (efeitos do filho executam
-  // antes dos do pai), então o conteúdo do novo slide já foi aplicado.
+  // Após a troca de slide, limpa o histórico de undo e (se a troca foi iniciada
+  // pelo usuário) posiciona o cursor no início do novo slide, mantendo o foco no
+  // editor (o foco não pode cair para o body — isso quebraria a navegação por
+  // teclado). Este efeito roda depois do syncFromExternal do RichTextEditor
+  // (efeitos do filho executam antes dos do pai), então o conteúdo do novo slide
+  // já foi aplicado. A limpeza do histórico é obrigatória: sem remontagem, um
+  // Ctrl+Z depois da troca restauraria o markdown do slide anterior e
+  // handleRichMarkdownChange gravaria esse conteúdo no slide atual.
   useEffect(() => {
+    clearRichEditorHistory(richEditorInstanceRef.current);
     if (!pendingRevealSlideFocusRef.current) return;
     pendingRevealSlideFocusRef.current = false;
     richEditorInstanceRef.current?.commands?.focus?.('start');

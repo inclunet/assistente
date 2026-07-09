@@ -69,6 +69,11 @@ vi.mock('../../hooks/useAnnouncer', () => ({
   }),
 }));
 
+const clearRichEditorHistoryMock = vi.hoisted(() => vi.fn());
+vi.mock('./richEditorHistory', () => ({
+  clearRichEditorHistory: clearRichEditorHistoryMock,
+}));
+
 function renderContentArea(
   activeTab: EditorDocument,
   props: Partial<Parameters<typeof EditorContentArea>[0]> = {}
@@ -103,6 +108,7 @@ describe('EditorContentArea Reveal rich mode', () => {
     richEditorHandle.removeMermaidById.mockReset();
     announceMock.mockReset();
     fakeRichEditorInstance.commands.focus.mockReset();
+    clearRichEditorHistoryMock.mockReset();
     useEditorStore.setState({ documents: {} });
   });
 
@@ -161,6 +167,8 @@ describe('EditorContentArea Reveal rich mode', () => {
     expect(onRichEditorReady).not.toHaveBeenCalledWith(null);
     // Cursor no início do novo slide, foco mantido no editor.
     expect(fakeRichEditorInstance.commands.focus).toHaveBeenCalledWith('start');
+    // Histórico de undo limpo na troca: Ctrl+Z não pode restaurar o slide anterior.
+    expect(clearRichEditorHistoryMock).toHaveBeenCalledWith(fakeRichEditorInstance);
     // Slide anterior sem edições: nenhuma emissão espúria de markdown na troca.
     expect(onRichMarkdownChange).not.toHaveBeenCalled();
   });
