@@ -5,6 +5,7 @@ import { hashStringFNV1a32, type DiskInfo } from '../lib/editorMergeUtils';
 import { useEditorStore, type EditorDocument } from '../store/editorStore';
 import { EditorGetFileInfo, EditorReadFile, EditorWatchFile } from '@wailsjs/go/app/App';
 import type { EditorFileChangedEvent } from './editorTypes';
+import type { TabDiskState } from './editorReconciler';
 import { useEditorPersistence } from './useEditorPersistence';
 import type { UseEditorMergeResult } from './useEditorMerge';
 
@@ -57,17 +58,24 @@ function makeDiskInfo(size: number, modTimeMs: number): DiskInfo {
 
 function makeMerge(initialContent: string, initialInfo: DiskInfo): UseEditorMergeResult {
   const latestMarkdownByTabRef: { current: Record<string, string> } = { current: { 'tab-1': initialContent } };
-  const diskInfoByTabRef: { current: Record<string, DiskInfo> } = { current: { 'tab-1': initialInfo } };
-  const diskContentHashByTabRef: { current: Record<string, number> } = {
-    current: { 'tab-1': hashStringFNV1a32(initialContent) },
+  const diskStateByTabRef: { current: Record<string, TabDiskState> } = {
+    current: {
+      'tab-1': { info: initialInfo, baselineHash: hashStringFNV1a32(initialContent), baselineContent: initialContent },
+    },
   };
   const externalConflictLockedByTab: Record<string, boolean> = {};
+
+  const ensureDiskState = (tabId: string): TabDiskState => {
+    if (!diskStateByTabRef.current[tabId]) {
+      diskStateByTabRef.current[tabId] = { info: null, baselineHash: null, baselineContent: null };
+    }
+    return diskStateByTabRef.current[tabId];
+  };
 
   return {
     mergeStateRevision: 0,
     latestMarkdownByTabRef,
-    diskInfoByTabRef,
-    diskContentHashByTabRef,
+    diskStateByTabRef,
     mergeSessionByTabRef: { current: {} },
     getMergeSession: vi.fn(() => null),
     markSelfWrite: vi.fn(),
@@ -82,13 +90,21 @@ function makeMerge(initialContent: string, initialInfo: DiskInfo): UseEditorMerg
     isExternalConflictLocked: vi.fn((tabId: string) => !!externalConflictLockedByTab[tabId]),
     isExternalPromptInFlight: vi.fn(() => false),
     setExternalPromptInFlight: vi.fn(),
+    getDiskStateForTab: vi.fn(
+      (tabId: string) => diskStateByTabRef.current[tabId] ?? { info: null, baselineHash: null, baselineContent: null }
+    ),
+    setDiskInfoForTab: vi.fn((tabId: string, info: DiskInfo | null) => {
+      ensureDiskState(tabId).info = info;
+    }),
     refreshDiskInfoForTab: vi.fn(async (tab: EditorDocument) => {
       const info = makeDiskInfoFromBackend(await EditorGetFileInfo(String(tab.filePath)));
-      diskInfoByTabRef.current[tab.id] = info;
+      ensureDiskState(tab.id).info = info;
       return info;
     }),
     setDiskBaselineForTab: vi.fn((tabId: string, content: string) => {
-      diskContentHashByTabRef.current[tabId] = hashStringFNV1a32(content);
+      const state = ensureDiskState(tabId);
+      state.baselineHash = hashStringFNV1a32(content);
+      state.baselineContent = content;
     }),
     startMergeSessionForTab: vi.fn(),
     cleanupMergeSessionForTab: vi.fn(),
@@ -178,7 +194,7 @@ describe('useEditorPersistence', () => {
 
     // Apenas o baseline de disco (size+mtime) da aba é atualizado.
     expect(merge.refreshDiskInfoForTab).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(merge.diskInfoByTabRef.current['tab-1']).toEqual(makeDiskInfo(20, 2000)));
+    await waitFor(() => expect(merge.diskStateByTabRef.current['tab-1'].info).toEqual(makeDiskInfo(20, 2000)));
   });
 
   it('trata origin editor_ui sem flag selfWrite da mesma forma', async () => {
@@ -288,7 +304,11 @@ describe('useEditorPersistence', () => {
     const affectedDoc = makeDoc({ id: 'tab-2', filePath: 'C:/tmp/other.md', markdown: 'antes da tool', isDirty: false });
     const merge = makeMerge('ativo', makeDiskInfo(5, 1000));
     merge.latestMarkdownByTabRef.current['tab-2'] = 'antes da tool';
-    merge.diskContentHashByTabRef.current['tab-2'] = hashStringFNV1a32('antes da tool');
+    merge.diskStateByTabRef.current['tab-2'] = {
+      info: null,
+      baselineHash: hashStringFNV1a32('antes da tool'),
+      baselineContent: 'antes da tool',
+    };
     const flushActiveRichMarkdownNow = vi.fn();
     vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
 
@@ -308,7 +328,7 @@ describe('useEditorPersistence', () => {
   it('mantém prompt para tool assistida quando há edição local divergente do baseline', async () => {
     const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
     const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
-    merge.diskContentHashByTabRef.current['tab-1'] = hashStringFNV1a32('baseline antes da tool');
+    merge.diskStateByTabRef.current['tab-1'].baselineHash = hashStringFNV1a32('baseline antes da tool');
     vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
 
     renderPersistence(doc, merge);

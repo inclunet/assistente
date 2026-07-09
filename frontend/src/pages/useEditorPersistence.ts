@@ -17,6 +17,23 @@ import {
 } from '@wailsjs/go/app/App';
 import type { EditorFileChangedEvent } from './editorTypes';
 import type { UseEditorMergeResult } from './useEditorMerge';
+import { decideExternalChange, type ReconcileTrigger } from './editorReconciler';
+
+/** Resultado de uma leitura de conteúdo do disco (best-effort). */
+interface DiskReadResult {
+  content: string;
+  error: string;
+  hash?: number;
+}
+
+async function readDiskContent(filePath: string): Promise<DiskReadResult> {
+  try {
+    const content = String((await EditorReadFile(filePath)) || '');
+    return { content, error: '', hash: hashStringFNV1a32(content) };
+  } catch (e) {
+    return { content: '', error: String((e as Error)?.message || e || '').trim() };
+  }
+}
 
 interface UseEditorPersistenceArgs {
   merge: UseEditorMergeResult;
@@ -55,11 +72,11 @@ export function useEditorPersistence({
     isExternalPromptInFlight,
     isProbablySelfWrite,
     markSelfWrite,
+    getDiskStateForTab,
+    setDiskInfoForTab,
     setDiskBaselineForTab,
     refreshDiskInfoForTab,
     promptResolveExternalChangeForTab,
-    diskInfoByTabRef,
-    diskContentHashByTabRef,
   } = merge;
 
   const autosaveTimersByTabRef = useRef<Record<string, number>>({});
@@ -105,19 +122,28 @@ export function useEditorPersistence({
       // Detecta mudança externa antes de escrever (evita sobrescrever sem avisar).
       try {
         const currentDisk = normalizeDiskInfo(await EditorGetFileInfo(filePath));
-        const lastDisk = diskInfoByTabRef.current[String(tabId)];
+        const lastDisk = getDiskStateForTab(tabId).info;
 
-        if (lastDisk && !diskInfoEquals(lastDisk, currentDisk)) {
+        const decision = decideExternalChange({
+          trigger: 'pre_save',
+          conflictLocked: isExternalConflictLocked(tabId),
+          promptInFlight: isExternalPromptInFlight(tabId),
+          hasMergeSession: !!getMergeSession(tabId),
+          tabIsDirty: !!tab.isDirty,
+          diskInfoChanged: !!lastDisk && !diskInfoEquals(lastDisk, currentDisk),
+        });
+
+        if (decision.action === 'prompt_conflict') {
           setExternalConflictLocked(tabId, true);
           setDocDirty(tabId, true);
           addToast(t('editor.toast.fileModified'), 'warning');
-          if (!isExternalPromptInFlight(tabId)) {
+          if (decision.openPrompt) {
             void promptResolveExternalChangeForTab(tabId, filePath);
           }
           return;
         }
 
-        if (!lastDisk) diskInfoByTabRef.current[String(tabId)] = currentDisk;
+        if (!lastDisk) setDiskInfoForTab(tabId, currentDisk);
       } catch {
         // best-effort
       }
@@ -146,80 +172,114 @@ export function useEditorPersistence({
     }, Math.max(0, delayMs));
   };
 
-  const syncOrPromptExternalChangeForTab = async (
+  /**
+   * Ponto único de execução do reconciliador: monta o `ReconcileInput` com o
+   * estado consolidado da aba, obtém a decisão pura (`decideExternalChange`) e
+   * aplica o efeito correspondente. Usado pelo evento `editor:fileChanged`,
+   * pelo sync assistido explícito e pela re-checagem de foco.
+   *
+   * Retorna `true` quando um auto-reload alterou o conteúdo visível da aba.
+   */
+  const reconcileExternalChangeForTab = async (
     tab: EditorDocument,
-    opts?: {
-      diskContent?: string;
-      diskReadError?: string;
-      diskHash?: number;
+    opts: {
+      trigger: ReconcileTrigger;
+      selfWrite?: boolean;
       assisted?: boolean;
-      notifyAutoReload?: boolean;
+      probablySelfWrite?: boolean;
       allowAutoReload?: boolean;
+      notifyAutoReload?: boolean;
+      /** Leitura compartilhada/lazy do disco (uma só por evento com várias abas). */
+      readDisk?: () => Promise<DiskReadResult>;
     }
-  ) => {
+  ): Promise<boolean> => {
     const filePath = tab.filePath ? String(tab.filePath).trim() : '';
     if (!filePath) return false;
-    if (isExternalConflictLocked(tab.id)) return false;
 
-    let diskContent = typeof opts?.diskContent === 'string' ? String(opts.diskContent) : '';
-    let diskReadError = typeof opts?.diskReadError === 'string' ? String(opts.diskReadError) : '';
+    const buildInput = (diskRead?: DiskReadResult) => ({
+      trigger: opts.trigger,
+      selfWrite: opts.selfWrite,
+      assisted: opts.assisted,
+      probablySelfWrite: opts.probablySelfWrite,
+      conflictLocked: isExternalConflictLocked(tab.id),
+      promptInFlight: isExternalPromptInFlight(tab.id),
+      hasMergeSession: !!getMergeSession(tab.id),
+      tabIsDirty: !!tab.isDirty,
+      allowAutoReload: opts.allowAutoReload,
+      ...(diskRead
+        ? {
+            diskReadError: !!diskRead.error,
+            diskHash: diskRead.hash,
+            localHash: hashStringFNV1a32(getCachedMarkdownForTab(tab)),
+            lastKnownDiskHash: getDiskStateForTab(tab.id).baselineHash,
+          }
+        : {}),
+    });
 
-    if (!diskReadError && opts?.diskContent === undefined) {
-      try {
-        diskContent = String((await EditorReadFile(filePath)) || '');
-      } catch (e) {
-        diskReadError = String((e as Error)?.message || e || '').trim();
-      }
+    // Primeira passada sem IO: selfWrite, lock, merge session e o fallback de
+    // self-write são decididos sem ler o disco.
+    let diskRead: DiskReadResult | undefined;
+    let decision = decideExternalChange(buildInput());
+
+    if (decision.action === 'defer_read') {
+      diskRead = await (opts.readDisk ? opts.readDisk() : readDiskContent(filePath));
+      decision = decideExternalChange(buildInput(diskRead));
     }
 
-    if (!diskReadError) {
-      const localContent = getCachedMarkdownForTab(tab);
-      const diskHash = typeof opts?.diskHash === 'number' ? opts.diskHash : hashStringFNV1a32(diskContent);
-      const localHash = hashStringFNV1a32(localContent);
-      const currentHash = hashStringFNV1a32(String(tab.markdown ?? ''));
-      const tabDiskHashKey = String(tab.id);
-      const hasLastDiskHash = Object.prototype.hasOwnProperty.call(diskContentHashByTabRef.current, tabDiskHashKey);
-      const lastDiskHash = hasLastDiskHash ? Number(diskContentHashByTabRef.current[tabDiskHashKey]) : 0;
-      const localMatchesKnownDisk = hasLastDiskHash && lastDiskHash === localHash;
+    const openConflictPrompt = () => {
+      setExternalConflictLocked(tab.id, true);
+      setDocDirty(tab.id, true);
+      if (!isExternalPromptInFlight(tab.id)) {
+        void promptResolveExternalChangeForTab(tab.id, filePath, {
+          diskContent: diskRead?.content ?? '',
+          diskReadError: diskRead?.error ?? '',
+        });
+      }
+    };
 
-      // Sem conflito real: disco e editor já convergiram para o mesmo conteúdo.
-      if (diskHash === localHash) {
-        setDiskBaselineForTab(tab.id, localContent);
-        setDocDirty(tab.id, false);
+    switch (decision.action) {
+      case 'ignore':
+        return false;
+
+      case 'update_baseline': {
+        if (decision.scope === 'adopt_local') {
+          // Disco e editor já convergiram: adota o local como baseline e limpa o dirty.
+          setDiskBaselineForTab(tab.id, getCachedMarkdownForTab(tab));
+          setDocDirty(tab.id, false);
+        }
         void refreshDiskInfoForTab(tab);
         return false;
       }
 
-      // Mudou o metadado, mas o conteúdo continua sendo o baseline conhecido.
-      if (hasLastDiskHash && lastDiskHash === diskHash) {
-        void refreshDiskInfoForTab(tab);
-        return false;
-      }
-
-      // Aba limpa pode acompanhar uma escrita externa/assistida sem intervenção.
-      if (opts?.allowAutoReload && (!tab.isDirty || (opts?.assisted && localMatchesKnownDisk))) {
+      case 'auto_reload': {
+        const diskContent = diskRead?.content ?? '';
+        // Hash do conteúdo visível ANTES de aplicar o reload (o retorno indica
+        // se o conteúdo exibido mudou).
+        const visibleHashBeforeReload = hashStringFNV1a32(String(tab.markdown ?? ''));
         try {
           setDocMarkdown(tab.id, diskContent);
           updateLatestMarkdownForTab(tab.id, diskContent);
           setDiskBaselineForTab(tab.id, diskContent);
           setDocDirty(tab.id, false);
           void refreshDiskInfoForTab(tab);
-          if (opts?.notifyAutoReload && tab.id === currentDocumentId) {
+          if (opts.notifyAutoReload && tab.id === currentDocumentId) {
             addToast(t('editor.toast.externalReloaded'), 'info');
           }
-          return diskHash !== currentHash;
+          return diskRead?.hash !== visibleHashBeforeReload;
         } catch {
           // Se não der pra aplicar automaticamente, cai pro fluxo de decisão explícita.
+          openConflictPrompt();
+          return false;
         }
       }
-    }
 
-    setExternalConflictLocked(tab.id, true);
-    setDocDirty(tab.id, true);
-    if (!isExternalPromptInFlight(tab.id)) {
-      void promptResolveExternalChangeForTab(tab.id, filePath, { diskContent, diskReadError });
+      case 'prompt_conflict':
+        openConflictPrompt();
+        return false;
+
+      default:
+        return false;
     }
-    return false;
   };
 
   const syncAssistedChangeForTab = async (tabId: string) => {
@@ -236,7 +296,8 @@ export function useEditorPersistence({
       flushActiveRichMarkdownNow();
     }
 
-    return syncOrPromptExternalChangeForTab(tab, {
+    return reconcileExternalChangeForTab(tab, {
+      trigger: 'file_changed',
       assisted: true,
       allowAutoReload: true,
       notifyAutoReload: true,
@@ -266,12 +327,12 @@ export function useEditorPersistence({
       if (!tab?.filePath) return;
       if (isExternalConflictLocked(tab.id)) return;
 
-      const lastDisk = diskInfoByTabRef.current[String(tab.id)];
+      const lastDisk = getDiskStateForTab(tab.id).info;
       const currentDisk = await refreshDiskInfoForTab(tab);
       if (!currentDisk) return;
 
       if (lastDisk && !diskInfoEquals(lastDisk, currentDisk)) {
-        await syncOrPromptExternalChangeForTab(tab, { notifyAutoReload: true });
+        await reconcileExternalChangeForTab(tab, { trigger: 'focus_recheck', notifyAutoReload: true });
       }
     };
 
@@ -371,17 +432,7 @@ export function useEditorPersistence({
       );
       if (affected.length === 0) return;
 
-      // Escrita do próprio editor (salvar/autosave): o backend marcou a
-      // gravação de forma determinística, então basta atualizar o baseline de
-      // disco das abas — sem reconciliação, sem prompt, sem reload.
-      if (selfWrite) {
-        for (const tab of affected) {
-          void refreshDiskInfoForTab(tab);
-        }
-        return;
-      }
-
-      if (assisted) {
+      if (!selfWrite && assisted) {
         const activeTab = currentDocumentId ? currentDocs[currentDocumentId] || null : null;
         const activePathKey = activeTab?.filePath ? normalizePathKey(String(activeTab.filePath)) : '';
         if (activeTab?.mode === 'rich' && activePathKey === key) {
@@ -389,29 +440,28 @@ export function useEditorPersistence({
         }
       }
 
-      // Fallback defensivo para eventos SEM origin: cobre eventos duplicados
-      // do SO que cheguem depois do TTL da marcação no backend. Eventos com
-      // origin conhecido nunca caem aqui.
-      if (!assisted && isProbablySelfWrite(changedPath)) {
-        return;
-      }
-      let diskContent = '';
-      let diskReadError = '';
-      try {
-        diskContent = String((await EditorReadFile(changedPath)) || '');
-      } catch (e) {
-        diskReadError = String((e as Error)?.message || e || '').trim();
-      }
-      const diskHash = !diskReadError ? hashStringFNV1a32(diskContent) : undefined;
+      // Fallback defensivo para eventos SEM origin (janela de self-write):
+      // repassado ao reconciliador, que só o considera quando não há origin
+      // conhecido no evento.
+      const probablySelfWrite = !selfWrite && !assisted && isProbablySelfWrite(changedPath);
+
+      // Leitura lazy e compartilhada: o disco é lido no máximo uma vez por
+      // evento, e só quando alguma aba realmente precisa comparar conteúdo.
+      let sharedRead: Promise<DiskReadResult> | null = null;
+      const readDisk = () => {
+        if (!sharedRead) sharedRead = readDiskContent(changedPath);
+        return sharedRead;
+      };
 
       for (const tab of affected) {
-        await syncOrPromptExternalChangeForTab(tab, {
-          diskContent,
-          diskReadError,
-          diskHash,
+        await reconcileExternalChangeForTab(tab, {
+          trigger: 'file_changed',
+          selfWrite,
           assisted,
+          probablySelfWrite,
           allowAutoReload: true,
           notifyAutoReload: true,
+          readDisk,
         });
       }
     });
