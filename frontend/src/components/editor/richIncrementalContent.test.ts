@@ -83,6 +83,25 @@ describe('parseExternalMarkdownToDoc', () => {
       parseExternalMarkdownToDoc({ storage: { markdown: { getMarkdown: () => '' } } }, 'x')
     ).toBeNull();
   });
+
+  it('retorna null (sem lançar) quando o parse lança exceção', () => {
+    const editor = track(createRealEditor('a'));
+    const broken = {
+      schema: editor.schema,
+      storage: {
+        markdown: {
+          parser: {
+            parse: () => {
+              throw new Error('parse quebrado');
+            },
+          },
+        },
+      },
+    } as unknown as IncrementalEditorLike;
+
+    expect(() => parseExternalMarkdownToDoc(broken, 'x')).not.toThrow();
+    expect(parseExternalMarkdownToDoc(broken, 'x')).toBeNull();
+  });
 });
 
 describe('applyExternalMarkdownIncrementally (editor TipTap real)', () => {

@@ -50,26 +50,38 @@ export function parseExternalMarkdownToDoc(
   editor: IncrementalEditorLike,
   markdown: string
 ): DocLike | null {
-  const storage = editor.storage as Record<string, unknown> | undefined;
-  const markdownStorage = storage?.markdown as
-    | { parser?: { parse?: (content: string) => unknown } }
-    | undefined;
-  const parser = markdownStorage?.parser;
-  const schema = editor.schema as Schema | undefined;
-  if (!parser || typeof parser.parse !== 'function' || !schema) return null;
+  try {
+    const storage = editor.storage as Record<string, unknown> | undefined;
+    const markdownStorage = storage?.markdown as
+      | { parser?: { parse?: (content: string) => unknown } }
+      | undefined;
+    const parser = markdownStorage?.parser;
+    const schema = editor.schema as Schema | undefined;
+    if (!parser || typeof parser.parse !== 'function' || !schema) return null;
 
-  const parsedHtml = parser.parse(markdown);
-  if (typeof parsedHtml !== 'string') return null;
+    const parsedHtml = parser.parse(markdown);
+    if (typeof parsedHtml !== 'string') return null;
 
-  const doc = createNodeFromContent(parsedHtml, schema, {
-    slice: false,
-    parseOptions: {},
-  }) as unknown as DocLike | null;
+    const doc = createNodeFromContent(parsedHtml, schema, {
+      slice: false,
+      parseOptions: {},
+    }) as unknown as DocLike | null;
 
-  if (!doc || !doc.content || typeof doc.eq !== 'function' || typeof doc.slice !== 'function') {
+    if (!doc || !doc.content || typeof doc.eq !== 'function' || typeof doc.slice !== 'function') {
+      return null;
+    }
+    if (
+      typeof doc.content.findDiffStart !== 'function' ||
+      typeof doc.content.findDiffEnd !== 'function'
+    ) {
+      return null;
+    }
+    return doc;
+  } catch {
+    // parse/createNodeFromContent podem lançar com conteúdo inválido; o
+    // contrato desta função é retornar null e deixar o caller fazer fallback.
     return null;
   }
-  return doc;
 }
 
 /**
