@@ -133,7 +133,7 @@ export function useEditorFileActions({
       addToast(t('editor.toast.fileOpened'), 'success');
       focusEditorSoon();
     } catch (e: unknown) {
-      logger.error('[EditorPage] openFile error:', e);
+      logger.error('[useEditorFileActions] openFile error:', e);
       addToast(getErrorMessage(e) || t('editor.toast.openFailed'), 'error');
     }
   };
@@ -234,7 +234,7 @@ export function useEditorFileActions({
       }
 
       // Ainda não tem destino: pedir path
-      const suggested = (activeTab.title || 'documento') + '.md';
+      const suggested = (activeTab.title || t('editor.fallback.newDoc')) + '.md';
       const path = String(await EditorSaveFileDialog(suggested) || '').trim();
       if (!path) return;
 
@@ -257,7 +257,7 @@ export function useEditorFileActions({
       addToast(t('editor.toast.fileSaved'), 'success');
       focusEditorSoon();
     } catch (e: unknown) {
-      logger.error('[EditorPage] saveFile error:', e);
+      logger.error('[useEditorFileActions] saveFile error:', e);
       addToast(getErrorMessage(e) || t('editor.toast.saveFailed'), 'error');
     }
   };
@@ -276,7 +276,7 @@ export function useEditorFileActions({
       addToast(t('editor.toast.copySaved'), 'success');
       focusEditorSoon();
     } catch (e: unknown) {
-      logger.error('[EditorPage] saveAs error:', e);
+      logger.error('[useEditorFileActions] saveAs error:', e);
       addToast(getErrorMessage(e) || t('editor.toast.saveAsFailed'), 'error');
     }
   };

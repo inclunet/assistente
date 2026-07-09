@@ -62,7 +62,7 @@ export function useEditorInsert({
 
     const requestedDocumentId = String(r.targetDocumentId || '').trim();
     if (r.target === 'document' && !requestedDocumentId) {
-      logger.error('[EditorPage] applyInsertRequest rejected: document target requires targetDocumentId');
+      logger.error('[useEditorInsert] applyInsertRequest rejected: document target requires targetDocumentId');
       return false;
     }
     const currentEditorState = useEditorStore.getState();

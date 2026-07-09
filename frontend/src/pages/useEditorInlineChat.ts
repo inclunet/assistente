@@ -551,20 +551,20 @@ export function useEditorInlineChat({
             await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
           } catch (e: unknown) {
             stopTrackingAssistedFileChange();
-            logger.error('[EditorPage] inline chat error:', e);
+            logger.error('[useEditorInlineChat] inline chat error:', e);
             useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
             setIsAsking(false);
           }
         },
         onSendError: (e: unknown) => {
           stopTrackingAssistedFileChange();
-          logger.error('[EditorPage] inline chat error:', e);
+          logger.error('[useEditorInlineChat] inline chat error:', e);
           useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
           setIsAsking(false);
         },
       };
     } catch (e: unknown) {
-      logger.error('[EditorPage] inline chat error:', e);
+      logger.error('[useEditorInlineChat] inline chat error:', e);
       useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
       setIsAsking(false);
       return null;
