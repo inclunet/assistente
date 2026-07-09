@@ -55,12 +55,7 @@ import {
   EditorSaveFileDialog,
   EditorWriteFile,
 } from '@wailsjs/go/app/App';
-import {
-  clampNumber,
-  findTextRangeInRichDoc,
-  findTextRangeInRichDocByContext,
-  getChangedRangeAfterTextReplacement,
-} from './editorTextRange';
+import { useInlineChatSelectionRestore } from './useInlineChatSelectionRestore';
 import { useEditorMerge } from './useEditorMerge';
 import { useEditorDocument } from './useEditorDocument';
 import { useEditorPersistence } from './useEditorPersistence';
@@ -86,25 +81,6 @@ interface EditorPageProps {
 type EditorSelectionSnapshot =
   | { mode: 'markdown'; snapshot: MarkdownSelectionSnapshot }
   | { mode: 'rich'; snapshot: RichSelectionSnapshot };
-
-type PendingInlineChatEditorRestore =
-  | {
-      mode: 'markdown';
-      tabId: string;
-      startOffset: number;
-      endOffset: number;
-      sourceMarkdown?: string;
-      expectedMarkdown?: string;
-    }
-  | {
-      mode: 'rich';
-      tabId: string;
-      from: number;
-      to: number;
-      anchorText?: string;
-      anchorTextBefore?: string;
-      anchorTextAfter?: string;
-    };
 
 const EDITOR_SELECTION_CACHE_STALE_AFTER_MS = 120000;
 const EDITOR_APPLY_TOOL_NAMES = new Set(['edit_file', 'text_edit', 'write_file']);
@@ -150,8 +126,6 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
     capturedAt: number;
     selection: EditorSelectionSnapshot;
   } | null>(null);
-  const pendingInlineChatEditorRestoreRef = useRef<PendingInlineChatEditorRestore | null>(null);
-  const pendingInlineChatEditorRestoreDisposeRef = useRef<(() => void) | null>(null);
 
   const [isAsking, setIsAsking] = useState(false);
   const [currentRevealSlideIndex, setCurrentRevealSlideIndex] = useState(0);
@@ -181,8 +155,6 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
 
   useEffect(() => {
     return () => {
-      pendingInlineChatEditorRestoreDisposeRef.current?.();
-      pendingInlineChatEditorRestoreDisposeRef.current = null;
       for (const cleanup of inlineChatToolCloseCleanupsRef.current) {
         cleanup();
       }
@@ -257,203 +229,19 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
   );
   const isRevealToolbarDocument = revealToolbarDeck.detection.kind === 'reveal' && revealToolbarDeck.slides.length > 0;
 
-  const clearPendingInlineChatEditorRestore = () => {
-    pendingInlineChatEditorRestoreDisposeRef.current?.();
-    pendingInlineChatEditorRestoreDisposeRef.current = null;
-    pendingInlineChatEditorRestoreRef.current = null;
-  };
-
-  const restoreMarkdownEditorSelection = (restore: Extract<PendingInlineChatEditorRestore, { mode: 'markdown' }>) => {
-    const editor = editorRef.current;
-    const model = editor?.getModel?.();
-    if (!editor || !model) return false;
-
-    const current = String(model.getValue?.() ?? activeTab?.markdown ?? '');
-    if (restore.expectedMarkdown !== undefined && current !== restore.expectedMarkdown) return false;
-
-    const startOffset = clampNumber(restore.startOffset, 0, current.length);
-    const endOffset = clampNumber(restore.endOffset, startOffset, current.length);
-    const startPos = model.getPositionAt(startOffset);
-    const endPos = model.getPositionAt(endOffset);
-    const range = {
-      startLineNumber: startPos.lineNumber,
-      startColumn: startPos.column,
-      endLineNumber: endPos.lineNumber,
-      endColumn: endPos.column,
-    };
-
-    try {
-      editor.setSelection(range);
-      if (startOffset === endOffset) {
-        editor.setPosition?.(startPos);
-        editor.revealPositionInCenter?.(startPos);
-      } else {
-        editor.revealRangeInCenter?.(range);
-      }
-      editor.focus();
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const restoreRichEditorSelection = (restore: Extract<PendingInlineChatEditorRestore, { mode: 'rich' }>) => {
-    const rich = richEditorRef.current;
-    if (!rich) return false;
-
-    const doc = rich.state?.doc;
-    const docSize = Number(doc?.content?.size ?? restore.to);
-    const contextRange = restore.anchorTextAfter
-      ? findTextRangeInRichDocByContext(doc, restore.anchorTextBefore, restore.anchorTextAfter)
-      : null;
-    const anchorRange = contextRange ?? (restore.anchorText
-      ? findTextRangeInRichDoc(doc, restore.anchorText, restore.anchorTextBefore)
-      : null);
-    const from = clampNumber(anchorRange?.from ?? restore.from, 0, Math.max(0, docSize));
-    const to = clampNumber(anchorRange?.to ?? restore.to, from, Math.max(from, docSize));
-
-    try {
-      rich.chain?.().focus().setTextSelection({ from, to }).run();
-      rich.view?.focus?.();
-      return true;
-    } catch {
-      try {
-        rich.commands?.focus?.();
-        rich.view?.focus?.();
-      } catch {
-        // best-effort
-      }
-      return false;
-    }
-  };
-
-  const queueMarkdownEditorRestore = (params: {
-    tabId: string;
-    startOffset: number;
-    endOffset: number;
-    sourceMarkdown?: string;
-    expectedMarkdown?: string;
-  }) => {
-    pendingInlineChatEditorRestoreDisposeRef.current?.();
-    pendingInlineChatEditorRestoreDisposeRef.current = null;
-    pendingInlineChatEditorRestoreRef.current = {
-      mode: 'markdown',
-      tabId: params.tabId,
-      startOffset: params.startOffset,
-      endOffset: params.endOffset,
-      sourceMarkdown: params.sourceMarkdown,
-      expectedMarkdown: params.expectedMarkdown,
-    };
-  };
-
-  const queueEditorRestoreForInlineSelection = (params: {
-    selection: InlineChatSelection;
-    markdownBefore: string;
-    markdownAfter: string;
-    expectedMarkdown?: string;
-  }) => {
-    const { selection } = params;
-    if (selection.mode === 'markdown') {
-      const range = getChangedRangeAfterTextReplacement({
-        before: params.markdownBefore,
-        after: params.markdownAfter,
-        fallbackStartOffset: selection.startOffset,
-        fallbackEndOffset: selection.endOffset,
-        fallbackSelectedText: selection.selectedText,
-      });
-      queueMarkdownEditorRestore({
-        tabId: selection.tabId,
-        startOffset: range.startOffset,
-        endOffset: range.endOffset,
-        sourceMarkdown: params.markdownBefore,
-        expectedMarkdown: params.expectedMarkdown,
-      });
-      return;
-    }
-
-    const richAnchorSource = String(selection.selectedText || selection.selectedMarkdown || '').trim();
-    clearPendingInlineChatEditorRestore();
-    pendingInlineChatEditorRestoreRef.current = {
-      mode: 'rich',
-      tabId: selection.tabId,
-      from: selection.from,
-      to: selection.from,
-      anchorText: richAnchorSource || selection.selectedText,
-      anchorTextBefore: selection.textBeforeSelection,
-      anchorTextAfter: selection.textAfterSelection,
-    };
-  };
-
-  useEffect(() => {
-    const pending = pendingInlineChatEditorRestoreRef.current;
-    if (!pending || !activeTab) return;
-    if (chatModalOpen) return;
-    if (pending.tabId !== activeTab.id) return;
-    if (pending.mode !== activeTab.mode) {
-      clearPendingInlineChatEditorRestore();
-      return;
-    }
-
-    if (pending.mode === 'markdown') {
-      if (pending.expectedMarkdown !== undefined && activeTab.markdown !== pending.expectedMarkdown) {
-        if (pending.sourceMarkdown !== undefined && activeTab.markdown !== pending.sourceMarkdown) {
-          clearPendingInlineChatEditorRestore();
-        }
-        return;
-      }
-      if (!restoreMarkdownEditorSelection(pending)) return;
-      clearPendingInlineChatEditorRestore();
-      return;
-    }
-
-    if (!restoreRichEditorSelection(pending)) {
-      focusEditorSoon();
-      return;
-    }
-    clearPendingInlineChatEditorRestore();
-  }, [activeTab?.id, activeTab?.mode, activeTab?.markdown, chatModalOpen, editorReadyNonce]);
-
-  useEffect(() => {
-    const pending = pendingInlineChatEditorRestoreRef.current;
-    if (!pending || pending.mode !== 'markdown' || pending.expectedMarkdown === undefined) return;
-    if (!activeTab) return;
-    if (chatModalOpen) return;
-    if (pending.tabId !== activeTab.id) return;
-    if (activeTab.mode !== 'markdown') {
-      clearPendingInlineChatEditorRestore();
-      return;
-    }
-    if (activeTab.markdown !== pending.expectedMarkdown) return;
-    if (restoreMarkdownEditorSelection(pending)) {
-      clearPendingInlineChatEditorRestore();
-      return;
-    }
-
-    const editor = editorRef.current;
-    const onDidChangeModelContent = editor?.onDidChangeModelContent;
-    if (typeof onDidChangeModelContent !== 'function') {
-      focusEditorSoon();
-      return;
-    }
-
-    const disposable = onDidChangeModelContent.call(editor, () => {
-      const latestPending = pendingInlineChatEditorRestoreRef.current;
-      if (!latestPending || latestPending.mode !== 'markdown') return;
-      if (latestPending.tabId !== activeTab.id) return;
-      if (restoreMarkdownEditorSelection(latestPending)) {
-        clearPendingInlineChatEditorRestore();
-      }
-    }) as { dispose?: () => void } | undefined;
-
-    const dispose = () => disposable?.dispose?.();
-    pendingInlineChatEditorRestoreDisposeRef.current = dispose;
-    return () => {
-      if (pendingInlineChatEditorRestoreDisposeRef.current === dispose) {
-        pendingInlineChatEditorRestoreDisposeRef.current = null;
-      }
-      dispose();
-    };
-  }, [activeTab?.id, activeTab?.mode, activeTab?.markdown, chatModalOpen, editorReadyNonce]);
+  const {
+    clearPendingInlineChatEditorRestore,
+    queueMarkdownEditorRestore,
+    queueRichEditorRestore,
+    queueEditorRestoreForInlineSelection,
+  } = useInlineChatSelectionRestore({
+    activeTab,
+    chatModalOpen,
+    editorReadyNonce,
+    editorRef,
+    richEditorRef,
+    focusEditorSoon,
+  });
 
   // Ao entrar no Editor (e ao trocar de aba/modo), foca automaticamente a área de texto.
   // Não rouba foco de modais nem de campos de digitação.
@@ -1353,14 +1141,11 @@ export default function EditorPage({ documentId, workspaceTab, isPanelActive = t
         const isMarkdown = patch?.format === 'markdown';
         const contentToInsert = !isMarkdown ? replacement : markdownToHtml(replacement);
         applyRichTextInsert({ rich: rich as unknown as RichTextEditorLike, from: s.from, to: s.to, contentToInsert });
-        pendingInlineChatEditorRestoreDisposeRef.current?.();
-        pendingInlineChatEditorRestoreDisposeRef.current = null;
-        pendingInlineChatEditorRestoreRef.current = {
-          mode: 'rich',
+        queueRichEditorRestore({
           tabId: s.tabId,
           from: s.from,
           to: s.from,
-        };
+        });
         addToast(t('editor.chatModal.patchApplied'), 'success');
         flushActiveRichMarkdownNow();
       }
