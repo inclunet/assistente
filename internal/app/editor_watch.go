@@ -34,6 +34,12 @@ type editorAssistedWrite struct {
 const editorAssistedWriteTTL = 5 * time.Second
 const editorAssistedWriteCommitWait = 200 * time.Millisecond
 
+// Origens de escrita registradas para o watcher do editor.
+const (
+	editorWriteOriginAssistantTool = "assistant_tool"
+	editorWriteOriginEditorUI      = "editor_ui"
+)
+
 func normalizeWatchPath(p string) (string, error) {
 	s := strings.TrimSpace(p)
 	if s == "" {
@@ -107,7 +113,23 @@ func (a *App) ensureEditorWatchInit() {
 	}
 }
 
+// markEditorAssistedWrite registra uma escrita feita por tool do assistente
+// (edit_file/write_file). Mantida com esta assinatura porque é usada como
+// observer em app_tool_registry.go.
 func (a *App) markEditorAssistedWrite(path string) func(bool) {
+	return a.markEditorWrite(path, editorWriteOriginAssistantTool)
+}
+
+// markEditorSelfWrite registra uma escrita feita pelo próprio editor
+// (salvar/autosave via EditorWriteFile/EditorWriteDraft).
+func (a *App) markEditorSelfWrite(path string) func(bool) {
+	return a.markEditorWrite(path, editorWriteOriginEditorUI)
+}
+
+// markEditorWrite registra uma escrita iniciada pelo app no path informado e
+// retorna uma função de commit: commit(true) grava size+mtime do arquivo
+// recém-escrito na marcação; commit(false) cancela a marcação.
+func (a *App) markEditorWrite(path string, origin string) func(bool) {
 	a.ensureEditorWatchInit()
 	norm, err := normalizeWatchPath(path)
 	if err != nil {
@@ -118,7 +140,7 @@ func (a *App) markEditorAssistedWrite(path string) func(bool) {
 	a.editorAssistedWriteSeq++
 	token := a.editorAssistedWriteSeq
 	a.editorAssistedWriteByPath[norm] = editorAssistedWrite{
-		origin:    "assistant_tool",
+		origin:    origin,
 		expiresAt: time.Now().Add(editorAssistedWriteTTL),
 		token:     token,
 	}
@@ -184,36 +206,34 @@ func (a *App) assistedWriteMatchesCurrentFile(normalizedAbsPath string, write ed
 	return info.Size() == write.size && info.ModTime().Equal(write.modTime)
 }
 
-func (a *App) consumeEditorAssistedWrite(normalizedAbsPath string) (string, bool) {
+// resolveEditorSelfWrite verifica se o evento do watcher para o path
+// corresponde a uma escrita registrada pelo próprio app e retorna o origin.
+//
+// A marcação NÃO é consumida no primeiro match: o Windows costuma emitir
+// múltiplos eventos Write para uma única gravação e o throttle de 200ms não
+// garante coalescência. Enquanto size+mtime do arquivo continuarem batendo com
+// a gravação commitada, todos os eventos dentro do TTL são atribuídos à mesma
+// escrita. Se o estado do arquivo divergir (mudança externa real), a marcação
+// daquela geração é invalidada imediatamente.
+func (a *App) resolveEditorSelfWrite(normalizedAbsPath string) (string, bool) {
 	deadline := time.Now().Add(editorAssistedWriteCommitWait)
 	for {
 		a.ensureEditorWatchInit()
 		a.editorWatchMu.Lock()
-		now := time.Now()
-		a.clearExpiredEditorAssistedWritesLocked(now)
+		a.clearExpiredEditorAssistedWritesLocked(time.Now())
 		write, ok := a.editorAssistedWriteByPath[normalizedAbsPath]
+		a.editorWatchMu.Unlock()
 		if !ok {
-			a.editorWatchMu.Unlock()
 			return "", false
 		}
 		if write.committed {
-			a.editorWatchMu.Unlock()
 			matches := !time.Now().After(write.expiresAt) && a.assistedWriteMatchesCurrentFile(normalizedAbsPath, write)
-			a.editorWatchMu.Lock()
-			current, stillCurrent := a.editorAssistedWriteByPath[normalizedAbsPath]
-			if stillCurrent && current.token == write.token {
-				delete(a.editorAssistedWriteByPath, normalizedAbsPath)
+			if matches {
+				return write.origin, true
 			}
-			a.editorWatchMu.Unlock()
-			if !stillCurrent || current.token != write.token {
-				return "", false
-			}
-			if !matches {
-				return "", false
-			}
-			return write.origin, true
+			a.deleteEditorAssistedWriteIfToken(normalizedAbsPath, write.token)
+			return "", false
 		}
-		a.editorWatchMu.Unlock()
 		if time.Now().After(deadline) {
 			return "", false
 		}
@@ -367,9 +387,14 @@ func (a *App) runEditorDirWatch(dw *editorDirWatch) {
 					"op":   ev.Op.String(),
 					"ts":   time.Now().UnixMilli(),
 				}
-				if origin, ok := a.consumeEditorAssistedWrite(normEv); ok {
+				if origin, ok := a.resolveEditorSelfWrite(normEv); ok {
 					payload["origin"] = origin
-					payload["assisted"] = true
+					switch origin {
+					case editorWriteOriginEditorUI:
+						payload["selfWrite"] = true
+					default:
+						payload["assisted"] = true
+					}
 				}
 				a.emitter.Emit("editor:fileChanged", payload)
 			}

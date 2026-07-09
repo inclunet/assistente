@@ -358,7 +358,9 @@ export function useEditorPersistence({
     const unsub = EventsOn('editor:fileChanged', async (data: EditorFileChangedEvent) => {
       const changedPath = String(data?.path || data?.filePath || '').trim();
       if (!changedPath) return;
-      const assisted = data?.assisted === true || String(data?.origin || '') === 'assistant_tool';
+      const origin = String(data?.origin || '');
+      const assisted = data?.assisted === true || origin === 'assistant_tool';
+      const selfWrite = data?.selfWrite === true || origin === 'editor_ui';
 
       const key = normalizePathKey(changedPath);
       if (!key) return;
@@ -368,6 +370,17 @@ export function useEditorPersistence({
         (tab) => tab.filePath && normalizePathKey(String(tab.filePath)) === key
       );
       if (affected.length === 0) return;
+
+      // Escrita do próprio editor (salvar/autosave): o backend marcou a
+      // gravação de forma determinística, então basta atualizar o baseline de
+      // disco das abas — sem reconciliação, sem prompt, sem reload.
+      if (selfWrite) {
+        for (const tab of affected) {
+          void refreshDiskInfoForTab(tab);
+        }
+        return;
+      }
+
       if (assisted) {
         const activeTab = currentDocumentId ? currentDocs[currentDocumentId] || null : null;
         const activePathKey = activeTab?.filePath ? normalizePathKey(String(activeTab.filePath)) : '';
@@ -376,6 +389,9 @@ export function useEditorPersistence({
         }
       }
 
+      // Fallback defensivo para eventos SEM origin: cobre eventos duplicados
+      // do SO que cheguem depois do TTL da marcação no backend. Eventos com
+      // origin conhecido nunca caem aqui.
       if (!assisted && isProbablySelfWrite(changedPath)) {
         return;
       }

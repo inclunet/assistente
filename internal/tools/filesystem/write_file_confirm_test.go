@@ -14,14 +14,14 @@ import (
 	"assistente/internal/tools/invocationctx"
 )
 
-// fakeQuestionnaireRequester registra as solicitações e devolve uma resposta pré-configurada.
-type fakeQuestionnaireRequester struct {
+// writeConfirmFakeRequester registra as solicitações e devolve uma resposta pré-configurada.
+type writeConfirmFakeRequester struct {
 	calls     []questionnaire.RequestPayload
 	cancelled bool
 	err       error
 }
 
-func (f *fakeQuestionnaireRequester) RequestQuestionnaire(_ context.Context, payload questionnaire.RequestPayload) (questionnaire.Response, error) {
+func (f *writeConfirmFakeRequester) RequestQuestionnaire(_ context.Context, payload questionnaire.RequestPayload) (questionnaire.Response, error) {
 	f.calls = append(f.calls, payload)
 	if f.err != nil {
 		return questionnaire.Response{}, f.err
@@ -29,7 +29,7 @@ func (f *fakeQuestionnaireRequester) RequestQuestionnaire(_ context.Context, pay
 	return questionnaire.Response{Cancelled: f.cancelled}, nil
 }
 
-func editorCtx(activeFilePath string) context.Context {
+func writeConfirmEditorCtx(activeFilePath string) context.Context {
 	return invocationctx.With(context.Background(), invocationctx.InvocationContext{
 		TabType:        "editor",
 		ActiveFilePath: activeFilePath,
@@ -50,10 +50,10 @@ func TestWriteFile_EditorActiveFile_ApprovedWrites(t *testing.T) {
 	filePath := filepath.Join(dir, "doc.md")
 	_ = os.WriteFile(filePath, []byte("conteúdo antigo"), 0644)
 
-	quest := &fakeQuestionnaireRequester{}
+	quest := &writeConfirmFakeRequester{}
 	tool := NewWriteFile(dir, WithWriteFileQuestionnaire(quest))
 
-	result, err := tool.Execute(editorCtx(filePath), writeArgs(t, "doc.md", "conteúdo novo"))
+	result, err := tool.Execute(writeConfirmEditorCtx(filePath), writeArgs(t, "doc.md", "conteúdo novo"))
 	if err != nil {
 		t.Fatalf("Execute retornou erro: %v", err)
 	}
@@ -89,10 +89,10 @@ func TestWriteFile_EditorActiveFile_RejectedDoesNotWrite(t *testing.T) {
 	filePath := filepath.Join(dir, "doc.md")
 	_ = os.WriteFile(filePath, []byte("conteúdo antigo"), 0644)
 
-	quest := &fakeQuestionnaireRequester{cancelled: true}
+	quest := &writeConfirmFakeRequester{cancelled: true}
 	tool := NewWriteFile(dir, WithWriteFileQuestionnaire(quest))
 
-	result, err := tool.Execute(editorCtx(filePath), writeArgs(t, "doc.md", "conteúdo novo"))
+	result, err := tool.Execute(writeConfirmEditorCtx(filePath), writeArgs(t, "doc.md", "conteúdo novo"))
 	if err != nil {
 		t.Fatalf("Execute retornou erro: %v", err)
 	}
@@ -114,10 +114,10 @@ func TestWriteFile_EditorActiveFile_QuestionnaireErrorDoesNotWrite(t *testing.T)
 	filePath := filepath.Join(dir, "doc.md")
 	_ = os.WriteFile(filePath, []byte("conteúdo antigo"), 0644)
 
-	quest := &fakeQuestionnaireRequester{err: fmt.Errorf("timeout")}
+	quest := &writeConfirmFakeRequester{err: fmt.Errorf("timeout")}
 	tool := NewWriteFile(dir, WithWriteFileQuestionnaire(quest))
 
-	result, err := tool.Execute(editorCtx(filePath), writeArgs(t, "doc.md", "conteúdo novo"))
+	result, err := tool.Execute(writeConfirmEditorCtx(filePath), writeArgs(t, "doc.md", "conteúdo novo"))
 	if err != nil {
 		t.Fatalf("Execute retornou erro: %v", err)
 	}
@@ -133,11 +133,11 @@ func TestWriteFile_EditorActiveFile_QuestionnaireErrorDoesNotWrite(t *testing.T)
 
 func TestWriteFile_EditorOtherFile_WritesDirect(t *testing.T) {
 	dir := t.TempDir()
-	quest := &fakeQuestionnaireRequester{}
+	quest := &writeConfirmFakeRequester{}
 	tool := NewWriteFile(dir, WithWriteFileQuestionnaire(quest))
 
 	// Aba de editor, mas o arquivo ativo é outro
-	ctx := editorCtx(filepath.Join(dir, "outro.md"))
+	ctx := writeConfirmEditorCtx(filepath.Join(dir, "outro.md"))
 	result, err := tool.Execute(ctx, writeArgs(t, "novo.md", "conteúdo"))
 	if err != nil {
 		t.Fatalf("Execute retornou erro: %v", err)
@@ -157,7 +157,7 @@ func TestWriteFile_EditorOtherFile_WritesDirect(t *testing.T) {
 
 func TestWriteFile_OutsideEditor_WritesDirect(t *testing.T) {
 	dir := t.TempDir()
-	quest := &fakeQuestionnaireRequester{}
+	quest := &writeConfirmFakeRequester{}
 	tool := NewWriteFile(dir, WithWriteFileQuestionnaire(quest))
 
 	result, err := tool.Execute(context.Background(), writeArgs(t, "livre.txt", "sem confirmação"))
@@ -180,7 +180,7 @@ func TestWriteFile_NoQuestMgr_WritesDirect(t *testing.T) {
 	// Sem WithWriteFileQuestionnaire (contexto CLI/testes/não-UI)
 	tool := NewWriteFile(dir)
 
-	result, err := tool.Execute(editorCtx(filePath), writeArgs(t, "doc.md", "novo"))
+	result, err := tool.Execute(writeConfirmEditorCtx(filePath), writeArgs(t, "doc.md", "novo"))
 	if err != nil {
 		t.Fatalf("Execute retornou erro: %v", err)
 	}
@@ -207,10 +207,10 @@ func TestWriteFile_ConfirmPreviewTruncated(t *testing.T) {
 
 	bigNew := strings.Repeat("x", previewMaxBytes+1024)
 
-	quest := &fakeQuestionnaireRequester{}
+	quest := &writeConfirmFakeRequester{}
 	tool := NewWriteFile(dir, WithWriteFileQuestionnaire(quest))
 
-	result, err := tool.Execute(editorCtx(filePath), writeArgs(t, "grande.txt", bigNew))
+	result, err := tool.Execute(writeConfirmEditorCtx(filePath), writeArgs(t, "grande.txt", bigNew))
 	if err != nil {
 		t.Fatalf("Execute retornou erro: %v", err)
 	}
@@ -247,11 +247,11 @@ func TestWriteFile_EditorActiveFile_CaseInsensitivePathWindows(t *testing.T) {
 	filePath := filepath.Join(dir, "doc.md")
 	_ = os.WriteFile(filePath, []byte("antigo"), 0644)
 
-	quest := &fakeQuestionnaireRequester{}
+	quest := &writeConfirmFakeRequester{}
 	tool := NewWriteFile(dir, WithWriteFileQuestionnaire(quest))
 
 	// ActiveFilePath com capitalização diferente do path resolvido pela tool.
-	ctx := editorCtx(strings.ToUpper(filePath))
+	ctx := writeConfirmEditorCtx(strings.ToUpper(filePath))
 	result, err := tool.Execute(ctx, writeArgs(t, "doc.md", "novo"))
 	if err != nil {
 		t.Fatalf("Execute retornou erro: %v", err)
@@ -310,6 +310,21 @@ func TestReadFilePrefixForPreview_Error(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := readFilePrefixForPreview(filepath.Join(dir, "inexistente.txt")); err == nil {
 		t.Error("leitura de arquivo inexistente deve retornar erro")
+	}
+}
+
+func TestConfirmDescriptionForPath_PlainTextAndSanitized(t *testing.T) {
+	got := confirmDescriptionForPath("doc.md")
+	if strings.Contains(got, "**") {
+		t.Errorf("descrição não pode conter marcadores Markdown (renderizada como texto simples): %q", got)
+	}
+	if !strings.Contains(got, `"doc.md"`) {
+		t.Errorf("descrição deve conter o caminho: %q", got)
+	}
+
+	injected := confirmDescriptionForPath("doc.md\r\nATENÇÃO: linha injetada")
+	if strings.ContainsAny(injected, "\r\n") {
+		t.Errorf("CR/LF do caminho deve ser sanitizado para evitar injeção de linhas no diálogo: %q", injected)
 	}
 }
 

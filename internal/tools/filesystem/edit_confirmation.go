@@ -54,17 +54,41 @@ func sameFilePath(a, b string) bool {
 	return ca == cb
 }
 
+// sanitizeForDialogText remove CR/LF de valores interpolados em textos de diálogo.
+// displayPath vem de input do modelo: quebras de linha permitiriam "injetar"
+// linhas extras no diálogo de confirmação e confundir a revisão.
+func sanitizeForDialogText(s string) string {
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return s
+}
+
+// confirmDescriptionForPath monta a descrição padrão do diálogo de confirmação.
+// Texto simples, sem Markdown: o QuestionnaireDialog renderiza description
+// literalmente, então marcadores como ** apareceriam para o usuário.
+func confirmDescriptionForPath(displayPath string) string {
+	return fmt.Sprintf("Revise a alteração em %q e clique em Aplicar para confirmar.", sanitizeForDialogText(displayPath))
+}
+
 // confirmBeforeAfter exibe um questionário com conteúdo Antes/Depois e aguarda confirmação do usuário.
 // Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou em caso de erro.
 // Sem gerenciador de questionários (contextos não-UI: CLI/testes), aprova direto.
 func confirmBeforeAfter(ctx context.Context, questMgr QuestionnaireRequester, title, displayPath, before, after string) (bool, tools.ToolResult) {
+	return confirmEditWithDiff(ctx, questMgr, title, confirmDescriptionForPath(displayPath), before, after)
+}
+
+// confirmEditWithDiff exibe um questionário Antes/Depois (Aplicar/Rejeitar) e aguarda
+// a confirmação do usuário. Compartilhado por edit_file, write_file e text_edit.
+// Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou em erro.
+// Sem gerenciador de questionários (contextos não-UI: CLI/testes), aprova direto.
+func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, title, description, before, after string) (bool, tools.ToolResult) {
 	if questMgr == nil {
 		return true, tools.ToolResult{}
 	}
 
 	resp, err := questMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
 		Title:       title,
-		Description: fmt.Sprintf("Revise a alteração em **%s** e clique em Aplicar para confirmar.", displayPath),
+		Description: description,
 		Questions: []questionnaire.Question{
 			{ID: "before", Type: "readonly_code", Prompt: "Antes", Content: before},
 			{ID: "after", Type: "readonly_code", Prompt: "Depois", Content: after},
@@ -100,7 +124,7 @@ func readFilePrefixForPreview(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	buf := make([]byte, previewMaxBytes+1)
 	n, err := io.ReadFull(f, buf)

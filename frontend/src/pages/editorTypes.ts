@@ -31,8 +31,12 @@ export interface MergeSession {
 export interface EditorFileChangedEvent {
   path?: string;
   filePath?: string;
+  /** Origem da escrita quando conhecida: 'assistant_tool' | 'editor_ui'. */
   origin?: string;
+  /** True quando a escrita veio de uma tool do assistente (edit_file/write_file). */
   assisted?: boolean;
+  /** True quando a escrita foi do próprio editor (salvar/autosave). */
+  selfWrite?: boolean;
 }
 
 /** Patch de edição extraído da resposta do chat inline. */
