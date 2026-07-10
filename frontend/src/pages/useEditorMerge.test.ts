@@ -124,14 +124,13 @@ describe('useEditorMerge', () => {
     const fresh = result.current.refreshDiskInfoForTab(tabWithPath);
     await fresh;
     resolveStale({ exists: true, isDir: false, size: 1, modTimeMs: 1000 });
-    await stale;
+    const staleResult = await stale;
 
-    expect(result.current.getDiskStateForTab('t1').info).toEqual({
-      exists: true,
-      isDir: false,
-      size: 2,
-      modTimeMs: 2000,
-    });
+    const freshInfo = { exists: true, isDir: false, size: 2, modTimeMs: 2000 };
+    expect(result.current.getDiskStateForTab('t1').info).toEqual(freshInfo);
+    // O refresh descartado também devolve o info mais novo já aplicado, não o
+    // stat antigo que perdeu a corrida.
+    expect(staleResult).toEqual(freshInfo);
   });
 
   it('setDiskInfoForTab invalida refresh em voo iniciado antes', async () => {
@@ -148,9 +147,10 @@ describe('useEditorMerge', () => {
     const fresh = { exists: true, isDir: false, size: 9, modTimeMs: 9000 };
     result.current.setDiskInfoForTab('t1', fresh);
     resolveStale({ exists: true, isDir: false, size: 1, modTimeMs: 1000 });
-    await stale;
+    const staleResult = await stale;
 
     expect(result.current.getDiskStateForTab('t1').info).toEqual(fresh);
+    expect(staleResult).toEqual(fresh);
   });
 
   it('startMergeSessionForTab grava os três drafts e registra a sessão', async () => {

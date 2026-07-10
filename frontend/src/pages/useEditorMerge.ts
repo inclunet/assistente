@@ -166,9 +166,12 @@ export function useEditorMerge() {
     const seq = bumpDiskInfoSeqForTab(tab.id);
     try {
       const di = normalizeDiskInfo(await EditorGetFileInfo(filePath));
-      if (diskInfoSeqByTabRef.current[String(tab.id || '')] === seq) {
-        ensureDiskStateForTab(tab.id).info = di;
+      if (diskInfoSeqByTabRef.current[String(tab.id || '')] !== seq) {
+        // Resultado descartado: devolve o info mais novo já aplicado ao
+        // estado, para o chamador não decidir com um stat que não foi adotado.
+        return getDiskStateForTab(tab.id).info;
       }
+      ensureDiskStateForTab(tab.id).info = di;
       return di;
     } catch {
       return null;
