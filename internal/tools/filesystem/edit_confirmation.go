@@ -80,7 +80,9 @@ func confirmBeforeAfter(ctx context.Context, questMgr QuestionnaireRequester, ti
 // rejectReasonAnswerID é a chave usada no payload e nas answers para o motivo da rejeição.
 const rejectReasonAnswerID = "reject_reason"
 
-// rejectReasonMaxLen limita o tamanho do motivo repassado ao modelo (em runes).
+// rejectReasonMaxLen limita o tamanho do motivo repassado ao modelo, em runes,
+// antes de anexar a elipse de truncamento (o texto final pode ter até
+// rejectReasonMaxLen+1 runes).
 const rejectReasonMaxLen = 2000
 
 // extractRejectReason extrai e normaliza o motivo de rejeição informado pelo usuário.

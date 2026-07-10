@@ -159,4 +159,10 @@
     flex-direction: column-reverse;
     align-items: stretch;
   }
+
+  /* A variante com motivo mantém a ordem visual alinhada à ordem DOM/Tab
+     (Aplicar → motivo → Rejeitar) também em telas pequenas. */
+  .questionnaire-dialog__footer--reject-reason {
+    flex-direction: column;
+  }
 }
