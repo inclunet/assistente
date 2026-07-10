@@ -465,14 +465,17 @@ describe('useEditorPersistence', () => {
       expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
     });
 
-    it('revalidação pré-gravação aborta quando o disco muda entre a leitura e a gravação', async () => {
+    it('revalidação pré-gravação aborta quando o conteúdo do disco muda entre a leitura e a gravação', async () => {
       const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
       const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
       merge.diskStateByTabRef.current['tab-1'].baselineHash = hashStringFNV1a32('conteudo original');
       merge.diskStateByTabRef.current['tab-1'].baselineContent = 'conteudo original';
-      vi.mocked(EditorReadFile).mockResolvedValue('conteudo original' as never);
-      // Stat pré-decisão e re-stat pré-gravação divergem: uma escrita externa
-      // aconteceu na janela aberta pelo defer_read.
+      // Primeira leitura vê o baseline; a re-leitura da revalidação encontra
+      // conteúdo novo gravado por fora durante a janela do defer_read.
+      vi.mocked(EditorReadFile)
+        .mockResolvedValueOnce('conteudo original' as never)
+        .mockResolvedValueOnce('mudanca externa gravada no meio' as never);
+      // Stat pré-decisão e re-stat pré-gravação divergem.
       vi.mocked(EditorGetFileInfo)
         .mockResolvedValueOnce({ exists: true, isDir: false, size: 20, modTimeMs: 2000 } as never)
         .mockResolvedValueOnce({ exists: true, isDir: false, size: 30, modTimeMs: 3000 } as never);
@@ -489,6 +492,35 @@ describe('useEditorPersistence', () => {
       // intactos para o próximo autosave re-comparar por conteúdo.
       expect(merge.setDiskInfoForTab).not.toHaveBeenCalled();
       expect(merge.setDiskBaselineForTab).not.toHaveBeenCalled();
+    });
+
+    it('revalidação com mtime flutuando mas conteúdo igual segue gravando e adota o stat novo', async () => {
+      const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
+      const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
+      merge.diskStateByTabRef.current['tab-1'].baselineHash = hashStringFNV1a32('conteudo original');
+      merge.diskStateByTabRef.current['tab-1'].baselineContent = 'conteudo original';
+      // O re-stat diverge (OneDrive tocou o mtime de novo), mas a re-leitura
+      // confirma que o conteúdo é o mesmo já avaliado: não pode abortar em
+      // loop, a gravação prossegue.
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo original' as never);
+      vi.mocked(EditorGetFileInfo)
+        .mockResolvedValueOnce({ exists: true, isDir: false, size: 20, modTimeMs: 2000 } as never)
+        .mockResolvedValueOnce({ exists: true, isDir: false, size: 20, modTimeMs: 3000 } as never);
+
+      const { result } = renderPersistence(doc, merge);
+
+      await act(async () => {
+        await result.current.persistTabContentNow('tab-1');
+      });
+
+      expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+      expect(EditorWriteFile).toHaveBeenCalledWith('C:/tmp/doc.md', 'minha edicao local');
+      expect(merge.setDiskInfoForTab).toHaveBeenCalledWith('tab-1', {
+        exists: true,
+        isDir: false,
+        size: 20,
+        modTimeMs: 3000,
+      });
     });
 
     it('sem lastDisk conhecido, divergência real ainda é detectada por conteúdo (unknown != no_change)', async () => {

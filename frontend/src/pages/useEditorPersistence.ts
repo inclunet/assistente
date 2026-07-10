@@ -192,15 +192,22 @@ export function useEditorPersistence({
 
         // Revalidação anti-TOCTOU: o await da leitura de conteúdo (defer_read)
         // alargou a janela entre a decisão e a gravação, então um re-stat
-        // rápido confere se o disco ainda é o que a decisão avaliou. Se os
-        // metadados divergirem, uma escrita externa aconteceu nesse meio
-        // tempo: aborta a rodada ANTES de mutar baseline/info (estado antigo
-        // intacto força nova comparação por conteúdo no próximo autosave ou
-        // evento do watcher) e sem gravar por cima.
+        // rápido confere se o disco ainda é o que a decisão avaliou. Como
+        // mtime/size podem flutuar sem mudança de conteúdo (OneDrive/
+        // antivírus/indexador), metadados divergentes ganham uma re-leitura:
+        // conteúdo ainda igual ao já avaliado segue gravando (adotando o stat
+        // novo); conteúdo diferente aborta a rodada ANTES de mutar
+        // baseline/info (estado antigo intacto força nova comparação por
+        // conteúdo no próximo autosave ou evento do watcher) e sem gravar.
+        let adoptedDisk = currentDisk;
         if (diskRead) {
           const recheck = normalizeDiskInfo(await EditorGetFileInfo(filePath));
           if (!diskInfoEquals(recheck, currentDisk)) {
-            return;
+            const reread = normalizeDiskRead(await readDiskContent(filePath));
+            if (reread.error || reread.hash !== diskRead.hash) {
+              return;
+            }
+            adoptedDisk = recheck;
           }
         }
 
@@ -211,9 +218,9 @@ export function useEditorPersistence({
           if (decision.scope === 'adopt_local') {
             setDiskBaselineForTab(tabId, markdown);
           }
-          setDiskInfoForTab(tabId, currentDisk);
+          setDiskInfoForTab(tabId, adoptedDisk);
         } else if (!lastDisk) {
-          setDiskInfoForTab(tabId, currentDisk);
+          setDiskInfoForTab(tabId, adoptedDisk);
         }
       } catch {
         // best-effort

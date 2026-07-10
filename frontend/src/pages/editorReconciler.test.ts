@@ -118,6 +118,12 @@ describe('decideExternalChange', () => {
       );
     });
 
+    it('estado de metadados desconhecido (campo ausente) também pede leitura, não vira no_change', () => {
+      expect(decideExternalChange(makeInput({ trigger: 'pre_save', tabIsDirty: true }))).toEqual({
+        action: 'defer_read',
+      });
+    });
+
     it('só atualiza metadados quando o conteúdo do disco continua sendo o baseline (mtime tocado, ex.: OneDrive)', () => {
       expect(
         decideExternalChange(
