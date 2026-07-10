@@ -257,6 +257,8 @@ Remove-Item -Path $PSCommandPath -Force
 	psCommand := fmt.Sprintf(`Start-Process -FilePath powershell.exe -Verb RunAs -ArgumentList '-ExecutionPolicy','Bypass','-File','%s'`, scriptPath)
 
 	cmd := exec.Command("powershell", "-Command", psCommand)
+	// Se este código for reativado, chamar osutil.HideConsoleWindow(cmd) para
+	// evitar que a janela do PowerShell roube o foco (ver internal/osutil).
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("falha ao solicitar elevação: %w", err)
 	}

@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/allowlist"
 	"assistente/internal/commandpolicy"
+	"assistente/internal/osutil"
 )
 
 const (
@@ -187,6 +188,8 @@ func executeCommand(cmd string) (string, error) {
 	} else {
 		c = exec.CommandContext(ctx, "sh", "-c", cmd)
 	}
+	// Evita que a janela de console do comando roube o foco no Windows.
+	osutil.HideConsoleWindow(c)
 
 	var stdout, stderr bytes.Buffer
 	c.Stdout = &stdout
