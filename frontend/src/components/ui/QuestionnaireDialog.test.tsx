@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QuestionnaireDialog } from './QuestionnaireDialog';
 import { Modal } from './Modal';
+import { axe } from '../../test/a11yAxe';
 
 const announceMock = vi.hoisted(() => vi.fn());
 const restoreDefaultFocusMock = vi.hoisted(() => vi.fn(() => {
@@ -214,6 +215,92 @@ describe('QuestionnaireDialog', () => {
 
     expect(decisionControl).toHaveFocus();
     expect(restoreDefaultFocusMock).not.toHaveBeenCalled();
+  });
+
+  it('renderiza readonly_code como textarea somente leitura com label associado', () => {
+    render(
+      <QuestionnaireDialog
+        isOpen
+        data={{
+          id: 'q-readonly',
+          title: 'Confirmação de edição',
+          questions: [
+            {
+              id: 'before',
+              type: 'readonly_code',
+              prompt: 'Antes',
+              content: 'linha 1\nlinha 2',
+            },
+          ],
+        }}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const code = screen.getByRole('textbox', { name: '1. Antes' });
+    expect(code.tagName).toBe('TEXTAREA');
+    expect(code).toHaveAttribute('readonly');
+    expect(code).not.toBeDisabled();
+    expect(code).toHaveValue('linha 1\nlinha 2');
+  });
+
+  it('não inclui readonly_code nas respostas do submit', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(
+      <QuestionnaireDialog
+        isOpen
+        data={{
+          id: 'q-submit',
+          title: 'Confirmação de edição',
+          questions: [
+            {
+              id: 'before',
+              type: 'readonly_code',
+              prompt: 'Antes',
+              content: 'conteúdo antigo',
+            },
+            {
+              id: 'choice',
+              type: 'single_choice',
+              prompt: 'Ação',
+              required: true,
+              options: ['Aplicar', 'Descartar'],
+              default: 'Aplicar',
+            },
+          ],
+        }}
+        onSubmit={onSubmit}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Enviar' }));
+
+    expect(onSubmit).toHaveBeenCalledWith({ choice: 'Aplicar' });
+  });
+
+  it('readonly_code não tem violações de acessibilidade (axe)', async () => {
+    render(
+      <QuestionnaireDialog
+        isOpen
+        data={{
+          id: 'q-axe',
+          title: 'Confirmação de edição',
+          questions: [
+            {
+              id: 'before',
+              type: 'readonly_code',
+              prompt: 'Antes',
+              content: 'linha 1\nlinha 2',
+            },
+          ],
+        }}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog');
+    expect(await axe(dialog)).toHaveNoViolations();
   });
 
   it('anuncia todos os erros de validação obrigatória', async () => {
