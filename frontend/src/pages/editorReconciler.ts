@@ -131,13 +131,15 @@ export function decideExternalChange(input: ReconcileInput): ReconcileAction {
     return { action: 'prompt_conflict', openPrompt: !input.promptInFlight };
   }
 
-  // Sem conteúdo do disco em mãos: no pré-autosave a decisão é por metadados
-  // (comportamento histórico); nos demais casos, ler o disco e decidir de novo.
+  // Sem conteúdo do disco em mãos: no pré-autosave, metadados comprovadamente
+  // iguais (`diskInfoChanged === false`) liberam o save sem IO (caso comum);
+  // divergentes OU desconhecidos (campo ausente) NÃO bastam para decidir —
+  // OneDrive/antivírus/indexador tocam mtime sem mudar conteúdo — então a
+  // decisão vira defer_read para comparar por hash. Nos demais triggers, ler
+  // o disco e decidir de novo.
   if (typeof input.diskHash !== 'number') {
-    if (input.trigger === 'pre_save') {
-      return input.diskInfoChanged
-        ? { action: 'prompt_conflict', openPrompt: !input.promptInFlight }
-        : { action: 'ignore', reason: 'no_change' };
+    if (input.trigger === 'pre_save' && input.diskInfoChanged === false) {
+      return { action: 'ignore', reason: 'no_change' };
     }
     return { action: 'defer_read' };
   }

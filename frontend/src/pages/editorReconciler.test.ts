@@ -79,10 +79,12 @@ describe('decideExternalChange', () => {
     });
 
     it('não se aplica ao pré-autosave', () => {
+      // Se o fallback valesse no pré-autosave, a decisão seria 'ignore';
+      // em vez disso, metadados divergentes pedem leitura de conteúdo.
       const decision = decideExternalChange(
         makeInput({ trigger: 'pre_save', probablySelfWrite: true, diskInfoChanged: true })
       );
-      expect(decision).toEqual({ action: 'prompt_conflict', openPrompt: true });
+      expect(decision).toEqual({ action: 'defer_read' });
     });
   });
 
@@ -102,24 +104,84 @@ describe('decideExternalChange', () => {
     });
   });
 
-  describe('pré-autosave (decisão por metadados, sem conteúdo)', () => {
-    it('trava e pergunta quando os metadados divergem do último estado conhecido', () => {
-      expect(decideExternalChange(makeInput({ trigger: 'pre_save', diskInfoChanged: true, tabIsDirty: true }))).toEqual(
-        { action: 'prompt_conflict', openPrompt: true }
-      );
-    });
-
-    it('não reabre prompt no pré-autosave se já há um em voo', () => {
-      expect(
-        decideExternalChange(makeInput({ trigger: 'pre_save', diskInfoChanged: true, promptInFlight: true }))
-      ).toEqual({ action: 'prompt_conflict', openPrompt: false });
-    });
-
-    it('segue com o save quando os metadados não mudaram', () => {
+  describe('pré-autosave', () => {
+    it('segue com o save quando os metadados não mudaram (sem IO extra)', () => {
       expect(decideExternalChange(makeInput({ trigger: 'pre_save', diskInfoChanged: false }))).toEqual({
         action: 'ignore',
         reason: 'no_change',
       });
+    });
+
+    it('pede leitura de conteúdo quando os metadados divergem (não acusa conflito só por mtime/size)', () => {
+      expect(decideExternalChange(makeInput({ trigger: 'pre_save', diskInfoChanged: true, tabIsDirty: true }))).toEqual(
+        { action: 'defer_read' }
+      );
+    });
+
+    it('estado de metadados desconhecido (campo ausente) também pede leitura, não vira no_change', () => {
+      expect(decideExternalChange(makeInput({ trigger: 'pre_save', tabIsDirty: true }))).toEqual({
+        action: 'defer_read',
+      });
+    });
+
+    it('só atualiza metadados quando o conteúdo do disco continua sendo o baseline (mtime tocado, ex.: OneDrive)', () => {
+      expect(
+        decideExternalChange(
+          makeInput({
+            trigger: 'pre_save',
+            diskInfoChanged: true,
+            tabIsDirty: true,
+            diskHash: BASELINE,
+            localHash: LOCAL,
+            lastKnownDiskHash: BASELINE,
+          })
+        )
+      ).toEqual({ action: 'update_baseline', scope: 'info_only' });
+    });
+
+    it('adota o local como baseline quando o disco já tem o conteúdo local', () => {
+      expect(
+        decideExternalChange(
+          makeInput({
+            trigger: 'pre_save',
+            diskInfoChanged: true,
+            tabIsDirty: true,
+            diskHash: LOCAL,
+            localHash: LOCAL,
+            lastKnownDiskHash: BASELINE,
+          })
+        )
+      ).toEqual({ action: 'update_baseline', scope: 'adopt_local' });
+    });
+
+    it('trava e pergunta quando o conteúdo do disco realmente divergiu', () => {
+      expect(
+        decideExternalChange(
+          makeInput({
+            trigger: 'pre_save',
+            diskInfoChanged: true,
+            tabIsDirty: true,
+            diskHash: DISK,
+            localHash: LOCAL,
+            lastKnownDiskHash: BASELINE,
+          })
+        )
+      ).toEqual({ action: 'prompt_conflict', openPrompt: true });
+    });
+
+    it('não reabre prompt no pré-autosave se já há um em voo', () => {
+      expect(
+        decideExternalChange(
+          makeInput({
+            trigger: 'pre_save',
+            diskInfoChanged: true,
+            diskHash: DISK,
+            localHash: LOCAL,
+            lastKnownDiskHash: BASELINE,
+            promptInFlight: true,
+          })
+        )
+      ).toEqual({ action: 'prompt_conflict', openPrompt: false });
     });
   });
 

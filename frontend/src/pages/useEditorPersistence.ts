@@ -134,26 +134,100 @@ export function useEditorPersistence({
         const currentDisk = normalizeDiskInfo(await EditorGetFileInfo(filePath));
         const lastDisk = getDiskStateForTab(tabId).info;
 
-        const decision = decideExternalChange({
-          trigger: 'pre_save',
+        const buildInput = (diskRead?: DiskReadResult) => ({
+          trigger: 'pre_save' as const,
           conflictLocked: isExternalConflictLocked(tabId),
           promptInFlight: isExternalPromptInFlight(tabId),
           hasMergeSession: !!getMergeSession(tabId),
           tabIsDirty: !!tab.isDirty,
-          diskInfoChanged: !!lastDisk && !diskInfoEquals(lastDisk, currentDisk),
+          // Sem `lastDisk` ainda (o refresh inicial pode não ter completado),
+          // "desconhecido" não pode virar "sem mudança": se o arquivo existe,
+          // força a comparação por conteúdo ao menos uma vez. Arquivo ainda
+          // inexistente não tem o que sobrescrever — segue gravando direto.
+          diskInfoChanged: lastDisk ? !diskInfoEquals(lastDisk, currentDisk) : currentDisk.exists,
+          ...(diskRead
+            ? {
+                diskReadError: !!diskRead.error,
+                diskHash: diskRead.hash,
+                localHash: hashStringFNV1a32(markdown),
+                lastKnownDiskHash: getDiskStateForTab(tabId).baselineHash,
+              }
+            : {}),
         });
+
+        let diskRead: DiskReadResult | undefined;
+        let decision = decideExternalChange(buildInput());
+
+        // Metadados divergentes sem conteúdo em mãos: OneDrive/antivírus/
+        // indexador tocam o mtime sem mudar conteúdo, então lê o disco e
+        // re-decide por hash antes de acusar conflito.
+        if (decision.action === 'defer_read') {
+          diskRead = normalizeDiskRead(await readDiskContent(filePath));
+          decision = decideExternalChange(buildInput(diskRead));
+        }
+
+        // Um `editor:fileChanged` ou merge pode ter travado a aba durante os
+        // awaits acima: nesse caso a gravação NÃO pode prosseguir (gravaria
+        // por cima de um conflito real pendente). `no_change` é o único
+        // `ignore` benigno aqui, e mesmo ele ainda passa pela re-checagem
+        // direta de lock/merge abaixo antes de seguir para a gravação.
+        if (decision.action === 'ignore' && decision.reason !== 'no_change') {
+          return;
+        }
+        if (isExternalConflictLocked(tabId) || getMergeSession(tabId)) {
+          return;
+        }
 
         if (decision.action === 'prompt_conflict') {
           setExternalConflictLocked(tabId, true);
           setDocDirty(tabId, true);
           addToast(t('editor.toast.fileModified'), 'warning');
           if (decision.openPrompt) {
-            void promptResolveExternalChangeForTab(tabId, filePath);
+            // Só o erro de leitura é repassado: sem `diskContent`, o prompt
+            // relê o disco ao abrir, o que habilita o silent-resolve inicial
+            // (disco convergiu de volta nesse meio tempo) e evita apresentar
+            // conteúdo já stale ao usuário.
+            void promptResolveExternalChangeForTab(
+              tabId,
+              filePath,
+              diskRead?.error ? { diskReadError: diskRead.error } : undefined
+            );
           }
           return;
         }
 
-        if (!lastDisk) setDiskInfoForTab(tabId, currentDisk);
+        // Revalidação anti-TOCTOU: o await da leitura de conteúdo (defer_read)
+        // alargou a janela entre a decisão e a gravação, então um re-stat
+        // rápido confere se o disco ainda é o que a decisão avaliou. Como
+        // mtime/size podem flutuar sem mudança de conteúdo (OneDrive/
+        // antivírus/indexador), metadados divergentes ganham uma re-leitura:
+        // conteúdo ainda igual ao já avaliado segue gravando (adotando o stat
+        // novo); conteúdo diferente aborta a rodada ANTES de mutar
+        // baseline/info (estado antigo intacto força nova comparação por
+        // conteúdo no próximo autosave ou evento do watcher) e sem gravar.
+        let adoptedDisk = currentDisk;
+        if (diskRead) {
+          const recheck = normalizeDiskInfo(await EditorGetFileInfo(filePath));
+          if (!diskInfoEquals(recheck, currentDisk)) {
+            const reread = normalizeDiskRead(await readDiskContent(filePath));
+            if (reread.error || reread.hash !== diskRead.hash) {
+              return;
+            }
+            adoptedDisk = recheck;
+          }
+        }
+
+        if (decision.action === 'update_baseline') {
+          // Casos benignos verificados por conteúdo: só metadado tocado
+          // (info_only) ou disco já igual ao local (adopt_local). Atualiza o
+          // estado conhecido e segue com a gravação normal abaixo.
+          if (decision.scope === 'adopt_local') {
+            setDiskBaselineForTab(tabId, markdown);
+          }
+          setDiskInfoForTab(tabId, adoptedDisk);
+        } else if (!lastDisk) {
+          setDiskInfoForTab(tabId, adoptedDisk);
+        }
       } catch {
         // best-effort
       }

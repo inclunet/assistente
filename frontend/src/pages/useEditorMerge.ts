@@ -56,6 +56,12 @@ export function useEditorMerge() {
   // (antes espalhado em diskInfoByTabRef + diskContentHashByTabRef +
   // diskBaselineContentByTabRef).
   const diskStateByTabRef = useRef<Record<string, TabDiskState>>({});
+  // Sequência por aba que ordena escritas em TabDiskState.info: cada refresh
+  // assíncrono captura a sequência ao iniciar e descarta o resultado se outro
+  // refresh/gravação mais novo aconteceu no meio (um `stat` antigo não pode
+  // sobrescrever um mais novo — mtime não serve de guarda porque pode regredir
+  // legitimamente, ex.: restauração de arquivo).
+  const diskInfoSeqByTabRef = useRef<Record<string, number>>({});
   const externalConflictLockedByTabRef = useRef<Record<string, boolean>>({});
   const lastSelfWriteAtByPathRef = useRef<Record<string, number>>({});
   const mergeSessionByTabRef = useRef<Record<string, MergeSession>>({});
@@ -138,18 +144,43 @@ export function useEditorMerge() {
     return diskStateByTabRef.current[String(tabId || '')] ?? createEmptyTabDiskState();
   };
 
+  /** Invalida refreshes em voo da aba e devolve a nova sequência. */
+  const bumpDiskInfoSeqForTab = (tabId: string): number => {
+    const id = String(tabId || '');
+    const next = (diskInfoSeqByTabRef.current[id] || 0) + 1;
+    diskInfoSeqByTabRef.current[id] = next;
+    return next;
+  };
+
   const setDiskInfoForTab = (tabId: string, info: DiskInfo | null) => {
+    // Escrita direta é a verdade mais recente: invalida refreshes em voo.
+    bumpDiskInfoSeqForTab(tabId);
     ensureDiskStateForTab(tabId).info = info;
   };
 
   const refreshDiskInfoForTab = async (tab: EditorDocument): Promise<DiskInfo | null> => {
     const filePath = tab?.filePath ? String(tab.filePath) : '';
     if (!filePath) return null;
+    // Reivindica um slot na sequência ANTES do IO: se outro refresh/gravação
+    // mais novo acontecer durante o await, este resultado é descartado.
+    const seq = bumpDiskInfoSeqForTab(tab.id);
     try {
       const di = normalizeDiskInfo(await EditorGetFileInfo(filePath));
-      setDiskInfoForTab(tab.id, di);
+      if (diskInfoSeqByTabRef.current[String(tab.id || '')] !== seq) {
+        // Resultado descartado: devolve o info mais novo já aplicado ao
+        // estado, para o chamador não decidir com um stat que não foi adotado.
+        return getDiskStateForTab(tab.id).info;
+      }
+      ensureDiskStateForTab(tab.id).info = di;
       return di;
     } catch {
+      // Falha no stat: se a sequência foi invalidada durante o await, há um
+      // info mais novo válido em memória — devolve-o para o chamador não
+      // abortar à toa. `null` fica reservado para falha real com sequência
+      // intacta (nenhuma verdade mais nova disponível).
+      if (diskInfoSeqByTabRef.current[String(tab.id || '')] !== seq) {
+        return getDiskStateForTab(tab.id).info;
+      }
       return null;
     }
   };
@@ -160,6 +191,9 @@ export function useEditorMerge() {
   };
 
   const setDiskBaselineForTab = (tabId: string, content: string) => {
+    // O baseline muda quando o fluxo de save acabou de gravar: um `stat` lido
+    // antes dessa gravação está desatualizado e não pode vencer a corrida.
+    bumpDiskInfoSeqForTab(tabId);
     const state = ensureDiskStateForTab(tabId);
     state.baselineHash = hashStringFNV1a32(content);
     state.baselineContent = String(content ?? '');
@@ -301,12 +335,36 @@ export function useEditorMerge() {
               t('editor.options.useMine'),
               t('editor.options.saveAs'),
             ],
-            default: t('editor.options.useDisk'),
+            // "Manter minha versão" como padrão: um Enter afobado não pode
+            // descartar a digitação recente do usuário (crítico com leitor de
+            // telas, onde o diálogo abre no meio da digitação).
+            default: t('editor.options.useMine'),
           },
         ],
       });
 
       if (resp.cancelled) {
+        // Re-checa uma vez antes de manter o lock: se disco e local
+        // convergiram enquanto o questionário estava aberto (mesmo
+        // silent-resolve do início da função), desfaz o lock em vez de deixar
+        // o autosave morto.
+        try {
+          const { documents: nowDocs } = useEditorStore.getState();
+          const nowTab = nowDocs[tabId] || tab;
+          const latestLocal = getCachedMarkdownForTab(nowTab);
+          const diskNow = String((await EditorReadFile(filePath)) || '');
+          if (diskNow === latestLocal) {
+            setDiskBaselineForTab(tabId, latestLocal);
+            setDocDirty(tabId, false);
+            void refreshDiskInfoForTab(nowTab);
+            setExternalConflictLocked(tabId, false);
+            return;
+          }
+        } catch {
+          // best-effort: sem leitura, mantém o lock (comportamento seguro)
+        }
+        // Mantém o lock, mas avisa explicitamente (toast + anúncio assertivo
+        // via addToast) que o autosave fica pausado até o usuário decidir.
         addToast(t('editor.toast.externalChange'), 'warning');
         return;
       }
