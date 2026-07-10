@@ -140,7 +140,11 @@ export function useEditorPersistence({
           promptInFlight: isExternalPromptInFlight(tabId),
           hasMergeSession: !!getMergeSession(tabId),
           tabIsDirty: !!tab.isDirty,
-          diskInfoChanged: !!lastDisk && !diskInfoEquals(lastDisk, currentDisk),
+          // Sem `lastDisk` ainda (o refresh inicial pode não ter completado),
+          // "desconhecido" não pode virar "sem mudança": se o arquivo existe,
+          // força a comparação por conteúdo ao menos uma vez. Arquivo ainda
+          // inexistente não tem o que sobrescrever — segue gravando direto.
+          diskInfoChanged: lastDisk ? !diskInfoEquals(lastDisk, currentDisk) : currentDisk.exists,
           ...(diskRead
             ? {
                 diskReadError: !!diskRead.error,

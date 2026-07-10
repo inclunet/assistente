@@ -487,6 +487,47 @@ describe('useEditorPersistence', () => {
       expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
     });
 
+    it('sem lastDisk conhecido, divergência real ainda é detectada por conteúdo (unknown != no_change)', async () => {
+      // Primeiro autosave antes do refresh inicial de info completar: o estado
+      // de disco da aba ainda não tem `info`, mas o arquivo existe no disco.
+      const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
+      const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
+      merge.diskStateByTabRef.current['tab-1'].info = null;
+      merge.diskStateByTabRef.current['tab-1'].baselineHash = hashStringFNV1a32('conteudo original');
+      merge.diskStateByTabRef.current['tab-1'].baselineContent = 'conteudo original';
+      vi.mocked(EditorReadFile).mockResolvedValue('mudanca externa no disco' as never);
+
+      const { result } = renderPersistence(doc, merge);
+
+      await act(async () => {
+        await result.current.persistTabContentNow('tab-1');
+      });
+
+      expect(promptResolveExternalChangeForTab).toHaveBeenCalledWith('tab-1', 'C:/tmp/doc.md', {
+        diskContent: 'mudanca externa no disco',
+        diskReadError: '',
+      });
+      expect(EditorWriteFile).not.toHaveBeenCalled();
+    });
+
+    it('sem lastDisk conhecido e disco igual ao baseline, grava normalmente', async () => {
+      const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
+      const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
+      merge.diskStateByTabRef.current['tab-1'].info = null;
+      merge.diskStateByTabRef.current['tab-1'].baselineHash = hashStringFNV1a32('conteudo original');
+      merge.diskStateByTabRef.current['tab-1'].baselineContent = 'conteudo original';
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo original' as never);
+
+      const { result } = renderPersistence(doc, merge);
+
+      await act(async () => {
+        await result.current.persistTabContentNow('tab-1');
+      });
+
+      expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+      expect(EditorWriteFile).toHaveBeenCalledWith('C:/tmp/doc.md', 'minha edicao local');
+    });
+
     it('metadados iguais gravam sem ler o conteúdo do disco', async () => {
       const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
       const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
