@@ -443,6 +443,50 @@ describe('useEditorPersistence', () => {
       expect(EditorWriteFile).not.toHaveBeenCalled();
     });
 
+    it('lock adquirido durante a leitura do defer_read aborta a gravação', async () => {
+      const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
+      const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
+      merge.diskStateByTabRef.current['tab-1'].baselineHash = hashStringFNV1a32('conteudo original');
+      merge.diskStateByTabRef.current['tab-1'].baselineContent = 'conteudo original';
+      // O conteúdo lido seria benigno (== baseline), mas durante o await um
+      // editor:fileChanged trava a aba por conflito real.
+      vi.mocked(EditorReadFile).mockImplementation(async () => {
+        merge.setExternalConflictLocked('tab-1', true);
+        return 'conteudo original' as never;
+      });
+
+      const { result } = renderPersistence(doc, merge);
+
+      await act(async () => {
+        await result.current.persistTabContentNow('tab-1');
+      });
+
+      expect(EditorWriteFile).not.toHaveBeenCalled();
+      expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+    });
+
+    it('revalidação pré-gravação aborta quando o disco muda entre a leitura e a gravação', async () => {
+      const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
+      const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
+      merge.diskStateByTabRef.current['tab-1'].baselineHash = hashStringFNV1a32('conteudo original');
+      merge.diskStateByTabRef.current['tab-1'].baselineContent = 'conteudo original';
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo original' as never);
+      // Stat pré-decisão e re-stat pré-gravação divergem: uma escrita externa
+      // aconteceu na janela aberta pelo defer_read.
+      vi.mocked(EditorGetFileInfo)
+        .mockResolvedValueOnce({ exists: true, isDir: false, size: 20, modTimeMs: 2000 } as never)
+        .mockResolvedValueOnce({ exists: true, isDir: false, size: 30, modTimeMs: 3000 } as never);
+
+      const { result } = renderPersistence(doc, merge);
+
+      await act(async () => {
+        await result.current.persistTabContentNow('tab-1');
+      });
+
+      expect(EditorWriteFile).not.toHaveBeenCalled();
+      expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+    });
+
     it('metadados iguais gravam sem ler o conteúdo do disco', async () => {
       const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
       const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));

@@ -162,6 +162,16 @@ export function useEditorPersistence({
           decision = decideExternalChange(buildInput(diskRead));
         }
 
+        // Um `editor:fileChanged` ou merge pode ter travado a aba durante os
+        // awaits acima: nesse caso a gravação NÃO pode prosseguir (gravaria
+        // por cima de um conflito real pendente). Só `no_change` segue salvando.
+        if (decision.action === 'ignore' && decision.reason !== 'no_change') {
+          return;
+        }
+        if (isExternalConflictLocked(tabId) || getMergeSession(tabId)) {
+          return;
+        }
+
         if (decision.action === 'prompt_conflict') {
           setExternalConflictLocked(tabId, true);
           setDocDirty(tabId, true);
@@ -186,6 +196,19 @@ export function useEditorPersistence({
           setDiskInfoForTab(tabId, currentDisk);
         } else if (!lastDisk) {
           setDiskInfoForTab(tabId, currentDisk);
+        }
+
+        // Revalidação anti-TOCTOU: o await da leitura de conteúdo (defer_read)
+        // alargou a janela entre a decisão e a gravação, então um re-stat
+        // rápido confere se o disco ainda é o que acabou de ser adotado. Se os
+        // metadados divergirem, uma escrita externa aconteceu nesse meio tempo:
+        // aborta esta rodada sem gravar (o watcher ou o próximo autosave
+        // re-decide com o estado novo, em vez de sobrescrever sem prompt).
+        if (diskRead) {
+          const recheck = normalizeDiskInfo(await EditorGetFileInfo(filePath));
+          if (!diskInfoEquals(recheck, currentDisk)) {
+            return;
+          }
         }
       } catch {
         // best-effort

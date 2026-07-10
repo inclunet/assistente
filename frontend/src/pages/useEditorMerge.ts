@@ -174,6 +174,13 @@ export function useEditorMerge() {
       ensureDiskStateForTab(tab.id).info = di;
       return di;
     } catch {
+      // Falha no stat: se a sequência foi invalidada durante o await, há um
+      // info mais novo válido em memória — devolve-o para o chamador não
+      // abortar à toa. `null` fica reservado para falha real com sequência
+      // intacta (nenhuma verdade mais nova disponível).
+      if (diskInfoSeqByTabRef.current[String(tab.id || '')] !== seq) {
+        return getDiskStateForTab(tab.id).info;
+      }
       return null;
     }
   };

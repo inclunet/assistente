@@ -153,6 +153,33 @@ describe('useEditorMerge', () => {
     expect(staleResult).toEqual(fresh);
   });
 
+  it('refresh com erro devolve o info atual quando a sequência foi invalidada durante o await', async () => {
+    const { result } = setup();
+    const tabWithPath = { ...tab, filePath: '/tmp/doc.md' };
+
+    let rejectStale: (e: unknown) => void = () => {};
+    const staleStat = new Promise((_resolve, reject) => {
+      rejectStale = reject;
+    });
+    vi.mocked(EditorGetFileInfo).mockImplementationOnce(() => staleStat as never);
+
+    const stale = result.current.refreshDiskInfoForTab(tabWithPath);
+    const fresh = { exists: true, isDir: false, size: 9, modTimeMs: 9000 };
+    result.current.setDiskInfoForTab('t1', fresh);
+    rejectStale(new Error('stat falhou'));
+
+    // Há uma verdade mais nova em memória: o chamador não deve abortar à toa.
+    expect(await stale).toEqual(fresh);
+    expect(result.current.getDiskStateForTab('t1').info).toEqual(fresh);
+  });
+
+  it('refresh com erro e sequência intacta continua devolvendo null', async () => {
+    const { result } = setup();
+    vi.mocked(EditorGetFileInfo).mockRejectedValueOnce(new Error('stat falhou'));
+
+    expect(await result.current.refreshDiskInfoForTab({ ...tab, filePath: '/tmp/doc.md' })).toBeNull();
+  });
+
   it('startMergeSessionForTab grava os três drafts e registra a sessão', async () => {
     const { result } = setup();
     await act(async () => {
