@@ -105,6 +105,52 @@ describe('useEditorMerge', () => {
     expect(info).toEqual({ exists: true, isDir: false, size: 42, modTimeMs: 1000 });
   });
 
+  it('refresh atrasado não sobrescreve info mais nova (guarda monotônica)', async () => {
+    const { result } = setup();
+    const tabWithPath = { ...tab, filePath: '/tmp/doc.md' };
+
+    let resolveStale: (v: unknown) => void = () => {};
+    const staleStat = new Promise((r) => {
+      resolveStale = r;
+    });
+    vi.mocked(EditorGetFileInfo)
+      .mockImplementationOnce(() => staleStat as never)
+      .mockResolvedValueOnce({ exists: true, isDir: false, size: 2, modTimeMs: 2000 } as never);
+
+    // O refresh antigo fica pendente enquanto um mais novo completa primeiro.
+    const stale = result.current.refreshDiskInfoForTab(tabWithPath);
+    const fresh = result.current.refreshDiskInfoForTab(tabWithPath);
+    await fresh;
+    resolveStale({ exists: true, isDir: false, size: 1, modTimeMs: 1000 });
+    await stale;
+
+    expect(result.current.getDiskStateForTab('t1').info).toEqual({
+      exists: true,
+      isDir: false,
+      size: 2,
+      modTimeMs: 2000,
+    });
+  });
+
+  it('setDiskInfoForTab invalida refresh em voo iniciado antes', async () => {
+    const { result } = setup();
+    const tabWithPath = { ...tab, filePath: '/tmp/doc.md' };
+
+    let resolveStale: (v: unknown) => void = () => {};
+    const staleStat = new Promise((r) => {
+      resolveStale = r;
+    });
+    vi.mocked(EditorGetFileInfo).mockImplementationOnce(() => staleStat as never);
+
+    const stale = result.current.refreshDiskInfoForTab(tabWithPath);
+    const fresh = { exists: true, isDir: false, size: 9, modTimeMs: 9000 };
+    result.current.setDiskInfoForTab('t1', fresh);
+    resolveStale({ exists: true, isDir: false, size: 1, modTimeMs: 1000 });
+    await stale;
+
+    expect(result.current.getDiskStateForTab('t1').info).toEqual(fresh);
+  });
+
   it('startMergeSessionForTab grava os três drafts e registra a sessão', async () => {
     const { result } = setup();
     await act(async () => {

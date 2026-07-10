@@ -56,6 +56,12 @@ export function useEditorMerge() {
   // (antes espalhado em diskInfoByTabRef + diskContentHashByTabRef +
   // diskBaselineContentByTabRef).
   const diskStateByTabRef = useRef<Record<string, TabDiskState>>({});
+  // Sequência por aba que ordena escritas em TabDiskState.info: cada refresh
+  // assíncrono captura a sequência ao iniciar e descarta o resultado se outro
+  // refresh/gravação mais novo aconteceu no meio (um `stat` antigo não pode
+  // sobrescrever um mais novo — mtime não serve de guarda porque pode regredir
+  // legitimamente, ex.: restauração de arquivo).
+  const diskInfoSeqByTabRef = useRef<Record<string, number>>({});
   const externalConflictLockedByTabRef = useRef<Record<string, boolean>>({});
   const lastSelfWriteAtByPathRef = useRef<Record<string, number>>({});
   const mergeSessionByTabRef = useRef<Record<string, MergeSession>>({});
@@ -138,16 +144,31 @@ export function useEditorMerge() {
     return diskStateByTabRef.current[String(tabId || '')] ?? createEmptyTabDiskState();
   };
 
+  /** Invalida refreshes em voo da aba e devolve a nova sequência. */
+  const bumpDiskInfoSeqForTab = (tabId: string): number => {
+    const id = String(tabId || '');
+    const next = (diskInfoSeqByTabRef.current[id] || 0) + 1;
+    diskInfoSeqByTabRef.current[id] = next;
+    return next;
+  };
+
   const setDiskInfoForTab = (tabId: string, info: DiskInfo | null) => {
+    // Escrita direta é a verdade mais recente: invalida refreshes em voo.
+    bumpDiskInfoSeqForTab(tabId);
     ensureDiskStateForTab(tabId).info = info;
   };
 
   const refreshDiskInfoForTab = async (tab: EditorDocument): Promise<DiskInfo | null> => {
     const filePath = tab?.filePath ? String(tab.filePath) : '';
     if (!filePath) return null;
+    // Reivindica um slot na sequência ANTES do IO: se outro refresh/gravação
+    // mais novo acontecer durante o await, este resultado é descartado.
+    const seq = bumpDiskInfoSeqForTab(tab.id);
     try {
       const di = normalizeDiskInfo(await EditorGetFileInfo(filePath));
-      setDiskInfoForTab(tab.id, di);
+      if (diskInfoSeqByTabRef.current[String(tab.id || '')] === seq) {
+        ensureDiskStateForTab(tab.id).info = di;
+      }
       return di;
     } catch {
       return null;
@@ -160,6 +181,9 @@ export function useEditorMerge() {
   };
 
   const setDiskBaselineForTab = (tabId: string, content: string) => {
+    // O baseline muda quando o fluxo de save acabou de gravar: um `stat` lido
+    // antes dessa gravação está desatualizado e não pode vencer a corrida.
+    bumpDiskInfoSeqForTab(tabId);
     const state = ensureDiskStateForTab(tabId);
     state.baselineHash = hashStringFNV1a32(content);
     state.baselineContent = String(content ?? '');
