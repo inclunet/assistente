@@ -168,7 +168,9 @@ export function useEditorPersistence({
 
         // Um `editor:fileChanged` ou merge pode ter travado a aba durante os
         // awaits acima: nesse caso a gravação NÃO pode prosseguir (gravaria
-        // por cima de um conflito real pendente). Só `no_change` segue salvando.
+        // por cima de um conflito real pendente). `no_change` é o único
+        // `ignore` benigno aqui, e mesmo ele ainda passa pela re-checagem
+        // direta de lock/merge abaixo antes de seguir para a gravação.
         if (decision.action === 'ignore' && decision.reason !== 'no_change') {
           return;
         }
