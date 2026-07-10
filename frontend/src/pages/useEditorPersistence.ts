@@ -183,10 +183,14 @@ export function useEditorPersistence({
           setDocDirty(tabId, true);
           addToast(t('editor.toast.fileModified'), 'warning');
           if (decision.openPrompt) {
+            // Só o erro de leitura é repassado: sem `diskContent`, o prompt
+            // relê o disco ao abrir, o que habilita o silent-resolve inicial
+            // (disco convergiu de volta nesse meio tempo) e evita apresentar
+            // conteúdo já stale ao usuário.
             void promptResolveExternalChangeForTab(
               tabId,
               filePath,
-              diskRead ? { diskContent: diskRead.content, diskReadError: diskRead.error } : undefined
+              diskRead?.error ? { diskReadError: diskRead.error } : undefined
             );
           }
           return;

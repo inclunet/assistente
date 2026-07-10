@@ -436,10 +436,9 @@ describe('useEditorPersistence', () => {
 
       expect(merge.setExternalConflictLocked).toHaveBeenCalledWith('tab-1', true);
       expect(addToast).toHaveBeenCalledWith('editor.toast.fileModified', 'warning');
-      expect(promptResolveExternalChangeForTab).toHaveBeenCalledWith('tab-1', 'C:/tmp/doc.md', {
-        diskContent: 'mudanca externa no disco',
-        diskReadError: '',
-      });
+      // Sem diskContent: o prompt relê o disco ao abrir (silent-resolve se o
+      // arquivo convergiu de volta nesse meio tempo).
+      expect(promptResolveExternalChangeForTab).toHaveBeenCalledWith('tab-1', 'C:/tmp/doc.md', undefined);
       expect(EditorWriteFile).not.toHaveBeenCalled();
     });
 
@@ -539,10 +538,7 @@ describe('useEditorPersistence', () => {
         await result.current.persistTabContentNow('tab-1');
       });
 
-      expect(promptResolveExternalChangeForTab).toHaveBeenCalledWith('tab-1', 'C:/tmp/doc.md', {
-        diskContent: 'mudanca externa no disco',
-        diskReadError: '',
-      });
+      expect(promptResolveExternalChangeForTab).toHaveBeenCalledWith('tab-1', 'C:/tmp/doc.md', undefined);
       expect(EditorWriteFile).not.toHaveBeenCalled();
     });
 
