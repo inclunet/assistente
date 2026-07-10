@@ -160,9 +160,11 @@ export function Modal({
 
     if (!isTopMost()) return;
     const focusableElements = getFocusableElements();
-    // Procura primeiro um input/textarea/select, senão usa o primeiro focável
+    // Procura primeiro um input/textarea/select editável (ignora readonly,
+    // usados para exibição de conteúdo), senão usa o primeiro focável
     const firstInput = focusableElements.find(el =>
-      el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
+      (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') &&
+      !(el as HTMLInputElement | HTMLTextAreaElement).readOnly
     );
     const firstFocusable = firstInput || focusableElements[0] || modalRef.current;
 

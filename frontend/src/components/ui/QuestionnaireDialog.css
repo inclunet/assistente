@@ -54,16 +54,18 @@
 }
 
 .questionnaire-dialog__readonly {
+  display: block;
   width: 100%;
   padding: 10px 12px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-default);
   background: var(--bg-muted);
   color: var(--text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-  white-space: pre;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
   overflow: auto;
   max-height: 40vh;
+  resize: vertical;
 }
 
 .questionnaire-dialog__readonly:focus {
