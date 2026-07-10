@@ -48,6 +48,15 @@ export interface QuestionnaireDialogProps {
   onCancel?: () => void;
 }
 
+const READONLY_CODE_MIN_ROWS = 3;
+const READONLY_CODE_MAX_ROWS = 14;
+
+// split com limite evita materializar todas as linhas de conteúdos grandes
+// (diffs/arquivos inteiros) só para dimensionar o textarea.
+function readonlyCodeRows(content: string): number {
+  return Math.max(READONLY_CODE_MIN_ROWS, content.split('\n', READONLY_CODE_MAX_ROWS).length);
+}
+
 function isEmptyValue(value: unknown, type: QuestionnaireQuestionType): boolean {
   if (type === 'multiple_choice') {
     return !Array.isArray(value) || value.length === 0;
@@ -229,7 +238,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
                 value={q.content ?? ''}
                 readOnly
                 wrap="off"
-                rows={Math.min(14, Math.max(3, (q.content ?? '').split('\n').length))}
+                rows={readonlyCodeRows(q.content ?? '')}
               />
             )}
 
