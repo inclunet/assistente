@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { axe } from '../../test/a11yAxe';
 import { QuestionnaireDialog } from './QuestionnaireDialog';
 import { Modal } from './Modal';
 
@@ -239,5 +240,115 @@ describe('QuestionnaireDialog', () => {
       'Nome: Resposta obrigatória. Email: Resposta obrigatória',
       'assertive'
     );
+  });
+
+  describe('motivo da rejeição (rejectReason)', () => {
+    const editConfirmData = {
+      id: 'q-edit',
+      title: 'Aplicar alteração?',
+      description: 'Revise a alteração em "doc.md" e clique em Aplicar para confirmar.',
+      submitLabel: 'Aplicar',
+      cancelLabel: 'Rejeitar',
+      allowCancel: true,
+      rejectReason: {
+        id: 'reject_reason',
+        label: 'Motivo da rejeição (opcional)',
+        placeholder: 'Explique o que deveria ser diferente',
+      },
+      questions: [
+        { id: 'before', type: 'readonly_code' as const, prompt: 'Antes', content: 'texto antigo' },
+        { id: 'after', type: 'readonly_code' as const, prompt: 'Depois', content: 'texto novo' },
+      ],
+    };
+
+    it('ordem DOM do rodapé é Aplicar → motivo → Rejeitar', () => {
+      render(
+        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={vi.fn()} />
+      );
+
+      const submit = screen.getByRole('button', { name: 'Aplicar' });
+      const reason = screen.getByLabelText('Motivo da rejeição (opcional)');
+      const cancel = screen.getByRole('button', { name: 'Rejeitar' });
+
+      // DOM order = ordem de tabulação (nenhum elemento usa tabindex positivo)
+      expect(submit.compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(reason.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(submit).not.toHaveAttribute('tabindex');
+      expect(reason).not.toHaveAttribute('tabindex');
+      expect(cancel).not.toHaveAttribute('tabindex');
+    });
+
+    it('rejeitar envia o motivo digitado nas answers', async () => {
+      const user = userEvent.setup();
+      const onCancel = vi.fn();
+      render(
+        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={onCancel} />
+      );
+
+      await user.type(
+        screen.getByLabelText('Motivo da rejeição (opcional)'),
+        'Prefiro manter o texto original'
+      );
+      await user.click(screen.getByRole('button', { name: 'Rejeitar' }));
+
+      expect(onCancel).toHaveBeenCalledWith({ reject_reason: 'Prefiro manter o texto original' });
+    });
+
+    it('rejeitar sem motivo mantém o cancel sem answers', async () => {
+      const user = userEvent.setup();
+      const onCancel = vi.fn();
+      render(
+        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={onCancel} />
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Rejeitar' }));
+
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(onCancel).toHaveBeenCalledWith();
+    });
+
+    it('motivo só com espaços é descartado', async () => {
+      const user = userEvent.setup();
+      const onCancel = vi.fn();
+      render(
+        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={onCancel} />
+      );
+
+      await user.type(screen.getByLabelText('Motivo da rejeição (opcional)'), '   ');
+      await user.click(screen.getByRole('button', { name: 'Rejeitar' }));
+
+      expect(onCancel).toHaveBeenCalledWith();
+    });
+
+    it('sem rejectReason o rodapé mantém a ordem Rejeitar → Enviar e não exibe o campo', () => {
+      render(
+        <QuestionnaireDialog
+          isOpen
+          data={{
+            id: 'q-plain',
+            title: 'Questionário',
+            questions: [{ id: 'nome', type: 'text', prompt: 'Nome' }],
+            allowCancel: true,
+          }}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByLabelText('Motivo da rejeição (opcional)')).not.toBeInTheDocument();
+
+      const cancel = screen.getByRole('button', { name: 'Cancelar' });
+      const submit = screen.getByRole('button', { name: 'Enviar' });
+      expect(cancel.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('diálogo com rejectReason não tem violações de acessibilidade', async () => {
+      render(
+        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={vi.fn()} />
+      );
+
+      const dialog = screen.getByRole('dialog');
+      expect(await axe(dialog)).toHaveNoViolations();
+    });
   });
 });

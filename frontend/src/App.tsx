@@ -333,10 +333,10 @@ function App() {
         restoreFocus();
     };
 
-    const handleQuestionnaireCancel = async () => {
+    const handleQuestionnaireCancel = async (answers?: Record<string, unknown>) => {
         if (questionnaireOpen && questionnaireData) {
             try {
-                await RespondQuestionnaire(questionnaireData.id, {}, true);
+                await RespondQuestionnaire(questionnaireData.id, answers ?? {}, true);
                 setQuestionnaireOpen(false);
                 setQuestionnaireData(null);
                 restoreFocus();
@@ -348,7 +348,7 @@ function App() {
         }
 
         // Questionário disparado pela UI
-        uiCancel();
+        uiCancel(answers);
         restoreFocus();
     };
 
