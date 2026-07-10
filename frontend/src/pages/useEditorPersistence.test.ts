@@ -485,6 +485,10 @@ describe('useEditorPersistence', () => {
 
       expect(EditorWriteFile).not.toHaveBeenCalled();
       expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+      // O abort acontece ANTES de mutar o estado: baseline/info antigos ficam
+      // intactos para o próximo autosave re-comparar por conteúdo.
+      expect(merge.setDiskInfoForTab).not.toHaveBeenCalled();
+      expect(merge.setDiskBaselineForTab).not.toHaveBeenCalled();
     });
 
     it('sem lastDisk conhecido, divergência real ainda é detectada por conteúdo (unknown != no_change)', async () => {
