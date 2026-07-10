@@ -17,6 +17,7 @@ import (
 	"assistente/internal/configdir"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/osutil"
 	"assistente/internal/portability"
 	"assistente/internal/toolcatalog"
 	"assistente/internal/tools"
@@ -1077,6 +1078,9 @@ func (m *Manager) createTransport(slug string, cfg ServerConfig) (mcpsdk.Transpo
 		}
 
 		cmd := exec.CommandContext(m.ctx, cfg.Command, cfg.Args...)
+		// Sem isso, no Windows cada servidor MCP stdio (incluindo reconexões do
+		// health check) abre uma janela de console que rouba o foco do app.
+		osutil.HideConsoleWindow(cmd)
 
 		if len(cfg.Env) > 0 {
 			cmd.Env = buildEnv(cfg.Env)
