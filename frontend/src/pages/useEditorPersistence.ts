@@ -134,26 +134,59 @@ export function useEditorPersistence({
         const currentDisk = normalizeDiskInfo(await EditorGetFileInfo(filePath));
         const lastDisk = getDiskStateForTab(tabId).info;
 
-        const decision = decideExternalChange({
-          trigger: 'pre_save',
+        const buildInput = (diskRead?: DiskReadResult) => ({
+          trigger: 'pre_save' as const,
           conflictLocked: isExternalConflictLocked(tabId),
           promptInFlight: isExternalPromptInFlight(tabId),
           hasMergeSession: !!getMergeSession(tabId),
           tabIsDirty: !!tab.isDirty,
           diskInfoChanged: !!lastDisk && !diskInfoEquals(lastDisk, currentDisk),
+          ...(diskRead
+            ? {
+                diskReadError: !!diskRead.error,
+                diskHash: diskRead.hash,
+                localHash: hashStringFNV1a32(markdown),
+                lastKnownDiskHash: getDiskStateForTab(tabId).baselineHash,
+              }
+            : {}),
         });
+
+        let diskRead: DiskReadResult | undefined;
+        let decision = decideExternalChange(buildInput());
+
+        // Metadados divergentes sem conteúdo em mãos: OneDrive/antivírus/
+        // indexador tocam o mtime sem mudar conteúdo, então lê o disco e
+        // re-decide por hash antes de acusar conflito.
+        if (decision.action === 'defer_read') {
+          diskRead = normalizeDiskRead(await readDiskContent(filePath));
+          decision = decideExternalChange(buildInput(diskRead));
+        }
 
         if (decision.action === 'prompt_conflict') {
           setExternalConflictLocked(tabId, true);
           setDocDirty(tabId, true);
           addToast(t('editor.toast.fileModified'), 'warning');
           if (decision.openPrompt) {
-            void promptResolveExternalChangeForTab(tabId, filePath);
+            void promptResolveExternalChangeForTab(
+              tabId,
+              filePath,
+              diskRead ? { diskContent: diskRead.content, diskReadError: diskRead.error } : undefined
+            );
           }
           return;
         }
 
-        if (!lastDisk) setDiskInfoForTab(tabId, currentDisk);
+        if (decision.action === 'update_baseline') {
+          // Casos benignos verificados por conteúdo: só metadado tocado
+          // (info_only) ou disco já igual ao local (adopt_local). Atualiza o
+          // estado conhecido e segue com a gravação normal abaixo.
+          if (decision.scope === 'adopt_local') {
+            setDiskBaselineForTab(tabId, markdown);
+          }
+          setDiskInfoForTab(tabId, currentDisk);
+        } else if (!lastDisk) {
+          setDiskInfoForTab(tabId, currentDisk);
+        }
       } catch {
         // best-effort
       }

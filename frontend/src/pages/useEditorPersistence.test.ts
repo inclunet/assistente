@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { hashStringFNV1a32, type DiskInfo } from '../lib/editorMergeUtils';
 import { useEditorStore, type EditorDocument } from '../store/editorStore';
-import { EditorGetFileInfo, EditorReadFile, EditorWatchFile } from '@wailsjs/go/app/App';
+import { EditorGetFileInfo, EditorReadFile, EditorWatchFile, EditorWriteFile } from '@wailsjs/go/app/App';
 import type { EditorFileChangedEvent } from './editorTypes';
 import type { TabDiskState } from './editorReconciler';
 import { useEditorPersistence } from './useEditorPersistence';
@@ -377,6 +377,92 @@ describe('useEditorPersistence', () => {
     expect(promptResolveExternalChangeForTab).toHaveBeenCalledWith('tab-1', 'C:/tmp/doc.md', {
       diskContent: 'mudanca externa no disco',
       diskReadError: '',
+    });
+  });
+
+  describe('pré-autosave (persistTabContentNow)', () => {
+    it('mtime tocado sem mudança de conteúdo não abre prompt nem trava autosave, e grava normalmente', async () => {
+      // Digitação local em andamento: local diverge do baseline, mas o disco
+      // ainda tem o baseline — só o mtime/size foi tocado (ex.: OneDrive).
+      const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
+      const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
+      merge.diskStateByTabRef.current['tab-1'].baselineHash = hashStringFNV1a32('conteudo original');
+      merge.diskStateByTabRef.current['tab-1'].baselineContent = 'conteudo original';
+      // beforeEach: EditorGetFileInfo devolve size 20/mtime 2000 → metadados divergem.
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo original' as never);
+
+      const { result } = renderPersistence(doc, merge);
+
+      await act(async () => {
+        await result.current.persistTabContentNow('tab-1');
+      });
+
+      expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+      expect(merge.setExternalConflictLocked).not.toHaveBeenCalledWith('tab-1', true);
+      expect(addToast).not.toHaveBeenCalled();
+      expect(EditorWriteFile).toHaveBeenCalledWith('C:/tmp/doc.md', 'minha edicao local');
+    });
+
+    it('disco já igual ao local: grava sem prompt e adota o local como baseline', async () => {
+      const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
+      const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
+      merge.diskStateByTabRef.current['tab-1'].baselineHash = hashStringFNV1a32('conteudo original');
+      merge.diskStateByTabRef.current['tab-1'].baselineContent = 'conteudo original';
+      vi.mocked(EditorReadFile).mockResolvedValue('minha edicao local' as never);
+
+      const { result } = renderPersistence(doc, merge);
+
+      await act(async () => {
+        await result.current.persistTabContentNow('tab-1');
+      });
+
+      expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+      expect(merge.setDiskBaselineForTab).toHaveBeenCalledWith('tab-1', 'minha edicao local');
+      expect(EditorWriteFile).toHaveBeenCalledWith('C:/tmp/doc.md', 'minha edicao local');
+    });
+
+    it('divergência real de conteúdo abre prompt, trava e não grava', async () => {
+      const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
+      const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
+      merge.diskStateByTabRef.current['tab-1'].baselineHash = hashStringFNV1a32('conteudo original');
+      merge.diskStateByTabRef.current['tab-1'].baselineContent = 'conteudo original';
+      vi.mocked(EditorReadFile).mockResolvedValue('mudanca externa no disco' as never);
+
+      const { result } = renderPersistence(doc, merge);
+
+      await act(async () => {
+        await result.current.persistTabContentNow('tab-1');
+      });
+
+      expect(merge.setExternalConflictLocked).toHaveBeenCalledWith('tab-1', true);
+      expect(addToast).toHaveBeenCalledWith('editor.toast.fileModified', 'warning');
+      expect(promptResolveExternalChangeForTab).toHaveBeenCalledWith('tab-1', 'C:/tmp/doc.md', {
+        diskContent: 'mudanca externa no disco',
+        diskReadError: '',
+      });
+      expect(EditorWriteFile).not.toHaveBeenCalled();
+    });
+
+    it('metadados iguais gravam sem ler o conteúdo do disco', async () => {
+      const doc = makeDoc({ markdown: 'minha edicao local', isDirty: true });
+      const merge = makeMerge('minha edicao local', makeDiskInfo(5, 1000));
+      // Metadados idênticos ao último estado conhecido → nenhuma leitura extra.
+      vi.mocked(EditorGetFileInfo).mockResolvedValue({
+        exists: true,
+        isDir: false,
+        size: 5,
+        modTimeMs: 1000,
+      } as never);
+
+      const { result } = renderPersistence(doc, merge);
+
+      await act(async () => {
+        await result.current.persistTabContentNow('tab-1');
+      });
+
+      expect(EditorReadFile).not.toHaveBeenCalled();
+      expect(promptResolveExternalChangeForTab).not.toHaveBeenCalled();
+      expect(EditorWriteFile).toHaveBeenCalledWith('C:/tmp/doc.md', 'minha edicao local');
     });
   });
 
