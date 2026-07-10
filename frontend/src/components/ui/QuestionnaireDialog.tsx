@@ -160,7 +160,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
       >
         {questions.map((q, index) => {
           const labelId = `question-label-${q.id}`;
-          const controlId = (q.type === 'text' || q.type === 'password' || q.type === 'long_text' || q.type === 'number' || q.type === 'scale' || q.type === 'date')
+          const controlId = (q.type === 'text' || q.type === 'password' || q.type === 'long_text' || q.type === 'number' || q.type === 'scale' || q.type === 'date' || q.type === 'readonly_code')
             ? `question-${q.id}`
             : undefined;
           const answer = answers[q.id];
@@ -220,15 +220,17 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
             )}
 
             {q.type === 'readonly_code' && (
-              <pre
+              // textarea readOnly (nunca disabled): mantém o caret do sistema,
+              // permitindo que leitores de tela leiam linha a linha em modo de
+              // foco mesmo dentro do role="application" do Modal.
+              <textarea
                 id={`question-${q.id}`}
                 className="questionnaire-dialog__readonly"
-                tabIndex={0}
-                role="region"
-                aria-labelledby={labelId}
-              >
-                {q.content ?? ''}
-              </pre>
+                value={q.content ?? ''}
+                readOnly
+                wrap="off"
+                rows={Math.min(14, Math.max(3, (q.content ?? '').split('\n').length))}
+              />
             )}
 
             {q.type === 'number' && (
