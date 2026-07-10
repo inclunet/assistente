@@ -30,18 +30,28 @@ type Question struct {
 	Default     any      `json:"default,omitempty"`
 }
 
+// RejectReasonConfig descreve um campo opcional de texto livre exibido junto
+// ao botão de cancelar, permitindo ao usuário justificar a rejeição. A resposta
+// volta em Response.Answers sob a chave ID mesmo quando Cancelled=true.
+type RejectReasonConfig struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Placeholder string `json:"placeholder,omitempty"`
+}
+
 // RequestPayload representa uma solicitação de questionário pendente.
 type RequestPayload struct {
-	ID          string        `json:"id"`
-	Title       string        `json:"title,omitempty"`
-	Description string        `json:"description,omitempty"`
-	Questions   []Question    `json:"questions"`
-	AllowCancel bool          `json:"allowCancel,omitempty"`
-	SubmitLabel string        `json:"submitLabel,omitempty"`
-	CancelLabel string        `json:"cancelLabel,omitempty"`
-	Timeout     time.Duration `json:"-"` // 0 = DefaultTimeout
-	CreatedAt   string        `json:"createdAt"`
-	response    chan Response
+	ID           string              `json:"id"`
+	Title        string              `json:"title,omitempty"`
+	Description  string              `json:"description,omitempty"`
+	Questions    []Question          `json:"questions"`
+	AllowCancel  bool                `json:"allowCancel,omitempty"`
+	SubmitLabel  string              `json:"submitLabel,omitempty"`
+	CancelLabel  string              `json:"cancelLabel,omitempty"`
+	RejectReason *RejectReasonConfig `json:"rejectReason,omitempty"`
+	Timeout      time.Duration       `json:"-"` // 0 = DefaultTimeout
+	CreatedAt    string              `json:"createdAt"`
+	response     chan Response
 }
 
 // Response representa a resposta do usuário.
@@ -74,15 +84,16 @@ func NewManager(emitEvent func(event string, data any)) *Manager {
 // Bloqueia até resposta, cancelamento ou timeout.
 func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPayload) (Response, error) {
 	req := &RequestPayload{
-		ID:          uuid.New().String()[:8],
-		Title:       payload.Title,
-		Description: payload.Description,
-		Questions:   payload.Questions,
-		AllowCancel: payload.AllowCancel,
-		SubmitLabel: payload.SubmitLabel,
-		CancelLabel: payload.CancelLabel,
-		CreatedAt:   time.Now().Format(time.RFC3339),
-		response:    make(chan Response, 1),
+		ID:           uuid.New().String()[:8],
+		Title:        payload.Title,
+		Description:  payload.Description,
+		Questions:    payload.Questions,
+		AllowCancel:  payload.AllowCancel,
+		SubmitLabel:  payload.SubmitLabel,
+		CancelLabel:  payload.CancelLabel,
+		RejectReason: payload.RejectReason,
+		CreatedAt:    time.Now().Format(time.RFC3339),
+		response:     make(chan Response, 1),
 	}
 
 	m.mu.Lock()
@@ -95,7 +106,7 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		m.mu.Unlock()
 	}()
 
-	m.emitEvent("tool:questionnaire", map[string]any{
+	eventData := map[string]any{
 		"id":          req.ID,
 		"title":       req.Title,
 		"description": req.Description,
@@ -104,7 +115,11 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		"submitLabel": req.SubmitLabel,
 		"cancelLabel": req.CancelLabel,
 		"createdAt":   req.CreatedAt,
-	})
+	}
+	if req.RejectReason != nil {
+		eventData["rejectReason"] = req.RejectReason
+	}
+	m.emitEvent("tool:questionnaire", eventData)
 
 	timeout := payload.Timeout
 	if timeout <= 0 {
