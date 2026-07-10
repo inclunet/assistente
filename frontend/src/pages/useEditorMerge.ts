@@ -325,12 +325,36 @@ export function useEditorMerge() {
               t('editor.options.useMine'),
               t('editor.options.saveAs'),
             ],
-            default: t('editor.options.useDisk'),
+            // "Manter minha versão" como padrão: um Enter afobado não pode
+            // descartar a digitação recente do usuário (crítico com leitor de
+            // telas, onde o diálogo abre no meio da digitação).
+            default: t('editor.options.useMine'),
           },
         ],
       });
 
       if (resp.cancelled) {
+        // Re-checa uma vez antes de manter o lock: se disco e local
+        // convergiram enquanto o questionário estava aberto (mesmo
+        // silent-resolve do início da função), desfaz o lock em vez de deixar
+        // o autosave morto.
+        try {
+          const { documents: nowDocs } = useEditorStore.getState();
+          const nowTab = nowDocs[tabId] || tab;
+          const latestLocal = getCachedMarkdownForTab(nowTab);
+          const diskNow = String((await EditorReadFile(filePath)) || '');
+          if (diskNow === latestLocal) {
+            setDiskBaselineForTab(tabId, latestLocal);
+            setDocDirty(tabId, false);
+            void refreshDiskInfoForTab(nowTab);
+            setExternalConflictLocked(tabId, false);
+            return;
+          }
+        } catch {
+          // best-effort: sem leitura, mantém o lock (comportamento seguro)
+        }
+        // Mantém o lock, mas avisa explicitamente (toast + anúncio assertivo
+        // via addToast) que o autosave fica pausado até o usuário decidir.
         addToast(t('editor.toast.externalChange'), 'warning');
         return;
       }

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { EditorGetFileInfo, EditorWriteDraft } from '@wailsjs/go/app/App';
+import { EditorGetFileInfo, EditorReadFile, EditorWriteDraft } from '@wailsjs/go/app/App';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -11,8 +11,10 @@ vi.mock('../store/uiStore', () => ({
   useUIStore: (selector: (s: { addToast: typeof addToast }) => unknown) => selector({ addToast }),
 }));
 
+const requestQuestionnaire = vi.fn();
 vi.mock('../store/questionnaireUIStore', () => ({
-  useQuestionnaireUIStore: (selector: (s: { request: () => void }) => unknown) => selector({ request: vi.fn() }),
+  useQuestionnaireUIStore: (selector: (s: { request: typeof requestQuestionnaire }) => unknown) =>
+    selector({ request: requestQuestionnaire }),
 }));
 
 const editorStoreState = {
@@ -182,6 +184,72 @@ describe('useEditorMerge', () => {
       result.current.setExternalConflictLocked('t1', false);
     });
     expect(result.current.mergeStateRevision).not.toBe(afterLock);
+  });
+
+  describe('promptResolveExternalChangeForTab', () => {
+    const docWithPath = { id: 't1', title: 'Doc', markdown: 'local', mode: 'markdown', filePath: '/tmp/doc.md' };
+
+    beforeEach(() => {
+      editorStoreState.documents = { t1: docWithPath };
+      vi.mocked(EditorGetFileInfo).mockResolvedValue({
+        exists: true,
+        isDir: false,
+        size: 10,
+        modTimeMs: 1000,
+      } as never);
+    });
+
+    it('usa "Manter minha versão" como opção padrão do questionário', async () => {
+      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
+
+      const { result } = setup();
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo externo',
+        });
+      });
+
+      const questions = requestQuestionnaire.mock.calls[0][0].questions as Array<{ id: string; default?: string }>;
+      const choice = questions.find((q) => q.id === 'choice');
+      expect(choice?.default).toBe('editor.options.useMine');
+    });
+
+    it('ao cancelar com disco ainda divergente, mantém o lock e avisa que o autosave está pausado', async () => {
+      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
+
+      const { result } = setup();
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo externo',
+        });
+      });
+
+      expect(result.current.isExternalConflictLocked('t1')).toBe(true);
+      expect(addToast).toHaveBeenCalledWith('editor.toast.externalChange', 'warning');
+    });
+
+    it('ao cancelar com disco já igual ao local, desfaz o lock em vez de matar o autosave', async () => {
+      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+      const { result } = setup();
+      act(() => {
+        result.current.updateLatestMarkdownForTab('t1', 'conteudo convergido');
+      });
+      // O prompt abre com divergência, mas na re-checagem do cancelamento o
+      // disco já convergiu com o local.
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo convergido' as never);
+
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo externo',
+        });
+      });
+
+      expect(result.current.isExternalConflictLocked('t1')).toBe(false);
+      expect(editorStoreState.setDocDirty).toHaveBeenCalledWith('t1', false);
+      expect(addToast).not.toHaveBeenCalledWith('editor.toast.externalChange', 'warning');
+    });
   });
 
   it('mergeStateRevision muda ao iniciar e ao limpar a merge session', async () => {
