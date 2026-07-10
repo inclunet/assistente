@@ -41,6 +41,9 @@ func TestConfirmEditWithDiff_PayloadIncludesRejectReason(t *testing.T) {
 	if rr.Label == "" {
 		t.Error("RejectReason.Label não pode ser vazio")
 	}
+	if rr.MaxLen != rejectReasonMaxLen {
+		t.Errorf("RejectReason.MaxLen deve espelhar rejectReasonMaxLen (%d), obtido %d", rejectReasonMaxLen, rr.MaxLen)
+	}
 }
 
 func TestConfirmEditWithDiff_RejectedWithReason(t *testing.T) {

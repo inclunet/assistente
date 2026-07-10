@@ -37,6 +37,8 @@ type RejectReasonConfig struct {
 	ID          string `json:"id"`
 	Label       string `json:"label"`
 	Placeholder string `json:"placeholder,omitempty"`
+	// MaxLen limita o tamanho do texto no frontend (em caracteres); 0 = sem limite explícito.
+	MaxLen int `json:"maxLen,omitempty"`
 }
 
 // RequestPayload representa uma solicitação de questionário pendente.

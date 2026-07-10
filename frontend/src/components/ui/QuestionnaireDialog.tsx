@@ -34,6 +34,7 @@ export interface QuestionnaireRejectReason {
   id: string;
   label: string;
   placeholder?: string;
+  maxLen?: number;
 }
 
 export interface QuestionnairePayload {
@@ -361,8 +362,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
                 value={rejectReasonText}
                 placeholder={data.rejectReason.placeholder}
                 onChange={(e) => setRejectReasonText(e.target.value)}
-                /* Alinhado ao limite do backend (rejectReasonMaxLen em edit_confirmation.go) */
-                maxLength={2000}
+                maxLength={data.rejectReason.maxLen && data.rejectReason.maxLen > 0 ? data.rejectReason.maxLen : undefined}
               />
             </div>
             <button type="button" className="questionnaire-dialog__button secondary" onClick={handleCancel}>

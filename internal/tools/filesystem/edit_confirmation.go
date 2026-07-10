@@ -120,6 +120,7 @@ func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, t
 			ID:          rejectReasonAnswerID,
 			Label:       "Motivo da rejeição (opcional)",
 			Placeholder: "Explique o que deveria ser diferente para o assistente propor nova versão",
+			MaxLen:      rejectReasonMaxLen,
 		},
 	})
 	if err != nil {

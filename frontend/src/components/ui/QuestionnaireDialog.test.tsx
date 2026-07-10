@@ -254,6 +254,7 @@ describe('QuestionnaireDialog', () => {
         id: 'reject_reason',
         label: 'Motivo da rejeição (opcional)',
         placeholder: 'Explique o que deveria ser diferente',
+        maxLen: 2000,
       },
       questions: [
         { id: 'before', type: 'readonly_code' as const, prompt: 'Antes', content: 'texto antigo' },
@@ -276,6 +277,14 @@ describe('QuestionnaireDialog', () => {
       expect(submit).not.toHaveAttribute('tabindex');
       expect(reason).not.toHaveAttribute('tabindex');
       expect(cancel).not.toHaveAttribute('tabindex');
+    });
+
+    it('limite de caracteres do motivo vem do payload', () => {
+      render(
+        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={vi.fn()} />
+      );
+
+      expect(screen.getByLabelText('Motivo da rejeição (opcional)')).toHaveAttribute('maxlength', '2000');
     });
 
     it('rejeitar envia o motivo digitado nas answers', async () => {
