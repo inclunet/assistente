@@ -111,6 +111,50 @@ describe('Modal', () => {
     expect(screen.getByRole('button', { name: 'Visivel' })).toHaveFocus();
   });
 
+  it('foca o elemento do initialFocusSelector ao abrir', () => {
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Titulo" initialFocusSelector="#alvo">
+        <input aria-label="Campo" />
+        <pre id="alvo" tabIndex={0}>
+          conteudo
+        </pre>
+      </Modal>
+    );
+
+    expect(document.getElementById('alvo')).toHaveFocus();
+  });
+
+  it('usa a heuristica padrao quando initialFocusSelector aponta para elemento nao focavel', () => {
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Titulo" initialFocusSelector="#nao-focavel">
+        <div id="nao-focavel">texto sem tabindex</div>
+        <input aria-label="Campo" />
+      </Modal>
+    );
+
+    expect(screen.getByRole('textbox', { name: 'Campo' })).toHaveFocus();
+  });
+
+  it('usa a heuristica padrao quando initialFocusSelector e invalido, sem lancar', () => {
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Titulo" initialFocusSelector=":::seletor-invalido(">
+        <input aria-label="Campo" />
+      </Modal>
+    );
+
+    expect(screen.getByRole('textbox', { name: 'Campo' })).toHaveFocus();
+  });
+
+  it('usa a heuristica padrao quando initialFocusSelector nao encontra elemento', () => {
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Titulo" initialFocusSelector="#inexistente">
+        <input aria-label="Campo" />
+      </Modal>
+    );
+
+    expect(screen.getByRole('textbox', { name: 'Campo' })).toHaveFocus();
+  });
+
   it('aplica role="application" no corpo por padrao (forca focus mode no NVDA)', () => {
     render(
       <Modal isOpen={true} onClose={vi.fn()} title="Configuracoes">

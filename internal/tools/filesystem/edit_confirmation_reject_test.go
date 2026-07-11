@@ -35,6 +35,20 @@ func TestConfirmEditWithDiff_PayloadIncludesRejectReason(t *testing.T) {
 	if rr == nil {
 		t.Fatal("payload deve incluir RejectReason")
 	}
+	autoFocusByID := map[string]bool{}
+	for _, q := range quest.calls[0].Questions {
+		autoFocusByID[q.ID] = q.AutoFocus
+	}
+	if focus, ok := autoFocusByID["before"]; !ok {
+		t.Error("payload deve incluir a pergunta 'before'")
+	} else if focus {
+		t.Error("bloco 'Antes' não deve ter AutoFocus")
+	}
+	if focus, ok := autoFocusByID["after"]; !ok {
+		t.Error("payload deve incluir a pergunta 'after'")
+	} else if !focus {
+		t.Error("bloco 'Depois' deve ter AutoFocus para receber o foco inicial do diálogo")
+	}
 	if rr.ID != "reject_reason" {
 		t.Errorf("RejectReason.ID deve ser 'reject_reason', obtido %q", rr.ID)
 	}
