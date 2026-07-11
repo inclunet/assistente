@@ -907,7 +907,7 @@ const en = {
         externalChangeTitle: 'File modified outside the Assistant',
         externalChangeDesc: 'This file changed on disk while open here. To avoid overwriting accidentally, autosave for this file is paused until you decide.',
         assistedChangeTitle: 'Assistant change on a file with local edits',
-        assistedChangeDesc: 'The assistant wrote to this file (a change you approved), but this tab has unsaved local edits. Choose how to combine both versions; autosave is paused until you decide.',
+        assistedChangeDesc: 'The Assistant wrote to this file (a change you approved), but this tab has unsaved local edits. Choose how to combine both versions; autosave is paused until you decide.',
         abortMergeTitle: 'Abort merge (Git style)?',
         abortMergeDesc: 'This will discard the text with conflict markers in this tab and restore your original version. Saving stays locked for this file until you choose how to resolve the external change.',
         abortMergeSubmit: 'Abort merge',
