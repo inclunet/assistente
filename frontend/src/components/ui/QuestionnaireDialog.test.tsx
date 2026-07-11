@@ -240,8 +240,10 @@ describe('QuestionnaireDialog', () => {
     const code = screen.getByRole('region', { name: '1. Antes' });
     expect(code.tagName).toBe('PRE');
     expect(code).toHaveAttribute('tabindex', '0');
-    expect(code).toHaveTextContent('linha 1');
-    expect(code).toHaveTextContent('linha 2');
+    // Conteúdo exato, sem whitespace extra da indentação do JSX (o JSX remove
+    // espaços com quebra de linha ao redor de expressões) — importante porque
+    // o <pre> preserva whitespace e qualquer sobra mudaria o diff exibido/lido.
+    expect(code.textContent).toBe('linha 1\nlinha 2');
   });
 
   it('usa modo de leitura (role=document) quando há readonly_code', () => {
