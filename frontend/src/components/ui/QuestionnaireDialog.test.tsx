@@ -264,7 +264,9 @@ describe('QuestionnaireDialog', () => {
       />
     );
 
-    expect(document.querySelector('.modal-body')).toHaveAttribute('role', 'document');
+    const readingBody = screen.getByRole('document');
+    expect(readingBody).toHaveClass('modal-body');
+    expect(screen.queryByRole('application')).toBeNull();
   });
 
   it('mantém role=application quando não há readonly_code', () => {
@@ -280,7 +282,9 @@ describe('QuestionnaireDialog', () => {
       />
     );
 
-    expect(document.querySelector('.modal-body')).toHaveAttribute('role', 'application');
+    const formBody = screen.getByRole('application');
+    expect(formBody).toHaveClass('modal-body');
+    expect(screen.queryByRole('document')).toBeNull();
   });
 
   it('não inclui readonly_code nas respostas do submit', async () => {
