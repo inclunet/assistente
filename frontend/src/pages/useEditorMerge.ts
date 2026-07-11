@@ -243,9 +243,20 @@ export function useEditorMerge() {
   const promptResolveExternalChangeForTab = async (
     tabId: string,
     filePath: string,
-    opts?: { diskContent?: string; diskReadError?: string }
+    opts?: {
+      diskContent?: string;
+      diskReadError?: string;
+      /**
+       * Origem da mudança que motivou o prompt: `assisted` quando a gravação
+       * veio de uma tool do assistente (já aprovada pelo usuário via diff) e a
+       * aba tem edições locais divergentes; `external` (padrão) para mudança
+       * de outro aplicativo.
+       */
+      cause?: 'external' | 'assisted';
+    }
   ) => {
     if (isExternalPromptInFlight(tabId)) return;
+    const assistedCause = opts?.cause === 'assisted';
 
     const { documents: currentDocs } = useEditorStore.getState();
     const tab = currentDocs[tabId] || null;
@@ -290,8 +301,12 @@ export function useEditorMerge() {
 
       const resp = await requestQuestionnaire({
         id: `ui-editor-external-change-${Date.now()}`,
-        title: t('editor.questionnaire.externalChangeTitle'),
-        description: t('editor.questionnaire.externalChangeDesc'),
+        title: assistedCause
+          ? t('editor.questionnaire.assistedChangeTitle')
+          : t('editor.questionnaire.externalChangeTitle'),
+        description: assistedCause
+          ? t('editor.questionnaire.assistedChangeDesc')
+          : t('editor.questionnaire.externalChangeDesc'),
         submitLabel: t('editor.buttons.apply'),
         cancelLabel: t('editor.buttons.notNow'),
         allowCancel: true,
@@ -365,7 +380,7 @@ export function useEditorMerge() {
         }
         // Mantém o lock, mas avisa explicitamente (toast + anúncio assertivo
         // via addToast) que o autosave fica pausado até o usuário decidir.
-        addToast(t('editor.toast.externalChange'), 'warning');
+        addToast(t(assistedCause ? 'editor.toast.assistedChange' : 'editor.toast.externalChange'), 'warning');
         return;
       }
 

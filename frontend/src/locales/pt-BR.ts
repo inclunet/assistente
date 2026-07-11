@@ -856,8 +856,10 @@ const ptBR = {
       toast: {
         mergeConflict: 'Conflito aberto para mesclagem manual (estilo Git). Resolva os marcadores e use Salvar para gravar no arquivo real.',
         externalChange: 'Arquivo mudou fora do Assistente. Autosave travado até você decidir.',
+        assistedChange: 'Alteração do assistente pendente. Autosave travado até você decidir.',
         reloaded: 'Recarregado do disco',
         externalReloaded: 'Arquivo recarregado do disco (mudança externa)',
+        assistedReloaded: 'Alteração do assistente aplicada no editor',
         savedAs: 'Salvo em novo arquivo',
         overwritten: 'Sobrescrito no disco',
         fileModified: 'Arquivo foi modificado fora do Assistente. Escolha como resolver.',
@@ -904,6 +906,8 @@ const ptBR = {
       questionnaire: {
         externalChangeTitle: 'Arquivo modificado fora do Assistente',
         externalChangeDesc: 'Este arquivo mudou no disco enquanto estava aberto aqui. Para evitar sobrescrever sem querer, o autosave deste arquivo fica travado até você decidir.',
+        assistedChangeTitle: 'Alteração do assistente em arquivo com edições locais',
+        assistedChangeDesc: 'O assistente gravou neste arquivo (alteração que você aprovou), mas esta aba tem edições locais ainda não salvas. Escolha como combinar as duas versões; o autosave fica travado até você decidir.',
         abortMergeTitle: 'Abortar merge (estilo Git)?',
         abortMergeDesc: 'Isso vai descartar o texto com marcadores de conflito nesta aba e restaurar a sua versão original. O arquivo continuará com salvamento travado até você escolher como resolver a modificação externa.',
         abortMergeSubmit: 'Abortar merge',

@@ -257,6 +257,41 @@ describe('useEditorMerge', () => {
       expect(addToast).toHaveBeenCalledWith('editor.toast.externalChange', 'warning');
     });
 
+    it('usa título/descrição de mudança externa por padrão', async () => {
+      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
+
+      const { result } = setup();
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo externo',
+        });
+      });
+
+      const payload = requestQuestionnaire.mock.calls[0][0] as { title: string; description: string };
+      expect(payload.title).toBe('editor.questionnaire.externalChangeTitle');
+      expect(payload.description).toBe('editor.questionnaire.externalChangeDesc');
+    });
+
+    it('com causa assistida, usa título/descrição de alteração do assistente e toast específico ao cancelar', async () => {
+      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo da tool' as never);
+
+      const { result } = setup();
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo da tool',
+          cause: 'assisted',
+        });
+      });
+
+      const payload = requestQuestionnaire.mock.calls[0][0] as { title: string; description: string };
+      expect(payload.title).toBe('editor.questionnaire.assistedChangeTitle');
+      expect(payload.description).toBe('editor.questionnaire.assistedChangeDesc');
+      expect(addToast).toHaveBeenCalledWith('editor.toast.assistedChange', 'warning');
+      expect(addToast).not.toHaveBeenCalledWith('editor.toast.externalChange', 'warning');
+    });
+
     it('ao cancelar com disco já igual ao local, desfaz o lock em vez de matar o autosave', async () => {
       requestQuestionnaire.mockResolvedValue({ cancelled: true });
       const { result } = setup();

@@ -93,6 +93,7 @@ describe('decideExternalChange', () => {
       expect(decideExternalChange(makeInput({ diskReadError: true }))).toEqual({
         action: 'prompt_conflict',
         openPrompt: true,
+        cause: 'external',
       });
     });
 
@@ -100,6 +101,7 @@ describe('decideExternalChange', () => {
       expect(decideExternalChange(makeInput({ diskReadError: true, promptInFlight: true }))).toEqual({
         action: 'prompt_conflict',
         openPrompt: false,
+        cause: 'external',
       });
     });
   });
@@ -166,7 +168,7 @@ describe('decideExternalChange', () => {
             lastKnownDiskHash: BASELINE,
           })
         )
-      ).toEqual({ action: 'prompt_conflict', openPrompt: true });
+      ).toEqual({ action: 'prompt_conflict', openPrompt: true, cause: 'external' });
     });
 
     it('não reabre prompt no pré-autosave se já há um em voo', () => {
@@ -181,7 +183,7 @@ describe('decideExternalChange', () => {
             promptInFlight: true,
           })
         )
-      ).toEqual({ action: 'prompt_conflict', openPrompt: false });
+      ).toEqual({ action: 'prompt_conflict', openPrompt: false, cause: 'external' });
     });
   });
 
@@ -222,13 +224,13 @@ describe('decideExternalChange', () => {
     it('não auto-recarrega na re-checagem de foco (allowAutoReload ausente)', () => {
       expect(
         decideExternalChange(makeInput({ trigger: 'focus_recheck', diskHash: DISK, localHash: LOCAL }))
-      ).toEqual({ action: 'prompt_conflict', openPrompt: true });
+      ).toEqual({ action: 'prompt_conflict', openPrompt: true, cause: 'external' });
     });
 
     it('trava e pergunta quando a aba está suja', () => {
       expect(
         decideExternalChange(makeInput({ diskHash: DISK, localHash: LOCAL, tabIsDirty: true, allowAutoReload: true }))
-      ).toEqual({ action: 'prompt_conflict', openPrompt: true });
+      ).toEqual({ action: 'prompt_conflict', openPrompt: true, cause: 'external' });
     });
 
     it('não reabre prompt para aba suja se já há um em voo', () => {
@@ -236,7 +238,7 @@ describe('decideExternalChange', () => {
         decideExternalChange(
           makeInput({ diskHash: DISK, localHash: LOCAL, tabIsDirty: true, allowAutoReload: true, promptInFlight: true })
         )
-      ).toEqual({ action: 'prompt_conflict', openPrompt: false });
+      ).toEqual({ action: 'prompt_conflict', openPrompt: false, cause: 'external' });
     });
   });
 
@@ -256,7 +258,7 @@ describe('decideExternalChange', () => {
       ).toEqual({ action: 'auto_reload' });
     });
 
-    it('mantém prompt quando há edição local divergente do baseline', () => {
+    it('mantém prompt quando há edição local divergente do baseline, com causa assistida', () => {
       expect(
         decideExternalChange(
           makeInput({
@@ -268,10 +270,10 @@ describe('decideExternalChange', () => {
             allowAutoReload: true,
           })
         )
-      ).toEqual({ action: 'prompt_conflict', openPrompt: true });
+      ).toEqual({ action: 'prompt_conflict', openPrompt: true, cause: 'assisted' });
     });
 
-    it('sem baseline conhecido, aba suja assistida também vai para prompt', () => {
+    it('sem baseline conhecido, aba suja assistida também vai para prompt com causa assistida', () => {
       expect(
         decideExternalChange(
           makeInput({
@@ -283,7 +285,32 @@ describe('decideExternalChange', () => {
             allowAutoReload: true,
           })
         )
-      ).toEqual({ action: 'prompt_conflict', openPrompt: true });
+      ).toEqual({ action: 'prompt_conflict', openPrompt: true, cause: 'assisted' });
+    });
+
+    it('erro de leitura do disco em evento assistido também carrega a causa assistida', () => {
+      expect(decideExternalChange(makeInput({ assisted: true, diskReadError: true }))).toEqual({
+        action: 'prompt_conflict',
+        openPrompt: true,
+        cause: 'assisted',
+      });
+    });
+
+    it('aba suja assistida com local igual ao baseline pré-escrita adota o disco (auto_reload)', () => {
+      // O usuário aprovou o diff da tool e não digitou nada depois: o conteúdo
+      // local ainda é o baseline conhecido do disco → adota a escrita aprovada.
+      expect(
+        decideExternalChange(
+          makeInput({
+            assisted: true,
+            diskHash: DISK,
+            localHash: BASELINE,
+            lastKnownDiskHash: BASELINE,
+            tabIsDirty: true,
+            allowAutoReload: true,
+          })
+        )
+      ).toEqual({ action: 'auto_reload' });
     });
   });
 });

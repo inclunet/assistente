@@ -98,8 +98,13 @@ export type ReconcileAction =
   | { action: 'defer_read' }
   /** Aba pode acompanhar o disco silenciosamente (auto-reload com toast). */
   | { action: 'auto_reload' }
-  /** Travar a aba e pedir decisão explícita (abrir prompt só se `openPrompt`). */
-  | { action: 'prompt_conflict'; openPrompt: boolean };
+  /**
+   * Travar a aba e pedir decisão explícita (abrir prompt só se `openPrompt`).
+   * `cause` distingue a mensagem apresentada: `assisted` quando a escrita veio
+   * de uma tool do assistente (já confirmada pelo usuário via diff, mas a aba
+   * tem edições locais divergentes), `external` para mudança de outro app.
+   */
+  | { action: 'prompt_conflict'; openPrompt: boolean; cause: 'external' | 'assisted' };
 
 /**
  * Decide, de forma pura, como reagir a uma possível mudança externa.
@@ -110,6 +115,10 @@ export type ReconcileAction =
  * para eventos `file_changed` sem origin conhecido.
  */
 export function decideExternalChange(input: ReconcileInput): ReconcileAction {
+  // Causa apresentada ao usuário quando a decisão é prompt_conflict: eventos
+  // assistidos vêm de tool já confirmada pelo próprio usuário (AEP-0032) e não
+  // podem ser anunciados como "arquivo mudou fora do Assistente".
+  const promptCause = input.assisted ? ('assisted' as const) : ('external' as const);
   // Escrita do próprio editor, marcada deterministicamente pelo backend:
   // basta acompanhar os metadados do disco — sem reload, sem prompt.
   if (input.selfWrite) {
@@ -128,7 +137,7 @@ export function decideExternalChange(input: ReconcileInput): ReconcileAction {
 
   // Falha ao ler o disco: só o usuário pode decidir o que fazer.
   if (input.diskReadError) {
-    return { action: 'prompt_conflict', openPrompt: !input.promptInFlight };
+    return { action: 'prompt_conflict', openPrompt: !input.promptInFlight, cause: promptCause };
   }
 
   // Sem conteúdo do disco em mãos: no pré-autosave, metadados comprovadamente
@@ -163,5 +172,5 @@ export function decideExternalChange(input: ReconcileInput): ReconcileAction {
     return { action: 'auto_reload' };
   }
 
-  return { action: 'prompt_conflict', openPrompt: !input.promptInFlight };
+  return { action: 'prompt_conflict', openPrompt: !input.promptInFlight, cause: promptCause };
 }

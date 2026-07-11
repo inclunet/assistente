@@ -339,9 +339,12 @@ describe('useEditorPersistence', () => {
 
     expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('minha edicao local');
     expect(useEditorStore.getState().documents['tab-1'].isDirty).toBe(true);
+    // O prompt carrega a causa assistida: a mensagem exibida é a de "alteração
+    // do assistente", não a de "arquivo mudou fora do Assistente".
     expect(promptResolveExternalChangeForTab).toHaveBeenCalledWith('tab-1', 'C:/tmp/doc.md', {
       diskContent: 'depois da tool',
       diskReadError: '',
+      cause: 'assisted',
     });
   });
 
@@ -377,6 +380,7 @@ describe('useEditorPersistence', () => {
     expect(promptResolveExternalChangeForTab).toHaveBeenCalledWith('tab-1', 'C:/tmp/doc.md', {
       diskContent: 'mudanca externa no disco',
       diskReadError: '',
+      cause: 'external',
     });
   });
 
@@ -600,6 +604,37 @@ describe('useEditorPersistence', () => {
     expect(promptResolveExternalChangeForTab).toHaveBeenCalledWith('tab-1', 'C:/tmp/doc.md', {
       diskContent: 'mudanca externa',
       diskReadError: '',
+      cause: 'external',
     });
+  });
+
+  it('anuncia reload assistido com toast específico de alteração do assistente', async () => {
+    const doc = makeDoc({ markdown: 'antes da tool', isDirty: false });
+    const merge = makeMerge('antes da tool', makeDiskInfo(5, 1000));
+    vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
+
+    renderPersistence(doc, merge);
+
+    await act(async () => {
+      await fileChangedHandler?.({ path: 'C:/tmp/doc.md', origin: 'assistant_tool', assisted: true });
+    });
+
+    expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('depois da tool');
+    expect(addToast).toHaveBeenCalledWith('editor.toast.assistedReloaded', 'info');
+  });
+
+  it('anuncia reload de mudança externa com o toast de mudança externa', async () => {
+    const doc = makeDoc({ markdown: 'conteudo original', isDirty: false });
+    const merge = makeMerge('conteudo original', makeDiskInfo(5, 1000));
+    vi.mocked(EditorReadFile).mockResolvedValue('mudanca externa' as never);
+
+    renderPersistence(doc, merge);
+
+    await act(async () => {
+      await fileChangedHandler?.({ path: 'C:/tmp/doc.md' });
+    });
+
+    expect(useEditorStore.getState().documents['tab-1'].markdown).toBe('mudanca externa');
+    expect(addToast).toHaveBeenCalledWith('editor.toast.externalReloaded', 'info');
   });
 });
