@@ -121,6 +121,23 @@
   gap: 10px;
 }
 
+/* Variante com campo de motivo da rejeição: layout em coluna preservando a
+   ordem DOM (Aplicar → motivo → Rejeitar), que define a ordem de tabulação. */
+.questionnaire-dialog__footer--reject-reason {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.questionnaire-dialog__footer--reject-reason .questionnaire-dialog__button {
+  align-self: flex-end;
+}
+
+.questionnaire-dialog__reject-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .questionnaire-dialog__button {
   padding: 8px 14px;
   border-radius: var(--radius-full);
@@ -143,5 +160,11 @@
   .questionnaire-dialog__footer {
     flex-direction: column-reverse;
     align-items: stretch;
+  }
+
+  /* A variante com motivo mantém a ordem visual alinhada à ordem DOM/Tab
+     (Aplicar → motivo → Rejeitar) também em telas pequenas. */
+  .questionnaire-dialog__footer--reject-reason {
+    flex-direction: column;
   }
 }

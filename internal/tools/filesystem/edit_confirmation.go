@@ -77,6 +77,26 @@ func confirmBeforeAfter(ctx context.Context, questMgr QuestionnaireRequester, ti
 	return confirmEditWithDiff(ctx, questMgr, title, confirmDescriptionForPath(displayPath), before, after)
 }
 
+// rejectReasonAnswerID é a chave usada no payload e nas answers para o motivo da rejeição.
+const rejectReasonAnswerID = "reject_reason"
+
+// rejectReasonMaxLen limita o tamanho do motivo repassado ao modelo, em runes,
+// antes de anexar a elipse de truncamento (o texto final pode ter até
+// rejectReasonMaxLen+1 runes).
+const rejectReasonMaxLen = 2000
+
+// extractRejectReason extrai e normaliza o motivo de rejeição informado pelo usuário.
+// Retorna string vazia quando ausente ou em branco. Quebras de linha são preservadas
+// (o motivo é conteúdo para o modelo, não texto de diálogo), mas o tamanho é limitado.
+func extractRejectReason(answers map[string]any) string {
+	raw, _ := answers[rejectReasonAnswerID].(string)
+	reason := strings.TrimSpace(raw)
+	if runes := []rune(reason); len(runes) > rejectReasonMaxLen {
+		reason = string(runes[:rejectReasonMaxLen]) + "…"
+	}
+	return reason
+}
+
 // confirmEditWithDiff exibe um questionário Antes/Depois (Aplicar/Rejeitar) e aguarda
 // a confirmação do usuário. Compartilhado por edit_file, write_file e text_edit.
 // Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou em erro.
@@ -96,11 +116,20 @@ func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, t
 		AllowCancel: true,
 		SubmitLabel: "Aplicar",
 		CancelLabel: "Rejeitar",
+		RejectReason: &questionnaire.RejectReasonConfig{
+			ID:          rejectReasonAnswerID,
+			Label:       "Motivo da rejeição (opcional)",
+			Placeholder: "Explique o que deveria ser diferente para o assistente propor nova versão",
+			MaxLen:      rejectReasonMaxLen,
+		},
 	})
 	if err != nil {
 		return false, tools.ToolResult{Content: fmt.Sprintf("Erro ao solicitar confirmação: %v", err), IsError: true}
 	}
 	if resp.Cancelled {
+		if reason := extractRejectReason(resp.Answers); reason != "" {
+			return false, tools.ToolResult{Content: fmt.Sprintf("Alteração rejeitada pelo usuário. Motivo informado: %s", reason), IsError: true}
+		}
 		return false, tools.ToolResult{Content: "Alteração rejeitada pelo usuário", IsError: true}
 	}
 	return true, tools.ToolResult{}

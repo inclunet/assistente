@@ -74,6 +74,53 @@ func TestRequestQuestionnaire_Cancelled(t *testing.T) {
 	}
 }
 
+func TestRequestQuestionnaire_CancelledWithAnswers(t *testing.T) {
+	var mgr *Manager
+	mgr = NewManager(func(_ string, data any) {
+		dataMap := data.(map[string]any)
+		if _, ok := dataMap["rejectReason"]; !ok {
+			t.Error("payload do evento deve incluir rejectReason quando configurado")
+		}
+		go func() {
+			_ = mgr.Respond(dataMap["id"].(string), map[string]any{"reject_reason": "motivo do usuário"}, true)
+		}()
+	})
+
+	resp, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
+		Title:        "Teste",
+		Questions:    []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+		RejectReason: &RejectReasonConfig{ID: "reject_reason", Label: "Motivo"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Cancelled {
+		t.Fatal("expected cancelled=true")
+	}
+	if resp.Answers["reject_reason"] != "motivo do usuário" {
+		t.Fatalf("answers devem ser preservadas no cancelamento: %+v", resp.Answers)
+	}
+}
+
+func TestRequestQuestionnaire_EventOmitsRejectReasonWhenAbsent(t *testing.T) {
+	var mgr *Manager
+	mgr = NewManager(func(_ string, data any) {
+		dataMap := data.(map[string]any)
+		if _, ok := dataMap["rejectReason"]; ok {
+			t.Error("payload do evento não deve incluir rejectReason quando não configurado")
+		}
+		go func() {
+			_ = mgr.Respond(dataMap["id"].(string), map[string]any{}, true)
+		}()
+	})
+
+	if _, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRespondQuestionnaire_NotFound(t *testing.T) {
 	mgr := NewManager(func(string, any) {})
 	if err := mgr.Respond("missing", map[string]any{}, false); err == nil {

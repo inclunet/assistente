@@ -30,6 +30,13 @@ export interface QuestionnaireQuestion {
   default?: string | number | boolean | string[];
 }
 
+export interface QuestionnaireRejectReason {
+  id: string;
+  label: string;
+  placeholder?: string;
+  maxLen?: number;
+}
+
 export interface QuestionnairePayload {
   id: string;
   title?: string;
@@ -38,6 +45,7 @@ export interface QuestionnairePayload {
   allowCancel?: boolean;
   submitLabel?: string;
   cancelLabel?: string;
+  rejectReason?: QuestionnaireRejectReason;
   createdAt?: string;
 }
 
@@ -45,7 +53,7 @@ export interface QuestionnaireDialogProps {
   isOpen: boolean;
   data: QuestionnairePayload | null;
   onSubmit: (answers: Record<string, unknown>) => void;
-  onCancel?: () => void;
+  onCancel?: (answers?: Record<string, unknown>) => void;
 }
 
 const READONLY_CODE_MIN_ROWS = 3;
@@ -71,6 +79,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
   const { announce } = useAnnouncer();
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [rejectReasonText, setRejectReasonText] = useState('');
 
   const allowCancel = data?.allowCancel !== false;
   const title = data?.title || 'Questionário';
@@ -90,6 +99,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
     }
     setAnswers(initial);
     setErrors({});
+    setRejectReasonText('');
   }, [isOpen, data]);
 
   useEffect(() => {
@@ -127,7 +137,13 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
 
   const handleCancel = () => {
     if (!allowCancel) return;
-    if (onCancel) onCancel();
+    if (!onCancel) return;
+    const reason = rejectReasonText.trim();
+    if (data?.rejectReason && reason) {
+      onCancel({ [data.rejectReason.id]: reason });
+      return;
+    }
+    onCancel();
   };
 
   const updateAnswer = (id: string, value: unknown) => {
@@ -339,16 +355,43 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
           );
         })}
 
-        <div className="questionnaire-dialog__footer">
-          {allowCancel && (
+        {data.rejectReason && allowCancel ? (
+          /* Ordem DOM (= ordem de Tab) intencional: Aplicar → motivo → Rejeitar,
+             para que quem vai aprovar não precise atravessar o campo de justificativa. */
+          <div className="questionnaire-dialog__footer questionnaire-dialog__footer--reject-reason">
+            <button type="submit" className="questionnaire-dialog__button primary">
+              {submitLabel}
+            </button>
+            <div className="questionnaire-dialog__reject-reason">
+              <label className="questionnaire-dialog__label" htmlFor="questionnaire-reject-reason">
+                {data.rejectReason.label}
+              </label>
+              <textarea
+                id="questionnaire-reject-reason"
+                className="questionnaire-dialog__textarea"
+                rows={3}
+                value={rejectReasonText}
+                placeholder={data.rejectReason.placeholder}
+                onChange={(e) => setRejectReasonText(e.target.value)}
+                maxLength={data.rejectReason.maxLen && data.rejectReason.maxLen > 0 ? data.rejectReason.maxLen : undefined}
+              />
+            </div>
             <button type="button" className="questionnaire-dialog__button secondary" onClick={handleCancel}>
               {cancelLabel}
             </button>
-          )}
-          <button type="submit" className="questionnaire-dialog__button primary">
-            {submitLabel}
-          </button>
-        </div>
+          </div>
+        ) : (
+          <div className="questionnaire-dialog__footer">
+            {allowCancel && (
+              <button type="button" className="questionnaire-dialog__button secondary" onClick={handleCancel}>
+                {cancelLabel}
+              </button>
+            )}
+            <button type="submit" className="questionnaire-dialog__button primary">
+              {submitLabel}
+            </button>
+          </div>
+        )}
       </form>
     </Modal>
   );
