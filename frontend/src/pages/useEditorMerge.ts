@@ -63,6 +63,10 @@ export function useEditorMerge() {
   // legitimamente, ex.: restauração de arquivo).
   const diskInfoSeqByTabRef = useRef<Record<string, number>>({});
   const externalConflictLockedByTabRef = useRef<Record<string, boolean>>({});
+  // Causa do conflito pendente por aba ('assisted' | 'external'), lembrada
+  // enquanto o lock durar: call sites que reabrem o prompt sem repassar a
+  // causa (ex.: Salvar com lock ativo) mantêm a mensagem correta.
+  const externalConflictCauseByTabRef = useRef<Record<string, 'external' | 'assisted'>>({});
   const lastSelfWriteAtByPathRef = useRef<Record<string, number>>({});
   const mergeSessionByTabRef = useRef<Record<string, MergeSession>>({});
   const externalPromptInFlightByTabRef = useRef<Record<string, boolean>>({});
@@ -114,6 +118,7 @@ export function useEditorMerge() {
     const next = !!locked;
     const prev = !!externalConflictLockedByTabRef.current[id];
     externalConflictLockedByTabRef.current[id] = next;
+    if (!next) delete externalConflictCauseByTabRef.current[id];
     if (prev !== next) bumpMergeStateRevision();
   };
 
@@ -249,14 +254,18 @@ export function useEditorMerge() {
       /**
        * Origem da mudança que motivou o prompt: `assisted` quando a gravação
        * veio de uma tool do assistente (já aprovada pelo usuário via diff) e a
-       * aba tem edições locais divergentes; `external` (padrão) para mudança
-       * de outro aplicativo.
+       * aba tem edições locais divergentes; `external` para mudança de outro
+       * aplicativo. Sem o campo, reusa a causa lembrada do lock pendente da
+       * aba (call sites que reabrem o prompt, ex.: Salvar com lock ativo) e
+       * só então cai no padrão `external`.
        */
       cause?: 'external' | 'assisted';
     }
   ) => {
     if (isExternalPromptInFlight(tabId)) return;
-    const assistedCause = opts?.cause === 'assisted';
+    const cause = opts?.cause ?? externalConflictCauseByTabRef.current[String(tabId || '')] ?? 'external';
+    externalConflictCauseByTabRef.current[String(tabId || '')] = cause;
+    const assistedCause = cause === 'assisted';
 
     const { documents: currentDocs } = useEditorStore.getState();
     const tab = currentDocs[tabId] || null;

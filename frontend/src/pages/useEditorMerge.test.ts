@@ -292,6 +292,54 @@ describe('useEditorMerge', () => {
       expect(addToast).not.toHaveBeenCalledWith('editor.toast.externalChange', 'warning');
     });
 
+    it('reabrir o prompt sem causa reusa a causa assistida lembrada do lock pendente', async () => {
+      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo da tool' as never);
+
+      const { result } = setup();
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo da tool',
+          cause: 'assisted',
+        });
+      });
+
+      // Reabertura sem opts (ex.: Salvar com lock ativo em useEditorFileActions).
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md');
+      });
+
+      const payload = requestQuestionnaire.mock.calls[1][0] as { title: string };
+      expect(payload.title).toBe('editor.questionnaire.assistedChangeTitle');
+    });
+
+    it('destravar o conflito limpa a causa lembrada (próximo prompt volta ao padrão externo)', async () => {
+      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo da tool' as never);
+
+      const { result } = setup();
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo da tool',
+          cause: 'assisted',
+        });
+      });
+
+      act(() => {
+        result.current.setExternalConflictLocked('t1', false);
+      });
+
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo externo',
+        });
+      });
+
+      const payload = requestQuestionnaire.mock.calls[1][0] as { title: string };
+      expect(payload.title).toBe('editor.questionnaire.externalChangeTitle');
+    });
+
     it('ao cancelar com disco já igual ao local, desfaz o lock em vez de matar o autosave', async () => {
       requestQuestionnaire.mockResolvedValue({ cancelled: true });
       const { result } = setup();
