@@ -526,6 +526,42 @@ describe('QuestionnaireDialog', () => {
       expect(cancel.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
+    it('foco inicial vai para a pergunta com autoFocus, não para o campo de motivo', async () => {
+      const data = {
+        ...editConfirmData,
+        questions: [
+          { id: 'before', type: 'readonly_code' as const, prompt: 'Antes', content: 'texto antigo' },
+          {
+            id: 'after',
+            type: 'readonly_code' as const,
+            prompt: 'Depois',
+            content: 'texto novo',
+            autoFocus: true,
+          },
+        ],
+      };
+
+      render(
+        <QuestionnaireDialog isOpen data={data} onSubmit={vi.fn()} onCancel={vi.fn()} />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('region', { name: '2. Depois' })).toHaveFocus();
+      });
+      expect(screen.getByLabelText('Motivo da rejeição (opcional)')).not.toHaveFocus();
+    });
+
+    it('sem autoFocus o foco inicial segue a heurística padrão', async () => {
+      render(
+        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={vi.fn()} />
+      );
+
+      // Sem autoFocus, o primeiro campo editável do diálogo é o motivo da rejeição.
+      await waitFor(() => {
+        expect(screen.getByLabelText('Motivo da rejeição (opcional)')).toHaveFocus();
+      });
+    });
+
     it('diálogo com rejectReason não tem violações de acessibilidade', async () => {
       render(
         <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={vi.fn()} />

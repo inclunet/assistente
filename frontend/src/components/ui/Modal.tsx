@@ -92,6 +92,14 @@ export interface ModalProps {
    * Default: false
    */
   readingMode?: boolean;
+  /**
+   * Seletor CSS de um elemento que deve receber o foco inicial quando o modal
+   * abre, sobrepondo a heurística padrão (primeiro campo editável). Útil quando
+   * o conteúdo mais relevante para o usuário não é o primeiro campo do
+   * formulário (ex.: bloco "Depois" na confirmação de edição). Se o seletor
+   * não encontrar um elemento focável visível, a heurística padrão é usada.
+   */
+  initialFocusSelector?: string;
 }
 
 export function Modal({
@@ -105,6 +113,7 @@ export function Modal({
   returnFocusOnClose = true,
   allowClose = true,
   readingMode = false,
+  initialFocusSelector,
 }: ModalProps) {
   const { t } = useTranslation();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -159,6 +168,15 @@ export function Modal({
     if (!isOpen || !modalRef.current) return;
 
     if (!isTopMost()) return;
+
+    if (initialFocusSelector) {
+      const target = modalRef.current.querySelector<HTMLElement>(initialFocusSelector);
+      if (target && isVisibleFocusableElement(target)) {
+        target.focus();
+        return;
+      }
+    }
+
     const focusableElements = getFocusableElements();
     // Procura primeiro um input/textarea/select editável (ignora readonly,
     // usados para exibição de conteúdo), senão usa o primeiro focável
@@ -169,7 +187,7 @@ export function Modal({
     const firstFocusable = firstInput || focusableElements[0] || modalRef.current;
 
     firstFocusable.focus();
-  }, [isOpen, getFocusableElements, isTopMost]);
+  }, [isOpen, getFocusableElements, isTopMost, initialFocusSelector]);
 
   useEffect(() => {
     if (!isOpen) return;

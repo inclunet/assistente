@@ -28,6 +28,8 @@ export interface QuestionnaireQuestion {
   step?: number;
   placeholder?: string;
   default?: string | number | boolean | string[];
+  /** Recebe o foco inicial quando o diálogo abre (apenas o primeiro marcado). */
+  autoFocus?: boolean;
 }
 
 export interface QuestionnaireRejectReason {
@@ -89,6 +91,14 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
     () => questions.some((q) => q.type === 'readonly_code'),
     [questions]
   );
+
+  // Pergunta marcada pelo backend para receber o foco inicial (ex.: bloco
+  // "Depois" na confirmação de edição, para o usuário ouvir primeiro como o
+  // texto vai ficar em vez de cair no campo de motivo da rejeição).
+  const initialFocusSelector = useMemo(() => {
+    const target = questions.find((q) => q.autoFocus);
+    return target ? `#question-${CSS.escape(target.id)}` : undefined;
+  }, [questions]);
 
   useEffect(() => {
     if (!isOpen || !data) return;
@@ -168,6 +178,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
       returnFocusOnClose={false}
       allowClose={allowCancel}
       readingMode={hasReadonlyCode}
+      initialFocusSelector={initialFocusSelector}
     >
       {description && <p className="questionnaire-dialog__description">{description}</p>}
 
