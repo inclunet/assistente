@@ -29,14 +29,20 @@ const (
 )
 
 // resolveEditPolicy determina o comportamento de confirmação com base no contexto de invocação.
-// Se a tool foi invocada de uma aba de editor com o arquivo ativo, exige confirmação (AEP-0032:
-// alterações no documento aberto nunca são auto-aplicadas).
+// AEP-0032: alterações no documento aberto nunca são auto-aplicadas. A proteção vale
+// tanto para a aba de editor invocadora (arquivo ativo) quanto para escritas vindas
+// de abas PARALELAS (chat ou outra superfície) em arquivo aberto em qualquer aba de
+// editor — sem isso, a escrita direta dispararia o fluxo de "mudança externa" no
+// editor como se outro aplicativo tivesse gravado o arquivo.
 func resolveEditPolicy(ctx context.Context, fullPath string) editPolicy {
-	inv, ok := invocationctx.Get(ctx)
-	if !ok {
-		return policyDirect
+	if inv, ok := invocationctx.Get(ctx); ok {
+		if inv.TabType == "editor" && inv.ActiveFilePath != "" && sameFilePath(inv.ActiveFilePath, fullPath) {
+			return policyConfirmWithDiff
+		}
 	}
-	if inv.TabType == "editor" && inv.ActiveFilePath != "" && sameFilePath(inv.ActiveFilePath, fullPath) {
+	// Arquivo aberto em alguma aba de editor (paths injetados via
+	// tools.WithOpenEditorPaths): mesma confirmação com diff da aba invocadora.
+	if tools.IsOpenEditorFile(ctx, fullPath) {
 		return policyConfirmWithDiff
 	}
 	return policyDirect

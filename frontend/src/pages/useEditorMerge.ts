@@ -63,6 +63,10 @@ export function useEditorMerge() {
   // legitimamente, ex.: restauração de arquivo).
   const diskInfoSeqByTabRef = useRef<Record<string, number>>({});
   const externalConflictLockedByTabRef = useRef<Record<string, boolean>>({});
+  // Causa do conflito pendente por aba ('assisted' | 'external'), lembrada
+  // enquanto o lock durar: call sites que reabrem o prompt sem repassar a
+  // causa (ex.: Salvar com lock ativo) mantêm a mensagem correta.
+  const externalConflictCauseByTabRef = useRef<Record<string, 'external' | 'assisted'>>({});
   const lastSelfWriteAtByPathRef = useRef<Record<string, number>>({});
   const mergeSessionByTabRef = useRef<Record<string, MergeSession>>({});
   const externalPromptInFlightByTabRef = useRef<Record<string, boolean>>({});
@@ -114,6 +118,7 @@ export function useEditorMerge() {
     const next = !!locked;
     const prev = !!externalConflictLockedByTabRef.current[id];
     externalConflictLockedByTabRef.current[id] = next;
+    if (!next) delete externalConflictCauseByTabRef.current[id];
     if (prev !== next) bumpMergeStateRevision();
   };
 
@@ -243,13 +248,31 @@ export function useEditorMerge() {
   const promptResolveExternalChangeForTab = async (
     tabId: string,
     filePath: string,
-    opts?: { diskContent?: string; diskReadError?: string }
+    opts?: {
+      diskContent?: string;
+      diskReadError?: string;
+      /**
+       * Origem da mudança que motivou o prompt: `assisted` quando a gravação
+       * veio de uma tool do assistente (já aprovada pelo usuário via diff) e a
+       * aba tem edições locais divergentes; `external` para mudança de outro
+       * aplicativo. Sem o campo, reusa a causa lembrada do lock pendente da
+       * aba (call sites que reabrem o prompt, ex.: Salvar com lock ativo) e
+       * só então cai no padrão `external`.
+       */
+      cause?: 'external' | 'assisted';
+    }
   ) => {
     if (isExternalPromptInFlight(tabId)) return;
 
     const { documents: currentDocs } = useEditorStore.getState();
     const tab = currentDocs[tabId] || null;
     if (!tab || !tab.filePath) return;
+
+    // Só depois de validar a aba: uma chamada com tabId inválido não pode
+    // "vazar" causa no ref e contaminar um prompt futuro para o mesmo id.
+    const cause = opts?.cause ?? externalConflictCauseByTabRef.current[String(tabId || '')] ?? 'external';
+    externalConflictCauseByTabRef.current[String(tabId || '')] = cause;
+    const assistedCause = cause === 'assisted';
 
     setExternalPromptInFlight(tabId, true);
     try {
@@ -290,8 +313,12 @@ export function useEditorMerge() {
 
       const resp = await requestQuestionnaire({
         id: `ui-editor-external-change-${Date.now()}`,
-        title: t('editor.questionnaire.externalChangeTitle'),
-        description: t('editor.questionnaire.externalChangeDesc'),
+        title: assistedCause
+          ? t('editor.questionnaire.assistedChangeTitle')
+          : t('editor.questionnaire.externalChangeTitle'),
+        description: assistedCause
+          ? t('editor.questionnaire.assistedChangeDesc')
+          : t('editor.questionnaire.externalChangeDesc'),
         submitLabel: t('editor.buttons.apply'),
         cancelLabel: t('editor.buttons.notNow'),
         allowCancel: true,
@@ -365,7 +392,7 @@ export function useEditorMerge() {
         }
         // Mantém o lock, mas avisa explicitamente (toast + anúncio assertivo
         // via addToast) que o autosave fica pausado até o usuário decidir.
-        addToast(t('editor.toast.externalChange'), 'warning');
+        addToast(t(assistedCause ? 'editor.toast.assistedChange' : 'editor.toast.externalChange'), 'warning');
         return;
       }
 

@@ -310,13 +310,14 @@ export function useEditorPersistence({
       decision = decideExternalChange(buildInput(diskRead));
     }
 
-    const openConflictPrompt = () => {
+    const openConflictPrompt = (cause: 'external' | 'assisted' = 'external') => {
       setExternalConflictLocked(tab.id, true);
       setDocDirty(tab.id, true);
       if (!isExternalPromptInFlight(tab.id)) {
         void promptResolveExternalChangeForTab(tab.id, filePath, {
           diskContent: diskRead?.content ?? '',
           diskReadError: diskRead?.error ?? '',
+          cause,
         });
       }
     };
@@ -336,6 +337,7 @@ export function useEditorPersistence({
       }
 
       case 'auto_reload': {
+        const autoReloadCause = opts.assisted ? ('assisted' as const) : ('external' as const);
         const diskContent = diskRead?.content ?? '';
         // Hash do conteúdo visível ANTES de aplicar o reload (o retorno indica
         // se o conteúdo exibido mudou).
@@ -347,19 +349,21 @@ export function useEditorPersistence({
           setDocDirty(tab.id, false);
           void refreshDiskInfoForTab(tab);
           if (opts.notifyAutoReload && tab.id === currentDocumentId) {
-            addToast(t('editor.toast.externalReloaded'), 'info');
+            // Reload assistido é anunciado como alteração do assistente (o
+            // usuário acabou de aprovar o diff), não como mudança externa.
+            addToast(t(opts.assisted ? 'editor.toast.assistedReloaded' : 'editor.toast.externalReloaded'), 'info');
           }
           const diskHash = diskRead?.hash ?? hashStringFNV1a32(diskContent);
           return diskHash !== visibleHashBeforeReload;
         } catch {
           // Se não der pra aplicar automaticamente, cai pro fluxo de decisão explícita.
-          openConflictPrompt();
+          openConflictPrompt(autoReloadCause);
           return false;
         }
       }
 
       case 'prompt_conflict':
-        openConflictPrompt();
+        openConflictPrompt(decision.cause);
         return false;
 
       default:

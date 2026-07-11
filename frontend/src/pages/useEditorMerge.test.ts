@@ -257,6 +257,113 @@ describe('useEditorMerge', () => {
       expect(addToast).toHaveBeenCalledWith('editor.toast.externalChange', 'warning');
     });
 
+    it('usa título/descrição de mudança externa por padrão', async () => {
+      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
+
+      const { result } = setup();
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo externo',
+        });
+      });
+
+      const payload = requestQuestionnaire.mock.calls[0][0] as { title: string; description: string };
+      expect(payload.title).toBe('editor.questionnaire.externalChangeTitle');
+      expect(payload.description).toBe('editor.questionnaire.externalChangeDesc');
+    });
+
+    it('com causa assistida, usa título/descrição de alteração do assistente e toast específico ao cancelar', async () => {
+      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo da tool' as never);
+
+      const { result } = setup();
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo da tool',
+          cause: 'assisted',
+        });
+      });
+
+      const payload = requestQuestionnaire.mock.calls[0][0] as { title: string; description: string };
+      expect(payload.title).toBe('editor.questionnaire.assistedChangeTitle');
+      expect(payload.description).toBe('editor.questionnaire.assistedChangeDesc');
+      expect(addToast).toHaveBeenCalledWith('editor.toast.assistedChange', 'warning');
+      expect(addToast).not.toHaveBeenCalledWith('editor.toast.externalChange', 'warning');
+    });
+
+    it('reabrir o prompt sem causa reusa a causa assistida lembrada do lock pendente', async () => {
+      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo da tool' as never);
+
+      const { result } = setup();
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo da tool',
+          cause: 'assisted',
+        });
+      });
+
+      // Reabertura sem opts (ex.: Salvar com lock ativo em useEditorFileActions).
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md');
+      });
+
+      const payload = requestQuestionnaire.mock.calls[1][0] as { title: string };
+      expect(payload.title).toBe('editor.questionnaire.assistedChangeTitle');
+    });
+
+    it('destravar o conflito limpa a causa lembrada (próximo prompt volta ao padrão externo)', async () => {
+      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo da tool' as never);
+
+      const { result } = setup();
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo da tool',
+          cause: 'assisted',
+        });
+      });
+
+      act(() => {
+        result.current.setExternalConflictLocked('t1', false);
+      });
+
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo externo',
+        });
+      });
+
+      const payload = requestQuestionnaire.mock.calls[1][0] as { title: string };
+      expect(payload.title).toBe('editor.questionnaire.externalChangeTitle');
+    });
+
+    it('chamada com aba inexistente não vaza a causa para um prompt futuro do mesmo id', async () => {
+      requestQuestionnaire.mockResolvedValue({ cancelled: true });
+      vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
+
+      const { result } = setup();
+      // Aba ainda não existe: retorna cedo, sem persistir a causa.
+      editorStoreState.documents = {};
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', { cause: 'assisted' });
+      });
+      expect(requestQuestionnaire).not.toHaveBeenCalled();
+
+      // A aba passa a existir e um conflito externo real abre o prompt.
+      editorStoreState.documents = { t1: docWithPath };
+      await act(async () => {
+        await result.current.promptResolveExternalChangeForTab('t1', '/tmp/doc.md', {
+          diskContent: 'conteudo externo',
+        });
+      });
+
+      const payload = requestQuestionnaire.mock.calls[0][0] as { title: string };
+      expect(payload.title).toBe('editor.questionnaire.externalChangeTitle');
+    });
+
     it('ao cancelar com disco já igual ao local, desfaz o lock em vez de matar o autosave', async () => {
       requestQuestionnaire.mockResolvedValue({ cancelled: true });
       const { result } = setup();

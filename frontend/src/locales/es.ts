@@ -855,8 +855,10 @@ const es = {
       toast: {
         mergeConflict: 'Conflicto abierto para fusión manual (estilo Git). Resuelve los marcadores y usa Guardar para grabar en el archivo real.',
         externalChange: 'El archivo cambió fuera del Asistente. Autoguardado bloqueado hasta que decidas.',
+        assistedChange: 'Cambio del Asistente pendiente. Autoguardado bloqueado hasta que decidas.',
         reloaded: 'Recargado desde disco',
         externalReloaded: 'Archivo recargado desde disco (cambio externo)',
+        assistedReloaded: 'Cambio del Asistente aplicado en el editor',
         savedAs: 'Guardado en nuevo archivo',
         overwritten: 'Sobrescrito en disco',
         fileModified: 'El archivo fue modificado fuera del Asistente. Elige cómo resolver.',
@@ -903,6 +905,8 @@ const es = {
       questionnaire: {
         externalChangeTitle: 'Archivo modificado fuera del Asistente',
         externalChangeDesc: 'Este archivo cambió en disco mientras estaba abierto aquí. Para evitar sobrescribir sin querer, el autoguardado de este archivo queda bloqueado hasta que decidas.',
+        assistedChangeTitle: 'Cambio del Asistente en un archivo con ediciones locales',
+        assistedChangeDesc: 'El Asistente escribió en este archivo (un cambio que aprobaste), pero esta pestaña tiene ediciones locales sin guardar. Elige cómo combinar ambas versiones; el autoguardado queda bloqueado hasta que decidas.',
         abortMergeTitle: '¿Abortar merge (estilo Git)?',
         abortMergeDesc: 'Esto descartará el texto con marcadores de conflicto en esta pestaña y restaurará tu versión original. El guardado seguirá bloqueado para este archivo hasta que elijas cómo resolver la modificación externa.',
         abortMergeSubmit: 'Abortar merge',

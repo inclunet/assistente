@@ -31,7 +31,7 @@ func TestEditorAssistedWriteMarkerSurvivesRepeatedEventsWhileFileMatches(t *test
 			lastEmit: map[string]time.Time{},
 		},
 	}
-	app.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+	app.editorAssistedWriteByPath = map[string][]editorAssistedWrite{}
 
 	commit := app.markEditorAssistedWrite(filePath)
 	if commit == nil {
@@ -121,7 +121,7 @@ func TestEditorAssistedWriteMarkerCanBeCancelled(t *testing.T) {
 			lastEmit: map[string]time.Time{},
 		},
 	}
-	app.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+	app.editorAssistedWriteByPath = map[string][]editorAssistedWrite{}
 
 	commit := app.markEditorAssistedWrite(filePath)
 	if commit == nil {
@@ -153,7 +153,7 @@ func TestEditorAssistedWriteMarkerCommitDoesNotRecreateClearedMarker(t *testing.
 			lastEmit: map[string]time.Time{},
 		},
 	}
-	app.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+	app.editorAssistedWriteByPath = map[string][]editorAssistedWrite{}
 
 	commit := app.markEditorAssistedWrite(filePath)
 	if commit == nil {
@@ -189,7 +189,7 @@ func TestEditorAssistedWriteMarkerCommitDoesNotStampNewerGeneration(t *testing.T
 			lastEmit: map[string]time.Time{},
 		},
 	}
-	app.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+	app.editorAssistedWriteByPath = map[string][]editorAssistedWrite{}
 
 	oldCommit := app.markEditorAssistedWrite(filePath)
 	if oldCommit == nil {
@@ -204,10 +204,17 @@ func TestEditorAssistedWriteMarkerCommitDoesNotStampNewerGeneration(t *testing.T
 	}
 	oldCommit(true)
 
+	// Cada commit carimba apenas a PRÓPRIA geração: a mais nova segue pendente.
 	app.editorWatchMu.Lock()
-	write := app.editorAssistedWriteByPath[norm]
+	writes := app.editorAssistedWriteByPath[norm]
 	app.editorWatchMu.Unlock()
-	if write.committed {
+	if len(writes) != 2 {
+		t.Fatalf("expected 2 marker generations, got %d", len(writes))
+	}
+	if !writes[0].committed {
+		t.Fatal("old commit should stamp its own generation")
+	}
+	if writes[1].committed {
 		t.Fatal("old commit should not stamp newer marker generation")
 	}
 
@@ -240,7 +247,7 @@ func TestEditorAssistedWriteMarkerCancelDoesNotDeleteNewerGeneration(t *testing.
 			lastEmit: map[string]time.Time{},
 		},
 	}
-	app.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+	app.editorAssistedWriteByPath = map[string][]editorAssistedWrite{}
 
 	oldCommit := app.markEditorAssistedWrite(filePath)
 	if oldCommit == nil {
@@ -287,7 +294,7 @@ func TestEditorAssistedWriteMarkerStatErrorDoesNotDeleteNewerGeneration(t *testi
 			lastEmit: map[string]time.Time{},
 		},
 	}
-	app.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+	app.editorAssistedWriteByPath = map[string][]editorAssistedWrite{}
 
 	oldCommit := app.markEditorAssistedWrite(filePath)
 	if oldCommit == nil {
@@ -334,7 +341,7 @@ func TestEditorAssistedWriteMarkerRejectsDifferentFileState(t *testing.T) {
 			lastEmit: map[string]time.Time{},
 		},
 	}
-	app.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+	app.editorAssistedWriteByPath = map[string][]editorAssistedWrite{}
 
 	commit := app.markEditorAssistedWrite(filePath)
 	if commit == nil {
@@ -372,7 +379,7 @@ func TestEditorAssistedWriteMarkerWaitsForCommit(t *testing.T) {
 			lastEmit: map[string]time.Time{},
 		},
 	}
-	app.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+	app.editorAssistedWriteByPath = map[string][]editorAssistedWrite{}
 
 	commit := app.markEditorAssistedWrite(filePath)
 	if commit == nil {
@@ -418,7 +425,7 @@ func TestEditorAssistedWriteMarkerUncommittedReturnsWithoutConsuming(t *testing.
 			lastEmit: map[string]time.Time{},
 		},
 	}
-	app.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+	app.editorAssistedWriteByPath = map[string][]editorAssistedWrite{}
 
 	commit := app.markEditorAssistedWrite(filePath)
 	if commit == nil {
@@ -441,6 +448,113 @@ func TestEditorAssistedWriteMarkerUncommittedReturnsWithoutConsuming(t *testing.
 	}
 
 	commit(false)
+}
+
+// Regressão do falso "editado por outro aplicativo": a tool grava e commita,
+// e o autosave do editor registra nova marcação ANTES de gravar. O evento do
+// watcher referente à gravação da tool deve continuar casando com a geração
+// committada da tool (na entrada única antiga, a marcação era sobrescrita e o
+// evento virava mudança externa).
+func TestEditorAssistedWriteMarkerSurvivesNewerPendingGeneration(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	app := &App{}
+
+	norm, err := normalizeWatchPath(filePath)
+	if err != nil {
+		t.Fatalf("normalizeWatchPath: %v", err)
+	}
+
+	toolCommit := app.markEditorAssistedWrite(filePath)
+	if toolCommit == nil {
+		t.Fatal("expected tool commit function")
+	}
+	if err := os.WriteFile(filePath, []byte("conteudo da tool"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	toolCommit(true)
+
+	// Autosave marca a própria escrita, mas ainda não gravou nem commitou.
+	autosaveCommit := app.markEditorSelfWrite(filePath)
+	if autosaveCommit == nil {
+		t.Fatal("expected autosave commit function")
+	}
+
+	origin, ok := app.resolveEditorSelfWrite(norm)
+	if !ok {
+		t.Fatal("tool write should still resolve while a newer generation is pending")
+	}
+	if origin != "assistant_tool" {
+		t.Fatalf("origin = %q, want assistant_tool", origin)
+	}
+
+	autosaveCommit(false)
+}
+
+// Escritas rápidas em sequência (tool + autosave): o evento posterior à segunda
+// gravação casa com a geração mais nova e retorna o origin dela.
+func TestEditorAssistedWriteMarkerRapidSequentialWritesResolveLatestOrigin(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	app := &App{}
+
+	norm, err := normalizeWatchPath(filePath)
+	if err != nil {
+		t.Fatalf("normalizeWatchPath: %v", err)
+	}
+
+	toolCommit := app.markEditorAssistedWrite(filePath)
+	if err := os.WriteFile(filePath, []byte("conteudo da tool"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	toolCommit(true)
+
+	autosaveCommit := app.markEditorSelfWrite(filePath)
+	if err := os.WriteFile(filePath, []byte("conteudo maior do autosave"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	autosaveCommit(true)
+
+	origin, ok := app.resolveEditorSelfWrite(norm)
+	if !ok {
+		t.Fatal("latest write should resolve as self-write")
+	}
+	if origin != "editor_ui" {
+		t.Fatalf("origin = %q, want editor_ui (latest generation)", origin)
+	}
+
+	// Mudança externa real depois das gerações registradas continua detectada.
+	if err := os.WriteFile(filePath, []byte("outro programa escreveu algo diferente"), 0644); err != nil {
+		t.Fatalf("overwrite file: %v", err)
+	}
+	if origin, ok := app.resolveEditorSelfWrite(norm); ok {
+		t.Fatalf("external change should not resolve as self-write, got origin %q", origin)
+	}
+}
+
+// O número de gerações vivas por path é limitado (as mais antigas saem primeiro).
+func TestEditorAssistedWriteMarkerGenerationsAreBounded(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	app := &App{}
+
+	norm, err := normalizeWatchPath(filePath)
+	if err != nil {
+		t.Fatalf("normalizeWatchPath: %v", err)
+	}
+
+	for i := 0; i < editorAssistedWriteMaxGenerations*2; i++ {
+		if commit := app.markEditorAssistedWrite(filePath); commit == nil {
+			t.Fatal("expected commit function")
+		}
+	}
+
+	app.editorWatchMu.Lock()
+	got := len(app.editorAssistedWriteByPath[norm])
+	app.editorWatchMu.Unlock()
+	if got != editorAssistedWriteMaxGenerations {
+		t.Fatalf("expected %d live generations, got %d", editorAssistedWriteMaxGenerations, got)
+	}
 }
 
 func TestEditorWriteFileMarksSelfWriteWithEditorUIOrigin(t *testing.T) {
