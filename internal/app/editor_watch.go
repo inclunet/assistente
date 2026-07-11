@@ -32,7 +32,16 @@ type editorAssistedWrite struct {
 }
 
 const editorAssistedWriteTTL = 5 * time.Second
-const editorAssistedWriteCommitWait = 200 * time.Millisecond
+
+// editorAssistedWriteCommitWait é quanto o watcher espera pelo commit de uma
+// marcação pendente antes de tratar o evento como externo. Com margem sobre o
+// throttle de emissão (200ms): um evento pode chegar enquanto a gravação da
+// geração mais nova ainda não foi commitada (ex.: autosave logo após a tool).
+const editorAssistedWriteCommitWait = 500 * time.Millisecond
+
+// editorAssistedWriteMaxGenerations limita quantas marcações recentes são
+// mantidas por path (escritas rápidas em sequência: tool + autosave + retry).
+const editorAssistedWriteMaxGenerations = 8
 
 // Origens de escrita registradas para o watcher do editor.
 const (
@@ -109,7 +118,7 @@ func (a *App) ensureEditorWatchInit() {
 		a.editorDirWatches = map[string]*editorDirWatch{}
 	}
 	if a.editorAssistedWriteByPath == nil {
-		a.editorAssistedWriteByPath = map[string]editorAssistedWrite{}
+		a.editorAssistedWriteByPath = map[string][]editorAssistedWrite{}
 	}
 }
 
@@ -129,6 +138,11 @@ func (a *App) markEditorSelfWrite(path string) func(bool) {
 // markEditorWrite registra uma escrita iniciada pelo app no path informado e
 // retorna uma função de commit: commit(true) grava size+mtime do arquivo
 // recém-escrito na marcação; commit(false) cancela a marcação.
+//
+// Cada chamada cria uma GERAÇÃO independente por path (lista pequena com TTL):
+// escritas rápidas em sequência (tool do assistente + autosave do editor, ou
+// múltiplas tools) não sobrescrevem a marcação umas das outras, então um evento
+// do watcher que chegue atrasado ainda casa com a geração correspondente.
 func (a *App) markEditorWrite(path string, origin string) func(bool) {
 	a.ensureEditorWatchInit()
 	norm, err := normalizeWatchPath(path)
@@ -139,11 +153,16 @@ func (a *App) markEditorWrite(path string, origin string) func(bool) {
 	a.clearExpiredEditorAssistedWritesLocked(time.Now())
 	a.editorAssistedWriteSeq++
 	token := a.editorAssistedWriteSeq
-	a.editorAssistedWriteByPath[norm] = editorAssistedWrite{
+	writes := append(a.editorAssistedWriteByPath[norm], editorAssistedWrite{
 		origin:    origin,
 		expiresAt: time.Now().Add(editorAssistedWriteTTL),
 		token:     token,
+	})
+	// Limita o número de gerações vivas por path (as mais antigas saem primeiro).
+	if len(writes) > editorAssistedWriteMaxGenerations {
+		writes = writes[len(writes)-editorAssistedWriteMaxGenerations:]
 	}
+	a.editorAssistedWriteByPath[norm] = writes
 	a.editorWatchMu.Unlock()
 
 	return func(committed bool) {
@@ -158,15 +177,20 @@ func (a *App) markEditorWrite(path string, origin string) func(bool) {
 		}
 		a.editorWatchMu.Lock()
 		defer a.editorWatchMu.Unlock()
-		write, ok := a.editorAssistedWriteByPath[norm]
-		if !ok || write.token != token || time.Now().After(write.expiresAt) {
+		for i, write := range a.editorAssistedWriteByPath[norm] {
+			if write.token != token {
+				continue
+			}
+			if time.Now().After(write.expiresAt) {
+				return
+			}
+			write.size = info.Size()
+			write.modTime = info.ModTime()
+			write.committed = true
+			write.expiresAt = time.Now().Add(editorAssistedWriteTTL)
+			a.editorAssistedWriteByPath[norm][i] = write
 			return
 		}
-		write.size = info.Size()
-		write.modTime = info.ModTime()
-		write.committed = true
-		write.expiresAt = time.Now().Add(editorAssistedWriteTTL)
-		a.editorAssistedWriteByPath[norm] = write
 	}
 }
 
@@ -174,10 +198,23 @@ func (a *App) deleteEditorAssistedWriteIfToken(normalizedAbsPath string, token i
 	a.ensureEditorWatchInit()
 	a.editorWatchMu.Lock()
 	defer a.editorWatchMu.Unlock()
-	write, ok := a.editorAssistedWriteByPath[normalizedAbsPath]
-	if ok && write.token == token {
-		delete(a.editorAssistedWriteByPath, normalizedAbsPath)
+	writes := a.editorAssistedWriteByPath[normalizedAbsPath]
+	for i, write := range writes {
+		if write.token == token {
+			a.setEditorAssistedWritesLocked(normalizedAbsPath, append(writes[:i:i], writes[i+1:]...))
+			return
+		}
 	}
+}
+
+// setEditorAssistedWritesLocked grava a lista de gerações do path, removendo a
+// chave quando vazia. Chamar com editorWatchMu já adquirido.
+func (a *App) setEditorAssistedWritesLocked(normalizedAbsPath string, writes []editorAssistedWrite) {
+	if len(writes) == 0 {
+		delete(a.editorAssistedWriteByPath, normalizedAbsPath)
+		return
+	}
+	a.editorAssistedWriteByPath[normalizedAbsPath] = writes
 }
 
 func (a *App) clearEditorAssistedWrite(normalizedAbsPath string) {
@@ -188,53 +225,80 @@ func (a *App) clearEditorAssistedWrite(normalizedAbsPath string) {
 }
 
 func (a *App) clearExpiredEditorAssistedWritesLocked(now time.Time) {
-	for path, write := range a.editorAssistedWriteByPath {
-		if now.After(write.expiresAt) {
-			delete(a.editorAssistedWriteByPath, path)
+	for path, writes := range a.editorAssistedWriteByPath {
+		alive := writes[:0]
+		for _, write := range writes {
+			if !now.After(write.expiresAt) {
+				alive = append(alive, write)
+			}
 		}
+		a.setEditorAssistedWritesLocked(path, alive)
 	}
 }
 
-func (a *App) assistedWriteMatchesCurrentFile(normalizedAbsPath string, write editorAssistedWrite) bool {
-	if !write.committed {
-		return false
-	}
-	info, err := os.Stat(normalizedAbsPath)
-	if err != nil || info.IsDir() {
-		return false
-	}
-	return info.Size() == write.size && info.ModTime().Equal(write.modTime)
+func assistedWriteMatchesFileInfo(write editorAssistedWrite, info os.FileInfo) bool {
+	return write.committed && info.Size() == write.size && info.ModTime().Equal(write.modTime)
 }
 
 // resolveEditorSelfWrite verifica se o evento do watcher para o path
 // corresponde a uma escrita registrada pelo próprio app e retorna o origin.
 //
-// A marcação NÃO é consumida no primeiro match: o Windows costuma emitir
+// As marcações NÃO são consumidas no primeiro match: o Windows costuma emitir
 // múltiplos eventos Write para uma única gravação e o throttle de 200ms não
 // garante coalescência. Enquanto size+mtime do arquivo continuarem batendo com
-// a gravação commitada, todos os eventos dentro do TTL são atribuídos à mesma
-// escrita. Se o estado do arquivo divergir (mudança externa real), a marcação
-// daquela geração é invalidada imediatamente.
+// ALGUMA geração commitada não expirada, os eventos são atribuídos àquela
+// escrita (a mais recente vence em caso de empate). Gerações commitadas que já
+// não batem com o arquivo atual são invalidadas (foram sucedidas por outra
+// escrita ou por mudança externa real). Se restarem gerações ainda não
+// commitadas (gravação em andamento), o watcher espera pelo commit até o
+// deadline antes de tratar o evento como externo.
 func (a *App) resolveEditorSelfWrite(normalizedAbsPath string) (string, bool) {
 	deadline := time.Now().Add(editorAssistedWriteCommitWait)
 	for {
 		a.ensureEditorWatchInit()
+
+		info, statErr := os.Stat(normalizedAbsPath)
+		fileStatOK := statErr == nil && !info.IsDir()
+
 		a.editorWatchMu.Lock()
 		a.clearExpiredEditorAssistedWritesLocked(time.Now())
-		write, ok := a.editorAssistedWriteByPath[normalizedAbsPath]
-		a.editorWatchMu.Unlock()
-		if !ok {
+		writes := a.editorAssistedWriteByPath[normalizedAbsPath]
+		if len(writes) == 0 {
+			a.editorWatchMu.Unlock()
 			return "", false
 		}
-		if write.committed {
-			matches := !time.Now().After(write.expiresAt) && a.assistedWriteMatchesCurrentFile(normalizedAbsPath, write)
-			if matches {
-				return write.origin, true
+
+		hasPending := false
+		matchedOrigin := ""
+		matched := false
+		alive := make([]editorAssistedWrite, 0, len(writes))
+		// Itera da geração mais nova para a mais antiga: a escrita mais
+		// recente é a dona do estado atual do arquivo em caso de empate.
+		for i := len(writes) - 1; i >= 0; i-- {
+			write := writes[i]
+			if !write.committed {
+				hasPending = true
+				alive = append([]editorAssistedWrite{write}, alive...)
+				continue
 			}
-			a.deleteEditorAssistedWriteIfToken(normalizedAbsPath, write.token)
-			return "", false
+			if fileStatOK && assistedWriteMatchesFileInfo(write, info) {
+				if !matched {
+					matchedOrigin = write.origin
+					matched = true
+				}
+				alive = append([]editorAssistedWrite{write}, alive...)
+				continue
+			}
+			// Geração commitada que não bate com o arquivo atual: invalidada
+			// (sucedida por outra escrita ou por mudança externa real).
 		}
-		if time.Now().After(deadline) {
+		a.setEditorAssistedWritesLocked(normalizedAbsPath, alive)
+		a.editorWatchMu.Unlock()
+
+		if matched {
+			return matchedOrigin, true
+		}
+		if !hasPending || time.Now().After(deadline) {
 			return "", false
 		}
 		time.Sleep(10 * time.Millisecond)

@@ -101,7 +101,7 @@ type App struct {
 	// Watcher de arquivos do editor (mudanças externas)
 	editorWatchMu             sync.Mutex
 	editorDirWatches          map[string]*editorDirWatch
-	editorAssistedWriteByPath map[string]editorAssistedWrite
+	editorAssistedWriteByPath map[string][]editorAssistedWrite
 	editorAssistedWriteSeq    int64
 
 	// Workspace manager (unified tabs)
