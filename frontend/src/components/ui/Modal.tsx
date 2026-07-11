@@ -163,41 +163,98 @@ export function Modal({
     prevOpenRef.current = isOpen;
   }, [isOpen, returnFocusOnClose]);
 
-  // Auto-focus no primeiro elemento focável quando o modal abre
+  // Auto-focus no primeiro elemento focável quando o modal abre.
+  //
+  // A aplicação do foco é adiada para depois do primeiro paint (double-rAF):
+  // com NVDA + Chromium/WebView2, chamar `.focus()` no mesmo frame em que o
+  // subtree do modal é inserido no DOM dispara o evento de foco antes de a
+  // árvore de acessibilidade do novo conteúdo existir, e o leitor perde o
+  // evento — o diálogo abre sem que o controle focado seja anunciado.
   useLayoutEffect(() => {
     if (!isOpen || !modalRef.current) return;
 
-    if (!isTopMost()) return;
+    const applyFocus = () => {
+      const container = modalRef.current;
+      if (!container || !isTopMost()) return;
 
-    if (initialFocusSelector) {
-      // Seletor inválido não pode quebrar a abertura do modal: degrada para a
-      // heurística padrão (querySelector lança DOMException nesse caso).
-      let target: HTMLElement | null = null;
-      try {
-        target = modalRef.current.querySelector<HTMLElement>(initialFocusSelector);
-      } catch {
-        target = null;
-      }
-      if (target && isVisibleFocusableElement(target)) {
-        target.focus();
-        // Elemento visível mas não focável (ex.: div sem tabindex) não recebe
-        // foco de verdade; nesse caso segue para a heurística padrão.
-        if (document.activeElement === target) {
-          return;
+      if (initialFocusSelector) {
+        // Seletor inválido não pode quebrar a abertura do modal: degrada para a
+        // heurística padrão (querySelector lança DOMException nesse caso).
+        let target: HTMLElement | null = null;
+        try {
+          target = container.querySelector<HTMLElement>(initialFocusSelector);
+        } catch {
+          target = null;
+        }
+        if (target && isVisibleFocusableElement(target)) {
+          target.focus();
+          // Elemento visível mas não focável (ex.: div sem tabindex) não recebe
+          // foco de verdade; nesse caso segue para a heurística padrão.
+          if (document.activeElement === target) {
+            return;
+          }
         }
       }
-    }
 
-    const focusableElements = getFocusableElements();
-    // Procura primeiro um input/textarea/select editável (ignora readonly,
-    // usados para exibição de conteúdo), senão usa o primeiro focável
-    const firstInput = focusableElements.find(el =>
-      (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') &&
-      !(el as HTMLInputElement | HTMLTextAreaElement).readOnly
-    );
-    const firstFocusable = firstInput || focusableElements[0] || modalRef.current;
+      const focusableElements = getFocusableElements();
+      // Procura primeiro um input/textarea/select editável (ignora readonly,
+      // usados para exibição de conteúdo), senão usa o primeiro focável
+      const firstInput = focusableElements.find(el =>
+        (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') &&
+        !(el as HTMLInputElement | HTMLTextAreaElement).readOnly
+      );
 
-    firstFocusable.focus();
+      // Radiogroup com opção marcada: o foco inicial vai para o rádio
+      // `checked` (padrão WAI-ARIA/formulários), não para o primeiro do grupo
+      // — evita que o foco caia numa opção que não é a default (ex.: a opção
+      // destrutiva do diálogo de conflito de edição).
+      let preferredInput = firstInput;
+      if (
+        preferredInput instanceof HTMLInputElement &&
+        preferredInput.type === 'radio' &&
+        preferredInput.name &&
+        !preferredInput.checked
+      ) {
+        const groupName = preferredInput.name;
+        const checkedRadio = focusableElements.find(
+          (el): el is HTMLInputElement =>
+            el instanceof HTMLInputElement &&
+            el.type === 'radio' &&
+            el.name === groupName &&
+            el.checked
+        );
+        if (checkedRadio) preferredInput = checkedRadio;
+      }
+
+      const firstFocusable = preferredInput || focusableElements[0] || container;
+
+      firstFocusable.focus();
+    };
+
+    let secondRafId: number | undefined;
+    let verifyTimeoutId: number | undefined;
+
+    const firstRafId = requestAnimationFrame(() => {
+      secondRafId = requestAnimationFrame(() => {
+        applyFocus();
+
+        // Verificação única (~150ms depois): se algo roubou o foco logo após
+        // a abertura (ex.: efeito tardio de outro componente), reaplica uma
+        // vez. Sem polling contínuo — é um único timeout, cancelado no cleanup.
+        verifyTimeoutId = window.setTimeout(() => {
+          const container = modalRef.current;
+          if (!container || !isTopMost()) return;
+          if (container.contains(document.activeElement)) return;
+          applyFocus();
+        }, 150);
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(firstRafId);
+      if (secondRafId !== undefined) cancelAnimationFrame(secondRafId);
+      if (verifyTimeoutId !== undefined) window.clearTimeout(verifyTimeoutId);
+    };
   }, [isOpen, getFocusableElements, isTopMost, initialFocusSelector]);
 
   useEffect(() => {
