@@ -28,6 +28,8 @@ export interface QuestionnaireQuestion {
   step?: number;
   placeholder?: string;
   default?: string | number | boolean | string[];
+  /** Recebe o foco inicial quando o diálogo abre (apenas o primeiro marcado). */
+  autoFocus?: boolean;
 }
 
 export interface QuestionnaireRejectReason {
@@ -89,6 +91,21 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
     () => questions.some((q) => q.type === 'readonly_code'),
     [questions]
   );
+
+  // Pergunta marcada pelo backend para receber o foco inicial (ex.: bloco
+  // "Depois" na confirmação de edição, para o usuário ouvir primeiro como o
+  // texto vai ficar em vez de cair no campo de motivo da rejeição).
+  // Perguntas de escolha (boolean/single_choice/multiple_choice) não têm
+  // elemento com id `question-<id>`; nelas o alvo é o primeiro input do grupo.
+  const initialFocusSelector = useMemo(() => {
+    const target = questions.find((q) => q.autoFocus);
+    if (!target) return undefined;
+    const escapedId = CSS.escape(target.id);
+    if (target.type === 'boolean' || target.type === 'single_choice' || target.type === 'multiple_choice') {
+      return `input[name="question-${escapedId}"]`;
+    }
+    return `#question-${escapedId}`;
+  }, [questions]);
 
   useEffect(() => {
     if (!isOpen || !data) return;
@@ -168,6 +185,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
       returnFocusOnClose={false}
       allowClose={allowCancel}
       readingMode={hasReadonlyCode}
+      initialFocusSelector={initialFocusSelector}
     >
       {description && <p className="questionnaire-dialog__description">{description}</p>}
 
@@ -184,6 +202,9 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
           // Enter com foco no bloco readonly_code (<pre>) não deve submeter:
           // o usuário está apenas lendo/navegando pelo conteúdo.
           if (e.target instanceof HTMLPreElement) return;
+          // Enter em botões segue a ativação nativa (ex.: "Rejeitar" deve
+          // cancelar, não submeter o formulário).
+          if (e.target instanceof HTMLButtonElement) return;
           e.preventDefault();
           handleSubmit();
         }}

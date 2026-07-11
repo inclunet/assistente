@@ -240,8 +240,10 @@ describe('QuestionnaireDialog', () => {
     const code = screen.getByRole('region', { name: '1. Antes' });
     expect(code.tagName).toBe('PRE');
     expect(code).toHaveAttribute('tabindex', '0');
-    expect(code).toHaveTextContent('linha 1');
-    expect(code).toHaveTextContent('linha 2');
+    // Conteúdo exato, sem whitespace extra da indentação do JSX (o JSX remove
+    // espaços com quebra de linha ao redor de expressões) — importante porque
+    // o <pre> preserva whitespace e qualquer sobra mudaria o diff exibido/lido.
+    expect(code.textContent).toBe('linha 1\nlinha 2');
   });
 
   it('usa modo de leitura (role=document) quando há readonly_code', () => {
@@ -524,6 +526,81 @@ describe('QuestionnaireDialog', () => {
       const cancel = screen.getByRole('button', { name: 'Cancelar' });
       const submit = screen.getByRole('button', { name: 'Enviar' });
       expect(cancel.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('foco inicial vai para a pergunta com autoFocus, não para o campo de motivo', async () => {
+      const data = {
+        ...editConfirmData,
+        questions: [
+          { id: 'before', type: 'readonly_code' as const, prompt: 'Antes', content: 'texto antigo' },
+          {
+            id: 'after',
+            type: 'readonly_code' as const,
+            prompt: 'Depois',
+            content: 'texto novo',
+            autoFocus: true,
+          },
+        ],
+      };
+
+      render(
+        <QuestionnaireDialog isOpen data={data} onSubmit={vi.fn()} onCancel={vi.fn()} />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('region', { name: '2. Depois' })).toHaveFocus();
+      });
+      expect(screen.getByLabelText('Motivo da rejeição (opcional)')).not.toHaveFocus();
+    });
+
+    it('autoFocus em pergunta de escolha foca o primeiro input do grupo', async () => {
+      const data = {
+        ...editConfirmData,
+        questions: [
+          { id: 'before', type: 'readonly_code' as const, prompt: 'Antes', content: 'texto antigo' },
+          {
+            id: 'choice',
+            type: 'single_choice' as const,
+            prompt: 'Ação',
+            options: ['Usar disco', 'Manter'],
+            autoFocus: true,
+          },
+        ],
+      };
+
+      render(
+        <QuestionnaireDialog isOpen data={data} onSubmit={vi.fn()} onCancel={vi.fn()} />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('radio', { name: 'Usar disco' })).toHaveFocus();
+      });
+    });
+
+    it('Enter com foco no botão Rejeitar cancela em vez de submeter', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn();
+      const onCancel = vi.fn();
+      render(
+        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={onSubmit} onCancel={onCancel} />
+      );
+
+      screen.getByRole('button', { name: 'Rejeitar' }).focus();
+      await user.keyboard('{Enter}');
+
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('sem autoFocus o foco inicial segue a heurística padrão', async () => {
+      render(
+        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={vi.fn()} />
+      );
+
+      // Sem autoFocus, o primeiro campo editável do diálogo é o motivo da rejeição.
+      await waitFor(() => {
+        expect(screen.getByLabelText('Motivo da rejeição (opcional)')).toHaveFocus();
+      });
     });
 
     it('diálogo com rejectReason não tem violações de acessibilidade', async () => {

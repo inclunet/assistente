@@ -28,6 +28,10 @@ type Question struct {
 	Step        *float64 `json:"step,omitempty"`
 	Placeholder string   `json:"placeholder,omitempty"`
 	Default     any      `json:"default,omitempty"`
+	// AutoFocus indica que este item deve receber o foco inicial quando o
+	// diálogo abre, sobrepondo a heurística padrão do frontend (primeiro
+	// campo editável). Apenas o primeiro item marcado é considerado.
+	AutoFocus bool `json:"autoFocus,omitempty"`
 }
 
 // RejectReasonConfig descreve um campo opcional de texto livre exibido junto

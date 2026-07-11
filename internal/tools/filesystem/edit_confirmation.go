@@ -111,7 +111,9 @@ func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, t
 		Description: description,
 		Questions: []questionnaire.Question{
 			{ID: "before", Type: "readonly_code", Prompt: "Antes", Content: before},
-			{ID: "after", Type: "readonly_code", Prompt: "Depois", Content: after},
+			// Foco inicial no "Depois": o usuário quer ouvir primeiro como o
+			// texto vai ficar, não preencher o motivo de rejeição.
+			{ID: "after", Type: "readonly_code", Prompt: "Depois", Content: after, AutoFocus: true},
 		},
 		AllowCancel: true,
 		SubmitLabel: "Aplicar",
