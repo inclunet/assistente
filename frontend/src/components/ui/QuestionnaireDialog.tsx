@@ -181,6 +181,9 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
           if (e.key !== 'Enter') return;
           if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
           if (e.target instanceof HTMLTextAreaElement) return;
+          // Enter com foco no bloco readonly_code (<pre>) não deve submeter:
+          // o usuário está apenas lendo/navegando pelo conteúdo.
+          if (e.target instanceof HTMLPreElement) return;
           e.preventDefault();
           handleSubmit();
         }}

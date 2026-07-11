@@ -287,6 +287,35 @@ describe('QuestionnaireDialog', () => {
     expect(screen.queryByRole('document')).toBeNull();
   });
 
+  it('Enter com foco no bloco readonly_code não submete o formulário', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(
+      <QuestionnaireDialog
+        isOpen
+        data={{
+          id: 'q-enter',
+          title: 'Confirmação de edição',
+          questions: [
+            {
+              id: 'before',
+              type: 'readonly_code',
+              prompt: 'Antes',
+              content: 'linha 1\nlinha 2',
+            },
+          ],
+        }}
+        onSubmit={onSubmit}
+      />
+    );
+
+    const code = screen.getByRole('region', { name: '1. Antes' });
+    code.focus();
+    await user.keyboard('{Enter}');
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it('não inclui readonly_code nas respostas do submit', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
