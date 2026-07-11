@@ -56,15 +56,6 @@ export interface QuestionnaireDialogProps {
   onCancel?: (answers?: Record<string, unknown>) => void;
 }
 
-const READONLY_CODE_MIN_ROWS = 3;
-const READONLY_CODE_MAX_ROWS = 14;
-
-// split com limite evita materializar todas as linhas de conteúdos grandes
-// (diffs/arquivos inteiros) só para dimensionar o textarea.
-function readonlyCodeRows(content: string): number {
-  return Math.max(READONLY_CODE_MIN_ROWS, content.split('\n', READONLY_CODE_MAX_ROWS).length);
-}
-
 function isEmptyValue(value: unknown, type: QuestionnaireQuestionType): boolean {
   if (type === 'multiple_choice') {
     return !Array.isArray(value) || value.length === 0;
@@ -88,6 +79,16 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
   const cancelLabel = data?.cancelLabel || 'Cancelar';
 
   const questions = useMemo(() => data?.questions || [], [data]);
+
+  // Diálogos com blocos readonly_code (confirmação de edição Antes/Depois,
+  // diff de conflito, consentimento de rede) são de leitura pesada: o Modal
+  // recebe readingMode (role="document"), fazendo o NVDA entrar em modo de
+  // navegação e permitir leitura linha a linha com as setas. Questionários
+  // só de formulário mantêm role="application" (modo de foco).
+  const hasReadonlyCode = useMemo(
+    () => questions.some((q) => q.type === 'readonly_code'),
+    [questions]
+  );
 
   useEffect(() => {
     if (!isOpen || !data) return;
@@ -166,6 +167,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
       size="lg"
       returnFocusOnClose={false}
       allowClose={allowCancel}
+      readingMode={hasReadonlyCode}
     >
       {description && <p className="questionnaire-dialog__description">{description}</p>}
 
@@ -185,7 +187,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
       >
         {questions.map((q, index) => {
           const labelId = `question-label-${q.id}`;
-          const controlId = (q.type === 'text' || q.type === 'password' || q.type === 'long_text' || q.type === 'number' || q.type === 'scale' || q.type === 'date' || q.type === 'readonly_code')
+          const controlId = (q.type === 'text' || q.type === 'password' || q.type === 'long_text' || q.type === 'number' || q.type === 'scale' || q.type === 'date')
             ? `question-${q.id}`
             : undefined;
           const answer = answers[q.id];
@@ -245,17 +247,19 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
             )}
 
             {q.type === 'readonly_code' && (
-              // textarea readOnly (nunca disabled): mantém o caret do sistema,
-              // permitindo que leitores de tela leiam linha a linha em modo de
-              // foco mesmo dentro do role="application" do Modal.
-              <textarea
+              // Conteúdo estático: com o readingMode do Modal (role="document"),
+              // o NVDA lê o bloco linha a linha em modo de navegação, sem
+              // depender de caret. O tabIndex mantém uma parada de Tab para
+              // orientação; role="region" dá nome acessível via aria-labelledby.
+              <pre
                 id={`question-${q.id}`}
                 className="questionnaire-dialog__readonly"
-                value={q.content ?? ''}
-                readOnly
-                wrap="off"
-                rows={readonlyCodeRows(q.content ?? '')}
-              />
+                tabIndex={0}
+                role="region"
+                aria-labelledby={labelId}
+              >
+                {q.content ?? ''}
+              </pre>
             )}
 
             {q.type === 'number' && (
