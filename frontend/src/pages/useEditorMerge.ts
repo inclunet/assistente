@@ -263,13 +263,16 @@ export function useEditorMerge() {
     }
   ) => {
     if (isExternalPromptInFlight(tabId)) return;
-    const cause = opts?.cause ?? externalConflictCauseByTabRef.current[String(tabId || '')] ?? 'external';
-    externalConflictCauseByTabRef.current[String(tabId || '')] = cause;
-    const assistedCause = cause === 'assisted';
 
     const { documents: currentDocs } = useEditorStore.getState();
     const tab = currentDocs[tabId] || null;
     if (!tab || !tab.filePath) return;
+
+    // Só depois de validar a aba: uma chamada com tabId inválido não pode
+    // "vazar" causa no ref e contaminar um prompt futuro para o mesmo id.
+    const cause = opts?.cause ?? externalConflictCauseByTabRef.current[String(tabId || '')] ?? 'external';
+    externalConflictCauseByTabRef.current[String(tabId || '')] = cause;
+    const assistedCause = cause === 'assisted';
 
     setExternalPromptInFlight(tabId, true);
     try {
