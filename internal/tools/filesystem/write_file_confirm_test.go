@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"assistente/internal/questionnaire"
+	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
 
@@ -152,6 +153,131 @@ func TestWriteFile_EditorOtherFile_WritesDirect(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(dir, "novo.md"))
 	if string(data) != "conteúdo" {
 		t.Errorf("arquivo não foi gravado: %s", string(data))
+	}
+}
+
+// chatTabCtxWithOpenEditors simula a invocação de uma aba de chat PARALELA com
+// arquivos abertos em abas de editor (paths injetados pelo SendMessageUseCase).
+func chatTabCtxWithOpenEditors(openPaths ...string) context.Context {
+	ctx := invocationctx.With(context.Background(), invocationctx.InvocationContext{TabType: "chat"})
+	return tools.WithOpenEditorPaths(ctx, openPaths)
+}
+
+// AEP-0032: escrita vinda de aba paralela em arquivo aberto em QUALQUER aba de
+// editor exige a mesma confirmação Antes/Depois da aba invocadora.
+func TestWriteFile_ParallelTab_OpenEditorFile_RequiresConfirmation(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	_ = os.WriteFile(filePath, []byte("conteúdo antigo"), 0644)
+
+	quest := &writeConfirmFakeRequester{}
+	tool := NewWriteFile(dir, WithWriteFileQuestionnaire(quest))
+
+	result, err := tool.Execute(chatTabCtxWithOpenEditors(filePath), writeArgs(t, "doc.md", "conteúdo novo"))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("resultado é erro: %s", result.Content)
+	}
+	if len(quest.calls) != 1 {
+		t.Fatalf("questionário deve ser exibido para arquivo aberto em aba de editor, foi %d vez(es)", len(quest.calls))
+	}
+
+	data, _ := os.ReadFile(filePath)
+	if string(data) != "conteúdo novo" {
+		t.Errorf("arquivo não foi gravado após aprovação: %s", string(data))
+	}
+}
+
+func TestWriteFile_ParallelTab_OpenEditorFile_RejectedDoesNotWrite(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	_ = os.WriteFile(filePath, []byte("conteúdo antigo"), 0644)
+
+	quest := &writeConfirmFakeRequester{cancelled: true}
+	tool := NewWriteFile(dir, WithWriteFileQuestionnaire(quest))
+
+	result, err := tool.Execute(chatTabCtxWithOpenEditors(filePath), writeArgs(t, "doc.md", "conteúdo novo"))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("resultado deve ser erro quando rejeitado")
+	}
+
+	data, _ := os.ReadFile(filePath)
+	if string(data) != "conteúdo antigo" {
+		t.Errorf("arquivo não pode ser modificado após rejeição: %s", string(data))
+	}
+}
+
+func TestWriteFile_ParallelTab_FileNotOpenInEditor_WritesDirect(t *testing.T) {
+	dir := t.TempDir()
+	quest := &writeConfirmFakeRequester{}
+	tool := NewWriteFile(dir, WithWriteFileQuestionnaire(quest))
+
+	// Outro arquivo está aberto no editor; o alvo não.
+	ctx := chatTabCtxWithOpenEditors(filepath.Join(dir, "outro.md"))
+	result, err := tool.Execute(ctx, writeArgs(t, "novo.md", "conteúdo"))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("resultado é erro: %s", result.Content)
+	}
+	if len(quest.calls) != 0 {
+		t.Errorf("questionário não deve ser exibido para arquivo não aberto no editor, foi %d vez(es)", len(quest.calls))
+	}
+}
+
+func TestWriteFile_ParallelTab_OpenEditorFile_CaseInsensitiveWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("comparação case-insensitive só se aplica ao Windows")
+	}
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	_ = os.WriteFile(filePath, []byte("antigo"), 0644)
+
+	quest := &writeConfirmFakeRequester{}
+	tool := NewWriteFile(dir, WithWriteFileQuestionnaire(quest))
+
+	ctx := chatTabCtxWithOpenEditors(strings.ToUpper(filePath))
+	result, err := tool.Execute(ctx, writeArgs(t, "doc.md", "novo"))
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("resultado é erro: %s", result.Content)
+	}
+	if len(quest.calls) != 1 {
+		t.Errorf("capitalização diferente não pode burlar a confirmação: questionário foi exibido %d vez(es)", len(quest.calls))
+	}
+}
+
+func TestEditFile_ParallelTab_OpenEditorFile_RequiresConfirmation(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "doc.md")
+	_ = os.WriteFile(filePath, []byte("linha um\nlinha dois\n"), 0644)
+
+	quest := &writeConfirmFakeRequester{}
+	tool := NewEditFile(dir, quest)
+
+	args, _ := json.Marshal(map[string]any{"path": "doc.md", "old_string": "linha dois", "new_string": "linha DOIS"})
+	result, err := tool.Execute(chatTabCtxWithOpenEditors(filePath), args)
+	if err != nil {
+		t.Fatalf("Execute retornou erro: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("resultado é erro: %s", result.Content)
+	}
+	if len(quest.calls) != 1 {
+		t.Fatalf("questionário deve ser exibido para edit_file em arquivo aberto no editor, foi %d vez(es)", len(quest.calls))
+	}
+
+	data, _ := os.ReadFile(filePath)
+	if string(data) != "linha um\nlinha DOIS\n" {
+		t.Errorf("edição não aplicada após aprovação: %s", string(data))
 	}
 }
 
