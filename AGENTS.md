@@ -14,7 +14,7 @@ aqui. `CLAUDE.md` apenas importa este arquivo e
 Toda feature ou correção não-trivial segue este fluxo, sem exceções:
 
 1. **Consulte os AEPs** relevantes em `aep/` antes de implementar (veja a seção AEPs).
-2. **Isole o trabalho**: crie um git worktree próprio com branch descritiva a partir de `origin/main` (ex.: `git worktree add ..\assistente-wt-<tema> -b <tipo>/<tema> origin/main`). Não trabalhe direto na `main`.
+2. **Isole o trabalho**: crie um git worktree próprio com branch descritiva a partir de `origin/main` (ex.: `git worktree add ../assistente-wt-<tema> -b <tipo>/<tema> origin/main`). Não trabalhe direto na `main`.
 3. **Commits temáticos em português**, um assunto por commit.
 4. **Valide localmente antes do push**: backend `go build ./...`, `go vet ./...`, `go test ./...` (e `golangci-lint run` se disponível); frontend `tsc --noEmit`, eslint, stylelint e `npm test` (vitest).
 5. **Abra um PR para `main`** com título e corpo em português (motivação, mudanças, testes). Um PR por assunto; prefira PRs pequenos. Se um PR depende de outro ainda aberto, empilhe (base = branch do PR dependido) e informe a ordem de merge no corpo.
@@ -161,21 +161,21 @@ O diretório `aep/` é o repositório único de decisões arquiteturais do proje
 Todo PR para `main` roda automaticamente:
 - **Go**: build, vet e testes (incluindo job com detector de corrida)
 - **TypeScript**: `tsc --noEmit`
-- **ESLint** com `jsx-a11y`: detecta ARIA invalido, roles ausentes
+- **ESLint** com `jsx-a11y`: detecta ARIA inválido, roles ausentes
 - **Stylelint**: impede cores e font-sizes hardcoded (deve usar tokens do `theme.css`)
 - **Vitest** com `axe-core`: testes de acessibilidade nos componentes UI
 - **E2E**: Playwright
 
 ### O que o CI bloqueia
-- Cores hardcoded (#hex, rgb, rgba) em CSS — use variaveis do tema
-- Atributos ARIA invalidos — use os padroes documentados
+- Cores hardcoded (#hex, rgb, rgba) em CSS — use variáveis do tema
+- Atributos ARIA inválidos — use os padrões documentados
 - Componentes sem labels de acessibilidade
 - Testes falhando (incluindo testes axe-core)
 
-### Checklist para novo codigo
-- [ ] Strings visiveis usam `t('key', 'fallback')` nos 3 locales
-- [ ] Icones decorativos tem `aria-hidden="true"`
-- [ ] Botoes icon-only tem `aria-label`
-- [ ] Cores vem de variaveis CSS (`--bg-*`, `--text-*`, etc.)
+### Checklist para novo código
+- [ ] Strings visíveis usam `t('key', 'fallback')` nos 3 locales
+- [ ] Ícones decorativos têm `aria-hidden="true"`
+- [ ] Botões icon-only têm `aria-label`
+- [ ] Cores vêm de variáveis CSS (`--bg-*`, `--text-*`, etc.)
 - [ ] Font-sizes usam tokens (`--font-size-sm`, `--font-size-base`, etc.)
-- [ ] Inputs/selects tem `height: 32px`, botoes tem `min-height: 36px`
+- [ ] Inputs/selects têm `height: 32px`, botões têm `min-height: 36px`
