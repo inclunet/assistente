@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from '../../test/a11yAxe';
 import { QuestionnaireDialog } from './QuestionnaireDialog';
 import { Modal } from './Modal';
+import { useQuestionnaireUIStore } from '../../store/questionnaireUIStore';
 
 const announceMock = vi.hoisted(() => vi.fn());
 const restoreDefaultFocusMock = vi.hoisted(() => vi.fn(() => {
@@ -43,6 +44,7 @@ describe('QuestionnaireDialog', () => {
     } else {
       delete (HTMLElement.prototype as { offsetParent?: unknown }).offsetParent;
     }
+    useQuestionnaireUIStore.setState({ active: null, queue: [], _activeResolve: null });
   });
 
   it('move foco para o primeiro controle e anuncia a abertura', async () => {
@@ -77,7 +79,7 @@ describe('QuestionnaireDialog', () => {
     );
   });
 
-  it('toma foco imediatamente quando alteração externa abre com editor focado', () => {
+  it('toma foco quando alteração externa abre com editor focado', async () => {
     const externalChangeData = {
       id: 'ui-editor-external-change-test',
       title: 'Alteração externa detectada',
@@ -142,8 +144,13 @@ describe('QuestionnaireDialog', () => {
       </>
     );
 
+    // O foco é aplicado após o paint (double-rAF) para o NVDA não perder o
+    // evento; a garantia continua sendo que o foco sai do editor e vai para
+    // o controle de decisão do diálogo.
+    await waitFor(() => {
+      expect(screen.getByRole('radio', { name: 'Usar versão do disco' })).toHaveFocus();
+    });
     expect(editor).not.toHaveFocus();
-    expect(screen.getByRole('radio', { name: 'Usar versão do disco' })).toHaveFocus();
     expect(announceMock).toHaveBeenCalledWith(
       'Alteração externa detectada. O arquivo foi alterado fora do Assistente.',
       'assertive'
@@ -191,7 +198,9 @@ describe('QuestionnaireDialog', () => {
     );
 
     const chatInput = screen.getByRole('textbox', { name: 'Mensagem' });
-    expect(chatInput).toHaveFocus();
+    await waitFor(() => {
+      expect(chatInput).toHaveFocus();
+    });
 
     rerender(
       <>
@@ -209,12 +218,85 @@ describe('QuestionnaireDialog', () => {
     );
 
     const decisionControl = screen.getByRole('radio', { name: 'Usar versão do disco' });
-    expect(decisionControl).toHaveFocus();
+    await waitFor(() => {
+      expect(decisionControl).toHaveFocus();
+    });
 
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    // Aguarda também a janela da verificação de foco (~150ms) e o rAF do
+    // restorePageFocus do modal de chat: nada pode devolver o foco à página.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
 
     expect(decisionControl).toHaveFocus();
     expect(restoreDefaultFocusMock).not.toHaveBeenCalled();
+  });
+
+  it('segundo questionário da fila recebe foco inicial ao resolver o primeiro', async () => {
+    function QueueHost() {
+      const active = useQuestionnaireUIStore((s) => s.active);
+      const submit = useQuestionnaireUIStore((s) => s.submit);
+      const cancel = useQuestionnaireUIStore((s) => s.cancel);
+      return (
+        <QuestionnaireDialog
+          isOpen={Boolean(active)}
+          data={active}
+          onSubmit={submit}
+          onCancel={cancel}
+        />
+      );
+    }
+
+    render(<QueueHost />);
+
+    let firstResult: Promise<unknown> | undefined;
+    let secondResult: Promise<unknown> | undefined;
+    act(() => {
+      const { request } = useQuestionnaireUIStore.getState();
+      firstResult = request({
+        id: 'fila-1',
+        title: 'Primeiro questionário',
+        questions: [{ id: 'nome', type: 'text', prompt: 'Nome' }],
+      });
+      secondResult = request({
+        id: 'fila-2',
+        title: 'Segundo questionário',
+        questions: [
+          {
+            id: 'choice',
+            type: 'single_choice',
+            prompt: 'Ação',
+            options: ['Usar disco', 'Manter minha versão'],
+            default: 'Manter minha versão',
+          },
+        ],
+      });
+    });
+
+    const nameInput = await screen.findByLabelText('1. Nome');
+    await waitFor(() => {
+      expect(nameInput).toHaveFocus();
+    });
+
+    const user = userEvent.setup();
+    await user.type(nameInput, 'Leonardo');
+    await user.click(screen.getByRole('button', { name: 'Enviar' }));
+
+    await expect(firstResult).resolves.toEqual({
+      answers: { nome: 'Leonardo' },
+      cancelled: false,
+    });
+
+    // O store troca o `active` sem o diálogo fechar; o segundo questionário
+    // precisa receber o foco inicial (no rádio marcado, não no primeiro).
+    await screen.findByRole('radio', { name: 'Manter minha versão' });
+    await waitFor(() => {
+      expect(screen.getByRole('radio', { name: 'Manter minha versão' })).toHaveFocus();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Enviar' }));
+    await expect(secondResult).resolves.toEqual({
+      answers: { choice: 'Manter minha versão' },
+      cancelled: false,
+    });
   });
 
   it('renderiza readonly_code como bloco estático focável com label associado', () => {
