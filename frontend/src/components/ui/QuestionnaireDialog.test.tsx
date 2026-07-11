@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { axe } from '../../test/a11yAxe';
 import { QuestionnaireDialog } from './QuestionnaireDialog';
 import { Modal } from './Modal';
-import { axe } from '../../test/a11yAxe';
 
 const announceMock = vi.hoisted(() => vi.fn());
 const restoreDefaultFocusMock = vi.hoisted(() => vi.fn(() => {
