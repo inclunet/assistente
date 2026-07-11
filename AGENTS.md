@@ -23,6 +23,26 @@ Toda feature ou correção não-trivial segue este fluxo, sem exceções:
 8. **Nunca faça merge do PR.** O merge é decisão do dono do projeto.
 9. Ao final, reporte: número/URL do PR, o que mudou, resultado de testes/checks e rodadas de review.
 
+## Testes (não deixar feature descoberta)
+- Sempre verificar se a mudança/feature está coberta por testes.
+  - Frontend: preferir **Vitest** para utilitários, hooks e componentes.
+  - Backend: preferir `go test ./...` com testes de unidade/integração onde fizer sentido.
+- Se não houver teste cobrindo o comportamento alterado (ou se a cobertura estiver fraca), criar/atualizar testes junto com a mudança.
+- Ao adicionar testes, manter o escopo focado na feature tocada (evitar "mass refactor" de testes).
+
+### Regras rígidas
+- Nunca deletar testes para "resolver" falhas.
+- Nunca simplificar testes para facilitar aprovação; corrigir o código é sempre o caminho.
+
+## Logs (performance + ruído)
+- Evite adicionar `console.log` em código de produção.
+- Ao mexer em um recurso/arquivo, remova `console.log` existentes no trecho tocado.
+- `console.warn` e `console.error` são permitidos quando representam condição anômala real.
+- Se for indispensável logar para diagnóstico, prefira log temporário removido antes do merge, ou log protegido por flag (ex.: `import.meta.env.DEV` + toggle em `localStorage`).
+
+## Escopo de mudanças
+- Não faça "varreduras globais" (ex.: remoção de logs, renomeações em massa) sem necessidade do PR; aplique limpezas incrementalmente quando o recurso for alterado.
+
 ## Sistema de Temas e Cores (OBRIGATÓRIO)
 
 O app usa um sistema centralizado de design tokens definido em `frontend/src/theme.css`.
