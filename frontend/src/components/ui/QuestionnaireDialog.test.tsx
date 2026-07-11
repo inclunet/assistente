@@ -217,7 +217,7 @@ describe('QuestionnaireDialog', () => {
     expect(restoreDefaultFocusMock).not.toHaveBeenCalled();
   });
 
-  it('renderiza readonly_code como textarea somente leitura com label associado', () => {
+  it('renderiza readonly_code como bloco estático focável com label associado', () => {
     render(
       <QuestionnaireDialog
         isOpen
@@ -237,11 +237,83 @@ describe('QuestionnaireDialog', () => {
       />
     );
 
-    const code = screen.getByRole('textbox', { name: '1. Antes' });
-    expect(code.tagName).toBe('TEXTAREA');
-    expect(code).toHaveAttribute('readonly');
-    expect(code).not.toBeDisabled();
-    expect(code).toHaveValue('linha 1\nlinha 2');
+    const code = screen.getByRole('region', { name: '1. Antes' });
+    expect(code.tagName).toBe('PRE');
+    expect(code).toHaveAttribute('tabindex', '0');
+    expect(code).toHaveTextContent('linha 1');
+    expect(code).toHaveTextContent('linha 2');
+  });
+
+  it('usa modo de leitura (role=document) quando há readonly_code', () => {
+    render(
+      <QuestionnaireDialog
+        isOpen
+        data={{
+          id: 'q-reading-mode',
+          title: 'Confirmação de edição',
+          questions: [
+            {
+              id: 'before',
+              type: 'readonly_code',
+              prompt: 'Antes',
+              content: 'linha 1\nlinha 2',
+            },
+          ],
+        }}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const readingBody = screen.getByRole('document');
+    expect(readingBody).toHaveClass('modal-body');
+    expect(screen.queryByRole('application')).toBeNull();
+  });
+
+  it('mantém role=application quando não há readonly_code', () => {
+    render(
+      <QuestionnaireDialog
+        isOpen
+        data={{
+          id: 'q-form-mode',
+          title: 'Questionário',
+          questions: [{ id: 'nome', type: 'text', prompt: 'Nome' }],
+        }}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const formBody = screen.getByRole('application');
+    expect(formBody).toHaveClass('modal-body');
+    expect(screen.queryByRole('document')).toBeNull();
+  });
+
+  it('Enter com foco no bloco readonly_code não submete o formulário', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(
+      <QuestionnaireDialog
+        isOpen
+        data={{
+          id: 'q-enter',
+          title: 'Confirmação de edição',
+          questions: [
+            {
+              id: 'before',
+              type: 'readonly_code',
+              prompt: 'Antes',
+              content: 'linha 1\nlinha 2',
+            },
+          ],
+        }}
+        onSubmit={onSubmit}
+      />
+    );
+
+    const code = screen.getByRole('region', { name: '1. Antes' });
+    code.focus();
+    await user.keyboard('{Enter}');
+
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it('não inclui readonly_code nas respostas do submit', async () => {
@@ -294,6 +366,23 @@ describe('QuestionnaireDialog', () => {
               content: 'linha 1\nlinha 2',
             },
           ],
+        }}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog');
+    expect(await axe(dialog)).toHaveNoViolations();
+  });
+
+  it('questionário sem readonly_code não tem violações de acessibilidade (axe)', async () => {
+    render(
+      <QuestionnaireDialog
+        isOpen
+        data={{
+          id: 'q-axe-form',
+          title: 'Questionário',
+          questions: [{ id: 'nome', type: 'text', prompt: 'Nome' }],
         }}
         onSubmit={vi.fn()}
       />
