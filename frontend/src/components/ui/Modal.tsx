@@ -170,7 +170,14 @@ export function Modal({
     if (!isTopMost()) return;
 
     if (initialFocusSelector) {
-      const target = modalRef.current.querySelector<HTMLElement>(initialFocusSelector);
+      // Seletor inválido não pode quebrar a abertura do modal: degrada para a
+      // heurística padrão (querySelector lança DOMException nesse caso).
+      let target: HTMLElement | null = null;
+      try {
+        target = modalRef.current.querySelector<HTMLElement>(initialFocusSelector);
+      } catch {
+        target = null;
+      }
       if (target && isVisibleFocusableElement(target)) {
         target.focus();
         return;

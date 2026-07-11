@@ -124,6 +124,16 @@ describe('Modal', () => {
     expect(document.getElementById('alvo')).toHaveFocus();
   });
 
+  it('usa a heuristica padrao quando initialFocusSelector e invalido, sem lancar', () => {
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Titulo" initialFocusSelector=":::seletor-invalido(">
+        <input aria-label="Campo" />
+      </Modal>
+    );
+
+    expect(screen.getByRole('textbox', { name: 'Campo' })).toHaveFocus();
+  });
+
   it('usa a heuristica padrao quando initialFocusSelector nao encontra elemento', () => {
     render(
       <Modal isOpen={true} onClose={vi.fn()} title="Titulo" initialFocusSelector="#inexistente">

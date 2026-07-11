@@ -551,6 +551,45 @@ describe('QuestionnaireDialog', () => {
       expect(screen.getByLabelText('Motivo da rejeição (opcional)')).not.toHaveFocus();
     });
 
+    it('autoFocus em pergunta de escolha foca o primeiro input do grupo', async () => {
+      const data = {
+        ...editConfirmData,
+        questions: [
+          { id: 'before', type: 'readonly_code' as const, prompt: 'Antes', content: 'texto antigo' },
+          {
+            id: 'choice',
+            type: 'single_choice' as const,
+            prompt: 'Ação',
+            options: ['Usar disco', 'Manter'],
+            autoFocus: true,
+          },
+        ],
+      };
+
+      render(
+        <QuestionnaireDialog isOpen data={data} onSubmit={vi.fn()} onCancel={vi.fn()} />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('radio', { name: 'Usar disco' })).toHaveFocus();
+      });
+    });
+
+    it('Enter com foco no botão Rejeitar cancela em vez de submeter', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn();
+      const onCancel = vi.fn();
+      render(
+        <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={onSubmit} onCancel={onCancel} />
+      );
+
+      screen.getByRole('button', { name: 'Rejeitar' }).focus();
+      await user.keyboard('{Enter}');
+
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
     it('sem autoFocus o foco inicial segue a heurística padrão', async () => {
       render(
         <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={vi.fn()} />
