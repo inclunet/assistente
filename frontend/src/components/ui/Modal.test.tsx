@@ -124,6 +124,17 @@ describe('Modal', () => {
     expect(document.getElementById('alvo')).toHaveFocus();
   });
 
+  it('usa a heuristica padrao quando initialFocusSelector aponta para elemento nao focavel', () => {
+    render(
+      <Modal isOpen={true} onClose={vi.fn()} title="Titulo" initialFocusSelector="#nao-focavel">
+        <div id="nao-focavel">texto sem tabindex</div>
+        <input aria-label="Campo" />
+      </Modal>
+    );
+
+    expect(screen.getByRole('textbox', { name: 'Campo' })).toHaveFocus();
+  });
+
   it('usa a heuristica padrao quando initialFocusSelector e invalido, sem lancar', () => {
     render(
       <Modal isOpen={true} onClose={vi.fn()} title="Titulo" initialFocusSelector=":::seletor-invalido(">

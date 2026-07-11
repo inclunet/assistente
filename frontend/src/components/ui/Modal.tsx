@@ -180,7 +180,11 @@ export function Modal({
       }
       if (target && isVisibleFocusableElement(target)) {
         target.focus();
-        return;
+        // Elemento visível mas não focável (ex.: div sem tabindex) não recebe
+        // foco de verdade; nesse caso segue para a heurística padrão.
+        if (document.activeElement === target) {
+          return;
+        }
       }
     }
 
