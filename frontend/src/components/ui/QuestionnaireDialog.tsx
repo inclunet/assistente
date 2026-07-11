@@ -177,7 +177,12 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
   if (!data) return null;
 
   return (
+    // key={data.id}: questionários em fila trocam o `data` sem o Modal
+    // fechar/remontar; sem a key, o efeito de foco inicial não roda de novo e
+    // o segundo diálogo abre com o foco perdido. A remontagem refaz o
+    // register/unregister na stack do modalRegistry e reaplica o foco inicial.
     <Modal
+      key={data.id}
       isOpen={isOpen}
       onClose={handleCancel}
       title={title}
