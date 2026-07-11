@@ -56,6 +56,15 @@ export interface QuestionnaireDialogProps {
   onCancel?: (answers?: Record<string, unknown>) => void;
 }
 
+const READONLY_CODE_MIN_ROWS = 3;
+const READONLY_CODE_MAX_ROWS = 14;
+
+// split com limite evita materializar todas as linhas de conteúdos grandes
+// (diffs/arquivos inteiros) só para dimensionar o textarea.
+function readonlyCodeRows(content: string): number {
+  return Math.max(READONLY_CODE_MIN_ROWS, content.split('\n', READONLY_CODE_MAX_ROWS).length);
+}
+
 function isEmptyValue(value: unknown, type: QuestionnaireQuestionType): boolean {
   if (type === 'multiple_choice') {
     return !Array.isArray(value) || value.length === 0;
@@ -176,7 +185,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
       >
         {questions.map((q, index) => {
           const labelId = `question-label-${q.id}`;
-          const controlId = (q.type === 'text' || q.type === 'password' || q.type === 'long_text' || q.type === 'number' || q.type === 'scale' || q.type === 'date')
+          const controlId = (q.type === 'text' || q.type === 'password' || q.type === 'long_text' || q.type === 'number' || q.type === 'scale' || q.type === 'date' || q.type === 'readonly_code')
             ? `question-${q.id}`
             : undefined;
           const answer = answers[q.id];
@@ -236,15 +245,17 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
             )}
 
             {q.type === 'readonly_code' && (
-              <pre
+              // textarea readOnly (nunca disabled): mantém o caret do sistema,
+              // permitindo que leitores de tela leiam linha a linha em modo de
+              // foco mesmo dentro do role="application" do Modal.
+              <textarea
                 id={`question-${q.id}`}
                 className="questionnaire-dialog__readonly"
-                tabIndex={0}
-                role="region"
-                aria-labelledby={labelId}
-              >
-                {q.content ?? ''}
-              </pre>
+                value={q.content ?? ''}
+                readOnly
+                wrap="off"
+                rows={readonlyCodeRows(q.content ?? '')}
+              />
             )}
 
             {q.type === 'number' && (
