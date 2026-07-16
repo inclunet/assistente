@@ -116,7 +116,9 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   const mermaidInitializedRef = useRef(false);
   const editorsRef = useRef<Map<string, MonacoEditor>>(new Map());
   const mermaidApiRef = useRef<MermaidApi | null>(null);
+  const mermaidLoadingRef = useRef<Promise<MermaidApi> | null>(null);
   const monacoApiRef = useRef<MonacoModule | null>(null);
+  const mermaidRenderRunRef = useRef(0);
   const navigate = useNavigate();
 
   const canSendToEditor = Boolean(enableSendToEditorButtons && onSendToEditor);
@@ -222,12 +224,21 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
 
   const initMermaid = useCallback(async (): Promise<MermaidApi> => {
     if (mermaidInitializedRef.current && mermaidApiRef.current) return mermaidApiRef.current;
-    const mod = await import('mermaid');
-    const api = (mod.default ?? mod) as MermaidApi;
-    api.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
-    mermaidApiRef.current = api;
-    mermaidInitializedRef.current = true;
-    return api;
+    if (mermaidLoadingRef.current) return mermaidLoadingRef.current;
+
+    mermaidLoadingRef.current = import('mermaid')
+      .then((mod) => {
+        const api = (mod.default ?? mod) as MermaidApi;
+        api.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
+        mermaidApiRef.current = api;
+        mermaidInitializedRef.current = true;
+        return api;
+      })
+      .finally(() => {
+        mermaidLoadingRef.current = null;
+      });
+
+    return mermaidLoadingRef.current;
   }, []);
 
   const addContextMenus = useCallback(
@@ -599,12 +610,34 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
       const mermaidBlocks = containerRef.current.querySelectorAll('code.language-mermaid');
       if (mermaidBlocks.length === 0) return;
 
+      const runId = String(++mermaidRenderRunRef.current);
+      const pendingBlocks = Array.from(mermaidBlocks).flatMap((codeBlock, index) => {
+        const pre = codeBlock.parentElement as HTMLPreElement | null;
+        if (!pre || pre.dataset.mermaidRendered === 'true') return [];
+
+        pre.dataset.mermaidRendered = 'pending';
+        pre.dataset.mermaidRenderRun = runId;
+        cleanups.push(() => {
+          if (pre.dataset.mermaidRendered === 'pending' && pre.dataset.mermaidRenderRun === runId) {
+            pre.removeAttribute('data-mermaid-rendered');
+            pre.removeAttribute('data-mermaid-render-run');
+          }
+        });
+
+        return [{ codeBlock: codeBlock as HTMLElement, pre, index }];
+      });
+      if (pendingBlocks.length === 0) return;
+
       const mermaid = await initMermaid();
       if (!mermaid) return;
 
       const getErrorText = (err: unknown) => {
         if (!err) return 'Erro desconhecido';
-        if (err instanceof Error) return String(err.stack || err.message || 'Erro');
+        if (err instanceof Error) return String(err.message || 'Erro');
+        if (typeof err === 'object' && err) {
+          const maybeMessage = (err as { message?: unknown; str?: unknown }).message ?? (err as { str?: unknown }).str;
+          if (maybeMessage) return String(maybeMessage);
+        }
         try {
           return typeof err === 'string' ? err : JSON.stringify(err, null, 2);
         } catch {
@@ -618,16 +651,13 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
         return s.slice(0, maxChars) + `\n… (truncado; ${s.length} chars)`;
       };
 
-      for (let i = 0; i < mermaidBlocks.length; i++) {
-        const codeBlock = mermaidBlocks[i] as HTMLElement;
-        const pre = codeBlock.parentElement as HTMLPreElement;
-        if (!pre || pre.dataset.mermaidRendered) continue;
-
+      for (const { codeBlock, pre, index: i } of pendingBlocks) {
         const mermaidCode = codeBlock.textContent || '';
 
         try {
           const id = `mermaid-${Date.now()}-${i}`;
           const { svg } = await mermaid.render(id, mermaidCode);
+          if (pre.dataset.mermaidRenderRun !== runId || !pre.isConnected || !pre.parentNode) return;
 
           const diagramWrapper = document.createElement('div');
           diagramWrapper.className = 'mermaid-diagram';
@@ -641,6 +671,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           pre.parentNode!.insertBefore(diagramWrapper, pre);
           pre.style.display = 'none';
           pre.dataset.mermaidRendered = 'true';
+          pre.removeAttribute('data-mermaid-render-run');
 
           const svgElement = diagramWrapper.querySelector('svg') as SVGElement | null;
           const editorKey = interactiveButtons ? `mermaid-${i}` : null;
@@ -723,6 +754,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           diagramWrapper.addEventListener('contextmenu', onContextMenu);
           cleanups.push(() => diagramWrapper.removeEventListener('contextmenu', onContextMenu));
         } catch (err) {
+          if (pre.dataset.mermaidRenderRun !== runId || !pre.isConnected || !pre.parentNode) return;
           logger.error('Erro ao renderizar Mermaid:', err);
           const errorText = truncate(getErrorText(err));
 
@@ -848,6 +880,7 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({
           pre.parentNode!.insertBefore(diagramWrapper, pre);
           pre.style.display = 'none';
           pre.dataset.mermaidRendered = 'true';
+          pre.removeAttribute('data-mermaid-render-run');
         }
       }
     },
