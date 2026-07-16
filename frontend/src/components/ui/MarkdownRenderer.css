@@ -226,11 +226,7 @@
   opacity: 0.95;
 }
 
-.markdown-content .mermaid-diagram__error-details {
-  margin: 8px 0;
-}
-
-.markdown-content .mermaid-diagram__error-details pre {
+.markdown-content .mermaid-diagram__error-pre {
   margin-top: 8px;
   padding: 10px;
   border-radius: var(--border-radius);

@@ -1,6 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { StrictMode } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { MarkdownRenderer } from './MarkdownRenderer';
+
+const mermaidMocks = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  render: vi.fn(),
+}));
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
@@ -15,7 +21,17 @@ vi.mock('../../hooks/useAnchoredContextMenu', () => ({
   }),
 }));
 
+vi.mock('mermaid', () => ({
+  default: mermaidMocks,
+}));
+
 describe('MarkdownRenderer', () => {
+  beforeEach(() => {
+    mermaidMocks.initialize.mockClear();
+    mermaidMocks.render.mockReset();
+    mermaidMocks.render.mockResolvedValue({ svg: '<svg aria-label="Diagrama"></svg>' });
+  });
+
   it('renderiza markdown e ajusta links para nova aba', () => {
     render(<MarkdownRenderer content="[Link](http://example.com)" />);
 
@@ -131,5 +147,28 @@ describe('MarkdownRenderer', () => {
 
     fireEvent.keyDown(document, { key: 'ArrowRight' });
     expect(within(dialog).getByAltText('Gato')).toBeInTheDocument();
+  });
+
+  it('não renderiza o mesmo bloco Mermaid duas vezes durante renderização assíncrona', async () => {
+    render(
+      <StrictMode>
+        <MarkdownRenderer content={'```mermaid\ngraph TD\nA-->B\n```'} />
+      </StrictMode>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('group', { name: 'Diagrama Mermaid' })).toHaveLength(1);
+    });
+  });
+
+  it('mostra erro Mermaid compacto sem despejar stack no preview', async () => {
+    mermaidMocks.render.mockRejectedValue(new Error('Syntax error in text\nmermaid version 11.14.0'));
+
+    render(<MarkdownRenderer content={'```mermaid\ntexto inválido\n```'} />);
+
+    expect(await screen.findByText('Erro ao renderizar Mermaid')).toBeInTheDocument();
+    const error = screen.getByText(/Syntax error in text/);
+    expect(error).toHaveTextContent('mermaid version 11.14.0');
+    expect(error.textContent).not.toMatch(/\bat\s+/);
   });
 });
