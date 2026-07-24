@@ -524,6 +524,7 @@ const ptBR = {
         contactRemoved: 'Contato removido',
         credentialRemoved: 'Credencial removida',
         signalApiAccessible: 'Signal API acessível!',
+        legacyChannelDropped: 'Canal {{channel}} em modo legado: reabra as configurações do canal e salve para reativar.',
       },
       announce: {
         channelCreated: 'Canal criado',

@@ -257,10 +257,18 @@ function App() {
             });
         });
 
+        const unsubLegacy = EventsOn('messaging:legacy_channel_dropped', (data: unknown) => {
+            const eventData = data as { channel?: string; from?: string; reason?: string };
+            const channel = eventData.channel || '';
+            const message = t('channels.toast.legacyChannelDropped', { channel });
+            addToast(message, 'warning', 10000);
+        });
+
         return () => {
             unsubIncoming();
+            unsubLegacy();
         };
-    }, [handleExternalIncoming]);
+    }, [handleExternalIncoming, addToast, t]);
 
     useEffect(() => {
         const unsub = EventsOn('tool:questionnaire', (data: QuestionnairePayload) => {

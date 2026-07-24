@@ -523,6 +523,7 @@ const es = {
         contactRemoved: 'Contacto eliminado',
         credentialRemoved: 'Credencial eliminada',
         signalApiAccessible: '¡API de Signal accesible!',
+        legacyChannelDropped: 'Canal {{channel}} en modo legado: reabra la configuración del canal y guarde para reactivar.',
       },
       announce: {
         channelCreated: 'Canal creado',
