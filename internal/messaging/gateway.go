@@ -422,7 +422,7 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	params := llm.ChatParams{}
 	if channelCfg != nil && channelCfg.Profile != "" {
 		params.ProfileSlug = channelCfg.Profile
-		logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, channelCfg.Profile)
+		logging.Infof(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, channelCfg.Profile)
 	}
 	if channelCfg != nil && channelCfg.MaxHistory > 0 {
 		params.MaxContextMessages = channelCfg.MaxHistory

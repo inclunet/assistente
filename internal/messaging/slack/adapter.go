@@ -117,12 +117,14 @@ func (s *SlackAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) 
 		if filename == "" {
 			filename = "attachment"
 		}
-		_, err := api.UploadFileContext(ctx, slack.FileUploadParameters{
-			Reader:         bytes.NewReader(att.Data),
-			Filename:       filename,
-			Filetype:       att.MIMEType,
-			Channels:       []string{msg.ChatID},
-			InitialComment: "",
+		// files.upload foi descontinuado; usar o fluxo V2
+		// (getUploadURLExternal + completeUploadExternal).
+		_, err := api.UploadFileV2Context(ctx, slack.UploadFileV2Parameters{
+			Reader:          bytes.NewReader(att.Data),
+			Filename:        filename,
+			FileSize:        len(att.Data),
+			Channel:         msg.ChatID,
+			ThreadTimestamp: msg.ReplyToMessageID,
 		})
 		if err != nil {
 			return fmt.Errorf("erro ao enviar anexo Slack: %w", err)
