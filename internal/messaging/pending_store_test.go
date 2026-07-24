@@ -83,6 +83,30 @@ func TestResponseNotifier_CancelDeletesPending(t *testing.T) {
 	}
 }
 
+func TestResponseNotifier_SkipsPersistingInternalCallbacks(t *testing.T) {
+	store := newMemPendingStore()
+	n := NewResponseNotifier()
+	defer n.Stop()
+	n.SetPendingStore(store)
+
+	n.Register("conv-sub", ResponseCallback{
+		Channel: "subagent",
+		ChatID:  "internal-1",
+		TTL:     time.Hour,
+		Callback: func(string, string) {},
+	})
+	n.Register("conv-tel", ResponseCallback{
+		Channel: "telegram",
+		ChatID:  "123",
+		Callback: func(string, string) {},
+	})
+
+	rows, _ := store.List(context.Background())
+	if len(rows) != 1 || rows[0].ConversationID != "conv-tel" {
+		t.Fatalf("só telegram deveria persistir; got %+v", rows)
+	}
+}
+
 func TestGateway_ReconcilePending_ResendsSavedAssistant(t *testing.T) {
 	store := newMemPendingStore()
 	_ = store.Upsert(context.Background(), ChannelPendingRecord{

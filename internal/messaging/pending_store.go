@@ -24,5 +24,14 @@ type ChannelPendingStore interface {
 }
 
 func shouldPersistChannelCallback(cb ResponseCallback) bool {
-	return cb.Channel != "" && cb.ChatID != "" && cb.Callback != nil
+	if cb.Callback == nil || cb.ChatID == "" {
+		return false
+	}
+	switch cb.Channel {
+	case "telegram", "signal", "slack":
+		return true
+	default:
+		// Callbacks internos (subagent, sip, etc.) ficam só em memória.
+		return false
+	}
 }
