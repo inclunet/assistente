@@ -57,8 +57,9 @@ type ChannelConfig struct {
 
 // GetMaxContacts retorna o limite efetivo de contatos para Authorize/IsAuthorized.
 // Configs legadas sem o campo (zero-value) voltam a 1 — single-contact.
-// Valores negativos significam ilimitado (retorna -1; contacts trata n<=0 além do
-// default via normalizeMaxContacts / checagens `n > 0`).
+// Valores negativos significam ilimitado (retorna -1). Em contacts, 0 é
+// normalizado para 1; só n < 0 (via este retorno -1) fica ilimitado, porque
+// o limite só é aplicado quando n > 0.
 func (c *ChannelConfig) GetMaxContacts() int {
 	if c == nil || c.MaxContacts == 0 {
 		return 1
