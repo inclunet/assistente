@@ -46,7 +46,7 @@ func (t *SendMessageTool) Parameters() json.RawMessage {
 			},
 			"to": {
 				"type": "string",
-				"description": "Recipient identifier (Telegram chat_id, Signal E.164 phone number, Slack channel/user ID)"
+				"description": "Recipient identifier (Telegram chat_id, Signal E.164 phone number, or Slack channel/DM ID such as C…/D… — not a Slack user ID U…)"
 			},
 			"message": {
 				"type": "string",
