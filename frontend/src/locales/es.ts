@@ -524,6 +524,8 @@ const es = {
         credentialRemoved: 'Credencial eliminada',
         signalApiAccessible: '¡API de Signal accesible!',
         legacyChannelDropped: 'Canal {{channel}} en modo legado: reabra la configuración del canal y guarde para reactivar.',
+        pairingPending: 'Nuevo contacto en {{channel}} esperando código de emparejamiento.',
+        contactAuthorized: 'Contacto autorizado en {{channel}}.',
       },
       announce: {
         channelCreated: 'Canal creado',

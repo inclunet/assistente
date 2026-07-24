@@ -12,7 +12,6 @@ import (
 	"assistente/internal/messaging/slack"
 	"assistente/internal/messaging/telegram"
 	"assistente/internal/profiles"
-	"assistente/internal/questionnaire"
 	"assistente/internal/speech"
 	"assistente/internal/tools"
 	msgtool "assistente/internal/tools/messaging"
@@ -23,31 +22,29 @@ import (
 
 // MessagingControllerConfig agrupa todas as dependências do MessagingController.
 type MessagingControllerConfig struct {
-	Ctx              context.Context
-	ProfileMgr       *profiles.Manager
-	CredMgr          *credentials.Manager
-	QuestionnaireMgr *questionnaire.Manager
-	SpeechSvc        *speech.Service
-	AudioRepo        speech.AudioRepository
-	ToolRegistry     *tools.Registry
-	Emitter          ports.Emitter
-	ConvSvc          chat.ConversationRepository
-	SendMessageFn    messaging.SendMessageFunc
+	Ctx          context.Context
+	ProfileMgr   *profiles.Manager
+	CredMgr      *credentials.Manager
+	SpeechSvc    *speech.Service
+	AudioRepo    speech.AudioRepository
+	ToolRegistry *tools.Registry
+	Emitter      ports.Emitter
+	ConvSvc      chat.ConversationRepository
+	SendMessageFn messaging.SendMessageFunc
 }
 
 // MessagingController é o Inbound Adapter para canais de mensageria externos
 // (Telegram, Signal, Slack, etc.). Gerencia o gateway, conexões e contatos.
 type MessagingController struct {
-	ctx              context.Context
-	profileMgr       *profiles.Manager
-	credMgr          *credentials.Manager
-	questionnaireMgr *questionnaire.Manager
-	speechSvc        *speech.Service
-	audioRepo        speech.AudioRepository
-	toolRegistry     *tools.Registry
-	emitter          ports.Emitter
-	convSvc          chat.ConversationRepository
-	sendMessageFn    messaging.SendMessageFunc
+	ctx           context.Context
+	profileMgr    *profiles.Manager
+	credMgr       *credentials.Manager
+	speechSvc     *speech.Service
+	audioRepo     speech.AudioRepository
+	toolRegistry  *tools.Registry
+	emitter       ports.Emitter
+	convSvc       chat.ConversationRepository
+	sendMessageFn messaging.SendMessageFunc
 
 	// criados por Init()
 	msgGateway       *messaging.Gateway
@@ -55,19 +52,18 @@ type MessagingController struct {
 }
 
 // NewMessagingController cria o MessagingController com as dependências fornecidas.
-// Chame Init() para inicializar o gateway e conectar os canais habilitados.
+// Chame Init() para inicializar o gateway e StartAdapters() após o ChatController.
 func NewMessagingController(cfg MessagingControllerConfig) *MessagingController {
 	return &MessagingController{
-		ctx:              cfg.Ctx,
-		profileMgr:       cfg.ProfileMgr,
-		credMgr:          cfg.CredMgr,
-		questionnaireMgr: cfg.QuestionnaireMgr,
-		speechSvc:        cfg.SpeechSvc,
-		audioRepo:        cfg.AudioRepo,
-		toolRegistry:     cfg.ToolRegistry,
-		emitter:          cfg.Emitter,
-		convSvc:          cfg.ConvSvc,
-		sendMessageFn:    cfg.SendMessageFn,
+		ctx:           cfg.Ctx,
+		profileMgr:    cfg.ProfileMgr,
+		credMgr:       cfg.CredMgr,
+		speechSvc:     cfg.SpeechSvc,
+		audioRepo:     cfg.AudioRepo,
+		toolRegistry:  cfg.ToolRegistry,
+		emitter:       cfg.Emitter,
+		convSvc:       cfg.ConvSvc,
+		sendMessageFn: cfg.SendMessageFn,
 	}
 }
 
@@ -162,67 +158,18 @@ func (c *MessagingController) Init() {
 		return audioBytes, nil
 	})
 
-	approveContactFn := func(ctx context.Context, channel, displayName, contactID, username string) (bool, error) {
-		if c.questionnaireMgr == nil {
-			return false, fmt.Errorf("questionnaire manager não inicializado")
-		}
-		name := displayName
-		if name == "" {
-			name = "desconhecido"
-		}
-		identifier := contactID
-		if identifier == "" {
-			identifier = username
-		}
-		message := fmt.Sprintf("O contato %s enviou uma mensagem via %s.\n\nIdentificador: %s\n\nPara autorizar este contato, digite o código de pareamento que foi enviado para a pessoa.",
-			name, channel, identifier)
-		resp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-			Title:       "Novo contato - Pareamento requerido",
-			Description: message,
-			AllowCancel: true,
-			SubmitLabel: "Autorizar",
-			CancelLabel: "Recusar",
-			Questions: []questionnaire.Question{
-				{
-					ID:       "pairing_code",
-					Type:     "text",
-					Prompt:   "Código de pareamento (6 dígitos):",
-					Required: true,
-				},
-			},
-		})
-		if err != nil {
-			return false, err
-		}
-		if resp.Cancelled {
-			return false, nil
-		}
-
-		providedCode, ok := resp.Answers["pairing_code"].(string)
-		if !ok {
-			return false, fmt.Errorf("código de pareamento inválido")
-		}
-
-		valid, validateErr := contacts.ValidatePairingCode(channel, contactID, providedCode)
-		if !valid {
-			if validateErr != nil {
-				return false, fmt.Errorf("pareamento falhou: %v", validateErr)
-			}
-			return false, fmt.Errorf("código de pareamento incorreto")
-		}
-		return true, nil
-	}
-
 	var saveAudio messaging.SaveAudioFunc
 	if c.audioRepo != nil {
 		saveAudio = c.audioRepo.SaveMessageAudio
 	}
 
+	// Pareamento é feito pelo próprio contato (responde com o código no
+	// mensageiro). Não bloqueamos mais em questionnaire/UI.
 	c.msgGateway = messaging.NewGateway(
 		c.responseNotifier,
 		c.sendMessageFn,
 		emitEvent,
-		approveContactFn,
+		nil,
 		synthesizeTTS,
 		saveAudio,
 	)

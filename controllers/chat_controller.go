@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"assistente/internal/agent"
+	"assistente/internal/channels"
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/core/usecases"
@@ -155,20 +156,26 @@ func (c *ChatController) registerChannelBridge(ctx context.Context, conversation
 		return // Messenger não registrado.
 	}
 
-	logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Registrando bridge Wails→%s para conversa %s (contato: %s)", conv.Channel, conversationID, conv.ContactID)
+	logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Registrando bridge Wails→%s para conversa %s (contact=%s)", conv.Channel, conversationID, conv.ContactID)
 
+	channelName := conv.Channel
+	contactID := conv.ContactID
 	c.responseNotifier.Register(conversationID, messaging.ResponseCallback{
-		Channel: conv.Channel,
-		ChatID:  conv.ContactID,
+		Channel: channelName,
+		// ChatID provisório (contactID); o callback resolve GetReplyChatID no envio.
+		ChatID: contactID,
 		Callback: func(response string, assistantMsgID string) {
+			// Resolve no momento do envio: SaveReplyChatID pode ter atualizado
+			// o destino (Slack: mesmo user em outro channel/DM).
+			replyChatID := channels.GetReplyChatID(channelName, contactID)
 			err := messenger.Send(context.Background(), messaging.OutgoingMessage{
-				ChatID: conv.ContactID,
+				ChatID: replyChatID,
 				Text:   response,
 			})
 			if err != nil {
-				logging.Errorf(ctx, "controllers.chat-controller", "[Bridge] Erro ao reenviar resposta para %s/%s: %v", conv.Channel, conv.ContactID, err)
+				logging.Errorf(ctx, "controllers.chat-controller", "[Bridge] Erro ao reenviar resposta para %s contact=%s replyChat=%s: %v", channelName, contactID, replyChatID, err)
 			} else {
-				logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Resposta reenviada para %s/%s", conv.Channel, conv.ContactID)
+				logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Resposta reenviada para %s contact=%s replyChat=%s", channelName, contactID, replyChatID)
 			}
 		},
 	})

@@ -53,6 +53,10 @@ type ChannelConfig struct {
 	// Conversations mapeia contactID → conversationID (persistido entre reinícios).
 	// Permite reaproveitar conversas existentes ao reiniciar o app.
 	Conversations map[string]string `json:"conversations,omitempty"`
+
+	// ReplyChatIDs mapeia contactID → chatID de destino para outbound
+	// (ex.: Slack: contact=userID, reply=channelID). Vazio = usar contactID.
+	ReplyChatIDs map[string]string `json:"reply_chat_ids,omitempty"`
 }
 
 // GetMaxContacts retorna o limite efetivo de contatos para Authorize/IsAuthorized.
@@ -92,6 +96,54 @@ func SaveConversationID(channelName, contactID string, conversationID string) er
 	}
 	cfg.Conversations[contactID] = conversationID
 	return saveUnsafe(channelName, cfg)
+}
+
+// SaveReplyChatID persiste o chatID de outbound para um contato.
+// Se replyChatID for vazio ou igual ao contactID, remove override prévio
+// (contrato: vazio = usar contactID).
+func SaveReplyChatID(channelName, contactID, replyChatID string) error {
+	mu.Lock()
+	defer mu.Unlock()
+
+	cfg, err := loadUnsafe(channelName)
+	if err != nil || cfg == nil {
+		return fmt.Errorf("canal %s não encontrado", channelName)
+	}
+
+	if replyChatID == "" || replyChatID == contactID {
+		if cfg.ReplyChatIDs == nil {
+			return nil
+		}
+		if _, ok := cfg.ReplyChatIDs[contactID]; !ok {
+			return nil
+		}
+		delete(cfg.ReplyChatIDs, contactID)
+		if len(cfg.ReplyChatIDs) == 0 {
+			cfg.ReplyChatIDs = nil
+		}
+		return saveUnsafe(channelName, cfg)
+	}
+
+	if cfg.ReplyChatIDs == nil {
+		cfg.ReplyChatIDs = make(map[string]string)
+	}
+	if cfg.ReplyChatIDs[contactID] == replyChatID {
+		return nil
+	}
+	cfg.ReplyChatIDs[contactID] = replyChatID
+	return saveUnsafe(channelName, cfg)
+}
+
+// GetReplyChatID retorna o chatID de outbound para o contato, ou contactID se não houver override.
+func GetReplyChatID(channelName, contactID string) string {
+	cfg, err := Load(channelName)
+	if err != nil || cfg == nil || cfg.ReplyChatIDs == nil {
+		return contactID
+	}
+	if reply, ok := cfg.ReplyChatIDs[contactID]; ok && reply != "" {
+		return reply
+	}
+	return contactID
 }
 
 // filename retorna "nome.json"

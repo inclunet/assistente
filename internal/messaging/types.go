@@ -51,6 +51,18 @@ type IncomingMessage struct {
 
 	// Channel identifica a plataforma de origem ("telegram", "signal", etc.).
 	Channel string
+
+	// ReplyChatID é o destino de outbound quando diferente de From.ID
+	// (ex.: Slack: From.ID = user, ReplyChatID = channel). Vazio = usar From.ID.
+	ReplyChatID string
+}
+
+// OutboundChatID retorna o chatID a usar ao responder esta mensagem.
+func (m IncomingMessage) OutboundChatID() string {
+	if reply := strings.TrimSpace(m.ReplyChatID); reply != "" {
+		return reply
+	}
+	return m.From.ID
 }
 
 // OutgoingMessage representa uma mensagem a ser enviada via mensageiro.

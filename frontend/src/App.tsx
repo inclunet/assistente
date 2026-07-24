@@ -264,9 +264,21 @@ function App() {
             addToast(message, 'warning', 10000);
         });
 
+        const unsubPairing = EventsOn('messaging:pairing_pending', (data: unknown) => {
+            const eventData = data as { channel?: string };
+            addToast(t('channels.toast.pairingPending', { channel: eventData.channel || '' }), 'info', 8000);
+        });
+
+        const unsubAuthorized = EventsOn('messaging:contact_authorized', (data: unknown) => {
+            const eventData = data as { channel?: string };
+            addToast(t('channels.toast.contactAuthorized', { channel: eventData.channel || '' }), 'success', 8000);
+        });
+
         return () => {
             unsubIncoming();
             unsubLegacy();
+            unsubPairing();
+            unsubAuthorized();
         };
     }, [handleExternalIncoming, addToast, t]);
 
