@@ -156,9 +156,9 @@ func (c *ChatController) registerChannelBridge(ctx context.Context, conversation
 		return // Messenger não registrado.
 	}
 
-	logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Registrando bridge Wails→%s para conversa %s (contato: %s)", conv.Channel, conversationID, conv.ContactID)
-
 	replyChatID := channels.GetReplyChatID(conv.Channel, conv.ContactID)
+
+	logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Registrando bridge Wails→%s para conversa %s (contact=%s replyChat=%s)", conv.Channel, conversationID, conv.ContactID, replyChatID)
 
 	c.responseNotifier.Register(conversationID, messaging.ResponseCallback{
 		Channel: conv.Channel,
@@ -169,9 +169,9 @@ func (c *ChatController) registerChannelBridge(ctx context.Context, conversation
 				Text:   response,
 			})
 			if err != nil {
-				logging.Errorf(ctx, "controllers.chat-controller", "[Bridge] Erro ao reenviar resposta para %s/%s: %v", conv.Channel, replyChatID, err)
+				logging.Errorf(ctx, "controllers.chat-controller", "[Bridge] Erro ao reenviar resposta para %s contact=%s replyChat=%s: %v", conv.Channel, conv.ContactID, replyChatID, err)
 			} else {
-				logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Resposta reenviada para %s/%s", conv.Channel, replyChatID)
+				logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Resposta reenviada para %s contact=%s replyChat=%s", conv.Channel, conv.ContactID, replyChatID)
 			}
 		},
 	})

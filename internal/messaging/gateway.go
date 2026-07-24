@@ -260,7 +260,7 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 				if messenger, ok := g.GetMessenger(msg.Channel); ok {
 					errText := "Código de pareamento inválido. Verifique e tente novamente."
 					if validateErr != nil {
-						errText = fmt.Sprintf("Código de pareamento inválido: %v", validateErr)
+						errText = validateErr.Error()
 					}
 					_ = messenger.Send(ctx, OutgoingMessage{ChatID: outboundChatID, Text: errText})
 				}
@@ -343,9 +343,13 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 				traceID, conversationID, msg.Channel, err)
 		}
 	}
-	if err := channels.SaveReplyChatID(msg.Channel, msg.From.ID, outboundChatID); err != nil {
-		logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao persistir reply chat: %v",
-			traceID, conversationID, msg.Channel, err)
+	// Só persiste override quando o destino outbound difere do contactID
+	// (ex.: Slack user ≠ channel). Telegram/Signal evitam I/O por mensagem.
+	if outboundChatID != "" && outboundChatID != msg.From.ID {
+		if err := channels.SaveReplyChatID(msg.Channel, msg.From.ID, outboundChatID); err != nil {
+			logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao persistir reply chat: %v",
+				traceID, conversationID, msg.Channel, err)
+		}
 	}
 	logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s contact=%s msg=%s recebida",
 		traceID, conversationID, msg.Channel, maskIdentifier(msg.From.ID), msg.ID)
