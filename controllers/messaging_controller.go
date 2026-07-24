@@ -19,8 +19,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"net/url"
-	"strings"
 )
 
 // MessagingControllerConfig agrupa todas as dependências do MessagingController.
@@ -588,17 +586,6 @@ func (c *MessagingController) connectSignal(cfg *channels.ChannelConfig) {
 	if apiToken == "" && cfg.APITokenRef != "" {
 		apiToken = c.resolveCredentialRef(cfg.APITokenRef)
 	}
-	// Registra o host da API no vault para o httpclient injetar Bearer em ResolveForURL.
-	if apiToken != "" && c.credMgr != nil {
-		if host := signalAPIHost(cfg.APIURL); host != "" {
-			if err := c.credMgr.RegisterPatternWithContext(c.ctx, host, &credentials.AuthConfig{
-				Type:  "bearer",
-				Token: apiToken,
-			}); err != nil {
-				logging.Warnf(context.Background(), "controllers.messaging-controller", "[Messaging] Signal: falha ao registrar auth da API: %v", err)
-			}
-		}
-	}
 	adapter := signal.NewAdapter(cfg.APIURL, cfg.Account, c.credMgr, apiToken)
 	c.msgGateway.Register("signal", adapter)
 	go func() {
@@ -607,14 +594,6 @@ func (c *MessagingController) connectSignal(cfg *channels.ChannelConfig) {
 		}
 	}()
 	logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Signal conectado (api=%s, account=%s)", cfg.APIURL, credentials.MaskIdentifier(cfg.Account))
-}
-
-func signalAPIHost(apiURL string) string {
-	u, err := url.Parse(strings.TrimSpace(apiURL))
-	if err != nil || u.Hostname() == "" {
-		return ""
-	}
-	return strings.ToLower(u.Hostname())
 }
 
 // connectSlack cria e registra o adapter do Slack (Socket Mode).

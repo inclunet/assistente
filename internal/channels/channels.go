@@ -39,7 +39,7 @@ type ChannelConfig struct {
 	APIURL      string `json:"api_url,omitempty"`       // Signal: URL da API
 	Profile     string `json:"profile,omitempty"`       // Perfil de chat (vazio = ativo)
 	MaxHistory  int    `json:"max_history,omitempty"`   // Mensagens no contexto (0 = padrão)
-	MaxContacts int    `json:"max_contacts,omitempty"`  // Máximo de contatos autorizados (0 = 1)
+	MaxContacts int    `json:"max_contacts,omitempty"` // Máximo de contatos autorizados (0 = ilimitado)
 
 	// OwnerUserID é o userID que deve ser usado como dono das conversas
 	// criadas a partir de mensagens recebidas neste canal (AEP-0052).
