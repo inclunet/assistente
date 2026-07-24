@@ -6,7 +6,6 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/core/usecases"
-	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/logging"
 	mcpmgr "assistente/internal/mcp"
@@ -161,12 +160,13 @@ func (c *ChatController) registerChannelBridge(ctx context.Context, conversation
 
 	channelName := conv.Channel
 	contactID := conv.ContactID
-	ownerUserID, _ := database.UserIDFromContext(ctx)
 	c.responseNotifier.Register(conversationID, messaging.ResponseCallback{
-		Channel:     channelName,
+		Channel: channelName,
 		// ChatID provisório (contactID); o callback resolve GetReplyChatID no envio.
-		ChatID:      contactID,
-		OwnerUserID: ownerUserID,
+		ChatID: contactID,
+		// SkipPersist: ChatID aqui não é o destino final (Slack: user vs channel).
+		// Persistência M14 fica no Register do gateway (outboundChatID correto).
+		SkipPersist: true,
 		Callback: func(response string, assistantMsgID string) {
 			// Resolve no momento do envio: SaveReplyChatID pode ter atualizado
 			// o destino (Slack: mesmo user em outro channel/DM).

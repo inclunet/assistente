@@ -167,6 +167,37 @@ func TestResponseNotifier_SkipsPersistWithoutOwnerUserID(t *testing.T) {
 	}
 }
 
+func TestResponseNotifier_SkipPersistDoesNotOverwritePendingChatID(t *testing.T) {
+	store := newMemPendingStore()
+	n := NewResponseNotifier()
+	defer n.Stop()
+	n.SetPendingStore(store)
+
+	// Gateway: destino final (ex.: Slack channel).
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "slack",
+		ChatID:      "C999",
+		OwnerUserID: "owner-1",
+		Callback:    func(string, string) {},
+	})
+	// Bridge Wails: ChatID provisório (contact/user) — não pode sobrescrever o pending.
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "slack",
+		ChatID:      "U123",
+		OwnerUserID: "owner-1",
+		SkipPersist: true,
+		Callback:    func(string, string) {},
+	})
+
+	rows, _ := store.List(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("esperava 1 pending, got %+v", rows)
+	}
+	if rows[0].ChatID != "C999" {
+		t.Fatalf("SkipPersist não deveria sobrescrever ChatID; got %q want C999", rows[0].ChatID)
+	}
+}
+
 func TestGateway_ReconcilePending_ResendsSavedAssistant(t *testing.T) {
 	store := newMemPendingStore()
 	_ = store.Upsert(context.Background(), ChannelPendingRecord{
