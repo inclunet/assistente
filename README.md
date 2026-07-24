@@ -268,7 +268,7 @@ O assistente pode receber e responder mensagens via Telegram ou Signal.
 ### Telegram
 
 1. Crie um bot via @BotFather
-2. Salve em `~/.assistente/telegram.json`:
+2. Salve em `~/.assistente/channels/telegram.json`:
 
 ```json
 {
@@ -282,7 +282,7 @@ O assistente pode receber e responder mensagens via Telegram ou Signal.
 ### Signal
 
 1. Configure `signal-cli-rest-api`
-2. Salve em `~/.assistente/signal.json`:
+2. Salve em `~/.assistente/channels/signal.json`:
 
 ```json
 {

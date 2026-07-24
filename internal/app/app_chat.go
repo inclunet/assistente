@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 
 	"assistente/internal/chat"
 	"assistente/internal/database"
@@ -45,6 +46,9 @@ func (a *App) RetryMessage(conversationID string, messageID string, params ChatP
 func (a *App) sendMessageFromChannel(ctx context.Context, conversationID string, content, media string, params ChatParams, source string) (string, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return "", err
+	}
+	if a.chatCtrl == nil {
+		return "", fmt.Errorf("chat controller não inicializado")
 	}
 	return a.chatCtrl.SendMessageFromChannel(ctx, conversationID, content, media, params, source)
 }
