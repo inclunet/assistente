@@ -210,9 +210,9 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 				"reason":    "owner_missing",
 			})
 		}
-		if messenger, ok := g.GetMessenger(msg.Channel); ok && msg.From.ID != "" {
+		if messenger, ok := g.GetMessenger(msg.Channel); ok && msg.OutboundChatID() != "" {
 			outMsg := OutgoingMessage{
-				ChatID: msg.From.ID,
+				ChatID: msg.OutboundChatID(),
 				Text:   "Este canal está em modo legado e aguarda reativação pelo administrador da instância. Sua mensagem não será processada.",
 			}
 			if err := messenger.Send(ctx, outMsg); err != nil {
@@ -233,53 +233,77 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 		return
 	}
 
+	outboundChatID := msg.OutboundChatID()
+
 	if !hasContacts {
-		// Canal sem contatos ou com vaga — gera código de pareamento
-		logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=? channel=%s contact=%s username=%s name=%s msg=%s aguardando pareamento",
-			traceID, msg.Channel, maskIdentifier(msg.From.ID), maskIdentifier(msg.From.Username), msg.From.DisplayName, msg.ID)
-
-		// Gera código de 6 dígitos
-		pairingCode := contacts.GeneratePairingCode(msg.Channel, msg.From.ID)
-		logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s contact=%s código de pareamento gerado: %s",
-			traceID, msg.Channel, maskIdentifier(msg.From.ID), pairingCode)
-
-		// Envia mensagem com código para o contato
-		if messenger, ok := g.GetMessenger(msg.Channel); ok {
-			pairingMsg := fmt.Sprintf(
-				"Bem-vindo! Para autorizar seu acesso, responda ao assistente com o seguinte código de pareamento:\n\n🔐 Código: %s",
-				pairingCode,
-			)
-			outMsg := OutgoingMessage{
-				ChatID: msg.From.ID,
-				Text:   pairingMsg,
-			}
-			if err := messenger.Send(ctx, outMsg); err != nil {
-				logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s erro ao enviar código: %v", traceID, msg.Channel, err)
-			}
-		}
-
-		// Solicita confirmação pelo questionário (incluindo código)
-		if g.approveContact != nil {
-			approved, err := g.approveContact(ctx, msg.Channel, msg.From.DisplayName, msg.From.ID, msg.From.Username)
-			if err != nil {
-				logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s erro ao solicitar pareamento: %v", traceID, msg.Channel, err)
-				contacts.CancelPairingCode(msg.Channel, msg.From.ID)
-				return
-			}
-			if !approved {
-				logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s pareamento recusado", traceID, msg.Channel)
-				contacts.CancelPairingCode(msg.Channel, msg.From.ID)
+		// Contato novo / vaga disponível — pareamento pelo próprio mensageiro
+		// (o contato responde com o código). Não bloqueia em questionnaire/UI.
+		if pending := contacts.GetPairingCode(msg.Channel, msg.From.ID); pending != nil {
+			codeAttempt := strings.TrimSpace(msg.Text)
+			valid, validateErr := contacts.ValidatePairingCode(msg.Channel, msg.From.ID, codeAttempt)
+			if !valid {
+				logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s pareamento inválido: %v",
+					traceID, msg.Channel, validateErr)
+				if messenger, ok := g.GetMessenger(msg.Channel); ok {
+					errText := "Código de pareamento inválido. Verifique e tente novamente."
+					if validateErr != nil {
+						errText = fmt.Sprintf("Código de pareamento inválido: %v", validateErr)
+					}
+					_ = messenger.Send(ctx, OutgoingMessage{ChatID: outboundChatID, Text: errText})
+				}
 				return
 			}
 			if err := contacts.Authorize(msg.Channel, msg.From.ID, msg.From.DisplayName, msg.From.Username, maxContacts); err != nil {
 				logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s erro ao autorizar contato: %v", traceID, msg.Channel, err)
-				contacts.CancelPairingCode(msg.Channel, msg.From.ID)
 				return
 			}
-			logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s contato autorizado: %s", traceID, msg.Channel, maskIdentifier(msg.From.ID))
-		} else {
+			logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s contato autorizado via código: %s",
+				traceID, msg.Channel, maskIdentifier(msg.From.ID))
+			if g.emitEvent != nil {
+				g.emitEvent("messaging:contact_authorized", map[string]any{
+					"channel":     msg.Channel,
+					"from":        msg.From.DisplayName,
+					"fromId":      msg.From.ID,
+					"username":    msg.From.Username,
+					"messageId":   msg.ID,
+				})
+			}
+			if messenger, ok := g.GetMessenger(msg.Channel); ok {
+				_ = messenger.Send(ctx, OutgoingMessage{
+					ChatID: outboundChatID,
+					Text:   "Pareamento concluído! Você está autorizado. Envie sua mensagem.",
+				})
+			}
+			// Não processa o código como prompt do LLM.
 			return
 		}
+
+		logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=? channel=%s contact=%s username=%s name=%s msg=%s aguardando pareamento",
+			traceID, msg.Channel, maskIdentifier(msg.From.ID), maskIdentifier(msg.From.Username), msg.From.DisplayName, msg.ID)
+
+		pairingCode := contacts.GeneratePairingCode(msg.Channel, msg.From.ID)
+		logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s contact=%s código de pareamento gerado: %s",
+			traceID, msg.Channel, maskIdentifier(msg.From.ID), pairingCode)
+
+		if messenger, ok := g.GetMessenger(msg.Channel); ok {
+			pairingMsg := fmt.Sprintf(
+				"Bem-vindo! Para autorizar seu acesso, responda ao assistente com o seguinte código de pareamento:\n\nCódigo: %s",
+				pairingCode,
+			)
+			if err := messenger.Send(ctx, OutgoingMessage{ChatID: outboundChatID, Text: pairingMsg}); err != nil {
+				logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s erro ao enviar código: %v", traceID, msg.Channel, err)
+			}
+		}
+		if g.emitEvent != nil {
+			g.emitEvent("messaging:pairing_pending", map[string]any{
+				"channel":   msg.Channel,
+				"from":      msg.From.DisplayName,
+				"fromId":    msg.From.ID,
+				"username":  msg.From.Username,
+				"messageId": msg.ID,
+			})
+		}
+		return
 	}
 
 	// 2. Busca (ou cria) a conversa dedicada para este canal+contato.
@@ -305,6 +329,10 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 			logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao persistir conversa no config: %v",
 				traceID, conversationID, msg.Channel, err)
 		}
+	}
+	if err := channels.SaveReplyChatID(msg.Channel, msg.From.ID, outboundChatID); err != nil {
+		logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao persistir reply chat: %v",
+			traceID, conversationID, msg.Channel, err)
 	}
 	logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s contact=%s msg=%s recebida",
 		traceID, conversationID, msg.Channel, maskIdentifier(msg.From.ID), msg.ID)
@@ -337,7 +365,7 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	incomingIsAudio := msg.IsAudioOnly()
 	g.notifier.Register(conversationID, ResponseCallback{
 		Channel:   msg.Channel,
-		ChatID:    msg.From.ID,
+		ChatID:    outboundChatID,
 		AudioOnly: incomingIsAudio, // hint para o notifier (mantém compatibilidade)
 		TraceID:   traceID,
 		Callback: func(response string, assistantMsgID string) {
@@ -352,7 +380,7 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 			}
 
 			outMsg := OutgoingMessage{
-				ChatID:           msg.From.ID,
+				ChatID:           outboundChatID,
 				Text:             response,
 				ReplyToMessageID: msg.ID,
 			}
@@ -440,7 +468,7 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 		g.mu.RUnlock()
 		if ok {
 			outMsg := OutgoingMessage{
-				ChatID: msg.From.ID,
+				ChatID: outboundChatID,
 				Text:   fmt.Sprintf("Erro ao processar mensagem: %v", err),
 			}
 			_ = messenger.Send(ctx, outMsg)

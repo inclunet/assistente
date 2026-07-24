@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"assistente/internal/agent"
+	"assistente/internal/channels"
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/core/usecases"
@@ -157,18 +158,20 @@ func (c *ChatController) registerChannelBridge(ctx context.Context, conversation
 
 	logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Registrando bridge Wails→%s para conversa %s (contato: %s)", conv.Channel, conversationID, conv.ContactID)
 
+	replyChatID := channels.GetReplyChatID(conv.Channel, conv.ContactID)
+
 	c.responseNotifier.Register(conversationID, messaging.ResponseCallback{
 		Channel: conv.Channel,
-		ChatID:  conv.ContactID,
+		ChatID:  replyChatID,
 		Callback: func(response string, assistantMsgID string) {
 			err := messenger.Send(context.Background(), messaging.OutgoingMessage{
-				ChatID: conv.ContactID,
+				ChatID: replyChatID,
 				Text:   response,
 			})
 			if err != nil {
-				logging.Errorf(ctx, "controllers.chat-controller", "[Bridge] Erro ao reenviar resposta para %s/%s: %v", conv.Channel, conv.ContactID, err)
+				logging.Errorf(ctx, "controllers.chat-controller", "[Bridge] Erro ao reenviar resposta para %s/%s: %v", conv.Channel, replyChatID, err)
 			} else {
-				logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Resposta reenviada para %s/%s", conv.Channel, conv.ContactID)
+				logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Resposta reenviada para %s/%s", conv.Channel, replyChatID)
 			}
 		},
 	})

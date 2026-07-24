@@ -215,10 +215,11 @@ func (s *SlackAdapter) handleMessage(ev *slackevents.MessageEvent) {
 		Text:      ev.Text,
 		Timestamp: timestamp,
 		From: messaging.Contact{
-			ID:          ev.Channel,
+			ID:          ev.User,
 			Username:    ev.User,
 			DisplayName: displayName,
 		},
+		ReplyChatID: ev.Channel,
 	}
 
 	handler(s.ctx, msg)

@@ -525,6 +525,8 @@ const ptBR = {
         credentialRemoved: 'Credencial removida',
         signalApiAccessible: 'Signal API acessível!',
         legacyChannelDropped: 'Canal {{channel}} em modo legado: reabra as configurações do canal e salve para reativar.',
+        pairingPending: 'Novo contato em {{channel}} aguardando código de pareamento.',
+        contactAuthorized: 'Contato autorizado em {{channel}}.',
       },
       announce: {
         channelCreated: 'Canal criado',

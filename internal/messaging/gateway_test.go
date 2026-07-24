@@ -88,11 +88,13 @@ func resetState(t *testing.T) {
 
 	_ = channels.Delete("telegram")
 	_ = channels.Delete("signal")
+	_ = channels.Delete("slack")
 	_ = contacts.RemoveAll("telegram")
 	_ = contacts.RemoveAll("signal")
+	_ = contacts.RemoveAll("slack")
 }
 
-func TestGateway_UnauthorizedContactDoesNotEmitEvent(t *testing.T) {
+func TestGateway_UnauthorizedContactStartsPairingWithoutSendMessage(t *testing.T) {
 	resetState(t)
 
 	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
@@ -100,16 +102,19 @@ func TestGateway_UnauthorizedContactDoesNotEmitEvent(t *testing.T) {
 	}
 
 	notifier := NewResponseNotifier()
+	defer notifier.Stop()
 
 	var emitted []string
 	emitEvent := func(event string, data any) {
 		emitted = append(emitted, event)
 	}
 
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
 	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		t.Fatalf("sendMessage não deveria ser chamado para contato não autorizado")
 		return "", nil
 	}, emitEvent, nil, nil, nil)
+	gateway.Register("telegram", fake)
 
 	incoming := IncomingMessage{
 		ID:      "msg-1",
@@ -124,8 +129,126 @@ func TestGateway_UnauthorizedContactDoesNotEmitEvent(t *testing.T) {
 
 	gateway.handleIncoming(context.Background(), incoming)
 
-	if len(emitted) != 0 {
-		t.Fatalf("não esperava eventos, got=%v", emitted)
+	if len(emitted) != 1 || emitted[0] != "messaging:pairing_pending" {
+		t.Fatalf("esperava messaging:pairing_pending, got=%v", emitted)
+	}
+	select {
+	case msg := <-fake.sentCh:
+		if msg.ChatID != "123" || msg.Text == "" {
+			t.Fatalf("código de pareamento não enviado: %+v", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout esperando código de pareamento")
+	}
+}
+
+func TestGateway_PairingByContactReply(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+
+	var emitted []string
+	emitEvent := func(event string, data any) {
+		emitted = append(emitted, event)
+	}
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 4)}
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		t.Fatalf("sendMessage não deveria processar o código de pareamento")
+		return "", nil
+	}, emitEvent, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID: "msg-1", Channel: "telegram",
+		From: Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text: "Oi",
+	})
+	select {
+	case <-fake.sentCh: // pairing code
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout no código inicial")
+	}
+
+	pending := contacts.GetPairingCode("telegram", "123")
+	if pending == nil {
+		t.Fatal("código pendente esperado")
+	}
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID: "msg-2", Channel: "telegram",
+		From: Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text: pending.Code,
+	})
+
+	has, allowed := contacts.IsAuthorized("telegram", 1, "123")
+	if !has || !allowed {
+		t.Fatalf("contato deveria estar autorizado após código correto")
+	}
+
+	foundAuth := false
+	for _, ev := range emitted {
+		if ev == "messaging:contact_authorized" {
+			foundAuth = true
+		}
+	}
+	if !foundAuth {
+		t.Fatalf("esperava messaging:contact_authorized, got=%v", emitted)
+	}
+}
+
+func TestGateway_ReplyChatIDUsedForOutbound(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("slack", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+	if err := contacts.Authorize("slack", "U123", "Fulano", "U123", 1); err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+
+	fake := &fakeMessenger{name: "slack", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	sendDone := make(chan struct{})
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		go func() {
+			notifier.Notify(conversationID, "resposta", "asst-1")
+			close(sendDone)
+		}()
+		return conversationID, nil
+	}, nil, nil, nil, nil)
+	gateway.Register("slack", fake)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID: "msg-1", Channel: "slack",
+		From:        Contact{ID: "U123", DisplayName: "Fulano", Username: "U123"},
+		ReplyChatID: "C999",
+		Text:        "Oi",
+	})
+
+	select {
+	case <-sendDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout sendMessage")
+	}
+	select {
+	case msg := <-fake.sentCh:
+		if msg.ChatID != "C999" {
+			t.Fatalf("esperava ReplyChatID C999 no outbound, got %q", msg.ChatID)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout outbound")
+	}
+
+	if got := channels.GetReplyChatID("slack", "U123"); got != "C999" {
+		t.Fatalf("ReplyChatID persistido = %q, want C999", got)
 	}
 }
 
