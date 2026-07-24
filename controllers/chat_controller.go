@@ -156,22 +156,25 @@ func (c *ChatController) registerChannelBridge(ctx context.Context, conversation
 		return // Messenger não registrado.
 	}
 
-	replyChatID := channels.GetReplyChatID(conv.Channel, conv.ContactID)
+	logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Registrando bridge Wails→%s para conversa %s (contact=%s)", conv.Channel, conversationID, conv.ContactID)
 
-	logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Registrando bridge Wails→%s para conversa %s (contact=%s replyChat=%s)", conv.Channel, conversationID, conv.ContactID, replyChatID)
-
+	channelName := conv.Channel
+	contactID := conv.ContactID
 	c.responseNotifier.Register(conversationID, messaging.ResponseCallback{
-		Channel: conv.Channel,
-		ChatID:  replyChatID,
+		Channel: channelName,
+		ChatID:  channels.GetReplyChatID(channelName, contactID),
 		Callback: func(response string, assistantMsgID string) {
+			// Resolve no momento do envio: SaveReplyChatID pode ter atualizado
+			// o destino (Slack: mesmo user em outro channel/DM).
+			replyChatID := channels.GetReplyChatID(channelName, contactID)
 			err := messenger.Send(context.Background(), messaging.OutgoingMessage{
 				ChatID: replyChatID,
 				Text:   response,
 			})
 			if err != nil {
-				logging.Errorf(ctx, "controllers.chat-controller", "[Bridge] Erro ao reenviar resposta para %s contact=%s replyChat=%s: %v", conv.Channel, conv.ContactID, replyChatID, err)
+				logging.Errorf(ctx, "controllers.chat-controller", "[Bridge] Erro ao reenviar resposta para %s contact=%s replyChat=%s: %v", channelName, contactID, replyChatID, err)
 			} else {
-				logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Resposta reenviada para %s contact=%s replyChat=%s", conv.Channel, conv.ContactID, replyChatID)
+				logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Resposta reenviada para %s contact=%s replyChat=%s", channelName, contactID, replyChatID)
 			}
 		},
 	})
