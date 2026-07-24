@@ -363,10 +363,9 @@ func (c *MessagingController) AuthorizeMessagingContactFull(channel, contactID, 
 	if channel == "" || contactID == "" {
 		return fmt.Errorf("canal e ID do contato são obrigatórios")
 	}
-	maxContacts := 0
-	if chCfg, _ := channels.Load(channel); chCfg != nil {
-		maxContacts = chCfg.GetMaxContacts()
-	}
+	chCfg, _ := channels.Load(channel)
+	// GetMaxContacts é nil-safe (config ausente → 1).
+	maxContacts := chCfg.GetMaxContacts()
 	if err := contacts.Authorize(channel, contactID, displayName, username, maxContacts); err != nil {
 		return fmt.Errorf("erro ao autorizar: %w", err)
 	}

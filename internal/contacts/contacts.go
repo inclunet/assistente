@@ -2,8 +2,10 @@
 // para todos os canais de mensageria (Signal, Telegram, WhatsApp, etc.).
 //
 // O número máximo de contatos por canal é configurável no config do canal
-// (campo max_contacts). Quando o limite é atingido, novos contatos são
-// silenciosamente ignorados até que um seja removido.
+// (campo max_contacts). Preferir ChannelConfig.GetMaxContacts() ao passar o
+// limite. Na API deste pacote: 0 = default 1; valor negativo = ilimitado.
+// Quando o limite é atingido, novos contatos são silenciosamente ignorados
+// até que um seja removido.
 //
 // Formato do arquivo contacts.json:
 //
@@ -28,6 +30,16 @@ import (
 	"sync"
 	"time"
 )
+
+// normalizeMaxContacts alinha a API de contacts com GetMaxContacts:
+// 0 → 1 (default legado seguro); <0 permanece negativo (ilimitado nas
+// checagens `maxContacts > 0`); >0 → valor informado.
+func normalizeMaxContacts(maxContacts int) int {
+	if maxContacts == 0 {
+		return 1
+	}
+	return maxContacts
+}
 
 const contactsFilename = "contacts.json"
 
@@ -130,6 +142,8 @@ func IsAuthorized(channel string, maxContacts int, identifiers ...string) (hasCo
 	mu.Lock()
 	defer mu.Unlock()
 
+	maxContacts = normalizeMaxContacts(maxContacts)
+
 	contacts, err := loadUnsafe()
 	if err != nil {
 		return false, false
@@ -168,6 +182,8 @@ func Authorize(channel string, id, displayName, username string, maxContacts int
 	mu.Lock()
 	defer mu.Unlock()
 
+	maxContacts = normalizeMaxContacts(maxContacts)
+
 	contacts, err := loadUnsafe()
 	if err != nil {
 		return err
@@ -185,7 +201,7 @@ func Authorize(channel string, id, displayName, username string, maxContacts int
 		}
 	}
 
-	// Novo contato — verifica limite (maxContacts <= 0 = ilimitado)
+	// Novo contato — verifica limite (maxContacts < 0 = ilimitado após normalize)
 	if maxContacts > 0 && len(channelContacts) >= maxContacts {
 		return fmt.Errorf("limite de %d contato(s) atingido para o canal %s", maxContacts, channel)
 	}

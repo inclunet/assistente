@@ -174,10 +174,8 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	// 1. Verifica contato autorizado (contacts.json centralizado + max_contacts do canal)
 	//    Carrega o config uma única vez e reusa para owner/profile abaixo.
 	channelCfg, _ := channels.Load(msg.Channel)
-	maxContacts := 0
-	if channelCfg != nil {
-		maxContacts = channelCfg.GetMaxContacts()
-	}
+	// GetMaxContacts é nil-safe (omitido/nil → 1).
+	maxContacts := channelCfg.GetMaxContacts()
 
 	// AEP-0052: propaga o dono do canal (definido em SaveChannelConfig com o
 	// userID autenticado) no contexto. FindOrCreateChannelConversation usa

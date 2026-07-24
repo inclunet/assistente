@@ -31,8 +31,8 @@ func TestGetMaxContacts(t *testing.T) {
 	if got := (&ChannelConfig{MaxContacts: 3}).GetMaxContacts(); got != 3 {
 		t.Fatalf("positivo: got %d, want 3", got)
 	}
-	if got := (&ChannelConfig{MaxContacts: -1}).GetMaxContacts(); got != 0 {
-		t.Fatalf("negativo: got %d, want 0 (ilimitado)", got)
+	if got := (&ChannelConfig{MaxContacts: -1}).GetMaxContacts(); got != -1 {
+		t.Fatalf("negativo: got %d, want -1 (ilimitado)", got)
 	}
 }
 

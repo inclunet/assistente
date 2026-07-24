@@ -127,7 +127,8 @@ func (s *SlackAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) 
 			ThreadTimestamp: msg.ReplyToMessageID,
 		})
 		if err != nil {
-			return fmt.Errorf("erro ao enviar anexo Slack: %w", err)
+			return fmt.Errorf("erro ao enviar anexo Slack (file=%q channel=%s size=%d thread=%s): %w",
+				filename, msg.ChatID, len(att.Data), msg.ReplyToMessageID, err)
 		}
 	}
 

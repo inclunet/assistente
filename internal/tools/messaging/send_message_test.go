@@ -3,7 +3,6 @@ package messaging
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	msgpkg "assistente/internal/messaging"
@@ -82,14 +81,34 @@ func TestSendMessageTool_Success(t *testing.T) {
 
 func TestSendMessageTool_ParametersIncludeSlack(t *testing.T) {
 	tool := NewSendMessageTool(nil)
-	params := string(tool.Parameters())
-	if !json.Valid(tool.Parameters()) {
+	raw := tool.Parameters()
+	if !json.Valid(raw) {
 		t.Fatalf("parameters JSON inválido")
 	}
-	for _, want := range []string{`"slack"`, `"telegram"`, `"signal"`} {
-		if !strings.Contains(params, want) {
-			t.Fatalf("enum de channel deveria incluir %s: %s", want, params)
+
+	var schema struct {
+		Properties struct {
+			Channel struct {
+				Enum []string `json:"enum"`
+			} `json:"channel"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("unmarshal parameters: %v", err)
+	}
+
+	want := map[string]bool{"slack": true, "telegram": true, "signal": true}
+	got := map[string]bool{}
+	for _, v := range schema.Properties.Channel.Enum {
+		got[v] = true
+	}
+	for channel := range want {
+		if !got[channel] {
+			t.Fatalf("enum de channel deveria incluir %q; got=%v", channel, schema.Properties.Channel.Enum)
 		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("enum de channel inesperado: got=%v want=%v", schema.Properties.Channel.Enum, []string{"slack", "telegram", "signal"})
 	}
 }
 
