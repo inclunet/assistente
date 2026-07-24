@@ -144,6 +144,7 @@ func Init() error {
 		&JobRunEvent{},
 		&ToolInvocation{},
 		&SubAgentRun{},
+		&ChannelResponsePending{},
 	); err != nil {
 		return err
 	}

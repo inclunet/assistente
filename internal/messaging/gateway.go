@@ -387,10 +387,11 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	//    O ChannelResponseMode do perfil decide se a resposta será áudio ou texto.
 	incomingIsAudio := msg.IsAudioOnly()
 	g.notifier.Register(conversationID, ResponseCallback{
-		Channel:   msg.Channel,
-		ChatID:    outboundChatID,
-		AudioOnly: incomingIsAudio, // hint para o notifier (mantém compatibilidade)
-		TraceID:   traceID,
+		Channel:     msg.Channel,
+		ChatID:      outboundChatID,
+		OwnerUserID: channelCfg.OwnerUserID,
+		AudioOnly:   incomingIsAudio, // hint para o notifier (mantém compatibilidade)
+		TraceID:     traceID,
 		Callback: func(response string, assistantMsgID string) {
 			g.mu.RLock()
 			messenger, ok := g.messengers[msg.Channel]

@@ -34,6 +34,9 @@ type ResponseCallback struct {
 	// ChatID é o identificador do chat de destino para a resposta.
 	ChatID string
 
+	// OwnerUserID é o dono do canal (AEP-0052); usado na persistência M14.
+	OwnerUserID string
+
 	// AudioOnly indica que a mensagem original era apenas áudio.
 	// A resposta deve ser sintetizada em áudio (TTS) e enviada como attachment.
 	AudioOnly bool
@@ -42,13 +45,12 @@ type ResponseCallback struct {
 	Callback func(response string, assistantMessageID string)
 
 	// TTL define por quanto tempo este callback pode ficar pendente antes de ser
-	// descartado pelo housekeeping. Zero usa o padrão (callbackTTL, 5min) — o caso
-	// dos canais/UI, cuja resposta chega em segundos. Registros de vida longa
-	// (ex.: sub-agente em background, cujo run pode levar até o timeout efetivo,
-	// bem além de 5min) devem informar um TTL >= timeout do run, para que a
-	// conclusão ainda seja entregue mesmo após os 5min padrão. A remoção normal
-	// (Notify/Cancel) acontece bem antes; o TTL é apenas o backstop anti-órfão.
+	// descartado pelo housekeeping. Zero usa o padrão (callbackTTL, 5min).
 	TTL time.Duration
+
+	// SkipPersist evita gravar no ChannelPendingStore (ex.: re-registro no
+	// reconcile de startup — a linha já existe no DB).
+	SkipPersist bool
 }
 
 // pendingCallback é o registro interno do Notifier — guarda o callback, o
@@ -79,34 +81,17 @@ type pendingCallback struct {
 //
 // Thread-safe para uso concorrente.
 //
-// LIMITAÇÃO CONHECIDA — callbacks in-memory only (M14 / P0-3 do
-// re-review da Fatia 2). Se o app crashar (panic, OOM, sigkill) entre
-// o Register e o Notify, o callback é perdido junto com o processo.
-// Consequência: a resposta do assistente nunca chega ao mensageiro
-// externo (Telegram, Signal, Slack) — sem retry, sem feedback ao
-// remetente. O bot pode aparentar ter "sumido com a mensagem" do
-// ponto de vista do usuário externo.
-//
-// Mitigações ATUAIS:
-//   - TTL evita callback órfão acumulado em memória (B7).
-//   - panic/recover no callback evita derrubar o processo (M11).
-//   - O remetente externo pode reenviar a mensagem.
-//
-// Mitigações PENDENTES:
-//   - Persistir intent (channel_response_pending) no DB para que
-//     uma varredura no startup re-dispare callbacks órfãos por crash.
-//     TODO(aep-0052): tracking issue + schema + startup hook em fatia
-//     futura. Hoje é aceito por: (a) crash do app é raro em operação
-//     normal, (b) integrações externas já são best-effort do ponto de
-//     vista de SLA, (c) a mensagem do usuário externo permanece no
-//     histórico do app — nada se perde ali, só a resposta perdida no
-//     vácuo do pipeline.
+// Persistência (M14): quando um ChannelPendingStore está configurado via
+// SetPendingStore, callbacks de canal (Channel+ChatID) são gravados no DB
+// no Register e removidos no Notify/Cancel/TTL. No startup, ReconcilePending
+// reenvia respostas já salvas ou re-registra callbacks ainda válidos.
 type ResponseNotifier struct {
 	mu        sync.Mutex
 	callbacks map[string][]pendingCallback // conversationID -> callbacks pendentes
 	now       func() time.Time             // injetável para testes
 	stopCh    chan struct{}
 	stopOnce  sync.Once
+	store     ChannelPendingStore
 }
 
 // NewResponseNotifier cria um novo ResponseNotifier e inicia a goroutine
@@ -123,6 +108,16 @@ func newResponseNotifierWithClock(now func() time.Time) *ResponseNotifier {
 	}
 	go n.runCleanup(callbackCleanupInterval)
 	return n
+}
+
+// SetPendingStore habilita persistência de callbacks de canal (M14).
+func (n *ResponseNotifier) SetPendingStore(store ChannelPendingStore) {
+	if n == nil {
+		return
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.store = store
 }
 
 // Stop encerra a goroutine de housekeeping. Idempotente. Use em tear-down
@@ -149,17 +144,13 @@ func (n *ResponseNotifier) runCleanup(interval time.Duration) {
 func (n *ResponseNotifier) expireOldCallbacks() {
 	now := n.now()
 
-	// Identifica/remove os expirados SOB o lock; o I/O de log fica para depois,
-	// fora do lock — logging pode bloquear (I/O) e seguraria Register/Notify/
-	// Cancel, aumentando a latência do fluxo de mensagens.
 	var toLog []expiredLogEntry
+	var expiredConvIDs []string
 	n.mu.Lock()
 	for convID, pendings := range n.callbacks {
 		fresh := pendings[:0]
 		var expired []pendingCallback
 		for _, p := range pendings {
-			// expiresAt já incorpora o TTL efetivo do registro (padrão ou
-			// parametrizado por ResponseCallback.TTL).
 			if p.expiresAt.Before(now) {
 				expired = append(expired, p)
 				continue
@@ -168,6 +159,9 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 		}
 		if len(fresh) == 0 {
 			delete(n.callbacks, convID)
+			if len(expired) > 0 {
+				expiredConvIDs = append(expiredConvIDs, convID)
+			}
 		} else {
 			n.callbacks[convID] = fresh
 		}
@@ -180,11 +174,17 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 			})
 		}
 	}
+	store := n.store
 	n.mu.Unlock()
 
 	for _, e := range toLog {
 		logging.Debugf(context.Background(), "messaging.notifier", "[Notifier] Callback expirado por TTL trace=%s conv=%s channel=%s (>%.0fmin sem resposta)",
 			e.traceID, e.convID, e.channel, e.minutes)
+	}
+	if store != nil {
+		for _, convID := range expiredConvIDs {
+			_ = store.Delete(context.Background(), convID)
+		}
 	}
 }
 
@@ -208,13 +208,26 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 		ttl = cb.TTL
 	}
 	n.mu.Lock()
-	defer n.mu.Unlock()
 	now := n.now()
 	n.callbacks[conversationID] = append(n.callbacks[conversationID], pendingCallback{
 		cb:         cb,
 		registered: now,
 		expiresAt:  now.Add(ttl),
 	})
+	store := n.store
+	n.mu.Unlock()
+
+	if store != nil && shouldPersistChannelCallback(cb) && !cb.SkipPersist {
+		_ = store.Upsert(context.Background(), ChannelPendingRecord{
+			ConversationID: conversationID,
+			Channel:        cb.Channel,
+			ChatID:         cb.ChatID,
+			AudioOnly:      cb.AudioOnly,
+			TraceID:        cb.TraceID,
+			OwnerUserID:    cb.OwnerUserID,
+			CreatedAt:      now.UTC(),
+		})
+	}
 }
 
 // Notify chama todos os callbacks registrados para uma conversa e os remove.
@@ -229,7 +242,12 @@ func (n *ResponseNotifier) Notify(conversationID string, response string, assist
 	if ok {
 		delete(n.callbacks, conversationID)
 	}
+	store := n.store
 	n.mu.Unlock()
+
+	if store != nil {
+		_ = store.Delete(context.Background(), conversationID)
+	}
 
 	if !ok || len(pendings) == 0 {
 		return
@@ -258,11 +276,12 @@ func (n *ResponseNotifier) Cancel(conversationID string) {
 	if ok {
 		delete(n.callbacks, conversationID)
 	}
+	store := n.store
 	n.mu.Unlock()
+	if store != nil {
+		_ = store.Delete(context.Background(), conversationID)
+	}
 	if ok && len(pendings) > 0 {
-		// Mi9: era logado apenas o primeiro trace. Agora loga todos
-		// para correlação completa quando há múltiplos callbacks
-		// pendentes (ex.: race entre canal e UI na mesma conversa).
 		for _, p := range pendings {
 			logging.Debugf(context.Background(), "messaging.notifier", "[Messaging] Callback cancelado trace=%s conv=%s channel=%s (count=%d)",
 				p.cb.TraceID, conversationID, p.cb.Channel, len(pendings))
@@ -280,13 +299,13 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 	if channel == "" {
 		return 0
 	}
-	// Mesmo princípio do expireOldCallbacks: decide/remove sob o lock, coleta o
-	// que precisa logar e faz o I/O de log FORA do lock (logging pode bloquear).
 	var toLog []expiredLogEntry
+	var deleteIDs []string
 	n.mu.Lock()
 	cancelled := 0
 	for convID, pendings := range n.callbacks {
 		fresh := pendings[:0]
+		removedAll := true
 		for _, p := range pendings {
 			if p.cb.Channel == channel {
 				toLog = append(toLog, expiredLogEntry{
@@ -297,19 +316,29 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 				cancelled++
 				continue
 			}
+			removedAll = false
 			fresh = append(fresh, p)
 		}
 		if len(fresh) == 0 {
 			delete(n.callbacks, convID)
+			if removedAll {
+				deleteIDs = append(deleteIDs, convID)
+			}
 		} else {
 			n.callbacks[convID] = fresh
 		}
 	}
+	store := n.store
 	n.mu.Unlock()
 
 	for _, e := range toLog {
 		logging.Debugf(context.Background(), "messaging.notifier", "[Notifier] Callback cancelado por canal removido trace=%s conv=%s channel=%s",
 			e.traceID, e.convID, e.channel)
+	}
+	if store != nil {
+		for _, id := range deleteIDs {
+			_ = store.Delete(context.Background(), id)
+		}
 	}
 	return cancelled
 }

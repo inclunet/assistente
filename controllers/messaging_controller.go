@@ -214,6 +214,13 @@ func (c *MessagingController) StartAdapters() {
 	if cfg, ok := enabledChannels["slack"]; ok {
 		c.connectSlack(cfg)
 	}
+
+	if c.responseNotifier != nil {
+		c.responseNotifier.SetPendingStore(messaging.NewDBChannelPendingStore())
+	}
+	if c.msgGateway != nil {
+		c.msgGateway.ReconcilePending(context.Background(), messaging.DefaultFindAssistantAfter)
+	}
 }
 
 // ============================================================================
