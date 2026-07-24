@@ -66,16 +66,20 @@ func ListChannelResponsePending(ctx context.Context) ([]ChannelResponsePending, 
 
 // FindLatestAssistantMessageAfter retorna a última mensagem assistant raiz
 // criada após after (inclusive), ou nil se não houver.
+// SECURITY: fail-closed (AEP-0052). Requer userID no ctx e usa scopedMessageQuery.
 func FindLatestAssistantMessageAfter(ctx context.Context, conversationID string, after time.Time) (*ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
 	db := DB()
 	if db == nil {
 		return nil, errDBNotInitialized
 	}
 	var msg ChatMessage
-	err := db.WithContext(ctx).
-		Where("conversation_id = ? AND role = ? AND (parent_id IS NULL OR parent_id = '') AND created_at >= ?",
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.conversation_id = ? AND chat_messages.role = ? AND (chat_messages.parent_id IS NULL OR chat_messages.parent_id = '') AND chat_messages.created_at >= ?",
 			conversationID, "assistant", after).
-		Order("created_at DESC").
+		Order("chat_messages.created_at DESC").
 		Limit(1).
 		First(&msg).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {

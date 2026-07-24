@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"assistente/internal/database"
 	"assistente/internal/logging"
 	"context"
 	"time"
@@ -35,30 +36,35 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 
 	now := time.Now().UTC()
 	for _, rec := range rows {
+		recCtx := ctx
+		if rec.OwnerUserID != "" {
+			recCtx = database.WithUserID(ctx, rec.OwnerUserID)
+		}
+
 		if rec.CreatedAt.Add(callbackTTL).Before(now) {
-			if err := store.Delete(ctx, rec.ConversationID); err != nil {
-				logging.Warnf(ctx, "messaging.gateway", "[Gateway] reconcile: delete expirado conv=%s: %v", rec.ConversationID, err)
+			if err := store.Delete(recCtx, rec.ConversationID); err != nil {
+				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete expirado conv=%s: %v", rec.ConversationID, err)
 			}
-			logging.Debugf(ctx, "messaging.gateway", "[Gateway] reconcile: pendência expirada conv=%s channel=%s",
+			logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile: pendência expirada conv=%s channel=%s",
 				rec.ConversationID, rec.Channel)
 			continue
 		}
 
-		content, msgID, ok, ferr := find(ctx, rec.ConversationID, rec.CreatedAt)
+		content, msgID, ok, ferr := find(recCtx, rec.ConversationID, rec.CreatedAt)
 		if ferr != nil {
-			logging.Warnf(ctx, "messaging.gateway", "[Gateway] reconcile: busca assistant conv=%s: %v", rec.ConversationID, ferr)
+			logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: busca assistant conv=%s: %v", rec.ConversationID, ferr)
 			continue
 		}
 		if ok && content != "" {
-			if err := g.deliverChannelResponse(ctx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
-				logging.Errorf(ctx, "messaging.gateway", "[Gateway] reconcile: send falhou conv=%s: %v (agendando retry)", rec.ConversationID, err)
+			if err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
+				logging.Errorf(recCtx, "messaging.gateway", "[Gateway] reconcile: send falhou conv=%s: %v (agendando retry)", rec.ConversationID, err)
 				go g.retryReconcileSend(rec, content, msgID)
 				continue
 			}
-			if err := store.Delete(ctx, rec.ConversationID); err != nil {
-				logging.Warnf(ctx, "messaging.gateway", "[Gateway] reconcile: delete após send conv=%s: %v", rec.ConversationID, err)
+			if err := store.Delete(recCtx, rec.ConversationID); err != nil {
+				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete após send conv=%s: %v", rec.ConversationID, err)
 			}
-			logging.Infof(ctx, "messaging.gateway", "[Gateway] reconcile: reenviou resposta órfã conv=%s channel=%s msg=%s",
+			logging.Infof(recCtx, "messaging.gateway", "[Gateway] reconcile: reenviou resposta órfã conv=%s channel=%s msg=%s",
 				rec.ConversationID, rec.Channel, msgID)
 			continue
 		}
@@ -66,12 +72,13 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 		// Sem resposta ainda — re-registra callback in-memory para Notify futuro.
 		remaining := time.Until(rec.CreatedAt.Add(callbackTTL))
 		if remaining <= 0 {
-			if err := store.Delete(ctx, rec.ConversationID); err != nil {
-				logging.Warnf(ctx, "messaging.gateway", "[Gateway] reconcile: delete expirado conv=%s: %v", rec.ConversationID, err)
+			if err := store.Delete(recCtx, rec.ConversationID); err != nil {
+				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete expirado conv=%s: %v", rec.ConversationID, err)
 			}
 			continue
 		}
 		recCopy := rec
+		ownerID := recCopy.OwnerUserID
 		g.notifier.Register(rec.ConversationID, ResponseCallback{
 			Channel:      recCopy.Channel,
 			ChatID:       recCopy.ChatID,
@@ -82,8 +89,12 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 			TTL:          remaining,
 			SkipPersist:  true,
 			Callback: func(response string, assistantMsgID string) {
-				if err := g.deliverChannelResponse(context.Background(), recCopy.Channel, recCopy.ChatID, response, assistantMsgID, recCopy.AudioOnly, recCopy.ReplyToMsgID, recCopy.TraceID, recCopy.ConversationID); err != nil {
-					logging.Errorf(context.Background(), "messaging.gateway", "[Gateway] reconcile callback: send falhou conv=%s channel=%s trace=%s: %v",
+				cbCtx := context.Background()
+				if ownerID != "" {
+					cbCtx = database.WithUserID(cbCtx, ownerID)
+				}
+				if err := g.deliverChannelResponse(cbCtx, recCopy.Channel, recCopy.ChatID, response, assistantMsgID, recCopy.AudioOnly, recCopy.ReplyToMsgID, recCopy.TraceID, recCopy.ConversationID); err != nil {
+					logging.Errorf(cbCtx, "messaging.gateway", "[Gateway] reconcile callback: send falhou conv=%s channel=%s trace=%s: %v",
 						recCopy.ConversationID, recCopy.Channel, recCopy.TraceID, err)
 				}
 			},
@@ -97,26 +108,30 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 	delays := []time.Duration{3 * time.Second, 10 * time.Second, 30 * time.Second}
 	for _, wait := range delays {
 		time.Sleep(wait)
+		recCtx := context.Background()
+		if rec.OwnerUserID != "" {
+			recCtx = database.WithUserID(recCtx, rec.OwnerUserID)
+		}
 		if rec.CreatedAt.Add(callbackTTL).Before(time.Now().UTC()) {
 			if store := g.notifier.pendingStore(); store != nil {
-				if err := store.Delete(context.Background(), rec.ConversationID); err != nil {
-					logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: delete expirado conv=%s: %v", rec.ConversationID, err)
+				if err := store.Delete(recCtx, rec.ConversationID); err != nil {
+					logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: delete expirado conv=%s: %v", rec.ConversationID, err)
 				}
 			}
-			logging.Debugf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: pendência expirou conv=%s channel=%s",
+			logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: pendência expirou conv=%s channel=%s",
 				rec.ConversationID, rec.Channel)
 			return
 		}
-		if err := g.deliverChannelResponse(context.Background(), rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
-			logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: send falhou conv=%s: %v", rec.ConversationID, err)
+		if err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
+			logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: send falhou conv=%s: %v", rec.ConversationID, err)
 			continue
 		}
 		if store := g.notifier.pendingStore(); store != nil {
-			if err := store.Delete(context.Background(), rec.ConversationID); err != nil {
-				logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: delete conv=%s: %v", rec.ConversationID, err)
+			if err := store.Delete(recCtx, rec.ConversationID); err != nil {
+				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: delete conv=%s: %v", rec.ConversationID, err)
 			}
 		}
-		logging.Infof(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: reenviou resposta órfã conv=%s channel=%s msg=%s",
+		logging.Infof(recCtx, "messaging.gateway", "[Gateway] reconcile retry: reenviou resposta órfã conv=%s channel=%s msg=%s",
 			rec.ConversationID, rec.Channel, msgID)
 		return
 	}
