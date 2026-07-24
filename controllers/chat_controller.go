@@ -162,7 +162,8 @@ func (c *ChatController) registerChannelBridge(ctx context.Context, conversation
 	contactID := conv.ContactID
 	c.responseNotifier.Register(conversationID, messaging.ResponseCallback{
 		Channel: channelName,
-		ChatID:  channels.GetReplyChatID(channelName, contactID),
+		// ChatID provisório (contactID); o callback resolve GetReplyChatID no envio.
+		ChatID: contactID,
 		Callback: func(response string, assistantMsgID string) {
 			// Resolve no momento do envio: SaveReplyChatID pode ter atualizado
 			// o destino (Slack: mesmo user em outro channel/DM).

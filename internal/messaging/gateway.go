@@ -305,7 +305,13 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 			)
 			if err := messenger.Send(ctx, OutgoingMessage{ChatID: outboundChatID, Text: pairingMsg}); err != nil {
 				logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s erro ao enviar código: %v", traceID, msg.Channel, err)
+				contacts.CancelPairingCode(msg.Channel, msg.From.ID)
+				return
 			}
+		} else {
+			logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s messenger ausente ao enviar código", traceID, msg.Channel)
+			contacts.CancelPairingCode(msg.Channel, msg.From.ID)
+			return
 		}
 		if g.emitEvent != nil {
 			g.emitEvent("messaging:pairing_pending", map[string]any{

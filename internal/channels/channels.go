@@ -127,6 +127,9 @@ func SaveReplyChatID(channelName, contactID, replyChatID string) error {
 	if cfg.ReplyChatIDs == nil {
 		cfg.ReplyChatIDs = make(map[string]string)
 	}
+	if cfg.ReplyChatIDs[contactID] == replyChatID {
+		return nil
+	}
 	cfg.ReplyChatIDs[contactID] = replyChatID
 	return saveUnsafe(channelName, cfg)
 }
