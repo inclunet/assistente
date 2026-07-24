@@ -97,18 +97,19 @@ func TestSendMessageTool_ParametersIncludeSlack(t *testing.T) {
 		t.Fatalf("unmarshal parameters: %v", err)
 	}
 
-	want := map[string]bool{"slack": true, "telegram": true, "signal": true}
-	got := map[string]bool{}
-	for _, v := range schema.Properties.Channel.Enum {
-		got[v] = true
-	}
-	for channel := range want {
-		if !got[channel] {
-			t.Fatalf("enum de channel deveria incluir %q; got=%v", channel, schema.Properties.Channel.Enum)
-		}
-	}
+	want := []string{"slack", "telegram", "signal"}
+	got := schema.Properties.Channel.Enum
 	if len(got) != len(want) {
-		t.Fatalf("enum de channel inesperado: got=%v want=%v", schema.Properties.Channel.Enum, []string{"slack", "telegram", "signal"})
+		t.Fatalf("enum de channel tamanho inesperado: got=%v want=%v", got, want)
+	}
+	seen := map[string]bool{}
+	for _, v := range got {
+		seen[v] = true
+	}
+	for _, channel := range want {
+		if !seen[channel] {
+			t.Fatalf("enum de channel deveria incluir %q; got=%v", channel, got)
+		}
 	}
 }
 

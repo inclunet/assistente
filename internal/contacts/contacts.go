@@ -134,10 +134,13 @@ func GetForChannel(channel string) ([]*AuthorizedContact, error) {
 // IsAuthorized verifica se algum dos identificadores fornecidos corresponde
 // a um contato autorizado do canal.
 //
-// Retornos:
-//   - (true, true)  → canal tem contatos e um deles bate
-//   - (true, false) → canal tem contatos mas nenhum bate (limite atingido ou outro contato)
-//   - (false, false) → canal não tem contatos autorizados (vaga disponível)
+// Retornos (usados pelo Gateway):
+//   - (true, true)   → remetente já autorizado
+//   - (true, false)  → canal no limite e remetente fora da lista (rejeitar)
+//   - (false, false) → há vaga para pareamento: canal sem contatos, OU já há
+//     contatos mas ainda cabe mais um (maxContacts < 0 = ilimitado). Neste
+//     caso o primeiro bool NÃO significa “canal vazio” — significa “não
+//     rejeitar; seguir fluxo de pareamento/autorização”.
 func IsAuthorized(channel string, maxContacts int, identifiers ...string) (hasContacts bool, isAllowed bool) {
 	mu.Lock()
 	defer mu.Unlock()
