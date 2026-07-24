@@ -25,7 +25,8 @@ type ChannelPendingStore interface {
 }
 
 func shouldPersistChannelCallback(cb ResponseCallback) bool {
-	if cb.Callback == nil || cb.ChatID == "" {
+	if cb.Callback == nil || cb.ChatID == "" || cb.OwnerUserID == "" {
+		// Sem OwnerUserID o reconcile não consegue buscar assistant (AEP-0052).
 		return false
 	}
 	switch cb.Channel {

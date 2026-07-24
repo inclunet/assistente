@@ -47,10 +47,11 @@ func TestResponseNotifier_PersistsChannelCallback(t *testing.T) {
 	n.SetPendingStore(store)
 
 	n.Register("conv-1", ResponseCallback{
-		Channel: "telegram",
-		ChatID:  "123",
-		TraceID: "t1",
-		Callback: func(string, string) {},
+		Channel:     "telegram",
+		ChatID:      "123",
+		OwnerUserID: "owner-1",
+		TraceID:     "t1",
+		Callback:    func(string, string) {},
 	})
 
 	rows, _ := store.List(context.Background())
@@ -72,9 +73,10 @@ func TestResponseNotifier_CancelDeletesPending(t *testing.T) {
 	n.SetPendingStore(store)
 
 	n.Register("conv-1", ResponseCallback{
-		Channel: "signal",
-		ChatID:  "+5511",
-		Callback: func(string, string) {},
+		Channel:     "signal",
+		ChatID:      "+5511",
+		OwnerUserID: "owner-1",
+		Callback:    func(string, string) {},
 	})
 	n.Cancel("conv-1")
 	rows, _ := store.List(context.Background())
@@ -96,9 +98,10 @@ func TestResponseNotifier_SkipsPersistingInternalCallbacks(t *testing.T) {
 		Callback: func(string, string) {},
 	})
 	n.Register("conv-tel", ResponseCallback{
-		Channel: "telegram",
-		ChatID:  "123",
-		Callback: func(string, string) {},
+		Channel:     "telegram",
+		ChatID:      "123",
+		OwnerUserID: "owner-1",
+		Callback:    func(string, string) {},
 	})
 
 	rows, _ := store.List(context.Background())
@@ -116,8 +119,9 @@ func TestResponseNotifier_TTLExpiresChannelPendingWhileInternalRemains(t *testin
 	n.SetPendingStore(store)
 
 	n.Register("conv-mixed", ResponseCallback{
-		Channel: "telegram",
-		ChatID:  "123",
+		Channel:     "telegram",
+		ChatID:      "123",
+		OwnerUserID: "owner-1",
 		Callback: func(string, string) {
 			t.Fatal("callback de canal expirado não deveria ser chamado")
 		},
@@ -143,6 +147,23 @@ func TestResponseNotifier_TTLExpiresChannelPendingWhileInternalRemains(t *testin
 	}
 	if n.PendingCount() != 1 {
 		t.Fatalf("callback interno deveria permanecer; pending=%d", n.PendingCount())
+	}
+}
+
+func TestResponseNotifier_SkipsPersistWithoutOwnerUserID(t *testing.T) {
+	store := newMemPendingStore()
+	n := NewResponseNotifier()
+	defer n.Stop()
+	n.SetPendingStore(store)
+
+	n.Register("conv-no-owner", ResponseCallback{
+		Channel: "telegram",
+		ChatID:  "123",
+		Callback: func(string, string) {},
+	})
+	rows, _ := store.List(context.Background())
+	if len(rows) != 0 {
+		t.Fatalf("sem OwnerUserID não deveria persistir; got %+v", rows)
 	}
 }
 
