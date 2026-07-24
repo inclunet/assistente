@@ -118,10 +118,13 @@ export function ChannelLimitsProfileFields<TForm extends ChannelCommonForm>({
       <Input
         label={labels.maxContacts}
         type="number"
-        min="1"
+        min="-1"
         max="100"
         value={String(form.maxContacts)}
-        onChange={(e) => onChange({ ...form, maxContacts: parseInt(e.target.value, 10) || 1 })}
+        onChange={(e) => {
+          const parsed = parseInt(e.target.value, 10);
+          onChange({ ...form, maxContacts: Number.isNaN(parsed) ? 1 : parsed });
+        }}
         fullWidth
       />
       <p className="channels-page__hint">{labels.maxContactsHint}</p>
