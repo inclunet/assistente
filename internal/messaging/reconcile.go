@@ -97,6 +97,16 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 	delays := []time.Duration{3 * time.Second, 10 * time.Second, 30 * time.Second}
 	for _, wait := range delays {
 		time.Sleep(wait)
+		if rec.CreatedAt.Add(callbackTTL).Before(time.Now().UTC()) {
+			if store := g.notifier.pendingStore(); store != nil {
+				if err := store.Delete(context.Background(), rec.ConversationID); err != nil {
+					logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: delete expirado conv=%s: %v", rec.ConversationID, err)
+				}
+			}
+			logging.Debugf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: pendência expirou conv=%s channel=%s",
+				rec.ConversationID, rec.Channel)
+			return
+		}
 		if err := g.deliverChannelResponse(context.Background(), rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
 			logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: send falhou conv=%s: %v", rec.ConversationID, err)
 			continue

@@ -153,9 +153,13 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 	for convID, pendings := range n.callbacks {
 		fresh := pendings[:0]
 		var expired []pendingCallback
+		expiredPersisted := false
 		for _, p := range pendings {
 			if p.expiresAt.Before(now) {
 				expired = append(expired, p)
+				if shouldPersistChannelCallback(p.cb) {
+					expiredPersisted = true
+				}
 				continue
 			}
 			fresh = append(fresh, p)
@@ -167,6 +171,10 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 			}
 		} else {
 			n.callbacks[convID] = fresh
+			// Canal externo expirou mas callback interno permanece: limpa pending.
+			if expiredPersisted {
+				expiredConvIDs = append(expiredConvIDs, convID)
+			}
 		}
 		for _, p := range expired {
 			toLog = append(toLog, expiredLogEntry{

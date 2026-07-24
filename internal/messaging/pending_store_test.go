@@ -107,6 +107,45 @@ func TestResponseNotifier_SkipsPersistingInternalCallbacks(t *testing.T) {
 	}
 }
 
+func TestResponseNotifier_TTLExpiresChannelPendingWhileInternalRemains(t *testing.T) {
+	store := newMemPendingStore()
+	now := time.Now()
+	clock := func() time.Time { return now }
+	n := newResponseNotifierWithClock(clock)
+	defer n.Stop()
+	n.SetPendingStore(store)
+
+	n.Register("conv-mixed", ResponseCallback{
+		Channel: "telegram",
+		ChatID:  "123",
+		Callback: func(string, string) {
+			t.Fatal("callback de canal expirado não deveria ser chamado")
+		},
+	})
+	n.Register("conv-mixed", ResponseCallback{
+		Channel: "ui",
+		ChatID:  "",
+		TTL:     time.Hour,
+		Callback: func(string, string) {},
+	})
+
+	rows, _ := store.List(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("esperava pending telegram, got %+v", rows)
+	}
+
+	now = now.Add(callbackTTL + time.Minute)
+	n.expireOldCallbacks()
+
+	rows, _ = store.List(context.Background())
+	if len(rows) != 0 {
+		t.Fatalf("pending de canal deveria ser removido no TTL mesmo com callback interno vivo; got %+v", rows)
+	}
+	if n.PendingCount() != 1 {
+		t.Fatalf("callback interno deveria permanecer; pending=%d", n.PendingCount())
+	}
+}
+
 func TestGateway_ReconcilePending_ResendsSavedAssistant(t *testing.T) {
 	store := newMemPendingStore()
 	_ = store.Upsert(context.Background(), ChannelPendingRecord{
