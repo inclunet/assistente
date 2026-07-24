@@ -22,6 +22,8 @@ type ChannelResponsePending struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+var errDBNotInitialized = errors.New("banco de dados não inicializado")
+
 // UpsertChannelResponsePending cria ou atualiza a pendência de uma conversa.
 func UpsertChannelResponsePending(ctx context.Context, p *ChannelResponsePending) error {
 	if p == nil || p.ConversationID == "" {
@@ -32,7 +34,7 @@ func UpsertChannelResponsePending(ctx context.Context, p *ChannelResponsePending
 	}
 	db := DB()
 	if db == nil {
-		return nil
+		return errDBNotInitialized
 	}
 	return db.WithContext(ctx).Save(p).Error
 }
@@ -44,7 +46,7 @@ func DeleteChannelResponsePending(ctx context.Context, conversationID string) er
 	}
 	db := DB()
 	if db == nil {
-		return nil
+		return errDBNotInitialized
 	}
 	return db.WithContext(ctx).Where("conversation_id = ?", conversationID).Delete(&ChannelResponsePending{}).Error
 }
@@ -53,7 +55,7 @@ func DeleteChannelResponsePending(ctx context.Context, conversationID string) er
 func ListChannelResponsePending(ctx context.Context) ([]ChannelResponsePending, error) {
 	db := DB()
 	if db == nil {
-		return nil, nil
+		return nil, errDBNotInitialized
 	}
 	var rows []ChannelResponsePending
 	if err := db.WithContext(ctx).Order("created_at ASC").Find(&rows).Error; err != nil {
@@ -67,7 +69,7 @@ func ListChannelResponsePending(ctx context.Context) ([]ChannelResponsePending, 
 func FindLatestAssistantMessageAfter(ctx context.Context, conversationID string, after time.Time) (*ChatMessage, error) {
 	db := DB()
 	if db == nil {
-		return nil, nil
+		return nil, errDBNotInitialized
 	}
 	var msg ChatMessage
 	err := db.WithContext(ctx).
