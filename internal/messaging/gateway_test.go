@@ -210,7 +210,9 @@ func TestGateway_PendingPairingIgnoresNonCodeWithoutConsumingAttempts(t *testing
 	}
 
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 4)}
-	gateway := NewGateway(NewResponseNotifier(), func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		t.Fatalf("sendMessage não deveria ser chamado")
 		return "", nil
 	}, nil, nil, nil, nil)

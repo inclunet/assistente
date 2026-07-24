@@ -98,11 +98,10 @@ func SaveConversationID(channelName, contactID string, conversationID string) er
 	return saveUnsafe(channelName, cfg)
 }
 
-// SaveReplyChatID persiste o chatID de outbound para um contato (quando diferente do contactID).
+// SaveReplyChatID persiste o chatID de outbound para um contato.
+// Se replyChatID for vazio ou igual ao contactID, remove override prévio
+// (contrato: vazio = usar contactID).
 func SaveReplyChatID(channelName, contactID, replyChatID string) error {
-	if replyChatID == "" || replyChatID == contactID {
-		return nil
-	}
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -110,6 +109,21 @@ func SaveReplyChatID(channelName, contactID, replyChatID string) error {
 	if err != nil || cfg == nil {
 		return fmt.Errorf("canal %s não encontrado", channelName)
 	}
+
+	if replyChatID == "" || replyChatID == contactID {
+		if cfg.ReplyChatIDs == nil {
+			return nil
+		}
+		if _, ok := cfg.ReplyChatIDs[contactID]; !ok {
+			return nil
+		}
+		delete(cfg.ReplyChatIDs, contactID)
+		if len(cfg.ReplyChatIDs) == 0 {
+			cfg.ReplyChatIDs = nil
+		}
+		return saveUnsafe(channelName, cfg)
+	}
+
 	if cfg.ReplyChatIDs == nil {
 		cfg.ReplyChatIDs = make(map[string]string)
 	}
