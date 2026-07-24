@@ -203,6 +203,12 @@ func (c *MessagingController) StartAdapters() {
 		return
 	}
 
+	if c.responseNotifier != nil {
+		// Persistência M14 antes de Connect: mensagem que chega durante o
+		// handshake já encontra store pronto no Register do gateway.
+		c.responseNotifier.SetPendingStore(messaging.NewDBChannelPendingStore())
+	}
+
 	if cfg, ok := enabledChannels["telegram"]; ok {
 		c.connectTelegram(cfg)
 	}
@@ -215,9 +221,6 @@ func (c *MessagingController) StartAdapters() {
 		c.connectSlack(cfg)
 	}
 
-	if c.responseNotifier != nil {
-		c.responseNotifier.SetPendingStore(messaging.NewDBChannelPendingStore())
-	}
 	if c.msgGateway != nil {
 		c.msgGateway.ReconcilePending(context.Background(), messaging.DefaultFindAssistantAfter)
 	}

@@ -183,7 +183,9 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 	}
 	if store != nil {
 		for _, convID := range expiredConvIDs {
-			_ = store.Delete(context.Background(), convID)
+			if err := store.Delete(context.Background(), convID); err != nil {
+				logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao remover pending expirado conv=%s: %v", convID, err)
+			}
 		}
 	}
 }
@@ -218,7 +220,7 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 	n.mu.Unlock()
 
 	if store != nil && shouldPersistChannelCallback(cb) && !cb.SkipPersist {
-		_ = store.Upsert(context.Background(), ChannelPendingRecord{
+		if err := store.Upsert(context.Background(), ChannelPendingRecord{
 			ConversationID: conversationID,
 			Channel:        cb.Channel,
 			ChatID:         cb.ChatID,
@@ -226,7 +228,10 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 			TraceID:        cb.TraceID,
 			OwnerUserID:    cb.OwnerUserID,
 			CreatedAt:      now.UTC(),
-		})
+		}); err != nil {
+			logging.Errorf(context.Background(), "messaging.notifier", "[Notifier] falha ao persistir pending conv=%s channel=%s: %v",
+				conversationID, cb.Channel, err)
+		}
 	}
 }
 
@@ -246,7 +251,9 @@ func (n *ResponseNotifier) Notify(conversationID string, response string, assist
 	n.mu.Unlock()
 
 	if store != nil {
-		_ = store.Delete(context.Background(), conversationID)
+		if err := store.Delete(context.Background(), conversationID); err != nil {
+			logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao remover pending no Notify conv=%s: %v", conversationID, err)
+		}
 	}
 
 	if !ok || len(pendings) == 0 {
@@ -279,7 +286,9 @@ func (n *ResponseNotifier) Cancel(conversationID string) {
 	store := n.store
 	n.mu.Unlock()
 	if store != nil {
-		_ = store.Delete(context.Background(), conversationID)
+		if err := store.Delete(context.Background(), conversationID); err != nil {
+			logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao remover pending no Cancel conv=%s: %v", conversationID, err)
+		}
 	}
 	if ok && len(pendings) > 0 {
 		for _, p := range pendings {
@@ -337,7 +346,9 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 	}
 	if store != nil {
 		for _, id := range deleteIDs {
-			_ = store.Delete(context.Background(), id)
+			if err := store.Delete(context.Background(), id); err != nil {
+				logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao remover pending no CancelByChannel conv=%s: %v", id, err)
+			}
 		}
 	}
 	return cancelled
