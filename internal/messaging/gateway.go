@@ -240,6 +240,19 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 		// (o contato responde com o código). Não bloqueia em questionnaire/UI.
 		if pending := contacts.GetPairingCode(msg.Channel, msg.From.ID); pending != nil {
 			codeAttempt := strings.TrimSpace(msg.Text)
+			// Só valida/consome tentativas quando a entrada parece um código
+			// (6 dígitos). Mensagens livres ("oi") não devem esgotar o limite.
+			if !isPairingCodeAttempt(codeAttempt) {
+				logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s aguardando código de pareamento (entrada ignorada)",
+					traceID, msg.Channel)
+				if messenger, ok := g.GetMessenger(msg.Channel); ok {
+					_ = messenger.Send(ctx, OutgoingMessage{
+						ChatID: outboundChatID,
+						Text:   "Aguardando o código de pareamento de 6 dígitos enviado anteriormente.",
+					})
+				}
+				return
+			}
 			valid, validateErr := contacts.ValidatePairingCode(msg.Channel, msg.From.ID, codeAttempt)
 			if !valid {
 				logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s pareamento inválido: %v",
@@ -509,4 +522,18 @@ func maskIdentifier(value string) string {
 	}
 	visible := value[len(value)-4:]
 	return strings.Repeat("*", len(value)-4) + visible
+}
+
+// isPairingCodeAttempt reporta se o texto parece um código de 6 dígitos.
+// Entradas livres não devem consumir tentativas de ValidatePairingCode.
+func isPairingCodeAttempt(text string) bool {
+	if len(text) != 6 {
+		return false
+	}
+	for i := 0; i < len(text); i++ {
+		if text[i] < '0' || text[i] > '9' {
+			return false
+		}
+	}
+	return true
 }

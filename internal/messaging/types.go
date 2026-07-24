@@ -59,8 +59,8 @@ type IncomingMessage struct {
 
 // OutboundChatID retorna o chatID a usar ao responder esta mensagem.
 func (m IncomingMessage) OutboundChatID() string {
-	if strings.TrimSpace(m.ReplyChatID) != "" {
-		return m.ReplyChatID
+	if reply := strings.TrimSpace(m.ReplyChatID); reply != "" {
+		return reply
 	}
 	return m.From.ID
 }

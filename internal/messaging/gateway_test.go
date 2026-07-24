@@ -94,7 +94,7 @@ func resetState(t *testing.T) {
 	_ = contacts.RemoveAll("slack")
 }
 
-func TestGateway_UnauthorizedContactStartsPairingWithoutSendMessage(t *testing.T) {
+func TestGateway_UnauthorizedContactSendsPairingCodeWithoutLLM(t *testing.T) {
 	resetState(t)
 
 	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
@@ -199,6 +199,59 @@ func TestGateway_PairingByContactReply(t *testing.T) {
 	}
 	if !foundAuth {
 		t.Fatalf("esperava messaging:contact_authorized, got=%v", emitted)
+	}
+}
+
+func TestGateway_PendingPairingIgnoresNonCodeWithoutConsumingAttempts(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner"}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 4)}
+	gateway := NewGateway(NewResponseNotifier(), func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		t.Fatalf("sendMessage não deveria ser chamado")
+		return "", nil
+	}, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID: "msg-1", Channel: "telegram",
+		From: Contact{ID: "123", DisplayName: "Fulano"},
+		Text: "Oi",
+	})
+	select {
+	case <-fake.sentCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout no código inicial")
+	}
+
+	pending := contacts.GetPairingCode("telegram", "123")
+	if pending == nil {
+		t.Fatal("código pendente esperado")
+	}
+	if pending.Attempts != 0 {
+		t.Fatalf("attempts iniciais = %d, want 0", pending.Attempts)
+	}
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID: "msg-2", Channel: "telegram",
+		From: Contact{ID: "123", DisplayName: "Fulano"},
+		Text: "oi de novo",
+	})
+	select {
+	case <-fake.sentCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout no lembrete de código")
+	}
+
+	pending = contacts.GetPairingCode("telegram", "123")
+	if pending == nil {
+		t.Fatal("código pendente deveria permanecer")
+	}
+	if pending.Attempts != 0 {
+		t.Fatalf("mensagem livre não deveria consumir tentativa; attempts=%d", pending.Attempts)
 	}
 }
 
