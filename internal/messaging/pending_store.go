@@ -13,6 +13,7 @@ type ChannelPendingRecord struct {
 	AudioOnly      bool
 	TraceID        string
 	OwnerUserID    string
+	ReplyToMsgID   string
 	CreatedAt      time.Time
 }
 

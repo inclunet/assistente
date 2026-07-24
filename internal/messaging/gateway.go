@@ -387,82 +387,16 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	//    O ChannelResponseMode do perfil decide se a resposta será áudio ou texto.
 	incomingIsAudio := msg.IsAudioOnly()
 	g.notifier.Register(conversationID, ResponseCallback{
-		Channel:     msg.Channel,
-		ChatID:      outboundChatID,
-		OwnerUserID: channelCfg.OwnerUserID,
-		AudioOnly:   incomingIsAudio, // hint para o notifier (mantém compatibilidade)
-		TraceID:     traceID,
+		Channel:      msg.Channel,
+		ChatID:       outboundChatID,
+		OwnerUserID:  channelCfg.OwnerUserID,
+		AudioOnly:    incomingIsAudio, // hint para o notifier (mantém compatibilidade)
+		ReplyToMsgID: msg.ID,
+		TraceID:      traceID,
 		Callback: func(response string, assistantMsgID string) {
-			g.mu.RLock()
-			messenger, ok := g.messengers[msg.Channel]
-			g.mu.RUnlock()
-
-			if !ok {
-				logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s messenger não encontrado para resposta",
-					traceID, conversationID, msg.Channel)
-				return
-			}
-
-			outMsg := OutgoingMessage{
-				ChatID:           outboundChatID,
-				Text:             response,
-				ReplyToMessageID: msg.ID,
-			}
-
-			// Gera TTS via TTSBroker (com timeout) para não bloquear indefinidamente.
-			// O broker coordena a goroutine de síntese com o envio da mensagem.
-			if g.synthesizeTTS != nil && assistantMsgID != "" {
-				g.ttsBroker.Prepare(assistantMsgID)
-				go func() {
-					ttsCtx, ttsCancel := context.WithTimeout(ctx, 5*time.Second)
-					defer ttsCancel()
-					audioData, ttsErr := g.synthesizeTTS(ttsCtx, response, msg.Channel, incomingIsAudio)
-					if ttsErr != nil {
-						logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao gerar TTS: %v",
-							traceID, conversationID, msg.Channel, ttsErr)
-						g.ttsBroker.Cancel(assistantMsgID)
-						return
-					}
-					if len(audioData) == 0 {
-						// TTS não aplicável (perfil decidiu não gerar áudio)
-						g.ttsBroker.Cancel(assistantMsgID)
-						return
-					}
-					g.ttsBroker.Publish(assistantMsgID, audioData, "audio/mpeg")
-				}()
-
-				payload, ok := g.ttsBroker.Wait(assistantMsgID, 5*time.Second)
-				if ok && len(payload.Data) > 0 {
-					outMsg.Attachments = []Attachment{{
-						Filename: "resposta.mp3",
-						MIMEType: payload.MIMEType,
-						Data:     payload.Data,
-					}}
-					outMsg.Text = ""
-					logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s TTS gerado bytes=%d",
-						traceID, conversationID, msg.Channel, len(payload.Data))
-
-					// Salva o áudio TTS na mensagem do assistente no DB
-					if g.saveAudio != nil {
-						if err := g.saveAudio(ctx, assistantMsgID, base64.StdEncoding.EncodeToString(payload.Data), payload.MIMEType); err != nil {
-							logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s msgID=%s erro ao salvar áudio TTS no DB: %v",
-								traceID, conversationID, assistantMsgID, err)
-						} else {
-							logging.Warnf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s msgID=%s áudio TTS salvo", traceID, conversationID, assistantMsgID)
-						}
-					}
-				} else {
-					logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s TTS não disponível (timeout ou não aplicável)",
-						traceID, conversationID, msg.Channel)
-				}
-			}
-
-			err := messenger.Send(ctx, outMsg)
-			if err != nil {
+			if err := g.deliverChannelResponse(ctx, msg.Channel, outboundChatID, response, assistantMsgID, incomingIsAudio, msg.ID, traceID, conversationID); err != nil {
 				logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao enviar resposta: %v",
 					traceID, conversationID, msg.Channel, err)
-			} else {
-				logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s resposta enviada", traceID, conversationID, msg.Channel)
 			}
 		},
 	})
@@ -498,6 +432,70 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 			_ = messenger.Send(ctx, outMsg)
 		}
 	}
+}
+
+// deliverChannelResponse monta e envia a OutgoingMessage (texto/TTS/thread)
+// usada tanto no callback normal quanto no reconcile pós-crash.
+func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, response, assistantMsgID string, audioOnly bool, replyToMsgID, traceID, conversationID string) error {
+	messenger, ok := g.GetMessenger(channel)
+	if !ok {
+		logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s messenger não encontrado para resposta",
+			traceID, conversationID, channel)
+		return fmt.Errorf("messenger %s ausente", channel)
+	}
+
+	outMsg := OutgoingMessage{
+		ChatID:           chatID,
+		Text:             response,
+		ReplyToMessageID: replyToMsgID,
+	}
+
+	if g.synthesizeTTS != nil && assistantMsgID != "" {
+		g.ttsBroker.Prepare(assistantMsgID)
+		go func() {
+			ttsCtx, ttsCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer ttsCancel()
+			audioData, ttsErr := g.synthesizeTTS(ttsCtx, response, channel, audioOnly)
+			if ttsErr != nil {
+				logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao gerar TTS: %v",
+					traceID, conversationID, channel, ttsErr)
+				g.ttsBroker.Cancel(assistantMsgID)
+				return
+			}
+			if len(audioData) == 0 {
+				g.ttsBroker.Cancel(assistantMsgID)
+				return
+			}
+			g.ttsBroker.Publish(assistantMsgID, audioData, "audio/mpeg")
+		}()
+
+		payload, ok := g.ttsBroker.Wait(assistantMsgID, 5*time.Second)
+		if ok && len(payload.Data) > 0 {
+			outMsg.Attachments = []Attachment{{
+				Filename: "resposta.mp3",
+				MIMEType: payload.MIMEType,
+				Data:     payload.Data,
+			}}
+			outMsg.Text = ""
+			logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s TTS gerado bytes=%d",
+				traceID, conversationID, channel, len(payload.Data))
+			if g.saveAudio != nil {
+				if err := g.saveAudio(ctx, assistantMsgID, base64.StdEncoding.EncodeToString(payload.Data), payload.MIMEType); err != nil {
+					logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s msgID=%s erro ao salvar áudio TTS no DB: %v",
+						traceID, conversationID, assistantMsgID, err)
+				}
+			}
+		} else {
+			logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s TTS não disponível (timeout ou não aplicável)",
+				traceID, conversationID, channel)
+		}
+	}
+
+	if err := messenger.Send(ctx, outMsg); err != nil {
+		return err
+	}
+	logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s resposta enviada", traceID, conversationID, channel)
+	return nil
 }
 
 // attachmentsToMediaJSON converte []Attachment para o formato media JSON

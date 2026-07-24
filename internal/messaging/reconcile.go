@@ -50,13 +50,7 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 			continue
 		}
 		if ok && content != "" {
-			messenger, has := g.GetMessenger(rec.Channel)
-			if !has {
-				logging.Warnf(ctx, "messaging.gateway", "[Gateway] reconcile: messenger %s ausente conv=%s (mantém pending para retry)", rec.Channel, rec.ConversationID)
-				go g.retryReconcileSend(rec, content, msgID)
-				continue
-			}
-			if err := messenger.Send(ctx, OutgoingMessage{ChatID: rec.ChatID, Text: content}); err != nil {
+			if err := g.deliverChannelResponse(ctx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
 				logging.Errorf(ctx, "messaging.gateway", "[Gateway] reconcile: send falhou conv=%s: %v (agendando retry)", rec.ConversationID, err)
 				go g.retryReconcileSend(rec, content, msgID)
 				continue
@@ -79,24 +73,16 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 		}
 		recCopy := rec
 		g.notifier.Register(rec.ConversationID, ResponseCallback{
-			Channel:     recCopy.Channel,
-			ChatID:      recCopy.ChatID,
-			OwnerUserID: recCopy.OwnerUserID,
-			AudioOnly:   recCopy.AudioOnly,
-			TraceID:     recCopy.TraceID,
-			TTL:         remaining,
-			SkipPersist: true,
+			Channel:      recCopy.Channel,
+			ChatID:       recCopy.ChatID,
+			OwnerUserID:  recCopy.OwnerUserID,
+			AudioOnly:    recCopy.AudioOnly,
+			ReplyToMsgID: recCopy.ReplyToMsgID,
+			TraceID:      recCopy.TraceID,
+			TTL:          remaining,
+			SkipPersist:  true,
 			Callback: func(response string, assistantMsgID string) {
-				messenger, has := g.GetMessenger(recCopy.Channel)
-				if !has {
-					logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile callback: messenger %s ausente conv=%s trace=%s",
-						recCopy.Channel, recCopy.ConversationID, recCopy.TraceID)
-					return
-				}
-				if err := messenger.Send(context.Background(), OutgoingMessage{
-					ChatID: recCopy.ChatID,
-					Text:   response,
-				}); err != nil {
+				if err := g.deliverChannelResponse(context.Background(), recCopy.Channel, recCopy.ChatID, response, assistantMsgID, recCopy.AudioOnly, recCopy.ReplyToMsgID, recCopy.TraceID, recCopy.ConversationID); err != nil {
 					logging.Errorf(context.Background(), "messaging.gateway", "[Gateway] reconcile callback: send falhou conv=%s channel=%s trace=%s: %v",
 						recCopy.ConversationID, recCopy.Channel, recCopy.TraceID, err)
 				}
@@ -111,12 +97,7 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 	delays := []time.Duration{3 * time.Second, 10 * time.Second, 30 * time.Second}
 	for _, wait := range delays {
 		time.Sleep(wait)
-		messenger, has := g.GetMessenger(rec.Channel)
-		if !has {
-			logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: messenger %s ausente conv=%s", rec.Channel, rec.ConversationID)
-			continue
-		}
-		if err := messenger.Send(context.Background(), OutgoingMessage{ChatID: rec.ChatID, Text: content}); err != nil {
+		if err := g.deliverChannelResponse(context.Background(), rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
 			logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: send falhou conv=%s: %v", rec.ConversationID, err)
 			continue
 		}

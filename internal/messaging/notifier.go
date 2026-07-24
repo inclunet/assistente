@@ -41,6 +41,9 @@ type ResponseCallback struct {
 	// A resposta deve ser sintetizada em áudio (TTS) e enviada como attachment.
 	AudioOnly bool
 
+	// ReplyToMsgID é o ID da mensagem entrante (thread/reply no Slack etc.).
+	ReplyToMsgID string
+
 	// Callback é chamado com a resposta completa do assistente e o ID da mensagem salva.
 	Callback func(response string, assistantMessageID string)
 
@@ -227,10 +230,22 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 			AudioOnly:      cb.AudioOnly,
 			TraceID:        cb.TraceID,
 			OwnerUserID:    cb.OwnerUserID,
+			ReplyToMsgID:   cb.ReplyToMsgID,
 			CreatedAt:      now.UTC(),
 		}); err != nil {
 			logging.Errorf(context.Background(), "messaging.notifier", "[Notifier] falha ao persistir pending conv=%s channel=%s: %v",
 				conversationID, cb.Channel, err)
+		} else {
+			// Compensa race com Notify/Cancel concorrente: se a conversa já
+			// não tem callbacks, o Upsert pode ter “ressuscitado” a linha.
+			n.mu.Lock()
+			stillPending := len(n.callbacks[conversationID]) > 0
+			n.mu.Unlock()
+			if !stillPending {
+				if delErr := store.Delete(context.Background(), conversationID); delErr != nil {
+					logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao limpar pending fantasma conv=%s: %v", conversationID, delErr)
+				}
+			}
 		}
 	}
 }
@@ -314,7 +329,7 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 	cancelled := 0
 	for convID, pendings := range n.callbacks {
 		fresh := pendings[:0]
-		removedAll := true
+		removedPersisted := false
 		for _, p := range pendings {
 			if p.cb.Channel == channel {
 				toLog = append(toLog, expiredLogEntry{
@@ -323,18 +338,23 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 					channel: p.cb.Channel,
 				})
 				cancelled++
+				if shouldPersistChannelCallback(p.cb) {
+					removedPersisted = true
+				}
 				continue
 			}
-			removedAll = false
 			fresh = append(fresh, p)
 		}
 		if len(fresh) == 0 {
 			delete(n.callbacks, convID)
-			if removedAll {
-				deleteIDs = append(deleteIDs, convID)
-			}
+			deleteIDs = append(deleteIDs, convID)
 		} else {
 			n.callbacks[convID] = fresh
+			// Mesmo com callbacks internos restantes, remove pending de canal
+			// externo para não reenviar indevidamente no reconcile.
+			if removedPersisted {
+				deleteIDs = append(deleteIDs, convID)
+			}
 		}
 	}
 	store := n.store

@@ -18,6 +18,7 @@ type ChannelResponsePending struct {
 	AudioOnly      bool      `json:"audio_only"`
 	TraceID        string    `gorm:"type:text" json:"trace_id"`
 	OwnerUserID    string    `gorm:"type:text;index" json:"owner_user_id"`
+	ReplyToMsgID   string    `gorm:"type:text" json:"reply_to_msg_id"`
 	CreatedAt      time.Time `json:"created_at"`
 }
 

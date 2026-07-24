@@ -22,6 +22,7 @@ func (s *DBChannelPendingStore) Upsert(ctx context.Context, rec ChannelPendingRe
 		AudioOnly:      rec.AudioOnly,
 		TraceID:        rec.TraceID,
 		OwnerUserID:    rec.OwnerUserID,
+		ReplyToMsgID:   rec.ReplyToMsgID,
 		CreatedAt:      rec.CreatedAt,
 	})
 }
@@ -44,6 +45,7 @@ func (s *DBChannelPendingStore) List(ctx context.Context) ([]ChannelPendingRecor
 			AudioOnly:      r.AudioOnly,
 			TraceID:        r.TraceID,
 			OwnerUserID:    r.OwnerUserID,
+			ReplyToMsgID:   r.ReplyToMsgID,
 			CreatedAt:      r.CreatedAt,
 		})
 	}
