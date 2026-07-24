@@ -144,9 +144,9 @@ func GetAvailableTemplates() []ChannelTemplate {
 					Key:         "app_token",
 					Label:       "App Token",
 					Type:        "password",
-					Required:    false,
+					Required:    true,
 					Placeholder: "xapp-...",
-					Description: "Token do app Slack para Socket Mode (opcional)",
+					Description: "Token do app Slack para Socket Mode (obrigatório; começa com xapp-)",
 				},
 				{
 					Key:          "max_contacts",

@@ -414,6 +414,8 @@ type RecordUserMessageRequest struct {
 	SurfaceOrigin  *ports.ChatSurfaceOrigin
 	ActiveProfile  *profiles.Profile
 	Transcribe     TranscribeFunc
+	// MaxContextMessages, se > 0, sobrescreve o limite do perfil ao carregar histórico.
+	MaxContextMessages int
 }
 
 // RecordUserMessageResponse contém a mensagem salva e o histórico da conversa carregado.
@@ -481,7 +483,9 @@ func (i *Interactor) ReuseLoadedUserMessage(ctx context.Context, req RecordUserM
 	}
 
 	maxCtxMsgs := DefaultMaxContextMessages
-	if req.ActiveProfile != nil {
+	if req.MaxContextMessages > 0 {
+		maxCtxMsgs = req.MaxContextMessages
+	} else if req.ActiveProfile != nil {
 		maxCtxMsgs = req.ActiveProfile.GetMaxContextMessages()
 	}
 	loader := MediaHistoryLoader{

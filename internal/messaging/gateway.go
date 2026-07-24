@@ -174,7 +174,7 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	// 1. Verifica contato autorizado (contacts.json centralizado + max_contacts do canal)
 	//    Carrega o config uma única vez e reusa para owner/profile abaixo.
 	channelCfg, _ := channels.Load(msg.Channel)
-	maxContacts := 1
+	maxContacts := 0
 	if channelCfg != nil {
 		maxContacts = channelCfg.GetMaxContacts()
 	}
@@ -423,6 +423,9 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	if channelCfg != nil && channelCfg.Profile != "" {
 		params.ProfileSlug = channelCfg.Profile
 		logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, channelCfg.Profile)
+	}
+	if channelCfg != nil && channelCfg.MaxHistory > 0 {
+		params.MaxContextMessages = channelCfg.MaxHistory
 	}
 	_, err = g.sendMessage(ctx, conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {

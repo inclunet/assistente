@@ -55,10 +55,10 @@ type ChannelConfig struct {
 	Conversations map[string]string `json:"conversations,omitempty"`
 }
 
-// GetMaxContacts retorna o limite efetivo de contatos (mínimo 1).
+// GetMaxContacts retorna o limite de contatos. Valores <= 0 significam ilimitado.
 func (c *ChannelConfig) GetMaxContacts() int {
-	if c.MaxContacts <= 0 {
-		return 1
+	if c == nil || c.MaxContacts < 0 {
+		return 0
 	}
 	return c.MaxContacts
 }

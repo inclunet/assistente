@@ -153,14 +153,11 @@ func IsAuthorized(channel string, maxContacts int, identifiers ...string) (hasCo
 	}
 
 	// Tem contatos mas nenhum bateu — verifica se há vaga
-	if maxContacts <= 0 {
-		maxContacts = 1
-	}
-	if len(channelContacts) >= maxContacts {
+	if maxContacts > 0 && len(channelContacts) >= maxContacts {
 		return true, false // Limite atingido, rejeita
 	}
 
-	// Há vaga — contato novo pode ser autorizado
+	// Há vaga (ou limite ilimitado) — contato novo pode ser autorizado
 	return false, false
 }
 
@@ -176,10 +173,6 @@ func Authorize(channel string, id, displayName, username string, maxContacts int
 		return err
 	}
 
-	if maxContacts <= 0 {
-		maxContacts = 1
-	}
-
 	channelContacts := contacts[channel]
 
 	// Verifica se já existe (atualiza)
@@ -192,8 +185,8 @@ func Authorize(channel string, id, displayName, username string, maxContacts int
 		}
 	}
 
-	// Novo contato — verifica limite
-	if len(channelContacts) >= maxContacts {
+	// Novo contato — verifica limite (maxContacts <= 0 = ilimitado)
+	if maxContacts > 0 && len(channelContacts) >= maxContacts {
 		return fmt.Errorf("limite de %d contato(s) atingido para o canal %s", maxContacts, channel)
 	}
 
