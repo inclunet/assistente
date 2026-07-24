@@ -2,8 +2,10 @@
 // para todos os canais de mensageria (Signal, Telegram, WhatsApp, etc.).
 //
 // O número máximo de contatos por canal é configurável no config do canal
-// (campo max_contacts). Quando o limite é atingido, novos contatos são
-// silenciosamente ignorados até que um seja removido.
+// (campo max_contacts). Preferir ChannelConfig.GetMaxContacts() ao passar o
+// limite. Na API deste pacote: 0 = default 1; valor negativo = ilimitado.
+// Quando o limite é atingido, novos contatos são silenciosamente ignorados
+// até que um seja removido.
 //
 // Formato do arquivo contacts.json:
 //
@@ -28,6 +30,16 @@ import (
 	"sync"
 	"time"
 )
+
+// normalizeMaxContacts alinha a API de contacts com GetMaxContacts:
+// 0 → 1 (default legado seguro); <0 permanece negativo (ilimitado nas
+// checagens `maxContacts > 0`); >0 → valor informado.
+func normalizeMaxContacts(maxContacts int) int {
+	if maxContacts == 0 {
+		return 1
+	}
+	return maxContacts
+}
 
 const contactsFilename = "contacts.json"
 
@@ -122,13 +134,18 @@ func GetForChannel(channel string) ([]*AuthorizedContact, error) {
 // IsAuthorized verifica se algum dos identificadores fornecidos corresponde
 // a um contato autorizado do canal.
 //
-// Retornos:
-//   - (true, true)  → canal tem contatos e um deles bate
-//   - (true, false) → canal tem contatos mas nenhum bate (limite atingido ou outro contato)
-//   - (false, false) → canal não tem contatos autorizados (vaga disponível)
+// Retornos (usados pelo Gateway):
+//   - (true, true)   → remetente já autorizado
+//   - (true, false)  → canal no limite e remetente fora da lista (rejeitar)
+//   - (false, false) → há vaga para pareamento: canal sem contatos, OU já há
+//     contatos mas ainda cabe mais um (maxContacts < 0 = ilimitado). Neste
+//     caso o primeiro bool NÃO significa “canal vazio” — significa “não
+//     rejeitar; seguir fluxo de pareamento/autorização”.
 func IsAuthorized(channel string, maxContacts int, identifiers ...string) (hasContacts bool, isAllowed bool) {
 	mu.Lock()
 	defer mu.Unlock()
+
+	maxContacts = normalizeMaxContacts(maxContacts)
 
 	contacts, err := loadUnsafe()
 	if err != nil {
@@ -153,14 +170,11 @@ func IsAuthorized(channel string, maxContacts int, identifiers ...string) (hasCo
 	}
 
 	// Tem contatos mas nenhum bateu — verifica se há vaga
-	if maxContacts <= 0 {
-		maxContacts = 1
-	}
-	if len(channelContacts) >= maxContacts {
+	if maxContacts > 0 && len(channelContacts) >= maxContacts {
 		return true, false // Limite atingido, rejeita
 	}
 
-	// Há vaga — contato novo pode ser autorizado
+	// Há vaga (ou limite ilimitado) — contato novo pode ser autorizado
 	return false, false
 }
 
@@ -171,13 +185,11 @@ func Authorize(channel string, id, displayName, username string, maxContacts int
 	mu.Lock()
 	defer mu.Unlock()
 
+	maxContacts = normalizeMaxContacts(maxContacts)
+
 	contacts, err := loadUnsafe()
 	if err != nil {
 		return err
-	}
-
-	if maxContacts <= 0 {
-		maxContacts = 1
 	}
 
 	channelContacts := contacts[channel]
@@ -192,8 +204,8 @@ func Authorize(channel string, id, displayName, username string, maxContacts int
 		}
 	}
 
-	// Novo contato — verifica limite
-	if len(channelContacts) >= maxContacts {
+	// Novo contato — verifica limite (maxContacts < 0 = ilimitado após normalize)
+	if maxContacts > 0 && len(channelContacts) >= maxContacts {
 		return fmt.Errorf("limite de %d contato(s) atingido para o canal %s", maxContacts, channel)
 	}
 

@@ -81,8 +81,8 @@ func (c *MessagingController) ResponseNotifier() *messaging.ResponseNotifier {
 	return c.responseNotifier
 }
 
-// Init inicializa o gateway, conecta os canais habilitados e registra as tools
-// de mensageria no ToolRegistry. Substitui a função initMessaging() do App.
+// Init inicializa o gateway e registra as tools de mensageria no ToolRegistry.
+// Não conecta adapters — chame StartAdapters() após o ChatController existir.
 func (c *MessagingController) Init() {
 	c.responseNotifier = messaging.NewResponseNotifier()
 
@@ -227,9 +227,33 @@ func (c *MessagingController) Init() {
 		saveAudio,
 	)
 
+	if c.toolRegistry != nil {
+		sendMsgTool := msgtool.NewSendMessageTool(c.msgGateway)
+		c.toolRegistry.MustRegister(sendMsgTool)
+		logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Tool 'send_message' registrada")
+
+		pairingTool := msgtool.NewValidatePairingCodeTool()
+		c.toolRegistry.MustRegister(pairingTool)
+		logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Tool 'validate_pairing_code' registrada")
+	}
+
+	logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Gateway inicializado")
+}
+
+// StartAdapters conecta os messengers habilitados. Deve ser chamado somente
+// depois que o ChatController existir — Init() cria o gateway cedo (agent/
+// notifier dependem dele), mas Connect antes de chatCtrl gera NPE em
+// SendMessageFromChannel se uma mensagem chegar no startup.
+func (c *MessagingController) StartAdapters() {
+	if c == nil || c.msgGateway == nil {
+		logging.Warnf(context.Background(), "controllers.messaging-controller", "[Messaging] StartAdapters ignorado: gateway não inicializado")
+		return
+	}
+
 	enabledChannels, err := channels.LoadEnabled()
 	if err != nil {
 		logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Erro ao carregar canais: %v", err)
+		return
 	}
 
 	if cfg, ok := enabledChannels["telegram"]; ok {
@@ -243,18 +267,6 @@ func (c *MessagingController) Init() {
 	if cfg, ok := enabledChannels["slack"]; ok {
 		c.connectSlack(cfg)
 	}
-
-	if c.toolRegistry != nil {
-		sendMsgTool := msgtool.NewSendMessageTool(c.msgGateway)
-		c.toolRegistry.MustRegister(sendMsgTool)
-		logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Tool 'send_message' registrada")
-
-		pairingTool := msgtool.NewValidatePairingCodeTool()
-		c.toolRegistry.MustRegister(pairingTool)
-		logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Tool 'validate_pairing_code' registrada")
-	}
-
-	logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Gateway inicializado")
 }
 
 // ============================================================================
@@ -351,10 +363,9 @@ func (c *MessagingController) AuthorizeMessagingContactFull(channel, contactID, 
 	if channel == "" || contactID == "" {
 		return fmt.Errorf("canal e ID do contato são obrigatórios")
 	}
-	maxContacts := 1
-	if chCfg, _ := channels.Load(channel); chCfg != nil {
-		maxContacts = chCfg.GetMaxContacts()
-	}
+	chCfg, _ := channels.Load(channel)
+	// GetMaxContacts é nil-safe (config ausente → 1).
+	maxContacts := chCfg.GetMaxContacts()
 	if err := contacts.Authorize(channel, contactID, displayName, username, maxContacts); err != nil {
 		return fmt.Errorf("erro ao autorizar: %w", err)
 	}
@@ -570,7 +581,11 @@ func (c *MessagingController) connectSignal(cfg *channels.ChannelConfig) {
 		logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Signal não configurado (conta ou URL da API ausente)")
 		return
 	}
-	adapter := signal.NewAdapter(cfg.APIURL, cfg.Account, c.credMgr)
+	apiToken := cfg.APIToken
+	if apiToken == "" && cfg.APITokenRef != "" {
+		apiToken = c.resolveCredentialRef(cfg.APITokenRef)
+	}
+	adapter := signal.NewAdapter(cfg.APIURL, cfg.Account, c.credMgr, apiToken)
 	c.msgGateway.Register("signal", adapter)
 	go func() {
 		if err := adapter.Connect(c.ctx); err != nil {

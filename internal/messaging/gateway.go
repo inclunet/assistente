@@ -174,10 +174,8 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	// 1. Verifica contato autorizado (contacts.json centralizado + max_contacts do canal)
 	//    Carrega o config uma única vez e reusa para owner/profile abaixo.
 	channelCfg, _ := channels.Load(msg.Channel)
-	maxContacts := 1
-	if channelCfg != nil {
-		maxContacts = channelCfg.GetMaxContacts()
-	}
+	// GetMaxContacts é nil-safe (omitido/nil → 1).
+	maxContacts := channelCfg.GetMaxContacts()
 
 	// AEP-0052: propaga o dono do canal (definido em SaveChannelConfig com o
 	// userID autenticado) no contexto. FindOrCreateChannelConversation usa
@@ -422,7 +420,10 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	params := llm.ChatParams{}
 	if channelCfg != nil && channelCfg.Profile != "" {
 		params.ProfileSlug = channelCfg.Profile
-		logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, channelCfg.Profile)
+		logging.Infof(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, channelCfg.Profile)
+	}
+	if channelCfg != nil && channelCfg.MaxHistory > 0 {
+		params.MaxContextMessages = channelCfg.MaxHistory
 	}
 	_, err = g.sendMessage(ctx, conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {

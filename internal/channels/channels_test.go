@@ -19,6 +19,23 @@ func setupTempHome(t *testing.T) {
 	t.Cleanup(configdir.ResetForTests)
 }
 
+func TestGetMaxContacts(t *testing.T) {
+	t.Parallel()
+
+	if got := (*ChannelConfig)(nil).GetMaxContacts(); got != 1 {
+		t.Fatalf("nil config: got %d, want 1", got)
+	}
+	if got := (&ChannelConfig{}).GetMaxContacts(); got != 1 {
+		t.Fatalf("omitido/zero: got %d, want 1 (legado single-contact)", got)
+	}
+	if got := (&ChannelConfig{MaxContacts: 3}).GetMaxContacts(); got != 3 {
+		t.Fatalf("positivo: got %d, want 3", got)
+	}
+	if got := (&ChannelConfig{MaxContacts: -1}).GetMaxContacts(); got != -1 {
+		t.Fatalf("negativo: got %d, want -1 (ilimitado)", got)
+	}
+}
+
 // TestAdoptOrphans valida o fix do Blocker D do re-review do AEP-0052:
 // canais sem OwnerUserID (configs pré-AEP-0052) recebem o userID do
 // primeiro usuário durante AdoptLegacyData. Canais já com dono não são

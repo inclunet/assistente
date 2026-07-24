@@ -223,6 +223,10 @@ type ChatParams struct {
 	TopP            float64 `json:"topP,omitempty"`
 	ReasoningEffort string  `json:"reasoningEffort,omitempty"` // off, low, medium, high
 	ProfileSlug     string  `json:"profileSlug,omitempty"`     // Perfil específico (canais). Vazio = perfil ativo global
+	// MaxContextMessages limita mensagens carregadas no histórico deste turno.
+	// 0 = usar o valor do perfil (GetMaxContextMessages). Usado por canais via
+	// ChannelConfig.max_history.
+	MaxContextMessages int `json:"maxContextMessages,omitempty"`
 	// AllowAssistantPrefill habilita a continuação explícita de resposta via trailing assistant.
 	// Default: false (AEP-0064 Fase 6). Só deve ser usado em retry explícito.
 	AllowAssistantPrefill bool `json:"allowAssistantPrefill,omitempty"`

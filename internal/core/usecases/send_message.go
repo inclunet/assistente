@@ -189,10 +189,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	var conversationSummary string
 	if req.RetryMessageID != "" {
 		rmsg, err := uc.chatInteractor.ReuseLoadedUserMessage(ctx, chat.RecordUserMessageRequest{
-			ConversationID: req.ConversationID,
-			Source:         req.Source,
-			ActiveProfile:  activeProfile,
-			Transcribe:     uc.whisperTranscribeFunc(),
+			ConversationID:     req.ConversationID,
+			Source:             req.Source,
+			ActiveProfile:      activeProfile,
+			Transcribe:         uc.whisperTranscribeFunc(),
+			MaxContextMessages: params.MaxContextMessages,
 		}, retryUserMsg)
 		if err != nil {
 			return "", err
@@ -224,15 +225,16 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 
 		// Persiste mensagem do usuário, emite ready e carrega histórico.
 		rmsg, err := uc.chatInteractor.RecordUserMessage(ctx, chat.RecordUserMessageRequest{
-			ConversationID: req.ConversationID,
-			Content:        userContent,
-			Media:          req.UserMedia,
-			AudioBase64:    resolved.AudioBase64,
-			AudioMimeType:  resolved.AudioMimeType,
-			Source:         req.Source,
-			SurfaceOrigin:  surfaceOrigin,
-			ActiveProfile:  activeProfile,
-			Transcribe:     uc.whisperTranscribeFunc(),
+			ConversationID:     req.ConversationID,
+			Content:            userContent,
+			Media:              req.UserMedia,
+			AudioBase64:        resolved.AudioBase64,
+			AudioMimeType:      resolved.AudioMimeType,
+			Source:             req.Source,
+			SurfaceOrigin:      surfaceOrigin,
+			ActiveProfile:      activeProfile,
+			Transcribe:         uc.whisperTranscribeFunc(),
+			MaxContextMessages: params.MaxContextMessages,
 		})
 		if err != nil {
 			return "", err

@@ -472,6 +472,10 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		OnSpeechRequest:  speechDispatcher,
 		OpenEditorPaths:  a.workspaceMgr.OpenEditorFilePaths,
 	})
+	// Conecta adapters de canal só agora — SendMessageFromChannel precisa de chatCtrl.
+	if a.msgCtrl != nil {
+		a.msgCtrl.StartAdapters()
+	}
 	// Subagent manager (AEP-0068): criado após o ChatController para reusar a
 	// MESMA SendMessageUseCase (sem fluxo alternativo de envio — AEP-0040).
 	a.subagentMgr = subagent.NewManager(subagent.ManagerConfig{

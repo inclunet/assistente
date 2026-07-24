@@ -263,12 +263,12 @@ Veja [INTERACTION_PROFILES_ARCHITECTURE.md](docs/INTERACTION_PROFILES_ARCHITECTU
 
 ## 📡 Integração com Mensageiros
 
-O assistente pode receber e responder mensagens via Telegram ou Signal.
+O assistente pode receber e responder mensagens via Telegram, Signal ou Slack.
 
 ### Telegram
 
 1. Crie um bot via @BotFather
-2. Salve em `~/.assistente/telegram.json`:
+2. Salve em `~/.assistente/channels/telegram.json`:
 
 ```json
 {
@@ -282,7 +282,7 @@ O assistente pode receber e responder mensagens via Telegram ou Signal.
 ### Signal
 
 1. Configure `signal-cli-rest-api`
-2. Salve em `~/.assistente/signal.json`:
+2. Salve em `~/.assistente/channels/signal.json`:
 
 ```json
 {
@@ -294,7 +294,23 @@ O assistente pode receber e responder mensagens via Telegram ou Signal.
 }
 ```
 
+### Slack
+
+1. Crie um app Slack com Socket Mode e bot token
+2. Salve em `~/.assistente/channels/slack.json`:
+
+```json
+{
+  "enabled": true,
+  "bot_token": "xoxb-...",
+  "app_token": "xapp-...",
+  "max_history": 50,
+  "max_contacts": 1
+}
+```
+
 > Dica: O app pode pedir autorização automática quando chega mensagem de novo contato.
+> `max_contacts` omitido/0 = 1; valor negativo (-1) = ilimitado.
 
 ## �️ Desenvolvimento
 

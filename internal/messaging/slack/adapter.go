@@ -2,6 +2,7 @@ package slack
 
 import (
 	"assistente/internal/logging"
+	"bytes"
 	"context"
 	"fmt"
 	"math"
@@ -98,7 +99,7 @@ func (s *SlackAdapter) Disconnect() error {
 	return nil
 }
 
-// Send envia uma mensagem de texto para um canal/chat do Slack.
+// Send envia uma mensagem de texto e anexos para um canal/chat do Slack.
 func (s *SlackAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) error {
 	s.mu.RLock()
 	api := s.api
@@ -108,10 +109,30 @@ func (s *SlackAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) 
 		return fmt.Errorf("slack não está conectado")
 	}
 
-	text := msg.Text
-	if text == "" && len(msg.Attachments) > 0 {
-		text = "(conteúdo em anexo não suportado no Slack)"
+	for _, att := range msg.Attachments {
+		if len(att.Data) == 0 {
+			continue
+		}
+		filename := att.Filename
+		if filename == "" {
+			filename = "attachment"
+		}
+		// files.upload foi descontinuado; usar o fluxo V2
+		// (getUploadURLExternal + completeUploadExternal).
+		_, err := api.UploadFileV2Context(ctx, slack.UploadFileV2Parameters{
+			Reader:          bytes.NewReader(att.Data),
+			Filename:        filename,
+			FileSize:        len(att.Data),
+			Channel:         msg.ChatID,
+			ThreadTimestamp: msg.ReplyToMessageID,
+		})
+		if err != nil {
+			return fmt.Errorf("erro ao enviar anexo Slack (file=%q channel=%s size=%d thread=%s): %w",
+				filename, msg.ChatID, len(att.Data), msg.ReplyToMessageID, err)
+		}
 	}
+
+	text := msg.Text
 	if text == "" {
 		return nil
 	}

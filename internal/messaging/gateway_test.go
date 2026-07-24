@@ -686,3 +686,37 @@ func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 		t.Fatalf("timeout aguardando envio de mensagem")
 	}
 }
+
+func TestGateway_MaxHistoryOverridesContextMessages(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("telegram", &channels.ChannelConfig{
+		Enabled: true, MaxContacts: 1, OwnerUserID: "test-owner", MaxHistory: 17,
+	}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
+		t.Fatalf("erro ao autorizar contato: %v", err)
+	}
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+
+	var gotParams llm.ChatParams
+	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		gotParams = params
+		return conversationID, nil
+	}, nil, nil, nil, nil)
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected}
+	gateway.Register("telegram", fake)
+
+	gateway.handleIncoming(context.Background(), IncomingMessage{
+		ID: "msg-hist", Channel: "telegram",
+		From: Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text: "Oi",
+	})
+
+	if gotParams.MaxContextMessages != 17 {
+		t.Fatalf("MaxContextMessages = %d, want 17 (max_history do canal)", gotParams.MaxContextMessages)
+	}
+}

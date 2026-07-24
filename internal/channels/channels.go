@@ -39,7 +39,7 @@ type ChannelConfig struct {
 	APIURL      string `json:"api_url,omitempty"`       // Signal: URL da API
 	Profile     string `json:"profile,omitempty"`       // Perfil de chat (vazio = ativo)
 	MaxHistory  int    `json:"max_history,omitempty"`   // Mensagens no contexto (0 = padrão)
-	MaxContacts int    `json:"max_contacts,omitempty"`  // Máximo de contatos autorizados (0 = 1)
+	MaxContacts int    `json:"max_contacts,omitempty"` // Máximo de contatos (0/omitido = 1; <0 = ilimitado)
 
 	// OwnerUserID é o userID que deve ser usado como dono das conversas
 	// criadas a partir de mensagens recebidas neste canal (AEP-0052).
@@ -55,10 +55,17 @@ type ChannelConfig struct {
 	Conversations map[string]string `json:"conversations,omitempty"`
 }
 
-// GetMaxContacts retorna o limite efetivo de contatos (mínimo 1).
+// GetMaxContacts retorna o limite efetivo de contatos para Authorize/IsAuthorized.
+// Configs legadas sem o campo (zero-value) voltam a 1 — single-contact.
+// Valores negativos significam ilimitado (retorna -1). Em contacts, 0 é
+// normalizado para 1; só n < 0 (via este retorno -1) fica ilimitado, porque
+// o limite só é aplicado quando n > 0.
 func (c *ChannelConfig) GetMaxContacts() int {
-	if c.MaxContacts <= 0 {
+	if c == nil || c.MaxContacts == 0 {
 		return 1
+	}
+	if c.MaxContacts < 0 {
+		return -1
 	}
 	return c.MaxContacts
 }

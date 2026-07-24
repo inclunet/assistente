@@ -146,4 +146,27 @@ describe('ChannelCommonFields', () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ maxContacts: 20 }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ profile: 'default' }));
   });
+
+  it('aceita -1 como maxContacts ilimitado', () => {
+    const onChange = vi.fn();
+    render(
+      <ChannelLimitsProfileFields
+        form={defaultForm}
+        onChange={onChange}
+        onAnnounce={vi.fn()}
+        labels={{
+          maxContacts: 'Max. contatos autorizados',
+          maxContactsHint: 'Use -1 para ilimitado.',
+          channelProfile: 'Perfil do Canal',
+          channelProfileHint: 'Perfil usado nas conversas deste canal.',
+          maxHistory: 'Histórico máximo',
+        }}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Max. contatos autorizados'), {
+      target: { value: '-1' },
+    });
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ maxContacts: -1 }));
+  });
 });
