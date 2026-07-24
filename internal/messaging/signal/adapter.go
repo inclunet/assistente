@@ -35,9 +35,10 @@ func base64Encode(data []byte) string {
 //   - GET  /v1/receive/{number} — recebe mensagens (HTTP polling em modo native, WebSocket em json-rpc)
 //   - GET  /v1/about — health check
 type SignalAdapter struct {
-	baseURL string // URL base da API (ex: "http://signal-api:8080")
-	account string // número de telefone da conta Signal (ex: "+5511999999999")
-	apiMode string // modo da API: "native" ou "json-rpc"
+	baseURL  string // URL base da API (ex: "http://signal-api:8080")
+	account  string // número de telefone da conta Signal (ex: "+5511999999999")
+	apiToken string // token opcional (AUTHENTICATION_API_TOKEN)
+	apiMode  string // modo da API: "native" ou "json-rpc"
 
 	handler messaging.IncomingMessageHandler
 	status  messaging.ConnectionStatus
@@ -53,7 +54,8 @@ type SignalAdapter struct {
 // NewAdapter cria um novo adapter para o Signal via REST API.
 // baseURL é a URL base da signal-cli-rest-api (ex: "http://signal-api:8080").
 // account é o número de telefone vinculado (ex: "+5511999999999").
-func NewAdapter(baseURL, account string, credMgr *credentials.Manager) *SignalAdapter {
+// apiToken, se não vazio, é enviado como Authorization Bearer em HTTP e WebSocket.
+func NewAdapter(baseURL, account string, credMgr *credentials.Manager, apiToken string) *SignalAdapter {
 	// Remove trailing slash
 	baseURL = strings.TrimRight(baseURL, "/")
 
@@ -67,11 +69,22 @@ func NewAdapter(baseURL, account string, credMgr *credentials.Manager) *SignalAd
 	}, map[string]string{})
 
 	return &SignalAdapter{
-		baseURL: baseURL,
-		account: account,
-		status:  messaging.StatusDisconnected,
-		client:  client,
+		baseURL:  baseURL,
+		account:  account,
+		apiToken: strings.TrimSpace(apiToken),
+		status:   messaging.StatusDisconnected,
+		client:   client,
 	}
+}
+
+func (s *SignalAdapter) applyAPIToken(req *http.Request) {
+	if s.apiToken == "" || req == nil {
+		return
+	}
+	if req.Header.Get("Authorization") != "" {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+s.apiToken)
 }
 
 // Name retorna o identificador da plataforma.
@@ -160,6 +173,7 @@ func (s *SignalAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage)
 		return fmt.Errorf("erro ao criar request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	s.applyAPIToken(req)
 
 	resp, err := s.client.Do(s.ctx, req)
 	if err != nil {
@@ -182,6 +196,7 @@ func (s *SignalAdapter) downloadAttachment(attachmentID string) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
+	s.applyAPIToken(req)
 
 	resp, err := s.client.Do(s.ctx, req)
 	if err != nil {
@@ -225,6 +240,7 @@ func (s *SignalAdapter) healthCheckAndDetectMode() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	s.applyAPIToken(req)
 
 	resp, err := s.client.Do(s.ctx, req)
 	if err != nil {
@@ -260,7 +276,13 @@ func (s *SignalAdapter) connectWebSocket() error {
 		HandshakeTimeout: 10 * time.Second,
 	}
 
-	conn, _, err := dialer.DialContext(s.ctx, wsURL, nil)
+	var header http.Header
+	if s.apiToken != "" {
+		header = http.Header{}
+		header.Set("Authorization", "Bearer "+s.apiToken)
+	}
+
+	conn, _, err := dialer.DialContext(s.ctx, wsURL, header)
 	if err != nil {
 		return fmt.Errorf("erro ao conectar WebSocket %s: %w", wsURL, err)
 	}
@@ -438,6 +460,7 @@ func (s *SignalAdapter) pollMessages() {
 	if err != nil {
 		return
 	}
+	s.applyAPIToken(req)
 
 	resp, err := s.client.Do(s.ctx, req)
 	if err != nil {

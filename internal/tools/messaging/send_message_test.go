@@ -3,6 +3,7 @@ package messaging
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	msgpkg "assistente/internal/messaging"
@@ -76,6 +77,19 @@ func TestSendMessageTool_Success(t *testing.T) {
 	}
 	if messenger.lastSent.ChatID != "123" || messenger.lastSent.Text != "hi" {
 		t.Fatalf("unexpected message sent: %+v", messenger.lastSent)
+	}
+}
+
+func TestSendMessageTool_ParametersIncludeSlack(t *testing.T) {
+	tool := NewSendMessageTool(nil)
+	params := string(tool.Parameters())
+	if !json.Valid(tool.Parameters()) {
+		t.Fatalf("parameters JSON inválido")
+	}
+	for _, want := range []string{`"slack"`, `"telegram"`, `"signal"`} {
+		if !strings.Contains(params, want) {
+			t.Fatalf("enum de channel deveria incluir %s: %s", want, params)
+		}
 	}
 }
 
