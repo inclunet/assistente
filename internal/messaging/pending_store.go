@@ -21,6 +21,8 @@ type ChannelPendingRecord struct {
 type ChannelPendingStore interface {
 	Upsert(ctx context.Context, rec ChannelPendingRecord) error
 	Delete(ctx context.Context, conversationID string) error
+	// DeleteIfTrace remove só se o TraceID atual ainda corresponde ao turno entregue.
+	DeleteIfTrace(ctx context.Context, conversationID, traceID string) error
 	List(ctx context.Context) ([]ChannelPendingRecord, error)
 }
 

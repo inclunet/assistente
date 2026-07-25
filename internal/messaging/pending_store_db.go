@@ -31,6 +31,10 @@ func (s *DBChannelPendingStore) Delete(ctx context.Context, conversationID strin
 	return database.DeleteChannelResponsePending(ctx, conversationID)
 }
 
+func (s *DBChannelPendingStore) DeleteIfTrace(ctx context.Context, conversationID, traceID string) error {
+	return database.DeleteChannelResponsePendingIfTrace(ctx, conversationID, traceID)
+}
+
 func (s *DBChannelPendingStore) List(ctx context.Context) ([]ChannelPendingRecord, error) {
 	rows, err := database.ListChannelResponsePending(ctx)
 	if err != nil {

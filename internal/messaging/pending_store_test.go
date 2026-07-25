@@ -30,6 +30,22 @@ func (s *memPendingStore) Delete(ctx context.Context, conversationID string) err
 	return nil
 }
 
+func (s *memPendingStore) DeleteIfTrace(ctx context.Context, conversationID, traceID string) error {
+	if conversationID == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.rows[conversationID]
+	if !ok {
+		return nil
+	}
+	if rec.TraceID == traceID {
+		delete(s.rows, conversationID)
+	}
+	return nil
+}
+
 func (s *memPendingStore) List(ctx context.Context) ([]ChannelPendingRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -170,6 +186,35 @@ func TestResponseNotifier_SkipsPersistWithoutOwnerUserID(t *testing.T) {
 	rows, _ := store.List(context.Background())
 	if len(rows) != 0 {
 		t.Fatalf("sem OwnerUserID não deveria persistir; got %+v", rows)
+	}
+}
+
+func TestResponseNotifier_DeleteIfTraceKeepsNewerTurn(t *testing.T) {
+	store := newMemPendingStore()
+	_ = store.Upsert(context.Background(), ChannelPendingRecord{
+		ConversationID: "conv-t",
+		Channel:        "telegram",
+		ChatID:         "1",
+		TraceID:        "trace-old",
+		OwnerUserID:    "owner-1",
+	})
+	// Turno novo sobrescreve.
+	_ = store.Upsert(context.Background(), ChannelPendingRecord{
+		ConversationID: "conv-t",
+		Channel:        "telegram",
+		ChatID:         "2",
+		TraceID:        "trace-new",
+		OwnerUserID:    "owner-1",
+	})
+	_ = store.DeleteIfTrace(context.Background(), "conv-t", "trace-old")
+	rows, _ := store.List(context.Background())
+	if len(rows) != 1 || rows[0].TraceID != "trace-new" {
+		t.Fatalf("DeleteIfTrace do turno antigo não deveria apagar o novo; got %+v", rows)
+	}
+	_ = store.DeleteIfTrace(context.Background(), "conv-t", "trace-new")
+	rows, _ = store.List(context.Background())
+	if len(rows) != 0 {
+		t.Fatalf("DeleteIfTrace do turno atual deveria apagar; got %+v", rows)
 	}
 }
 

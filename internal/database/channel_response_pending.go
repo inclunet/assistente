@@ -11,6 +11,10 @@ import (
 // ChannelResponsePending persiste a intenção de entregar uma resposta de canal
 // externo após o Register do ResponseNotifier (mitigação M14 / AEP-0052).
 // Se o app crashar entre Register e Notify, o startup reconcilia e reenvia.
+//
+// Modelo: no máximo 1 pendência por conversa (PK = ConversationID). Um novo
+// Register sobrescreve a anterior (turno novo supersede). Deletes pós-Send
+// usam TraceID para não apagar a linha de um turno mais recente.
 type ChannelResponsePending struct {
 	ConversationID string    `gorm:"type:text;primaryKey" json:"conversation_id"`
 	Channel        string    `gorm:"type:text;not null;index" json:"channel"`
@@ -39,7 +43,7 @@ func UpsertChannelResponsePending(ctx context.Context, p *ChannelResponsePending
 	return db.WithContext(ctx).Save(p).Error
 }
 
-// DeleteChannelResponsePending remove a pendência (Notify/Cancel/reconcile).
+// DeleteChannelResponsePending remove a pendência (Cancel/TTL — incondicional).
 func DeleteChannelResponsePending(ctx context.Context, conversationID string) error {
 	if conversationID == "" {
 		return nil
@@ -49,6 +53,27 @@ func DeleteChannelResponsePending(ctx context.Context, conversationID string) er
 		return errDBNotInitialized
 	}
 	return db.WithContext(ctx).Where("conversation_id = ?", conversationID).Delete(&ChannelResponsePending{}).Error
+}
+
+// DeleteChannelResponsePendingIfTrace remove a pendência só se o TraceID ainda
+// bate. Evita que um retry atrasado de um turno antigo apague a pendência de
+// um turno mais novo (Upsert por conversationID sobrescreve a linha).
+// TraceID vazio só remove linha que também está sem TraceID (legado/teste).
+func DeleteChannelResponsePendingIfTrace(ctx context.Context, conversationID, traceID string) error {
+	if conversationID == "" {
+		return nil
+	}
+	db := DB()
+	if db == nil {
+		return errDBNotInitialized
+	}
+	q := db.WithContext(ctx).Where("conversation_id = ?", conversationID)
+	if traceID == "" {
+		q = q.Where("trace_id = '' OR trace_id IS NULL")
+	} else {
+		q = q.Where("trace_id = ?", traceID)
+	}
+	return q.Delete(&ChannelResponsePending{}).Error
 }
 
 // ListChannelResponsePending retorna todas as pendências (startup reconcile).

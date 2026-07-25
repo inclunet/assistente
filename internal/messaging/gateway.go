@@ -500,10 +500,11 @@ func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, r
 		return err
 	}
 	logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s resposta enviada", traceID, conversationID, channel)
-	// M14: só remove a pendência durável depois do Send OK.
+	// M14: remove pendência só se ainda for o mesmo turno (TraceID).
+	// Evita que retry atrasado apague pending de mensagem mais recente.
 	if g.notifier != nil {
 		if store := g.notifier.pendingStore(); store != nil && conversationID != "" {
-			if err := store.Delete(ctx, conversationID); err != nil {
+			if err := store.DeleteIfTrace(ctx, conversationID, traceID); err != nil {
 				logging.Warnf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s falha ao remover pending após send: %v",
 					traceID, conversationID, err)
 			}

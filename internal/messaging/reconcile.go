@@ -118,8 +118,12 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 		if rec.OwnerUserID != "" {
 			recCtx = database.WithUserID(recCtx, rec.OwnerUserID)
 		}
-		// Só abandona por TTL se ainda não há assistant entregável — aqui já temos content.
-		// Mantém tentativas enquanto o pending existir; deliver remove após sucesso.
+		store := g.notifier.pendingStore()
+		if store != nil && !pendingMatchesTrace(store, rec.ConversationID, rec.TraceID) {
+			logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: pending supersedido conv=%s trace=%s — abortando",
+				rec.ConversationID, rec.TraceID)
+			return
+		}
 		if err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
 			logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: send falhou conv=%s: %v", rec.ConversationID, err)
 			continue
@@ -130,6 +134,22 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 	}
 	logging.Errorf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: esgotou tentativas conv=%s channel=%s (pending permanece até próximo restart)",
 		rec.ConversationID, rec.Channel)
+}
+
+func pendingMatchesTrace(store ChannelPendingStore, conversationID, traceID string) bool {
+	if store == nil || conversationID == "" {
+		return false
+	}
+	rows, err := store.List(context.Background())
+	if err != nil {
+		return false
+	}
+	for _, r := range rows {
+		if r.ConversationID == conversationID {
+			return r.TraceID == traceID
+		}
+	}
+	return false
 }
 
 func (n *ResponseNotifier) pendingStore() ChannelPendingStore {
