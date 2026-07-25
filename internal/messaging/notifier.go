@@ -85,9 +85,12 @@ type pendingCallback struct {
 // Thread-safe para uso concorrente.
 //
 // Persistência (M14): quando um ChannelPendingStore está configurado via
-// SetPendingStore, callbacks de canal (Channel+ChatID) são gravados no DB
-// no Register e removidos no Notify/Cancel/TTL. No startup, ReconcilePending
-// reenvia respostas já salvas ou re-registra callbacks ainda válidos.
+// SetPendingStore, callbacks de canal (telegram/signal/slack + OwnerUserID)
+// são gravados no DB no Register. Remoção do store: após messenger.Send OK
+// (DeleteIfTrace), Cancel explícito, ou reconcile sem assistant após idade.
+// Notify e TTL in-memory NÃO apagam o store (LLM longo / crash antes do Send).
+// No startup, ReconcilePending reenvia respostas já salvas ou re-registra
+// callbacks ainda válidos.
 type ResponseNotifier struct {
 	mu        sync.Mutex
 	callbacks map[string][]pendingCallback // conversationID -> callbacks pendentes

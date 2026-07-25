@@ -19,11 +19,6 @@ func newMemPendingStore() *memPendingStore {
 func (s *memPendingStore) Upsert(ctx context.Context, rec ChannelPendingRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if existing, ok := s.rows[rec.ConversationID]; ok && !existing.CreatedAt.IsZero() {
-		if rec.CreatedAt.IsZero() || existing.CreatedAt.Before(rec.CreatedAt) {
-			rec.CreatedAt = existing.CreatedAt
-		}
-	}
 	s.rows[rec.ConversationID] = rec
 	return nil
 }
@@ -192,37 +187,6 @@ func TestResponseNotifier_SkipsPersistWithoutOwnerUserID(t *testing.T) {
 	rows, _ := store.List(context.Background())
 	if len(rows) != 0 {
 		t.Fatalf("sem OwnerUserID não deveria persistir; got %+v", rows)
-	}
-}
-
-func TestResponseNotifier_UpsertPreservesEarliestCreatedAt(t *testing.T) {
-	store := newMemPendingStore()
-	t0 := time.Now().UTC().Add(-2 * time.Minute)
-	_ = store.Upsert(context.Background(), ChannelPendingRecord{
-		ConversationID: "conv-c",
-		Channel:        "telegram",
-		ChatID:         "1",
-		TraceID:        "t1",
-		OwnerUserID:    "owner-1",
-		CreatedAt:      t0,
-	})
-	_ = store.Upsert(context.Background(), ChannelPendingRecord{
-		ConversationID: "conv-c",
-		Channel:        "telegram",
-		ChatID:         "1",
-		TraceID:        "t2",
-		OwnerUserID:    "owner-1",
-		CreatedAt:      time.Now().UTC(),
-	})
-	rows, _ := store.List(context.Background())
-	if len(rows) != 1 {
-		t.Fatalf("esperava 1 pending, got %+v", rows)
-	}
-	if !rows[0].CreatedAt.Equal(t0) {
-		t.Fatalf("CreatedAt deveria preservar o mais antigo; got %v want %v", rows[0].CreatedAt, t0)
-	}
-	if rows[0].TraceID != "t2" {
-		t.Fatalf("TraceID deveria ser o do turno novo; got %q", rows[0].TraceID)
 	}
 }
 

@@ -276,7 +276,7 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 				if messenger, ok := g.GetMessenger(msg.Channel); ok {
 					_ = messenger.Send(ctx, OutgoingMessage{
 						ChatID: outboundChatID,
-						Text:   fmt.Sprintf("Não foi possível concluir o pareamento: %v", err),
+						Text:   "Não foi possível concluir o pareamento (limite de contatos ou erro interno). Peça ao administrador para verificar a configuração do canal.",
 					})
 				}
 				return
