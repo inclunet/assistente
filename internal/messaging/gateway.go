@@ -273,6 +273,12 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 			}
 			if err := contacts.Authorize(msg.Channel, msg.From.ID, msg.From.DisplayName, msg.From.Username, maxContacts); err != nil {
 				logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s erro ao autorizar contato: %v", traceID, msg.Channel, err)
+				if messenger, ok := g.GetMessenger(msg.Channel); ok {
+					_ = messenger.Send(ctx, OutgoingMessage{
+						ChatID: outboundChatID,
+						Text:   fmt.Sprintf("Não foi possível concluir o pareamento: %v", err),
+					})
+				}
 				return
 			}
 			logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s contato autorizado via código: %s",

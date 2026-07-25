@@ -29,6 +29,9 @@ type ChannelResponsePending struct {
 var errDBNotInitialized = errors.New("banco de dados não inicializado")
 
 // UpsertChannelResponsePending cria ou atualiza a pendência de uma conversa.
+// Preserva CreatedAt da linha existente para o reconcile ainda encontrar a
+// primeira assistant do turno anterior se um Register novo sobrescrever a
+// pendência antes do Notify (M14).
 func UpsertChannelResponsePending(ctx context.Context, p *ChannelResponsePending) error {
 	if p == nil || p.ConversationID == "" {
 		return nil
@@ -39,6 +42,13 @@ func UpsertChannelResponsePending(ctx context.Context, p *ChannelResponsePending
 	db := DB()
 	if db == nil {
 		return errDBNotInitialized
+	}
+	var existing ChannelResponsePending
+	err := db.WithContext(ctx).First(&existing, "conversation_id = ?", p.ConversationID).Error
+	if err == nil && !existing.CreatedAt.IsZero() && existing.CreatedAt.Before(p.CreatedAt) {
+		p.CreatedAt = existing.CreatedAt
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
 	}
 	return db.WithContext(ctx).Save(p).Error
 }

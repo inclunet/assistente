@@ -148,33 +148,21 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 	now := n.now()
 
 	var toLog []expiredLogEntry
-	var expiredConvIDs []string
 	n.mu.Lock()
 	for convID, pendings := range n.callbacks {
 		fresh := pendings[:0]
 		var expired []pendingCallback
-		expiredPersisted := false
 		for _, p := range pendings {
 			if p.expiresAt.Before(now) {
 				expired = append(expired, p)
-				if shouldPersistChannelCallback(p.cb) {
-					expiredPersisted = true
-				}
 				continue
 			}
 			fresh = append(fresh, p)
 		}
 		if len(fresh) == 0 {
 			delete(n.callbacks, convID)
-			if len(expired) > 0 {
-				expiredConvIDs = append(expiredConvIDs, convID)
-			}
 		} else {
 			n.callbacks[convID] = fresh
-			// Canal externo expirou mas callback interno permanece: limpa pending.
-			if expiredPersisted {
-				expiredConvIDs = append(expiredConvIDs, convID)
-			}
 		}
 		for _, p := range expired {
 			toLog = append(toLog, expiredLogEntry{
@@ -185,20 +173,17 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 			})
 		}
 	}
-	store := n.store
 	n.mu.Unlock()
 
 	for _, e := range toLog {
 		logging.Debugf(context.Background(), "messaging.notifier", "[Notifier] Callback expirado por TTL trace=%s conv=%s channel=%s (>%.0fmin sem resposta)",
 			e.traceID, e.convID, e.channel, e.minutes)
 	}
-	if store != nil {
-		for _, convID := range expiredConvIDs {
-			if err := store.Delete(context.Background(), convID); err != nil {
-				logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao remover pending expirado conv=%s: %v", convID, err)
-			}
-		}
-	}
+	// M14: NÃO apagar channel_response_pending no TTL in-memory.
+	// LLM longo (>callbackTTL) pode ainda salvar assistant e chamar Notify;
+	// se apagarmos o store aqui, deliver nunca roda e o reconcile no restart
+	// também perde a intenção. Store só sai em DeleteIfTrace (Send OK),
+	// Cancel, ou reconcile sem assistant após idade.
 }
 
 // expiredLogEntry carrega os dados (já copiados sob o lock) para logar a
