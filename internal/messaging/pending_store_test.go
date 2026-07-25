@@ -61,8 +61,14 @@ func TestResponseNotifier_PersistsChannelCallback(t *testing.T) {
 
 	n.Notify("conv-1", "oi", "asst-1")
 	rows, _ = store.List(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("Notify não deve apagar pending antes do Send; got %+v", rows)
+	}
+	// Simula entrega bem-sucedida (caminho real: deliverChannelResponse).
+	_ = store.Delete(context.Background(), "conv-1")
+	rows, _ = store.List(context.Background())
 	if len(rows) != 0 {
-		t.Fatalf("pending deveria ser removido no Notify, got %+v", rows)
+		t.Fatalf("pending deveria sumir após Delete pós-Send, got %+v", rows)
 	}
 }
 
@@ -230,5 +236,94 @@ func TestGateway_ReconcilePending_ResendsSavedAssistant(t *testing.T) {
 	rows, _ := store.List(context.Background())
 	if len(rows) != 0 {
 		t.Fatalf("pending deveria ser apagado após reconcile, got %+v", rows)
+	}
+}
+
+func TestGateway_ReconcilePending_ExpiredStillResendsSavedAssistant(t *testing.T) {
+	store := newMemPendingStore()
+	_ = store.Upsert(context.Background(), ChannelPendingRecord{
+		ConversationID: "conv-old",
+		Channel:        "telegram",
+		ChatID:         "77",
+		CreatedAt:      time.Now().UTC().Add(-(callbackTTL + time.Minute)),
+	})
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+	notifier.SetPendingStore(store)
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	gateway := NewGateway(notifier, nil, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	gateway.ReconcilePending(context.Background(), func(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
+		return "ainda válida", "asst-old", true, nil
+	})
+
+	select {
+	case msg := <-fake.sentCh:
+		if msg.Text != "ainda válida" {
+			t.Fatalf("outbound inesperado: %+v", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout: pending expirado com assistant deveria reenviar")
+	}
+	rows, _ := store.List(context.Background())
+	if len(rows) != 0 {
+		t.Fatalf("pending deveria ser apagado após reenvio, got %+v", rows)
+	}
+}
+
+func TestGateway_ReconcilePending_ReregisterDoesNotDuplicateCallbacks(t *testing.T) {
+	store := newMemPendingStore()
+	_ = store.Upsert(context.Background(), ChannelPendingRecord{
+		ConversationID: "conv-dup",
+		Channel:        "telegram",
+		ChatID:         "55",
+		OwnerUserID:    "owner-1",
+		CreatedAt:      time.Now().UTC().Add(-time.Minute),
+	})
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+	notifier.SetPendingStore(store)
+
+	// Callback prévio em memória (não deve sobreviver ao reconcile).
+	notifier.Register("conv-dup", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "55",
+		OwnerUserID: "owner-1",
+		SkipPersist: true,
+		Callback:    func(string, string) {},
+	})
+	if notifier.PendingCount() != 1 {
+		t.Fatalf("setup: pending=%d", notifier.PendingCount())
+	}
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 2)}
+	gateway := NewGateway(notifier, nil, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	gateway.ReconcilePending(context.Background(), func(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
+		return "", "", false, nil
+	})
+	if notifier.PendingCount() != 1 {
+		t.Fatalf("após reconcile deveria haver exatamente 1 callback, got %d", notifier.PendingCount())
+	}
+
+	notifier.Notify("conv-dup", "uma vez", "asst")
+	select {
+	case msg := <-fake.sentCh:
+		if msg.Text != "uma vez" {
+			t.Fatalf("outbound inesperado: %+v", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout esperando envio único")
+	}
+	select {
+	case msg := <-fake.sentCh:
+		t.Fatalf("envio duplicado: %+v", msg)
+	case <-time.After(150 * time.Millisecond):
+		// ok — sem segundo envio
 	}
 }

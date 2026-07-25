@@ -160,17 +160,16 @@ func (c *ChatController) registerChannelBridge(ctx context.Context, conversation
 
 	channelName := conv.Channel
 	contactID := conv.ContactID
+	// Snapshot do destino no Register (igual ao gateway). Re-resolver no
+	// Callback via GetReplyChatID permitiria que outra mensagem Slack do
+	// mesmo user em outro channel sobrescrevesse o destino mid-flight.
+	replyChatID := channels.GetReplyChatID(channelName, contactID)
 	c.responseNotifier.Register(conversationID, messaging.ResponseCallback{
 		Channel: channelName,
-		// ChatID provisório (contactID); o callback resolve GetReplyChatID no envio.
-		ChatID: contactID,
-		// SkipPersist: ChatID aqui não é o destino final (Slack: user vs channel).
-		// Persistência M14 fica no Register do gateway (outboundChatID correto).
+		ChatID:  replyChatID,
+		// SkipPersist: persistência M14 fica no Register do gateway.
 		SkipPersist: true,
 		Callback: func(response string, assistantMsgID string) {
-			// Resolve no momento do envio: SaveReplyChatID pode ter atualizado
-			// o destino (Slack: mesmo user em outro channel/DM).
-			replyChatID := channels.GetReplyChatID(channelName, contactID)
 			err := messenger.Send(context.Background(), messaging.OutgoingMessage{
 				ChatID: replyChatID,
 				Text:   response,

@@ -270,14 +270,12 @@ func (n *ResponseNotifier) Notify(conversationID string, response string, assist
 	if ok {
 		delete(n.callbacks, conversationID)
 	}
-	store := n.store
 	n.mu.Unlock()
 
-	if store != nil {
-		if err := store.Delete(context.Background(), conversationID); err != nil {
-			logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao remover pending no Notify conv=%s: %v", conversationID, err)
-		}
-	}
+	// Não remove channel_response_pending aqui: o Delete só ocorre após
+	// messenger.Send bem-sucedido (deliverChannelResponse), Cancel ou TTL.
+	// Apagar antes do Send abriria buraco M14 se o processo cair entre
+	// Delete e o envio outbound.
 
 	if !ok || len(pendings) == 0 {
 		return

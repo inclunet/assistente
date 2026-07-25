@@ -222,7 +222,12 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 		}
 		return
 	}
-	ctx = database.WithUserID(ctx, channelCfg.OwnerUserID)
+	// Locais após o guard acima: staticcheck SA5011 não prova non-nil
+	// quando há checks `channelCfg != nil` mais abaixo.
+	ownerUserID := channelCfg.OwnerUserID
+	channelProfile := channelCfg.Profile
+	channelMaxHistory := channelCfg.MaxHistory
+	ctx = database.WithUserID(ctx, ownerUserID)
 
 	hasContacts, isAllowed := contacts.IsAuthorized(msg.Channel, maxContacts, msg.From.ID, msg.From.Username)
 
@@ -389,7 +394,7 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	g.notifier.Register(conversationID, ResponseCallback{
 		Channel:      msg.Channel,
 		ChatID:       outboundChatID,
-		OwnerUserID:  channelCfg.OwnerUserID,
+		OwnerUserID:  ownerUserID,
 		AudioOnly:    incomingIsAudio, // hint para o notifier (mantém compatibilidade)
 		ReplyToMsgID: msg.ID,
 		TraceID:      traceID,
@@ -404,12 +409,12 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	// 7. Chama o mesmo SendMessage que o Wails usa (com o conversationID dedicado)
 	//    Usa o perfil do canal (se configurado) em vez do perfil ativo global.
 	params := llm.ChatParams{}
-	if channelCfg != nil && channelCfg.Profile != "" {
-		params.ProfileSlug = channelCfg.Profile
-		logging.Infof(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, channelCfg.Profile)
+	if channelProfile != "" {
+		params.ProfileSlug = channelProfile
+		logging.Infof(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, channelProfile)
 	}
-	if channelCfg != nil && channelCfg.MaxHistory > 0 {
-		params.MaxContextMessages = channelCfg.MaxHistory
+	if channelMaxHistory > 0 {
+		params.MaxContextMessages = channelMaxHistory
 	}
 	_, err = g.sendMessage(ctx, conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {
@@ -495,6 +500,15 @@ func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, r
 		return err
 	}
 	logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s resposta enviada", traceID, conversationID, channel)
+	// M14: só remove a pendência durável depois do Send OK.
+	if g.notifier != nil {
+		if store := g.notifier.pendingStore(); store != nil && conversationID != "" {
+			if err := store.Delete(ctx, conversationID); err != nil {
+				logging.Warnf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s falha ao remover pending após send: %v",
+					traceID, conversationID, err)
+			}
+		}
+	}
 	return nil
 }
 

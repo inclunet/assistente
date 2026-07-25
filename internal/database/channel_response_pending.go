@@ -64,9 +64,37 @@ func ListChannelResponsePending(ctx context.Context) ([]ChannelResponsePending, 
 	return rows, nil
 }
 
-// FindLatestAssistantMessageAfter retorna a última mensagem assistant raiz
+// FindFirstAssistantMessageAfter retorna a primeira mensagem assistant raiz
 // criada após after (inclusive), ou nil se não houver.
+// Usado pelo reconcile M14: a pendência corresponde ao turno que a criou;
+// pegar a mais recente poderia reenviar resposta de outro turno na mesma conversa.
 // SECURITY: fail-closed (AEP-0052). Requer userID no ctx e usa scopedMessageQuery.
+func FindFirstAssistantMessageAfter(ctx context.Context, conversationID string, after time.Time) (*ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	db := DB()
+	if db == nil {
+		return nil, errDBNotInitialized
+	}
+	var msg ChatMessage
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Where("chat_messages.conversation_id = ? AND chat_messages.role = ? AND (chat_messages.parent_id IS NULL OR chat_messages.parent_id = '') AND chat_messages.created_at >= ?",
+			conversationID, "assistant", after).
+		Order("chat_messages.created_at ASC, chat_messages.id ASC").
+		Limit(1).
+		First(&msg).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
+// FindLatestAssistantMessageAfter é alias histórico; preferir FindFirstAssistantMessageAfter
+// no reconcile (M14). Mantido para callers/testes que querem a mais recente.
 func FindLatestAssistantMessageAfter(ctx context.Context, conversationID string, after time.Time) (*ChatMessage, error) {
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err

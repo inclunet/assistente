@@ -10,9 +10,14 @@ import (
 // ReconcilePending reenvia respostas de canal órfãs após crash (M14).
 //
 // Para cada pendência no store:
-//   - se já existe mensagem assistant após CreatedAt → envia via messenger e apaga
-//   - se expirou (> callbackTTL) → apaga
-//   - senão → re-registra callback in-memory (espera Notify de run ainda em voo, raro)
+//  1. busca a primeira assistant após CreatedAt (turno da pendência)
+//  2. se houver → envia via messenger; apaga só após Send OK
+//  3. se não houver e expirou (> callbackTTL) → apaga
+//  4. senão → limpa callbacks in-memory e re-registra (espera Notify)
+//
+// Importante: NÃO descartar por TTL antes do find — se a assistant já
+// foi salva e o crash ocorreu antes do Notify, a pendência ainda deve
+// reenviar mesmo após 5 minutos (exatamente o buraco que M14 fecha).
 func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterFn) {
 	if g == nil || g.notifier == nil {
 		return
@@ -41,15 +46,6 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 			recCtx = database.WithUserID(ctx, rec.OwnerUserID)
 		}
 
-		if rec.CreatedAt.Add(callbackTTL).Before(now) {
-			if err := store.Delete(recCtx, rec.ConversationID); err != nil {
-				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete expirado conv=%s: %v", rec.ConversationID, err)
-			}
-			logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile: pendência expirada conv=%s channel=%s",
-				rec.ConversationID, rec.Channel)
-			continue
-		}
-
 		content, msgID, ok, ferr := find(recCtx, rec.ConversationID, rec.CreatedAt)
 		if ferr != nil {
 			logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: busca assistant conv=%s: %v", rec.ConversationID, ferr)
@@ -61,15 +57,24 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 				go g.retryReconcileSend(rec, content, msgID)
 				continue
 			}
-			if err := store.Delete(recCtx, rec.ConversationID); err != nil {
-				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete após send conv=%s: %v", rec.ConversationID, err)
-			}
+			// deliverChannelResponse já remove o pending após Send OK.
 			logging.Infof(recCtx, "messaging.gateway", "[Gateway] reconcile: reenviou resposta órfã conv=%s channel=%s msg=%s",
 				rec.ConversationID, rec.Channel, msgID)
 			continue
 		}
 
+		expired := rec.CreatedAt.Add(callbackTTL).Before(now)
+		if expired {
+			if err := store.Delete(recCtx, rec.ConversationID); err != nil {
+				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete expirado conv=%s: %v", rec.ConversationID, err)
+			}
+			logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile: pendência expirada sem assistant conv=%s channel=%s",
+				rec.ConversationID, rec.Channel)
+			continue
+		}
+
 		// Sem resposta ainda — re-registra callback in-memory para Notify futuro.
+		// Limpa memória antes para não acumular callbacks (Notify dispararia todos).
 		remaining := time.Until(rec.CreatedAt.Add(callbackTTL))
 		if remaining <= 0 {
 			if err := store.Delete(recCtx, rec.ConversationID); err != nil {
@@ -77,6 +82,7 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 			}
 			continue
 		}
+		g.notifier.clearMemoryCallbacks(rec.ConversationID)
 		recCopy := rec
 		ownerID := recCopy.OwnerUserID
 		g.notifier.Register(rec.ConversationID, ResponseCallback{
@@ -112,24 +118,11 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 		if rec.OwnerUserID != "" {
 			recCtx = database.WithUserID(recCtx, rec.OwnerUserID)
 		}
-		if rec.CreatedAt.Add(callbackTTL).Before(time.Now().UTC()) {
-			if store := g.notifier.pendingStore(); store != nil {
-				if err := store.Delete(recCtx, rec.ConversationID); err != nil {
-					logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: delete expirado conv=%s: %v", rec.ConversationID, err)
-				}
-			}
-			logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: pendência expirou conv=%s channel=%s",
-				rec.ConversationID, rec.Channel)
-			return
-		}
+		// Só abandona por TTL se ainda não há assistant entregável — aqui já temos content.
+		// Mantém tentativas enquanto o pending existir; deliver remove após sucesso.
 		if err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
 			logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: send falhou conv=%s: %v", rec.ConversationID, err)
 			continue
-		}
-		if store := g.notifier.pendingStore(); store != nil {
-			if err := store.Delete(recCtx, rec.ConversationID); err != nil {
-				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: delete conv=%s: %v", rec.ConversationID, err)
-			}
 		}
 		logging.Infof(recCtx, "messaging.gateway", "[Gateway] reconcile retry: reenviou resposta órfã conv=%s channel=%s msg=%s",
 			rec.ConversationID, rec.Channel, msgID)
@@ -146,4 +139,15 @@ func (n *ResponseNotifier) pendingStore() ChannelPendingStore {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.store
+}
+
+// clearMemoryCallbacks remove callbacks in-memory sem tocar no pending store.
+// Usado pelo reconcile ao re-registrar, para não acumular deliveries duplicados.
+func (n *ResponseNotifier) clearMemoryCallbacks(conversationID string) {
+	if n == nil {
+		return
+	}
+	n.mu.Lock()
+	delete(n.callbacks, conversationID)
+	n.mu.Unlock()
 }
