@@ -28,6 +28,27 @@ func (s *DBChannelPendingStore) Upsert(ctx context.Context, rec ChannelPendingRe
 	})
 }
 
+func (s *DBChannelPendingStore) Get(ctx context.Context, conversationID string) (ChannelPendingRecord, bool, error) {
+	row, err := database.GetChannelResponsePending(ctx, conversationID)
+	if err != nil {
+		return ChannelPendingRecord{}, false, err
+	}
+	if row == nil {
+		return ChannelPendingRecord{}, false, nil
+	}
+	return ChannelPendingRecord{
+		ConversationID:       row.ConversationID,
+		Channel:              row.Channel,
+		ChatID:               row.ChatID,
+		AudioOnly:            row.AudioOnly,
+		TraceID:              row.TraceID,
+		OwnerUserID:          row.OwnerUserID,
+		ReplyToMsgID:         row.ReplyToMsgID,
+		DeliveredAssistantID: row.DeliveredAssistantID,
+		CreatedAt:            row.CreatedAt,
+	}, true, nil
+}
+
 func (s *DBChannelPendingStore) Delete(ctx context.Context, conversationID string) error {
 	return database.DeleteChannelResponsePending(ctx, conversationID)
 }

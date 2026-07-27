@@ -165,8 +165,9 @@ func (c *ChatController) registerChannelBridge(ctx context.Context, conversation
 	// mesmo user em outro channel sobrescrevesse o destino mid-flight.
 	replyChatID := channels.GetReplyChatID(channelName, contactID)
 	c.responseNotifier.Register(conversationID, messaging.ResponseCallback{
-		Channel: channelName,
-		ChatID:  replyChatID,
+		Channel:     channelName,
+		ChatID:      replyChatID,
+		OwnerUserID: conv.UserID,
 		// SkipPersist: persistência M14 fica no Register do gateway.
 		SkipPersist: true,
 		Callback: func(response string, assistantMsgID string) {

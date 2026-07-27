@@ -27,6 +27,11 @@ type ChannelResponsePending struct {
 	CreatedAt            time.Time `json:"created_at"`
 }
 
+// TableName fixa o nome singular usado nas migrações/ops (evita plural GORM).
+func (ChannelResponsePending) TableName() string {
+	return "channel_response_pending"
+}
+
 var errDBNotInitialized = errors.New("banco de dados não inicializado")
 
 // UpsertChannelResponsePending cria ou atualiza a pendência de uma conversa.
@@ -55,6 +60,26 @@ func DeleteChannelResponsePending(ctx context.Context, conversationID string) er
 		return errDBNotInitialized
 	}
 	return db.WithContext(ctx).Where("conversation_id = ?", conversationID).Delete(&ChannelResponsePending{}).Error
+}
+
+// GetChannelResponsePending retorna a pendência da conversa, ou nil se não houver.
+func GetChannelResponsePending(ctx context.Context, conversationID string) (*ChannelResponsePending, error) {
+	if conversationID == "" {
+		return nil, nil
+	}
+	db := DB()
+	if db == nil {
+		return nil, errDBNotInitialized
+	}
+	var row ChannelResponsePending
+	err := db.WithContext(ctx).Where("conversation_id = ?", conversationID).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
 }
 
 // DeleteChannelResponsePendingIfTrace remove a pendência só se o TraceID ainda

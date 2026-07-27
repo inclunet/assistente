@@ -23,6 +23,13 @@ func (s *memPendingStore) Upsert(ctx context.Context, rec ChannelPendingRecord) 
 	return nil
 }
 
+func (s *memPendingStore) Get(ctx context.Context, conversationID string) (ChannelPendingRecord, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.rows[conversationID]
+	return rec, ok, nil
+}
+
 func (s *memPendingStore) Delete(ctx context.Context, conversationID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -470,7 +477,6 @@ func TestGateway_ReconcilePending_SkipsSupersededTrace(t *testing.T) {
 // (simula Upsert concorrente entre List inicial e pendingTraceState).
 type staleThenFreshStore struct {
 	mu    sync.Mutex
-	calls int
 	stale ChannelPendingRecord
 	fresh ChannelPendingRecord
 }
@@ -480,6 +486,12 @@ func (s *staleThenFreshStore) Upsert(ctx context.Context, rec ChannelPendingReco
 	defer s.mu.Unlock()
 	s.fresh = rec
 	return nil
+}
+func (s *staleThenFreshStore) Get(ctx context.Context, conversationID string) (ChannelPendingRecord, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Get reflete o store atual (já sobrescrito por Upsert concorrente).
+	return s.fresh, true, nil
 }
 func (s *staleThenFreshStore) Delete(ctx context.Context, conversationID string) error {
 	return nil
@@ -493,11 +505,8 @@ func (s *staleThenFreshStore) MarkDelivered(ctx context.Context, conversationID,
 func (s *staleThenFreshStore) List(ctx context.Context) ([]ChannelPendingRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.calls++
-	if s.calls == 1 {
-		return []ChannelPendingRecord{s.stale}, nil
-	}
-	return []ChannelPendingRecord{s.fresh}, nil
+	// List inicial do reconcile: snapshot stale (antes do Upsert concorrente).
+	return []ChannelPendingRecord{s.stale}, nil
 }
 
 func TestGateway_ReconcilePending_AlreadyDeliveredSkipsSend(t *testing.T) {

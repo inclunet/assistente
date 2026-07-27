@@ -13,7 +13,7 @@ import (
 //  1. busca a assistant do turno (user após CreatedAt → turn_id)
 //  2. se houver → envia via messenger; apaga só após Send OK
 //  3. se não houver e expirou (> callbackTTL) → apaga
-//  4. senão → limpa callbacks in-memory e re-registra (espera Notify)
+//  4. senão → ensureMemoryCallback (re-registra só se não houver turno vivo)
 //
 // Importante: NÃO descartar por TTL antes do find — se a assistant já
 // foi salva e o crash ocorreu antes do Notify, a pendência ainda deve
@@ -195,18 +195,16 @@ func pendingTraceState(store ChannelPendingStore, conversationID, traceID string
 	if store == nil || conversationID == "" {
 		return false, true
 	}
-	rows, err := store.List(context.Background())
+	rec, ok, err := store.Get(context.Background(), conversationID)
 	if err != nil {
-		logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: list pending falhou conv=%s: %v (seguindo retry)",
+		logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: get pending falhou conv=%s: %v (seguindo retry)",
 			conversationID, err)
 		return false, false
 	}
-	for _, r := range rows {
-		if r.ConversationID == conversationID {
-			return r.TraceID == traceID, true
-		}
+	if !ok {
+		return false, true
 	}
-	return false, true
+	return rec.TraceID == traceID, true
 }
 
 func (n *ResponseNotifier) pendingStore() ChannelPendingStore {
@@ -216,16 +214,6 @@ func (n *ResponseNotifier) pendingStore() ChannelPendingStore {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.store
-}
-
-// clearMemoryCallbacks remove callbacks in-memory sem tocar no pending store.
-func (n *ResponseNotifier) clearMemoryCallbacks(conversationID string) {
-	if n == nil {
-		return
-	}
-	n.mu.Lock()
-	delete(n.callbacks, conversationID)
-	n.mu.Unlock()
 }
 
 // ensureMemoryCallback registra cb só se a conversa ainda não tiver callback

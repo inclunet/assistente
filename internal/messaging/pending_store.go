@@ -21,6 +21,7 @@ type ChannelPendingRecord struct {
 // ChannelPendingStore persiste intents de resposta outbound (M14).
 type ChannelPendingStore interface {
 	Upsert(ctx context.Context, rec ChannelPendingRecord) error
+	Get(ctx context.Context, conversationID string) (ChannelPendingRecord, bool, error)
 	Delete(ctx context.Context, conversationID string) error
 	// DeleteIfTrace remove só se o TraceID atual ainda corresponde ao turno entregue.
 	DeleteIfTrace(ctx context.Context, conversationID, traceID string) error
