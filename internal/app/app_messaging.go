@@ -13,6 +13,10 @@ import (
 // initMessaging cria e inicializa o MessagingController, que gerencia o gateway,
 // conexões de canais e ferramentas de mensageria.
 func (a *App) initMessaging() {
+	if db := database.DB(); db != nil {
+		channels.UseDatabase(db)
+		contacts.UseDatabase(db)
+	}
 	a.msgCtrl = controllers.NewMessagingController(controllers.MessagingControllerConfig{
 		Ctx:           a.ctx,
 		ProfileMgr:    a.profileManager,

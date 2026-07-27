@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/internal/channels"
 	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/portability"
@@ -25,6 +26,11 @@ func (a *App) runPostLoginLegacyImports(ctx context.Context) {
 		}); err != nil {
 			logging.Errorf(ctx, "app.app-legacy-imports", "[LegacyImport] erro ao registrar importador Jobs: %v", err)
 		}
+	}
+	if err := service.Register("Channels", func(ctx context.Context) (portability.LegacyImportResult, error) {
+		return channels.ImportLegacyChannelsWithContext(ctx, a.credMgr)
+	}); err != nil {
+		logging.Errorf(ctx, "app.app-legacy-imports", "[LegacyImport] erro ao registrar importador Channels: %v", err)
 	}
 	summary := service.Run(ctx)
 	if userID, ok := database.UserIDFromContext(ctx); ok {
