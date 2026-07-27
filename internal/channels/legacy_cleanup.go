@@ -81,7 +81,20 @@ func CleanupLegacyJSONFiles(ctx context.Context, opts LegacyCleanupOptions) (Leg
 		if homeDir == "" {
 			return result, fmt.Errorf("diretório home do assistente indisponível; cleanup com backup abortado")
 		}
-		backupRoot = filepath.Join(homeDir, legacyBackupDirName, time.Now().Format("20060102-150405"))
+		legacyBackupParent := filepath.Join(homeDir, legacyBackupDirName)
+		if info, err := os.Lstat(legacyBackupParent); err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return result, fmt.Errorf("%s: symlink rejeitado como pasta de backup", legacyBackupParent)
+			}
+			if !info.IsDir() {
+				return result, fmt.Errorf("%s: não é diretório; cleanup com backup abortado", legacyBackupParent)
+			}
+		} else if !os.IsNotExist(err) {
+			return result, fmt.Errorf("verificar pasta de backup: %w", err)
+		} else if err := os.MkdirAll(legacyBackupParent, 0700); err != nil {
+			return result, fmt.Errorf("criar pasta de backup: %w", err)
+		}
+		backupRoot = filepath.Join(legacyBackupParent, time.Now().Format("20060102-150405"))
 		if err := os.MkdirAll(backupRoot, 0700); err != nil {
 			return result, fmt.Errorf("criar diretório de backup: %w", err)
 		}

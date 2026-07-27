@@ -244,7 +244,13 @@ func TestCleanupLegacyJSON_RejectsSymlink(t *testing.T) {
 	if len(result.Removed) != 0 {
 		t.Fatalf("symlink não deveria ser removido: %v", result.Removed)
 	}
-	if len(result.Errors) == 0 {
-		t.Fatal("esperava erro de symlink")
+	var skippedSymlink bool
+	for _, item := range result.Skipped {
+		if item.Slug == "telegram" && strings.Contains(item.Reason, "symlink") {
+			skippedSymlink = true
+		}
+	}
+	if !skippedSymlink {
+		t.Fatalf("esperava symlink em skipped: %+v errors=%v", result.Skipped, result.Errors)
 	}
 }
