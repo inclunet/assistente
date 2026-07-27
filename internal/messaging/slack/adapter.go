@@ -23,11 +23,11 @@ import (
 const (
 	logComponent = "messaging.slack.adapter"
 
-	// maxInboundFileBytes limita o download inbound, alinhado a chat.MaxMediaSize.
-	// O gateway serializa anexos em JSON base64 (~4/3); 20 MiB de bytes brutos
-	// ainda pode falhar na validação do chat se houver vários anexos — por isso
-	// também limitamos a quantidade por mensagem.
-	maxInboundFileBytes = 20 * 1024 * 1024
+	// maxInboundFileBytes limita bytes brutos por arquivo no download inbound.
+	// O gateway serializa anexos em media JSON com base64 (~4/3) e o chat valida
+	// len(UserMedia) contra chat.MaxMediaSize (20 MiB). 15 MiB brutos ≈ 20 MiB
+	// em base64, deixando folga para overhead JSON de um único anexo.
+	maxInboundFileBytes = 15 * 1024 * 1024
 	maxInboundFiles     = 10
 )
 
@@ -395,10 +395,36 @@ func (w *maxBytesWriter) Bytes() []byte {
 	return w.buf.Bytes()
 }
 
-// isSupportedInboundMIME aceita imagem, áudio, vídeo e documento (types.go).
+// supportedDocumentMIMEs é allowlist explícita (IsDocument em types.go é catch-all).
+var supportedDocumentMIMEs = map[string]struct{}{
+	"application/pdf": {},
+	"application/msword": {},
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
+	"application/vnd.ms-excel": {},
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {},
+	"application/vnd.ms-powerpoint": {},
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": {},
+	"application/rtf": {},
+	"application/json": {},
+	"application/xml":  {},
+	"text/plain":       {},
+	"text/csv":         {},
+	"text/markdown":    {},
+	"text/html":        {},
+}
+
+// isSupportedInboundMIME aceita imagem/áudio/vídeo por prefixo e documentos por allowlist.
 func isSupportedInboundMIME(mime string) bool {
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	if mime == "" {
+		return false
+	}
 	a := messaging.Attachment{MIMEType: mime}
-	return a.IsImage() || a.IsAudio() || a.IsVideo() || a.IsDocument()
+	if a.IsImage() || a.IsAudio() || a.IsVideo() {
+		return true
+	}
+	_, ok := supportedDocumentMIMEs[mime]
+	return ok
 }
 
 func mimeFromFilename(filename string) string {
@@ -412,7 +438,14 @@ func mimeFromFilename(filename string) string {
 		".pdf":  "application/pdf",
 		".doc":  "application/msword",
 		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		".xls":  "application/vnd.ms-excel",
+		".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		".ppt":  "application/vnd.ms-powerpoint",
+		".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 		".txt":  "text/plain",
+		".csv":  "text/csv",
+		".md":   "text/markdown",
+		".json": "application/json",
 	}
 	return mimes[ext]
 }

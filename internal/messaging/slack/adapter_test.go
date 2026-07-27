@@ -232,6 +232,30 @@ func TestMimeFromFilenameAndSupported(t *testing.T) {
 		!isSupportedInboundMIME("video/mp4") || !isSupportedInboundMIME("application/pdf") {
 		t.Fatal("tipos suportados rejeitados")
 	}
+	if isSupportedInboundMIME("application/octet-stream") || isSupportedInboundMIME("application/x-msdownload") ||
+		isSupportedInboundMIME("") {
+		t.Fatal("tipos não suportados deveriam ser rejeitados")
+	}
+}
+
+func TestAttachmentFromSlackFile_RejectsUnsupportedMIME(t *testing.T) {
+	t.Parallel()
+
+	api := &fakeFileAPI{
+		files: map[string][]byte{"https://files.slack.com/x.exe": []byte("MZ")},
+	}
+	_, err := attachmentFromSlackFile(context.Background(), api, slackevents.File{
+		ID:                 "Fexe",
+		Name:               "setup.exe",
+		Mimetype:           "application/x-msdownload",
+		URLPrivateDownload: "https://files.slack.com/x.exe",
+	})
+	if err == nil || !strings.Contains(err.Error(), "tipo MIME não suportado") {
+		t.Fatalf("esperava rejeição de MIME, got %v", err)
+	}
+	if len(api.calls) != 0 {
+		t.Fatalf("não deveria baixar MIME rejeitado, calls=%v", api.calls)
+	}
 }
 
 func TestAttachmentFromSlackFile_InfersMIMEAndFallbackURL(t *testing.T) {
