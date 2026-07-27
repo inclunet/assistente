@@ -414,7 +414,6 @@ var supportedDocumentMIMEs = map[string]struct{}{
 	"text/plain":       {},
 	"text/csv":         {},
 	"text/markdown":    {},
-	"text/html":        {},
 }
 
 // isSupportedInboundMIME aceita imagem/áudio/vídeo por prefixo e documentos por allowlist.
@@ -451,8 +450,6 @@ var extensionMIME = map[string]string{
 	".json": "application/json",
 	".rtf":  "application/rtf",
 	".xml":  "application/xml",
-	".html": "text/html",
-	".htm":  "text/html",
 }
 
 func mimeFromFilename(filename string) string {

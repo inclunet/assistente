@@ -236,8 +236,11 @@ func TestMimeFromFilenameAndSupported(t *testing.T) {
 		isSupportedInboundMIME("") {
 		t.Fatal("tipos não suportados deveriam ser rejeitados")
 	}
-	if mimeFromFilename("nota.rtf") != "application/rtf" || mimeFromFilename("page.html") != "text/html" {
+	if mimeFromFilename("nota.rtf") != "application/rtf" || mimeFromFilename("data.xml") != "application/xml" {
 		t.Fatal("extensoes do allowlist devem mapear via mimeFromFilename")
+	}
+	if isSupportedInboundMIME("text/html") {
+		t.Fatal("text/html nao deve ser aceito (conteudo ativo)")
 	}
 }
 
