@@ -1483,10 +1483,25 @@ const en = {
       description: 'Manage restoration and cleanup of assistant data',
       sections: { appearance: 'Appearance', quickActions: 'Quick Actions', granular: 'Granular Cleanup', nuclear: 'Nuclear Options', security: 'Security - Master Password' },
       aria: { appearance: 'Appearance - choose the visual theme', selectTheme: 'Select theme', quickActions: 'Quick Actions', granular: 'Granular Cleanup', nuclear: 'Nuclear Options', security: 'Security' },
-      announce: { themeChanged: 'Theme changed to {{label}}', operationDone: '{{name}} completed' },
+      announce: {
+        themeChanged: 'Theme changed to {{label}}',
+        operationDone: '{{name}} completed',
+        cleanupLegacyDone: 'Legacy JSON removed: {{removed}} file(s). Backup at {{backup}}.',
+        cleanupLegacyDoneNoBackup: 'Legacy JSON removed: {{removed}} file(s).',
+        cleanupLegacyNone: 'No eligible legacy JSON files',
+        cleanupLegacyNoneRemoved:
+          'No legacy JSON files were removed; candidates vanished or were skipped at confirmation',
+        cleanupLegacyPartial:
+          'Partial removal: {{removed}} of {{expected}} file(s). Backup at {{backup}}.',
+        cleanupLegacyPartialNoBackup: 'Partial removal: {{removed}} of {{expected}} file(s).',
+      },
       toast: {
         operationSuccess: '{{name}} completed successfully!',
         operationFailed: 'Failed to run {{name}}',
+        cleanupLegacyNone: 'No eligible legacy JSON files to remove',
+        cleanupLegacyNoneRemoved:
+          'No legacy JSON files were removed (candidates missing or skipped at confirmation)',
+        cleanupLegacyPartial: 'Partial removal: {{removed}} of {{expected}} legacy file(s)',
       },
       items: {
         clearMessages: 'Clear Messages and Conversations',
@@ -1499,6 +1514,9 @@ const en = {
         clearSkillsDesc: 'Removes all custom Skills. Built-in Skills can be reconfigured.',
         clearChannels: 'Clear All Channels',
         clearChannelsDesc: 'Removes configuration for all channels (Telegram, Slack, Signal, etc).',
+        cleanupLegacyJSON: 'Remove legacy channel JSON',
+        cleanupLegacyJSONDesc:
+          'Removes channels/*.json and contacts.json from disk after database migration. Creates a backup under channels.legacy-backup/. Does not affect channels in the DB.',
         resetDatabase: 'Erase Entire Database',
         resetDatabaseDesc: 'PERMANENTLY removes the entire database including conversations, tabs and history.',
         clearAll: 'CLEAR EVERYTHING (Nuclear)',
@@ -1510,7 +1528,7 @@ const en = {
         removeMasterPassword: 'Remove Master Password',
         removeMasterPasswordDesc: 'Removes master password protection. Credentials CANNOT be decrypted.',
       },
-      buttons: { clear: 'Clear', delete: 'Erase', clearAll: 'CLEAR EVERYTHING', resetSoon: 'Reset (coming soon)', viewCodeSoon: 'View Code (coming soon)', removeSoon: 'Remove (coming soon)' },
+      buttons: { clear: 'Clear', delete: 'Erase', clearAll: 'CLEAR EVERYTHING', resetSoon: 'Reset (coming soon)', viewCodeSoon: 'View Code (coming soon)', removeSoon: 'Remove (coming soon)', cleanupLegacy: 'Remove legacy JSON' },
       security: { masterPasswordInfo: 'The master password protects all your encrypted credentials. If you forget the password, use the recovery code to reset it.' },
       confirm: {
         lastChanceTitle: 'Final confirmation',
@@ -1531,6 +1549,10 @@ const en = {
         clearChannelsTitle: 'Clear channels?',
         clearChannelsMessage:
           'Are you sure you want to delete all communication channel settings?\n\nAll channels (Telegram, Slack, Signal, etc.) will be reset.\n\nThis action cannot be undone.',
+        cleanupLegacyJSONTitle: 'Remove legacy channel JSON files?',
+        cleanupLegacyJSONMessage:
+          '{{count}} legacy file(s) already migrated to the database will be removed from disk:\n{{files}}\n\nA backup will be created under channels.legacy-backup/. Channels and contacts in the database will NOT be affected. This cannot be undone for the original files.',
+        cleanupLegacyJSONNone: 'No eligible legacy JSON files to remove. Channels/contacts are already DB-only, or the DB is not active yet.',
         resetDatabaseTitle: 'Erase the entire database?',
         resetDatabaseMessage:
           'Are you sure you want to erase the entire database?\n\nAll conversations, history, and tabs will be permanently removed.\n\nThis action cannot be undone.',

@@ -20,9 +20,11 @@
 
 .confirm-dialog__message {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--font-size-base);
   line-height: 1.5;
   color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .confirm-dialog__footer {
