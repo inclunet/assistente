@@ -14,7 +14,7 @@
 
 Migrar a configuração de canais de mensageria (`channels/*.json`), a lista de contatos autorizados (`contacts.json`) e o mapeamento contato→conversa para tabelas SQLite via GORM, sempre vinculadas ao usuário quando autenticado.
 
-O DTO público `channels.ChannelConfig` permanece estável para Wails/gateway. A fachada `internal/channels` passa a usar o banco quando `channels.UseDatabase(db)` é chamado no boot (após `database.Init`). Contatos seguem o mesmo padrão via `contacts.UseDatabase(db)`.
+O DTO público `channels.ChannelConfig` permanece estável para Wails/gateway. A fachada `internal/channels` **exige** `channels.UseDatabase(db)` no boot (após `database.Init`); sem DB, APIs de runtime falham de forma explícita. Contatos seguem o mesmo padrão via `contacts.UseDatabase(db)`. JSON legado é apenas fonte de import read-only + cleanup opt-in.
 
 Tokens e segredos **nunca** são gravados em plaintext nas tabelas: apenas refs de pattern do CredManager (`channel:{slug}:bot_token|app_token|api_token`). App id/secret futuros usam `channel:{slug}:app` com `ClientID`+`ClientSecret` (como `mcp-client:{slug}`) — documentados aqui; sem UI Teams nesta AEP.
 
@@ -69,15 +69,15 @@ Campos de runtime legados (`BotToken`, `AppToken`, `APIToken`, `Account`, `APIUR
 
 Nunca gravar plaintext de token nas tabelas `channels` / `channel_contacts`.
 
-### D4 — Fachada dual até o cutover de boot
+### D4 — Runtime exige DB (fail-closed); FS só legado read-only
 
-- Sem `UseDatabase`: comportamento filesystem legado (testes/gateway sem DB).
 - Com `UseDatabase(db)` no boot (após `database.Init`): leituras/escritas runtime vão ao DB.
+- Sem `UseDatabase`: APIs de runtime (`Save`/`Load`/`Delete`/`ListAll`/`AdoptOrphans`/… e equivalentes em `contacts`) retornam erro claro (`channels DB não habilitado` / `contacts DB não habilitado`) — **sem fallback FS**.
 - APIs Wails preferem `database.UserIDFromContext` / `RequireUserID`.
 - `Load(slug)` sem user (gateway/adapters): se houver **exatamente um** canal `enabled` com aquele slug no DB, retornar; senão tentar owner conhecido (`OwnerUserID` / última atribuição); caso ambíguo, não inventar.
 - `LoadEnabled`: lista todos enabled (startup de adapters — tipicamente um por slug no single-user local).
 
-**Addendum (fail-closed no boot):** em produção, `initMessaging` (após `database.Init`) **exige** `database.DB() != nil` e chama `channels.UseDatabase` / `contacts.UseDatabase`. Se o DB estiver indisponível, o startup falha com erro explícito — **não** omitir `UseDatabase` e cair silenciosamente no filesystem para runtime de canais/contatos. O código FS permanece para testes unitários (sem `UseDatabase`) e para import legado read-only. Com DB ativo, `AdoptOrphans` adota apenas rows no SQLite (não escreve JSON legado).
+**Boot fail-closed:** em produção, `initMessaging` (após `database.Init`) **exige** `database.DB() != nil` e chama `channels.UseDatabase` / `contacts.UseDatabase`. Se o DB estiver indisponível, o startup falha com erro explícito. JSON legado permanece apenas para **import read-only** (`legacy_import.go`) e **cleanup opt-in** (`legacy_cleanup.go`). Testes de runtime usam SQLite + `UseDatabase` (não exercitam write/read da fachada FS). Com DB ativo, `AdoptOrphans` adota apenas rows no SQLite (não escreve JSON legado).
 
 ### D5 — Contatos via `channel_id`
 
@@ -95,10 +95,7 @@ Registrar em `app_legacy_imports.go` como **"Channels"** usando `portability.Imp
 
 ### D7 — `AdoptOrphans` no `CreateAdminUser`
 
-Além do comportamento FS existente (canais sem `OwnerUserID`):
-
-- Adotar rows DB com `user_id` vazio
-- Manter idempotência (não sobrescrever dono existente)
+Adotar rows DB com `user_id` vazio (runtime só DB). Idempotente: não sobrescrever dono existente. Não escreve nem lê `channels/*.json` para adoção.
 
 ### D8 — UI ChannelsPage
 
@@ -140,16 +137,21 @@ Todas as fases abaixo foram entregues no PR #400:
 - [x] Testes unitários (map, import, Save/Load) e Vitest (grid vazio / após create)
 - [x] Pattern futuro `channel:{slug}:app` documentado (ClientID+ClientSecret)
 
-## Smoke manual (pós-merge)
+## Smoke (pós-merge)
 
-Checklist curto para validar o cutover em máquina com dados legados:
+Checklist para validar o cutover. Itens com **[auto]** são cobertos por
+`TestAEP0083_LegacySmokeAutomatic` em `internal/channels` (sem rede / sem
+tokens reais). Itens **[manual]** exigem messengers reais ou escopos Slack.
 
-- [ ] Login com `channels/*.json` (e `contacts.json`, se existir) presentes no disco
-- [ ] Import “Channels” pós-login idempotente (segundo login não duplica canais/contatos)
-- [ ] Adapters sobem após o login (canais enabled no DB)
-- [ ] Ida/volta de mensagem em pelo menos um canal configurado (Telegram e/ou Signal e/ou Slack)
-- [ ] Contatos autorizados respeitados (não-autorizado bloqueado; autorizado conversa)
-- [ ] Arquivos legados intactos no disco (não apagados nem renomeados pelo import)
+- [x] **[auto]** Login com `channels/*.json` (e `contacts.json`, se existir) presentes no disco — coberto via HOME temp + `ImportLegacyChannelsWithContext`
+- [x] **[auto]** Import “Channels” pós-login idempotente (segunda passagem não duplica canais/contatos)
+- [ ] **[manual]** Adapters sobem após o login (canais enabled no DB) — requer processo real + tokens
+- [ ] **[manual]** Ida/volta de mensagem em pelo menos um canal configurado (Telegram e/ou Signal e/ou Slack)
+- [x] **[auto]** Contatos autorizados no DB após import (`GetForChannel` / `contacts.Load`); pareamento/rejeição de não-autorizado no gateway continua em `gateway_test.go`
+- [ ] **[manual]** Contatos autorizados respeitados ponta a ponta no messenger (não-autorizado bloqueado; autorizado conversa)
+- [x] **[auto]** Arquivos legados intactos pelo import; cleanup opt-in dry-run depois confirm remove JSON e mantém DB
+- [x] **[auto]** `AdoptOrphans` só DB (não reescreve JSON)
+- [ ] **[manual]** Slack: escopo `files:read` no app (anexos) — fora do smoke automático
 
 ## Cleanup opt-in de JSON legado (pós-migração)
 
