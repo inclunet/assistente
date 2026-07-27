@@ -164,7 +164,7 @@ export default function RestoreDefaultsPage() {
         return;
       }
 
-      const filesList = eligible.map((item) => item.path).join(', ');
+      const filesList = eligible.map((item) => `• ${item.path}`).join('\n');
       const confirmedFirst = await requestConfirm({
         title: t('restore.confirm.cleanupLegacyJSONTitle'),
         message: t('restore.confirm.cleanupLegacyJSONMessage', {

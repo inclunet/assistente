@@ -94,7 +94,7 @@ func CleanupLegacyJSONFiles(ctx context.Context, opts LegacyCleanupOptions) (Leg
 		} else if err := os.MkdirAll(legacyBackupParent, 0700); err != nil {
 			return result, fmt.Errorf("criar pasta de backup: %w", err)
 		}
-		backupRoot = filepath.Join(legacyBackupParent, time.Now().Format("20060102-150405"))
+		backupRoot = filepath.Join(legacyBackupParent, time.Now().Format("20060102-150405.000000000"))
 		if err := os.MkdirAll(backupRoot, 0700); err != nil {
 			return result, fmt.Errorf("criar diretório de backup: %w", err)
 		}

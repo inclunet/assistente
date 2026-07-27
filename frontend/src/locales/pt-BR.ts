@@ -1534,7 +1534,7 @@ const ptBR = {
           'Tem certeza de que deseja apagar todas as configurações de canais de comunicação?\n\nTodos os canais (Telegram, Slack, Signal, etc.) serão redefinidos.\n\nEsta ação não pode ser desfeita.',
         cleanupLegacyJSONTitle: 'Remover arquivos JSON legados de canais?',
         cleanupLegacyJSONMessage:
-          'Serão removidos do disco {{count}} arquivo(s) legado(s) já migrados para o banco: {{files}}. Um backup será criado em channels.legacy-backup/. Canais e contatos no banco de dados NÃO serão afetados. Esta ação não pode ser desfeita nos arquivos originais.',
+          'Serão removidos do disco {{count}} arquivo(s) legado(s) já migrados para o banco:\n{{files}}\n\nUm backup será criado em channels.legacy-backup/. Canais e contatos no banco de dados NÃO serão afetados. Esta ação não pode ser desfeita nos arquivos originais.',
         cleanupLegacyJSONNone: 'Nenhum arquivo JSON legado elegível para remoção. Canais/contatos já estão só no banco, ou o DB ainda não está ativo.',
         resetDatabaseTitle: 'Apagar o banco de dados inteiro?',
         resetDatabaseMessage:
