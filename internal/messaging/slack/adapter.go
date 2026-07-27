@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"assistente/internal/messaging"
@@ -62,8 +63,9 @@ type SlackAdapter struct {
 	// inboundSem limita goroutines de download/handler em voo.
 	inboundSem chan struct{}
 
-	// missingFilesReadWarn emite no máximo um Warnf por conexão sobre files:read.
-	missingFilesReadWarn sync.Once
+	// missingFilesReadWarned emite no máximo um Warnf por ciclo Connect
+	// (resetado em Connect para permitir novo aviso após reconectar).
+	missingFilesReadWarned atomic.Bool
 }
 
 // NewAdapter cria um novo adapter para Slack (Socket Mode).
@@ -108,6 +110,7 @@ func (s *SlackAdapter) Connect(ctx context.Context) error {
 	s.socket = socketClient
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.status = messaging.StatusConnected
+	s.missingFilesReadWarned.Store(false)
 	s.mu.Unlock()
 
 	go s.eventLoop()
@@ -146,11 +149,12 @@ func (s *SlackAdapter) probeFilesReadScope(ctx context.Context) {
 }
 
 func (s *SlackAdapter) warnMissingFilesRead(ctx context.Context, err error) {
-	s.missingFilesReadWarn.Do(func() {
-		logging.Warnf(ctx, logComponent,
-			"[Slack] scope files:read ausente ou insuficiente — mensagens de texto seguem; anexos inbound serão ignorados até adicionar files:read (e files:write para upload outbound) em OAuth & Permissions e reinstalar o app. Detalhe: %v",
-			err)
-	})
+	if s.missingFilesReadWarned.Swap(true) {
+		return
+	}
+	logging.Warnf(ctx, logComponent,
+		"[Slack] falha de autorização ao acessar arquivo (possível causa: scope files:read ausente, token inválido/revogado ou sem acesso ao arquivo) — mensagens de texto seguem; anexos inbound podem ser ignorados. Para mídia: confira files:read (+ files:write para upload) em OAuth & Permissions e reinstale o app se necessário. Detalhe: %v",
+		err)
 }
 
 // Disconnect encerra a conexão.
