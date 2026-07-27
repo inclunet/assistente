@@ -119,10 +119,15 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 			recCtx = database.WithUserID(recCtx, rec.OwnerUserID)
 		}
 		store := g.notifier.pendingStore()
-		if store != nil && !pendingMatchesTrace(store, rec.ConversationID, rec.TraceID) {
-			logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: pending supersedido conv=%s trace=%s — abortando",
-				rec.ConversationID, rec.TraceID)
-			return
+		if store != nil {
+			matches, known := pendingTraceState(store, rec.ConversationID, rec.TraceID)
+			if known && !matches {
+				logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: pending supersedido conv=%s trace=%s — abortando",
+					rec.ConversationID, rec.TraceID)
+				return
+			}
+			// known=false (ex.: erro transitório de List): segue o retry;
+			// DeleteIfTrace ainda protege contra apagar turno errado.
 		}
 		if err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
 			logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: send falhou conv=%s: %v", rec.ConversationID, err)
@@ -136,20 +141,25 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 		rec.ConversationID, rec.Channel)
 }
 
-func pendingMatchesTrace(store ChannelPendingStore, conversationID, traceID string) bool {
+// pendingTraceState indica se a pendência ainda é deste turno.
+// known=false significa estado indefinido (ex.: List falhou) — o caller
+// não deve abortar o retry; DeleteIfTrace protege a deleção.
+func pendingTraceState(store ChannelPendingStore, conversationID, traceID string) (matches bool, known bool) {
 	if store == nil || conversationID == "" {
-		return false
+		return false, true
 	}
 	rows, err := store.List(context.Background())
 	if err != nil {
-		return false
+		logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: list pending falhou conv=%s: %v (seguindo retry)",
+			conversationID, err)
+		return false, false
 	}
 	for _, r := range rows {
 		if r.ConversationID == conversationID {
-			return r.TraceID == traceID
+			return r.TraceID == traceID, true
 		}
 	}
-	return false
+	return false, true
 }
 
 func (n *ResponseNotifier) pendingStore() ChannelPendingStore {

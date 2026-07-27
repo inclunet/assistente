@@ -256,6 +256,8 @@ func TestGateway_ReconcilePending_ResendsSavedAssistant(t *testing.T) {
 		ConversationID: "conv-r",
 		Channel:        "telegram",
 		ChatID:         "99",
+		OwnerUserID:    "owner-1",
+		TraceID:        "trace-r",
 		CreatedAt:      time.Now().UTC().Add(-time.Minute),
 	})
 
@@ -291,6 +293,8 @@ func TestGateway_ReconcilePending_ExpiredStillResendsSavedAssistant(t *testing.T
 		ConversationID: "conv-old",
 		Channel:        "telegram",
 		ChatID:         "77",
+		OwnerUserID:    "owner-1",
+		TraceID:        "trace-old",
 		CreatedAt:      time.Now().UTC().Add(-(callbackTTL + time.Minute)),
 	})
 
