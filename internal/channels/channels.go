@@ -27,6 +27,8 @@ const channelsSubdir = "channels"
 var mu sync.Mutex
 
 // ChannelConfig é a configuração de um canal de mensageria.
+// Continua sendo o DTO público Wails/gateway (AEP-0083); a persistência
+// pode ser filesystem legado ou tabelas SQLite via UseDatabase.
 type ChannelConfig struct {
 	Enabled     bool   `json:"enabled"`
 	BotToken    string `json:"bot_token,omitempty"`     // Telegram: token do bot
@@ -39,7 +41,11 @@ type ChannelConfig struct {
 	APIURL      string `json:"api_url,omitempty"`       // Signal: URL da API
 	Profile     string `json:"profile,omitempty"`       // Perfil de chat (vazio = ativo)
 	MaxHistory  int    `json:"max_history,omitempty"`   // Mensagens no contexto (0 = padrão)
-	MaxContacts int    `json:"max_contacts,omitempty"` // Máximo de contatos (0/omitido = 1; <0 = ilimitado)
+	MaxContacts int    `json:"max_contacts,omitempty"`  // Máximo de contatos (0/omitido = 1; <0 = ilimitado)
+
+	// Type e DisplayName são persistidos na row DB (AEP-0083). Em v1, Type==Slug.
+	Type        string `json:"type,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
 
 	// OwnerUserID é o userID que deve ser usado como dono das conversas
 	// criadas a partir de mensagens recebidas neste canal (AEP-0052).
@@ -48,14 +54,17 @@ type ChannelConfig struct {
 	// até que o usuário re-salve o canal — nesse meio-tempo, conversas
 	// criadas por mensagens recebidas nascem órfãs (user_id="") e são
 	// adotadas pelo primeiro usuário em AdoptLegacyData.
+	// Com DB, mapeia para database.Channel.UserID.
 	OwnerUserID string `json:"owner_user_id,omitempty"`
 
 	// Conversations mapeia contactID → conversationID (persistido entre reinícios).
 	// Permite reaproveitar conversas existentes ao reiniciar o app.
+	// Com DB, vive em channel_contact_conversations.
 	Conversations map[string]string `json:"conversations,omitempty"`
 
 	// ReplyChatIDs mapeia contactID → chatID de destino para outbound
 	// (ex.: Slack: contact=userID, reply=channelID). Vazio = usar contactID.
+	// Com DB, persiste dentro de Settings JSON.
 	ReplyChatIDs map[string]string `json:"reply_chat_ids,omitempty"`
 }
 
@@ -87,6 +96,10 @@ func SaveConversationID(channelName, contactID string, conversationID string) er
 	mu.Lock()
 	defer mu.Unlock()
 
+	if usingDB() {
+		return saveConversationIDDB(channelName, contactID, conversationID)
+	}
+
 	cfg, err := loadUnsafe(channelName)
 	if err != nil || cfg == nil {
 		return fmt.Errorf("canal %s não encontrado", channelName)
@@ -105,7 +118,13 @@ func SaveReplyChatID(channelName, contactID, replyChatID string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	cfg, err := loadUnsafe(channelName)
+	var cfg *ChannelConfig
+	var err error
+	if usingDB() {
+		cfg, err = loadFromDB(channelName)
+	} else {
+		cfg, err = loadUnsafe(channelName)
+	}
 	if err != nil || cfg == nil {
 		return fmt.Errorf("canal %s não encontrado", channelName)
 	}
@@ -121,6 +140,9 @@ func SaveReplyChatID(channelName, contactID, replyChatID string) error {
 		if len(cfg.ReplyChatIDs) == 0 {
 			cfg.ReplyChatIDs = nil
 		}
+		if usingDB() {
+			return saveToDB(channelName, cfg)
+		}
 		return saveUnsafe(channelName, cfg)
 	}
 
@@ -131,6 +153,9 @@ func SaveReplyChatID(channelName, contactID, replyChatID string) error {
 		return nil
 	}
 	cfg.ReplyChatIDs[contactID] = replyChatID
+	if usingDB() {
+		return saveToDB(channelName, cfg)
+	}
 	return saveUnsafe(channelName, cfg)
 }
 
@@ -160,6 +185,9 @@ func channelsHomeDir() string {
 func Load(name string) (*ChannelConfig, error) {
 	mu.Lock()
 	defer mu.Unlock()
+	if usingDB() {
+		return loadFromDB(name)
+	}
 	return loadUnsafe(name)
 }
 
@@ -198,10 +226,14 @@ func loadUnsafe(name string) (*ChannelConfig, error) {
 	return cfg, nil
 }
 
-// Save salva a configuração de um canal em .assistente/channels/<nome>.json.
+// Save salva a configuração de um canal (DB quando UseDatabase foi chamado;
+// caso contrário em .assistente/channels/<nome>.json).
 func Save(name string, cfg *ChannelConfig) error {
 	mu.Lock()
 	defer mu.Unlock()
+	if usingDB() {
+		return saveToDB(name, cfg)
+	}
 	return saveUnsafe(name, cfg)
 }
 
@@ -236,6 +268,10 @@ func Delete(name string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
+	if usingDB() {
+		return deleteFromDB(name)
+	}
+
 	path := filepath.Join(channelsHomeDir(), filename(name))
 	err := os.Remove(path)
 	if os.IsNotExist(err) {
@@ -248,6 +284,9 @@ func Delete(name string) error {
 func ListAll() (map[string]*ChannelConfig, error) {
 	mu.Lock()
 	defer mu.Unlock()
+	if usingDB() {
+		return listAllFromDB()
+	}
 	return listAllUnsafe()
 }
 
@@ -342,6 +381,23 @@ func AdoptOrphans(userID string) ([]string, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
+	if usingDB() {
+		dbMigrated, err := adoptOrphansDB(userID)
+		if err != nil {
+			return dbMigrated, err
+		}
+		// Também adota leftovers em filesystem (instalação híbrida pré-import).
+		fsMigrated, fsErr := adoptOrphansFSLocked(userID)
+		if fsErr != nil {
+			return append(dbMigrated, fsMigrated...), fsErr
+		}
+		return append(dbMigrated, fsMigrated...), nil
+	}
+	return adoptOrphansFSLocked(userID)
+}
+
+// adoptOrphansFSLocked assume mu já retido.
+func adoptOrphansFSLocked(userID string) ([]string, error) {
 	all, err := listAllUnsafe()
 	if err != nil {
 		return nil, err
@@ -349,10 +405,6 @@ func AdoptOrphans(userID string) ([]string, error) {
 
 	migrated := make([]string, 0, len(all))
 	for name := range all {
-		// Re-lê dentro do lock — entre listAllUnsafe e este ponto não
-		// há janela porque o lock está retido; mas faz a re-leitura
-		// para deixar explícito o invariante e cobrir mudanças de
-		// implementação no listAllUnsafe (caching futuro etc.).
 		fresh, err := loadUnsafe(name)
 		if err != nil {
 			return migrated, fmt.Errorf("erro ao reler canal %s: %w", name, err)
@@ -364,6 +416,7 @@ func AdoptOrphans(userID string) ([]string, error) {
 		if err := saveUnsafe(name, fresh); err != nil {
 			return migrated, fmt.Errorf("erro ao migrar canal %s: %w", name, err)
 		}
+		rememberOwner(name, userID)
 		migrated = append(migrated, name)
 	}
 	return migrated, nil

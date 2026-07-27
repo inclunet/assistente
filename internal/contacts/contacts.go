@@ -64,6 +64,9 @@ type ContactsFile map[string][]*AuthorizedContact
 func Load() (ContactsFile, error) {
 	mu.Lock()
 	defer mu.Unlock()
+	if usingDB() {
+		return getAllDB()
+	}
 	return loadUnsafe()
 }
 
@@ -124,7 +127,12 @@ func GetAll() (ContactsFile, error) {
 
 // GetForChannel retorna os contatos autorizados de um canal.
 func GetForChannel(channel string) ([]*AuthorizedContact, error) {
-	contacts, err := Load()
+	mu.Lock()
+	defer mu.Unlock()
+	if usingDB() {
+		return getForChannelDB(channel)
+	}
+	contacts, err := loadUnsafe()
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +154,10 @@ func IsAuthorized(channel string, maxContacts int, identifiers ...string) (hasCo
 	defer mu.Unlock()
 
 	maxContacts = normalizeMaxContacts(maxContacts)
+
+	if usingDB() {
+		return isAuthorizedDB(channel, maxContacts, identifiers...)
+	}
 
 	contacts, err := loadUnsafe()
 	if err != nil {
@@ -187,6 +199,10 @@ func Authorize(channel string, id, displayName, username string, maxContacts int
 
 	maxContacts = normalizeMaxContacts(maxContacts)
 
+	if usingDB() {
+		return authorizeDB(channel, id, displayName, username, maxContacts)
+	}
+
 	contacts, err := loadUnsafe()
 	if err != nil {
 		return err
@@ -224,6 +240,10 @@ func Remove(channel, contactID string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
+	if usingDB() {
+		return removeDB(channel, contactID)
+	}
+
 	contacts, err := loadUnsafe()
 	if err != nil {
 		return err
@@ -250,6 +270,10 @@ func RemoveAll(channel string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
+	if usingDB() {
+		return removeAllDB(channel)
+	}
+
 	contacts, err := loadUnsafe()
 	if err != nil {
 		return err
@@ -263,6 +287,10 @@ func RemoveAll(channel string) error {
 func Count(channel string) int {
 	mu.Lock()
 	defer mu.Unlock()
+
+	if usingDB() {
+		return countDB(channel)
+	}
 
 	contacts, err := loadUnsafe()
 	if err != nil {

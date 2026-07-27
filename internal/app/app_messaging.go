@@ -173,7 +173,7 @@ func (a *App) GetAllChannelConfigs() (map[string]*channels.ChannelConfig, error)
 		return nil, err
 	}
 	userID, _ := database.UserIDFromContext(ctx)
-	all, err := a.msgCtrl.GetAllChannelConfigs()
+	all, err := channels.ListForUser(userID)
 	if err != nil {
 		return nil, err
 	}
