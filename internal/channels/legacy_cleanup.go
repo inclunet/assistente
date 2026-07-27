@@ -56,7 +56,7 @@ func CleanupLegacyJSONFiles(ctx context.Context, opts LegacyCleanupOptions) (Leg
 		return result, err
 	}
 	if !usingDB() {
-		return result, fmt.Errorf("channels DB não habilitado; cleanup legado indisponível")
+		return result, fmt.Errorf("%w; cleanup legado indisponível", ErrDBNotEnabled)
 	}
 	if !opts.ContactsUsingDB {
 		return result, fmt.Errorf("contacts DB não habilitado; cleanup legado indisponível")

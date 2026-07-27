@@ -88,7 +88,7 @@ func (legacyConfigSource) ReadLegacyImportFile(_ context.Context, filename strin
 
 func channelExistsForUser(userID, slug string) (bool, error) {
 	if !usingDB() || storeDB == nil {
-		return false, fmt.Errorf("channels DB não habilitado")
+		return false, ErrDBNotEnabled
 	}
 	var count int64
 	q := storeDB.Model(&database.Channel{}).Where("slug = ?", slug)
@@ -154,7 +154,7 @@ func ImportLegacyChannelsWithContext(ctx context.Context, credMgr *credentials.M
 	if !usingDB() {
 		return portability.LegacyImportResult{
 			ResourceType: "channels",
-			Warnings:     []string{"channels DB não habilitado; importação legada ignorada"},
+			Warnings:     []string{ErrDBNotEnabled.Error() + "; importação legada ignorada"},
 		}, nil
 	}
 

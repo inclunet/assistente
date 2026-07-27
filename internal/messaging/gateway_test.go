@@ -65,6 +65,8 @@ func TestMain(m *testing.M) {
 	if err := database.Init(); err != nil {
 		panic(err)
 	}
+	channels.UseDatabase(database.DB())
+	contacts.UseDatabase(database.DB())
 
 	code := m.Run()
 
@@ -85,7 +87,17 @@ func resetState(t *testing.T) {
 	if err := db.Exec("DELETE FROM conversations").Error; err != nil {
 		t.Fatalf("erro ao limpar conversations: %v", err)
 	}
+	if err := db.Exec("DELETE FROM channel_contact_conversations").Error; err != nil {
+		t.Fatalf("erro ao limpar channel_contact_conversations: %v", err)
+	}
+	if err := db.Exec("DELETE FROM channel_contacts").Error; err != nil {
+		t.Fatalf("erro ao limpar channel_contacts: %v", err)
+	}
+	if err := db.Exec("DELETE FROM channels").Error; err != nil {
+		t.Fatalf("erro ao limpar channels: %v", err)
+	}
 
+	channels.ClearOwnerCache()
 	_ = channels.Delete("telegram")
 	_ = channels.Delete("signal")
 	_ = channels.Delete("slack")

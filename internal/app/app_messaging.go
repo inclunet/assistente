@@ -11,13 +11,13 @@ import (
 )
 
 // bindMessagingDatabase ativa persistência SQLite para canais/contatos no boot
-// (AEP-0083). Fail-closed: após database.Init esperado, DB nil não pode cair
-// silenciosamente no filesystem — runtime de produção exige UseDatabase.
-// O código FS permanece para testes unitários (sem UseDatabase) e import legado read-only.
+// (AEP-0083). Fail-closed: após database.Init esperado, DB nil aborta o boot.
+// Runtime exige UseDatabase — não há fallback FS nas fachadas channels/contacts.
+// JSON legado permanece apenas para import read-only e cleanup opt-in.
 func bindMessagingDatabase() error {
 	db := database.DB()
 	if db == nil {
-		return fmt.Errorf("banco de dados indisponível no boot de mensageria (AEP-0083): UseDatabase é obrigatório em produção — fallback silencioso para filesystem não é permitido")
+		return fmt.Errorf("banco de dados indisponível no boot de mensageria (AEP-0083): database.DB() == nil — sem DB não é possível chamar UseDatabase; fallback silencioso para filesystem não é permitido")
 	}
 	channels.UseDatabase(db)
 	contacts.UseDatabase(db)
@@ -70,7 +70,7 @@ func errCrossUserChannel(channelName string) error {
 // expor ao frontend. Os refs (BotTokenRef etc.) ficam — a UI usa só
 // para mostrar "configurado" e o backend resolve no momento de uso.
 //
-// Mantém uma cópia para não mutar o cfg de quem escreve no disco.
+// Mantém uma cópia para não mutar o cfg em cache/DB callers.
 func redactChannelSecrets(cfg *channels.ChannelConfig) *channels.ChannelConfig {
 	if cfg == nil {
 		return nil
@@ -222,8 +222,8 @@ func (a *App) GetChannelTemplates() ([]channels.ChannelTemplate, error) {
 // CreateChannelFromTemplate cria um canal e o atribui ao usuário atual.
 //
 // AEP-0052 / B6: o template não conhece o conceito de owner. Aqui
-// resolvemos em duas etapas — cria o cfg via template (que escreve em
-// disco) e logo em seguida atualiza com OwnerUserID. Se outro usuário
+// resolvemos em duas etapas — cria o cfg via template (persiste no DB)
+// e logo em seguida atualiza com OwnerUserID. Se outro usuário
 // criar um canal com o mesmo nome em paralelo, vence quem grava por
 // último (single-process, baixa probabilidade real).
 //

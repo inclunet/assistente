@@ -115,3 +115,18 @@ func TestContactsDB_EmptyChannel(t *testing.T) {
 		t.Fatalf("sem canal: esperado (false,false); got (%v,%v)", has, ok)
 	}
 }
+
+// TestIsAuthorized_FailClosedWhenChannelsDBOff: contacts em modo DB mas
+// channels sem UseDatabase não deve abrir pareamento (fail-open antigo).
+func TestIsAuthorized_FailClosedWhenChannelsDBOff(t *testing.T) {
+	setupContactsDB(t)
+	channels.UseDatabase(nil)
+	t.Cleanup(func() {
+		// setupContactsDB cleanup já zera stores; noop se já nil.
+	})
+
+	has, allowed := IsAuthorized("telegram", 1, "qualquer")
+	if !has || allowed {
+		t.Fatalf("erro interno deve rejeitar (true,false); got (%v,%v)", has, allowed)
+	}
+}
