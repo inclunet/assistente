@@ -154,7 +154,7 @@ func (s *SlackAdapter) warnMissingFilesRead(ctx context.Context, err error) {
 		return
 	}
 	logging.Warnf(ctx, logComponent,
-		"[Slack] falha de autorização ao acessar arquivo (possível causa: scope files:read ausente, token inválido/revogado ou sem acesso ao arquivo) — mensagens de texto seguem; anexos inbound podem ser ignorados. Para mídia: confira files:read (+ files:write para upload) em OAuth & Permissions e reinstale o app se necessário. Detalhe: %v",
+		"[Slack] falha de autorização ao acessar arquivo (possível causa: scope files:read ausente, token inválido/revogado ou sem acesso ao arquivo) — mensagens de texto seguem; anexos de entrada podem ser ignorados. Para mídia: confira files:read (+ files:write para upload) em OAuth & Permissions e reinstale o app se necessário. Detalhe: %v",
 		err)
 }
 
