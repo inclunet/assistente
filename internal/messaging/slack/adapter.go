@@ -5,8 +5,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"math"
+	"path"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,12 +20,29 @@ import (
 	"github.com/slack-go/slack/socketmode"
 )
 
+const (
+	logComponent = "messaging.slack.adapter"
+
+	// maxInboundFileBytes limita o download inbound, alinhado a chat.MaxMediaSize.
+	// O gateway serializa anexos em JSON base64 (~4/3); 20 MiB de bytes brutos
+	// ainda pode falhar na validação do chat se houver vários anexos — por isso
+	// também limitamos a quantidade por mensagem.
+	maxInboundFileBytes = 20 * 1024 * 1024
+	maxInboundFiles     = 10
+)
+
+// fileAPI abstrai o download autenticado da Slack API (permite fake em testes).
+type fileAPI interface {
+	GetFileContext(ctx context.Context, downloadURL string, writer io.Writer) error
+}
+
 // SlackAdapter implementa messaging.Messenger para Slack via Socket Mode.
 type SlackAdapter struct {
 	botToken string
 	appToken string
 
 	api     *slack.Client
+	fileAPI fileAPI
 	socket  *socketmode.Client
 	handler messaging.IncomingMessageHandler
 	status  messaging.ConnectionStatus
@@ -70,6 +90,7 @@ func (s *SlackAdapter) Connect(ctx context.Context) error {
 
 	s.mu.Lock()
 	s.api = api
+	s.fileAPI = api
 	s.socket = socketClient
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.status = messaging.StatusConnected
@@ -78,11 +99,11 @@ func (s *SlackAdapter) Connect(ctx context.Context) error {
 	go s.eventLoop()
 	go func() {
 		if err := socketClient.RunContext(s.ctx); err != nil {
-			logging.Errorf(ctx, "messaging.slack.adapter", "[Slack] RunContext error: %v", err)
+			logging.Errorf(ctx, logComponent, "[Slack] RunContext error: %v", err)
 		}
 	}()
 
-	logging.Println(ctx, "messaging.slack.adapter", "[Slack] Conectado via Socket Mode")
+	logging.Println(ctx, logComponent, "[Slack] Conectado via Socket Mode")
 	return nil
 }
 
@@ -95,7 +116,7 @@ func (s *SlackAdapter) Disconnect() error {
 		s.cancel()
 	}
 	s.status = messaging.StatusDisconnected
-	logging.Println(context.Background(), "messaging.slack.adapter", "[Slack] Desconectado")
+	logging.Println(context.Background(), logComponent, "[Slack] Desconectado")
 	return nil
 }
 
@@ -191,13 +212,7 @@ func (s *SlackAdapter) eventLoop() {
 }
 
 func (s *SlackAdapter) handleMessage(ev *slackevents.MessageEvent) {
-	if ev == nil {
-		return
-	}
-	if ev.SubType != "" || ev.BotID != "" {
-		return
-	}
-	if ev.User == "" || ev.Channel == "" {
+	if !shouldHandleMessage(ev) {
 		return
 	}
 
@@ -206,14 +221,28 @@ func (s *SlackAdapter) handleMessage(ev *slackevents.MessageEvent) {
 		return
 	}
 
+	s.mu.RLock()
+	api := s.fileAPI
+	ctx := s.ctx
+	s.mu.RUnlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	displayName := s.getUserDisplayName(ev.User)
 	timestamp := parseSlackTimestamp(ev.TimeStamp)
 
+	attachments := attachmentsFromSlackFiles(ctx, api, ev.Files)
+	if ev.Text == "" && len(attachments) == 0 {
+		return
+	}
+
 	msg := messaging.IncomingMessage{
-		ID:        ev.TimeStamp,
-		Channel:   "slack",
-		Text:      ev.Text,
-		Timestamp: timestamp,
+		ID:          ev.TimeStamp,
+		Channel:     "slack",
+		Text:        ev.Text,
+		Attachments: attachments,
+		Timestamp:   timestamp,
 		From: messaging.Contact{
 			ID:          ev.User,
 			Username:    ev.User,
@@ -222,7 +251,179 @@ func (s *SlackAdapter) handleMessage(ev *slackevents.MessageEvent) {
 		ReplyChatID: ev.Channel,
 	}
 
-	handler(s.ctx, msg)
+	// Processa em goroutine para não bloquear o event loop (download já
+	// ocorreu acima; o handler pode demorar no gateway/LLM).
+	go handler(ctx, msg)
+}
+
+// shouldHandleMessage filtra eventos que o adapter deve processar.
+// Aceita mensagens normais (sem subtype) e file_share (upload de mídia).
+func shouldHandleMessage(ev *slackevents.MessageEvent) bool {
+	if ev == nil {
+		return false
+	}
+	if ev.BotID != "" {
+		return false
+	}
+	if ev.User == "" || ev.Channel == "" {
+		return false
+	}
+	switch ev.SubType {
+	case "", "file_share":
+		return true
+	default:
+		return false
+	}
+}
+
+// attachmentsFromSlackFiles baixa bytes autenticados e monta Attachments.
+// Erros individuais são logados; não interrompem o processamento dos demais.
+func attachmentsFromSlackFiles(ctx context.Context, api fileAPI, files []slackevents.File) []messaging.Attachment {
+	if len(files) == 0 {
+		return nil
+	}
+	if api == nil {
+		logging.Errorf(ctx, logComponent, "[Slack] fileAPI ausente; %d arquivo(s) ignorado(s)", len(files))
+		return nil
+	}
+
+	limit := len(files)
+	if limit > maxInboundFiles {
+		logging.Errorf(ctx, logComponent, "[Slack] mensagem com %d arquivos; processando só os %d primeiros", len(files), maxInboundFiles)
+		limit = maxInboundFiles
+	}
+
+	var out []messaging.Attachment
+	for i := 0; i < limit; i++ {
+		f := files[i]
+		att, err := attachmentFromSlackFile(ctx, api, f)
+		if err != nil {
+			logging.Errorf(ctx, logComponent, "[Slack] Anexo ignorado (id=%s name=%q mime=%q): %v",
+				f.ID, f.Name, f.Mimetype, err)
+			continue
+		}
+		if att != nil {
+			out = append(out, *att)
+		}
+	}
+	return out
+}
+
+func attachmentFromSlackFile(ctx context.Context, api fileAPI, f slackevents.File) (*messaging.Attachment, error) {
+	if f.ID == "" && f.URLPrivateDownload == "" && f.URLPrivate == "" {
+		return nil, fmt.Errorf("metadados de arquivo vazios")
+	}
+	if f.IsExternal {
+		return nil, fmt.Errorf("arquivo externo não suportado")
+	}
+	if f.Size > maxInboundFileBytes {
+		return nil, fmt.Errorf("arquivo grande demais (%d bytes; máx %d)", f.Size, maxInboundFileBytes)
+	}
+
+	downloadURL := firstNonEmpty(f.URLPrivateDownload, f.URLPrivate)
+	if downloadURL == "" {
+		return nil, fmt.Errorf("url de download ausente (requer scope files:read?)")
+	}
+
+	mime := strings.TrimSpace(f.Mimetype)
+	if mime == "" || mime == "application/octet-stream" {
+		if inferred := mimeFromFilename(f.Name); inferred != "" {
+			mime = inferred
+		}
+	}
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+	if !isSupportedInboundMIME(mime) {
+		return nil, fmt.Errorf("tipo MIME não suportado: %s", mime)
+	}
+
+	data, err := downloadSlackFile(ctx, api, downloadURL, maxInboundFileBytes)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("download retornou vazio")
+	}
+
+	filename := f.Name
+	if filename == "" {
+		filename = firstNonEmpty(f.Title, "attachment_"+f.ID)
+	}
+	if filename == "" {
+		filename = "attachment"
+	}
+
+	size := int64(f.Size)
+	if size <= 0 {
+		size = int64(len(data))
+	}
+
+	return &messaging.Attachment{
+		Filename: filename,
+		MIMEType: mime,
+		Data:     data,
+		Size:     size,
+	}, nil
+}
+
+func downloadSlackFile(ctx context.Context, api fileAPI, downloadURL string, maxBytes int64) ([]byte, error) {
+	w := &maxBytesWriter{max: maxBytes}
+	if err := api.GetFileContext(ctx, downloadURL, w); err != nil {
+		return nil, fmt.Errorf("erro ao baixar arquivo: %w", err)
+	}
+	return w.Bytes(), nil
+}
+
+// maxBytesWriter rejeita writes que ultrapassem o limite.
+type maxBytesWriter struct {
+	buf     bytes.Buffer
+	max     int64
+	written int64
+}
+
+func (w *maxBytesWriter) Write(p []byte) (int, error) {
+	if w.max > 0 && w.written+int64(len(p)) > w.max {
+		return 0, fmt.Errorf("arquivo excede limite de %d bytes", w.max)
+	}
+	n, err := w.buf.Write(p)
+	w.written += int64(n)
+	return n, err
+}
+
+func (w *maxBytesWriter) Bytes() []byte {
+	return w.buf.Bytes()
+}
+
+// isSupportedInboundMIME aceita imagem, áudio, vídeo e documento (types.go).
+func isSupportedInboundMIME(mime string) bool {
+	a := messaging.Attachment{MIMEType: mime}
+	return a.IsImage() || a.IsAudio() || a.IsVideo() || a.IsDocument()
+}
+
+func mimeFromFilename(filename string) string {
+	ext := strings.ToLower(path.Ext(filename))
+	mimes := map[string]string{
+		".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+		".gif": "image/gif", ".webp": "image/webp",
+		".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".oga": "audio/ogg",
+		".wav": "audio/wav", ".aac": "audio/aac", ".m4a": "audio/mp4",
+		".mp4": "video/mp4", ".webm": "video/webm",
+		".pdf":  "application/pdf",
+		".doc":  "application/msword",
+		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		".txt":  "text/plain",
+	}
+	return mimes[ext]
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func (s *SlackAdapter) getHandler() messaging.IncomingMessageHandler {
