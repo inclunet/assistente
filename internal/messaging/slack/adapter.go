@@ -132,15 +132,18 @@ func (s *SlackAdapter) Connect(ctx context.Context) error {
 // — é um probe leve e nunca altera status nem falha o Connect.
 func (s *SlackAdapter) probeFilesReadScope(ctx context.Context) {
 	if ctx == nil {
-		ctx = context.Background()
+		return
 	}
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
 	s.mu.RLock()
 	api := s.fileAPI
 	s.mu.RUnlock()
 	if api == nil {
 		return
 	}
-	_, _, _, err := api.GetFileInfoContext(ctx, "F0FILESREADPROBE", 0, 0)
+	_, _, _, err := api.GetFileInfoContext(probeCtx, "F0FILESREADPROBE", 0, 0)
 	if err == nil {
 		return
 	}
@@ -383,10 +386,8 @@ func attachmentsFromSlackFiles(ctx context.Context, api fileAPI, files []slackev
 		}
 		att, err := attachmentFromSlackFile(ctx, api, f)
 		if err != nil {
-			if isMissingScopeError(err) {
-				if warnMissingScope != nil {
-					warnMissingScope(ctx, err)
-				}
+			if isMissingScopeError(err) && warnMissingScope != nil {
+				warnMissingScope(ctx, err)
 			} else {
 				logging.Errorf(ctx, logComponent, "[Slack] Anexo ignorado (id=%s name=%q mime=%q): %v",
 					f.ID, f.Name, f.Mimetype, err)
