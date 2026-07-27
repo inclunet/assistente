@@ -274,7 +274,7 @@ func TestGateway_ReplyChatIDUsedForOutbound(t *testing.T) {
 	sendDone := make(chan struct{})
 	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		go func() {
-			notifier.Notify(conversationID, "resposta", "asst-1")
+			notifier.NotifyContext(ctx, conversationID, "resposta", "asst-1")
 			close(sendDone)
 		}()
 		return conversationID, nil
@@ -474,7 +474,9 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
 
 	var sentConversationID string
+	var notifyCtx context.Context
 	sendMessage := func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+		notifyCtx = ctx
 		sentConversationID = conversationID
 		if source != "telegram" {
 			return "", fmt.Errorf("source inesperado: %s", source)
@@ -518,7 +520,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 		t.Fatalf("conversa não vinculada corretamente: channel=%s contact=%s", conv.Channel, conv.ContactID)
 	}
 
-	notifier.Notify(sentConversationID, "Resposta", "42")
+	notifier.NotifyContext(notifyCtx, sentConversationID, "Resposta", "42")
 
 	select {
 	case sent := <-fake.sentCh:
@@ -553,10 +555,12 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 		mime  string
 	}
 	var sentConversationID string
+	var notifyCtx context.Context
 
 	gateway := NewGateway(
 		notifier,
 		func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+			notifyCtx = ctx
 			sentConversationID = conversationID
 			return conversationID, nil
 		},
@@ -590,7 +594,7 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 		t.Fatalf("conversationID não foi criado")
 	}
 
-	notifier.Notify(sentConversationID, "Resposta", "99")
+	notifier.NotifyContext(notifyCtx, sentConversationID, "Resposta", "99")
 
 	select {
 	case sent := <-fake.sentCh:
@@ -821,9 +825,11 @@ func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
 
 	var sentConversationID string
+	var notifyCtx context.Context
 	gateway := NewGateway(
 		notifier,
 		func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
+			notifyCtx = ctx
 			sentConversationID = conversationID
 			return conversationID, nil
 		},
@@ -850,7 +856,7 @@ func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 		t.Fatalf("conversationID não foi criado")
 	}
 
-	notifier.Notify(sentConversationID, "Resposta texto", "50")
+	notifier.NotifyContext(notifyCtx, sentConversationID, "Resposta texto", "50")
 
 	select {
 	case sent := <-fake.sentCh:

@@ -224,7 +224,7 @@ func TestResponseNotifier_RegisterReplacesPriorChannelCallback(t *testing.T) {
 		t.Fatalf("store deveria ter só turno novo; got %+v", rows)
 	}
 
-	n.Notify("conv-1", "só uma", "asst")
+	n.NotifyContext(WithChannelTraceID(context.Background(), "trace-new"), "conv-1", "só uma", "asst")
 	select {
 	case <-newFired:
 	case <-time.After(2 * time.Second):
@@ -339,6 +339,7 @@ func TestResponseNotifier_DurableChannelSurvivesTTLAndStillNotifies(t *testing.T
 		Channel:     "telegram",
 		ChatID:      "123",
 		OwnerUserID: "owner-1",
+		TraceID:     "trace-mix",
 		Callback: func(string, string) {
 			fired <- struct{}{}
 		},
@@ -367,7 +368,7 @@ func TestResponseNotifier_DurableChannelSurvivesTTLAndStillNotifies(t *testing.T
 		t.Fatalf("canal durável + ui deveriam permanecer; pending=%d", n.PendingCount())
 	}
 
-	n.Notify("conv-mixed", "tarde", "asst-1")
+	n.NotifyContext(WithChannelTraceID(context.Background(), "trace-mix"), "conv-mixed", "tarde", "asst-1")
 	select {
 	case <-fired:
 	case <-time.After(2 * time.Second):
@@ -734,7 +735,7 @@ func TestGateway_ReconcilePending_SkipsReregisterWhenLiveCallback(t *testing.T) 
 		t.Fatalf("após reconcile deveria preservar o callback vivo, got %d", notifier.PendingCount())
 	}
 
-	notifier.Notify("conv-dup", "turno vivo", "asst")
+	notifier.NotifyContext(WithChannelTraceID(context.Background(), "trace-live"), "conv-dup", "turno vivo", "asst")
 	select {
 	case got := <-live:
 		if got != "turno vivo" {
@@ -771,7 +772,7 @@ func TestGateway_ReconcilePending_ReregisterWhenNoLiveCallback(t *testing.T) {
 		t.Fatalf("reconcile deveria re-registrar callback órfão, got %d", notifier.PendingCount())
 	}
 
-	notifier.Notify("conv-orphan", "uma vez", "asst")
+	notifier.NotifyContext(WithChannelTraceID(context.Background(), "trace-orphan"), "conv-orphan", "uma vez", "asst")
 	select {
 	case msg := <-fake.sentCh:
 		if msg.Text != "uma vez" {

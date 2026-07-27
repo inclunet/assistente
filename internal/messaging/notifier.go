@@ -305,15 +305,18 @@ func (n *ResponseNotifier) notifyFiltered(conversationID string, response string
 		durable := shouldPersistChannelCallback(p.cb)
 		switch {
 		case durable && !p.cb.SkipPersist:
-			// Gateway: só dispara com TraceID coincidente (Notify de canal).
+			// Gateway: só com TraceID coincidente.
 			if traceID == "" || p.cb.TraceID == "" || p.cb.TraceID != traceID {
 				keep = append(keep, p)
 				continue
 			}
 		case durable && p.cb.SkipPersist && traceID != "":
-			// Notify de canal: não dispara bridge Wails (fica para Notify sem TraceID).
-			keep = append(keep, p)
-			continue
+			// Notify de canal: dispara reconcile SkipPersist com TraceID igual;
+			// bridge Wails (TraceID vazio) permanece.
+			if p.cb.TraceID == "" || p.cb.TraceID != traceID {
+				keep = append(keep, p)
+				continue
+			}
 		}
 		fire = append(fire, p)
 	}
