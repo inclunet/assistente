@@ -35,7 +35,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     {
       onChange,
       variant,
-      label = 'Perfil',
+      label,
       description,
       icon = <MessageOutlined />,
       maxWidth,
@@ -47,6 +47,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
   ) => {
     const isControlled = value !== undefined;
     const { t } = useTranslation();
+    const resolvedLabel = label ?? t('profiles.pickerLabel', 'Perfil');
     const [profileList, setProfileList] = useState<Array<{ name: string; slug: string; description: string; icon: string; source: string }>>([]);
     const [activeSlug, setActiveSlug] = useState<string>('padrao');
     const [loading, setLoading] = useState(true);
@@ -70,12 +71,12 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
           setActiveSlug(currentSlug || 'padrao');
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro ao carregar perfis');
+        setError(err instanceof Error ? err.message : t('profiles.loadError', 'Erro ao carregar perfis'));
         logger.error('[ProfilePicker] Failed to load profiles:', err);
       } finally {
         setLoading(false);
       }
-    }, [isControlled]);
+    }, [isControlled, t]);
 
     useEffect(() => {
       loadProfiles();
@@ -139,7 +140,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
       if (isControlled) {
         // Controlled mode: just call onChange, don't set global profile
         const profile = profileList.find(p => p.slug === newValue);
-        onAnnounce?.(`Perfil selecionado: ${profile?.name || newValue}`);
+        onAnnounce?.(t('profiles.selectedAnnounce', 'Perfil selecionado: {{name}}', { name: profile?.name || newValue }));
         onChange?.(newValue);
         return;
       }
@@ -148,7 +149,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
         await SetActiveProfile(newValue);
         setActiveSlug(newValue);
         const profile = profileList.find(p => p.slug === newValue);
-        onAnnounce?.(`Perfil alterado para ${profile?.name || newValue}`);
+        onAnnounce?.(t('profiles.changedAnnounce', 'Perfil alterado para {{name}}', { name: profile?.name || newValue }));
         onChange?.(newValue);
       } catch (err) {
         logger.error('[ProfilePicker] Error setting profile:', err);
@@ -157,10 +158,10 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
 
     // Effective selected value
     const selectedSlug = isControlled ? (value || '') : activeSlug;
-    const loadingLabel = t('profiles.loading');
+    const loadingLabel = t('profiles.loading', 'Carregando perfis...');
 
     const loadingState = (
-      <div className="voice-picker voice-picker--loading">
+      <div className="voice-picker voice-picker--loading" role="status" aria-live="polite">
         <span className="voice-picker__icon" aria-hidden="true">{icon}</span>
         <span className="voice-picker__loading">{loadingLabel}</span>
       </div>
@@ -174,9 +175,9 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     );
 
     const emptyState = (
-      <div className="voice-picker voice-picker--empty">
+      <div className="voice-picker voice-picker--empty" role="status" aria-live="polite">
         <span className="voice-picker__icon" aria-hidden="true">{icon}</span>
-        <span>Nenhum perfil</span>
+        <span>{t('profiles.empty', 'Nenhum perfil')}</span>
       </div>
     );
 
@@ -186,7 +187,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
         items={buildItems()}
         selected={selectedSlug}
         onSelect={handleSelect}
-        label={label}
+        label={resolvedLabel}
         description={description}
         icon={icon}
         maxWidth={maxWidth}
