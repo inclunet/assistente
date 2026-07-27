@@ -70,6 +70,10 @@ func CleanupLegacyJSONFiles(ctx context.Context, opts LegacyCleanupOptions) (Leg
 	if !opts.Confirm {
 		return result, nil
 	}
+	if len(listErrs) > 0 {
+		return result, fmt.Errorf("listagem de JSON legado incompleta (%d erro(s)); cleanup abortado: %s",
+			len(listErrs), strings.Join(listErrs, "; "))
+	}
 	if len(eligible) == 0 {
 		result.Warnings = append(result.Warnings, "nenhum arquivo legado elegível para remoção")
 		return result, nil
