@@ -274,7 +274,7 @@ func (s *Service) SaveAndFinish(
 	}
 
 	if s.responseNotifier != nil {
-		s.responseNotifier.Notify(conversationID, result.FullResponse, savedMsgID)
+		s.responseNotifier.NotifyContext(ctx, conversationID, result.FullResponse, savedMsgID)
 	}
 
 	s.emitter.Emit("chat:stream", events.StreamEvent{

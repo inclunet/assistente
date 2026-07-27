@@ -110,6 +110,52 @@ func TestResponseNotifier_PersistsChannelCallback(t *testing.T) {
 	}
 }
 
+func TestResponseNotifier_NotifyContextKeepsOtherTrace(t *testing.T) {
+	n := NewResponseNotifier()
+	defer n.Stop()
+
+	oldFired := make(chan struct{}, 1)
+	newFired := make(chan struct{}, 1)
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "1",
+		OwnerUserID: "owner-1",
+		TraceID:     "trace-old",
+		Callback:    func(string, string) { oldFired <- struct{}{} },
+	})
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "1",
+		OwnerUserID: "owner-1",
+		TraceID:     "trace-new",
+		Callback:    func(string, string) { newFired <- struct{}{} },
+	})
+	// Segundo Register !SkipPersist substitui o primeiro — só new resta.
+	if n.PendingCount() != 1 {
+		t.Fatalf("pending=%d", n.PendingCount())
+	}
+
+	// Simula Notify atrasado do turno antigo (trace-old): não deve consumir o novo.
+	n.NotifyContext(WithChannelTraceID(context.Background(), "trace-old"), "conv-1", "atrasado", "asst-old")
+	select {
+	case <-oldFired:
+		t.Fatal("callback antigo já tinha sido substituído")
+	case <-newFired:
+		t.Fatal("Notify do turno antigo não pode disparar o callback novo")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if n.PendingCount() != 1 {
+		t.Fatalf("callback novo deveria permanecer; pending=%d", n.PendingCount())
+	}
+
+	n.NotifyContext(WithChannelTraceID(context.Background(), "trace-new"), "conv-1", "ok", "asst-new")
+	select {
+	case <-newFired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Notify do turno novo deveria disparar")
+	}
+}
+
 func TestResponseNotifier_RegisterReplacesPriorChannelCallback(t *testing.T) {
 	store := newMemPendingStore()
 	n := NewResponseNotifier()

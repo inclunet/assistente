@@ -209,10 +209,10 @@ type expiredLogEntry struct {
 // vida longa, ex.: sub-agente em background) ou o padrão callbackTTL (5min) caso
 // contrário (canais/UI).
 //
-// Para callbacks de canal externo persistíveis (telegram/signal/slack com
-// ChatID+OwnerUserID), um novo Register substitui os callbacks de canal
-// anteriores da mesma conversa — alinhado ao store (1 pending/conversa) e
-// evita Notify disparar vários Sends com a mesma resposta (M14 + TTL longo).
+// Para callbacks de canal externo persistidos pelo gateway (!SkipPersist),
+// um novo Register substitui os callbacks de canal anteriores da mesma
+// conversa — alinhado ao store (1 pending/conversa). Bridge Wails
+// (SkipPersist) apenas acrescenta, sem remover o callback do gateway.
 func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) {
 	ttl := callbackTTL
 	if cb.TTL > 0 {
@@ -225,7 +225,7 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 		registered: now,
 		expiresAt:  now.Add(ttl),
 	}
-	if shouldPersistChannelCallback(cb) {
+	if shouldPersistChannelCallback(cb) && !cb.SkipPersist {
 		prev := n.callbacks[conversationID]
 		kept := prev[:0]
 		for _, p := range prev {
@@ -268,24 +268,45 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 //
 // M11: cada callback roda em goroutine isolada com defer/recover —
 // adapter de canal mal escrito que panique não derruba o app.
+// Notify chama callbacks registrados para uma conversa (sem filtro de TraceID).
+// Preferir NotifyContext no pipeline de agent quando o ctx carrega TraceID de canal.
 func (n *ResponseNotifier) Notify(conversationID string, response string, assistantMessageID string) {
+	n.notifyFiltered(conversationID, response, assistantMessageID, "")
+}
+
+// NotifyContext como Notify, mas se o ctx tiver ChannelTraceID só dispara
+// callbacks de canal cujo TraceID coincide (demais callbacks da conversa
+// permanecem para o turno correto).
+func (n *ResponseNotifier) NotifyContext(ctx context.Context, conversationID string, response string, assistantMessageID string) {
+	n.notifyFiltered(conversationID, response, assistantMessageID, ChannelTraceIDFromContext(ctx))
+}
+
+func (n *ResponseNotifier) notifyFiltered(conversationID string, response string, assistantMessageID, traceID string) {
 	n.mu.Lock()
-	pendings, ok := n.callbacks[conversationID]
-	if ok {
+	pendings := n.callbacks[conversationID]
+	if len(pendings) == 0 {
+		n.mu.Unlock()
+		return
+	}
+	var fire, keep []pendingCallback
+	for _, p := range pendings {
+		if traceID != "" && shouldPersistChannelCallback(p.cb) && p.cb.TraceID != "" && p.cb.TraceID != traceID {
+			keep = append(keep, p)
+			continue
+		}
+		fire = append(fire, p)
+	}
+	if len(keep) == 0 {
 		delete(n.callbacks, conversationID)
+	} else {
+		n.callbacks[conversationID] = keep
 	}
 	n.mu.Unlock()
 
 	// Não remove channel_response_pending aqui: o Delete só ocorre após
 	// messenger.Send bem-sucedido (deliverChannelResponse), Cancel ou TTL.
-	// Apagar antes do Send abriria buraco M14 se o processo cair entre
-	// Delete e o envio outbound.
 
-	if !ok || len(pendings) == 0 {
-		return
-	}
-
-	for _, p := range pendings {
+	for _, p := range fire {
 		go func(cb ResponseCallback) {
 			defer func() {
 				if r := recover(); r != nil {

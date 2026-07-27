@@ -474,6 +474,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	})
 	// Conecta adapters de canal só agora — SendMessageFromChannel precisa de chatCtrl.
 	if a.msgCtrl != nil {
+		if a.msgGateway != nil {
+			a.msgGateway.SetCancelStream(a.streamMgr.Cancel)
+		}
 		a.msgCtrl.StartAdapters()
 	}
 	// Subagent manager (AEP-0068): criado após o ChatController para reusar a

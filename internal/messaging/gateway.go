@@ -67,8 +67,20 @@ type Gateway struct {
 	approveContact ApproveContactFunc
 	synthesizeTTS  SynthesizeTTSFunc // Opcional: sintetiza áudio para respostas em modo áudio
 	saveAudio      SaveAudioFunc     // Opcional: salva áudio no DB
+	// cancelStream cancela LLM em andamento (barge-in) antes de novo turno de canal.
+	cancelStream func(conversationID string)
 	// reconcileRetrySem limita goroutines de retry no startup (M14).
 	reconcileRetrySem chan struct{}
+}
+
+// SetCancelStream configura barge-in ao receber nova mensagem no mesmo conv.
+func (g *Gateway) SetCancelStream(fn func(conversationID string)) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.cancelStream = fn
+	g.mu.Unlock()
 }
 
 // NewGateway cria um novo Gateway de mensageria.
@@ -399,6 +411,11 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 
 	// 6. Registra callback no Notifier para capturar a resposta e reenviar ao mensageiro.
 	//    O ChannelResponseMode do perfil decide se a resposta será áudio ou texto.
+	//    Cancela streaming anterior (barge-in) para o Notify atrasado do turno
+	//    antigo não consumir o callback do turno novo.
+	if g.cancelStream != nil {
+		g.cancelStream(conversationID)
+	}
 	incomingIsAudio := msg.IsAudioOnly()
 	g.notifier.Register(conversationID, ResponseCallback{
 		Channel:      msg.Channel,
@@ -425,7 +442,8 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	if channelMaxHistory > 0 {
 		params.MaxContextMessages = channelMaxHistory
 	}
-	_, err = g.sendMessage(ctx, conversationID, msg.Text, mediaJSON, params, msg.Channel)
+	sendCtx := WithChannelTraceID(ctx, traceID)
+	_, err = g.sendMessage(sendCtx, conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {
 		logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao processar mensagem: %v", traceID, conversationID, msg.Channel, err)
 		// B7: o callback deste turno nunca seria invocado porque
