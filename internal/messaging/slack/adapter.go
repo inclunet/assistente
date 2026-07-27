@@ -4,13 +4,16 @@ import (
 	"assistente/internal/logging"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"path"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"assistente/internal/messaging"
@@ -59,6 +62,10 @@ type SlackAdapter struct {
 
 	// inboundSem limita goroutines de download/handler em voo.
 	inboundSem chan struct{}
+
+	// missingFilesReadWarned emite no máximo um Warnf por ciclo Connect
+	// (resetado em Connect para permitir novo aviso após reconectar).
+	missingFilesReadWarned atomic.Bool
 }
 
 // NewAdapter cria um novo adapter para Slack (Socket Mode).
@@ -103,6 +110,7 @@ func (s *SlackAdapter) Connect(ctx context.Context) error {
 	s.socket = socketClient
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.status = messaging.StatusConnected
+	s.missingFilesReadWarned.Store(false)
 	s.mu.Unlock()
 
 	go s.eventLoop()
@@ -111,9 +119,46 @@ func (s *SlackAdapter) Connect(ctx context.Context) error {
 			logging.Errorf(ctx, logComponent, "[Slack] RunContext error: %v", err)
 		}
 	}()
+	// Probe leve e não bloqueante: Connect de texto não depende de files:read.
+	go s.probeFilesReadScope(s.ctx)
 
 	logging.Println(ctx, logComponent, "[Slack] Conectado via Socket Mode")
 	return nil
+}
+
+// probeFilesReadScope verifica files.info com ID fictício.
+// Só erros classificados por isMissingScopeError geram Warnf; qualquer
+// outro resultado (file_not_found, rede, cancelamento, etc.) é ignorado
+// — é um probe leve e nunca altera status nem falha o Connect.
+func (s *SlackAdapter) probeFilesReadScope(ctx context.Context) {
+	if ctx == nil {
+		return
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	s.mu.RLock()
+	api := s.fileAPI
+	s.mu.RUnlock()
+	if api == nil {
+		return
+	}
+	_, _, _, err := api.GetFileInfoContext(probeCtx, "F0FILESREADPROBE", 0, 0)
+	if err == nil {
+		return
+	}
+	if isMissingScopeError(err) {
+		s.warnMissingFilesRead(ctx, err)
+	}
+}
+
+func (s *SlackAdapter) warnMissingFilesRead(ctx context.Context, err error) {
+	if s.missingFilesReadWarned.Swap(true) {
+		return
+	}
+	logging.Warnf(ctx, logComponent,
+		"[Slack] falha de autorização ao acessar arquivo (possível causa: scope files:read ausente, token inválido/revogado ou sem acesso ao arquivo) — mensagens de texto seguem; anexos de entrada podem ser ignorados. Para mídia: confira files:read (+ files:write para upload) em OAuth & Permissions e reinstale o app se necessário. Detalhe: %v",
+		err)
 }
 
 // Disconnect encerra a conexão.
@@ -248,7 +293,7 @@ func (s *SlackAdapter) handleMessage(ev *slackevents.MessageEvent) {
 
 	process := func() {
 		displayName := s.getUserDisplayName(userID)
-		attachments := attachmentsFromSlackFiles(ctx, api, files)
+		attachments := s.attachmentsFromSlackFiles(ctx, api, files)
 		if text == "" && len(attachments) == 0 {
 			return
 		}
@@ -308,8 +353,14 @@ func shouldHandleMessage(ev *slackevents.MessageEvent) bool {
 }
 
 // attachmentsFromSlackFiles baixa bytes autenticados e monta Attachments.
-// Erros individuais são logados; não interrompem o processamento dos demais.
-func attachmentsFromSlackFiles(ctx context.Context, api fileAPI, files []slackevents.File) []messaging.Attachment {
+// Erros individuais são logados; não interrompem o processamento dos demais
+// nem o handler de texto da mensagem.
+func (s *SlackAdapter) attachmentsFromSlackFiles(ctx context.Context, api fileAPI, files []slackevents.File) []messaging.Attachment {
+	return attachmentsFromSlackFiles(ctx, api, files, s.warnMissingFilesRead)
+}
+
+// attachmentsFromSlackFiles é a implementação testável (warn opcional).
+func attachmentsFromSlackFiles(ctx context.Context, api fileAPI, files []slackevents.File, warnMissingScope func(context.Context, error)) []messaging.Attachment {
 	if len(files) == 0 {
 		return nil
 	}
@@ -335,8 +386,12 @@ func attachmentsFromSlackFiles(ctx context.Context, api fileAPI, files []slackev
 		}
 		att, err := attachmentFromSlackFile(ctx, api, f)
 		if err != nil {
-			logging.Errorf(ctx, logComponent, "[Slack] Anexo ignorado (id=%s name=%q mime=%q): %v",
-				f.ID, f.Name, f.Mimetype, err)
+			if isMissingScopeError(err) && warnMissingScope != nil {
+				warnMissingScope(ctx, err)
+			} else {
+				logging.Errorf(ctx, logComponent, "[Slack] Anexo ignorado (id=%s name=%q mime=%q): %v",
+					f.ID, f.Name, f.Mimetype, err)
+			}
 			continue
 		}
 		if att == nil {
@@ -351,6 +406,29 @@ func attachmentsFromSlackFiles(ctx context.Context, api fileAPI, files []slackev
 		out = append(out, *att)
 	}
 	return out
+}
+
+// isMissingScopeError detecta missing_scope e falhas de auth típicas de download
+// sem files:read (HTTP 401/403 ou mensagens que citam o scope).
+func isMissingScopeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var slackErr slack.SlackErrorResponse
+	if errors.As(err, &slackErr) {
+		switch slackErr.Err {
+		case "missing_scope", "not_allowed_token_type":
+			return true
+		}
+	}
+	var statusErr slack.StatusCodeError
+	if errors.As(err, &statusErr) {
+		return statusErr.Code == http.StatusUnauthorized || statusErr.Code == http.StatusForbidden
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "missing_scope") ||
+		strings.Contains(msg, "requer scope files:read") ||
+		strings.Contains(msg, "scope files:read")
 }
 
 func attachmentFromSlackFile(ctx context.Context, api fileAPI, f slackevents.File) (*messaging.Attachment, error) {
@@ -369,6 +447,9 @@ func attachmentFromSlackFile(ctx context.Context, api fileAPI, f slackevents.Fil
 		}
 		info, _, _, err := api.GetFileInfoContext(ctx, f.ID, 0, 0)
 		if err != nil {
+			if isMissingScopeError(err) {
+				return nil, fmt.Errorf("files.info requer scope files:read (%s): %w", f.ID, err)
+			}
 			return nil, fmt.Errorf("files.info (%s): %w", f.ID, err)
 		}
 		f = mergeSlackFileMeta(f, info)
@@ -397,6 +478,9 @@ func attachmentFromSlackFile(ctx context.Context, api fileAPI, f slackevents.Fil
 
 	data, err := downloadSlackFile(ctx, api, downloadURL, maxInboundFileBytes)
 	if err != nil {
+		if isMissingScopeError(err) {
+			return nil, fmt.Errorf("download requer scope files:read: %w", err)
+		}
 		return nil, err
 	}
 	if len(data) == 0 {
