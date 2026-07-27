@@ -61,10 +61,16 @@ claim "enterprise":
   o ID vier vazio) antes do Delete — reconcile/retry com marca só limpam,
   sem reenviar. Continua at-least-once na janela residual Send→Mark
   (crash sem marca ainda pode reenviar; marcar antes do Send arriscaria
-  perda silenciosa). No startup, `Gateway.ReconcilePending` reenvia a
-  primeira resposta assistant já salva após `CreatedAt` (mesmo se o TTL
-  de callback in-memory já passou) ou re-registra callbacks ainda válidos.
-  Ver [`internal/messaging/notifier.go`](../internal/messaging/notifier.go)
+  perda silenciosa). Para encolher essa janela, `deliverChannelResponse`
+  propaga `OutgoingMessage.IdempotencyKey = TraceID` do pending (não o
+  `DeliveredAssistantID`): no **Slack**, o adapter envia `client_msg_id`
+  em `chat.postMessage` (dedup nativo da API; `UploadFileV2` de anexos
+  não tem equivalente). **Telegram** e **Signal** não expõem chave nativa
+  — residual at-least-once permanece nesses canais. No startup,
+  `Gateway.ReconcilePending` reenvia a primeira resposta assistant já
+  salva após `CreatedAt` (mesmo se o TTL de callback in-memory já passou)
+  ou re-registra callbacks ainda válidos. Ver
+  [`internal/messaging/notifier.go`](../internal/messaging/notifier.go)
   e [`internal/messaging/reconcile.go`](../internal/messaging/reconcile.go).
 - **Detecção robusta de violação de unique constraint multi-dialect**:
   `isUniqueConstraintError` é heurística por string match, cobre
