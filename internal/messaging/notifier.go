@@ -254,18 +254,11 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 		}); err != nil {
 			logging.Errorf(context.Background(), "messaging.notifier", "[Notifier] falha ao persistir pending conv=%s channel=%s: %v",
 				conversationID, cb.Channel, err)
-		} else {
-			// Compensa race com Notify/Cancel concorrente: se a conversa já
-			// não tem callbacks, o Upsert pode ter “ressuscitado” a linha.
-			n.mu.Lock()
-			stillPending := len(n.callbacks[conversationID]) > 0
-			n.mu.Unlock()
-			if !stillPending {
-				if delErr := store.Delete(context.Background(), conversationID); delErr != nil {
-					logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao limpar pending fantasma conv=%s: %v", conversationID, delErr)
-				}
-			}
 		}
+		// Não compensar com Delete se memória ficou vazia após Upsert:
+		// Notify/Cancel concorrente pode ter drenado o mapa enquanto o
+		// deliver do turno ainda precisa do store (M14). Fantasmas raros
+		// (Cancel+Upsert) saem no reconcile/DeleteIfTrace.
 	}
 }
 
