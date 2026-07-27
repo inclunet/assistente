@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -143,6 +144,50 @@ func TestAdoptOrphans_DB(t *testing.T) {
 	sg, _ := Load("signal")
 	if sg.OwnerUserID != "user-leo" {
 		t.Fatalf("signal owner sobrescrito: %q", sg.OwnerUserID)
+	}
+}
+
+// TestAdoptOrphans_WithDBSkipsFilesystemWrites: com UseDatabase ativo,
+// AdoptOrphans não deve escrever OwnerUserID em JSON legado (AEP-0083 fail-closed).
+func TestAdoptOrphans_WithDBSkipsFilesystemWrites(t *testing.T) {
+	setupTempHome(t)
+	setupChannelsDB(t)
+
+	if err := Save("signal", &ChannelConfig{Enabled: true, Type: "signal"}); err != nil {
+		t.Fatalf("save DB orphan: %v", err)
+	}
+
+	dir := filepath.Join(configdir.GetHomeDir(), "channels")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	fsPath := filepath.Join(dir, "telegram.json")
+	payload, err := json.Marshal(ChannelConfig{Enabled: true, Type: "telegram", BotToken: "legacy"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(fsPath, payload, 0600); err != nil {
+		t.Fatalf("write fs: %v", err)
+	}
+
+	migrated, err := AdoptOrphans("user-ana")
+	if err != nil {
+		t.Fatalf("AdoptOrphans: %v", err)
+	}
+	if len(migrated) != 1 || migrated[0] != "signal" {
+		t.Fatalf("esperava só órfão DB signal, got %v", migrated)
+	}
+
+	raw, err := os.ReadFile(fsPath)
+	if err != nil {
+		t.Fatalf("read fs: %v", err)
+	}
+	var fsCfg ChannelConfig
+	if err := json.Unmarshal(raw, &fsCfg); err != nil {
+		t.Fatalf("unmarshal fs: %v", err)
+	}
+	if strings.TrimSpace(fsCfg.OwnerUserID) != "" {
+		t.Fatalf("AdoptOrphans com DB não deveria escrever FS; OwnerUserID=%q", fsCfg.OwnerUserID)
 	}
 }
 
