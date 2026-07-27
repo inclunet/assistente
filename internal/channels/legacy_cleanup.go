@@ -76,7 +76,11 @@ func CleanupLegacyJSONFiles(ctx context.Context, opts LegacyCleanupOptions) (Leg
 
 	backupRoot := ""
 	if !opts.NoBackup {
-		backupRoot = filepath.Join(configdir.GetHomeDir(), legacyBackupDirName, time.Now().Format("20060102-150405"))
+		homeDir := strings.TrimSpace(configdir.GetHomeDir())
+		if homeDir == "" {
+			return result, fmt.Errorf("diretório home do assistente indisponível; cleanup com backup abortado")
+		}
+		backupRoot = filepath.Join(homeDir, legacyBackupDirName, time.Now().Format("20060102-150405"))
 		if err := os.MkdirAll(backupRoot, 0700); err != nil {
 			return result, fmt.Errorf("criar diretório de backup: %w", err)
 		}
@@ -117,32 +121,54 @@ func CleanupLegacyJSONFiles(ctx context.Context, opts LegacyCleanupOptions) (Leg
 }
 
 func listEligibleLegacyJSON(userID string) (eligible, skipped []LegacyCleanupItem, errs []string) {
-	files, err := LegacyConfigSource().ListLegacyImportFiles(context.Background())
-	if err != nil {
-		errs = append(errs, fmt.Sprintf("listar channels/*.json: %v", err))
-	}
-	for _, file := range files {
-		slug := strings.ToLower(strings.TrimSpace(file.Name))
-		exists, err := channelExistsForUser(userID, slug)
+	seenPaths := make(map[string]struct{})
+	for _, base := range configdir.GetBasePaths() {
+		dir := filepath.Join(base, channelsSubdir)
+		entries, err := os.ReadDir(dir)
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", file.Path, err))
+			if !os.IsNotExist(err) {
+				errs = append(errs, fmt.Sprintf("listar %s: %v", dir, err))
+			}
 			continue
 		}
-		if !exists {
-			skipped = append(skipped, LegacyCleanupItem{
-				Path:   file.Path,
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			if !strings.HasSuffix(strings.ToLower(name), ".json") {
+				continue
+			}
+			slug := strings.ToLower(strings.TrimSuffix(name, filepath.Ext(name)))
+			if slug == "" {
+				continue
+			}
+			path := filepath.Join(dir, name)
+			if _, dup := seenPaths[path]; dup {
+				continue
+			}
+			seenPaths[path] = struct{}{}
+			exists, err := channelExistsForUser(userID, slug)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %v", path, err))
+				continue
+			}
+			if !exists {
+				skipped = append(skipped, LegacyCleanupItem{
+					Path:   path,
+					Kind:   "channel",
+					Slug:   slug,
+					Reason: "canal ausente no DB para o usuário autenticado",
+				})
+				continue
+			}
+			eligible = append(eligible, LegacyCleanupItem{
+				Path:   path,
 				Kind:   "channel",
 				Slug:   slug,
-				Reason: "canal ausente no DB para o usuário autenticado",
+				Reason: "canal presente no DB (import já aplicado ou skip por exists)",
 			})
-			continue
 		}
-		eligible = append(eligible, LegacyCleanupItem{
-			Path:   file.Path,
-			Kind:   "channel",
-			Slug:   slug,
-			Reason: "canal presente no DB (import já aplicado ou skip por exists)",
-		})
 	}
 
 	for _, base := range configdir.GetBasePaths() {
