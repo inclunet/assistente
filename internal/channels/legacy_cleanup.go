@@ -106,6 +106,15 @@ func CleanupLegacyJSONFiles(ctx context.Context, opts LegacyCleanupOptions) (Leg
 
 	for _, item := range eligible {
 		if err := requireRegularFile(item.Path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				result.Skipped = append(result.Skipped, LegacyCleanupItem{
+					Path:   item.Path,
+					Kind:   item.Kind,
+					Slug:   item.Slug,
+					Reason: "arquivo já ausente no momento da confirmação",
+				})
+				continue
+			}
 			result.Errors = append(result.Errors, err.Error())
 			continue
 		}
@@ -126,6 +135,15 @@ func CleanupLegacyJSONFiles(ctx context.Context, opts LegacyCleanupOptions) (Leg
 			}
 		}
 		if err := os.Remove(item.Path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				result.Skipped = append(result.Skipped, LegacyCleanupItem{
+					Path:   item.Path,
+					Kind:   item.Kind,
+					Slug:   item.Slug,
+					Reason: "arquivo já ausente no momento da remoção",
+				})
+				continue
+			}
 			result.Errors = append(result.Errors, fmt.Sprintf("remover %s: %v", item.Path, err))
 			continue
 		}
