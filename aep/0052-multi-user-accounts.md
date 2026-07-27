@@ -218,7 +218,7 @@ Recursos em filesystem não devem ser “prefixados” ad hoc por usuário nesta
 | `profiles/*.json` | usuário | Não isolar por caminho nesta AEP para evitar árvore paralela frágil | migrar para DB em AEP-0050 com `user_id` obrigatório |
 | `skills/` e skills customizadas | usuário | Não duplicar por pasta de usuário nesta AEP | migrar para DB em AEP-0051 com ownership e compartilhamento explícito |
 | `mcp/*.json` e tokens OAuth MCP | usuário/integração | Config em arquivo ainda é legado; tokens ficam no secret manager com contexto do usuário quando acessados | migrar config para DB em AEP-0049 com `user_id` obrigatório |
-| `channels/*.json`, contatos e mapeamento contato→conversa | usuário/integração | Legado em arquivo; ao tocar credenciais do canal, usar contexto autenticado | **AEP-0083** — migração para tabelas `channels` / `channel_contacts` / `channel_contact_conversations` (em andamento) |
+| `channels/*.json`, contatos e mapeamento contato→conversa | usuário/integração | Legado em arquivo; ao tocar credenciais do canal, usar contexto autenticado | **Concluída** via **AEP-0083** / [PR #400](https://github.com/inclunet/assistente/pull/400) — tabelas `channels` / `channel_contacts` / `channel_contact_conversations` |
 | `jobs/` e logs de jobs | usuário/automação | Logs em disco ainda são legado local | migrar jobs para DB em AEP-0048 com `user_id` e retention |
 | `workspace.yaml`, `workspaces/index.yaml` | cliente/UX local | Estado de UI do cliente, não autorização do servidor | no split, tratar como estado do cliente; IDs referenciados continuam validados no backend |
 | `editor/state.json` e `editor/drafts/` | cliente/UX local | Estado local do cliente, pode conter conteúdo sensível | no split, manter local ao cliente ou migrar para recurso user-scoped se sincronizar |
@@ -237,6 +237,9 @@ Regra arquitetural: se o dado influencia autorização, histórico, credenciais,
 | `tasks` | Herda via `task_list_id` FK |
 | `task_notes` | Herda via `task_id → task_list_id` |
 | `task_list_workflows` | Herda via `task_list_id` FK |
+| `channels` | `user_id` direto (**AEP-0083**) |
+| `channel_contacts` | `user_id` direto; também vinculado a `channel_id` (**AEP-0083**) |
+| `channel_contact_conversations` | Herda via `channel_id` → `channels.user_id` (**AEP-0083**) |
 
 ### D12. Escopo de queries (token context)
 
@@ -565,7 +568,7 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
 | Credenciais | Credenciais de usuário exigem contexto autenticado; segredos de instância `internal-auth:*` e `internal-tls:*` ficam com `user_id=''`; MCP exige contexto de usuário para tokens/inline auth. |
 | Constraints multiusuário | Implementado para providers/credenciais já existentes e ajustado para `task_lists.slug` e `task_notes` externos por usuário. |
 | Frontend | `AuthGate` só renderiza a aplicação com sessão autenticada e usuário válido; refresh inválido não abre a UI; chamadas concorrentes de status são deduplicadas. |
-| Legados em arquivo | Permanecem como escopo explícito de AEPs seguintes (`profiles`, `skills`, allowlists). MCP/jobs já migraram; **canais/contatos** migram na **AEP-0083**. Este PR impede que credenciais/tokens associados sejam usados sem contexto de usuário. |
+| Legados em arquivo | Permanecem como escopo explícito de AEPs seguintes (`profiles`, `skills`, allowlists). MCP/jobs/canais já migraram (canais/contatos via **AEP-0083** / PR #400). Este PR impede que credenciais/tokens associados sejam usados sem contexto de usuário. |
 
 ---
 
