@@ -154,7 +154,9 @@ func GetReplyChatID(channelName, contactID string) string {
 	return contactID
 }
 
-// Load carrega a configuração de um canal. Retorna nil se não existir.
+// Load carrega a configuração de um canal. Retorna nil, nil se não existir.
+// Sem UseDatabase retorna ErrDBNotEnabled (fail-closed — não confundir com
+// canal inexistente).
 func Load(name string) (*ChannelConfig, error) {
 	mu.Lock()
 	defer mu.Unlock()

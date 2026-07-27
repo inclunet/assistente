@@ -46,6 +46,7 @@ type AuthorizedContact struct {
 type ContactsFile map[string][]*AuthorizedContact
 
 // Load carrega todos os contatos do DB. Retorna mapa vazio se não houver.
+// Sem UseDatabase retorna ErrDBNotEnabled (fail-closed).
 func Load() (ContactsFile, error) {
 	mu.Lock()
 	defer mu.Unlock()

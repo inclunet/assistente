@@ -17,7 +17,7 @@ import (
 func bindMessagingDatabase() error {
 	db := database.DB()
 	if db == nil {
-		return fmt.Errorf("banco de dados indisponível no boot de mensageria (AEP-0083): UseDatabase é obrigatório — fallback silencioso para filesystem não é permitido")
+		return fmt.Errorf("banco de dados indisponível no boot de mensageria (AEP-0083): database.DB() == nil — sem DB não é possível chamar UseDatabase; fallback silencioso para filesystem não é permitido")
 	}
 	channels.UseDatabase(db)
 	contacts.UseDatabase(db)
