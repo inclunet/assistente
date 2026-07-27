@@ -237,6 +237,9 @@ Regra arquitetural: se o dado influencia autorização, histórico, credenciais,
 | `tasks` | Herda via `task_list_id` FK |
 | `task_notes` | Herda via `task_id → task_list_id` |
 | `task_list_workflows` | Herda via `task_list_id` FK |
+| `channels` | `user_id` direto (**AEP-0083**) |
+| `channel_contacts` | `user_id` direto; também vinculado a `channel_id` (**AEP-0083**) |
+| `channel_contact_conversations` | Herda via `channel_id` → `channels.user_id` (**AEP-0083**) |
 
 ### D12. Escopo de queries (token context)
 
@@ -565,7 +568,7 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
 | Credenciais | Credenciais de usuário exigem contexto autenticado; segredos de instância `internal-auth:*` e `internal-tls:*` ficam com `user_id=''`; MCP exige contexto de usuário para tokens/inline auth. |
 | Constraints multiusuário | Implementado para providers/credenciais já existentes e ajustado para `task_lists.slug` e `task_notes` externos por usuário. |
 | Frontend | `AuthGate` só renderiza a aplicação com sessão autenticada e usuário válido; refresh inválido não abre a UI; chamadas concorrentes de status são deduplicadas. |
-| Legados em arquivo | Permanecem como escopo explícito de AEPs seguintes (`profiles`, `skills`, allowlists). MCP/jobs já migraram; **canais/contatos** migram na **AEP-0083**. Este PR impede que credenciais/tokens associados sejam usados sem contexto de usuário. |
+| Legados em arquivo | Permanecem como escopo explícito de AEPs seguintes (`profiles`, `skills`, allowlists). MCP/jobs/canais já migraram (canais/contatos via **AEP-0083** / PR #400). Este PR impede que credenciais/tokens associados sejam usados sem contexto de usuário. |
 
 ---
 
