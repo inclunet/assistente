@@ -58,9 +58,10 @@ type SlackAdapter struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 
-	// apiBaseURL é a base da Web API (default slack.APIURL). Espelha
-	// OptionAPIURL do cliente para que UnsafeMsgOptionEndpoint (client_msg_id)
-	// aponte ao mesmo host — necessário em testes com httptest.
+	// apiBaseURL é a base da Web API usada por UnsafeMsgOptionEndpoint
+	// (client_msg_id). Em Connect fica slack.APIURL (mesmo default do
+	// slack.New). Em testes com OptionAPIURL/httptest, o caller deve setar
+	// o mesmo valor passado ao cliente — o campo não lê OptionAPIURL sozinho.
 	apiBaseURL string
 
 	mu        sync.RWMutex
@@ -245,6 +246,7 @@ func postMessageOptions(apiBaseURL, text, threadTS, idempotencyKey string) []sla
 		if base == "" {
 			base = slack.APIURL
 		}
+		base = strings.TrimRight(base, "/") + "/"
 		opts = append(opts, slack.UnsafeMsgOptionEndpoint(base+"chat.postMessage", func(values url.Values) {
 			values.Set("client_msg_id", key)
 		}))

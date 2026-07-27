@@ -753,6 +753,27 @@ func TestPostMessageOptions_OmitsClientMsgIDWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestPostMessageOptions_NormalizesBaseURLWithoutSlash(t *testing.T) {
+	t.Parallel()
+
+	// Base sem barra final não pode gerar "...apichat.postMessage".
+	opts := postMessageOptions("https://example.test/api", "oi", "", "key-1")
+	endpoint, values, err := slack.UnsafeApplyMsgOptions("xoxb-test", "C1", "https://example.test/api/",
+		append([]slack.MsgOption{slack.MsgOptionPost()}, opts...)...)
+	if err != nil {
+		t.Fatalf("UnsafeApplyMsgOptions: %v", err)
+	}
+	if !strings.HasSuffix(endpoint, "/chat.postMessage") {
+		t.Fatalf("endpoint=%q deveria terminar com /chat.postMessage", endpoint)
+	}
+	if strings.Contains(endpoint, "apichat.postMessage") {
+		t.Fatalf("endpoint concatenado sem barra: %q", endpoint)
+	}
+	if got := values.Get("client_msg_id"); got != "key-1" {
+		t.Fatalf("client_msg_id=%q, want key-1", got)
+	}
+}
+
 func TestSlackAdapter_Send_IncludesClientMsgID(t *testing.T) {
 	t.Parallel()
 
