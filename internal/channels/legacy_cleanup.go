@@ -232,17 +232,28 @@ func legacyBackupRelPath(item LegacyCleanupItem) (string, error) {
 
 func uniqueBackupDest(backupRoot, rel string) string {
 	dest := filepath.Join(backupRoot, rel)
-	if _, err := os.Stat(dest); os.IsNotExist(err) {
-		return dest
+	if _, err := os.Stat(dest); err != nil {
+		if os.IsNotExist(err) {
+			return dest
+		}
+		// Em erro inesperado (permissão/I/O), usa sufixo único em vez de loop infinito.
+		return filepath.Join(backupRoot, fmt.Sprintf("%s-%d%s",
+			strings.TrimSuffix(rel, filepath.Ext(rel)),
+			time.Now().UnixNano(),
+			filepath.Ext(rel)))
 	}
 	ext := filepath.Ext(rel)
 	stem := strings.TrimSuffix(rel, ext)
-	for i := 2; ; i++ {
+	for i := 2; i < 10000; i++ {
 		candidate := filepath.Join(backupRoot, fmt.Sprintf("%s-%d%s", stem, i, ext))
-		if _, err := os.Stat(candidate); os.IsNotExist(err) {
-			return candidate
+		if _, err := os.Stat(candidate); err != nil {
+			if os.IsNotExist(err) {
+				return candidate
+			}
+			return filepath.Join(backupRoot, fmt.Sprintf("%s-%d%s", stem, time.Now().UnixNano(), ext))
 		}
 	}
+	return filepath.Join(backupRoot, fmt.Sprintf("%s-%d%s", stem, time.Now().UnixNano(), ext))
 }
 
 func copyFile(src, dst string) error {

@@ -152,6 +152,9 @@ export default function RestoreDefaultsPage() {
     setLoadingOps((prev) => new Set([...prev, opId]));
     try {
       const preview = await CleanupLegacyChannelJSON({ confirm: false, noBackup: false });
+      if ((preview?.errors?.length ?? 0) > 0) {
+        throw new Error(preview.errors.join('; '));
+      }
       const eligible = preview?.eligible ?? [];
       if (eligible.length === 0) {
         addToast(t('restore.toast.cleanupLegacyNone'), 'info', undefined, undefined, {
