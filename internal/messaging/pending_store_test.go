@@ -624,7 +624,7 @@ func TestResponseNotifier_SkipPersistChannelSurvivesTTL(t *testing.T) {
 }
 
 func TestGateway_ReconcilePending_SkipsSupersededTrace(t *testing.T) {
-	// List inicial devolve stale; pendingTraceState (2º List) vê fresh → pula reenvio.
+	// List inicial devolve stale; pendingSendGate (Get) vê fresh → pula reenvio.
 	staleFirst := &staleThenFreshStore{
 		stale: ChannelPendingRecord{
 			ConversationID: "conv-s2",
@@ -661,7 +661,7 @@ func TestGateway_ReconcilePending_SkipsSupersededTrace(t *testing.T) {
 }
 
 // staleThenFreshStore: primeiro List devolve stale; List seguintes devolvem fresh
-// (simula Upsert concorrente entre List inicial e pendingTraceState).
+// (simula Upsert concorrente entre List inicial e pendingSendGate).
 type staleThenFreshStore struct {
 	mu    sync.Mutex
 	stale ChannelPendingRecord
@@ -730,6 +730,203 @@ func TestGateway_ReconcilePending_AlreadyDeliveredSkipsSend(t *testing.T) {
 	rows, _ := store.List(context.Background())
 	if len(rows) != 0 {
 		t.Fatalf("pending já entregue deveria ser só limpo; got %+v", rows)
+	}
+}
+
+// listUndeliveredGetDeliveredStore: List devolve snapshot sem marca; Get
+// seguinte já vê MarkDelivered (callback vivo / retry entre List e Send).
+type listUndeliveredGetDeliveredStore struct {
+	mu         sync.Mutex
+	listOnce   bool
+	rec        ChannelPendingRecord
+	listCalls  int
+	getCalls   int
+}
+
+func (s *listUndeliveredGetDeliveredStore) Upsert(ctx context.Context, rec ChannelPendingRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rec = rec
+	return nil
+}
+func (s *listUndeliveredGetDeliveredStore) Get(ctx context.Context, conversationID string) (ChannelPendingRecord, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.getCalls++
+	out := s.rec
+	// Após o List inicial, o store “fresco” já está marcado entregue.
+	if s.listOnce {
+		out.DeliveredAssistantID = "asst-live"
+	}
+	return out, true, nil
+}
+func (s *listUndeliveredGetDeliveredStore) Delete(ctx context.Context, conversationID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rec = ChannelPendingRecord{}
+	return nil
+}
+func (s *listUndeliveredGetDeliveredStore) DeleteIfTrace(ctx context.Context, conversationID, traceID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rec.ConversationID == conversationID && s.rec.TraceID == traceID {
+		s.rec = ChannelPendingRecord{}
+	}
+	return nil
+}
+func (s *listUndeliveredGetDeliveredStore) MarkDelivered(ctx context.Context, conversationID, traceID, assistantMsgID string) error {
+	return nil
+}
+func (s *listUndeliveredGetDeliveredStore) List(ctx context.Context) ([]ChannelPendingRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.listCalls++
+	s.listOnce = true
+	undelivered := s.rec
+	undelivered.DeliveredAssistantID = ""
+	return []ChannelPendingRecord{undelivered}, nil
+}
+
+func TestGateway_ReconcilePending_DeliveredBetweenListAndSendSkips(t *testing.T) {
+	base := ChannelPendingRecord{
+		ConversationID: "conv-race",
+		Channel:        "telegram",
+		ChatID:         "88",
+		OwnerUserID:    "owner-1",
+		TraceID:        "trace-race",
+		CreatedAt:      time.Now().UTC().Add(-time.Minute),
+	}
+	store := &listUndeliveredGetDeliveredStore{rec: base}
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+	notifier.SetPendingStore(store)
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	gateway := NewGateway(notifier, nil, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	gateway.ReconcilePending(context.Background(), func(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
+		return "não reenviar", "asst-race", true, nil
+	})
+
+	select {
+	case msg := <-fake.sentCh:
+		t.Fatalf("não deveria reenviar após MarkDelivered pós-List: %+v", msg)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if store.getCalls < 1 {
+		t.Fatalf("esperava pendingSendGate consultar Get; getCalls=%d", store.getCalls)
+	}
+}
+
+func TestGateway_retryReconcileSend_AlreadyDeliveredAborts(t *testing.T) {
+	store := newMemPendingStore()
+	_ = store.Upsert(context.Background(), ChannelPendingRecord{
+		ConversationID: "conv-retry-d",
+		Channel:        "telegram",
+		ChatID:         "44",
+		OwnerUserID:    "owner-1",
+		TraceID:        "trace-retry-d",
+		CreatedAt:      time.Now().UTC().Add(-time.Minute),
+	})
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+	notifier.SetPendingStore(store)
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 2)}
+	gateway := NewGateway(notifier, nil, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	// MarkDelivered sem Delete: janela típica pós-Send OK com Delete falho.
+	// O retry (ex.: após falha transitória anterior) deve limpar e não reenviar.
+	_ = store.MarkDelivered(context.Background(), "conv-retry-d", "trace-retry-d", "asst-parallel")
+
+	rec := ChannelPendingRecord{
+		ConversationID: "conv-retry-d",
+		Channel:        "telegram",
+		ChatID:         "44",
+		OwnerUserID:    "owner-1",
+		TraceID:        "trace-retry-d",
+		CreatedAt:      time.Now().UTC().Add(-time.Minute),
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		gateway.retryReconcileSend(rec, "texto", "asst-parallel")
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("timeout no retryReconcileSend")
+	}
+
+	select {
+	case msg := <-fake.sentCh:
+		t.Fatalf("retry não deveria enviar após MarkDelivered: %+v", msg)
+	case <-time.After(200 * time.Millisecond):
+	}
+	rows, _ := store.List(context.Background())
+	if len(rows) != 0 {
+		t.Fatalf("pending já entregue deveria ser limpo no retry; got %+v", rows)
+	}
+}
+
+func TestGateway_ReconcilePending_ConcurrentCallSkips(t *testing.T) {
+	store := newMemPendingStore()
+	_ = store.Upsert(context.Background(), ChannelPendingRecord{
+		ConversationID: "conv-conc",
+		Channel:        "telegram",
+		ChatID:         "1",
+		OwnerUserID:    "owner-1",
+		TraceID:        "trace-conc",
+		CreatedAt:      time.Now().UTC().Add(-time.Minute),
+	})
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+	notifier.SetPendingStore(store)
+
+	blockFind := make(chan struct{})
+	releaseFind := make(chan struct{})
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 2)}
+	gateway := NewGateway(notifier, nil, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		gateway.ReconcilePending(context.Background(), func(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
+			close(blockFind)
+			<-releaseFind
+			return "uma", "asst-conc", true, nil
+		})
+	}()
+
+	<-blockFind
+	// Segunda chamada enquanto a primeira ainda está no find — deve TryLock-skip.
+	gateway.ReconcilePending(context.Background(), func(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
+		t.Fatal("segunda ReconcilePending não deveria rodar find")
+		return "", "", false, nil
+	})
+	close(releaseFind)
+	wg.Wait()
+
+	select {
+	case msg := <-fake.sentCh:
+		if msg.Text != "uma" {
+			t.Fatalf("outbound inesperado: %+v", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout: primeira reconcile deveria enviar")
+	}
+	select {
+	case msg := <-fake.sentCh:
+		t.Fatalf("envio duplicado de reconcile concorrente: %+v", msg)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 

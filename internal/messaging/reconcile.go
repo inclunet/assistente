@@ -22,6 +22,14 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 	if g == nil || g.notifier == nil {
 		return
 	}
+	// Serializa reconciles concorrentes (boot + reload pós-login): dois Lists
+	// no mesmo snapshot ainda poderiam passar o gate e duplicar Send.
+	if !g.reconcileMu.TryLock() {
+		logging.Infof(ctx, "messaging.gateway", "[Gateway] reconcile: já em andamento — pula chamada concorrente")
+		return
+	}
+	defer g.reconcileMu.Unlock()
+
 	store := g.notifier.pendingStore()
 	if store == nil {
 		return
@@ -62,13 +70,21 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 			continue
 		}
 		if ok && content != "" {
-			// Upsert de turno novo durante o reconcile (Connect concorrente):
-			// não reenviar snapshot obsoleto — DeleteIfTrace do deliver também
-			// falharia em silêncio e a pendência nova ficaria para o turno vivo.
-			matches, known := pendingTraceState(recCtx, store, rec.ConversationID, rec.TraceID)
-			if known && !matches {
-				logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile: pending supersedido conv=%s trace=%s — pula reenvio",
-					rec.ConversationID, rec.TraceID)
+			// Re-consulta o store antes do Send: List pode estar stale se um
+			// callback vivo (ou retry) marcou delivered / Upsert de turno novo
+			// entre o snapshot e aqui. Sem isso reenviamos ao contato.
+			skip, deliveredID, known := pendingSendGate(recCtx, store, rec.ConversationID, rec.TraceID)
+			if known && skip {
+				if deliveredID != "" {
+					if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
+						logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete já-entregue (fresco) conv=%s: %v", rec.ConversationID, err)
+					}
+					logging.Infof(recCtx, "messaging.gateway", "[Gateway] reconcile: pending já entregue (pós-List) conv=%s msg=%s — só limpeza",
+						rec.ConversationID, deliveredID)
+				} else {
+					logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile: pending supersedido/ausente conv=%s trace=%s — pula reenvio",
+						rec.ConversationID, rec.TraceID)
+				}
 				continue
 			}
 			if err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
@@ -171,14 +187,28 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 		}
 		store := g.notifier.pendingStore()
 		if store != nil {
-			matches, known := pendingTraceState(recCtx, store, rec.ConversationID, rec.TraceID)
-			if known && !matches {
+			skip, deliveredID, known := pendingSendGate(recCtx, store, rec.ConversationID, rec.TraceID)
+			if known && skip {
+				if deliveredID != "" {
+					// Background: recCtx pode já estar no limite; Delete não
+					// deve herdar cancel() prematuro (mesmo padrão do deliver).
+					storeCtx := context.Background()
+					if rec.OwnerUserID != "" {
+						storeCtx = database.WithUserID(storeCtx, rec.OwnerUserID)
+					}
+					if err := store.DeleteIfTrace(storeCtx, rec.ConversationID, rec.TraceID); err != nil {
+						logging.Warnf(storeCtx, "messaging.gateway", "[Gateway] reconcile retry: delete já-entregue conv=%s: %v", rec.ConversationID, err)
+					}
+					logging.Infof(storeCtx, "messaging.gateway", "[Gateway] reconcile retry: pending já entregue conv=%s msg=%s — abortando",
+						rec.ConversationID, deliveredID)
+				} else {
+					logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: pending supersedido/ausente conv=%s trace=%s — abortando",
+						rec.ConversationID, rec.TraceID)
+				}
 				cancel()
-				logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: pending supersedido conv=%s trace=%s — abortando",
-					rec.ConversationID, rec.TraceID)
 				return
 			}
-			// known=false (ex.: erro transitório de List): segue o retry;
+			// known=false (ex.: erro transitório de Get): segue o retry;
 			// DeleteIfTrace ainda protege contra apagar turno errado.
 		}
 		err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID)
@@ -195,12 +225,20 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 		rec.ConversationID, rec.Channel)
 }
 
-// pendingTraceState indica se a pendência ainda é deste turno.
-// known=false significa estado indefinido (ex.: List falhou) — o caller
-// não deve abortar o retry; DeleteIfTrace protege a deleção.
-func pendingTraceState(ctx context.Context, store ChannelPendingStore, conversationID, traceID string) (matches bool, known bool) {
+// pendingSendGate consulta o store fresco antes de um Send de reconcile/retry.
+//
+// skip=true quando não devemos enviar: pending sumiu, TraceID supersedido, ou
+// já MarkDelivered (Send OK com Delete falho / crash pós-marca / callback vivo
+// entregou entre List e aqui). deliveredID é não-vazio só no caso MarkDelivered.
+//
+// known=false significa estado indefinido (ex.: Get falhou) — o caller não deve
+// abortar o retry; DeleteIfTrace ainda protege a deleção.
+//
+// Continua at-least-once na janela residual Send→MarkDelivered (sem marca não
+// há como deduplicar sem risco de perda silenciosa).
+func pendingSendGate(ctx context.Context, store ChannelPendingStore, conversationID, traceID string) (skip bool, deliveredID string, known bool) {
 	if store == nil || conversationID == "" {
-		return false, true
+		return true, "", true
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -209,14 +247,20 @@ func pendingTraceState(ctx context.Context, store ChannelPendingStore, conversat
 	defer cancel()
 	rec, ok, err := store.Get(getCtx, conversationID)
 	if err != nil {
-		logging.Warnf(ctx, "messaging.gateway", "[Gateway] pendingTraceState: get pending falhou conv=%s: %v (estado desconhecido)",
+		logging.Warnf(ctx, "messaging.gateway", "[Gateway] pendingSendGate: get pending falhou conv=%s: %v (estado desconhecido)",
 			conversationID, err)
-		return false, false
+		return false, "", false
 	}
 	if !ok {
-		return false, true
+		return true, "", true
 	}
-	return rec.TraceID == traceID, true
+	if rec.TraceID != traceID {
+		return true, "", true
+	}
+	if rec.DeliveredAssistantID != "" {
+		return true, rec.DeliveredAssistantID, true
+	}
+	return false, "", true
 }
 
 func (n *ResponseNotifier) pendingStore() ChannelPendingStore {
