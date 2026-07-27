@@ -636,6 +636,8 @@ const ptBR = {
         removeVault: 'Remover do cofre',
         botTokenHint: 'Token do bot do Slack (xoxb-...).',
         appTokenHint: 'Token do app do Slack para Socket Mode (xapp-...).',
+        scopesHint:
+          'Scopes mínimos do Bot Token: app_mentions:read, channels:history, channels:read, chat:write, files:read, files:write, groups:history, groups:read, im:history, im:read, im:write, mpim:history, mpim:read, mpim:write, users:read. Sem files:read, só texto funciona (anexos inbound são ignorados). Após alterar scopes, reinstale o app.',
         maxContacts: 'Max. contatos autorizados',
         maxContactsHint: 'Ao atingir o limite, novos contatos são ignorados. Use -1 para ilimitado.',
         channelProfile: 'Perfil do Canal',

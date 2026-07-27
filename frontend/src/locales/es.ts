@@ -635,6 +635,8 @@ const es = {
         removeVault: 'Quitar de la bóveda',
         botTokenHint: 'Token del bot de Slack (xoxb-...).',
         appTokenHint: 'Token de la app de Slack para Socket Mode (xapp-...).',
+        scopesHint:
+          'Scopes mínimos del Bot Token: app_mentions:read, channels:history, channels:read, chat:write, files:read, files:write, groups:history, groups:read, im:history, im:read, im:write, mpim:history, mpim:read, mpim:write, users:read. Sin files:read, solo funciona el texto (los adjuntos inbound se ignoran). Reinstale la app tras cambiar scopes.',
         maxContacts: 'Máx. contactos autorizados',
         maxContactsHint: 'Al alcanzar el límite, los nuevos contactos se ignoran. Use -1 para ilimitado.',
         channelProfile: 'Perfil del canal',

@@ -21,6 +21,8 @@ vi.mock('react-i18next', () => ({
         'channels.slack.removeVault': 'Remover do cofre',
         'channels.slack.botTokenHint': 'Token do bot do Slack (xoxb-...).',
         'channels.slack.appTokenHint': 'Token do app do Slack para Socket Mode (xapp-...).',
+        'channels.slack.scopesHint':
+          'Scopes mínimos do Bot Token: app_mentions:read, channels:history, channels:read, chat:write, files:read, files:write, groups:history, groups:read, im:history, im:read, im:write, mpim:history, mpim:read, mpim:write, users:read.',
         'channels.slack.maxContacts': 'Max. contatos autorizados',
         'channels.slack.maxContactsHint':
           'Ao atingir o limite, novos contatos são ignorados silenciosamente.',
@@ -129,6 +131,11 @@ describe('ChannelsSlackSection', () => {
 
     expect(screen.getByText('Bot Token')).toBeInTheDocument();
     expect(screen.getByText('App Token (Socket Mode)')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Scopes mínimos do Bot Token: app_mentions:read, channels:history, channels:read, chat:write, files:read, files:write, groups:history, groups:read, im:history, im:read, im:write, mpim:history, mpim:read, mpim:write, users:read.'
+      )
+    ).toBeInTheDocument();
     expect(screen.getByText('Max. contatos autorizados')).toBeInTheDocument();
   });
 
