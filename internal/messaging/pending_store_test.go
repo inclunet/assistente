@@ -733,6 +733,113 @@ func TestGateway_ReconcilePending_AlreadyDeliveredSkipsSend(t *testing.T) {
 	}
 }
 
+func TestPendingDeliveredMarkID(t *testing.T) {
+	if got := pendingDeliveredMarkID("asst-1", "t1"); got != "asst-1" {
+		t.Fatalf("msgID real deve prevalecer: got %q", got)
+	}
+	if got := pendingDeliveredMarkID("", "trace-x"); got != pendingDeliveredSentinelPrefix+"trace-x" {
+		t.Fatalf("sentinel esperado: got %q", got)
+	}
+}
+
+// retainAfterDeleteStore simula DeleteIfTrace falho / crash após MarkDelivered:
+// a marca permanece e o pending sobrevive para o reconcile.
+type retainAfterDeleteStore struct {
+	*memPendingStore
+}
+
+func (s *retainAfterDeleteStore) DeleteIfTrace(ctx context.Context, conversationID, traceID string) error {
+	return nil
+}
+
+func TestDeliverChannelResponse_EmptyAssistantMsgID_MarksSentinel(t *testing.T) {
+	// Sem o fix, assistantMsgID vazio pulava MarkDelivered; com Delete falho
+	// o pending ficava sem marca e o reconcile reenviava.
+	inner := newMemPendingStore()
+	store := &retainAfterDeleteStore{memPendingStore: inner}
+	_ = store.Upsert(context.Background(), ChannelPendingRecord{
+		ConversationID: "conv-empty-id",
+		Channel:        "telegram",
+		ChatID:         "77",
+		OwnerUserID:    "owner-1",
+		TraceID:        "trace-empty-id",
+		CreatedAt:      time.Now().UTC().Add(-time.Minute),
+	})
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+	notifier.SetPendingStore(store)
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	gateway := NewGateway(notifier, nil, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	if err := gateway.deliverChannelResponse(context.Background(), "telegram", "77", "oi", "", false, "", "trace-empty-id", "conv-empty-id"); err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+	select {
+	case <-fake.sentCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("esperava Send")
+	}
+
+	rec, ok, err := store.Get(context.Background(), "conv-empty-id")
+	if err != nil || !ok {
+		t.Fatalf("pending deveria permanecer (Delete simulado falho); ok=%v err=%v", ok, err)
+	}
+	want := pendingDeliveredSentinelPrefix + "trace-empty-id"
+	if rec.DeliveredAssistantID != want {
+		t.Fatalf("após Send OK com msgID vazio, esperava marca %q; got %q", want, rec.DeliveredAssistantID)
+	}
+
+	// Reconcile com a marca: não reenvia.
+	gateway.ReconcilePending(context.Background(), func(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
+		t.Fatal("find não deveria rodar com DeliveredAssistantID (sentinel) setado")
+		return "não reenviar", "asst-x", true, nil
+	})
+	select {
+	case msg := <-fake.sentCh:
+		t.Fatalf("reconcile não deveria reenviar após sentinel MarkDelivered: %+v", msg)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestGateway_ReconcilePending_SentinelDeliveredSkipsSend(t *testing.T) {
+	store := newMemPendingStore()
+	_ = store.Upsert(context.Background(), ChannelPendingRecord{
+		ConversationID:       "conv-sent",
+		Channel:              "telegram",
+		ChatID:               "66",
+		OwnerUserID:          "owner-1",
+		TraceID:              "trace-sent",
+		DeliveredAssistantID: pendingDeliveredSentinelPrefix + "trace-sent",
+		CreatedAt:            time.Now().UTC().Add(-time.Minute),
+	})
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+	notifier.SetPendingStore(store)
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	gateway := NewGateway(notifier, nil, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	gateway.ReconcilePending(context.Background(), func(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
+		t.Fatal("find não deveria ser chamado para pending com sentinel delivered")
+		return "", "", false, nil
+	})
+
+	select {
+	case msg := <-fake.sentCh:
+		t.Fatalf("não deveria reenviar com marca sentinel: %+v", msg)
+	case <-time.After(200 * time.Millisecond):
+	}
+	rows, _ := store.List(context.Background())
+	if len(rows) != 0 {
+		t.Fatalf("pending com sentinel deveria ser só limpo; got %+v", rows)
+	}
+}
+
 // listUndeliveredGetDeliveredStore: List devolve snapshot sem marca; Get
 // seguinte já vê MarkDelivered (callback vivo / retry entre List e Send).
 type listUndeliveredGetDeliveredStore struct {
