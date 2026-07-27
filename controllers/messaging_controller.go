@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"time"
 )
 
 // MessagingControllerConfig agrupa todas as dependências do MessagingController.
@@ -222,7 +223,14 @@ func (c *MessagingController) StartAdapters() {
 	}
 
 	if c.msgGateway != nil {
-		c.msgGateway.ReconcilePending(context.Background(), messaging.DefaultFindAssistantAfter)
+		// Best-effort e assíncrono: DB lento/travado não pode bloquear o
+		// Connect dos adapters. Timeout evita goroutine órfã indefinida;
+		// falha parcial deixa pending no store para o próximo restart.
+		go func(gw *messaging.Gateway) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			gw.ReconcilePending(ctx, messaging.DefaultFindAssistantAfter)
+		}(c.msgGateway)
 	}
 }
 

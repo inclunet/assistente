@@ -17,6 +17,14 @@ import (
 // acumulem em conversas de canal de alta vazão.
 const callbackTTL = 5 * time.Minute
 
+// durableChannelMemoryCeiling é o teto absoluto em memória para callbacks
+// de canal persistíveis (telegram/signal/slack). Eles não expiram no
+// callbackTTL (M14: Notify tardio ainda precisa achar o callback enquanto
+// o store existe), mas sem um ceiling um path que esqueça Cancel/Notify
+// vaza memória para sempre. O store segue a política própria (Send OK /
+// Cancel / reconcile sem assistant).
+const durableChannelMemoryCeiling = 24 * time.Hour
+
 // callbackCleanupInterval é a frequência de varredura do housekeeping.
 // Ficar abaixo do TTL garante que callbacks vencidos não fiquem mais que
 // um intervalo extra na fila.
@@ -157,10 +165,14 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 		var expired []pendingCallback
 		for _, p := range pendings {
 			// M14: callbacks de canal externos (telegram/signal/slack com
-			// ChatID+OwnerUserID) ficam até Notify/Cancel — inclusive os
-			// re-registrados pelo reconcile com SkipPersist. Expirar só a
-			// memória fazia Notify no-op enquanto o store durável existia.
+			// ChatID+OwnerUserID) não expiram no callbackTTL — Notify tardio
+			// ainda precisa deles enquanto o store existe. Ceiling de 24h
+			// evita vazamento permanente se Cancel/Notify nunca chegar.
 			if shouldPersistChannelCallback(p.cb) {
+				if p.registered.Add(durableChannelMemoryCeiling).Before(now) {
+					expired = append(expired, p)
+					continue
+				}
 				fresh = append(fresh, p)
 				continue
 			}
@@ -176,11 +188,15 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 			n.callbacks[convID] = fresh
 		}
 		for _, p := range expired {
+			age := p.expiresAt.Sub(p.registered)
+			if shouldPersistChannelCallback(p.cb) {
+				age = now.Sub(p.registered)
+			}
 			toLog = append(toLog, expiredLogEntry{
 				traceID: p.cb.TraceID,
 				convID:  convID,
 				channel: p.cb.Channel,
-				minutes: p.expiresAt.Sub(p.registered).Minutes(),
+				minutes: age.Minutes(),
 			})
 		}
 	}

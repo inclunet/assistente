@@ -376,6 +376,42 @@ func TestResponseNotifier_DurableChannelSurvivesTTLAndStillNotifies(t *testing.T
 	}
 }
 
+func TestResponseNotifier_DurableChannelExpiresAtMemoryCeiling(t *testing.T) {
+	store := newMemPendingStore()
+	now := time.Now()
+	clock := func() time.Time { return now }
+	n := newResponseNotifierWithClock(clock)
+	defer n.Stop()
+	n.SetPendingStore(store)
+
+	n.Register("conv-stuck", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "123",
+		OwnerUserID: "owner-1",
+		TraceID:     "trace-stuck",
+		Callback: func(string, string) {
+			t.Fatal("callback no ceiling não deveria disparar")
+		},
+	})
+
+	now = now.Add(callbackTTL + time.Minute)
+	n.expireOldCallbacks()
+	if n.PendingCount() != 1 {
+		t.Fatalf("antes do ceiling o canal deve permanecer; pending=%d", n.PendingCount())
+	}
+
+	now = now.Add(durableChannelMemoryCeiling)
+	n.expireOldCallbacks()
+	if n.PendingCount() != 0 {
+		t.Fatalf("após ceiling o callback deve expirar; pending=%d", n.PendingCount())
+	}
+	// Store não é limpo pelo TTL in-memory (política M14).
+	rows, _ := store.List(context.Background())
+	if len(rows) != 1 {
+		t.Fatalf("store deve permanecer após ceiling de memória; got %+v", rows)
+	}
+}
+
 func TestResponseNotifier_SkipsPersistWithoutOwnerUserID(t *testing.T) {
 	store := newMemPendingStore()
 	n := NewResponseNotifier()
