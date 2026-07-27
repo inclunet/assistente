@@ -127,8 +127,9 @@ func (s *SlackAdapter) Connect(ctx context.Context) error {
 }
 
 // probeFilesReadScope verifica files.info com ID fictício.
-// missing_scope → Warnf; file_not_found / outros → scope presente ou irrelevante.
-// Nunca altera status nem falha o Connect.
+// Só erros classificados por isMissingScopeError geram Warnf; qualquer
+// outro resultado (file_not_found, rede, cancelamento, etc.) é ignorado
+// — é um probe leve e nunca altera status nem falha o Connect.
 func (s *SlackAdapter) probeFilesReadScope(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()

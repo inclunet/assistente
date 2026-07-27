@@ -652,7 +652,8 @@ func TestAttachmentsFromSlackFiles_MissingScopeInvokesWarnAndSkips(t *testing.T)
 	mu.Lock()
 	got := warnCount
 	mu.Unlock()
-	// Duas falhas → dois callbacks (Once fica no adapter; aqui o callback conta por chamada).
+	// Duas falhas → dois callbacks (dedupe via atomic.Bool fica no adapter;
+	// aqui o callback de teste conta por chamada).
 	if got != 2 {
 		t.Fatalf("esperava 2 avisos de missing_scope, got %d", got)
 	}
@@ -668,7 +669,7 @@ func TestProbeFilesReadScope_WarnsOnMissingScope(t *testing.T) {
 	s.mu.Unlock()
 
 	s.probeFilesReadScope(context.Background())
-	// Segunda chamada não deve panicar; Once já disparou.
+	// Segunda chamada não deve panicar; atomic.Bool já marca como avisado.
 	s.probeFilesReadScope(context.Background())
 }
 
