@@ -8,6 +8,7 @@ import {
   ClearAllProfiles,
   ClearAllSkills,
   ClearAllChannels,
+  CleanupLegacyChannelJSON,
 } from '@wailsjs/go/app/App';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
@@ -145,6 +146,70 @@ export default function RestoreDefaultsPage() {
       async () => await ClearAllChannels()
     );
 
+  const handleCleanupLegacyJSON = async () => {
+    const opId = 'CleanupLegacyJSON';
+    const title = t('restore.items.cleanupLegacyJSON');
+    setLoadingOps((prev) => new Set([...prev, opId]));
+    try {
+      const preview = await CleanupLegacyChannelJSON({ confirm: false, noBackup: false });
+      const eligible = preview?.eligible ?? [];
+      if (eligible.length === 0) {
+        addToast(t('restore.toast.cleanupLegacyNone'), 'info', undefined, undefined, {
+          suppressAnnounce: true,
+        });
+        announce(t('restore.announce.cleanupLegacyNone'));
+        return;
+      }
+
+      const filesList = eligible.map((item) => `• ${item.path}`).join('\n');
+      const confirmedFirst = await requestConfirm({
+        title: t('restore.confirm.cleanupLegacyJSONTitle'),
+        message: t('restore.confirm.cleanupLegacyJSONMessage', {
+          count: eligible.length,
+          files: filesList,
+        }),
+        confirmText: t('restore.buttons.cleanupLegacy'),
+        cancelText: t('common.cancel'),
+        variant: 'danger',
+      });
+      if (!confirmedFirst) return;
+
+      const confirmedLast = await requestConfirm({
+        title: t('restore.confirm.lastChanceTitle'),
+        message: t('restore.confirm.lastChanceMessage'),
+        confirmText: t('common.confirm'),
+        cancelText: t('common.cancel'),
+        variant: 'danger',
+      });
+      if (!confirmedLast) return;
+
+      const result = await CleanupLegacyChannelJSON({
+        confirm: true,
+        noBackup: false,
+      });
+      const removed = result?.removed?.length ?? 0;
+      const backup = result?.backedUpTo || '';
+      addToast(t('restore.toast.operationSuccess', { name: title }), 'success', undefined, undefined, {
+        suppressAnnounce: true,
+      });
+      if (backup) {
+        announce(t('restore.announce.cleanupLegacyDone', { removed, backup }));
+      } else {
+        announce(t('restore.announce.cleanupLegacyDoneNoBackup', { removed }));
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error ?? '');
+      logger.error(`Erro em ${opId}:`, error);
+      addToast(message || t('restore.toast.operationFailed', { name: title }), 'error');
+    } finally {
+      setLoadingOps((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(opId);
+        return newSet;
+      });
+    }
+  };
+
   const handleResetDatabase = () =>
     void performReset(
       'Apagar Banco de Dados',
@@ -184,7 +249,6 @@ export default function RestoreDefaultsPage() {
       </header>
 
       <main className="restore-content">
-        {/* Quick Actions - Operações Rápidas */}
         <CollapsibleSection
           title={t('restore.sections.quickActions')}
           isOpen={isSectionOpen('quick')}
@@ -206,7 +270,6 @@ export default function RestoreDefaultsPage() {
           </div>
         </CollapsibleSection>
 
-        {/* Granular Cleanup - Limpeza Granular */}
         <CollapsibleSection
           title={t('restore.sections.granular')}
           isOpen={isSectionOpen('granular')}
@@ -268,9 +331,22 @@ export default function RestoreDefaultsPage() {
               {t('restore.buttons.clear')}
             </Button>
           </div>
+
+          <div className="restore-item">
+            <div className="restore-item-info">
+              <h3>{t('restore.items.cleanupLegacyJSON')}</h3>
+              <p>{t('restore.items.cleanupLegacyJSONDesc')}</p>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => void handleCleanupLegacyJSON()}
+              loading={isLoading('CleanupLegacyJSON')}
+            >
+              {t('restore.buttons.cleanupLegacy')}
+            </Button>
+          </div>
         </CollapsibleSection>
 
-        {/* Nuclear Options - Opções Nucleares */}
         <CollapsibleSection
           title={t('restore.sections.nuclear')}
           isOpen={isSectionOpen('nuclear')}
@@ -306,7 +382,6 @@ export default function RestoreDefaultsPage() {
           </div>
         </CollapsibleSection>
 
-        {/* Master Password Management - Gerenciamento de Senha Mestre */}
         <CollapsibleSection
           title={t('restore.sections.security')}
           isOpen={isSectionOpen('security')}

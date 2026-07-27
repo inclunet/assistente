@@ -62,6 +62,8 @@ export function ClearAllProfiles():Promise<void>;
 
 export function ClearAllSkills():Promise<void>;
 
+export function CleanupLegacyChannelJSON(arg1:app.CleanupLegacyChannelJSONOptions):Promise<app.CleanupLegacyChannelJSONResult>;
+
 export function ClearConversation(arg1:string):Promise<void>;
 
 export function ClearMessages():Promise<void>;

@@ -3,10 +3,22 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import RestoreDefaultsPage from './RestoreDefaultsPage';
 import * as AppAPI from '@wailsjs/go/app/App';
+import { app } from '../../wailsjs/go/models';
 
-const { mockAddToast, mockHandleDatabaseReset } = vi.hoisted(() => ({
+const emptyCleanupResult = () =>
+  app.CleanupLegacyChannelJSONResult.createFrom({
+    dryRun: true,
+    eligible: [],
+    removed: [],
+    skipped: [],
+    errors: [],
+    warnings: [],
+  });
+
+const { mockAddToast, mockHandleDatabaseReset, mockAnnounce } = vi.hoisted(() => ({
   mockAddToast: vi.fn(),
   mockHandleDatabaseReset: vi.fn(),
+  mockAnnounce: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -30,7 +42,20 @@ vi.mock('react-i18next', () => ({
         'restore.items.clearMessages': '🗑️ Limpar Mensagens e Conversas',
         'restore.items.clearMessagesDesc':
           'Apaga todas as mensagens e conversas, mantendo perfis e credenciais',
+        'restore.items.cleanupLegacyJSON': 'Remover JSON legado de canais',
+        'restore.items.cleanupLegacyJSONDesc':
+          'Remove channels/*.json e contacts.json do disco após a migração para o banco.',
         'restore.buttons.clear': 'Limpar',
+        'restore.buttons.cleanupLegacy': 'Remover JSON legado',
+        'restore.toast.cleanupLegacyNone': 'Nenhum arquivo JSON legado elegível para remoção',
+        'restore.announce.cleanupLegacyNone': 'Nenhum arquivo JSON legado elegível',
+        'restore.announce.cleanupLegacyDone': 'JSON legado removido: {{removed}} arquivo(s). Backup em {{backup}}.',
+        'restore.confirm.cleanupLegacyJSONTitle': 'Remover arquivos JSON legados de canais?',
+        'restore.confirm.cleanupLegacyJSONMessage': 'Serão removidos {{count}} arquivo(s):\n{{files}}',
+        'restore.confirm.lastChanceTitle': 'Confirmação final',
+        'restore.confirm.lastChanceMessage': 'Última chance',
+        'common.confirm': 'Confirmar',
+        'common.cancel': 'Cancelar',
       } as Record<string, string>)[key] ?? key,
   }),
 }));
@@ -50,7 +75,7 @@ vi.mock('../store/chatStore', () => ({
 vi.mock('@wailsjs/go/app/App');
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
-    announce: vi.fn(),
+    announce: mockAnnounce,
   }),
 }));
 
@@ -70,9 +95,11 @@ describe('RestoreDefaultsPage', () => {
     vi.mocked(AppAPI.ClearAllSkills).mockResolvedValue(undefined);
     vi.mocked(AppAPI.ClearAllChannels).mockResolvedValue(undefined);
     vi.mocked(AppAPI.ResetDatabase).mockResolvedValue(undefined);
+    vi.mocked(AppAPI.CleanupLegacyChannelJSON).mockResolvedValue(emptyCleanupResult());
 
     mockConfirm.mockReset();
     mockConfirm.mockResolvedValue(true);
+    mockAnnounce.mockReset();
   });
 
   describe('Rendering', () => {
@@ -222,6 +249,76 @@ describe('RestoreDefaultsPage', () => {
         await new Promise((r) => setTimeout(r, 100));
         expect(mockHandleDatabaseReset).toHaveBeenCalled();
       }
+    });
+
+    it('deve anunciar quando não há JSON legado elegível', async () => {
+      const user = userEvent.setup();
+      vi.mocked(AppAPI.CleanupLegacyChannelJSON).mockResolvedValue(emptyCleanupResult());
+
+      render(<RestoreDefaultsPage />);
+
+      const buttons = screen.getAllByRole('button');
+      const header = buttons.find((btn) => btn.textContent?.includes('Limpeza Granular'));
+      await user.click(header!);
+      await new Promise((r) => setTimeout(r, 50));
+
+      const cleanupBtn = screen.getByRole('button', { name: /Remover JSON legado/i });
+      await user.click(cleanupBtn);
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(AppAPI.CleanupLegacyChannelJSON).toHaveBeenCalledWith({
+        confirm: false,
+        noBackup: false,
+      });
+      expect(mockAnnounce).toHaveBeenCalledWith('Nenhum arquivo JSON legado elegível');
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it('deve confirmar e remover JSON legado elegível', async () => {
+      const user = userEvent.setup();
+      vi.mocked(AppAPI.CleanupLegacyChannelJSON)
+        .mockResolvedValueOnce(
+          app.CleanupLegacyChannelJSONResult.createFrom({
+            dryRun: true,
+            eligible: [{ path: '/tmp/channels/telegram.json', kind: 'channel', slug: 'telegram', reason: 'ok' }],
+            removed: [],
+            skipped: [],
+            errors: [],
+            warnings: [],
+          })
+        )
+        .mockResolvedValueOnce(
+          app.CleanupLegacyChannelJSONResult.createFrom({
+            dryRun: false,
+            eligible: [{ path: '/tmp/channels/telegram.json', kind: 'channel', slug: 'telegram', reason: 'ok' }],
+            removed: ['/tmp/channels/telegram.json'],
+            backedUpTo: '/tmp/channels.legacy-backup/20260727',
+            skipped: [],
+            errors: [],
+            warnings: [],
+          })
+        );
+      mockConfirm.mockResolvedValue(true);
+
+      render(<RestoreDefaultsPage />);
+
+      const buttons = screen.getAllByRole('button');
+      const header = buttons.find((btn) => btn.textContent?.includes('Limpeza Granular'));
+      await user.click(header!);
+      await new Promise((r) => setTimeout(r, 50));
+
+      const cleanupBtn = screen.getByRole('button', { name: /Remover JSON legado/i });
+      await user.click(cleanupBtn);
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(mockConfirm).toHaveBeenCalledTimes(2);
+      expect(AppAPI.CleanupLegacyChannelJSON).toHaveBeenNthCalledWith(2, {
+        confirm: true,
+        noBackup: false,
+      });
+      expect(mockAnnounce).toHaveBeenCalledWith(
+        expect.stringContaining('JSON legado removido')
+      );
     });
   });
 

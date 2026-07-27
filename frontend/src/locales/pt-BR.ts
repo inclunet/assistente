@@ -1481,10 +1481,10 @@ const ptBR = {
       description: 'Gerencie a restauração e limpeza de dados do assistente',
       sections: { appearance: 'Aparência', quickActions: 'Operações Rápidas', granular: 'Limpeza Granular', nuclear: 'Opções Nucleares', security: 'Segurança - Senha Mestre' },
       aria: { appearance: 'Aparência - escolha o tema visual', selectTheme: 'Selecionar tema', quickActions: 'Operações Rápidas', granular: 'Limpeza Granular', nuclear: 'Opções Nucleares', security: 'Segurança' },
-      announce: { themeChanged: 'Tema alterado para {{label}}', operationDone: '{{name}} realizado' },
       toast: {
         operationSuccess: '{{name}} concluído com sucesso!',
         operationFailed: 'Erro ao executar {{name}}',
+        cleanupLegacyNone: 'Nenhum arquivo JSON legado elegível para remoção',
       },
       items: {
         clearMessages: 'Limpar Mensagens e Conversas',
@@ -1497,6 +1497,9 @@ const ptBR = {
         clearSkillsDesc: 'Remove todos os skills customizados. Skills built-in podem ser reconfigurados.',
         clearChannels: 'Limpar Todos os Canais',
         clearChannelsDesc: 'Remove configurações de todos os canais (Telegram, Slack, Signal, etc).',
+        cleanupLegacyJSON: 'Remover JSON legado de canais',
+        cleanupLegacyJSONDesc:
+          'Remove channels/*.json e contacts.json do disco após a migração para o banco. Cria backup em channels.legacy-backup/. Não afeta canais no DB.',
         resetDatabase: 'Apagar Banco de Dados Inteiro',
         resetDatabaseDesc: 'Remove PERMANENTEMENTE todo o banco de dados incluindo conversas, abas e históricos.',
         clearAll: 'LIMPAR TUDO (Nuclear)',
@@ -1508,8 +1511,45 @@ const ptBR = {
         removeMasterPassword: 'Remover Senha Mestre',
         removeMasterPasswordDesc: 'Remove a proteção de senha mestre. As credenciais NÃO poderão ser descriptografadas.',
       },
-      buttons: { clear: 'Limpar', delete: 'Apagar', clearAll: 'LIMPAR TUDO', resetSoon: 'Redefinir (em breve)', viewCodeSoon: 'Ver Código (em breve)', removeSoon: 'Remover (em breve)' },
+      buttons: { clear: 'Limpar', delete: 'Apagar', clearAll: 'LIMPAR TUDO', resetSoon: 'Redefinir (em breve)', viewCodeSoon: 'Ver Código (em breve)', removeSoon: 'Remover (em breve)', cleanupLegacy: 'Remover JSON legado' },
       security: { masterPasswordInfo: 'A senha mestre protege todas as suas credenciais criptografadas. Se você esquecer a senha, use o código de recuperação para redefini-la.' },
+      confirm: {
+        lastChanceTitle: 'Confirmação final',
+        lastChanceMessage:
+          'Esta é a última chance antes da operação ser executada.\n\nDeseja continuar?',
+        clearMessagesTitle: 'Limpar mensagens e conversas?',
+        clearMessagesMessage:
+          'Tem certeza de que deseja apagar todas as mensagens e conversas?\n\nIsto remove permanentemente todas as abas e o histórico.\n\nEsta ação não pode ser desfeita.',
+        clearCredentialsTitle: 'Limpar credenciais?',
+        clearCredentialsMessage:
+          'Tem certeza de que deseja apagar todas as credenciais armazenadas?\n\nVocê precisará reconfigurar os provedores.\n\nEsta ação não pode ser desfeita.',
+        clearProfilesTitle: 'Limpar perfis?',
+        clearProfilesMessage:
+          'Tem certeza de que deseja apagar todos os perfis?\n\nTodos os perfis customizados serão removidos.\n\nEsta ação não pode ser desfeita.',
+        clearSkillsTitle: 'Limpar skills?',
+        clearSkillsMessage:
+          'Tem certeza de que deseja apagar todos os skills?\n\nTodos os skills customizados serão removidos.\n\nEsta ação não pode ser desfeita.',
+        clearChannelsTitle: 'Limpar canais?',
+        clearChannelsMessage:
+          'Tem certeza de que deseja apagar todas as configurações de canais de comunicação?\n\nTodos os canais (Telegram, Slack, Signal, etc.) serão redefinidos.\n\nEsta ação não pode ser desfeita.',
+        cleanupLegacyJSONTitle: 'Remover arquivos JSON legados de canais?',
+        cleanupLegacyJSONMessage:
+          'Serão removidos do disco {{count}} arquivo(s) legado(s) já migrados para o banco:\n\n{{files}}\n\nUm backup será criado em channels.legacy-backup/.\n\nCanais e contatos no banco de dados NÃO serão afetados.\n\nEsta ação não pode ser desfeita nos arquivos originais.',
+        cleanupLegacyJSONNone: 'Nenhum arquivo JSON legado elegível para remoção. Canais/contatos já estão só no banco, ou o DB ainda não está ativo.',
+        resetDatabaseTitle: 'Apagar o banco de dados inteiro?',
+        resetDatabaseMessage:
+          'Tem certeza de que deseja apagar todo o banco de dados?\n\nTodas as conversas, histórico e abas serão removidos permanentemente.\n\nEsta ação não pode ser desfeita.',
+        clearAllTitle: 'Limpar o assistente completamente?',
+        clearAllMessage:
+          'Tem certeza de que deseja limpar o assistente completamente?\n\nSerá removido permanentemente:\n• Todas as conversas e mensagens\n• Todas as credenciais\n• Todos os perfis\n• Todos os skills\n• Todas as configurações de canais\n• Todo o banco de dados\n\nO assistente voltará ao estado inicial.\n\nEsta ação não pode ser desfeita.',
+      },
+      announce: {
+        themeChanged: 'Tema alterado para {{label}}',
+        operationDone: '{{name}} realizado',
+        cleanupLegacyDone: 'JSON legado removido: {{removed}} arquivo(s). Backup em {{backup}}.',
+        cleanupLegacyDoneNoBackup: 'JSON legado removido: {{removed}} arquivo(s).',
+        cleanupLegacyNone: 'Nenhum arquivo JSON legado elegível',
+      },
     },
 
     about: {

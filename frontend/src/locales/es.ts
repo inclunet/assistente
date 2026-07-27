@@ -1480,10 +1480,17 @@ const es = {
       description: 'Gestiona la restauración y limpieza de datos del asistente',
       sections: { appearance: 'Apariencia', quickActions: 'Operaciones rápidas', granular: 'Limpieza granular', nuclear: 'Opciones nucleares', security: 'Seguridad - Contraseña maestra' },
       aria: { appearance: 'Apariencia - elige el tema visual', selectTheme: 'Seleccionar tema', quickActions: 'Operaciones rápidas', granular: 'Limpieza granular', nuclear: 'Opciones nucleares', security: 'Seguridad' },
-      announce: { themeChanged: 'Tema cambiado a {{label}}', operationDone: '{{name}} realizado' },
+      announce: {
+        themeChanged: 'Tema cambiado a {{label}}',
+        operationDone: '{{name}} realizado',
+        cleanupLegacyDone: 'JSON legado eliminado: {{removed}} archivo(s). Copia en {{backup}}.',
+        cleanupLegacyDoneNoBackup: 'JSON legado eliminado: {{removed}} archivo(s).',
+        cleanupLegacyNone: 'Ningún archivo JSON legado elegible',
+      },
       toast: {
         operationSuccess: '{{name}} completado correctamente.',
         operationFailed: 'Error al ejecutar {{name}}',
+        cleanupLegacyNone: 'Ningún archivo JSON legado elegible para eliminar',
       },
       items: {
         clearMessages: 'Vaciar mensajes y conversaciones',
@@ -1496,6 +1503,9 @@ const es = {
         clearSkillsDesc: 'Elimina todos los skills personalizados. Los Skills integrados pueden reconfigurarse.',
         clearChannels: 'Vaciar todos los canales',
         clearChannelsDesc: 'Elimina la configuración de todos los canales (Telegram, Slack, Signal, etc).',
+        cleanupLegacyJSON: 'Eliminar JSON legado de canales',
+        cleanupLegacyJSONDesc:
+          'Elimina channels/*.json y contacts.json del disco tras la migración a la base de datos. Crea una copia en channels.legacy-backup/. No afecta los canales en la BD.',
         resetDatabase: 'Borrar base de datos completa',
         resetDatabaseDesc: 'Elimina PERMANENTEMENTE toda la base de datos incluyendo conversaciones, pestañas e historiales.',
         clearAll: 'VACIAR TODO (Nuclear)',
@@ -1507,7 +1517,7 @@ const es = {
         removeMasterPassword: 'Quitar contraseña maestra',
         removeMasterPasswordDesc: 'Elimina la protección de contraseña maestra. Las credenciales NO podrán ser desencriptadas.',
       },
-      buttons: { clear: 'Vaciar', delete: 'Borrar', clearAll: 'VACIAR TODO', resetSoon: 'Restablecer (próximamente)', viewCodeSoon: 'Ver código (próximamente)', removeSoon: 'Quitar (próximamente)' },
+      buttons: { clear: 'Vaciar', delete: 'Borrar', clearAll: 'VACIAR TODO', resetSoon: 'Restablecer (próximamente)', viewCodeSoon: 'Ver código (próximamente)', removeSoon: 'Quitar (próximamente)', cleanupLegacy: 'Eliminar JSON legado' },
       security: { masterPasswordInfo: 'La contraseña maestra protege todas tus credenciales encriptadas. Si olvidas la contraseña, usa el código de recuperación para restablecerla.' },
       confirm: {
         lastChanceTitle: 'Confirmación final',
@@ -1528,6 +1538,10 @@ const es = {
         clearChannelsTitle: '¿Vaciar canales?',
         clearChannelsMessage:
           '¿Seguro que quieres borrar toda la configuración de canales de comunicación?\n\nTodos los canales (Telegram, Slack, Signal, etc.) quedarán desconfigurados.\n\nEsta acción no se puede deshacer.',
+        cleanupLegacyJSONTitle: '¿Eliminar archivos JSON legados de canales?',
+        cleanupLegacyJSONMessage:
+          'Se eliminarán del disco {{count}} archivo(s) legado(s) ya migrados a la base de datos:\n\n{{files}}\n\nSe creará una copia en channels.legacy-backup/.\n\nLos canales y contactos en la base de datos NO se verán afectados.\n\nEsta acción no se puede deshacer en los archivos originales.',
+        cleanupLegacyJSONNone: 'Ningún archivo JSON legado elegible para eliminar. Canales/contactos ya están solo en la BD, o la BD aún no está activa.',
         resetDatabaseTitle: '¿Borrar la base de datos completa?',
         resetDatabaseMessage:
           '¿Seguro que quieres borrar toda la base de datos?\n\nSe eliminarán permanentemente todas las conversaciones, historiales y pestañas.\n\nEsta acción no se puede deshacer.',

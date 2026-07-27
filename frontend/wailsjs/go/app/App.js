@@ -78,6 +78,10 @@ export function ClearAllSkills() {
   return window['go']['app']['App']['ClearAllSkills']();
 }
 
+export function CleanupLegacyChannelJSON(arg1) {
+  return window['go']['app']['App']['CleanupLegacyChannelJSON'](arg1);
+}
+
 export function ClearConversation(arg1) {
   return window['go']['app']['App']['ClearConversation'](arg1);
 }
