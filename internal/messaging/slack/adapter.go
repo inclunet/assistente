@@ -229,31 +229,35 @@ func (s *SlackAdapter) handleMessage(ev *slackevents.MessageEvent) {
 		ctx = context.Background()
 	}
 
-	displayName := s.getUserDisplayName(ev.User)
-	timestamp := parseSlackTimestamp(ev.TimeStamp)
+	// Copia campos do evento: download + handler rodam em goroutine para
+	// não bloquear o event loop do Socket Mode.
+	userID := ev.User
+	channelID := ev.Channel
+	text := ev.Text
+	msgTS := ev.TimeStamp
+	files := append([]slackevents.File(nil), ev.Files...)
 
-	attachments := attachmentsFromSlackFiles(ctx, api, ev.Files)
-	if ev.Text == "" && len(attachments) == 0 {
-		return
-	}
+	go func() {
+		displayName := s.getUserDisplayName(userID)
+		attachments := attachmentsFromSlackFiles(ctx, api, files)
+		if text == "" && len(attachments) == 0 {
+			return
+		}
 
-	msg := messaging.IncomingMessage{
-		ID:          ev.TimeStamp,
-		Channel:     "slack",
-		Text:        ev.Text,
-		Attachments: attachments,
-		Timestamp:   timestamp,
-		From: messaging.Contact{
-			ID:          ev.User,
-			Username:    ev.User,
-			DisplayName: displayName,
-		},
-		ReplyChatID: ev.Channel,
-	}
-
-	// Processa em goroutine para não bloquear o event loop (download já
-	// ocorreu acima; o handler pode demorar no gateway/LLM).
-	go handler(ctx, msg)
+		handler(ctx, messaging.IncomingMessage{
+			ID:          msgTS,
+			Channel:     "slack",
+			Text:        text,
+			Attachments: attachments,
+			Timestamp:   parseSlackTimestamp(msgTS),
+			From: messaging.Contact{
+				ID:          userID,
+				Username:    userID,
+				DisplayName: displayName,
+			},
+			ReplyChatID: channelID,
+		})
+	}()
 }
 
 // shouldHandleMessage filtra eventos que o adapter deve processar.
@@ -427,27 +431,28 @@ func isSupportedInboundMIME(mime string) bool {
 	return ok
 }
 
+// extensionMIME maps extensão → MIME (package-level evita alocar a cada anexo).
+var extensionMIME = map[string]string{
+	".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+	".gif": "image/gif", ".webp": "image/webp",
+	".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".oga": "audio/ogg",
+	".wav": "audio/wav", ".aac": "audio/aac", ".m4a": "audio/mp4",
+	".mp4": "video/mp4", ".webm": "video/webm",
+	".pdf":  "application/pdf",
+	".doc":  "application/msword",
+	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	".xls":  "application/vnd.ms-excel",
+	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	".ppt":  "application/vnd.ms-powerpoint",
+	".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	".txt":  "text/plain",
+	".csv":  "text/csv",
+	".md":   "text/markdown",
+	".json": "application/json",
+}
+
 func mimeFromFilename(filename string) string {
-	ext := strings.ToLower(path.Ext(filename))
-	mimes := map[string]string{
-		".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
-		".gif": "image/gif", ".webp": "image/webp",
-		".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".oga": "audio/ogg",
-		".wav": "audio/wav", ".aac": "audio/aac", ".m4a": "audio/mp4",
-		".mp4": "video/mp4", ".webm": "video/webm",
-		".pdf":  "application/pdf",
-		".doc":  "application/msword",
-		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		".xls":  "application/vnd.ms-excel",
-		".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-		".ppt":  "application/vnd.ms-powerpoint",
-		".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-		".txt":  "text/plain",
-		".csv":  "text/csv",
-		".md":   "text/markdown",
-		".json": "application/json",
-	}
-	return mimes[ext]
+	return extensionMIME[strings.ToLower(path.Ext(filename))]
 }
 
 func firstNonEmpty(vals ...string) string {
