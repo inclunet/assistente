@@ -10,12 +10,25 @@ import (
 	"assistente/internal/database"
 )
 
+// bindMessagingDatabase ativa persistência SQLite para canais/contatos no boot
+// (AEP-0083). Fail-closed: após database.Init esperado, DB nil não pode cair
+// silenciosamente no filesystem — runtime de produção exige UseDatabase.
+// O código FS permanece para testes unitários (sem UseDatabase) e import legado read-only.
+func bindMessagingDatabase() error {
+	db := database.DB()
+	if db == nil {
+		return fmt.Errorf("banco de dados indisponível no boot de mensageria (AEP-0083): UseDatabase é obrigatório em produção — fallback silencioso para filesystem não é permitido")
+	}
+	channels.UseDatabase(db)
+	contacts.UseDatabase(db)
+	return nil
+}
+
 // initMessaging cria e inicializa o MessagingController, que gerencia o gateway,
 // conexões de canais e ferramentas de mensageria.
-func (a *App) initMessaging() {
-	if db := database.DB(); db != nil {
-		channels.UseDatabase(db)
-		contacts.UseDatabase(db)
+func (a *App) initMessaging() error {
+	if err := bindMessagingDatabase(); err != nil {
+		return err
 	}
 	a.msgCtrl = controllers.NewMessagingController(controllers.MessagingControllerConfig{
 		Ctx:           a.ctx,
@@ -31,6 +44,7 @@ func (a *App) initMessaging() {
 	a.msgCtrl.Init()
 	a.msgGateway = a.msgCtrl.Gateway()
 	a.responseNotifier = a.msgCtrl.ResponseNotifier()
+	return nil
 }
 
 // channelOwnedBy avalia se o canal pertence ao userID atual ou está sem
