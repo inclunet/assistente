@@ -6,7 +6,7 @@ import "time"
 // (Telegram, Signal, Slack, …). Segredos ficam apenas no CredManager via refs.
 type Channel struct {
 	UUIDModel
-	UserID      string `json:"userId" gorm:"index;uniqueIndex:ux_channels_user_slug"`
+	UserID      string `json:"userId" gorm:"not null;default:'';index;uniqueIndex:ux_channels_user_slug"`
 	Type        string `json:"type" gorm:"not null;index"` // telegram|signal|slack
 	Slug        string `json:"slug" gorm:"not null;index;uniqueIndex:ux_channels_user_slug"`
 	DisplayName string `json:"displayName" gorm:"not null"`
@@ -26,7 +26,7 @@ func (Channel) TableName() string { return "channels" }
 // ChannelContact é um contato autorizado vinculado a um canal.
 type ChannelContact struct {
 	UUIDModel
-	UserID       string     `json:"userId" gorm:"index"`
+	UserID       string     `json:"userId" gorm:"not null;default:'';index"`
 	ChannelID    string     `json:"channelId" gorm:"not null;index;uniqueIndex:ux_channel_contacts_channel_external"`
 	ExternalID   string     `json:"externalId" gorm:"not null;uniqueIndex:ux_channel_contacts_channel_external"`
 	DisplayName  string     `json:"displayName"`
