@@ -530,20 +530,21 @@ func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, r
 		return err
 	}
 	logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s resposta enviada", traceID, conversationID, channel)
-	// M14: marca entrega antes do Delete. Janela residual (crash entre Send e
-	// MarkDelivered) pode reenviar no reconcile — at-least-once intencional;
-	// marcar antes do Send causaria perda silenciosa se o crash fosse entre
-	// Mark e Send. Após MarkDelivered, reconcile/retry consultam o store fresco
-	// (pendingSendGate) e só limpam — sem segundo Send ao contato.
+	// M14: após Send OK, SEMPRE MarkDelivered antes do Delete — inclusive com
+	// assistantMsgID vazio (sentinel delivered:<traceID>). Pular a marca quando
+	// o ID vinha vazio deixava pending sem DeliveredAssistantID e o reconcile
+	// reenviava. Janela residual (crash entre Send e MarkDelivered) ainda pode
+	// reenviar — at-least-once intencional; marcar antes do Send causaria perda
+	// silenciosa se o crash fosse entre Mark e Send. Após MarkDelivered,
+	// reconcile/retry (pendingSendGate) só limpam — sem segundo Send ao contato.
 	if g.notifier != nil {
 		if store := g.notifier.pendingStore(); store != nil && conversationID != "" {
 			// Background: ctx do adapter pode cancelar no shutdown após Send OK.
 			storeCtx := context.Background()
-			if assistantMsgID != "" {
-				if err := store.MarkDelivered(storeCtx, conversationID, traceID, assistantMsgID); err != nil {
-					logging.Warnf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s falha ao marcar pending entregue: %v",
-						traceID, conversationID, err)
-				}
+			markID := pendingDeliveredMarkID(assistantMsgID, traceID)
+			if err := store.MarkDelivered(storeCtx, conversationID, traceID, markID); err != nil {
+				logging.Warnf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s falha ao marcar pending entregue: %v",
+					traceID, conversationID, err)
 			}
 			if err := store.DeleteIfTrace(storeCtx, conversationID, traceID); err != nil {
 				logging.Warnf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s falha ao remover pending após send: %v",
