@@ -11,6 +11,9 @@ import (
 // runPostLoginLegacyImports executa todos os imports somente-leitura FS→DB que
 // exigem usuário autenticado. Os managers de runtime devem carregar do DB só
 // depois desta fase.
+//
+// NUNCA chamar CleanupLegacyJSONFiles / CleanupLegacyChannelJSON daqui —
+// a remoção de channels/*.json e contacts.json é opt-in via UI (AEP-0083).
 func (a *App) runPostLoginLegacyImports(ctx context.Context) {
 	service := portability.NewLegacyImportService()
 	if a.mcpMgr != nil {

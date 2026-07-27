@@ -41,6 +41,11 @@ func usingDB() bool {
 	return storeDB != nil
 }
 
+// UsingDatabase reporta se a fachada está no modo SQLite (AEP-0083).
+func UsingDatabase() bool {
+	return usingDB()
+}
+
 func rememberOwner(slug, userID string) {
 	slug = strings.TrimSpace(slug)
 	userID = strings.TrimSpace(userID)

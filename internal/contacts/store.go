@@ -26,6 +26,11 @@ func usingDB() bool {
 	return storeDB != nil
 }
 
+// UsingDatabase reporta se a fachada de contatos está no modo SQLite (AEP-0083).
+func UsingDatabase() bool {
+	return usingDB()
+}
+
 func resolveChannel(slug string) (channelID, userID string, err error) {
 	channelID, userID, err = channels.ChannelIDBySlug(slug)
 	if err != nil {
