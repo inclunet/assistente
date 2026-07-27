@@ -61,6 +61,15 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 					rec.ConversationID, msgID)
 				continue
 			}
+			// Upsert de turno novo durante o reconcile (Connect concorrente):
+			// não reenviar snapshot obsoleto — DeleteIfTrace do deliver também
+			// falharia em silêncio e a pendência nova ficaria para o turno vivo.
+			matches, known := pendingTraceState(store, rec.ConversationID, rec.TraceID)
+			if known && !matches {
+				logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile: pending supersedido conv=%s trace=%s — pula reenvio",
+					rec.ConversationID, rec.TraceID)
+				continue
+			}
 			if err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
 				logging.Errorf(recCtx, "messaging.gateway", "[Gateway] reconcile: send falhou conv=%s: %v (agendando retry)", rec.ConversationID, err)
 				g.scheduleRetryReconcileSend(rec, content, msgID)

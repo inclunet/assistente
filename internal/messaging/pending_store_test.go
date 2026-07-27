@@ -429,6 +429,77 @@ func TestResponseNotifier_SkipPersistChannelSurvivesTTL(t *testing.T) {
 	}
 }
 
+func TestGateway_ReconcilePending_SkipsSupersededTrace(t *testing.T) {
+	// List inicial devolve stale; pendingTraceState (2º List) vê fresh → pula reenvio.
+	staleFirst := &staleThenFreshStore{
+		stale: ChannelPendingRecord{
+			ConversationID: "conv-s2",
+			Channel:        "telegram",
+			ChatID:         "2",
+			OwnerUserID:    "owner-1",
+			TraceID:        "trace-stale",
+			CreatedAt:      time.Now().UTC().Add(-time.Minute),
+		},
+		fresh: ChannelPendingRecord{
+			ConversationID: "conv-s2",
+			Channel:        "telegram",
+			ChatID:         "2",
+			OwnerUserID:    "owner-1",
+			TraceID:        "trace-fresh",
+			CreatedAt:      time.Now().UTC(),
+		},
+	}
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+	notifier.SetPendingStore(staleFirst)
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	gateway := NewGateway(notifier, nil, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	gateway.ReconcilePending(context.Background(), func(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
+		return "não enviar", "asst-x", true, nil
+	})
+	select {
+	case msg := <-fake.sentCh:
+		t.Fatalf("não deveria reenviar snapshot supersedido: %+v", msg)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// staleThenFreshStore: primeiro List devolve stale; List seguintes devolvem fresh
+// (simula Upsert concorrente entre List inicial e pendingTraceState).
+type staleThenFreshStore struct {
+	mu    sync.Mutex
+	calls int
+	stale ChannelPendingRecord
+	fresh ChannelPendingRecord
+}
+
+func (s *staleThenFreshStore) Upsert(ctx context.Context, rec ChannelPendingRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fresh = rec
+	return nil
+}
+func (s *staleThenFreshStore) Delete(ctx context.Context, conversationID string) error {
+	return nil
+}
+func (s *staleThenFreshStore) DeleteIfTrace(ctx context.Context, conversationID, traceID string) error {
+	return nil
+}
+func (s *staleThenFreshStore) MarkDelivered(ctx context.Context, conversationID, traceID, assistantMsgID string) error {
+	return nil
+}
+func (s *staleThenFreshStore) List(ctx context.Context) ([]ChannelPendingRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls++
+	if s.calls == 1 {
+		return []ChannelPendingRecord{s.stale}, nil
+	}
+	return []ChannelPendingRecord{s.fresh}, nil
+}
+
 func TestGateway_ReconcilePending_AlreadyDeliveredSkipsSend(t *testing.T) {
 	store := newMemPendingStore()
 	_ = store.Upsert(context.Background(), ChannelPendingRecord{
