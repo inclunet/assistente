@@ -25,6 +25,8 @@ Este guia explica como criar e configurar um bot Slack para uso no Assistente.
    - channels:history
    - channels:read
    - chat:write
+   - files:read (obrigatório para baixar anexos inbound; sem ele, só texto funciona)
+   - files:write (obrigatório para enviar anexos outbound via upload)
    - groups:history
    - groups:read
    - im:history
@@ -34,7 +36,7 @@ Este guia explica como criar e configurar um bot Slack para uso no Assistente.
    - mpim:read
    - mpim:write
    - users:read
-3. Clique em Install to Workspace
+3. Clique em Install to Workspace (e reinstale se adicionar scopes depois)
 4. Copie o token gerado (xoxb-...)
 
 ## 4) Event Subscriptions
@@ -61,3 +63,5 @@ Este guia explica como criar e configurar um bot Slack para uso no Assistente.
 ## 7) Dicas
 - Para responder apenas quando for mencionado, use app_mention e ignore message.*
 - Para usar mensagens privadas, mantenha im:* e mpim:*
+- Sem `files:read`, o Assistente conecta e troca texto normalmente, mas ignora anexos inbound (com aviso no log). Sem `files:write`, o envio de anexos falha.
+- Após alterar scopes, reinstale o app no workspace para o Bot Token refletir as novas permissões.
