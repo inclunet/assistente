@@ -346,7 +346,9 @@ func TestHandleMessage_DropsWhenInboundSaturated(t *testing.T) {
 
 	s := NewAdapter("xoxb-test", "xapp-test")
 	s.mu.Lock()
-	s.fileAPI = &fakeFileAPI{files: map[string][]byte{}}
+	s.fileAPI = &fakeFileAPI{files: map[string][]byte{
+		"https://files.slack.com/a.png": []byte("PNG"),
+	}}
 	s.ctx = context.Background()
 	s.mu.Unlock()
 
@@ -363,13 +365,54 @@ func TestHandleMessage_DropsWhenInboundSaturated(t *testing.T) {
 	s.handleMessage(&slackevents.MessageEvent{
 		User:    "U1",
 		Channel: "C1",
-		Text:    "oi",
+		Text:    "capa",
+		SubType: "file_share",
+		Files: []slackevents.File{{
+			ID:                 "F1",
+			Name:               "a.png",
+			Mimetype:           "image/png",
+			URLPrivateDownload: "https://files.slack.com/a.png",
+		}},
 	})
 
 	select {
 	case <-called:
 		t.Fatal("handler nao deveria ser chamado com inbound saturado")
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestHandleMessage_TextBypassesInboundSemaphore(t *testing.T) {
+	t.Parallel()
+
+	s := NewAdapter("xoxb-test", "xapp-test")
+	s.mu.Lock()
+	s.fileAPI = &fakeFileAPI{files: map[string][]byte{}}
+	s.ctx = context.Background()
+	s.mu.Unlock()
+
+	for i := 0; i < maxInboundInFlight; i++ {
+		s.inboundSem <- struct{}{}
+	}
+
+	done := make(chan messaging.IncomingMessage, 1)
+	s.SetHandler(func(ctx context.Context, msg messaging.IncomingMessage) {
+		done <- msg
+	})
+
+	s.handleMessage(&slackevents.MessageEvent{
+		User:    "U1",
+		Channel: "C1",
+		Text:    "so texto",
+	})
+
+	select {
+	case msg := <-done:
+		if msg.Text != "so texto" {
+			t.Fatalf("texto=%q", msg.Text)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("texto puro nao deveria ser descartado pelo semaforo")
 	}
 }
 

@@ -244,17 +244,7 @@ func (s *SlackAdapter) handleMessage(ev *slackevents.MessageEvent) {
 	msgTS := ev.TimeStamp
 	files := append([]slackevents.File(nil), ev.Files...)
 
-	select {
-	case s.inboundSem <- struct{}{}:
-	default:
-		logging.Errorf(ctx, logComponent, "[Slack] inbound saturado (%d em voo); mensagem descartada (user=%s channel=%s files=%d)",
-			maxInboundInFlight, userID, channelID, len(files))
-		return
-	}
-
-	go func() {
-		defer func() { <-s.inboundSem }()
-
+	process := func() {
 		displayName := s.getUserDisplayName(userID)
 		attachments := attachmentsFromSlackFiles(ctx, api, files)
 		if text == "" && len(attachments) == 0 {
@@ -274,7 +264,25 @@ func (s *SlackAdapter) handleMessage(ev *slackevents.MessageEvent) {
 			},
 			ReplyChatID: channelID,
 		})
-	}()
+	}
+
+	// Semáforo só para mensagens com arquivos (I/O pesado). Texto puro
+	// não deve ser descartado em burst.
+	if len(files) == 0 {
+		go process()
+		return
+	}
+
+	select {
+	case s.inboundSem <- struct{}{}:
+		go func() {
+			defer func() { <-s.inboundSem }()
+			process()
+		}()
+	default:
+		logging.Errorf(ctx, logComponent, "[Slack] inbound saturado (%d em voo); mensagem com anexos descartada (user=%s channel=%s files=%d)",
+			maxInboundInFlight, userID, channelID, len(files))
+	}
 }
 
 // shouldHandleMessage filtra eventos que o adapter deve processar.
