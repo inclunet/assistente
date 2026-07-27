@@ -52,6 +52,15 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 			continue
 		}
 		if ok && content != "" {
+			// Send já concluiu antes do Delete (crash entre MarkDelivered e Delete).
+			if rec.DeliveredAssistantID != "" && rec.DeliveredAssistantID == msgID {
+				if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
+					logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete já-entregue conv=%s: %v", rec.ConversationID, err)
+				}
+				logging.Infof(recCtx, "messaging.gateway", "[Gateway] reconcile: pending já entregue conv=%s msg=%s — só limpeza",
+					rec.ConversationID, msgID)
+				continue
+			}
 			if err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
 				logging.Errorf(recCtx, "messaging.gateway", "[Gateway] reconcile: send falhou conv=%s: %v (agendando retry)", rec.ConversationID, err)
 				g.scheduleRetryReconcileSend(rec, content, msgID)

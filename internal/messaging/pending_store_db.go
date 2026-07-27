@@ -16,14 +16,15 @@ func NewDBChannelPendingStore() *DBChannelPendingStore {
 
 func (s *DBChannelPendingStore) Upsert(ctx context.Context, rec ChannelPendingRecord) error {
 	return database.UpsertChannelResponsePending(ctx, &database.ChannelResponsePending{
-		ConversationID: rec.ConversationID,
-		Channel:        rec.Channel,
-		ChatID:         rec.ChatID,
-		AudioOnly:      rec.AudioOnly,
-		TraceID:        rec.TraceID,
-		OwnerUserID:    rec.OwnerUserID,
-		ReplyToMsgID:   rec.ReplyToMsgID,
-		CreatedAt:      rec.CreatedAt,
+		ConversationID:       rec.ConversationID,
+		Channel:              rec.Channel,
+		ChatID:               rec.ChatID,
+		AudioOnly:            rec.AudioOnly,
+		TraceID:              rec.TraceID,
+		OwnerUserID:          rec.OwnerUserID,
+		ReplyToMsgID:         rec.ReplyToMsgID,
+		DeliveredAssistantID: rec.DeliveredAssistantID,
+		CreatedAt:            rec.CreatedAt,
 	})
 }
 
@@ -35,6 +36,10 @@ func (s *DBChannelPendingStore) DeleteIfTrace(ctx context.Context, conversationI
 	return database.DeleteChannelResponsePendingIfTrace(ctx, conversationID, traceID)
 }
 
+func (s *DBChannelPendingStore) MarkDelivered(ctx context.Context, conversationID, traceID, assistantMsgID string) error {
+	return database.MarkChannelResponsePendingDelivered(ctx, conversationID, traceID, assistantMsgID)
+}
+
 func (s *DBChannelPendingStore) List(ctx context.Context) ([]ChannelPendingRecord, error) {
 	rows, err := database.ListChannelResponsePending(ctx)
 	if err != nil {
@@ -43,14 +48,15 @@ func (s *DBChannelPendingStore) List(ctx context.Context) ([]ChannelPendingRecor
 	out := make([]ChannelPendingRecord, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, ChannelPendingRecord{
-			ConversationID: r.ConversationID,
-			Channel:        r.Channel,
-			ChatID:         r.ChatID,
-			AudioOnly:      r.AudioOnly,
-			TraceID:        r.TraceID,
-			OwnerUserID:    r.OwnerUserID,
-			ReplyToMsgID:   r.ReplyToMsgID,
-			CreatedAt:      r.CreatedAt,
+			ConversationID:       r.ConversationID,
+			Channel:              r.Channel,
+			ChatID:               r.ChatID,
+			AudioOnly:            r.AudioOnly,
+			TraceID:              r.TraceID,
+			OwnerUserID:          r.OwnerUserID,
+			ReplyToMsgID:         r.ReplyToMsgID,
+			DeliveredAssistantID: r.DeliveredAssistantID,
+			CreatedAt:            r.CreatedAt,
 		})
 	}
 	return out, nil

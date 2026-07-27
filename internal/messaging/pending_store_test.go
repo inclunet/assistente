@@ -46,6 +46,21 @@ func (s *memPendingStore) DeleteIfTrace(ctx context.Context, conversationID, tra
 	return nil
 }
 
+func (s *memPendingStore) MarkDelivered(ctx context.Context, conversationID, traceID, assistantMsgID string) error {
+	if conversationID == "" || assistantMsgID == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.rows[conversationID]
+	if !ok || rec.TraceID != traceID {
+		return nil
+	}
+	rec.DeliveredAssistantID = assistantMsgID
+	s.rows[conversationID] = rec
+	return nil
+}
+
 func (s *memPendingStore) List(ctx context.Context) ([]ChannelPendingRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -177,7 +192,7 @@ func TestResponseNotifier_SkipsPersistingInternalCallbacks(t *testing.T) {
 	}
 }
 
-func TestResponseNotifier_TTLExpiresChannelPendingWhileInternalRemains(t *testing.T) {
+func TestResponseNotifier_DurableChannelSurvivesTTLAndStillNotifies(t *testing.T) {
 	store := newMemPendingStore()
 	now := time.Now()
 	clock := func() time.Time { return now }
@@ -185,12 +200,13 @@ func TestResponseNotifier_TTLExpiresChannelPendingWhileInternalRemains(t *testin
 	defer n.Stop()
 	n.SetPendingStore(store)
 
+	fired := make(chan struct{}, 1)
 	n.Register("conv-mixed", ResponseCallback{
 		Channel:     "telegram",
 		ChatID:      "123",
 		OwnerUserID: "owner-1",
 		Callback: func(string, string) {
-			t.Fatal("callback de canal expirado não deveria ser chamado")
+			fired <- struct{}{}
 		},
 	})
 	n.Register("conv-mixed", ResponseCallback{
@@ -208,13 +224,20 @@ func TestResponseNotifier_TTLExpiresChannelPendingWhileInternalRemains(t *testin
 	now = now.Add(callbackTTL + time.Minute)
 	n.expireOldCallbacks()
 
-	// M14: store dura além do TTL in-memory (LLM longo / crash antes do Notify).
+	// M14: canal persistido permanece em memória E no store além do TTL padrão.
 	rows, _ = store.List(context.Background())
 	if len(rows) != 1 {
-		t.Fatalf("pending de canal deve permanecer no store após TTL in-memory; got %+v", rows)
+		t.Fatalf("pending de canal deve permanecer no store; got %+v", rows)
 	}
-	if n.PendingCount() != 1 {
-		t.Fatalf("callback interno deveria permanecer; pending=%d", n.PendingCount())
+	if n.PendingCount() != 2 {
+		t.Fatalf("canal durável + ui deveriam permanecer; pending=%d", n.PendingCount())
+	}
+
+	n.Notify("conv-mixed", "tarde", "asst-1")
+	select {
+	case <-fired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Notify após TTL padrão deveria entregar callback de canal durável")
 	}
 }
 
@@ -329,6 +352,41 @@ func TestGateway_ReconcilePending_ResendsSavedAssistant(t *testing.T) {
 	rows, _ := store.List(context.Background())
 	if len(rows) != 0 {
 		t.Fatalf("pending deveria ser apagado após reconcile, got %+v", rows)
+	}
+}
+
+func TestGateway_ReconcilePending_AlreadyDeliveredSkipsSend(t *testing.T) {
+	store := newMemPendingStore()
+	_ = store.Upsert(context.Background(), ChannelPendingRecord{
+		ConversationID:       "conv-d",
+		Channel:              "telegram",
+		ChatID:               "55",
+		OwnerUserID:          "owner-1",
+		TraceID:              "trace-d",
+		DeliveredAssistantID: "asst-d",
+		CreatedAt:            time.Now().UTC().Add(-time.Minute),
+	})
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+	notifier.SetPendingStore(store)
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	gateway := NewGateway(notifier, nil, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	gateway.ReconcilePending(context.Background(), func(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
+		return "já enviado", "asst-d", true, nil
+	})
+
+	select {
+	case msg := <-fake.sentCh:
+		t.Fatalf("não deveria reenviar mensagem já entregue: %+v", msg)
+	case <-time.After(200 * time.Millisecond):
+	}
+	rows, _ := store.List(context.Background())
+	if len(rows) != 0 {
+		t.Fatalf("pending já entregue deveria ser só limpo; got %+v", rows)
 	}
 }
 

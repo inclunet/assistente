@@ -16,14 +16,15 @@ import (
 // Register sobrescreve a anterior (turno novo supersede). Deletes pós-Send
 // usam TraceID para não apagar a linha de um turno mais recente.
 type ChannelResponsePending struct {
-	ConversationID string    `gorm:"type:text;primaryKey" json:"conversation_id"`
-	Channel        string    `gorm:"type:text;not null;index" json:"channel"`
-	ChatID         string    `gorm:"type:text;not null" json:"chat_id"`
-	AudioOnly      bool      `json:"audio_only"`
-	TraceID        string    `gorm:"type:text" json:"trace_id"`
-	OwnerUserID    string    `gorm:"type:text;index" json:"owner_user_id"`
-	ReplyToMsgID   string    `gorm:"type:text" json:"reply_to_msg_id"`
-	CreatedAt      time.Time `json:"created_at"`
+	ConversationID       string    `gorm:"type:text;primaryKey" json:"conversation_id"`
+	Channel              string    `gorm:"type:text;not null;index" json:"channel"`
+	ChatID               string    `gorm:"type:text;not null" json:"chat_id"`
+	AudioOnly            bool      `json:"audio_only"`
+	TraceID              string    `gorm:"type:text" json:"trace_id"`
+	OwnerUserID          string    `gorm:"type:text;index" json:"owner_user_id"`
+	ReplyToMsgID         string    `gorm:"type:text" json:"reply_to_msg_id"`
+	DeliveredAssistantID string    `gorm:"type:text" json:"delivered_assistant_id"` // set após Send OK; evita reenvio no reconcile
+	CreatedAt            time.Time `json:"created_at"`
 }
 
 var errDBNotInitialized = errors.New("banco de dados não inicializado")
@@ -75,6 +76,26 @@ func DeleteChannelResponsePendingIfTrace(ctx context.Context, conversationID, tr
 		q = q.Where("trace_id = ?", traceID)
 	}
 	return q.Delete(&ChannelResponsePending{}).Error
+}
+
+// MarkChannelResponsePendingDelivered grava o assistantMsgID após Send OK,
+// antes do Delete. Se o processo cair entre Send e Delete, o reconcile vê a
+// marca e só limpa a linha — sem reenviar ao contato.
+func MarkChannelResponsePendingDelivered(ctx context.Context, conversationID, traceID, assistantMsgID string) error {
+	if conversationID == "" || assistantMsgID == "" {
+		return nil
+	}
+	db := DB()
+	if db == nil {
+		return errDBNotInitialized
+	}
+	q := db.WithContext(ctx).Model(&ChannelResponsePending{}).Where("conversation_id = ?", conversationID)
+	if traceID == "" {
+		q = q.Where("trace_id = '' OR trace_id IS NULL")
+	} else {
+		q = q.Where("trace_id = ?", traceID)
+	}
+	return q.Update("delivered_assistant_id", assistantMsgID).Error
 }
 
 // ListChannelResponsePending retorna todas as pendências (startup reconcile).

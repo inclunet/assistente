@@ -7,14 +7,15 @@ import (
 
 // ChannelPendingRecord é o espelho persistido de um callback de canal.
 type ChannelPendingRecord struct {
-	ConversationID string
-	Channel        string
-	ChatID         string
-	AudioOnly      bool
-	TraceID        string
-	OwnerUserID    string
-	ReplyToMsgID   string
-	CreatedAt      time.Time
+	ConversationID       string
+	Channel              string
+	ChatID               string
+	AudioOnly            bool
+	TraceID              string
+	OwnerUserID          string
+	ReplyToMsgID         string
+	DeliveredAssistantID string
+	CreatedAt            time.Time
 }
 
 // ChannelPendingStore persiste intents de resposta outbound (M14).
@@ -23,6 +24,8 @@ type ChannelPendingStore interface {
 	Delete(ctx context.Context, conversationID string) error
 	// DeleteIfTrace remove só se o TraceID atual ainda corresponde ao turno entregue.
 	DeleteIfTrace(ctx context.Context, conversationID, traceID string) error
+	// MarkDelivered grava assistantMsgID após Send OK (antes do DeleteIfTrace).
+	MarkDelivered(ctx context.Context, conversationID, traceID, assistantMsgID string) error
 	List(ctx context.Context) ([]ChannelPendingRecord, error)
 }
 

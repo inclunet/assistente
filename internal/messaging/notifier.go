@@ -156,6 +156,13 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 		fresh := pendings[:0]
 		var expired []pendingCallback
 		for _, p := range pendings {
+			// M14: callbacks de canal persistidos ficam até Notify/Cancel/
+			// reconcile. Expirar só a memória fazia Notify no-op enquanto o
+			// store durável ainda existia (LLM > callbackTTL sem restart).
+			if shouldPersistChannelCallback(p.cb) && !p.cb.SkipPersist {
+				fresh = append(fresh, p)
+				continue
+			}
 			if p.expiresAt.Before(now) {
 				expired = append(expired, p)
 				continue
@@ -182,11 +189,8 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 		logging.Debugf(context.Background(), "messaging.notifier", "[Notifier] Callback expirado por TTL trace=%s conv=%s channel=%s (>%.0fmin sem resposta)",
 			e.traceID, e.convID, e.channel, e.minutes)
 	}
-	// M14: NÃO apagar channel_response_pending no TTL in-memory.
-	// LLM longo (>callbackTTL) pode ainda salvar assistant e chamar Notify;
-	// se apagarmos o store aqui, deliver nunca roda e o reconcile no restart
-	// também perde a intenção. Store só sai em DeleteIfTrace (Send OK),
-	// Cancel, ou reconcile sem assistant após idade.
+	// Store channel_response_pending também só sai em DeleteIfTrace (Send OK),
+	// Cancel/CancelTrace, ou reconcile sem assistant após idade.
 }
 
 // expiredLogEntry carrega os dados (já copiados sob o lock) para logar a

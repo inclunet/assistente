@@ -507,10 +507,16 @@ func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, r
 		return err
 	}
 	logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s resposta enviada", traceID, conversationID, channel)
-	// M14: remove pendência só se ainda for o mesmo turno (TraceID).
-	// Evita que retry atrasado apague pending de mensagem mais recente.
+	// M14: marca entrega antes do Delete — se o processo cair entre Send e
+	// Delete, o reconcile vê DeliveredAssistantID e não reenvia.
 	if g.notifier != nil {
 		if store := g.notifier.pendingStore(); store != nil && conversationID != "" {
+			if assistantMsgID != "" {
+				if err := store.MarkDelivered(ctx, conversationID, traceID, assistantMsgID); err != nil {
+					logging.Warnf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s falha ao marcar pending entregue: %v",
+						traceID, conversationID, err)
+				}
+			}
 			if err := store.DeleteIfTrace(ctx, conversationID, traceID); err != nil {
 				logging.Warnf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s falha ao remover pending após send: %v",
 					traceID, conversationID, err)
