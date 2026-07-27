@@ -105,7 +105,12 @@ func getAllDB() (ContactsFile, error) {
 func isAuthorizedDB(channel string, maxContacts int, identifiers ...string) (hasContacts bool, isAllowed bool) {
 	maxContacts = normalizeMaxContacts(maxContacts)
 	list, err := getForChannelDB(channel)
-	if err != nil || len(list) == 0 {
+	if err != nil {
+		// Fail-closed: erro interno (ex.: channels DB off, falha GORM)
+		// não deve abrir pareamento — rejeita como se o limite estivesse cheio.
+		return true, false
+	}
+	if len(list) == 0 {
 		return false, false
 	}
 	for _, contact := range list {

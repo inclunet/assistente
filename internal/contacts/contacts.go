@@ -83,6 +83,9 @@ func GetForChannel(channel string) ([]*AuthorizedContact, error) {
 //     rejeitar; seguir fluxo de pareamento/autorização”.
 //
 // Sem UseDatabase: fail-closed (true, false) — rejeita sem abrir pareamento.
+// Erros internos no caminho DB (ex.: channels sem UseDatabase) também
+// rejeitam com (true, false); só (false, false) quando a lista está
+// vazia de fato.
 func IsAuthorized(channel string, maxContacts int, identifiers ...string) (hasContacts bool, isAllowed bool) {
 	mu.Lock()
 	defer mu.Unlock()
