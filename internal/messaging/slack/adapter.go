@@ -25,9 +25,9 @@ const (
 
 	// maxInboundFileBytes limita bytes brutos por arquivo no download inbound.
 	// O gateway serializa anexos em media JSON com base64 (~4/3) e o chat valida
-	// len(UserMedia) contra chat.MaxMediaSize (20 MiB). 15 MiB brutos ≈ 20 MiB
-	// em base64, deixando folga para overhead JSON de um único anexo.
-	maxInboundFileBytes = 15 * 1024 * 1024
+	// len(UserMedia) contra chat.MaxMediaSize (20 MiB). 14 MiB brutos ≈ 18,7 MiB
+	// em base64, deixando folga para o envelope JSON (name/type/size) de um anexo.
+	maxInboundFileBytes = 14 * 1024 * 1024
 	maxInboundFiles     = 10
 )
 
@@ -449,6 +449,10 @@ var extensionMIME = map[string]string{
 	".csv":  "text/csv",
 	".md":   "text/markdown",
 	".json": "application/json",
+	".rtf":  "application/rtf",
+	".xml":  "application/xml",
+	".html": "text/html",
+	".htm":  "text/html",
 }
 
 func mimeFromFilename(filename string) string {

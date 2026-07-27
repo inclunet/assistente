@@ -236,6 +236,9 @@ func TestMimeFromFilenameAndSupported(t *testing.T) {
 		isSupportedInboundMIME("") {
 		t.Fatal("tipos não suportados deveriam ser rejeitados")
 	}
+	if mimeFromFilename("nota.rtf") != "application/rtf" || mimeFromFilename("page.html") != "text/html" {
+		t.Fatal("extensoes do allowlist devem mapear via mimeFromFilename")
+	}
 }
 
 func TestAttachmentFromSlackFile_RejectsUnsupportedMIME(t *testing.T) {
