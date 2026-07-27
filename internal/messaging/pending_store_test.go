@@ -110,6 +110,44 @@ func TestResponseNotifier_PersistsChannelCallback(t *testing.T) {
 	}
 }
 
+func TestResponseNotifier_WailsNotifyDoesNotFireGateway(t *testing.T) {
+	n := NewResponseNotifier()
+	defer n.Stop()
+
+	gwFired := make(chan struct{}, 1)
+	brFired := make(chan struct{}, 1)
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "1",
+		OwnerUserID: "owner-1",
+		TraceID:     "trace-gw",
+		Callback:    func(string, string) { gwFired <- struct{}{} },
+	})
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "1",
+		OwnerUserID: "owner-1",
+		SkipPersist: true,
+		Callback:    func(string, string) { brFired <- struct{}{} },
+	})
+
+	// Wails: Notify sem TraceID — só bridge.
+	n.Notify("conv-1", "wails", "asst")
+	select {
+	case <-brFired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("bridge deveria disparar no Notify Wails")
+	}
+	select {
+	case <-gwFired:
+		t.Fatal("gateway não deve disparar no Notify Wails sem TraceID")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if n.PendingCount() != 1 {
+		t.Fatalf("gateway deveria permanecer; pending=%d", n.PendingCount())
+	}
+}
+
 func TestResponseNotifier_NotifyContextKeepsOtherTrace(t *testing.T) {
 	n := NewResponseNotifier()
 	defer n.Stop()
