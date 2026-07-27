@@ -74,7 +74,9 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 
 		expired := rec.CreatedAt.Add(callbackTTL).Before(now)
 		if expired {
-			if err := store.Delete(recCtx, rec.ConversationID); err != nil {
+			// DeleteIfTrace: Upsert de turno novo entre List e Delete não pode
+			// apagar a pendência mais recente (PK = conversation_id).
+			if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
 				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete expirado conv=%s: %v", rec.ConversationID, err)
 			}
 			logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile: pendência expirada sem assistant conv=%s channel=%s",
@@ -86,7 +88,7 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 		// Limpa memória antes para não acumular callbacks (Notify dispararia todos).
 		remaining := time.Until(rec.CreatedAt.Add(callbackTTL))
 		if remaining <= 0 {
-			if err := store.Delete(recCtx, rec.ConversationID); err != nil {
+			if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
 				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete expirado conv=%s: %v", rec.ConversationID, err)
 			}
 			continue
