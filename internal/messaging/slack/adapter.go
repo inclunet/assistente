@@ -26,17 +26,19 @@ const (
 	// maxInboundFileBytes limita bytes brutos por arquivo no download inbound.
 	// O gateway serializa anexos em media JSON com base64 (~4/3) e o chat valida
 	// len(UserMedia) contra chat.MaxMediaSize (20 MiB). 14 MiB brutos ≈ 18,7 MiB
-	// em base64, deixando folga para o envelope JSON (name/type/size) de um anexo.
-	maxInboundFileBytes = 14 * 1024 * 1024
-	maxInboundFiles     = 10
+	// em base64, deixando folga para o envelope JSON (name/type/size).
+	maxInboundFileBytes  = 14 * 1024 * 1024
+	maxInboundTotalBytes = 14 * 1024 * 1024 // teto agregado por mensagem (mesmo orçamento)
+	maxInboundFiles      = 10
 
 	// maxInboundInFlight limita downloads+handlers concorrentes (backpressure).
 	maxInboundInFlight = 4
 )
 
-// fileAPI abstrai o download autenticado da Slack API (permite fake em testes).
+// fileAPI abstrai download/resolução autenticados da Slack API (testável).
 type fileAPI interface {
 	GetFileContext(ctx context.Context, downloadURL string, writer io.Writer) error
+	GetFileInfoContext(ctx context.Context, fileID string, count, page int) (*slack.File, []slack.Comment, *slack.Paging, error)
 }
 
 // SlackAdapter implementa messaging.Messenger para Slack via Socket Mode.
@@ -323,17 +325,30 @@ func attachmentsFromSlackFiles(ctx context.Context, api fileAPI, files []slackev
 	}
 
 	var out []messaging.Attachment
+	var totalBytes int64
 	for i := 0; i < limit; i++ {
 		f := files[i]
+		if f.Size > 0 && totalBytes+int64(f.Size) > maxInboundTotalBytes {
+			logging.Errorf(ctx, logComponent, "[Slack] Anexo ignorado (id=%s name=%q): estoura teto agregado (%d+%d > %d)",
+				f.ID, f.Name, totalBytes, f.Size, maxInboundTotalBytes)
+			continue
+		}
 		att, err := attachmentFromSlackFile(ctx, api, f)
 		if err != nil {
 			logging.Errorf(ctx, logComponent, "[Slack] Anexo ignorado (id=%s name=%q mime=%q): %v",
 				f.ID, f.Name, f.Mimetype, err)
 			continue
 		}
-		if att != nil {
-			out = append(out, *att)
+		if att == nil {
+			continue
 		}
+		if totalBytes+int64(len(att.Data)) > maxInboundTotalBytes {
+			logging.Errorf(ctx, logComponent, "[Slack] Anexo ignorado (id=%s name=%q): estoura teto agregado após download (%d+%d > %d)",
+				f.ID, f.Name, totalBytes, len(att.Data), maxInboundTotalBytes)
+			continue
+		}
+		totalBytes += int64(len(att.Data))
+		out = append(out, *att)
 	}
 	return out
 }
@@ -345,13 +360,26 @@ func attachmentFromSlackFile(ctx context.Context, api fileAPI, f slackevents.Fil
 	if f.IsExternal {
 		return nil, fmt.Errorf("arquivo externo não suportado")
 	}
-	if f.Size > maxInboundFileBytes {
-		return nil, fmt.Errorf("arquivo grande demais (%d bytes; máx %d)", f.Size, maxInboundFileBytes)
-	}
 
+	// Slack Connect e alguns eventos enviam stub só com id — resolver via files.info.
 	downloadURL := firstNonEmpty(f.URLPrivateDownload, f.URLPrivate)
 	if downloadURL == "" {
-		return nil, fmt.Errorf("url de download ausente (requer scope files:read?)")
+		if f.ID == "" {
+			return nil, fmt.Errorf("url de download ausente (requer scope files:read?)")
+		}
+		info, _, _, err := api.GetFileInfoContext(ctx, f.ID, 0, 0)
+		if err != nil {
+			return nil, fmt.Errorf("files.info (%s): %w", f.ID, err)
+		}
+		f = mergeSlackFileMeta(f, info)
+		downloadURL = firstNonEmpty(f.URLPrivateDownload, f.URLPrivate)
+		if downloadURL == "" {
+			return nil, fmt.Errorf("url de download ausente após files.info (id=%s)", f.ID)
+		}
+	}
+
+	if f.Size > maxInboundFileBytes {
+		return nil, fmt.Errorf("arquivo grande demais (%d bytes; máx %d)", f.Size, maxInboundFileBytes)
 	}
 
 	mime := strings.ToLower(strings.TrimSpace(f.Mimetype))
@@ -394,6 +422,35 @@ func attachmentFromSlackFile(ctx context.Context, api fileAPI, f slackevents.Fil
 		Data:     data,
 		Size:     size,
 	}, nil
+}
+
+// mergeSlackFileMeta preenche campos vazios do evento com o resultado de files.info.
+func mergeSlackFileMeta(ev slackevents.File, info *slack.File) slackevents.File {
+	if info == nil {
+		return ev
+	}
+	if ev.Name == "" {
+		ev.Name = info.Name
+	}
+	if ev.Title == "" {
+		ev.Title = info.Title
+	}
+	if ev.Mimetype == "" {
+		ev.Mimetype = info.Mimetype
+	}
+	if ev.Size == 0 {
+		ev.Size = info.Size
+	}
+	if ev.URLPrivateDownload == "" {
+		ev.URLPrivateDownload = info.URLPrivateDownload
+	}
+	if ev.URLPrivate == "" {
+		ev.URLPrivate = info.URLPrivate
+	}
+	if !ev.IsExternal {
+		ev.IsExternal = info.IsExternal
+	}
+	return ev
 }
 
 func downloadSlackFile(ctx context.Context, api fileAPI, downloadURL string, maxBytes int64) ([]byte, error) {

@@ -13,14 +13,18 @@ import (
 
 	"assistente/internal/messaging"
 
+	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 )
 
 type fakeFileAPI struct {
 	mu      sync.Mutex
 	files   map[string][]byte
+	info    map[string]*slack.File // id -> files.info
 	err     error
+	infoErr error
 	calls   []string
+	infoIDs []string
 	writeN  int // se > 0, escreve em chunks de writeN
 }
 
@@ -52,6 +56,21 @@ func (f *fakeFileAPI) GetFileContext(ctx context.Context, downloadURL string, wr
 	}
 	_, werr := writer.Write(data)
 	return werr
+}
+
+func (f *fakeFileAPI) GetFileInfoContext(ctx context.Context, fileID string, count, page int) (*slack.File, []slack.Comment, *slack.Paging, error) {
+	f.mu.Lock()
+	f.infoIDs = append(f.infoIDs, fileID)
+	err := f.infoErr
+	info := f.info[fileID]
+	f.mu.Unlock()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if info == nil {
+		return nil, nil, nil, errors.New("files.info: não encontrado")
+	}
+	return info, nil, nil, nil
 }
 
 func TestShouldHandleMessage(t *testing.T) {
@@ -233,6 +252,64 @@ func (s *selectiveFailAPI) GetFileContext(ctx context.Context, downloadURL strin
 		return errors.New("falha simulada")
 	}
 	return s.inner.GetFileContext(ctx, downloadURL, writer)
+}
+
+func (s *selectiveFailAPI) GetFileInfoContext(ctx context.Context, fileID string, count, page int) (*slack.File, []slack.Comment, *slack.Paging, error) {
+	return s.inner.GetFileInfoContext(ctx, fileID, count, page)
+}
+
+func TestAttachmentsFromSlackFiles_RespectsTotalBudget(t *testing.T) {
+	t.Parallel()
+
+	half := maxInboundTotalBytes/2 + 1
+	api := &fakeFileAPI{
+		files: map[string][]byte{
+			"https://files.slack.com/a.bin": bytes.Repeat([]byte("a"), half),
+			"https://files.slack.com/b.bin": bytes.Repeat([]byte("b"), half),
+		},
+	}
+	files := []slackevents.File{
+		{ID: "Fa", Name: "a.pdf", Mimetype: "application/pdf", Size: half, URLPrivateDownload: "https://files.slack.com/a.bin"},
+		{ID: "Fb", Name: "b.pdf", Mimetype: "application/pdf", Size: half, URLPrivateDownload: "https://files.slack.com/b.bin"},
+	}
+	atts := attachmentsFromSlackFiles(context.Background(), api, files)
+	if len(atts) != 1 {
+		t.Fatalf("esperava 1 anexo dentro do teto agregado, got %d", len(atts))
+	}
+	if len(api.calls) != 1 {
+		t.Fatalf("segundo download deveria ser evitado pelo Size, calls=%v", api.calls)
+	}
+}
+
+func TestAttachmentFromSlackFile_ResolvesStubViaFilesInfo(t *testing.T) {
+	t.Parallel()
+
+	api := &fakeFileAPI{
+		files: map[string][]byte{
+			"https://files.slack.com/resolved.png": []byte("PNG"),
+		},
+		info: map[string]*slack.File{
+			"Fstub": {
+				ID:                 "Fstub",
+				Name:               "foto.png",
+				Mimetype:           "image/png",
+				Size:               3,
+				URLPrivateDownload: "https://files.slack.com/resolved.png",
+			},
+		},
+	}
+	att, err := attachmentFromSlackFile(context.Background(), api, slackevents.File{
+		ID: "Fstub", // stub sem URL (Slack Connect)
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if att.Filename != "foto.png" || !att.IsImage() || string(att.Data) != "PNG" {
+		t.Fatalf("attachment inesperado: %+v", att)
+	}
+	if len(api.infoIDs) != 1 || api.infoIDs[0] != "Fstub" {
+		t.Fatalf("esperava files.info, got %v", api.infoIDs)
+	}
 }
 
 func TestDownloadSlackFile_EnforcesMaxBytes(t *testing.T) {
