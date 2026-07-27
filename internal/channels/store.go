@@ -20,10 +20,21 @@ var (
 
 // UseDatabase ativa a persistência SQLite para a fachada channels (AEP-0083).
 // Deve ser chamado no boot após database.Init. Sem isso, o pacote usa filesystem.
+// Reinjetar o DB (mesmo ponteiro) limpa o cache knownOwners — útil no login
+// para não reutilizar owner de sessão anterior em multi-user.
 func UseDatabase(db *gorm.DB) {
 	mu.Lock()
 	defer mu.Unlock()
 	storeDB = db
+	knownOwners = sync.Map{}
+}
+
+// ClearOwnerCache zera o cache slug→owner usado por findChannelRow sem user ctx.
+// Chamar no login/logout antes de StartAdapters.
+func ClearOwnerCache() {
+	mu.Lock()
+	defer mu.Unlock()
+	knownOwners = sync.Map{}
 }
 
 func usingDB() bool {

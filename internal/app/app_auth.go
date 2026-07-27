@@ -767,7 +767,8 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 	a.registerEnvCredentials(ctx, a.credMgr)
 	a.runPostLoginLegacyImports(ctx)
 	// Canais: StartAdapters no boot roda antes do login (DB ainda vazio /
-	// sem import). Após o import legado, reconecta enabled do usuário.
+	// sem import). Após o import legado, limpa cache de owners e reconecta.
+	channels.ClearOwnerCache()
 	if a.msgCtrl != nil {
 		a.msgCtrl.StartAdapters()
 	}
