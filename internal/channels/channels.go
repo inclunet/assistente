@@ -145,6 +145,8 @@ func SaveReplyChatID(channelName, contactID, replyChatID string) error {
 			cfg.ReplyChatIDs = nil
 		}
 		if usingDB() {
+			// Não re-sincronizar conversations: só Settings/ReplyChatIDs mudaram.
+			cfg.Conversations = nil
 			return saveToDB(channelName, cfg)
 		}
 		return saveUnsafe(channelName, cfg)
@@ -158,6 +160,7 @@ func SaveReplyChatID(channelName, contactID, replyChatID string) error {
 	}
 	cfg.ReplyChatIDs[contactID] = replyChatID
 	if usingDB() {
+		cfg.Conversations = nil
 		return saveToDB(channelName, cfg)
 	}
 	return saveUnsafe(channelName, cfg)
