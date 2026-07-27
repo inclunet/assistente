@@ -37,36 +37,20 @@ type legacyConfigSource struct{}
 func (legacyConfigSource) ListLegacyImportFiles(context.Context) ([]portability.LegacyImportFile, error) {
 	seen := make(map[string]struct{})
 	var out []portability.LegacyImportFile
-	for _, base := range configdir.GetBasePaths() {
-		dir := filepath.Join(base, channelsSubdir)
-		entries, err := os.ReadDir(dir)
-		if err != nil {
+	// Import: ignora erros de ReadDir (opts zero); dedup por slug (primeira ocorrência vence).
+	files, _ := listLegacyChannelJSONFiles(listLegacyChannelJSONOptions{})
+	for _, f := range files {
+		if _, ok := seen[f.Slug]; ok {
 			continue
 		}
-		for _, entry := range entries {
-			if entry.IsDir() {
-				continue
-			}
-			name := entry.Name()
-			if !strings.HasSuffix(strings.ToLower(name), ".json") {
-				continue
-			}
-			// Name = slug canônico (lowercase); Filename preserva o case do FS para leitura.
-			slug := strings.ToLower(strings.TrimSuffix(name, filepath.Ext(name)))
-			if slug == "" {
-				continue
-			}
-			if _, ok := seen[slug]; ok {
-				continue
-			}
-			seen[slug] = struct{}{}
-			out = append(out, portability.LegacyImportFile{
-				Name:     slug,
-				Filename: name,
-				Path:     filepath.Join(dir, name),
-				Source:   "channels",
-			})
-		}
+		seen[f.Slug] = struct{}{}
+		// Name = slug canônico (lowercase); Filename preserva o case do FS para leitura.
+		out = append(out, portability.LegacyImportFile{
+			Name:     f.Slug,
+			Filename: f.Name,
+			Path:     f.Path,
+			Source:   "channels",
+		})
 	}
 	return out, nil
 }
