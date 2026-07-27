@@ -156,11 +156,16 @@ func listEligibleLegacyJSON(userID string) (eligible, skipped []LegacyCleanupIte
 	seenPaths := make(map[string]struct{})
 	for _, base := range configdir.GetBasePaths() {
 		dir := filepath.Join(base, channelsSubdir)
+		if err := requireRealDir(dir); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			errs = append(errs, err.Error())
+			continue
+		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			if !os.IsNotExist(err) {
-				errs = append(errs, fmt.Sprintf("listar %s: %v", dir, err))
-			}
+			errs = append(errs, fmt.Sprintf("listar %s: %v", dir, err))
 			continue
 		}
 		for _, entry := range entries {
@@ -337,6 +342,20 @@ func requireRegularFile(path string) error {
 	}
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("%s: não é arquivo regular", path)
+	}
+	return nil
+}
+
+func requireRealDir(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s: symlink rejeitado no cleanup legado", path)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s: não é diretório", path)
 	}
 	return nil
 }
