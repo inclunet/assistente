@@ -573,7 +573,7 @@ const en = {
       columns: { channel: 'Channel', enabled: 'Enabled', status: 'Status', reconnect: 'Reconnect', name: 'Name', username: 'Username', id: 'ID' },
       format: { yes: '✓ Yes', no: '✗ No' },
       actions: { actions: 'Actions', edit: 'Edit', reconnectChannel: 'Reconnect channel', removeContact: 'Remove contact' },
-      empty: { noChannels: 'No channels available', noContacts: 'No contacts authorized.' },
+      empty: { noChannels: 'No channels configured. Use New to add Telegram, Signal, or Slack.', noContacts: 'No contacts authorized.' },
       pageTitle: 'Communication Channels',
       buttons: { new: 'New', reload: 'Reload', reconnect: 'Reconnect' },
       aria: { newChannel: 'New channel', createChannel: 'Create channel {{name}}', tabsLabel: 'Channel sections', toolbar: 'Channels toolbar', gridLabel: 'Communication channels', contactsGrid: 'Authorized contacts', createMenu: 'Channel creation menu' },

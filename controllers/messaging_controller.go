@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -192,13 +193,26 @@ func (c *MessagingController) Init() {
 // depois que o ChatController existir — Init() cria o gateway cedo (agent/
 // notifier dependem dele), mas Connect antes de chatCtrl gera NPE em
 // SendMessageFromChannel se uma mensagem chegar no startup.
-func (c *MessagingController) StartAdapters() {
+//
+// ownerUserID não vazio (pós-login): carrega só canais desse usuário + órfãos,
+// evitando conectar adapters de outros donos no mesmo SQLite. Vazio (boot
+// pré-login / sem escopo de usuário): usa LoadEnabled global (FS ou DB,
+// conforme o store ativo) — sem filtro por dono.
+func (c *MessagingController) StartAdapters(ownerUserID string) {
 	if c == nil || c.msgGateway == nil {
 		logging.Warnf(context.Background(), "controllers.messaging-controller", "[Messaging] StartAdapters ignorado: gateway não inicializado")
 		return
 	}
 
-	enabledChannels, err := channels.LoadEnabled()
+	var (
+		enabledChannels map[string]*channels.ChannelConfig
+		err             error
+	)
+	if strings.TrimSpace(ownerUserID) != "" {
+		enabledChannels, err = channels.LoadEnabledForUser(ownerUserID)
+	} else {
+		enabledChannels, err = channels.LoadEnabled()
+	}
 	if err != nil {
 		logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Erro ao carregar canais: %v", err)
 		return
@@ -210,16 +224,18 @@ func (c *MessagingController) StartAdapters() {
 		c.responseNotifier.SetPendingStore(messaging.NewDBChannelPendingStore())
 	}
 
-	if cfg, ok := enabledChannels["telegram"]; ok {
-		c.connectTelegram(cfg)
-	}
-	if cfg, ok := enabledChannels["signal"]; ok {
-		c.connectSignal(cfg)
-	} else {
-		logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Signal não configurado ou desabilitado")
-	}
-	if cfg, ok := enabledChannels["slack"]; ok {
-		c.connectSlack(cfg)
+	// Unregister antes de Connect: StartAdapters roda no boot e de novo
+	// pós-login (após import legado). Sem Disconnect, loops de polling
+	// órfãos ficariam em paralelo e mensagens poderiam ser processadas 2x.
+	for _, name := range []string{"telegram", "signal", "slack"} {
+		if cfg, ok := enabledChannels[name]; ok {
+			c.restartChannel(name, cfg)
+			continue
+		}
+		c.msgGateway.Unregister(name)
+		if name == "signal" {
+			logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Signal não configurado ou desabilitado")
+		}
 	}
 
 	if c.msgGateway != nil {

@@ -573,7 +573,7 @@ const ptBR = {
       columns: { channel: 'Canal', enabled: 'Habilitado', status: 'Status', reconnect: 'Reconectar', name: 'Nome', username: 'Usuário', id: 'ID' },
       format: { yes: '✓ Sim', no: '✗ Não' },
       actions: { actions: 'Ações', edit: 'Editar', reconnectChannel: 'Reconectar canal', removeContact: 'Remover contato' },
-      empty: { noChannels: 'Nenhum canal disponível', noContacts: 'Nenhum contato autorizado.' },
+      empty: { noChannels: 'Nenhum canal configurado. Use Novo para adicionar Telegram, Signal ou Slack.', noContacts: 'Nenhum contato autorizado.' },
       pageTitle: 'Canais de Comunicação',
       buttons: { new: 'Novo', reload: 'Recarregar', reconnect: 'Reconectar' },
       aria: { newChannel: 'Novo canal', createChannel: 'Criar canal {{name}}', tabsLabel: 'Seções de canais', toolbar: 'Barra de ferramentas de canais', gridLabel: 'Canais de comunicação', contactsGrid: 'Contatos autorizados', createMenu: 'Menu de criação de canais' },

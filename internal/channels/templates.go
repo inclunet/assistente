@@ -303,6 +303,8 @@ func CreateFromTemplate(templateType string, values map[string]interface{}) erro
 	cfg := &ChannelConfig{
 		Enabled:     false, // Desabilitado por padrão até ser configurado
 		MaxContacts: 1,
+		Type:        templateType,
+		DisplayName: template.DisplayName,
 	}
 
 	// Mapeia valores para os campos do ChannelConfig

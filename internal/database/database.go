@@ -145,6 +145,9 @@ func Init() error {
 		&ToolInvocation{},
 		&SubAgentRun{},
 		&ChannelResponsePending{},
+		&Channel{},
+		&ChannelContact{},
+		&ChannelContactConversation{},
 	); err != nil {
 		return err
 	}

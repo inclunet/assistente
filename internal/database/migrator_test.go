@@ -408,6 +408,7 @@ func fullAutoMigrate(t *testing.T, database *gorm.DB) {
 		&TaskList{}, &Task{}, &TaskNote{}, &MCPServer{}, &MCPServerLog{}, &ToolCatalog{},
 		&Tag{}, &TagAssignment{}, &JobPipeline{}, &Job{}, &JobTrigger{}, &JobRun{},
 		&JobEvent{}, &JobRunEvent{}, &ToolInvocation{}, &SubAgentRun{},
+		&ChannelResponsePending{}, &Channel{}, &ChannelContact{}, &ChannelContactConversation{},
 	); err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}

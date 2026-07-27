@@ -477,7 +477,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		if a.msgGateway != nil {
 			a.msgGateway.SetCancelStream(a.streamMgr.Cancel)
 		}
-		a.msgCtrl.StartAdapters()
+		a.msgCtrl.StartAdapters("")
 	}
 	// Subagent manager (AEP-0068): criado após o ChatController para reusar a
 	// MESMA SendMessageUseCase (sem fluxo alternativo de envio — AEP-0040).

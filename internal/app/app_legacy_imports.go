@@ -1,15 +1,16 @@
 package app
 
 import (
+	"assistente/internal/channels"
 	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/portability"
 	"context"
 )
 
-// runPostLoginLegacyImports runs all read-only filesystem-to-DB imports that
-// require an authenticated user. Runtime managers should load from DB only
-// after this phase has completed.
+// runPostLoginLegacyImports executa todos os imports somente-leitura FS→DB que
+// exigem usuário autenticado. Os managers de runtime devem carregar do DB só
+// depois desta fase.
 func (a *App) runPostLoginLegacyImports(ctx context.Context) {
 	service := portability.NewLegacyImportService()
 	if a.mcpMgr != nil {
@@ -25,6 +26,11 @@ func (a *App) runPostLoginLegacyImports(ctx context.Context) {
 		}); err != nil {
 			logging.Errorf(ctx, "app.app-legacy-imports", "[LegacyImport] erro ao registrar importador Jobs: %v", err)
 		}
+	}
+	if err := service.Register("Channels", func(ctx context.Context) (portability.LegacyImportResult, error) {
+		return channels.ImportLegacyChannelsWithContext(ctx, a.credMgr)
+	}); err != nil {
+		logging.Errorf(ctx, "app.app-legacy-imports", "[LegacyImport] erro ao registrar importador Channels: %v", err)
 	}
 	summary := service.Run(ctx)
 	if userID, ok := database.UserIDFromContext(ctx); ok {

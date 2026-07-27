@@ -95,10 +95,12 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0079](0079-editor-modo-apresentacao-reveal.md) | Modo Apresentação Reveal.js no Editor | 📝 Draft |
 | [0080](0080-surface-context-unificado.md) | SurfaceContext Unificado | 📝 Draft |
 | [0081](0081-politica-tools-por-perfil-e-carregamento-sob-demanda.md) | Política de Tools por Perfil e Carregamento sob Demanda | 📝 Draft |
+| [0082](0082-network-trust-allowlist.md) | Network Trust Allowlist | 📝 Draft |
+| [0083](0083-channels-database-migration.md) | Migração de Canais e Contatos para Banco de Dados | 🚧 In Progress |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0081 → próximo
-> 0082), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0083 → próximo
+> 0084), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 

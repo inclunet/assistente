@@ -12,11 +12,13 @@ import (
 
 func setupTempHome(t *testing.T) {
 	t.Helper()
+	resetStoreForTests()
 	tmp := t.TempDir()
 	configdir.ResetForTests()
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
 	t.Cleanup(configdir.ResetForTests)
+	t.Cleanup(resetStoreForTests)
 }
 
 func TestGetMaxContacts(t *testing.T) {
