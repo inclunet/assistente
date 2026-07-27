@@ -53,11 +53,14 @@ claim "enterprise":
   não criptográfico. Em ambiente "operador hostil ao tenant" — admin
   da instância acessando dados de outros — não há defesa. Ver §3 da
   Motivação para a justificativa.
-- **Persistência de callbacks de canal externo (M14)**: respostas a
-  mensagens de Telegram/Signal podem ser perdidas se o app crashar
-  entre o registro do callback e a resposta do agente. Mitigado por
-  TTL + recover, não por persistência. Ver
-  [`internal/messaging/notifier.go`](../internal/messaging/notifier.go).
+- **Persistência de callbacks de canal externo (M14)**: mitigado —
+  intents são persistidos em `channel_response_pending` no Register e
+  removidos após `messenger.Send` bem-sucedido (ou Cancel/TTL sem
+  assistant). No startup, `Gateway.ReconcilePending` reenvia a primeira
+  resposta assistant já salva após `CreatedAt` (mesmo se o TTL de
+  callback in-memory já passou) ou re-registra callbacks ainda válidos.
+  Ver [`internal/messaging/notifier.go`](../internal/messaging/notifier.go)
+  e [`internal/messaging/reconcile.go`](../internal/messaging/reconcile.go).
 - **Detecção robusta de violação de unique constraint multi-dialect**:
   `isUniqueConstraintError` é heurística por string match, cobre
   SQLite/Postgres/MySQL via mensagem do driver. Quando o projeto

@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"time"
 )
 
 // MessagingControllerConfig agrupa todas as dependências do MessagingController.
@@ -203,6 +204,12 @@ func (c *MessagingController) StartAdapters() {
 		return
 	}
 
+	if c.responseNotifier != nil {
+		// Persistência M14 antes de Connect: mensagem que chega durante o
+		// handshake já encontra store pronto no Register do gateway.
+		c.responseNotifier.SetPendingStore(messaging.NewDBChannelPendingStore())
+	}
+
 	if cfg, ok := enabledChannels["telegram"]; ok {
 		c.connectTelegram(cfg)
 	}
@@ -213,6 +220,19 @@ func (c *MessagingController) StartAdapters() {
 	}
 	if cfg, ok := enabledChannels["slack"]; ok {
 		c.connectSlack(cfg)
+	}
+
+	if c.msgGateway != nil {
+		// Best-effort e assíncrono: DB lento/travado não pode bloquear o
+		// Connect dos adapters. O timeout limita só a fase inicial do
+		// ReconcilePending (List/find/send síncronos); retries agendados
+		// seguem best-effort em background com timeout próprio por tentativa.
+		// Falha parcial deixa pending no store para o próximo restart.
+		go func(gw *messaging.Gateway) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			gw.ReconcilePending(ctx, messaging.DefaultFindAssistantAfter)
+		}(c.msgGateway)
 	}
 }
 

@@ -67,6 +67,20 @@ type Gateway struct {
 	approveContact ApproveContactFunc
 	synthesizeTTS  SynthesizeTTSFunc // Opcional: sintetiza áudio para respostas em modo áudio
 	saveAudio      SaveAudioFunc     // Opcional: salva áudio no DB
+	// cancelStream cancela LLM em andamento (barge-in) antes de novo turno de canal.
+	cancelStream func(conversationID string)
+	// reconcileRetrySem limita goroutines de retry no startup (M14).
+	reconcileRetrySem chan struct{}
+}
+
+// SetCancelStream configura barge-in ao receber nova mensagem no mesmo conv.
+func (g *Gateway) SetCancelStream(fn func(conversationID string)) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.cancelStream = fn
+	g.mu.Unlock()
 }
 
 // NewGateway cria um novo Gateway de mensageria.
@@ -79,14 +93,15 @@ func NewGateway(
 	saveAudio SaveAudioFunc,
 ) *Gateway {
 	return &Gateway{
-		messengers:     make(map[string]Messenger),
-		notifier:       notifier,
-		ttsBroker:      NewTTSBroker(),
-		sendMessage:    sendMessage,
-		emitEvent:      emitEvent,
-		approveContact: approveContact,
-		synthesizeTTS:  synthesizeTTS,
-		saveAudio:      saveAudio,
+		messengers:        make(map[string]Messenger),
+		notifier:          notifier,
+		ttsBroker:         NewTTSBroker(),
+		sendMessage:       sendMessage,
+		emitEvent:         emitEvent,
+		approveContact:    approveContact,
+		synthesizeTTS:     synthesizeTTS,
+		saveAudio:         saveAudio,
+		reconcileRetrySem: make(chan struct{}, 8),
 	}
 }
 
@@ -222,7 +237,12 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 		}
 		return
 	}
-	ctx = database.WithUserID(ctx, channelCfg.OwnerUserID)
+	// Locais após o guard acima: staticcheck SA5011 não prova non-nil
+	// quando há checks `channelCfg != nil` mais abaixo.
+	ownerUserID := channelCfg.OwnerUserID
+	channelProfile := channelCfg.Profile
+	channelMaxHistory := channelCfg.MaxHistory
+	ctx = database.WithUserID(ctx, ownerUserID)
 
 	hasContacts, isAllowed := contacts.IsAuthorized(msg.Channel, maxContacts, msg.From.ID, msg.From.Username)
 
@@ -268,6 +288,12 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 			}
 			if err := contacts.Authorize(msg.Channel, msg.From.ID, msg.From.DisplayName, msg.From.Username, maxContacts); err != nil {
 				logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s erro ao autorizar contato: %v", traceID, msg.Channel, err)
+				if messenger, ok := g.GetMessenger(msg.Channel); ok {
+					_ = messenger.Send(ctx, OutgoingMessage{
+						ChatID: outboundChatID,
+						Text:   "Não foi possível concluir o pareamento (limite de contatos ou erro interno). Peça ao administrador para verificar a configuração do canal.",
+					})
+				}
 				return
 			}
 			logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s channel=%s contato autorizado via código: %s",
@@ -385,83 +411,26 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 
 	// 6. Registra callback no Notifier para capturar a resposta e reenviar ao mensageiro.
 	//    O ChannelResponseMode do perfil decide se a resposta será áudio ou texto.
+	// Cancela streaming anterior (barge-in) para o Notify atrasado do turno
+	// antigo não consumir o callback do turno novo.
+	g.mu.RLock()
+	cancelStream := g.cancelStream
+	g.mu.RUnlock()
+	if cancelStream != nil {
+		cancelStream(conversationID)
+	}
 	incomingIsAudio := msg.IsAudioOnly()
 	g.notifier.Register(conversationID, ResponseCallback{
-		Channel:   msg.Channel,
-		ChatID:    outboundChatID,
-		AudioOnly: incomingIsAudio, // hint para o notifier (mantém compatibilidade)
-		TraceID:   traceID,
+		Channel:      msg.Channel,
+		ChatID:       outboundChatID,
+		OwnerUserID:  ownerUserID,
+		AudioOnly:    incomingIsAudio, // hint para o notifier (mantém compatibilidade)
+		ReplyToMsgID: msg.ID,
+		TraceID:      traceID,
 		Callback: func(response string, assistantMsgID string) {
-			g.mu.RLock()
-			messenger, ok := g.messengers[msg.Channel]
-			g.mu.RUnlock()
-
-			if !ok {
-				logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s messenger não encontrado para resposta",
-					traceID, conversationID, msg.Channel)
-				return
-			}
-
-			outMsg := OutgoingMessage{
-				ChatID:           outboundChatID,
-				Text:             response,
-				ReplyToMessageID: msg.ID,
-			}
-
-			// Gera TTS via TTSBroker (com timeout) para não bloquear indefinidamente.
-			// O broker coordena a goroutine de síntese com o envio da mensagem.
-			if g.synthesizeTTS != nil && assistantMsgID != "" {
-				g.ttsBroker.Prepare(assistantMsgID)
-				go func() {
-					ttsCtx, ttsCancel := context.WithTimeout(ctx, 5*time.Second)
-					defer ttsCancel()
-					audioData, ttsErr := g.synthesizeTTS(ttsCtx, response, msg.Channel, incomingIsAudio)
-					if ttsErr != nil {
-						logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao gerar TTS: %v",
-							traceID, conversationID, msg.Channel, ttsErr)
-						g.ttsBroker.Cancel(assistantMsgID)
-						return
-					}
-					if len(audioData) == 0 {
-						// TTS não aplicável (perfil decidiu não gerar áudio)
-						g.ttsBroker.Cancel(assistantMsgID)
-						return
-					}
-					g.ttsBroker.Publish(assistantMsgID, audioData, "audio/mpeg")
-				}()
-
-				payload, ok := g.ttsBroker.Wait(assistantMsgID, 5*time.Second)
-				if ok && len(payload.Data) > 0 {
-					outMsg.Attachments = []Attachment{{
-						Filename: "resposta.mp3",
-						MIMEType: payload.MIMEType,
-						Data:     payload.Data,
-					}}
-					outMsg.Text = ""
-					logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s TTS gerado bytes=%d",
-						traceID, conversationID, msg.Channel, len(payload.Data))
-
-					// Salva o áudio TTS na mensagem do assistente no DB
-					if g.saveAudio != nil {
-						if err := g.saveAudio(ctx, assistantMsgID, base64.StdEncoding.EncodeToString(payload.Data), payload.MIMEType); err != nil {
-							logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s msgID=%s erro ao salvar áudio TTS no DB: %v",
-								traceID, conversationID, assistantMsgID, err)
-						} else {
-							logging.Warnf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s msgID=%s áudio TTS salvo", traceID, conversationID, assistantMsgID)
-						}
-					}
-				} else {
-					logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s TTS não disponível (timeout ou não aplicável)",
-						traceID, conversationID, msg.Channel)
-				}
-			}
-
-			err := messenger.Send(ctx, outMsg)
-			if err != nil {
+			if err := g.deliverChannelResponse(ctx, msg.Channel, outboundChatID, response, assistantMsgID, incomingIsAudio, msg.ID, traceID, conversationID); err != nil {
 				logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao enviar resposta: %v",
 					traceID, conversationID, msg.Channel, err)
-			} else {
-				logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s resposta enviada", traceID, conversationID, msg.Channel)
 			}
 		},
 	})
@@ -469,34 +438,117 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	// 7. Chama o mesmo SendMessage que o Wails usa (com o conversationID dedicado)
 	//    Usa o perfil do canal (se configurado) em vez do perfil ativo global.
 	params := llm.ChatParams{}
-	if channelCfg != nil && channelCfg.Profile != "" {
-		params.ProfileSlug = channelCfg.Profile
-		logging.Infof(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, channelCfg.Profile)
+	if channelProfile != "" {
+		params.ProfileSlug = channelProfile
+		logging.Infof(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, channelProfile)
 	}
-	if channelCfg != nil && channelCfg.MaxHistory > 0 {
-		params.MaxContextMessages = channelCfg.MaxHistory
+	if channelMaxHistory > 0 {
+		params.MaxContextMessages = channelMaxHistory
 	}
-	_, err = g.sendMessage(ctx, conversationID, msg.Text, mediaJSON, params, msg.Channel)
+	sendCtx := WithChannelTraceID(ctx, traceID)
+	_, err = g.sendMessage(sendCtx, conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {
 		logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao processar mensagem: %v", traceID, conversationID, msg.Channel, err)
-		// B7: o callback registrado acima nunca seria invocado porque
+		// B7: o callback deste turno nunca seria invocado porque
 		// sendMessage falhou antes do agentic loop chegar a saveAndFinish
-		// (que dispara Notify). Sem este Cancel, ele ficaria pendurado
-		// até expirar pelo TTL do notifier — em conversas de canal de
-		// alto volume isso vira backlog crescente. Cancela explicitamente
-		// para liberar a slot imediatamente.
-		g.notifier.Cancel(conversationID)
+		// (que dispara Notify). CancelTrace (não Cancel) evita apagar a
+		// pendência M14 de um turno mais novo na mesma conversa.
+		g.notifier.CancelTrace(conversationID, traceID)
 		g.mu.RLock()
 		messenger, ok := g.messengers[msg.Channel]
 		g.mu.RUnlock()
 		if ok {
 			outMsg := OutgoingMessage{
 				ChatID: outboundChatID,
-				Text:   fmt.Sprintf("Erro ao processar mensagem: %v", err),
+				Text:   "Não foi possível processar a mensagem. Tente novamente em instantes.",
 			}
 			_ = messenger.Send(ctx, outMsg)
 		}
 	}
+}
+
+// deliverChannelResponse monta e envia a OutgoingMessage (texto/TTS/thread)
+// usada tanto no callback normal quanto no reconcile pós-crash.
+func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, response, assistantMsgID string, audioOnly bool, replyToMsgID, traceID, conversationID string) error {
+	messenger, ok := g.GetMessenger(channel)
+	if !ok {
+		logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s messenger não encontrado para resposta",
+			traceID, conversationID, channel)
+		return fmt.Errorf("messenger %s ausente", channel)
+	}
+
+	outMsg := OutgoingMessage{
+		ChatID:           chatID,
+		Text:             response,
+		ReplyToMessageID: replyToMsgID,
+	}
+
+	if g.synthesizeTTS != nil && assistantMsgID != "" {
+		g.ttsBroker.Prepare(assistantMsgID)
+		go func() {
+			ttsCtx, ttsCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer ttsCancel()
+			audioData, ttsErr := g.synthesizeTTS(ttsCtx, response, channel, audioOnly)
+			if ttsErr != nil {
+				logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao gerar TTS: %v",
+					traceID, conversationID, channel, ttsErr)
+				g.ttsBroker.Cancel(assistantMsgID)
+				return
+			}
+			if len(audioData) == 0 {
+				g.ttsBroker.Cancel(assistantMsgID)
+				return
+			}
+			g.ttsBroker.Publish(assistantMsgID, audioData, "audio/mpeg")
+		}()
+
+		payload, ok := g.ttsBroker.Wait(assistantMsgID, 5*time.Second)
+		if ok && len(payload.Data) > 0 {
+			outMsg.Attachments = []Attachment{{
+				Filename: "resposta.mp3",
+				MIMEType: payload.MIMEType,
+				Data:     payload.Data,
+			}}
+			outMsg.Text = ""
+			logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s TTS gerado bytes=%d",
+				traceID, conversationID, channel, len(payload.Data))
+			if g.saveAudio != nil {
+				if err := g.saveAudio(ctx, assistantMsgID, base64.StdEncoding.EncodeToString(payload.Data), payload.MIMEType); err != nil {
+					logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s msgID=%s erro ao salvar áudio TTS no DB: %v",
+						traceID, conversationID, assistantMsgID, err)
+				}
+			}
+		} else {
+			logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s TTS não disponível (timeout ou não aplicável)",
+				traceID, conversationID, channel)
+		}
+	}
+
+	if err := messenger.Send(ctx, outMsg); err != nil {
+		return err
+	}
+	logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s resposta enviada", traceID, conversationID, channel)
+	// M14: marca entrega antes do Delete. Janela residual (crash entre Send e
+	// MarkDelivered) pode reenviar no reconcile — at-least-once intencional;
+	// marcar antes do Send causaria perda silenciosa se o crash fosse entre
+	// Mark e Send.
+	if g.notifier != nil {
+		if store := g.notifier.pendingStore(); store != nil && conversationID != "" {
+			// Background: ctx do adapter pode cancelar no shutdown após Send OK.
+			storeCtx := context.Background()
+			if assistantMsgID != "" {
+				if err := store.MarkDelivered(storeCtx, conversationID, traceID, assistantMsgID); err != nil {
+					logging.Warnf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s falha ao marcar pending entregue: %v",
+						traceID, conversationID, err)
+				}
+			}
+			if err := store.DeleteIfTrace(storeCtx, conversationID, traceID); err != nil {
+				logging.Warnf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s falha ao remover pending após send: %v",
+					traceID, conversationID, err)
+			}
+		}
+	}
+	return nil
 }
 
 // attachmentsToMediaJSON converte []Attachment para o formato media JSON
