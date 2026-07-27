@@ -148,7 +148,13 @@ func (s *SignalAdapter) Disconnect() error {
 }
 
 // Send envia uma mensagem (texto e/ou attachments) via POST /v2/send.
+//
+// IdempotencyKey é no-op: signal-cli-rest-api /v2/send não expõe chave de
+// dedup nativa — a janela residual Send→MarkDelivered (M14) permanece
+// at-least-once neste canal.
 func (s *SignalAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) error {
+	_ = msg.IdempotencyKey // API sem chave nativa — ver comentário acima.
+
 	payload := sendMessageV2{
 		Message:    msg.Text,
 		Number:     s.account,

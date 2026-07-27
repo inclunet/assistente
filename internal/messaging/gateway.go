@@ -483,6 +483,10 @@ func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, r
 		ChatID:           chatID,
 		Text:             response,
 		ReplyToMessageID: replyToMsgID,
+		// TraceID do pending — NÃO DeliveredAssistantID (msgID muda entre
+		// tentativas; TraceID é estável no turno e encolhe a janela residual
+		// Send→MarkDelivered nas plataformas com dedup nativo).
+		IdempotencyKey: traceID,
 	}
 
 	if g.synthesizeTTS != nil && assistantMsgID != "" {
@@ -537,6 +541,8 @@ func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, r
 	// reenviar — at-least-once intencional; marcar antes do Send causaria perda
 	// silenciosa se o crash fosse entre Mark e Send. Após MarkDelivered,
 	// reconcile/retry (pendingSendGate) só limpam — sem segundo Send ao contato.
+	// Slack reduz essa janela via IdempotencyKey→client_msg_id; Telegram/Signal
+	// não têm chave nativa (residual permanece).
 	if g.notifier != nil {
 		if store := g.notifier.pendingStore(); store != nil && conversationID != "" {
 			// Background: ctx do adapter pode cancelar no shutdown após Send OK.
