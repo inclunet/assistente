@@ -3,6 +3,7 @@ package channels
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -148,6 +149,15 @@ func listEligibleLegacyJSON(userID string) (eligible, skipped []LegacyCleanupIte
 				continue
 			}
 			seenPaths[path] = struct{}{}
+			if err := requireRegularFile(path); err != nil {
+				skipped = append(skipped, LegacyCleanupItem{
+					Path:   path,
+					Kind:   "channel",
+					Slug:   slug,
+					Reason: err.Error(),
+				})
+				continue
+			}
 			exists, err := channelExistsForUser(userID, slug)
 			if err != nil {
 				errs = append(errs, fmt.Sprintf("%s: %v", path, err))
@@ -173,18 +183,14 @@ func listEligibleLegacyJSON(userID string) (eligible, skipped []LegacyCleanupIte
 
 	for _, base := range configdir.GetBasePaths() {
 		contactsPath := filepath.Join(base, "contacts.json")
-		info, err := os.Stat(contactsPath)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				errs = append(errs, fmt.Sprintf("stat contacts.json (%s): %v", contactsPath, err))
+		if err := requireRegularFile(contactsPath); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
 			}
-			continue
-		}
-		if info.IsDir() {
 			skipped = append(skipped, LegacyCleanupItem{
 				Path:   contactsPath,
 				Kind:   "contacts",
-				Reason: "caminho é diretório, não arquivo",
+				Reason: err.Error(),
 			})
 			continue
 		}
