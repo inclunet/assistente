@@ -4,9 +4,11 @@ import (
 	"assistente/internal/logging"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"path"
 	"strconv"
 	"strings"
@@ -59,6 +61,9 @@ type SlackAdapter struct {
 
 	// inboundSem limita goroutines de download/handler em voo.
 	inboundSem chan struct{}
+
+	// missingFilesReadWarn emite no máximo um Warnf por conexão sobre files:read.
+	missingFilesReadWarn sync.Once
 }
 
 // NewAdapter cria um novo adapter para Slack (Socket Mode).
@@ -111,9 +116,41 @@ func (s *SlackAdapter) Connect(ctx context.Context) error {
 			logging.Errorf(ctx, logComponent, "[Slack] RunContext error: %v", err)
 		}
 	}()
+	// Probe leve e não bloqueante: Connect de texto não depende de files:read.
+	go s.probeFilesReadScope(s.ctx)
 
 	logging.Println(ctx, logComponent, "[Slack] Conectado via Socket Mode")
 	return nil
+}
+
+// probeFilesReadScope verifica files.info com ID fictício.
+// missing_scope → Warnf; file_not_found / outros → scope presente ou irrelevante.
+// Nunca altera status nem falha o Connect.
+func (s *SlackAdapter) probeFilesReadScope(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.mu.RLock()
+	api := s.fileAPI
+	s.mu.RUnlock()
+	if api == nil {
+		return
+	}
+	_, _, _, err := api.GetFileInfoContext(ctx, "F0FILESREADPROBE", 0, 0)
+	if err == nil {
+		return
+	}
+	if isMissingScopeError(err) {
+		s.warnMissingFilesRead(ctx, err)
+	}
+}
+
+func (s *SlackAdapter) warnMissingFilesRead(ctx context.Context, err error) {
+	s.missingFilesReadWarn.Do(func() {
+		logging.Warnf(ctx, logComponent,
+			"[Slack] scope files:read ausente ou insuficiente — mensagens de texto seguem; anexos inbound serão ignorados até adicionar files:read (e files:write para upload outbound) em OAuth & Permissions e reinstalar o app. Detalhe: %v",
+			err)
+	})
 }
 
 // Disconnect encerra a conexão.
@@ -248,7 +285,7 @@ func (s *SlackAdapter) handleMessage(ev *slackevents.MessageEvent) {
 
 	process := func() {
 		displayName := s.getUserDisplayName(userID)
-		attachments := attachmentsFromSlackFiles(ctx, api, files)
+		attachments := s.attachmentsFromSlackFiles(ctx, api, files)
 		if text == "" && len(attachments) == 0 {
 			return
 		}
@@ -308,8 +345,14 @@ func shouldHandleMessage(ev *slackevents.MessageEvent) bool {
 }
 
 // attachmentsFromSlackFiles baixa bytes autenticados e monta Attachments.
-// Erros individuais são logados; não interrompem o processamento dos demais.
-func attachmentsFromSlackFiles(ctx context.Context, api fileAPI, files []slackevents.File) []messaging.Attachment {
+// Erros individuais são logados; não interrompem o processamento dos demais
+// nem o handler de texto da mensagem.
+func (s *SlackAdapter) attachmentsFromSlackFiles(ctx context.Context, api fileAPI, files []slackevents.File) []messaging.Attachment {
+	return attachmentsFromSlackFiles(ctx, api, files, s.warnMissingFilesRead)
+}
+
+// attachmentsFromSlackFiles é a implementação testável (warn opcional).
+func attachmentsFromSlackFiles(ctx context.Context, api fileAPI, files []slackevents.File, warnMissingScope func(context.Context, error)) []messaging.Attachment {
 	if len(files) == 0 {
 		return nil
 	}
@@ -335,8 +378,14 @@ func attachmentsFromSlackFiles(ctx context.Context, api fileAPI, files []slackev
 		}
 		att, err := attachmentFromSlackFile(ctx, api, f)
 		if err != nil {
-			logging.Errorf(ctx, logComponent, "[Slack] Anexo ignorado (id=%s name=%q mime=%q): %v",
-				f.ID, f.Name, f.Mimetype, err)
+			if isMissingScopeError(err) {
+				if warnMissingScope != nil {
+					warnMissingScope(ctx, err)
+				}
+			} else {
+				logging.Errorf(ctx, logComponent, "[Slack] Anexo ignorado (id=%s name=%q mime=%q): %v",
+					f.ID, f.Name, f.Mimetype, err)
+			}
 			continue
 		}
 		if att == nil {
@@ -351,6 +400,29 @@ func attachmentsFromSlackFiles(ctx context.Context, api fileAPI, files []slackev
 		out = append(out, *att)
 	}
 	return out
+}
+
+// isMissingScopeError detecta missing_scope e falhas de auth típicas de download
+// sem files:read (HTTP 401/403 ou mensagens que citam o scope).
+func isMissingScopeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var slackErr slack.SlackErrorResponse
+	if errors.As(err, &slackErr) {
+		switch slackErr.Err {
+		case "missing_scope", "not_allowed_token_type":
+			return true
+		}
+	}
+	var statusErr slack.StatusCodeError
+	if errors.As(err, &statusErr) {
+		return statusErr.Code == http.StatusUnauthorized || statusErr.Code == http.StatusForbidden
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "missing_scope") ||
+		strings.Contains(msg, "requer scope files:read") ||
+		strings.Contains(msg, "scope files:read")
 }
 
 func attachmentFromSlackFile(ctx context.Context, api fileAPI, f slackevents.File) (*messaging.Attachment, error) {
@@ -369,6 +441,9 @@ func attachmentFromSlackFile(ctx context.Context, api fileAPI, f slackevents.Fil
 		}
 		info, _, _, err := api.GetFileInfoContext(ctx, f.ID, 0, 0)
 		if err != nil {
+			if isMissingScopeError(err) {
+				return nil, fmt.Errorf("files.info requer scope files:read (%s): %w", f.ID, err)
+			}
 			return nil, fmt.Errorf("files.info (%s): %w", f.ID, err)
 		}
 		f = mergeSlackFileMeta(f, info)
@@ -397,6 +472,9 @@ func attachmentFromSlackFile(ctx context.Context, api fileAPI, f slackevents.Fil
 
 	data, err := downloadSlackFile(ctx, api, downloadURL, maxInboundFileBytes)
 	if err != nil {
+		if isMissingScopeError(err) {
+			return nil, fmt.Errorf("download requer scope files:read: %w", err)
+		}
 		return nil, err
 	}
 	if len(data) == 0 {

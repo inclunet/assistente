@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -120,7 +122,7 @@ func TestAttachmentsFromSlackFiles_CapsAtMaxInboundFiles(t *testing.T) {
 	}
 	api := &fakeFileAPI{files: apiFiles}
 
-	atts := attachmentsFromSlackFiles(context.Background(), api, files)
+	atts := attachmentsFromSlackFiles(context.Background(), api, files, nil)
 	if len(atts) != maxInboundFiles {
 		t.Fatalf("esperava %d anexos, got %d", maxInboundFiles, len(atts))
 	}
@@ -156,7 +158,7 @@ func TestAttachmentsFromSlackFiles_DownloadsAuthenticatedBytes(t *testing.T) {
 		},
 	}
 
-	atts := attachmentsFromSlackFiles(context.Background(), api, files)
+	atts := attachmentsFromSlackFiles(context.Background(), api, files, nil)
 	if len(atts) != 2 {
 		t.Fatalf("esperava 2 anexos, got %d", len(atts))
 	}
@@ -207,7 +209,7 @@ func TestAttachmentsFromSlackFiles_SkipsOversizedAndExternal(t *testing.T) {
 		},
 	}
 
-	atts := attachmentsFromSlackFiles(context.Background(), api, files)
+	atts := attachmentsFromSlackFiles(context.Background(), api, files, nil)
 	if len(atts) != 1 {
 		t.Fatalf("esperava 1 anexo (só o válido), got %d", len(atts))
 	}
@@ -236,7 +238,7 @@ func TestAttachmentsFromSlackFiles_DownloadErrorDoesNotAbortOthers(t *testing.T)
 		{ID: "Fb", Name: "b.png", Mimetype: "image/png", URLPrivateDownload: "https://files.slack.com/b.png"},
 	}
 
-	atts := attachmentsFromSlackFiles(context.Background(), failFirst, files)
+	atts := attachmentsFromSlackFiles(context.Background(), failFirst, files, nil)
 	if len(atts) != 1 || string(atts[0].Data) != "B" {
 		t.Fatalf("esperava só o segundo anexo, got %+v", atts)
 	}
@@ -272,7 +274,7 @@ func TestAttachmentsFromSlackFiles_RespectsTotalBudget(t *testing.T) {
 		{ID: "Fa", Name: "a.pdf", Mimetype: "application/pdf", Size: half, URLPrivateDownload: "https://files.slack.com/a.bin"},
 		{ID: "Fb", Name: "b.pdf", Mimetype: "application/pdf", Size: half, URLPrivateDownload: "https://files.slack.com/b.bin"},
 	}
-	atts := attachmentsFromSlackFiles(context.Background(), api, files)
+	atts := attachmentsFromSlackFiles(context.Background(), api, files, nil)
 	if len(atts) != 1 {
 		t.Fatalf("esperava 1 anexo dentro do teto agregado, got %d", len(atts))
 	}
@@ -585,8 +587,132 @@ func TestAttachmentsFromSlackFiles_NilAPI(t *testing.T) {
 	t.Parallel()
 	atts := attachmentsFromSlackFiles(context.Background(), nil, []slackevents.File{{
 		ID: "F1", Name: "a.png", Mimetype: "image/png", URLPrivateDownload: "https://x",
-	}})
+	}}, nil)
 	if len(atts) != 0 {
 		t.Fatalf("esperava nil/vazio com api nil, got %d", len(atts))
+	}
+}
+
+func TestIsMissingScopeError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "generico", err: errors.New("timeout"), want: false},
+		{name: "slack missing_scope", err: slack.SlackErrorResponse{Err: "missing_scope"}, want: true},
+		{name: "slack not_allowed_token_type", err: slack.SlackErrorResponse{Err: "not_allowed_token_type"}, want: true},
+		{name: "slack file_not_found", err: slack.SlackErrorResponse{Err: "file_not_found"}, want: false},
+		{name: "http 401", err: slack.StatusCodeError{Code: http.StatusUnauthorized, Status: "401"}, want: true},
+		{name: "http 403", err: slack.StatusCodeError{Code: http.StatusForbidden, Status: "403"}, want: true},
+		{name: "http 500", err: slack.StatusCodeError{Code: http.StatusInternalServerError, Status: "500"}, want: false},
+		{name: "wrapped missing_scope", err: fmt.Errorf("files.info: %w", slack.SlackErrorResponse{Err: "missing_scope"}), want: true},
+		{name: "mensagem files:read", err: errors.New("url de download ausente (requer scope files:read?)"), want: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isMissingScopeError(tt.err); got != tt.want {
+				t.Fatalf("isMissingScopeError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAttachmentsFromSlackFiles_MissingScopeInvokesWarnAndSkips(t *testing.T) {
+	t.Parallel()
+
+	api := &fakeFileAPI{
+		infoErr: slack.SlackErrorResponse{Err: "missing_scope"},
+	}
+	files := []slackevents.File{
+		{ID: "Fa", Name: "a.png", Mimetype: "image/png"},
+		{ID: "Fb", Name: "b.png", Mimetype: "image/png"},
+	}
+
+	var warnCount int
+	var mu sync.Mutex
+	warn := func(ctx context.Context, err error) {
+		mu.Lock()
+		warnCount++
+		mu.Unlock()
+		if !isMissingScopeError(err) {
+			t.Errorf("warn recebeu erro inesperado: %v", err)
+		}
+	}
+
+	atts := attachmentsFromSlackFiles(context.Background(), api, files, warn)
+	if len(atts) != 0 {
+		t.Fatalf("esperava 0 anexos sem scope, got %d", len(atts))
+	}
+	mu.Lock()
+	got := warnCount
+	mu.Unlock()
+	// Duas falhas → dois callbacks (Once fica no adapter; aqui o callback conta por chamada).
+	if got != 2 {
+		t.Fatalf("esperava 2 avisos de missing_scope, got %d", got)
+	}
+}
+
+func TestProbeFilesReadScope_WarnsOnMissingScope(t *testing.T) {
+	t.Parallel()
+
+	s := NewAdapter("xoxb-test", "xapp-test")
+	s.mu.Lock()
+	s.fileAPI = &fakeFileAPI{infoErr: slack.SlackErrorResponse{Err: "missing_scope"}}
+	s.ctx = context.Background()
+	s.mu.Unlock()
+
+	s.probeFilesReadScope(context.Background())
+	// Segunda chamada não deve panicar; Once já disparou.
+	s.probeFilesReadScope(context.Background())
+}
+
+func TestProbeFilesReadScope_IgnoresFileNotFound(t *testing.T) {
+	t.Parallel()
+
+	s := NewAdapter("xoxb-test", "xapp-test")
+	s.mu.Lock()
+	s.fileAPI = &fakeFileAPI{infoErr: slack.SlackErrorResponse{Err: "file_not_found"}}
+	s.ctx = context.Background()
+	s.mu.Unlock()
+
+	s.probeFilesReadScope(context.Background())
+}
+
+func TestAttachmentFromSlackFile_MissingScopeOnInfo(t *testing.T) {
+	t.Parallel()
+
+	api := &fakeFileAPI{infoErr: slack.SlackErrorResponse{Err: "missing_scope"}}
+	_, err := attachmentFromSlackFile(context.Background(), api, slackevents.File{ID: "Fstub"})
+	if err == nil || !isMissingScopeError(err) {
+		t.Fatalf("esperava missing_scope, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "files:read") {
+		t.Fatalf("mensagem deveria citar files:read, got %v", err)
+	}
+}
+
+func TestAttachmentFromSlackFile_MissingScopeOnDownload(t *testing.T) {
+	t.Parallel()
+
+	api := &fakeFileAPI{
+		err: slack.StatusCodeError{Code: http.StatusForbidden, Status: "403 Forbidden"},
+		files: map[string][]byte{
+			"https://files.slack.com/x.png": []byte("PNG"),
+		},
+	}
+	_, err := attachmentFromSlackFile(context.Background(), api, slackevents.File{
+		ID:                 "F1",
+		Name:               "x.png",
+		Mimetype:           "image/png",
+		URLPrivateDownload: "https://files.slack.com/x.png",
+	})
+	if err == nil || !isMissingScopeError(err) {
+		t.Fatalf("esperava missing_scope via 403, got %v", err)
 	}
 }
