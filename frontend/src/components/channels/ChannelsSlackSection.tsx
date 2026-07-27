@@ -89,6 +89,7 @@ export function ChannelsSlackSection({
         ]}
       />
       <p className="channels-page__hint">{t('channels.slack.appTokenHint')}</p>
+      <p className="channels-page__hint">{t('channels.slack.scopesHint')}</p>
       <ChannelLimitsProfileFields
         form={form}
         onChange={onChange}

@@ -296,7 +296,7 @@ O assistente pode receber e responder mensagens via Telegram, Signal ou Slack.
 
 ### Slack
 
-1. Crie um app Slack com Socket Mode e bot token
+1. Crie um app Slack com Socket Mode e bot token (scopes mínimos: ver [guia Slack](docs/content/configuracao/SLACK_CHANNEL_SETUP.md); inclua `files:read` para anexos de entrada e `files:write` para upload de saída)
 2. Salve em `~/.assistente/channels/slack.json`:
 
 ```json
