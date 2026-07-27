@@ -229,7 +229,7 @@ export default function ChannelsPage() {
       setSignalUseVault(signalStored || !signalCfg?.api_token);
       setSlackUseVault(slackStored || (!slackCfg?.bot_token && !slackCfg?.app_token));
 
-      const labelFor = (slug: string, cfg: { display_name?: string; type?: string } | undefined) => {
+      const labelFor = (slug: string, cfg: { display_name?: string; type?: string; DisplayName?: string } | undefined) => {
         if (cfg?.display_name) return cfg.display_name;
         switch (slug) {
           case 'telegram': return 'Telegram';
@@ -242,7 +242,7 @@ export default function ChannelsPage() {
       const rows: ChannelRow[] = Object.entries(configs).map(([slug, cfg]) => ({
         id: slug,
         name: slug,
-        label: labelFor(slug, cfg),
+        label: labelFor(slug, cfg as { display_name?: string; type?: string }),
         enabled: Boolean(cfg?.enabled),
         status: status[slug] || t('channels.status.disconnected'),
       }));
@@ -255,7 +255,7 @@ export default function ChannelsPage() {
     } finally {
       setLoading(false);
     }
-  }, [addToast, channelCredentialPattern, defaultChannelProfile, t]);
+  }, [addToast, channelCredentialPattern, defaultChannelProfile]);
 
   useEffect(() => {
     loadAll();

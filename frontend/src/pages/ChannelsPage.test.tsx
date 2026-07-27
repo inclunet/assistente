@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-const mockGetChannelConfig = vi.fn();
+const mockGetAllChannelConfigs = vi.fn();
 const mockGetMessagingStatus = vi.fn();
 const mockGetChannelTemplates = vi.fn();
 const mockListCredentials = vi.fn();
@@ -16,21 +16,40 @@ const mockAnnounce = vi.fn();
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
-    t: (key: string, fallback?: string) =>
-      ({
+    t: (key: string, opts?: string | Record<string, unknown>) => {
+      const map: Record<string, string> = {
         'channels.tabs.channels': 'Canais',
         'channels.tabs.contacts': 'Contatos',
         'channels.actions.edit': 'Editar',
         'channels.actions.reconnectChannel': 'Reconectar',
         'channels.actions.removeContact': 'Remover',
         'channels.buttons.reload': 'Recarregar',
+        'channels.buttons.new': 'Novo',
         'channels.status.disconnected': 'Desconectado',
-      } as Record<string, string>)[key] ?? fallback ?? key,
+        'channels.empty.noChannels': 'Nenhum canal configurado. Use Novo para adicionar Telegram, Signal ou Slack.',
+        'channels.aria.newChannel': 'Novo canal',
+        'channels.aria.createChannel': 'Criar canal',
+        'channels.aria.createMenu': 'Menu de criação',
+        'channels.aria.toolbar': 'Toolbar',
+        'channels.aria.gridLabel': 'Canais',
+        'channels.announce.editorOpened': 'Editor aberto',
+        'channels.announce.editorClosed': 'Editor fechado',
+        'channels.title': 'Canais de Comunicação',
+        'channels.modal.editorTitle': 'Editor de canal',
+      };
+      if (key === 'channels.modal.editorTitle' && opts && typeof opts === 'object' && 'title' in opts) {
+        return `Editor de canal: ${String(opts.title)}`;
+      }
+      if (typeof opts === 'string') {
+        return map[key] ?? opts;
+      }
+      return map[key] ?? key;
+    },
   }),
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
-  GetChannelConfig: (name: string) => mockGetChannelConfig(name),
+  GetAllChannelConfigs: () => mockGetAllChannelConfigs(),
   SaveChannelConfig: (name: string, payload: unknown) => mockSaveChannelConfig(name, payload),
   GetMessagingStatus: () => mockGetMessagingStatus(),
   RestartChannel: (name: string) => mockRestartChannel(name),
@@ -69,6 +88,49 @@ vi.mock('../hooks/useGridFocus', () => ({
 
 vi.mock('../hooks/useConfirm', () => ({
   useConfirm: () => vi.fn(() => Promise.resolve(true)),
+}));
+
+vi.mock('../hooks/useGridPageLandmarks', () => ({
+  useGridPageLandmarks: () => {},
+}));
+
+vi.mock('../hooks/useResourceEditRequest', () => ({
+  useResourceEditRequest: () => {},
+}));
+
+vi.mock('../hooks/useSignalChannelController', () => ({
+  useSignalChannelController: () => ({
+    signalRegStep: 'idle',
+    signalRegCode: '',
+    signalRegCaptcha: '',
+    signalRegError: '',
+    signalSmsSent: false,
+    signalCheckingAPI: false,
+    signalAPIInfo: null,
+    signalAPIReady: false,
+    signalAccounts: [],
+    signalConnectionMode: 'register',
+    signalLinkQR: '',
+    signalLinking: false,
+    signalUnregistering: false,
+    setSignalRegStep: vi.fn(),
+    setSignalRegCode: vi.fn(),
+    setSignalRegCaptcha: vi.fn(),
+    setSignalRegError: vi.fn(),
+    setSignalSmsSent: vi.fn(),
+    setSignalAPIInfo: vi.fn(),
+    setSignalAPIReady: vi.fn(),
+    setSignalAccounts: vi.fn(),
+    setSignalConnectionMode: vi.fn(),
+    setSignalLinkQR: vi.fn(),
+    setSignalLinking: vi.fn(),
+    stopLinkPolling: vi.fn(),
+    handleSignalCheckAPI: vi.fn(),
+    handleSignalRegister: vi.fn(),
+    handleSignalVerify: vi.fn(),
+    handleSignalLink: vi.fn(),
+    handleSignalUnregister: vi.fn(),
+  }),
 }));
 
 vi.mock('../components/ui/Toolbar', async () => {
@@ -143,14 +205,37 @@ vi.mock('../components/ui/EditorPanel', () => ({
   EditorPanelFooter: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
 }));
 
+vi.mock('../components', () => ({
+  Button: ({ children, onClick }: { children?: ReactNode; onClick?: () => void }) => (
+    <button type="button" onClick={onClick}>{children}</button>
+  ),
+  PageLoading: ({ message }: { message?: string }) => <div>{message}</div>,
+}));
+
 vi.mock('../components/channels', () => ({
-  ChannelsTelegramSection: () => <div>Telegram</div>,
-  ChannelsSignalSection: () => <div>Signal</div>,
-  ChannelsSlackSection: () => <div>Slack</div>,
+  ChannelsTelegramSection: () => <div>TelegramForm</div>,
+  ChannelsSignalSection: () => <div>SignalForm</div>,
+  ChannelsSlackSection: () => <div>SlackForm</div>,
 }));
 
 vi.mock('../components/menu', () => ({
-  ContextMenu: () => null,
+  ContextMenu: ({
+    visible,
+    items,
+  }: {
+    visible?: boolean;
+    items?: Array<{ id: string; label: string; action?: () => void }>;
+  }) => (
+    visible ? (
+      <div role="menu">
+        {items?.map((item) => (
+          <button key={item.id} type="button" role="menuitem" onClick={item.action}>
+            {item.label}
+          </button>
+        ))}
+      </div>
+    ) : null
+  ),
 }));
 
 vi.mock('../components/layout/MenuButton', () => ({
@@ -165,18 +250,20 @@ import ChannelsPage from './ChannelsPage';
 
 describe('ChannelsPage', () => {
   beforeEach(() => {
-    mockGetChannelConfig.mockResolvedValue({
-      enabled: false,
-      bot_token: '',
-      api_url: '',
-      account: '',
-      profile: '',
-      max_history: 50,
-      max_contacts: 1,
+    mockGetAllChannelConfigs.mockReset();
+    mockGetAllChannelConfigs.mockResolvedValue({
+      telegram: {
+        enabled: false,
+        bot_token: '',
+        display_name: 'Telegram',
+        max_history: 50,
+        max_contacts: 1,
+      },
     });
     mockGetMessagingStatus.mockResolvedValue({});
     mockGetChannelTemplates.mockResolvedValue([
-      { type: 'telegram', display_name: 'Telegram', icon: '📨' },
+      { type: 'telegram', display_name: 'Telegram Bot', icon: '📨', supported: true },
+      { type: 'signal', display_name: 'Signal', icon: '📡', supported: true },
     ]);
     mockListCredentials.mockResolvedValue([]);
     mockSaveChannelConfig.mockResolvedValue(undefined);
@@ -186,8 +273,64 @@ describe('ChannelsPage', () => {
     mockAnnounce.mockReset();
   });
 
+  it('mostra grid vazio quando não há canais no DB', async () => {
+    mockGetAllChannelConfigs.mockResolvedValue({});
+    render(<ChannelsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Nenhum canal configurado/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Telegram')).not.toBeInTheDocument();
+    expect(screen.queryByText('Signal')).not.toBeInTheDocument();
+  });
+
+  it('cria canal via Novo e abre o editor', async () => {
+    const user = userEvent.setup();
+    mockGetAllChannelConfigs
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({})
+      .mockResolvedValue({
+        telegram: {
+          enabled: false,
+          display_name: 'Telegram Bot',
+          max_history: 50,
+          max_contacts: 1,
+        },
+      });
+
+    render(<ChannelsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Nenhum canal configurado/i)).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Novo' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Telegram Bot' }));
+
+    await waitFor(() => {
+      expect(mockSaveChannelConfig).toHaveBeenCalledWith(
+        'telegram',
+        expect.objectContaining({ type: 'telegram' }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('TelegramForm')).toBeInTheDocument();
+    });
+  });
+
   it('reconecta canal via menu de acoes', async () => {
     const user = userEvent.setup();
+    mockGetAllChannelConfigs.mockReset();
+    mockGetAllChannelConfigs.mockResolvedValue({
+      telegram: {
+        enabled: false,
+        bot_token: '',
+        display_name: 'Telegram',
+        max_history: 50,
+        max_contacts: 1,
+      },
+    });
     render(<ChannelsPage />);
 
     await waitFor(() => {
