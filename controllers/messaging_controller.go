@@ -210,16 +210,18 @@ func (c *MessagingController) StartAdapters() {
 		c.responseNotifier.SetPendingStore(messaging.NewDBChannelPendingStore())
 	}
 
-	if cfg, ok := enabledChannels["telegram"]; ok {
-		c.connectTelegram(cfg)
-	}
-	if cfg, ok := enabledChannels["signal"]; ok {
-		c.connectSignal(cfg)
-	} else {
-		logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Signal não configurado ou desabilitado")
-	}
-	if cfg, ok := enabledChannels["slack"]; ok {
-		c.connectSlack(cfg)
+	// Unregister antes de Connect: StartAdapters roda no boot e de novo
+	// pós-login (após import legado). Sem Disconnect, loops de polling
+	// órfãos ficariam em paralelo e mensagens poderiam ser processadas 2x.
+	for _, name := range []string{"telegram", "signal", "slack"} {
+		if cfg, ok := enabledChannels[name]; ok {
+			c.restartChannel(name, cfg)
+			continue
+		}
+		c.msgGateway.Unregister(name)
+		if name == "signal" {
+			logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Signal não configurado ou desabilitado")
+		}
 	}
 
 	if c.msgGateway != nil {
