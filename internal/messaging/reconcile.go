@@ -65,7 +65,7 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 			// Upsert de turno novo durante o reconcile (Connect concorrente):
 			// não reenviar snapshot obsoleto — DeleteIfTrace do deliver também
 			// falharia em silêncio e a pendência nova ficaria para o turno vivo.
-			matches, known := pendingTraceState(store, rec.ConversationID, rec.TraceID)
+			matches, known := pendingTraceState(recCtx, store, rec.ConversationID, rec.TraceID)
 			if known && !matches {
 				logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile: pending supersedido conv=%s trace=%s — pula reenvio",
 					rec.ConversationID, rec.TraceID)
@@ -133,6 +133,9 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 	}
 }
 
+// reconcileRetrySendTimeout cobre TTS Wait (~5s) + messenger.Send por tentativa.
+const reconcileRetrySendTimeout = 30 * time.Second
+
 // scheduleRetryReconcileSend enfileira retry com limite de concorrência.
 // Se o semáforo estiver cheio, a pendência permanece no store para o próximo restart.
 func (g *Gateway) scheduleRetryReconcileSend(rec ChannelPendingRecord, content, msgID string) {
@@ -162,14 +165,15 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 	delays := []time.Duration{3 * time.Second, 10 * time.Second, 30 * time.Second}
 	for _, wait := range delays {
 		time.Sleep(wait)
-		recCtx := context.Background()
+		recCtx, cancel := context.WithTimeout(context.Background(), reconcileRetrySendTimeout)
 		if rec.OwnerUserID != "" {
 			recCtx = database.WithUserID(recCtx, rec.OwnerUserID)
 		}
 		store := g.notifier.pendingStore()
 		if store != nil {
-			matches, known := pendingTraceState(store, rec.ConversationID, rec.TraceID)
+			matches, known := pendingTraceState(recCtx, store, rec.ConversationID, rec.TraceID)
 			if known && !matches {
+				cancel()
 				logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: pending supersedido conv=%s trace=%s — abortando",
 					rec.ConversationID, rec.TraceID)
 				return
@@ -177,11 +181,13 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 			// known=false (ex.: erro transitório de List): segue o retry;
 			// DeleteIfTrace ainda protege contra apagar turno errado.
 		}
-		if err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
-			logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: send falhou conv=%s: %v", rec.ConversationID, err)
+		err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID)
+		cancel()
+		if err != nil {
+			logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: send falhou conv=%s: %v", rec.ConversationID, err)
 			continue
 		}
-		logging.Infof(recCtx, "messaging.gateway", "[Gateway] reconcile retry: reenviou resposta órfã conv=%s channel=%s msg=%s",
+		logging.Infof(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: reenviou resposta órfã conv=%s channel=%s msg=%s",
 			rec.ConversationID, rec.Channel, msgID)
 		return
 	}
@@ -192,13 +198,18 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 // pendingTraceState indica se a pendência ainda é deste turno.
 // known=false significa estado indefinido (ex.: List falhou) — o caller
 // não deve abortar o retry; DeleteIfTrace protege a deleção.
-func pendingTraceState(store ChannelPendingStore, conversationID, traceID string) (matches bool, known bool) {
+func pendingTraceState(ctx context.Context, store ChannelPendingStore, conversationID, traceID string) (matches bool, known bool) {
 	if store == nil || conversationID == "" {
 		return false, true
 	}
-	rec, ok, err := store.Get(context.Background(), conversationID)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	getCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rec, ok, err := store.Get(getCtx, conversationID)
 	if err != nil {
-		logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] pendingTraceState: get pending falhou conv=%s: %v (estado desconhecido)",
+		logging.Warnf(ctx, "messaging.gateway", "[Gateway] pendingTraceState: get pending falhou conv=%s: %v (estado desconhecido)",
 			conversationID, err)
 		return false, false
 	}

@@ -224,8 +224,10 @@ func (c *MessagingController) StartAdapters() {
 
 	if c.msgGateway != nil {
 		// Best-effort e assíncrono: DB lento/travado não pode bloquear o
-		// Connect dos adapters. Timeout evita goroutine órfã indefinida;
-		// falha parcial deixa pending no store para o próximo restart.
+		// Connect dos adapters. O timeout limita só a fase inicial do
+		// ReconcilePending (List/find/send síncronos); retries agendados
+		// seguem best-effort em background com timeout próprio por tentativa.
+		// Falha parcial deixa pending no store para o próximo restart.
 		go func(gw *messaging.Gateway) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
