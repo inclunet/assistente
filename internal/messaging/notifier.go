@@ -156,10 +156,11 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 		fresh := pendings[:0]
 		var expired []pendingCallback
 		for _, p := range pendings {
-			// M14: callbacks de canal persistidos ficam até Notify/Cancel/
-			// reconcile. Expirar só a memória fazia Notify no-op enquanto o
-			// store durável ainda existia (LLM > callbackTTL sem restart).
-			if shouldPersistChannelCallback(p.cb) && !p.cb.SkipPersist {
+			// M14: callbacks de canal externos (telegram/signal/slack com
+			// ChatID+OwnerUserID) ficam até Notify/Cancel — inclusive os
+			// re-registrados pelo reconcile com SkipPersist. Expirar só a
+			// memória fazia Notify no-op enquanto o store durável existia.
+			if shouldPersistChannelCallback(p.cb) {
 				fresh = append(fresh, p)
 				continue
 			}

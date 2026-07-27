@@ -355,6 +355,37 @@ func TestGateway_ReconcilePending_ResendsSavedAssistant(t *testing.T) {
 	}
 }
 
+func TestResponseNotifier_SkipPersistChannelSurvivesTTL(t *testing.T) {
+	// Reconcile re-registra com SkipPersist; ainda precisa sobreviver ao TTL
+	// padrão para Notify pós-restart entregar.
+	now := time.Now()
+	clock := func() time.Time { return now }
+	n := newResponseNotifierWithClock(clock)
+	defer n.Stop()
+
+	fired := make(chan struct{}, 1)
+	n.Register("conv-skip", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "1",
+		OwnerUserID: "owner-1",
+		SkipPersist: true,
+		TTL:         time.Minute, // remaining curto no reconcile
+		Callback:    func(string, string) { fired <- struct{}{} },
+	})
+
+	now = now.Add(2 * time.Minute)
+	n.expireOldCallbacks()
+	if n.PendingCount() != 1 {
+		t.Fatalf("callback SkipPersist de canal deveria sobreviver ao TTL; pending=%d", n.PendingCount())
+	}
+	n.Notify("conv-skip", "ok", "asst")
+	select {
+	case <-fired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Notify deveria entregar callback SkipPersist de canal")
+	}
+}
+
 func TestGateway_ReconcilePending_AlreadyDeliveredSkipsSend(t *testing.T) {
 	store := newMemPendingStore()
 	_ = store.Upsert(context.Background(), ChannelPendingRecord{
