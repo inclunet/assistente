@@ -235,6 +235,18 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 			kept = append(kept, p)
 		}
 		n.callbacks[conversationID] = append(kept, entry)
+	} else if shouldPersistChannelCallback(cb) && cb.SkipPersist {
+		// Bridge / reconcile: substitui só outros SkipPersist de canal;
+		// preserva o callback do gateway (!SkipPersist).
+		prev := n.callbacks[conversationID]
+		kept := prev[:0]
+		for _, p := range prev {
+			if shouldPersistChannelCallback(p.cb) && p.cb.SkipPersist {
+				continue
+			}
+			kept = append(kept, p)
+		}
+		n.callbacks[conversationID] = append(kept, entry)
 	} else {
 		n.callbacks[conversationID] = append(n.callbacks[conversationID], entry)
 	}

@@ -451,6 +451,38 @@ func TestGateway_ReconcilePending_ResendsSavedAssistant(t *testing.T) {
 	}
 }
 
+func TestResponseNotifier_SkipPersistBridgeReplacesPriorBridge(t *testing.T) {
+	n := NewResponseNotifier()
+	defer n.Stop()
+
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "1",
+		OwnerUserID: "owner-1",
+		TraceID:     "gw",
+		Callback:    func(string, string) {},
+	})
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "1",
+		OwnerUserID: "owner-1",
+		SkipPersist: true,
+		TraceID:     "br1",
+		Callback:    func(string, string) {},
+	})
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "1",
+		OwnerUserID: "owner-1",
+		SkipPersist: true,
+		TraceID:     "br2",
+		Callback:    func(string, string) {},
+	})
+	if n.PendingCount() != 2 {
+		t.Fatalf("gateway + 1 bridge; pending=%d", n.PendingCount())
+	}
+}
+
 func TestResponseNotifier_SkipPersistChannelSurvivesTTL(t *testing.T) {
 	// Reconcile re-registra com SkipPersist; ainda precisa sobreviver ao TTL
 	// padrão para Notify pós-restart entregar.
