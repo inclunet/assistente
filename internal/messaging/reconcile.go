@@ -54,7 +54,7 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 		if ok && content != "" {
 			if err := g.deliverChannelResponse(recCtx, rec.Channel, rec.ChatID, content, msgID, rec.AudioOnly, rec.ReplyToMsgID, rec.TraceID, rec.ConversationID); err != nil {
 				logging.Errorf(recCtx, "messaging.gateway", "[Gateway] reconcile: send falhou conv=%s: %v (agendando retry)", rec.ConversationID, err)
-				go g.retryReconcileSend(rec, content, msgID)
+				g.scheduleRetryReconcileSend(rec, content, msgID)
 				continue
 			}
 			// deliverChannelResponse já remove o pending após Send OK.
@@ -105,6 +105,29 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 				}
 			},
 		})
+	}
+}
+
+// scheduleRetryReconcileSend enfileira retry com limite de concorrência.
+// Se o semáforo estiver cheio, a pendência permanece no store para o próximo restart.
+func (g *Gateway) scheduleRetryReconcileSend(rec ChannelPendingRecord, content, msgID string) {
+	if g == nil {
+		return
+	}
+	sem := g.reconcileRetrySem
+	if sem == nil {
+		go g.retryReconcileSend(rec, content, msgID)
+		return
+	}
+	select {
+	case sem <- struct{}{}:
+		go func() {
+			defer func() { <-sem }()
+			g.retryReconcileSend(rec, content, msgID)
+		}()
+	default:
+		logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: limite de concorrência atingido conv=%s channel=%s — pending permanece para próximo restart",
+			rec.ConversationID, rec.Channel)
 	}
 }
 

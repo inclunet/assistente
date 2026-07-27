@@ -67,6 +67,8 @@ type Gateway struct {
 	approveContact ApproveContactFunc
 	synthesizeTTS  SynthesizeTTSFunc // Opcional: sintetiza áudio para respostas em modo áudio
 	saveAudio      SaveAudioFunc     // Opcional: salva áudio no DB
+	// reconcileRetrySem limita goroutines de retry no startup (M14).
+	reconcileRetrySem chan struct{}
 }
 
 // NewGateway cria um novo Gateway de mensageria.
@@ -79,14 +81,15 @@ func NewGateway(
 	saveAudio SaveAudioFunc,
 ) *Gateway {
 	return &Gateway{
-		messengers:     make(map[string]Messenger),
-		notifier:       notifier,
-		ttsBroker:      NewTTSBroker(),
-		sendMessage:    sendMessage,
-		emitEvent:      emitEvent,
-		approveContact: approveContact,
-		synthesizeTTS:  synthesizeTTS,
-		saveAudio:      saveAudio,
+		messengers:        make(map[string]Messenger),
+		notifier:          notifier,
+		ttsBroker:         NewTTSBroker(),
+		sendMessage:       sendMessage,
+		emitEvent:         emitEvent,
+		approveContact:    approveContact,
+		synthesizeTTS:     synthesizeTTS,
+		saveAudio:         saveAudio,
+		reconcileRetrySem: make(chan struct{}, 8),
 	}
 }
 
