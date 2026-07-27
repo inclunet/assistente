@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -78,6 +79,33 @@ func TestShouldHandleMessage(t *testing.T) {
 				t.Fatalf("shouldHandleMessage() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAttachmentsFromSlackFiles_CapsAtMaxInboundFiles(t *testing.T) {
+	t.Parallel()
+
+	files := make([]slackevents.File, maxInboundFiles+3)
+	apiFiles := map[string][]byte{}
+	for i := range files {
+		url := "https://files.slack.com/f" + strconv.Itoa(i) + ".png"
+		apiFiles[url] = []byte("PNG")
+		files[i] = slackevents.File{
+			ID:                 "F" + strconv.Itoa(i),
+			Name:               "f" + strconv.Itoa(i) + ".png",
+			Mimetype:           "image/png",
+			Size:               3,
+			URLPrivateDownload: url,
+		}
+	}
+	api := &fakeFileAPI{files: apiFiles}
+
+	atts := attachmentsFromSlackFiles(context.Background(), api, files)
+	if len(atts) != maxInboundFiles {
+		t.Fatalf("esperava %d anexos, got %d", maxInboundFiles, len(atts))
+	}
+	if len(api.calls) != maxInboundFiles {
+		t.Fatalf("esperava %d downloads, got %d", maxInboundFiles, len(api.calls))
 	}
 }
 
