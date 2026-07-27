@@ -341,6 +341,38 @@ func TestAttachmentFromSlackFile_InfersMIMEAndFallbackURL(t *testing.T) {
 	}
 }
 
+func TestHandleMessage_DropsWhenInboundSaturated(t *testing.T) {
+	t.Parallel()
+
+	s := NewAdapter("xoxb-test", "xapp-test")
+	s.mu.Lock()
+	s.fileAPI = &fakeFileAPI{files: map[string][]byte{}}
+	s.ctx = context.Background()
+	s.mu.Unlock()
+
+	// Esgota o semáforo.
+	for i := 0; i < maxInboundInFlight; i++ {
+		s.inboundSem <- struct{}{}
+	}
+
+	called := make(chan struct{}, 1)
+	s.SetHandler(func(ctx context.Context, msg messaging.IncomingMessage) {
+		called <- struct{}{}
+	})
+
+	s.handleMessage(&slackevents.MessageEvent{
+		User:    "U1",
+		Channel: "C1",
+		Text:    "oi",
+	})
+
+	select {
+	case <-called:
+		t.Fatal("handler nao deveria ser chamado com inbound saturado")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 func TestHandleMessage_FileSharePopulatesAttachments(t *testing.T) {
 	t.Parallel()
 

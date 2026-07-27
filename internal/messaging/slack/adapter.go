@@ -29,6 +29,9 @@ const (
 	// em base64, deixando folga para o envelope JSON (name/type/size) de um anexo.
 	maxInboundFileBytes = 14 * 1024 * 1024
 	maxInboundFiles     = 10
+
+	// maxInboundInFlight limita downloads+handlers concorrentes (backpressure).
+	maxInboundInFlight = 4
 )
 
 // fileAPI abstrai o download autenticado da Slack API (permite fake em testes).
@@ -51,16 +54,20 @@ type SlackAdapter struct {
 
 	mu        sync.RWMutex
 	userCache map[string]string
+
+	// inboundSem limita goroutines de download/handler em voo.
+	inboundSem chan struct{}
 }
 
 // NewAdapter cria um novo adapter para Slack (Socket Mode).
 // botToken: xoxb-..., appToken: xapp-...
 func NewAdapter(botToken, appToken string) *SlackAdapter {
 	return &SlackAdapter{
-		botToken:  botToken,
-		appToken:  appToken,
-		status:    messaging.StatusDisconnected,
-		userCache: make(map[string]string),
+		botToken:   botToken,
+		appToken:   appToken,
+		status:     messaging.StatusDisconnected,
+		userCache:  make(map[string]string),
+		inboundSem: make(chan struct{}, maxInboundInFlight),
 	}
 }
 
@@ -237,7 +244,17 @@ func (s *SlackAdapter) handleMessage(ev *slackevents.MessageEvent) {
 	msgTS := ev.TimeStamp
 	files := append([]slackevents.File(nil), ev.Files...)
 
+	select {
+	case s.inboundSem <- struct{}{}:
+	default:
+		logging.Errorf(ctx, logComponent, "[Slack] inbound saturado (%d em voo); mensagem descartada (user=%s channel=%s files=%d)",
+			maxInboundInFlight, userID, channelID, len(files))
+		return
+	}
+
 	go func() {
+		defer func() { <-s.inboundSem }()
+
 		displayName := s.getUserDisplayName(userID)
 		attachments := attachmentsFromSlackFiles(ctx, api, files)
 		if text == "" && len(attachments) == 0 {
