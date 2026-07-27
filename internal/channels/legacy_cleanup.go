@@ -77,7 +77,7 @@ func CleanupLegacyJSONFiles(ctx context.Context, opts LegacyCleanupOptions) (Leg
 	backupRoot := ""
 	if !opts.NoBackup {
 		backupRoot = filepath.Join(configdir.GetHomeDir(), legacyBackupDirName, time.Now().Format("20060102-150405"))
-		if err := os.MkdirAll(backupRoot, 0755); err != nil {
+		if err := os.MkdirAll(backupRoot, 0700); err != nil {
 			return result, fmt.Errorf("criar diretório de backup: %w", err)
 		}
 		result.BackedUpTo = backupRoot
@@ -87,6 +87,10 @@ func CleanupLegacyJSONFiles(ctx context.Context, opts LegacyCleanupOptions) (Leg
 	}
 
 	for _, item := range eligible {
+		if err := requireRegularFile(item.Path); err != nil {
+			result.Errors = append(result.Errors, err.Error())
+			continue
+		}
 		if backupRoot != "" {
 			rel, relErr := legacyBackupRelPath(item)
 			if relErr != nil {
@@ -94,7 +98,7 @@ func CleanupLegacyJSONFiles(ctx context.Context, opts LegacyCleanupOptions) (Leg
 				continue
 			}
 			dest := uniqueBackupDest(backupRoot, rel)
-			if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("backup mkdir %s: %v", item.Path, err))
 				continue
 			}
@@ -247,4 +251,18 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, data, 0600)
+}
+
+func requireRegularFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s: symlink rejeitado no cleanup legado", path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s: não é arquivo regular", path)
+	}
+	return nil
 }

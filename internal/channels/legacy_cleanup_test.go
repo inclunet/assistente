@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -204,5 +205,46 @@ func TestCleanupLegacyJSON_DoesNotDeleteWhenChannelMissing(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "contacts.json")); err != nil {
 		t.Fatalf("contacts.json deve permanecer: %v", err)
+	}
+}
+
+func TestCleanupLegacyJSON_RejectsSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink setup varia no Windows sem privilégio de desenvolvedor")
+	}
+	setupTempHome(t)
+	setupChannelsDB(t)
+
+	home := configdir.GetHomeDir()
+	channelsDir := filepath.Join(home, channelsSubdir)
+	if err := os.MkdirAll(channelsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	realFile := filepath.Join(t.TempDir(), "secret.json")
+	if err := os.WriteFile(realFile, []byte(`{"enabled":true}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(channelsDir, "telegram.json")
+	if err := os.Symlink(realFile, linkPath); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	if err := Save("telegram", &ChannelConfig{
+		Enabled: true, OwnerUserID: "user-a", Type: "telegram", DisplayName: "Telegram",
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	ctx := database.WithUserID(context.Background(), "user-a")
+	result, err := CleanupLegacyJSONFiles(ctx, LegacyCleanupOptions{
+		Confirm: true, ContactsUsingDB: true,
+	})
+	if err != nil {
+		t.Fatalf("CleanupLegacyJSONFiles: %v", err)
+	}
+	if len(result.Removed) != 0 {
+		t.Fatalf("symlink não deveria ser removido: %v", result.Removed)
+	}
+	if len(result.Errors) == 0 {
+		t.Fatal("esperava erro de symlink")
 	}
 }

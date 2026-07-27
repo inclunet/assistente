@@ -320,6 +320,51 @@ describe('RestoreDefaultsPage', () => {
         expect.stringContaining('JSON legado removido')
       );
     });
+
+    it('deve tratar errors da API como falha', async () => {
+      const user = userEvent.setup();
+      vi.mocked(AppAPI.CleanupLegacyChannelJSON)
+        .mockResolvedValueOnce(
+          app.CleanupLegacyChannelJSONResult.createFrom({
+            dryRun: true,
+            eligible: [{ path: '/tmp/channels/telegram.json', kind: 'channel', slug: 'telegram', reason: 'ok' }],
+            removed: [],
+            skipped: [],
+            errors: [],
+            warnings: [],
+          })
+        )
+        .mockResolvedValueOnce(
+          app.CleanupLegacyChannelJSONResult.createFrom({
+            dryRun: false,
+            eligible: [{ path: '/tmp/channels/telegram.json', kind: 'channel', slug: 'telegram', reason: 'ok' }],
+            removed: [],
+            skipped: [],
+            errors: ['backup falhou'],
+            warnings: [],
+          })
+        );
+      mockConfirm.mockResolvedValue(true);
+
+      render(<RestoreDefaultsPage />);
+
+      const buttons = screen.getAllByRole('button');
+      const header = buttons.find((btn) => btn.textContent?.includes('Limpeza Granular'));
+      await user.click(header!);
+      await new Promise((r) => setTimeout(r, 50));
+
+      const cleanupBtn = screen.getByRole('button', { name: /Remover JSON legado/i });
+      await user.click(cleanupBtn);
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.stringContaining('backup falhou'),
+        'error'
+      );
+      expect(mockAnnounce).not.toHaveBeenCalledWith(
+        expect.stringContaining('JSON legado removido')
+      );
+    });
   });
 
   describe('Gerenciamento de estado', () => {

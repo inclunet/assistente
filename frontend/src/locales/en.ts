@@ -1541,7 +1541,7 @@ const en = {
           'Are you sure you want to delete all communication channel settings?\n\nAll channels (Telegram, Slack, Signal, etc.) will be reset.\n\nThis action cannot be undone.',
         cleanupLegacyJSONTitle: 'Remove legacy channel JSON files?',
         cleanupLegacyJSONMessage:
-          '{{count}} legacy file(s) already migrated to the database will be removed from disk:\n\n{{files}}\n\nA backup will be created under channels.legacy-backup/.\n\nChannels and contacts in the database will NOT be affected.\n\nThis cannot be undone for the original files.',
+          '{{count}} legacy file(s) already migrated to the database will be removed from disk: {{files}}. A backup will be created under channels.legacy-backup/. Channels and contacts in the database will NOT be affected. This cannot be undone for the original files.',
         cleanupLegacyJSONNone: 'No eligible legacy JSON files to remove. Channels/contacts are already DB-only, or the DB is not active yet.',
         resetDatabaseTitle: 'Erase the entire database?',
         resetDatabaseMessage:

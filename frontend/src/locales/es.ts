@@ -1540,7 +1540,7 @@ const es = {
           '¿Seguro que quieres borrar toda la configuración de canales de comunicación?\n\nTodos los canales (Telegram, Slack, Signal, etc.) quedarán desconfigurados.\n\nEsta acción no se puede deshacer.',
         cleanupLegacyJSONTitle: '¿Eliminar archivos JSON legados de canales?',
         cleanupLegacyJSONMessage:
-          'Se eliminarán del disco {{count}} archivo(s) legado(s) ya migrados a la base de datos:\n\n{{files}}\n\nSe creará una copia en channels.legacy-backup/.\n\nLos canales y contactos en la base de datos NO se verán afectados.\n\nEsta acción no se puede deshacer en los archivos originales.',
+          'Se eliminarán del disco {{count}} archivo(s) legado(s) ya migrados a la base de datos: {{files}}. Se creará una copia en channels.legacy-backup/. Los canales y contactos en la base de datos NO se verán afectados. Esta acción no se puede deshacer en los archivos originales.',
         cleanupLegacyJSONNone: 'Ningún archivo JSON legado elegible para eliminar. Canales/contactos ya están solo en la BD, o la BD aún no está activa.',
         resetDatabaseTitle: '¿Borrar la base de datos completa?',
         resetDatabaseMessage:

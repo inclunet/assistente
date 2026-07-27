@@ -161,7 +161,7 @@ export default function RestoreDefaultsPage() {
         return;
       }
 
-      const filesList = eligible.map((item) => `• ${item.path}`).join('\n');
+      const filesList = eligible.map((item) => item.path).join(', ');
       const confirmedFirst = await requestConfirm({
         title: t('restore.confirm.cleanupLegacyJSONTitle'),
         message: t('restore.confirm.cleanupLegacyJSONMessage', {
@@ -187,6 +187,9 @@ export default function RestoreDefaultsPage() {
         confirm: true,
         noBackup: false,
       });
+      if ((result?.errors?.length ?? 0) > 0) {
+        throw new Error(result.errors.join('; '));
+      }
       const removed = result?.removed?.length ?? 0;
       const backup = result?.backedUpTo || '';
       addToast(t('restore.toast.operationSuccess', { name: title }), 'success', undefined, undefined, {
