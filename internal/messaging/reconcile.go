@@ -85,13 +85,8 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 		}
 
 		// Sem resposta ainda — re-registra callback in-memory para Notify futuro.
-		// Se já há callback vivo (mensagem chegou durante Connect/startup),
-		// não substituir: o turno atual já está coberto.
-		if g.notifier.hasMemoryCallbacks(rec.ConversationID) {
-			logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile: callback vivo conv=%s — pula re-registro",
-				rec.ConversationID)
-			continue
-		}
+		// ensureMemoryCallback é atômico: se um turno vivo registrou entre o
+		// check e o write, preserva o callback atual (não limpa/substitui).
 		remaining := time.Until(rec.CreatedAt.Add(callbackTTL))
 		if remaining <= 0 {
 			if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
@@ -99,10 +94,9 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 			}
 			continue
 		}
-		g.notifier.clearMemoryCallbacks(rec.ConversationID)
 		recCopy := rec
 		ownerID := recCopy.OwnerUserID
-		g.notifier.Register(rec.ConversationID, ResponseCallback{
+		registered := g.notifier.ensureMemoryCallback(rec.ConversationID, ResponseCallback{
 			Channel:      recCopy.Channel,
 			ChatID:       recCopy.ChatID,
 			OwnerUserID:  recCopy.OwnerUserID,
@@ -122,6 +116,10 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 				}
 			},
 		})
+		if !registered {
+			logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile: callback vivo conv=%s — pula re-registro",
+				rec.ConversationID)
+		}
 	}
 }
 
@@ -212,7 +210,6 @@ func (n *ResponseNotifier) pendingStore() ChannelPendingStore {
 }
 
 // clearMemoryCallbacks remove callbacks in-memory sem tocar no pending store.
-// Usado pelo reconcile ao re-registrar, para não acumular deliveries duplicados.
 func (n *ResponseNotifier) clearMemoryCallbacks(conversationID string) {
 	if n == nil {
 		return
@@ -222,12 +219,29 @@ func (n *ResponseNotifier) clearMemoryCallbacks(conversationID string) {
 	n.mu.Unlock()
 }
 
-// hasMemoryCallbacks indica se a conversa já tem callback in-memory (turno vivo).
-func (n *ResponseNotifier) hasMemoryCallbacks(conversationID string) bool {
-	if n == nil || conversationID == "" {
+// ensureMemoryCallback registra cb só se a conversa ainda não tiver callback
+// in-memory. Check+write sob o mesmo lock — evita race em que um turno vivo
+// registra entre hasMemoryCallbacks e clearMemoryCallbacks no reconcile.
+// Não toca o pending store (uso típico: re-registro SkipPersist no startup).
+// Retorna true se registrou, false se já havia turno vivo.
+func (n *ResponseNotifier) ensureMemoryCallback(conversationID string, cb ResponseCallback) bool {
+	if n == nil || conversationID == "" || cb.Callback == nil {
 		return false
+	}
+	ttl := callbackTTL
+	if cb.TTL > 0 {
+		ttl = cb.TTL
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	return len(n.callbacks[conversationID]) > 0
+	if len(n.callbacks[conversationID]) > 0 {
+		return false
+	}
+	now := n.now()
+	n.callbacks[conversationID] = []pendingCallback{{
+		cb:         cb,
+		registered: now,
+		expiresAt:  now.Add(ttl),
+	}}
+	return true
 }
