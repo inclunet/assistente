@@ -272,6 +272,29 @@ func TestMimeFromFilenameAndSupported(t *testing.T) {
 	}
 }
 
+func TestAttachmentFromSlackFile_NormalizesMIMECase(t *testing.T) {
+	t.Parallel()
+
+	api := &fakeFileAPI{
+		files: map[string][]byte{"https://files.slack.com/pic.PNG": []byte("PNG")},
+	}
+	att, err := attachmentFromSlackFile(context.Background(), api, slackevents.File{
+		ID:                 "Fcase",
+		Name:               "pic.PNG",
+		Mimetype:           "IMAGE/PNG",
+		URLPrivateDownload: "https://files.slack.com/pic.PNG",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if att.MIMEType != "image/png" {
+		t.Fatalf("MIMEType=%q, want image/png (normalizado)", att.MIMEType)
+	}
+	if !att.IsImage() {
+		t.Fatal("IsImage deve funcionar apos normalizacao")
+	}
+}
+
 func TestAttachmentFromSlackFile_RejectsUnsupportedMIME(t *testing.T) {
 	t.Parallel()
 

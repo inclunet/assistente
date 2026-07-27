@@ -329,7 +329,7 @@ func attachmentFromSlackFile(ctx context.Context, api fileAPI, f slackevents.Fil
 		return nil, fmt.Errorf("url de download ausente (requer scope files:read?)")
 	}
 
-	mime := strings.TrimSpace(f.Mimetype)
+	mime := strings.ToLower(strings.TrimSpace(f.Mimetype))
 	if mime == "" || mime == "application/octet-stream" {
 		if inferred := mimeFromFilename(f.Name); inferred != "" {
 			mime = inferred
