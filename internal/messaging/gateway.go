@@ -534,13 +534,15 @@ func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, r
 	// Mark e Send.
 	if g.notifier != nil {
 		if store := g.notifier.pendingStore(); store != nil && conversationID != "" {
+			// Background: ctx do adapter pode cancelar no shutdown após Send OK.
+			storeCtx := context.Background()
 			if assistantMsgID != "" {
-				if err := store.MarkDelivered(ctx, conversationID, traceID, assistantMsgID); err != nil {
+				if err := store.MarkDelivered(storeCtx, conversationID, traceID, assistantMsgID); err != nil {
 					logging.Warnf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s falha ao marcar pending entregue: %v",
 						traceID, conversationID, err)
 				}
 			}
-			if err := store.DeleteIfTrace(ctx, conversationID, traceID); err != nil {
+			if err := store.DeleteIfTrace(storeCtx, conversationID, traceID); err != nil {
 				logging.Warnf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s falha ao remover pending após send: %v",
 					traceID, conversationID, err)
 			}
