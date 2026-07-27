@@ -1487,6 +1487,9 @@ const ptBR = {
         operationSuccess: '{{name}} concluído com sucesso!',
         operationFailed: 'Erro ao executar {{name}}',
         cleanupLegacyNone: 'Nenhum arquivo JSON legado elegível para remoção',
+        cleanupLegacyNoneRemoved:
+          'Nenhum arquivo JSON legado foi removido (candidatos ausentes ou pulados na confirmação)',
+        cleanupLegacyPartial: 'Remoção parcial: {{removed}} de {{expected}} arquivo(s) legado(s)',
       },
       items: {
         clearMessages: 'Limpar Mensagens e Conversas',
@@ -1551,6 +1554,11 @@ const ptBR = {
         cleanupLegacyDone: 'JSON legado removido: {{removed}} arquivo(s). Backup em {{backup}}.',
         cleanupLegacyDoneNoBackup: 'JSON legado removido: {{removed}} arquivo(s).',
         cleanupLegacyNone: 'Nenhum arquivo JSON legado elegível',
+        cleanupLegacyNoneRemoved:
+          'Nenhum arquivo JSON legado foi removido; os candidatos sumiram ou foram pulados na confirmação',
+        cleanupLegacyPartial:
+          'Remoção parcial: {{removed}} de {{expected}} arquivo(s). Backup em {{backup}}.',
+        cleanupLegacyPartialNoBackup: 'Remoção parcial: {{removed}} de {{expected}} arquivo(s).',
       },
     },
 

@@ -1488,11 +1488,19 @@ const es = {
         cleanupLegacyDone: 'JSON legado eliminado: {{removed}} archivo(s). Copia en {{backup}}.',
         cleanupLegacyDoneNoBackup: 'JSON legado eliminado: {{removed}} archivo(s).',
         cleanupLegacyNone: 'Ningún archivo JSON legado elegible',
+        cleanupLegacyNoneRemoved:
+          'No se eliminó ningún JSON legado; los candidatos desaparecieron o se omitieron en la confirmación',
+        cleanupLegacyPartial:
+          'Eliminación parcial: {{removed}} de {{expected}} archivo(s). Copia en {{backup}}.',
+        cleanupLegacyPartialNoBackup: 'Eliminación parcial: {{removed}} de {{expected}} archivo(s).',
       },
       toast: {
         operationSuccess: '{{name}} completado correctamente.',
         operationFailed: 'Error al ejecutar {{name}}',
         cleanupLegacyNone: 'Ningún archivo JSON legado elegible para eliminar',
+        cleanupLegacyNoneRemoved:
+          'No se eliminó ningún JSON legado (candidatos ausentes u omitidos en la confirmación)',
+        cleanupLegacyPartial: 'Eliminación parcial: {{removed}} de {{expected}} archivo(s) legado(s)',
       },
       items: {
         clearMessages: 'Vaciar mensajes y conversaciones',

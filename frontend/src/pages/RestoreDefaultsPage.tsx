@@ -194,7 +194,30 @@ export default function RestoreDefaultsPage() {
         throw new Error(result.errors.join('; '));
       }
       const removed = result?.removed?.length ?? 0;
+      const expected = eligible.length;
       const backup = result?.backedUpTo || '';
+      if (removed === 0) {
+        addToast(t('restore.toast.cleanupLegacyNoneRemoved'), 'info', undefined, undefined, {
+          suppressAnnounce: true,
+        });
+        announce(t('restore.announce.cleanupLegacyNoneRemoved'));
+        return;
+      }
+      if (removed < expected) {
+        addToast(
+          t('restore.toast.cleanupLegacyPartial', { removed, expected }),
+          'warning',
+          undefined,
+          undefined,
+          { suppressAnnounce: true }
+        );
+        announce(
+          backup
+            ? t('restore.announce.cleanupLegacyPartial', { removed, expected, backup })
+            : t('restore.announce.cleanupLegacyPartialNoBackup', { removed, expected })
+        );
+        return;
+      }
       addToast(t('restore.toast.operationSuccess', { name: title }), 'success', undefined, undefined, {
         suppressAnnounce: true,
       });

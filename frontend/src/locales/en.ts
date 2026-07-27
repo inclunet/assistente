@@ -1489,11 +1489,19 @@ const en = {
         cleanupLegacyDone: 'Legacy JSON removed: {{removed}} file(s). Backup at {{backup}}.',
         cleanupLegacyDoneNoBackup: 'Legacy JSON removed: {{removed}} file(s).',
         cleanupLegacyNone: 'No eligible legacy JSON files',
+        cleanupLegacyNoneRemoved:
+          'No legacy JSON files were removed; candidates vanished or were skipped at confirmation',
+        cleanupLegacyPartial:
+          'Partial removal: {{removed}} of {{expected}} file(s). Backup at {{backup}}.',
+        cleanupLegacyPartialNoBackup: 'Partial removal: {{removed}} of {{expected}} file(s).',
       },
       toast: {
         operationSuccess: '{{name}} completed successfully!',
         operationFailed: 'Failed to run {{name}}',
         cleanupLegacyNone: 'No eligible legacy JSON files to remove',
+        cleanupLegacyNoneRemoved:
+          'No legacy JSON files were removed (candidates missing or skipped at confirmation)',
+        cleanupLegacyPartial: 'Partial removal: {{removed}} of {{expected}} legacy file(s)',
       },
       items: {
         clearMessages: 'Clear Messages and Conversations',

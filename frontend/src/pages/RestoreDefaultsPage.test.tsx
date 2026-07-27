@@ -48,8 +48,16 @@ vi.mock('react-i18next', () => ({
         'restore.buttons.clear': 'Limpar',
         'restore.buttons.cleanupLegacy': 'Remover JSON legado',
         'restore.toast.cleanupLegacyNone': 'Nenhum arquivo JSON legado elegível para remoção',
+        'restore.toast.cleanupLegacyNoneRemoved':
+          'Nenhum arquivo JSON legado foi removido (candidatos ausentes ou pulados na confirmação)',
+        'restore.toast.cleanupLegacyPartial':
+          'Remoção parcial: {{removed}} de {{expected}} arquivo(s) legado(s)',
         'restore.announce.cleanupLegacyNone': 'Nenhum arquivo JSON legado elegível',
+        'restore.announce.cleanupLegacyNoneRemoved':
+          'Nenhum arquivo JSON legado foi removido; os candidatos sumiram ou foram pulados na confirmação',
         'restore.announce.cleanupLegacyDone': 'JSON legado removido: {{removed}} arquivo(s). Backup em {{backup}}.',
+        'restore.announce.cleanupLegacyPartial':
+          'Remoção parcial: {{removed}} de {{expected}} arquivo(s). Backup em {{backup}}.',
         'restore.confirm.cleanupLegacyJSONTitle': 'Remover arquivos JSON legados de canais?',
         'restore.confirm.cleanupLegacyJSONMessage': 'Serão removidos {{count}} arquivo(s):\n{{files}}',
         'restore.confirm.lastChanceTitle': 'Confirmação final',
@@ -356,6 +364,54 @@ describe('RestoreDefaultsPage', () => {
       expect(mockAnnounce).not.toHaveBeenCalledWith(
         expect.stringContaining('JSON legado removido')
       );
+    });
+
+    it('não anuncia sucesso total quando nenhum arquivo foi removido após confirmação', async () => {
+      const user = userEvent.setup();
+      vi.mocked(AppAPI.CleanupLegacyChannelJSON)
+        .mockResolvedValueOnce(
+          app.CleanupLegacyChannelJSONResult.createFrom({
+            dryRun: true,
+            eligible: [{ path: '/tmp/channels/telegram.json', kind: 'channel', slug: 'telegram', reason: 'ok' }],
+            removed: [],
+            skipped: [],
+            errors: [],
+            warnings: [],
+          })
+        )
+        .mockResolvedValueOnce(
+          app.CleanupLegacyChannelJSONResult.createFrom({
+            dryRun: false,
+            eligible: [{ path: '/tmp/channels/telegram.json', kind: 'channel', slug: 'telegram', reason: 'ok' }],
+            removed: [],
+            skipped: [],
+            errors: [],
+            warnings: [],
+          })
+        );
+      mockConfirm.mockResolvedValue(true);
+
+      render(<RestoreDefaultsPage />);
+
+      const buttons = screen.getAllByRole('button');
+      const header = buttons.find((btn) => btn.textContent?.includes('Limpeza Granular'));
+      await user.click(header!);
+      const cleanupBtn = await screen.findByRole('button', { name: /Remover JSON legado/i });
+      await user.click(cleanupBtn);
+
+      await waitFor(() => {
+        expect(mockAddToast).toHaveBeenCalledWith(
+          expect.stringContaining('Nenhum arquivo JSON legado foi removido'),
+          'info',
+          undefined,
+          undefined,
+          expect.objectContaining({ suppressAnnounce: true })
+        );
+      });
+      expect(mockAnnounce).toHaveBeenCalledWith(
+        expect.stringContaining('Nenhum arquivo JSON legado foi removido')
+      );
+      expect(mockAddToast.mock.calls.some((call) => call[1] === 'success')).toBe(false);
     });
   });
 

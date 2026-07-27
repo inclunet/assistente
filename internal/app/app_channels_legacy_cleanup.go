@@ -25,13 +25,13 @@ type CleanupLegacyChannelJSONItem struct {
 
 // CleanupLegacyChannelJSONResult é o resultado do dry-run ou da remoção.
 type CleanupLegacyChannelJSONResult struct {
-	DryRun     bool                            `json:"dryRun"`
-	Eligible   []CleanupLegacyChannelJSONItem  `json:"eligible"`
-	Removed    []string                        `json:"removed"`
-	BackedUpTo string                          `json:"backedUpTo,omitempty"`
-	Skipped    []CleanupLegacyChannelJSONItem  `json:"skipped"`
-	Errors     []string                        `json:"errors"`
-	Warnings   []string                        `json:"warnings"`
+	DryRun     bool                           `json:"dryRun"`
+	Eligible   []CleanupLegacyChannelJSONItem `json:"eligible"`
+	Removed    []string                       `json:"removed"`
+	BackedUpTo string                         `json:"backedUpTo,omitempty"`
+	Skipped    []CleanupLegacyChannelJSONItem `json:"skipped"`
+	Errors     []string                       `json:"errors"`
+	Warnings   []string                       `json:"warnings"`
 }
 
 // CleanupLegacyChannelJSON lista (dry-run) ou remove JSON legado de canais/contatos.
