@@ -779,7 +779,10 @@ func TestDeliverChannelResponse_EmptyAssistantMsgID_MarksSentinel(t *testing.T) 
 		t.Fatalf("deliver: %v", err)
 	}
 	select {
-	case <-fake.sentCh:
+	case sent := <-fake.sentCh:
+		if sent.IdempotencyKey != "trace-empty-id" {
+			t.Fatalf("IdempotencyKey=%q, want TraceID trace-empty-id", sent.IdempotencyKey)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("esperava Send")
 	}
@@ -802,6 +805,28 @@ func TestDeliverChannelResponse_EmptyAssistantMsgID_MarksSentinel(t *testing.T) 
 	case msg := <-fake.sentCh:
 		t.Fatalf("reconcile não deveria reenviar após sentinel MarkDelivered: %+v", msg)
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestDeliverChannelResponse_SetsIdempotencyKeyFromTraceID(t *testing.T) {
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	gateway := NewGateway(NewResponseNotifier(), nil, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	const traceID = "550e8400-e29b-41d4-a716-446655440000"
+	if err := gateway.deliverChannelResponse(context.Background(), "telegram", "42", "resposta", "asst-1", false, "", traceID, "conv-idem"); err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+	select {
+	case sent := <-fake.sentCh:
+		if sent.IdempotencyKey != traceID {
+			t.Fatalf("IdempotencyKey=%q, want TraceID %q (não DeliveredAssistantID)", sent.IdempotencyKey, traceID)
+		}
+		if sent.Text != "resposta" || sent.ChatID != "42" {
+			t.Fatalf("payload inesperado: %+v", sent)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("esperava Send")
 	}
 }
 
