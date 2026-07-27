@@ -9,7 +9,7 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import {
-  GetChannelConfig,
+  GetAllChannelConfigs,
   SaveChannelConfig,
   GetMessagingStatus,
   RestartChannel,
@@ -160,13 +160,16 @@ export default function ChannelsPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [telegramCfg, signalCfg, slackCfg, status, credentialsList] = await Promise.all([
-        GetChannelConfig('telegram'),
-        GetChannelConfig('signal'),
-        GetChannelConfig('slack'),
+      const [allConfigs, status, credentialsList] = await Promise.all([
+        GetAllChannelConfigs(),
         GetMessagingStatus(),
         ListCredentials().catch(() => [] as CredentialSummary[]),
       ]);
+
+      const configs = allConfigs || {};
+      const telegramCfg = configs.telegram;
+      const signalCfg = configs.signal;
+      const slackCfg = configs.slack;
 
       const tgEnabled = telegramCfg?.enabled || false;
       const sigEnabled = signalCfg?.enabled || false;
@@ -226,37 +229,33 @@ export default function ChannelsPage() {
       setSignalUseVault(signalStored || !signalCfg?.api_token);
       setSlackUseVault(slackStored || (!slackCfg?.bot_token && !slackCfg?.app_token));
 
-      setChannelRows([
-        {
-          id: 'telegram',
-          name: 'telegram',
-          label: 'Telegram',
-          enabled: tgEnabled,
-          status: status['telegram'] || t('channels.status.disconnected'),
-        },
-        {
-          id: 'signal',
-          name: 'signal',
-          label: 'Signal',
-          enabled: sigEnabled,
-          status: status['signal'] || t('channels.status.disconnected'),
-        },
-        {
-          id: 'slack',
-          name: 'slack',
-          label: 'Slack',
-          enabled: slackEnabled,
-          status: status['slack'] || t('channels.status.disconnected'),
-        },
-      ]);
+      const labelFor = (slug: string, cfg: { display_name?: string; type?: string } | undefined) => {
+        if (cfg?.display_name) return cfg.display_name;
+        switch (slug) {
+          case 'telegram': return 'Telegram';
+          case 'signal': return 'Signal';
+          case 'slack': return 'Slack';
+          default: return cfg?.type || slug;
+        }
+      };
 
+      const rows: ChannelRow[] = Object.entries(configs).map(([slug, cfg]) => ({
+        id: slug,
+        name: slug,
+        label: labelFor(slug, cfg),
+        enabled: Boolean(cfg?.enabled),
+        status: status[slug] || t('channels.status.disconnected'),
+      }));
+      rows.sort((a, b) => a.label.localeCompare(b.label));
+      setChannelRows(rows);
+      setFocusedChannel((prev) => (prev && rows.some((r) => r.id === prev.id) ? prev : null));
     } catch (error) {
       logger.error('Erro ao carregar canais:', error);
       addToast(t('channels.error.loadFailed'), 'error');
     } finally {
       setLoading(false);
     }
-  }, [addToast, channelCredentialPattern, defaultChannelProfile]);
+  }, [addToast, channelCredentialPattern, defaultChannelProfile, t]);
 
   useEffect(() => {
     loadAll();
@@ -309,24 +308,30 @@ export default function ChannelsPage() {
   const handleQuickCreate = async (template: channels.ChannelTemplate) => {
     setCreateMenuVisible(false);
 
-    if (template.type === 'telegram' || template.type === 'signal') {
+    if (template.type === 'telegram' || template.type === 'signal' || template.type === 'slack') {
       try {
-        const existing = await GetChannelConfig(template.type);
-        if (!existing) {
+        const existing = await GetAllChannelConfigs();
+        if (!existing?.[template.type]) {
           const defaultConfig = channels.ChannelConfig.createFrom({
             enabled: false,
             bot_token: '',
+            app_token: '',
             api_url: '',
             account: '',
-            profile: '',
+            profile: defaultChannelProfile,
             max_history: 50,
             max_contacts: 1,
+            type: template.type,
+            display_name: template.display_name || template.type,
           });
           await SaveChannelConfig(template.type, defaultConfig);
         }
 
         await loadAll();
         setEditingChannel(template.type);
+        announce(t('channels.announce.editorOpened', {
+          label: template.display_name || template.type,
+        }));
       } catch (error: unknown) {
         logger.error('Erro ao criar canal:', error);
         addToast(getErrorMessage(error) || t('channels.error.createFailed'), 'error');
@@ -550,13 +555,9 @@ export default function ChannelsPage() {
 
   // ── Editor title ─────────────────────────────────────────────────
 
-  const editorTitle = editingChannel === 'telegram'
-    ? 'Telegram'
-    : editingChannel === 'signal'
-      ? 'Signal'
-      : editingChannel === 'slack'
-        ? 'Slack'
-        : '';
+  const editorTitle = channelRows.find((r) => r.name === editingChannel)?.label
+    || editingChannel
+    || '';
 
   const toolbarActions = [
     {
@@ -694,17 +695,23 @@ export default function ChannelsPage() {
       />
 
       <div className="channels-page__content">
-        <DataGrid
-          items={channelRows}
-          columns={channelColumns}
-          label={t('channels.aria.gridLabel')}
-          autoFocusOnMount={false}
-          getItemId={getChannelRowId}
-          onActivate={handleActivateChannelRow}
-          onGridReady={channelsHandleGridReady}
-          getRowActions={getChannelRowActions}
-          onFocusChange={handleChannelFocusChange}
-        />
+        {channelRows.length === 0 ? (
+          <p className="channels-page__empty" role="status">
+            {t('channels.empty.noChannels')}
+          </p>
+        ) : (
+          <DataGrid
+            items={channelRows}
+            columns={channelColumns}
+            label={t('channels.aria.gridLabel')}
+            autoFocusOnMount={false}
+            getItemId={getChannelRowId}
+            onActivate={handleActivateChannelRow}
+            onGridReady={channelsHandleGridReady}
+            getRowActions={getChannelRowActions}
+            onFocusChange={handleChannelFocusChange}
+          />
+        )}
       </div>
 
       {/* Editor Modal */}

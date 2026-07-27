@@ -68,6 +68,14 @@
   gap: 16px;
 }
 
+.channels-page__empty {
+  margin: 0;
+  padding: 24px 8px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base, 0.95rem);
+  line-height: 1.5;
+}
+
 .channels-page__tab-description {
   color: var(--text-secondary);
   font-size: 0.875rem;
