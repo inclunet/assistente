@@ -15,6 +15,8 @@ import (
 	"assistente/internal/subagent"
 	"assistente/internal/tools"
 	"context"
+
+	"github.com/google/uuid"
 )
 
 // ChatControllerConfig agrupa todas as dependências do ChatController.
@@ -75,10 +77,11 @@ func NewChatController(cfg ChatControllerConfig) *ChatController {
 // SendMessage é o ponto de entrada para mensagens originadas pelo frontend Wails.
 // Registra o bridge canal↔Wails antes de delegar para o Use Case.
 func (c *ChatController) SendMessage(ctx context.Context, conversationID string, userContent, userMedia string, params llm.ChatParams) (string, error) {
+	bridgeTrace := ""
 	if conversationID != "" && c.msgGateway != nil && c.responseNotifier != nil {
-		c.registerChannelBridge(ctx, conversationID)
+		bridgeTrace = c.registerChannelBridge(ctx, conversationID)
 	}
-	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
+	msgID, err := c.sendMsgUC.Execute(usecases.SendMessageRequest{
 		Ctx:            ctx,
 		ConversationID: conversationID,
 		UserContent:    userContent,
@@ -86,20 +89,30 @@ func (c *ChatController) SendMessage(ctx context.Context, conversationID string,
 		Params:         params,
 		Source:         "wails",
 	})
+	if err != nil && bridgeTrace != "" && c.responseNotifier != nil {
+		// Erro síncrono antes do Notify: remove só este bridge (não o gateway).
+		c.responseNotifier.CancelTrace(conversationID, bridgeTrace)
+	}
+	return msgID, err
 }
 
 // RetryMessage reexecuta o turno a partir de uma mensagem já persistida, sem duplicar a mensagem do usuário.
 func (c *ChatController) RetryMessage(ctx context.Context, conversationID string, messageID string, params llm.ChatParams) (string, error) {
+	bridgeTrace := ""
 	if conversationID != "" && c.msgGateway != nil && c.responseNotifier != nil {
-		c.registerChannelBridge(ctx, conversationID)
+		bridgeTrace = c.registerChannelBridge(ctx, conversationID)
 	}
-	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
+	msgID, err := c.sendMsgUC.Execute(usecases.SendMessageRequest{
 		Ctx:            ctx,
 		ConversationID: conversationID,
 		RetryMessageID: messageID,
 		Params:         params,
 		Source:         "wails",
 	})
+	if err != nil && bridgeTrace != "" && c.responseNotifier != nil {
+		c.responseNotifier.CancelTrace(conversationID, bridgeTrace)
+	}
+	return msgID, err
 }
 
 // SendMessageFromChannel é chamado pelo Gateway de mensageria (Telegram, Signal, etc.).
@@ -145,15 +158,16 @@ func (c *ChatController) ResetLoadedToolsForConversation(conversationID string) 
 
 // registerChannelBridge registra um callback para reenviar a resposta do assistente
 // ao canal de mensageria de origem (bridge Wails → canal externo).
-func (c *ChatController) registerChannelBridge(ctx context.Context, conversationID string) {
+// Retorna o TraceID do bridge (vazio se não registrou) para CancelTrace em erro síncrono.
+func (c *ChatController) registerChannelBridge(ctx context.Context, conversationID string) string {
 	conv, err := c.convRepo.GetConversationInfo(ctx, conversationID)
 	if err != nil || conv == nil || conv.Channel == "" || conv.ContactID == "" {
-		return // Conversa local do Wails, não precisa de bridge.
+		return "" // Conversa local do Wails, não precisa de bridge.
 	}
 
 	messenger, ok := c.msgGateway.GetMessenger(conv.Channel)
 	if !ok {
-		return // Messenger não registrado.
+		return "" // Messenger não registrado.
 	}
 
 	logging.Infof(ctx, "controllers.chat-controller", "[Bridge] Registrando bridge Wails→%s para conversa %s (contact=%s)", conv.Channel, conversationID, conv.ContactID)
@@ -164,10 +178,12 @@ func (c *ChatController) registerChannelBridge(ctx context.Context, conversation
 	// Callback via GetReplyChatID permitiria que outra mensagem Slack do
 	// mesmo user em outro channel sobrescrevesse o destino mid-flight.
 	replyChatID := channels.GetReplyChatID(channelName, contactID)
+	traceID := uuid.NewString()
 	c.responseNotifier.Register(conversationID, messaging.ResponseCallback{
 		Channel:     channelName,
 		ChatID:      replyChatID,
 		OwnerUserID: conv.UserID,
+		TraceID:     traceID,
 		// SkipPersist: persistência M14 fica no Register do gateway.
 		SkipPersist: true,
 		Callback: func(response string, assistantMsgID string) {
@@ -182,4 +198,5 @@ func (c *ChatController) registerChannelBridge(ctx context.Context, conversation
 			}
 		},
 	})
+	return traceID
 }

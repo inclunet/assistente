@@ -128,10 +128,11 @@ func TestResponseNotifier_WailsNotifyDoesNotFireGateway(t *testing.T) {
 		ChatID:      "1",
 		OwnerUserID: "owner-1",
 		SkipPersist: true,
+		TraceID:     "trace-bridge",
 		Callback:    func(string, string) { brFired <- struct{}{} },
 	})
 
-	// Wails: Notify sem TraceID — só bridge.
+	// Wails: Notify sem TraceID — só bridge (mesmo com TraceID próprio).
 	n.Notify("conv-1", "wails", "asst")
 	select {
 	case <-brFired:
@@ -555,6 +556,39 @@ func TestResponseNotifier_SkipPersistBridgeReplacesPriorBridge(t *testing.T) {
 	})
 	if n.PendingCount() != 2 {
 		t.Fatalf("gateway + 1 bridge; pending=%d", n.PendingCount())
+	}
+}
+
+func TestResponseNotifier_CancelTraceRemovesOnlyBridge(t *testing.T) {
+	n := NewResponseNotifier()
+	defer n.Stop()
+
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "1",
+		OwnerUserID: "owner-1",
+		TraceID:     "gw",
+		Callback:    func(string, string) {},
+	})
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "1",
+		OwnerUserID: "owner-1",
+		SkipPersist: true,
+		TraceID:     "bridge-err",
+		Callback: func(string, string) {
+			t.Fatal("bridge cancelado não deveria disparar")
+		},
+	})
+
+	n.CancelTrace("conv-1", "bridge-err")
+	if n.PendingCount() != 1 {
+		t.Fatalf("só o gateway deveria permanecer; pending=%d", n.PendingCount())
+	}
+	n.Notify("conv-1", "wails", "asst")
+	time.Sleep(50 * time.Millisecond)
+	if n.PendingCount() != 1 {
+		t.Fatalf("gateway não dispara em Notify Wails; pending=%d", n.PendingCount())
 	}
 }
 
