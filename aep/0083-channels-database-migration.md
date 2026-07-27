@@ -1,6 +1,6 @@
 # AEP-0083 — Migração de Canais e Contatos para Banco de Dados
 
-**Status:** 🚧 In Progress
+**Status:** ✅ Done (concluída via [PR #400](https://github.com/inclunet/assistente/pull/400))
 
 ## Dependências
 
@@ -19,6 +19,8 @@ O DTO público `channels.ChannelConfig` permanece estável para Wails/gateway. A
 Tokens e segredos **nunca** são gravados em plaintext nas tabelas: apenas refs de pattern do CredManager (`channel:{slug}:bot_token|app_token|api_token`). App id/secret futuros usam `channel:{slug}:app` com `ClientID`+`ClientSecret` (como `mcp-client:{slug}`) — documentados aqui; sem UI Teams nesta AEP.
 
 Arquivos legados **não** são apagados. A importação pós-login é idempotente (skip se `(user_id, slug)` já existir).
+
+**Entrega:** implementada e mergeada em `main` pelo PR #400 (`feat/channels-database-migration`).
 
 ## Motivação
 
@@ -105,13 +107,15 @@ Além do comportamento FS existente (canais sem `OwnerUserID`):
 
 ## Fases
 
-1. **Docs** — esta AEP; atualizar menção M14/canais em AEP-0052 D10.
-2. **Schema** — models GORM + AutoMigrate (`database.go` + `fullAutoMigrate`).
-3. **Store/fachada** — map ChannelConfig ↔ row; `UseDatabase`; Save/Load/List/Delete/conversas/AdoptOrphans/CreateFromTemplate no DB.
-4. **Contatos DB** — `contacts.UseDatabase` ligado a `channel_id`.
-5. **Import legado + boot** — registrar importer; chamar `UseDatabase` após Init.
-6. **UI** — ChannelsPage sem placeholders; testes Vitest.
-7. **Testes Go** — map, import idempotente, Save/Load DB.
+Todas as fases abaixo foram entregues no PR #400:
+
+1. ✅ **Docs** — esta AEP; menção de canais em AEP-0052 D10.
+2. ✅ **Schema** — models GORM + AutoMigrate (`database.go` + `fullAutoMigrate`).
+3. ✅ **Store/fachada** — map ChannelConfig ↔ row; `UseDatabase`; Save/Load/List/Delete/conversas/AdoptOrphans/CreateFromTemplate no DB.
+4. ✅ **Contatos DB** — `contacts.UseDatabase` ligado a `channel_id`.
+5. ✅ **Import legado + boot** — registrar importer; chamar `UseDatabase` após Init.
+6. ✅ **UI** — ChannelsPage sem placeholders; testes Vitest.
+7. ✅ **Testes Go** — map, import idempotente, Save/Load DB.
 
 ## Riscos
 
@@ -125,11 +129,22 @@ Além do comportamento FS existente (canais sem `OwnerUserID`):
 
 ## Critérios de aceitação
 
-- [ ] Tabelas `channels`, `channel_contacts`, `channel_contact_conversations` no AutoMigrate
-- [ ] `channels.UseDatabase` + `contacts.UseDatabase` no boot após `database.Init`
-- [ ] Save/Load/ListAll/LoadEnabled/Delete/SaveConversationID/AdoptOrphans/CreateFromTemplate funcionam com DB
-- [ ] Nenhum plaintext de token nas tabelas; refs no CredManager
-- [ ] Import legado “Channels” idempotente; arquivos legados intactos
-- [ ] ChannelsPage: grid vazio sem canais; Novo cria e abre editor; sem placeholders fixos
-- [ ] Testes unitários (map, import, Save/Load) e Vitest (grid vazio / após create)
-- [ ] Pattern futuro `channel:{slug}:app` documentado (ClientID+ClientSecret)
+- [x] Tabelas `channels`, `channel_contacts`, `channel_contact_conversations` no AutoMigrate
+- [x] `channels.UseDatabase` + `contacts.UseDatabase` no boot após `database.Init`
+- [x] Save/Load/ListAll/LoadEnabled/Delete/SaveConversationID/AdoptOrphans/CreateFromTemplate funcionam com DB
+- [x] Nenhum plaintext de token nas tabelas; refs no CredManager
+- [x] Import legado “Channels” idempotente; arquivos legados intactos
+- [x] ChannelsPage: grid vazio sem canais; Novo cria e abre editor; sem placeholders fixos
+- [x] Testes unitários (map, import, Save/Load) e Vitest (grid vazio / após create)
+- [x] Pattern futuro `channel:{slug}:app` documentado (ClientID+ClientSecret)
+
+## Smoke manual (pós-merge)
+
+Checklist curto para validar o cutover em máquina com dados legados:
+
+- [ ] Login com `channels/*.json` (e `contacts.json`, se existir) presentes no disco
+- [ ] Import “Channels” pós-login idempotente (segundo login não duplica canais/contatos)
+- [ ] Adapters sobem após o login (canais enabled no DB)
+- [ ] Ida/volta de mensagem em pelo menos um canal configurado (Telegram e/ou Signal e/ou Slack)
+- [ ] Contatos autorizados respeitados (não-autorizado bloqueado; autorizado conversa)
+- [ ] Arquivos legados intactos no disco (não apagados nem renomeados pelo import)
