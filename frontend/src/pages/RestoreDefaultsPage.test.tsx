@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import RestoreDefaultsPage from './RestoreDefaultsPage';
 import * as AppAPI from '@wailsjs/go/app/App';
-import { app } from '../../wailsjs/go/models';
+import { app } from '@wailsjs/go/models';
 
 const emptyCleanupResult = () =>
   app.CleanupLegacyChannelJSONResult.createFrom({
@@ -146,11 +146,9 @@ describe('RestoreDefaultsPage', () => {
       // Clicar para alternar
       await user.click(header!);
 
-      // Aguardar renderização
-      await new Promise((r) => setTimeout(r, 50));
-
-      // Verificar que o estado mudou (aria-expanded = true)
-      expect(header).toHaveAttribute('aria-expanded', 'true');
+      await waitFor(() => {
+        expect(header).toHaveAttribute('aria-expanded', 'true');
+      });
     });
   });
 
@@ -208,7 +206,9 @@ describe('RestoreDefaultsPage', () => {
       
       // Abrir seção
       await user.click(header!);
-      await new Promise((r) => setTimeout(r, 50));
+      await waitFor(() => {
+        expect(header).toHaveAttribute('aria-expanded', 'true');
+      });
 
       // Encontrar todos os botões de ação e procurar pelo primeiro (Resetar Banco de Dados)
       const allButtons = screen.getAllByRole('button');
@@ -219,8 +219,9 @@ describe('RestoreDefaultsPage', () => {
       // O primeiro botão de ação das Opções Nucleares deve ser ResetDatabase
       if (actionButtons.length > 1) {
         await user.click(actionButtons[1]);
-        await new Promise((r) => setTimeout(r, 100));
-        expect(AppAPI.ResetDatabase).toHaveBeenCalled();
+        await waitFor(() => {
+          expect(AppAPI.ResetDatabase).toHaveBeenCalled();
+        });
       }
     });
 
@@ -235,7 +236,9 @@ describe('RestoreDefaultsPage', () => {
       
       // Abrir seção
       await user.click(header!);
-      await new Promise((r) => setTimeout(r, 50));
+      await waitFor(() => {
+        expect(header).toHaveAttribute('aria-expanded', 'true');
+      });
 
       // Encontrar todos os botões de ação
       const allButtons = screen.getAllByRole('button');
@@ -246,8 +249,9 @@ describe('RestoreDefaultsPage', () => {
       // O primeiro botão de ação das Opções Nucleares deve ser ResetDatabase
       if (actionButtons.length > 1) {
         await user.click(actionButtons[1]);
-        await new Promise((r) => setTimeout(r, 100));
-        expect(mockHandleDatabaseReset).toHaveBeenCalled();
+        await waitFor(() => {
+          expect(mockHandleDatabaseReset).toHaveBeenCalled();
+        });
       }
     });
 
@@ -260,15 +264,14 @@ describe('RestoreDefaultsPage', () => {
       const buttons = screen.getAllByRole('button');
       const header = buttons.find((btn) => btn.textContent?.includes('Limpeza Granular'));
       await user.click(header!);
-      await new Promise((r) => setTimeout(r, 50));
-
-      const cleanupBtn = screen.getByRole('button', { name: /Remover JSON legado/i });
+      const cleanupBtn = await screen.findByRole('button', { name: /Remover JSON legado/i });
       await user.click(cleanupBtn);
-      await new Promise((r) => setTimeout(r, 50));
 
-      expect(AppAPI.CleanupLegacyChannelJSON).toHaveBeenCalledWith({
-        confirm: false,
-        noBackup: false,
+      await waitFor(() => {
+        expect(AppAPI.CleanupLegacyChannelJSON).toHaveBeenCalledWith({
+          confirm: false,
+          noBackup: false,
+        });
       });
       expect(mockAnnounce).toHaveBeenCalledWith('Nenhum arquivo JSON legado elegível');
       expect(mockConfirm).not.toHaveBeenCalled();
@@ -305,13 +308,12 @@ describe('RestoreDefaultsPage', () => {
       const buttons = screen.getAllByRole('button');
       const header = buttons.find((btn) => btn.textContent?.includes('Limpeza Granular'));
       await user.click(header!);
-      await new Promise((r) => setTimeout(r, 50));
-
-      const cleanupBtn = screen.getByRole('button', { name: /Remover JSON legado/i });
+      const cleanupBtn = await screen.findByRole('button', { name: /Remover JSON legado/i });
       await user.click(cleanupBtn);
-      await new Promise((r) => setTimeout(r, 100));
 
-      expect(mockConfirm).toHaveBeenCalledTimes(2);
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalledTimes(2);
+      });
       expect(AppAPI.CleanupLegacyChannelJSON).toHaveBeenNthCalledWith(2, {
         confirm: true,
         noBackup: false,
@@ -334,16 +336,7 @@ describe('RestoreDefaultsPage', () => {
             warnings: [],
           })
         )
-        .mockResolvedValueOnce(
-          app.CleanupLegacyChannelJSONResult.createFrom({
-            dryRun: false,
-            eligible: [{ path: '/tmp/channels/telegram.json', kind: 'channel', slug: 'telegram', reason: 'ok' }],
-            removed: [],
-            skipped: [],
-            errors: ['backup falhou'],
-            warnings: [],
-          })
-        );
+        .mockRejectedValueOnce(new Error('backup falhou'));
       mockConfirm.mockResolvedValue(true);
 
       render(<RestoreDefaultsPage />);
@@ -351,16 +344,15 @@ describe('RestoreDefaultsPage', () => {
       const buttons = screen.getAllByRole('button');
       const header = buttons.find((btn) => btn.textContent?.includes('Limpeza Granular'));
       await user.click(header!);
-      await new Promise((r) => setTimeout(r, 50));
-
-      const cleanupBtn = screen.getByRole('button', { name: /Remover JSON legado/i });
+      const cleanupBtn = await screen.findByRole('button', { name: /Remover JSON legado/i });
       await user.click(cleanupBtn);
-      await new Promise((r) => setTimeout(r, 100));
 
-      expect(mockAddToast).toHaveBeenCalledWith(
-        expect.stringContaining('backup falhou'),
-        'error'
-      );
+      await waitFor(() => {
+        expect(mockAddToast).toHaveBeenCalledWith(
+          expect.stringContaining('backup falhou'),
+          'error'
+        );
+      });
       expect(mockAnnounce).not.toHaveBeenCalledWith(
         expect.stringContaining('JSON legado removido')
       );

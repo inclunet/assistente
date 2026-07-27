@@ -153,6 +153,10 @@ func CleanupLegacyJSONFiles(ctx context.Context, opts LegacyCleanupOptions) (Leg
 		}
 		result.Removed = append(result.Removed, item.Path)
 	}
+	if len(result.Errors) > 0 {
+		return result, fmt.Errorf("cleanup legado parcial (%d erro(s)): %s",
+			len(result.Errors), strings.Join(result.Errors, "; "))
+	}
 	return result, nil
 }
 

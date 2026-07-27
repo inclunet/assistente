@@ -208,6 +208,58 @@ func TestCleanupLegacyJSON_DoesNotDeleteWhenChannelMissing(t *testing.T) {
 	}
 }
 
+func TestCleanupLegacyJSON_ConfirmReturnsErrorOnPartialFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 000 não bloqueia o dono no Windows")
+	}
+	setupTempHome(t)
+	setupChannelsDB(t)
+
+	home := configdir.GetHomeDir()
+	channelsDir := filepath.Join(home, channelsSubdir)
+	if err := os.MkdirAll(channelsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	okPath := filepath.Join(channelsDir, "telegram.json")
+	badPath := filepath.Join(channelsDir, "discord.json")
+	if err := os.WriteFile(okPath, []byte(`{"enabled":true,"type":"telegram"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(badPath, []byte(`{"enabled":true,"type":"discord"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(badPath, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(badPath, 0600) })
+
+	for _, slug := range []string{"telegram", "discord"} {
+		if err := Save(slug, &ChannelConfig{
+			Enabled: true, OwnerUserID: "user-a", Type: slug, DisplayName: slug,
+		}); err != nil {
+			t.Fatalf("Save %s: %v", slug, err)
+		}
+	}
+
+	ctx := database.WithUserID(context.Background(), "user-a")
+	result, err := CleanupLegacyJSONFiles(ctx, LegacyCleanupOptions{
+		Confirm:         true,
+		ContactsUsingDB: true,
+	})
+	if err == nil {
+		t.Fatal("esperava erro em cleanup parcial")
+	}
+	if !strings.Contains(err.Error(), "cleanup legado parcial") {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	if len(result.Errors) == 0 {
+		t.Fatalf("esperava Errors no payload: %+v", result)
+	}
+	if len(result.Removed) != 1 || result.Removed[0] != okPath {
+		t.Fatalf("telegram deveria ter sido removido; removed=%v", result.Removed)
+	}
+}
+
 func TestCleanupLegacyJSON_RejectsSymlink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink setup varia no Windows sem privilégio de desenvolvedor")
