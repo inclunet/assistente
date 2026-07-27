@@ -507,8 +507,10 @@ func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, r
 		return err
 	}
 	logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s resposta enviada", traceID, conversationID, channel)
-	// M14: marca entrega antes do Delete — se o processo cair entre Send e
-	// Delete, o reconcile vê DeliveredAssistantID e não reenvia.
+	// M14: marca entrega antes do Delete. Janela residual (crash entre Send e
+	// MarkDelivered) pode reenviar no reconcile — at-least-once intencional;
+	// marcar antes do Send causaria perda silenciosa se o crash fosse entre
+	// Mark e Send.
 	if g.notifier != nil {
 		if store := g.notifier.pendingStore(); store != nil && conversationID != "" {
 			if assistantMsgID != "" {
