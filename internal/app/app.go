@@ -326,8 +326,11 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.initMCP()
 	a.toolInvocationSvc = toolinvocations.NewService(toolinvocations.NewDBRepository(database.DB()), a.toolExecutor)
 
-	// Inicializa o gateway de mensageria (Telegram, etc.)
-	a.initMessaging()
+	// Inicializa o gateway de mensageria (Telegram, etc.).
+	// Fail-closed (AEP-0083): sem DB não há fallback silencioso para filesystem.
+	if err := a.initMessaging(); err != nil {
+		return err
+	}
 
 	// Callback reutilizado pelo agent.Service e ChatController
 	speechDispatcher := func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool) {

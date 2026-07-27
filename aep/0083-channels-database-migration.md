@@ -77,6 +77,8 @@ Nunca gravar plaintext de token nas tabelas `channels` / `channel_contacts`.
 - `Load(slug)` sem user (gateway/adapters): se houver **exatamente um** canal `enabled` com aquele slug no DB, retornar; senão tentar owner conhecido (`OwnerUserID` / última atribuição); caso ambíguo, não inventar.
 - `LoadEnabled`: lista todos enabled (startup de adapters — tipicamente um por slug no single-user local).
 
+**Addendum (fail-closed no boot):** em produção, `initMessaging` (após `database.Init`) **exige** `database.DB() != nil` e chama `channels.UseDatabase` / `contacts.UseDatabase`. Se o DB estiver indisponível, o startup falha com erro explícito — **não** omitir `UseDatabase` e cair silenciosamente no filesystem para runtime de canais/contatos. O código FS permanece para testes unitários (sem `UseDatabase`) e para import legado read-only. Com DB ativo, `AdoptOrphans` adota apenas rows no SQLite (não escreve JSON legado).
+
 ### D5 — Contatos via `channel_id`
 
 O pacote `contacts` mantém a API pública (`GetForChannel`, `Authorize`, `IsAuthorized`, `Remove`, …). Com DB, resolve o canal por slug → `channel_id` e opera em `channel_contacts`.

@@ -376,10 +376,11 @@ func LoadEnabledForUser(userID string) (map[string]*ChannelConfig, error) {
 // sem dono (configs pré-AEP-0052) e devolve a lista de canais migrados.
 //
 // Faz parte do fluxo de criação do primeiro admin (AEP-0052 / B10):
-// quando o admin inicial é criado, varremos channels/*.json e carimbamos
-// OwnerUserID para canais herdados de instalações pré-multi-user. Sem isso,
-// mensagens recebidas em canais legados são rejeitadas pelo gateway (ver
-// internal/messaging/gateway.go) e o usuário não enxerga nada na UI.
+// quando o admin inicial é criado, adota canais órfãos no backend ativo
+// (DB após cutover AEP-0083; filesystem só quando UseDatabase não foi chamado,
+// tipicamente testes). Sem isso, mensagens recebidas em canais legados são
+// rejeitadas pelo gateway (ver internal/messaging/gateway.go) e o usuário
+// não enxerga nada na UI.
 //
 // IMPORTANTE: NÃO chamar em Login/RefreshAuth — apenas no fluxo
 // CreateAdminUser. Em multi-user, o segundo usuário a logar não deve
@@ -390,11 +391,10 @@ func LoadEnabledForUser(userID string) (map[string]*ChannelConfig, error) {
 // (não sobrescreve dono pré-existente, mesmo se for outro usuário). Apenas
 // configs sem dono são reatribuídas.
 //
-// Atomicidade (B9): a função opera inteiramente sob mu.Lock —
-// listAllUnsafe + re-leitura por canal + saveUnsafe — para fechar a janela
-// TOCTOU em que outro caller poderia setar OwnerUserID entre o ListAll e
-// o Save. Re-lemos cada cfg dentro do lock para nunca sobrescrever um
-// dono que tenha sido atribuído após a varredura inicial.
+// Com UseDatabase ativo, adota somente rows no SQLite — não escreve JSON
+// legado (import pós-login é o caminho read-only para leftovers em disco).
+// Sem DB: Atomicidade (B9) via mu.Lock + listAllUnsafe + re-leitura +
+// saveUnsafe para fechar a janela TOCTOU.
 func AdoptOrphans(userID string) ([]string, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
@@ -405,16 +405,7 @@ func AdoptOrphans(userID string) ([]string, error) {
 	defer mu.Unlock()
 
 	if usingDB() {
-		dbMigrated, err := adoptOrphansDB(userID)
-		if err != nil {
-			return dbMigrated, err
-		}
-		// Também adota leftovers em filesystem (instalação híbrida pré-import).
-		fsMigrated, fsErr := adoptOrphansFSLocked(userID)
-		if fsErr != nil {
-			return append(dbMigrated, fsMigrated...), fsErr
-		}
-		return append(dbMigrated, fsMigrated...), nil
+		return adoptOrphansDB(userID)
 	}
 	return adoptOrphansFSLocked(userID)
 }
