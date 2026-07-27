@@ -147,7 +147,7 @@ tokens reais). Itens **[manual]** exigem messengers reais ou escopos Slack.
 - [x] **[auto]** Import “Channels” pós-login idempotente (segunda passagem não duplica canais/contatos)
 - [ ] **[manual]** Adapters sobem após o login (canais enabled no DB) — requer processo real + tokens
 - [ ] **[manual]** Ida/volta de mensagem em pelo menos um canal configurado (Telegram e/ou Signal e/ou Slack)
-- [x] **[auto]** Contatos autorizados no DB após import (`GetForChannel` / `contacts.Load`); pareamento/rejeição de não-autorizado no gateway continua em `gateway_test.go`
+- [x] **[auto]** Contatos autorizados no DB após import, verificados pela fachada `contacts` com `contacts.UseDatabase` ligado (`GetForChannel`, `contacts.Load`, `IsAuthorized`); pareamento/rejeição no gateway continua em `gateway_test.go`
 - [ ] **[manual]** Contatos autorizados respeitados ponta a ponta no messenger (não-autorizado bloqueado; autorizado conversa)
 - [x] **[auto]** Arquivos legados intactos pelo import; cleanup opt-in dry-run depois confirm remove JSON e mantém DB
 - [x] **[auto]** `AdoptOrphans` só DB (não reescreve JSON)
