@@ -114,9 +114,9 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
       || 'mermaid-unknown';
 
     return (
-      <NodeViewWrapper className="rich-mermaid-block" role="group" aria-label="Bloco Mermaid">
+      <NodeViewWrapper className="rich-mermaid-block" role="group" aria-label={t('editor.mermaid.blockLabel', 'Bloco Mermaid')}>
         <div className="rich-mermaid-block__header">
-          <div className="rich-mermaid-block__title">Mermaid</div>
+          <div className="rich-mermaid-block__title">{t('editor.mermaid.title', 'Mermaid')}</div>
           <div className="rich-mermaid-block__actions">
             <button
               type="button"
