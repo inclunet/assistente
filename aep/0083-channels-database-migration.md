@@ -148,3 +148,12 @@ Checklist curto para validar o cutover em máquina com dados legados:
 - [ ] Ida/volta de mensagem em pelo menos um canal configurado (Telegram e/ou Signal e/ou Slack)
 - [ ] Contatos autorizados respeitados (não-autorizado bloqueado; autorizado conversa)
 - [ ] Arquivos legados intactos no disco (não apagados nem renomeados pelo import)
+
+## Cleanup opt-in de JSON legado (pós-migração)
+
+Após o import idempotente, `channels/*.json` e `contacts.json` **permanecem no disco** de propósito (D6). A remoção é **somente opt-in**:
+
+- API Wails `CleanupLegacyChannelJSON`: dry-run por default (`confirm=false` lista paths elegíveis); delete só com `confirm=true`.
+- Pré-condições: `channels` e `contacts` em modo DB; canal correspondente existe no DB para o usuário (ou seria skip por exists); **não apaga** se DB off.
+- Backup recomendado em `channels.legacy-backup/<timestamp>/` antes de remover (`noBackup=true` exige ciência da perda).
+- UI em Restaurar Padrões com `ConfirmDialog` (confirmação dupla) + i18n; **nunca** chamado de `runPostLoginLegacyImports`.
