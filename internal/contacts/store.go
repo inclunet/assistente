@@ -1,6 +1,7 @@
 package contacts
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -31,9 +32,13 @@ func resolveChannel(slug string) (channelID, userID string, err error) {
 		return "", "", err
 	}
 	if channelID == "" {
-		return "", "", fmt.Errorf("canal %s não encontrado", slug)
+		return "", "", fmt.Errorf("%w: %s", channels.ErrChannelNotFound, slug)
 	}
 	return channelID, userID, nil
+}
+
+func isChannelNotFound(err error) bool {
+	return errors.Is(err, channels.ErrChannelNotFound)
 }
 
 func contactFromRow(row *database.ChannelContact) *AuthorizedContact {
@@ -56,7 +61,7 @@ func getForChannelDB(channel string) ([]*AuthorizedContact, error) {
 	channelID, _, err := resolveChannel(channel)
 	if err != nil {
 		// Canal inexistente → lista vazia (compatível com FS quando chave ausente).
-		if strings.Contains(err.Error(), "não encontrado") {
+		if isChannelNotFound(err) {
 			return nil, nil
 		}
 		return nil, err
@@ -157,7 +162,7 @@ func authorizeDB(channel, id, displayName, username string, maxContacts int) err
 func removeDB(channel, contactID string) error {
 	channelID, _, err := resolveChannel(channel)
 	if err != nil {
-		if strings.Contains(err.Error(), "não encontrado") {
+		if isChannelNotFound(err) {
 			return nil
 		}
 		return err
@@ -169,7 +174,7 @@ func removeDB(channel, contactID string) error {
 func removeAllDB(channel string) error {
 	channelID, _, err := resolveChannel(channel)
 	if err != nil {
-		if strings.Contains(err.Error(), "não encontrado") {
+		if isChannelNotFound(err) {
 			return nil
 		}
 		return err

@@ -14,12 +14,16 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 )
+
+// ErrChannelNotFound indica que o slug não existe no store ativo (DB ou FS).
+var ErrChannelNotFound = errors.New("canal não encontrado")
 
 // channelsSubdir é o subdiretório dentro de .assistente/
 const channelsSubdir = "channels"

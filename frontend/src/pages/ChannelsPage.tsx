@@ -229,15 +229,8 @@ export default function ChannelsPage() {
       setSignalUseVault(signalStored || !signalCfg?.api_token);
       setSlackUseVault(slackStored || (!slackCfg?.bot_token && !slackCfg?.app_token));
 
-      const labelFor = (slug: string, cfg: { display_name?: string; type?: string; DisplayName?: string } | undefined) => {
-        if (cfg?.display_name) return cfg.display_name;
-        switch (slug) {
-          case 'telegram': return 'Telegram';
-          case 'signal': return 'Signal';
-          case 'slack': return 'Slack';
-          default: return cfg?.type || slug;
-        }
-      };
+      const labelFor = (slug: string, cfg: { display_name?: string; type?: string } | undefined) =>
+        cfg?.display_name || cfg?.type || slug;
 
       const rows: ChannelRow[] = Object.entries(configs).map(([slug, cfg]) => ({
         id: slug,

@@ -395,9 +395,11 @@ func adoptOrphansDB(userID string) ([]string, error) {
 			return migrated, fmt.Errorf("erro ao migrar canal DB %s: %w", row.Slug, err)
 		}
 		// Also adopt contacts for this channel.
-		_ = storeDB.Model(&database.ChannelContact{}).
+		if err := storeDB.Model(&database.ChannelContact{}).
 			Where("channel_id = ? AND (user_id = '' OR user_id IS NULL)", row.ID).
-			Update("user_id", userID)
+			Update("user_id", userID).Error; err != nil {
+			return migrated, fmt.Errorf("erro ao migrar contatos do canal DB %s: %w", row.Slug, err)
+		}
 		rememberOwner(row.Slug, userID)
 		migrated = append(migrated, row.Slug)
 	}
@@ -405,6 +407,7 @@ func adoptOrphansDB(userID string) ([]string, error) {
 }
 
 // ChannelIDBySlug resolve o UUID do canal para o pacote contacts (DB mode).
+// Retorna ErrChannelNotFound quando o slug não existe.
 func ChannelIDBySlug(slug string) (string, string, error) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -416,7 +419,7 @@ func ChannelIDBySlug(slug string) (string, string, error) {
 		return "", "", err
 	}
 	if row == nil {
-		return "", "", nil
+		return "", "", fmt.Errorf("%w: %s", ErrChannelNotFound, slug)
 	}
 	return row.ID, row.UserID, nil
 }
