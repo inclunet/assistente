@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -749,7 +750,7 @@ type retainAfterDeleteStore struct {
 }
 
 func (s *retainAfterDeleteStore) DeleteIfTrace(ctx context.Context, conversationID, traceID string) error {
-	return nil
+	return fmt.Errorf("delete simulado falhou")
 }
 
 func TestDeliverChannelResponse_EmptyAssistantMsgID_MarksSentinel(t *testing.T) {
