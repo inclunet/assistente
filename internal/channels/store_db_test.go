@@ -200,3 +200,76 @@ func TestImportLegacyChannels_Idempotent(t *testing.T) {
 		t.Fatalf("esperava skipped>=1, got %+v", second)
 	}
 }
+
+func TestSave_PreservesConversationsAndReplyChatIDsWhenNil(t *testing.T) {
+	setupTempHome(t)
+	setupChannelsDB(t)
+
+	if err := Save("slack", &ChannelConfig{
+		Enabled:     true,
+		OwnerUserID: "user-1",
+		Type:        "slack",
+		Conversations: map[string]string{
+			"U1": "conv-1",
+		},
+		ReplyChatIDs: map[string]string{
+			"U1": "C1",
+		},
+	}); err != nil {
+		t.Fatalf("Save inicial: %v", err)
+	}
+
+	// Partial save da UI (sem conversations / reply_chat_ids).
+	if err := Save("slack", &ChannelConfig{
+		Enabled:     true,
+		OwnerUserID: "user-1",
+		Type:        "slack",
+		Profile:     "canais-comunicacao",
+		MaxHistory:  40,
+	}); err != nil {
+		t.Fatalf("Save parcial: %v", err)
+	}
+
+	loaded, err := Load("slack")
+	if err != nil || loaded == nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Conversations["U1"] != "conv-1" {
+		t.Fatalf("conversations perdidas: %v", loaded.Conversations)
+	}
+	if loaded.ReplyChatIDs["U1"] != "C1" {
+		t.Fatalf("reply_chat_ids perdidos: %v", loaded.ReplyChatIDs)
+	}
+	if loaded.MaxHistory != 40 {
+		t.Fatalf("MaxHistory=%d", loaded.MaxHistory)
+	}
+}
+
+func TestSave_AdoptsOrphanSameSlug(t *testing.T) {
+	setupTempHome(t)
+	db := setupChannelsDB(t)
+
+	if err := Save("telegram", &ChannelConfig{Enabled: true, Type: "telegram"}); err != nil {
+		t.Fatalf("orphan: %v", err)
+	}
+	if err := Save("telegram", &ChannelConfig{
+		Enabled:     true,
+		OwnerUserID: "user-1",
+		Type:        "telegram",
+		Profile:     "p",
+	}); err != nil {
+		t.Fatalf("adopt save: %v", err)
+	}
+
+	var count int64
+	if err := db.Model(&database.Channel{}).Where("slug = ?", "telegram").Count(&count).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("esperava 1 row (adotada), got %d", count)
+	}
+	loaded, _ := Load("telegram")
+	if loaded == nil || loaded.OwnerUserID != "user-1" || loaded.Profile != "p" {
+		t.Fatalf("loaded=%+v", loaded)
+	}
+}

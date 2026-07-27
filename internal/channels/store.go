@@ -157,13 +157,24 @@ func findChannelRowForUser(tx *gorm.DB, slug, userID string) (*database.Channel,
 		q = q.Where("user_id = '' OR user_id IS NULL")
 	}
 	err := q.First(&row).Error
-	if err == gorm.ErrRecordNotFound {
-		return nil, nil
+	if err == nil {
+		return &row, nil
 	}
-	if err != nil {
+	if err != gorm.ErrRecordNotFound {
 		return nil, err
 	}
-	return &row, nil
+	// Save autenticado: adotar órfão com o mesmo slug em vez de criar duplicata.
+	if userID != "" {
+		var orphan database.Channel
+		err = tx.Where("slug = ? AND (user_id = '' OR user_id IS NULL)", slug).First(&orphan).Error
+		if err == nil {
+			return &orphan, nil
+		}
+		if err != gorm.ErrRecordNotFound {
+			return nil, err
+		}
+	}
+	return nil, nil
 }
 
 func loadFromDB(slug string) (*ChannelConfig, error) {
@@ -205,6 +216,23 @@ func saveToDB(slug string, cfg *ChannelConfig) error {
 		if err != nil {
 			return err
 		}
+		// UI/partial Save: preservar mapas runtime se o caller não enviou.
+		preserveConversations := cfg.Conversations == nil
+		if existing != nil {
+			existingCfg := RowToConfig(existing, nil)
+			if cfg.ReplyChatIDs == nil && len(existingCfg.ReplyChatIDs) > 0 {
+				cfg.ReplyChatIDs = existingCfg.ReplyChatIDs
+			}
+			// Settings Signal: se Account/APIURL vierem vazios no partial save,
+			// manter os valores já persistidos.
+			if strings.TrimSpace(cfg.Account) == "" && existingCfg.Account != "" {
+				cfg.Account = existingCfg.Account
+			}
+			if strings.TrimSpace(cfg.APIURL) == "" && existingCfg.APIURL != "" {
+				cfg.APIURL = existingCfg.APIURL
+			}
+		}
+
 		row := ConfigToRow(slug, cfg)
 		if existing != nil {
 			row.ID = existing.ID
@@ -217,8 +245,10 @@ func saveToDB(slug string, cfg *ChannelConfig) error {
 				return err
 			}
 		}
-		if err := syncConversations(tx, row.ID, cfg.Conversations); err != nil {
-			return err
+		if !preserveConversations {
+			if err := syncConversations(tx, row.ID, cfg.Conversations); err != nil {
+				return err
+			}
 		}
 		rememberOwner(slug, userID)
 		return nil

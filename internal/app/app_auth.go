@@ -766,6 +766,11 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 	}
 	a.registerEnvCredentials(ctx, a.credMgr)
 	a.runPostLoginLegacyImports(ctx)
+	// Canais: StartAdapters no boot roda antes do login (DB ainda vazio /
+	// sem import). Após o import legado, reconecta enabled do usuário.
+	if a.msgCtrl != nil {
+		a.msgCtrl.StartAdapters()
+	}
 	if a.toolInvocationSvc != nil {
 		// Retenção de tool calls de chat segue o ciclo de vida da conversa
 		// (AEP-0074): no login só varremos órfãos (rede de segurança) e, se o
