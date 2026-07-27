@@ -411,10 +411,13 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 
 	// 6. Registra callback no Notifier para capturar a resposta e reenviar ao mensageiro.
 	//    O ChannelResponseMode do perfil decide se a resposta será áudio ou texto.
-	//    Cancela streaming anterior (barge-in) para o Notify atrasado do turno
-	//    antigo não consumir o callback do turno novo.
-	if g.cancelStream != nil {
-		g.cancelStream(conversationID)
+	// Cancela streaming anterior (barge-in) para o Notify atrasado do turno
+	// antigo não consumir o callback do turno novo.
+	g.mu.RLock()
+	cancelStream := g.cancelStream
+	g.mu.RUnlock()
+	if cancelStream != nil {
+		cancelStream(conversationID)
 	}
 	incomingIsAudio := msg.IsAudioOnly()
 	g.notifier.Register(conversationID, ResponseCallback{

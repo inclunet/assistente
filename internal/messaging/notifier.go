@@ -290,9 +290,13 @@ func (n *ResponseNotifier) notifyFiltered(conversationID string, response string
 	}
 	var fire, keep []pendingCallback
 	for _, p := range pendings {
-		if traceID != "" && shouldPersistChannelCallback(p.cb) && p.cb.TraceID != "" && p.cb.TraceID != traceID {
-			keep = append(keep, p)
-			continue
+		if traceID != "" && shouldPersistChannelCallback(p.cb) {
+			// Canal com TraceID vazio ou divergente: não dispara neste Notify
+			// (evita bridge legado / turno errado); permanece para Notify sem filtro.
+			if p.cb.TraceID == "" || p.cb.TraceID != traceID {
+				keep = append(keep, p)
+				continue
+			}
 		}
 		fire = append(fire, p)
 	}

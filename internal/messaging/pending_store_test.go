@@ -575,8 +575,10 @@ func TestGateway_ReconcilePending_AlreadyDeliveredSkipsSend(t *testing.T) {
 	gateway := NewGateway(notifier, nil, nil, nil, nil, nil)
 	gateway.Register("telegram", fake)
 
+	// Já entregue: limpa sem chamar find.
 	gateway.ReconcilePending(context.Background(), func(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
-		return "já enviado", "asst-d", true, nil
+		t.Fatal("find não deveria ser chamado para pending já entregue")
+		return "", "", false, nil
 	})
 
 	select {

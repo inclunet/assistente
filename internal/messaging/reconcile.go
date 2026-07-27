@@ -46,21 +46,22 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 			recCtx = database.WithUserID(ctx, rec.OwnerUserID)
 		}
 
+		// Já entregue (MarkDelivered): limpa sem depender do find bater msgID.
+		if rec.DeliveredAssistantID != "" {
+			if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
+				logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete já-entregue conv=%s: %v", rec.ConversationID, err)
+			}
+			logging.Infof(recCtx, "messaging.gateway", "[Gateway] reconcile: pending já entregue conv=%s msg=%s — só limpeza",
+				rec.ConversationID, rec.DeliveredAssistantID)
+			continue
+		}
+
 		content, msgID, ok, ferr := find(recCtx, rec.ConversationID, rec.CreatedAt)
 		if ferr != nil {
 			logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: busca assistant conv=%s: %v", rec.ConversationID, ferr)
 			continue
 		}
 		if ok && content != "" {
-			// Send já concluiu antes do Delete (crash entre MarkDelivered e Delete).
-			if rec.DeliveredAssistantID != "" && rec.DeliveredAssistantID == msgID {
-				if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
-					logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile: delete já-entregue conv=%s: %v", rec.ConversationID, err)
-				}
-				logging.Infof(recCtx, "messaging.gateway", "[Gateway] reconcile: pending já entregue conv=%s msg=%s — só limpeza",
-					rec.ConversationID, msgID)
-				continue
-			}
 			// Upsert de turno novo durante o reconcile (Connect concorrente):
 			// não reenviar snapshot obsoleto — DeleteIfTrace do deliver também
 			// falharia em silêncio e a pendência nova ficaria para o turno vivo.
@@ -197,7 +198,7 @@ func pendingTraceState(store ChannelPendingStore, conversationID, traceID string
 	}
 	rec, ok, err := store.Get(context.Background(), conversationID)
 	if err != nil {
-		logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] reconcile retry: get pending falhou conv=%s: %v (seguindo retry)",
+		logging.Warnf(context.Background(), "messaging.gateway", "[Gateway] pendingTraceState: get pending falhou conv=%s: %v (estado desconhecido)",
 			conversationID, err)
 		return false, false
 	}
