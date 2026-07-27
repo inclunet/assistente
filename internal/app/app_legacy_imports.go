@@ -8,9 +8,9 @@ import (
 	"context"
 )
 
-// runPostLoginLegacyImports runs all read-only filesystem-to-DB imports that
-// require an authenticated user. Runtime managers should load from DB only
-// after this phase has completed.
+// runPostLoginLegacyImports executa todos os imports somente-leitura FS→DB que
+// exigem usuário autenticado. Os managers de runtime devem carregar do DB só
+// depois desta fase.
 func (a *App) runPostLoginLegacyImports(ctx context.Context) {
 	service := portability.NewLegacyImportService()
 	if a.mcpMgr != nil {
