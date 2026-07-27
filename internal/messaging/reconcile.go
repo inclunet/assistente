@@ -221,7 +221,7 @@ func (n *ResponseNotifier) clearMemoryCallbacks(conversationID string) {
 
 // ensureMemoryCallback registra cb só se a conversa ainda não tiver callback
 // in-memory. Check+write sob o mesmo lock — evita race em que um turno vivo
-// registra entre hasMemoryCallbacks e clearMemoryCallbacks no reconcile.
+// registra entre o check e o write no reconcile.
 // Não toca o pending store (uso típico: re-registro SkipPersist no startup).
 // Retorna true se registrou, false se já havia turno vivo.
 func (n *ResponseNotifier) ensureMemoryCallback(conversationID string, cb ResponseCallback) bool {

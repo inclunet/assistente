@@ -103,6 +103,49 @@ func TestResponseNotifier_PersistsChannelCallback(t *testing.T) {
 	}
 }
 
+func TestResponseNotifier_RegisterReplacesPriorChannelCallback(t *testing.T) {
+	store := newMemPendingStore()
+	n := NewResponseNotifier()
+	defer n.Stop()
+	n.SetPendingStore(store)
+
+	oldFired := make(chan struct{}, 1)
+	newFired := make(chan struct{}, 1)
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "1",
+		OwnerUserID: "owner-1",
+		TraceID:     "trace-old",
+		Callback:    func(string, string) { oldFired <- struct{}{} },
+	})
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "1",
+		OwnerUserID: "owner-1",
+		TraceID:     "trace-new",
+		Callback:    func(string, string) { newFired <- struct{}{} },
+	})
+	if n.PendingCount() != 1 {
+		t.Fatalf("Register de canal deveria substituir o anterior; pending=%d", n.PendingCount())
+	}
+	rows, _ := store.List(context.Background())
+	if len(rows) != 1 || rows[0].TraceID != "trace-new" {
+		t.Fatalf("store deveria ter só turno novo; got %+v", rows)
+	}
+
+	n.Notify("conv-1", "só uma", "asst")
+	select {
+	case <-newFired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("callback novo deveria disparar")
+	}
+	select {
+	case <-oldFired:
+		t.Fatal("callback antigo não deveria disparar após substituição")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestResponseNotifier_CancelDeletesPending(t *testing.T) {
 	store := newMemPendingStore()
 	n := NewResponseNotifier()

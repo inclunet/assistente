@@ -208,6 +208,11 @@ type expiredLogEntry struct {
 // cancelado, ou expirado por TTL. O TTL efetivo é cb.TTL quando > 0 (registros de
 // vida longa, ex.: sub-agente em background) ou o padrão callbackTTL (5min) caso
 // contrário (canais/UI).
+//
+// Para callbacks de canal externo persistíveis (telegram/signal/slack com
+// ChatID+OwnerUserID), um novo Register substitui os callbacks de canal
+// anteriores da mesma conversa — alinhado ao store (1 pending/conversa) e
+// evita Notify disparar vários Sends com a mesma resposta (M14 + TTL longo).
 func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) {
 	ttl := callbackTTL
 	if cb.TTL > 0 {
@@ -215,11 +220,24 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 	}
 	n.mu.Lock()
 	now := n.now()
-	n.callbacks[conversationID] = append(n.callbacks[conversationID], pendingCallback{
+	entry := pendingCallback{
 		cb:         cb,
 		registered: now,
 		expiresAt:  now.Add(ttl),
-	})
+	}
+	if shouldPersistChannelCallback(cb) {
+		prev := n.callbacks[conversationID]
+		kept := prev[:0]
+		for _, p := range prev {
+			if shouldPersistChannelCallback(p.cb) {
+				continue
+			}
+			kept = append(kept, p)
+		}
+		n.callbacks[conversationID] = append(kept, entry)
+	} else {
+		n.callbacks[conversationID] = append(n.callbacks[conversationID], entry)
+	}
 	store := n.store
 	n.mu.Unlock()
 
