@@ -428,20 +428,18 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	_, err = g.sendMessage(ctx, conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {
 		logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao processar mensagem: %v", traceID, conversationID, msg.Channel, err)
-		// B7: o callback registrado acima nunca seria invocado porque
+		// B7: o callback deste turno nunca seria invocado porque
 		// sendMessage falhou antes do agentic loop chegar a saveAndFinish
-		// (que dispara Notify). Sem este Cancel, ele ficaria pendurado
-		// até expirar pelo TTL do notifier — em conversas de canal de
-		// alto volume isso vira backlog crescente. Cancela explicitamente
-		// para liberar a slot imediatamente.
-		g.notifier.Cancel(conversationID)
+		// (que dispara Notify). CancelTrace (não Cancel) evita apagar a
+		// pendência M14 de um turno mais novo na mesma conversa.
+		g.notifier.CancelTrace(conversationID, traceID)
 		g.mu.RLock()
 		messenger, ok := g.messengers[msg.Channel]
 		g.mu.RUnlock()
 		if ok {
 			outMsg := OutgoingMessage{
 				ChatID: outboundChatID,
-				Text:   fmt.Sprintf("Erro ao processar mensagem: %v", err),
+				Text:   "Não foi possível processar a mensagem. Tente novamente em instantes.",
 			}
 			_ = messenger.Send(ctx, outMsg)
 		}

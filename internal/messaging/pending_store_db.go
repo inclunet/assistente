@@ -60,7 +60,7 @@ func (s *DBChannelPendingStore) List(ctx context.Context) ([]ChannelPendingRecor
 type FindAssistantAfterFn func(ctx context.Context, conversationID string, after time.Time) (content string, messageID string, ok bool, err error)
 
 // DefaultFindAssistantAfter usa o repositório de mensagens do database.
-// Preferimos a primeira assistant após CreatedAt (turno da pendência), não a última.
+// Resolve o turno pela primeira user após CreatedAt e a assistant com o mesmo turn_id.
 func DefaultFindAssistantAfter(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
 	msg, err := database.FindFirstAssistantMessageAfter(ctx, conversationID, after)
 	if err != nil || msg == nil {

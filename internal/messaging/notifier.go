@@ -283,9 +283,9 @@ func (n *ResponseNotifier) Notify(conversationID string, response string, assist
 }
 
 // Cancel remove todos os callbacks pendentes de uma conversa sem chamá-los.
-// Usado quando o streaming LLM é cancelado (ex: barge-in SIP), quando
-// sendMessage falha em error path (B7 do review), ou quando o canal/conversa
-// é removida — evita callbacks órfãos que nunca disparariam.
+// Usado quando o streaming LLM é cancelado (ex: barge-in SIP) ou a
+// conversa/run é encerrada — evita callbacks órfãos que nunca disparariam.
+// Para falha de um turno específico no gateway, preferir CancelTrace.
 func (n *ResponseNotifier) Cancel(conversationID string) {
 	n.mu.Lock()
 	pendings, ok := n.callbacks[conversationID]
@@ -304,6 +304,45 @@ func (n *ResponseNotifier) Cancel(conversationID string) {
 			logging.Debugf(context.Background(), "messaging.notifier", "[Messaging] Callback cancelado trace=%s conv=%s channel=%s (count=%d)",
 				p.cb.TraceID, conversationID, p.cb.Channel, len(pendings))
 		}
+	}
+}
+
+// CancelTrace remove só os callbacks do TraceID informado e apaga o pending
+// persistido apenas se ainda corresponder a esse turno (DeleteIfTrace).
+// Evita que falha de sendMessage de um turno antigo apague a intenção M14
+// de um turno mais novo na mesma conversa.
+func (n *ResponseNotifier) CancelTrace(conversationID, traceID string) {
+	if conversationID == "" {
+		return
+	}
+	n.mu.Lock()
+	pendings := n.callbacks[conversationID]
+	fresh := pendings[:0]
+	var removed []pendingCallback
+	for _, p := range pendings {
+		if p.cb.TraceID == traceID {
+			removed = append(removed, p)
+			continue
+		}
+		fresh = append(fresh, p)
+	}
+	if len(fresh) == 0 {
+		delete(n.callbacks, conversationID)
+	} else {
+		n.callbacks[conversationID] = fresh
+	}
+	store := n.store
+	n.mu.Unlock()
+
+	if store != nil {
+		if err := store.DeleteIfTrace(context.Background(), conversationID, traceID); err != nil {
+			logging.Warnf(context.Background(), "messaging.notifier", "[Notifier] falha ao remover pending no CancelTrace conv=%s trace=%s: %v",
+				conversationID, traceID, err)
+		}
+	}
+	for _, p := range removed {
+		logging.Debugf(context.Background(), "messaging.notifier", "[Messaging] Callback cancelado por trace=%s conv=%s channel=%s",
+			p.cb.TraceID, conversationID, p.cb.Channel)
 	}
 }
 

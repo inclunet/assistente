@@ -107,6 +107,51 @@ func TestResponseNotifier_CancelDeletesPending(t *testing.T) {
 	}
 }
 
+func TestResponseNotifier_CancelTraceKeepsNewerPending(t *testing.T) {
+	store := newMemPendingStore()
+	n := NewResponseNotifier()
+	defer n.Stop()
+	n.SetPendingStore(store)
+
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "1",
+		OwnerUserID: "owner-1",
+		TraceID:     "trace-old",
+		Callback:    func(string, string) {},
+	})
+	n.Register("conv-1", ResponseCallback{
+		Channel:     "telegram",
+		ChatID:      "2",
+		OwnerUserID: "owner-1",
+		TraceID:     "trace-new",
+		Callback:    func(string, string) {},
+	})
+	// Upsert sobrescreve: store fica com o turno novo.
+	rows, _ := store.List(context.Background())
+	if len(rows) != 1 || rows[0].TraceID != "trace-new" {
+		t.Fatalf("store deveria ter só trace-new; got %+v", rows)
+	}
+
+	n.CancelTrace("conv-1", "trace-old")
+	rows, _ = store.List(context.Background())
+	if len(rows) != 1 || rows[0].TraceID != "trace-new" {
+		t.Fatalf("CancelTrace do turno antigo não pode apagar pending novo; got %+v", rows)
+	}
+	if n.PendingCount() != 1 {
+		t.Fatalf("callback do turno novo deveria permanecer; pending=%d", n.PendingCount())
+	}
+
+	n.CancelTrace("conv-1", "trace-new")
+	rows, _ = store.List(context.Background())
+	if len(rows) != 0 {
+		t.Fatalf("CancelTrace do turno atual deveria apagar pending; got %+v", rows)
+	}
+	if n.PendingCount() != 0 {
+		t.Fatalf("nenhum callback deveria restar; pending=%d", n.PendingCount())
+	}
+}
+
 func TestResponseNotifier_SkipsPersistingInternalCallbacks(t *testing.T) {
 	store := newMemPendingStore()
 	n := NewResponseNotifier()

@@ -10,7 +10,7 @@ import (
 // ReconcilePending reenvia respostas de canal órfãs após crash (M14).
 //
 // Para cada pendência no store:
-//  1. busca a primeira assistant após CreatedAt (turno da pendência)
+//  1. busca a assistant do turno (user após CreatedAt → turn_id)
 //  2. se houver → envia via messenger; apaga só após Send OK
 //  3. se não houver e expirou (> callbackTTL) → apaga
 //  4. senão → limpa callbacks in-memory e re-registra (espera Notify)
