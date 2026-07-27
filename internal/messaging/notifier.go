@@ -161,7 +161,8 @@ func (n *ResponseNotifier) expireOldCallbacks() {
 	var toLog []expiredLogEntry
 	n.mu.Lock()
 	for convID, pendings := range n.callbacks {
-		fresh := pendings[:0]
+		// Slice novo: pendings[:0] reteria closures expirados no backing array.
+		fresh := make([]pendingCallback, 0, len(pendings))
 		var expired []pendingCallback
 		for _, p := range pendings {
 			// M14: callbacks de canal externos (telegram/signal/slack com
@@ -243,7 +244,7 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 	}
 	if shouldPersistChannelCallback(cb) && !cb.SkipPersist {
 		prev := n.callbacks[conversationID]
-		kept := prev[:0]
+		kept := make([]pendingCallback, 0, len(prev)+1)
 		for _, p := range prev {
 			if shouldPersistChannelCallback(p.cb) {
 				continue
@@ -255,7 +256,7 @@ func (n *ResponseNotifier) Register(conversationID string, cb ResponseCallback) 
 		// Bridge / reconcile: substitui só outros SkipPersist de canal;
 		// preserva o callback do gateway (!SkipPersist).
 		prev := n.callbacks[conversationID]
-		kept := prev[:0]
+		kept := make([]pendingCallback, 0, len(prev)+1)
 		for _, p := range prev {
 			if shouldPersistChannelCallback(p.cb) && p.cb.SkipPersist {
 				continue
@@ -394,7 +395,7 @@ func (n *ResponseNotifier) CancelTrace(conversationID, traceID string) {
 	}
 	n.mu.Lock()
 	pendings := n.callbacks[conversationID]
-	fresh := pendings[:0]
+	fresh := make([]pendingCallback, 0, len(pendings))
 	var removed []pendingCallback
 	for _, p := range pendings {
 		if p.cb.TraceID == traceID {
@@ -438,7 +439,7 @@ func (n *ResponseNotifier) CancelByChannel(channel string) int {
 	n.mu.Lock()
 	cancelled := 0
 	for convID, pendings := range n.callbacks {
-		fresh := pendings[:0]
+		fresh := make([]pendingCallback, 0, len(pendings))
 		removedPersisted := false
 		for _, p := range pendings {
 			if p.cb.Channel == channel {
