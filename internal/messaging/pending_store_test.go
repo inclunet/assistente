@@ -458,7 +458,7 @@ func TestGateway_ReconcilePending_ExpiredStillResendsSavedAssistant(t *testing.T
 	}
 }
 
-func TestGateway_ReconcilePending_ReregisterDoesNotDuplicateCallbacks(t *testing.T) {
+func TestGateway_ReconcilePending_SkipsReregisterWhenLiveCallback(t *testing.T) {
 	store := newMemPendingStore()
 	_ = store.Upsert(context.Background(), ChannelPendingRecord{
 		ConversationID: "conv-dup",
@@ -472,17 +472,52 @@ func TestGateway_ReconcilePending_ReregisterDoesNotDuplicateCallbacks(t *testing
 	defer notifier.Stop()
 	notifier.SetPendingStore(store)
 
-	// Callback prévio em memória (não deve sobreviver ao reconcile).
+	// Turno vivo (ex.: mensagem chegou durante Connect) — reconcile não substitui.
+	live := make(chan string, 1)
 	notifier.Register("conv-dup", ResponseCallback{
 		Channel:     "telegram",
 		ChatID:      "55",
 		OwnerUserID: "owner-1",
-		SkipPersist: true,
-		Callback:    func(string, string) {},
+		TraceID:     "trace-live",
+		Callback:    func(resp string, _ string) { live <- resp },
 	})
 	if notifier.PendingCount() != 1 {
 		t.Fatalf("setup: pending=%d", notifier.PendingCount())
 	}
+
+	gateway := NewGateway(notifier, nil, nil, nil, nil, nil)
+	gateway.ReconcilePending(context.Background(), func(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
+		return "", "", false, nil
+	})
+	if notifier.PendingCount() != 1 {
+		t.Fatalf("após reconcile deveria preservar o callback vivo, got %d", notifier.PendingCount())
+	}
+
+	notifier.Notify("conv-dup", "turno vivo", "asst")
+	select {
+	case got := <-live:
+		if got != "turno vivo" {
+			t.Fatalf("callback vivo não recebeu Notify: %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout: callback vivo deveria receber Notify")
+	}
+}
+
+func TestGateway_ReconcilePending_ReregisterWhenNoLiveCallback(t *testing.T) {
+	store := newMemPendingStore()
+	_ = store.Upsert(context.Background(), ChannelPendingRecord{
+		ConversationID: "conv-orphan",
+		Channel:        "telegram",
+		ChatID:         "55",
+		OwnerUserID:    "owner-1",
+		TraceID:        "trace-orphan",
+		CreatedAt:      time.Now().UTC().Add(-time.Minute),
+	})
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+	notifier.SetPendingStore(store)
 
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 2)}
 	gateway := NewGateway(notifier, nil, nil, nil, nil, nil)
@@ -492,22 +527,21 @@ func TestGateway_ReconcilePending_ReregisterDoesNotDuplicateCallbacks(t *testing
 		return "", "", false, nil
 	})
 	if notifier.PendingCount() != 1 {
-		t.Fatalf("após reconcile deveria haver exatamente 1 callback, got %d", notifier.PendingCount())
+		t.Fatalf("reconcile deveria re-registrar callback órfão, got %d", notifier.PendingCount())
 	}
 
-	notifier.Notify("conv-dup", "uma vez", "asst")
+	notifier.Notify("conv-orphan", "uma vez", "asst")
 	select {
 	case msg := <-fake.sentCh:
 		if msg.Text != "uma vez" {
 			t.Fatalf("outbound inesperado: %+v", msg)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timeout esperando envio único")
+		t.Fatal("timeout esperando envio do callback re-registrado")
 	}
 	select {
 	case msg := <-fake.sentCh:
 		t.Fatalf("envio duplicado: %+v", msg)
 	case <-time.After(150 * time.Millisecond):
-		// ok — sem segundo envio
 	}
 }

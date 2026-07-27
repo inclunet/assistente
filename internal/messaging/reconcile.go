@@ -85,7 +85,13 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 		}
 
 		// Sem resposta ainda — re-registra callback in-memory para Notify futuro.
-		// Limpa memória antes para não acumular callbacks (Notify dispararia todos).
+		// Se já há callback vivo (mensagem chegou durante Connect/startup),
+		// não substituir: o turno atual já está coberto.
+		if g.notifier.hasMemoryCallbacks(rec.ConversationID) {
+			logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile: callback vivo conv=%s — pula re-registro",
+				rec.ConversationID)
+			continue
+		}
 		remaining := time.Until(rec.CreatedAt.Add(callbackTTL))
 		if remaining <= 0 {
 			if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
@@ -214,4 +220,14 @@ func (n *ResponseNotifier) clearMemoryCallbacks(conversationID string) {
 	n.mu.Lock()
 	delete(n.callbacks, conversationID)
 	n.mu.Unlock()
+}
+
+// hasMemoryCallbacks indica se a conversa já tem callback in-memory (turno vivo).
+func (n *ResponseNotifier) hasMemoryCallbacks(conversationID string) bool {
+	if n == nil || conversationID == "" {
+		return false
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return len(n.callbacks[conversationID]) > 0
 }
