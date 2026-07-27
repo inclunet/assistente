@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+
 	"assistente/internal/channels"
 	"assistente/internal/contacts"
 )
@@ -38,6 +40,9 @@ func (a *App) CleanupLegacyChannelJSON(opts CleanupLegacyChannelJSONOptions) (Cl
 	ctx, err := a.requireAuthenticatedContext()
 	if err != nil {
 		return CleanupLegacyChannelJSONResult{}, err
+	}
+	if !channels.UsingDatabase() || !contacts.UsingDatabase() {
+		return CleanupLegacyChannelJSONResult{}, fmt.Errorf("channels/contacts DB não habilitado; cleanup legado indisponível")
 	}
 	result, err := channels.CleanupLegacyJSONFiles(ctx, channels.LegacyCleanupOptions{
 		Confirm:         opts.Confirm,
