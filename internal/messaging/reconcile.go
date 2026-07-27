@@ -22,6 +22,14 @@ func (g *Gateway) ReconcilePending(ctx context.Context, find FindAssistantAfterF
 	if g == nil || g.notifier == nil {
 		return
 	}
+	// Serializa reconciles concorrentes (boot + reload pós-login): dois Lists
+	// no mesmo snapshot ainda poderiam passar o gate e duplicar Send.
+	if !g.reconcileMu.TryLock() {
+		logging.Infof(ctx, "messaging.gateway", "[Gateway] reconcile: já em andamento — pula chamada concorrente")
+		return
+	}
+	defer g.reconcileMu.Unlock()
+
 	store := g.notifier.pendingStore()
 	if store == nil {
 		return
@@ -181,17 +189,23 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 		if store != nil {
 			skip, deliveredID, known := pendingSendGate(recCtx, store, rec.ConversationID, rec.TraceID)
 			if known && skip {
-				cancel()
 				if deliveredID != "" {
-					if err := store.DeleteIfTrace(recCtx, rec.ConversationID, rec.TraceID); err != nil {
-						logging.Warnf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: delete já-entregue conv=%s: %v", rec.ConversationID, err)
+					// Background: recCtx pode já estar no limite; Delete não
+					// deve herdar cancel() prematuro (mesmo padrão do deliver).
+					storeCtx := context.Background()
+					if rec.OwnerUserID != "" {
+						storeCtx = database.WithUserID(storeCtx, rec.OwnerUserID)
 					}
-					logging.Infof(recCtx, "messaging.gateway", "[Gateway] reconcile retry: pending já entregue conv=%s msg=%s — abortando",
+					if err := store.DeleteIfTrace(storeCtx, rec.ConversationID, rec.TraceID); err != nil {
+						logging.Warnf(storeCtx, "messaging.gateway", "[Gateway] reconcile retry: delete já-entregue conv=%s: %v", rec.ConversationID, err)
+					}
+					logging.Infof(storeCtx, "messaging.gateway", "[Gateway] reconcile retry: pending já entregue conv=%s msg=%s — abortando",
 						rec.ConversationID, deliveredID)
 				} else {
 					logging.Debugf(recCtx, "messaging.gateway", "[Gateway] reconcile retry: pending supersedido/ausente conv=%s trace=%s — abortando",
 						rec.ConversationID, rec.TraceID)
 				}
+				cancel()
 				return
 			}
 			// known=false (ex.: erro transitório de Get): segue o retry;

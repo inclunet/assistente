@@ -69,6 +69,8 @@ type Gateway struct {
 	saveAudio      SaveAudioFunc     // Opcional: salva áudio no DB
 	// cancelStream cancela LLM em andamento (barge-in) antes de novo turno de canal.
 	cancelStream func(conversationID string)
+	// reconcileMu serializa ReconcilePending (boot + reload pós-login).
+	reconcileMu sync.Mutex
 	// reconcileRetrySem limita goroutines de retry no startup (M14).
 	reconcileRetrySem chan struct{}
 }

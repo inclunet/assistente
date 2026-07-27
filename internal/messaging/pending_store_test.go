@@ -819,24 +819,6 @@ func TestGateway_ReconcilePending_DeliveredBetweenListAndSendSkips(t *testing.T)
 	}
 }
 
-// failFirstSendMessenger falha o 1º Send e sucede nos seguintes.
-type failFirstSendMessenger struct {
-	fakeMessenger
-	mu    sync.Mutex
-	calls int
-}
-
-func (m *failFirstSendMessenger) Send(ctx context.Context, msg OutgoingMessage) error {
-	m.mu.Lock()
-	m.calls++
-	n := m.calls
-	m.mu.Unlock()
-	if n == 1 {
-		return context.DeadlineExceeded
-	}
-	return m.fakeMessenger.Send(ctx, msg)
-}
-
 func TestGateway_retryReconcileSend_AlreadyDeliveredAborts(t *testing.T) {
 	store := newMemPendingStore()
 	_ = store.Upsert(context.Background(), ChannelPendingRecord{
@@ -889,6 +871,62 @@ func TestGateway_retryReconcileSend_AlreadyDeliveredAborts(t *testing.T) {
 	rows, _ := store.List(context.Background())
 	if len(rows) != 0 {
 		t.Fatalf("pending já entregue deveria ser limpo no retry; got %+v", rows)
+	}
+}
+
+func TestGateway_ReconcilePending_ConcurrentCallSkips(t *testing.T) {
+	store := newMemPendingStore()
+	_ = store.Upsert(context.Background(), ChannelPendingRecord{
+		ConversationID: "conv-conc",
+		Channel:        "telegram",
+		ChatID:         "1",
+		OwnerUserID:    "owner-1",
+		TraceID:        "trace-conc",
+		CreatedAt:      time.Now().UTC().Add(-time.Minute),
+	})
+
+	notifier := NewResponseNotifier()
+	defer notifier.Stop()
+	notifier.SetPendingStore(store)
+
+	blockFind := make(chan struct{})
+	releaseFind := make(chan struct{})
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 2)}
+	gateway := NewGateway(notifier, nil, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		gateway.ReconcilePending(context.Background(), func(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
+			close(blockFind)
+			<-releaseFind
+			return "uma", "asst-conc", true, nil
+		})
+	}()
+
+	<-blockFind
+	// Segunda chamada enquanto a primeira ainda está no find — deve TryLock-skip.
+	gateway.ReconcilePending(context.Background(), func(ctx context.Context, conversationID string, after time.Time) (string, string, bool, error) {
+		t.Fatal("segunda ReconcilePending não deveria rodar find")
+		return "", "", false, nil
+	})
+	close(releaseFind)
+	wg.Wait()
+
+	select {
+	case msg := <-fake.sentCh:
+		if msg.Text != "uma" {
+			t.Fatalf("outbound inesperado: %+v", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout: primeira reconcile deveria enviar")
+	}
+	select {
+	case msg := <-fake.sentCh:
+		t.Fatalf("envio duplicado de reconcile concorrente: %+v", msg)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 
