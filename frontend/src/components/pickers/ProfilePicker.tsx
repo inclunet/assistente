@@ -161,7 +161,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     const loadingLabel = t('profiles.loading', 'Carregando perfis...');
 
     const loadingState = (
-      <div className="voice-picker voice-picker--loading" role="status" aria-live="polite">
+      <div className="voice-picker voice-picker--loading">
         <span className="voice-picker__icon" aria-hidden="true">{icon}</span>
         <span className="voice-picker__loading">{loadingLabel}</span>
       </div>
@@ -175,7 +175,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     );
 
     const emptyState = (
-      <div className="voice-picker voice-picker--empty" role="status" aria-live="polite">
+      <div className="voice-picker voice-picker--empty">
         <span className="voice-picker__icon" aria-hidden="true">{icon}</span>
         <span>{t('profiles.empty', 'Nenhum perfil')}</span>
       </div>

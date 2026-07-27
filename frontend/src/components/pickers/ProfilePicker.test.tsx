@@ -98,7 +98,7 @@ describe('ProfilePicker', () => {
     expect(onAnnounce).toHaveBeenCalledWith('Perfil selecionado: Padrao');
   });
 
-  it('usa label padrão i18n e anuncia empty state em live region', async () => {
+  it('usa label padrão i18n e empty state traduzido', async () => {
     getProfilesSpy.mockResolvedValueOnce([]);
     getActiveSpy.mockResolvedValueOnce('padrao');
 
@@ -108,6 +108,6 @@ describe('ProfilePicker', () => {
       expect(screen.getByTestId('picker-label')).toHaveTextContent('Perfil');
     });
 
-    expect(screen.getByRole('status')).toHaveTextContent('Nenhum perfil');
+    expect(screen.getByText('Nenhum perfil')).toBeInTheDocument();
   });
 });
