@@ -103,9 +103,11 @@ func DeleteChannelResponsePendingIfTrace(ctx context.Context, conversationID, tr
 	return q.Delete(&ChannelResponsePending{}).Error
 }
 
-// MarkChannelResponsePendingDelivered grava o assistantMsgID após Send OK,
-// antes do Delete. Se o processo cair entre Send e Delete, o reconcile vê a
-// marca e só limpa a linha — sem reenviar ao contato.
+// MarkChannelResponsePendingDelivered grava o ID de entrega após Send OK,
+// antes do Delete. O caller passa assistantMsgID real ou sentinel estável
+// (ex.: delivered:<traceID>) quando o ID da assistant veio vazio — nunca
+// pular a marca após Send OK. Se o processo cair entre Send e Delete, o
+// reconcile vê a marca e só limpa a linha — sem reenviar ao contato.
 func MarkChannelResponsePendingDelivered(ctx context.Context, conversationID, traceID, assistantMsgID string) error {
 	if conversationID == "" || assistantMsgID == "" {
 		return nil

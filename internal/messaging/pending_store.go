@@ -25,9 +25,24 @@ type ChannelPendingStore interface {
 	Delete(ctx context.Context, conversationID string) error
 	// DeleteIfTrace remove só se o TraceID atual ainda corresponde ao turno entregue.
 	DeleteIfTrace(ctx context.Context, conversationID, traceID string) error
-	// MarkDelivered grava assistantMsgID após Send OK (antes do DeleteIfTrace).
+	// MarkDelivered grava o ID de entrega após Send OK (antes do DeleteIfTrace).
+	// O ID é o assistantMsgID real ou um sentinel estável (ver pendingDeliveredMarkID).
 	MarkDelivered(ctx context.Context, conversationID, traceID, assistantMsgID string) error
 	List(ctx context.Context) ([]ChannelPendingRecord, error)
+}
+
+// Prefixo do sentinel quando assistantMsgID vem vazio após Send OK.
+// Sem marca, reconcile reenviaria (janela at-least-once residual só até MarkDelivered).
+const pendingDeliveredSentinelPrefix = "delivered:"
+
+// pendingDeliveredMarkID escolhe o valor gravado em DeliveredAssistantID após Send OK.
+// Preferência: assistantMsgID real; se vazio, sentinel estável por trace
+// (`delivered:<traceID>`) para MarkDelivered nunca ser pulado.
+func pendingDeliveredMarkID(assistantMsgID, traceID string) string {
+	if assistantMsgID != "" {
+		return assistantMsgID
+	}
+	return pendingDeliveredSentinelPrefix + traceID
 }
 
 func shouldPersistChannelCallback(cb ResponseCallback) bool {

@@ -234,8 +234,10 @@ func (g *Gateway) retryReconcileSend(rec ChannelPendingRecord, content, msgID st
 // known=false significa estado indefinido (ex.: Get falhou) — o caller não deve
 // abortar o retry; DeleteIfTrace ainda protege a deleção.
 //
-// Continua at-least-once na janela residual Send→MarkDelivered (sem marca não
-// há como deduplicar sem risco de perda silenciosa).
+// Continua at-least-once só na janela residual Send→MarkDelivered (crash sem
+// marca). Após Send OK o deliver sempre grava marca (msgID ou sentinel
+// delivered:<traceID>); sem isso não há como deduplicar sem risco de perda
+// silenciosa se a marca viesse antes do Send.
 func pendingSendGate(ctx context.Context, store ChannelPendingStore, conversationID, traceID string) (skip bool, deliveredID string, known bool) {
 	if store == nil || conversationID == "" {
 		return true, "", true
