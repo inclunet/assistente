@@ -69,6 +69,8 @@ type Gateway struct {
 	saveAudio      SaveAudioFunc     // Opcional: salva áudio no DB
 	// cancelStream cancela LLM em andamento (barge-in) antes de novo turno de canal.
 	cancelStream func(conversationID string)
+	// reconcileMu serializa ReconcilePending (boot + reload pós-login).
+	reconcileMu sync.Mutex
 	// reconcileRetrySem limita goroutines de retry no startup (M14).
 	reconcileRetrySem chan struct{}
 }
@@ -531,7 +533,8 @@ func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, r
 	// M14: marca entrega antes do Delete. Janela residual (crash entre Send e
 	// MarkDelivered) pode reenviar no reconcile — at-least-once intencional;
 	// marcar antes do Send causaria perda silenciosa se o crash fosse entre
-	// Mark e Send.
+	// Mark e Send. Após MarkDelivered, reconcile/retry consultam o store fresco
+	// (pendingSendGate) e só limpam — sem segundo Send ao contato.
 	if g.notifier != nil {
 		if store := g.notifier.pendingStore(); store != nil && conversationID != "" {
 			// Background: ctx do adapter pode cancelar no shutdown após Send OK.
