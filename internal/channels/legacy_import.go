@@ -19,14 +19,15 @@ import (
 	"gorm.io/gorm"
 )
 
-// LegacyChannelItem is one filesystem channel config ready for DB import.
+// LegacyChannelItem é uma config de canal no FS pronta para importação no DB.
 type LegacyChannelItem struct {
 	Slug   string
 	Config *ChannelConfig
 	Path   string
 }
 
-// LegacyConfigSource returns a read-only source over channels/*.json across basePaths.
+// LegacyConfigSource retorna uma fonte somente-leitura sobre channels/*.json
+// em todos os basePaths.
 func LegacyConfigSource() portability.LegacyImportSource {
 	return legacyConfigSource{}
 }
@@ -102,8 +103,8 @@ func channelExistsForUser(userID, slug string) (bool, error) {
 	return count > 0, nil
 }
 
-// MigrateChannelSecrets moves plaintext tokens into CredManager and sets refs.
-// Does not persist the config — caller saves afterwards. Safe if credMgr is nil.
+// MigrateChannelSecrets move tokens em plaintext para o CredManager e preenche refs.
+// Não persiste a config — o caller salva depois. Seguro se credMgr for nil.
 func MigrateChannelSecrets(ctx context.Context, slug string, cfg *ChannelConfig, credMgr *credentials.Manager) error {
 	if cfg == nil || credMgr == nil || !credMgr.CanPersist() {
 		return nil
@@ -140,8 +141,8 @@ func MigrateChannelSecrets(ctx context.Context, slug string, cfg *ChannelConfig,
 	return nil
 }
 
-// ImportLegacyChannelsWithContext imports channels/*.json (and contacts.json side-effect)
-// into the DB. Idempotent per (user_id, slug). Never deletes legacy files.
+// ImportLegacyChannelsWithContext importa channels/*.json (e contacts.json como
+// efeito colateral) no DB. Idempotente por (user_id, slug). Nunca apaga arquivos legados.
 func ImportLegacyChannelsWithContext(ctx context.Context, credMgr *credentials.Manager) (portability.LegacyImportResult, error) {
 	if ctx == nil {
 		ctx = context.Background()

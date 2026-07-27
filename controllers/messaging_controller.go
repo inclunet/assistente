@@ -196,7 +196,8 @@ func (c *MessagingController) Init() {
 //
 // ownerUserID não vazio (pós-login): carrega só canais desse usuário + órfãos,
 // evitando conectar adapters de outros donos no mesmo SQLite. Vazio (boot
-// pré-login): mantém LoadEnabled global (FS/legado).
+// pré-login / sem escopo de usuário): usa LoadEnabled global (FS ou DB,
+// conforme o store ativo) — sem filtro por dono.
 func (c *MessagingController) StartAdapters(ownerUserID string) {
 	if c == nil || c.msgGateway == nil {
 		logging.Warnf(context.Background(), "controllers.messaging-controller", "[Messaging] StartAdapters ignorado: gateway não inicializado")
