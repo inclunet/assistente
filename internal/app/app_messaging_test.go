@@ -77,9 +77,8 @@ func newTestMessagingController(t *testing.T) *controllers.MessagingController {
 	})
 }
 
-// setupMessagingTest prepara um diretório temporário isolado para
-// channels.* (que escrevem em disco). Sem isso, testes paralelos no
-// mesmo workspace contaminariam o estado uns dos outros.
+// setupMessagingTest prepara HOME temporário + SQLite com UseDatabase
+// (AEP-0083: runtime exige DB; sem fallback FS).
 func setupMessagingTest(t *testing.T) {
 	t.Helper()
 	tempDir := t.TempDir()
@@ -92,10 +91,30 @@ func setupMessagingTest(t *testing.T) {
 	_ = os.Chdir(tempDir)
 	configdir.ResetForTests()
 
-	// Garante que o diretório channels existe e está limpo.
-	_ = os.RemoveAll(filepath.Join(tempDir, ".assistente", "channels"))
+	path := filepath.Join(tempDir, "messaging.db")
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	if err := db.AutoMigrate(
+		&database.Channel{},
+		&database.ChannelContact{},
+		&database.ChannelContactConversation{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	channels.UseDatabase(db)
+	contacts.UseDatabase(db)
 
 	t.Cleanup(func() {
+		channels.UseDatabase(nil)
+		contacts.UseDatabase(nil)
+		_ = sqlDB.Close()
 		_ = os.Chdir(oldWd)
 		if oldHome == "" {
 			_ = os.Unsetenv("HOME")
@@ -121,7 +140,8 @@ func TestSaveChannelConfig_RejectsCrossUserOverwrite(t *testing.T) {
 	if err := channels.Save("telegram", &channels.ChannelConfig{
 		Enabled:     true,
 		OwnerUserID: "user-a",
-		BotToken:    "secret-de-A",
+		BotTokenRef: "channel:telegram:bot_token",
+		Profile:     "perfil-de-A",
 	}); err != nil {
 		t.Fatalf("setup channel de user-a: %v", err)
 	}
@@ -137,7 +157,7 @@ func TestSaveChannelConfig_RejectsCrossUserOverwrite(t *testing.T) {
 		t.Fatalf("erro deveria mencionar canal: %v", err)
 	}
 
-	// Confirma que o canal não foi alterado (token de A intacto).
+	// Confirma que o canal não foi alterado.
 	persisted, err := channels.Load("telegram")
 	if err != nil {
 		t.Fatalf("load após tentativa de roubo: %v", err)
@@ -145,8 +165,11 @@ func TestSaveChannelConfig_RejectsCrossUserOverwrite(t *testing.T) {
 	if persisted.OwnerUserID != "user-a" {
 		t.Fatalf("OwnerUserID foi alterado para %q (esperava user-a)", persisted.OwnerUserID)
 	}
-	if persisted.BotToken != "secret-de-A" {
-		t.Fatalf("BotToken sobrescrito (esperava secret-de-A): %q", persisted.BotToken)
+	if persisted.BotTokenRef != "channel:telegram:bot_token" {
+		t.Fatalf("BotTokenRef sobrescrito: %q", persisted.BotTokenRef)
+	}
+	if persisted.Profile != "perfil-de-A" {
+		t.Fatalf("Profile sobrescrito: %q", persisted.Profile)
 	}
 }
 
@@ -158,7 +181,7 @@ func TestGetChannelConfig_RejectsCrossUser(t *testing.T) {
 	if err := channels.Save("telegram", &channels.ChannelConfig{
 		Enabled:     true,
 		OwnerUserID: "user-a",
-		BotToken:    "secret-de-A",
+		BotTokenRef: "channel:telegram:bot_token",
 	}); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -174,13 +197,14 @@ func TestGetChannelConfig_RejectsCrossUser(t *testing.T) {
 }
 
 // TestGetChannelConfig_RedactsLegacyTokens cobre B6 + B10. Canal sem
-// dono é visível ("legado") mas tokens em texto plano não vazam.
+// dono é visível ("legado"); plaintext nunca vem do DB e redact garante
+// BotToken vazio mesmo se o DTO tivesse valor em memória.
 func TestGetChannelConfig_RedactsLegacyTokens(t *testing.T) {
 	setupMessagingTest(t)
 
 	if err := channels.Save("telegram", &channels.ChannelConfig{
-		Enabled:  true,
-		BotToken: "legacy-token",
+		Enabled:     true,
+		BotTokenRef: "channel:telegram:bot_token",
 	}); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -197,6 +221,9 @@ func TestGetChannelConfig_RedactsLegacyTokens(t *testing.T) {
 	}
 	if cfg.BotToken != "" {
 		t.Fatalf("BotToken não redacted em canal legado: %q", cfg.BotToken)
+	}
+	if cfg.BotTokenRef != "channel:telegram:bot_token" {
+		t.Fatalf("BotTokenRef deveria permanecer: %q", cfg.BotTokenRef)
 	}
 }
 
@@ -226,13 +253,23 @@ func TestRestartChannel_RejectsCrossUser(t *testing.T) {
 func TestGetAllChannelConfigs_FiltersByOwner(t *testing.T) {
 	setupMessagingTest(t)
 
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, OwnerUserID: "user-a"}); err != nil {
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, OwnerUserID: "user-a", Type: "telegram"}); err != nil {
 		t.Fatalf("setup A: %v", err)
 	}
-	if err := channels.Save("signal", &channels.ChannelConfig{Enabled: true, OwnerUserID: "user-b", APIToken: "tok-de-b"}); err != nil {
+	if err := channels.Save("signal", &channels.ChannelConfig{
+		Enabled:     true,
+		OwnerUserID: "user-b",
+		Type:        "signal",
+		APITokenRef: "channel:signal:api_token",
+		Profile:     "perfil-b",
+	}); err != nil {
 		t.Fatalf("setup B: %v", err)
 	}
-	if err := channels.Save("slack", &channels.ChannelConfig{Enabled: true, BotToken: "legacy-tok"}); err != nil {
+	if err := channels.Save("slack", &channels.ChannelConfig{
+		Enabled:     true,
+		Type:        "slack",
+		BotTokenRef: "channel:slack:bot_token",
+	}); err != nil {
 		t.Fatalf("setup legacy: %v", err)
 	}
 
@@ -249,8 +286,10 @@ func TestGetAllChannelConfigs_FiltersByOwner(t *testing.T) {
 	}
 	if cfg, ok := all["signal"]; !ok {
 		t.Fatal("user-b não viu o próprio canal signal")
-	} else if cfg.APIToken != "tok-de-b" {
-		t.Fatalf("APIToken do próprio canal foi indevidamente redactado: %q", cfg.APIToken)
+	} else if cfg.APITokenRef != "channel:signal:api_token" {
+		t.Fatalf("APITokenRef do próprio canal perdido: %q", cfg.APITokenRef)
+	} else if cfg.Profile != "perfil-b" {
+		t.Fatalf("Profile do próprio canal perdido: %q", cfg.Profile)
 	}
 	if cfg, ok := all["slack"]; !ok {
 		t.Fatal("canal legado deveria aparecer na lista")

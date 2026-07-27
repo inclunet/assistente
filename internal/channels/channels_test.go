@@ -1,10 +1,7 @@
 package channels
 
 import (
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
+	"errors"
 	"testing"
 
 	"assistente/internal/configdir"
@@ -44,14 +41,15 @@ func TestGetMaxContacts(t *testing.T) {
 // sobrescritos, mesmo se o dono atual for outro usuário.
 func TestAdoptOrphans(t *testing.T) {
 	setupTempHome(t)
+	setupChannelsDB(t)
 
-	if err := Save("telegram", &ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+	if err := Save("telegram", &ChannelConfig{Enabled: true, MaxContacts: 1, Type: "telegram"}); err != nil {
 		t.Fatalf("save telegram: %v", err)
 	}
-	if err := Save("signal", &ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "user-leo"}); err != nil {
+	if err := Save("signal", &ChannelConfig{Enabled: true, MaxContacts: 1, OwnerUserID: "user-leo", Type: "signal"}); err != nil {
 		t.Fatalf("save signal: %v", err)
 	}
-	if err := Save("slack", &ChannelConfig{Enabled: false}); err != nil {
+	if err := Save("slack", &ChannelConfig{Enabled: false, Type: "slack"}); err != nil {
 		t.Fatalf("save slack: %v", err)
 	}
 
@@ -90,6 +88,7 @@ func TestAdoptOrphans(t *testing.T) {
 
 func TestAdoptOrphans_RequiresUserID(t *testing.T) {
 	setupTempHome(t)
+	setupChannelsDB(t)
 
 	if _, err := AdoptOrphans(""); err == nil {
 		t.Fatal("esperava erro ao chamar AdoptOrphans com userID vazio")
@@ -98,8 +97,9 @@ func TestAdoptOrphans_RequiresUserID(t *testing.T) {
 
 func TestAdoptOrphans_Idempotent(t *testing.T) {
 	setupTempHome(t)
+	setupChannelsDB(t)
 
-	if err := Save("telegram", &ChannelConfig{Enabled: true}); err != nil {
+	if err := Save("telegram", &ChannelConfig{Enabled: true, Type: "telegram"}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 
@@ -120,74 +120,23 @@ func TestAdoptOrphans_Idempotent(t *testing.T) {
 	}
 }
 
-// TestSave_FileMode0600 valida o vetor B8 do review original e P1-3
-// do re-review: configs de canal podem conter tokens em texto plano
-// (BotToken, AppToken, APIToken) quando o credential manager está
-// indisponível. Em hosts POSIX shared (containers, multi-user), 0644
-// deixaria os tokens world-readable. Save() deve persistir o arquivo
-// com 0600 e o diretório com 0700.
-//
-// Pulamos no Windows porque os.WriteFile não traduz POSIX modes para
-// ACLs nativas — o teste serve como gate para Linux/macOS, onde a
-// regressão importa.
-func TestSave_FileMode0600(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("permissões POSIX 0600/0700 não traduzem direto para ACLs do Windows")
-	}
-	setupTempHome(t)
+func TestRuntimeAPIs_RequireDatabase(t *testing.T) {
+	resetStoreForTests()
+	t.Cleanup(resetStoreForTests)
 
-	if err := Save("telegram", &ChannelConfig{
-		Enabled:     true,
-		OwnerUserID: "u1",
-	}); err != nil {
-		t.Fatalf("save: %v", err)
+	if err := Save("telegram", &ChannelConfig{Enabled: true}); !errors.Is(err, ErrDBNotEnabled) {
+		t.Fatalf("Save sem DB: got %v, want ErrDBNotEnabled", err)
 	}
-
-	dir := channelsHomeDir()
-	dirInfo, err := os.Stat(dir)
-	if err != nil {
-		t.Fatalf("stat dir: %v", err)
+	if _, err := Load("telegram"); !errors.Is(err, ErrDBNotEnabled) {
+		t.Fatalf("Load sem DB: got %v, want ErrDBNotEnabled", err)
 	}
-	if got := dirInfo.Mode().Perm(); got != 0700 {
-		t.Fatalf("dir mode: want 0700, got %#o", got)
+	if err := Delete("telegram"); !errors.Is(err, ErrDBNotEnabled) {
+		t.Fatalf("Delete sem DB: got %v, want ErrDBNotEnabled", err)
 	}
-
-	path := filepath.Join(dir, "telegram.json")
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat file: %v", err)
+	if _, err := ListAll(); !errors.Is(err, ErrDBNotEnabled) {
+		t.Fatalf("ListAll sem DB: got %v, want ErrDBNotEnabled", err)
 	}
-	if got := info.Mode().Perm(); got != 0600 {
-		t.Fatalf("file mode: want 0600, got %#o", got)
-	}
-}
-
-// TestLoad_CorruptedJSONReturnsError valida o vetor M9 do review
-// original e P1-3 do re-review: antes do fix, JSON corrompido fazia
-// o canal "sumir" da lista — combinado com AdoptOrphans/gateway
-// virava um disabled invisível, sem feedback ao operador. Agora
-// Load() propaga o erro de parse com a substring "corrompido" para
-// que healthchecks possam sinalizar na UI.
-func TestLoad_CorruptedJSONReturnsError(t *testing.T) {
-	setupTempHome(t)
-
-	dir := channelsHomeDir()
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	path := filepath.Join(dir, "telegram.json")
-	if err := os.WriteFile(path, []byte("{ invalid json"), 0600); err != nil {
-		t.Fatalf("write corrupt: %v", err)
-	}
-
-	cfg, err := Load("telegram")
-	if err == nil {
-		t.Fatalf("Load deveria propagar JSON corrompido, got cfg=%+v", cfg)
-	}
-	if !strings.Contains(err.Error(), "corrompido") {
-		t.Fatalf("erro deveria mencionar 'corrompido', got %q", err.Error())
-	}
-	if cfg != nil {
-		t.Fatalf("Load corrompido deveria devolver cfg=nil, got %+v", cfg)
+	if _, err := AdoptOrphans("user-a"); !errors.Is(err, ErrDBNotEnabled) {
+		t.Fatalf("AdoptOrphans sem DB: got %v, want ErrDBNotEnabled", err)
 	}
 }

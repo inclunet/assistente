@@ -15,6 +15,8 @@ import (
 var storeDB *gorm.DB
 
 // UseDatabase ativa persistência de contatos no SQLite (AEP-0083).
+// Obrigatório no boot após database.Init (junto com channels.UseDatabase).
+// Sem isso, APIs de runtime falham com ErrDBNotEnabled (fail-closed — sem fallback FS).
 // Depende de channels.UseDatabase já ter sido chamado para resolver channel_id.
 func UseDatabase(db *gorm.DB) {
 	mu.Lock()
@@ -65,7 +67,7 @@ func contactFromRow(row *database.ChannelContact) *AuthorizedContact {
 func getForChannelDB(channel string) ([]*AuthorizedContact, error) {
 	channelID, _, err := resolveChannel(channel)
 	if err != nil {
-		// Canal inexistente → lista vazia (compatível com FS quando chave ausente).
+		// Canal inexistente → lista vazia (mesma semântica de chave ausente).
 		if isChannelNotFound(err) {
 			return nil, nil
 		}

@@ -19,7 +19,8 @@ var (
 )
 
 // UseDatabase ativa a persistência SQLite para a fachada channels (AEP-0083).
-// Deve ser chamado no boot após database.Init. Sem isso, o pacote usa filesystem.
+// Obrigatório no boot após database.Init: sem isso, APIs de runtime falham
+// com ErrDBNotEnabled (fail-closed — sem fallback FS).
 // Reinjetar o DB (mesmo ponteiro) limpa o cache knownOwners — útil no login
 // para não reutilizar owner de sessão anterior em multi-user.
 func UseDatabase(db *gorm.DB) {
@@ -326,18 +327,7 @@ func ListForUser(userID string) (map[string]*ChannelConfig, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	if !usingDB() {
-		all, err := listAllUnsafe()
-		if err != nil {
-			return nil, err
-		}
-		out := make(map[string]*ChannelConfig)
-		for name, cfg := range all {
-			owner := strings.TrimSpace(cfg.OwnerUserID)
-			if owner == "" || owner == userID {
-				out[name] = cfg
-			}
-		}
-		return out, nil
+		return nil, ErrDBNotEnabled
 	}
 	userID = strings.TrimSpace(userID)
 	var rows []database.Channel
@@ -428,7 +418,7 @@ func ChannelIDBySlug(slug string) (string, string, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	if !usingDB() {
-		return "", "", fmt.Errorf("channels DB não habilitado")
+		return "", "", ErrDBNotEnabled
 	}
 	row, err := findChannelRow(storeDB, slug)
 	if err != nil {
@@ -440,7 +430,7 @@ func ChannelIDBySlug(slug string) (string, string, error) {
 	return row.ID, row.UserID, nil
 }
 
-// DB retorna o *gorm.DB injetado (nil se filesystem).
+// DB retorna o *gorm.DB injetado (nil se UseDatabase não foi chamado).
 func DB() *gorm.DB {
 	return storeDB
 }
