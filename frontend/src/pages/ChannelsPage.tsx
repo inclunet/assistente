@@ -696,7 +696,7 @@ export default function ChannelsPage() {
 
       <div className="channels-page__content">
         {channelRows.length === 0 ? (
-          <p className="channels-page__empty" role="status">
+          <p className="channels-page__empty">
             {t('channels.empty.noChannels')}
           </p>
         ) : (

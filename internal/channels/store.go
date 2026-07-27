@@ -63,6 +63,27 @@ func loadConversations(tx *gorm.DB, channelID string) (map[string]string, error)
 	return out, nil
 }
 
+// loadConversationsByChannelIDs evita N+1 em ListAll/ListForUser.
+func loadConversationsByChannelIDs(tx *gorm.DB, channelIDs []string) (map[string]map[string]string, error) {
+	out := make(map[string]map[string]string, len(channelIDs))
+	if len(channelIDs) == 0 {
+		return out, nil
+	}
+	var rows []database.ChannelContactConversation
+	if err := tx.Where("channel_id IN ?", channelIDs).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		m := out[r.ChannelID]
+		if m == nil {
+			m = make(map[string]string)
+			out[r.ChannelID] = m
+		}
+		m[r.ContactExternalID] = r.ConversationID
+	}
+	return out, nil
+}
+
 func syncConversations(tx *gorm.DB, channelID string, conversations map[string]string) error {
 	if err := tx.Where("channel_id = ?", channelID).Delete(&database.ChannelContactConversation{}).Error; err != nil {
 		return err
@@ -229,14 +250,18 @@ func listAllFromDB() (map[string]*ChannelConfig, error) {
 	if err := storeDB.Order("slug ASC, created_at ASC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
+	ids := make([]string, 0, len(rows))
+	for i := range rows {
+		ids = append(ids, rows[i].ID)
+	}
+	convsByChannel, err := loadConversationsByChannelIDs(storeDB, ids)
+	if err != nil {
+		return nil, err
+	}
 	result := make(map[string]*ChannelConfig, len(rows))
 	for i := range rows {
 		row := rows[i]
-		convs, err := loadConversations(storeDB, row.ID)
-		if err != nil {
-			return nil, err
-		}
-		cfg := RowToConfig(&row, convs)
+		cfg := RowToConfig(&row, convsByChannel[row.ID])
 		// Em colisão de slug (multi-user), preserva a primeira e loga.
 		if prev, ok := result[row.Slug]; ok {
 			logging.Warnf(context.Background(), "channels.store",
@@ -279,14 +304,18 @@ func ListForUser(userID string) (map[string]*ChannelConfig, error) {
 	if err := q.Find(&rows).Error; err != nil {
 		return nil, err
 	}
+	ids := make([]string, 0, len(rows))
+	for i := range rows {
+		ids = append(ids, rows[i].ID)
+	}
+	convsByChannel, err := loadConversationsByChannelIDs(storeDB, ids)
+	if err != nil {
+		return nil, err
+	}
 	result := make(map[string]*ChannelConfig, len(rows))
 	for i := range rows {
 		row := rows[i]
-		convs, err := loadConversations(storeDB, row.ID)
-		if err != nil {
-			return nil, err
-		}
-		cfg := RowToConfig(&row, convs)
+		cfg := RowToConfig(&row, convsByChannel[row.ID])
 		if prev, ok := result[row.Slug]; ok {
 			// Prefer owned over orphan on collision.
 			if strings.TrimSpace(prev.OwnerUserID) == "" && strings.TrimSpace(cfg.OwnerUserID) != "" {
