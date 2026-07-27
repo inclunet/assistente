@@ -78,6 +78,11 @@ type OutgoingMessage struct {
 
 	// ReplyToMessageID é opcional — ID da mensagem a ser respondida.
 	ReplyToMessageID string
+
+	// IdempotencyKey é opcional — chave estável do turno (ex.: TraceID do
+	// pending) para deduplicar reenvios na plataforma quando ela expõe
+	// suporte nativo (Slack: client_msg_id). Vazio = sem dedup no adapter.
+	IdempotencyKey string
 }
 
 // Attachment representa um anexo de mensagem (áudio, imagem, documento, etc.).

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"sync"
@@ -715,5 +716,102 @@ func TestAttachmentFromSlackFile_MissingScopeOnDownload(t *testing.T) {
 	})
 	if err == nil || !isMissingScopeError(err) {
 		t.Fatalf("esperava missing_scope via 403, got %v", err)
+	}
+}
+
+func TestPostMessageOptions_SetsClientMsgID(t *testing.T) {
+	t.Parallel()
+
+	opts := postMessageOptions(slack.APIURL, "olá", "123.456", "trace-abc-uuid")
+	_, values, err := slack.UnsafeApplyMsgOptions("xoxb-test", "C1", slack.APIURL,
+		append([]slack.MsgOption{slack.MsgOptionPost()}, opts...)...)
+	if err != nil {
+		t.Fatalf("UnsafeApplyMsgOptions: %v", err)
+	}
+	if got := values.Get("client_msg_id"); got != "trace-abc-uuid" {
+		t.Fatalf("client_msg_id=%q, want trace-abc-uuid", got)
+	}
+	if got := values.Get("text"); got != "olá" {
+		t.Fatalf("text=%q, want olá", got)
+	}
+	if got := values.Get("thread_ts"); got != "123.456" {
+		t.Fatalf("thread_ts=%q, want 123.456", got)
+	}
+}
+
+func TestPostMessageOptions_OmitsClientMsgIDWhenEmpty(t *testing.T) {
+	t.Parallel()
+
+	opts := postMessageOptions(slack.APIURL, "sem chave", "", "  ")
+	_, values, err := slack.UnsafeApplyMsgOptions("xoxb-test", "C1", slack.APIURL,
+		append([]slack.MsgOption{slack.MsgOptionPost()}, opts...)...)
+	if err != nil {
+		t.Fatalf("UnsafeApplyMsgOptions: %v", err)
+	}
+	if got := values.Get("client_msg_id"); got != "" {
+		t.Fatalf("client_msg_id deveria estar vazio, got %q", got)
+	}
+}
+
+func TestPostMessageOptions_NormalizesBaseURLWithoutSlash(t *testing.T) {
+	t.Parallel()
+
+	// Base sem barra final não pode gerar "...apichat.postMessage".
+	opts := postMessageOptions("https://example.test/api", "oi", "", "key-1")
+	endpoint, values, err := slack.UnsafeApplyMsgOptions("xoxb-test", "C1", "https://example.test/api/",
+		append([]slack.MsgOption{slack.MsgOptionPost()}, opts...)...)
+	if err != nil {
+		t.Fatalf("UnsafeApplyMsgOptions: %v", err)
+	}
+	if !strings.HasSuffix(endpoint, "/chat.postMessage") {
+		t.Fatalf("endpoint=%q deveria terminar com /chat.postMessage", endpoint)
+	}
+	if strings.Contains(endpoint, "apichat.postMessage") {
+		t.Fatalf("endpoint concatenado sem barra: %q", endpoint)
+	}
+	if got := values.Get("client_msg_id"); got != "key-1" {
+		t.Fatalf("client_msg_id=%q, want key-1", got)
+	}
+}
+
+func TestSlackAdapter_Send_IncludesClientMsgID(t *testing.T) {
+	t.Parallel()
+
+	var gotClientMsgID string
+	var gotChannel string
+	var gotText string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+		}
+		gotClientMsgID = r.Form.Get("client_msg_id")
+		gotChannel = r.Form.Get("channel")
+		gotText = r.Form.Get("text")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"channel":"C99","ts":"1.2"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	base := srv.URL + "/"
+	api := slack.New("xoxb-test", slack.OptionAPIURL(base))
+	adapter := &SlackAdapter{
+		api:        api,
+		apiBaseURL: base,
+		status:     messaging.StatusConnected,
+	}
+
+	err := adapter.Send(context.Background(), messaging.OutgoingMessage{
+		ChatID:         "C99",
+		Text:           "dedup please",
+		IdempotencyKey: "550e8400-e29b-41d4-a716-446655440000",
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if gotClientMsgID != "550e8400-e29b-41d4-a716-446655440000" {
+		t.Fatalf("client_msg_id=%q, want UUID do IdempotencyKey", gotClientMsgID)
+	}
+	if gotChannel != "C99" || gotText != "dedup please" {
+		t.Fatalf("channel=%q text=%q", gotChannel, gotText)
 	}
 }

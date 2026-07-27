@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -56,6 +57,12 @@ type SlackAdapter struct {
 	status  messaging.ConnectionStatus
 	ctx     context.Context
 	cancel  context.CancelFunc
+
+	// apiBaseURL é a base da Web API usada por UnsafeMsgOptionEndpoint
+	// (client_msg_id). Em Connect fica slack.APIURL (mesmo default do
+	// slack.New). Em testes com OptionAPIURL/httptest, o caller deve setar
+	// o mesmo valor passado ao cliente — o campo não lê OptionAPIURL sozinho.
+	apiBaseURL string
 
 	mu        sync.RWMutex
 	userCache map[string]string
@@ -107,6 +114,7 @@ func (s *SlackAdapter) Connect(ctx context.Context) error {
 	s.mu.Lock()
 	s.api = api
 	s.fileAPI = api
+	s.apiBaseURL = slack.APIURL
 	s.socket = socketClient
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.status = messaging.StatusConnected
@@ -178,6 +186,7 @@ func (s *SlackAdapter) Disconnect() error {
 func (s *SlackAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) error {
 	s.mu.RLock()
 	api := s.api
+	apiBase := s.apiBaseURL
 	s.mu.RUnlock()
 
 	if api == nil {
@@ -194,6 +203,8 @@ func (s *SlackAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) 
 		}
 		// files.upload foi descontinuado; usar o fluxo V2
 		// (getUploadURLExternal + completeUploadExternal).
+		// UploadFileV2 não expõe dedup nativo equivalente a client_msg_id —
+		// anexos podem duplicar na janela residual Send→MarkDelivered.
 		_, err := api.UploadFileV2Context(ctx, slack.UploadFileV2Parameters{
 			Reader:          bytes.NewReader(att.Data),
 			Filename:        filename,
@@ -212,16 +223,35 @@ func (s *SlackAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) 
 		return nil
 	}
 
-	params := slack.PostMessageParameters{}
-	if msg.ReplyToMessageID != "" {
-		params.ThreadTimestamp = msg.ReplyToMessageID
-	}
+	opts := postMessageOptions(apiBase, text, msg.ReplyToMessageID, msg.IdempotencyKey)
+	_, _, err := api.PostMessageContext(ctx, msg.ChatID, opts...)
+	return err
+}
 
-	_, _, err := api.PostMessageContext(ctx, msg.ChatID,
+// postMessageOptions monta as MsgOption de chat.postMessage, incluindo
+// client_msg_id quando IdempotencyKey está setada. slack-go v0.13 não expõe
+// MsgOption para client_msg_id; UnsafeMsgOptionEndpoint injeta o form field
+// reutilizando o endpoint chat.postMessage da mesma base URL do cliente.
+func postMessageOptions(apiBaseURL, text, threadTS, idempotencyKey string) []slack.MsgOption {
+	params := slack.PostMessageParameters{}
+	if threadTS != "" {
+		params.ThreadTimestamp = threadTS
+	}
+	opts := []slack.MsgOption{
 		slack.MsgOptionText(text, false),
 		slack.MsgOptionPostMessageParameters(params),
-	)
-	return err
+	}
+	if key := strings.TrimSpace(idempotencyKey); key != "" {
+		base := apiBaseURL
+		if base == "" {
+			base = slack.APIURL
+		}
+		base = strings.TrimRight(base, "/") + "/"
+		opts = append(opts, slack.UnsafeMsgOptionEndpoint(base+"chat.postMessage", func(values url.Values) {
+			values.Set("client_msg_id", key)
+		}))
+	}
+	return opts
 }
 
 // SetHandler define o callback chamado quando uma mensagem chega.

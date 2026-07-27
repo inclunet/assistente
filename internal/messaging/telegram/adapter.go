@@ -87,7 +87,13 @@ func (t *TelegramAdapter) Disconnect() error {
 
 // Send envia uma mensagem (texto e/ou attachments) para um chat do Telegram.
 // Mensagens longas são automaticamente divididas.
+//
+// IdempotencyKey é no-op: a Bot API do Telegram não expõe chave de dedup
+// nativa em sendMessage/sendDocument — a janela residual Send→MarkDelivered
+// (M14) permanece at-least-once neste canal.
 func (t *TelegramAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) error {
+	_ = msg.IdempotencyKey // API sem chave nativa — ver comentário acima.
+
 	t.mu.RLock()
 	bot := t.bot
 	t.mu.RUnlock()
