@@ -3,6 +3,7 @@ package channels
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/portability"
+
+	"gorm.io/gorm"
 )
 
 // LegacyChannelItem is one filesystem channel config ready for DB import.
@@ -47,7 +50,11 @@ func (legacyConfigSource) ListLegacyImportFiles(context.Context) ([]portability.
 			if !strings.HasSuffix(strings.ToLower(name), ".json") {
 				continue
 			}
-			slug := strings.TrimSuffix(name, filepath.Ext(name))
+			// Name = slug canônico (lowercase); Filename preserva o case do FS para leitura.
+			slug := strings.ToLower(strings.TrimSuffix(name, filepath.Ext(name)))
+			if slug == "" {
+				continue
+			}
 			if _, ok := seen[slug]; ok {
 				continue
 			}
@@ -159,9 +166,9 @@ func ImportLegacyChannelsWithContext(ctx context.Context, credMgr *credentials.M
 			if err := json.Unmarshal(data, &cfg); err != nil {
 				return LegacyChannelItem{}, err
 			}
-			slug := file.Name
+			slug := strings.ToLower(strings.TrimSpace(file.Name))
 			if slug == "" {
-				slug = strings.TrimSuffix(file.Filename, filepath.Ext(file.Filename))
+				slug = strings.ToLower(strings.TrimSuffix(file.Filename, filepath.Ext(file.Filename)))
 			}
 			if strings.TrimSpace(cfg.Type) == "" {
 				cfg.Type = slug
@@ -235,7 +242,8 @@ func importLegacyContactsFile(ctx context.Context, userID string) portability.Le
 		return result
 	}
 
-	for slug, list := range file {
+	for rawSlug, list := range file {
+		slug := strings.ToLower(strings.TrimSpace(rawSlug))
 		channelID, ownerID, err := ChannelIDBySlug(slug)
 		if err != nil || channelID == "" {
 			result.Warnings = append(result.Warnings,
@@ -277,7 +285,7 @@ func importLegacyContactsFile(ctx context.Context, userID string) portability.Le
 				}
 			}
 			if err := storeDB.Create(&row).Error; err != nil {
-				if strings.Contains(strings.ToUpper(err.Error()), "UNIQUE") {
+				if isUniqueConstraintError(err) {
 					result.Skipped++
 					continue
 				}
@@ -289,4 +297,20 @@ func importLegacyContactsFile(ctx context.Context, userID string) portability.Le
 		}
 	}
 	return result
+}
+
+// isUniqueConstraintError detecta violação de unique index (GORM tipado +
+// heurística de mensagem — TranslateError não está ligado no dialeto SQLite).
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint") ||
+		strings.Contains(msg, "duplicate key") ||
+		strings.Contains(msg, "duplicate entry") ||
+		strings.Contains(msg, "constraint failed")
 }
