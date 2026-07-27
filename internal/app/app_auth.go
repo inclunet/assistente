@@ -770,7 +770,7 @@ func (a *App) reloadUserScopedRuntime() runtimeReloadResult {
 	// sem import). Após o import legado, limpa cache de owners e reconecta.
 	channels.ClearOwnerCache()
 	if a.msgCtrl != nil {
-		a.msgCtrl.StartAdapters()
+		a.msgCtrl.StartAdapters(userID)
 	}
 	if a.toolInvocationSvc != nil {
 		// Retenção de tool calls de chat segue o ciclo de vida da conversa

@@ -356,6 +356,22 @@ func LoadEnabled() (map[string]*ChannelConfig, error) {
 	return enabled, nil
 }
 
+// LoadEnabledForUser retorna canais habilitados do userID (+ órfãos).
+// Usado no StartAdapters pós-login para não conectar adapters de outros donos.
+func LoadEnabledForUser(userID string) (map[string]*ChannelConfig, error) {
+	all, err := ListForUser(userID)
+	if err != nil {
+		return nil, err
+	}
+	enabled := make(map[string]*ChannelConfig)
+	for name, cfg := range all {
+		if cfg != nil && cfg.Enabled {
+			enabled[name] = cfg
+		}
+	}
+	return enabled, nil
+}
+
 // AdoptOrphans atribui userID como OwnerUserID em todos os canais que estão
 // sem dono (configs pré-AEP-0052) e devolve a lista de canais migrados.
 //

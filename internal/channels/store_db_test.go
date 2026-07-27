@@ -148,7 +148,7 @@ func TestAdoptOrphans_DB(t *testing.T) {
 
 func TestImportLegacyChannels_Idempotent(t *testing.T) {
 	setupTempHome(t)
-	setupChannelsDB(t)
+	db := setupChannelsDB(t)
 
 	dir := filepath.Join(configdir.GetHomeDir(), "channels")
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -165,14 +165,18 @@ func TestImportLegacyChannels_Idempotent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "telegram.json"), payload, 0600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
+	contactsPayload := []byte(`{"telegram":[{"id":"42","display_name":"Ana","username":"ana","authorized_at":"2024-01-02T03:04:05Z"}]}`)
+	if err := os.WriteFile(filepath.Join(configdir.GetHomeDir(), "contacts.json"), contactsPayload, 0600); err != nil {
+		t.Fatalf("write contacts: %v", err)
+	}
 
 	ctx := database.WithUserID(context.Background(), "user-ana")
 	first, err := ImportLegacyChannelsWithContext(ctx, nil)
 	if err != nil {
 		t.Fatalf("import1: %v", err)
 	}
-	if first.Imported < 1 {
-		t.Fatalf("esperava importar >=1, got %+v", first)
+	if first.Imported < 2 {
+		t.Fatalf("esperava importar canal+contato (>=2), got %+v", first)
 	}
 
 	loaded, err := Load("telegram")
@@ -187,6 +191,27 @@ func TestImportLegacyChannels_Idempotent(t *testing.T) {
 	// sem credMgr — e o arquivo legado permanece.
 	if _, err := os.Stat(filepath.Join(dir, "telegram.json")); err != nil {
 		t.Fatalf("arquivo legado foi removido: %v", err)
+	}
+
+	channelID, _, err := ChannelIDBySlug("telegram")
+	if err != nil || channelID == "" {
+		t.Fatalf("ChannelIDBySlug: %v id=%q", err, channelID)
+	}
+	var contactCount int64
+	if err := db.Model(&database.ChannelContact{}).
+		Where("channel_id = ? AND external_id = ?", channelID, "42").
+		Count(&contactCount).Error; err != nil {
+		t.Fatalf("count contacts: %v", err)
+	}
+	if contactCount != 1 {
+		t.Fatalf("contacts.json não persistiu em channel_contacts: count=%d", contactCount)
+	}
+	var row database.ChannelContact
+	if err := db.Where("channel_id = ? AND external_id = ?", channelID, "42").First(&row).Error; err != nil {
+		t.Fatalf("load contact: %v", err)
+	}
+	if row.DisplayName != "Ana" || row.Username != "ana" || row.UserID != "user-ana" {
+		t.Fatalf("contact row=%+v", row)
 	}
 
 	second, err := ImportLegacyChannelsWithContext(ctx, nil)

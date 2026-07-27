@@ -7,14 +7,14 @@ import (
 	"assistente/internal/database"
 )
 
-// channelSettings is the JSON payload stored in database.Channel.Settings.
+// channelSettings é o payload JSON em database.Channel.Settings.
 type channelSettings struct {
 	APIURL       string            `json:"api_url,omitempty"`
 	Account      string            `json:"account,omitempty"`
 	ReplyChatIDs map[string]string `json:"reply_chat_ids,omitempty"`
 }
 
-// ConfigToRow maps a ChannelConfig DTO into a database.Channel row (without conversations).
+// ConfigToRow mapeia ChannelConfig para uma row database.Channel (sem conversations).
 func ConfigToRow(slug string, cfg *ChannelConfig) database.Channel {
 	if cfg == nil {
 		cfg = &ChannelConfig{}
@@ -50,8 +50,8 @@ func ConfigToRow(slug string, cfg *ChannelConfig) database.Channel {
 	}
 }
 
-// RowToConfig maps a database.Channel (+ optional conversation map) into ChannelConfig.
-// Plaintext tokens are never stored on the row; callers may still set them in-memory.
+// RowToConfig mapeia database.Channel (+ mapa opcional de conversations) para ChannelConfig.
+// Tokens em plaintext nunca ficam na row; o caller ainda pode preenchê-los em memória.
 func RowToConfig(row *database.Channel, conversations map[string]string) *ChannelConfig {
 	if row == nil {
 		return nil

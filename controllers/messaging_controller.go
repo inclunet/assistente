@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -192,13 +193,25 @@ func (c *MessagingController) Init() {
 // depois que o ChatController existir — Init() cria o gateway cedo (agent/
 // notifier dependem dele), mas Connect antes de chatCtrl gera NPE em
 // SendMessageFromChannel se uma mensagem chegar no startup.
-func (c *MessagingController) StartAdapters() {
+//
+// ownerUserID não vazio (pós-login): carrega só canais desse usuário + órfãos,
+// evitando conectar adapters de outros donos no mesmo SQLite. Vazio (boot
+// pré-login): mantém LoadEnabled global (FS/legado).
+func (c *MessagingController) StartAdapters(ownerUserID string) {
 	if c == nil || c.msgGateway == nil {
 		logging.Warnf(context.Background(), "controllers.messaging-controller", "[Messaging] StartAdapters ignorado: gateway não inicializado")
 		return
 	}
 
-	enabledChannels, err := channels.LoadEnabled()
+	var (
+		enabledChannels map[string]*channels.ChannelConfig
+		err             error
+	)
+	if strings.TrimSpace(ownerUserID) != "" {
+		enabledChannels, err = channels.LoadEnabledForUser(ownerUserID)
+	} else {
+		enabledChannels, err = channels.LoadEnabled()
+	}
 	if err != nil {
 		logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Erro ao carregar canais: %v", err)
 		return
