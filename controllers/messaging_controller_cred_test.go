@@ -12,26 +12,44 @@ func TestResolveCredentialRef_RequiresUserScope(t *testing.T) {
 	t.Parallel()
 	mgr := credentials.NewManager(nil)
 	userCtx := database.WithUserID(context.Background(), "user-ana")
-	if err := mgr.RegisterPatternWithContext(userCtx, "channel:telegram:bot_token", &credentials.AuthConfig{
-		Type:  "secret",
-		Token: "tg-secret-token",
-	}); err != nil {
-		t.Fatalf("register: %v", err)
+
+	patterns := []struct {
+		pattern string
+		token   string
+	}{
+		{"channel:telegram:bot_token", "tg-secret-token"},
+		{"channel:slack:bot_token", "slack-bot-token"},
+		{"channel:slack:app_token", "slack-app-token"},
+		{"channel:signal:api_token", "signal-api-token"},
+	}
+	for _, p := range patterns {
+		if err := mgr.RegisterPatternWithContext(userCtx, p.pattern, &credentials.AuthConfig{
+			Type:  "secret",
+			Token: p.token,
+		}); err != nil {
+			t.Fatalf("register %s: %v", p.pattern, err)
+		}
 	}
 
 	ctrl := NewMessagingController(MessagingControllerConfig{CredMgr: mgr})
 
-	if got := ctrl.resolveCredentialRef("channel:telegram:bot_token"); got != "" {
-		t.Fatalf("sem SetCredentialUserID resolveu %q; esperado vazio (user-scoped)", got)
+	for _, p := range patterns {
+		if got := ctrl.resolveCredentialRef(p.pattern); got != "" {
+			t.Fatalf("%s sem SetCredentialUserID resolveu %q; esperado vazio", p.pattern, got)
+		}
 	}
 
 	ctrl.SetCredentialUserID("user-ana")
-	if got := ctrl.resolveCredentialRef("channel:telegram:bot_token"); got != "tg-secret-token" {
-		t.Fatalf("com user scope got %q want tg-secret-token", got)
+	for _, p := range patterns {
+		if got := ctrl.resolveCredentialRef(p.pattern); got != p.token {
+			t.Fatalf("%s com user scope got %q want %q", p.pattern, got, p.token)
+		}
 	}
 
 	ctrl.SetCredentialUserID("user-other")
-	if got := ctrl.resolveCredentialRef("channel:telegram:bot_token"); got != "" {
-		t.Fatalf("user errado resolveu %q; esperado vazio", got)
+	for _, p := range patterns {
+		if got := ctrl.resolveCredentialRef(p.pattern); got != "" {
+			t.Fatalf("%s user errado resolveu %q; esperado vazio", p.pattern, got)
+		}
 	}
 }

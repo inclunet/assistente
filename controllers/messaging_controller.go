@@ -579,6 +579,7 @@ func (c *MessagingController) persistChannelCredentials(channelName string, cfg 
 }
 
 // connectTelegram cria e registra o adapter do Telegram.
+// Token: BotToken plaintext ou BotTokenRef via resolveCredentialRef (user-scoped).
 func (c *MessagingController) connectTelegram(cfg *channels.ChannelConfig) {
 	botToken := cfg.BotToken
 	if botToken == "" && cfg.BotTokenRef != "" {
@@ -599,6 +600,8 @@ func (c *MessagingController) connectTelegram(cfg *channels.ChannelConfig) {
 }
 
 // connectSignal cria e registra o adapter do Signal (via signal-cli-rest-api).
+// APIToken opcional: plaintext ou APITokenRef via resolveCredentialRef (mesmo
+// escopo de usuário que Telegram/Slack).
 func (c *MessagingController) connectSignal(cfg *channels.ChannelConfig) {
 	if cfg.Account == "" || cfg.APIURL == "" {
 		logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Signal não configurado (conta ou URL da API ausente)")
@@ -619,6 +622,7 @@ func (c *MessagingController) connectSignal(cfg *channels.ChannelConfig) {
 }
 
 // connectSlack cria e registra o adapter do Slack (Socket Mode).
+// BotToken/AppToken: plaintext ou *TokenRef via resolveCredentialRef (user-scoped).
 func (c *MessagingController) connectSlack(cfg *channels.ChannelConfig) {
 	botToken := cfg.BotToken
 	appToken := cfg.AppToken

@@ -369,10 +369,27 @@ export default function ChannelsPage() {
       } else if (channelName === 'signal') {
         const effectiveAccount = (signalForm.account || signalAccounts[0] || '').trim();
         const effectiveApiURL = signalForm.apiURL?.trim() || '';
+        const apiPattern = channelCredentialPattern('signal', 'api_token');
+        const apiToken = signalForm.apiToken.trim();
+        const storedApi = credentialSummaries[apiPattern];
+
+        if (signalUseVault && apiToken) {
+          await UpsertCredential({
+            pattern: apiPattern,
+            type: 'secret',
+            token: apiToken,
+          });
+        }
+
+        // Token da API Signal é opcional; com vault grava ref quando há token
+        // novo ou já persistido (mesmo caminho de resolve de Telegram/Slack).
+        const signalApiRef = signalUseVault && (apiToken || storedApi) ? apiPattern : '';
         await SaveChannelConfig('signal', channels.ChannelConfig.createFrom({
           enabled: signalForm.enabled,
           api_url: effectiveApiURL,
           account: effectiveAccount,
+          api_token: signalUseVault ? '' : apiToken,
+          api_token_ref: signalApiRef,
           profile: signalForm.profile,
           max_history: signalForm.maxHistory,
           max_contacts: signalForm.maxContacts,
