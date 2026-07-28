@@ -151,6 +151,7 @@ func (a *App) SaveChannelConfig(channelName string, cfg *channels.ChannelConfig)
 		}
 	}
 	cfg.OwnerUserID = userID
+	a.msgCtrl.SetCredentialUserID(userID)
 	return a.msgCtrl.SaveChannelConfig(channelName, cfg)
 }
 
@@ -176,6 +177,7 @@ func (a *App) RestartChannel(channelName string) error {
 	if strings.TrimSpace(existing.OwnerUserID) == "" {
 		return fmt.Errorf("canal %s precisa ser reativado (configurações > salvar) antes de reiniciar", channelName)
 	}
+	a.msgCtrl.SetCredentialUserID(userID)
 	return a.msgCtrl.RestartChannel(channelName)
 }
 

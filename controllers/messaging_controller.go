@@ -6,6 +6,7 @@ import (
 	"assistente/internal/contacts"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/messaging"
 	"assistente/internal/messaging/signal"
@@ -19,6 +20,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -51,6 +53,11 @@ type MessagingController struct {
 	// criados por Init()
 	msgGateway       *messaging.Gateway
 	responseNotifier *messaging.ResponseNotifier
+
+	// credUserID escopo para resolver/persistir channel:* no CredManager
+	// (user-scoped). Sem isso GetByPattern sem usuário ignora vault do login.
+	credMu     sync.RWMutex
+	credUserID string
 }
 
 // NewMessagingController cria o MessagingController com as dependências fornecidas.
@@ -77,6 +84,37 @@ func (c *MessagingController) Gateway() *messaging.Gateway {
 // ResponseNotifier retorna o notificador de respostas. Disponível após Init().
 func (c *MessagingController) ResponseNotifier() *messaging.ResponseNotifier {
 	return c.responseNotifier
+}
+
+// SetCredentialUserID define o usuário autenticado usado ao resolver/persistir
+// refs channel:{slug}:* no CredManager. Chamar no login e antes de Save/Restart.
+func (c *MessagingController) SetCredentialUserID(userID string) {
+	if c == nil {
+		return
+	}
+	c.credMu.Lock()
+	c.credUserID = strings.TrimSpace(userID)
+	c.credMu.Unlock()
+}
+
+func (c *MessagingController) credentialUserID() string {
+	if c == nil {
+		return ""
+	}
+	c.credMu.RLock()
+	defer c.credMu.RUnlock()
+	return c.credUserID
+}
+
+func (c *MessagingController) credentialContext() context.Context {
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if uid := c.credentialUserID(); uid != "" {
+		return database.WithUserID(ctx, uid)
+	}
+	return ctx
 }
 
 // Init inicializa o gateway e registra as tools de mensageria no ToolRegistry.
@@ -203,6 +241,8 @@ func (c *MessagingController) StartAdapters(ownerUserID string) {
 		logging.Warnf(context.Background(), "controllers.messaging-controller", "[Messaging] StartAdapters ignorado: gateway não inicializado")
 		return
 	}
+
+	c.SetCredentialUserID(ownerUserID)
 
 	var (
 		enabledChannels map[string]*channels.ChannelConfig
@@ -481,7 +521,7 @@ func (c *MessagingController) persistChannelCredentials(channelName string, cfg 
 	if cfg == nil || c.credMgr == nil || !c.credMgr.CanPersist() {
 		return nil
 	}
-	ctx := c.ctx
+	ctx := c.credentialContext()
 	switch channelName {
 	case "telegram":
 		if cfg.BotTokenRef == "" && cfg.BotToken != "" {
@@ -539,6 +579,7 @@ func (c *MessagingController) persistChannelCredentials(channelName string, cfg 
 }
 
 // connectTelegram cria e registra o adapter do Telegram.
+// Token: BotToken plaintext ou BotTokenRef via resolveCredentialRef (user-scoped).
 func (c *MessagingController) connectTelegram(cfg *channels.ChannelConfig) {
 	botToken := cfg.BotToken
 	if botToken == "" && cfg.BotTokenRef != "" {
@@ -559,6 +600,8 @@ func (c *MessagingController) connectTelegram(cfg *channels.ChannelConfig) {
 }
 
 // connectSignal cria e registra o adapter do Signal (via signal-cli-rest-api).
+// APIToken opcional: plaintext ou APITokenRef via resolveCredentialRef (mesmo
+// escopo de usuário que Telegram/Slack).
 func (c *MessagingController) connectSignal(cfg *channels.ChannelConfig) {
 	if cfg.Account == "" || cfg.APIURL == "" {
 		logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Signal não configurado (conta ou URL da API ausente)")
@@ -579,6 +622,7 @@ func (c *MessagingController) connectSignal(cfg *channels.ChannelConfig) {
 }
 
 // connectSlack cria e registra o adapter do Slack (Socket Mode).
+// BotToken/AppToken: plaintext ou *TokenRef via resolveCredentialRef (user-scoped).
 func (c *MessagingController) connectSlack(cfg *channels.ChannelConfig) {
 	botToken := cfg.BotToken
 	appToken := cfg.AppToken
@@ -613,13 +657,23 @@ func (c *MessagingController) getSupportedChannelTypes() map[string]struct{} {
 }
 
 // resolveCredentialRef resolve uma referência de credencial para o valor secreto.
+// Usa o userID de SetCredentialUserID/StartAdapters — GetByPattern sem escopo
+// ignora credenciais user-scoped (channel:* no vault pós-login).
 func (c *MessagingController) resolveCredentialRef(ref string) string {
 	if ref == "" || c.credMgr == nil {
 		return ""
 	}
-	auth, err := c.credMgr.GetByPattern(ref)
+	auth, err := c.credMgr.GetByPatternWithContext(c.credentialContext(), ref)
 	if err != nil {
 		logging.Errorf(context.Background(), "controllers.messaging-controller", "[Credentials] Erro ao resolver referência %s: %v", ref, err)
+		return ""
+	}
+	if auth == nil {
+		uid := c.credentialUserID()
+		if uid == "" {
+			uid = "<sem usuario>"
+		}
+		logging.Warnf(context.Background(), "controllers.messaging-controller", "[Credentials] referência %s não encontrada no vault (user=%s)", ref, uid)
 		return ""
 	}
 	return credentials.ResolveSecretFromAuth(auth)
