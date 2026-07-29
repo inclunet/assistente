@@ -347,6 +347,36 @@ describe('ChatMessage', () => {
     });
   });
 
+  it('na conclusão, se o texto final reescreve o streaming, anuncia o plain inteiro', () => {
+    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const streamingMessage = new chat.EnrichedMessage({
+      id: 'assistant-rewrite-1',
+      conversationId,
+      role: 'assistant',
+      content: 'The answer is 42.',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+    const completedMessage = new chat.EnrichedMessage({
+      ...streamingMessage,
+      isStreaming: false,
+      content: 'The answer is 43.',
+    });
+
+    const { rerender } = render(
+      <ChatMessage message={streamingMessage} origin={origin} />
+    );
+    rerender(<ChatMessage message={completedMessage} origin={origin} />);
+
+    expect(announceRequestMock).toHaveBeenLastCalledWith({
+      message: 'The answer is 43.',
+      origin,
+      eventType: 'completion',
+    });
+  });
+
   it('preserva anúncio de conclusão quando há render intermediário sem conteúdo final', () => {
     const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
     const streamingMessage = new chat.EnrichedMessage({

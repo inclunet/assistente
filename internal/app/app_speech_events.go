@@ -88,6 +88,10 @@ func (a *App) DispatchSpeech(req ChatSpeakRequest) error {
 func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error) {
 	text := stripMarkdownForTTS(req.Text)
 	if strings.TrimSpace(text) == "" {
+		// Strip pode zerar só-sintaxe; fallback ao texto original (SpeakMessage/gateway).
+		text = strings.TrimSpace(req.Text)
+	}
+	if text == "" {
 		return nil, nil
 	}
 

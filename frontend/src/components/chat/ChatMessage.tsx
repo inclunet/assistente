@@ -350,7 +350,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     }
 
     const plain = stripMarkdown(text, { codeBlockLabel: t('chat.codeBlockSpeechLabel') });
-    const remainder = plainSpeechDelta(previousPlain, plain).trimStart();
+    // Extensão limpa → só o sufixo; reescrita (LCP parcial) → anunciar o plain inteiro.
+    const remainder = (
+      previousPlain && plain.startsWith(previousPlain)
+        ? plain.slice(previousPlain.length)
+        : plain
+    ).trimStart();
     streamingAnnouncementStates.delete(message.id);
     if (!remainder) return;
     announceRequest({

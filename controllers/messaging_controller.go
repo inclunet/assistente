@@ -184,6 +184,9 @@ func (c *MessagingController) Init() {
 
 		plain := textutil.StripMarkdownForSpeech(text)
 		if strings.TrimSpace(plain) == "" {
+			plain = strings.TrimSpace(text)
+		}
+		if plain == "" {
 			return nil, nil
 		}
 
