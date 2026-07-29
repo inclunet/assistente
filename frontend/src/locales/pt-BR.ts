@@ -90,6 +90,7 @@ const ptBR = {
       continueResponseLabel: 'Continuar resposta',
       listen: 'Ouvir',
       progressLabel: 'Progresso do assistente',
+      codeBlockSpeechLabel: 'bloco de código',
       step: 'Passo',
       editPlaceholder: 'Edite sua mensagem...',
       editMessage: 'Editar mensagem',

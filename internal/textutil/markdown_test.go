@@ -13,6 +13,7 @@ func TestStripMarkdownForSpeech(t *testing.T) {
 		{"use `code` aqui", "use code aqui"},
 		{"```\nfn()\n```\nok", "bloco de código \nok"},
 		{"- item\n- outro", "item\noutro"},
+		{"veja ![diagrama](https://ex.com/a.png) aqui", "veja diagrama aqui"},
 		{"", ""},
 	}
 	for _, tc := range cases {

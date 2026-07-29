@@ -17,7 +17,7 @@ import { formatRelativeTime } from '../../lib/dateUtils';
 import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
-import { stripMarkdown } from '../../lib/stripMarkdown';
+import { stripMarkdown, plainSpeechDelta } from '../../lib/stripMarkdown';
 import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './ChatMessage.css';
 
@@ -272,21 +272,35 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
       // previous guarda o texto JÁ anunciado (plain). Anunciamos só o delta
       // — com aria-atomic=true, mandar o acumulado faz o NVDA reler tudo.
-      const plain = stripMarkdown(progressMessage);
+      const codeBlockLabel = t('chat.codeBlockSpeechLabel');
+      const plain = stripMarkdown(progressMessage, { codeBlockLabel });
       if (!plain) return;
 
       const previous = announcementState.previous;
       const originKey = getStreamingAnnouncementOriginKey(origin);
       const sameOrigin = announcementState.previousOriginKey === originKey;
-      const replacedProgressMessage = previous !== '' && !plain.startsWith(previous);
-      const delta = !previous || replacedProgressMessage
-        ? plain
-        : plain.slice(previous.length);
+      if (previous === plain && sameOrigin) return;
+
+      // Nova superfície: reanunciar o acumulado (AEP-0058 / teste de origem).
+      if (!sameOrigin) {
+        const didAnnounce = announceRequest({
+          message: plain,
+          origin,
+          eventType: 'progress',
+        });
+        if (didAnnounce) {
+          announcementState.previous = plain;
+          announcementState.previousOriginKey = originKey;
+        }
+        return;
+      }
+
+      // LCP evita reler tudo quando o fechamento de markdown reescreve o plain.
+      const delta = plainSpeechDelta(previous, plain);
       const progressedEnough = delta.length >= 80;
       const reachedSentenceBoundary = /[.!?…]\s*$/.test(plain);
-      if (previous === plain && sameOrigin) return;
       if (!delta.trim()) return;
-      if (sameOrigin && previous && !replacedProgressMessage && !progressedEnough && !reachedSentenceBoundary) return;
+      if (previous && !progressedEnough && !reachedSentenceBoundary) return;
 
       const didAnnounce = announceRequest({
         message: delta.trimStart(),
@@ -335,10 +349,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       return;
     }
 
-    const plain = stripMarkdown(text);
-    const remainder = previousPlain && plain.startsWith(previousPlain)
-      ? plain.slice(previousPlain.length).trimStart()
-      : plain;
+    const plain = stripMarkdown(text, { codeBlockLabel: t('chat.codeBlockSpeechLabel') });
+    const remainder = plainSpeechDelta(previousPlain, plain).trimStart();
     streamingAnnouncementStates.delete(message.id);
     if (!remainder) return;
     announceRequest({
