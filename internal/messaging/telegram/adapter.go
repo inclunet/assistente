@@ -114,12 +114,13 @@ func (t *TelegramAdapter) Send(ctx context.Context, msg messaging.OutgoingMessag
 		}
 	}
 
-	// Envia texto (se houver)
+	// Envia texto (se houver). Gateway já entrega plain (sem Markdown);
+	// ParseMode vazio evita que *, _ residual distorçam o cliente.
 	if msg.Text != "" {
 		parts := SplitMessage(msg.Text)
 		for _, part := range parts {
 			teleMsg := tgbotapi.NewMessage(chatID, part)
-			teleMsg.ParseMode = "Markdown"
+			teleMsg.ParseMode = ""
 
 			if msg.ReplyToMessageID != "" {
 				if replyID, err := strconv.Atoi(msg.ReplyToMessageID); err == nil {
@@ -128,10 +129,7 @@ func (t *TelegramAdapter) Send(ctx context.Context, msg messaging.OutgoingMessag
 			}
 
 			if _, err := bot.Send(teleMsg); err != nil {
-				teleMsg.ParseMode = ""
-				if _, err2 := bot.Send(teleMsg); err2 != nil {
-					return fmt.Errorf("erro ao enviar mensagem para %d: %w", chatID, err2)
-				}
+				return fmt.Errorf("erro ao enviar mensagem para %d: %w", chatID, err)
 			}
 		}
 	}

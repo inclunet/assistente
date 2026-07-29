@@ -140,9 +140,14 @@ func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID
 		return nil, fmt.Errorf("mensagem %s sem conteúdo textual", messageID)
 	}
 
+	rawContent := content
 	content = textutil.StripMarkdownForSpeech(content)
 	if strings.TrimSpace(content) == "" {
-		return nil, fmt.Errorf("mensagem %s sem conteúdo falável após remover markdown", messageID)
+		// Strip pode zerar só-sintaxe; fallback ao texto persistido (mesmo padrão do gateway).
+		content = strings.TrimSpace(rawContent)
+		if content == "" {
+			return nil, fmt.Errorf("mensagem %s sem conteúdo falável após remover markdown", messageID)
+		}
 	}
 
 	// 3. Gera TTS: roteia entre SAPI5 (local) e provedores API (HTTP)
