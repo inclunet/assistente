@@ -295,6 +295,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         return;
       }
 
+      // Reescrita do plain (fechamento de markdown / substituição): anunciar
+      // o acumulado — o LCP sozinho pode ficar curto e o limiar de 80 silencia.
+      if (previous && !plain.startsWith(previous)) {
+        const didAnnounce = announceRequest({
+          message: plain,
+          origin,
+          eventType: 'progress',
+        });
+        if (didAnnounce) {
+          announcementState.previous = plain;
+          announcementState.previousOriginKey = originKey;
+        }
+        return;
+      }
+
       // LCP evita reler tudo quando o fechamento de markdown reescreve o plain.
       const delta = plainSpeechDelta(previous, plain);
       const progressedEnough = delta.length >= 80;

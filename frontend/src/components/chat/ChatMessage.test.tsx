@@ -347,6 +347,34 @@ describe('ChatMessage', () => {
     });
   });
 
+  it('reanuncia o plain inteiro quando o strip reescreve o prefixo no streaming', () => {
+    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const first = new chat.EnrichedMessage({
+      id: 'assistant-md-rewrite-1',
+      conversationId,
+      role: 'assistant',
+      content: '**Hello',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+    const second = new chat.EnrichedMessage({
+      ...first,
+      content: '**Hello** world. Mais texto para passar do limiar de progresso.',
+    });
+
+    const { rerender } = render(<ChatMessage message={first} origin={origin} />);
+    announceRequestMock.mockClear();
+    rerender(<ChatMessage message={second} origin={origin} />);
+
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Hello world. Mais texto para passar do limiar de progresso.',
+      origin,
+      eventType: 'progress',
+    });
+  });
+
   it('na conclusão, se o texto final reescreve o streaming, anuncia o plain inteiro', () => {
     const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
     const streamingMessage = new chat.EnrichedMessage({
