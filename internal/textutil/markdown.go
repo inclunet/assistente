@@ -29,6 +29,8 @@ var (
 // StripMarkdownForSpeech remove sintaxe Markdown para TTS, live regions e
 // texto destinado a leitores de tela / síntese de fala. Não altera o
 // conteúdo persistido no chat — só o payload falado/enviado como fala.
+// Callers que sintetizam áudio devem fazer fallback ao texto original
+// quando o resultado trimado for vazio (ex.: só HR/fence).
 func StripMarkdownForSpeech(text string) string {
 	if text == "" {
 		return text
