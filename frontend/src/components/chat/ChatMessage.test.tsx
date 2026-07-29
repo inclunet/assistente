@@ -154,7 +154,7 @@ describe('ChatMessage', () => {
     const completedMessage = new chat.EnrichedMessage({
       ...streamingMessage,
       isStreaming: false,
-      content: 'Resposta final.',
+      content: 'Resposta parcial com conteúdo suficiente para anunciar. Final.',
     });
 
     const { rerender } = render(
@@ -170,9 +170,69 @@ describe('ChatMessage', () => {
     rerender(<ChatMessage message={completedMessage} origin={origin} />);
 
     expect(announceRequestMock).toHaveBeenLastCalledWith({
-      message: 'Resposta final.',
+      message: 'Final.',
       origin,
       eventType: 'completion',
+    });
+  });
+
+  it('anuncia só o delta no progresso de streaming (não relê do início)', () => {
+    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const first = 'Primeira sentença completa com texto longo o bastante para gatilho. ';
+    const second = `${first}Segunda parte nova.`;
+    const streamingFirst = new chat.EnrichedMessage({
+      id: 'assistant-delta-1',
+      conversationId,
+      role: 'assistant',
+      content: first,
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+    const streamingSecond = new chat.EnrichedMessage({
+      ...streamingFirst,
+      content: second,
+    });
+
+    const { rerender } = render(
+      <ChatMessage message={streamingFirst} origin={origin} />
+    );
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: first.trim(),
+      origin,
+      eventType: 'progress',
+    });
+    const firstCall = announceRequestMock.mock.calls.length;
+
+    rerender(<ChatMessage message={streamingSecond} origin={origin} />);
+    expect(announceRequestMock.mock.calls.length).toBeGreaterThan(firstCall);
+    expect(announceRequestMock).toHaveBeenLastCalledWith({
+      message: 'Segunda parte nova.',
+      origin,
+      eventType: 'progress',
+    });
+  });
+
+  it('remove markdown do anúncio de progresso', () => {
+    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+    const streamingMessage = new chat.EnrichedMessage({
+      id: 'assistant-md-1',
+      conversationId,
+      role: 'assistant',
+      content: '**Negrito** e *itálico* com [link](https://ex.com) suficientes para anunciar progresso agora.',
+      createdAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      isStreaming: true,
+      internal: false,
+    });
+
+    render(<ChatMessage message={streamingMessage} origin={origin} />);
+
+    expect(announceRequestMock).toHaveBeenCalledWith({
+      message: 'Negrito e itálico com link suficientes para anunciar progresso agora.',
+      origin,
+      eventType: 'progress',
     });
   });
 

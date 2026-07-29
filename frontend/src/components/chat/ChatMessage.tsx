@@ -17,6 +17,7 @@ import { formatRelativeTime } from '../../lib/dateUtils';
 import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { stripMarkdown } from '../../lib/stripMarkdown';
 import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './ChatMessage.css';
 
@@ -269,22 +270,31 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       const progressMessage = text || (isAgenticStreaming ? t('chat.progressLabel') : '');
       if (!progressMessage) return;
 
+      // previous guarda o texto JÁ anunciado (plain). Anunciamos só o delta
+      // — com aria-atomic=true, mandar o acumulado faz o NVDA reler tudo.
+      const plain = stripMarkdown(progressMessage);
+      if (!plain) return;
+
       const previous = announcementState.previous;
       const originKey = getStreamingAnnouncementOriginKey(origin);
       const sameOrigin = announcementState.previousOriginKey === originKey;
-      const replacedProgressMessage = previous !== '' && !progressMessage.startsWith(previous);
-      const progressedEnough = progressMessage.length - previous.length >= 80;
-      const reachedSentenceBoundary = /[.!?…]\s*$/.test(progressMessage);
-      if (previous === progressMessage && sameOrigin) return;
+      const replacedProgressMessage = previous !== '' && !plain.startsWith(previous);
+      const delta = !previous || replacedProgressMessage
+        ? plain
+        : plain.slice(previous.length);
+      const progressedEnough = delta.length >= 80;
+      const reachedSentenceBoundary = /[.!?…]\s*$/.test(plain);
+      if (previous === plain && sameOrigin) return;
+      if (!delta.trim()) return;
       if (sameOrigin && previous && !replacedProgressMessage && !progressedEnough && !reachedSentenceBoundary) return;
 
       const didAnnounce = announceRequest({
-        message: progressMessage,
+        message: delta.trimStart(),
         origin,
         eventType: 'progress',
       });
       if (didAnnounce) {
-        announcementState.previous = progressMessage;
+        announcementState.previous = plain;
         announcementState.previousOriginKey = originKey;
       }
       return;
@@ -298,9 +308,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       return;
     }
 
-    announcementState.previous = '';
+    const previousPlain = announcementState.previous;
     announcementState.previousOriginKey = '';
     if (!text) {
+      announcementState.previous = '';
       if (hasAgenticSegments && !announcementState.emptyCompletionAnnounced) {
         announcementState.emptyCompletionAnnounced = true;
         announceRequest({
@@ -324,9 +335,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       return;
     }
 
+    const plain = stripMarkdown(text);
+    const remainder = previousPlain && plain.startsWith(previousPlain)
+      ? plain.slice(previousPlain.length).trimStart()
+      : plain;
     streamingAnnouncementStates.delete(message.id);
+    if (!remainder) return;
     announceRequest({
-      message: text,
+      message: remainder,
       origin,
       eventType: 'completion',
     });

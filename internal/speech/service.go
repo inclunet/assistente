@@ -12,6 +12,7 @@ import (
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
+	"assistente/internal/textutil"
 )
 
 // ProviderRegistry abstrai o acesso ao registro de provedores LLM.
@@ -137,6 +138,11 @@ func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID
 	}
 	if strings.TrimSpace(content) == "" {
 		return nil, fmt.Errorf("mensagem %s sem conteúdo textual", messageID)
+	}
+
+	content = textutil.StripMarkdownForSpeech(content)
+	if strings.TrimSpace(content) == "" {
+		return nil, fmt.Errorf("mensagem %s sem conteúdo falável após remover markdown", messageID)
 	}
 
 	// 3. Gera TTS: roteia entre SAPI5 (local) e provedores API (HTTP)

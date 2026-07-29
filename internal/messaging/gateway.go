@@ -16,6 +16,7 @@ import (
 	"assistente/internal/contacts"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/textutil"
 )
 
 // SendMessageFunc é a assinatura do callback usado pelo gateway para enviar
@@ -479,9 +480,13 @@ func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, r
 		return fmt.Errorf("messenger %s ausente", channel)
 	}
 
+	// Texto falável / legível sem sintaxe Markdown (TTS + outbound texto).
+	// O conteúdo no chat permanece em Markdown; só o que sai para canais/fala.
+	plainResponse := textutil.StripMarkdownForSpeech(response)
+
 	outMsg := OutgoingMessage{
 		ChatID:           chatID,
-		Text:             response,
+		Text:             plainResponse,
 		ReplyToMessageID: replyToMsgID,
 		// TraceID do pending — NÃO DeliveredAssistantID (msgID muda entre
 		// tentativas; TraceID é estável no turno e encolhe a janela residual
@@ -494,7 +499,7 @@ func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, r
 		go func() {
 			ttsCtx, ttsCancel := context.WithTimeout(ctx, 5*time.Second)
 			defer ttsCancel()
-			audioData, ttsErr := g.synthesizeTTS(ttsCtx, response, channel, audioOnly)
+			audioData, ttsErr := g.synthesizeTTS(ttsCtx, plainResponse, channel, audioOnly)
 			if ttsErr != nil {
 				logging.Errorf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s erro ao gerar TTS: %v",
 					traceID, conversationID, channel, ttsErr)
