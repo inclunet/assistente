@@ -35,8 +35,8 @@ func StripMarkdownForSpeech(text string) string {
 	}
 
 	result := text
-	// Blocos de código → marcador curto (evita ler fences e código cru)
-	result = reCodeFence.ReplaceAllString(result, " bloco de código ")
+	// Blocos de código → marcador curto neutro (TTS/canais; announcer TS usa i18n).
+	result = reCodeFence.ReplaceAllString(result, " code block ")
 	result = reInlineCode.ReplaceAllString(result, "$1")
 	result = reImage.ReplaceAllString(result, "$1")
 	result = reLink.ReplaceAllString(result, "$1")
