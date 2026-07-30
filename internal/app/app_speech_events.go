@@ -2,40 +2,15 @@ package app
 
 import (
 	"fmt"
-	"regexp"
 	"runtime"
 	"strings"
 
 	"assistente/internal/profiles"
-)
-
-// stripMarkdownForTTS removes markdown syntax to produce clean text for TTS.
-var mdPattern = regexp.MustCompile(`(?m)` +
-	`(^#{1,6}\s+)` + // headings
-	`|([*_]{1,3})` + // bold/italic
-	`|(~~)` + // strikethrough
-	"|(```[\\s\\S]*?```)" + // code blocks
-	"|(`[^`]+`)" + // inline code
-	`|(\[([^\]]+)\]\([^)]+\))` + // links → keep text
-	`|(^\s*[-*+]\s)` + // unordered list markers
-	`|(^\s*\d+\.\s)` + // ordered list markers
-	`|(^>\s?)`, // blockquotes
+	"assistente/internal/textutil"
 )
 
 func stripMarkdownForTTS(text string) string {
-	result := mdPattern.ReplaceAllStringFunc(text, func(match string) string {
-		// For links [text](url), keep just the text
-		if strings.HasPrefix(match, "[") {
-			idx := strings.Index(match, "]")
-			if idx > 0 {
-				return match[1:idx]
-			}
-		}
-		return ""
-	})
-	// Collapse multiple blank lines
-	result = regexp.MustCompile(`\n{3,}`).ReplaceAllString(result, "\n\n")
-	return strings.TrimSpace(result)
+	return textutil.StripMarkdownForSpeech(text)
 }
 
 type ChatSpeakStrategy string
@@ -113,6 +88,10 @@ func (a *App) DispatchSpeech(req ChatSpeakRequest) error {
 func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error) {
 	text := stripMarkdownForTTS(req.Text)
 	if strings.TrimSpace(text) == "" {
+		// Strip pode zerar só-sintaxe; fallback ao texto original (SpeakMessage/gateway).
+		text = strings.TrimSpace(req.Text)
+	}
+	if text == "" {
 		return nil, nil
 	}
 

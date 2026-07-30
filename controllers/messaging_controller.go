@@ -14,6 +14,7 @@ import (
 	"assistente/internal/messaging/telegram"
 	"assistente/internal/profiles"
 	"assistente/internal/speech"
+	"assistente/internal/textutil"
 	"assistente/internal/tools"
 	msgtool "assistente/internal/tools/messaging"
 	"context"
@@ -181,12 +182,20 @@ func (c *MessagingController) Init() {
 			return nil, fmt.Errorf("speech manager indisponível para TTS")
 		}
 
+		plain := textutil.StripMarkdownForSpeech(text)
+		if strings.TrimSpace(plain) == "" {
+			plain = strings.TrimSpace(text)
+		}
+		if plain == "" {
+			return nil, nil
+		}
+
 		var result *speech.SynthesisResult
 		var err error
 		if profile != nil && profile.Voice.Assistant.VoiceID != "" {
-			result, err = c.speechSvc.SynthesizeWithVoice(ctx, text, profile.Voice.Assistant.VoiceID)
+			result, err = c.speechSvc.SynthesizeWithVoice(ctx, plain, profile.Voice.Assistant.VoiceID)
 		} else {
-			result, err = c.speechSvc.Synthesize(ctx, text)
+			result, err = c.speechSvc.Synthesize(ctx, plain)
 		}
 		if err != nil {
 			return nil, err

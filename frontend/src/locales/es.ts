@@ -89,6 +89,7 @@ const es = {
       continueResponseLabel: 'Continuar respuesta',
       listen: 'Escuchar',
       progressLabel: 'Progreso del asistente',
+      codeBlockSpeechLabel: 'bloque de código',
       step: 'Paso',
       editPlaceholder: 'Edita tu mensaje...',
       editMessage: 'Editar mensaje',

@@ -90,6 +90,7 @@ const en = {
         cancelGenerationLabel: 'Cancel generation (Esc)',
       listen: 'Listen',
       progressLabel: 'Assistant progress',
+      codeBlockSpeechLabel: 'code block',
       step: 'Step',
       editPlaceholder: 'Edit your message...',
       editMessage: 'Edit message',
