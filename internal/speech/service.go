@@ -140,7 +140,10 @@ func (s *Service) CreateTTSClientWithLanguage(ctx context.Context, providerID st
 // `language` é o idioma do perfil que pediu a fala (vazio → perfil ativo) e
 // define o idioma dos rótulos falados, como o marcador de bloco de código.
 func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID string, model string, voiceID string, rate float64, language string) (*AudioResult, error) {
-	// 1. Checa cache no DB
+	// 1. Checa cache no DB. O cache é por mensagem e, por decisão anterior a
+	// este parâmetro, ignora provider, voz, rate e idioma: existe um único
+	// áudio por mensagem. Trocar de perfil não regera o áudio já persistido —
+	// para isso o áudio da mensagem precisa ser invalidado.
 	audio, mime, err := s.audioRepo.GetMessageAudio(ctx, messageID)
 	if err == nil && audio != "" {
 		return &AudioResult{Audio: audio, MimeType: mime, Cached: true}, nil

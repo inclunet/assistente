@@ -153,6 +153,16 @@ func TestSpeakMessage_CacheHitSkipsGeneration(t *testing.T) {
 	if result.Audio != "audio_data" {
 		t.Errorf("esperava audio_data, obteve %q", result.Audio)
 	}
+
+	// O cache é por mensagem: provider, voz, rate e idioma não fazem parte da
+	// chave. Trocar o idioma não regera o áudio já persistido.
+	result, err = app.SpeakMessage("5", "", "", "", 1.0, "es-ES")
+	if err != nil {
+		t.Fatalf("erro inesperado com outro idioma: %v", err)
+	}
+	if result.Audio != "audio_data" || !result.Cached {
+		t.Errorf("esperava o mesmo áudio em cache, obteve %+v", result)
+	}
 }
 
 func TestSpeakMessage_ErrorWhenHTTPModelMissing(t *testing.T) {
