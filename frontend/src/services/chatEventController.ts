@@ -672,6 +672,9 @@ export function startChatEventController({
     patchCurrentSession({ lastInterruptedMessageId: null });
 
     if (event.hadToolCalls) {
+      // O aviso genérico existe só para o turno que termina em silêncio. Se
+      // houve texto — inclusive só em segmentos intermediários — o chat:speak
+      // já o verbalizou e o aviso viraria ruído em cima da fala.
       if (!turnHadAssistantText) {
         announceForActiveChatConversation(
           conversationId,
