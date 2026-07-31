@@ -108,6 +108,17 @@ describe('announcerBroker', () => {
       expect(sink).toHaveBeenNthCalledWith(2, 'Mensagens 1 a 20 de 34 carregadas', 'polite');
     });
 
+    it('desiste do aviso que esperou tempo demais', () => {
+      const respostaLonga = `chat.assistant: ${'palavra '.repeat(200)}`;
+      announceWithOrigin({ message: respostaLonga, eventType: 'completion', protectsReading: true });
+      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
+      sink.mockClear();
+
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(respostaLonga));
+
+      expect(sink).not.toHaveBeenCalled();
+    });
+
     it('deixa o conteúdo seguinte passar e reinicia a proteção', () => {
       announceWithOrigin({ message: content, eventType: 'progress', protectsReading: true });
       const segundo = 'chat.assistant: Segundo trecho da resposta.';

@@ -45,8 +45,9 @@ export interface ChatSessionViewProps {
 }
 
 /**
- * Um carregamento de janela só anuncia se concluir logo depois de ter sido
- * pedido. Passado isso o aviso já não descreve nada que a pessoa fez.
+ * Um carregamento de janela só anuncia se a janela chegar logo depois de o
+ * carregamento terminar. Passado isso o aviso já não descreve a ação que o
+ * originou — descreve alguma outra coisa que mexeu na janela.
  */
 const PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS = 5_000;
 
@@ -124,7 +125,7 @@ function ChatSessionViewContent({
   const pendingWindowAnnouncementRef = useRef<{
     kind: 'start' | 'end' | 'older' | 'newer';
     trigger: MessageWindowLoadTrigger;
-    armedAt: number;
+    expiresAt: number;
     previousStartIndex: number;
     previousEndIndex: number;
     previousWindowKey: string | null;
@@ -741,7 +742,7 @@ function ChatSessionViewContent({
     // A limpeza por chave de janela não pega o caso em que a janela muda por
     // outro motivo (streaming, por exemplo): o pendente ficava armado e
     // disparava muito depois, desligado da ação que o originou.
-    if (Date.now() - pendingAnnouncement.armedAt > PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS) {
+    if (Date.now() > pendingAnnouncement.expiresAt) {
       pendingWindowAnnouncementRef.current = null;
       return;
     }
@@ -838,74 +839,31 @@ function ChatSessionViewContent({
     inputRef.current?.focus();
   };
 
-  const handleJumpToStart = async () => {
+  const runWindowLoad = useCallback(async (
+    kind: 'start' | 'end' | 'older' | 'newer',
+    trigger: MessageWindowLoadTrigger,
+    load: () => Promise<void>,
+    afterLoad?: () => void,
+  ) => {
     const previousWindowKey = latestWindowKeyRef.current;
     const windowState = session?.messageWindow;
     pendingWindowAnnouncementRef.current = {
-      kind: 'start',
-      trigger: 'navigation',
-      armedAt: Date.now(),
-      previousStartIndex: windowState?.startIndex ?? 0,
-      previousEndIndex: windowState?.endIndex ?? -1,
-      previousWindowKey,
-    };
-    try {
-      await loadStartMessages();
-      requestAnimationFrame(() => {
-        const container = messagesContainerRef.current;
-        const firstMessage = container?.querySelector('[data-message-node]') as HTMLElement | null;
-        firstMessage?.focus();
-      });
-    } finally {
-      window.setTimeout(() => {
-        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
-          pendingWindowAnnouncementRef.current = null;
-        }
-      }, 1_000);
-    }
-  };
-
-  const handleJumpToEnd = async () => {
-    const previousWindowKey = latestWindowKeyRef.current;
-    const windowState = session?.messageWindow;
-    pendingWindowAnnouncementRef.current = {
-      kind: 'end',
-      trigger: 'navigation',
-      armedAt: Date.now(),
-      previousStartIndex: windowState?.startIndex ?? 0,
-      previousEndIndex: windowState?.endIndex ?? -1,
-      previousWindowKey,
-    };
-    try {
-      await loadEndMessages();
-      requestAnimationFrame(() => {
-        const container = messagesContainerRef.current;
-        const rootMessages = container?.querySelectorAll<HTMLElement>('[data-message-node][data-level="0"]');
-        const lastMessage = rootMessages?.[rootMessages.length - 1] ?? null;
-        lastMessage?.focus();
-      });
-    } finally {
-      window.setTimeout(() => {
-        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
-          pendingWindowAnnouncementRef.current = null;
-        }
-      }, 1_000);
-    }
-  };
-
-  const handleLoadOlderMessages = useCallback(async (trigger: MessageWindowLoadTrigger) => {
-    const previousWindowKey = latestWindowKeyRef.current;
-    const windowState = session?.messageWindow;
-    pendingWindowAnnouncementRef.current = {
-      kind: 'older',
+      kind,
       trigger,
-      armedAt: Date.now(),
+      expiresAt: Date.now() + PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS,
       previousStartIndex: windowState?.startIndex ?? 0,
       previousEndIndex: windowState?.endIndex ?? -1,
       previousWindowKey,
     };
     try {
-      await loadOlderMessages();
+      await load();
+      // A janela chega logo depois do load resolver, então o prazo conta a
+      // partir daqui: backend lento não pode custar o anúncio.
+      const pending = pendingWindowAnnouncementRef.current;
+      if (pending) {
+        pending.expiresAt = Date.now() + PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS;
+      }
+      afterLoad?.();
     } finally {
       window.setTimeout(() => {
         if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
@@ -913,29 +871,34 @@ function ChatSessionViewContent({
         }
       }, 1_000);
     }
-  }, [loadOlderMessages, session?.messageWindow]);
+  }, [session?.messageWindow]);
 
-  const handleLoadNewerMessages = useCallback(async (trigger: MessageWindowLoadTrigger) => {
-    const previousWindowKey = latestWindowKeyRef.current;
-    const windowState = session?.messageWindow;
-    pendingWindowAnnouncementRef.current = {
-      kind: 'newer',
-      trigger,
-      armedAt: Date.now(),
-      previousStartIndex: windowState?.startIndex ?? 0,
-      previousEndIndex: windowState?.endIndex ?? -1,
-      previousWindowKey,
-    };
-    try {
-      await loadNewerMessages();
-    } finally {
-      window.setTimeout(() => {
-        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
-          pendingWindowAnnouncementRef.current = null;
-        }
-      }, 1_000);
-    }
-  }, [loadNewerMessages, session?.messageWindow]);
+  const handleJumpToStart = () => runWindowLoad('start', 'navigation', loadStartMessages, () => {
+    requestAnimationFrame(() => {
+      const container = messagesContainerRef.current;
+      const firstMessage = container?.querySelector('[data-message-node]') as HTMLElement | null;
+      firstMessage?.focus();
+    });
+  });
+
+  const handleJumpToEnd = () => runWindowLoad('end', 'navigation', loadEndMessages, () => {
+    requestAnimationFrame(() => {
+      const container = messagesContainerRef.current;
+      const rootMessages = container?.querySelectorAll<HTMLElement>('[data-message-node][data-level="0"]');
+      const lastMessage = rootMessages?.[rootMessages.length - 1] ?? null;
+      lastMessage?.focus();
+    });
+  });
+
+  const handleLoadOlderMessages = useCallback(
+    (trigger: MessageWindowLoadTrigger) => runWindowLoad('older', trigger, loadOlderMessages),
+    [loadOlderMessages, runWindowLoad],
+  );
+
+  const handleLoadNewerMessages = useCallback(
+    (trigger: MessageWindowLoadTrigger) => runWindowLoad('newer', trigger, loadNewerMessages),
+    [loadNewerMessages, runWindowLoad],
+  );
 
   const rootClass =
     variant === 'page' ? 'chat-page chat-session-view' : 'chat-session-view chat-session-view--embedded';

@@ -902,6 +902,69 @@ describe('ChatSessionView', () => {
     });
   });
 
+  it('anuncia janela mesmo quando o carregamento demora a resolver', async () => {
+    const sessionKey = 'slow-session';
+    let surfaceSession = {
+      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+      messageWindow: {
+        scope: 'conversation' as const,
+        conversationId,
+        totalCount: 10,
+        startIndex: 4,
+        endIndex: 5,
+        hasBefore: true,
+        hasAfter: true,
+      },
+    };
+    (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
+    let resolveLoad: (() => void) | undefined;
+    chatStoreState.loadNewerMessagesForConversation.mockImplementation(() => new Promise<void>((resolve) => {
+      resolveLoad = () => {
+        surfaceSession = {
+          ...surfaceSession,
+          messageWindow: { ...surfaceSession.messageWindow, startIndex: 8, endIndex: 9, hasAfter: false },
+        };
+        (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
+        resolve();
+      };
+    }));
+
+    const { rerender } = renderWithPanel(
+      <ChatSessionView
+        surface={surface({ sessionKey, surfaceId: 'slow-surface' })}
+        onSend={vi.fn().mockResolvedValue(undefined)}
+        showShortcutsHelp={false}
+      />,
+    );
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByText('load-newer-scroll'));
+
+      // Backend lento: o carregamento demora mais que o prazo do pendente.
+      await vi.advanceTimersByTimeAsync(10_000);
+      resolveLoad?.();
+      await vi.advanceTimersByTimeAsync(0);
+
+      rerender(
+        <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+          <ChatSessionView
+            surface={surface({ sessionKey, surfaceId: 'slow-surface' })}
+            onSend={vi.fn().mockResolvedValue(undefined)}
+            showShortcutsHelp={false}
+          />
+        </WorkspacePanelProvider>,
+      );
+
+      expect(announceRequestMock).toHaveBeenCalledWith({
+        message: 'chat.announce.messageWindowLoaded:9-10-10',
+        eventType: 'progress',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('anuncia como progresso a janela carregada por scroll', async () => {
     const sessionKey = 'scroll-session';
     let surfaceSession = {
@@ -974,7 +1037,7 @@ describe('ChatSessionView', () => {
         },
       };
       (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
-      chatStoreState.loadNewerMessagesForConversation.mockResolvedValue(undefined);
+      chatStoreState.loadNewerMessagesForConversation.mockImplementation(async () => {});
 
       const { rerender } = renderWithPanel(
         <ChatSessionView

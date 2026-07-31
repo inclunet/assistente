@@ -45,13 +45,24 @@ export function estimateAnnouncementReadingMs(message: string): number {
   return Math.max(MIN_READING_MS, message.length * MS_PER_CHARACTER);
 }
 
+/**
+ * Um aviso adiado descreve o estado do momento em que foi produzido. Passado
+ * esse tempo ele deixa de valer a pena: numa resposta longa, ou numa sequência
+ * de respostas, a leitura protegida pode se estender por minutos.
+ */
+const MAX_DEFERRED_WAIT_MS = 30_000;
+
 let readingProtectedUntil = 0;
 /**
  * Só o último anúncio adiado é guardado: são avisos de estado transitório
  * ("carregando" é substituído por "carregadas"), e enfileirar todos faria o
  * leitor despejar histórico velho quando a leitura terminasse.
  */
-let deferredAnnouncement: { message: string; priority: AnnouncePriority } | null = null;
+let deferredAnnouncement: {
+  message: string;
+  priority: AnnouncePriority;
+  deferredAt: number;
+} | null = null;
 let deferredTimer: ReturnType<typeof setTimeout> | null = null;
 
 function discardDeferredAnnouncement() {
@@ -125,6 +136,7 @@ function flushDeferredAnnouncement() {
   const pending = deferredAnnouncement;
   deferredAnnouncement = null;
   if (!pending) return;
+  if (Date.now() - pending.deferredAt > MAX_DEFERRED_WAIT_MS) return;
   emit(pending.message, pending.priority);
 }
 
@@ -157,7 +169,7 @@ export function announceWithOrigin(request: VoiceAnnounceRequest): boolean {
   const now = Date.now();
 
   if (shouldWaitForReading(request, now)) {
-    deferredAnnouncement = { message, priority };
+    deferredAnnouncement = { message, priority, deferredAt: now };
     scheduleDeferredFlush(readingProtectedUntil - now);
     return true;
   }
