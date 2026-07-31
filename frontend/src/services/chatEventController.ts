@@ -239,6 +239,9 @@ export function startChatEventController({
   let cleanupExecuted = false;
   let streamingAnnounced = false;
   let assistantNodeCreated = false;
+  // Turnos agênticos que terminam sem texto não têm nada para o backend falar
+  // via chat:speak; o leitor de tela precisa de um aviso de conclusão próprio.
+  let turnHadAssistantText = false;
   let currentTurnId: string | null = null;
   let resolveDone: () => void = () => {};
   const done = new Promise<void>((resolve) => {
@@ -463,6 +466,7 @@ export function startChatEventController({
 
     if (event.content && !event.done && !event.error) {
       currentTurnId = event.turnId || currentTurnId;
+      if (event.content.trim()) turnHadAssistantText = true;
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       if (!ensureAssistantNode(backendAssistantId) && !currentAssistantNodeId) return;
       const assistantNodeId = currentAssistantNodeId;
@@ -504,7 +508,10 @@ export function startChatEventController({
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       ensureAssistantNode(backendAssistantId);
       flushStreamingUpdate();
-      if (event.content) updateStreamingMessage(event.content);
+      if (event.content) {
+        if (event.content.trim()) turnHadAssistantText = true;
+        updateStreamingMessage(event.content);
+      }
       finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
 
       const flatMessages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
@@ -619,6 +626,7 @@ export function startChatEventController({
       }
     }
     if (event.content) {
+      if (event.content.trim()) turnHadAssistantText = true;
       newSegments.push({ type: 'text', content: event.content });
     }
     patchCurrentSession({
@@ -664,6 +672,14 @@ export function startChatEventController({
     patchCurrentSession({ lastInterruptedMessageId: null });
 
     if (event.hadToolCalls) {
+      if (!turnHadAssistantText) {
+        announceForActiveChatConversation(
+          conversationId,
+          i18next.t('chat.progressLabel'),
+          'polite',
+          getEventOrigin(event),
+        );
+      }
       reloadConversationSnapshot(conversationId, INITIAL_MESSAGE_WINDOW_SIZE).then((snapshot) => {
         const conversation = getCurrentSession().conversation;
         if (!conversation) return;
