@@ -586,7 +586,6 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       onDelete={onDelete}
       editorTargets={editorTargets}
       onSendToEditor={onSendToEditor}
-      origin={origin}
       onFocusSiblingIndex={virtualized ? focusMessageAtIndex : undefined}
     />
   );

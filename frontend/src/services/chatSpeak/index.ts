@@ -43,6 +43,8 @@ export interface ChatSpeakEvent {
   rate?: number;
   pitch?: number;
   volume?: number;
+  /** Idioma do perfil que resolveu o evento (usado ao regerar áudio no backend). */
+  speechLanguage?: string;
   origin?: ChatSpeakOrigin;
   surfaceOrigin?: ChatSurfaceOrigin;
   accessibilityOrigin?: VoiceAccessibilityOrigin;
@@ -137,6 +139,7 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
                 voiceId: event.voiceId ?? '',
                 model: event.model ?? '',
                 rate: event.rate ?? 1.0,
+                language: event.speechLanguage,
               }
             : undefined,
         ),
@@ -149,10 +152,20 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
       return;
     }
 
-    // Sem messageId — degrada para fallback em mensagens do assistente e segmentos.
-    // Segmentos intermediários são verbalizados via fallback (announce/webspeech)
-    // enquanto o assistant_message final usará SpeakMessage com messageId.
-    if (event.origin === 'assistant_message' || event.origin === 'segment') {
+    // Sem messageId — degrada para fallback em mensagens do assistente, segmentos
+    // e avisos do sistema. Nenhum deles está persistido no banco, então só o
+    // texto do evento pode ser falado; o assistant_message final chega com
+    // messageId e usa SpeakMessage.
+    if (
+      event.origin === 'assistant_message'
+      || event.origin === 'segment'
+      || event.origin === 'system_message'
+    ) {
+      // O fallback pode terminar no announcer, que não passa pelo broker de TTS
+      // e não interromperia o áudio de um segmento anterior ainda tocando.
+      if (event.interrupt !== false) {
+        stopCurrent();
+      }
       await executeFallback(event);
     }
     return;

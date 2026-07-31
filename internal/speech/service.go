@@ -58,6 +58,19 @@ func NewService(cfg ServiceConfig) *Service {
 	}
 }
 
+// activeProfileLanguage devolve o idioma de fala do perfil ativo. Vazio quando
+// o perfil não está disponível — os rótulos falados caem no padrão em inglês.
+func (s *Service) activeProfileLanguage() string {
+	if s.profileProvider == nil {
+		return ""
+	}
+	p, err := s.profileProvider.GetActive()
+	if err != nil || p == nil {
+		return ""
+	}
+	return p.Input.Language
+}
+
 // GetSpeechManager retorna o speech manager atual (pode ser nil).
 func (s *Service) GetSpeechManager() *SpeechManager {
 	return s.speechManager
@@ -124,8 +137,13 @@ func (s *Service) CreateTTSClientWithLanguage(ctx context.Context, providerID st
 }
 
 // SpeakMessage retorna o áudio de uma mensagem, usando cache do DB se disponível.
-func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID string, model string, voiceID string, rate float64) (*AudioResult, error) {
-	// 1. Checa cache no DB
+// `language` é o idioma do perfil que pediu a fala (vazio → perfil ativo) e
+// define o idioma dos rótulos falados, como o marcador de bloco de código.
+func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID string, model string, voiceID string, rate float64, language string) (*AudioResult, error) {
+	// 1. Checa cache no DB. O cache é por mensagem e, por decisão anterior a
+	// este parâmetro, ignora provider, voz, rate e idioma: existe um único
+	// áudio por mensagem. Trocar de perfil não regera o áudio já persistido —
+	// para isso o áudio da mensagem precisa ser invalidado.
 	audio, mime, err := s.audioRepo.GetMessageAudio(ctx, messageID)
 	if err == nil && audio != "" {
 		return &AudioResult{Audio: audio, MimeType: mime, Cached: true}, nil
@@ -140,8 +158,11 @@ func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID
 		return nil, fmt.Errorf("mensagem %s sem conteúdo textual", messageID)
 	}
 
+	if strings.TrimSpace(language) == "" {
+		language = s.activeProfileLanguage()
+	}
 	rawContent := content
-	content = textutil.StripMarkdownForSpeech(content)
+	content = textutil.StripMarkdownForSpeechLabeled(content, textutil.CodeBlockSpeechLabel(language))
 	if strings.TrimSpace(content) == "" {
 		// Strip pode zerar só-sintaxe; fallback ao texto persistido (mesmo padrão do gateway).
 		content = strings.TrimSpace(rawContent)

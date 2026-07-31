@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"assistente/internal/contacts"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/textutil"
 )
 
 type fakeMessenger struct {
@@ -880,6 +882,60 @@ func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("timeout aguardando envio de mensagem")
+	}
+}
+
+func TestGateway_CodeBlockLabelUsaIdiomaDoCanal(t *testing.T) {
+	resetState(t)
+
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	gateway := NewGateway(NewResponseNotifier(), nil, nil, nil, nil, nil)
+	gateway.Register("telegram", fake)
+
+	var seenChannel string
+	gateway.SetSpeechLanguage(func(channel string) string {
+		seenChannel = channel
+		if channel == "telegram" {
+			return "es-ES"
+		}
+		return "en-US"
+	})
+
+	err := gateway.deliverChannelResponse(
+		context.Background(),
+		"telegram",
+		"chat-1",
+		"veja:\n```go\nfmt.Println(1)\n```",
+		"",
+		false,
+		"",
+		"trace-lang",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("deliverChannelResponse: %v", err)
+	}
+
+	if seenChannel != "telegram" {
+		t.Fatalf("resolvedor recebeu canal %q, esperava telegram", seenChannel)
+	}
+
+	select {
+	case sent := <-fake.sentCh:
+		if !strings.Contains(sent.Text, "bloque de código") {
+			t.Fatalf("esperava rótulo no idioma do canal, got=%q", sent.Text)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timeout aguardando envio de mensagem")
+	}
+}
+
+func TestGateway_CodeBlockLabelSemResolvedorUsaIngles(t *testing.T) {
+	resetState(t)
+
+	gateway := NewGateway(NewResponseNotifier(), nil, nil, nil, nil, nil)
+	if got := gateway.codeBlockSpeechLabel("telegram"); got != textutil.DefaultCodeBlockSpeechLabel {
+		t.Fatalf("rótulo sem resolvedor = %q, esperava %q", got, textutil.DefaultCodeBlockSpeechLabel)
 	}
 }
 

@@ -125,12 +125,15 @@ func (a *App) GenerateAndSaveMessageAudio(messageID string, text string) (*speec
 	return a.speechSvc.GenerateAndSaveMessageAudio(ctx, messageID, text)
 }
 
-func (a *App) SpeakMessage(messageID string, providerID, model, voiceID string, rate float64) (*speech.AudioResult, error) {
+// SpeakMessage sintetiza (ou recupera do cache) o áudio de uma mensagem.
+// `language` vem do `chat:speak` que originou o pedido; vazio cai no perfil
+// ativo. Sem ele, o áudio regenerado falaria rótulos de outro perfil.
+func (a *App) SpeakMessage(messageID string, providerID, model, voiceID string, rate float64, language string) (*speech.AudioResult, error) {
 	ctx, err := a.requireAuthenticatedContext()
 	if err != nil {
 		return nil, err
 	}
-	return a.speechSvc.SpeakMessage(ctx, messageID, providerID, model, voiceID, rate)
+	return a.speechSvc.SpeakMessage(ctx, messageID, providerID, model, voiceID, rate, language)
 }
 
 // ============================================================================

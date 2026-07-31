@@ -559,18 +559,30 @@ func (r *agenticLoopRunner) emitTokenStatsUpdate() {
 	})
 }
 
+// limitReachedNotice é o aviso mostrado e falado quando o loop agêntico esgota
+// as iterações permitidas.
+const limitReachedNotice = "Limite de iterações do agente atingido. A resposta pode estar incompleta."
+
 // finishLimitReached emite os eventos terminais quando o loop atinge o teto de
-// iterações (chat:stream informativo + chat:done com Reason="limit_reached").
+// iterações (chat:stream informativo + chat:speak do aviso + chat:done com
+// Reason="limit_reached").
 func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 	logging.Infof(ctx, "agent.agentic-loop", "[Agent] limite de %d iterações atingido para conversa %s", r.maxIterations, r.conversationID)
 	r.svc.emitter.Emit("chat:stream", events.StreamEvent{
-		Content:        "Limite de iterações do agente atingido. A resposta pode estar incompleta.",
+		Content:        limitReachedNotice,
 		Done:           true,
 		MessageID:      r.assistantMessageID,
 		ConversationId: r.conversationID,
 		TurnID:         r.turnID,
 		SurfaceOrigin:  r.surfaceOrigin,
 	})
+	// O aviso de limite só existe neste chat:stream — sem chat:speak nada o
+	// verbalizaria. Vai sem messageID: o aviso não é persistido, então a
+	// strategy backend_audio falaria o conteúdo do banco no lugar dele.
+	// Dispara antes de chat:done, que derruba os listeners.
+	if r.svc.onSpeechRequest != nil {
+		r.svc.onSpeechRequest(r.conversationID, "", "system", limitReachedNotice, "system_message", r.params.ProfileSlug, true)
+	}
 	r.svc.emitter.Emit("chat:done", ports.DoneEvent{
 		ConversationID:     r.conversationID,
 		TurnID:             r.turnID,

@@ -192,7 +192,9 @@ Se a goroutine de TTS chamar `Publish` após o timeout, é no-op (slot já remov
 #### 4.1 — Verificar resolução de strategy
 
 `buildChatSpeakEvent` já resolve:
-- TTS desabilitado → strategy `none`
+- TTS desabilitado (ou `provider: "disabled"`) → strategy `announce`. O leitor de
+  telas continua lendo a resposta pela live region; desligar a voz sintética não
+  pode silenciar a acessibilidade.
 - TTS habilitado, auto-read desabilitado → strategy `announce`
 - TTS habilitado, auto-read habilitado → `webspeech`/`backend_audio` (incluindo SAPI5 via `providerId="sapi5"`)
 
@@ -201,6 +203,41 @@ Validar cada cenário com testes.
 #### 4.2 — Comportamento de `announce()` para acessibilidade
 
 Decisão de design: `handleChatSpeak` **não** chama `announce()` para `backend_audio` e `webspeech` quando o TTS é executado com sucesso, para evitar dupla reprodução (TTS + leitor de tela). `announce()` ocorre apenas quando a strategy resolvida é `announce` e como fallback de acessibilidade quando `backend_audio` falha (`played=false`). Qualquer ampliação desse comportamento para outras strategies deve ser tratada como discussão futura fora do escopo desta AEP.
+
+#### 4.3 — Fonte única da fala do conteúdo do assistente
+
+**Decisão:** o `chat:speak` emitido pelo backend é a **única** fonte da fala do
+conteúdo do assistente, tanto para a síntese de voz quanto para a live region do
+leitor de telas. O backend fala o texto **daquele** segmento a cada
+`chat:segment_done` (`agentic_loop.go`) e apenas o **último** segmento ao fim do
+turno (`agent/service.go`).
+
+Proibições que decorrem da decisão:
+
+- Componentes de mensagem (`ChatMessage`) **não** anunciam conteúdo em live
+  region. Eles apenas renderizam e montam `aria-label`.
+- O frontend **não** difere texto acumulado de streaming contra o que já foi
+  falado. Como `stripMarkdown` reescreve o prefixo retroativamente sempre que uma
+  marcação fecha (`**x**`, `` `x` ``, ` ``` `, `[x](y)`), qualquer diff local
+  degenera em releitura do texto inteiro numa live region `aria-atomic="true"`.
+- Anúncios de **estado** (respondendo, raciocinando, ferramenta em execução,
+  turno agêntico concluído sem texto) continuam no frontend, no
+  `chatEventController`, porque não são conteúdo de mensagem.
+
+#### 4.4 — Rótulo de bloco de código localizado
+
+O texto falado substitui fences de código por um marcador curto. Esse marcador é
+localizado a partir de `profile.Input.Language` via
+`textutil.CodeBlockSpeechLabel` (pt/es/en, inglês como fallback), e aplicado por
+`textutil.StripMarkdownForSpeechLabeled`. Como o strip depende do perfil,
+`dispatchSpeechEvent` resolve o perfil **antes** de limpar o Markdown.
+
+O idioma resolvido viaja no evento em `speechLanguage`. A strategy
+`backend_audio` não reaproveita o texto já limpo: ela regenera o áudio pelo
+`SpeakMessage`, que relê a mensagem persistida. Sem o idioma no evento, esse
+caminho cairia no perfil ativo e falaria o marcador no idioma errado quando a
+conversa usa outro perfil. Pela mesma razão o gateway de mensageria resolve o
+idioma **por canal**, casando com o perfil que sintetiza o áudio do canal.
 
 ### Fase 5 — Limpar código legado
 

@@ -339,6 +339,59 @@ func TestAgenticLoopRunner_FinishLimitReached(t *testing.T) {
 	}
 }
 
+func TestAgenticLoopRunner_FinishLimitReachedFalaOAviso(t *testing.T) {
+	em := &captureEmitter{}
+	var calls []speechCall
+	speechAtEventCount := -1
+	svc := NewService(ServiceConfig{
+		Emitter: em,
+		MsgRepo: &mockMsgRepo{},
+		OnSpeechRequest: func(convID, msgID string, role, text, origin, profileSlug string, interrupt bool) {
+			speechAtEventCount = len(em.find("chat:done"))
+			calls = append(calls, speechCall{convID, msgID, role, text, origin, profileSlug, interrupt})
+		},
+	})
+	r := newSeamRunner(svc, "c1", "t1")
+	r.maxIterations = 4
+
+	r.finishLimitReached(context.Background())
+
+	if len(calls) != 1 {
+		t.Fatalf("OnSpeechRequest chamado %d vezes, want 1", len(calls))
+	}
+	got := calls[0]
+	if got.text != limitReachedNotice {
+		t.Fatalf("texto falado = %q, want %q", got.text, limitReachedNotice)
+	}
+	if got.role != "system" || got.origin != "system_message" {
+		t.Fatalf("role/origin inesperados: role=%q origin=%q", got.role, got.origin)
+	}
+	// Com messageID a strategy backend_audio sintetizaria o texto do banco.
+	if got.msgID != "" {
+		t.Fatalf("aviso não persistido não pode carregar messageID, got=%q", got.msgID)
+	}
+	if !got.interrupt {
+		t.Fatal("aviso terminal deveria interromper fala anterior")
+	}
+	// chat:done derruba os listeners do frontend: a fala precisa vir antes.
+	if speechAtEventCount != 0 {
+		t.Fatalf("OnSpeechRequest chamado depois de chat:done (done emitidos=%d)", speechAtEventCount)
+	}
+}
+
+func TestAgenticLoopRunner_FinishLimitReachedSemCallbackNaoPanica(t *testing.T) {
+	em := &captureEmitter{}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
+	r := newSeamRunner(svc, "c1", "t1")
+	r.maxIterations = 2
+
+	r.finishLimitReached(context.Background())
+
+	if len(em.find("chat:done")) != 1 {
+		t.Fatal("chat:done não emitido com OnSpeechRequest nil")
+	}
+}
+
 // --- Cenários de loop completo ---
 
 // multiIterToolStreamer emite tool_calls em toolIters iterações e depois conclui.

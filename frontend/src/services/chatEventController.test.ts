@@ -895,4 +895,64 @@ describe('chatEventController', () => {
       'backend-assistant',
     ]);
   });
+
+  it('anuncia conclusão genérica quando o turno com ferramentas termina sem texto', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      hadToolCalls: true,
+    });
+
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.progressLabel',
+      'polite',
+      undefined,
+    );
+  });
+
+  it('cobre superfície inativa com o anúncio de resposta em segundo plano', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      hadToolCalls: true,
+    });
+
+    // O aviso tool-only usa eventType 'progress' e o broker o silencia fora da
+    // aba ativa; quem cobre a aba inativa é o anúncio de segundo plano.
+    expect(mockAnnounceChatBackgroundResponseDone).toHaveBeenCalledWith(
+      'conversation-1',
+      'Conversa conversation-1',
+      undefined,
+    );
+  });
+
+  it('não anuncia conclusão genérica quando o turno com ferramentas produziu texto', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      messageId: 'assistant-1',
+      content: 'resposta com texto',
+      done: false,
+    });
+    mockAnnounceForActiveChatConversation.mockClear();
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      hadToolCalls: true,
+    });
+
+    expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.progressLabel',
+      'polite',
+      undefined,
+    );
+  });
 });

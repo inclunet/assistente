@@ -74,8 +74,8 @@ func (c *SpeechController) GenerateAndSaveMessageAudio(ctx context.Context, mess
 	return c.speechSvc.GenerateAndSaveMessageAudio(ctx, messageID, text)
 }
 
-func (c *SpeechController) SpeakMessage(ctx context.Context, messageID string, providerID, model, voiceID string, rate float64) (*speech.AudioResult, error) {
-	return c.speechSvc.SpeakMessage(ctx, messageID, providerID, model, voiceID, rate)
+func (c *SpeechController) SpeakMessage(ctx context.Context, messageID string, providerID, model, voiceID string, rate float64, language string) (*speech.AudioResult, error) {
+	return c.speechSvc.SpeakMessage(ctx, messageID, providerID, model, voiceID, rate, language)
 }
 
 // ============================================================================

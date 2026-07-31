@@ -9,8 +9,8 @@ import (
 	"assistente/internal/textutil"
 )
 
-func stripMarkdownForTTS(text string) string {
-	return textutil.StripMarkdownForSpeech(text)
+func stripMarkdownForTTSInLanguage(text, language string) string {
+	return textutil.StripMarkdownForSpeechLabeled(text, textutil.CodeBlockSpeechLabel(language))
 }
 
 type ChatSpeakStrategy string
@@ -59,6 +59,10 @@ type ChatSpeakEvent struct {
 	Volume           float64           `json:"volume,omitempty"`
 	Origin           ChatSpeakOrigin   `json:"origin"`
 	Interrupt        bool              `json:"interrupt"`
+	// SpeechLanguage é o idioma do perfil que resolveu este evento. A strategy
+	// backend_audio regenera o áudio a partir da mensagem persistida, então
+	// precisa do mesmo idioma para não falar rótulos de outro perfil.
+	SpeechLanguage string `json:"speechLanguage,omitempty"`
 }
 
 func boolValueOrDefault(v *bool, fallback bool) bool {
@@ -86,12 +90,7 @@ func (a *App) DispatchSpeech(req ChatSpeakRequest) error {
 }
 
 func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error) {
-	text := stripMarkdownForTTS(req.Text)
-	if strings.TrimSpace(text) == "" {
-		// Strip pode zerar só-sintaxe; fallback ao texto original (SpeakMessage/gateway).
-		text = strings.TrimSpace(req.Text)
-	}
-	if text == "" {
+	if strings.TrimSpace(req.Text) == "" {
 		return nil, nil
 	}
 
@@ -100,9 +99,20 @@ func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error)
 		role = "system"
 	}
 
+	// O perfil é resolvido antes do strip para localizar o marcador de bloco
+	// de código no idioma da fala.
 	profile, err := a.resolveSpeechProfile(req.ConversationID, req.ProfileSlug)
 	if err != nil {
 		return nil, err
+	}
+
+	text := stripMarkdownForTTSInLanguage(req.Text, profile.Input.Language)
+	if strings.TrimSpace(text) == "" {
+		// Strip pode zerar só-sintaxe; fallback ao texto original (SpeakMessage/gateway).
+		text = strings.TrimSpace(req.Text)
+	}
+	if text == "" {
+		return nil, nil
 	}
 
 	var voiceCfg profiles.VoiceRoleConfig
@@ -118,6 +128,7 @@ func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error)
 	}
 
 	event := a.buildChatSpeakEvent(req, role, text, voiceCfg)
+	event.SpeechLanguage = profile.Input.Language
 	a.emitter.Emit("chat:speak", event)
 	return &event, nil
 }
