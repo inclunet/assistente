@@ -6,7 +6,7 @@ import { useEditorStore } from '../../store/editorStore';
 import { useChatStore } from '../../store/chatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { ttsService } from '../../services/tts';
-import { MessageList } from './MessageList';
+import { MessageList, type MessageWindowLoadTrigger } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatToolbar, type ChatToolbarConversationChangeHandler } from './ChatToolbar';
 import { ChatSessionProvider } from './ChatSessionContext';
@@ -24,7 +24,7 @@ import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
 import { DeleteMessage, EditorGetDraftPath, GetActiveProfile, GetActiveProfileSlug } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
-import { announce } from '../../hooks/useAnnouncer';
+import { announce, useAnnouncer } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import {
@@ -43,6 +43,12 @@ export interface ChatSessionViewProps {
   showShortcutsHelp?: boolean;
   profileSlug?: string;
 }
+
+/**
+ * Um carregamento de janela só anuncia se concluir logo depois de ter sido
+ * pedido. Passado isso o aviso já não descreve nada que a pessoa fez.
+ */
+const PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS = 5_000;
 
 export function ChatSessionView({
   variant = 'page',
@@ -100,6 +106,7 @@ function ChatSessionViewContent({
   controller,
 }: ChatSessionViewContentProps) {
   const { t } = useTranslation();
+  const { announceRequest } = useAnnouncer();
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -116,6 +123,8 @@ function ChatSessionViewContent({
   const wasLoadingRef = useRef(false);
   const pendingWindowAnnouncementRef = useRef<{
     kind: 'start' | 'end' | 'older' | 'newer';
+    trigger: MessageWindowLoadTrigger;
+    armedAt: number;
     previousStartIndex: number;
     previousEndIndex: number;
     previousWindowKey: string | null;
@@ -729,6 +738,13 @@ function ChatSessionViewContent({
       pendingWindowAnnouncementRef.current = null;
       return;
     }
+    // A limpeza por chave de janela não pega o caso em que a janela muda por
+    // outro motivo (streaming, por exemplo): o pendente ficava armado e
+    // disparava muito depois, desligado da ação que o originou.
+    if (Date.now() - pendingAnnouncement.armedAt > PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS) {
+      pendingWindowAnnouncementRef.current = null;
+      return;
+    }
     const didCompleteRequestedLoad =
       pendingAnnouncement.kind === 'older'
         ? windowState.startIndex < pendingAnnouncement.previousStartIndex || !windowState.hasBefore
@@ -739,20 +755,23 @@ function ChatSessionViewContent({
             : windowState.totalCount > 0 && windowState.endIndex >= windowState.totalCount - 1;
     if (!didCompleteRequestedLoad) return;
     pendingWindowAnnouncementRef.current = null;
-    if (usesLocalVisualWindowCount) {
-      announce(t('chat.announce.messageWindowLoaded', {
+    // Carregamento por scroll é automático e pode cair no fim de uma resposta:
+    // vai como progresso para esperar a leitura do conteúdo terminar. Navegação
+    // explícita é resposta a uma ação e não espera.
+    const eventType = pendingAnnouncement.trigger === 'scroll' ? 'progress' : 'user-action';
+    const message = usesLocalVisualWindowCount
+      ? t('chat.announce.messageWindowLoaded', {
         start: 1,
         end: visibleMessageCount,
         total: visibleMessageCount,
-      }));
-      return;
-    }
-    announce(t('chat.announce.messageWindowLoaded', {
-      start: windowState.startIndex + 1,
-      end: windowState.endIndex + 1,
-      total: windowState.totalCount,
-    }));
-  }, [announce, session?.messageWindow, t, usesLocalVisualWindowCount, visibleMessageCount]);
+      })
+      : t('chat.announce.messageWindowLoaded', {
+        start: windowState.startIndex + 1,
+        end: windowState.endIndex + 1,
+        total: windowState.totalCount,
+      });
+    announceRequest({ message, eventType });
+  }, [announceRequest, session?.messageWindow, t, usesLocalVisualWindowCount, visibleMessageCount]);
 
   useEffect(() => {
     if (!isInteractiveSurface) return;
@@ -824,6 +843,8 @@ function ChatSessionViewContent({
     const windowState = session?.messageWindow;
     pendingWindowAnnouncementRef.current = {
       kind: 'start',
+      trigger: 'navigation',
+      armedAt: Date.now(),
       previousStartIndex: windowState?.startIndex ?? 0,
       previousEndIndex: windowState?.endIndex ?? -1,
       previousWindowKey,
@@ -849,6 +870,8 @@ function ChatSessionViewContent({
     const windowState = session?.messageWindow;
     pendingWindowAnnouncementRef.current = {
       kind: 'end',
+      trigger: 'navigation',
+      armedAt: Date.now(),
       previousStartIndex: windowState?.startIndex ?? 0,
       previousEndIndex: windowState?.endIndex ?? -1,
       previousWindowKey,
@@ -870,11 +893,13 @@ function ChatSessionViewContent({
     }
   };
 
-  const handleLoadOlderMessages = useCallback(async () => {
+  const handleLoadOlderMessages = useCallback(async (trigger: MessageWindowLoadTrigger) => {
     const previousWindowKey = latestWindowKeyRef.current;
     const windowState = session?.messageWindow;
     pendingWindowAnnouncementRef.current = {
       kind: 'older',
+      trigger,
+      armedAt: Date.now(),
       previousStartIndex: windowState?.startIndex ?? 0,
       previousEndIndex: windowState?.endIndex ?? -1,
       previousWindowKey,
@@ -890,11 +915,13 @@ function ChatSessionViewContent({
     }
   }, [loadOlderMessages, session?.messageWindow]);
 
-  const handleLoadNewerMessages = useCallback(async () => {
+  const handleLoadNewerMessages = useCallback(async (trigger: MessageWindowLoadTrigger) => {
     const previousWindowKey = latestWindowKeyRef.current;
     const windowState = session?.messageWindow;
     pendingWindowAnnouncementRef.current = {
       kind: 'newer',
+      trigger,
+      armedAt: Date.now(),
       previousStartIndex: windowState?.startIndex ?? 0,
       previousEndIndex: windowState?.endIndex ?? -1,
       previousWindowKey,

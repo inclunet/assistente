@@ -158,6 +158,7 @@ vi.mock('./MessageList', async () => {
       shouldShowContinue?: (message: { id: string; role?: string; isStreaming?: boolean; turnId?: string; content?: string }) => boolean;
       onJumpToStart?: () => Promise<void> | void;
       onJumpToEnd?: () => Promise<void> | void;
+      onLoadNewer?: (trigger: 'scroll' | 'navigation') => Promise<void> | void;
     }>((
     {
       onContextMenu,
@@ -165,6 +166,7 @@ vi.mock('./MessageList', async () => {
       shouldShowContinue,
       onJumpToStart,
       onJumpToEnd,
+      onLoadNewer,
     },
     ref: React.Ref<HTMLDivElement>,
   ) => (
@@ -188,6 +190,9 @@ vi.mock('./MessageList', async () => {
         onClick={() => onContextMenu?.(new MouseEvent('contextmenu'), { id: 'm1', role: 'user' })}
       >
         open-menu
+      </button>
+      <button type="button" onClick={() => void Promise.resolve(onLoadNewer?.('scroll'))}>
+        load-newer-scroll
       </button>
       {threadedMessages.map((message) => (
         <div
@@ -236,8 +241,11 @@ vi.mock('../ui/KeyboardShortcutsHelp', () => ({
   KeyboardShortcutsHelp: ({ isOpen }: { isOpen: boolean }) => <div>{isOpen ? 'help-open' : 'help-closed'}</div>,
 }));
 
+const announceRequestMock = vi.hoisted(() => vi.fn(() => true));
+
 vi.mock('../../hooks/useAnnouncer', () => ({
   announce: vi.fn(),
+  useAnnouncer: () => ({ announce: vi.fn(), announceRequest: announceRequestMock }),
 }));
 
 vi.mock('../../utils/errorHandler', () => ({
@@ -299,6 +307,7 @@ describe('ChatSessionView', () => {
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { sendFailureRetryMediaFiles?: unknown[] }).sendFailureRetryMediaFiles = [];
     (activeConversation.threadedMessages as unknown[]) = [];
     (announce as ReturnType<typeof vi.fn>).mockReset();
+    announceRequestMock.mockClear();
     chatStoreState.cancelStreaming.mockReset();
     chatStoreState.clearConversationSendFailure.mockReset();
     chatStoreState.surfaceSessionsByKey = {};
@@ -861,7 +870,11 @@ describe('ChatSessionView', () => {
     );
 
     await waitFor(() => {
-      expect(announce).toHaveBeenCalledWith('chat.announce.messageWindowLoaded:1-2-10');
+      // Navegação explícita: a pessoa pediu, então o aviso não espera leitura.
+      expect(announceRequestMock).toHaveBeenCalledWith({
+        message: 'chat.announce.messageWindowLoaded:1-2-10',
+        eventType: 'user-action',
+      });
       expect(document.activeElement).toHaveAttribute('data-message-id', 'm1');
     });
 
@@ -881,8 +894,119 @@ describe('ChatSessionView', () => {
     );
 
     await waitFor(() => {
-      expect(announce).toHaveBeenCalledWith('chat.announce.messageWindowLoaded:9-10-10');
+      expect(announceRequestMock).toHaveBeenCalledWith({
+        message: 'chat.announce.messageWindowLoaded:9-10-10',
+        eventType: 'user-action',
+      });
       expect(document.activeElement).toHaveAttribute('data-message-id', 'm2');
     });
+  });
+
+  it('anuncia como progresso a janela carregada por scroll', async () => {
+    const sessionKey = 'scroll-session';
+    let surfaceSession = {
+      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+      messageWindow: {
+        scope: 'conversation' as const,
+        conversationId,
+        totalCount: 10,
+        startIndex: 4,
+        endIndex: 5,
+        hasBefore: true,
+        hasAfter: true,
+      },
+    };
+    (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
+    chatStoreState.loadNewerMessagesForConversation.mockImplementation(async () => {
+      surfaceSession = {
+        ...surfaceSession,
+        messageWindow: { ...surfaceSession.messageWindow, startIndex: 8, endIndex: 9, hasAfter: false },
+      };
+      (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
+    });
+
+    const { rerender } = renderWithPanel(
+      <ChatSessionView
+        surface={surface({ sessionKey, surfaceId: 'scroll-surface' })}
+        onSend={vi.fn().mockResolvedValue(undefined)}
+        showShortcutsHelp={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('load-newer-scroll'));
+
+    await waitFor(() => {
+      expect(chatStoreState.loadNewerMessagesForConversation).toHaveBeenCalled();
+    });
+    rerender(
+      <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+        <ChatSessionView
+          surface={surface({ sessionKey, surfaceId: 'scroll-surface' })}
+          onSend={vi.fn().mockResolvedValue(undefined)}
+          showShortcutsHelp={false}
+        />
+      </WorkspacePanelProvider>,
+    );
+
+    // Progresso espera a leitura do conteúdo terminar no broker; user-action não.
+    await waitFor(() => {
+      expect(announceRequestMock).toHaveBeenCalledWith({
+        message: 'chat.announce.messageWindowLoaded:9-10-10',
+        eventType: 'progress',
+      });
+    });
+  });
+
+  it('não anuncia janela quando o carregamento pendente já envelheceu', async () => {
+    vi.useFakeTimers();
+    try {
+      const sessionKey = 'stale-session';
+      let surfaceSession = {
+        ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+        messageWindow: {
+          scope: 'conversation' as const,
+          conversationId,
+          totalCount: 10,
+          startIndex: 4,
+          endIndex: 5,
+          hasBefore: true,
+          hasAfter: true,
+        },
+      };
+      (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
+      chatStoreState.loadNewerMessagesForConversation.mockResolvedValue(undefined);
+
+      const { rerender } = renderWithPanel(
+        <ChatSessionView
+          surface={surface({ sessionKey, surfaceId: 'stale-surface' })}
+          onSend={vi.fn().mockResolvedValue(undefined)}
+          showShortcutsHelp={false}
+        />,
+      );
+
+      fireEvent.click(screen.getByText('load-newer-scroll'));
+      announceRequestMock.mockClear();
+
+      // A janela só alcança o fim muito depois, por outro motivo (streaming).
+      await vi.advanceTimersByTimeAsync(30_000);
+      surfaceSession = {
+        ...surfaceSession,
+        messageWindow: { ...surfaceSession.messageWindow, startIndex: 8, endIndex: 9, hasAfter: false },
+      };
+      (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
+      rerender(
+        <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+          <ChatSessionView
+            surface={surface({ sessionKey, surfaceId: 'stale-surface' })}
+            onSend={vi.fn().mockResolvedValue(undefined)}
+            showShortcutsHelp={false}
+          />
+        </WorkspacePanelProvider>,
+      );
+
+      expect(announceRequestMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

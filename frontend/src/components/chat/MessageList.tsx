@@ -13,6 +13,13 @@ import { useAnnouncer } from '../../hooks/useAnnouncer';
 import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './MessageList.css';
 
+/**
+ * Como a janela de mensagens foi carregada. `scroll` é automático (a lista
+ * chegou perto da borda sozinha, inclusive ao rolar para o fim quando uma
+ * resposta termina); `navigation` é a pessoa navegando de propósito.
+ */
+export type MessageWindowLoadTrigger = 'scroll' | 'navigation';
+
 export interface MessageListProps {
   isLoading?: boolean;
   loadingText?: string; // Optional custom loading text
@@ -28,8 +35,8 @@ export interface MessageListProps {
   hasNewerMessages?: boolean;
   isLoadingOlderMessages?: boolean;
   isLoadingMessageWindow?: boolean;
-  onLoadOlder?: () => Promise<void> | void;
-  onLoadNewer?: () => Promise<void> | void;
+  onLoadOlder?: (trigger: MessageWindowLoadTrigger) => Promise<void> | void;
+  onLoadNewer?: (trigger: MessageWindowLoadTrigger) => Promise<void> | void;
   onJumpToStart?: () => Promise<void> | void;
   onJumpToEnd?: () => Promise<void> | void;
   // Callbacks de ações
@@ -481,14 +488,14 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     }, behavior === 'smooth' ? 500 : 0);
   };
 
-  const handleLoadOlder = () => {
+  const handleLoadOlder = (trigger: MessageWindowLoadTrigger) => {
     const container = innerContainerRef.current;
     const snapshot = container
       ? { scrollHeight: container.scrollHeight, scrollTop: container.scrollTop }
       : null;
     pendingScrollRestoreRef.current = snapshot;
 
-    const result = onLoadOlder?.();
+    const result = onLoadOlder?.(trigger);
     void Promise.resolve(result).finally(() => {
       window.setTimeout(() => {
         if (pendingScrollRestoreRef.current === snapshot) {
@@ -498,14 +505,14 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     });
   };
 
-  const handleLoadNewer = () => {
-    const result = onLoadNewer?.();
+  const handleLoadNewer = (trigger: MessageWindowLoadTrigger) => {
+    const result = onLoadNewer?.(trigger);
     void Promise.resolve(result);
   };
 
   const handleReachStart = () => {
     if (hasOlderMessages && onLoadOlder && !isLoadingMessageWindow) {
-      handleLoadOlder();
+      handleLoadOlder('navigation');
       return;
     }
     void Promise.resolve(onReachStart?.());
@@ -516,7 +523,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
 
   const handleReachEnd = () => {
     if (hasNewerMessages && onLoadNewer && !isLoadingMessageWindow && canLoadNewerFromDisplayEnd) {
-      handleLoadNewer();
+      handleLoadNewer('navigation');
       return;
     }
     onReachEnd?.();
@@ -548,12 +555,12 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
         return;
       }
       if (container.scrollTop < 48 && hasOlderMessages && !isLoadingMessageWindow) {
-        handleLoadOlder();
+        handleLoadOlder('scroll');
         return;
       }
       const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
       if (distanceToBottom < 48 && hasNewerMessages && !isLoadingMessageWindow && canLoadNewerFromDisplayEnd) {
-        handleLoadNewer();
+        handleLoadNewer('scroll');
       }
     };
     container.addEventListener('scroll', handleScroll, { passive: true });
@@ -646,7 +653,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
             <button
               type="button"
               className="message-list__load-older-button"
-              onClick={handleLoadOlder}
+              onClick={() => handleLoadOlder('navigation')}
               disabled={isLoadingMessageWindow || isLoadingOlderMessages}
               aria-busy={isLoadingOlderMessages}
             >
