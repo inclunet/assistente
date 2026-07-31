@@ -158,9 +158,15 @@ function flushNextDeferredAnnouncement() {
   if (!next) return;
 
   emit(next.message, next.priority);
+  const readingMs = estimateAnnouncementReadingMs(next.message);
+  if (next.durable) {
+    // Este aviso esperou justamente porque não pode se perder; deixá-lo ser
+    // substituído no meio o perderia do mesmo jeito.
+    readingProtectedUntil = Date.now() + readingMs;
+  }
   if (deferredQueue.length > 0) {
     // Um por vez: falar dois seguidos faria o segundo substituir o primeiro.
-    scheduleDeferredFlush(estimateAnnouncementReadingMs(next.message));
+    scheduleDeferredFlush(readingMs);
   }
 }
 

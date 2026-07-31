@@ -207,6 +207,27 @@ describe('announcerBroker', () => {
       expect(sink).toHaveBeenCalledWith('Chat C: terminou de responder', 'polite');
     });
 
+    it('protege a conclusão adiada enquanto ela está sendo falada', () => {
+      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
+      announceWithOrigin({
+        message: 'terminou de responder',
+        eventType: 'completion',
+        origin: { tabId: 'tab-2', title: 'Chat B' },
+      });
+      unregisterResolver();
+      unregisterResolver = undefined;
+
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
+      sink.mockClear();
+
+      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
+      expect(sink).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs('Chat B: terminou de responder'));
+      expect(sink).toHaveBeenCalledWith('Mensagens carregadas', 'polite');
+    });
+
     it('para de proteger quando o announcer é desmontado', () => {
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
       unregisterAnnouncerSink();

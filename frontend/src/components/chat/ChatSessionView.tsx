@@ -858,19 +858,15 @@ function ChatSessionViewContent({
     };
     try {
       await load();
-      // O prazo só começa quando o carregamento termina: backend lento não pode
-      // custar o aviso de uma paginação que de fato aconteceu.
-      const pending = pendingWindowAnnouncementRef.current;
-      if (pending) {
-        pending.expiresAt = Date.now() + PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS;
-      }
       afterLoad?.();
     } finally {
-      window.setTimeout(() => {
-        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
-          pendingWindowAnnouncementRef.current = null;
-        }
-      }, 1_000);
+      // O prazo só começa quando o carregamento termina: backend lento não pode
+      // custar o aviso de uma paginação que de fato aconteceu. Um carregamento
+      // que não mexeu na janela simplesmente expira sem anunciar nada.
+      const pending = pendingWindowAnnouncementRef.current;
+      if (pending && pending.previousWindowKey === previousWindowKey) {
+        pending.expiresAt = Date.now() + PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS;
+      }
     }
   }, [session?.messageWindow]);
 
