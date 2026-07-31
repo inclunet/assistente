@@ -740,9 +740,11 @@ function ChatSessionViewContent({
       pendingWindowAnnouncementRef.current = null;
       return;
     }
-    // A limpeza por chave de janela não pega o caso em que a janela muda por
-    // outro motivo (streaming, por exemplo): o pendente ficava armado e
-    // disparava muito depois, desligado da ação que o originou.
+    // Não dá para saber se esta mudança de janela veio do carregamento pedido;
+    // o prazo é o que garante que o aviso descreva aquela ação e não algo que
+    // mexeu na janela muito depois. Dentro dele uma mudança alheia ainda pode
+    // disparar o aviso, com números corretos e sem atropelar leitura, e isso é
+    // preferível a perder o aviso de uma paginação que a pessoa pediu.
     if (pendingAnnouncement.expiresAt !== null && Date.now() > pendingAnnouncement.expiresAt) {
       pendingWindowAnnouncementRef.current = null;
       return;
