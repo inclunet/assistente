@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { plainSpeechDelta, stripMarkdown } from './stripMarkdown';
+import { stripMarkdown } from './stripMarkdown';
 
 describe('stripMarkdown', () => {
   it('remove markup basico', () => {
@@ -21,19 +21,5 @@ describe('stripMarkdown', () => {
     expect(stripMarkdown('veja ![diagrama](https://ex.com/a.png) aqui')).toBe(
       'veja diagrama aqui',
     );
-  });
-});
-
-describe('plainSpeechDelta', () => {
-  it('retorna sufixo quando plain estende previous', () => {
-    expect(plainSpeechDelta('ola ', 'ola mundo')).toBe('mundo');
-  });
-
-  it('usa LCP quando o strip reescreve o meio do texto', () => {
-    expect(plainSpeechDelta('texto longo com hel', 'texto longo com hello')).toBe('lo');
-  });
-
-  it('retorna plain inteiro sem previous', () => {
-    expect(plainSpeechDelta('', 'tudo')).toBe('tudo');
   });
 });

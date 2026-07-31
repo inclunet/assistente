@@ -41,13 +41,3 @@ export const stripMarkdown = (
     // Trim
     .trim();
 };
-
-/** Sufixo novo entre previous e plain (LCP) — evita reler tudo se o strip reescrever o prefixo. */
-export function plainSpeechDelta(previous: string, plain: string): string {
-  if (!previous) return plain;
-  if (plain.startsWith(previous)) return plain.slice(previous.length);
-  let i = 0;
-  const n = Math.min(previous.length, plain.length);
-  while (i < n && previous[i] === plain[i]) i += 1;
-  return plain.slice(i);
-}

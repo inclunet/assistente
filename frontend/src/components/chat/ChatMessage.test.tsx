@@ -139,10 +139,9 @@ describe('ChatMessage', () => {
     expect(saveButton).toBeDisabled();
   });
 
-  it('anuncia progresso e conclusão de streaming pelo broker global', () => {
-    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+  it('não anuncia conteúdo do assistente em nenhuma fase do streaming', () => {
     const streamingMessage = new chat.EnrichedMessage({
-      id: 'assistant-1',
+      id: 'assistant-no-announce-1',
       conversationId,
       role: 'assistant',
       content: 'Resposta parcial com conteúdo suficiente para anunciar.',
@@ -157,394 +156,16 @@ describe('ChatMessage', () => {
       content: 'Resposta parcial com conteúdo suficiente para anunciar. Final.',
     });
 
-    const { rerender } = render(
-      <ChatMessage message={streamingMessage} origin={origin} />
-    );
+    const { rerender } = render(<ChatMessage message={streamingMessage} />);
+    rerender(<ChatMessage message={completedMessage} />);
 
-    expect(announceRequestMock).toHaveBeenCalledWith({
-      message: 'Resposta parcial com conteúdo suficiente para anunciar.',
-      origin,
-      eventType: 'progress',
-    });
-
-    rerender(<ChatMessage message={completedMessage} origin={origin} />);
-
-    expect(announceRequestMock).toHaveBeenLastCalledWith({
-      message: 'Final.',
-      origin,
-      eventType: 'completion',
-    });
+    // AEP-0041 §4.3: a fala do conteúdo vem só do chat:speak do backend.
+    expect(announceRequestMock).not.toHaveBeenCalled();
   });
 
-  it('anuncia só o delta no progresso de streaming (não relê do início)', () => {
-    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
-    const first = 'Primeira sentença completa com texto longo o bastante para gatilho. ';
-    const second = `${first}Segunda parte nova.`;
-    const streamingFirst = new chat.EnrichedMessage({
-      id: 'assistant-delta-1',
-      conversationId,
-      role: 'assistant',
-      content: first,
-      createdAt: new Date().toISOString(),
-      timestamp: Date.now(),
-      isStreaming: true,
-      internal: false,
-    });
-    const streamingSecond = new chat.EnrichedMessage({
-      ...streamingFirst,
-      content: second,
-    });
-
-    const { rerender } = render(
-      <ChatMessage message={streamingFirst} origin={origin} />
-    );
-    expect(announceRequestMock).toHaveBeenCalledWith({
-      message: first.trim(),
-      origin,
-      eventType: 'progress',
-    });
-    const firstCall = announceRequestMock.mock.calls.length;
-
-    rerender(<ChatMessage message={streamingSecond} origin={origin} />);
-    expect(announceRequestMock.mock.calls.length).toBeGreaterThan(firstCall);
-    expect(announceRequestMock).toHaveBeenLastCalledWith({
-      message: 'Segunda parte nova.',
-      origin,
-      eventType: 'progress',
-    });
-  });
-
-  it('remove markdown do anúncio de progresso', () => {
-    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
+  it('não anuncia conclusão de turno agêntico sem texto', () => {
     const streamingMessage = new chat.EnrichedMessage({
-      id: 'assistant-md-1',
-      conversationId,
-      role: 'assistant',
-      content: '**Negrito** e *itálico* com [link](https://ex.com) suficientes para anunciar progresso agora.',
-      createdAt: new Date().toISOString(),
-      timestamp: Date.now(),
-      isStreaming: true,
-      internal: false,
-    });
-
-    render(<ChatMessage message={streamingMessage} origin={origin} />);
-
-    expect(announceRequestMock).toHaveBeenCalledWith({
-      message: 'Negrito e itálico com link suficientes para anunciar progresso agora.',
-      origin,
-      eventType: 'progress',
-    });
-  });
-
-  it('anuncia progresso agêntico sem texto pelo broker global', () => {
-    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
-    const streamingMessage = new chat.EnrichedMessage({
-      id: 'assistant-tool-1',
-      conversationId,
-      role: 'assistant',
-      content: '',
-      createdAt: new Date().toISOString(),
-      timestamp: Date.now(),
-      isStreaming: true,
-      internal: false,
-    });
-
-    render(
-      <ChatMessage
-        message={streamingMessage}
-        origin={origin}
-        completedSegments={[
-          {
-            type: 'tool_calls',
-            toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
-          },
-        ]}
-      />
-    );
-
-    expect(announceRequestMock).toHaveBeenCalledWith({
-      message: 'chat.progressLabel',
-      origin,
-      eventType: 'progress',
-    });
-  });
-
-  it('não reanuncia progresso ao remontar rapidamente a mesma mensagem em streaming', () => {
-    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
-    const streamingMessage = new chat.EnrichedMessage({
-      id: 'assistant-remount-1',
-      conversationId,
-      role: 'assistant',
-      content: 'Resposta parcial com conteúdo suficiente para anunciar.',
-      createdAt: new Date().toISOString(),
-      timestamp: Date.now(),
-      isStreaming: true,
-      internal: false,
-    });
-
-    const { unmount } = render(
-      <ChatMessage message={streamingMessage} origin={origin} />
-    );
-    unmount();
-    render(<ChatMessage message={streamingMessage} origin={origin} />);
-
-    expect(announceRequestMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('reanuncia progresso quando o broker rejeitou a tentativa anterior', () => {
-    const streamingMessage = new chat.EnrichedMessage({
-      id: 'assistant-inactive-1',
-      conversationId,
-      role: 'assistant',
-      content: 'Resposta parcial com conteúdo suficiente para anunciar.',
-      createdAt: new Date().toISOString(),
-      timestamp: Date.now(),
-      isStreaming: true,
-      internal: false,
-    });
-    const inactiveOrigin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
-    const activeOrigin = { conversationId, surfaceId: 'chat-tab-active', surfaceType: 'chat' as const };
-
-    announceRequestMock.mockReturnValueOnce(false);
-
-    const { rerender } = render(
-      <ChatMessage message={streamingMessage} origin={inactiveOrigin} />
-    );
-    rerender(<ChatMessage message={streamingMessage} origin={activeOrigin} />);
-
-    expect(announceRequestMock).toHaveBeenCalledTimes(2);
-    expect(announceRequestMock).toHaveBeenLastCalledWith({
-      message: 'Resposta parcial com conteúdo suficiente para anunciar.',
-      origin: activeOrigin,
-      eventType: 'progress',
-    });
-  });
-
-  it('reanuncia progresso quando a origem da superfície muda', () => {
-    const streamingMessage = new chat.EnrichedMessage({
-      id: 'assistant-origin-change-1',
-      conversationId,
-      role: 'assistant',
-      content: 'Resposta parcial com conteúdo suficiente para anunciar.',
-      createdAt: new Date().toISOString(),
-      timestamp: Date.now(),
-      isStreaming: true,
-      internal: false,
-    });
-    const firstOrigin = { conversationId, surfaceId: 'chat-tab-a', surfaceType: 'chat' as const };
-    const secondOrigin = { conversationId, surfaceId: 'chat-tab-b', surfaceType: 'chat' as const };
-
-    const { rerender } = render(
-      <ChatMessage message={streamingMessage} origin={firstOrigin} />
-    );
-    rerender(<ChatMessage message={streamingMessage} origin={secondOrigin} />);
-
-    expect(announceRequestMock).toHaveBeenCalledTimes(2);
-    expect(announceRequestMock).toHaveBeenLastCalledWith({
-      message: 'Resposta parcial com conteúdo suficiente para anunciar.',
-      origin: secondOrigin,
-      eventType: 'progress',
-    });
-  });
-
-  it('reanuncia o plain inteiro quando o strip reescreve o prefixo no streaming', () => {
-    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
-    const first = new chat.EnrichedMessage({
-      id: 'assistant-md-rewrite-1',
-      conversationId,
-      role: 'assistant',
-      content: '**Hello',
-      createdAt: new Date().toISOString(),
-      timestamp: Date.now(),
-      isStreaming: true,
-      internal: false,
-    });
-    const second = new chat.EnrichedMessage({
-      ...first,
-      content: '**Hello** world. Mais texto para passar do limiar de progresso.',
-    });
-
-    const { rerender } = render(<ChatMessage message={first} origin={origin} />);
-    announceRequestMock.mockClear();
-    rerender(<ChatMessage message={second} origin={origin} />);
-
-    expect(announceRequestMock).toHaveBeenCalledWith({
-      message: 'Hello world. Mais texto para passar do limiar de progresso.',
-      origin,
-      eventType: 'progress',
-    });
-  });
-
-  it('na conclusão, se o texto final reescreve o streaming, anuncia o plain inteiro', () => {
-    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
-    const streamingMessage = new chat.EnrichedMessage({
-      id: 'assistant-rewrite-1',
-      conversationId,
-      role: 'assistant',
-      content: 'The answer is 42.',
-      createdAt: new Date().toISOString(),
-      timestamp: Date.now(),
-      isStreaming: true,
-      internal: false,
-    });
-    const completedMessage = new chat.EnrichedMessage({
-      ...streamingMessage,
-      isStreaming: false,
-      content: 'The answer is 43.',
-    });
-
-    const { rerender } = render(
-      <ChatMessage message={streamingMessage} origin={origin} />
-    );
-    rerender(<ChatMessage message={completedMessage} origin={origin} />);
-
-    expect(announceRequestMock).toHaveBeenLastCalledWith({
-      message: 'The answer is 43.',
-      origin,
-      eventType: 'completion',
-    });
-  });
-
-  it('preserva anúncio de conclusão quando há render intermediário sem conteúdo final', () => {
-    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
-    const streamingMessage = new chat.EnrichedMessage({
-      id: 'assistant-race-1',
-      conversationId,
-      role: 'assistant',
-      content: 'Resposta parcial com conteúdo suficiente para anunciar.',
-      createdAt: new Date().toISOString(),
-      timestamp: Date.now(),
-      isStreaming: true,
-      internal: false,
-    });
-    const emptyCompletedMessage = new chat.EnrichedMessage({
-      ...streamingMessage,
-      isStreaming: false,
-      content: '',
-    });
-    const finalMessage = new chat.EnrichedMessage({
-      ...streamingMessage,
-      isStreaming: false,
-      content: 'Resposta final depois da consolidação.',
-    });
-
-    const { rerender } = render(
-      <ChatMessage message={streamingMessage} origin={origin} />
-    );
-    expect(announceRequestMock).toHaveBeenCalledWith({
-      message: 'Resposta parcial com conteúdo suficiente para anunciar.',
-      origin,
-      eventType: 'progress',
-    });
-
-    rerender(<ChatMessage message={emptyCompletedMessage} origin={origin} />);
-    expect(announceRequestMock).not.toHaveBeenCalledWith(expect.objectContaining({
-      eventType: 'completion',
-    }));
-
-    rerender(<ChatMessage message={finalMessage} origin={origin} />);
-    expect(announceRequestMock).toHaveBeenLastCalledWith({
-      message: 'Resposta final depois da consolidação.',
-      origin,
-      eventType: 'completion',
-    });
-  });
-
-  it('anuncia conclusão genérica quando streaming agêntico termina sem texto final', () => {
-    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
-    const streamingMessage = new chat.EnrichedMessage({
-      id: 'assistant-empty-final-1',
-      conversationId,
-      role: 'assistant',
-      content: '',
-      createdAt: new Date().toISOString(),
-      timestamp: Date.now(),
-      isStreaming: true,
-      internal: false,
-    });
-    const completedMessage = new chat.EnrichedMessage({
-      ...streamingMessage,
-      isStreaming: false,
-      turnSegments: [
-        {
-          type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
-        },
-      ],
-    });
-
-    const { rerender } = render(
-      <ChatMessage
-        message={streamingMessage}
-        origin={origin}
-        completedSegments={[
-          {
-            type: 'tool_calls',
-            toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
-          },
-        ]}
-      />
-    );
-    rerender(<ChatMessage message={completedMessage} origin={origin} />);
-
-    expect(announceRequestMock).toHaveBeenLastCalledWith({
-      message: 'chat.progressLabel',
-      origin,
-      eventType: 'completion',
-    });
-  });
-
-  it('mantem apenas um timer de limpeza para conclusao agêntica sem texto final', () => {
-    vi.useFakeTimers();
-    const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout');
-    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
-    const streamingMessage = new chat.EnrichedMessage({
-      id: 'assistant-empty-cleanup-1',
-      conversationId,
-      role: 'assistant',
-      content: '',
-      createdAt: new Date().toISOString(),
-      timestamp: Date.now(),
-      isStreaming: true,
-      internal: false,
-    });
-    const completedMessage = new chat.EnrichedMessage({
-      ...streamingMessage,
-      isStreaming: false,
-      turnSegments: [
-        {
-          type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
-        },
-      ],
-    });
-
-    const { rerender } = render(
-      <ChatMessage
-        message={streamingMessage}
-        origin={origin}
-        completedSegments={[
-          {
-            type: 'tool_calls',
-            toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
-          },
-        ]}
-      />
-    );
-    rerender(<ChatMessage message={completedMessage} origin={origin} />);
-    expect(vi.getTimerCount()).toBe(1);
-
-    rerender(<ChatMessage message={completedMessage} origin={{ ...origin }} />);
-
-    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
-    expect(vi.getTimerCount()).toBe(1);
-    clearTimeoutSpy.mockRestore();
-  });
-
-  it('anuncia conclusão final quando texto chega após conclusão agêntica genérica', () => {
-    const origin = { conversationId, surfaceId: 'chat-tab', surfaceType: 'chat' as const };
-    const streamingMessage = new chat.EnrichedMessage({
-      id: 'assistant-empty-then-final-1',
+      id: 'assistant-tool-only-1',
       conversationId,
       role: 'assistant',
       content: '',
@@ -563,16 +184,10 @@ describe('ChatMessage', () => {
         },
       ],
     });
-    const finalMessage = new chat.EnrichedMessage({
-      ...streamingMessage,
-      isStreaming: false,
-      content: 'Resposta final após ferramentas.',
-    });
 
     const { rerender } = render(
       <ChatMessage
         message={streamingMessage}
-        origin={origin}
         completedSegments={[
           {
             type: 'tool_calls',
@@ -581,19 +196,10 @@ describe('ChatMessage', () => {
         ]}
       />
     );
-    rerender(<ChatMessage message={completedToolOnlyMessage} origin={origin} />);
-    expect(announceRequestMock).toHaveBeenLastCalledWith({
-      message: 'chat.progressLabel',
-      origin,
-      eventType: 'completion',
-    });
+    rerender(<ChatMessage message={completedToolOnlyMessage} />);
 
-    rerender(<ChatMessage message={finalMessage} origin={origin} />);
-    expect(announceRequestMock).toHaveBeenLastCalledWith({
-      message: 'Resposta final após ferramentas.',
-      origin,
-      eventType: 'completion',
-    });
+    // O aviso de turno tool-only é responsabilidade do chatEventController.
+    expect(announceRequestMock).not.toHaveBeenCalled();
   });
 
   it('adia renderizacao de markdown grande ate entrar na area visivel', async () => {

@@ -12,7 +12,6 @@ import { handleError, ErrorSeverity } from '../../utils/errorHandler';
 import { messageAudioService } from '../../services/messageAudio';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import { ttsService } from '../../services/tts';
-import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './MessageNode.css';
 
 const TOOL_ONLY_TURN_PLACEHOLDER_SOURCE = 'tool_only_turn_placeholder';
@@ -40,7 +39,6 @@ export interface MessageNodeProps {
   onDelete?: (message: Message) => void;
   editorTargets?: EditorSendTargetOption[];
   onSendToEditor?: (payload: SendToEditorPayload) => void;
-  origin?: VoiceAccessibilityOrigin;
 }
 
 export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
@@ -61,7 +59,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   editorTargets,
   onSendToEditor,
   onFocusSiblingIndex,
-  origin,
 }) => {
   const { t } = useTranslation();
   const nodeRef = React.useRef<HTMLDivElement>(null);
@@ -548,7 +545,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           onSpeak={handleSpeak}
           editorTargets={editorTargets}
           onSendToEditor={onSendToEditor}
-          origin={origin}
           isReading={isReading}
           isEditing={isEditing}
           editContent={editContent}
@@ -584,7 +580,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
               onContextMenu={onContextMenu}
               onSpeak={onSpeak}
               onDelete={onDelete}
-              origin={origin}
               // Não passa onReachEnd para threads internas
             />
           ))}
