@@ -122,16 +122,17 @@ describe('announcerBroker', () => {
       expect(sink).toHaveBeenCalledWith('Mensagens carregadas', 'polite');
     });
 
-    it('fala o adiado depois do anúncio que passou na frente', () => {
+    it('descarta o adiado quando outro anúncio passa na frente', () => {
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
-      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
-      const erro = 'Falha ao enviar';
-      announceWithOrigin({ message: erro, eventType: 'error' });
+      announceWithOrigin({ message: 'Mensagens 1 a 20 de 34 carregadas', eventType: 'progress' });
+      // Navegação explícita muda a janela: o aviso automático de antes já não
+      // descreve o estado atual.
+      announceWithOrigin({ message: 'Mensagens 25 a 34 de 34 carregadas', eventType: 'user-action' });
       sink.mockClear();
 
-      vi.advanceTimersByTime(estimateAnnouncementReadingMs(erro));
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(content) * 2);
 
-      expect(sink).toHaveBeenCalledWith('Mensagens carregadas', 'polite');
+      expect(sink).not.toHaveBeenCalled();
     });
 
     it('para de proteger quando o announcer é desmontado', () => {

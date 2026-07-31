@@ -54,13 +54,17 @@ let readingProtectedUntil = 0;
 let deferredAnnouncement: { message: string; priority: AnnouncePriority } | null = null;
 let deferredTimer: ReturnType<typeof setTimeout> | null = null;
 
-function clearArbitrationState() {
-  readingProtectedUntil = 0;
+function discardDeferredAnnouncement() {
   deferredAnnouncement = null;
   if (deferredTimer !== null) {
     clearTimeout(deferredTimer);
     deferredTimer = null;
   }
+}
+
+function clearArbitrationState() {
+  readingProtectedUntil = 0;
+  discardDeferredAnnouncement();
 }
 
 export function registerAnnouncerSink(sink: AnnounceSink) {
@@ -137,6 +141,12 @@ function shouldWaitForReading(request: VoiceAnnounceRequest, now: number): boole
   return now < readingProtectedUntil;
 }
 
+/**
+ * Retorna se o anúncio foi aceito. Aceito não é sinônimo de já falado: um aviso
+ * automático pode esperar a leitura do conteúdo terminar. Chamadores usam o
+ * retorno para não repetir o mesmo aviso, nunca para saber que o leitor de
+ * telas já falou.
+ */
 export function announceWithOrigin(request: VoiceAnnounceRequest): boolean {
   if (!shouldAnnounce(request)) return false;
 
@@ -152,14 +162,19 @@ export function announceWithOrigin(request: VoiceAnnounceRequest): boolean {
     return true;
   }
 
-  // Conteúdo novo reinicia a proteção. Um anúncio que passa na frente (erro ou
-  // ação da pessoa) já substituiu a leitura em curso, então a proteção termina
-  // aqui. Nos dois casos o que estava adiado espera este texto ser lido.
-  readingProtectedUntil = request.protectsReading
-    ? now + estimateAnnouncementReadingMs(message)
-    : 0;
-  if (deferredAnnouncement) {
-    scheduleDeferredFlush(estimateAnnouncementReadingMs(message));
+  if (request.protectsReading) {
+    // Conteúdo novo reinicia a proteção; o que estava adiado espera também esta
+    // leitura, porque continua descrevendo o estado atual.
+    readingProtectedUntil = now + estimateAnnouncementReadingMs(message);
+    if (deferredAnnouncement) {
+      scheduleDeferredFlush(estimateAnnouncementReadingMs(message));
+    }
+  } else {
+    // Um erro ou uma ação da pessoa já substituiu a leitura que estava sendo
+    // protegida e mudou o contexto. Falar depois um aviso automático de antes
+    // dessa mudança seria descrever um estado que já passou.
+    readingProtectedUntil = 0;
+    discardDeferredAnnouncement();
   }
 
   emit(message, priority);
