@@ -863,9 +863,8 @@ function ChatSessionViewContent({
     load: () => Promise<void>,
     afterLoad?: () => void,
   ) => {
-    const previousWindowKey = latestWindowKeyRef.current;
     const windowState = session?.messageWindow;
-    pendingWindowAnnouncementRef.current = {
+    const pending = {
       kind,
       trigger,
       // Teto para o caso de o carregamento nunca terminar: sem ele o pendente
@@ -874,17 +873,19 @@ function ChatSessionViewContent({
       expiresAt: Date.now() + PENDING_WINDOW_LOAD_MAX_MS,
       previousStartIndex: windowState?.startIndex ?? 0,
       previousEndIndex: windowState?.endIndex ?? -1,
-      previousWindowKey,
+      previousWindowKey: latestWindowKeyRef.current,
     };
+    pendingWindowAnnouncementRef.current = pending;
     try {
       await load();
       afterLoad?.();
     } finally {
       // O prazo curto só começa quando o carregamento termina: backend lento não
       // pode custar o aviso de uma paginação que de fato aconteceu. Um
-      // carregamento que não mexeu na janela expira sem anunciar nada.
-      const pending = pendingWindowAnnouncementRef.current;
-      if (pending && pending.previousWindowKey === previousWindowKey) {
+      // carregamento que não mexeu na janela expira sem anunciar nada. A
+      // comparação é por identidade: um carregamento que já foi substituído por
+      // outro não tem o que encurtar.
+      if (pendingWindowAnnouncementRef.current === pending) {
         pending.expiresAt = Date.now() + PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS;
       }
     }

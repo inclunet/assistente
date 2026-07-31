@@ -1031,6 +1031,70 @@ describe('ChatSessionView', () => {
     }
   });
 
+  it('não deixa um carregamento antigo encurtar o prazo do que veio depois', async () => {
+    const sessionKey = 'overlap-session';
+    let surfaceSession = {
+      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+      messageWindow: {
+        scope: 'conversation' as const,
+        conversationId,
+        totalCount: 10,
+        startIndex: 4,
+        endIndex: 5,
+        hasBefore: true,
+        hasAfter: true,
+      },
+    };
+    (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
+    const resolvers: Array<() => void> = [];
+    chatStoreState.loadNewerMessagesForConversation.mockImplementation(
+      () => new Promise<void>((resolve) => { resolvers.push(resolve); }),
+    );
+
+    const { rerender } = renderWithPanel(
+      <ChatSessionView
+        surface={surface({ sessionKey, surfaceId: 'overlap-surface' })}
+        onSend={vi.fn().mockResolvedValue(undefined)}
+        showShortcutsHelp={false}
+      />,
+    );
+
+    vi.useFakeTimers();
+    try {
+      // Dois carregamentos em voo: o primeiro termina depois do segundo começar.
+      fireEvent.click(screen.getByText('load-newer-scroll'));
+      fireEvent.click(screen.getByText('load-newer-scroll'));
+      resolvers[0]?.();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // O segundo ainda está carregando; passado o prazo curto do primeiro, ele
+      // continua valendo pelo teto do carregamento.
+      await vi.advanceTimersByTimeAsync(10_000);
+      resolvers[1]?.();
+      surfaceSession = {
+        ...surfaceSession,
+        messageWindow: { ...surfaceSession.messageWindow, startIndex: 8, endIndex: 9, hasAfter: false },
+      };
+      (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
+      await vi.advanceTimersByTimeAsync(0);
+      rerender(
+        <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+          <ChatSessionView
+            surface={surface({ sessionKey, surfaceId: 'overlap-surface' })}
+            onSend={vi.fn().mockResolvedValue(undefined)}
+            showShortcutsHelp={false}
+          />
+        </WorkspacePanelProvider>,
+      );
+
+      expect(announceRequestMock).toHaveBeenCalledWith(expect.objectContaining({
+        message: 'chat.announce.messageWindowLoaded:9-10-10',
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('anuncia como progresso a janela carregada por scroll', async () => {
     const sessionKey = 'scroll-session';
     let surfaceSession = {
