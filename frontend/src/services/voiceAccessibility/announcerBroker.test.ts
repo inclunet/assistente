@@ -120,7 +120,7 @@ describe('announcerBroker', () => {
       expect(sink).toHaveBeenNthCalledWith(2, 'Mensagens 1 a 20 de 34 carregadas', 'polite');
     });
 
-    it('desiste do aviso que esperou tempo demais', () => {
+    it('mantém o aviso que sobrevive à espera mesmo depois de uma resposta longa', () => {
       const respostaLonga = `chat.assistant: ${'palavra '.repeat(200)}`;
       announceWithOrigin({ message: respostaLonga, eventType: 'completion', protectsReading: true });
       announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress', waitsForReading: true });
@@ -128,7 +128,7 @@ describe('announcerBroker', () => {
 
       vi.advanceTimersByTime(estimateAnnouncementReadingMs(respostaLonga));
 
-      expect(sink).not.toHaveBeenCalled();
+      expect(sink).toHaveBeenCalledWith('Mensagens carregadas', 'polite');
     });
 
     it('descarta o adiado quando mais conteúdo chega', () => {

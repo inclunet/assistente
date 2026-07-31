@@ -53,13 +53,6 @@ export function estimateAnnouncementReadingMs(message: string): number {
   return Math.max(MIN_READING_MS, message.length * MS_PER_CHARACTER);
 }
 
-/**
- * Um aviso transitório descreve o estado do momento em que foi produzido.
- * Passado esse tempo ele deixa de valer a pena: numa resposta longa, ou numa
- * sequência de respostas, a leitura protegida pode se estender por minutos.
- */
-const MAX_TRANSIENT_WAIT_MS = 30_000;
-
 /** Teto de segurança para a fila não crescer sem limite. */
 const MAX_DEFERRED_QUEUE = 5;
 
@@ -70,7 +63,6 @@ interface DeferredAnnouncement {
    */
   request: VoiceAnnounceRequest;
   priority: AnnouncePriority;
-  deferredAt: number;
   /**
    * Conclusão de resposta é evento, não estado: continua verdadeira depois e o
    * AEP-0058 exige que aba inativa possa anunciá-la. Não pode ser descartada
@@ -169,16 +161,16 @@ function emit(message: string, priority: AnnouncePriority) {
 /**
  * A aba de origem pode ter deixado de ser a ativa durante a espera, e a regra
  * de aba inativa vale pelo momento da fala, não pelo da produção do anúncio.
+ * Não há prazo além disso: só chega à fila quem continua verdadeiro depois, e
+ * quem deixa de valer sai dela quando a conversa anda.
  */
-function isDeferredStillWorthSpeaking(item: DeferredAnnouncement, now: number): boolean {
-  if (!item.durable && now - item.deferredAt > MAX_TRANSIENT_WAIT_MS) return false;
+function isDeferredStillWorthSpeaking(item: DeferredAnnouncement): boolean {
   return shouldAnnounce(item.request);
 }
 
 function flushNextDeferredAnnouncement() {
   deferredTimer = null;
-  const now = Date.now();
-  const nextIndex = deferredQueue.findIndex((item) => isDeferredStillWorthSpeaking(item, now));
+  const nextIndex = deferredQueue.findIndex(isDeferredStillWorthSpeaking);
   const next = nextIndex >= 0 ? deferredQueue[nextIndex] : null;
   deferredQueue = next ? deferredQueue.slice(nextIndex + 1) : [];
   if (!next) return;
@@ -257,7 +249,6 @@ export function announceWithOrigin(request: VoiceAnnounceRequest): boolean {
     enqueueDeferredAnnouncement({
       request,
       priority,
-      deferredAt: now,
       durable: request.eventType === 'completion',
     });
     scheduleDeferredFlush(readingProtectedUntil - now);

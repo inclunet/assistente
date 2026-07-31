@@ -85,9 +85,11 @@ inativa perderia o anúncio que a seção 2 exige.
 O que espera é falado quando a leitura termina, um de cada vez, para que um
 anúncio não substitua o outro na live region. Um aviso de estado ainda é
 descartado se a conversa andar nesse meio tempo — mais conteúdo, um erro, uma
-ação da pessoa — e não espera indefinidamente. A regra de aba inativa da seção 2
-é reavaliada na hora de falar, não na de produzir: a pessoa pode ter trocado de
-aba durante a espera.
+ação da pessoa. Não há prazo além disso: como só entra na fila quem continua
+verdadeiro depois, expirar por tempo descartaria justamente o que ainda vale, e
+uma resposta longa não é motivo para perder o aviso. A regra de aba inativa da
+seção 2 é reavaliada na hora de falar, não na de produzir: a pessoa pode ter
+trocado de aba durante a espera.
 
 A fila tem um teto. Ao enchê-la, o aviso de estado cede o lugar primeiro; se só
 restarem conclusões, sai a mais antiga. Um despejo maior que isso ao fim da
