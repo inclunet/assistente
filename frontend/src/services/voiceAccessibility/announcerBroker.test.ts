@@ -263,11 +263,13 @@ describe('announcerBroker', () => {
 
     it('não fala o aviso cuja atividade terminou durante a espera', () => {
       let carregando = true;
+      const onDiscarded = vi.fn();
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
       announceWithOrigin({
         message: 'Carregando mensagens',
         eventType: 'progress',
         isStillRelevant: () => carregando,
+        onDiscarded,
       });
       sink.mockClear();
 
@@ -275,6 +277,18 @@ describe('announcerBroker', () => {
       vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
 
       expect(sink).not.toHaveBeenCalled();
+      expect(onDiscarded).toHaveBeenCalledTimes(1);
+    });
+
+    it('avisa quem enfileirou quando a conversa anda e o aviso é descartado', () => {
+      const onDiscarded = vi.fn();
+      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
+      announceWithOrigin({ message: 'Carregando mensagens', eventType: 'progress', onDiscarded });
+      expect(onDiscarded).not.toHaveBeenCalled();
+
+      announceWithOrigin({ message: 'Falha ao enviar', eventType: 'error' });
+
+      expect(onDiscarded).toHaveBeenCalledTimes(1);
     });
 
     it('reavalia a aba de origem na hora de falar o adiado', () => {

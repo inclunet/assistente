@@ -83,7 +83,9 @@ a aba inativa perderia o anúncio que a seção 2 exige.
 Quem espera é reavaliado na hora de falar, não no momento em que foi produzido:
 a aba de origem precisa continuar podendo anunciar aquele evento pela regra da
 seção 2, e o anúncio pode declarar uma condição de validade — um aviso de
-atividade em curso não é falado se a atividade já terminou.
+atividade em curso não é falado se a atividade já terminou. Aceitar um anúncio
+não é o mesmo que falá-lo, então o descarte é informado a quem o produziu, que
+pode tentar de novo quando fizer sentido.
 
 A fila tem um teto. Ao enchê-la, o aviso de estado cede o lugar primeiro; se só
 restarem conclusões, sai a mais antiga. Um despejo maior que isso ao fim da

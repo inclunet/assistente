@@ -282,6 +282,11 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
         // Se o anúncio esperar a leitura de uma resposta e o carregamento
         // terminar nesse meio tempo, dizer "carregando" já seria falso.
         isStillRelevant: () => isLoadingRef.current,
+        // Descartado é diferente de falado: libera a guarda para uma próxima
+        // tentativa enquanto o carregamento continuar.
+        onDiscarded: () => {
+          previousLoadingAnnouncementRef.current = null;
+        },
       });
       if (didAnnounce) {
         previousLoadingAnnouncementRef.current = loadingAnnouncementKey;

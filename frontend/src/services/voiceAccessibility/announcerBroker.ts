@@ -23,6 +23,12 @@ export interface VoiceAnnounceRequest extends VoiceAccessibilityRequestBase {
    * dizê-los depois seria descrever algo que não está acontecendo.
    */
   isStillRelevant?: () => boolean;
+  /**
+   * Avisa que o anúncio foi aceito mas não será falado. Quem usa o retorno de
+   * `announceWithOrigin` para não repetir a mesma mensagem precisa saber disso
+   * para poder tentar de novo quando fizer sentido.
+   */
+  onDiscarded?: () => void;
 }
 
 type AnnounceSink = (message: string, priority: AnnouncePriority) => void;
@@ -88,21 +94,29 @@ function cancelDeferredTimer() {
   }
 }
 
+function dropDeferred(items: DeferredAnnouncement[]) {
+  items.forEach((item) => item.request.onDiscarded?.());
+}
+
 /**
  * Avisos de estado transitório saem da fila assim que a conversa anda: falá-los
  * depois descreveria um instante que já passou. Os duráveis permanecem.
  */
 function discardTransientAnnouncements() {
+  const dropped = deferredQueue.filter((item) => !item.durable);
   deferredQueue = deferredQueue.filter((item) => item.durable);
   if (deferredQueue.length === 0) {
     cancelDeferredTimer();
   }
+  dropDeferred(dropped);
 }
 
 function clearArbitrationState() {
+  const dropped = deferredQueue;
   readingProtectedUntil = 0;
   deferredQueue = [];
   cancelDeferredTimer();
+  dropDeferred(dropped);
 }
 
 export function registerAnnouncerSink(sink: AnnounceSink) {
@@ -180,7 +194,9 @@ function flushNextDeferredAnnouncement() {
   const now = Date.now();
   const nextIndex = deferredQueue.findIndex((item) => isDeferredStillWorthSpeaking(item, now));
   const next = nextIndex >= 0 ? deferredQueue[nextIndex] : null;
+  const skipped = next ? deferredQueue.slice(0, nextIndex) : deferredQueue;
   deferredQueue = next ? deferredQueue.slice(nextIndex + 1) : [];
+  dropDeferred(skipped);
   if (!next) return;
 
   const message = resolveMessage(next.request);
@@ -207,7 +223,9 @@ function scheduleDeferredFlush(delayMs: number) {
 function enqueueDeferredAnnouncement(item: DeferredAnnouncement) {
   if (!item.durable) {
     // Entre avisos de estado só o mais recente descreve a situação atual.
+    const superseded = deferredQueue.filter((queued) => !queued.durable);
     deferredQueue = deferredQueue.filter((queued) => queued.durable);
+    dropDeferred(superseded);
   }
   deferredQueue = [...deferredQueue, item];
   while (deferredQueue.length > MAX_DEFERRED_QUEUE) {
@@ -216,10 +234,12 @@ function enqueueDeferredAnnouncement(item: DeferredAnnouncement) {
     // quando a leitura terminar, e as recentes são as que ainda importam.
     const transientIndex = deferredQueue.findIndex((queued) => !queued.durable);
     const evictIndex = transientIndex >= 0 ? transientIndex : 0;
+    const evicted = deferredQueue[evictIndex];
     deferredQueue = [
       ...deferredQueue.slice(0, evictIndex),
       ...deferredQueue.slice(evictIndex + 1),
     ];
+    dropDeferred([evicted]);
   }
 }
 
@@ -233,7 +253,7 @@ function shouldWaitForReading(request: VoiceAnnounceRequest, now: number): boole
  * Retorna se o anúncio foi aceito. Aceito não é sinônimo de já falado: um aviso
  * automático pode esperar a leitura do conteúdo terminar. Chamadores usam o
  * retorno para não repetir o mesmo aviso, nunca para saber que o leitor de
- * telas já falou.
+ * telas já falou; se a espera terminar em descarte, `onDiscarded` avisa.
  */
 export function announceWithOrigin(request: VoiceAnnounceRequest): boolean {
   if (!shouldAnnounce(request)) return false;
