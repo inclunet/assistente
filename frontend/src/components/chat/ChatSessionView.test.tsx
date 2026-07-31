@@ -976,6 +976,61 @@ describe('ChatSessionView', () => {
     }
   });
 
+  it('desarma o pendente quando o carregamento nunca termina', async () => {
+    const sessionKey = 'hung-session';
+    let surfaceSession = {
+      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+      messageWindow: {
+        scope: 'conversation' as const,
+        conversationId,
+        totalCount: 10,
+        startIndex: 4,
+        endIndex: 5,
+        hasBefore: true,
+        hasAfter: true,
+      },
+    };
+    (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
+    chatStoreState.loadNewerMessagesForConversation.mockImplementation(() => new Promise<void>(() => {}));
+
+    const { rerender } = renderWithPanel(
+      <ChatSessionView
+        surface={surface({ sessionKey, surfaceId: 'hung-surface' })}
+        onSend={vi.fn().mockResolvedValue(undefined)}
+        showShortcutsHelp={false}
+      />,
+    );
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByText('load-newer-scroll'));
+
+      // Muito depois, o streaming mexe na janela. O pendente já expirou pelo
+      // teto do carregamento e não empresta esse avanço para um aviso.
+      await vi.advanceTimersByTimeAsync(90_000);
+      surfaceSession = {
+        ...surfaceSession,
+        messageWindow: { ...surfaceSession.messageWindow, startIndex: 8, endIndex: 9, hasAfter: false },
+      };
+      (chatStoreState.surfaceSessionsByKey as Record<string, typeof surfaceSession>)[sessionKey] = surfaceSession;
+      rerender(
+        <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+          <ChatSessionView
+            surface={surface({ sessionKey, surfaceId: 'hung-surface' })}
+            onSend={vi.fn().mockResolvedValue(undefined)}
+            showShortcutsHelp={false}
+          />
+        </WorkspacePanelProvider>,
+      );
+
+      expect(announceRequestMock).not.toHaveBeenCalledWith(expect.objectContaining({
+        message: 'chat.announce.messageWindowLoaded:9-10-10',
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('anuncia como progresso a janela carregada por scroll', async () => {
     const sessionKey = 'scroll-session';
     let surfaceSession = {

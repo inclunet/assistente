@@ -51,6 +51,13 @@ export interface ChatSessionViewProps {
  */
 const PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS = 5_000;
 
+/**
+ * Prazo do carregamento em si. Existe para o pendente não ficar armado
+ * indefinidamente se a promessa nunca resolver; é generoso porque um backend
+ * lento ainda deve conseguir anunciar a paginação que a pessoa pediu.
+ */
+const PENDING_WINDOW_LOAD_MAX_MS = 60_000;
+
 export function ChatSessionView({
   variant = 'page',
   surface,
@@ -125,8 +132,7 @@ function ChatSessionViewContent({
   const pendingWindowAnnouncementRef = useRef<{
     kind: 'start' | 'end' | 'older' | 'newer';
     trigger: MessageWindowLoadTrigger;
-    /** `null` enquanto o carregamento não terminou: aí não há o que expirar. */
-    expiresAt: number | null;
+    expiresAt: number;
     previousStartIndex: number;
     previousEndIndex: number;
     previousWindowKey: string | null;
@@ -745,7 +751,7 @@ function ChatSessionViewContent({
     // mexeu na janela muito depois. Dentro dele uma mudança alheia ainda pode
     // disparar o aviso, com números corretos e sem atropelar leitura, e isso é
     // preferível a perder o aviso de uma paginação que a pessoa pediu.
-    if (pendingAnnouncement.expiresAt !== null && Date.now() > pendingAnnouncement.expiresAt) {
+    if (Date.now() > pendingAnnouncement.expiresAt) {
       pendingWindowAnnouncementRef.current = null;
       return;
     }
@@ -862,7 +868,10 @@ function ChatSessionViewContent({
     pendingWindowAnnouncementRef.current = {
       kind,
       trigger,
-      expiresAt: null,
+      // Teto para o caso de o carregamento nunca terminar: sem ele o pendente
+      // ficaria armado para sempre e uma mudança de janela muito posterior
+      // anunciaria uma paginação que ninguém pediu.
+      expiresAt: Date.now() + PENDING_WINDOW_LOAD_MAX_MS,
       previousStartIndex: windowState?.startIndex ?? 0,
       previousEndIndex: windowState?.endIndex ?? -1,
       previousWindowKey,
@@ -871,9 +880,9 @@ function ChatSessionViewContent({
       await load();
       afterLoad?.();
     } finally {
-      // O prazo só começa quando o carregamento termina: backend lento não pode
-      // custar o aviso de uma paginação que de fato aconteceu. Um carregamento
-      // que não mexeu na janela simplesmente expira sem anunciar nada.
+      // O prazo curto só começa quando o carregamento termina: backend lento não
+      // pode custar o aviso de uma paginação que de fato aconteceu. Um
+      // carregamento que não mexeu na janela expira sem anunciar nada.
       const pending = pendingWindowAnnouncementRef.current;
       if (pending && pending.previousWindowKey === previousWindowKey) {
         pending.expiresAt = Date.now() + PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS;
