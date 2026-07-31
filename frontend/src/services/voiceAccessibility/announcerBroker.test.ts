@@ -228,6 +228,17 @@ describe('announcerBroker', () => {
       expect(sink).toHaveBeenCalledWith('Mensagens carregadas', 'polite');
     });
 
+    it('deixa um estado mais novo substituir o aviso transitório recém-falado', () => {
+      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
+      announceWithOrigin({ message: 'Mensagens 1 a 20 de 34 carregadas', eventType: 'progress' });
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
+      sink.mockClear();
+
+      announceWithOrigin({ message: 'Mensagens 1 a 34 de 34 carregadas', eventType: 'progress' });
+
+      expect(sink).toHaveBeenCalledWith('Mensagens 1 a 34 de 34 carregadas', 'polite');
+    });
+
     it('para de proteger quando o announcer é desmontado', () => {
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
       unregisterAnnouncerSink();

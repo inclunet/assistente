@@ -161,7 +161,9 @@ function flushNextDeferredAnnouncement() {
   const readingMs = estimateAnnouncementReadingMs(next.message);
   if (next.durable) {
     // Este aviso esperou justamente porque não pode se perder; deixá-lo ser
-    // substituído no meio o perderia do mesmo jeito.
+    // substituído no meio o perderia do mesmo jeito. Um aviso de estado, ao
+    // contrário, deve ceder lugar a um estado mais recente: é o mais novo que
+    // descreve a situação atual.
     readingProtectedUntil = Date.now() + readingMs;
   }
   if (deferredQueue.length > 0) {
