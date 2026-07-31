@@ -132,6 +132,8 @@ export interface TTSProviderParams {
   voiceId: string;
   model: string;
   rate: number;
+  /** Idioma do perfil que pediu a fala; define os rótulos falados no backend. */
+  language?: string;
 }
 
 function canUseBackendTTS(provider?: TTSProviderParams): boolean {
@@ -165,6 +167,7 @@ async function speakMessage(messageId: string, volume: number = 1.0, provider?: 
       provider?.model ?? '',
       provider?.voiceId ?? '',
       provider?.rate ?? 1.0,
+      provider?.language ?? '',
     );
     if (result && result.audio && result.audio.length > 0) {
       const blob = base64ToBlob(result.audio, result.mimeType);
@@ -198,6 +201,7 @@ async function getMessageAudioBlob(messageId: string, provider?: TTSProviderPara
       provider?.model ?? '',
       provider?.voiceId ?? '',
       provider?.rate ?? 1.0,
+      provider?.language ?? '',
     );
     if (result && result.audio && result.audio.length > 0) {
       const blob = base64ToBlob(result.audio, result.mimeType);

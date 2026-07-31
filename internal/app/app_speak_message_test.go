@@ -74,7 +74,7 @@ func TestSpeakMessage_ReturnsCachedAudio(t *testing.T) {
 	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg), currentUserID: "test-user"}
 
 	// Cache hit — provider params são ignorados
-	result, err := app.SpeakMessage("1", "any-provider", "any-model", "any-voice", 1.0)
+	result, err := app.SpeakMessage("1", "any-provider", "any-model", "any-voice", 1.0, "")
 	if err != nil {
 		t.Fatalf("SpeakMessage erro inesperado: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestSpeakMessage_ErrorWhenProviderNotFound(t *testing.T) {
 		currentUserID:  "test-user",
 	}
 
-	_, err := app.SpeakMessage("2", "nonexistent-provider", "tts-1", "voice", 1.0)
+	_, err := app.SpeakMessage("2", "nonexistent-provider", "tts-1", "voice", 1.0, "")
 	if err == nil {
 		t.Fatal("esperava erro quando provider não existe no registry")
 	}
@@ -115,7 +115,7 @@ func TestSpeakMessage_ErrorWhenMessageNotFound(t *testing.T) {
 
 	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg), currentUserID: "test-user"}
 
-	_, err := app.SpeakMessage("999", "provider", "", "voice", 1.0)
+	_, err := app.SpeakMessage("999", "provider", "", "voice", 1.0, "")
 	if err == nil {
 		t.Fatal("esperava erro para mensagem inexistente")
 	}
@@ -128,7 +128,7 @@ func TestSpeakMessage_ErrorWhenContentEmpty(t *testing.T) {
 
 	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg), currentUserID: "test-user"}
 
-	_, err := app.SpeakMessage("3", "provider", "", "voice", 1.0)
+	_, err := app.SpeakMessage("3", "provider", "", "voice", 1.0, "")
 	if err == nil {
 		t.Fatal("esperava erro para mensagem com conteúdo vazio")
 	}
@@ -146,7 +146,7 @@ func TestSpeakMessage_CacheHitSkipsGeneration(t *testing.T) {
 
 	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg), currentUserID: "test-user"}
 
-	result, err := app.SpeakMessage("5", "", "", "", 1.0)
+	result, err := app.SpeakMessage("5", "", "", "", 1.0, "")
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestSpeakMessage_ErrorWhenHTTPModelMissing(t *testing.T) {
 		currentUserID:  "test-user",
 	}
 
-	_, err := app.SpeakMessage("10", "local-piper", "", "pt_BR-dii", 1.0)
+	_, err := app.SpeakMessage("10", "local-piper", "", "pt_BR-dii", 1.0, "")
 	if err == nil {
 		t.Fatal("esperava erro quando model está vazio")
 	}
@@ -202,7 +202,7 @@ func TestSpeakMessage_ModelOnlyRejectsVoiceID(t *testing.T) {
 		currentUserID:  "test-user",
 	}
 
-	_, err := app.SpeakMessage("12", "local-piper", "voice-pt_BR-dii", "pt_BR-dii", 1.0)
+	_, err := app.SpeakMessage("12", "local-piper", "voice-pt_BR-dii", "pt_BR-dii", 1.0, "")
 	if err == nil {
 		t.Fatal("esperava erro quando voice_id é enviado para model-only")
 	}
@@ -232,7 +232,7 @@ func TestSpeakMessage_SpeedNormalization(t *testing.T) {
 	}
 
 	// Rate 0 deve ser normalizada para 1.0 — o provider será criado mas síntese falhará
-	_, err := app.SpeakMessage("11", "test-provider", "tts-1", "voice", 0.0)
+	_, err := app.SpeakMessage("11", "test-provider", "tts-1", "voice", 0.0, "")
 	if err == nil {
 		t.Fatal("esperava erro de síntese (sem server)")
 	}

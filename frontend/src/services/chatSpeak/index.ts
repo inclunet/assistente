@@ -43,6 +43,8 @@ export interface ChatSpeakEvent {
   rate?: number;
   pitch?: number;
   volume?: number;
+  /** Idioma do perfil que resolveu o evento (usado ao regerar áudio no backend). */
+  speechLanguage?: string;
   origin?: ChatSpeakOrigin;
   surfaceOrigin?: ChatSurfaceOrigin;
   accessibilityOrigin?: VoiceAccessibilityOrigin;
@@ -137,6 +139,7 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
                 voiceId: event.voiceId ?? '',
                 model: event.model ?? '',
                 rate: event.rate ?? 1.0,
+                language: event.speechLanguage,
               }
             : undefined,
         ),

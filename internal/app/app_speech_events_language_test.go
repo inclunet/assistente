@@ -84,6 +84,11 @@ func TestDispatchSpeechEventLocalizesCodeBlockLabel(t *testing.T) {
 			if !strings.Contains(event.Text, tc.wantLabel) {
 				t.Fatalf("texto falado = %q, esperava conter %q", event.Text, tc.wantLabel)
 			}
+			// backend_audio regera o áudio pelo SpeakMessage: o idioma precisa
+			// viajar no evento para o rótulo não sair do perfil ativo.
+			if event.SpeechLanguage != tc.language {
+				t.Fatalf("speechLanguage = %q, esperava %q", event.SpeechLanguage, tc.language)
+			}
 			if len(emitter.find("chat:speak")) != 1 {
 				t.Fatalf("esperava 1 evento chat:speak, obteve %d", len(emitter.find("chat:speak")))
 			}

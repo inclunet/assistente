@@ -552,7 +552,7 @@ export function SignalUnregister(arg1:string,arg2:string,arg3:boolean,arg4:strin
 
 export function SignalVerify(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
-export function SpeakMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number):Promise<speech.AudioResult>;
+export function SpeakMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number,arg6:string):Promise<speech.AudioResult>;
 
 export function SpeakPreview(arg1:string,arg2:string,arg3:string,arg4:number,arg5:number,arg6:string,arg7:string,arg8:string):Promise<void>;
 

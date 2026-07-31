@@ -46,7 +46,7 @@ describe('messageAudioService', () => {
       const result = await messageAudioService.speakMessage("42", 0.8, backendProvider);
 
       expect(result).toBe(true);
-      expect(speakMessageMock).toHaveBeenCalledWith("42", 'openai', 'tts-1', 'nova', 1);
+      expect(speakMessageMock).toHaveBeenCalledWith("42", 'openai', 'tts-1', 'nova', 1, '');
       expect(globalThis.URL.createObjectURL).toHaveBeenCalled();
     });
 
@@ -95,9 +95,10 @@ describe('messageAudioService', () => {
         voiceId: 'nova',
         model: 'tts-1',
         rate: 1.5,
+        language: 'es-ES',
       });
 
-      expect(speakMessageMock).toHaveBeenCalledWith("42", 'openai', 'tts-1', 'nova', 1.5);
+      expect(speakMessageMock).toHaveBeenCalledWith("42", 'openai', 'tts-1', 'nova', 1.5, 'es-ES');
     });
 
     it('não chama backend para providers frontend ou referência', async () => {

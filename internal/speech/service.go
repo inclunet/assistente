@@ -58,9 +58,9 @@ func NewService(cfg ServiceConfig) *Service {
 	}
 }
 
-// speechLanguage devolve o idioma de fala do perfil ativo. Vazio quando o
-// perfil não está disponível — os rótulos falados caem no padrão em inglês.
-func (s *Service) speechLanguage() string {
+// activeProfileLanguage devolve o idioma de fala do perfil ativo. Vazio quando
+// o perfil não está disponível — os rótulos falados caem no padrão em inglês.
+func (s *Service) activeProfileLanguage() string {
 	if s.profileProvider == nil {
 		return ""
 	}
@@ -137,7 +137,9 @@ func (s *Service) CreateTTSClientWithLanguage(ctx context.Context, providerID st
 }
 
 // SpeakMessage retorna o áudio de uma mensagem, usando cache do DB se disponível.
-func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID string, model string, voiceID string, rate float64) (*AudioResult, error) {
+// `language` é o idioma do perfil que pediu a fala (vazio → perfil ativo) e
+// define o idioma dos rótulos falados, como o marcador de bloco de código.
+func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID string, model string, voiceID string, rate float64, language string) (*AudioResult, error) {
 	// 1. Checa cache no DB
 	audio, mime, err := s.audioRepo.GetMessageAudio(ctx, messageID)
 	if err == nil && audio != "" {
@@ -153,8 +155,11 @@ func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID
 		return nil, fmt.Errorf("mensagem %s sem conteúdo textual", messageID)
 	}
 
+	if strings.TrimSpace(language) == "" {
+		language = s.activeProfileLanguage()
+	}
 	rawContent := content
-	content = textutil.StripMarkdownForSpeechLabeled(content, textutil.CodeBlockSpeechLabel(s.speechLanguage()))
+	content = textutil.StripMarkdownForSpeechLabeled(content, textutil.CodeBlockSpeechLabel(language))
 	if strings.TrimSpace(content) == "" {
 		// Strip pode zerar só-sintaxe; fallback ao texto persistido (mesmo padrão do gateway).
 		content = strings.TrimSpace(rawContent)

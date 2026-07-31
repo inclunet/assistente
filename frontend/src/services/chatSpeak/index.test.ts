@@ -122,6 +122,7 @@ describe('chatSpeak service', () => {
       model: 'tts-1',
       rate: 1.3,
       volume: 0.5,
+      speechLanguage: 'pt-BR',
     });
 
     expect(announceWithOriginMock).not.toHaveBeenCalled();
@@ -130,6 +131,7 @@ describe('chatSpeak service', () => {
       voiceId: 'nova',
       model: 'tts-1',
       rate: 1.3,
+      language: 'pt-BR',
     });
   });
 

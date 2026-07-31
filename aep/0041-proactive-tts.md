@@ -232,6 +232,13 @@ localizado a partir de `profile.Input.Language` via
 `textutil.StripMarkdownForSpeechLabeled`. Como o strip depende do perfil,
 `dispatchSpeechEvent` resolve o perfil **antes** de limpar o Markdown.
 
+O idioma resolvido viaja no evento em `speechLanguage`. A strategy
+`backend_audio` não reaproveita o texto já limpo: ela regenera o áudio pelo
+`SpeakMessage`, que relê a mensagem persistida. Sem o idioma no evento, esse
+caminho cairia no perfil ativo e falaria o marcador no idioma errado quando a
+conversa usa outro perfil. Pela mesma razão o gateway de mensageria resolve o
+idioma **por canal**, casando com o perfil que sintetiza o áudio do canal.
+
 ### Fase 5 — Limpar código legado
 
 #### 5.1 — Remover `appStreamHandler` (dead code)

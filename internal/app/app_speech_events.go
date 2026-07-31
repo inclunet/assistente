@@ -59,6 +59,10 @@ type ChatSpeakEvent struct {
 	Volume           float64           `json:"volume,omitempty"`
 	Origin           ChatSpeakOrigin   `json:"origin"`
 	Interrupt        bool              `json:"interrupt"`
+	// SpeechLanguage é o idioma do perfil que resolveu este evento. A strategy
+	// backend_audio regenera o áudio a partir da mensagem persistida, então
+	// precisa do mesmo idioma para não falar rótulos de outro perfil.
+	SpeechLanguage string `json:"speechLanguage,omitempty"`
 }
 
 func boolValueOrDefault(v *bool, fallback bool) bool {
@@ -124,6 +128,7 @@ func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error)
 	}
 
 	event := a.buildChatSpeakEvent(req, role, text, voiceCfg)
+	event.SpeechLanguage = profile.Input.Language
 	a.emitter.Emit("chat:speak", event)
 	return &event, nil
 }
