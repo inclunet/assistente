@@ -366,6 +366,10 @@ func TestAgenticLoopRunner_FinishLimitReachedFalaOAviso(t *testing.T) {
 	if got.role != "system" || got.origin != "system_message" {
 		t.Fatalf("role/origin inesperados: role=%q origin=%q", got.role, got.origin)
 	}
+	// Com messageID a strategy backend_audio sintetizaria o texto do banco.
+	if got.msgID != "" {
+		t.Fatalf("aviso não persistido não pode carregar messageID, got=%q", got.msgID)
+	}
 	if !got.interrupt {
 		t.Fatal("aviso terminal deveria interromper fala anterior")
 	}

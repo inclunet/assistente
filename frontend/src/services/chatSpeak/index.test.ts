@@ -172,6 +172,24 @@ describe('chatSpeak service', () => {
     });
   });
 
+  it('backend_audio sem messageId fala avisos do sistema pelo fallback', async () => {
+    await handleChatSpeak({
+      role: 'system',
+      text: 'Limite de iterações do agente atingido.',
+      strategy: 'backend_audio',
+      fallbackStrategy: 'announce',
+      autoRead: true,
+      origin: 'system_message',
+    });
+
+    expect(speakMessageMock).not.toHaveBeenCalled();
+    expect(announceWithOriginMock).toHaveBeenCalledWith({
+      message: 'chat.system: Limite de iterações do agente atingido.',
+      origin: undefined,
+      eventType: 'system',
+    });
+  });
+
   it('backend_audio sem messageId ignora origins não verbalizáveis', async () => {
     await handleChatSpeak({
       role: 'assistant',

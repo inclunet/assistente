@@ -577,9 +577,11 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 		SurfaceOrigin:  r.surfaceOrigin,
 	})
 	// O aviso de limite só existe neste chat:stream — sem chat:speak nada o
-	// verbalizaria. Dispara antes de chat:done, que derruba os listeners.
+	// verbalizaria. Vai sem messageID: o aviso não é persistido, então a
+	// strategy backend_audio falaria o conteúdo do banco no lugar dele.
+	// Dispara antes de chat:done, que derruba os listeners.
 	if r.svc.onSpeechRequest != nil {
-		r.svc.onSpeechRequest(r.conversationID, r.assistantMessageID, "system", limitReachedNotice, "system_message", r.params.ProfileSlug, true)
+		r.svc.onSpeechRequest(r.conversationID, "", "system", limitReachedNotice, "system_message", r.params.ProfileSlug, true)
 	}
 	r.svc.emitter.Emit("chat:done", ports.DoneEvent{
 		ConversationID:     r.conversationID,
