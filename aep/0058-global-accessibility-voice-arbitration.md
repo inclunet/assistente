@@ -72,10 +72,13 @@ A requisição de anúncio marca a fala do conteúdo do assistente com
 - **espera a leitura terminar**: avisos automáticos de estado (`progress`,
   `system`), como paginação da janela de mensagens.
 
-O aviso que esperou é falado quando a leitura termina sem que nada mais tenha
-acontecido. Se a conversa andar nesse meio tempo — mais conteúdo, um erro, uma
-ação da pessoa — ele é descartado: descreve um instante que já passou. Pela
-mesma razão ele não espera indefinidamente numa leitura muito longa.
+O que espera é falado quando a leitura termina, um de cada vez, para que um
+anúncio não substitua o outro na live region. Aviso de estado transitório
+(`progress`, `system`) é descartado se a conversa andar nesse meio tempo — mais
+conteúdo, um erro, uma ação da pessoa — porque descreveria um instante que já
+passou, e pela mesma razão não espera indefinidamente. Conclusão de resposta é
+evento, não estado: continua verdadeira depois e não pode ser descartada, senão
+a aba inativa perderia o anúncio que a seção 2 exige.
 
 A duração da leitura é estimada pelo tamanho do texto, porque não existe API que
 avise quando o leitor de telas termina. Superestimar só atrasa um aviso

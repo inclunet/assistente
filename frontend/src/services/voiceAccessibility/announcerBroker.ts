@@ -46,36 +46,53 @@ export function estimateAnnouncementReadingMs(message: string): number {
 }
 
 /**
- * Um aviso adiado descreve o estado do momento em que foi produzido. Passado
- * esse tempo ele deixa de valer a pena: numa resposta longa, ou numa sequência
- * de respostas, a leitura protegida pode se estender por minutos.
+ * Um aviso transitório descreve o estado do momento em que foi produzido.
+ * Passado esse tempo ele deixa de valer a pena: numa resposta longa, ou numa
+ * sequência de respostas, a leitura protegida pode se estender por minutos.
  */
-const MAX_DEFERRED_WAIT_MS = 30_000;
+const MAX_TRANSIENT_WAIT_MS = 30_000;
 
-let readingProtectedUntil = 0;
-/**
- * Só o último anúncio adiado é guardado: são avisos de estado transitório
- * ("carregando" é substituído por "carregadas"), e enfileirar todos faria o
- * leitor despejar histórico velho quando a leitura terminasse.
- */
-let deferredAnnouncement: {
+/** Teto de segurança para a fila não crescer sem limite. */
+const MAX_DEFERRED_QUEUE = 5;
+
+interface DeferredAnnouncement {
   message: string;
   priority: AnnouncePriority;
   deferredAt: number;
-} | null = null;
+  /**
+   * Conclusão de resposta é evento, não estado: continua verdadeira depois e o
+   * AEP-0058 exige que aba inativa possa anunciá-la. Não pode ser descartada
+   * junto com os avisos de estado transitório.
+   */
+  durable: boolean;
+}
+
+let readingProtectedUntil = 0;
+let deferredQueue: DeferredAnnouncement[] = [];
 let deferredTimer: ReturnType<typeof setTimeout> | null = null;
 
-function discardDeferredAnnouncement() {
-  deferredAnnouncement = null;
+function cancelDeferredTimer() {
   if (deferredTimer !== null) {
     clearTimeout(deferredTimer);
     deferredTimer = null;
   }
 }
 
+/**
+ * Avisos de estado transitório saem da fila assim que a conversa anda: falá-los
+ * depois descreveria um instante que já passou. Os duráveis permanecem.
+ */
+function discardTransientAnnouncements() {
+  deferredQueue = deferredQueue.filter((item) => item.durable);
+  if (deferredQueue.length === 0) {
+    cancelDeferredTimer();
+  }
+}
+
 function clearArbitrationState() {
   readingProtectedUntil = 0;
-  discardDeferredAnnouncement();
+  deferredQueue = [];
+  cancelDeferredTimer();
 }
 
 export function registerAnnouncerSink(sink: AnnounceSink) {
@@ -131,20 +148,33 @@ function emit(message: string, priority: AnnouncePriority) {
   });
 }
 
-function flushDeferredAnnouncement() {
+function flushNextDeferredAnnouncement() {
   deferredTimer = null;
-  const pending = deferredAnnouncement;
-  deferredAnnouncement = null;
-  if (!pending) return;
-  if (Date.now() - pending.deferredAt > MAX_DEFERRED_WAIT_MS) return;
-  emit(pending.message, pending.priority);
+  const now = Date.now();
+  const next = deferredQueue.find(
+    (item) => item.durable || now - item.deferredAt <= MAX_TRANSIENT_WAIT_MS,
+  );
+  deferredQueue = next ? deferredQueue.slice(deferredQueue.indexOf(next) + 1) : [];
+  if (!next) return;
+
+  emit(next.message, next.priority);
+  if (deferredQueue.length > 0) {
+    // Um por vez: falar dois seguidos faria o segundo substituir o primeiro.
+    scheduleDeferredFlush(estimateAnnouncementReadingMs(next.message));
+  }
 }
 
 function scheduleDeferredFlush(delayMs: number) {
-  if (deferredTimer !== null) {
-    clearTimeout(deferredTimer);
+  cancelDeferredTimer();
+  deferredTimer = setTimeout(flushNextDeferredAnnouncement, Math.max(0, delayMs));
+}
+
+function enqueueDeferredAnnouncement(item: DeferredAnnouncement) {
+  if (!item.durable) {
+    // Entre avisos de estado só o mais recente descreve a situação atual.
+    deferredQueue = deferredQueue.filter((queued) => queued.durable);
   }
-  deferredTimer = setTimeout(flushDeferredAnnouncement, Math.max(0, delayMs));
+  deferredQueue = [...deferredQueue, item].slice(-MAX_DEFERRED_QUEUE);
 }
 
 function shouldWaitForReading(request: VoiceAnnounceRequest, now: number): boolean {
@@ -169,7 +199,12 @@ export function announceWithOrigin(request: VoiceAnnounceRequest): boolean {
   const now = Date.now();
 
   if (shouldWaitForReading(request, now)) {
-    deferredAnnouncement = { message, priority, deferredAt: now };
+    enqueueDeferredAnnouncement({
+      message,
+      priority,
+      deferredAt: now,
+      durable: request.eventType === 'completion',
+    });
     scheduleDeferredFlush(readingProtectedUntil - now);
     return true;
   }
@@ -179,11 +214,10 @@ export function announceWithOrigin(request: VoiceAnnounceRequest): boolean {
   readingProtectedUntil = request.protectsReading
     ? now + estimateAnnouncementReadingMs(message)
     : 0;
-  // Um aviso automático descreve o instante em que foi produzido. Se a conversa
-  // andou desde então — mais conteúdo, um erro, uma ação da pessoa — falá-lo
-  // agora descreveria um estado que já passou. Ele só é dito quando a leitura
-  // termina sem que nada mais tenha acontecido.
-  discardDeferredAnnouncement();
+  discardTransientAnnouncements();
+  if (deferredQueue.length > 0) {
+    scheduleDeferredFlush(Math.max(readingProtectedUntil - now, estimateAnnouncementReadingMs(message)));
+  }
 
   emit(message, priority);
   return true;

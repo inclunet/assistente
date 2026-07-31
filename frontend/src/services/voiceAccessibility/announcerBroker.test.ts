@@ -162,6 +162,51 @@ describe('announcerBroker', () => {
       expect(sink).not.toHaveBeenCalled();
     });
 
+    it('não perde conclusão de aba inativa quando a conversa anda', () => {
+      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
+      announceWithOrigin({
+        message: 'terminou de responder',
+        eventType: 'completion',
+        origin: { tabId: 'tab-2', title: 'Chat B' },
+      });
+      unregisterResolver();
+      unregisterResolver = undefined;
+
+      const seguinte = 'chat.assistant: Continuando a resposta.';
+      announceWithOrigin({ message: seguinte, eventType: 'completion', protectsReading: true });
+      sink.mockClear();
+
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(seguinte));
+
+      expect(sink).toHaveBeenCalledWith('Chat B: terminou de responder', 'polite');
+    });
+
+    it('fala um adiado por vez para um não substituir o outro', () => {
+      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
+      announceWithOrigin({
+        message: 'terminou de responder',
+        eventType: 'completion',
+        origin: { tabId: 'tab-2', title: 'Chat B' },
+      });
+      announceWithOrigin({
+        message: 'terminou de responder',
+        eventType: 'completion',
+        origin: { tabId: 'tab-3', title: 'Chat C' },
+      });
+      unregisterResolver();
+      unregisterResolver = undefined;
+      sink.mockClear();
+
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
+      expect(sink).toHaveBeenCalledTimes(1);
+      expect(sink).toHaveBeenCalledWith('Chat B: terminou de responder', 'polite');
+
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs('Chat B: terminou de responder'));
+      expect(sink).toHaveBeenCalledWith('Chat C: terminou de responder', 'polite');
+    });
+
     it('para de proteger quando o announcer é desmontado', () => {
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
       unregisterAnnouncerSink();
