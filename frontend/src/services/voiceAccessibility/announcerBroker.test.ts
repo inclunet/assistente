@@ -60,6 +60,7 @@ describe('announcerBroker', () => {
 
   describe('proteção da leitura do conteúdo', () => {
     const content = 'chat.assistant: A resposta completa que a pessoa está esperando ouvir.';
+    const MAX_ADVANCE_MS = 120_000;
 
     beforeEach(() => {
       vi.useFakeTimers();
@@ -119,6 +120,21 @@ describe('announcerBroker', () => {
       expect(sink).not.toHaveBeenCalled();
     });
 
+    it('descarta o adiado quando mais conteúdo chega', () => {
+      announceWithOrigin({ message: content, eventType: 'progress', protectsReading: true });
+      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
+      announceWithOrigin({
+        message: 'chat.assistant: Segundo trecho da resposta.',
+        eventType: 'completion',
+        protectsReading: true,
+      });
+      sink.mockClear();
+
+      vi.advanceTimersByTime(MAX_ADVANCE_MS);
+
+      expect(sink).not.toHaveBeenCalled();
+    });
+
     it('deixa o conteúdo seguinte passar e reinicia a proteção', () => {
       announceWithOrigin({ message: content, eventType: 'progress', protectsReading: true });
       const segundo = 'chat.assistant: Segundo trecho da resposta.';
@@ -141,7 +157,7 @@ describe('announcerBroker', () => {
       announceWithOrigin({ message: 'Mensagens 25 a 34 de 34 carregadas', eventType: 'user-action' });
       sink.mockClear();
 
-      vi.advanceTimersByTime(estimateAnnouncementReadingMs(content) * 2);
+      vi.advanceTimersByTime(MAX_ADVANCE_MS);
 
       expect(sink).not.toHaveBeenCalled();
     });

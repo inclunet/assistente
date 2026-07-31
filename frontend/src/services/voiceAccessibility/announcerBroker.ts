@@ -174,20 +174,16 @@ export function announceWithOrigin(request: VoiceAnnounceRequest): boolean {
     return true;
   }
 
-  if (request.protectsReading) {
-    // Conteúdo novo reinicia a proteção; o que estava adiado espera também esta
-    // leitura, porque continua descrevendo o estado atual.
-    readingProtectedUntil = now + estimateAnnouncementReadingMs(message);
-    if (deferredAnnouncement) {
-      scheduleDeferredFlush(estimateAnnouncementReadingMs(message));
-    }
-  } else {
-    // Um erro ou uma ação da pessoa já substituiu a leitura que estava sendo
-    // protegida e mudou o contexto. Falar depois um aviso automático de antes
-    // dessa mudança seria descrever um estado que já passou.
-    readingProtectedUntil = 0;
-    discardDeferredAnnouncement();
-  }
+  // Conteúdo novo reinicia a proteção; erro e ação da pessoa a encerram, porque
+  // já substituíram a leitura que estava sendo protegida.
+  readingProtectedUntil = request.protectsReading
+    ? now + estimateAnnouncementReadingMs(message)
+    : 0;
+  // Um aviso automático descreve o instante em que foi produzido. Se a conversa
+  // andou desde então — mais conteúdo, um erro, uma ação da pessoa — falá-lo
+  // agora descreveria um estado que já passou. Ele só é dito quando a leitura
+  // termina sem que nada mais tenha acontecido.
+  discardDeferredAnnouncement();
 
   emit(message, priority);
   return true;

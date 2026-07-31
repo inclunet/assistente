@@ -70,8 +70,12 @@ A requisição de anúncio marca a fala do conteúdo do assistente com
 - **passa na hora**: erro, resposta direta a uma ação da pessoa (`user-action`)
   e um novo conteúdo do assistente, que substitui o anterior de propósito;
 - **espera a leitura terminar**: avisos automáticos de estado (`progress`,
-  `system`), como paginação da janela de mensagens. Eles são falados depois, não
-  descartados.
+  `system`), como paginação da janela de mensagens.
+
+O aviso que esperou é falado quando a leitura termina sem que nada mais tenha
+acontecido. Se a conversa andar nesse meio tempo — mais conteúdo, um erro, uma
+ação da pessoa — ele é descartado: descreve um instante que já passou. Pela
+mesma razão ele não espera indefinidamente numa leitura muito longa.
 
 A duração da leitura é estimada pelo tamanho do texto, porque não existe API que
 avise quando o leitor de telas termina. Superestimar só atrasa um aviso
@@ -190,7 +194,7 @@ A AEP-0059 Fase 2.1 corrige a unidade acessível da lista de mensagens. A polít
 - Política agressiva de interrupção de TTS pode frustrar usuários que esperam ouvir tudo.
 - Enfileirar fala automática pode criar áudio atrasado e fora de contexto.
 - Anúncios de abas inativas podem virar ruído se forem muito frequentes.
-- A leitura protegida usa estimativa de duração: numa resposta longa o aviso adiado pode chegar bem depois do momento em que era relevante.
+- A leitura protegida usa estimativa de duração: o aviso adiado pode chegar depois do momento em que era mais útil, ou ser descartado quando a conversa segue.
 - Cancelar STT ao trocar de aba pode descartar fala do usuário se não houver feedback claro.
 - Eventos legados sem `surfaceOrigin` podem cair na resolução por `conversationId`; novos fluxos devem carregar origem explícita.
 - Efeitos globais precisam distinguir origem de workspace fechada de origem externa sem aba.

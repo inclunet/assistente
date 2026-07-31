@@ -941,8 +941,18 @@ describe('ChatSessionView', () => {
     try {
       fireEvent.click(screen.getByText('load-newer-scroll'));
 
-      // Backend lento: o carregamento demora mais que o prazo do pendente.
+      // Backend lento: o carregamento demora mais que o prazo do pendente e a
+      // janela ainda muda no meio do caminho, por streaming.
       await vi.advanceTimersByTimeAsync(10_000);
+      rerender(
+        <WorkspacePanelProvider value={{ tab: panelTab, isActive: true }}>
+          <ChatSessionView
+            surface={surface({ sessionKey, surfaceId: 'slow-surface' })}
+            onSend={vi.fn().mockResolvedValue(undefined)}
+            showShortcutsHelp={false}
+          />
+        </WorkspacePanelProvider>,
+      );
       resolveLoad?.();
       await vi.advanceTimersByTimeAsync(0);
 

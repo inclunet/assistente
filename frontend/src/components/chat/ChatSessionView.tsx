@@ -125,7 +125,8 @@ function ChatSessionViewContent({
   const pendingWindowAnnouncementRef = useRef<{
     kind: 'start' | 'end' | 'older' | 'newer';
     trigger: MessageWindowLoadTrigger;
-    expiresAt: number;
+    /** `null` enquanto o carregamento não terminou: aí não há o que expirar. */
+    expiresAt: number | null;
     previousStartIndex: number;
     previousEndIndex: number;
     previousWindowKey: string | null;
@@ -742,7 +743,7 @@ function ChatSessionViewContent({
     // A limpeza por chave de janela não pega o caso em que a janela muda por
     // outro motivo (streaming, por exemplo): o pendente ficava armado e
     // disparava muito depois, desligado da ação que o originou.
-    if (Date.now() > pendingAnnouncement.expiresAt) {
+    if (pendingAnnouncement.expiresAt !== null && Date.now() > pendingAnnouncement.expiresAt) {
       pendingWindowAnnouncementRef.current = null;
       return;
     }
@@ -850,15 +851,15 @@ function ChatSessionViewContent({
     pendingWindowAnnouncementRef.current = {
       kind,
       trigger,
-      expiresAt: Date.now() + PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS,
+      expiresAt: null,
       previousStartIndex: windowState?.startIndex ?? 0,
       previousEndIndex: windowState?.endIndex ?? -1,
       previousWindowKey,
     };
     try {
       await load();
-      // A janela chega logo depois do load resolver, então o prazo conta a
-      // partir daqui: backend lento não pode custar o anúncio.
+      // O prazo só começa quando o carregamento termina: backend lento não pode
+      // custar o aviso de uma paginação que de fato aconteceu.
       const pending = pendingWindowAnnouncementRef.current;
       if (pending) {
         pending.expiresAt = Date.now() + PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS;
