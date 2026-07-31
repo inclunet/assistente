@@ -162,9 +162,13 @@ describe('chatSpeak service', () => {
       fallbackStrategy: 'announce',
       autoRead: true,
       origin: 'segment',
+      interrupt: false,
     });
 
     expect(speakMessageMock).not.toHaveBeenCalled();
+    // Segmento não interrompe: o áudio em curso segue até o fim.
+    expect(stopCurrentAudioMock).not.toHaveBeenCalled();
+    expect(stopTTSMock).not.toHaveBeenCalled();
     expect(announceWithOriginMock).toHaveBeenCalledWith({
       message: 'chat.assistant: Segmento parcial',
       origin: undefined,
@@ -183,6 +187,10 @@ describe('chatSpeak service', () => {
     });
 
     expect(speakMessageMock).not.toHaveBeenCalled();
+    // O aviso interrompe: o áudio do segmento anterior não pode continuar
+    // tocando por cima do anúncio.
+    expect(stopCurrentAudioMock).toHaveBeenCalled();
+    expect(stopTTSMock).toHaveBeenCalled();
     expect(announceWithOriginMock).toHaveBeenCalledWith({
       message: 'chat.system: Limite de iterações do agente atingido.',
       origin: undefined,

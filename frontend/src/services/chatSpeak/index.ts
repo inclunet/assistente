@@ -161,6 +161,11 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
       || event.origin === 'segment'
       || event.origin === 'system_message'
     ) {
+      // O fallback pode terminar no announcer, que não passa pelo broker de TTS
+      // e não interromperia o áudio de um segmento anterior ainda tocando.
+      if (event.interrupt !== false) {
+        stopCurrent();
+      }
       await executeFallback(event);
     }
     return;
