@@ -182,7 +182,18 @@ function enqueueDeferredAnnouncement(item: DeferredAnnouncement) {
     // Entre avisos de estado só o mais recente descreve a situação atual.
     deferredQueue = deferredQueue.filter((queued) => queued.durable);
   }
-  deferredQueue = [...deferredQueue, item].slice(-MAX_DEFERRED_QUEUE);
+  deferredQueue = [...deferredQueue, item];
+  while (deferredQueue.length > MAX_DEFERRED_QUEUE) {
+    // Cede primeiro o aviso de estado. Se só restam conclusões, sai a mais
+    // antiga: uma fila desse tamanho já é mais do que alguém consegue absorver
+    // quando a leitura terminar, e as recentes são as que ainda importam.
+    const transientIndex = deferredQueue.findIndex((queued) => !queued.durable);
+    const evictIndex = transientIndex >= 0 ? transientIndex : 0;
+    deferredQueue = [
+      ...deferredQueue.slice(0, evictIndex),
+      ...deferredQueue.slice(evictIndex + 1),
+    ];
+  }
 }
 
 function shouldWaitForReading(request: VoiceAnnounceRequest, now: number): boolean {

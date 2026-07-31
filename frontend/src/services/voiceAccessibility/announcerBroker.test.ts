@@ -239,6 +239,34 @@ describe('announcerBroker', () => {
       expect(sink).toHaveBeenCalledWith('Mensagens 1 a 34 de 34 carregadas', 'polite');
     });
 
+    it('sacrifica o aviso de estado antes de uma conclusão quando a fila enche', () => {
+      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
+      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
+      for (let index = 0; index < 5; index += 1) {
+        announceWithOrigin({
+          message: 'terminou de responder',
+          eventType: 'completion',
+          origin: { tabId: `tab-${index}`, title: `Chat ${index}` },
+        });
+      }
+      unregisterResolver();
+      unregisterResolver = undefined;
+      sink.mockClear();
+
+      // Cada conclusão é falada por vez; o aviso de estado cedeu o lugar.
+      vi.advanceTimersByTime(MAX_ADVANCE_MS);
+
+      const faladas = sink.mock.calls.map(([message]) => message);
+      expect(faladas).toEqual([
+        'Chat 0: terminou de responder',
+        'Chat 1: terminou de responder',
+        'Chat 2: terminou de responder',
+        'Chat 3: terminou de responder',
+        'Chat 4: terminou de responder',
+      ]);
+    });
+
     it('para de proteger quando o announcer é desmontado', () => {
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
       unregisterAnnouncerSink();

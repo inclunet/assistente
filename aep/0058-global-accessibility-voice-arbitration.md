@@ -80,6 +80,10 @@ passou, e pela mesma razão não espera indefinidamente. Conclusão de resposta 
 evento, não estado: continua verdadeira depois e não pode ser descartada, senão
 a aba inativa perderia o anúncio que a seção 2 exige.
 
+A fila tem um teto. Ao enchê-la, o aviso de estado cede o lugar primeiro; se só
+restarem conclusões, sai a mais antiga. Um despejo maior que isso ao fim da
+leitura já não é utilizável e cai na regra de ruído da seção 2.
+
 A duração da leitura é estimada pelo tamanho do texto, porque não existe API que
 avise quando o leitor de telas termina. Superestimar só atrasa um aviso
 secundário; subestimar corta o conteúdo — por isso a estimativa é generosa.
