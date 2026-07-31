@@ -57,6 +57,55 @@ Abas inativas só podem anunciar eventos relevantes e resumidos:
 
 Anúncios de abas inativas devem incluir contexto de aba ou conversa, por exemplo: "Aba Terminal terminou de responder".
 
+### 2.1 A leitura do conteúdo do assistente não pode ser atropelada
+
+A live region é única, então todo anúncio novo substitui o texto anterior e o
+leitor de telas abandona o que estava lendo. Quando a fala do assistente é
+verbalizada por anúncio (TTS desabilitado, AEP-0041 §4.1), essa substituição
+significa perder a resposta no meio — o oposto do que a pessoa está esperando.
+
+A requisição de anúncio marca a fala do conteúdo do assistente com
+`protectsReading`. Enquanto a leitura estiver em curso, o broker aplica:
+
+- **passa na hora**: erro, resposta direta a uma ação da pessoa (`user-action`)
+  e um novo conteúdo do assistente, que substitui o anterior de propósito;
+- **espera a leitura terminar**: conclusão de resposta e os avisos automáticos
+  que declaram continuar verdadeiros depois da espera, como o intervalo
+  carregado da janela de mensagens;
+- **é descartado**: o resto dos avisos automáticos de estado.
+
+Esperar é exceção, não o padrão, porque a maior parte do que a interface anuncia
+sozinha descreve uma atividade em curso — "carregando", "ouvindo". Quando
+chegasse a vez desses avisos, a atividade já teria terminado e eles descreveriam
+o passado; por isso quem quer esperar precisa declarar que o aviso continua
+verdadeiro depois, e o silêncio é a escolha correta para o restante. Conclusão
+de resposta espera sem precisar declarar nada: é evento, não estado, e a aba
+inativa perderia o anúncio que a seção 2 exige.
+
+O que espera é falado quando a leitura termina, um de cada vez, para que um
+anúncio não substitua o outro na live region. Um aviso de estado ainda é
+descartado se a conversa andar nesse meio tempo — mais conteúdo, um erro, uma
+ação da pessoa. Não há prazo além disso: como só entra na fila quem continua
+verdadeiro depois, expirar por tempo descartaria justamente o que ainda vale, e
+uma resposta longa não é motivo para perder o aviso. A regra de aba inativa da
+seção 2 é reavaliada na hora de falar, não na de produzir: a pessoa pode ter
+trocado de aba durante a espera.
+
+A fila tem um teto. Ao enchê-la, o aviso de estado cede o lugar primeiro; se só
+restarem conclusões, sai a mais antiga. Um despejo maior que isso ao fim da
+leitura já não é utilizável e cai na regra de ruído da seção 2.
+
+A duração da leitura é estimada pelo tamanho do texto, porque não existe API que
+avise quando o leitor de telas termina. Superestimar só atrasa um aviso
+secundário; subestimar corta o conteúdo — por isso a estimativa é generosa.
+
+Entre os avisos de estado que esperam, só o último é guardado: o mais recente é
+o que descreve a situação atual (um intervalo carregado substitui o anterior).
+
+Quem dispara o anúncio precisa classificar o evento com honestidade. Paginação
+por scroll é `progress` porque acontece sozinha, inclusive no instante em que uma
+resposta termina; paginação por navegação explícita é `user-action`.
+
 ### 3. TTS globalmente exclusivo
 
 Somente uma fala pode estar ativa por vez.
@@ -163,6 +212,7 @@ A AEP-0059 Fase 2.1 corrige a unidade acessível da lista de mensagens. A polít
 - Política agressiva de interrupção de TTS pode frustrar usuários que esperam ouvir tudo.
 - Enfileirar fala automática pode criar áudio atrasado e fora de contexto.
 - Anúncios de abas inativas podem virar ruído se forem muito frequentes.
+- A leitura protegida usa estimativa de duração: o aviso adiado pode chegar depois do momento em que era mais útil, ou ser descartado quando a conversa segue.
 - Cancelar STT ao trocar de aba pode descartar fala do usuário se não houver feedback claro.
 - Eventos legados sem `surfaceOrigin` podem cair na resolução por `conversationId`; novos fluxos devem carregar origem explícita.
 - Efeitos globais precisam distinguir origem de workspace fechada de origem externa sem aba.
@@ -171,6 +221,7 @@ A AEP-0059 Fase 2.1 corrige a unidade acessível da lista de mensagens. A polít
 ## Critérios de aceitação
 
 - Existe apenas uma live region global para anúncios.
+- Aviso automático de estado nunca substitui a leitura do conteúdo do assistente em curso; ele é falado depois.
 - Abas inativas não anunciam progresso comum.
 - Resposta concluída em aba inativa pode ser anunciada com contexto.
 - TTS nunca reproduz duas falas simultâneas.

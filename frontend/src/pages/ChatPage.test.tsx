@@ -170,6 +170,7 @@ vi.mock('../components/ui/KeyboardShortcutsHelp', () => ({
 
 vi.mock('../hooks/useAnnouncer', () => ({
   announce: vi.fn(),
+  useAnnouncer: () => ({ announce: vi.fn(), announceRequest: vi.fn(() => true) }),
 }));
 
 vi.mock('../utils/errorHandler', () => ({

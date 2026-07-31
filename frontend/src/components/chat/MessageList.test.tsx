@@ -367,6 +367,27 @@ describe('MessageList', () => {
     Object.defineProperty(container, 'scrollTop', { configurable: true, value: 800 });
     fireEvent.scroll(container);
     expect(onLoadNewer).toHaveBeenCalledTimes(1);
+
+    // O gatilho separa o carregamento automático da navegação: só o automático
+    // pode cair no meio da leitura de uma resposta.
+    expect(onLoadOlder).toHaveBeenCalledWith('scroll');
+    expect(onLoadNewer).toHaveBeenCalledWith('scroll');
+  });
+
+  it('marca como navegação o carregamento pedido pelo botão de mensagens antigas', () => {
+    const onLoadOlder = vi.fn();
+
+    render(
+      <MessageList
+        threadedMessages={[createNode()]}
+        hasOlderMessages
+        onLoadOlder={onLoadOlder}
+      />
+    );
+
+    fireEvent.click(screen.getByText('chat.loadOlderMessages'));
+
+    expect(onLoadOlder).toHaveBeenCalledWith('navigation');
   });
 
   // Issue #178: durante o streaming, a mensagem em curso re-renderiza e pode ser

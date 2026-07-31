@@ -78,6 +78,14 @@ function getAnnounceEventType(origin: ChatSpeakOrigin | undefined) {
   }
 }
 
+/**
+ * Resposta do assistente — o texto que a pessoa está esperando ouvir. Avisos
+ * secundários não podem substituí-lo na live region enquanto está sendo lido.
+ */
+function isAssistantContentOrigin(origin: ChatSpeakOrigin | undefined): boolean {
+  return origin === 'assistant_message' || origin === 'segment';
+}
+
 function buildFallbackEvent(event: ChatSpeakEvent, strategy: ChatSpeakStrategy): ChatSpeakEvent {
   return { ...event, strategy };
 }
@@ -116,6 +124,7 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
         message: `${getRolePrefix(role)}: ${text}`,
         origin: event.accessibilityOrigin,
         eventType: getAnnounceEventType(event.origin),
+        protectsReading: isAssistantContentOrigin(event.origin),
       });
     }
     return;

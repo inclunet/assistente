@@ -76,6 +76,7 @@ describe('chatSpeak service', () => {
       message: 'chat.system: Processando',
       origin: undefined,
       eventType: 'system',
+      protectsReading: false,
     });
     expect(speakWithOverrideMock).not.toHaveBeenCalled();
     expect(speakMessageMock).not.toHaveBeenCalled();
@@ -151,6 +152,24 @@ describe('chatSpeak service', () => {
       message: 'chat.assistant: Fallback',
       origin: undefined,
       eventType: 'system',
+      protectsReading: false,
+    });
+  });
+
+  it('protege a leitura do conteúdo do assistente na live region', async () => {
+    await handleChatSpeak({
+      role: 'assistant',
+      text: 'Resposta final',
+      strategy: 'announce',
+      autoRead: true,
+      origin: 'assistant_message',
+    });
+
+    expect(announceWithOriginMock).toHaveBeenCalledWith({
+      message: 'chat.assistant: Resposta final',
+      origin: undefined,
+      eventType: 'completion',
+      protectsReading: true,
     });
   });
 
@@ -173,6 +192,7 @@ describe('chatSpeak service', () => {
       message: 'chat.assistant: Segmento parcial',
       origin: undefined,
       eventType: 'progress',
+      protectsReading: true,
     });
   });
 
@@ -195,6 +215,7 @@ describe('chatSpeak service', () => {
       message: 'chat.system: Limite de iterações do agente atingido.',
       origin: undefined,
       eventType: 'system',
+      protectsReading: false,
     });
   });
 

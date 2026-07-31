@@ -6,7 +6,7 @@ import { useEditorStore } from '../../store/editorStore';
 import { useChatStore } from '../../store/chatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { ttsService } from '../../services/tts';
-import { MessageList } from './MessageList';
+import { MessageList, type MessageWindowLoadTrigger } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatToolbar, type ChatToolbarConversationChangeHandler } from './ChatToolbar';
 import { ChatSessionProvider } from './ChatSessionContext';
@@ -24,7 +24,7 @@ import { isBackendId } from '../../lib/idUtils';
 import type { MediaFile } from '../../services/mediaService';
 import { DeleteMessage, EditorGetDraftPath, GetActiveProfile, GetActiveProfileSlug } from '@wailsjs/go/app/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
-import { announce } from '../../hooks/useAnnouncer';
+import { announce, useAnnouncer } from '../../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
 import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import {
@@ -43,6 +43,20 @@ export interface ChatSessionViewProps {
   showShortcutsHelp?: boolean;
   profileSlug?: string;
 }
+
+/**
+ * Um carregamento de janela só anuncia se a janela chegar logo depois de o
+ * carregamento terminar. Passado isso o aviso já não descreve a ação que o
+ * originou — descreve alguma outra coisa que mexeu na janela.
+ */
+const PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS = 5_000;
+
+/**
+ * Prazo do carregamento em si. Existe para o pendente não ficar armado
+ * indefinidamente se a promessa nunca resolver; é generoso porque um backend
+ * lento ainda deve conseguir anunciar a paginação que a pessoa pediu.
+ */
+const PENDING_WINDOW_LOAD_MAX_MS = 60_000;
 
 export function ChatSessionView({
   variant = 'page',
@@ -100,6 +114,7 @@ function ChatSessionViewContent({
   controller,
 }: ChatSessionViewContentProps) {
   const { t } = useTranslation();
+  const { announceRequest } = useAnnouncer();
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -116,6 +131,8 @@ function ChatSessionViewContent({
   const wasLoadingRef = useRef(false);
   const pendingWindowAnnouncementRef = useRef<{
     kind: 'start' | 'end' | 'older' | 'newer';
+    trigger: MessageWindowLoadTrigger;
+    expiresAt: number;
     previousStartIndex: number;
     previousEndIndex: number;
     previousWindowKey: string | null;
@@ -729,6 +746,15 @@ function ChatSessionViewContent({
       pendingWindowAnnouncementRef.current = null;
       return;
     }
+    // Não dá para saber se esta mudança de janela veio do carregamento pedido;
+    // o prazo é o que garante que o aviso descreva aquela ação e não algo que
+    // mexeu na janela muito depois. Dentro dele uma mudança alheia ainda pode
+    // disparar o aviso, com números corretos e sem atropelar leitura, e isso é
+    // preferível a perder o aviso de uma paginação que a pessoa pediu.
+    if (Date.now() > pendingAnnouncement.expiresAt) {
+      pendingWindowAnnouncementRef.current = null;
+      return;
+    }
     const didCompleteRequestedLoad =
       pendingAnnouncement.kind === 'older'
         ? windowState.startIndex < pendingAnnouncement.previousStartIndex || !windowState.hasBefore
@@ -739,20 +765,32 @@ function ChatSessionViewContent({
             : windowState.totalCount > 0 && windowState.endIndex >= windowState.totalCount - 1;
     if (!didCompleteRequestedLoad) return;
     pendingWindowAnnouncementRef.current = null;
-    if (usesLocalVisualWindowCount) {
-      announce(t('chat.announce.messageWindowLoaded', {
+    // Carregamento por scroll é automático e pode cair no fim de uma resposta:
+    // vai como progresso para esperar a leitura do conteúdo terminar. Navegação
+    // explícita é resposta a uma ação e não espera.
+    const eventType = pendingAnnouncement.trigger === 'scroll' ? 'progress' : 'user-action';
+    const message = usesLocalVisualWindowCount
+      ? t('chat.announce.messageWindowLoaded', {
         start: 1,
         end: visibleMessageCount,
         total: visibleMessageCount,
-      }));
-      return;
-    }
-    announce(t('chat.announce.messageWindowLoaded', {
-      start: windowState.startIndex + 1,
-      end: windowState.endIndex + 1,
-      total: windowState.totalCount,
-    }));
-  }, [announce, session?.messageWindow, t, usesLocalVisualWindowCount, visibleMessageCount]);
+      })
+      : t('chat.announce.messageWindowLoaded', {
+        start: windowState.startIndex + 1,
+        end: windowState.endIndex + 1,
+        total: windowState.totalCount,
+      });
+    announceRequest({
+      message,
+      eventType,
+      // Sem origem o broker trataria a superfície como sempre ativa e falaria a
+      // paginação de uma aba que a pessoa já deixou para trás.
+      origin: { ...origin, conversationId: origin.conversationId ?? undefined },
+      // Diferente de um "carregando", o intervalo carregado continua sendo o
+      // que está na tela quando a leitura da resposta terminar.
+      waitsForReading: true,
+    });
+  }, [announceRequest, origin, session?.messageWindow, t, usesLocalVisualWindowCount, visibleMessageCount]);
 
   useEffect(() => {
     if (!isInteractiveSurface) return;
@@ -819,96 +857,66 @@ function ChatSessionViewContent({
     inputRef.current?.focus();
   };
 
-  const handleJumpToStart = async () => {
-    const previousWindowKey = latestWindowKeyRef.current;
+  const runWindowLoad = useCallback(async (
+    kind: 'start' | 'end' | 'older' | 'newer',
+    trigger: MessageWindowLoadTrigger,
+    load: () => Promise<void>,
+    afterLoad?: () => void,
+  ) => {
     const windowState = session?.messageWindow;
-    pendingWindowAnnouncementRef.current = {
-      kind: 'start',
+    const pending = {
+      kind,
+      trigger,
+      // Teto para o caso de o carregamento nunca terminar: sem ele o pendente
+      // ficaria armado para sempre e uma mudança de janela muito posterior
+      // anunciaria uma paginação que ninguém pediu.
+      expiresAt: Date.now() + PENDING_WINDOW_LOAD_MAX_MS,
       previousStartIndex: windowState?.startIndex ?? 0,
       previousEndIndex: windowState?.endIndex ?? -1,
-      previousWindowKey,
+      previousWindowKey: latestWindowKeyRef.current,
     };
+    pendingWindowAnnouncementRef.current = pending;
     try {
-      await loadStartMessages();
-      requestAnimationFrame(() => {
-        const container = messagesContainerRef.current;
-        const firstMessage = container?.querySelector('[data-message-node]') as HTMLElement | null;
-        firstMessage?.focus();
-      });
+      await load();
+      afterLoad?.();
     } finally {
-      window.setTimeout(() => {
-        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
-          pendingWindowAnnouncementRef.current = null;
-        }
-      }, 1_000);
+      // O prazo curto só começa quando o carregamento termina: backend lento não
+      // pode custar o aviso de uma paginação que de fato aconteceu. Um
+      // carregamento que não mexeu na janela expira sem anunciar nada. A
+      // comparação é por identidade: um carregamento que já foi substituído por
+      // outro não tem o que encurtar.
+      if (pendingWindowAnnouncementRef.current === pending) {
+        pending.expiresAt = Date.now() + PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS;
+      }
     }
-  };
+  }, [session?.messageWindow]);
 
-  const handleJumpToEnd = async () => {
-    const previousWindowKey = latestWindowKeyRef.current;
-    const windowState = session?.messageWindow;
-    pendingWindowAnnouncementRef.current = {
-      kind: 'end',
-      previousStartIndex: windowState?.startIndex ?? 0,
-      previousEndIndex: windowState?.endIndex ?? -1,
-      previousWindowKey,
-    };
-    try {
-      await loadEndMessages();
-      requestAnimationFrame(() => {
-        const container = messagesContainerRef.current;
-        const rootMessages = container?.querySelectorAll<HTMLElement>('[data-message-node][data-level="0"]');
-        const lastMessage = rootMessages?.[rootMessages.length - 1] ?? null;
-        lastMessage?.focus();
-      });
-    } finally {
-      window.setTimeout(() => {
-        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
-          pendingWindowAnnouncementRef.current = null;
-        }
-      }, 1_000);
-    }
-  };
+  const handleJumpToStart = () => runWindowLoad('start', 'navigation', loadStartMessages, () => {
+    requestAnimationFrame(() => {
+      const container = messagesContainerRef.current;
+      const firstMessage = container?.querySelector('[data-message-node]') as HTMLElement | null;
+      firstMessage?.focus();
+    });
+  });
 
-  const handleLoadOlderMessages = useCallback(async () => {
-    const previousWindowKey = latestWindowKeyRef.current;
-    const windowState = session?.messageWindow;
-    pendingWindowAnnouncementRef.current = {
-      kind: 'older',
-      previousStartIndex: windowState?.startIndex ?? 0,
-      previousEndIndex: windowState?.endIndex ?? -1,
-      previousWindowKey,
-    };
-    try {
-      await loadOlderMessages();
-    } finally {
-      window.setTimeout(() => {
-        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
-          pendingWindowAnnouncementRef.current = null;
-        }
-      }, 1_000);
-    }
-  }, [loadOlderMessages, session?.messageWindow]);
+  const handleJumpToEnd = () => runWindowLoad('end', 'navigation', loadEndMessages, () => {
+    requestAnimationFrame(() => {
+      const container = messagesContainerRef.current;
+      const rootMessages = container?.querySelectorAll<HTMLElement>('[data-message-node][data-level="0"]');
+      const lastMessage = rootMessages?.[rootMessages.length - 1] ?? null;
+      lastMessage?.focus();
+    });
+  });
 
-  const handleLoadNewerMessages = useCallback(async () => {
-    const previousWindowKey = latestWindowKeyRef.current;
-    const windowState = session?.messageWindow;
-    pendingWindowAnnouncementRef.current = {
-      kind: 'newer',
-      previousStartIndex: windowState?.startIndex ?? 0,
-      previousEndIndex: windowState?.endIndex ?? -1,
-      previousWindowKey,
-    };
-    try {
-      await loadNewerMessages();
-    } finally {
-      window.setTimeout(() => {
-        if (pendingWindowAnnouncementRef.current?.previousWindowKey === latestWindowKeyRef.current) {
-          pendingWindowAnnouncementRef.current = null;
-        }
-      }, 1_000);
-    }
-  }, [loadNewerMessages, session?.messageWindow]);
+  const handleLoadOlderMessages = useCallback(
+    (trigger: MessageWindowLoadTrigger) => runWindowLoad('older', trigger, loadOlderMessages),
+    [loadOlderMessages, runWindowLoad],
+  );
+
+  const handleLoadNewerMessages = useCallback(
+    (trigger: MessageWindowLoadTrigger) => runWindowLoad('newer', trigger, loadNewerMessages),
+    [loadNewerMessages, runWindowLoad],
+  );
 
   const rootClass =
     variant === 'page' ? 'chat-page chat-session-view' : 'chat-session-view chat-session-view--embedded';
