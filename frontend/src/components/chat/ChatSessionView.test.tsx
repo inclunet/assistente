@@ -871,10 +871,11 @@ describe('ChatSessionView', () => {
 
     await waitFor(() => {
       // Navegação explícita: a pessoa pediu, então o aviso não espera leitura.
-      expect(announceRequestMock).toHaveBeenCalledWith({
+      expect(announceRequestMock).toHaveBeenCalledWith(expect.objectContaining({
         message: 'chat.announce.messageWindowLoaded:1-2-10',
         eventType: 'user-action',
-      });
+        origin: expect.objectContaining({ surfaceId: 'boundary-surface' }),
+      }));
       expect(document.activeElement).toHaveAttribute('data-message-id', 'm1');
     });
 
@@ -894,10 +895,10 @@ describe('ChatSessionView', () => {
     );
 
     await waitFor(() => {
-      expect(announceRequestMock).toHaveBeenCalledWith({
+      expect(announceRequestMock).toHaveBeenCalledWith(expect.objectContaining({
         message: 'chat.announce.messageWindowLoaded:9-10-10',
         eventType: 'user-action',
-      });
+      }));
       expect(document.activeElement).toHaveAttribute('data-message-id', 'm2');
     });
   });
@@ -966,10 +967,10 @@ describe('ChatSessionView', () => {
         </WorkspacePanelProvider>,
       );
 
-      expect(announceRequestMock).toHaveBeenCalledWith({
+      expect(announceRequestMock).toHaveBeenCalledWith(expect.objectContaining({
         message: 'chat.announce.messageWindowLoaded:9-10-10',
         eventType: 'progress',
-      });
+      }));
     } finally {
       vi.useRealTimers();
     }
@@ -1022,11 +1023,13 @@ describe('ChatSessionView', () => {
     );
 
     // Progresso espera a leitura do conteúdo terminar no broker; user-action não.
+    // A origem viaja junto para o broker poder reavaliar a aba na hora de falar.
     await waitFor(() => {
-      expect(announceRequestMock).toHaveBeenCalledWith({
+      expect(announceRequestMock).toHaveBeenCalledWith(expect.objectContaining({
         message: 'chat.announce.messageWindowLoaded:9-10-10',
         eventType: 'progress',
-      });
+        origin: expect.objectContaining({ surfaceId: 'scroll-surface' }),
+      }));
     });
   });
 

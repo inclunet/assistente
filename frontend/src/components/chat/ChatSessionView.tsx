@@ -774,8 +774,14 @@ function ChatSessionViewContent({
         end: windowState.endIndex + 1,
         total: windowState.totalCount,
       });
-    announceRequest({ message, eventType });
-  }, [announceRequest, session?.messageWindow, t, usesLocalVisualWindowCount, visibleMessageCount]);
+    announceRequest({
+      message,
+      eventType,
+      // Sem origem o broker trataria a superfície como sempre ativa e falaria a
+      // paginação de uma aba que a pessoa já deixou para trás.
+      origin: { ...origin, conversationId: origin.conversationId ?? undefined },
+    });
+  }, [announceRequest, origin, session?.messageWindow, t, usesLocalVisualWindowCount, visibleMessageCount]);
 
   useEffect(() => {
     if (!isInteractiveSurface) return;
