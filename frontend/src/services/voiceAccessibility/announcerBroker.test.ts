@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   announceWithOrigin,
+  estimateAnnouncementReadingMs,
   registerAnnouncerSink,
   registerVoiceAccessibilityActiveResolver,
   unregisterAnnouncerSink,
@@ -55,6 +56,94 @@ describe('announcerBroker', () => {
     })).toBe(true);
 
     expect(sink).toHaveBeenCalledWith('Falha', 'assertive');
+  });
+
+  describe('proteção da leitura do conteúdo', () => {
+    const content = 'chat.assistant: A resposta completa que a pessoa está esperando ouvir.';
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('adia aviso secundário e o fala depois da leitura terminar', () => {
+      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
+      sink.mockClear();
+
+      expect(announceWithOrigin({
+        message: 'Mensagens 1 a 20 de 34 carregadas',
+        eventType: 'progress',
+      })).toBe(true);
+      expect(sink).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
+
+      expect(sink).toHaveBeenCalledWith('Mensagens 1 a 20 de 34 carregadas', 'polite');
+    });
+
+    it('guarda apenas o aviso mais recente entre os adiados', () => {
+      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
+      sink.mockClear();
+
+      announceWithOrigin({ message: 'Carregando mensagens', eventType: 'progress' });
+      announceWithOrigin({ message: 'Mensagens 1 a 20 de 34 carregadas', eventType: 'progress' });
+
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
+
+      expect(sink).toHaveBeenCalledTimes(1);
+      expect(sink).toHaveBeenCalledWith('Mensagens 1 a 20 de 34 carregadas', 'polite');
+    });
+
+    it('não adia erro nem resposta a uma ação da pessoa', () => {
+      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
+      sink.mockClear();
+
+      announceWithOrigin({ message: 'Falha ao enviar', eventType: 'error' });
+      announceWithOrigin({ message: 'Mensagens 1 a 20 de 34 carregadas', eventType: 'user-action' });
+
+      expect(sink).toHaveBeenNthCalledWith(1, 'Falha ao enviar', 'assertive');
+      expect(sink).toHaveBeenNthCalledWith(2, 'Mensagens 1 a 20 de 34 carregadas', 'polite');
+    });
+
+    it('deixa o conteúdo seguinte passar e reinicia a proteção', () => {
+      announceWithOrigin({ message: content, eventType: 'progress', protectsReading: true });
+      const segundo = 'chat.assistant: Segundo trecho da resposta.';
+      announceWithOrigin({ message: segundo, eventType: 'completion', protectsReading: true });
+      sink.mockClear();
+
+      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(segundo) - 1);
+      expect(sink).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(1);
+      expect(sink).toHaveBeenCalledWith('Mensagens carregadas', 'polite');
+    });
+
+    it('fala o adiado depois do anúncio que passou na frente', () => {
+      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
+      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
+      const erro = 'Falha ao enviar';
+      announceWithOrigin({ message: erro, eventType: 'error' });
+      sink.mockClear();
+
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(erro));
+
+      expect(sink).toHaveBeenCalledWith('Mensagens carregadas', 'polite');
+    });
+
+    it('para de proteger quando o announcer é desmontado', () => {
+      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
+      unregisterAnnouncerSink();
+      registerAnnouncerSink(sink);
+      sink.mockClear();
+
+      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
+
+      expect(sink).toHaveBeenCalledWith('Mensagens carregadas', 'polite');
+    });
   });
 
   it('não deduplica mensagens idênticas quando o chamador solicita novo anúncio', () => {
