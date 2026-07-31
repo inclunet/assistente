@@ -70,9 +70,9 @@ type Gateway struct {
 	saveAudio      SaveAudioFunc     // Opcional: salva áudio no DB
 	// cancelStream cancela LLM em andamento (barge-in) antes de novo turno de canal.
 	cancelStream func(conversationID string)
-	// speechLanguage resolve o idioma do perfil para localizar rótulos falados
-	// (ex.: marcador de bloco de código). Nil → inglês.
-	speechLanguage func() string
+	// speechLanguage resolve o idioma do perfil do canal para localizar rótulos
+	// falados (ex.: marcador de bloco de código). Nil → inglês.
+	speechLanguage func(channel string) string
 	// reconcileMu serializa ReconcilePending (boot + reload pós-login).
 	reconcileMu sync.Mutex
 	// reconcileRetrySem limita goroutines de retry no startup (M14).
@@ -90,8 +90,10 @@ func (g *Gateway) SetCancelStream(fn func(conversationID string)) {
 }
 
 // SetSpeechLanguage configura o resolvedor do idioma usado nos rótulos
-// falados/legíveis das respostas enviadas a canais externos.
-func (g *Gateway) SetSpeechLanguage(fn func() string) {
+// falados/legíveis das respostas enviadas a canais externos. O idioma é
+// resolvido por canal: cada canal pode apontar para um perfil próprio, e o
+// texto entregue precisa casar com o perfil que sintetiza o áudio.
+func (g *Gateway) SetSpeechLanguage(fn func(channel string) string) {
 	if g == nil {
 		return
 	}
@@ -100,14 +102,14 @@ func (g *Gateway) SetSpeechLanguage(fn func() string) {
 	g.mu.Unlock()
 }
 
-func (g *Gateway) codeBlockSpeechLabel() string {
+func (g *Gateway) codeBlockSpeechLabel(channel string) string {
 	g.mu.RLock()
 	resolve := g.speechLanguage
 	g.mu.RUnlock()
 	if resolve == nil {
 		return textutil.DefaultCodeBlockSpeechLabel
 	}
-	return textutil.CodeBlockSpeechLabel(resolve())
+	return textutil.CodeBlockSpeechLabel(resolve(channel))
 }
 
 // NewGateway cria um novo Gateway de mensageria.
@@ -506,7 +508,7 @@ func (g *Gateway) deliverChannelResponse(ctx context.Context, channel, chatID, r
 
 	// Texto falável / legível sem sintaxe Markdown (TTS + outbound texto).
 	// O conteúdo no chat permanece em Markdown; só o que sai para canais/fala.
-	plainResponse := textutil.StripMarkdownForSpeechLabeled(response, g.codeBlockSpeechLabel())
+	plainResponse := textutil.StripMarkdownForSpeechLabeled(response, g.codeBlockSpeechLabel(channel))
 	if strings.TrimSpace(plainResponse) == "" {
 		// Strip pode zerar conteúdo só-sintaxe; fallback ao original trimado.
 		plainResponse = strings.TrimSpace(response)

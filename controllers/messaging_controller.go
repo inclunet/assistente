@@ -118,6 +118,24 @@ func (c *MessagingController) credentialContext() context.Context {
 	return ctx
 }
 
+// profileForChannel resolve o perfil que rege as respostas de um canal: o
+// perfil configurado no canal quando existir, com fallback para o ativo.
+// Texto entregue e áudio sintetizado precisam sair do mesmo perfil.
+func (c *MessagingController) profileForChannel(channel string) *profiles.Profile {
+	if c == nil || c.profileMgr == nil {
+		return nil
+	}
+	if chCfg, _ := channels.Load(channel); chCfg != nil && chCfg.Profile != "" {
+		if p, err := c.profileMgr.Get(chCfg.Profile); err == nil {
+			return p
+		}
+	}
+	if p, err := c.profileMgr.GetActive(); err == nil {
+		return p
+	}
+	return nil
+}
+
 // Init inicializa o gateway e registra as tools de mensageria no ToolRegistry.
 // Não conecta adapters — chame StartAdapters() após o ChatController existir.
 func (c *MessagingController) Init() {
@@ -141,17 +159,7 @@ func (c *MessagingController) Init() {
 		default:
 		}
 
-		var profile *profiles.Profile
-		if chCfg, _ := channels.Load(channel); chCfg != nil && chCfg.Profile != "" {
-			if p, err := c.profileMgr.Get(chCfg.Profile); err == nil {
-				profile = p
-			}
-		}
-		if profile == nil {
-			if p, err := c.profileMgr.GetActive(); err == nil {
-				profile = p
-			}
-		}
+		profile := c.profileForChannel(channel)
 
 		if profile != nil {
 			if !profile.ShouldRespondWithAudio(incomingIsAudio) {
@@ -227,12 +235,9 @@ func (c *MessagingController) Init() {
 		saveAudio,
 	)
 
-	c.msgGateway.SetSpeechLanguage(func() string {
-		if c.profileMgr == nil {
-			return ""
-		}
-		p, err := c.profileMgr.GetActive()
-		if err != nil || p == nil {
+	c.msgGateway.SetSpeechLanguage(func(channel string) string {
+		p := c.profileForChannel(channel)
+		if p == nil {
 			return ""
 		}
 		return p.Input.Language
