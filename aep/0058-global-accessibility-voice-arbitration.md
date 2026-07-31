@@ -69,23 +69,25 @@ A requisição de anúncio marca a fala do conteúdo do assistente com
 
 - **passa na hora**: erro, resposta direta a uma ação da pessoa (`user-action`)
   e um novo conteúdo do assistente, que substitui o anterior de propósito;
-- **espera a leitura terminar**: avisos automáticos de estado (`progress`,
-  `system`), como paginação da janela de mensagens.
+- **espera a leitura terminar**: conclusão de resposta e os avisos automáticos
+  que declaram continuar verdadeiros depois da espera, como o intervalo
+  carregado da janela de mensagens;
+- **é descartado**: o resto dos avisos automáticos de estado.
+
+Esperar é exceção, não o padrão, porque a maior parte do que a interface anuncia
+sozinha descreve uma atividade em curso — "carregando", "ouvindo". Quando
+chegasse a vez desses avisos, a atividade já teria terminado e eles descreveriam
+o passado; por isso quem quer esperar precisa declarar que o aviso continua
+verdadeiro depois, e o silêncio é a escolha correta para o restante. Conclusão
+de resposta espera sem precisar declarar nada: é evento, não estado, e a aba
+inativa perderia o anúncio que a seção 2 exige.
 
 O que espera é falado quando a leitura termina, um de cada vez, para que um
-anúncio não substitua o outro na live region. Aviso de estado transitório
-(`progress`, `system`) é descartado se a conversa andar nesse meio tempo — mais
-conteúdo, um erro, uma ação da pessoa — porque descreveria um instante que já
-passou, e pela mesma razão não espera indefinidamente. Conclusão de resposta é
-evento, não estado: continua verdadeira depois e não pode ser descartada, senão
-a aba inativa perderia o anúncio que a seção 2 exige.
-
-Quem espera é reavaliado na hora de falar, não no momento em que foi produzido:
-a aba de origem precisa continuar podendo anunciar aquele evento pela regra da
-seção 2, e o anúncio pode declarar uma condição de validade — um aviso de
-atividade em curso não é falado se a atividade já terminou. Aceitar um anúncio
-não é o mesmo que falá-lo, então o descarte é informado a quem o produziu, que
-pode tentar de novo quando fizer sentido.
+anúncio não substitua o outro na live region. Um aviso de estado ainda é
+descartado se a conversa andar nesse meio tempo — mais conteúdo, um erro, uma
+ação da pessoa — e não espera indefinidamente. A regra de aba inativa da seção 2
+é reavaliada na hora de falar, não na de produzir: a pessoa pode ter trocado de
+aba durante a espera.
 
 A fila tem um teto. Ao enchê-la, o aviso de estado cede o lugar primeiro; se só
 restarem conclusões, sai a mais antiga. Um despejo maior que isso ao fim da
@@ -95,8 +97,8 @@ A duração da leitura é estimada pelo tamanho do texto, porque não existe API
 avise quando o leitor de telas termina. Superestimar só atrasa um aviso
 secundário; subestimar corta o conteúdo — por isso a estimativa é generosa.
 
-Só o último anúncio adiado é guardado: são estados transitórios em que o mais
-recente descreve a situação atual ("carregando" é substituído por "carregadas").
+Entre os avisos de estado que esperam, só o último é guardado: o mais recente é
+o que descreve a situação atual (um intervalo carregado substitui o anterior).
 
 Quem dispara o anúncio precisa classificar o evento com honestidade. Paginação
 por scroll é `progress` porque acontece sozinha, inclusive no instante em que uma

@@ -780,6 +780,9 @@ function ChatSessionViewContent({
       // Sem origem o broker trataria a superfície como sempre ativa e falaria a
       // paginação de uma aba que a pessoa já deixou para trás.
       origin: { ...origin, conversationId: origin.conversationId ?? undefined },
+      // Diferente de um "carregando", o intervalo carregado continua sendo o
+      // que está na tela quando a leitura da resposta terminar.
+      waitsForReading: true,
     });
   }, [announceRequest, origin, session?.messageWindow, t, usesLocalVisualWindowCount, visibleMessageCount]);
 

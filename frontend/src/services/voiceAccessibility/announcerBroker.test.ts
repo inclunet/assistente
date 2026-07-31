@@ -79,6 +79,7 @@ describe('announcerBroker', () => {
       expect(announceWithOrigin({
         message: 'Mensagens 1 a 20 de 34 carregadas',
         eventType: 'progress',
+        waitsForReading: true,
       })).toBe(true);
       expect(sink).not.toHaveBeenCalled();
 
@@ -91,8 +92,16 @@ describe('announcerBroker', () => {
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
       sink.mockClear();
 
-      announceWithOrigin({ message: 'Carregando mensagens', eventType: 'progress' });
-      announceWithOrigin({ message: 'Mensagens 1 a 20 de 34 carregadas', eventType: 'progress' });
+      announceWithOrigin({
+        message: 'Mensagens 1 a 10 de 34 carregadas',
+        eventType: 'progress',
+        waitsForReading: true,
+      });
+      announceWithOrigin({
+        message: 'Mensagens 1 a 20 de 34 carregadas',
+        eventType: 'progress',
+        waitsForReading: true,
+      });
 
       vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
 
@@ -114,7 +123,7 @@ describe('announcerBroker', () => {
     it('desiste do aviso que esperou tempo demais', () => {
       const respostaLonga = `chat.assistant: ${'palavra '.repeat(200)}`;
       announceWithOrigin({ message: respostaLonga, eventType: 'completion', protectsReading: true });
-      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
+      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress', waitsForReading: true });
       sink.mockClear();
 
       vi.advanceTimersByTime(estimateAnnouncementReadingMs(respostaLonga));
@@ -124,7 +133,7 @@ describe('announcerBroker', () => {
 
     it('descarta o adiado quando mais conteúdo chega', () => {
       announceWithOrigin({ message: content, eventType: 'progress', protectsReading: true });
-      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
+      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress', waitsForReading: true });
       announceWithOrigin({
         message: 'chat.assistant: Segundo trecho da resposta.',
         eventType: 'completion',
@@ -143,7 +152,7 @@ describe('announcerBroker', () => {
       announceWithOrigin({ message: segundo, eventType: 'completion', protectsReading: true });
       sink.mockClear();
 
-      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
+      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress', waitsForReading: true });
       vi.advanceTimersByTime(estimateAnnouncementReadingMs(segundo) - 1);
       expect(sink).not.toHaveBeenCalled();
 
@@ -153,7 +162,11 @@ describe('announcerBroker', () => {
 
     it('descarta o adiado quando outro anúncio passa na frente', () => {
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
-      announceWithOrigin({ message: 'Mensagens 1 a 20 de 34 carregadas', eventType: 'progress' });
+      announceWithOrigin({
+        message: 'Mensagens 1 a 20 de 34 carregadas',
+        eventType: 'progress',
+        waitsForReading: true,
+      });
       // Navegação explícita muda a janela: o aviso automático de antes já não
       // descreve o estado atual.
       announceWithOrigin({ message: 'Mensagens 25 a 34 de 34 carregadas', eventType: 'user-action' });
@@ -217,7 +230,7 @@ describe('announcerBroker', () => {
       vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
       sink.mockClear();
 
-      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
+      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress', waitsForReading: true });
       expect(sink).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(estimateAnnouncementReadingMs('Chat B: terminou de responder'));
@@ -226,7 +239,11 @@ describe('announcerBroker', () => {
 
     it('deixa um estado mais novo substituir o aviso transitório recém-falado', () => {
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
-      announceWithOrigin({ message: 'Mensagens 1 a 20 de 34 carregadas', eventType: 'progress' });
+      announceWithOrigin({
+        message: 'Mensagens 1 a 20 de 34 carregadas',
+        eventType: 'progress',
+        waitsForReading: true,
+      });
       vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
       sink.mockClear();
 
@@ -238,7 +255,7 @@ describe('announcerBroker', () => {
     it('sacrifica o aviso de estado antes de uma conclusão quando a fila enche', () => {
       unregisterResolver = registerVoiceAccessibilityActiveResolver(onlyActiveWithoutTab);
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
-      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
+      announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress', waitsForReading: true });
       for (let index = 0; index < 5; index += 1) {
         announceWithOrigin({
           message: 'terminou de responder',
@@ -261,34 +278,17 @@ describe('announcerBroker', () => {
       ]);
     });
 
-    it('não fala o aviso cuja atividade terminou durante a espera', () => {
-      let carregando = true;
-      const onDiscarded = vi.fn();
+    it('descarta o aviso de atividade em curso em vez de adiá-lo', () => {
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
-      announceWithOrigin({
-        message: 'Carregando mensagens',
-        eventType: 'progress',
-        isStillRelevant: () => carregando,
-        onDiscarded,
-      });
       sink.mockClear();
 
-      carregando = false;
-      vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
+      // "Carregando" não declara sobreviver à espera: quando chegasse a vez
+      // dele, o carregamento já teria terminado.
+      expect(announceWithOrigin({ message: 'Carregando mensagens', eventType: 'progress' })).toBe(false);
+
+      vi.advanceTimersByTime(MAX_ADVANCE_MS);
 
       expect(sink).not.toHaveBeenCalled();
-      expect(onDiscarded).toHaveBeenCalledTimes(1);
-    });
-
-    it('avisa quem enfileirou quando a conversa anda e o aviso é descartado', () => {
-      const onDiscarded = vi.fn();
-      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
-      announceWithOrigin({ message: 'Carregando mensagens', eventType: 'progress', onDiscarded });
-      expect(onDiscarded).not.toHaveBeenCalled();
-
-      announceWithOrigin({ message: 'Falha ao enviar', eventType: 'error' });
-
-      expect(onDiscarded).toHaveBeenCalledTimes(1);
     });
 
     it('reavalia a aba de origem na hora de falar o adiado', () => {
@@ -296,6 +296,7 @@ describe('announcerBroker', () => {
       announceWithOrigin({
         message: 'Mensagens carregadas',
         eventType: 'progress',
+        waitsForReading: true,
         origin: { tabId: 'tab-1', title: 'Chat A' },
       });
       sink.mockClear();
