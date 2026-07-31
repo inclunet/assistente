@@ -80,6 +80,11 @@ passou, e pela mesma razão não espera indefinidamente. Conclusão de resposta 
 evento, não estado: continua verdadeira depois e não pode ser descartada, senão
 a aba inativa perderia o anúncio que a seção 2 exige.
 
+Quem espera é reavaliado na hora de falar, não no momento em que foi produzido:
+a aba de origem precisa continuar podendo anunciar aquele evento pela regra da
+seção 2, e o anúncio pode declarar uma condição de validade — um aviso de
+atividade em curso não é falado se a atividade já terminou.
+
 A fila tem um teto. Ao enchê-la, o aviso de estado cede o lugar primeiro; se só
 restarem conclusões, sai a mais antiga. Um despejo maior que isso ao fim da
 leitura já não é utilizável e cai na regra de ruído da seção 2.

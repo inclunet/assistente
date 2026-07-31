@@ -61,6 +61,8 @@ describe('announcerBroker', () => {
   describe('proteção da leitura do conteúdo', () => {
     const content = 'chat.assistant: A resposta completa que a pessoa está esperando ouvir.';
     const MAX_ADVANCE_MS = 120_000;
+    /** A aba em foco é a que fala o conteúdo; as com `tabId` estão em segundo plano. */
+    const onlyActiveWithoutTab = (origin?: { tabId?: string }) => !origin?.tabId;
 
     beforeEach(() => {
       vi.useFakeTimers();
@@ -163,15 +165,13 @@ describe('announcerBroker', () => {
     });
 
     it('não perde conclusão de aba inativa quando a conversa anda', () => {
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(onlyActiveWithoutTab);
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
-      unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
       announceWithOrigin({
         message: 'terminou de responder',
         eventType: 'completion',
         origin: { tabId: 'tab-2', title: 'Chat B' },
       });
-      unregisterResolver();
-      unregisterResolver = undefined;
 
       const seguinte = 'chat.assistant: Continuando a resposta.';
       announceWithOrigin({ message: seguinte, eventType: 'completion', protectsReading: true });
@@ -183,8 +183,8 @@ describe('announcerBroker', () => {
     });
 
     it('fala um adiado por vez para um não substituir o outro', () => {
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(onlyActiveWithoutTab);
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
-      unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
       announceWithOrigin({
         message: 'terminou de responder',
         eventType: 'completion',
@@ -195,8 +195,6 @@ describe('announcerBroker', () => {
         eventType: 'completion',
         origin: { tabId: 'tab-3', title: 'Chat C' },
       });
-      unregisterResolver();
-      unregisterResolver = undefined;
       sink.mockClear();
 
       vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
@@ -208,15 +206,13 @@ describe('announcerBroker', () => {
     });
 
     it('protege a conclusão adiada enquanto ela está sendo falada', () => {
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(onlyActiveWithoutTab);
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
-      unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
       announceWithOrigin({
         message: 'terminou de responder',
         eventType: 'completion',
         origin: { tabId: 'tab-2', title: 'Chat B' },
       });
-      unregisterResolver();
-      unregisterResolver = undefined;
 
       vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
       sink.mockClear();
@@ -240,9 +236,9 @@ describe('announcerBroker', () => {
     });
 
     it('sacrifica o aviso de estado antes de uma conclusão quando a fila enche', () => {
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(onlyActiveWithoutTab);
       announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
       announceWithOrigin({ message: 'Mensagens carregadas', eventType: 'progress' });
-      unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
       for (let index = 0; index < 5; index += 1) {
         announceWithOrigin({
           message: 'terminou de responder',
@@ -250,8 +246,6 @@ describe('announcerBroker', () => {
           origin: { tabId: `tab-${index}`, title: `Chat ${index}` },
         });
       }
-      unregisterResolver();
-      unregisterResolver = undefined;
       sink.mockClear();
 
       // Cada conclusão é falada por vez; o aviso de estado cedeu o lugar.
@@ -265,6 +259,39 @@ describe('announcerBroker', () => {
         'Chat 3: terminou de responder',
         'Chat 4: terminou de responder',
       ]);
+    });
+
+    it('não fala o aviso cuja atividade terminou durante a espera', () => {
+      let carregando = true;
+      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
+      announceWithOrigin({
+        message: 'Carregando mensagens',
+        eventType: 'progress',
+        isStillRelevant: () => carregando,
+      });
+      sink.mockClear();
+
+      carregando = false;
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
+
+      expect(sink).not.toHaveBeenCalled();
+    });
+
+    it('reavalia a aba de origem na hora de falar o adiado', () => {
+      announceWithOrigin({ message: content, eventType: 'completion', protectsReading: true });
+      announceWithOrigin({
+        message: 'Mensagens carregadas',
+        eventType: 'progress',
+        origin: { tabId: 'tab-1', title: 'Chat A' },
+      });
+      sink.mockClear();
+
+      // A pessoa trocou de aba enquanto o aviso esperava: progresso de aba
+      // inativa não é anunciado.
+      unregisterResolver = registerVoiceAccessibilityActiveResolver(() => false);
+      vi.advanceTimersByTime(estimateAnnouncementReadingMs(content));
+
+      expect(sink).not.toHaveBeenCalled();
     });
 
     it('para de proteger quando o announcer é desmontado', () => {

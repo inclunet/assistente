@@ -17,6 +17,12 @@ export interface VoiceAnnounceRequest extends VoiceAccessibilityRequestBase {
    * terminar em vez de atropelá-la.
    */
   protectsReading?: boolean;
+  /**
+   * Consultado na hora de falar um anúncio que esperou. Serve para avisos que
+   * descrevem uma atividade em curso ("carregando"): se ela já terminou,
+   * dizê-los depois seria descrever algo que não está acontecendo.
+   */
+  isStillRelevant?: () => boolean;
 }
 
 type AnnounceSink = (message: string, priority: AnnouncePriority) => void;
@@ -56,7 +62,11 @@ const MAX_TRANSIENT_WAIT_MS = 30_000;
 const MAX_DEFERRED_QUEUE = 5;
 
 interface DeferredAnnouncement {
-  message: string;
+  /**
+   * A requisição inteira, não o texto pronto: o contexto pode mudar durante a
+   * espera, e o que vale é o estado do momento em que o anúncio for falado.
+   */
+  request: VoiceAnnounceRequest;
   priority: AnnouncePriority;
   deferredAt: number;
   /**
@@ -135,6 +145,12 @@ function shouldAnnounce(request: VoiceAnnounceRequest): boolean {
   return INACTIVE_ALLOWED_EVENTS.has(request.eventType ?? 'progress');
 }
 
+function resolveMessage(request: VoiceAnnounceRequest): string {
+  return originActiveResolver(request.origin)
+    ? request.message
+    : formatInactiveAnnouncement(request);
+}
+
 function emit(message: string, priority: AnnouncePriority) {
   if (announceSink) {
     announceSink(message, priority);
@@ -148,17 +164,28 @@ function emit(message: string, priority: AnnouncePriority) {
   });
 }
 
+/**
+ * Um anúncio só é falado se ainda fizer sentido no momento em que chega a vez
+ * dele: o estado que ele descreve pode ter acabado e a aba de origem pode ter
+ * deixado de ser a ativa enquanto ele esperava.
+ */
+function isDeferredStillWorthSpeaking(item: DeferredAnnouncement, now: number): boolean {
+  if (!item.durable && now - item.deferredAt > MAX_TRANSIENT_WAIT_MS) return false;
+  if (!shouldAnnounce(item.request)) return false;
+  return item.request.isStillRelevant?.() !== false;
+}
+
 function flushNextDeferredAnnouncement() {
   deferredTimer = null;
   const now = Date.now();
-  const next = deferredQueue.find(
-    (item) => item.durable || now - item.deferredAt <= MAX_TRANSIENT_WAIT_MS,
-  );
-  deferredQueue = next ? deferredQueue.slice(deferredQueue.indexOf(next) + 1) : [];
+  const nextIndex = deferredQueue.findIndex((item) => isDeferredStillWorthSpeaking(item, now));
+  const next = nextIndex >= 0 ? deferredQueue[nextIndex] : null;
+  deferredQueue = next ? deferredQueue.slice(nextIndex + 1) : [];
   if (!next) return;
 
-  emit(next.message, next.priority);
-  const readingMs = estimateAnnouncementReadingMs(next.message);
+  const message = resolveMessage(next.request);
+  emit(message, next.priority);
+  const readingMs = estimateAnnouncementReadingMs(message);
   if (next.durable) {
     // Este aviso esperou justamente porque não pode se perder; deixá-lo ser
     // substituído no meio o perderia do mesmo jeito. Um aviso de estado, ao
@@ -211,15 +238,12 @@ function shouldWaitForReading(request: VoiceAnnounceRequest, now: number): boole
 export function announceWithOrigin(request: VoiceAnnounceRequest): boolean {
   if (!shouldAnnounce(request)) return false;
 
-  const message = originActiveResolver(request.origin)
-    ? request.message
-    : formatInactiveAnnouncement(request);
   const priority = request.announcePriority ?? (request.eventType === 'error' ? 'assertive' : 'polite');
   const now = Date.now();
 
   if (shouldWaitForReading(request, now)) {
     enqueueDeferredAnnouncement({
-      message,
+      request,
       priority,
       deferredAt: now,
       durable: request.eventType === 'completion',
@@ -227,6 +251,8 @@ export function announceWithOrigin(request: VoiceAnnounceRequest): boolean {
     scheduleDeferredFlush(readingProtectedUntil - now);
     return true;
   }
+
+  const message = resolveMessage(request);
 
   // Conteúdo novo reinicia a proteção; erro e ação da pessoa a encerram, porque
   // já substituíram a leitura que estava sendo protegida.
