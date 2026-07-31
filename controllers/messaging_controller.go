@@ -182,7 +182,11 @@ func (c *MessagingController) Init() {
 			return nil, fmt.Errorf("speech manager indisponível para TTS")
 		}
 
-		plain := textutil.StripMarkdownForSpeech(text)
+		speechLanguage := ""
+		if profile != nil {
+			speechLanguage = profile.Input.Language
+		}
+		plain := textutil.StripMarkdownForSpeechLabeled(text, textutil.CodeBlockSpeechLabel(speechLanguage))
 		if strings.TrimSpace(plain) == "" {
 			plain = strings.TrimSpace(text)
 		}
@@ -222,6 +226,17 @@ func (c *MessagingController) Init() {
 		synthesizeTTS,
 		saveAudio,
 	)
+
+	c.msgGateway.SetSpeechLanguage(func() string {
+		if c.profileMgr == nil {
+			return ""
+		}
+		p, err := c.profileMgr.GetActive()
+		if err != nil || p == nil {
+			return ""
+		}
+		return p.Input.Language
+	})
 
 	if c.toolRegistry != nil {
 		sendMsgTool := msgtool.NewSendMessageTool(c.msgGateway)

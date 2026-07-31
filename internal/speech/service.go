@@ -58,6 +58,19 @@ func NewService(cfg ServiceConfig) *Service {
 	}
 }
 
+// speechLanguage devolve o idioma de fala do perfil ativo. Vazio quando o
+// perfil não está disponível — os rótulos falados caem no padrão em inglês.
+func (s *Service) speechLanguage() string {
+	if s.profileProvider == nil {
+		return ""
+	}
+	p, err := s.profileProvider.GetActive()
+	if err != nil || p == nil {
+		return ""
+	}
+	return p.Input.Language
+}
+
 // GetSpeechManager retorna o speech manager atual (pode ser nil).
 func (s *Service) GetSpeechManager() *SpeechManager {
 	return s.speechManager
@@ -141,7 +154,7 @@ func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID
 	}
 
 	rawContent := content
-	content = textutil.StripMarkdownForSpeech(content)
+	content = textutil.StripMarkdownForSpeechLabeled(content, textutil.CodeBlockSpeechLabel(s.speechLanguage()))
 	if strings.TrimSpace(content) == "" {
 		// Strip pode zerar só-sintaxe; fallback ao texto persistido (mesmo padrão do gateway).
 		content = strings.TrimSpace(rawContent)
