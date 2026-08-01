@@ -18,6 +18,10 @@ import (
 // precisa saber disso (AEP-0084 D10).
 const cancelGrace = 30 * time.Second
 
+// closeTimeout limita o session/close. Encerrar a conversa não pode segurar a
+// saída do app por causa de um agente que não responde.
+const closeTimeout = 5 * time.Second
+
 type session struct {
 	id  string
 	cwd string
@@ -416,7 +420,13 @@ func (s *session) Close(ctx context.Context) error {
 	if !s.cn.caps.CloseSession {
 		return nil
 	}
-	_, err := sdk.SendRequest[sdk.CloseSessionResponse](s.cn.rpc, ctx, sdk.AgentMethodSessionClose,
+	// Mesmo motivo do cancelamento acima: no encerramento do app o contexto de
+	// quem fechou costuma vir morto, e a sessão ficaria aberta no agente. O
+	// prazo próprio evita o outro extremo, que é segurar a saída do app
+	// esperando um agente que não responde.
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
+	defer cancel()
+	_, err := sdk.SendRequest[sdk.CloseSessionResponse](s.cn.rpc, cctx, sdk.AgentMethodSessionClose,
 		sdk.CloseSessionRequest{SessionId: sdk.SessionId(s.id)})
 	if err != nil {
 		return wrapCallError(fmt.Sprintf("encerrar a sessão %s", s.id), err)

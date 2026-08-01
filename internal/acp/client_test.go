@@ -487,7 +487,11 @@ func TestFecharASessaoCancelaOTurnoMesmoComContextoMorto(t *testing.T) {
 
 	morto, cancelar := context.WithCancel(context.Background())
 	cancelar()
-	_ = sess.Close(morto)
+	// O session/close também não pode depender do contexto de saída: a sessão
+	// sumiria daqui e continuaria aberta no agente.
+	if err := sess.Close(morto); err != nil {
+		t.Fatalf("encerrar sessão com contexto morto: %v", err)
+	}
 
 	// O agente falso desiste sozinho depois de 20s; um limite bem menor separa
 	// o cancelamento entregue da desistência por tédio.
