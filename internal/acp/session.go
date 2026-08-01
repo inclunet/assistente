@@ -336,6 +336,14 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 	}
 	seq := s.startTurn()
 
+	// O que estiver pendente com quem decide caduca no instante do "pare", e
+	// não quando esta função acordar para tratar o cancelamento: nessa brecha,
+	// uma permissão respondida — por uma política de aprovação automática, por
+	// exemplo — ainda chegaria ao agente como autorização. Autorizar depois do
+	// "pare" é o que o D9 não admite.
+	stopWatching := context.AfterFunc(ctx, s.signalCancel)
+	defer stopWatching()
+
 	s.setSink(sink)
 	defer s.setSink(nil)
 
