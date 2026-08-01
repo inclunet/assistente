@@ -134,10 +134,15 @@ de teste que fala o protocolo), não contra o Cursor real.
 ### D3. Um processo por provider, sessões multiplexadas
 
 O `agent acp` aceita várias sessões na mesma conexão. Mantemos **um processo por
-provider ACP configurado**, iniciado sob demanda no primeiro turno e encerrado
-no shutdown do app, com as sessões multiplexadas por `sessionId`. Isso evita
-pagar o custo de spawn e autenticação por conversa. Morte do processo é tratada
-como o MCP trata: reconecta com backoff e marca as sessões como perdidas.
+provider ACP configurado**, com as sessões multiplexadas por `sessionId`. Ele é
+iniciado sob demanda **no primeiro uso, seja qual for** — um turno de chat, uma
+consulta de modelos na tela de settings ou um health check — e encerrado no
+shutdown do app. Quem precisa do agente pede a conexão ao gerenciador; nunca
+spawna por conta própria. Isso evita pagar o custo de spawn e autenticação mais
+de uma vez e impede processos duplicados do mesmo provider.
+
+Morte do processo é tratada como o MCP trata: reconecta com backoff e marca as
+sessões como perdidas.
 
 ### D4. Sessão ACP é o estado da conversa
 
@@ -174,10 +179,12 @@ troca usa `session/set_config_option` (que devolve o estado completo, incluindo
 opções dependentes) com fallback para `session/set_model`.
 
 `GetModels` é chamado fora de uma conversa (tela de settings), mas a descoberta
-no ACP é acoplada à sessão. Resolvemos com uma **sessão efêmera** (spawn →
-`initialize` → `authenticate` → `session/new` → leitura → descarte) e **cache**
-por provider, invalidado quando um `config_option_update` chega ou quando a
-pessoa pede refresh na UI.
+no ACP é acoplada à sessão. Resolvemos com uma **sessão efêmera**: `session/new`
+→ leitura das opções → descarte da sessão, **na mesma conexão do D3** (o
+processo do provider, iniciado ali se ainda não estava de pé). Efêmera é a
+sessão, nunca o processo. O resultado vai para um **cache** por provider,
+invalidado quando um `config_option_update` chega ou quando a pessoa pede
+refresh na UI — assim a tela de settings não abre uma sessão por consulta.
 
 O agente também troca de modelo sozinho (fallback de rate limit, por exemplo) e
 notifica via `config_option_update`. Isso vira um evento para a UI refletir o
