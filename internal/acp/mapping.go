@@ -205,10 +205,13 @@ func configValuesFrom(options sdk.SessionConfigSelectOptions) []ConfigValue {
 // O rótulo fica vazio de propósito: o formato legado não traz um, e inventar um
 // aqui seria enfiar texto de interface — em inglês — dentro do transporte. Quem
 // exibe traduz a partir da categoria.
+// modeCategory é a categoria reservada do ACP para o modo da sessão.
+const modeCategory = string(sdk.SessionConfigOptionCategoryMode)
+
 func modeOptionFrom(state *sdk.SessionModeState) ConfigOption {
 	option := ConfigOption{
 		ID:           "mode",
-		Category:     string(sdk.SessionConfigOptionCategoryMode),
+		Category:     modeCategory,
 		CurrentValue: string(state.CurrentModeId),
 	}
 	for _, mode := range state.AvailableModes {
@@ -223,12 +226,35 @@ func withModeOption(options []ConfigOption, state *sdk.SessionModeState) []Confi
 	if state == nil {
 		return options
 	}
-	for _, option := range options {
-		if option.Category == string(sdk.SessionConfigOptionCategoryMode) {
-			return options
-		}
+	if hasMode(options) {
+		return options
 	}
 	return append(options, modeOptionFrom(state))
+}
+
+// withKnownMode preserva o modo que a sessão já conhecia quando o agente manda
+// o conjunto de opções sem ele. Acontece com quem anuncia o modo pelo formato
+// legado: o conjunto novo fala só de modelo, e sem isso o seletor de modo
+// desapareceria no meio da conversa.
+func withKnownMode(fresh, known []ConfigOption) []ConfigOption {
+	if len(fresh) == 0 || hasMode(fresh) {
+		return fresh
+	}
+	for _, option := range known {
+		if option.Category == modeCategory {
+			return append(fresh, option)
+		}
+	}
+	return fresh
+}
+
+func hasMode(options []ConfigOption) bool {
+	for _, option := range options {
+		if option.Category == modeCategory {
+			return true
+		}
+	}
+	return false
 }
 
 func permissionOptionsFrom(options []sdk.PermissionOption) []PermissionOption {

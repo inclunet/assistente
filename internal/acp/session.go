@@ -114,22 +114,43 @@ func (s *session) setConfigOptions(options []ConfigOption) {
 	s.options = options
 }
 
+// setCurrentMode acompanha a troca de modo que o agente anuncia pelo formato
+// legado. Sem isso o seletor continuaria mostrando o modo anterior, e a pessoa
+// acharia que está em "agente" quando o agente já passou para "plano".
+func (s *session) setCurrentMode(mode string) {
+	if mode == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.options {
+		if s.options[i].Category == modeCategory {
+			s.options[i].CurrentValue = mode
+			return
+		}
+	}
+}
+
 func (s *session) setSink(sink UpdateSink) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sink = sink
 }
 
-// deliver entrega uma atualização ao turno corrente. Fora de turno (ou depois
-// que quem pediu desistiu) o evento não é entregue: renderizar texto num turno
-// que a pessoa considera fechado seria pior do que perdê-lo.
+// deliver entrega uma atualização ao turno corrente. A entrega vale enquanto o
+// turno não retornou — o que inclui o rastro que o agente ainda emite depois de
+// um cancelamento, porque é ali que ele conta o que chegou a fazer no disco.
+// Fora de turno o evento é descartado: não há a quem entregar.
 //
 // O estado da sessão é exceção e se atualiza de qualquer forma. O agente troca
 // de modelo por conta própria, inclusive entre turnos, e esquecer isso deixaria
 // a pessoa achando que fala com outro modelo.
 func (s *session) deliver(update Update) {
-	if update.Kind == UpdateConfigOptions {
-		s.setConfigOptions(update.ConfigOptions)
+	switch update.Kind {
+	case UpdateConfigOptions:
+		s.setConfigOptions(withKnownMode(update.ConfigOptions, s.ConfigOptions()))
+	case UpdateMode:
+		s.setCurrentMode(update.Mode)
 	}
 
 	s.mu.Lock()
@@ -322,6 +343,13 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 	case out := <-done:
 		return s.finishTurn(out)
 	case <-ctx.Done():
+		// A entrega continua ligada durante o prazo de graça, de propósito. O
+		// que o agente emite enquanto se recolhe é justamente o desfecho do que
+		// ele já tinha começado — a ferramenta que terminou de gravar o arquivo,
+		// o comando que ainda rodou. Calar isso aqui deixaria a lista de
+		// ferramentas parada em "em andamento" e esconderia da pessoa uma
+		// escrita em disco que aconteceu de verdade.
+		//
 		// O envio do cancelamento não pode segurar o prazo: escrever para o
 		// agente é I/O que pode travar, e travaria quem chamou justamente na
 		// hora em que ele pediu para parar. A goroutine não fica presa para

@@ -55,6 +55,15 @@ func (c *collector) tools(kind UpdateKind) []ToolCall {
 	return out
 }
 
+func findOption(options []ConfigOption, category string) *ConfigOption {
+	for i := range options {
+		if options[i].Category == category {
+			return &options[i]
+		}
+	}
+	return nil
+}
+
 type scriptedHandler struct {
 	mu       sync.Mutex
 	requests []PermissionRequest
@@ -187,8 +196,8 @@ func TestTurnoInformaModoTituloETrocaDeModeloFeitaPeloAgente(t *testing.T) {
 	}
 	// A troca feita pelo agente precisa ficar visível na sessão, senão a pessoa
 	// segue achando que fala com outro modelo.
-	if got := sess.ConfigOptions(); len(got) != 1 || got[0].CurrentValue != "modelo-b" {
-		t.Errorf("sessão não refletiu a troca do agente: %+v", got)
+	if got := findOption(sess.ConfigOptions(), "model"); got == nil || got.CurrentValue != "modelo-b" {
+		t.Errorf("sessão não refletiu a troca do agente: %+v", sess.ConfigOptions())
 	}
 }
 
@@ -732,6 +741,38 @@ func TestCancelarOTurnoChegaAoAgenteEEncerraComoCancelado(t *testing.T) {
 	// O agente confirmou: o turno acabou de verdade, não só a nossa espera.
 	if stop != StopCancelled {
 		t.Fatalf("stopReason = %q, esperado %q", stop, StopCancelled)
+	}
+	// O rastro que o agente emite enquanto se recolhe continua chegando. É por
+	// ele que a pessoa fica sabendo o que o agente alcançou a fazer antes de
+	// parar; engolir isso esconderia trabalho que aconteceu de verdade.
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, "depois-do-cancelamento") {
+		t.Errorf("o rastro do agente após o cancelamento não chegou: %q", got)
+	}
+}
+
+// O agente anuncia o modo pelo formato legado e, no mesmo turno, manda o
+// conjunto de opções falando só de modelo. O seletor de modo não pode sumir da
+// conversa por causa disso, nem ficar mostrando o modo anterior.
+func TestModoDaSessaoSobreviveAoTurnoEAcompanhaATroca(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+	sess := startSession(t, client, ctx)
+
+	if _, err := sess.Prompt(ctx, []Content{TextContent("oi")}, func(Update) {}); err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+
+	options := sess.ConfigOptions()
+	modo := findOption(options, modeCategory)
+	modelo := findOption(options, "model")
+	if modelo == nil || modelo.CurrentValue != "modelo-b" {
+		t.Errorf("o modelo trocado pelo agente não ficou no estado: %+v", options)
+	}
+	if modo == nil {
+		t.Fatalf("o modo sumiu das opções depois do turno: %+v", options)
+	}
+	if modo.CurrentValue != "plan" {
+		t.Errorf("o modo ficou desatualizado: %+v", *modo)
 	}
 }
 

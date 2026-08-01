@@ -265,6 +265,8 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 		case <-ch:
 		case <-time.After(20 * time.Second):
 		}
+		// Um agente real ainda emite alguma coisa enquanto se recolhe.
+		a.chunk("agent_message_chunk", "depois-do-cancelamento")
 		a.reply(*msg.ID, map[string]any{"stopReason": "cancelled"})
 		return
 
