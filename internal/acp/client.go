@@ -414,11 +414,15 @@ func (c *conn) sessionOf(params json.RawMessage) (sess *session, scoped bool) {
 	if err := json.Unmarshal(params, &payload); err != nil {
 		return nil, false
 	}
-	id := strings.TrimSpace(payload.SessionID)
-	if id == "" {
+	// Só em branco significa "pedido global"; fora isso a busca é pelo
+	// identificador cru, como ele foi registrado. Aparar antes de procurar faria
+	// um agente que manda o ID com espaço nas pontas parecer estar falando de
+	// uma conversa que não existe, e a pergunta dele viraria "conversa
+	// encerrada" sem nunca chegar a quem decide.
+	if strings.TrimSpace(payload.SessionID) == "" {
 		return nil, false
 	}
-	return c.session(id), true
+	return c.session(payload.SessionID), true
 }
 
 func (c *conn) session(id string) *session {
@@ -433,7 +437,7 @@ func (c *conn) session(id string) *session {
 func (c *conn) handleInbound(ctx context.Context, method string, params json.RawMessage) (result any, reqErr *sdk.RequestError) {
 	defer func() {
 		if r := recover(); r != nil {
-			logging.Errorf(ctx, logComponent, "[ACP] pânico ao tratar %s: %v", method, r)
+			logging.Errorf(ctx, logComponent, "[ACP] pânico ao tratar %q: %v", method, r)
 			result = nil
 			reqErr = sdk.NewInternalError(map[string]any{"error": "falha interna do cliente ao tratar o pedido"})
 		}
@@ -588,7 +592,7 @@ func (c *conn) handleCustom(ctx context.Context, method string, params json.RawM
 		return nil, sdk.NewInternalError(map[string]any{"error": "falha interna do cliente ao tratar o pedido"})
 	}
 	if !out.handled {
-		logging.Debugf(ctx, logComponent, "[ACP] método %s não tratado; respondendo método não encontrado", method)
+		logging.Debugf(ctx, logComponent, "[ACP] método %q não tratado; respondendo método não encontrado", method)
 		return nil, sdk.NewMethodNotFound(method)
 	}
 	return out.result, nil

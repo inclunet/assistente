@@ -1248,7 +1248,12 @@ func TestOEstadoDaSessaoNaoCompartilhaMemoriaComQuemEscuta(t *testing.T) {
 // exibir isso limpa na hora de exibir (AEP-0084 D11).
 func TestIdentificadorSujoDaConversaContinuaRoteando(t *testing.T) {
 	ctx := testContext(t)
-	client := newTestClient(t, scriptIDSujo, nil)
+	handler := &scriptedHandler{
+		custom: func(context.Context, string, json.RawMessage) (any, bool) {
+			return map[string]any{"answer": "sim"}, true
+		},
+	}
+	client := newTestClient(t, scriptIDSujo, handler)
 	sess := startSession(t, client, ctx)
 
 	if sess.ID() != fakeDirtySessionID {
@@ -1264,8 +1269,11 @@ func TestIdentificadorSujoDaConversaContinuaRoteando(t *testing.T) {
 	if stop != StopEndTurn {
 		t.Fatalf("stopReason = %q, esperado %q", stop, StopEndTurn)
 	}
-	if got := col.textOfKind(UpdateText); got != "olá mundo" {
-		t.Errorf("as atualizações não chegaram: texto = %q", got)
+	// A pergunta do agente vem assinada com o mesmo identificador sujo:
+	// procurar a conversa por uma versão aparada dele faria a pergunta morrer
+	// como "conversa encerrada" sem nunca chegar a quem decide.
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, `"answer":"sim"`) {
+		t.Errorf("a resposta da extensão não voltou ao agente: %q", got)
 	}
 
 	// Cru no protocolo, escapado no texto: um identificador com quebra de linha

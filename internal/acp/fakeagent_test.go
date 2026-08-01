@@ -33,8 +33,9 @@ const (
 
 	fakeSessionID = "sess-falsa-1"
 	// fakeDirtySessionID imita um agente que emite identificador com quebra de
-	// linha, como o Cursor fez com toolCallId na sonda do AEP-0084.
-	fakeDirtySessionID = "sess-falsa\n1"
+	// linha, como o Cursor fez com toolCallId na sonda do AEP-0084, e ainda com
+	// espaço nas pontas — que é o que pega quem apara antes de rotear.
+	fakeDirtySessionID = " sess-falsa\n1\t"
 )
 
 func TestMain(m *testing.M) {
@@ -353,6 +354,22 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 		// Um agente real ainda emite alguma coisa enquanto se recolhe.
 		a.chunkOf(params.SessionId, "agent_message_chunk", "depois-do-cancelamento")
 		a.reply(*msg.ID, map[string]any{"stopReason": "cancelled"})
+		return
+
+	case scriptIDSujo:
+		// A extensão vem assinada com o próprio identificador sujo: se o
+		// transporte aparar isso antes de procurar a conversa, a pergunta não
+		// chega a ninguém e o agente ouve que a conversa acabou.
+		resp := a.request("cursor/ask_question", map[string]any{
+			"sessionId": params.SessionId,
+			"question":  "Prosseguir?",
+		})
+		if resp.Error != nil {
+			a.chunkOf(params.SessionId, "agent_message_chunk", fmt.Sprintf("erro:%d", resp.Error.Code))
+		} else {
+			a.chunkOf(params.SessionId, "agent_message_chunk", "resposta:"+string(resp.Result))
+		}
+		a.reply(*msg.ID, map[string]any{"stopReason": "end_turn"})
 		return
 
 	case scriptPermission:

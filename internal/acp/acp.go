@@ -309,8 +309,12 @@ type PermissionOption struct {
 }
 
 // PermissionOutcome é a decisão sobre um pedido de permissão. OptionID vazio
-// significa que ninguém escolheu — o pedido foi cancelado, expirou ou não
-// havia quem respondesse — e o agente recebe o desfecho "cancelled".
+// significa que ninguém escolheu — não havia quem respondesse, o prazo estourou
+// ou o turno foi cancelado. Sem decisão, o agente recebe a recusa pontual que
+// ele mesmo ofereceu, e só recebe "cancelled" quando o turno acabou ou quando
+// recusar pontualmente não estava entre as opções: negar o que ninguém
+// autorizou é seguro, e dizer "cancelado" fora de um cancelamento faria o
+// agente concluir que a pessoa desistiu do turno inteiro.
 type PermissionOutcome struct {
 	OptionID string
 }
