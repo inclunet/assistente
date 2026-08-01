@@ -170,7 +170,13 @@ func (s *session) setSink(sink UpdateSink) {
 func (s *session) deliver(update Update) {
 	switch update.Kind {
 	case UpdateConfigOptions:
-		s.setConfigOptions(withKnownMode(update.ConfigOptions, s.ConfigOptions()))
+		// Quem escuta recebe o mesmo conjunto que passamos a guardar, e não o
+		// que veio do agente. O evento se anuncia como o conjunto completo, e
+		// um agente que manda só os modelos faria a UI esconder o seletor de
+		// modo no meio da conversa — enquanto o estado da sessão ainda diria
+		// que o modo existe.
+		update.ConfigOptions = withKnownMode(update.ConfigOptions, s.ConfigOptions())
+		s.setConfigOptions(update.ConfigOptions)
 	case UpdateMode:
 		s.setCurrentMode(update.Mode)
 	}

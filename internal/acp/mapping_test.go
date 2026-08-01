@@ -183,6 +183,41 @@ func TestConversaExcluidaNaoInventaQueOTurnoSaiu(t *testing.T) {
 	}
 }
 
+// O evento de opções se anuncia como o conjunto completo, então quem escuta
+// precisa receber o mesmo conjunto que a sessão passou a guardar. Um agente que
+// manda só os modelos não pode fazer o seletor de modo sumir da tela no meio da
+// conversa enquanto a sessão ainda diz que o modo está lá.
+func TestOModoPreservadoTambemChegaAQuemEscuta(t *testing.T) {
+	s := newSession("sess-teste", "/tmp", nil, []ConfigOption{
+		{ID: "mode", Category: modeCategory, CurrentValue: "plan", Values: []ConfigValue{{Value: "plan"}}},
+		{ID: "model", Category: "model", CurrentValue: "antigo", Values: []ConfigValue{{Value: "antigo"}}},
+	})
+
+	var entregue Update
+	s.setSink(func(u Update) { entregue = u })
+	s.deliver(Update{Kind: UpdateConfigOptions, ConfigOptions: []ConfigOption{
+		{ID: "model", Category: "model", CurrentValue: "novo", Values: []ConfigValue{{Value: "novo"}}},
+	}})
+
+	if findOption(entregue.ConfigOptions, modeCategory) == nil {
+		t.Error("o modo sumiu do evento entregue a quem escuta")
+	}
+	if findOption(s.ConfigOptions(), modeCategory) == nil {
+		t.Error("o modo sumiu do estado da sessão")
+	}
+	if len(entregue.ConfigOptions) != len(s.ConfigOptions()) {
+		t.Errorf("evento e estado divergem: %d opções entregues, %d guardadas",
+			len(entregue.ConfigOptions), len(s.ConfigOptions()))
+	}
+
+	// O que foi entregue continua sendo de quem escuta: mexer nele não pode
+	// reescrever o estado da conversa.
+	entregue.ConfigOptions[0].CurrentValue = "adulterado"
+	if findOption(s.ConfigOptions(), "model").CurrentValue != "novo" {
+		t.Error("quem escuta conseguiu trocar o modelo da sessão sem passar pelo agente")
+	}
+}
+
 func TestNormalizeIDLimpaIdentificadoresDoAgente(t *testing.T) {
 	casos := []struct {
 		nome     string
