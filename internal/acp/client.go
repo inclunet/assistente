@@ -615,6 +615,14 @@ func guard[T any](ctx context.Context, fallback T, fn func() T) (T, bool) {
 		done <- fn()
 	}()
 
+	return awaitDecision(ctx, done, fallback)
+}
+
+// awaitDecision espera a decisão sem deixar o fim do prazo atropelar uma que já
+// chegou. Com os dois canais prontos o select escolhe ao acaso, e o acaso aqui
+// significa responder "negado" a quem acabou de autorizar — ou pior, engolir um
+// "sempre permitir" e perguntar tudo de novo na próxima. A decisão vem primeiro.
+func awaitDecision[T any](ctx context.Context, done <-chan T, fallback T) (T, bool) {
 	select {
 	case value, ok := <-done:
 		if !ok {
@@ -622,7 +630,15 @@ func guard[T any](ctx context.Context, fallback T, fn func() T) (T, bool) {
 		}
 		return value, true
 	case <-ctx.Done():
-		return fallback, false
+		select {
+		case value, ok := <-done:
+			if !ok {
+				return fallback, false
+			}
+			return value, true
+		default:
+			return fallback, false
+		}
 	}
 }
 

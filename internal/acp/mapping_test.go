@@ -1,12 +1,37 @@
 package acp
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
 	sdk "github.com/coder/acp-go-sdk"
 )
+
+// Decisão que já chegou não pode ser atropelada pelo fim do prazo: com os dois
+// prontos, o select escolhe ao acaso, e o acaso aqui responde "negado" a quem
+// acabou de autorizar. O laço existe porque um único sorteio poderia acertar
+// por sorte.
+func TestDecisaoQueJaChegouVenceOFimDoPrazo(t *testing.T) {
+	morto, cancelar := context.WithCancel(context.Background())
+	cancelar()
+
+	for i := 0; i < 50; i++ {
+		decidido := make(chan string, 1)
+		decidido <- "permitir"
+		got, decided := awaitDecision(morto, decidido, "recusar")
+		if !decided || got != "permitir" {
+			t.Fatalf("a decisão foi descartada pelo fim do prazo: %q (decidiu=%v)", got, decided)
+		}
+	}
+
+	// Sem decisão, o prazo manda: o agente precisa de resposta.
+	vazio := make(chan string)
+	if got, decided := awaitDecision(morto, vazio, "recusar"); decided || got != "recusar" {
+		t.Errorf("sem decisão o prazo deveria valer: %q (decidiu=%v)", got, decided)
+	}
+}
 
 func TestNormalizeIDLimpaIdentificadoresDoAgente(t *testing.T) {
 	casos := []struct {
