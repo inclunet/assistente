@@ -368,6 +368,12 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 		select {
 		case out := <-done:
 			return s.finishTurn(out)
+		case <-s.closedSig:
+			// A conversa foi excluída no meio da espera. Quem chamou não tem
+			// mais o que fazer com a confirmação do agente, e segurá-lo aqui
+			// pelo resto do prazo seria esperar por uma conversa que já não
+			// existe. Quem cuida do agente solto a partir daqui é o Close.
+			return StopCancelled, &PromptError{Accepted: true, Err: ErrSessionClosed}
 		case <-time.After(s.grace):
 			// O turno saiu e não voltou: pode haver um agente de código ainda
 			// mexendo no disco, e quem chamou precisa saber que é esse o estado.

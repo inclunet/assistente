@@ -1088,6 +1088,46 @@ func TestFecharSessaoEncerraNoAgenteERecusaNovosTurnos(t *testing.T) {
 	}
 }
 
+// Excluir a conversa enquanto o turno cancelado espera a confirmação do agente
+// não pode deixar quem chamou preso pelo resto do prazo: a conversa acabou, e é
+// isso que ele precisa ouvir.
+func TestExcluirAConversaAcordaOTurnoQueEsperavaAConfirmacao(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptStuck, nil)
+	sess := startSession(t, client, ctx)
+	// Prazo longo de propósito: se o encerramento não acordar quem espera, o
+	// teste estoura no limite de tempo em vez de passar por acaso.
+	sess.(*session).grace = 20 * time.Second
+	sess.(*session).closeWait = 200 * time.Millisecond
+
+	turno, desistir := context.WithCancel(ctx)
+	voltou := make(chan error, 1)
+	go func() {
+		_, err := sess.Prompt(turno, []Content{TextContent("comece algo demorado")}, nil)
+		voltou <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+	desistir()
+	time.Sleep(200 * time.Millisecond)
+
+	go func() { _ = sess.Close(ctx) }()
+
+	select {
+	case err := <-voltou:
+		if !errors.Is(err, ErrSessionClosed) {
+			t.Fatalf("esperava conversa encerrada, obtive: %v", err)
+		}
+		// O turno chegou a sair: repetir por conta própria mexeria no disco de
+		// novo.
+		var falha *PromptError
+		if errors.As(err, &falha) && !falha.Accepted {
+			t.Error("o turno saiu para o agente e deveria constar como aceito")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("o turno ficou preso esperando por uma conversa que já não existe")
+	}
+}
+
 // O sink pertence à chamada de Prompt. Durante o prazo de graça a entrega
 // continua, porque é ali que o agente conta o que alcançou fazer; depois que o
 // turno volta, um agente teimoso que segue falando não escreve mais na tela.
