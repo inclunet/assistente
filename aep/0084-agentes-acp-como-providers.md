@@ -185,10 +185,12 @@ mesma fronteira:
   mudar**, como bloco próprio, junto da mensagem do usuário;
 - o provider guarda o hash do que já enviou **por sessão, não por conversa**:
   sessão nova é agente sem memória nenhuma, então tudo é reenviado. Isso vale
-  para a sessão recriada por divergência, pela falha do `session/load` e pela
-  retomada — o estado do que "já foi dito" morre junto com a sessão que o
-  ouviu. Trocar de perfil no meio da conversa também reenvia o prefixo, porque
-  as instruções passaram a ser outras.
+  para a sessão recriada por divergência e pela falha do `session/load` — o
+  estado do que "já foi dito" morre junto com a sessão que o ouviu. O hash é
+  persistido no mesmo registro do `sessionId`, e não só em memória: uma sessão
+  retomada com sucesso depois de reiniciar o app já ouviu a persona, e repetir
+  tudo seria desperdício. Trocar de perfil no meio da conversa reenvia o
+  prefixo, porque as instruções passaram a ser outras.
 
 Os blocos são delimitados como instrução do app, e não se confundem com o texto
 da pessoa. O agente também tem as regras do próprio projeto (`AGENTS.md`,
@@ -210,9 +212,11 @@ A sessão tem memória própria, então retry, edição e exclusão de mensagens
 deixar as duas visões diferentes — o app mostrando uma conversa que o agente não
 viveu. A regra é não tentar reconciliar em silêncio:
 
-- **Retry de um turno que o agente nunca aceitou** (processo morto, falha ao
-  enviar o `session/prompt`): reenvia na mesma sessão, sem cerimônia — para o
-  agente aquele pedido não existiu.
+- **Retry de um turno que o agente nunca aceitou** (falha ao enviar o
+  `session/prompt`): reenvia sem cerimônia — para o agente aquele pedido não
+  existiu. Se a falha foi a **morte do processo**, a sessão morreu com ele (D3):
+  o retry passa antes pelo caminho de retomada — `session/load` quando o agente
+  recupera, sessão nova com aviso quando não.
 - **Retry de um turno que o agente aceitou mas não concluiu** (transporte caiu
   no meio, permissão negada, cancelamento): reenviar o mesmo texto pode fazer o
   agente **refazer trabalho que já executou** — e aqui "trabalho" é arquivo
@@ -486,7 +490,9 @@ pedido de permissão respondido e cancelamento.
 segmentação do D13, permissões do D9 no desktop e saneamento do D11.
 Persistência mínima do D12 para conseguir registrar um provider ACP. Fora do
 desktop, a regra de negar na hora já vale aqui: nada pode ficar pendurado
-esperando quem não existe.
+esperando quem não existe. A guarda do D14 entra junto, e não depois: sem ela, a
+sumarização automática dispara no fim do primeiro turno e gasta um turno inteiro
+de agente de código para escrever um resumo.
 
 **Aceite:** com um provider ACP configurado à mão, uma conversa no app fala com
 o Cursor de ponta a ponta — texto segmentado e falado durante o turno,
