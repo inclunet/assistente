@@ -232,6 +232,14 @@ viveu. A regra é não tentar reconciliar em silêncio:
 Perder memória é ruim; fazer o agente responder com base em uma conversa que a
 pessoa já não vê na tela é pior.
 
+Essas regras valem também para o **retry automático**: a recuperação de
+streaming reinvoca `StreamChat` sozinha depois de um erro de transporte, e para
+um provider HTTP isso é inofensivo. Para um agente de código, repetir em
+silêncio um pedido que ele aceitou é repetir edição e comando. A auto-recuperação
+só refaz o que o agente não chegou a aceitar; se o turno já tinha sido aceito,
+ela para e devolve o controle para a pessoa, com o estado explicado, em vez de
+tentar de novo por conta própria.
+
 ### D5. `cwd` é o diretório de trabalho do app
 
 O `session/new` exige um diretório: é ele que define onde o agente edita
