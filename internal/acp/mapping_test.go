@@ -240,6 +240,29 @@ func TestNormalizeIDLimpaIdentificadoresDoAgente(t *testing.T) {
 	}
 }
 
+// O comando do agente vem da configuração do provider, que a pessoa edita e
+// que pode chegar importada. Uma quebra de linha ali forjaria linha de log e
+// atrapalharia quem lê a mensagem de erro no leitor de telas.
+func TestDescricaoDoAgenteNaoForjaLinhaDeLog(t *testing.T) {
+	cfg := Config{
+		Command: "cursor-agent\n2026-01-01 ERROR falso",
+		Args:    []string{"--acp", "--flag\rinjetada"},
+	}
+	got := describeAgent(cfg)
+	if strings.ContainsAny(got, "\n\r") {
+		t.Errorf("a descrição carrega quebra de linha: %q", got)
+	}
+	if got != "cursor-agent 2026-01-01 ERROR falso --acp --flag injetada" {
+		t.Errorf("descrição inesperada: %q", got)
+	}
+	// Caminho comum segue legível: no Windows a barra invertida do caminho não
+	// pode virar ruído no meio do erro.
+	simples := Config{Command: `C:\Program Files\cursor\cursor-agent.exe`, Args: []string{"--acp"}}
+	if got := describeAgent(simples); got != `C:\Program Files\cursor\cursor-agent.exe --acp` {
+		t.Errorf("o comando comum foi desfigurado: %q", got)
+	}
+}
+
 func TestBackoffCresceAteOTeto(t *testing.T) {
 	if got := backoffFor(1); got != backoffBase {
 		t.Errorf("primeira falha = %v, esperado %v", got, backoffBase)

@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 )
 
@@ -372,6 +371,14 @@ func (denyAll) CustomFallback(string) (any, bool) {
 // atributo de DOM ou texto anunciado. Não é hipótese: o Cursor emitiu
 // toolCallId com quebra de linha no meio (AEP-0084 D11).
 func normalizeID(id string) string {
+	return singleLine(id)
+}
+
+// singleLine achata um texto para uma linha só: controles viram espaço ou
+// somem, e os espaços repetidos colapsam. É o que impede que um valor de fora
+// — identificador do agente, comando vindo da configuração — forje uma linha
+// de log ou quebre a leitura de uma mensagem de erro.
+func singleLine(s string) string {
 	clean := strings.Map(func(r rune) rune {
 		if r == '\n' || r == '\r' || r == '\t' {
 			return ' '
@@ -380,14 +387,17 @@ func normalizeID(id string) string {
 			return -1
 		}
 		return r
-	}, id)
+	}, s)
 	return strings.TrimSpace(strings.Join(strings.Fields(clean), " "))
 }
 
-// describeAgent monta o nome do agente para mensagens de erro.
+// describeAgent monta o nome do agente para mensagens de erro. O comando e os
+// argumentos vêm da configuração do provider, que a pessoa edita e que pode
+// chegar importada de outro lugar: passam pela mesma limpeza que o resto do
+// que é de fora.
 func describeAgent(cfg Config) string {
 	if len(cfg.Args) == 0 {
-		return cfg.Command
+		return singleLine(cfg.Command)
 	}
-	return fmt.Sprintf("%s %s", cfg.Command, strings.Join(cfg.Args, " "))
+	return singleLine(cfg.Command + " " + strings.Join(cfg.Args, " "))
 }
