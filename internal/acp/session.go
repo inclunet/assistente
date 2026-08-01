@@ -84,7 +84,7 @@ func newSession(id, cwd string, cn *conn, options []ConfigOption) *session {
 		turnSlot:       make(chan struct{}, 1),
 		grace:          cancelGrace,
 		closeWait:      closeTimeout,
-		options:        options,
+		options:        copyOptions(options),
 		cancelSig:      make(chan struct{}),
 		unconfirmedSig: make(chan struct{}),
 		closedSig:      make(chan struct{}),
@@ -101,21 +101,30 @@ func (s *session) ID() string { return s.id }
 func (s *session) ConfigOptions() []ConfigOption {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	options := make([]ConfigOption, len(s.options))
-	for i, option := range s.options {
-		option.Values = append([]ConfigValue(nil), option.Values...)
-		options[i] = option
-	}
-	return options
+	return copyOptions(s.options)
 }
 
+// setConfigOptions guarda uma cópia funda pelo mesmo motivo que ConfigOptions
+// devolve uma: o slice que chega aqui costuma ser o mesmo que segue no Update
+// para quem escuta a sessão. Guardar a referência deixaria o estado da conversa
+// a um passo de qualquer código que retenha esse Update — e o caminho inverso
+// também, já que a troca de modo mexe nas opções no lugar.
 func (s *session) setConfigOptions(options []ConfigOption) {
 	if len(options) == 0 {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.options = options
+	s.options = copyOptions(options)
+}
+
+func copyOptions(options []ConfigOption) []ConfigOption {
+	out := make([]ConfigOption, len(options))
+	for i, option := range options {
+		option.Values = append([]ConfigValue(nil), option.Values...)
+		out[i] = option
+	}
+	return out
 }
 
 // setCurrentMode acompanha a troca de modo que o agente anuncia pelo formato

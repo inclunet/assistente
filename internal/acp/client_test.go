@@ -1088,6 +1088,45 @@ func TestFecharSessaoEncerraNoAgenteERecusaNovosTurnos(t *testing.T) {
 	}
 }
 
+// O que sai no Update é de quem escuta; o que fica na sessão é da sessão. Sem
+// essa separação, quem guardasse o Update trocaria o modelo da conversa sem
+// passar pelo agente — e a troca de modo, que mexe nas opções no lugar,
+// alteraria por baixo dos panos um Update já entregue.
+func TestOEstadoDaSessaoNaoCompartilhaMemoriaComQuemEscuta(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+	sess := startSession(t, client, ctx)
+
+	var recebidas []ConfigOption
+	_, err := sess.Prompt(ctx, []Content{TextContent("oi")}, func(update Update) {
+		if update.Kind == UpdateConfigOptions {
+			recebidas = update.ConfigOptions
+		}
+	})
+	if err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+	if len(recebidas) == 0 {
+		t.Fatal("o turno não entregou opções de configuração")
+	}
+
+	for i := range recebidas {
+		recebidas[i].CurrentValue = "adulterado"
+		for j := range recebidas[i].Values {
+			recebidas[i].Values[j].Value = "adulterado"
+		}
+	}
+	got := findOption(sess.ConfigOptions(), "model")
+	if got == nil || got.CurrentValue != "modelo-b" {
+		t.Fatalf("mexer no que foi entregue alterou o estado da sessão: %+v", sess.ConfigOptions())
+	}
+	for _, value := range got.Values {
+		if value.Value == "adulterado" {
+			t.Errorf("a lista de modelos da sessão foi alterada por fora: %+v", got.Values)
+		}
+	}
+}
+
 // Excluir a conversa enquanto o turno cancelado espera a confirmação do agente
 // não pode deixar quem chamou preso pelo resto do prazo: a conversa acabou, e é
 // isso que ele precisa ouvir.
