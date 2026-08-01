@@ -40,8 +40,15 @@ type session struct {
 	// pelo mesmo motivo de grace.
 	closeWait time.Duration
 
+	// sinkMu protege a entrega, e não só a leitura do sink. Segurar a trava
+	// durante a chamada é o que faz o fim do turno esperar a entrega em
+	// andamento terminar: sem isso, uma atualização já lida escaparia para um
+	// sink que quem chamou considera fechado. É trava própria porque o sink é
+	// código de fora, que pode consultar a sessão enquanto renderiza.
+	sinkMu sync.RWMutex
+	sink   UpdateSink
+
 	mu      sync.Mutex
-	sink    UpdateSink
 	options []ConfigOption
 	closed  bool
 
@@ -145,8 +152,8 @@ func (s *session) setCurrentMode(mode string) {
 }
 
 func (s *session) setSink(sink UpdateSink) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.sinkMu.Lock()
+	defer s.sinkMu.Unlock()
 	s.sink = sink
 }
 
@@ -166,13 +173,12 @@ func (s *session) deliver(update Update) {
 		s.setCurrentMode(update.Mode)
 	}
 
-	s.mu.Lock()
-	sink := s.sink
-	s.mu.Unlock()
-	if sink == nil {
+	s.sinkMu.RLock()
+	defer s.sinkMu.RUnlock()
+	if s.sink == nil {
 		return
 	}
-	sink(update)
+	s.sink(update)
 }
 
 func (s *session) acquireTurn(ctx context.Context) error {
@@ -371,9 +377,11 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 		//
 		// O envio do cancelamento não pode segurar o prazo: escrever para o
 		// agente é I/O que pode travar, e travaria quem chamou justamente na
-		// hora em que ele pediu para parar. A goroutine não fica presa para
-		// sempre: um agente que não lê mais a entrada acaba morto pelo
-		// encerramento da conexão, e a escrita falha quando o cano fecha.
+		// hora em que ele pediu para parar. Contra um agente vivo que parou de
+		// ler a entrada, essa goroutine fica parada até o cano quebrar — o que
+		// acontece quando o processo morre, no Close do cliente ou por conta
+		// dele mesmo. Prazo não resolveria: o SDK confere o contexto antes de
+		// escrever e depois entra num Write que não olha mais nada.
 		go func() {
 			if err := s.Cancel(context.Background()); err != nil {
 				logging.Warnf(context.Background(), logComponent,
@@ -452,7 +460,6 @@ func (s *session) Close(ctx context.Context) error {
 	s.mu.Lock()
 	already := s.closed
 	s.closed = true
-	s.sink = nil
 	if !already && s.closedSig != nil {
 		close(s.closedSig)
 	}
@@ -460,6 +467,10 @@ func (s *session) Close(ctx context.Context) error {
 	if already {
 		return nil
 	}
+
+	// Desligar a entrega espera a que estiver em andamento terminar, para que
+	// nada escape para uma conversa que a pessoa acabou de excluir.
+	s.setSink(nil)
 
 	s.cn.removeSession(s.id)
 	if s.cn.isDead() {

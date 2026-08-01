@@ -3,6 +3,8 @@ package acp
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +32,82 @@ func TestDecisaoQueJaChegouVenceOFimDoPrazo(t *testing.T) {
 	vazio := make(chan string)
 	if got, decided := awaitDecision(morto, vazio, "recusar"); decided || got != "recusar" {
 		t.Errorf("sem decisão o prazo deveria valer: %q (decidiu=%v)", got, decided)
+	}
+}
+
+// O evento de opções é o conjunto completo, então entregar vazio significa "não
+// há mais opção nenhuma" — e o seletor de modelo sumiria da tela. Agente que só
+// manda o que ainda não consumimos não está dizendo isso.
+func TestConjuntoDeOpcoesSemNadaMapeavelNaoViraEventoVazio(t *testing.T) {
+	soBooleana := sdk.SessionUpdate{
+		ConfigOptionUpdate: &sdk.SessionConfigOptionUpdate{
+			ConfigOptions: []sdk.SessionConfigOption{
+				{Boolean: &sdk.SessionConfigOptionBoolean{Id: "telemetria", Name: "Telemetria", CurrentValue: true}},
+			},
+		},
+	}
+	if update, ok := updateFrom(soBooleana); ok {
+		t.Errorf("opção que não sabemos mapear virou conjunto vazio: %+v", update)
+	}
+
+	// Com algo mapeável, o evento sai normalmente.
+	categoria := sdk.SessionConfigOptionCategory("model")
+	comModelo := sdk.SessionUpdate{
+		ConfigOptionUpdate: &sdk.SessionConfigOptionUpdate{
+			ConfigOptions: []sdk.SessionConfigOption{
+				{Select: &sdk.SessionConfigOptionSelect{
+					Id:           "model",
+					Name:         "Modelo",
+					Category:     &categoria,
+					CurrentValue: "modelo-a",
+				}},
+			},
+		},
+	}
+	update, ok := updateFrom(comModelo)
+	if !ok || update.Kind != UpdateConfigOptions || len(update.ConfigOptions) != 1 {
+		t.Errorf("conjunto com modelo deveria ser entregue: %+v (ok=%v)", update, ok)
+	}
+}
+
+// Uma linha gigante no stderr do agente não pode calar o leitor: é justamente
+// quando o agente despeja um stack trace que o diagnóstico seguinte importa.
+func TestLinhaGiganteNoStderrNaoCalaODiagnosticoSeguinte(t *testing.T) {
+	registradas := make(chan string, 8)
+	writer := newStderrLoggerTo(func(line string) { registradas <- line })
+
+	go func() {
+		_, _ = fmt.Fprintln(writer, "antes")
+		_, _ = fmt.Fprintln(writer, strings.Repeat("x", stderrLineLimit*2))
+		_, _ = fmt.Fprintln(writer, "depois")
+		_ = writer.Close()
+	}()
+
+	var vistas []string
+	for range 3 {
+		select {
+		case line := <-registradas:
+			vistas = append(vistas, line)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("o leitor parou depois de %v", vistas)
+		}
+	}
+
+	if vistas[0] != "antes" {
+		t.Errorf("primeira linha = %q", vistas[0])
+	}
+	if !strings.HasSuffix(vistas[1], "linha truncada]") {
+		t.Errorf("a linha gigante deveria constar como truncada, veio com %d caracteres", len(vistas[1]))
+	}
+	// O que vem depois da linha gigante é o que se perderia por completo.
+	if vistas[2] != "depois" {
+		t.Errorf("o diagnóstico seguinte se perdeu: %q", vistas[2])
+	}
+	// Os pedaços da linha gigante não podem virar linhas soltas no log.
+	select {
+	case sobra := <-registradas:
+		t.Errorf("pedaço da linha gigante virou diagnóstico solto: %.40q", sobra)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 

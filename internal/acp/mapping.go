@@ -92,10 +92,15 @@ func updateFrom(update sdk.SessionUpdate) (Update, bool) {
 		return Update{Kind: UpdateToolProgress, Tool: &call}, true
 
 	case update.ConfigOptionUpdate != nil:
-		return Update{
-			Kind:          UpdateConfigOptions,
-			ConfigOptions: configOptionsFrom(update.ConfigOptionUpdate.ConfigOptions),
-		}, true
+		options := configOptionsFrom(update.ConfigOptionUpdate.ConfigOptions)
+		// Este evento é o conjunto completo, então um conjunto vazio diz "não
+		// há mais opção nenhuma". Nada mapeado não significa isso: significa
+		// que o agente só mandou coisas que ainda não consumimos. Entregar o
+		// vazio faria o seletor de modelo desaparecer da tela sem motivo.
+		if len(options) == 0 {
+			return Update{}, false
+		}
+		return Update{Kind: UpdateConfigOptions, ConfigOptions: options}, true
 
 	case update.CurrentModeUpdate != nil:
 		return Update{Kind: UpdateMode, Mode: string(update.CurrentModeUpdate.CurrentModeId)}, true

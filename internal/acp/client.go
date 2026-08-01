@@ -682,17 +682,42 @@ func buildEnv(extra map[string]string) []string {
 // newStderrLogger encaminha o stderr do agente para o log, linha a linha. Sem
 // isso, o diagnóstico de um agente que não sobe se perde. Quem fecha o writer
 // encerra a goroutine de leitura.
+// Uma linha de stderr maior que isto tem o começo registrado e o resto
+// descartado. O limite existe para um agente que despeja megabytes numa linha
+// só não virar memória do app; descartar o excesso, e não parar de ler, é o que
+// mantém o diagnóstico das linhas seguintes.
+const stderrLineLimit = 64 * 1024
+
 func newStderrLogger(command string) *io.PipeWriter {
+	name := filepath.Base(command)
+	return newStderrLoggerTo(func(line string) {
+		logging.Warnf(context.Background(), logComponent, "[ACP] %s: %s", name, line)
+	})
+}
+
+// newStderrLoggerTo é o miolo, separado de onde o texto vai parar para que o
+// teste possa observar o que sairia no log.
+func newStderrLoggerTo(emit func(string)) *io.PipeWriter {
 	reader, writer := io.Pipe()
 	go func() {
-		scanner := bufio.NewScanner(reader)
-		scanner.Buffer(make([]byte, 0, 4096), 64*1024)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
-				continue
+		buffered := bufio.NewReaderSize(reader, stderrLineLimit)
+		for {
+			chunk, tooLong, err := buffered.ReadLine()
+			if line := strings.TrimSpace(string(chunk)); line != "" {
+				if tooLong {
+					line += " […linha truncada]"
+				}
+				emit(line)
 			}
-			logging.Warnf(context.Background(), logComponent, "[ACP] %s: %s", filepath.Base(command), line)
+			// Joga fora o resto da linha comprida. Sem isso, os pedaços dela
+			// virariam linhas soltas no log, cada uma parecendo diagnóstico
+			// novo.
+			for tooLong && err == nil {
+				_, tooLong, err = buffered.ReadLine()
+			}
+			if err != nil {
+				break
+			}
 		}
 		_ = reader.Close()
 	}()
