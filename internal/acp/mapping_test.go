@@ -102,6 +102,26 @@ func TestDesfechoDePermissaoPrefereRecusaPontual(t *testing.T) {
 	}
 }
 
+// Quem lê as opções não pode alcançar o estado de dentro da sessão: o agente
+// troca de modelo sozinho no meio do turno, e o slice compartilhado seria
+// corrida.
+func TestOpcoesDaSessaoSaoEntreguesComoCopia(t *testing.T) {
+	s := &session{
+		turnSlot: make(chan struct{}, 1),
+		options: []ConfigOption{{
+			ID:     "model",
+			Values: []ConfigValue{{Value: "modelo-a", Name: "Modelo A"}},
+		}},
+	}
+
+	copia := s.ConfigOptions()
+	copia[0].Values[0].Name = "adulterado"
+
+	if s.ConfigOptions()[0].Values[0].Name != "Modelo A" {
+		t.Error("mexer na cópia alterou o estado da sessão")
+	}
+}
+
 // O prazo de cancelamento pode estourar no mesmo instante em que o turno enfim
 // responde, cravando a marca depois de o turno ter acabado. O turno seguinte
 // está saudável e não pode pagar por isso.

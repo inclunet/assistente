@@ -79,10 +79,18 @@ func newSession(id, cwd string, cn *conn, options []ConfigOption) *session {
 
 func (s *session) ID() string { return s.id }
 
+// ConfigOptions devolve uma cópia funda. A rasa deixaria quem chamou mexendo no
+// slice de valores de dentro da sessão — estado compartilhado sem trava, que é
+// corrida garantida quando o agente troca de modelo sozinho no meio do turno.
 func (s *session) ConfigOptions() []ConfigOption {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]ConfigOption(nil), s.options...)
+	options := make([]ConfigOption, len(s.options))
+	for i, option := range s.options {
+		option.Values = append([]ConfigValue(nil), option.Values...)
+		options[i] = option
+	}
+	return options
 }
 
 func (s *session) setConfigOptions(options []ConfigOption) {

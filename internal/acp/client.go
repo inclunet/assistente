@@ -268,6 +268,7 @@ func dial(ctx context.Context, cfg Config, handler RequestHandler) (*conn, error
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		kill()
+		_ = stdin.Close()
 		return nil, fmt.Errorf("abrir saída do agente %s: %w", describeAgent(cfg), err)
 	}
 	stderr := newStderrLogger(cfg.Command)
@@ -482,7 +483,10 @@ func (c *conn) requestPermission(ctx context.Context, params json.RawMessage) (a
 	hctx, stopHandler := bindCancel(ctx, cancelled)
 	defer stopHandler()
 
-	outcome := guard(hctx, PermissionOutcome{}, func() PermissionOutcome {
+	// Aqui a falta de decisão não vira erro: negar a ação é um desfecho que o
+	// método aceita e que deixa o agente seguir, enquanto um erro derrubaria o
+	// turno inteiro por causa de um handler quebrado.
+	outcome, _ := guard(hctx, PermissionOutcome{}, func() PermissionOutcome {
 		return c.handler.RequestPermission(hctx, pedido)
 	})
 	if signalFired(cancelled) {
@@ -542,12 +546,17 @@ func (c *conn) handleCustom(ctx context.Context, method string, params json.RawM
 		result  any
 		handled bool
 	}
-	out := guard(hctx, custom{}, func() custom {
+	out, decided := guard(hctx, custom{}, func() custom {
 		result, handled := c.handler.HandleCustom(hctx, method, params)
 		return custom{result: result, handled: handled}
 	})
 	if signalFired(cancelled) {
 		return nil, sdk.NewRequestCancelled(map[string]any{"error": "turno cancelado"})
+	}
+	// Pânico ou contexto morto não são falta de suporte: responder "método não
+	// encontrado" faria o agente riscar a extensão da lista e nunca mais tentar.
+	if !decided {
+		return nil, sdk.NewInternalError(map[string]any{"error": "falha interna do cliente ao tratar o pedido"})
 	}
 	if !out.handled {
 		logging.Debugf(ctx, logComponent, "[ACP] método %s não tratado; respondendo método não encontrado", method)
@@ -559,23 +568,30 @@ func (c *conn) handleCustom(ctx context.Context, method string, params json.RawM
 // guard executa fn e devolve fallback se ela entrar em pânico ou se o contexto
 // do pedido morrer antes da decisão. É o que garante resposta de protocolo:
 // um handler que demora demais atrasa o agente, mas não o pendura.
-func guard[T any](ctx context.Context, fallback T, fn func() T) T {
+//
+// O segundo retorno diz se houve decisão de verdade. Sem ele, quem chama não
+// consegue distinguir "o handler decidiu isso" de "não houve decisão", e acaba
+// respondendo ao agente uma coisa pela outra.
+func guard[T any](ctx context.Context, fallback T, fn func() T) (T, bool) {
 	done := make(chan T, 1)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				logging.Errorf(ctx, logComponent, "[ACP] pânico no tratamento do pedido do agente: %v", r)
-				done <- fallback
+				close(done)
 			}
 		}()
 		done <- fn()
 	}()
 
 	select {
-	case value := <-done:
-		return value
+	case value, ok := <-done:
+		if !ok {
+			return fallback, false
+		}
+		return value, true
 	case <-ctx.Done():
-		return fallback
+		return fallback, false
 	}
 }
 

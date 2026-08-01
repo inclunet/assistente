@@ -583,6 +583,29 @@ func TestExtensaoTratadaPeloHandlerRespondeAoAgente(t *testing.T) {
 	}
 }
 
+// Um handler quebrado é defeito do app, não falta de suporte à extensão:
+// responder "método não encontrado" faria o agente riscar a extensão da lista.
+func TestExtensaoComHandlerEmPanicoRespondeErroInternoENaoFaltaDeSuporte(t *testing.T) {
+	ctx := testContext(t)
+	handler := &scriptedHandler{
+		custom: func(context.Context, string, json.RawMessage) (any, bool) {
+			panic("handler quebrado")
+		},
+	}
+	client := newTestClient(t, scriptCustom, handler)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	if _, err := sess.Prompt(ctx, []Content{TextContent("pergunte algo")}, col.sink); err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+
+	esperado := fmt.Sprintf("erro:%d", sdk.NewInternalError(nil).Code)
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, esperado) {
+		t.Errorf("esperava %s, obtive: %q", esperado, got)
+	}
+}
+
 // As extensões bloqueantes do Cursor pertencem ao turno: cancelá-lo precisa
 // fechar a pergunta na tela e devolver ao agente um desfecho de protocolo.
 func TestCancelarOTurnoCancelaAExtensaoBloqueante(t *testing.T) {
@@ -869,6 +892,10 @@ func TestAgenteInexistenteFalhaComErroAcionavelERespeitaOBackoff(t *testing.T) {
 	_, second := client.Capabilities(ctx)
 	if second == nil || !strings.Contains(second.Error(), "nova tentativa em") {
 		t.Fatalf("esperava espera de backoff, obtive: %v", second)
+	}
+	// A espera precisa aparecer legível para quem lê o erro na tela.
+	if !strings.Contains(second.Error(), "nova tentativa em 1s") {
+		t.Errorf("a espera deveria estar formatada como duração: %v", second)
 	}
 }
 
