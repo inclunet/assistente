@@ -146,6 +146,11 @@ de uma vez e impede processos duplicados do mesmo provider.
 Morte do processo é tratada como o MCP trata: reconecta com backoff e marca as
 sessões como perdidas.
 
+O dono desse ciclo de vida é um **serviço de longa duração**, no molde do
+`mcp.Manager` — não o objeto `ChatProvider`. `GetChatProvider` constrói uma
+instância nova a cada chamada; guardar processo ou sessão dentro dela daria um
+`agent acp` por turno. A instância só empresta a conexão do serviço.
+
 ### D4. Sessão ACP é o estado da conversa
 
 Cada conversa do app mapeia para uma sessão ACP (`conversationId` ↔
@@ -326,11 +331,51 @@ confirmação de edição, que já é acessível por teclado e leitor de telas.
 
 Nenhuma fase entrega o modo `agent` sem esse caminho pronto.
 
+#### A pergunta vai para a superfície dona da conversa
+
+O `questionnaire` de hoje é só desktop: emite um evento Wails e espera até vinte
+minutos. Mas o mesmo pipeline de envio atende canais (Telegram, Signal), jobs
+agendados, subagentes e a CLI. Um agente de código nessas superfícies pediria
+permissão para editar arquivo e ninguém veria o diálogo — o turno ficaria
+pendurado por vinte minutos.
+
+A pergunta passa a ser **roteada pela superfície de origem da conversa**
+(AEP-0042/0080), e não presumida como desktop:
+
+- **App desktop:** o `questionnaire` de sempre.
+- **Canal:** vira mensagem na própria conversa, com as opções numeradas; a
+  resposta da pessoa decide. Só vale a resposta de **quem é dono do canal**, só
+  enquanto houver uma pergunta pendente naquela conversa, e com **prazo curto** —
+  minutos, não vinte. Expirou, é negado, e a conversa recebe o aviso de que
+  expirou.
+- **Sem interlocutor** (job agendado, subagente, CLI não interativa): **nega na
+  hora**. Não existe "esperar" quando não há quem responda; o turno segue e a
+  resposta diz o que foi negado e por quê.
+
+Duas restrições que valem registrar. `allow-always` **só pelo desktop**:
+autorizar para sempre por mensagem de texto amplia execução silenciosa futura a
+partir de um canal remoto, e o ganho não paga o risco. E o texto do pedido
+mostra o comando literal saneado — quem autoriza precisa ver o que está
+autorizando.
+
+O roteamento é um mecanismo **genérico**, não uma gambiarra de ACP: as
+confirmações que já existem (shell, HTTP destrutivo, edição de arquivo) têm hoje
+o mesmo buraco em canais e podem adotá-lo depois. Este AEP só exige o que o
+provider ACP precisa.
+
 ### D10. Cancelar no app cancela o turno no agente
 
 O cancelamento explícito do app (AEP-0064) envia `session/cancel`, que interrompe
 o turno em andamento sem encerrar a sessão, e trata o `stopReason: cancelled`
 como fim normal do turno. A sessão continua viva para a próxima mensagem.
+
+Cancelamento não é só o botão: mandar uma mensagem nova numa conversa que ainda
+está respondendo **cancela o turno anterior** (`StreamingManager.Register`
+derruba o contexto em voo). Com um provider HTTP isso apenas descarta uma
+resposta. Com um agente de código, um turno abandonado **continuaria editando
+arquivos e rodando comandos** — um processo que o app já não observa mexendo no
+disco. Todo caminho de cancelamento, incluindo esse, propaga `session/cancel` e
+só considera o turno encerrado quando o agente confirma.
 
 ### D11. A saída do agente é dado não confiável
 
@@ -354,9 +399,51 @@ formulário do frontend exige `http(s)`. As mudanças:
 - descoberta e health ramificam por formato: para ACP, "saudável" é **spawnar,
   fazer `initialize` e receber `authMethods`** — e a falta de autenticação vira
   um estado próprio, com a instrução (`agent login`), não um erro genérico;
-- credenciais não se aplicam: `CredentialPattern` vazio, `AuthMode` = none.
+- credenciais não se aplicam: `CredentialPattern` vazio, `AuthMode` = none;
+- export/import (`ProviderExport`) hoje carrega `BaseURL` como obrigatório e não
+  tem onde guardar comando e argumentos. Ganha os campos novos, com o
+  `MCPServerExport` como precedente — ele já exporta `Command`/`Args`. Caminho
+  de binário é específico da máquina: na importação, um provider ACP cujo
+  comando não existe entra **desativado com aviso**, em vez de falhar a
+  importação inteira ou fingir que funciona.
 
-### D13. Spawn no Windows
+### D13. Segmentar a resposta é responsabilidade do provider ACP
+
+Hoje quem fecha segmento é o loop agêntico: `chat:segment_done` e a fala com
+origem `segment` (AEP-0041) saem de `RunAgenticLoop`, quando uma iteração
+termina em `finish_reason: tool_calls`. Um turno ACP não passa por lá — as tools
+são do agente. Sem tratamento, um turno que alterna texto e ferramenta por dois
+minutos ficaria **mudo até o fim**, e só então falaria tudo de uma vez. É
+exatamente o cenário que a segmentação existe para resolver.
+
+O provider ACP fecha os segmentos: **cada bloco de texto encerrado por atividade
+de ferramenta vira um segmento**, com `chat:segment_done` e pedido de fala de
+origem `segment`; o texto final do turno é o segmento final, com origem
+`assistant_message`. Assim a leitura acompanha o trabalho do agente em vez de
+esperar por ele.
+
+O segmento final é leitura protegida (AEP-0058): os avisos de progresso do turno
+não podem atropelá-lo.
+
+### D14. Tarefas auxiliares não vão para o agente
+
+Sumarização, geração de título e afins chamam `SimpleChat` no provider do
+perfil. Num provider ACP, cada uma dessas chamadas seria **um turno de agente de
+código** — sessão, ferramentas, permissões e custo — para produzir um resumo.
+
+- A **sumarização automática não roda em conversa ACP**. Ela existe para caber o
+  histórico na janela do modelo, e aqui o histórico não é enviado (D4): quem
+  administra o contexto é o agente. Compactar do lado do app não teria efeito no
+  wire e só criaria divergência.
+- Um provider ACP **não é elegível** para os papéis auxiliares do perfil
+  (sumarização, título). Se um perfil apontar para ele nesses papéis, o app
+  recusa com explicação em vez de gastar um turno de agente.
+
+Sem contabilidade de tokens (D8), o aviso de contexto (`chat:context_warning`)
+nunca dispararia de qualquer forma; melhor declarar a limitação do que exibir
+uma ocupação de 0% que mente sobre o estado real.
+
+### D15. Spawn no Windows
 
 O provider guarda **comando e argumentos**, não um caminho mágico. O template
 builtin do Cursor detecta a instalação e, no Windows, aponta para o wrapper
@@ -378,12 +465,15 @@ pedido de permissão respondido e cancelamento.
 ### Fase 2 — Provider no barramento
 
 `APIFormatACP`, `NewACPChatProvider`, mapeamento do D8, tool events do D7,
-permissões do D9 e saneamento do D11. Persistência mínima do D12 para conseguir
-registrar um provider ACP.
+segmentação do D13, permissões do D9 no desktop e saneamento do D11.
+Persistência mínima do D12 para conseguir registrar um provider ACP. Fora do
+desktop, a regra de negar na hora já vale aqui: nada pode ficar pendurado
+esperando quem não existe.
 
 **Aceite:** com um provider ACP configurado à mão, uma conversa no app fala com
-o Cursor de ponta a ponta — texto, raciocínio, eventos de ferramenta, pedido de
-permissão acessível e cancelamento. Nenhum caminho novo de envio (AEP-0040).
+o Cursor de ponta a ponta — texto segmentado e falado durante o turno,
+raciocínio, eventos de ferramenta, pedido de permissão acessível e cancelamento
+que chega ao agente. Nenhum caminho novo de envio (AEP-0040).
 
 ### Fase 3 — Provider de primeira classe na UI
 
@@ -404,12 +494,23 @@ na criação da sessão.
 **Aceite:** trocar de modelo pelo app muda o modelo do turno seguinte; troca
 feita pelo agente aparece na UI e é anunciada.
 
-### Fase 5 — Continuidade e conveniências
+### Fase 5 — Perguntar fora do desktop
+
+Roteamento da pergunta pela superfície de origem (D9): pedido vira mensagem no
+canal, com opções numeradas, resposta restrita ao dono do canal, prazo curto e
+`allow-always` barrado fora do desktop. Mecanismo genérico, aproveitável pelas
+confirmações que já existem.
+
+**Aceite:** uma conversa de canal com perfil ACP consegue autorizar e negar uma
+ação pela própria conversa; sem resposta no prazo, o pedido é negado e a pessoa
+é informada; resposta de quem não é dono do canal é ignorada.
+
+### Fase 6 — Continuidade e conveniências
 
 `session/load` na reabertura, título vindo de `session_info_update`, slash
 commands de `available_commands_update`, seletor de diretório por conversa.
 
-### Fase 6 — Claude Code
+### Fase 7 — Claude Code
 
 Segundo alvo pelo mesmo client, validando que o contrato é do protocolo e não do
 Cursor. Ajustes esperados: método de autenticação diferente e ausência das
@@ -433,6 +534,13 @@ extensões `cursor/*`.
 - **Sem contabilidade de tokens** (D8): o painel de custo fica cego para ACP.
 - **Windows**: wrapper `.ps1`, atualização automática do CLI mudando o caminho
   versionado, e o risco de processo órfão.
+- **A autenticação do agente é da máquina, não do usuário do app.** O app é
+  multiusuário (AEP-0052) e isola providers e credenciais por `user_id`, mas o
+  `agent login` vive fora disso: dois usuários do app que usem o mesmo binário
+  conversam com a **mesma conta** do Cursor. O app não tem como isolar isso;
+  cabe declarar a limitação onde o provider é configurado.
+- **Barge-in com efeito colateral** (D10): mandar mensagem por cima de um turno
+  em andamento cancela um agente que pode estar no meio de uma edição.
 
 ## Critérios de aceitação
 
@@ -444,7 +552,12 @@ extensões `cursor/*`.
   origem `acp_agent`, e não aciona consumidores que reagem a nome de tool do app
   (o chat inline do editor, em particular).
 - Pedido de permissão é anunciado, navegável por teclado, respondível e tem
-  prazo com resposta padrão.
+  prazo com resposta padrão; em superfície sem quem responda, é negado na hora
+  em vez de pendurar o turno.
+- A resposta é falada em segmentos durante o turno, não só no fim, e o segmento
+  final é leitura protegida.
+- Sumarização automática e papéis auxiliares do perfil não gastam turnos do
+  agente.
 - Lista de modelos e troca de modelo funcionam com o Cursor, pelos dois formatos
   de seleção.
 - Um provider ACP é criado, testado e diagnosticado pela UI sem `BaseURL`.
