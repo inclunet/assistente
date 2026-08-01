@@ -399,6 +399,41 @@ func TestCancelamentoSemConfirmacaoRecusaOProximoTurnoDizendoOMotivo(t *testing.
 	}
 }
 
+// Quem já estava na fila quando o prazo estourou precisa ser acordado com o
+// motivo. Sem isso, o barge-in do app fica esperando calado por um turno que
+// talvez nunca volte — e o contexto de quem pediu pode nem ter prazo.
+func TestQuemEsperavaNaFilaAcordaQuandoOCancelamentoNaoEhConfirmado(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptStuck, nil)
+	sess := startSession(t, client, ctx)
+	sess.(*session).grace = 500 * time.Millisecond
+
+	turno, desistir := context.WithCancel(ctx)
+	go func() {
+		_, _ = sess.Prompt(turno, []Content{TextContent("comece algo demorado")}, nil)
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	// Sem prazo de propósito: quem tira essa espera do escuro tem de ser a
+	// sessão, não o relógio de quem chamou.
+	naFila := make(chan error, 1)
+	go func() {
+		_, err := sess.Prompt(context.Background(), []Content{TextContent("e agora?")}, nil)
+		naFila <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+	desistir()
+
+	select {
+	case err := <-naFila:
+		if !errors.Is(err, ErrCancelNotConfirmed) {
+			t.Fatalf("esperava cancelamento não confirmado, obtive: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("quem esperava na fila nunca foi acordado")
+	}
+}
+
 // Quem chega com o contexto já cancelado não pode botar o agente para
 // trabalhar: com a fila livre, o turno sairia e só depois se descobriria que
 // ninguém está mais esperando por ele.

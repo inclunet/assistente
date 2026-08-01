@@ -126,17 +126,27 @@ func TestOpcoesDaSessaoSaoEntreguesComoCopia(t *testing.T) {
 // responde, cravando a marca depois de o turno ter acabado. O turno seguinte
 // está saudável e não pode pagar por isso.
 func TestMarcaDeCancelamentoAntigoNaoRecusaTurnoSaudavel(t *testing.T) {
-	s := &session{turnSlot: make(chan struct{}, 1), cancelSig: make(chan struct{})}
+	s := &session{
+		turnSlot:       make(chan struct{}, 1),
+		cancelSig:      make(chan struct{}),
+		unconfirmedSig: make(chan struct{}),
+	}
 
 	cancelado := s.startTurn()
 	s.markCancelUnconfirmed(cancelado)
-	if !s.awaitingCancelConfirmation() {
+	if !signalFired(s.unconfirmedCancel()) {
 		t.Fatal("o turno cancelado sem confirmação deveria recusar o próximo")
 	}
 
 	s.startTurn()
-	if s.awaitingCancelConfirmation() {
+	if signalFired(s.unconfirmedCancel()) {
 		t.Error("a marca do turno anterior recusaria um turno saudável")
+	}
+
+	// A marca atrasada de um turno que já acabou não pode derrubar o atual.
+	s.markCancelUnconfirmed(cancelado)
+	if signalFired(s.unconfirmedCancel()) {
+		t.Error("marca atrasada de turno morto recusou o turno em andamento")
 	}
 }
 

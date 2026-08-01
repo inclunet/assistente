@@ -38,17 +38,18 @@ type session struct {
 	options []ConfigOption
 	closed  bool
 
-	// turnSeq numera os turnos e awaitingCancelSeq guarda aquele cujo
-	// cancelamento o agente não confirmou. O slot continua ocupado nesse caso —
-	// dois session/prompt no mesmo sessionId se atropelariam —, mas quem chegar
-	// depois merece ouvir o motivo em vez de esperar no escuro.
-	//
-	// São dois números, e não uma marca simples, porque o prazo pode estourar no
-	// mesmo instante em que o turno enfim responde: aí a marca é cravada depois
-	// de o turno ter acabado, e sem o número ela recusaria o turno seguinte, que
-	// está saudável.
-	turnSeq           uint64
-	awaitingCancelSeq uint64
+	// unconfirmedSig fecha quando o turno em andamento foi cancelado e o agente
+	// não confirmou no prazo. O slot continua ocupado nesse caso — dois
+	// session/prompt no mesmo sessionId se atropelariam —, mas quem espera é
+	// acordado com o motivo em vez de ficar no escuro. É um canal, e não uma
+	// marca, justamente por causa de quem já está na fila: uma marca só seria
+	// vista por quem chegasse depois.
+	unconfirmedSig chan struct{}
+
+	// turnSeq numera os turnos. O prazo pode estourar no mesmo instante em que o
+	// turno enfim responde, e sem o número a marca de um turno morto derrubaria
+	// o turno seguinte, que está saudável.
+	turnSeq uint64
 
 	// cancelSig fecha quando o turno em curso é cancelado, e é renovado a cada
 	// turno novo. Quem manda session/cancel precisa responder "cancelado" aos
@@ -65,13 +66,14 @@ func (s *session) isClosed() bool {
 
 func newSession(id, cwd string, cn *conn, options []ConfigOption) *session {
 	s := &session{
-		id:        id,
-		cwd:       cwd,
-		cn:        cn,
-		turnSlot:  make(chan struct{}, 1),
-		grace:     cancelGrace,
-		options:   options,
-		cancelSig: make(chan struct{}),
+		id:             id,
+		cwd:            cwd,
+		cn:             cn,
+		turnSlot:       make(chan struct{}, 1),
+		grace:          cancelGrace,
+		options:        options,
+		cancelSig:      make(chan struct{}),
+		unconfirmedSig: make(chan struct{}),
 	}
 	s.turnSlot <- struct{}{}
 	return s
@@ -141,12 +143,15 @@ func (s *session) acquireTurn(ctx context.Context) error {
 		return nil
 	default:
 	}
-	if s.awaitingCancelConfirmation() {
-		return ErrCancelNotConfirmed
-	}
+	// O canal é lido antes da espera: quem já está na fila quando o prazo de
+	// cancelamento estoura precisa ser acordado, não descobrir só na próxima vez
+	// que tentar.
+	unconfirmed := s.unconfirmedCancel()
 	select {
 	case <-s.turnSlot:
 		return nil
+	case <-unconfirmed:
+		return ErrCancelNotConfirmed
 	case <-s.cn.dead:
 		return ErrSessionLost
 	case <-s.cn.rpc.Done():
@@ -175,6 +180,11 @@ func (s *session) startTurn() uint64 {
 		s.cancelSig = make(chan struct{})
 	default:
 	}
+	select {
+	case <-s.unconfirmedSig:
+		s.unconfirmedSig = make(chan struct{})
+	default:
+	}
 	s.turnSeq++
 	return s.turnSeq
 }
@@ -196,18 +206,26 @@ func (s *session) turnInFlight() bool {
 	return len(s.turnSlot) == 0
 }
 
-// awaitingCancelConfirmation só vale para o turno em andamento: a marca de um
-// turno que já terminou não recusa quem vem depois.
-func (s *session) awaitingCancelConfirmation() bool {
+func (s *session) unconfirmedCancel() <-chan struct{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.awaitingCancelSeq != 0 && s.awaitingCancelSeq == s.turnSeq
+	return s.unconfirmedSig
 }
 
+// markCancelUnconfirmed só vale para o turno em andamento: o prazo pode estourar
+// no instante em que o turno enfim responde, e aí a marca chegaria atrasada para
+// derrubar o turno seguinte, que está saudável.
 func (s *session) markCancelUnconfirmed(seq uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.awaitingCancelSeq = seq
+	if s.turnSeq != seq {
+		return
+	}
+	select {
+	case <-s.unconfirmedSig:
+	default:
+		close(s.unconfirmedSig)
+	}
 }
 
 func (s *session) releaseTurn() {
