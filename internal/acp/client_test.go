@@ -836,6 +836,68 @@ func TestDuasConversasNoMesmoProcessoNaoSeMisturam(t *testing.T) {
 	}
 }
 
+// Parar a resposta numa aba não pode parar a da outra. O cancelamento viaja
+// com o sessionId, e trocar as bolas aqui derrubaria o trabalho de uma conversa
+// que ninguém mandou parar.
+func TestCancelarUmaConversaNaoParaAOutra(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptCancel, nil)
+	primeira := startSession(t, client, ctx)
+	segunda := startSession(t, client, ctx)
+
+	turnoA, pararA := context.WithCancel(ctx)
+	defer pararA()
+	colA, colB := &collector{}, &collector{}
+	fimA := make(chan promptOutcome, 1)
+	fimB := make(chan error, 1)
+	go func() {
+		stop, err := primeira.Prompt(turnoA, []Content{TextContent("aba-a")}, colA.sink)
+		fimA <- promptOutcome{stop: stop, err: err}
+	}()
+	go func() {
+		_, err := segunda.Prompt(ctx, []Content{TextContent("aba-b")}, colB.sink)
+		fimB <- err
+	}()
+
+	// As duas precisam estar trabalhando antes do cancelamento, senão o teste
+	// passaria sem que houvesse a outra conversa para atrapalhar.
+	esperar := func(col *collector) {
+		t.Helper()
+		prazo := time.Now().Add(5 * time.Second)
+		for !strings.Contains(col.textOfKind(UpdateText), "trabalhando") {
+			if time.Now().After(prazo) {
+				t.Fatal("a conversa não começou a responder")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	esperar(colA)
+	esperar(colB)
+
+	pararA()
+	select {
+	case out := <-fimA:
+		if out.err != nil {
+			t.Fatalf("a conversa cancelada devolveu erro: %v", out.err)
+		}
+		// O agente confirmou o cancelamento dessa conversa, e só dela.
+		if out.stop != StopCancelled {
+			t.Fatalf("stopReason = %q, esperado %q", out.stop, StopCancelled)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a conversa cancelada não voltou")
+	}
+
+	select {
+	case err := <-fimB:
+		t.Fatalf("a outra conversa parou junto: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	if got := colB.textOfKind(UpdateText); strings.Contains(got, "depois-do-cancelamento") {
+		t.Errorf("o cancelamento vazou para a outra conversa: %q", got)
+	}
+}
+
 func TestTurnosDaMesmaSessaoNaoSeAtropelam(t *testing.T) {
 	ctx := testContext(t)
 	client := newTestClient(t, scriptTurn, nil)

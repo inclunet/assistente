@@ -66,12 +66,15 @@ type fakeAgent struct {
 	writeMu sync.Mutex
 	out     *bufio.Writer
 
-	mu        sync.Mutex
-	nextID    int
-	sessions  int
-	first     string
-	pending   map[string]chan rpcMessage
-	cancelled chan struct{}
+	mu       sync.Mutex
+	nextID   int
+	sessions int
+	first    string
+	pending  map[string]chan rpcMessage
+	// cancelled é por sessão, como no agente de verdade: um cancelamento
+	// global acordaria o turno da conversa errada e esconderia justamente o
+	// erro de roteamento que os testes de duas conversas procuram.
+	cancelled map[string]chan struct{}
 	// inTurn é por sessão: dois turnos ao mesmo tempo em sessões diferentes é
 	// uso normal do agente, o que não pode acontecer é na mesma sessão.
 	inTurn  map[string]bool
@@ -80,11 +83,12 @@ type fakeAgent struct {
 
 func runFakeAgent(script string) {
 	agent := &fakeAgent{
-		script:  script,
-		out:     bufio.NewWriter(os.Stdout),
-		nextID:  9000,
-		pending: make(map[string]chan rpcMessage),
-		inTurn:  make(map[string]bool),
+		script:    script,
+		out:       bufio.NewWriter(os.Stdout),
+		nextID:    9000,
+		pending:   make(map[string]chan rpcMessage),
+		inTurn:    make(map[string]bool),
+		cancelled: make(map[string]chan struct{}),
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -211,10 +215,11 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 		go a.runTurn(msg)
 
 	case "session/cancel":
-		a.mu.Lock()
-		ch := a.cancelled
-		a.mu.Unlock()
-		if ch != nil {
+		var params struct {
+			SessionId string `json:"sessionId"`
+		}
+		_ = json.Unmarshal(msg.Params, &params)
+		if ch := a.cancelChan(params.SessionId); ch != nil {
 			select {
 			case ch <- struct{}{}:
 			default:
@@ -263,13 +268,20 @@ func (a *fakeAgent) beginTurn(sid string) {
 		a.overlap = true
 	}
 	a.inTurn[sid] = true
-	a.cancelled = make(chan struct{}, 1)
+	a.cancelled[sid] = make(chan struct{}, 1)
 }
 
 func (a *fakeAgent) endTurn(sid string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	delete(a.inTurn, sid)
+	delete(a.cancelled, sid)
+}
+
+func (a *fakeAgent) cancelChan(sid string) chan struct{} {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.cancelled[sid]
 }
 
 func (a *fakeAgent) sawOverlap() bool {
@@ -333,16 +345,13 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 		a.chunk("agent_message_chunk", string(msg.Params))
 
 	case scriptCancel:
-		a.chunk("agent_message_chunk", "trabalhando")
-		a.mu.Lock()
-		ch := a.cancelled
-		a.mu.Unlock()
+		a.chunkOf(params.SessionId, "agent_message_chunk", "trabalhando")
 		select {
-		case <-ch:
+		case <-a.cancelChan(params.SessionId):
 		case <-time.After(20 * time.Second):
 		}
 		// Um agente real ainda emite alguma coisa enquanto se recolhe.
-		a.chunk("agent_message_chunk", "depois-do-cancelamento")
+		a.chunkOf(params.SessionId, "agent_message_chunk", "depois-do-cancelamento")
 		a.reply(*msg.ID, map[string]any{"stopReason": "cancelled"})
 		return
 
@@ -392,7 +401,11 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 }
 
 func (a *fakeAgent) chunk(kind, text string) {
-	a.update(map[string]any{
+	a.chunkOf(a.firstID(), kind, text)
+}
+
+func (a *fakeAgent) chunkOf(sid, kind, text string) {
+	a.updateFor(sid, map[string]any{
 		"sessionUpdate": kind,
 		"content":       map[string]any{"type": "text", "text": text},
 	})
