@@ -148,9 +148,10 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 	done := make(chan promptOutcome, 1)
 	go func() {
 		defer s.releaseTurn()
-		// A chamada não usa o ctx de quem pediu: desistir da espera não é a
-		// mesma coisa que encerrar o turno. Quem encerra é session/cancel, e a
-		// resposta do agente ainda precisa ser aguardada.
+		// A chamada ignora o cancelamento do ctx de quem pediu (mantendo os
+		// valores de correlação): desistir da espera não é a mesma coisa que
+		// encerrar o turno. Quem encerra é session/cancel, e a resposta do
+		// agente ainda precisa ser aguardada.
 		resp, err := sdk.SendRequest[sdk.PromptResponse](s.cn.rpc, context.WithoutCancel(ctx),
 			sdk.AgentMethodSessionPrompt, sdk.PromptRequest{
 				SessionId: sdk.SessionId(s.id),
@@ -165,7 +166,9 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 	case <-ctx.Done():
 		// O envio do cancelamento não pode segurar o prazo: escrever para o
 		// agente é I/O que pode travar, e travaria quem chamou justamente na
-		// hora em que ele pediu para parar.
+		// hora em que ele pediu para parar. A goroutine não fica presa para
+		// sempre: um agente que não lê mais a entrada acaba morto pelo
+		// encerramento da conexão, e a escrita falha quando o cano fecha.
 		go func() {
 			if err := s.Cancel(context.Background()); err != nil {
 				logging.Warnf(context.Background(), logComponent,

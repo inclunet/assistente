@@ -300,6 +300,11 @@ func promptBlocks(content []Content) ([]sdk.ContentBlock, error) {
 	for _, item := range content {
 		switch {
 		case item.ImageData != "":
+			// Imagem sem tipo viraria um mimeType vazio no fio, e o agente
+			// falharia de um jeito difícil de ligar de volta ao anexo.
+			if strings.TrimSpace(item.ImageMIME) == "" {
+				return nil, errors.New("anexo de imagem sem tipo MIME")
+			}
 			blocks = append(blocks, sdk.ImageBlock(item.ImageData, item.ImageMIME))
 		case item.Text != "":
 			blocks = append(blocks, sdk.TextBlock(item.Text))

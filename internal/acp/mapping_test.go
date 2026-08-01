@@ -109,6 +109,9 @@ func TestBlocosDoPromptIgnoramConteudoVazio(t *testing.T) {
 	if _, err := promptBlocks([]Content{{Text: ""}}); err == nil {
 		t.Error("turno só com texto vazio deveria falhar")
 	}
+	if _, err := promptBlocks([]Content{ImageContent("ZmFrZQ==", "")}); err == nil {
+		t.Error("imagem sem tipo MIME deveria falhar aqui, e não no agente")
+	}
 	blocos, err := promptBlocks([]Content{TextContent("oi"), ImageContent("ZmFrZQ==", "image/png")})
 	if err != nil {
 		t.Fatalf("blocos válidos: %v", err)
