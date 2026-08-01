@@ -100,7 +100,12 @@ type Client interface {
 // Session é uma conversa do lado do agente. O histórico vive nela, não no app:
 // cada turno envia só a mensagem nova (AEP-0084 D4).
 type Session interface {
-	// ID é o identificador que o agente atribuiu à sessão.
+	// ID é o identificador que o agente atribuiu à sessão, exatamente como ele
+	// mandou. É chave de roteamento — volta para o agente em todo pedido e é
+	// por ele que as atualizações são encontradas —, então não passa pela
+	// limpeza que o identificador de ferramenta recebe: alterá-lo aqui seria
+	// falar de uma sessão que o agente não conhece. Quem for exibi-lo ou usá-lo
+	// como chave de UI limpa na hora (AEP-0084 D11).
 	ID() string
 
 	// Prompt envia um turno e entrega o que o agente produz ao sink, em ordem.

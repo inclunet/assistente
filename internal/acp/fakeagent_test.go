@@ -29,8 +29,12 @@ const (
 	scriptStuck         = "stuck"      // aceita o turno e nunca responde, nem ao cancelamento
 	scriptTeimoso       = "teimoso"    // ignora o cancelamento e segue falando para sempre
 	scriptDuasConversas = "duas"       // fala em pedaços, assinando cada um com a conversa
+	scriptIDSujo        = "idsujo"     // abre a conversa com identificador cheio de sujeira
 
 	fakeSessionID = "sess-falsa-1"
+	// fakeDirtySessionID imita um agente que emite identificador com quebra de
+	// linha, como o Cursor fez com toolCallId na sonda do AEP-0084.
+	fakeDirtySessionID = "sess-falsa\n1"
 )
 
 func TestMain(m *testing.M) {
@@ -65,6 +69,7 @@ type fakeAgent struct {
 	mu        sync.Mutex
 	nextID    int
 	sessions  int
+	first     string
 	pending   map[string]chan rpcMessage
 	cancelled chan struct{}
 	// inTurn é por sessão: dois turnos ao mesmo tempo em sessões diferentes é
@@ -229,10 +234,26 @@ func (a *fakeAgent) newSessionID() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.sessions++
-	if a.sessions == 1 {
+	switch {
+	case a.script == scriptIDSujo && a.sessions == 1:
+		a.first = fakeDirtySessionID
+	case a.sessions == 1:
+		a.first = fakeSessionID
+	default:
+		return fmt.Sprintf("sess-falsa-%d", a.sessions)
+	}
+	return a.first
+}
+
+// firstID é a conversa para onde vão as atualizações dos roteiros de uma
+// conversa só.
+func (a *fakeAgent) firstID() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.first == "" {
 		return fakeSessionID
 	}
-	return fmt.Sprintf("sess-falsa-%d", a.sessions)
+	return a.first
 }
 
 func (a *fakeAgent) beginTurn(sid string) {
@@ -396,7 +417,7 @@ func (a *fakeAgent) toolUpdate(id, status string) {
 }
 
 func (a *fakeAgent) update(update map[string]any) {
-	a.updateFor(fakeSessionID, update)
+	a.updateFor(a.firstID(), update)
 }
 
 func (a *fakeAgent) updateFor(sid string, update map[string]any) {

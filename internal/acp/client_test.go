@@ -1179,6 +1179,34 @@ func TestOEstadoDaSessaoNaoCompartilhaMemoriaComQuemEscuta(t *testing.T) {
 	}
 }
 
+// O identificador da conversa é chave de roteamento, não texto: vai e volta
+// exatamente como o agente mandou. Limpá-lo aqui — como se faz com o da
+// ferramenta, que é só para exibir — mandaria de volta um identificador que o
+// agente não reconhece e faria toda atualização dele cair no vazio. Quem for
+// exibir isso limpa na hora de exibir (AEP-0084 D11).
+func TestIdentificadorSujoDaConversaContinuaRoteando(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptIDSujo, nil)
+	sess := startSession(t, client, ctx)
+
+	if sess.ID() != fakeDirtySessionID {
+		t.Fatalf("identificador da conversa = %q, esperado o que o agente mandou %q",
+			sess.ID(), fakeDirtySessionID)
+	}
+
+	col := &collector{}
+	stop, err := sess.Prompt(ctx, []Content{TextContent("liste os arquivos")}, col.sink)
+	if err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+	if stop != StopEndTurn {
+		t.Fatalf("stopReason = %q, esperado %q", stop, StopEndTurn)
+	}
+	if got := col.textOfKind(UpdateText); got != "olá mundo" {
+		t.Errorf("as atualizações não chegaram: texto = %q", got)
+	}
+}
+
 // Um sink que encerra a própria conversa ao ver um evento não pode travar: ele
 // roda dentro da entrega, e esperar a entrega terminar seria esperar por si
 // mesmo. É o caminho de "erro fatal no meio da resposta, feche isso aqui".
