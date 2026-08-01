@@ -152,6 +152,37 @@ func TestRespostaDoAgenteVenceOPrazoDeGraca(t *testing.T) {
 	}
 }
 
+// Quando a conversa é excluída, dizer se o turno chegou a sair para o agente
+// não pode depender de quem ganhou a corrida: é esse sinal que decide se uma
+// retentativa automática mexeria no disco de novo.
+func TestConversaExcluidaNaoInventaQueOTurnoSaiu(t *testing.T) {
+	novaSessao := func() *session {
+		return &session{id: "sess-teste", turnSlot: make(chan struct{}, 1), closedSig: make(chan struct{})}
+	}
+
+	// A goroutine já disse que o pedido nem saiu: retentar é seguro.
+	naoSaiu := make(chan promptOutcome, 1)
+	naoSaiu <- promptOutcome{err: ErrSessionClosed}
+	_, err := novaSessao().closedOutcome(naoSaiu)
+	var falha *PromptError
+	if !errors.As(err, &falha) || !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	if falha.Accepted {
+		t.Error("o turno não chegou a sair e não deveria constar como aceito")
+	}
+
+	// Sem desfecho pronto, o pedido está em voo: retentar mexeria no disco de
+	// novo.
+	_, err = novaSessao().closedOutcome(make(chan promptOutcome))
+	if !errors.As(err, &falha) || !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	if !falha.Accepted {
+		t.Error("o turno estava em voo e deveria constar como aceito")
+	}
+}
+
 func TestNormalizeIDLimpaIdentificadoresDoAgente(t *testing.T) {
 	casos := []struct {
 		nome     string

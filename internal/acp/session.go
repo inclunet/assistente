@@ -364,11 +364,7 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 	case out := <-done:
 		return s.finishTurn(out)
 	case <-s.closedSig:
-		// A conversa foi excluída no meio do turno. O Close já mandou o agente
-		// parar, e esperar aqui não mostraria nada a ninguém: ele também já
-		// desligou a entrega. Devolver na hora é o que evita prender quem
-		// chamou num agente que talvez nunca responda.
-		return StopCancelled, &PromptError{Accepted: true, Err: ErrSessionClosed}
+		return s.closedOutcome(done)
 	case <-ctx.Done():
 		// A entrega continua ligada durante o prazo de graça, de propósito. O
 		// que o agente emite enquanto se recolhe é justamente o desfecho do que
@@ -396,6 +392,22 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 	}
 }
 
+// closedOutcome resolve um turno cuja conversa foi excluída. Se a goroutine já
+// deixou o desfecho pronto, é ele que vale: só ela sabe dizer se o pedido
+// chegou a sair para o agente, e é isso que decide se uma retentativa
+// automática é segura. Sem essa conferência, o mesmo turno seria dado como
+// aceito ou não conforme quem ganhasse a corrida.
+//
+// Não esperamos pelo desfecho: o Close já mandou o agente parar e já desligou a
+// entrega, então segurar quem chamou não mostraria nada a ninguém e o prenderia
+// num agente que talvez nunca responda. Quem cuida do agente solto é o Close.
+func (s *session) closedOutcome(done <-chan promptOutcome) (StopReason, error) {
+	if out, ok := tryReceive(done); ok {
+		return s.finishTurn(out)
+	}
+	return StopCancelled, &PromptError{Accepted: true, Err: ErrSessionClosed}
+}
+
 // awaitCancelled espera o desfecho de um turno que foi mandado parar. A
 // resposta do agente tem preferência sobre o prazo e sobre o encerramento da
 // conversa: com dois casos prontos o select escolhe ao acaso, e aqui o acaso
@@ -407,14 +419,7 @@ func (s *session) awaitCancelled(seq uint64, done <-chan promptOutcome, expired 
 	case out := <-done:
 		return s.finishTurn(out)
 	case <-s.closedSig:
-		if out, ok := tryReceive(done); ok {
-			return s.finishTurn(out)
-		}
-		// A conversa foi excluída no meio da espera. Quem chamou não tem mais o
-		// que fazer com a confirmação do agente, e segurá-lo aqui pelo resto do
-		// prazo seria esperar por uma conversa que já não existe. Quem cuida do
-		// agente solto a partir daqui é o Close.
-		return StopCancelled, &PromptError{Accepted: true, Err: ErrSessionClosed}
+		return s.closedOutcome(done)
 	case <-expired:
 		if out, ok := tryReceive(done); ok {
 			return s.finishTurn(out)
