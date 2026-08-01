@@ -160,6 +160,45 @@ porque muda o que o agente sabe.
 
 Limpar ou excluir a conversa encerra a sessão correspondente.
 
+#### As instruções do perfil precisam chegar ao agente
+
+O pipeline injeta persona, skills e blocos de contexto (AEP-0075) em uma única
+mensagem `system` antes do `StreamChat`. "Enviar só a última mensagem do
+usuário" não pode significar descartá-las — seria o único provider do barramento
+a ignorar o perfil. Mas o ACP não tem papel `system`: `session/prompt` recebe
+blocos de conteúdo do usuário.
+
+O app já marca, nessa mensagem, onde termina o **prefixo estável**
+(`SystemCacheControlPrefixLen`, usado hoje para cache de prompt). Usamos essa
+mesma fronteira:
+
+- o **prefixo estável** (persona, skills) vai **uma vez por sessão**, como bloco
+  delimitado no primeiro `session/prompt`;
+- a **parte dinâmica** (contexto de superfície, workspace) vai **no turno em que
+  mudar**, como bloco próprio, junto da mensagem do usuário;
+- o provider guarda o hash do que já enviou; trocar de perfil no meio da
+  conversa reenvia o prefixo, porque as instruções passaram a ser outras.
+
+Os blocos são delimitados como instrução do app, e não se confundem com o texto
+da pessoa. O agente também tem as regras do próprio projeto (`AGENTS.md`,
+`.cursor/rules`), que continuam sendo assunto dele.
+
+#### Quando o histórico do app e a sessão do agente divergem
+
+A sessão tem memória própria, então retry, edição e exclusão de mensagens podem
+deixar as duas visões diferentes — o app mostrando uma conversa que o agente não
+viveu. A regra é não tentar reconciliar em silêncio:
+
+- **Retry de um turno que não produziu resposta** (falha de transporte,
+  permissão negada antes de qualquer texto): reenvia na mesma sessão, depois de
+  um `session/cancel` se ainda houver turno em voo.
+- **Retry de um turno que já produziu resposta**, edição ou exclusão de
+  mensagens: a sessão é marcada como divergente e **recriada no próximo envio**,
+  com aviso de que o agente perdeu o contexto anterior.
+
+Perder memória é ruim; fazer o agente responder com base em uma conversa que a
+pessoa já não vê na tela é pior.
+
 ### D5. `cwd` é o diretório de trabalho do app
 
 O `session/new` exige um diretório: é ele que define onde o agente edita
@@ -358,8 +397,11 @@ extensões `cursor/*`.
 - Lista de modelos e troca de modelo funcionam com o Cursor, pelos dois formatos
   de seleção.
 - Um provider ACP é criado, testado e diagnosticado pela UI sem `BaseURL`.
+- As instruções do perfil chegam ao agente, sem reenvio do prefixo estável a
+  cada turno.
 - Reabrir uma conversa retoma a sessão do agente ou informa que a memória se
-  perdeu.
+  perdeu; retry, edição e exclusão nunca deixam o agente respondendo sobre um
+  histórico que a pessoa não vê.
 - Cancelar o turno cancela do lado do agente.
 - Texto e IDs vindos do agente são saneados antes de virar UI, anúncio ou chave.
 
