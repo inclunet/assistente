@@ -258,6 +258,12 @@ sessão, nunca o processo. O resultado vai para um **cache** por provider,
 invalidado quando um `config_option_update` chega ou quando a pessoa pede
 refresh na UI — assim a tela de settings não abre uma sessão por consulta.
 
+"Descartar" é do lado do agente, quando ele deixa: fecha-se a sessão pelo método
+do protocolo se a capacidade for anunciada — o Cursor de hoje não anuncia. Sem
+ela, não se cria uma sessão nova a cada consulta para depois esquecê-la: o
+provider **reaproveita a mesma sessão de descoberta**, que é barata porque nunca
+recebe prompt, em vez de deixar um rastro de sessões abandonadas no agente.
+
 O agente também troca de modelo sozinho (fallback de rate limit, por exemplo) e
 notifica via `config_option_update`. Isso vira um evento para a UI refletir o
 modelo corrente — a pessoa precisa saber com quem está falando.
