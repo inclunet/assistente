@@ -1205,6 +1205,20 @@ func TestIdentificadorSujoDaConversaContinuaRoteando(t *testing.T) {
 	if got := col.textOfKind(UpdateText); got != "olá mundo" {
 		t.Errorf("as atualizações não chegaram: texto = %q", got)
 	}
+
+	// Cru no protocolo, escapado no texto: um identificador com quebra de linha
+	// dentro de uma mensagem de erro forja linha de log e atrapalha quem lê.
+	sess.(*session).closeWait = 200 * time.Millisecond
+	err = sess.Close(ctx)
+	if err == nil {
+		t.Fatal("o agente não respondeu à despedida e isso deveria virar erro")
+	}
+	if strings.ContainsAny(err.Error(), "\n\r") {
+		t.Errorf("o erro carrega quebra de linha vinda do agente: %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), `sess-falsa\n1`) {
+		t.Errorf("o erro deveria citar o identificador escapado, obtive: %s", err.Error())
+	}
 }
 
 // Um sink que encerra a própria conversa ao ver um evento não pode travar: ele
@@ -1410,9 +1424,11 @@ func TestFecharASessaoNaoTravaQuandoOAgenteParaDeLerAEntrada(t *testing.T) {
 	cano := canoCheio{liberado: make(chan struct{})}
 	t.Cleanup(func() { close(cano.liberado) })
 
+	derrubado := make(chan struct{})
 	cn := &conn{
 		handler:  denyAll{},
 		caps:     Capabilities{CloseSession: true},
+		kill:     sync.OnceFunc(func() { close(derrubado) }),
 		sessions: map[string]*session{},
 		dead:     make(chan struct{}),
 	}
@@ -1430,6 +1446,18 @@ func TestFecharASessaoNaoTravaQuandoOAgenteParaDeLerAEntrada(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Close ficou preso escrevendo para um agente que não lê")
+	}
+
+	// Um processo que não aceita mais entrada não serve às outras conversas:
+	// cada chamada delas ficaria pendurada até o contexto de quem chamou
+	// morrer. Derrubar é o que devolve o app ao caminho de recuperação.
+	if !cn.isDead() {
+		t.Error("a conexão continuou viva depois de o agente parar de aceitar pedidos")
+	}
+	select {
+	case <-derrubado:
+	default:
+		t.Error("o processo do agente não foi derrubado")
 	}
 }
 

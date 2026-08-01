@@ -460,7 +460,7 @@ func (c *conn) handleInbound(ctx context.Context, method string, params json.Raw
 func (c *conn) dispatchUpdate(ctx context.Context, notification sdk.SessionNotification) {
 	sess := c.session(string(notification.SessionId))
 	if sess == nil {
-		logging.Debugf(ctx, logComponent, "[ACP] atualização de sessão desconhecida (%s) descartada", notification.SessionId)
+		logging.Debugf(ctx, logComponent, "[ACP] atualização de sessão desconhecida (%q) descartada", notification.SessionId)
 		return
 	}
 	update, ok := updateFrom(notification.Update)

@@ -105,7 +105,8 @@ type Session interface {
 	// por ele que as atualizações são encontradas —, então não passa pela
 	// limpeza que o identificador de ferramenta recebe: alterá-lo aqui seria
 	// falar de uma sessão que o agente não conhece. Quem for exibi-lo ou usá-lo
-	// como chave de UI limpa na hora (AEP-0084 D11).
+	// como chave de UI limpa na hora (AEP-0084 D11); em mensagem e log ele sai
+	// citado, senão uma quebra de linha dele forja linha de log.
 	ID() string
 
 	// Prompt envia um turno e entrega o que o agente produz ao sink, em ordem.

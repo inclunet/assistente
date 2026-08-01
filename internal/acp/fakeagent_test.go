@@ -185,7 +185,7 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 		})
 
 	case "session/close":
-		if a.script == scriptStuck {
+		if a.script == scriptStuck || a.script == scriptIDSujo {
 			// Vivo, mas surdo: é o agente que penduraria o fechamento do app.
 			return
 		}

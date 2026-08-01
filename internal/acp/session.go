@@ -389,7 +389,7 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 		go func() {
 			if err := s.Cancel(context.Background()); err != nil {
 				logging.Warnf(context.Background(), logComponent,
-					"[ACP] falha ao cancelar turno da sessão %s: %v", s.id, err)
+					"[ACP] falha ao cancelar turno da sessão %q: %v", s.id, err)
 			}
 		}()
 		timer := time.NewTimer(s.grace)
@@ -452,7 +452,7 @@ func (s *session) finishTurn(out promptOutcome) (StopReason, error) {
 	}
 	return "", &PromptError{
 		Accepted: turnAccepted(out.err),
-		Err:      wrapCallError(fmt.Sprintf("turno na sessão %s", s.id), out.err),
+		Err:      wrapCallError(fmt.Sprintf("turno na sessão %q", s.id), out.err),
 	}
 }
 
@@ -469,7 +469,7 @@ func (s *session) Cancel(ctx context.Context) error {
 		SessionId: sdk.SessionId(s.id),
 	})
 	if err != nil {
-		return fmt.Errorf("cancelar turno da sessão %s: %w", s.id, err)
+		return fmt.Errorf("cancelar turno da sessão %q: %w", s.id, err)
 	}
 	return nil
 }
@@ -513,19 +513,27 @@ func (s *session) Close(ctx context.Context) error {
 	// stdin dele, e essa escrita não olha contexto nenhum: o SDK confere o
 	// cancelamento antes de escrever e depois entra num Write que só volta
 	// quando o cano aceita os bytes. Um agente vivo que parou de ler penduraria
-	// o encerramento do app aqui para sempre. Esperamos por um prazo e
-	// seguimos; a goroutine se desprende sozinha quando o processo morre, o que
-	// o Close do cliente garante logo em seguida.
+	// o encerramento do app aqui para sempre.
 	done := make(chan error, 1)
 	go func() { done <- s.farewell(context.WithoutCancel(ctx)) }()
 
-	timer := time.NewTimer(s.closeWait)
+	// A espera é maior que o prazo do próprio pedido, e é isso que separa os
+	// dois desfechos: um agente que só demora a responder volta por aqui com o
+	// erro do prazo interno.
+	timer := time.NewTimer(2 * s.closeWait)
 	defer timer.Stop()
 	select {
 	case err := <-done:
 		return err
 	case <-timer.C:
-		return fmt.Errorf("encerrar a sessão %s: o agente não respondeu em %s", s.id, s.closeWait)
+		// Nem o prazo interno voltou: o que travou não foi a resposta, foi a
+		// escrita para o agente. Um processo que parou de aceitar entrada não
+		// serve mais a ninguém — as outras conversas dele só descobririam isso
+		// pendurando cada chamada até o contexto de quem chamou morrer, e a
+		// goroutine da despedida ficaria presa no Write. Derrubar devolve o app
+		// ao caminho de recuperação: a próxima chamada sobe um agente novo.
+		s.cn.shutdown()
+		return fmt.Errorf("encerrar a sessão %q: o agente parou de aceitar pedidos e foi derrubado", s.id)
 	}
 }
 
@@ -535,7 +543,7 @@ func (s *session) farewell(ctx context.Context) error {
 	if s.turnInFlight() {
 		if err := s.Cancel(ctx); err != nil {
 			logging.Warnf(ctx, logComponent,
-				"[ACP] falha ao cancelar o turno da sessão %s ao encerrá-la: %v", s.id, err)
+				"[ACP] falha ao cancelar o turno da sessão %q ao encerrá-la: %v", s.id, err)
 		}
 	}
 	if !s.cn.caps.CloseSession {
@@ -546,7 +554,7 @@ func (s *session) farewell(ctx context.Context) error {
 	_, err := sdk.SendRequest[sdk.CloseSessionResponse](s.cn.rpc, cctx, sdk.AgentMethodSessionClose,
 		sdk.CloseSessionRequest{SessionId: sdk.SessionId(s.id)})
 	if err != nil {
-		return wrapCallError(fmt.Sprintf("encerrar a sessão %s", s.id), err)
+		return wrapCallError(fmt.Sprintf("encerrar a sessão %q", s.id), err)
 	}
 	return nil
 }
