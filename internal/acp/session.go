@@ -390,23 +390,41 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 					"[ACP] falha ao cancelar turno da sessão %s: %v", s.id, err)
 			}
 		}()
-		select {
-		case out := <-done:
+		timer := time.NewTimer(s.grace)
+		defer timer.Stop()
+		return s.awaitCancelled(seq, done, timer.C)
+	}
+}
+
+// awaitCancelled espera o desfecho de um turno que foi mandado parar. A
+// resposta do agente tem preferência sobre o prazo e sobre o encerramento da
+// conversa: com dois casos prontos o select escolhe ao acaso, e aqui o acaso
+// diria que o agente não confirmou o cancelamento quando ele acabou de
+// confirmar — deixando a sessão marcada e recusando o próximo turno por um
+// motivo que não existe.
+func (s *session) awaitCancelled(seq uint64, done <-chan promptOutcome, expired <-chan time.Time) (StopReason, error) {
+	select {
+	case out := <-done:
+		return s.finishTurn(out)
+	case <-s.closedSig:
+		if out, ok := tryReceive(done); ok {
 			return s.finishTurn(out)
-		case <-s.closedSig:
-			// A conversa foi excluída no meio da espera. Quem chamou não tem
-			// mais o que fazer com a confirmação do agente, e segurá-lo aqui
-			// pelo resto do prazo seria esperar por uma conversa que já não
-			// existe. Quem cuida do agente solto a partir daqui é o Close.
-			return StopCancelled, &PromptError{Accepted: true, Err: ErrSessionClosed}
-		case <-time.After(s.grace):
-			// O turno saiu e não voltou: pode haver um agente de código ainda
-			// mexendo no disco, e quem chamou precisa saber que é esse o estado.
-			// A sessão fica marcada para que o próximo turno seja recusado com
-			// esse mesmo motivo, em vez de esperar calado na fila.
-			s.markCancelUnconfirmed(seq)
-			return StopCancelled, &PromptError{Accepted: true, Err: ErrCancelNotConfirmed}
 		}
+		// A conversa foi excluída no meio da espera. Quem chamou não tem mais o
+		// que fazer com a confirmação do agente, e segurá-lo aqui pelo resto do
+		// prazo seria esperar por uma conversa que já não existe. Quem cuida do
+		// agente solto a partir daqui é o Close.
+		return StopCancelled, &PromptError{Accepted: true, Err: ErrSessionClosed}
+	case <-expired:
+		if out, ok := tryReceive(done); ok {
+			return s.finishTurn(out)
+		}
+		// O turno saiu e não voltou: pode haver um agente de código ainda
+		// mexendo no disco, e quem chamou precisa saber que é esse o estado.
+		// A sessão fica marcada para que o próximo turno seja recusado com
+		// esse mesmo motivo, em vez de esperar calado na fila.
+		s.markCancelUnconfirmed(seq)
+		return StopCancelled, &PromptError{Accepted: true, Err: ErrCancelNotConfirmed}
 	}
 }
 

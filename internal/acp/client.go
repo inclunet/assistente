@@ -630,15 +630,26 @@ func awaitDecision[T any](ctx context.Context, done <-chan T, fallback T) (T, bo
 		}
 		return value, true
 	case <-ctx.Done():
-		select {
-		case value, ok := <-done:
-			if !ok {
-				return fallback, false
-			}
+		if value, ok := tryReceive(done); ok {
 			return value, true
-		default:
-			return fallback, false
 		}
+		return fallback, false
+	}
+}
+
+// tryReceive olha o canal sem esperar. É como se desempata um select em que o
+// outro caso é um prazo ou um aviso: o que já chegou vale mais. Canal fechado
+// não é valor recebido — no guard é justamente o handler que entrou em pânico.
+func tryReceive[T any](ch <-chan T) (T, bool) {
+	var zero T
+	select {
+	case value, ok := <-ch:
+		if !ok {
+			return zero, false
+		}
+		return value, true
+	default:
+		return zero, false
 	}
 }
 

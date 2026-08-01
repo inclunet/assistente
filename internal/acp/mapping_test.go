@@ -111,6 +111,47 @@ func TestLinhaGiganteNoStderrNaoCalaODiagnosticoSeguinte(t *testing.T) {
 	}
 }
 
+// Se o agente confirmou o fim do turno no mesmo instante em que o prazo
+// estourou, vale o que ele disse. O contrário marcaria a sessão como
+// "cancelamento não confirmado" e recusaria o próximo turno por um motivo que
+// não existe — e o agente, que parou direitinho, levaria a fama de solto.
+func TestRespostaDoAgenteVenceOPrazoDeGraca(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		s := &session{
+			id:             "sess-teste",
+			turnSlot:       make(chan struct{}, 1),
+			unconfirmedSig: make(chan struct{}),
+			closedSig:      make(chan struct{}),
+		}
+		done := make(chan promptOutcome, 1)
+		done <- promptOutcome{stop: StopCancelled}
+		expirado := make(chan time.Time, 1)
+		expirado <- time.Now()
+
+		stop, err := s.awaitCancelled(1, done, expirado)
+		if err != nil || stop != StopCancelled {
+			t.Fatalf("a confirmação do agente foi ignorada: stop=%q err=%v", stop, err)
+		}
+		if signalFired(s.unconfirmedSig) {
+			t.Fatal("a sessão foi marcada como não confirmada mesmo com o agente tendo confirmado")
+		}
+	}
+
+	// Sem resposta, o prazo manda: quem chamou precisa saber que o agente pode
+	// ter ficado solto.
+	s := &session{
+		id:             "sess-teste",
+		turnSlot:       make(chan struct{}, 1),
+		unconfirmedSig: make(chan struct{}),
+		closedSig:      make(chan struct{}),
+	}
+	expirado := make(chan time.Time, 1)
+	expirado <- time.Now()
+	if _, err := s.awaitCancelled(1, make(chan promptOutcome), expirado); !errors.Is(err, ErrCancelNotConfirmed) {
+		t.Errorf("sem resposta o prazo deveria valer, obtive: %v", err)
+	}
+}
+
 func TestNormalizeIDLimpaIdentificadoresDoAgente(t *testing.T) {
 	casos := []struct {
 		nome     string
