@@ -399,6 +399,11 @@ outra goroutine; do lado do agente isso sobreporia dois `session/prompt` no
 mesmo `sessionId`. O novo turno espera a confirmação do cancelamento do
 anterior antes de promptar.
 
+Essa fila mora no **serviço compartilhado do D3**, junto da sessão que ela
+protege. Serializar dentro do `ChatProvider` não resolveria: `GetChatProvider`
+devolve uma instância nova por chamada, e as duas goroutines do barge-in
+seguram objetos diferentes — cada uma com o próprio mutex, guardando nada.
+
 ### D11. A saída do agente é dado não confiável
 
 Mesmo padrão do AEP-0068: o texto que volta do agente passa por
