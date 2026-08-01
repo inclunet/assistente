@@ -7,6 +7,7 @@ require (
 	github.com/KennethanCeyer/ptyx v0.2.0
 	github.com/alecthomas/chroma/v2 v2.14.0
 	github.com/anthropics/anthropic-sdk-go v1.27.1
+	github.com/coder/acp-go-sdk v0.13.5
 	github.com/danieljoos/wincred v1.2.3
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/glebarez/sqlite v1.11.0

@@ -134,6 +134,16 @@ tende a sair dos SDKs conforme o `configOptions` vira o caminho único. Sem uma
 chamada crua de JSON-RPC em `internal/acp`, o app fica refém do que o SDK
 resolveu tipar naquela versão.
 
+A implementação confirmou que isso vale nas duas direções, e a de entrada é a
+que morde: o cliente pronto do SDK (`ClientSideConnection`) só repassa ao app os
+métodos que ele tipou e as extensões com prefixo `_`. As do Cursor são
+`cursor/*` e seriam respondidas automaticamente como "método não encontrado",
+**sem o app nunca ver o pedido** — inclusive as bloqueantes. Por isso o
+transporte é construído sobre a conexão de baixo nível do SDK
+(`acp.NewConnection` + `acp.SendRequest`), que aceita qualquer nome de método
+nos dois sentidos, e não sobre o cliente pronto. Trocar por ele "para
+simplificar" reintroduziria o problema.
+
 O resto do app conversa só com essa interface. Se o SDK estagnar ou divergir,
 troca-se a implementação sem tocar no provider. A versão fica pinada e o
 comportamento é coberto por testes contra um **agente ACP falso** (um processo
@@ -404,6 +414,31 @@ confirmação de edição, que já é acessível por teclado e leitor de telas.
   que uma ação negada, mas o desfecho precisa ser o que o método aceita: mandar
   um `optionId` de permissão numa pergunta de múltipla escolha é erro de
   protocolo.
+- **O transporte tem um teto próprio, bem maior que o prazo da pergunta.** O
+  prazo acima é da camada que pergunta à pessoa; o transporte não confia que ela
+  exista nem que se comporte. Como o contexto que o SDK entrega no pedido não
+  traz prazo nenhum, um handler travado penduraria o agente para sempre. O teto
+  é folgado de propósito — cortar antes do prazo da tela tiraria da pessoa a
+  chance de responder —, e ao estourar responde o mesmo desfecho negativo do
+  prazo normal.
+
+  No pedido de permissão o transporte monta esse desfecho sozinho, porque as
+  opções vêm no próprio pedido. Nas extensões, quem monta é a camada que
+  implementa o método: só ela conhece o formato que cada um aceita, e uma
+  resposta de forma errada corre o risco de o agente ler o "não" como decisão de
+  verdade — o mesmo erro de protocolo do item anterior. Sem esse desfecho
+  declarado, o transporte responde erro interno, que é a única resposta honesta
+  quando não se sabe dizer "não" no idioma do método.
+- **Cancelar o turno cancela a pergunta.** O ACP obriga quem manda
+  `session/cancel` a responder `outcome: cancelled` aos pedidos de permissão
+  ainda pendentes — e não `reject-once`, que é a resposta de prazo estourado.
+  São coisas diferentes: uma é decisão de negar, a outra é a pergunta ter
+  perdido o dono. Na prática isso também fecha o diálogo na tela, porque
+  perguntar sobre um turno que a pessoa acabou de abortar é ruído para quem usa
+  leitor de telas. Vale igual para as extensões bloqueantes do Cursor, que
+  pertencem ao turno: elas recebem o erro JSON-RPC de pedido cancelado, e não
+  "método não encontrado" — que faria o agente concluir que o app não suporta a
+  extensão. Encerrar a conversa tem o mesmo efeito de cancelar.
 - O título do `toolCall` contém o comando literal e é **dado não confiável**:
   passa pelo mesmo saneamento de texto de diálogo antes de virar rótulo ou
   anúncio.
@@ -467,6 +502,15 @@ Daí decorre a serialização: **uma sessão tem no máximo um turno em voo**. O
 outra goroutine; do lado do agente isso sobreporia dois `session/prompt` no
 mesmo `sessionId`. O novo turno espera a confirmação do cancelamento do
 anterior antes de promptar.
+
+E se a confirmação não vier no prazo? A vez **continua ocupada** — soltá-la
+seria justamente permitir os dois `session/prompt` simultâneos que a fila
+existe para impedir, com o agasalho falso de um prazo. Mas o turno seguinte não
+fica esperando calado: ele é **recusado na hora com o motivo** ("o agente não
+confirmou o cancelamento do turno"), em vez de bloquear até o contexto de quem
+pediu morrer e devolver um `context deadline exceeded` que não explica nada.
+Quem usa leitor de telas precisa ouvir o que está acontecendo, não um silêncio
+de trinta segundos.
 
 Essa fila mora no **serviço compartilhado do D3**, junto da sessão que ela
 protege. Serializar dentro do `ChatProvider` não resolveria: `GetChatProvider`
