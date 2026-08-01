@@ -35,6 +35,9 @@ const (
 	// fakeMuteValue faz o agente aceitar a troca e responder com um conjunto de
 	// opções do qual nada é aproveitável.
 	fakeMuteValue = "modelo-mudo"
+	// fakeUnmodeledOption é uma opção que o agente tem e que este pacote não
+	// sabe representar — o caso de quem dirige a opção pelo escape hatch.
+	fakeUnmodeledOption = "opcao-nao-modelada"
 	// fakeDirtySessionID imita um agente que emite identificador com quebra de
 	// linha, como o Cursor fez com toolCallId na sonda do AEP-0084, e ainda com
 	// espaço nas pontas — que é o que pega quem apara antes de rotear.
@@ -209,7 +212,17 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 			Value     string `json:"value"`
 		}
 		_ = json.Unmarshal(msg.Params, &params)
-		if params.SessionId != fakeSessionID || params.ConfigId != "model" {
+		if params.SessionId != fakeSessionID {
+			a.replyError(*msg.ID, -32602, "parâmetros inesperados: "+string(msg.Params))
+			return
+		}
+		if params.ConfigId == fakeUnmodeledOption {
+			// Opção que existe no agente e que o cliente não sabe representar:
+			// a troca vale, e o que volta não vira seletor nenhum.
+			a.reply(*msg.ID, map[string]any{"configOptions": []any{}})
+			return
+		}
+		if params.ConfigId != "model" {
 			a.replyError(*msg.ID, -32602, "parâmetros inesperados: "+string(msg.Params))
 			return
 		}

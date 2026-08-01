@@ -1631,6 +1631,33 @@ func TestExtensaoSemDesfechoConhecidoRecebeErroInterno(t *testing.T) {
 	}
 }
 
+// Trocar uma opção que este pacote não modela vale no agente e não vira
+// seletor na tela: um controle sem nome nem valores é pior do que a ausência
+// dele, ainda mais para quem navega por leitor de telas.
+func TestTrocaDeOpcaoDesconhecidaNaoInventaSeletor(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+	sess := startSession(t, client, ctx)
+
+	antes := sess.ConfigOptions()
+	opcoes, err := sess.SetConfigOption(ctx, fakeUnmodeledOption, "ligado")
+	if err != nil {
+		t.Fatalf("a troca deveria chegar ao agente: %v", err)
+	}
+	if fantasma := findOption(opcoes, fakeUnmodeledOption); fantasma != nil {
+		t.Errorf("apareceu um seletor sem nome nem valores: %+v", *fantasma)
+	}
+	if len(opcoes) != len(antes) {
+		t.Errorf("a lista de opções mudou de tamanho: antes %d, depois %d", len(antes), len(opcoes))
+	}
+	// E o que já era conhecido continua de pé, com o valor que tinha.
+	modelo := findOption(opcoes, "model")
+	anterior := findOption(antes, "model")
+	if modelo == nil || anterior == nil || modelo.CurrentValue != anterior.CurrentValue {
+		t.Errorf("o modelo se perdeu na troca de uma opção alheia: %+v", opcoes)
+	}
+}
+
 // Quem exibe pode quebrar; a conversa não pode ir junto. Um defeito ao
 // renderizar um pedaço da resposta custa aquele pedaço, e o resto do turno
 // continua chegando.

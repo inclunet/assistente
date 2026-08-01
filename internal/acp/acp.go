@@ -132,6 +132,11 @@ type Session interface {
 
 	// SetConfigOption troca uma opção e devolve o estado completo resultante:
 	// mudar de modelo pode mudar as opções dependentes.
+	//
+	// O estado devolvido cobre as opções que este pacote sabe representar. Uma
+	// troca em identificador fora dessa lista chega ao agente e vale lá, mas
+	// não aparece aqui — não há nome nem valores para desenhar um seletor que
+	// ninguém modelou. Quem dirige uma opção dessas guarda o valor por conta.
 	SetConfigOption(ctx context.Context, id, value string) ([]ConfigOption, error)
 }
 

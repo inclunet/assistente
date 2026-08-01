@@ -153,16 +153,20 @@ func (s *session) setCurrentMode(mode string) {
 	}
 }
 
-// setCurrentValue anota o valor de uma opção pelo identificador dela.
-func (s *session) setCurrentValue(id, value string) {
+// setCurrentValue anota o valor de uma opção pelo identificador dela e diz se
+// achou alguma. Não inventa a opção que não existe: sem nome nem lista de
+// valores, o que apareceria no seletor é um controle mudo, e as opções que este
+// pacote ainda não modela são justamente as que ninguém sabe desenhar.
+func (s *session) setCurrentValue(id, value string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.options {
 		if s.options[i].ID == id {
 			s.options[i].CurrentValue = value
-			return
+			return true
 		}
 	}
+	return false
 }
 
 func (s *session) setSink(sink UpdateSink) {
@@ -636,12 +640,15 @@ func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]Conf
 	// campo — sumiria do seletor só porque a pessoa trocou de modelo.
 	if novas := withKnownMode(configOptionsFrom(resp.ConfigOptions), s.ConfigOptions()); len(novas) > 0 {
 		s.setConfigOptions(novas)
-	} else {
-		// O agente confirmou a troca, mas respondeu com um conjunto do qual
-		// não aproveitamos nada — só opções de tipos que ainda não modelamos,
-		// por exemplo. Guardar o valor pedido é o que evita a tela anunciar o
-		// modelo antigo para uma troca que aconteceu de verdade.
-		s.setCurrentValue(id, value)
+	} else if !s.setCurrentValue(id, value) {
+		// A resposta do agente não trouxe nada aproveitável — só opções de
+		// tipos que ainda não modelamos, por exemplo —, então o valor pedido é
+		// guardado à mão: sem isso a tela anunciaria o modelo antigo para uma
+		// troca que aconteceu de verdade. Aqui nem isso deu, porque a opção
+		// trocada também é uma que não acompanhamos. Fica registrado: é o que
+		// explica uma tela que não mudou depois de uma troca bem-sucedida.
+		logging.Debugf(ctx, logComponent,
+			"[ACP] o agente confirmou a troca de %q na sessão %q, opção que não acompanhamos", id, s.id)
 	}
 	// Devolve a cópia, e não o que acabou de ser guardado: entregar o mesmo
 	// slice deixaria quem chamou mexendo no estado da sessão por fora.
