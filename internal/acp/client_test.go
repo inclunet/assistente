@@ -1,0 +1,618 @@
+package acp
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+// testTimeout limita cada teste: um transporte com defeito trava, e travar o
+// CI é pior do que falhar nele.
+const testTimeout = 30 * time.Second
+
+type collector struct {
+	mu      sync.Mutex
+	updates []Update
+}
+
+func (c *collector) sink(update Update) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.updates = append(c.updates, update)
+}
+
+func (c *collector) snapshot() []Update {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]Update(nil), c.updates...)
+}
+
+func (c *collector) textOfKind(kind UpdateKind) string {
+	var builder strings.Builder
+	for _, update := range c.snapshot() {
+		if update.Kind == kind {
+			builder.WriteString(update.Text)
+		}
+	}
+	return builder.String()
+}
+
+func (c *collector) tools(kind UpdateKind) []ToolCall {
+	var out []ToolCall
+	for _, update := range c.snapshot() {
+		if update.Kind == kind && update.Tool != nil {
+			out = append(out, *update.Tool)
+		}
+	}
+	return out
+}
+
+type scriptedHandler struct {
+	mu       sync.Mutex
+	requests []PermissionRequest
+
+	decide func(PermissionRequest) PermissionOutcome
+	custom func(method string, params json.RawMessage) (any, bool)
+}
+
+func (h *scriptedHandler) RequestPermission(_ context.Context, req PermissionRequest) PermissionOutcome {
+	h.mu.Lock()
+	h.requests = append(h.requests, req)
+	h.mu.Unlock()
+	if h.decide == nil {
+		return PermissionOutcome{}
+	}
+	return h.decide(req)
+}
+
+func (h *scriptedHandler) HandleCustom(_ context.Context, method string, params json.RawMessage) (any, bool) {
+	if h.custom == nil {
+		return nil, false
+	}
+	return h.custom(method, params)
+}
+
+func (h *scriptedHandler) seen() []PermissionRequest {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]PermissionRequest(nil), h.requests...)
+}
+
+func newTestClient(t *testing.T, script string, handler RequestHandler) Client {
+	t.Helper()
+	client, err := New(fakeConfig(t, script), handler)
+	if err != nil {
+		t.Fatalf("criar cliente: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	return client
+}
+
+func testContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	t.Cleanup(cancel)
+	return ctx
+}
+
+func startSession(t *testing.T, client Client, ctx context.Context) Session {
+	t.Helper()
+	sess, err := client.NewSession(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("abrir sessão: %v", err)
+	}
+	return sess
+}
+
+func TestTurnoCompletoEntregaTextoRaciocinioEFerramentas(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	stop, err := sess.Prompt(ctx, []Content{TextContent("liste os arquivos")}, col.sink)
+	if err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+	if stop != StopEndTurn {
+		t.Fatalf("stopReason = %q, esperado %q", stop, StopEndTurn)
+	}
+
+	if got := col.textOfKind(UpdateText); got != "olá mundo" {
+		t.Errorf("texto da resposta = %q, esperado %q", got, "olá mundo")
+	}
+	if got := col.textOfKind(UpdateThought); got != "pensando" {
+		t.Errorf("raciocínio = %q, esperado %q", got, "pensando")
+	}
+
+	started := col.tools(UpdateToolStart)
+	if len(started) != 1 {
+		t.Fatalf("esperava 1 ferramenta iniciada, obtive %d", len(started))
+	}
+	// O identificador vem com quebra de linha no meio, como o Cursor emitiu na
+	// sonda do AEP-0084; virar chave ou texto anunciado assim seria um bug.
+	if started[0].ID != "chamada-1 fc-2" {
+		t.Errorf("identificador da ferramenta = %q, esperado normalizado", started[0].ID)
+	}
+	if started[0].Kind != "search" || started[0].Title != "grep por TODO" {
+		t.Errorf("ferramenta inesperada: %+v", started[0])
+	}
+
+	progress := col.tools(UpdateToolProgress)
+	if len(progress) != 1 || progress[0].Status != "completed" {
+		t.Errorf("atualização de ferramenta inesperada: %+v", progress)
+	}
+}
+
+func TestTurnoInformaModoTituloETrocaDeModeloFeitaPeloAgente(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	if _, err := sess.Prompt(ctx, []Content{TextContent("oi")}, col.sink); err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+
+	var modo, titulo string
+	var modelo string
+	for _, update := range col.snapshot() {
+		switch update.Kind {
+		case UpdateMode:
+			modo = update.Mode
+		case UpdateTitle:
+			titulo = update.Title
+		case UpdateConfigOptions:
+			if len(update.ConfigOptions) > 0 {
+				modelo = update.ConfigOptions[0].CurrentValue
+			}
+		}
+	}
+	if modo != "plan" {
+		t.Errorf("modo corrente = %q, esperado %q", modo, "plan")
+	}
+	if titulo != "Listar arquivos" {
+		t.Errorf("título = %q", titulo)
+	}
+	if modelo != "modelo-b" {
+		t.Errorf("modelo corrente = %q, esperado %q", modelo, "modelo-b")
+	}
+	// A troca feita pelo agente precisa ficar visível na sessão, senão a pessoa
+	// segue achando que fala com outro modelo.
+	if got := sess.ConfigOptions(); len(got) != 1 || got[0].CurrentValue != "modelo-b" {
+		t.Errorf("sessão não refletiu a troca do agente: %+v", got)
+	}
+}
+
+func TestSessaoNovaExpoeModeloEModo(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+	sess := startSession(t, client, ctx)
+
+	options := sess.ConfigOptions()
+	if len(options) != 2 {
+		t.Fatalf("esperava opções de modelo e modo, obtive %d: %+v", len(options), options)
+	}
+	model := options[0]
+	if model.Category != "model" || model.CurrentValue != "modelo-a" || len(model.Values) != 2 {
+		t.Errorf("opção de modelo inesperada: %+v", model)
+	}
+	// O formato legado de modos vira ConfigOption para o app ter um caminho só.
+	if options[1].Category != "mode" || options[1].CurrentValue != "agent" {
+		t.Errorf("opção de modo inesperada: %+v", options[1])
+	}
+}
+
+func TestTrocaDeModeloDevolveEstadoCompleto(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+	sess := startSession(t, client, ctx)
+
+	options, err := sess.SetConfigOption(ctx, "model", "modelo-b")
+	if err != nil {
+		t.Fatalf("trocar modelo: %v", err)
+	}
+	if len(options) != 1 || options[0].CurrentValue != "modelo-b" {
+		t.Fatalf("estado devolvido inesperado: %+v", options)
+	}
+	if got := sess.ConfigOptions(); len(got) != 1 || got[0].CurrentValue != "modelo-b" {
+		t.Errorf("sessão não guardou o novo estado: %+v", got)
+	}
+}
+
+func TestPedidoDePermissaoChegaAoHandlerEADecisaoVoltaAoAgente(t *testing.T) {
+	ctx := testContext(t)
+	handler := &scriptedHandler{
+		decide: func(PermissionRequest) PermissionOutcome {
+			return PermissionOutcome{OptionID: "allow-once"}
+		},
+	}
+	client := newTestClient(t, scriptPermission, handler)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	if _, err := sess.Prompt(ctx, []Content{TextContent("rode um comando")}, col.sink); err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, "decisão: allow-once") {
+		t.Errorf("agente não recebeu a decisão: %q", got)
+	}
+
+	seen := handler.seen()
+	if len(seen) != 1 {
+		t.Fatalf("esperava 1 pedido de permissão, obtive %d", len(seen))
+	}
+	if seen[0].ToolCall.ID != "chamada-1 fc-2" {
+		t.Errorf("identificador não normalizado no pedido: %q", seen[0].ToolCall.ID)
+	}
+	if len(seen[0].Options) != 3 || seen[0].Options[0].Kind != "allow_once" {
+		t.Errorf("opções do pedido inesperadas: %+v", seen[0].Options)
+	}
+}
+
+func TestSemHandlerOPedidoDePermissaoEhNegadoPontualmente(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptPermission, nil)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	if _, err := sess.Prompt(ctx, []Content{TextContent("rode um comando")}, col.sink); err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+
+	// Nega a ação em vez de cancelar o turno inteiro, e nega uma vez em vez de
+	// calar o agente para sempre.
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, "decisão: reject-once") {
+		t.Errorf("desfecho negativo inesperado: %q", got)
+	}
+}
+
+func TestHandlerQueEntraEmPanicoNaoPenduraOAgente(t *testing.T) {
+	ctx := testContext(t)
+	handler := &scriptedHandler{
+		decide: func(PermissionRequest) PermissionOutcome {
+			panic("handler quebrado")
+		},
+	}
+	client := newTestClient(t, scriptPermission, handler)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	stop, err := sess.Prompt(ctx, []Content{TextContent("rode um comando")}, col.sink)
+	if err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+	if stop != StopEndTurn {
+		t.Fatalf("turno não terminou normalmente: %q", stop)
+	}
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, "decisão: reject-once") {
+		t.Errorf("pânico deveria virar negativa, obtive: %q", got)
+	}
+}
+
+func TestMetodoDesconhecidoRecebeRespostaDeProtocolo(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptCustom, nil)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	if _, err := sess.Prompt(ctx, []Content{TextContent("pergunte algo")}, col.sink); err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+
+	// Sem tratamento, o agente precisa receber "método não encontrado" — e não
+	// silêncio, que o deixaria esperando para sempre.
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, "erro:-32601") {
+		t.Errorf("esperava método não encontrado, obtive: %q", got)
+	}
+}
+
+func TestExtensaoTratadaPeloHandlerRespondeAoAgente(t *testing.T) {
+	ctx := testContext(t)
+	var vistos []string
+	handler := &scriptedHandler{
+		custom: func(method string, _ json.RawMessage) (any, bool) {
+			vistos = append(vistos, method)
+			return map[string]any{"answer": "sim"}, true
+		},
+	}
+	client := newTestClient(t, scriptCustom, handler)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	if _, err := sess.Prompt(ctx, []Content{TextContent("pergunte algo")}, col.sink); err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, `"answer":"sim"`) {
+		t.Errorf("resposta da extensão não chegou ao agente: %q", got)
+	}
+	// Extensões do Cursor não começam com "_" e seriam recusadas pelo cliente
+	// pronto do SDK antes de o app ver o pedido.
+	if len(vistos) != 1 || vistos[0] != "cursor/ask_question" {
+		t.Errorf("métodos vistos pelo handler: %v", vistos)
+	}
+}
+
+func TestCancelarOTurnoChegaAoAgenteEEncerraComoCancelado(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptCancel, nil)
+	sess := startSession(t, client, ctx)
+
+	turnCtx, cancelTurn := context.WithCancel(ctx)
+	col := &collector{}
+
+	go func() {
+		// Espera o turno começar de fato antes de cancelar.
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if col.textOfKind(UpdateText) != "" {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		cancelTurn()
+	}()
+
+	stop, err := sess.Prompt(turnCtx, []Content{TextContent("trabalhe")}, col.sink)
+	if err != nil {
+		t.Fatalf("cancelamento deveria encerrar o turno normalmente: %v", err)
+	}
+	// O agente confirmou: o turno acabou de verdade, não só a nossa espera.
+	if stop != StopCancelled {
+		t.Fatalf("stopReason = %q, esperado %q", stop, StopCancelled)
+	}
+}
+
+func TestTurnosDaMesmaSessaoNaoSeAtropelam(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	var wg sync.WaitGroup
+	erros := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := sess.Prompt(ctx, []Content{TextContent("oi")}, col.sink); err != nil {
+				erros <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(erros)
+	for err := range erros {
+		t.Fatalf("turno falhou: %v", err)
+	}
+
+	// O agente falso denuncia sobreposição pelo próprio fio.
+	if strings.Contains(col.textOfKind(UpdateText), "CONCORRENTE") {
+		t.Error("dois session/prompt correram ao mesmo tempo na mesma sessão")
+	}
+}
+
+func TestMorteDoProcessoPerdeASessaoEPermiteReconectar(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptDie, nil)
+	sess := startSession(t, client, ctx)
+
+	_, err := sess.Prompt(ctx, []Content{TextContent("morra")}, func(Update) {})
+	if !errors.Is(err, ErrSessionLost) {
+		t.Fatalf("esperava sessão perdida, obtive: %v", err)
+	}
+
+	// A classificação é conservadora de propósito: o pedido chegou a sair, e
+	// repetir sozinho poderia refazer edições e comandos (AEP-0084 D4).
+	var promptErr *PromptError
+	if !errors.As(err, &promptErr) {
+		t.Fatalf("erro deveria dizer se o turno foi aceito: %v", err)
+	}
+	if !promptErr.Accepted {
+		t.Error("turno enviado antes da queda deveria contar como aceito")
+	}
+
+	// A sessão morreu com o processo, mas o cliente sobe outro no próximo uso.
+	if _, err := client.NewSession(ctx, t.TempDir()); err != nil {
+		t.Fatalf("cliente deveria reconectar: %v", err)
+	}
+}
+
+func TestSessaoPerdidaRecusaNovosTurnos(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptDie, nil)
+	sess := startSession(t, client, ctx)
+
+	if _, err := sess.Prompt(ctx, []Content{TextContent("morra")}, func(Update) {}); err == nil {
+		t.Fatal("o primeiro turno deveria falhar")
+	}
+	if _, err := sess.Prompt(ctx, []Content{TextContent("de novo")}, func(Update) {}); !errors.Is(err, ErrSessionLost) {
+		t.Fatalf("sessão morta deveria recusar o turno: %v", err)
+	}
+	if err := sess.Cancel(ctx); !errors.Is(err, ErrSessionLost) {
+		t.Fatalf("cancelar sessão morta deveria informar a perda: %v", err)
+	}
+}
+
+func TestConteudoMultimodalChegaComoBlocosNaOrdem(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptEcho, nil)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	_, err := sess.Prompt(ctx, []Content{
+		TextContent("olhe isto"),
+		ImageContent("ZmFrZQ==", "image/png"),
+	}, col.sink)
+	if err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+
+	var enviado struct {
+		SessionId string `json:"sessionId"`
+		Prompt    []struct {
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Data     string `json:"data"`
+			MimeType string `json:"mimeType"`
+		} `json:"prompt"`
+	}
+	if err := json.Unmarshal([]byte(col.textOfKind(UpdateText)), &enviado); err != nil {
+		t.Fatalf("eco ilegível (%v): %s", err, col.textOfKind(UpdateText))
+	}
+	if enviado.SessionId != fakeSessionID {
+		t.Errorf("sessão enviada = %q", enviado.SessionId)
+	}
+	if len(enviado.Prompt) != 2 {
+		t.Fatalf("esperava 2 blocos, obtive %d: %+v", len(enviado.Prompt), enviado.Prompt)
+	}
+	if enviado.Prompt[0].Type != "text" || enviado.Prompt[0].Text != "olhe isto" {
+		t.Errorf("primeiro bloco inesperado: %+v", enviado.Prompt[0])
+	}
+	if enviado.Prompt[1].Type != "image" || enviado.Prompt[1].MimeType != "image/png" {
+		t.Errorf("segundo bloco inesperado: %+v", enviado.Prompt[1])
+	}
+}
+
+func TestHandshakeExpoeCapacidadesDoAgente(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+
+	caps, err := client.Capabilities(ctx)
+	if err != nil {
+		t.Fatalf("obter capacidades: %v", err)
+	}
+	if !caps.LoadSession || !caps.PromptImage || caps.PromptAudio {
+		t.Errorf("capacidades inesperadas: %+v", caps)
+	}
+	if caps.AgentName != "agente-falso" {
+		t.Errorf("nome do agente = %q", caps.AgentName)
+	}
+	if len(caps.AuthMethods) != 1 || caps.AuthMethods[0].ID != "login_falso" {
+		t.Fatalf("métodos de autenticação inesperados: %+v", caps.AuthMethods)
+	}
+	// Sem "type" no payload, o método é do tipo que o próprio agente conduz —
+	// o caso do Cursor, que pede um login pelo terminal.
+	if caps.AuthMethods[0].Kind != AuthKindAgent {
+		t.Errorf("tipo de autenticação = %q", caps.AuthMethods[0].Kind)
+	}
+}
+
+func TestRetomarSessaoUsaOIdentificadorExistente(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+
+	sess, err := client.LoadSession(ctx, fakeSessionID, t.TempDir())
+	if err != nil {
+		t.Fatalf("retomar sessão: %v", err)
+	}
+	if sess.ID() != fakeSessionID {
+		t.Errorf("sessão retomada = %q", sess.ID())
+	}
+	options := sess.ConfigOptions()
+	if len(options) != 1 || options[0].CurrentValue != "modelo-b" {
+		t.Errorf("estado da sessão retomada: %+v", options)
+	}
+}
+
+func TestChamadaCruaAlcancaMetodosNaoTipados(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+
+	// A saída crua existe porque o seletor legado e as extensões do Cursor não
+	// são tipados pelo SDK (AEP-0084 D2).
+	raw, err := client.Call(ctx, "session/set_config_option", map[string]any{
+		"sessionId": fakeSessionID,
+		"configId":  "model",
+		"value":     "modelo-b",
+	})
+	if err != nil {
+		t.Fatalf("chamada crua falhou: %v", err)
+	}
+	if !strings.Contains(string(raw), "modelo-b") {
+		t.Errorf("resposta crua inesperada: %s", raw)
+	}
+}
+
+func TestClienteFechadoRecusaNovasChamadas(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+	if _, err := client.Capabilities(ctx); err != nil {
+		t.Fatalf("handshake: %v", err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("fechar: %v", err)
+	}
+	if _, err := client.NewSession(ctx, t.TempDir()); !errors.Is(err, ErrClosed) {
+		t.Fatalf("esperava cliente encerrado, obtive: %v", err)
+	}
+}
+
+func TestAgenteInexistenteFalhaComErroAcionavelERespeitaOBackoff(t *testing.T) {
+	ctx := testContext(t)
+	client, err := New(Config{Command: "binario-de-agente-que-nao-existe", WorkDir: t.TempDir()}, nil)
+	if err != nil {
+		t.Fatalf("criar cliente: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, first := client.Capabilities(ctx)
+	if first == nil || !strings.Contains(first.Error(), "binario-de-agente-que-nao-existe") {
+		t.Fatalf("erro deveria nomear o comando: %v", first)
+	}
+
+	// A segunda tentativa imediata não pode tentar spawnar de novo: um binário
+	// quebrado viraria uma tempestade de processos.
+	_, second := client.Capabilities(ctx)
+	if second == nil || !strings.Contains(second.Error(), "nova tentativa em") {
+		t.Fatalf("esperava espera de backoff, obtive: %v", second)
+	}
+}
+
+func TestFecharSessaoEncerraNoAgenteERecusaNovosTurnos(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+	sess := startSession(t, client, ctx)
+
+	if err := sess.Close(ctx); err != nil {
+		t.Fatalf("encerrar sessão: %v", err)
+	}
+	// Fechar duas vezes é o caso comum de conversa excluída durante o
+	// encerramento do app, e não pode virar erro.
+	if err := sess.Close(ctx); err != nil {
+		t.Fatalf("encerrar de novo: %v", err)
+	}
+
+	_, err := sess.Prompt(ctx, []Content{TextContent("oi")}, func(Update) {})
+	if !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("sessão encerrada deveria recusar turno: %v", err)
+	}
+}
+
+func TestFalhaDeTurnoSempreDizSeOAgenteAceitou(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+	sess := startSession(t, client, ctx)
+
+	// Turno sem conteúdo nem chega a sair: quem retentar pode fazê-lo à vontade.
+	_, err := sess.Prompt(ctx, nil, func(Update) {})
+	var promptErr *PromptError
+	if !errors.As(err, &promptErr) {
+		t.Fatalf("todo erro de turno deveria ser *PromptError: %v", err)
+	}
+	if promptErr.Accepted {
+		t.Error("turno que nem foi enviado não pode contar como aceito")
+	}
+}
+
+func TestConfiguracaoSemComandoEhRejeitada(t *testing.T) {
+	if _, err := New(Config{}, nil); err == nil {
+		t.Fatal("cliente sem comando deveria falhar na criação")
+	}
+}
