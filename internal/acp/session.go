@@ -76,17 +76,21 @@ func (s *session) setSink(sink UpdateSink) {
 	s.sink = sink
 }
 
-// deliver entrega uma atualização ao turno corrente. Atualização fora de turno
-// (ou depois que quem pediu desistiu) é descartada: entregá-la a um sink já
-// encerrado renderia texto num turno que a pessoa considera fechado.
+// deliver entrega uma atualização ao turno corrente. Fora de turno (ou depois
+// que quem pediu desistiu) o evento não é entregue: renderizar texto num turno
+// que a pessoa considera fechado seria pior do que perdê-lo.
+//
+// O estado da sessão é exceção e se atualiza de qualquer forma. O agente troca
+// de modelo por conta própria, inclusive entre turnos, e esquecer isso deixaria
+// a pessoa achando que fala com outro modelo.
 func (s *session) deliver(update Update) {
-	s.mu.Lock()
-	sink := s.sink
-	s.mu.Unlock()
-
 	if update.Kind == UpdateConfigOptions {
 		s.setConfigOptions(update.ConfigOptions)
 	}
+
+	s.mu.Lock()
+	sink := s.sink
+	s.mu.Unlock()
 	if sink == nil {
 		return
 	}
@@ -159,9 +163,15 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 	case out := <-done:
 		return s.finishTurn(out)
 	case <-ctx.Done():
-		if err := s.Cancel(context.Background()); err != nil {
-			logging.Warnf(ctx, logComponent, "[ACP] falha ao cancelar turno da sessão %s: %v", s.id, err)
-		}
+		// O envio do cancelamento não pode segurar o prazo: escrever para o
+		// agente é I/O que pode travar, e travaria quem chamou justamente na
+		// hora em que ele pediu para parar.
+		go func() {
+			if err := s.Cancel(context.Background()); err != nil {
+				logging.Warnf(context.Background(), logComponent,
+					"[ACP] falha ao cancelar turno da sessão %s: %v", s.id, err)
+			}
+		}()
 		select {
 		case out := <-done:
 			return s.finishTurn(out)

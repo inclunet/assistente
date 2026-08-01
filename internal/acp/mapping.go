@@ -201,10 +201,13 @@ func configValuesFrom(options sdk.SessionConfigSelectOptions) []ConfigValue {
 
 // modeOptionFrom converte o formato legado de modos numa ConfigOption, para o
 // app ter um caminho só. O Cursor manda os dois formatos no mesmo payload.
+//
+// O rótulo fica vazio de propósito: o formato legado não traz um, e inventar um
+// aqui seria enfiar texto de interface — em inglês — dentro do transporte. Quem
+// exibe traduz a partir da categoria.
 func modeOptionFrom(state *sdk.SessionModeState) ConfigOption {
 	option := ConfigOption{
 		ID:           "mode",
-		Name:         "Mode",
 		Category:     string(sdk.SessionConfigOptionCategoryMode),
 		CurrentValue: string(state.CurrentModeId),
 	}
@@ -244,8 +247,13 @@ func permissionOptionsFrom(options []sdk.PermissionOption) []PermissionOption {
 // escolha, nega: prefere-se a opção de recusa que o próprio agente ofereceu,
 // porque "cancelado" no ACP significa que o turno inteiro foi cancelado, e não
 // que esta ação foi negada (AEP-0084 D9).
+//
+// A escolha é conferida contra o que o agente ofereceu. Uma opção inventada —
+// erro de quem decide, ou uma allowlist guardando um identificador que o agente
+// já não usa — viraria resposta inválida e derrubaria o turno; negar
+// pontualmente é o desfecho seguro.
 func permissionOutcomeToSDK(outcome PermissionOutcome, offered []sdk.PermissionOption) sdk.RequestPermissionOutcome {
-	if id := strings.TrimSpace(outcome.OptionID); id != "" {
+	if id := strings.TrimSpace(outcome.OptionID); id != "" && isOffered(id, offered) {
 		return sdk.RequestPermissionOutcome{
 			Selected: &sdk.RequestPermissionOutcomeSelected{
 				OptionId: sdk.PermissionOptionId(id),
@@ -264,6 +272,15 @@ func permissionOutcomeToSDK(outcome PermissionOutcome, offered []sdk.PermissionO
 	return sdk.RequestPermissionOutcome{
 		Cancelled: &sdk.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
 	}
+}
+
+func isOffered(id string, offered []sdk.PermissionOption) bool {
+	for _, option := range offered {
+		if string(option.OptionId) == id {
+			return true
+		}
+	}
+	return false
 }
 
 // rejectOptionID escolhe a recusa pontual. A recusa permanente é evitada de

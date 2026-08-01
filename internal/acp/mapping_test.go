@@ -84,6 +84,13 @@ func TestDesfechoDePermissaoPrefereRecusaPontual(t *testing.T) {
 		t.Fatalf("sem decisão deveria negar pontualmente, obtive: %+v", semDecisao)
 	}
 
+	// Uma opção que o agente não ofereceu viraria resposta inválida e
+	// derrubaria o turno; vale a recusa pontual.
+	inventada := permissionOutcomeToSDK(PermissionOutcome{OptionID: "talvez"}, oferecidas)
+	if inventada.Selected == nil || inventada.Selected.OptionId != "nao" {
+		t.Fatalf("opção inexistente deveria virar recusa, obtive: %+v", inventada)
+	}
+
 	// Sem recusa pontual oferecida, resta o cancelamento — nunca a recusa
 	// permanente, que calaria o agente sem ninguém ter decidido isso.
 	semRecusa := permissionOutcomeToSDK(PermissionOutcome{}, []sdk.PermissionOption{

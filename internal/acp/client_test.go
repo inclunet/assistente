@@ -611,6 +611,25 @@ func TestFalhaDeTurnoSempreDizSeOAgenteAceitou(t *testing.T) {
 	}
 }
 
+func TestVariavelDoProviderVenceAHerdadaDoApp(t *testing.T) {
+	ctx := testContext(t)
+	// O agente herda o ambiente do app para achar PATH e credenciais, mas o que
+	// a configuração do provider define precisa prevalecer. Aqui o app diz um
+	// roteiro e a configuração diz outro.
+	t.Setenv(fakeScriptEnv, scriptTurn)
+
+	client := newTestClient(t, scriptEcho, nil)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	if _, err := sess.Prompt(ctx, []Content{TextContent("oi")}, col.sink); err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, `"sessionId"`) {
+		t.Errorf("o agente rodou o roteiro herdado do app em vez do configurado: %q", got)
+	}
+}
+
 func TestConfiguracaoSemComandoEhRejeitada(t *testing.T) {
 	if _, err := New(Config{}, nil); err == nil {
 		t.Fatal("cliente sem comando deveria falhar na criação")

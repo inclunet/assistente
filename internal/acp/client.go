@@ -495,6 +495,11 @@ func wrapCallError(action string, err error) error {
 
 // buildEnv herda o ambiente do processo pai e acrescenta as variáveis extras,
 // para o agente enxergar PATH, HOME e o que mais precisar para se autenticar.
+//
+// As extras vão no fim porque é assim que elas vencem: o os/exec deduplica o
+// ambiente antes de criar o processo, mantendo a última ocorrência de cada
+// chave (sem diferenciar maiúsculas no Windows). Nenhuma chave repetida chega
+// ao processo-filho.
 func buildEnv(extra map[string]string) []string {
 	base := os.Environ()
 	for k, v := range extra {
