@@ -102,6 +102,24 @@ func TestDesfechoDePermissaoPrefereRecusaPontual(t *testing.T) {
 	}
 }
 
+// O prazo de cancelamento pode estourar no mesmo instante em que o turno enfim
+// responde, cravando a marca depois de o turno ter acabado. O turno seguinte
+// está saudável e não pode pagar por isso.
+func TestMarcaDeCancelamentoAntigoNaoRecusaTurnoSaudavel(t *testing.T) {
+	s := &session{turnSlot: make(chan struct{}, 1), cancelSig: make(chan struct{})}
+
+	cancelado := s.startTurn()
+	s.markCancelUnconfirmed(cancelado)
+	if !s.awaitingCancelConfirmation() {
+		t.Fatal("o turno cancelado sem confirmação deveria recusar o próximo")
+	}
+
+	s.startTurn()
+	if s.awaitingCancelConfirmation() {
+		t.Error("a marca do turno anterior recusaria um turno saudável")
+	}
+}
+
 func TestBlocosDoPromptIgnoramConteudoVazio(t *testing.T) {
 	if _, err := promptBlocks(nil); err == nil {
 		t.Error("turno sem conteúdo deveria falhar antes de ir ao agente")

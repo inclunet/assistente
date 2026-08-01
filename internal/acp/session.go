@@ -38,11 +38,17 @@ type session struct {
 	options []ConfigOption
 	closed  bool
 
-	// awaitingCancel marca o turno cancelado que o agente não confirmou. O slot
-	// continua ocupado — dois session/prompt no mesmo sessionId se atropelariam
-	// —, mas quem chegar depois merece ouvir o motivo em vez de esperar no
-	// escuro por um turno que talvez nunca volte.
-	awaitingCancel bool
+	// turnSeq numera os turnos e awaitingCancelSeq guarda aquele cujo
+	// cancelamento o agente não confirmou. O slot continua ocupado nesse caso —
+	// dois session/prompt no mesmo sessionId se atropelariam —, mas quem chegar
+	// depois merece ouvir o motivo em vez de esperar no escuro.
+	//
+	// São dois números, e não uma marca simples, porque o prazo pode estourar no
+	// mesmo instante em que o turno enfim responde: aí a marca é cravada depois
+	// de o turno ter acabado, e sem o número ela recusaria o turno seguinte, que
+	// está saudável.
+	turnSeq           uint64
+	awaitingCancelSeq uint64
 
 	// cancelSig fecha quando o turno em curso é cancelado, e é renovado a cada
 	// turno novo. Quem manda session/cancel precisa responder "cancelado" aos
@@ -149,9 +155,11 @@ func (s *session) cancelSignal() <-chan struct{} {
 	return s.cancelSig
 }
 
-// renewCancelSignal começa um turno com o sinal limpo, para que o cancelamento
-// de um turno anterior não derrube um pedido de permissão do turno novo.
-func (s *session) renewCancelSignal() {
+// startTurn prepara o turno recém-admitido: sinal de cancelamento limpo, para
+// que o cancelamento do turno anterior não derrube um pedido de permissão deste,
+// e um número próprio, que é como a sessão distingue a marca de um turno velho
+// da do turno em andamento.
+func (s *session) startTurn() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	select {
@@ -159,6 +167,8 @@ func (s *session) renewCancelSignal() {
 		s.cancelSig = make(chan struct{})
 	default:
 	}
+	s.turnSeq++
+	return s.turnSeq
 }
 
 func (s *session) signalCancel() {
@@ -178,23 +188,18 @@ func (s *session) turnInFlight() bool {
 	return len(s.turnSlot) == 0
 }
 
+// awaitingCancelConfirmation só vale para o turno em andamento: a marca de um
+// turno que já terminou não recusa quem vem depois.
 func (s *session) awaitingCancelConfirmation() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.awaitingCancel
+	return s.awaitingCancelSeq != 0 && s.awaitingCancelSeq == s.turnSeq
 }
 
-func (s *session) setAwaitingCancel(waiting bool) {
+func (s *session) markCancelUnconfirmed(seq uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.awaitingCancel = waiting
-}
-
-// finishTurnSlot devolve a vez quando a chamada ao agente termina de verdade —
-// inclusive quando ela só termina muito depois de quem pediu ter desistido.
-func (s *session) finishTurnSlot() {
-	s.setAwaitingCancel(false)
-	s.releaseTurn()
+	s.awaitingCancelSeq = seq
 }
 
 func (s *session) releaseTurn() {
@@ -229,14 +234,14 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 		s.releaseTurn()
 		return "", &PromptError{Err: ErrSessionClosed}
 	}
-	s.renewCancelSignal()
+	seq := s.startTurn()
 
 	s.setSink(sink)
 	defer s.setSink(nil)
 
 	done := make(chan promptOutcome, 1)
 	go func() {
-		defer s.finishTurnSlot()
+		defer s.releaseTurn()
 		// A chamada ignora o cancelamento do ctx de quem pediu (mantendo os
 		// valores de correlação): desistir da espera não é a mesma coisa que
 		// encerrar o turno. Quem encerra é session/cancel, e a resposta do
@@ -272,7 +277,7 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 			// mexendo no disco, e quem chamou precisa saber que é esse o estado.
 			// A sessão fica marcada para que o próximo turno seja recusado com
 			// esse mesmo motivo, em vez de esperar calado na fila.
-			s.setAwaitingCancel(true)
+			s.markCancelUnconfirmed(seq)
 			return StopCancelled, &PromptError{Accepted: true, Err: ErrCancelNotConfirmed}
 		}
 	}
