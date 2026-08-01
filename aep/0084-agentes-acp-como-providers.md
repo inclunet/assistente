@@ -259,18 +259,18 @@ troca usa `session/set_config_option` (que devolve o estado completo, incluindo
 opções dependentes) com fallback para `session/set_model`.
 
 `GetModels` é chamado fora de uma conversa (tela de settings), mas a descoberta
-no ACP é acoplada à sessão. Resolvemos com uma **sessão efêmera**: `session/new`
-→ leitura das opções → descarte da sessão, **na mesma conexão do D3** (o
-processo do provider, iniciado ali se ainda não estava de pé). Efêmera é a
-sessão, nunca o processo. O resultado vai para um **cache** por provider,
-invalidado quando um `config_option_update` chega ou quando a pessoa pede
-refresh na UI — assim a tela de settings não abre uma sessão por consulta.
+no ACP é acoplada à sessão. Resolvemos com uma **sessão de descoberta**: um
+`session/new` sem prompt, cujas opções são lidas, **na mesma conexão do D3** (o
+processo do provider, iniciado ali se ainda não estava de pé) — o processo nunca
+é efêmero. O resultado vai para um **cache** por provider, invalidado quando um
+`config_option_update` chega ou quando a pessoa pede refresh na UI, para a tela
+de settings não bater no agente a cada render.
 
-"Descartar" é do lado do agente, quando ele deixa: fecha-se a sessão pelo método
-do protocolo se a capacidade for anunciada — o Cursor de hoje não anuncia. Sem
-ela, não se cria uma sessão nova a cada consulta para depois esquecê-la: o
-provider **reaproveita a mesma sessão de descoberta**, que é barata porque nunca
-recebe prompt, em vez de deixar um rastro de sessões abandonadas no agente.
+Essa sessão **não é aberta e esquecida a cada consulta**. Ela é fechada pelo
+método do protocolo quando o agente anuncia essa capacidade; como o Cursor de
+hoje não anuncia, o provider mantém **uma única** sessão de descoberta por
+processo e a reaproveita — ela é barata justamente por nunca receber prompt. O
+que não pode acontecer é deixar um rastro de sessões abandonadas no agente.
 
 O agente também troca de modelo sozinho (fallback de rate limit, por exemplo) e
 notifica via `config_option_update`. Isso vira um evento para a UI refletir o
