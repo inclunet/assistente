@@ -488,6 +488,15 @@ outra goroutine; do lado do agente isso sobreporia dois `session/prompt` no
 mesmo `sessionId`. O novo turno espera a confirmação do cancelamento do
 anterior antes de promptar.
 
+E se a confirmação não vier no prazo? A vez **continua ocupada** — soltá-la
+seria justamente permitir os dois `session/prompt` simultâneos que a fila
+existe para impedir, com o agasalho falso de um prazo. Mas o turno seguinte não
+fica esperando calado: ele é **recusado na hora com o motivo** ("o agente não
+confirmou o cancelamento do turno"), em vez de bloquear até o contexto de quem
+pediu morrer e devolver um `context deadline exceeded` que não explica nada.
+Quem usa leitor de telas precisa ouvir o que está acontecendo, não um silêncio
+de trinta segundos.
+
 Essa fila mora no **serviço compartilhado do D3**, junto da sessão que ela
 protege. Serializar dentro do `ChatProvider` não resolveria: `GetChatProvider`
 devolve uma instância nova por chamada, e as duas goroutines do barge-in

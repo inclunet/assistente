@@ -29,10 +29,20 @@ type session struct {
 	// sessionId se atropelariam do lado do agente (AEP-0084 D10).
 	turnSlot chan struct{}
 
+	// grace é o prazo de confirmação do cancelamento; campo, e não constante,
+	// para que o teste possa encurtá-lo sem esperar meio minuto.
+	grace time.Duration
+
 	mu      sync.Mutex
 	sink    UpdateSink
 	options []ConfigOption
 	closed  bool
+
+	// awaitingCancel marca o turno cancelado que o agente não confirmou. O slot
+	// continua ocupado — dois session/prompt no mesmo sessionId se atropelariam
+	// —, mas quem chegar depois merece ouvir o motivo em vez de esperar no
+	// escuro por um turno que talvez nunca volte.
+	awaitingCancel bool
 
 	// cancelSig fecha quando o turno em curso é cancelado, e é renovado a cada
 	// turno novo. Quem manda session/cancel precisa responder "cancelado" aos
@@ -53,6 +63,7 @@ func newSession(id, cwd string, cn *conn, options []ConfigOption) *session {
 		cwd:       cwd,
 		cn:        cn,
 		turnSlot:  make(chan struct{}, 1),
+		grace:     cancelGrace,
 		options:   options,
 		cancelSig: make(chan struct{}),
 	}
@@ -116,6 +127,9 @@ func (s *session) acquireTurn(ctx context.Context) error {
 		return nil
 	default:
 	}
+	if s.awaitingCancelConfirmation() {
+		return ErrCancelNotConfirmed
+	}
 	select {
 	case <-s.turnSlot:
 		return nil
@@ -164,6 +178,25 @@ func (s *session) turnInFlight() bool {
 	return len(s.turnSlot) == 0
 }
 
+func (s *session) awaitingCancelConfirmation() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.awaitingCancel
+}
+
+func (s *session) setAwaitingCancel(waiting bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.awaitingCancel = waiting
+}
+
+// finishTurnSlot devolve a vez quando a chamada ao agente termina de verdade —
+// inclusive quando ela só termina muito depois de quem pediu ter desistido.
+func (s *session) finishTurnSlot() {
+	s.setAwaitingCancel(false)
+	s.releaseTurn()
+}
+
 func (s *session) releaseTurn() {
 	select {
 	case s.turnSlot <- struct{}{}:
@@ -203,7 +236,7 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 
 	done := make(chan promptOutcome, 1)
 	go func() {
-		defer s.releaseTurn()
+		defer s.finishTurnSlot()
 		// A chamada ignora o cancelamento do ctx de quem pediu (mantendo os
 		// valores de correlação): desistir da espera não é a mesma coisa que
 		// encerrar o turno. Quem encerra é session/cancel, e a resposta do
@@ -234,9 +267,12 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 		select {
 		case out := <-done:
 			return s.finishTurn(out)
-		case <-time.After(cancelGrace):
+		case <-time.After(s.grace):
 			// O turno saiu e não voltou: pode haver um agente de código ainda
 			// mexendo no disco, e quem chamou precisa saber que é esse o estado.
+			// A sessão fica marcada para que o próximo turno seja recusado com
+			// esse mesmo motivo, em vez de esperar calado na fila.
+			s.setAwaitingCancel(true)
 			return StopCancelled, &PromptError{Accepted: true, Err: ErrCancelNotConfirmed}
 		}
 	}

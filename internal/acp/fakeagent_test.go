@@ -26,6 +26,7 @@ const (
 	scriptCustom     = "custom"     // usa um método de extensão fora do padrão
 	scriptEcho       = "echo"       // devolve o que recebeu no prompt
 	scriptStall      = "stall"      // sobe, mas nunca responde ao handshake
+	scriptStuck      = "stuck"      // aceita o turno e nunca responde, nem ao cancelamento
 
 	fakeSessionID = "sess-falsa-1"
 )
@@ -245,6 +246,10 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 	}
 
 	switch a.script {
+	case scriptStuck:
+		// Nunca responde: nem ao turno, nem ao cancelamento.
+		return
+
 	case scriptDie:
 		os.Exit(3)
 

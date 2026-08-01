@@ -357,6 +357,48 @@ func TestFecharASessaoCancelaOPedidoDePermissaoPendente(t *testing.T) {
 	}
 }
 
+// Enquanto o agente não confirma o cancelamento, a vez continua ocupada — dois
+// turnos no mesmo sessionId se atropelariam, e com um agente de código isso é
+// gente editando o mesmo repositório duas vezes. O que não vale é deixar o
+// próximo turno esperando no escuro: ele é recusado dizendo o motivo.
+func TestCancelamentoSemConfirmacaoRecusaOProximoTurnoDizendoOMotivo(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptStuck, nil)
+	sess := startSession(t, client, ctx)
+	sess.(*session).grace = 300 * time.Millisecond
+
+	turno, desistir := context.WithCancel(ctx)
+	primeiro := make(chan error, 1)
+	go func() {
+		_, err := sess.Prompt(turno, []Content{TextContent("comece algo demorado")}, nil)
+		primeiro <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+	desistir()
+
+	select {
+	case err := <-primeiro:
+		if !errors.Is(err, ErrCancelNotConfirmed) {
+			t.Fatalf("esperava cancelamento não confirmado, obtive: %v", err)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("o turno cancelado nunca voltou")
+	}
+
+	inicio := time.Now()
+	_, err := sess.Prompt(ctx, []Content{TextContent("e agora?")}, nil)
+	if !errors.Is(err, ErrCancelNotConfirmed) {
+		t.Fatalf("o turno seguinte deveria explicar a recusa, obtive: %v", err)
+	}
+	if levou := time.Since(inicio); levou > 2*time.Second {
+		t.Errorf("a recusa deveria ser imediata, levou %s", levou)
+	}
+	var falha *PromptError
+	if !errors.As(err, &falha) || falha.Accepted {
+		t.Errorf("o turno recusado não chegou ao agente: %+v", falha)
+	}
+}
+
 // Quem chega com o contexto já cancelado não pode botar o agente para
 // trabalhar: com a fila livre, o turno sairia e só depois se descobriria que
 // ninguém está mais esperando por ele.
