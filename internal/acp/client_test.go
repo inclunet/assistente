@@ -69,8 +69,9 @@ type scriptedHandler struct {
 	mu       sync.Mutex
 	requests []PermissionRequest
 
-	decide func(context.Context, PermissionRequest) PermissionOutcome
-	custom func(ctx context.Context, method string, params json.RawMessage) (any, bool)
+	decide   func(context.Context, PermissionRequest) PermissionOutcome
+	custom   func(ctx context.Context, method string, params json.RawMessage) (any, bool)
+	fallback func(method string) (any, bool)
 }
 
 func (h *scriptedHandler) RequestPermission(ctx context.Context, req PermissionRequest) PermissionOutcome {
@@ -88,6 +89,13 @@ func (h *scriptedHandler) HandleCustom(ctx context.Context, method string, param
 		return nil, false
 	}
 	return h.custom(ctx, method, params)
+}
+
+func (h *scriptedHandler) CustomFallback(method string) (any, bool) {
+	if h.fallback == nil {
+		return nil, false
+	}
+	return h.fallback(method)
 }
 
 func (h *scriptedHandler) seen() []PermissionRequest {
@@ -1548,6 +1556,78 @@ func TestHandlerQueNuncaDecideNaoPenduraOAgente(t *testing.T) {
 	// deixa o agente seguir, em vez de um erro que derrubaria o turno.
 	if got := col.textOfKind(UpdateText); !strings.Contains(got, "decisão: reject-once") {
 		t.Errorf("o agente não recebeu a recusa por falta de decisão: %q", got)
+	}
+}
+
+// Extensão bloqueante sem decisão precisa receber o "não" que ela entende, e
+// não um erro de cliente: o agente que ouve erro conclui que o app quebrou, em
+// vez de seguir sem a resposta (AEP-0084 D9). Quem monta esse desfecho é quem
+// implementa a extensão — o transporte não conhece o formato de cada método e
+// uma resposta de forma errada correria o risco de virar decisão de verdade.
+func TestExtensaoSemDecisaoRecebeODesfechoQueElaEntende(t *testing.T) {
+	ctx := testContext(t)
+	preso := make(chan struct{})
+	t.Cleanup(func() { close(preso) })
+
+	pedidos := make(chan string, 4)
+	handler := &scriptedHandler{
+		custom: func(context.Context, string, json.RawMessage) (any, bool) {
+			<-preso
+			return map[string]any{"answer": "tarde demais"}, true
+		},
+		fallback: func(method string) (any, bool) {
+			pedidos <- method
+			return map[string]any{"skipped": true}, true
+		},
+	}
+	client := newTestClient(t, scriptCustom, handler)
+	sess := startSession(t, client, ctx)
+	sess.(*session).cn.backstop = 300 * time.Millisecond
+
+	col := &collector{}
+	if _, err := sess.Prompt(ctx, []Content{TextContent("pergunte algo")}, col.sink); err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, `"skipped":true`) {
+		t.Errorf("o agente não recebeu o desfecho da extensão: %q", got)
+	}
+	close(pedidos)
+	var metodos []string
+	for method := range pedidos {
+		metodos = append(metodos, method)
+	}
+	if len(metodos) != 1 || metodos[0] != "cursor/ask_question" {
+		t.Errorf("o desfecho foi pedido para: %v", metodos)
+	}
+}
+
+// Sem desfecho de quem implementa a extensão, sobra o erro interno: é a única
+// resposta honesta, porque inventar o formato arriscaria o agente ler um "não"
+// como decisão de verdade.
+func TestExtensaoSemDesfechoConhecidoRecebeErroInterno(t *testing.T) {
+	ctx := testContext(t)
+	preso := make(chan struct{})
+	t.Cleanup(func() { close(preso) })
+
+	handler := &scriptedHandler{
+		custom: func(context.Context, string, json.RawMessage) (any, bool) {
+			<-preso
+			return nil, true
+		},
+	}
+	client := newTestClient(t, scriptCustom, handler)
+	sess := startSession(t, client, ctx)
+	sess.(*session).cn.backstop = 300 * time.Millisecond
+
+	col := &collector{}
+	if _, err := sess.Prompt(ctx, []Content{TextContent("pergunte algo")}, col.sink); err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+
+	esperado := fmt.Sprintf("erro:%d", sdk.NewInternalError(nil).Code)
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, esperado) {
+		t.Errorf("esperava %s, obtive: %q", esperado, got)
 	}
 }
 

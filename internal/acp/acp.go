@@ -333,6 +333,19 @@ type RequestHandler interface {
 	// bloqueantes do Cursor. Devolver handled=false faz o transporte responder
 	// "método não encontrado", que desbloqueia o agente sem fingir suporte.
 	HandleCustom(ctx context.Context, method string, params json.RawMessage) (result any, handled bool)
+
+	// CustomFallback devolve o desfecho negativo que o método aceita quando
+	// ninguém decidiu: o teto de tempo do transporte estourou ou o handler
+	// quebrou. É o que o AEP-0084 D9 pede — "skipped" numa pergunta, "rejected"
+	// num plano —, porque erro genérico faz o agente concluir que o app falhou
+	// em vez de entender que a resposta foi não.
+	//
+	// Quem monta é quem implementa a extensão, e não o transporte: só essa
+	// camada conhece o formato que cada método aceita, e uma resposta de forma
+	// errada corre o risco de o agente ler como decisão de verdade. Devolver
+	// false deixa o transporte responder erro interno. Precisa responder na
+	// hora, sem I/O nem espera — quem já não decidiu é justamente o handler.
+	CustomFallback(method string) (result any, ok bool)
 }
 
 // denyAll é o handler usado quando nenhum é fornecido.
@@ -343,6 +356,10 @@ func (denyAll) RequestPermission(context.Context, PermissionRequest) PermissionO
 }
 
 func (denyAll) HandleCustom(context.Context, string, json.RawMessage) (any, bool) {
+	return nil, false
+}
+
+func (denyAll) CustomFallback(string) (any, bool) {
 	return nil, false
 }
 

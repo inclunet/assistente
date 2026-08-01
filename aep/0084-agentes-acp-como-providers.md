@@ -421,6 +421,14 @@ confirmação de edição, que já é acessível por teclado e leitor de telas.
   é folgado de propósito — cortar antes do prazo da tela tiraria da pessoa a
   chance de responder —, e ao estourar responde o mesmo desfecho negativo do
   prazo normal.
+
+  No pedido de permissão o transporte monta esse desfecho sozinho, porque as
+  opções vêm no próprio pedido. Nas extensões, quem monta é a camada que
+  implementa o método: só ela conhece o formato que cada um aceita, e uma
+  resposta de forma errada corre o risco de o agente ler o "não" como decisão de
+  verdade — o mesmo erro de protocolo do item anterior. Sem esse desfecho
+  declarado, o transporte responde erro interno, que é a única resposta honesta
+  quando não se sabe dizer "não" no idioma do método.
 - **Cancelar o turno cancela a pergunta.** O ACP obriga quem manda
   `session/cancel` a responder `outcome: cancelled` aos pedidos de permissão
   ainda pendentes — e não `reject-once`, que é a resposta de prazo estourado.

@@ -28,6 +28,11 @@ const (
 	// configuração pendurada.
 	handshakeTimeout = 30 * time.Second
 
+	// fallbackWait limita o desfecho negativo de uma extensão. Ele deveria ser
+	// imediato; o prazo existe só para um handler quebrado não transformar a
+	// última linha de defesa em mais uma espera.
+	fallbackWait = 5 * time.Second
+
 	// Janela de espera entre tentativas de subir um agente que falhou, para um
 	// binário quebrado não virar uma tempestade de spawn.
 	backoffBase = 1 * time.Second
@@ -589,6 +594,9 @@ func (c *conn) handleCustom(ctx context.Context, method string, params json.RawM
 	// Pânico ou contexto morto não são falta de suporte: responder "método não
 	// encontrado" faria o agente riscar a extensão da lista e nunca mais tentar.
 	if !decided {
+		if fallback, ok := c.customFallback(ctx, method); ok {
+			return fallback, nil
+		}
 		return nil, sdk.NewInternalError(map[string]any{"error": "falha interna do cliente ao tratar o pedido"})
 	}
 	if !out.handled {
@@ -596,6 +604,26 @@ func (c *conn) handleCustom(ctx context.Context, method string, params json.RawM
 		return nil, sdk.NewMethodNotFound(method)
 	}
 	return out.result, nil
+}
+
+// customFallback pede a quem implementa a extensão o desfecho negativo que o
+// método aceita, para quando ninguém decidiu a tempo (AEP-0084 D9). O contexto
+// é próprio e curto: o de quem pediu pode já estar morto, e esta resposta
+// precisa sair de qualquer jeito — mas quem não decidiu antes também não pode
+// prender o agente aqui.
+func (c *conn) customFallback(ctx context.Context, method string) (any, bool) {
+	fctx, stop := context.WithTimeout(context.WithoutCancel(ctx), fallbackWait)
+	defer stop()
+
+	type answer struct {
+		result any
+		ok     bool
+	}
+	out, decided := guard(fctx, answer{}, func() answer {
+		result, ok := c.handler.CustomFallback(method)
+		return answer{result: result, ok: ok}
+	})
+	return out.result, decided && out.ok
 }
 
 // guard executa fn e devolve fallback se ela entrar em pânico ou se o contexto
