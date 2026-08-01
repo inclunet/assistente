@@ -253,6 +253,38 @@ pediu que o app execute uma tool" e dispararia o loop agêntico do app, que
 tentaria executar uma ferramenta que não é dele. Um provider ACP jamais chama
 `OnToolCalls`.
 
+#### Marcadas como do agente, não do app
+
+Reaproveitar os eventos de tool é o certo para a UI e para o announcer — a
+pessoa precisa saber que algo está acontecendo —, mas eles **não podem se passar
+por tools do app**. Os eventos já têm o campo `Origin` (`builtin`,
+`mcp_bridge`, `mcp_native`); as do agente ganham um valor próprio,
+`acp_agent`, e a UI diz de quem é a ferramenta em vez de sugerir que o
+assistente agiu.
+
+A distinção não é cosmética. Hoje há consumidor que **age** por nome de tool: o
+chat inline do editor observa `chat:tool_start`/`chat:tool_end` e, ao ver
+`edit_file`, `text_edit` ou `write_file`, recarrega o documento, restaura a
+seleção e fecha o modal. Se uma edição feita pelo Cursor disparasse esse
+caminho, o editor se comportaria como se o próprio app tivesse editado o
+arquivo, dentro de um fluxo de aprovação que não aconteceu. **Consumidores que
+reagem a nome de tool ignoram eventos de origem `acp_agent`**; para edições
+externas o canal honesto continua sendo o observador de arquivo
+(`editor:fileChanged`).
+
+O que também **não** vale para as ferramentas do agente: a política de tools por
+perfil (AEP-0081), a allowlist de comandos, o `nettrust` e os limites de saída
+estruturada. Nada disso governa o Cursor — ele obedece à allowlist dele. O único
+controle do app é responder ao pedido de permissão (D9).
+
+#### Nome e argumentos
+
+O ACP manda `kind` (`read`, `edit`, `execute`, `search`…), um `title` legível e,
+quando existe, `rawInput` — que na sonda veio vazio. O `Name` do evento recebe o
+`kind`, que é enumerável e traduzível; o `title` vai para o resumo, **depois de
+saneado** (D11). Um `title` pode ser a linha de comando literal, e comando cru
+não vira nome de ferramenta nem texto anunciado como se fosse rótulo do app.
+
 ### D8. Mapeamento do streaming
 
 | ACP | Barramento | Observação |
@@ -408,6 +440,9 @@ extensões `cursor/*`.
   com streaming de texto e de raciocínio, sem fluxo de envio alternativo.
 - Nenhuma tool do app é oferecida ao agente, e nenhuma tool call do agente entra
   no loop agêntico do app.
+- A atividade de ferramenta do agente aparece e é anunciada como **dele**, com
+  origem `acp_agent`, e não aciona consumidores que reagem a nome de tool do app
+  (o chat inline do editor, em particular).
 - Pedido de permissão é anunciado, navegável por teclado, respondível e tem
   prazo com resposta padrão.
 - Lista de modelos e troca de modelo funcionam com o Cursor, pelos dois formatos
