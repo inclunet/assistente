@@ -509,9 +509,14 @@ pedido de permissão respondido e cancelamento.
 segmentação do D13, permissões do D9 no desktop e saneamento do D11.
 Persistência mínima do D12 para conseguir registrar um provider ACP. Fora do
 desktop, a regra de negar na hora já vale aqui: nada pode ficar pendurado
-esperando quem não existe. A guarda do D14 entra junto, e não depois: sem ela, a
-sumarização automática dispara no fim do primeiro turno e gasta um turno inteiro
-de agente de código para escrever um resumo.
+esperando quem não existe.
+
+Duas guardas entram junto, não depois, porque ambas estão **ligadas por padrão**
+e agem sozinhas: a do D14, senão a sumarização automática dispara no fim do
+primeiro turno e gasta um turno inteiro de agente de código para escrever um
+resumo; e a do D4 sobre auto-recuperação, senão um erro de transporte faz o app
+repetir em silêncio um pedido que o agente já aceitou — repetindo edições e
+comandos na máquina.
 
 **Aceite:** com um provider ACP configurado à mão, uma conversa no app fala com
 o Cursor de ponta a ponta — texto segmentado e falado durante o turno,
