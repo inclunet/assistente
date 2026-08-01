@@ -423,6 +423,42 @@ func TestTurnoComContextoJaCanceladoNaoVaiAoAgente(t *testing.T) {
 	}
 }
 
+// Encerrar a conversa durante a saída do app costuma chegar com o contexto já
+// cancelado. Mandar o agente parar não pode depender disso: o que está em jogo
+// é um agente de código continuar mexendo no disco.
+func TestFecharASessaoCancelaOTurnoMesmoComContextoMorto(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptCancel, nil)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	parou := make(chan StopReason, 1)
+	go func() {
+		stop, _ := sess.Prompt(ctx, []Content{TextContent("trabalhe")}, col.sink)
+		parou <- stop
+	}()
+
+	prazo := time.Now().Add(testTimeout)
+	for !strings.Contains(col.textOfKind(UpdateText), "trabalhando") && time.Now().Before(prazo) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	morto, cancelar := context.WithCancel(context.Background())
+	cancelar()
+	_ = sess.Close(morto)
+
+	// O agente falso desiste sozinho depois de 20s; um limite bem menor separa
+	// o cancelamento entregue da desistência por tédio.
+	select {
+	case stop := <-parou:
+		if stop != StopCancelled {
+			t.Fatalf("esperava turno cancelado, obtive %q", stop)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("o cancelamento não chegou ao agente com o contexto de saída já morto")
+	}
+}
+
 // Um turno que esperava a vez na fila não pode ser enviado depois de a sessão
 // ter sido encerrada.
 func TestTurnoNaFilaNaoRodaEmSessaoEncerrada(t *testing.T) {

@@ -337,7 +337,11 @@ func (s *session) Close(ctx context.Context) error {
 		return nil
 	}
 	if s.turnInFlight() {
-		if err := s.Cancel(ctx); err != nil {
+		// Mandar o agente parar não pode depender do contexto de quem fechou:
+		// no encerramento do app ele costuma já estar morto, e a notificação
+		// nem sairia — deixando um agente de código editando arquivos de uma
+		// conversa que já não existe.
+		if err := s.Cancel(context.WithoutCancel(ctx)); err != nil {
 			logging.Warnf(ctx, logComponent,
 				"[ACP] falha ao cancelar o turno da sessão %s ao encerrá-la: %v", s.id, err)
 		}
