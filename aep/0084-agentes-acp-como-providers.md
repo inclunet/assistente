@@ -183,8 +183,12 @@ mesma fronteira:
   delimitado no primeiro `session/prompt`;
 - a **parte dinâmica** (contexto de superfície, workspace) vai **no turno em que
   mudar**, como bloco próprio, junto da mensagem do usuário;
-- o provider guarda o hash do que já enviou; trocar de perfil no meio da
-  conversa reenvia o prefixo, porque as instruções passaram a ser outras.
+- o provider guarda o hash do que já enviou **por sessão, não por conversa**:
+  sessão nova é agente sem memória nenhuma, então tudo é reenviado. Isso vale
+  para a sessão recriada por divergência, pela falha do `session/load` e pela
+  retomada — o estado do que "já foi dito" morre junto com a sessão que o
+  ouviu. Trocar de perfil no meio da conversa também reenvia o prefixo, porque
+  as instruções passaram a ser outras.
 
 Os blocos são delimitados como instrução do app, e não se confundem com o texto
 da pessoa. O agente também tem as regras do próprio projeto (`AGENTS.md`,
