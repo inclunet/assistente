@@ -414,6 +414,13 @@ confirmação de edição, que já é acessível por teclado e leitor de telas.
   que uma ação negada, mas o desfecho precisa ser o que o método aceita: mandar
   um `optionId` de permissão numa pergunta de múltipla escolha é erro de
   protocolo.
+- **O transporte tem um teto próprio, bem maior que o prazo da pergunta.** O
+  prazo acima é da camada que pergunta à pessoa; o transporte não confia que ela
+  exista nem que se comporte. Como o contexto que o SDK entrega no pedido não
+  traz prazo nenhum, um handler travado penduraria o agente para sempre. O teto
+  é folgado de propósito — cortar antes do prazo da tela tiraria da pessoa a
+  chance de responder —, e ao estourar responde o mesmo desfecho negativo do
+  prazo normal.
 - **Cancelar o turno cancela a pergunta.** O ACP obriga quem manda
   `session/cancel` a responder `outcome: cancelled` aos pedidos de permissão
   ainda pendentes — e não `reject-once`, que é a resposta de prazo estourado.

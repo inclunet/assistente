@@ -1081,6 +1081,39 @@ func TestFecharSessaoEncerraNoAgenteERecusaNovosTurnos(t *testing.T) {
 	}
 }
 
+// Handler que nunca decide não pode pendurar o agente: o contexto que o SDK
+// entrega para o pedido não tem prazo nenhum, então o teto é nosso. O agente
+// precisa receber um desfecho que o método aceita e seguir a vida.
+func TestHandlerQueNuncaDecideNaoPenduraOAgente(t *testing.T) {
+	ctx := testContext(t)
+	preso := make(chan struct{})
+	t.Cleanup(func() { close(preso) })
+
+	handler := &scriptedHandler{
+		decide: func(hctx context.Context, _ PermissionRequest) PermissionOutcome {
+			<-preso
+			return PermissionOutcome{OptionID: "allow-once"}
+		},
+	}
+	client := newTestClient(t, scriptPermission, handler)
+	sess := startSession(t, client, ctx)
+	sess.(*session).cn.backstop = 300 * time.Millisecond
+
+	col := &collector{}
+	stop, err := sess.Prompt(ctx, []Content{TextContent("rode algo")}, col.sink)
+	if err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+	if stop != StopEndTurn {
+		t.Fatalf("stopReason = %q, esperado %q", stop, StopEndTurn)
+	}
+	// Sem decisão, negamos: é o desfecho que o pedido de permissão aceita e que
+	// deixa o agente seguir, em vez de um erro que derrubaria o turno.
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, "decisão: reject-once") {
+		t.Errorf("o agente não recebeu a recusa por falta de decisão: %q", got)
+	}
+}
+
 // canoCheio é o agente vivo que parou de ler a entrada: toda escrita para ele
 // fica pendurada, que é o caso em que nem contexto salva — o SDK confere o
 // cancelamento antes de escrever e depois entra num Write que não olha mais

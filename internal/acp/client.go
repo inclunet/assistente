@@ -35,6 +35,15 @@ const (
 
 	// authRequiredCode é o erro JSON-RPC que o ACP reserva para "faça login".
 	authRequiredCode = -32000
+
+	// handlerBackstop é o teto de tempo que damos a quem decide sobre um pedido
+	// do agente. Não é o prazo da pergunta: esse é da camada que pergunta à
+	// pessoa (AEP-0084 D9) e é bem menor. Este aqui é a última linha de defesa
+	// do contrato de que todo pedido recebe resposta — o contexto que o SDK
+	// entrega não traz prazo, então um handler que trava penduraria o agente
+	// para sempre. Folgado de propósito: cortar antes do prazo da tela tiraria
+	// da pessoa a chance de responder.
+	handlerBackstop = 30 * time.Minute
 )
 
 type client struct {
@@ -239,6 +248,9 @@ type conn struct {
 	caps    Capabilities
 	kill    context.CancelFunc
 	stderr  *io.PipeWriter
+	// backstop é o teto de tempo de quem decide; campo, e não constante direta,
+	// para que o teste não precise esperar meia hora.
+	backstop time.Duration
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -289,6 +301,7 @@ func dial(ctx context.Context, cfg Config, handler RequestHandler) (*conn, error
 		cmd:      cmd,
 		kill:     kill,
 		stderr:   stderr,
+		backstop: handlerBackstop,
 		sessions: make(map[string]*session),
 		dead:     make(chan struct{}),
 	}
@@ -480,7 +493,7 @@ func (c *conn) requestPermission(ctx context.Context, params json.RawMessage) (a
 	// pedido de permissão pendente. Além do protocolo, é o que fecha o diálogo
 	// na tela: perguntar sobre um turno que a pessoa já abortou é ruído.
 	cancelled := sess.cancelSignal()
-	hctx, stopHandler := bindCancel(ctx, cancelled)
+	hctx, stopHandler := c.handlerContext(ctx, cancelled)
 	defer stopHandler()
 
 	// Aqui a falta de decisão não vira erro: negar a ação é um desfecho que o
@@ -494,6 +507,22 @@ func (c *conn) requestPermission(ctx context.Context, params json.RawMessage) (a
 	}
 
 	return sdk.RequestPermissionResponse{Outcome: permissionOutcomeToSDK(outcome, req.Options)}, nil
+}
+
+// handlerContext prepara o contexto entregue a quem decide sobre um pedido do
+// agente: ele morre junto com o turno cancelado e tem um teto de tempo, para
+// que nem um handler travado deixe o agente esperando para sempre.
+func (c *conn) handlerContext(ctx context.Context, cancelled <-chan struct{}) (context.Context, context.CancelFunc) {
+	limit := c.backstop
+	if limit <= 0 {
+		limit = handlerBackstop
+	}
+	tctx, stopClock := context.WithTimeout(ctx, limit)
+	hctx, stop := bindCancel(tctx, cancelled)
+	return hctx, func() {
+		stop()
+		stopClock()
+	}
 }
 
 // bindCancel amarra o contexto entregue a quem decide ao cancelamento do turno.
@@ -539,7 +568,7 @@ func (c *conn) handleCustom(ctx context.Context, method string, params json.RawM
 	if sess != nil {
 		cancelled = sess.cancelSignal()
 	}
-	hctx, stopHandler := bindCancel(ctx, cancelled)
+	hctx, stopHandler := c.handlerContext(ctx, cancelled)
 	defer stopHandler()
 
 	type custom struct {
@@ -566,8 +595,10 @@ func (c *conn) handleCustom(ctx context.Context, method string, params json.RawM
 }
 
 // guard executa fn e devolve fallback se ela entrar em pânico ou se o contexto
-// do pedido morrer antes da decisão. É o que garante resposta de protocolo:
-// um handler que demora demais atrasa o agente, mas não o pendura.
+// do pedido morrer antes da decisão. É o que garante resposta de protocolo: um
+// handler que demora demais atrasa o agente, mas não o pendura — o contexto
+// vem com teto de tempo de handlerContext justamente para isso. A goroutine de
+// fn pode sobreviver à resposta; é o preço de não confiar em código de fora.
 //
 // O segundo retorno diz se houve decisão de verdade. Sem ele, quem chama não
 // consegue distinguir "o handler decidiu isso" de "não houve decisão", e acaba
