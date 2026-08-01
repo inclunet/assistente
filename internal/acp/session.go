@@ -210,7 +210,7 @@ func (s *session) acquireTurn(ctx context.Context) error {
 	}
 	select {
 	case <-s.turnSlot:
-		return nil
+		return s.takeTurn(ctx)
 	default:
 	}
 	// O canal é lido antes da espera: quem já está na fila quando o prazo de
@@ -219,33 +219,31 @@ func (s *session) acquireTurn(ctx context.Context) error {
 	return s.waitForTurn(ctx, s.unconfirmedCancel(), s.closedSignal())
 }
 
-// waitForTurn é a espera na fila. Quem desistiu não leva a vez: com a vez livre
-// e a desistência prontas na mesma acordada, o select escolheria ao acaso, e o
-// acaso aqui põe um agente de código para editar arquivo depois que a pessoa
-// mandou parar.
+// takeTurn confirma a vez recém-pegada, e é por onde passam todos os caminhos
+// que pegam uma. Quem desistiu no meio do caminho devolve a vez em vez de
+// começar o turno: a desistência pode ficar pronta no mesmo instante em que a
+// vez, e aí o select escolheria ao acaso — o acaso aqui põe um agente de código
+// para editar arquivo depois que a pessoa mandou parar. Devolver deixa a fila
+// andar para quem ainda quer.
+func (s *session) takeTurn(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		s.releaseTurn()
+		return err
+	}
+	return nil
+}
+
+// waitForTurn é a espera na fila.
 func (s *session) waitForTurn(ctx context.Context, unconfirmed, closed <-chan struct{}) error {
 	select {
 	case <-s.turnSlot:
-		// A vez pode ter chegado no mesmo instante em que quem pediu desistiu,
-		// e aí a desistência vale mais: com os dois casos prontos o select
-		// escolhe ao acaso, e o acaso aqui põe um agente de código para editar
-		// arquivo depois que a pessoa mandou parar. Devolver a vez é o que
-		// deixa a fila andar para quem ainda quer.
-		if err := ctx.Err(); err != nil {
-			s.releaseTurn()
-			return err
-		}
-		return nil
+		return s.takeTurn(ctx)
 	case <-unconfirmed:
 		// A vez pode ter ficado livre no mesmo instante, e aí ela vale mais: o
 		// turno velho terminou de verdade, não há mais o que confirmar.
 		select {
 		case <-s.turnSlot:
-			if err := ctx.Err(); err != nil {
-				s.releaseTurn()
-				return err
-			}
-			return nil
+			return s.takeTurn(ctx)
 		default:
 			return ErrCancelNotConfirmed
 		}
