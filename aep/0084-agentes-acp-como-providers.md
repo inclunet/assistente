@@ -232,10 +232,11 @@ confirmação de edição, que já é acessível por teclado e leitor de telas.
 
 Nenhuma fase entrega o modo `agent` sem esse caminho pronto.
 
-### D10. Cancelar o turno cancela a sessão
+### D10. Cancelar no app cancela o turno no agente
 
-O cancelamento explícito do app (AEP-0064) envia `session/cancel` e trata o
-`stopReason: cancelled` como fim normal do turno.
+O cancelamento explícito do app (AEP-0064) envia `session/cancel`, que interrompe
+o turno em andamento sem encerrar a sessão, e trata o `stopReason: cancelled`
+como fim normal do turno. A sessão continua viva para a próxima mensagem.
 
 ### D11. A saída do agente é dado não confiável
 
