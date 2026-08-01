@@ -187,8 +187,12 @@ mesma fronteira:
 
 - o **prefixo estável** (persona, skills) vai **uma vez por sessão**, como bloco
   delimitado no primeiro `session/prompt`;
-- a **parte dinâmica** (contexto de superfície, workspace) vai **no turno em que
-  mudar**, como bloco próprio, junto da mensagem do usuário;
+- **tudo o que vem depois do prefixo** vai **no turno em que mudar**, como bloco
+  próprio junto da mensagem do usuário. Não é só o contexto de workspace: o
+  sufixo dinâmico carrega tasklists vinculadas, memória do usuário e o resumo da
+  conversa, e deixar qualquer um de fora seria entregar ao agente um perfil pela
+  metade. O que o builder já coloca dentro da própria mensagem do usuário
+  (`turn_context`) segue junto sem tratamento especial;
 - o provider guarda o hash do que já enviou **por sessão, não por conversa**:
   sessão nova é agente sem memória nenhuma, então tudo é reenviado. Isso vale
   para a sessão recriada por divergência e pela falha do `session/load` — o
@@ -395,6 +399,12 @@ confirmação de edição, que já é acessível por teclado e leitor de telas.
 - O título do `toolCall` contém o comando literal e é **dado não confiável**:
   passa pelo mesmo saneamento de texto de diálogo antes de virar rótulo ou
   anúncio.
+- **O pedido nunca fica sem resposta de protocolo.** O `questionnaire` de hoje
+  sinaliza expiração devolvendo erro para quem chamou; erro em Go não desbloqueia
+  o agente, que continua esperando uma resposta JSON-RPC. A camada ACP traduz
+  **qualquer** desfecho — resposta da pessoa, prazo estourado, erro interno,
+  conversa excluída, app encerrando — na resposta que o método espera. É a
+  diferença entre negar uma ação e pendurar o agente.
 
 Nenhuma fase entrega o modo `agent` sem esse caminho pronto.
 
