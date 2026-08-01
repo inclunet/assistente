@@ -534,7 +534,8 @@ configuração na mão; o estado não autenticado é anunciado e explica o que f
 
 ### Fase 4 — Modelos e modos
 
-`GetModels` com sessão efêmera e cache, troca por `set_config_option` com
+`GetModels` com a sessão de descoberta do D6 e cache, troca por
+`set_config_option` com
 fallback, `config_option_update` refletido na UI, seleção de modo
 (`agent`/`plan`/`ask`) exposta junto do modelo, `Chat.Model` do perfil aplicado
 na criação da sessão.
