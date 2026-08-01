@@ -247,6 +247,10 @@ type Update struct {
 // UpdateSink recebe os eventos de um turno, na ordem em que o agente os
 // emitiu. É chamado por uma goroutine só, então não precisa de sincronização
 // interna, mas precisa retornar rápido: bloquear aqui segura o protocolo.
+//
+// Ele roda enquanto a sessão está entregando, então não pode chamar Prompt na
+// mesma sessão — isso esperaria pela vez de um turno que é justamente o que
+// está entregando. Ler a sessão (ID, ConfigOptions) e encerrá-la são seguros.
 type UpdateSink func(Update)
 
 // ToolCall descreve uma ferramenta que o agente está usando. São ferramentas

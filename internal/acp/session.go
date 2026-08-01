@@ -43,8 +43,10 @@ type session struct {
 	// sinkMu protege a entrega, e não só a leitura do sink. Segurar a trava
 	// durante a chamada é o que faz o fim do turno esperar a entrega em
 	// andamento terminar: sem isso, uma atualização já lida escaparia para um
-	// sink que quem chamou considera fechado. É trava própria porque o sink é
-	// código de fora, que pode consultar a sessão enquanto renderiza.
+	// sink que quem chamou considera fechado. Quem desliga é sempre o Prompt,
+	// e nunca o Close, para que um sink possa encerrar a própria conversa sem
+	// esperar por si mesmo. É trava própria porque o sink é código de fora, que
+	// pode consultar a sessão enquanto renderiza.
 	sinkMu sync.RWMutex
 	sink   UpdateSink
 
@@ -468,10 +470,11 @@ func (s *session) Close(ctx context.Context) error {
 		return nil
 	}
 
-	// Desligar a entrega espera a que estiver em andamento terminar, para que
-	// nada escape para uma conversa que a pessoa acabou de excluir.
-	s.setSink(nil)
-
+	// Não desligamos a entrega aqui de propósito. Quem desliga é o Prompt, que
+	// este encerramento acaba de acordar, e ele espera a entrega em andamento
+	// terminar antes de retornar. Fazer isso aqui também travaria um sink que
+	// encerra a própria conversa ao receber um evento: ele ficaria esperando a
+	// entrega que ele mesmo é.
 	s.cn.removeSession(s.id)
 	if s.cn.isDead() {
 		return nil

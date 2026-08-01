@@ -1179,6 +1179,40 @@ func TestOEstadoDaSessaoNaoCompartilhaMemoriaComQuemEscuta(t *testing.T) {
 	}
 }
 
+// Um sink que encerra a própria conversa ao ver um evento não pode travar: ele
+// roda dentro da entrega, e esperar a entrega terminar seria esperar por si
+// mesmo. É o caminho de "erro fatal no meio da resposta, feche isso aqui".
+func TestSinkPodeEncerrarAPropriaConversaSemTravar(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTeimoso, nil)
+	sess := startSession(t, client, ctx)
+	sess.(*session).closeWait = 200 * time.Millisecond
+
+	fechou := make(chan error, 1)
+	var umaVez sync.Once
+	voltou := make(chan error, 1)
+	go func() {
+		_, err := sess.Prompt(ctx, []Content{TextContent("comece")}, func(Update) {
+			umaVez.Do(func() { fechou <- sess.Close(context.Background()) })
+		})
+		voltou <- err
+	}()
+
+	select {
+	case <-fechou:
+	case <-time.After(5 * time.Second):
+		t.Fatal("o sink travou ao encerrar a própria conversa")
+	}
+	select {
+	case err := <-voltou:
+		if !errors.Is(err, ErrSessionClosed) {
+			t.Fatalf("esperava conversa encerrada, obtive: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("o turno não voltou depois do encerramento")
+	}
+}
+
 // Excluir a conversa no meio de um turno em andamento devolve quem chamou na
 // hora, mesmo que o agente ignore o pedido de parada e nunca responda.
 func TestExcluirAConversaDevolveOTurnoEmAndamento(t *testing.T) {
