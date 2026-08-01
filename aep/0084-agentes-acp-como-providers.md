@@ -134,6 +134,16 @@ tende a sair dos SDKs conforme o `configOptions` vira o caminho único. Sem uma
 chamada crua de JSON-RPC em `internal/acp`, o app fica refém do que o SDK
 resolveu tipar naquela versão.
 
+A implementação confirmou que isso vale nas duas direções, e a de entrada é a
+que morde: o cliente pronto do SDK (`ClientSideConnection`) só repassa ao app os
+métodos que ele tipou e as extensões com prefixo `_`. As do Cursor são
+`cursor/*` e seriam respondidas automaticamente como "método não encontrado",
+**sem o app nunca ver o pedido** — inclusive as bloqueantes. Por isso o
+transporte é construído sobre a conexão de baixo nível do SDK
+(`acp.NewConnection` + `acp.SendRequest`), que aceita qualquer nome de método
+nos dois sentidos, e não sobre o cliente pronto. Trocar por ele "para
+simplificar" reintroduziria o problema.
+
 O resto do app conversa só com essa interface. Se o SDK estagnar ou divergir,
 troca-se a implementação sem tocar no provider. A versão fica pinada e o
 comportamento é coberto por testes contra um **agente ACP falso** (um processo
