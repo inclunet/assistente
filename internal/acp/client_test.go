@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"runtime"
 	"strings"
 	"sync"
@@ -1080,6 +1081,77 @@ func TestFecharSessaoEncerraNoAgenteERecusaNovosTurnos(t *testing.T) {
 	}
 }
 
+// canoCheio é o agente vivo que parou de ler a entrada: toda escrita para ele
+// fica pendurada, que é o caso em que nem contexto salva — o SDK confere o
+// cancelamento antes de escrever e depois entra num Write que não olha mais
+// nada.
+type canoCheio struct{ liberado chan struct{} }
+
+func (w canoCheio) Write(p []byte) (int, error) {
+	<-w.liberado
+	return len(p), nil
+}
+
+func (w canoCheio) Read([]byte) (int, error) {
+	<-w.liberado
+	return 0, io.EOF
+}
+
+// O encerramento do app não pode ficar preso na escrita para um agente que
+// parou de ler a entrada.
+func TestFecharASessaoNaoTravaQuandoOAgenteParaDeLerAEntrada(t *testing.T) {
+	cano := canoCheio{liberado: make(chan struct{})}
+	t.Cleanup(func() { close(cano.liberado) })
+
+	cn := &conn{
+		handler:  denyAll{},
+		caps:     Capabilities{CloseSession: true},
+		sessions: map[string]*session{},
+		dead:     make(chan struct{}),
+	}
+	cn.rpc = sdk.NewConnection(cn.handleInbound, cano, cano)
+	sess := cn.registerSession("sess-travada", t.TempDir(), nil)
+	sess.closeWait = 200 * time.Millisecond
+
+	done := make(chan error, 1)
+	go func() { done <- sess.Close(context.Background()) }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("encerrar deveria acusar que o agente não confirmou")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close ficou preso escrevendo para um agente que não lê")
+	}
+}
+
+// Agente vivo que não responde à despedida não pode prender quem fechou a
+// conversa: no encerramento do app isso seria uma janela que não fecha.
+func TestFecharASessaoNaoEsperaParaSempreUmAgenteQueNaoResponde(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptStuck, nil)
+	sess := startSession(t, client, ctx)
+	sess.(*session).closeWait = 300 * time.Millisecond
+
+	done := make(chan error, 1)
+	go func() { done <- sess.Close(ctx) }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("encerrar deveria acusar que o agente não confirmou")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close ficou preso esperando o agente")
+	}
+
+	// Independentemente da resposta do agente, a sessão morreu para o app.
+	if _, err := sess.Prompt(ctx, []Content{TextContent("oi")}, func(Update) {}); !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("sessão encerrada deveria recusar turno: %v", err)
+	}
+}
+
 // Encerrar a conversa tira da fila quem esperava a vez, mesmo que o turno preso
 // no agente nunca volte e o contexto de quem espera não tenha prazo.
 func TestFecharASessaoTiraDaFilaQuemEsperavaAVez(t *testing.T) {
@@ -1099,16 +1171,16 @@ func TestFecharASessaoTiraDaFilaQuemEsperavaAVez(t *testing.T) {
 	}()
 	time.Sleep(200 * time.Millisecond)
 
-	if err := sess.Close(ctx); err != nil {
-		t.Fatalf("encerrar sessão: %v", err)
-	}
+	// Encerrar em paralelo e cobrar a fila logo em seguida: soltar quem espera é
+	// decisão local e não pode ficar atrás da confirmação de um agente surdo.
+	go func() { _ = sess.Close(ctx) }()
 
 	select {
 	case err := <-naFila:
 		if !errors.Is(err, ErrSessionClosed) {
 			t.Fatalf("esperava sessão encerrada, obtive: %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("quem esperava na fila ficou preso na conversa excluída")
 	}
 }

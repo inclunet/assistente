@@ -36,6 +36,9 @@ type session struct {
 	// grace é o prazo de confirmação do cancelamento; campo, e não constante,
 	// para que o teste possa encurtá-lo sem esperar meio minuto.
 	grace time.Duration
+	// closeWait é quanto o encerramento espera pela despedida do agente. Campo
+	// pelo mesmo motivo de grace.
+	closeWait time.Duration
 
 	mu      sync.Mutex
 	sink    UpdateSink
@@ -80,6 +83,7 @@ func newSession(id, cwd string, cn *conn, options []ConfigOption) *session {
 		cn:             cn,
 		turnSlot:       make(chan struct{}, 1),
 		grace:          cancelGrace,
+		closeWait:      closeTimeout,
 		options:        options,
 		cancelSig:      make(chan struct{}),
 		unconfirmedSig: make(chan struct{}),
@@ -414,6 +418,11 @@ func (s *session) Cancel(ctx context.Context) error {
 // excluída continuaria recebendo atualizações e ocupando memória —, e o
 // session/close só vai ao agente quando ele anuncia suportar o método.
 //
+// O registro local sai antes de qualquer conversa com o agente, então o retorno
+// não muda o que já é fato: a sessão morreu para o app. O erro só conta se o
+// agente confirmou a despedida — e a espera por ela é limitada, porque agente
+// travado não pode segurar a saída do app.
+//
 // Um turno em andamento é cancelado antes: excluir a conversa não pode deixar
 // um agente de código solto no disco, nem um pedido de permissão pendente sem
 // resposta — o agente esperaria para sempre e a pessoa ficaria decidindo sobre
@@ -435,12 +444,32 @@ func (s *session) Close(ctx context.Context) error {
 	if s.cn.isDead() {
 		return nil
 	}
+
+	// A despedida sai da frente de quem fechou. Falar com o agente é escrita no
+	// stdin dele, e essa escrita não olha contexto nenhum: o SDK confere o
+	// cancelamento antes de escrever e depois entra num Write que só volta
+	// quando o cano aceita os bytes. Um agente vivo que parou de ler penduraria
+	// o encerramento do app aqui para sempre. Esperamos por um prazo e
+	// seguimos; a goroutine se desprende sozinha quando o processo morre, o que
+	// o Close do cliente garante logo em seguida.
+	done := make(chan error, 1)
+	go func() { done <- s.farewell(context.WithoutCancel(ctx)) }()
+
+	timer := time.NewTimer(s.closeWait)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+		return fmt.Errorf("encerrar a sessão %s: o agente não respondeu em %s", s.id, s.closeWait)
+	}
+}
+
+// farewell avisa o agente que a conversa acabou: para o turno em andamento e,
+// se o agente souber do método, encerra a sessão do lado dele.
+func (s *session) farewell(ctx context.Context) error {
 	if s.turnInFlight() {
-		// Mandar o agente parar não pode depender do contexto de quem fechou:
-		// no encerramento do app ele costuma já estar morto, e a notificação
-		// nem sairia — deixando um agente de código editando arquivos de uma
-		// conversa que já não existe.
-		if err := s.Cancel(context.WithoutCancel(ctx)); err != nil {
+		if err := s.Cancel(ctx); err != nil {
 			logging.Warnf(ctx, logComponent,
 				"[ACP] falha ao cancelar o turno da sessão %s ao encerrá-la: %v", s.id, err)
 		}
@@ -448,11 +477,7 @@ func (s *session) Close(ctx context.Context) error {
 	if !s.cn.caps.CloseSession {
 		return nil
 	}
-	// Mesmo motivo do cancelamento acima: no encerramento do app o contexto de
-	// quem fechou costuma vir morto, e a sessão ficaria aberta no agente. O
-	// prazo próprio evita o outro extremo, que é segurar a saída do app
-	// esperando um agente que não responde.
-	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
+	cctx, cancel := context.WithTimeout(ctx, s.closeWait)
 	defer cancel()
 	_, err := sdk.SendRequest[sdk.CloseSessionResponse](s.cn.rpc, cctx, sdk.AgentMethodSessionClose,
 		sdk.CloseSessionRequest{SessionId: sdk.SessionId(s.id)})

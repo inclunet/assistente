@@ -174,6 +174,10 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 		})
 
 	case "session/close":
+		if a.script == scriptStuck {
+			// Vivo, mas surdo: é o agente que penduraria o fechamento do app.
+			return
+		}
 		a.reply(*msg.ID, map[string]any{})
 
 	case "session/load":
