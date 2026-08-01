@@ -258,10 +258,13 @@ Silêncio depois do envio não é prova de que nada aconteceu: a linha já está
 o agente, e ele pode estar editando. Esperar por um `session/update` para
 declarar aceite seria mais preciso e menos seguro.
 
-A guarda não vira um `if` sobre formato de provider espalhado pelo `agent`: o
-laço de recuperação já decide pelo erro, então **o provider ACP classifica o
-erro do turno aceito como não retentável**. Quem sabe se repetir é seguro é o
-provider, não o laço.
+Hoje o laço não tem como obedecer: ele retenta pela **presença** de erro
+(`LastError()` não vazio), sem noção de retentabilidade — diferente da execução
+de tools, que já classifica. Então a mudança é nos dois lados: o provider ACP
+marca como **não retentável** o erro de um turno já aceito, e o laço de
+recuperação passa a respeitar essa marca. Não é um `if` sobre formato de
+provider espalhado pelo `agent`: quem sabe se repetir é seguro é o provider, e o
+laço só para de ignorar a resposta.
 
 #### Continuar resposta
 
@@ -323,11 +326,16 @@ pediu que o app execute uma tool" e dispararia o loop agêntico do app, que
 tentaria executar uma ferramenta que não é dele. Um provider ACP jamais chama
 `OnToolCalls`.
 
-Não basta o provider se comportar: **o planejamento de tools do turno devolve
-conjunto vazio para um provider ACP**. O roteamento do envio escolhe o loop
-agêntico pela simples existência de tool definitions no turno; um perfil com
-tools habilitadas levaria a conversa para o loop errado, e junto com ele iria a
-segmentação (D13) e a promessa de não oferecer as tools do app ao agente.
+Não basta o provider se comportar: **o turno de um provider ACP é planejado com
+as tools desligadas**, pelo mesmo interruptor que o perfil já oferece. O
+roteamento do envio escolhe o loop agêntico pela simples existência de tool
+definitions no turno; um perfil com tools habilitadas levaria a conversa para o
+loop errado, e junto com ele iriam a segmentação (D13) e a promessa de não
+oferecer as tools do app ao agente.
+
+O critério é o **conjunto final** que chega ao roteamento ser vazio — não apenas
+o que o planner pré-carrega. Tools de runtime e expansões dinâmicas entram na
+mesma conta; uma sobrevivente basta para mandar a conversa pelo caminho errado.
 
 #### Marcadas como do agente, não do app
 
