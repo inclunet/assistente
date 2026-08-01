@@ -210,9 +210,17 @@ A sessão tem memória própria, então retry, edição e exclusão de mensagens
 deixar as duas visões diferentes — o app mostrando uma conversa que o agente não
 viveu. A regra é não tentar reconciliar em silêncio:
 
-- **Retry de um turno que não produziu resposta** (falha de transporte,
-  permissão negada antes de qualquer texto): reenvia na mesma sessão, depois de
-  um `session/cancel` se ainda houver turno em voo.
+- **Retry de um turno que o agente nunca aceitou** (processo morto, falha ao
+  enviar o `session/prompt`): reenvia na mesma sessão, sem cerimônia — para o
+  agente aquele pedido não existiu.
+- **Retry de um turno que o agente aceitou mas não concluiu** (transporte caiu
+  no meio, permissão negada, cancelamento): reenviar o mesmo texto pode fazer o
+  agente **refazer trabalho que já executou** — e aqui "trabalho" é arquivo
+  editado e comando rodado. A sessão é mantida, porque é ela que sabe o que já
+  foi feito, e o reenvio vai acompanhado da nota de que o pedido anterior pode
+  ter sido interrompido e o estado deve ser conferido antes de refazer.
+  Recriar a sessão seria pior: jogaria fora justamente a memória que evita a
+  duplicação.
 - **Retry de um turno que já produziu resposta**, edição ou exclusão de
   mensagens: a sessão é marcada como divergente e **recriada no próximo envio**,
   com aviso de que o agente perdeu o contexto anterior.
@@ -380,6 +388,12 @@ resposta. Com um agente de código, um turno abandonado **continuaria editando
 arquivos e rodando comandos** — um processo que o app já não observa mexendo no
 disco. Todo caminho de cancelamento, incluindo esse, propaga `session/cancel` e
 só considera o turno encerrado quando o agente confirma.
+
+Daí decorre a serialização: **uma sessão tem no máximo um turno em voo**. O
+`StreamingManager` cancela o contexto Go e já dispara o próximo `StreamChat` em
+outra goroutine; do lado do agente isso sobreporia dois `session/prompt` no
+mesmo `sessionId`. O novo turno espera a confirmação do cancelamento do
+anterior antes de promptar.
 
 ### D11. A saída do agente é dado não confiável
 
