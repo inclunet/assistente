@@ -1631,6 +1631,42 @@ func TestExtensaoSemDesfechoConhecidoRecebeErroInterno(t *testing.T) {
 	}
 }
 
+// A vez pode ficar livre no mesmo instante em que quem esperava desiste. Com os
+// dois prontos, o select escolhe ao acaso — e o acaso aqui põe um agente de
+// código para editar arquivo depois que a pessoa mandou parar.
+func TestVezQueChegaJuntoComADesistenciaNaoValeMais(t *testing.T) {
+	cano := canoCheio{liberado: make(chan struct{})}
+	t.Cleanup(func() { close(cano.liberado) })
+	cn := &conn{
+		handler:  denyAll{},
+		kill:     func() {},
+		sessions: map[string]*session{},
+		dead:     make(chan struct{}),
+	}
+	cn.rpc = sdk.NewConnection(cn.handleInbound, cano, cano)
+	sess := cn.registerSession("sess-fila", t.TempDir(), nil)
+
+	// A vez livre e a desistência prontas na mesma acordada é o cenário que o
+	// select decidiria no cara ou coroa.
+	ctx, desistir := context.WithCancel(context.Background())
+	desistir()
+	nunca := make(chan struct{})
+
+	for rodada := range 50 {
+		err := sess.waitForTurn(ctx, nunca, nunca)
+		if !errors.Is(err, context.Canceled) {
+			if err == nil {
+				sess.releaseTurn()
+			}
+			t.Fatalf("rodada %d: quem desistiu levou a vez (erro: %v)", rodada, err)
+		}
+		if !sess.turnInFlight() {
+			continue
+		}
+		t.Fatalf("rodada %d: a vez ficou presa com quem desistiu", rodada)
+	}
+}
+
 // canoCheio é o agente vivo que parou de ler a entrada: toda escrita para ele
 // fica pendurada, que é o caso em que nem contexto salva — o SDK confere o
 // cancelamento antes de escrever e depois entra num Write que não olha mais
