@@ -1088,6 +1088,47 @@ func TestFecharSessaoEncerraNoAgenteERecusaNovosTurnos(t *testing.T) {
 	}
 }
 
+// O sink pertence à chamada de Prompt. Durante o prazo de graça a entrega
+// continua, porque é ali que o agente conta o que alcançou fazer; depois que o
+// turno volta, um agente teimoso que segue falando não escreve mais na tela.
+// Sem essa fronteira, o rastro de um turno morto acabaria no meio do próximo.
+func TestDepoisQueOTurnoVoltaOAgenteTeimosoNaoEscreveMaisNaTela(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTeimoso, nil)
+	sess := startSession(t, client, ctx)
+	sess.(*session).grace = 300 * time.Millisecond
+
+	col := &collector{}
+	turno, desistir := context.WithCancel(ctx)
+	voltou := make(chan error, 1)
+	go func() {
+		_, err := sess.Prompt(turno, []Content{TextContent("comece algo demorado")}, col.sink)
+		voltou <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+	desistir()
+
+	select {
+	case err := <-voltou:
+		if !errors.Is(err, ErrCancelNotConfirmed) {
+			t.Fatalf("esperava cancelamento não confirmado, obtive: %v", err)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("o turno cancelado nunca voltou")
+	}
+	// Até aqui o agente falou, e isso tinha de chegar: é o que ele fez antes de
+	// parar.
+	if col.textOfKind(UpdateText) == "" {
+		t.Fatal("o rastro do agente durante o cancelamento não chegou")
+	}
+
+	entregue := len(col.snapshot())
+	time.Sleep(300 * time.Millisecond)
+	if agora := len(col.snapshot()); agora != entregue {
+		t.Errorf("o agente continuou escrevendo depois do turno: %d atualizações viraram %d", entregue, agora)
+	}
+}
+
 // Handler que nunca decide não pode pendurar o agente: o contexto que o SDK
 // entrega para o pedido não tem prazo nenhum, então o teto é nosso. O agente
 // precisa receber um desfecho que o método aceita e seguir a vida.

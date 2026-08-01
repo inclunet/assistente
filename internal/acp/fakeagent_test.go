@@ -27,6 +27,7 @@ const (
 	scriptEcho       = "echo"       // devolve o que recebeu no prompt
 	scriptStall      = "stall"      // sobe, mas nunca responde ao handshake
 	scriptStuck      = "stuck"      // aceita o turno e nunca responde, nem ao cancelamento
+	scriptTeimoso    = "teimoso"    // ignora o cancelamento e segue falando para sempre
 
 	fakeSessionID = "sess-falsa-1"
 )
@@ -253,6 +254,13 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 	case scriptStuck:
 		// Nunca responde: nem ao turno, nem ao cancelamento.
 		return
+
+	case scriptTeimoso:
+		// Ignora o cancelamento e segue trabalhando. Nunca responde ao turno.
+		for {
+			a.chunk("agent_message_chunk", "ainda-falando ")
+			time.Sleep(20 * time.Millisecond)
+		}
 
 	case scriptDie:
 		os.Exit(3)
