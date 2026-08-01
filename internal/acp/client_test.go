@@ -1127,6 +1127,39 @@ func TestOEstadoDaSessaoNaoCompartilhaMemoriaComQuemEscuta(t *testing.T) {
 	}
 }
 
+// Excluir a conversa no meio de um turno em andamento devolve quem chamou na
+// hora, mesmo que o agente ignore o pedido de parada e nunca responda.
+func TestExcluirAConversaDevolveOTurnoEmAndamento(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptStuck, nil)
+	sess := startSession(t, client, ctx)
+	sess.(*session).closeWait = 200 * time.Millisecond
+
+	voltou := make(chan error, 1)
+	go func() {
+		// Contexto vivo de propósito: quem chamou não desistiu, a conversa é
+		// que deixou de existir.
+		_, err := sess.Prompt(ctx, []Content{TextContent("comece algo demorado")}, nil)
+		voltou <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	go func() { _ = sess.Close(ctx) }()
+
+	select {
+	case err := <-voltou:
+		if !errors.Is(err, ErrSessionClosed) {
+			t.Fatalf("esperava conversa encerrada, obtive: %v", err)
+		}
+		var falha *PromptError
+		if errors.As(err, &falha) && !falha.Accepted {
+			t.Error("o turno saiu para o agente e deveria constar como aceito")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("o turno ficou preso numa conversa que já não existe")
+	}
+}
+
 // Excluir a conversa enquanto o turno cancelado espera a confirmação do agente
 // não pode deixar quem chamou preso pelo resto do prazo: a conversa acabou, e é
 // isso que ele precisa ouvir.

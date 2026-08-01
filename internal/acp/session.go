@@ -355,6 +355,12 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 	select {
 	case out := <-done:
 		return s.finishTurn(out)
+	case <-s.closedSig:
+		// A conversa foi excluída no meio do turno. O Close já mandou o agente
+		// parar, e esperar aqui não mostraria nada a ninguém: ele também já
+		// desligou a entrega. Devolver na hora é o que evita prender quem
+		// chamou num agente que talvez nunca responda.
+		return StopCancelled, &PromptError{Accepted: true, Err: ErrSessionClosed}
 	case <-ctx.Done():
 		// A entrega continua ligada durante o prazo de graça, de propósito. O
 		// que o agente emite enquanto se recolhe é justamente o desfecho do que
