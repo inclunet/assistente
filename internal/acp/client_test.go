@@ -1631,6 +1631,41 @@ func TestExtensaoSemDesfechoConhecidoRecebeErroInterno(t *testing.T) {
 	}
 }
 
+// Quem exibe pode quebrar; a conversa não pode ir junto. Um defeito ao
+// renderizar um pedaço da resposta custa aquele pedaço, e o resto do turno
+// continua chegando.
+func TestSinkQueQuebraNaoDerrubaOTurno(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	var quebrou bool
+	stop, err := sess.Prompt(ctx, []Content{TextContent("liste os arquivos")}, func(u Update) {
+		if u.Kind == UpdateThought && !quebrou {
+			quebrou = true
+			panic("consumidor quebrado")
+		}
+		col.sink(u)
+	})
+	if err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+	if stop != StopEndTurn {
+		t.Fatalf("stopReason = %q, esperado %q", stop, StopEndTurn)
+	}
+	if !quebrou {
+		t.Fatal("o teste não chegou a exercitar o consumidor quebrado")
+	}
+	// O que veio depois do tombo continuou chegando.
+	if got := col.textOfKind(UpdateText); got != "olá mundo" {
+		t.Errorf("a resposta se perdeu junto com o consumidor: %q", got)
+	}
+	if len(col.tools(UpdateToolStart)) != 1 {
+		t.Error("os eventos de ferramenta pararam depois do tombo")
+	}
+}
+
 // A vez pode ficar livre no mesmo instante em que quem esperava desiste. Com os
 // dois prontos, o select escolhe ao acaso — e o acaso aqui põe um agente de
 // código para editar arquivo depois que a pessoa mandou parar.

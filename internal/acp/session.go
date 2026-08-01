@@ -198,6 +198,20 @@ func (s *session) deliver(update Update) {
 	if s.sink == nil {
 		return
 	}
+	s.emit(update)
+}
+
+// emit isola o consumidor do protocolo. Quem quebra ao renderizar um pedaço da
+// resposta perde aquele pedaço, e só: sem isso o pânico subiria como falha ao
+// tratar a notificação do agente, misturando defeito de quem exibe com defeito
+// de quem conversa — e é o segundo que o diagnóstico precisa achar.
+func (s *session) emit(update Update) {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Errorf(context.Background(), logComponent,
+				"[ACP] quem escuta a sessão %q quebrou ao receber %q: %v", s.id, update.Kind, r)
+		}
+	}()
 	s.sink(update)
 }
 
