@@ -240,6 +240,24 @@ só refaz o que o agente não chegou a aceitar; se o turno já tinha sido aceito
 ela para e devolve o controle para a pessoa, com o estado explicado, em vez de
 tentar de novo por conta própria.
 
+"Aceito" precisa ser observável, e a definição é deliberadamente conservadora:
+**o turno conta como aceito assim que o `session/prompt` sai para o agente sem
+falhar**. Só é "não aceito" o que falhou antes disso — processo morto, erro ao
+escrever, ou rejeição imediata do JSON-RPC (sessão desconhecida, por exemplo).
+Silêncio depois do envio não é prova de que nada aconteceu: a linha já está com
+o agente, e ele pode estar editando. Esperar por um `session/update` para
+declarar aceite seria mais preciso e menos seguro.
+
+#### Continuar resposta
+
+A ação de continuar uma resposta truncada existe em duas formas no app: prefill
+do assistente, quando o provider suporta, e continuação por mensagem de usuário.
+Um provider ACP **declara que não suporta prefill** — não há como injetar
+palavras na boca do agente pelo protocolo —, então a continuação é uma mensagem
+comum na mesma sessão, que o agente lê com todo o contexto do que já tinha
+feito. Ela obedece à serialização do D10: continuar não fura a fila de um turno
+ainda em voo.
+
 ### D5. `cwd` é o diretório de trabalho do app
 
 O `session/new` exige um diretório: é ele que define onde o agente edita
