@@ -1028,6 +1028,44 @@ func TestFecharSessaoEncerraNoAgenteERecusaNovosTurnos(t *testing.T) {
 	if !errors.Is(err, ErrSessionClosed) {
 		t.Fatalf("sessão encerrada deveria recusar turno: %v", err)
 	}
+	// Nem turno, nem troca de modelo: quem ainda segura a sessão não fala mais
+	// com o agente sobre ela.
+	if _, err := sess.SetConfigOption(ctx, "model", "modelo-b"); !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("sessão encerrada deveria recusar troca de modelo: %v", err)
+	}
+}
+
+// Encerrar a conversa tira da fila quem esperava a vez, mesmo que o turno preso
+// no agente nunca volte e o contexto de quem espera não tenha prazo.
+func TestFecharASessaoTiraDaFilaQuemEsperavaAVez(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptStuck, nil)
+	sess := startSession(t, client, ctx)
+
+	go func() {
+		_, _ = sess.Prompt(ctx, []Content{TextContent("comece algo demorado")}, nil)
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	naFila := make(chan error, 1)
+	go func() {
+		_, err := sess.Prompt(context.Background(), []Content{TextContent("e agora?")}, nil)
+		naFila <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	if err := sess.Close(ctx); err != nil {
+		t.Fatalf("encerrar sessão: %v", err)
+	}
+
+	select {
+	case err := <-naFila:
+		if !errors.Is(err, ErrSessionClosed) {
+			t.Fatalf("esperava sessão encerrada, obtive: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("quem esperava na fila ficou preso na conversa excluída")
+	}
 }
 
 func TestFalhaDeTurnoSempreDizSeOAgenteAceitou(t *testing.T) {

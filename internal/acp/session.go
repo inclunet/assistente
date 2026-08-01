@@ -46,6 +46,11 @@ type session struct {
 	// vista por quem chegasse depois.
 	unconfirmedSig chan struct{}
 
+	// closedSig fecha quando a sessão é encerrada, e é o que tira da fila quem
+	// espera a vez. Sem ele, um turno enfileirado com contexto sem prazo
+	// esperaria para sempre por uma conversa que já não existe.
+	closedSig chan struct{}
+
 	// turnSeq numera os turnos. O prazo pode estourar no mesmo instante em que o
 	// turno enfim responde, e sem o número a marca de um turno morto derrubaria
 	// o turno seguinte, que está saudável.
@@ -74,6 +79,7 @@ func newSession(id, cwd string, cn *conn, options []ConfigOption) *session {
 		options:        options,
 		cancelSig:      make(chan struct{}),
 		unconfirmedSig: make(chan struct{}),
+		closedSig:      make(chan struct{}),
 	}
 	s.turnSlot <- struct{}{}
 	return s
@@ -147,11 +153,21 @@ func (s *session) acquireTurn(ctx context.Context) error {
 	// cancelamento estoura precisa ser acordado, não descobrir só na próxima vez
 	// que tentar.
 	unconfirmed := s.unconfirmedCancel()
+	closed := s.closedSignal()
 	select {
 	case <-s.turnSlot:
 		return nil
 	case <-unconfirmed:
-		return ErrCancelNotConfirmed
+		// A vez pode ter ficado livre no mesmo instante, e aí ela vale mais: o
+		// turno velho terminou de verdade, não há mais o que confirmar.
+		select {
+		case <-s.turnSlot:
+			return nil
+		default:
+			return ErrCancelNotConfirmed
+		}
+	case <-closed:
+		return ErrSessionClosed
 	case <-s.cn.dead:
 		return ErrSessionLost
 	case <-s.cn.rpc.Done():
@@ -204,6 +220,12 @@ func (s *session) signalCancel() {
 // que o agente ignora — o contrário, deixar de cancelar, é que custa caro.
 func (s *session) turnInFlight() bool {
 	return len(s.turnSlot) == 0
+}
+
+func (s *session) closedSignal() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closedSig
 }
 
 func (s *session) unconfirmedCancel() <-chan struct{} {
@@ -369,6 +391,9 @@ func (s *session) Close(ctx context.Context) error {
 	already := s.closed
 	s.closed = true
 	s.sink = nil
+	if !already && s.closedSig != nil {
+		close(s.closedSig)
+	}
 	s.mu.Unlock()
 	if already {
 		return nil
@@ -400,6 +425,11 @@ func (s *session) Close(ctx context.Context) error {
 }
 
 func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]ConfigOption, error) {
+	// Conversa encerrada não troca de modelo: quem ainda segura a sessão não
+	// deve conseguir falar com o agente sobre ela.
+	if s.isClosed() {
+		return nil, ErrSessionClosed
+	}
 	if s.cn.isDead() {
 		return nil, ErrSessionLost
 	}
