@@ -414,6 +414,13 @@ confirmação de edição, que já é acessível por teclado e leitor de telas.
   que uma ação negada, mas o desfecho precisa ser o que o método aceita: mandar
   um `optionId` de permissão numa pergunta de múltipla escolha é erro de
   protocolo.
+- **Cancelar o turno cancela a pergunta.** O ACP obriga quem manda
+  `session/cancel` a responder `outcome: cancelled` aos pedidos de permissão
+  ainda pendentes — e não `reject-once`, que é a resposta de prazo estourado.
+  São coisas diferentes: uma é decisão de negar, a outra é a pergunta ter
+  perdido o dono. Na prática isso também fecha o diálogo na tela, porque
+  perguntar sobre um turno que a pessoa acabou de abortar é ruído para quem usa
+  leitor de telas.
 - O título do `toolCall` contém o comando literal e é **dado não confiável**:
   passa pelo mesmo saneamento de texto de diálogo antes de virar rótulo ou
   anúncio.

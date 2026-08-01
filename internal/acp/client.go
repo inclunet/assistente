@@ -451,11 +451,45 @@ func (c *conn) requestPermission(ctx context.Context, params json.RawMessage) (a
 		Options:   permissionOptionsFrom(req.Options),
 	}
 
-	outcome := guard(ctx, PermissionOutcome{}, func() PermissionOutcome {
-		return c.handler.RequestPermission(ctx, pedido)
+	// O ACP obriga quem manda session/cancel a responder "cancelado" a todo
+	// pedido de permissão pendente. Além do protocolo, é o que fecha o diálogo
+	// na tela: perguntar sobre um turno que a pessoa já abortou é ruído.
+	var cancelled <-chan struct{}
+	if sess := c.session(string(req.SessionId)); sess != nil {
+		cancelled = sess.cancelSignal()
+	}
+	hctx, stopHandler := context.WithCancel(ctx)
+	defer stopHandler()
+	if cancelled != nil {
+		go func() {
+			select {
+			case <-cancelled:
+				stopHandler()
+			case <-hctx.Done():
+			}
+		}()
+	}
+
+	outcome := guard(hctx, PermissionOutcome{}, func() PermissionOutcome {
+		return c.handler.RequestPermission(hctx, pedido)
 	})
+	if signalFired(cancelled) {
+		return sdk.RequestPermissionResponse{Outcome: sdk.NewRequestPermissionOutcomeCancelled()}, nil
+	}
 
 	return sdk.RequestPermissionResponse{Outcome: permissionOutcomeToSDK(outcome, req.Options)}, nil
+}
+
+func signalFired(ch <-chan struct{}) bool {
+	if ch == nil {
+		return false
+	}
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *conn) handleCustom(ctx context.Context, method string, params json.RawMessage) (any, *sdk.RequestError) {

@@ -56,18 +56,18 @@ type scriptedHandler struct {
 	mu       sync.Mutex
 	requests []PermissionRequest
 
-	decide func(PermissionRequest) PermissionOutcome
+	decide func(context.Context, PermissionRequest) PermissionOutcome
 	custom func(method string, params json.RawMessage) (any, bool)
 }
 
-func (h *scriptedHandler) RequestPermission(_ context.Context, req PermissionRequest) PermissionOutcome {
+func (h *scriptedHandler) RequestPermission(ctx context.Context, req PermissionRequest) PermissionOutcome {
 	h.mu.Lock()
 	h.requests = append(h.requests, req)
 	h.mu.Unlock()
 	if h.decide == nil {
 		return PermissionOutcome{}
 	}
-	return h.decide(req)
+	return h.decide(ctx, req)
 }
 
 func (h *scriptedHandler) HandleCustom(_ context.Context, method string, params json.RawMessage) (any, bool) {
@@ -228,7 +228,7 @@ func TestTrocaDeModeloDevolveEstadoCompleto(t *testing.T) {
 func TestPedidoDePermissaoChegaAoHandlerEADecisaoVoltaAoAgente(t *testing.T) {
 	ctx := testContext(t)
 	handler := &scriptedHandler{
-		decide: func(PermissionRequest) PermissionOutcome {
+		decide: func(context.Context, PermissionRequest) PermissionOutcome {
 			return PermissionOutcome{OptionID: "allow-once"}
 		},
 	}
@@ -256,6 +256,59 @@ func TestPedidoDePermissaoChegaAoHandlerEADecisaoVoltaAoAgente(t *testing.T) {
 	}
 }
 
+// O ACP exige que quem cancela o turno responda "cancelado" aos pedidos de
+// permissão pendentes. Responder recusa seria mentira sobre uma decisão que
+// ninguém tomou, e deixar o diálogo aberto pediria à pessoa que decidisse sobre
+// um turno que ela mesma abortou.
+func TestCancelarOTurnoCancelaOPedidoDePermissaoPendente(t *testing.T) {
+	ctx := testContext(t)
+	perguntou := make(chan struct{})
+	dialogoFechou := make(chan struct{})
+	handler := &scriptedHandler{
+		decide: func(hctx context.Context, _ PermissionRequest) PermissionOutcome {
+			close(perguntou)
+			// O diálogo na tela só some quando o contexto do pedido morre.
+			<-hctx.Done()
+			close(dialogoFechou)
+			return PermissionOutcome{}
+		},
+	}
+	client := newTestClient(t, scriptPermission, handler)
+	sess := startSession(t, client, ctx)
+
+	turno, desistir := context.WithCancel(ctx)
+	defer desistir()
+
+	col := &collector{}
+	resultado := make(chan error, 1)
+	go func() {
+		_, err := sess.Prompt(turno, []Content{TextContent("rode um comando")}, col.sink)
+		resultado <- err
+	}()
+
+	select {
+	case <-perguntou:
+	case <-time.After(testTimeout):
+		t.Fatal("o pedido de permissão nunca chegou ao handler")
+	}
+	desistir()
+
+	select {
+	case <-dialogoFechou:
+	case <-time.After(testTimeout):
+		t.Fatal("o diálogo de permissão não foi fechado pelo cancelamento")
+	}
+	select {
+	case <-resultado:
+	case <-time.After(testTimeout):
+		t.Fatal("o turno cancelado nunca voltou")
+	}
+
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, "decisão: cancelled") {
+		t.Errorf("agente deveria ter recebido desfecho cancelado, recebeu: %q", got)
+	}
+}
+
 func TestSemHandlerOPedidoDePermissaoEhNegadoPontualmente(t *testing.T) {
 	ctx := testContext(t)
 	client := newTestClient(t, scriptPermission, nil)
@@ -276,7 +329,7 @@ func TestSemHandlerOPedidoDePermissaoEhNegadoPontualmente(t *testing.T) {
 func TestHandlerQueEntraEmPanicoNaoPenduraOAgente(t *testing.T) {
 	ctx := testContext(t)
 	handler := &scriptedHandler{
-		decide: func(PermissionRequest) PermissionOutcome {
+		decide: func(context.Context, PermissionRequest) PermissionOutcome {
 			panic("handler quebrado")
 		},
 	}

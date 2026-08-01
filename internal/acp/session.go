@@ -33,6 +33,12 @@ type session struct {
 	sink    UpdateSink
 	options []ConfigOption
 	closed  bool
+
+	// cancelSig fecha quando o turno em curso é cancelado, e é renovado a cada
+	// turno novo. Quem manda session/cancel precisa responder "cancelado" aos
+	// pedidos de permissão ainda pendentes (exigência do ACP), e é por aqui que
+	// o transporte fica sabendo.
+	cancelSig chan struct{}
 }
 
 func (s *session) isClosed() bool {
@@ -43,11 +49,12 @@ func (s *session) isClosed() bool {
 
 func newSession(id, cwd string, cn *conn, options []ConfigOption) *session {
 	s := &session{
-		id:       id,
-		cwd:      cwd,
-		cn:       cn,
-		turnSlot: make(chan struct{}, 1),
-		options:  options,
+		id:        id,
+		cwd:       cwd,
+		cn:        cn,
+		turnSlot:  make(chan struct{}, 1),
+		options:   options,
+		cancelSig: make(chan struct{}),
 	}
 	s.turnSlot <- struct{}{}
 	return s
@@ -115,6 +122,35 @@ func (s *session) acquireTurn(ctx context.Context) error {
 	}
 }
 
+// cancelSignal devolve o canal que fecha quando o turno corrente é cancelado.
+func (s *session) cancelSignal() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cancelSig
+}
+
+// renewCancelSignal começa um turno com o sinal limpo, para que o cancelamento
+// de um turno anterior não derrube um pedido de permissão do turno novo.
+func (s *session) renewCancelSignal() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	select {
+	case <-s.cancelSig:
+		s.cancelSig = make(chan struct{})
+	default:
+	}
+}
+
+func (s *session) signalCancel() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	select {
+	case <-s.cancelSig:
+	default:
+		close(s.cancelSig)
+	}
+}
+
 func (s *session) releaseTurn() {
 	select {
 	case s.turnSlot <- struct{}{}:
@@ -141,6 +177,7 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 	if err := s.acquireTurn(ctx); err != nil {
 		return "", &PromptError{Err: err}
 	}
+	s.renewCancelSignal()
 
 	s.setSink(sink)
 	defer s.setSink(nil)
@@ -200,6 +237,11 @@ func (s *session) finishTurn(out promptOutcome) (StopReason, error) {
 }
 
 func (s *session) Cancel(ctx context.Context) error {
+	// O sinal vem antes do envio: um pedido de permissão pendente precisa ser
+	// respondido como cancelado, e a pessoa não pode ficar com um diálogo na
+	// tela decidindo sobre um turno que ela mesma acabou de abortar.
+	s.signalCancel()
+
 	if s.cn.isDead() {
 		return ErrSessionLost
 	}
