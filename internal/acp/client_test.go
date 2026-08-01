@@ -784,6 +784,58 @@ func TestModoDaSessaoSobreviveAoTurnoEAcompanhaATroca(t *testing.T) {
 	}
 }
 
+// Duas abas de chat no mesmo agente são duas sessões no mesmo processo. Elas
+// respondem ao mesmo tempo, e cada uma só pode receber o que é dela: o
+// transporte separa pelo sessionId que vem em toda atualização.
+func TestDuasConversasNoMesmoProcessoNaoSeMisturam(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptDuasConversas, nil)
+
+	primeira := startSession(t, client, ctx)
+	segunda := startSession(t, client, ctx)
+	if primeira.ID() == segunda.ID() {
+		t.Fatalf("as duas conversas ficaram com o mesmo identificador: %q", primeira.ID())
+	}
+
+	colA, colB := &collector{}, &collector{}
+	fim := make(chan error, 2)
+	go func() {
+		_, err := primeira.Prompt(ctx, []Content{TextContent("aba-a")}, colA.sink)
+		fim <- err
+	}()
+	go func() {
+		_, err := segunda.Prompt(ctx, []Content{TextContent("aba-b")}, colB.sink)
+		fim <- err
+	}()
+	for range 2 {
+		select {
+		case err := <-fim:
+			if err != nil {
+				t.Fatalf("turno falhou: %v", err)
+			}
+		case <-time.After(testTimeout):
+			t.Fatal("as conversas não terminaram")
+		}
+	}
+
+	textoA := colA.textOfKind(UpdateText)
+	textoB := colB.textOfKind(UpdateText)
+	if !strings.Contains(textoA, "aba-a") || strings.Contains(textoA, "aba-b") {
+		t.Errorf("a primeira conversa recebeu texto da outra: %q", textoA)
+	}
+	if !strings.Contains(textoB, "aba-b") || strings.Contains(textoB, "aba-a") {
+		t.Errorf("a segunda conversa recebeu texto da outra: %q", textoB)
+	}
+	// Cada uma recebeu a resposta inteira: separar não pode significar perder
+	// pedaço no caminho.
+	for i := range 5 {
+		pedaco := fmt.Sprintf("aba-a-%d", i)
+		if !strings.Contains(textoA, pedaco) {
+			t.Errorf("faltou %q na primeira conversa: %q", pedaco, textoA)
+		}
+	}
+}
+
 func TestTurnosDaMesmaSessaoNaoSeAtropelam(t *testing.T) {
 	ctx := testContext(t)
 	client := newTestClient(t, scriptTurn, nil)

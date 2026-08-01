@@ -19,15 +19,16 @@ const (
 	fakeScriptEnv = "ASSISTENTE_ACP_FAKE_SCRIPT"
 
 	// Roteiros do agente falso.
-	scriptTurn       = "turn"       // um turno completo com texto, raciocínio e ferramenta
-	scriptPermission = "permission" // pede permissão e conta o que foi decidido
-	scriptCancel     = "cancel"     // só termina quando recebe session/cancel
-	scriptDie        = "die"        // morre no meio do turno
-	scriptCustom     = "custom"     // usa um método de extensão fora do padrão
-	scriptEcho       = "echo"       // devolve o que recebeu no prompt
-	scriptStall      = "stall"      // sobe, mas nunca responde ao handshake
-	scriptStuck      = "stuck"      // aceita o turno e nunca responde, nem ao cancelamento
-	scriptTeimoso    = "teimoso"    // ignora o cancelamento e segue falando para sempre
+	scriptTurn          = "turn"       // um turno completo com texto, raciocínio e ferramenta
+	scriptPermission    = "permission" // pede permissão e conta o que foi decidido
+	scriptCancel        = "cancel"     // só termina quando recebe session/cancel
+	scriptDie           = "die"        // morre no meio do turno
+	scriptCustom        = "custom"     // usa um método de extensão fora do padrão
+	scriptEcho          = "echo"       // devolve o que recebeu no prompt
+	scriptStall         = "stall"      // sobe, mas nunca responde ao handshake
+	scriptStuck         = "stuck"      // aceita o turno e nunca responde, nem ao cancelamento
+	scriptTeimoso       = "teimoso"    // ignora o cancelamento e segue falando para sempre
+	scriptDuasConversas = "duas"       // fala em pedaços, assinando cada um com a conversa
 
 	fakeSessionID = "sess-falsa-1"
 )
@@ -63,10 +64,13 @@ type fakeAgent struct {
 
 	mu        sync.Mutex
 	nextID    int
+	sessions  int
 	pending   map[string]chan rpcMessage
 	cancelled chan struct{}
-	inTurn    bool
-	overlap   bool
+	// inTurn é por sessão: dois turnos ao mesmo tempo em sessões diferentes é
+	// uso normal do agente, o que não pode acontecer é na mesma sessão.
+	inTurn  map[string]bool
+	overlap bool
 }
 
 func runFakeAgent(script string) {
@@ -75,6 +79,7 @@ func runFakeAgent(script string) {
 		out:     bufio.NewWriter(os.Stdout),
 		nextID:  9000,
 		pending: make(map[string]chan rpcMessage),
+		inTurn:  make(map[string]bool),
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -166,7 +171,7 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 
 	case "session/new":
 		a.reply(*msg.ID, map[string]any{
-			"sessionId":     fakeSessionID,
+			"sessionId":     a.newSessionID(),
 			"configOptions": []any{fakeModelOption("modelo-a")},
 			"modes": map[string]any{
 				"currentModeId":  "agent",
@@ -218,20 +223,32 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 	}
 }
 
-func (a *fakeAgent) beginTurn() {
+// newSessionID dá um identificador por conversa. A primeira continua sendo o
+// fakeSessionID para não mexer nos testes de sessão única.
+func (a *fakeAgent) newSessionID() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.inTurn {
+	a.sessions++
+	if a.sessions == 1 {
+		return fakeSessionID
+	}
+	return fmt.Sprintf("sess-falsa-%d", a.sessions)
+}
+
+func (a *fakeAgent) beginTurn(sid string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.inTurn[sid] {
 		a.overlap = true
 	}
-	a.inTurn = true
+	a.inTurn[sid] = true
 	a.cancelled = make(chan struct{}, 1)
 }
 
-func (a *fakeAgent) endTurn() {
+func (a *fakeAgent) endTurn(sid string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.inTurn = false
+	delete(a.inTurn, sid)
 }
 
 func (a *fakeAgent) sawOverlap() bool {
@@ -241,8 +258,16 @@ func (a *fakeAgent) sawOverlap() bool {
 }
 
 func (a *fakeAgent) runTurn(msg rpcMessage) {
-	a.beginTurn()
-	defer a.endTurn()
+	var params struct {
+		SessionId string `json:"sessionId"`
+		Prompt    []struct {
+			Text string `json:"text"`
+		} `json:"prompt"`
+	}
+	_ = json.Unmarshal(msg.Params, &params)
+
+	a.beginTurn(params.SessionId)
+	defer a.endTurn(params.SessionId)
 
 	// Dois turnos ao mesmo tempo na mesma sessão é justamente o que o cliente
 	// deve impedir; o agente falso denuncia pelo fio quando acontece.
@@ -251,6 +276,24 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 	}
 
 	switch a.script {
+	case scriptDuasConversas:
+		// Fala devagar e em pedaços, alternando com a outra conversa, e assina
+		// cada pedaço com o texto que recebeu. Se o transporte trocar as bolas,
+		// o pedaço de uma aba aparece na outra.
+		var texto string
+		if len(params.Prompt) > 0 {
+			texto = params.Prompt[0].Text
+		}
+		for i := range 5 {
+			a.updateFor(params.SessionId, map[string]any{
+				"sessionUpdate": "agent_message_chunk",
+				"content":       map[string]any{"type": "text", "text": fmt.Sprintf("%s-%d ", texto, i)},
+			})
+			time.Sleep(10 * time.Millisecond)
+		}
+		a.reply(*msg.ID, map[string]any{"stopReason": "end_turn"})
+		return
+
 	case scriptStuck:
 		// Nunca responde: nem ao turno, nem ao cancelamento.
 		return
@@ -353,10 +396,14 @@ func (a *fakeAgent) toolUpdate(id, status string) {
 }
 
 func (a *fakeAgent) update(update map[string]any) {
+	a.updateFor(fakeSessionID, update)
+}
+
+func (a *fakeAgent) updateFor(sid string, update map[string]any) {
 	a.send(map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "session/update",
-		"params":  map[string]any{"sessionId": fakeSessionID, "update": update},
+		"params":  map[string]any{"sessionId": sid, "update": update},
 	})
 }
 
