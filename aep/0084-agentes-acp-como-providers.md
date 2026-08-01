@@ -420,7 +420,10 @@ confirmação de edição, que já é acessível por teclado e leitor de telas.
   São coisas diferentes: uma é decisão de negar, a outra é a pergunta ter
   perdido o dono. Na prática isso também fecha o diálogo na tela, porque
   perguntar sobre um turno que a pessoa acabou de abortar é ruído para quem usa
-  leitor de telas.
+  leitor de telas. Vale igual para as extensões bloqueantes do Cursor, que
+  pertencem ao turno: elas recebem o erro JSON-RPC de pedido cancelado, e não
+  "método não encontrado" — que faria o agente concluir que o app não suporta a
+  extensão. Encerrar a conversa tem o mesmo efeito de cancelar.
 - O título do `toolCall` contém o comando literal e é **dado não confiável**:
   passa pelo mesmo saneamento de texto de diálogo antes de virar rótulo ou
   anúncio.

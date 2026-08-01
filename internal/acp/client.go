@@ -390,6 +390,23 @@ func (c *conn) removeSession(id string) {
 	delete(c.sessions, id)
 }
 
+// sessionOf descobre a que sessão um pedido pertence. Métodos de sessão do ACP
+// — e as extensões do Cursor — carregam sessionId; os globais não, e para esses
+// scoped volta falso.
+func (c *conn) sessionOf(params json.RawMessage) (sess *session, scoped bool) {
+	var payload struct {
+		SessionID string `json:"sessionId"`
+	}
+	if err := json.Unmarshal(params, &payload); err != nil {
+		return nil, false
+	}
+	id := strings.TrimSpace(payload.SessionID)
+	if id == "" {
+		return nil, false
+	}
+	return c.session(id), true
+}
+
 func (c *conn) session(id string) *session {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -451,24 +468,19 @@ func (c *conn) requestPermission(ctx context.Context, params json.RawMessage) (a
 		Options:   permissionOptionsFrom(req.Options),
 	}
 
+	// Sessão que já não existe é conversa encerrada: não há a quem perguntar, e
+	// o agente precisa de resposta agora, não quando alguém aparecer.
+	sess := c.session(string(req.SessionId))
+	if sess == nil {
+		return sdk.RequestPermissionResponse{Outcome: sdk.NewRequestPermissionOutcomeCancelled()}, nil
+	}
+
 	// O ACP obriga quem manda session/cancel a responder "cancelado" a todo
 	// pedido de permissão pendente. Além do protocolo, é o que fecha o diálogo
 	// na tela: perguntar sobre um turno que a pessoa já abortou é ruído.
-	var cancelled <-chan struct{}
-	if sess := c.session(string(req.SessionId)); sess != nil {
-		cancelled = sess.cancelSignal()
-	}
-	hctx, stopHandler := context.WithCancel(ctx)
+	cancelled := sess.cancelSignal()
+	hctx, stopHandler := bindCancel(ctx, cancelled)
 	defer stopHandler()
-	if cancelled != nil {
-		go func() {
-			select {
-			case <-cancelled:
-				stopHandler()
-			case <-hctx.Done():
-			}
-		}()
-	}
 
 	outcome := guard(hctx, PermissionOutcome{}, func() PermissionOutcome {
 		return c.handler.RequestPermission(hctx, pedido)
@@ -478,6 +490,24 @@ func (c *conn) requestPermission(ctx context.Context, params json.RawMessage) (a
 	}
 
 	return sdk.RequestPermissionResponse{Outcome: permissionOutcomeToSDK(outcome, req.Options)}, nil
+}
+
+// bindCancel amarra o contexto entregue a quem decide ao cancelamento do turno.
+// Sem isso, o diálogo continuaria na tela e o agente esperando uma resposta que
+// já não interessa a ninguém.
+func bindCancel(ctx context.Context, cancelled <-chan struct{}) (context.Context, context.CancelFunc) {
+	hctx, stop := context.WithCancel(ctx)
+	if cancelled == nil {
+		return hctx, stop
+	}
+	go func() {
+		select {
+		case <-cancelled:
+			stop()
+		case <-hctx.Done():
+		}
+	}()
+	return hctx, stop
 }
 
 func signalFired(ch <-chan struct{}) bool {
@@ -492,15 +522,33 @@ func signalFired(ch <-chan struct{}) bool {
 	}
 }
 
+// handleCustom trata as extensões fora do padrão. As bloqueantes do Cursor
+// (cursor/ask_question, cursor/create_plan) pertencem a um turno, e por isso
+// morrem com ele: a pessoa não deve continuar sendo perguntada sobre um turno
+// cancelado, nem o agente esperando por essa resposta (AEP-0084 D9).
 func (c *conn) handleCustom(ctx context.Context, method string, params json.RawMessage) (any, *sdk.RequestError) {
+	sess, scoped := c.sessionOf(params)
+	if scoped && sess == nil {
+		return nil, sdk.NewRequestCancelled(map[string]any{"error": "sessão encerrada"})
+	}
+	var cancelled <-chan struct{}
+	if sess != nil {
+		cancelled = sess.cancelSignal()
+	}
+	hctx, stopHandler := bindCancel(ctx, cancelled)
+	defer stopHandler()
+
 	type custom struct {
 		result  any
 		handled bool
 	}
-	out := guard(ctx, custom{}, func() custom {
-		result, handled := c.handler.HandleCustom(ctx, method, params)
+	out := guard(hctx, custom{}, func() custom {
+		result, handled := c.handler.HandleCustom(hctx, method, params)
 		return custom{result: result, handled: handled}
 	})
+	if signalFired(cancelled) {
+		return nil, sdk.NewRequestCancelled(map[string]any{"error": "turno cancelado"})
+	}
 	if !out.handled {
 		logging.Debugf(ctx, logComponent, "[ACP] método %s não tratado; respondendo método não encontrado", method)
 		return nil, sdk.NewMethodNotFound(method)

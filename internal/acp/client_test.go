@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	sdk "github.com/coder/acp-go-sdk"
 )
 
 // testTimeout limita cada teste: um transporte com defeito trava, e travar o
@@ -57,7 +60,7 @@ type scriptedHandler struct {
 	requests []PermissionRequest
 
 	decide func(context.Context, PermissionRequest) PermissionOutcome
-	custom func(method string, params json.RawMessage) (any, bool)
+	custom func(ctx context.Context, method string, params json.RawMessage) (any, bool)
 }
 
 func (h *scriptedHandler) RequestPermission(ctx context.Context, req PermissionRequest) PermissionOutcome {
@@ -70,11 +73,11 @@ func (h *scriptedHandler) RequestPermission(ctx context.Context, req PermissionR
 	return h.decide(ctx, req)
 }
 
-func (h *scriptedHandler) HandleCustom(_ context.Context, method string, params json.RawMessage) (any, bool) {
+func (h *scriptedHandler) HandleCustom(ctx context.Context, method string, params json.RawMessage) (any, bool) {
 	if h.custom == nil {
 		return nil, false
 	}
-	return h.custom(method, params)
+	return h.custom(ctx, method, params)
 }
 
 func (h *scriptedHandler) seen() []PermissionRequest {
@@ -455,7 +458,7 @@ func TestExtensaoTratadaPeloHandlerRespondeAoAgente(t *testing.T) {
 	ctx := testContext(t)
 	var vistos []string
 	handler := &scriptedHandler{
-		custom: func(method string, _ json.RawMessage) (any, bool) {
+		custom: func(_ context.Context, method string, _ json.RawMessage) (any, bool) {
 			vistos = append(vistos, method)
 			return map[string]any{"answer": "sim"}, true
 		},
@@ -475,6 +478,59 @@ func TestExtensaoTratadaPeloHandlerRespondeAoAgente(t *testing.T) {
 	// pronto do SDK antes de o app ver o pedido.
 	if len(vistos) != 1 || vistos[0] != "cursor/ask_question" {
 		t.Errorf("métodos vistos pelo handler: %v", vistos)
+	}
+}
+
+// As extensões bloqueantes do Cursor pertencem ao turno: cancelá-lo precisa
+// fechar a pergunta na tela e devolver ao agente um desfecho de protocolo.
+func TestCancelarOTurnoCancelaAExtensaoBloqueante(t *testing.T) {
+	ctx := testContext(t)
+	perguntou := make(chan struct{})
+	dialogoFechou := make(chan struct{})
+	handler := &scriptedHandler{
+		custom: func(hctx context.Context, _ string, _ json.RawMessage) (any, bool) {
+			close(perguntou)
+			<-hctx.Done()
+			close(dialogoFechou)
+			return nil, false
+		},
+	}
+	client := newTestClient(t, scriptCustom, handler)
+	sess := startSession(t, client, ctx)
+
+	turno, desistir := context.WithCancel(ctx)
+	defer desistir()
+
+	col := &collector{}
+	resultado := make(chan error, 1)
+	go func() {
+		_, err := sess.Prompt(turno, []Content{TextContent("pergunte algo")}, col.sink)
+		resultado <- err
+	}()
+
+	select {
+	case <-perguntou:
+	case <-time.After(testTimeout):
+		t.Fatal("a extensão nunca chegou ao handler")
+	}
+	desistir()
+
+	select {
+	case <-dialogoFechou:
+	case <-time.After(testTimeout):
+		t.Fatal("a pergunta da extensão sobreviveu ao cancelamento")
+	}
+	select {
+	case <-resultado:
+	case <-time.After(testTimeout):
+		t.Fatal("o turno cancelado nunca voltou")
+	}
+
+	// "Método não encontrado" faria o agente concluir que o app não suporta a
+	// extensão; o que houve foi o turno acabar.
+	esperado := fmt.Sprintf("erro:%d", sdk.NewRequestCancelled(nil).Code)
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, esperado) {
+		t.Errorf("esperava %s, obtive: %q", esperado, got)
 	}
 }
 
