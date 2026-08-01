@@ -151,6 +151,13 @@ func (s *session) signalCancel() {
 	}
 }
 
+// turnInFlight diz se o slot está tomado. É uma leitura sem trava, e de
+// propósito: no pior caso manda um session/cancel a mais para uma sessão ociosa,
+// que o agente ignora — o contrário, deixar de cancelar, é que custa caro.
+func (s *session) turnInFlight() bool {
+	return len(s.turnSlot) == 0
+}
+
 func (s *session) releaseTurn() {
 	select {
 	case s.turnSlot <- struct{}{}:
@@ -176,6 +183,12 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 	}
 	if err := s.acquireTurn(ctx); err != nil {
 		return "", &PromptError{Err: err}
+	}
+	// A sessão pode ter sido encerrada enquanto este turno esperava a vez na
+	// fila; mandá-lo agora seria falar com uma conversa que já não existe.
+	if s.isClosed() {
+		s.releaseTurn()
+		return "", &PromptError{Err: ErrSessionClosed}
 	}
 	s.renewCancelSignal()
 
@@ -257,6 +270,11 @@ func (s *session) Cancel(ctx context.Context) error {
 // Close solta a sessão. O registro local some sempre — sem isso, uma conversa
 // excluída continuaria recebendo atualizações e ocupando memória —, e o
 // session/close só vai ao agente quando ele anuncia suportar o método.
+//
+// Um turno em andamento é cancelado antes: excluir a conversa não pode deixar
+// um agente de código solto no disco, nem um pedido de permissão pendente sem
+// resposta — o agente esperaria para sempre e a pessoa ficaria decidindo sobre
+// uma conversa que já não existe (AEP-0084 D9).
 func (s *session) Close(ctx context.Context) error {
 	s.mu.Lock()
 	already := s.closed
@@ -268,7 +286,16 @@ func (s *session) Close(ctx context.Context) error {
 	}
 
 	s.cn.removeSession(s.id)
-	if s.cn.isDead() || !s.cn.caps.CloseSession {
+	if s.cn.isDead() {
+		return nil
+	}
+	if s.turnInFlight() {
+		if err := s.Cancel(ctx); err != nil {
+			logging.Warnf(ctx, logComponent,
+				"[ACP] falha ao cancelar o turno da sessão %s ao encerrá-la: %v", s.id, err)
+		}
+	}
+	if !s.cn.caps.CloseSession {
 		return nil
 	}
 	_, err := sdk.SendRequest[sdk.CloseSessionResponse](s.cn.rpc, ctx, sdk.AgentMethodSessionClose,

@@ -309,6 +309,91 @@ func TestCancelarOTurnoCancelaOPedidoDePermissaoPendente(t *testing.T) {
 	}
 }
 
+// Excluir a conversa enquanto o agente pergunta algo não pode deixar o agente
+// esperando resposta nem o diálogo aberto na tela.
+func TestFecharASessaoCancelaOPedidoDePermissaoPendente(t *testing.T) {
+	ctx := testContext(t)
+	perguntou := make(chan struct{})
+	dialogoFechou := make(chan struct{})
+	handler := &scriptedHandler{
+		decide: func(hctx context.Context, _ PermissionRequest) PermissionOutcome {
+			close(perguntou)
+			<-hctx.Done()
+			close(dialogoFechou)
+			return PermissionOutcome{}
+		},
+	}
+	client := newTestClient(t, scriptPermission, handler)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	resultado := make(chan error, 1)
+	go func() {
+		_, err := sess.Prompt(ctx, []Content{TextContent("rode um comando")}, col.sink)
+		resultado <- err
+	}()
+
+	select {
+	case <-perguntou:
+	case <-time.After(testTimeout):
+		t.Fatal("o pedido de permissão nunca chegou ao handler")
+	}
+	if err := sess.Close(ctx); err != nil {
+		t.Fatalf("encerrar sessão: %v", err)
+	}
+
+	select {
+	case <-dialogoFechou:
+	case <-time.After(testTimeout):
+		t.Fatal("o diálogo de permissão sobreviveu ao fim da sessão")
+	}
+	select {
+	case <-resultado:
+	case <-time.After(testTimeout):
+		t.Fatal("o turno da sessão encerrada nunca voltou")
+	}
+}
+
+// Um turno que esperava a vez na fila não pode ser enviado depois de a sessão
+// ter sido encerrada.
+func TestTurnoNaFilaNaoRodaEmSessaoEncerrada(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptCancel, nil)
+	sess := startSession(t, client, ctx)
+
+	primeiro := &collector{}
+	go func() {
+		_, _ = sess.Prompt(ctx, []Content{TextContent("primeiro")}, primeiro.sink)
+	}()
+
+	// O segundo turno só entra na fila depois que o primeiro está de fato em
+	// andamento no agente.
+	prazo := time.Now().Add(testTimeout)
+	for !strings.Contains(primeiro.textOfKind(UpdateText), "trabalhando") && time.Now().Before(prazo) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	naFila := make(chan error, 1)
+	go func() {
+		_, err := sess.Prompt(ctx, []Content{TextContent("segundo")}, nil)
+		naFila <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	if err := sess.Close(ctx); err != nil {
+		t.Fatalf("encerrar sessão: %v", err)
+	}
+
+	select {
+	case err := <-naFila:
+		if !errors.Is(err, ErrSessionClosed) {
+			t.Fatalf("esperava sessão encerrada, obtive: %v", err)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("o turno na fila nunca voltou")
+	}
+}
+
 func TestSemHandlerOPedidoDePermissaoEhNegadoPontualmente(t *testing.T) {
 	ctx := testContext(t)
 	client := newTestClient(t, scriptPermission, nil)
