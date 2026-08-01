@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -216,6 +217,51 @@ func TestOModoPreservadoTambemChegaAQuemEscuta(t *testing.T) {
 	if findOption(s.ConfigOptions(), "model").CurrentValue != "novo" {
 		t.Error("quem escuta conseguiu trocar o modelo da sessão sem passar pelo agente")
 	}
+}
+
+// Dois caminhos escrevem nas opções ao mesmo tempo: o anúncio que o agente
+// manda por conta própria e a troca que a pessoa pede — que o ACP admite no
+// meio do turno. Se a fusão ler, juntar e gravar em passos separados, o anúncio
+// que começou antes grava por cima do que foi trocado depois, e o modo volta
+// sozinho para o anterior na tela de quem acabou de mudá-lo.
+func TestOModoTrocadoNaoVoltaSozinhoComAnuncioConcorrente(t *testing.T) {
+	s := newSession("sess-teste", "/tmp", nil, []ConfigOption{
+		{ID: "mode", Category: modeCategory, CurrentValue: "agente", Values: []ConfigValue{{Value: "agente"}, {Value: "plano"}}},
+		{ID: "model", Category: "model", CurrentValue: "antigo", Values: []ConfigValue{{Value: "antigo"}}},
+	})
+
+	const rodadas = 2000
+	var wg sync.WaitGroup
+	parar := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-parar:
+				return
+			default:
+			}
+			s.mergeConfigOptions([]ConfigOption{
+				{ID: "model", Category: "model", CurrentValue: "novo", Values: []ConfigValue{{Value: "novo"}}},
+			})
+		}
+	}()
+
+	// Cada rodada troca por um modo novo e confere logo em seguida: o valor lido
+	// nunca pode ser mais antigo do que o que acabou de ser gravado.
+	for i := 1; i <= rodadas; i++ {
+		s.setCurrentMode(fmt.Sprintf("modo-%d", i))
+		lido := findOption(s.ConfigOptions(), modeCategory).CurrentValue
+		var visto int
+		if _, err := fmt.Sscanf(lido, "modo-%d", &visto); err != nil || visto < i {
+			close(parar)
+			wg.Wait()
+			t.Fatalf("o modo voltou para %q depois de trocado para modo-%d", lido, i)
+		}
+	}
+	close(parar)
+	wg.Wait()
 }
 
 func TestNormalizeIDLimpaIdentificadoresDoAgente(t *testing.T) {

@@ -127,6 +127,23 @@ func (s *session) setConfigOptions(options []ConfigOption) {
 	s.options = copyOptions(options)
 }
 
+// mergeConfigOptions funde o conjunto que o agente mandou com o que a sessão já
+// conhecia, guarda o resultado e devolve a cópia dele — tudo sob a mesma trava.
+// Ler, fundir e gravar em passos separados abriria janela entre dois caminhos
+// que escrevem aqui ao mesmo tempo: a troca de modelo que a pessoa pediu e o
+// anúncio que o agente manda por conta própria, previsto no meio do turno. O
+// bool diz se sobrou algo aproveitável para guardar.
+func (s *session) mergeConfigOptions(fresh []ConfigOption) ([]ConfigOption, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	merged := withKnownMode(fresh, s.options)
+	if len(merged) == 0 {
+		return copyOptions(s.options), false
+	}
+	s.options = copyOptions(merged)
+	return copyOptions(s.options), true
+}
+
 func copyOptions(options []ConfigOption) []ConfigOption {
 	out := make([]ConfigOption, len(options))
 	for i, option := range options {
@@ -153,20 +170,22 @@ func (s *session) setCurrentMode(mode string) {
 	}
 }
 
-// setCurrentValue anota o valor de uma opção pelo identificador dela e diz se
-// achou alguma. Não inventa a opção que não existe: sem nome nem lista de
-// valores, o que apareceria no seletor é um controle mudo, e as opções que este
-// pacote ainda não modela são justamente as que ninguém sabe desenhar.
-func (s *session) setCurrentValue(id, value string) bool {
+// setCurrentValue anota o valor de uma opção pelo identificador dela e devolve
+// o estado resultante junto com a notícia de ter achado a opção — na mesma
+// trava, para que quem chamou receba o que acabou de escrever. Não inventa a
+// opção que não existe: sem nome nem lista de valores, o que apareceria no
+// seletor é um controle mudo, e as opções que este pacote ainda não modela são
+// justamente as que ninguém sabe desenhar.
+func (s *session) setCurrentValue(id, value string) ([]ConfigOption, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.options {
 		if s.options[i].ID == id {
 			s.options[i].CurrentValue = value
-			return true
+			return copyOptions(s.options), true
 		}
 	}
-	return false
+	return copyOptions(s.options), false
 }
 
 func (s *session) setSink(sink UpdateSink) {
@@ -191,8 +210,7 @@ func (s *session) deliver(update Update) {
 		// um agente que manda só os modelos faria a UI esconder o seletor de
 		// modo no meio da conversa — enquanto o estado da sessão ainda diria
 		// que o modo existe.
-		update.ConfigOptions = withKnownMode(update.ConfigOptions, s.ConfigOptions())
-		s.setConfigOptions(update.ConfigOptions)
+		update.ConfigOptions, _ = s.mergeConfigOptions(update.ConfigOptions)
 	case UpdateMode:
 		s.setCurrentMode(update.Mode)
 	}
@@ -637,22 +655,26 @@ func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]Conf
 
 	// Mesmo cuidado do deliver: o agente no formato legado responde só com o
 	// que ele conhece como configOptions, e o modo — que ele anuncia por outro
-	// campo — sumiria do seletor só porque a pessoa trocou de modelo.
-	if novas := withKnownMode(configOptionsFrom(resp.ConfigOptions), s.ConfigOptions()); len(novas) > 0 {
-		s.setConfigOptions(novas)
-	} else if !s.setCurrentValue(id, value) {
-		// A resposta do agente não trouxe nada aproveitável — só opções de
-		// tipos que ainda não modelamos, por exemplo —, então o valor pedido é
-		// guardado à mão: sem isso a tela anunciaria o modelo antigo para uma
-		// troca que aconteceu de verdade. Aqui nem isso deu, porque a opção
-		// trocada também é uma que não acompanhamos. Fica registrado: é o que
-		// explica uma tela que não mudou depois de uma troca bem-sucedida.
+	// campo — sumiria do seletor só porque a pessoa trocou de modelo. O que
+	// volta é sempre cópia: entregar o slice guardado deixaria quem chamou
+	// mexendo no estado da sessão por fora.
+	if novas, ok := s.mergeConfigOptions(configOptionsFrom(resp.ConfigOptions)); ok {
+		return novas, nil
+	}
+
+	// A resposta do agente não trouxe nada aproveitável — só opções de tipos
+	// que ainda não modelamos, por exemplo —, então o valor pedido é guardado
+	// à mão: sem isso a tela anunciaria o modelo antigo para uma troca que
+	// aconteceu de verdade.
+	novas, achou := s.setCurrentValue(id, value)
+	if !achou {
+		// Nem isso deu, porque a opção trocada também é uma que não
+		// acompanhamos. Fica registrado: é o que explica uma tela que não
+		// mudou depois de uma troca bem-sucedida.
 		logging.Debugf(ctx, logComponent,
 			"[ACP] o agente confirmou a troca de %q na sessão %q, opção que não acompanhamos", id, s.id)
 	}
-	// Devolve a cópia, e não o que acabou de ser guardado: entregar o mesmo
-	// slice deixaria quem chamou mexendo no estado da sessão por fora.
-	return s.ConfigOptions(), nil
+	return novas, nil
 }
 
 // PromptError diz, além do que falhou, se o agente chegou a aceitar o turno.
