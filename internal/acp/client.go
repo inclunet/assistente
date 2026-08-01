@@ -42,6 +42,11 @@ type client struct {
 	handler RequestHandler
 	now     func() time.Time
 
+	// life morre no Close e é o que interrompe um handshake em andamento sem
+	// depender do mutex, que nessa hora está com quem está subindo o processo.
+	life    context.Context
+	endLife context.CancelFunc
+
 	mu          sync.Mutex
 	conn        *conn
 	closed      bool
@@ -62,7 +67,8 @@ func New(cfg Config, handler RequestHandler) (Client, error) {
 	if handler == nil {
 		handler = denyAll{}
 	}
-	return &client{cfg: cfg, handler: handler, now: time.Now}, nil
+	life, endLife := context.WithCancel(context.Background())
+	return &client{cfg: cfg, handler: handler, now: time.Now, life: life, endLife: endLife}, nil
 }
 
 // ensureConn devolve a conexão viva, subindo o processo se preciso. O lock fica
@@ -85,7 +91,7 @@ func (c *client) ensureConn(ctx context.Context) (*conn, error) {
 		return nil, fmt.Errorf("agente ACP indisponível; nova tentativa em %s: %w", wait.Round(time.Millisecond), c.lastErr)
 	}
 
-	cn, err := dial(ctx, c.cfg, c.handler)
+	cn, err := c.dialWithLifetime(ctx)
 	if err != nil {
 		c.failures++
 		c.lastErr = err
@@ -98,6 +104,17 @@ func (c *client) ensureConn(ctx context.Context) (*conn, error) {
 	c.nextAttempt = time.Time{}
 	c.conn = cn
 	return cn, nil
+}
+
+// dialWithLifetime sobe o processo abortando também quando o cliente fecha, e
+// não só quando quem pediu desiste.
+func (c *client) dialWithLifetime(ctx context.Context) (*conn, error) {
+	dctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(c.life, cancel)
+	defer stop()
+
+	return dial(dctx, c.cfg, c.handler)
 }
 
 func backoffFor(failures int) time.Duration {
@@ -195,6 +212,11 @@ func (c *client) Call(ctx context.Context, method string, params any) (json.RawM
 }
 
 func (c *client) Close() error {
+	// Antes do lock: se o processo ainda está subindo, quem segura o mutex é o
+	// handshake, e esperar por ele atrasaria o fechamento do app em até meio
+	// minuto.
+	c.endLife()
+
 	c.mu.Lock()
 	cn := c.conn
 	c.conn = nil
@@ -253,6 +275,10 @@ func dial(ctx context.Context, cfg Config, handler RequestHandler) (*conn, error
 
 	if err := cmd.Start(); err != nil {
 		kill()
+		// Sem processo não haverá watch para fechar o cano, e o leitor de
+		// stderr ficaria parado para sempre — uma goroutine por binário
+		// quebrado que o usuário tentar usar.
+		_ = stderr.Close()
 		return nil, fmt.Errorf("iniciar agente %s: %w", describeAgent(cfg), err)
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -572,6 +573,75 @@ func TestAgenteInexistenteFalhaComErroAcionavelERespeitaOBackoff(t *testing.T) {
 	_, second := client.Capabilities(ctx)
 	if second == nil || !strings.Contains(second.Error(), "nova tentativa em") {
 		t.Fatalf("esperava espera de backoff, obtive: %v", second)
+	}
+}
+
+// Fechar o app enquanto o agente ainda está subindo não pode esperar o
+// handshake: o usuário mandou sair, e meio minuto de janela travada é o que ele
+// sentiria.
+func TestFecharOClienteNaoEsperaOHandshakeDoAgente(t *testing.T) {
+	client, err := New(fakeConfig(t, scriptStall), nil)
+	if err != nil {
+		t.Fatalf("criar cliente: %v", err)
+	}
+
+	falhou := make(chan error, 1)
+	go func() {
+		_, err := client.Capabilities(context.Background())
+		falhou <- err
+	}()
+
+	// Tempo para o processo subir e o handshake ficar pendurado; sem isso o
+	// teste passaria sem nunca ter havido um dial em andamento.
+	time.Sleep(500 * time.Millisecond)
+
+	inicio := time.Now()
+	if err := client.Close(); err != nil {
+		t.Fatalf("fechar cliente: %v", err)
+	}
+	if levou := time.Since(inicio); levou > 5*time.Second {
+		t.Fatalf("Close esperou o handshake: levou %s", levou)
+	}
+
+	select {
+	case err := <-falhou:
+		if err == nil {
+			t.Fatal("o handshake pendurado deveria ter sido interrompido")
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("a chamada presa no handshake nunca voltou")
+	}
+}
+
+// Um binário quebrado é algo que o usuário tenta de novo até acertar a
+// configuração, e cada tentativa não pode deixar uma goroutine para trás.
+func TestSpawnQueFalhaNaoDeixaGoroutineParaTras(t *testing.T) {
+	tentar := func() {
+		client, err := New(Config{Command: "binario-de-agente-que-nao-existe", WorkDir: t.TempDir()}, nil)
+		if err != nil {
+			t.Fatalf("criar cliente: %v", err)
+		}
+		_, _ = client.Capabilities(context.Background())
+		_ = client.Close()
+	}
+
+	tentar()
+	time.Sleep(200 * time.Millisecond)
+	antes := runtime.NumGoroutine()
+
+	const tentativas = 20
+	for range tentativas {
+		tentar()
+	}
+
+	// As goroutines mortas somem em algum momento, não na hora; o teto de folga
+	// absorve o ruído sem absorver um vazamento por tentativa.
+	prazo := time.Now().Add(5 * time.Second)
+	for runtime.NumGoroutine() > antes+5 && time.Now().Before(prazo) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if depois := runtime.NumGoroutine(); depois > antes+5 {
+		t.Fatalf("goroutines vazaram: %d antes, %d depois de %d spawns falhos", antes, depois, tentativas)
 	}
 }
 

@@ -25,6 +25,7 @@ const (
 	scriptDie        = "die"        // morre no meio do turno
 	scriptCustom     = "custom"     // usa um método de extensão fora do padrão
 	scriptEcho       = "echo"       // devolve o que recebeu no prompt
+	scriptStall      = "stall"      // sobe, mas nunca responde ao handshake
 
 	fakeSessionID = "sess-falsa-1"
 )
@@ -38,12 +39,12 @@ func TestMain(m *testing.M) {
 }
 
 type rpcMessage struct {
-	JSONRPC string          `json:"jsonrpc"`
+	JSONRPC string           `json:"jsonrpc"`
 	ID      *json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
+	Method  string           `json:"method,omitempty"`
+	Params  json.RawMessage  `json:"params,omitempty"`
+	Result  json.RawMessage  `json:"result,omitempty"`
+	Error   *rpcError        `json:"error,omitempty"`
 }
 
 type rpcError struct {
@@ -145,6 +146,9 @@ func (a *fakeAgent) request(method string, params any) rpcMessage {
 func (a *fakeAgent) handle(msg rpcMessage) {
 	switch msg.Method {
 	case "initialize":
+		if a.script == scriptStall {
+			return
+		}
 		a.reply(*msg.ID, map[string]any{
 			"protocolVersion": 1,
 			"agentInfo":       map[string]any{"name": "agente-falso", "version": "0.1.0"},
