@@ -230,17 +230,24 @@ func TestTrocaDeModeloDevolveEstadoCompleto(t *testing.T) {
 	if err != nil {
 		t.Fatalf("trocar modelo: %v", err)
 	}
-	if len(options) != 1 || options[0].CurrentValue != "modelo-b" {
+	modelo := findOption(options, "model")
+	if modelo == nil || modelo.CurrentValue != "modelo-b" {
 		t.Fatalf("estado devolvido inesperado: %+v", options)
 	}
-	if got := sess.ConfigOptions(); len(got) != 1 || got[0].CurrentValue != "modelo-b" {
-		t.Errorf("sessão não guardou o novo estado: %+v", got)
+	// O agente no formato legado responde só com o que ele chama de
+	// configOptions. O seletor de modo não pode sumir da conversa só porque a
+	// pessoa trocou de modelo.
+	if findOption(options, modeCategory) == nil {
+		t.Errorf("o modo sumiu ao trocar de modelo: %+v", options)
+	}
+	if got := findOption(sess.ConfigOptions(), "model"); got == nil || got.CurrentValue != "modelo-b" {
+		t.Errorf("sessão não guardou o novo estado: %+v", sess.ConfigOptions())
 	}
 
 	// O estado devolvido é cópia: mexer nele não pode trocar o modelo da sessão
 	// por fora, sem passar pelo agente.
-	options[0].CurrentValue = "adulterado"
-	if got := sess.ConfigOptions(); got[0].CurrentValue != "modelo-b" {
+	modelo.CurrentValue = "adulterado"
+	if got := findOption(sess.ConfigOptions(), "model"); got.CurrentValue != "modelo-b" {
 		t.Errorf("mexer no retorno alterou o estado da sessão: %+v", got)
 	}
 }

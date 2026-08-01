@@ -508,7 +508,10 @@ func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]Conf
 		return nil, wrapCallError(fmt.Sprintf("trocar a opção %q da sessão", id), err)
 	}
 
-	s.setConfigOptions(configOptionsFrom(resp.ConfigOptions))
+	// Mesmo cuidado do deliver: o agente no formato legado responde só com o
+	// que ele conhece como configOptions, e o modo — que ele anuncia por outro
+	// campo — sumiria do seletor só porque a pessoa trocou de modelo.
+	s.setConfigOptions(withKnownMode(configOptionsFrom(resp.ConfigOptions), s.ConfigOptions()))
 	// Devolve a cópia, e não o que acabou de ser guardado: entregar o mesmo
 	// slice deixaria quem chamou mexendo no estado da sessão por fora.
 	return s.ConfigOptions(), nil
