@@ -357,6 +357,30 @@ func TestFecharASessaoCancelaOPedidoDePermissaoPendente(t *testing.T) {
 	}
 }
 
+// Quem chega com o contexto já cancelado não pode botar o agente para
+// trabalhar: com a fila livre, o turno sairia e só depois se descobriria que
+// ninguém está mais esperando por ele.
+func TestTurnoComContextoJaCanceladoNaoVaiAoAgente(t *testing.T) {
+	client := newTestClient(t, scriptTurn, nil)
+	sess := startSession(t, client, testContext(t))
+
+	morto, cancelar := context.WithCancel(context.Background())
+	cancelar()
+
+	col := &collector{}
+	_, err := sess.Prompt(morto, []Content{TextContent("oi")}, col.sink)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("esperava contexto cancelado, obtive: %v", err)
+	}
+	var falha *PromptError
+	if !errors.As(err, &falha) || falha.Accepted {
+		t.Fatalf("o agente não chegou a aceitar o turno: %+v", falha)
+	}
+	if got := col.textOfKind(UpdateText); got != "" {
+		t.Errorf("nada deveria ter sido entregue: %q", got)
+	}
+}
+
 // Um turno que esperava a vez na fila não pode ser enviado depois de a sessão
 // ter sido encerrada.
 func TestTurnoNaFilaNaoRodaEmSessaoEncerrada(t *testing.T) {

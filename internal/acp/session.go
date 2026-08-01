@@ -105,6 +105,12 @@ func (s *session) deliver(update Update) {
 }
 
 func (s *session) acquireTurn(ctx context.Context) error {
+	// Fila livre não dispensa a conferência: quem chega com o contexto já morto
+	// não pode pôr um agente de código para trabalhar e só então descobrir que
+	// desistiu.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	select {
 	case <-s.turnSlot:
 		return nil
