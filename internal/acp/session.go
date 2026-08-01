@@ -268,6 +268,18 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 	done := make(chan promptOutcome, 1)
 	go func() {
 		defer s.releaseTurn()
+		// Última conferência antes de falar com o agente. Entre pegar a vez e
+		// esta goroutine ser escalonada pode passar tempo suficiente para a
+		// conversa ser excluída, e um agente de código não deve começar a
+		// trabalhar numa conversa que já não existe. Se o encerramento cair
+		// exatamente entre esta linha e a escrita, o session/cancel do Close
+		// chega antes do prompt e não cancela nada — janela que este transporte
+		// não consegue fechar sozinho, porque o SDK não separa o envio da espera
+		// pela resposta.
+		if s.isClosed() {
+			done <- promptOutcome{err: ErrSessionClosed}
+			return
+		}
 		// A chamada ignora o cancelamento do ctx de quem pediu (mantendo os
 		// valores de correlação): desistir da espera não é a mesma coisa que
 		// encerrar o turno. Quem encerra é session/cancel, e a resposta do
@@ -312,6 +324,10 @@ func (s *session) Prompt(ctx context.Context, content []Content, sink UpdateSink
 func (s *session) finishTurn(out promptOutcome) (StopReason, error) {
 	if out.err == nil {
 		return out.stop, nil
+	}
+	// O turno nem chegou a sair: a conversa foi encerrada antes do envio.
+	if errors.Is(out.err, ErrSessionClosed) {
+		return "", &PromptError{Err: ErrSessionClosed}
 	}
 	if s.cn.isDead() {
 		return "", &PromptError{Accepted: turnAccepted(out.err), Err: ErrSessionLost}
@@ -399,9 +415,10 @@ func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]Conf
 		return nil, wrapCallError(fmt.Sprintf("trocar a opção %q da sessão", id), err)
 	}
 
-	options := configOptionsFrom(resp.ConfigOptions)
-	s.setConfigOptions(options)
-	return options, nil
+	s.setConfigOptions(configOptionsFrom(resp.ConfigOptions))
+	// Devolve a cópia, e não o que acabou de ser guardado: entregar o mesmo
+	// slice deixaria quem chamou mexendo no estado da sessão por fora.
+	return s.ConfigOptions(), nil
 }
 
 // PromptError diz, além do que falhou, se o agente chegou a aceitar o turno.

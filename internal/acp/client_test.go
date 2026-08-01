@@ -226,6 +226,13 @@ func TestTrocaDeModeloDevolveEstadoCompleto(t *testing.T) {
 	if got := sess.ConfigOptions(); len(got) != 1 || got[0].CurrentValue != "modelo-b" {
 		t.Errorf("sessão não guardou o novo estado: %+v", got)
 	}
+
+	// O estado devolvido é cópia: mexer nele não pode trocar o modelo da sessão
+	// por fora, sem passar pelo agente.
+	options[0].CurrentValue = "adulterado"
+	if got := sess.ConfigOptions(); got[0].CurrentValue != "modelo-b" {
+		t.Errorf("mexer no retorno alterou o estado da sessão: %+v", got)
+	}
 }
 
 func TestPedidoDePermissaoChegaAoHandlerEADecisaoVoltaAoAgente(t *testing.T) {
