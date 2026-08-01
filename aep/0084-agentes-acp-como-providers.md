@@ -128,6 +128,12 @@ type Session interface {
 }
 ```
 
+A interface precisa de uma **saída para métodos que o SDK não tipa**: as
+extensões `cursor/*` não são do padrão, e o seletor legado `session/set_model`
+tende a sair dos SDKs conforme o `configOptions` vira o caminho único. Sem uma
+chamada crua de JSON-RPC em `internal/acp`, o app fica refém do que o SDK
+resolveu tipar naquela versão.
+
 O resto do app conversa só com essa interface. Se o SDK estagnar ou divergir,
 troca-se a implementação sem tocar no provider. A versão fica pinada e o
 comportamento é coberto por testes contra um **agente ACP falso** (um processo
@@ -312,6 +318,12 @@ renderizar e anunciar.
 pediu que o app execute uma tool" e dispararia o loop agêntico do app, que
 tentaria executar uma ferramenta que não é dele. Um provider ACP jamais chama
 `OnToolCalls`.
+
+Não basta o provider se comportar: **o planejamento de tools do turno devolve
+conjunto vazio para um provider ACP**. O roteamento do envio escolhe o loop
+agêntico pela simples existência de tool definitions no turno; um perfil com
+tools habilitadas levaria a conversa para o loop errado, e junto com ele iria a
+segmentação (D13) e a promessa de não oferecer as tools do app ao agente.
 
 #### Marcadas como do agente, não do app
 
