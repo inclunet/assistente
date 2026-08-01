@@ -836,6 +836,32 @@ func TestDuasConversasNoMesmoProcessoNaoSeMisturam(t *testing.T) {
 	}
 }
 
+// O agente confirmou a troca; o que ele respondeu depois não muda isso. Se o
+// conjunto de opções vier sem nada que saibamos ler, a tela não pode continuar
+// anunciando o modelo antigo para uma troca que aconteceu de verdade.
+func TestTrocaConfirmadaComRespostaIlegivelAindaVale(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptTurn, nil)
+	sess := startSession(t, client, ctx)
+
+	opcoes, err := sess.SetConfigOption(ctx, "model", "modelo-mudo")
+	if err != nil {
+		t.Fatalf("trocar de modelo: %v", err)
+	}
+	modelo := findOption(opcoes, "model")
+	if modelo == nil || modelo.CurrentValue != "modelo-mudo" {
+		t.Fatalf("a troca confirmada não apareceu no retorno: %+v", opcoes)
+	}
+	if modelo := findOption(sess.ConfigOptions(), "model"); modelo.CurrentValue != "modelo-mudo" {
+		t.Errorf("o estado da sessão ficou no modelo antigo: %+v", *modelo)
+	}
+	// E a lista de modelos sobrevive: uma resposta que não trouxe nada não é
+	// motivo para o seletor sumir da tela.
+	if len(modelo.Values) == 0 {
+		t.Error("as opções disponíveis se perderam")
+	}
+}
+
 // Trocar de modelo no meio da resposta é previsto no ACP — "whether the Agent
 // is idle or generating a response" — e é o caso real de quem percebe, ouvindo,
 // que pediu ao modelo errado. Enfileirar isso atrás do turno faria a troca só

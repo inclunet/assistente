@@ -153,6 +153,18 @@ func (s *session) setCurrentMode(mode string) {
 	}
 }
 
+// setCurrentValue anota o valor de uma opção pelo identificador dela.
+func (s *session) setCurrentValue(id, value string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.options {
+		if s.options[i].ID == id {
+			s.options[i].CurrentValue = value
+			return
+		}
+	}
+}
+
 func (s *session) setSink(sink UpdateSink) {
 	s.sinkMu.Lock()
 	defer s.sinkMu.Unlock()
@@ -591,7 +603,15 @@ func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]Conf
 	// Mesmo cuidado do deliver: o agente no formato legado responde só com o
 	// que ele conhece como configOptions, e o modo — que ele anuncia por outro
 	// campo — sumiria do seletor só porque a pessoa trocou de modelo.
-	s.setConfigOptions(withKnownMode(configOptionsFrom(resp.ConfigOptions), s.ConfigOptions()))
+	if novas := withKnownMode(configOptionsFrom(resp.ConfigOptions), s.ConfigOptions()); len(novas) > 0 {
+		s.setConfigOptions(novas)
+	} else {
+		// O agente confirmou a troca, mas respondeu com um conjunto do qual
+		// não aproveitamos nada — só opções de tipos que ainda não modelamos,
+		// por exemplo. Guardar o valor pedido é o que evita a tela anunciar o
+		// modelo antigo para uma troca que aconteceu de verdade.
+		s.setCurrentValue(id, value)
+	}
 	// Devolve a cópia, e não o que acabou de ser guardado: entregar o mesmo
 	// slice deixaria quem chamou mexendo no estado da sessão por fora.
 	return s.ConfigOptions(), nil

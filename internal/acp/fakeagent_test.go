@@ -32,6 +32,9 @@ const (
 	scriptIDSujo        = "idsujo"     // abre a conversa com identificador cheio de sujeira
 
 	fakeSessionID = "sess-falsa-1"
+	// fakeMuteValue faz o agente aceitar a troca e responder com um conjunto de
+	// opções do qual nada é aproveitável.
+	fakeMuteValue = "modelo-mudo"
 	// fakeDirtySessionID imita um agente que emite identificador com quebra de
 	// linha, como o Cursor fez com toolCallId na sonda do AEP-0084, e ainda com
 	// espaço nas pontas — que é o que pega quem apara antes de rotear.
@@ -208,6 +211,13 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 		_ = json.Unmarshal(msg.Params, &params)
 		if params.SessionId != fakeSessionID || params.ConfigId != "model" {
 			a.replyError(*msg.ID, -32602, "parâmetros inesperados: "+string(msg.Params))
+			return
+		}
+		if params.Value == fakeMuteValue {
+			// Confirma a troca sem devolver nada que o cliente saiba ler, como
+			// faria um agente cujas opções sejam todas de um tipo que ainda não
+			// modelamos.
+			a.reply(*msg.ID, map[string]any{"configOptions": []any{}})
 			return
 		}
 		a.reply(*msg.ID, map[string]any{"configOptions": []any{fakeModelOption(params.Value)}})
