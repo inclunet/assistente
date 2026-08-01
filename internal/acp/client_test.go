@@ -836,6 +836,59 @@ func TestDuasConversasNoMesmoProcessoNaoSeMisturam(t *testing.T) {
 	}
 }
 
+// Trocar de modelo no meio da resposta é previsto no ACP — "whether the Agent
+// is idle or generating a response" — e é o caso real de quem percebe, ouvindo,
+// que pediu ao modelo errado. Enfileirar isso atrás do turno faria a troca só
+// valer quando a resposta acabasse, que é quando ela já não serve.
+func TestTrocarDeModeloNoMeioDoTurnoFuncionaENaoAtrapalha(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptCancel, nil)
+	sess := startSession(t, client, ctx)
+
+	turno, desistir := context.WithCancel(ctx)
+	defer desistir()
+	col := &collector{}
+	fim := make(chan promptOutcome, 1)
+	go func() {
+		stop, err := sess.Prompt(turno, []Content{TextContent("trabalhe")}, col.sink)
+		fim <- promptOutcome{stop: stop, err: err}
+	}()
+
+	prazo := time.Now().Add(5 * time.Second)
+	for !strings.Contains(col.textOfKind(UpdateText), "trabalhando") {
+		if time.Now().After(prazo) {
+			t.Fatal("o turno não começou")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	opcoes, err := sess.SetConfigOption(ctx, "model", "modelo-b")
+	if err != nil {
+		t.Fatalf("trocar de modelo com o turno em andamento: %v", err)
+	}
+	if modelo := findOption(opcoes, "model"); modelo == nil || modelo.CurrentValue != "modelo-b" {
+		t.Fatalf("a troca não valeu: %+v", opcoes)
+	}
+	if modelo := findOption(sess.ConfigOptions(), "model"); modelo.CurrentValue != "modelo-b" {
+		t.Errorf("o estado da sessão ficou para trás: %+v", *modelo)
+	}
+
+	// E o turno segue de pé: a troca no meio do caminho não pode atropelar a
+	// resposta que estava sendo escrita.
+	desistir()
+	select {
+	case out := <-fim:
+		if out.err != nil || out.stop != StopCancelled {
+			t.Fatalf("o turno terminou mal depois da troca: stop=%q err=%v", out.stop, out.err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("o turno não voltou depois da troca de modelo")
+	}
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, "depois-do-cancelamento") {
+		t.Errorf("o rastro final do turno se perdeu: %q", got)
+	}
+}
+
 // Parar a resposta numa aba não pode parar a da outra. O cancelamento viaja
 // com o sessionId, e trocar as bolas aqui derrubaria o trabalho de uma conversa
 // que ninguém mandou parar.
