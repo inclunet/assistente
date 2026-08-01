@@ -36,8 +36,10 @@ ouvir a resposta pelo mesmo caminho de sempre.
   mesma superfície de chat, o mesmo `SendMessage`, os mesmos eventos (AEP-0040).
 - **Não exporta as tools do app para o agente.** O Cursor usa as ferramentas
   dele (busca, edição, shell, MCP do `.cursor/mcp.json`). O app não anuncia
-  capacidades de filesystem nem de terminal no `initialize`, e o `ToolPlanner`
-  (AEP-0077) não planeja tools para um provider ACP.
+  capacidades de filesystem nem de terminal no `initialize`, o `ToolPlanner`
+  (AEP-0077) não planeja tools para um provider ACP e o context provider
+  `tool_protocol` fica de fora do system prompt — senão o prefixo estável
+  mandaria o agente chamar `tool_catalog`, uma ferramenta que ele não tem.
 - **Não gerencia credenciais do agente.** A autenticação é local ao CLI.
 
 ## Descobertas empíricas
@@ -183,6 +185,16 @@ Os blocos são delimitados como instrução do app, e não se confundem com o te
 da pessoa. O agente também tem as regras do próprio projeto (`AGENTS.md`,
 `.cursor/rules`), que continuam sendo assunto dele.
 
+#### Anexos
+
+A mensagem do usuário pode ser multimodal (`[]ContentPart` com `image_url`), e o
+`session/prompt` recebe uma lista de blocos — o mapeamento é direto: cada parte
+de texto vira um bloco de texto, cada imagem vira um bloco de imagem, na ordem
+original. O que o agente aceita vem do `initialize`
+(`promptCapabilities.image`, `audio`, `embeddedContext`); o Cursor aceita
+imagem. **Anexo que o agente não aceita nunca é descartado em silêncio**: o
+turno segue com o texto e a pessoa é avisada do que ficou de fora.
+
 #### Quando o histórico do app e a sessão do agente divergem
 
 A sessão tem memória própria, então retry, edição e exclusão de mensagens podem
@@ -269,9 +281,13 @@ confirmação de edição, que já é acessível por teclado e leitor de telas.
   `reject-once`), com os rótulos que o agente mandou.
 - `allow-always` é registrado numa **allowlist por perfil**, com o mesmo padrão
   de escopo das allowlists existentes.
-- **Toda pergunta tem prazo.** Sem resposta dentro do prazo, respondemos
-  `reject-once` e informamos: um turno travado para sempre é pior do que uma
-  ação negada.
+- **Toda pergunta tem prazo.** Sem resposta dentro do prazo, respondemos o
+  desfecho negativo **daquele método** — `reject-once` em
+  `session/request_permission`, `skipped` em `cursor/ask_question`, `rejected`
+  em `cursor/create_plan` — e informamos. Um turno travado para sempre é pior do
+  que uma ação negada, mas o desfecho precisa ser o que o método aceita: mandar
+  um `optionId` de permissão numa pergunta de múltipla escolha é erro de
+  protocolo.
 - O título do `toolCall` contém o comando literal e é **dado não confiável**:
   passa pelo mesmo saneamento de texto de diálogo antes de virar rótulo ou
   anúncio.
