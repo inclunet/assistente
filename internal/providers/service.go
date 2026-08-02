@@ -423,8 +423,12 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		updated.BaseURL = baseURL
 		updated.CredentialPattern = hostname
 	}
-	if req.ACPCommand != "" {
-		updated.ACPCommand = req.ACPCommand
+	// Aparado uma vez e usado nas duas decisões — aplicar e recusar —, como no
+	// Create: um valor só de espaços não é edição, e não pode virar nem
+	// comando nem erro.
+	acpCommand := strings.TrimSpace(req.ACPCommand)
+	if acpCommand != "" {
+		updated.ACPCommand = acpCommand
 	}
 	if req.ACPArgs != nil {
 		updated.ACPArgs = append([]string(nil), (*req.ACPArgs)...)
@@ -433,7 +437,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		updated.ACPEnv = copyStringMap(*req.ACPEnv)
 	}
 	if !updated.IsACP() {
-		if req.ACPCommand != "" || req.ACPArgs != nil || req.ACPEnv != nil {
+		if acpCommand != "" || req.ACPArgs != nil || req.ACPEnv != nil {
 			return nil, fmt.Errorf("provider '%s' não é acp: para configurar um agente, mude o api_format para %q", id, llm.APIFormatACP)
 		}
 		// Deixar de ser agente é largar o comando junto. Guardá-lo escondido

@@ -279,6 +279,11 @@ func TestComandoDeAgenteEmProvedorHTTPEhRecusadoNaEdicao(t *testing.T) {
 	if got := svc.registry.Get("openai"); got == nil || got.ACPCommand != "" {
 		t.Errorf("o provedor não deveria ter guardado o comando: %#v", got)
 	}
+
+	// Só espaços não é edição nenhuma: não vira comando nem erro.
+	if _, err := svc.Update(ctx, "openai", UpdateRequest{ACPCommand: "   "}); err != nil {
+		t.Errorf("campo em branco não deveria virar tentativa de configurar agente: %v", err)
+	}
 }
 
 // A edição troca o provedor removendo e registrando de novo. Se a validação
