@@ -307,10 +307,17 @@ func (t *acpTurn) toolActivity(call *acp.ToolCall) {
 	if t.activity == nil || call == nil {
 		return
 	}
-	key, anonymous := trackingKey(call)
+	key := trackingKey(call)
 	state, seen := t.tools[key]
+	status := agentToolStatus(call.Status)
 	if state.done {
-		return
+		// Depois do desfecho, só um novo começo reabre o acompanhamento. O aviso
+		// terminal repetido não pode passar: para o handler, um fim sem começo é
+		// chamada nova, e ele abriria uma ferramenta fantasma na tela.
+		if status != AgentToolRunning {
+			return
+		}
+		state = agentToolState{}
 	}
 	state.id = call.ID
 	// A atualização de uma chamada traz só o que mudou; o campo que vier vazio
@@ -338,19 +345,8 @@ func (t *acpTurn) toolActivity(call *acp.ToolCall) {
 		t.toolOrder = append(t.toolOrder, key)
 	}
 
-	status := agentToolStatus(call.Status)
-	switch {
-	case status == AgentToolRunning:
-		t.tools[key] = state
-	case anonymous:
-		// A próxima chamada anônima da mesma classe é outra chamada e precisa de
-		// estado limpo; guardar a anterior como concluída engoliria os eventos
-		// dela.
-		delete(t.tools, key)
-	default:
-		state.done = true
-		t.tools[key] = state
-	}
+	state.done = status != AgentToolRunning
+	t.tools[key] = state
 
 	t.activity.OnAgentToolEvent(AgentToolEvent{
 		ID:     call.ID,
@@ -363,13 +359,13 @@ func (t *acpTurn) toolActivity(call *acp.ToolCall) {
 // trackingKey escolhe como acompanhar a chamada entre o começo e o fim dela. O
 // protocolo exige identificador, mas o Cursor já mandou tool call sem — e, sem
 // ele, a classe é o que resta para ligar as pontas, que é como o handler
-// também correlaciona. Guardar duas chamadas anônimas sob a mesma chave faria
-// uma engolir os eventos da outra.
-func trackingKey(call *acp.ToolCall) (key string, anonymous bool) {
+// também correlaciona. Uma chave só para todas as anônimas faria uma engolir os
+// eventos da outra.
+func trackingKey(call *acp.ToolCall) string {
 	if call.ID != "" {
-		return call.ID, false
+		return call.ID
 	}
-	return "\x00anônima:" + agentToolKind(call.Kind), true
+	return "\x00anônima:" + agentToolKind(call.Kind)
 }
 
 // cutSegment fecha o bloco corrente de resposta. Sem texto novo desde o último

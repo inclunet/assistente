@@ -454,6 +454,8 @@ func TestChamadasSemIdentificadorNaoEngolemUmaAOutra(t *testing.T) {
 		{Kind: acp.UpdateToolProgress, Tool: &acp.ToolCall{Kind: "read", Status: "completed"}},
 		{Kind: acp.UpdateToolStart, Tool: &acp.ToolCall{Kind: "read", Title: "lendo b.go", Status: "in_progress"}},
 		{Kind: acp.UpdateToolProgress, Tool: &acp.ToolCall{Kind: "read", Status: "completed"}},
+		// O aviso repetido continua sendo repetição, e não uma terceira leitura.
+		{Kind: acp.UpdateToolProgress, Tool: &acp.ToolCall{Kind: "read", Status: "completed"}},
 	}}
 	provider := providerDeAgente(t, sessao)
 	handler := &espiao{}
