@@ -306,6 +306,48 @@ func TestTextoJaPromovidoNaoVoltaNoStreamSeguinte(t *testing.T) {
 	}
 }
 
+func TestLeituraFinalNaoRepeteOQueJaFoiFaladoEmSegmentos(t *testing.T) {
+	emitter := &mockEmitter{}
+	var fala []speechCall
+	handler := novoHandlerDeAgente(t, emitter, &fala)
+
+	handler.OnChunk("primeiro bloco. ")
+	handler.OnSegmentDone()
+	handler.OnChunk("bloco final.")
+	handler.OnDone("primeiro bloco. bloco final.", llm.Usage{}, "agente")
+
+	if len(fala) != 2 {
+		t.Fatalf("esperava fala do segmento e a final, recebi %d", len(fala))
+	}
+	final := fala[1]
+	if final.origin != "assistant_message" {
+		t.Fatalf("origem da última fala=%q", final.origin)
+	}
+	if final.text != "bloco final." {
+		t.Errorf("leitura final=%q, esperava só o que ainda não foi lido", final.text)
+	}
+	// A mensagem salva continua sendo o turno inteiro: quem reabre a conversa
+	// precisa ver tudo o que o agente escreveu.
+	streams := eventosPorNome(emitter, "chat:stream")
+	ultimo := streams[len(streams)-1].(events.StreamEvent)
+	if ultimo.FullResponse != "primeiro bloco. bloco final." {
+		t.Errorf("mensagem final=%q, esperava o turno inteiro", ultimo.FullResponse)
+	}
+}
+
+func TestTurnoSemSegmentoLeAMensagemInteira(t *testing.T) {
+	emitter := &mockEmitter{}
+	var fala []speechCall
+	handler := novoHandlerDeAgente(t, emitter, &fala)
+
+	handler.OnChunk("resposta curta.")
+	handler.OnDone("resposta curta.", llm.Usage{}, "modelo")
+
+	if len(fala) != 1 || fala[0].text != "resposta curta." {
+		t.Errorf("fala=%+v, esperava a resposta inteira quando não houve segmento", fala)
+	}
+}
+
 func TestSegmentoSemTextoNemFerramentaNaoViraEvento(t *testing.T) {
 	emitter := &mockEmitter{}
 	var fala []speechCall
