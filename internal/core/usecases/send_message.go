@@ -17,6 +17,18 @@ import (
 	"fmt"
 )
 
+// profileWithToolsDisabled devolve o perfil do turno com o interruptor de tools
+// desligado, em cópia rasa: o perfil salvo continua como o usuário o configurou,
+// e a decisão vale só para este turno.
+func profileWithToolsDisabled(activeProfile *profiles.Profile) *profiles.Profile {
+	if activeProfile == nil || activeProfile.Chat.DisableTools {
+		return activeProfile
+	}
+	turnProfile := *activeProfile
+	turnProfile.Chat.DisableTools = true
+	return &turnProfile
+}
+
 func resolveStreamingRecoverySettings(activeProfile *profiles.Profile) (enabled bool, maxAttempts int) {
 	// Defaults (AEP-0064): enabled + 3 tentativas
 	enabled = true
@@ -157,6 +169,15 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		return "", err
 	}
 	activeProfile := pctx.ActiveProfile
+	// Turno conduzido por agente externo (AEP-0084 D7): as ferramentas são do
+	// agente, e o app planeja o turno com as suas desligadas — pelo mesmo
+	// interruptor que o perfil oferece, para que prompt e roteamento enxerguem a
+	// mesma decisão. Oferecer tools levaria a conversa ao loop agêntico, que
+	// tentaria executar aqui o que não é dele.
+	agentDrivenTurn := uc.providerSvc != nil && uc.providerSvc.UsesAgentTurn(ctx, activeProfile)
+	if agentDrivenTurn {
+		activeProfile = profileWithToolsDisabled(activeProfile)
+	}
 	params := pctx.Params
 	if params.AllowAssistantPrefill {
 		// Gating pelo perfil: se o usuário desabilitou a ação manual, o backend deve falhar fechado.
@@ -353,6 +374,16 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	adapterStreamer := requestStreamer
 	var llmToolDefs, adapterToolDefs []llm.ToolDefinition
 	requestStreamer, llmToolDefs, adapterToolDefs = toolPolicy.PlanTurnToolDefs(requestStreamer, uc.mcpMgr, toolCfg)
+
+	// O critério do D7 é o conjunto FINAL que chega ao roteamento: uma tool
+	// sobrevivente basta para mandar o turno do agente para o loop errado. O
+	// interruptor acima já deveria ter zerado tudo; se algum caminho de runtime
+	// escapar, o turno segue sem tools e a divergência aparece no log.
+	if agentDrivenTurn && (len(llmToolDefs) > 0 || len(adapterToolDefs) > 0) {
+		logging.Warnf(ctx, "core.usecases.send-message", "[SendMessage] turno de agente externo chegou ao roteamento com tools (%d nativas, %d adapter) — descartadas", len(llmToolDefs), len(adapterToolDefs))
+		llmToolDefs = nil
+		adapterToolDefs = nil
+	}
 
 	// Auto-degradação otimista (AEP-0021): no modo AUTO tentamos MCP nativo; se o
 	// modelo/endpoint rejeitar type:"mcp", o provider dispara este hook (auto-ajusta e
