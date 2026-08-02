@@ -93,6 +93,38 @@ describe('ToolCallsSection', () => {
     expect(screen.queryByText('chat.toolOriginMcpBridge')).not.toBeInTheDocument();
   });
 
+  it('marca a ferramenta do agente externo enquanto ela roda', () => {
+    render(
+      <ToolCallsSection
+        activeToolCalls={[
+          { name: 'execute', callId: '1', status: 'running', origin: 'acp_agent' },
+          { name: 'read_file', callId: '2', status: 'running', origin: 'builtin' },
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button'));
+
+    expect(screen.getByText('chat.toolOriginAcpAgent')).toBeInTheDocument();
+    expect(screen.queryByText('chat.toolOriginBuiltin')).not.toBeInTheDocument();
+  });
+
+  it('renderiza o badge da ferramenta do agente no histórico', () => {
+    const toolCallsJson = JSON.stringify([
+      {
+        id: '1',
+        type: 'function',
+        function: { name: 'edit', arguments: '{}' },
+        origin: 'acp_agent',
+      },
+    ]);
+
+    render(<ToolCallsSection toolCallsJson={toolCallsJson} />);
+    fireEvent.click(screen.getByRole('button'));
+
+    expect(screen.getByText('chat.toolOriginAcpAgent')).toBeInTheDocument();
+  });
+
   it('conta tool calls historicos grandes sem parse inicial completo', () => {
     const toolCallsJson = JSON.stringify([
       {

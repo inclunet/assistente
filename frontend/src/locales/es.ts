@@ -151,6 +151,9 @@ const es = {
       toolRetrying: 'Herramienta {{name}} falló, reintentando...',
       toolRunning: 'Ejecutando herramienta: {{name}}',
       toolDone: 'Herramienta {{name}} completada',
+      agentToolRunning: 'El agente está usando la herramienta {{name}}',
+      agentToolDone: 'El agente completó la herramienta {{name}}',
+      agentToolFailed: 'La herramienta {{name}} del agente falló',
       queue: {
         pending_one: '{{count}} turno en cola',
         pending_other: '{{count}} turnos en cola',
@@ -191,6 +194,7 @@ const es = {
       toolOriginBuiltin: 'Integrada',
       toolOriginMcpBridge: 'MCP',
       toolOriginMcpNative: 'MCP Nativo',
+      toolOriginAcpAgent: 'Del agente',
       collapseThread: 'Contraer interacciones',
       expandThread: 'Expandir interacciones',
       collapseChain: 'Contraer cadena del turno',

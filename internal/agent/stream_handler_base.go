@@ -20,6 +20,7 @@ type BaseStreamHandler struct {
 	SurfaceOrigin      *ports.ChatSurfaceOrigin
 
 	accumulatedContent   string
+	promotedContent      string
 	accumulatedReasoning string
 	isThinking           bool
 
@@ -216,5 +217,19 @@ func (h *BaseStreamHandler) Finalize() (content, reasoning string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cancelPendingChunkTimer()
-	return h.accumulatedContent, h.accumulatedReasoning
+	return h.promotedContent + h.accumulatedContent, h.accumulatedReasoning
+}
+
+// CutSegment fecha o bloco de texto corrente: devolve o que foi acumulado desde
+// o corte anterior e zera o acumulador visível, para que o próximo chat:stream
+// não repita o texto que a UI já promoveu a segmento. O conteúdo cortado
+// continua contando para Finalize, que devolve o turno inteiro.
+func (h *BaseStreamHandler) CutSegment() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cancelPendingChunkTimer()
+	segment := h.accumulatedContent
+	h.promotedContent += segment
+	h.accumulatedContent = ""
+	return segment
 }

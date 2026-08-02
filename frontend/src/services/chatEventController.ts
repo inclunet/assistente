@@ -2,7 +2,7 @@ import { logger } from '../utils/logger';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import i18next from 'i18next';
 import { chat } from '../../wailsjs/go/models';
-import type { ToolCallStatus } from '../types/chat';
+import { isAppToolEvent, type ToolCallStatus, type ToolOrigin } from '../types/chat';
 import type { MediaFile } from './mediaService';
 import { announce } from '../hooks/useAnnouncer';
 import {
@@ -75,6 +75,8 @@ interface ChatToolStartEvent {
   name: string;
   callId: string;
   args?: string;
+  summary?: string;
+  origin?: ToolOrigin;
   turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
@@ -86,6 +88,7 @@ interface ChatToolEndEvent {
   name?: string;
   status?: string;
   summary?: string;
+  origin?: ToolOrigin;
   attempt?: number;
   turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
@@ -96,6 +99,7 @@ interface ChatToolFailureEvent {
   assistantMessageId?: string;
   name: string;
   callId: string;
+  origin?: ToolOrigin;
   willRetry?: boolean;
   turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
@@ -550,13 +554,16 @@ export function startChatEventController({
       activeToolCalls: existing >= 0
         ? session.activeToolCalls.map((tc) =>
           tc.callId === event.callId
-            ? { ...tc, name: event.name, callId: event.callId, args: event.args ?? tc.args, status: 'running' as const, summary: undefined }
+            ? { ...tc, name: event.name, callId: event.callId, args: event.args ?? tc.args, status: 'running' as const, summary: event.summary, origin: event.origin ?? tc.origin }
             : tc
         )
-        : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const }],
+        : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const, summary: event.summary, origin: event.origin }],
     });
     if (external) {
-      announceForActiveChatConversation(conversationId, i18next.t('chat.toolRunning', { name: event.name }), 'polite', getEventOrigin(event));
+      const runningMessage = isAppToolEvent(event.origin)
+        ? i18next.t('chat.toolRunning', { name: event.name })
+        : i18next.t('chat.agentToolRunning', { name: event.name });
+      announceForActiveChatConversation(conversationId, runningMessage, 'polite', getEventOrigin(event));
     }
   });
 
@@ -569,17 +576,26 @@ export function startChatEventController({
     patchCurrentSession({
       activeToolCalls: session.activeToolCalls.map((tc) =>
         tc.callId === event.callId
-          ? { ...tc, status: (event.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: event.summary }
+          ? { ...tc, status: (event.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: event.summary, origin: event.origin ?? tc.origin }
           : tc
       ),
     });
     if (!external) return;
+    const fromApp = isAppToolEvent(event.origin);
     if (event.status !== 'error') {
-      announceForActiveChatConversation(conversationId, i18next.t('chat.toolDone', { name: event.name }), 'polite', getEventOrigin(event));
+      const doneMessage = fromApp
+        ? i18next.t('chat.toolDone', { name: event.name })
+        : i18next.t('chat.agentToolDone', { name: event.name });
+      announceForActiveChatConversation(conversationId, doneMessage, 'polite', getEventOrigin(event));
       return;
     }
     if (!('attempt' in event)) {
-      announce(i18next.t('chat.toolFailed', { name: event.name }), 'assertive');
+      announce(
+        fromApp
+          ? i18next.t('chat.toolFailed', { name: event.name })
+          : i18next.t('chat.agentToolFailed', { name: event.name }),
+        'assertive',
+      );
     }
   });
 
@@ -592,7 +608,12 @@ export function startChatEventController({
       announceForActiveChatConversation(conversationId, i18next.t('chat.toolRetrying', { name: event.name }), 'polite', getEventOrigin(event));
       return;
     }
-    announce(i18next.t('chat.toolFailed', { name: event.name }), 'assertive');
+    announce(
+      isAppToolEvent(event.origin)
+        ? i18next.t('chat.toolFailed', { name: event.name })
+        : i18next.t('chat.agentToolFailed', { name: event.name }),
+      'assertive',
+    );
     playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
   });
 
@@ -614,6 +635,7 @@ export function startChatEventController({
           type: 'function',
           function: { name: tc.name, arguments: tc.args || '' },
           result: tc.summary,
+          origin: tc.origin,
         })),
       });
       if (!external) {

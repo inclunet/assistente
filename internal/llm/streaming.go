@@ -20,6 +20,45 @@ type MCPToolEvent struct {
 	IsCompleted bool   // true = chamada concluída (com ou sem erro), false = em andamento
 }
 
+// Status de uma ferramenta executada por um agente externo (AEP-0084 D7).
+const (
+	AgentToolRunning   = "running"
+	AgentToolCompleted = "completed"
+	AgentToolFailed    = "failed"
+	AgentToolCancelled = "cancelled"
+)
+
+// AgentToolKindOther é o nome usado quando o agente não classifica a ferramenta.
+const AgentToolKindOther = "other"
+
+// AgentToolEvent descreve uma ferramenta que o agente externo executou por conta
+// própria. O app não executa nada aqui: o evento existe para a UI e o leitor de
+// telas contarem o que está acontecendo do outro lado (AEP-0084 D7).
+//
+// Kind e Title vêm do protocolo e são dado não confiável: quem preenche este
+// evento já os entrega saneados e sem quebras de linha (AEP-0084 D11).
+type AgentToolEvent struct {
+	ID     string // Identificador da chamada no agente; correlaciona início e fim
+	Kind   string // Classe da ferramenta (read, edit, execute, search…), vira o nome exibido
+	Title  string // Resumo legível do que a ferramenta está fazendo
+	Status string // AgentToolRunning | AgentToolCompleted | AgentToolFailed | AgentToolCancelled
+	Error  string // Mensagem de erro quando o agente reporta falha
+}
+
+// AgentActivitySink é o canal por onde um provider cujo turno é conduzido por um
+// agente externo conta o que aconteceu além do texto: as ferramentas que o
+// agente rodou sozinho e o fim de cada bloco da resposta.
+//
+// É opcional — o provider descobre com type assertion sobre o StreamHandler e
+// segue sem ele quando o handler não sabe receber esses avisos.
+type AgentActivitySink interface {
+	// OnAgentToolEvent informa início, conclusão ou falha de uma ferramenta do agente.
+	OnAgentToolEvent(event AgentToolEvent)
+	// OnSegmentDone fecha o bloco de texto corrente: o que já foi emitido vira
+	// segmento e é lido em voz alta sem esperar o turno acabar (AEP-0084 D13).
+	OnSegmentDone()
+}
+
 // StreamHandler é a interface para lidar com eventos de streaming de LLM.
 type StreamHandler interface {
 	OnChunk(content string)
