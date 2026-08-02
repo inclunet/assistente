@@ -458,8 +458,11 @@ type mountedSession struct {
 	// dir é o diretório com que ela foi aberta. Guardado porque o workspace
 	// ativo muda em runtime, e uma sessão de outro diretório fala de outros
 	// arquivos (AEP-0084 D5).
-	dir        string
+	dir string
+	// session é nula depois de Invalidate: o app deixou de usá-la, mas o nome
+	// dela continua conhecido para que a despedida ainda seja possível.
 	session    Session
+	sessionID  string
 	origin     SessionOrigin
 	prefixHash string
 }
@@ -481,12 +484,17 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 		return err
 	}
 
+	// lost é a sessão invalidada que ainda pode estar de pé no agente. Se
+	// nenhum registro a reencontra, ela não volta e precisa se despedir.
+	var lost *mountedSession
 	if current := c.mounted[spec.ID]; current != nil {
 		switch {
-		case current.session != nil && current.proc == proc && sameDir(current.dir, dir):
+		case current.session == nil:
+			lost = current
+		case current.proc == proc && sameDir(current.dir, dir):
 			c.active = current
 			return nil
-		case current.session != nil && current.proc == proc:
+		case current.proc == proc:
 			// Mesmo agente, outro diretório: quem trocou de workspace passou a
 			// falar de outros arquivos. A sessão continua viva do lado de lá, e
 			// é agora que ela se despede — o registro vai apontar para outra.
@@ -505,6 +513,15 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 			// abrir outra. Abrir outra por otimismo deixaria a sessão anterior
 			// órfã no agente e faria a pessoa perder a memória em silêncio.
 			return fmt.Errorf("ler registro da sessão ACP da conversa %s: %w", c.id, err)
+		}
+	}
+	if lost != nil {
+		// Quando o registro é o dela e o agente é o mesmo, o caminho da
+		// retomada decide: retoma ou encerra antes de abrir outra. Fora disso
+		// ninguém mais vai reencontrá-la, e a despedida é agora ou nunca.
+		reencontravel := lost.proc == proc && stored != nil && stored.SessionID == lost.sessionID
+		if !reencontravel {
+			c.manager.abandon(ctx, lost.proc, lost.sessionID)
 		}
 	}
 
@@ -540,6 +557,7 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 		providerID: spec.ID,
 		dir:        dir,
 		session:    session,
+		sessionID:  session.ID(),
 		origin:     origin,
 		prefixHash: prefix,
 	}
@@ -608,6 +626,10 @@ func (c *Conversation) closeLocked(ctx context.Context) error {
 	var errs []error
 	for _, entry := range mounted {
 		if entry.session == nil {
+			// Sessão invalidada: o app não a usa mais, mas o agente pode ainda
+			// tê-la. Sem esta despedida ela ficaria aberta no processo do
+			// provider — que é compartilhado — sem registro que a nomeasse.
+			c.manager.abandon(ctx, entry.proc, entry.sessionID)
 			continue
 		}
 		if err := entry.session.Close(ctx); err != nil && !errors.Is(err, ErrSessionClosed) && !errors.Is(err, ErrSessionLost) {
@@ -641,13 +663,18 @@ func (c *Conversation) Origin() SessionOrigin {
 // Invalidate esquece a sessão em memória sem apagar o registro. É o que fazer
 // quando o turno volta com ErrSessionLost: o próximo uso tenta retomar pelo
 // identificador guardado e, se o agente não retomar, abre outra avisando.
+//
+// O nome da sessão fica: o processo do provider é compartilhado e pode ter
+// sobrevivido ao que derrubou a sessão. Excluir a conversa depois disso ainda
+// precisa conseguir despedir-se dela, senão ela fica aberta lá sem registro que
+// a nomeie.
 func (c *Conversation) Invalidate() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.active == nil {
 		return
 	}
-	delete(c.mounted, c.active.providerID)
+	c.active.session = nil
 	c.active = nil
 }
 

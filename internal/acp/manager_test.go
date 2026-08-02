@@ -816,6 +816,67 @@ func TestTurnoQueChegaDuranteALimpezaGeralNaoDeixaVinculo(t *testing.T) {
 	}
 }
 
+func TestSessaoInvalidadaAindaSeDespedeQuandoAConversaEhExcluida(t *testing.T) {
+	store := newMemoryStore()
+	client := newFakeManagedClient()
+	m, _ := managerWith(store, client)
+	ctx := context.Background()
+
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+	perdida := conv.Session().ID()
+
+	// O turno voltou com a sessão perdida: o app para de usá-la, mas o
+	// processo do provider é compartilhado e pode ter sobrevivido.
+	conv.Invalidate()
+	if err := m.CloseConversation(ctx, "conv-1"); err != nil {
+		t.Fatalf("excluir conversa: %v", err)
+	}
+
+	client.mu.Lock()
+	despedidas := append([]string(nil), client.closedByID...)
+	client.mu.Unlock()
+	if len(despedidas) != 1 || despedidas[0] != perdida {
+		t.Fatalf("despedidas = %v; a sessão invalidada ficou aberta no agente sem registro que a nomeasse", despedidas)
+	}
+}
+
+func TestDepoisDeInvalidarOProximoTurnoTentaRetomarAMesmaSessao(t *testing.T) {
+	store := newMemoryStore()
+	client := newFakeManagedClient()
+	m, _ := managerWith(store, client)
+	ctx := context.Background()
+
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+	registrada := conv.Session().ID()
+	conv.Invalidate()
+
+	if _, err := m.Conversation(ctx, testSpec(), "conv-1"); err != nil {
+		t.Fatalf("conversa depois de invalidar: %v", err)
+	}
+
+	client.mu.Lock()
+	retomadas := append([]string(nil), client.loadedIDs...)
+	despedidas := append([]string(nil), client.closedByID...)
+	client.mu.Unlock()
+	if len(retomadas) != 1 || retomadas[0] != registrada {
+		t.Fatalf("retomadas = %v, esperado a sessão registrada %q", retomadas, registrada)
+	}
+	// Encerrar a sessão que acabou de ser retomada seria jogar fora a memória
+	// que se tentou recuperar.
+	if len(despedidas) != 0 {
+		t.Fatalf("despedidas = %v; a sessão retomada foi encerrada", despedidas)
+	}
+	if conv.Origin() != SessionResumed {
+		t.Fatalf("origem = %v, esperado retomada", conv.Origin())
+	}
+}
+
 func TestSessaoQueNaoVoltouEhEncerradaAntesDeSerSubstituida(t *testing.T) {
 	store := newMemoryStore()
 	ctx := context.Background()
