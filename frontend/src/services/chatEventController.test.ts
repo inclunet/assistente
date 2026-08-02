@@ -909,6 +909,40 @@ describe('chatEventController', () => {
     expect(mockAnnounce).toHaveBeenCalledWith('Maria via telegram: olá externo');
   });
 
+  it('anuncia a ferramenta do agente como dele mesmo quando o fim não repete a origem', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+
+    startChatEventController({
+      conversationId: 'conversation-1',
+      external: { channel: 'telegram', from: 'Maria', text: 'fallback externo' },
+      adapter,
+    });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-acp',
+      name: 'execute',
+      callId: 'call-acp',
+      origin: 'acp_agent',
+    });
+    emitEvent('chat:tool_end', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-acp',
+      name: 'execute',
+      callId: 'call-acp',
+      status: 'ok',
+    });
+
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.agentToolDone',
+      'polite',
+      undefined,
+    );
+  });
+
   it('recarrega janela canônica ao finalizar resposta com tool calls', async () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     const backendNodes = [

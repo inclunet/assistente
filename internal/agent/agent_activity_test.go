@@ -186,6 +186,24 @@ func TestFimSemIdentificadorAindaEncontraOComeco(t *testing.T) {
 	}
 }
 
+func TestChamadasSeguidasSemIdentificadorNaoReabremOMesmoItem(t *testing.T) {
+	emitter := &mockEmitter{}
+	handler := novoHandlerDeAgente(t, emitter, nil)
+
+	handler.OnAgentToolEvent(llm.AgentToolEvent{Kind: "read", Status: llm.AgentToolRunning})
+	handler.OnAgentToolEvent(llm.AgentToolEvent{Kind: "read", Status: llm.AgentToolCompleted})
+	handler.OnAgentToolEvent(llm.AgentToolEvent{Kind: "read", Status: llm.AgentToolRunning})
+	handler.OnAgentToolEvent(llm.AgentToolEvent{Kind: "read", Status: llm.AgentToolCompleted})
+
+	inicios := eventosPorNome(emitter, "chat:tool_start")
+	if len(inicios) != 2 {
+		t.Fatalf("esperava 2 chat:tool_start, recebi %d", len(inicios))
+	}
+	if inicios[0].(ports.ToolStartEvent).CallID == inicios[1].(ports.ToolStartEvent).CallID {
+		t.Error("a segunda chamada reabriu o item da primeira em vez de abrir o dela")
+	}
+}
+
 func TestFerramentaQueFalhaAvisaComFalhaSemPedirRetry(t *testing.T) {
 	emitter := &mockEmitter{}
 	handler := novoHandlerDeAgente(t, emitter, nil)
