@@ -22,7 +22,13 @@ type SimpleStreamHandler struct {
 	profileSlug           string // Profile slug for TTS resolution
 	lastError             string
 	suppressTerminalError bool
+	// activity acompanha um turno conduzido por agente externo (AEP-0084):
+	// ferramentas que o agente rodou e os segmentos já fechados.
+	activity agentActivity
 }
+
+// SimpleStreamHandler também recebe a atividade de agentes externos.
+var _ llm.AgentActivitySink = (*SimpleStreamHandler)(nil)
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.
 // It is created by the owning Service so it can close over its dependencies.
