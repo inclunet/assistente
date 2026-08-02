@@ -98,8 +98,9 @@ type fakeManagedSession struct {
 	id  string
 	cwd string
 
-	mu     sync.Mutex
-	closed bool
+	mu       sync.Mutex
+	closed   bool
+	closeErr error
 }
 
 func (s *fakeManagedSession) ID() string { return s.id }
@@ -111,6 +112,9 @@ func (s *fakeManagedSession) Prompt(context.Context, []Content, UpdateSink) (Sto
 func (s *fakeManagedSession) Close(context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closeErr != nil {
+		return s.closeErr
+	}
 	s.closed = true
 	return nil
 }
@@ -840,6 +844,35 @@ func TestSessaoInvalidadaAindaSeDespedeQuandoAConversaEhExcluida(t *testing.T) {
 	client.mu.Unlock()
 	if len(despedidas) != 1 || despedidas[0] != perdida {
 		t.Fatalf("despedidas = %v; a sessão invalidada ficou aberta no agente sem registro que a nomeasse", despedidas)
+	}
+}
+
+func TestDespedidaQueFalhaTentaDeNovoPeloNomeDaSessao(t *testing.T) {
+	store := newMemoryStore()
+	client := newFakeManagedClient()
+	m, _ := managerWith(store, client)
+	ctx := context.Background()
+
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+	sessao := conv.Session().(*fakeManagedSession)
+	sessao.mu.Lock()
+	sessao.closeErr = errors.New("agente ocupado")
+	sessao.mu.Unlock()
+
+	// O registro some com a conversa: esta é a última vez que alguém sabe o
+	// nome da sessão, e o agente pode continuar de pé.
+	if err := m.CloseConversation(ctx, "conv-1"); err == nil {
+		t.Fatal("a falha ao encerrar a sessão foi engolida")
+	}
+
+	client.mu.Lock()
+	despedidas := append([]string(nil), client.closedByID...)
+	client.mu.Unlock()
+	if len(despedidas) != 1 || despedidas[0] != sessao.id {
+		t.Fatalf("despedidas = %v; faltou a segunda tentativa pelo nome da sessão", despedidas)
 	}
 }
 

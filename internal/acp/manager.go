@@ -633,6 +633,11 @@ func (c *Conversation) closeLocked(ctx context.Context) error {
 			continue
 		}
 		if err := entry.session.Close(ctx); err != nil && !errors.Is(err, ErrSessionClosed) && !errors.Is(err, ErrSessionLost) {
+			// A despedida falhou e o registro está prestes a sumir junto com a
+			// conversa: esta é a última vez que alguém sabe o nome da sessão.
+			// Segunda tentativa pelo nome, que ainda pega o agente de pé quando
+			// o que falhou foi só a chamada.
+			c.manager.abandon(ctx, entry.proc, entry.sessionID)
 			errs = append(errs, fmt.Errorf("encerrar sessão ACP da conversa %s no provider %q: %w", c.id, entry.providerID, err))
 		}
 	}
