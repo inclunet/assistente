@@ -398,6 +398,34 @@ func TestAtualizacaoDeFerramentaHerdaOQueOComecoAnunciou(t *testing.T) {
 	}
 }
 
+func TestTextoEntreAtualizacoesDaMesmaFerramentaNaoFicaMudo(t *testing.T) {
+	// A ferramenta demorada atualiza várias vezes, e o agente escreve no meio.
+	// Sem corte a cada atividade, esse texto só seria falado no fim do turno —
+	// que é o silêncio que a segmentação existe para evitar.
+	sessao := &agenteFalso{updates: []acp.Update{
+		{Kind: acp.UpdateToolStart, Tool: &acp.ToolCall{ID: "call-1", Kind: "execute", Title: "npm test", Status: "in_progress"}},
+		{Kind: acp.UpdateText, Text: "os testes estão rodando."},
+		{Kind: acp.UpdateToolProgress, Tool: &acp.ToolCall{ID: "call-1", Title: "npm test (2/40)", Status: "in_progress"}},
+		{Kind: acp.UpdateText, Text: "quase lá."},
+		{Kind: acp.UpdateToolProgress, Tool: &acp.ToolCall{ID: "call-1", Status: "completed"}},
+		{Kind: acp.UpdateText, Text: "passou tudo."},
+	}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "roda os testes"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if handler.segmentos != 2 {
+		t.Errorf("segmentos = %d, quer um para cada bloco escrito antes de nova atividade", handler.segmentos)
+	}
+	// O último bloco não vira segmento: ele é a mensagem final do assistente.
+	if handler.respostaFim != "os testes estão rodando.quase lá.passou tudo." {
+		t.Errorf("resposta final = %q, quer o turno inteiro", handler.respostaFim)
+	}
+}
+
 func TestAvisoRepetidoDeConclusaoNaoCriaFerramentaFantasma(t *testing.T) {
 	// Para o handler, um fim sem começo é ferramenta nova: o aviso repetido
 	// abriria um segundo item na tela e um segundo anúncio.

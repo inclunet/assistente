@@ -320,11 +320,13 @@ func (t *acpTurn) toolActivity(call *acp.ToolCall) {
 		state.title = sanitizeAgentLabel(call.Title)
 	}
 
+	// O bloco de texto que veio antes desta atividade está encerrado: vira
+	// segmento e é lido em voz alta agora, em vez de esperar um turno que pode
+	// passar minutos alternando texto e ferramenta (AEP-0084 D13). Vale para
+	// qualquer atividade, e não só para o início de uma chamada: o agente
+	// também escreve entre duas atualizações da mesma ferramenta.
+	t.cutSegment()
 	if !seen {
-		// O bloco de texto que veio antes desta ferramenta está encerrado: vira
-		// segmento e é lido em voz alta agora, em vez de esperar um turno que
-		// pode passar minutos alternando texto e ferramenta (AEP-0084 D13).
-		t.cutSegment()
 		if t.tools == nil {
 			t.tools = map[string]agentToolState{}
 		}
