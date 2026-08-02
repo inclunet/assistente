@@ -1342,6 +1342,33 @@ describe('EditorPage', () => {
     expect(editorPageMocks.setAdapterError).toHaveBeenCalledWith(null);
   });
 
+  it('não fecha o chat modal quando quem editou foi o agente externo', async () => {
+    const plan = await createEditorChatSendPlan();
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      origin: 'acp_agent',
+    });
+    editorStoreState.documents['tab-1'].markdown = 'Alpha\nselected markdown alterado\nOmega';
+    editorPageMocks.emitRuntimeEvent('editor:fileChanged', {
+      path: 'doc.md',
+      origin: 'assistant_tool',
+      assisted: true,
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1',
+      name: 'edit_file',
+      status: 'ok',
+      origin: 'acp_agent',
+    });
+
+    await act(async () => {
+      await plan.afterSend?.();
+    });
+
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+  });
+
   it('fecha o chat modal quando a edição aprovada altera o arquivo mesmo sem auto-reload do editor', async () => {
     const plan = await createEditorChatSendPlan();
     vi.mocked(EditorReadFile).mockResolvedValue('Alpha\nselected markdown alterado no disco\nOmega' as never);
