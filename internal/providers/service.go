@@ -258,7 +258,13 @@ func normalizeProviderRuntimeDefaults(p *llm.ProviderConfig) {
 
 // Create cria e registra um novo provedor LLM.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult, error) {
-	isACP := llm.APIFormat(req.APIFormat) == llm.APIFormatACP
+	// O formato e a URL chegam de formulário e de linha de comando, onde
+	// espaço nas pontas é acidente comum. Aparar antes de decidir evita que
+	// " acp " caia no caminho HTTP e a pessoa receba uma cobrança de URL que
+	// o provedor dela não tem.
+	apiFormat := llm.APIFormat(strings.TrimSpace(req.APIFormat))
+	baseURL := strings.TrimSpace(req.BaseURL)
+	isACP := apiFormat == llm.APIFormatACP
 	if req.ID == "" || req.Name == "" {
 		return nil, fmt.Errorf("campos obrigatórios faltando (id, name)")
 	}
@@ -273,7 +279,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 			return nil, fmt.Errorf("provedor acp não guarda credencial no app; autentique o agente pelo CLI dele")
 		}
 	} else {
-		if req.BaseURL == "" {
+		if baseURL == "" {
 			return nil, fmt.Errorf("campos obrigatórios faltando (id, name, base_url)")
 		}
 		// Recusar aqui, e não lá na frente: a validação do registro só roda
@@ -290,7 +296,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	// O agente não tem host: o que o endereça é o comando.
 	hostname := ""
 	if !isACP {
-		extracted, err := ExtractHostname(req.BaseURL)
+		extracted, err := ExtractHostname(baseURL)
 		if err != nil {
 			return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
 		}
@@ -313,8 +319,8 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		ID:                req.ID,
 		Name:              req.Name,
 		Type:              llm.ProviderType(req.Type),
-		APIFormat:         llm.APIFormat(req.APIFormat),
-		BaseURL:           req.BaseURL,
+		APIFormat:         apiFormat,
+		BaseURL:           baseURL,
 		DefaultModel:      req.DefaultModel,
 		IsDefault:         isFirst,
 		Timeout:           180,
@@ -403,18 +409,18 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		updated.Type = llm.ProviderType(req.Type)
 		updated.AuthMode = defaultAuthModeForProviderType(updated.Type)
 	}
-	if req.APIFormat != "" {
-		updated.APIFormat = llm.APIFormat(req.APIFormat)
+	if apiFormat := strings.TrimSpace(req.APIFormat); apiFormat != "" {
+		updated.APIFormat = llm.APIFormat(apiFormat)
 	}
 	if req.DefaultModel != "" {
 		updated.DefaultModel = req.DefaultModel
 	}
-	if req.BaseURL != "" {
-		hostname, err := ExtractHostname(req.BaseURL)
+	if baseURL := strings.TrimSpace(req.BaseURL); baseURL != "" {
+		hostname, err := ExtractHostname(baseURL)
 		if err != nil {
 			return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
 		}
-		updated.BaseURL = req.BaseURL
+		updated.BaseURL = baseURL
 		updated.CredentialPattern = hostname
 	}
 	if req.ACPCommand != "" {
@@ -436,6 +442,12 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		updated.ACPCommand = ""
 		updated.ACPArgs = nil
 		updated.ACPEnv = nil
+		if existing.IsACP() {
+			// O `none` era decisão de quando não havia para onde mandar
+			// credencial. Mantê-lo faria o provedor HTTP chamar a API sem a
+			// chave que ele acabou de ganhar, e o 401 não explicaria por quê.
+			updated.AuthMode = defaultAuthModeForProviderType(updated.Type)
+		}
 	}
 	normalizeProviderRuntimeDefaults(updated)
 	if updated.IsACP() && req.APIKey != "" {

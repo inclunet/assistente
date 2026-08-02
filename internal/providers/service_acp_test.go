@@ -195,13 +195,16 @@ func TestAgentePodeVoltarASerProvedorHTTP(t *testing.T) {
 	svc, _ := acpService(t)
 	ctx := context.Background()
 	if _, err := svc.Create(ctx, CreateRequest{
-		ID: "cursor", Name: "Cursor", APIFormat: string(llm.APIFormatACP),
+		ID: "cursor", Name: "Cursor", Type: string(llm.ProviderOpenAI),
+		APIFormat:  string(llm.APIFormatACP),
 		ACPCommand: "cursor-agent", ACPArgs: []string{"acp"},
 		ACPEnv: map[string]string{"CURSOR_LOG": "debug"},
 	}); err != nil {
 		t.Fatalf("Create falhou: %v", err)
 	}
 
+	// Sem mexer no tipo: é a edição mínima que troca o formato, e a que
+	// deixaria o modo de autenticação do agente para trás.
 	res, err := svc.Update(ctx, "cursor", UpdateRequest{
 		APIFormat: string(llm.APIFormatOpenAI),
 		BaseURL:   "https://api.openai.com/v1",
@@ -215,6 +218,46 @@ func TestAgentePodeVoltarASerProvedorHTTP(t *testing.T) {
 	if res.Provider.CredentialPattern != "api.openai.com" {
 		t.Errorf("credential_pattern = %q, esperado o hostname novo", res.Provider.CredentialPattern)
 	}
+	// O "sem autenticação" era decisão do agente. Se ficasse, o provedor HTTP
+	// chamaria a API sem a chave que acabou de ganhar.
+	if res.Provider.EffectiveAuthMode() == llm.AuthModeNone {
+		t.Error("o provedor HTTP herdou o 'sem autenticação' do agente")
+	}
+}
+
+// Formato e URL chegam de formulário e de linha de comando: espaço nas pontas
+// não pode mudar o caminho da criação nem o que vai para o banco.
+func TestEspacoNasPontasNaoMudaOCaminhoDaCriacao(t *testing.T) {
+	t.Run("agente", func(t *testing.T) {
+		svc, _ := acpService(t)
+		res, err := svc.Create(context.Background(), CreateRequest{
+			ID: "cursor", Name: "Cursor", APIFormat: "  acp  ",
+			ACPCommand: "cursor-agent",
+		})
+		if err != nil {
+			t.Fatalf("Create falhou: %v", err)
+		}
+		if !res.Provider.IsACP() {
+			t.Errorf("api_format = %q, esperado agente", res.Provider.APIFormat)
+		}
+	})
+
+	t.Run("http", func(t *testing.T) {
+		svc, _ := acpService(t)
+		res, err := svc.Create(context.Background(), CreateRequest{
+			ID: "openai", Name: "OpenAI", Type: string(llm.ProviderOpenAI),
+			BaseURL: "  https://api.openai.com/v1  ",
+		})
+		if err != nil {
+			t.Fatalf("Create falhou: %v", err)
+		}
+		if res.CredentialPattern != "api.openai.com" {
+			t.Errorf("hostname = %q", res.CredentialPattern)
+		}
+		if res.Provider.BaseURL != "https://api.openai.com/v1" {
+			t.Errorf("base_url = %q, esperado sem espaços", res.Provider.BaseURL)
+		}
+	})
 }
 
 // Mandar comando de agente para um provedor que continua HTTP é engano de quem
