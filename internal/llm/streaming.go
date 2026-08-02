@@ -59,6 +59,21 @@ type AgentActivitySink interface {
 	OnSegmentDone()
 }
 
+// NonRetryableErrorSink recebe do provider o aviso de que o erro que vem a
+// seguir não pode ser repetido sozinho pela auto-recuperação.
+//
+// O laço de recuperação retenta pela presença de erro, sem noção de
+// retentabilidade. Para um provider HTTP repetir é inofensivo; para um turno
+// que um agente de código já aceitou, repetir é refazer edição de arquivo e
+// comando na máquina (AEP-0084 D4). Quem sabe se repetir é seguro é o provider,
+// e é por aqui que ele diz.
+//
+// É opcional — o provider descobre com type assertion sobre o StreamHandler.
+type NonRetryableErrorSink interface {
+	// MarkErrorNotRetryable é chamado antes de OnError, e vale para ele.
+	MarkErrorNotRetryable()
+}
+
 // StreamHandler é a interface para lidar com eventos de streaming de LLM.
 type StreamHandler interface {
 	OnChunk(content string)

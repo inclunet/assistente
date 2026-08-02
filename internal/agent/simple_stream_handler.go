@@ -27,8 +27,12 @@ type SimpleStreamHandler struct {
 	activity agentActivity
 }
 
-// SimpleStreamHandler também recebe a atividade de agentes externos.
-var _ llm.AgentActivitySink = (*SimpleStreamHandler)(nil)
+// SimpleStreamHandler também recebe a atividade de agentes externos e a marca
+// de erro que a auto-recuperação não pode repetir.
+var (
+	_ llm.AgentActivitySink     = (*SimpleStreamHandler)(nil)
+	_ llm.NonRetryableErrorSink = (*SimpleStreamHandler)(nil)
+)
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.
 // It is created by the owning Service so it can close over its dependencies.
@@ -64,7 +68,10 @@ func (h *SimpleStreamHandler) OnError(err string) {
 	h.closePendingAgentTools()
 	h.FinishThinkingIfActive()
 	content, _ := h.Finalize()
-	if h.suppressTerminalError {
+	// A supressão existe para não finalizar o streaming enquanto ainda há
+	// tentativa pela frente. Um erro que não pode ser repetido encerra o turno
+	// agora, e calá-lo deixaria a tela esperando por uma tentativa que não vem.
+	if h.suppressTerminalError && !h.ErrorNotRetryable() {
 		return
 	}
 	h.Emitter.Emit("chat:stream", events.StreamEvent{

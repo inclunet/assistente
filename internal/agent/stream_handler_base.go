@@ -23,6 +23,7 @@ type BaseStreamHandler struct {
 	promotedContent      string
 	accumulatedReasoning string
 	isThinking           bool
+	errorNotRetryable    bool
 
 	mu            sync.Mutex
 	lastEmitTime  time.Time
@@ -47,6 +48,23 @@ func (h *BaseStreamHandler) SetInitialContent(content string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.accumulatedContent = content
+}
+
+// MarkErrorNotRetryable registra que o erro deste turno não pode ser repetido
+// pela auto-recuperação. Quem marca é o provider, antes de OnError, porque só
+// ele sabe se o pedido chegou a sair — repetir um turno que um agente de código
+// já aceitou é refazer edição de arquivo e comando (AEP-0084 D4).
+func (h *BaseStreamHandler) MarkErrorNotRetryable() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.errorNotRetryable = true
+}
+
+// ErrorNotRetryable é consultado pelos laços de recuperação antes de tentar de novo.
+func (h *BaseStreamHandler) ErrorNotRetryable() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.errorNotRetryable
 }
 
 func (h *BaseStreamHandler) OnChunk(content string) {

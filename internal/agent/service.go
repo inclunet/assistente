@@ -124,6 +124,15 @@ func (s *Service) StreamSimpleWithRecovery(
 		if h.LastError() == "" {
 			return
 		}
+		// Erro que o provider marcou como não repetível encerra aqui: tentar de
+		// novo mandaria ao agente de código um pedido que ele já aceitou, e o
+		// trabalho dele é arquivo editado e comando rodado (AEP-0084 D4).
+		if h.ErrorNotRetryable() {
+			partialContent, partialReasoning := h.Finalize()
+			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
+			logging.Errorf(ctx, "agent.service", "[Chat] streaming interrompido sem repetição possível (conversa %s): %s", conversationID, h.LastError())
+			return
+		}
 		if attempt == attempts {
 			partialContent, partialReasoning := h.Finalize()
 			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)

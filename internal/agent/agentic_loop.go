@@ -158,10 +158,7 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 		}
 		result = handler.Result()
 		if ctx.Err() != nil {
-			if partialHandler, ok := handler.(interface{ Finalize() (string, string) }); ok {
-				partialContent, partialReasoning := partialHandler.Finalize()
-				r.svc.persistAssistantPartialBestEffort(ctx, r.assistantMessageID, partialContent, partialReasoning)
-			}
+			r.persistPartialFrom(ctx, handler)
 			r.svc.emitAgenticContextDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin, iteration, r.totalToolCallCount, r.toolsUsedSet)
 			return result, "", true
 		}
@@ -170,11 +167,15 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			break
 		}
 		lastStreamErr = result.Error
+		// Mesma regra do streaming simples: o que o provider marcou como não
+		// repetível não volta ao agente por conta do app (AEP-0084 D4).
+		if barrier, ok := handler.(interface{ ErrorNotRetryable() bool }); ok && barrier.ErrorNotRetryable() {
+			r.persistPartialFrom(ctx, handler)
+			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido sem repetição possível (iteração %d): %s", iteration, result.Error)
+			break
+		}
 		if attempt == attempts {
-			if partialHandler, ok := handler.(interface{ Finalize() (string, string) }); ok {
-				partialContent, partialReasoning := partialHandler.Finalize()
-				r.svc.persistAssistantPartialBestEffort(ctx, r.assistantMessageID, partialContent, partialReasoning)
-			}
+			r.persistPartialFrom(ctx, handler)
 		}
 		if attempt < attempts {
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido (iteração %d, tentativa %d/%d): %s", iteration, attempt, attempts, result.Error)
@@ -182,6 +183,17 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 		}
 	}
 	return result, lastStreamErr, false
+}
+
+// persistPartialFrom salva o que a iteração alcançou a escrever antes de
+// terminar sem resposta. Nem todo handler sabe finalizar um parcial.
+func (r *agenticLoopRunner) persistPartialFrom(ctx context.Context, handler IterationHandler) {
+	partialHandler, ok := handler.(interface{ Finalize() (string, string) })
+	if !ok {
+		return
+	}
+	partialContent, partialReasoning := partialHandler.Finalize()
+	r.svc.persistAssistantPartialBestEffort(ctx, r.assistantMessageID, partialContent, partialReasoning)
 }
 
 // finishFinalResult trata o caminho finish_reason="stop": contabiliza eventuais
