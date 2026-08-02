@@ -127,6 +127,7 @@ func Init() error {
 		&CredentialEntry{},
 		&CredentialKeyWrap{},
 		&LLMProvider{},
+		&ACPSession{},
 		&TaskListWorkflow{},
 		&TaskList{},
 		&Task{},
