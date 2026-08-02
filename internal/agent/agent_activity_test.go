@@ -66,8 +66,8 @@ func TestFerramentaDoAgenteChegaMarcadaComoDele(t *testing.T) {
 	if fim.Origin != OriginACPAgent {
 		t.Errorf("origem do fim=%q, esperava %q", fim.Origin, OriginACPAgent)
 	}
-	if fim.Status != "success" {
-		t.Errorf("status=%q, esperava success", fim.Status)
+	if fim.Status != "ok" {
+		t.Errorf("status=%q, esperava ok — o mesmo valor dos outros emissores", fim.Status)
 	}
 	if fim.CallID != inicio.CallID {
 		t.Errorf("callID do fim=%q, esperava o mesmo do início (%q)", fim.CallID, inicio.CallID)

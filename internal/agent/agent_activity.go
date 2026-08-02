@@ -86,11 +86,9 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 
 	duration := time.Since(track.started).Milliseconds()
 	failed := event.Status != llm.AgentToolCompleted
-	status := "success"
-	summaryStatus := "ok"
+	status := "ok"
 	if failed {
 		status = "error"
-		summaryStatus = "error"
 	}
 	errorKind := ""
 	if failed {
@@ -135,7 +133,7 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 	h.activity.mu.Lock()
 	h.activity.segmentTools = append(h.activity.segmentTools, ports.ToolSummary{
 		Name:       track.name,
-		Status:     summaryStatus,
+		Status:     status,
 		ErrorKind:  errorKind,
 		DurationMs: duration,
 		Origin:     OriginACPAgent,
