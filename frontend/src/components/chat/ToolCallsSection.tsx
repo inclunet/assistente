@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CheckCircleOutlined, CloseCircleOutlined, DownOutlined, LoadingOutlined, SettingOutlined, ToolOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import type { ToolCallStatus } from '../../types/chat';
+import { isAppToolEvent, type ToolCallStatus, type ToolOrigin } from '../../types/chat';
 import { formatDuration } from '../../utils/format';
 import './ToolCallsSection.css';
 
@@ -19,8 +19,8 @@ export interface ParsedToolCall {
   };
   /** Resultado retornado pela ferramenta (adicionado pela consolidação) */
   result?: string;
-  /** Origem da ferramenta: builtin, mcp_bridge ou mcp_native (AEP-0039) */
-  origin?: 'builtin' | 'mcp_bridge' | 'mcp_native';
+  /** Origem da ferramenta (AEP-0039, AEP-0084) */
+  origin?: ToolOrigin;
   /** Label do servidor MCP (AEP-0039) */
   server_label?: string;
   /** Iteração do agentic loop (0-based) (AEP-0039) */
@@ -34,6 +34,17 @@ interface ToolCallsSectionProps {
   toolCallsJson?: string;
   /** Tool calls ativos durante streaming (do store) */
   activeToolCalls?: ToolCallStatus[];
+}
+
+const ORIGIN_LABEL_KEYS: Record<ToolOrigin, string> = {
+  builtin: 'chat.toolOriginBuiltin',
+  mcp_bridge: 'chat.toolOriginMcpBridge',
+  mcp_native: 'chat.toolOriginMcpNative',
+  acp_agent: 'chat.toolOriginAcpAgent',
+};
+
+function originLabelKey(origin?: string): string {
+  return ORIGIN_LABEL_KEYS[origin as ToolOrigin] ?? ORIGIN_LABEL_KEYS.builtin;
 }
 
 /** Limite de caracteres para exibir resultado truncado */
@@ -186,6 +197,13 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
                       {tc.status === 'running' ? <LoadingOutlined spin /> : tc.status === 'done' ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
                     </span>
                     <span className="tool-calls-section__name">{tc.name}</span>
+                    {/* Ferramenta de agente externo é marcada enquanto roda: quem
+                        acompanha precisa saber que o app não é o autor (AEP-0084 D7). */}
+                    {!isAppToolEvent(tc.origin) && (
+                      <span className={`tool-calls-section__origin-badge tool-calls-section__origin-badge--${tc.origin}`}>
+                        {t(originLabelKey(tc.origin))}
+                      </span>
+                    )}
                     {tc.summary && (
                       <span className="tool-calls-section__result-summary">{tc.summary}</span>
                     )}
@@ -214,9 +232,7 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
                       <span className="tool-calls-section__name">{tc.function.name}</span>
                       {tc.origin && (
                         <span className={`tool-calls-section__origin-badge tool-calls-section__origin-badge--${tc.origin}`}>
-                          {tc.origin === 'mcp_native' ? t('chat.toolOriginMcpNative')
-                            : tc.origin === 'mcp_bridge' ? t('chat.toolOriginMcpBridge')
-                            : t('chat.toolOriginBuiltin')}
+                          {t(originLabelKey(tc.origin))}
                         </span>
                       )}
                       {tc.server_label && (

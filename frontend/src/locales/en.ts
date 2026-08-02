@@ -152,6 +152,9 @@ const en = {
       toolRetrying: 'Tool {{name}} failed, retrying...',
       toolRunning: 'Running tool: {{name}}',
       toolDone: 'Tool {{name}} completed',
+      agentToolRunning: 'The agent is using the {{name}} tool',
+      agentToolDone: 'The agent finished the {{name}} tool',
+      agentToolFailed: "The agent's {{name}} tool failed",
       queue: {
         pending_one: '{{count}} turn queued',
         pending_other: '{{count}} turns queued',
@@ -192,6 +195,7 @@ const en = {
       toolOriginBuiltin: 'Built-in',
       toolOriginMcpBridge: 'MCP',
       toolOriginMcpNative: 'MCP Native',
+      toolOriginAcpAgent: 'From the agent',
       collapseThread: 'Collapse interactions',
       expandThread: 'Expand interactions',
       collapseChain: 'Collapse turn chain',

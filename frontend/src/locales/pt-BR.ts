@@ -152,6 +152,9 @@ const ptBR = {
       toolRetrying: 'Ferramenta {{name}} falhou, tentando novamente...',
       toolRunning: 'Executando ferramenta: {{name}}',
       toolDone: 'Ferramenta {{name}} concluída',
+      agentToolRunning: 'O agente está usando a ferramenta {{name}}',
+      agentToolDone: 'O agente concluiu a ferramenta {{name}}',
+      agentToolFailed: 'A ferramenta {{name}} do agente falhou',
       queue: {
         pending_one: '{{count}} turno na fila',
         pending_other: '{{count}} turnos na fila',
@@ -192,6 +195,7 @@ const ptBR = {
       toolOriginBuiltin: 'Integrada',
       toolOriginMcpBridge: 'MCP',
       toolOriginMcpNative: 'MCP Nativo',
+      toolOriginAcpAgent: 'Do agente',
       collapseThread: 'Recolher interações',
       expandThread: 'Expandir interações',
       collapseChain: 'Recolher cadeia do turno',
