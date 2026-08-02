@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -38,8 +39,12 @@ type agentToolTrack struct {
 // Tem trava própria porque chega pela mesma goroutine do streaming, mas é lida
 // no fechamento de segmento.
 type agentActivity struct {
-	mu           sync.Mutex
-	running      map[string]agentToolTrack
+	mu      sync.Mutex
+	running map[string]agentToolTrack
+	// unnamed liga a classe da ferramenta ao identificador inventado para ela,
+	// enquanto essa chamada estiver em andamento.
+	unnamed      map[string]string
+	unnamedSeq   int
 	segmentTools []ports.ToolSummary
 	iteration    int
 }
@@ -54,6 +59,8 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 	title := singleLine(event.Title)
 	failure := singleLine(event.Error)
 
+	terminal := event.Status != "" && event.Status != llm.AgentToolRunning
+
 	h.activity.mu.Lock()
 	if h.activity.running == nil {
 		h.activity.running = map[string]agentToolTrack{}
@@ -61,10 +68,22 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 	callID := singleLine(event.ID)
 	if callID == "" {
 		// O protocolo exige identificador; sem ele o fim ainda precisa achar o
-		// começo. A classe da ferramenta é o que resta para correlacionar — pior
-		// que isso só seria deixar o item preso em execução para sempre e abrir
-		// outro no lugar dele.
-		callID = "agent-" + name
+		// começo, e a classe da ferramenta é o que resta para correlacionar. O
+		// identificador inventado é único por chamada — reaproveitá-lo entre
+		// chamadas seguidas da mesma classe faria a UI reabrir o item anterior.
+		if h.activity.unnamed == nil {
+			h.activity.unnamed = map[string]string{}
+		}
+		existente, emAndamento := h.activity.unnamed[name]
+		if !emAndamento {
+			h.activity.unnamedSeq++
+			existente = fmt.Sprintf("agent-%s-%d", name, h.activity.unnamedSeq)
+			h.activity.unnamed[name] = existente
+		}
+		callID = existente
+		if terminal {
+			delete(h.activity.unnamed, name)
+		}
 	}
 	track, known := h.activity.running[callID]
 	if !known {
@@ -88,7 +107,7 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 		})
 	}
 
-	if event.Status == "" || event.Status == llm.AgentToolRunning {
+	if !terminal {
 		return
 	}
 
@@ -164,6 +183,7 @@ func (h *SimpleStreamHandler) closePendingAgentTools() {
 		pendentes = append(pendentes, pendingAgentTool{callID: callID, track: track})
 	}
 	h.activity.running = nil
+	h.activity.unnamed = nil
 	h.activity.mu.Unlock()
 
 	if len(pendentes) == 0 {
