@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -139,6 +140,59 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 		Origin:     OriginACPAgent,
 	})
 	h.activity.mu.Unlock()
+}
+
+// closePendingAgentTools encerra as ferramentas que o agente deixou sem desfecho
+// quando o turno acaba — processo morto, cancelamento ou aviso de conclusão que
+// nunca veio. Sem isso a ferramenta ficaria girando na tela até o fim do turno e
+// sumiria sem explicação; ninguém saberia que ela não terminou.
+func (h *SimpleStreamHandler) closePendingAgentTools() {
+	h.activity.mu.Lock()
+	pendentes := make([]pendingAgentTool, 0, len(h.activity.running))
+	for callID, track := range h.activity.running {
+		pendentes = append(pendentes, pendingAgentTool{callID: callID, track: track})
+	}
+	h.activity.running = nil
+	h.activity.mu.Unlock()
+
+	if len(pendentes) == 0 {
+		return
+	}
+	sort.Slice(pendentes, func(i, j int) bool {
+		if pendentes[i].track.started.Equal(pendentes[j].track.started) {
+			return pendentes[i].callID < pendentes[j].callID
+		}
+		return pendentes[i].track.started.Before(pendentes[j].track.started)
+	})
+
+	for _, pendente := range pendentes {
+		duracao := time.Since(pendente.track.started).Milliseconds()
+		EmitToolEnd(h.Emitter, ports.ToolEndEvent{
+			ConversationID:     h.ConversationID,
+			TurnID:             h.TurnID,
+			AssistantMessageID: h.AssistantMessageID,
+			Name:               pendente.track.name,
+			CallID:             pendente.callID,
+			Status:             "error",
+			Origin:             OriginACPAgent,
+			DurationMs:         duracao,
+			SurfaceOrigin:      h.SurfaceOrigin,
+		})
+		h.activity.mu.Lock()
+		h.activity.segmentTools = append(h.activity.segmentTools, ports.ToolSummary{
+			Name:       pendente.track.name,
+			Status:     "error",
+			ErrorKind:  "unknown",
+			DurationMs: duracao,
+			Origin:     OriginACPAgent,
+		})
+		h.activity.mu.Unlock()
+	}
+}
+
+type pendingAgentTool struct {
+	callID string
+	track  agentToolTrack
 }
 
 // OnSegmentDone fecha o bloco corrente do turno: o texto acumulado até aqui vira

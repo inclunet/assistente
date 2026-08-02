@@ -26,6 +26,22 @@ func novoHandlerDeAgente(t *testing.T, emitter *mockEmitter, fala *[]speechCall)
 	return handler
 }
 
+// esperaStreamDepoisDe aguarda o throttle de 50 ms do chat:stream e devolve o
+// conteúdo do primeiro evento emitido depois dos que já existiam.
+func esperaStreamDepoisDe(t *testing.T, emitter *mockEmitter, jaEmitidos int) string {
+	t.Helper()
+	limite := time.Now().Add(2 * time.Second)
+	for time.Now().Before(limite) {
+		streams := eventosPorNome(emitter, "chat:stream")
+		if len(streams) > jaEmitidos {
+			return streams[len(streams)-1].(events.StreamEvent).Content
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("nenhum chat:stream novo em 2s (esperava mais que %d)", jaEmitidos)
+	return ""
+}
+
 func eventosPorNome(emitter *mockEmitter, nome string) []any {
 	var encontrados []any
 	for _, evento := range emitter.getEvents() {
@@ -209,18 +225,12 @@ func TestTextoJaPromovidoNaoVoltaNoStreamSeguinte(t *testing.T) {
 
 	handler.OnChunk("bloco um. ")
 	handler.OnSegmentDone()
+	jaEmitidos := len(eventosPorNome(emitter, "chat:stream"))
 	handler.OnChunk("bloco dois.")
 
-	// O primeiro chunk depois do corte cai no throttle de 50 ms.
-	time.Sleep(120 * time.Millisecond)
-
-	streams := eventosPorNome(emitter, "chat:stream")
-	if len(streams) == 0 {
-		t.Fatal("esperava ao menos um chat:stream")
-	}
-	ultimo := streams[len(streams)-1].(events.StreamEvent)
-	if ultimo.Content != "bloco dois." {
-		t.Errorf("stream=%q, esperava só o bloco novo — o anterior já virou segmento", ultimo.Content)
+	ultimo := esperaStreamDepoisDe(t, emitter, jaEmitidos)
+	if ultimo != "bloco dois." {
+		t.Errorf("stream=%q, esperava só o bloco novo — o anterior já virou segmento", ultimo)
 	}
 
 	conteudo, _ := handler.Finalize()
@@ -261,6 +271,55 @@ func TestCadaSegmentoTemSuaIteracao(t *testing.T) {
 	segundo := segmentos[1].(ports.SegmentDoneEvent)
 	if primeiro.Iteration != 0 || segundo.Iteration != 1 {
 		t.Errorf("iterações=%d e %d, esperava 0 e 1", primeiro.Iteration, segundo.Iteration)
+	}
+}
+
+func TestFerramentaSemDesfechoNaoFicaGirandoAteOFimDoTurno(t *testing.T) {
+	emitter := &mockEmitter{}
+	handler := novoHandlerDeAgente(t, emitter, nil)
+
+	handler.OnAgentToolEvent(llm.AgentToolEvent{ID: "call-7", Kind: "execute", Status: llm.AgentToolRunning})
+	handler.OnDone("resposta", llm.Usage{}, "modelo")
+
+	fins := eventosPorNome(emitter, "chat:tool_end")
+	if len(fins) != 1 {
+		t.Fatalf("esperava 1 chat:tool_end, recebi %d", len(fins))
+	}
+	fim := fins[0].(ports.ToolEndEvent)
+	if fim.CallID != "call-7" || fim.Status != "error" {
+		t.Errorf("fim=%+v, esperava a ferramenta pendente encerrada como error", fim)
+	}
+	if len(eventosPorNome(emitter, "chat:tool_failure")) != 0 {
+		t.Error("ferramenta sem desfecho não vira anúncio assertivo de falha")
+	}
+}
+
+func TestTurnoQueTerminaEmErroTambemEncerraAFerramentaPendente(t *testing.T) {
+	emitter := &mockEmitter{}
+	handler := novoHandlerDeAgente(t, emitter, nil)
+
+	handler.OnAgentToolEvent(llm.AgentToolEvent{ID: "call-8", Kind: "read", Status: llm.AgentToolRunning})
+	handler.OnError("o agente morreu")
+
+	fins := eventosPorNome(emitter, "chat:tool_end")
+	if len(fins) != 1 {
+		t.Fatalf("esperava 1 chat:tool_end, recebi %d", len(fins))
+	}
+	if fins[0].(ports.ToolEndEvent).CallID != "call-8" {
+		t.Errorf("callID=%q, esperava a ferramenta pendente", fins[0].(ports.ToolEndEvent).CallID)
+	}
+}
+
+func TestFerramentaJaEncerradaNaoRecebeSegundoFimNoTurno(t *testing.T) {
+	emitter := &mockEmitter{}
+	handler := novoHandlerDeAgente(t, emitter, nil)
+
+	handler.OnAgentToolEvent(llm.AgentToolEvent{ID: "call-10", Kind: "read", Status: llm.AgentToolRunning})
+	handler.OnAgentToolEvent(llm.AgentToolEvent{ID: "call-10", Kind: "read", Status: llm.AgentToolCompleted})
+	handler.OnDone("resposta", llm.Usage{}, "modelo")
+
+	if len(eventosPorNome(emitter, "chat:tool_end")) != 1 {
+		t.Error("a ferramenta já concluída não pode ser encerrada de novo no fim do turno")
 	}
 }
 

@@ -61,6 +61,7 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 
 func (h *SimpleStreamHandler) OnError(err string) {
 	h.lastError = err
+	h.closePendingAgentTools()
 	h.FinishThinkingIfActive()
 	content, _ := h.Finalize()
 	if h.suppressTerminalError {
@@ -106,6 +107,7 @@ func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 }
 
 func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
+	h.closePendingAgentTools()
 	accumulatedContent, accumulatedReasoning := h.Finalize()
 
 	finalContent := fullResponse
