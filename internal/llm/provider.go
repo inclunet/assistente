@@ -312,11 +312,12 @@ func (p *ProviderConfig) Validate() error {
 		}
 		return nil
 	}
-	// Comando fora do formato acp seria configuração que ninguém lê: nenhum
-	// caminho HTTP sobe processo. Recusar é melhor do que guardar em silêncio
-	// algo que a pessoa configurou esperando efeito.
-	if p.ACPCommand != "" {
-		return fmt.Errorf("provider %s tem comando de agente mas api_format é %q; use %q", p.ID, p.GetAPIFormat(), APIFormatACP)
+	// Configuração de agente fora do formato acp é configuração que ninguém
+	// lê: nenhum caminho HTTP sobe processo, e argumentos ou variáveis soltos
+	// enganam tanto quanto o comando. Recusar é melhor do que guardar em
+	// silêncio algo que a pessoa configurou esperando efeito.
+	if p.ACPCommand != "" || len(p.ACPArgs) > 0 || len(p.ACPEnv) > 0 {
+		return fmt.Errorf("provider %s tem configuração de agente mas api_format é %q; use %q", p.ID, p.GetAPIFormat(), APIFormatACP)
 	}
 	if p.BaseURL == "" {
 		return fmt.Errorf("provider base_url vazio")

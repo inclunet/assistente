@@ -123,6 +123,37 @@ func TestEdicaoConsegueLimparOsArgumentosDoAgente(t *testing.T) {
 	}
 }
 
+// Virar agente é perder o endereço. A URL antiga ficaria no banco sem ninguém
+// para usá-la, e quem for depurar a linha vai acreditar nela.
+func TestVirarAgenteApagaOEnderecoAntigo(t *testing.T) {
+	svc, _ := acpService(t)
+	ctx := context.Background()
+	if _, err := svc.Create(ctx, CreateRequest{
+		ID: "prov", Name: "Prov", Type: string(llm.ProviderOpenAI),
+		BaseURL: "https://api.openai.com/v1",
+	}); err != nil {
+		t.Fatalf("Create falhou: %v", err)
+	}
+
+	res, err := svc.Update(ctx, "prov", UpdateRequest{
+		APIFormat:  string(llm.APIFormatACP),
+		ACPCommand: "cursor-agent",
+		ACPArgs:    &[]string{"acp"},
+	})
+	if err != nil {
+		t.Fatalf("Update falhou: %v", err)
+	}
+	if res.Provider.BaseURL != "" {
+		t.Errorf("base_url = %q, esperado vazio", res.Provider.BaseURL)
+	}
+	if res.Provider.CredentialPattern != "" {
+		t.Errorf("credential_pattern = %q, esperado vazio", res.Provider.CredentialPattern)
+	}
+	if res.Provider.AuthMode != llm.AuthModeNone {
+		t.Errorf("auth_mode = %q, esperado none", res.Provider.AuthMode)
+	}
+}
+
 // Voltar um agente para HTTP tem que ser edição, e não apagar e recriar: o
 // comando antigo sai junto com o formato, senão a própria validação — que
 // recusa comando em provedor HTTP — travaria a mudança.

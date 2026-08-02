@@ -36,6 +36,24 @@ func TestValidateDeProvedorACPTrocaURLPorComando(t *testing.T) {
 			erro: true, contendo: "api_format",
 		},
 		{
+			// Sem comando nada sobe, mas argumentos e ambiente guardados num
+			// provedor HTTP são igualmente configuração sem leitor.
+			nome: "argumentos soltos em provedor http são recusados",
+			cfg: ProviderConfig{
+				ID: "openai", Name: "OpenAI", BaseURL: "https://api.openai.com/v1",
+				ACPArgs: []string{"acp"},
+			},
+			erro: true, contendo: "configuração de agente",
+		},
+		{
+			nome: "ambiente solto em provedor http é recusado",
+			cfg: ProviderConfig{
+				ID: "openai", Name: "OpenAI", BaseURL: "https://api.openai.com/v1",
+				ACPEnv: map[string]string{"CURSOR_LOG": "debug"},
+			},
+			erro: true, contendo: "configuração de agente",
+		},
+		{
 			nome: "provedor http continua exigindo url",
 			cfg:  ProviderConfig{ID: "openai", Name: "OpenAI"},
 			erro: true, contendo: "base_url vazio",

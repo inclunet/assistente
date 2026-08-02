@@ -219,13 +219,17 @@ func normalizeProviderAPIFormat(p *llm.ProviderConfig) {
 }
 
 // normalizeProviderACP tira do provedor de agente o que só existe para
-// provedor HTTP. Sem URL não há hostname para casar credencial, e o login do
-// agente é da máquina, feito fora do app (AEP-0084 D12): guardar pattern aqui
-// faria a tela pedir uma chave que não vai a lugar nenhum.
+// provedor HTTP. A URL sai junto: um agente não tem endereço, e um endereço
+// herdado de quando o provedor era HTTP viraria fantasma no banco — ninguém o
+// usa, e quem for depurar a linha vai acreditar nele. Sem URL também não há
+// hostname para casar credencial, e o login do agente é da máquina, feito fora
+// do app (AEP-0084 D12): guardar pattern aqui faria a tela pedir uma chave que
+// não vai a lugar nenhum.
 func normalizeProviderACP(p *llm.ProviderConfig) {
 	if p == nil || !p.IsACP() {
 		return
 	}
+	p.BaseURL = ""
 	p.CredentialPattern = ""
 	p.AuthMode = llm.AuthModeNone
 }
