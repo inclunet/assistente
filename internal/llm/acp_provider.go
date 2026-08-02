@@ -172,9 +172,9 @@ func (p *ACPChatProvider) turnError(err error) string {
 }
 
 // stopWithoutAnswer devolve o que dizer quando o turno terminou sem texto
-// nenhum. Com resposta escrita, o motivo é informação; sem ela, é o desfecho —
-// e uma mensagem vazia não conta à pessoa que o agente recusou ou esbarrou num
-// limite.
+// nenhum. Com resposta escrita, o motivo é informação e o texto basta; sem ela,
+// o motivo é o desfecho — e uma mensagem vazia não conta à pessoa que o agente
+// recusou, esbarrou num limite ou simplesmente não escreveu nada.
 func stopWithoutAnswer(stop acp.StopReason, response string) (string, bool) {
 	if strings.TrimSpace(response) != "" {
 		return "", false
@@ -192,7 +192,10 @@ func stopWithoutAnswer(stop acp.StopReason, response string) (string, bool) {
 	case acp.StopMaxTurnRequests:
 		return "O agente atingiu o limite de requisições do turno antes de escrever a resposta.", true
 	default:
-		return "", false
+		// Um agente pode terminar sem escrever nada — só rodou ferramentas, por
+		// exemplo. Dizer isso é melhor que uma bolha vazia, que para quem ouve
+		// é o mesmo que resposta nenhuma sem explicação.
+		return "O agente terminou o turno sem escrever resposta.", true
 	}
 }
 

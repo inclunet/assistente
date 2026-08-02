@@ -342,62 +342,6 @@ func TestProcessoDoAgenteCaidoViraMensagemAcionavel(t *testing.T) {
 	}
 }
 
-func TestRecusaSemTextoViraRespostaDoTurno(t *testing.T) {
-	sessao := &agenteFalso{stop: acp.StopRefusal}
-	provider := providerDeAgente(t, sessao)
-	handler := &espiao{}
-
-	provider.StreamChat(t.Context(),
-		[]Message{{Role: "user", Content: "faz algo proibido"}},
-		ChatParams{ConversationID: "conversa-1"}, handler)
-
-	// Recusa é o turno terminando, não o transporte falhando: como erro, o
-	// texto não seria salvo nem falado, e a auto-recuperação repetiria para o
-	// agente um pedido que ele já aceitou.
-	if handler.erro != "" {
-		t.Fatalf("recusa virou erro: %s", handler.erro)
-	}
-	if !handler.pronto || !strings.Contains(handler.respostaFim, "recusou") {
-		t.Errorf("resposta final = %q, quer contar que o agente recusou", handler.respostaFim)
-	}
-}
-
-func TestInterrupcaoVindaDoAgenteNaoViraMensagemVazia(t *testing.T) {
-	sessao := &agenteFalso{stop: acp.StopCancelled}
-	provider := providerDeAgente(t, sessao)
-	handler := &espiao{}
-
-	// Aqui quem parou o turno foi o agente: o ctx segue vivo, e sem contar o
-	// desfecho a pessoa receberia uma mensagem vazia sem saber por quê.
-	provider.StreamChat(t.Context(),
-		[]Message{{Role: "user", Content: "faz aí"}},
-		ChatParams{ConversationID: "conversa-1"}, handler)
-
-	if handler.erro != "" {
-		t.Fatalf("interrupção do agente virou erro: %s", handler.erro)
-	}
-	if !strings.Contains(handler.respostaFim, "interrompeu") {
-		t.Errorf("resposta final = %q, quer contar que o agente interrompeu o turno", handler.respostaFim)
-	}
-}
-
-func TestLimiteDeTokensSemTextoViraRespostaDoTurno(t *testing.T) {
-	sessao := &agenteFalso{stop: acp.StopMaxTokens}
-	provider := providerDeAgente(t, sessao)
-	handler := &espiao{}
-
-	provider.StreamChat(t.Context(),
-		[]Message{{Role: "user", Content: "escreve um livro"}},
-		ChatParams{ConversationID: "conversa-1"}, handler)
-
-	if handler.erro != "" {
-		t.Fatalf("limite de tokens virou erro: %s", handler.erro)
-	}
-	if !strings.Contains(handler.respostaFim, "limite de tokens") {
-		t.Errorf("resposta final = %q, quer explicar o limite atingido", handler.respostaFim)
-	}
-}
-
 func TestRecusaComTextoEntregaOQueOAgenteEscreveu(t *testing.T) {
 	sessao := &agenteFalso{
 		stop:    acp.StopRefusal,
@@ -415,6 +359,64 @@ func TestRecusaComTextoEntregaOQueOAgenteEscreveu(t *testing.T) {
 	}
 	if handler.respostaFim != "não posso fazer isso porque..." {
 		t.Errorf("resposta final = %q, quer o texto que o agente escreveu", handler.respostaFim)
+	}
+}
+
+func TestTurnoSemTextoNenhumSempreDizOQueAconteceu(t *testing.T) {
+	// Cada desfecho sem texto precisa virar frase: uma bolha vazia, para quem
+	// ouve, é igual a resposta nenhuma sem explicação.
+	casos := []struct {
+		nome  string
+		stop  acp.StopReason
+		trata string
+	}{
+		{"recusa", acp.StopRefusal, "recusou"},
+		{"limite de tokens", acp.StopMaxTokens, "limite de tokens"},
+		{"limite de requisições", acp.StopMaxTurnRequests, "limite de requisições"},
+		{"interrupção do agente", acp.StopCancelled, "interrompeu"},
+		{"fim de turno calado", acp.StopEndTurn, "sem escrever resposta"},
+		{"motivo desconhecido", acp.StopReason("outra_coisa"), "sem escrever resposta"},
+	}
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			provider := providerDeAgente(t, &agenteFalso{stop: caso.stop})
+			handler := &espiao{}
+
+			provider.StreamChat(t.Context(),
+				[]Message{{Role: "user", Content: "vai"}},
+				ChatParams{ConversationID: "conversa-1"}, handler)
+
+			if handler.erro != "" {
+				t.Fatalf("desfecho virou erro: %s", handler.erro)
+			}
+			if !strings.Contains(handler.respostaFim, caso.trata) {
+				t.Errorf("resposta final = %q, quer conter %q", handler.respostaFim, caso.trata)
+			}
+		})
+	}
+}
+
+func TestFalhaDoTurnoVirouFraseQueDizOEstadoDoAgente(t *testing.T) {
+	provider := providerDeAgente(t, &agenteFalso{})
+	casos := []struct {
+		nome  string
+		err   error
+		trata string
+	}{
+		{"processo caiu", acp.ErrSessionLost, "processo do agente caiu"},
+		{"sessão encerrada", acp.ErrSessionClosed, "foi encerrada"},
+		// Sem confirmação do "pare", o agente pode continuar mexendo no disco:
+		// pedir de novo sem conferir repetiria edição e comando.
+		{"cancelamento sem confirmação", acp.ErrCancelNotConfirmed, "pode ainda estar trabalhando"},
+		{"conversa excluída", acp.ErrConversationGone, "conversa foi encerrada"},
+		{"falha qualquer", errors.New("cano quebrado"), "cano quebrado"},
+	}
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			if got := provider.turnError(&acp.PromptError{Accepted: true, Err: caso.err}); !strings.Contains(got, caso.trata) {
+				t.Errorf("turnError = %q, quer conter %q", got, caso.trata)
+			}
+		})
 	}
 }
 
