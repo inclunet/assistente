@@ -120,6 +120,8 @@ type espiao struct {
 	ordem         []string
 	erro          string
 	naoRetentavel bool
+	ferramentas   []AgentToolEvent
+	segmentos     int
 	pronto        bool
 	respostaFim   string
 	modeloFim     string
@@ -159,7 +161,32 @@ func (e *espiao) OnDone(fullResponse string, _ Usage, model string) {
 }
 func (e *espiao) OnMCPToolEvent(MCPToolEvent) {}
 
+// O espião também recebe a atividade do agente: ferramentas e fim de segmento.
+func (e *espiao) OnAgentToolEvent(event AgentToolEvent) {
+	e.ferramentas = append(e.ferramentas, event)
+	e.ordem = append(e.ordem, "tool_"+event.Status)
+}
+func (e *espiao) OnSegmentDone() {
+	e.segmentos++
+	e.ordem = append(e.ordem, "segment_done")
+}
+
 func (e *espiao) texto() string { return strings.Join(e.chunks, "") }
+
+// espiaoSurdo é um handler que não sabe receber atividade de agente: o turno
+// precisa seguir entregando texto para ele.
+type espiaoSurdo struct {
+	chunks []string
+	pronto bool
+}
+
+func (e *espiaoSurdo) OnChunk(content string)                        { e.chunks = append(e.chunks, content) }
+func (e *espiaoSurdo) OnThinking(string)                             {}
+func (e *espiaoSurdo) OnThinkingDone(string)                         {}
+func (e *espiaoSurdo) OnToolCalls([]ToolCall, string, Usage, string) {}
+func (e *espiaoSurdo) OnError(string)                                {}
+func (e *espiaoSurdo) OnDone(string, Usage, string)                  { e.pronto = true }
+func (e *espiaoSurdo) OnMCPToolEvent(MCPToolEvent)                   {}
 
 // ==================== Turno ====================
 
@@ -296,6 +323,207 @@ func TestTurnoInterrompidoNaoAnunciaFalha(t *testing.T) {
 	}
 	if handler.pronto {
 		t.Error("interrupção concluiu o turno como resposta completa")
+	}
+}
+
+// ==================== Ferramentas do agente e segmentos ====================
+
+func TestFerramentaDoAgenteViraAtividadeENaoExecucao(t *testing.T) {
+	sessao := &agenteFalso{updates: []acp.Update{
+		{Kind: acp.UpdateText, Text: "vou procurar o TODO"},
+		{Kind: acp.UpdateToolStart, Tool: &acp.ToolCall{
+			ID: "call-1", Kind: "search", Title: "grep -rn \"TODO\"", Status: "pending",
+		}},
+		{Kind: acp.UpdateToolProgress, Tool: &acp.ToolCall{ID: "call-1", Status: "completed"}},
+		{Kind: acp.UpdateText, Text: "achei na linha 12."},
+	}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "cadê o TODO?"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	// O bloco de texto anterior à ferramenta fecha na hora: quem ouve acompanha
+	// o trabalho do agente em vez de esperar o turno inteiro (D13).
+	esperada := []string{"chunk", "segment_done", "tool_running", "tool_completed", "chunk", "done"}
+	if strings.Join(handler.ordem, ",") != strings.Join(esperada, ",") {
+		t.Errorf("ordem = %v, quer %v", handler.ordem, esperada)
+	}
+	// Executar ferramenta de agente é coisa do agente: OnToolCalls mandaria o
+	// turno para o loop agêntico do app (D7).
+	for _, evento := range handler.ordem {
+		if evento == "tool_calls" {
+			t.Fatal("provider ACP não pode pedir execução de ferramenta ao app")
+		}
+	}
+	if len(handler.ferramentas) != 2 {
+		t.Fatalf("esperava início e fim da ferramenta, obtive %+v", handler.ferramentas)
+	}
+	inicio := handler.ferramentas[0]
+	if inicio.Kind != "search" || inicio.Title != "grep -rn \"TODO\"" || inicio.ID != "call-1" {
+		t.Errorf("início da ferramenta = %+v", inicio)
+	}
+	// A resposta salva é o turno inteiro, mesmo com o texto cortado em blocos.
+	if handler.respostaFim != "vou procurar o TODOachei na linha 12." {
+		t.Errorf("resposta final = %q, quer o turno inteiro", handler.respostaFim)
+	}
+}
+
+func TestAtualizacaoDeFerramentaHerdaOQueOComecoAnunciou(t *testing.T) {
+	// A atualização traz só o que mudou; sem herdar, o fim da ferramenta
+	// chegaria sem nome e sem resumo à tela e ao anúncio.
+	sessao := &agenteFalso{updates: []acp.Update{
+		{Kind: acp.UpdateToolStart, Tool: &acp.ToolCall{
+			ID: "call-1", Kind: "execute", Title: "npm test", Status: "in_progress",
+		}},
+		{Kind: acp.UpdateToolProgress, Tool: &acp.ToolCall{ID: "call-1", Status: "failed"}},
+	}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "roda o teste"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if len(handler.ferramentas) != 2 {
+		t.Fatalf("esperava início e fim, obtive %+v", handler.ferramentas)
+	}
+	fim := handler.ferramentas[1]
+	if fim.Kind != "execute" || fim.Title != "npm test" {
+		t.Errorf("fim da ferramenta = %+v, quer herdar classe e título do começo", fim)
+	}
+	if fim.Status != AgentToolFailed {
+		t.Errorf("status = %q, quer falha", fim.Status)
+	}
+}
+
+func TestAvisoRepetidoDeConclusaoNaoCriaFerramentaFantasma(t *testing.T) {
+	// Para o handler, um fim sem começo é ferramenta nova: o aviso repetido
+	// abriria um segundo item na tela e um segundo anúncio.
+	sessao := &agenteFalso{updates: []acp.Update{
+		{Kind: acp.UpdateToolStart, Tool: &acp.ToolCall{ID: "call-1", Kind: "read", Status: "in_progress"}},
+		{Kind: acp.UpdateToolProgress, Tool: &acp.ToolCall{ID: "call-1", Status: "completed"}},
+		{Kind: acp.UpdateToolProgress, Tool: &acp.ToolCall{ID: "call-1", Status: "completed"}},
+	}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "lê o arquivo"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if len(handler.ferramentas) != 2 {
+		t.Errorf("esperava início e um único fim, obtive %+v", handler.ferramentas)
+	}
+}
+
+func TestRotuloDeFerramentaChegaSaneadoAoAnuncio(t *testing.T) {
+	// Título é dado não confiável: pode ser a linha de comando literal, com
+	// escape de terminal e quebra de linha (AEP-0084 D11).
+	sessao := &agenteFalso{updates: []acp.Update{
+		{Kind: acp.UpdateToolStart, Tool: &acp.ToolCall{
+			ID:     "call-1",
+			Kind:   "rm -rf /",
+			Title:  "\x1b[31mgit commit\n-m \"pronto\"\x1b[0m",
+			Status: "in_progress",
+		}},
+	}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "commita"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if len(handler.ferramentas) == 0 {
+		t.Fatal("a ferramenta não chegou ao barramento")
+	}
+	inicio := handler.ferramentas[0]
+	if inicio.Title != "git commit -m \"pronto\"" {
+		t.Errorf("título = %q, quer saneado e em linha única", inicio.Title)
+	}
+	// A classe vira o nome anunciado da ferramenta; fora do conjunto do
+	// protocolo, o agente estaria escrevendo direto no leitor de telas.
+	if inicio.Kind != AgentToolKindOther {
+		t.Errorf("classe = %q, quer %q para valor fora do protocolo", inicio.Kind, AgentToolKindOther)
+	}
+}
+
+func TestFerramentaSemTextoAntesNaoAbreSegmentoVazio(t *testing.T) {
+	sessao := &agenteFalso{updates: []acp.Update{
+		{Kind: acp.UpdateToolStart, Tool: &acp.ToolCall{ID: "call-1", Kind: "read", Status: "in_progress"}},
+		{Kind: acp.UpdateToolProgress, Tool: &acp.ToolCall{ID: "call-1", Status: "completed"}},
+		{Kind: acp.UpdateToolStart, Tool: &acp.ToolCall{ID: "call-2", Kind: "read", Status: "in_progress"}},
+		{Kind: acp.UpdateText, Text: "li os dois arquivos."},
+	}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "lê os arquivos"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if handler.segmentos != 0 {
+		t.Errorf("segmentos = %d, quer nenhum: não houve bloco de texto para fechar", handler.segmentos)
+	}
+	// O texto final não vira segmento: ele é a mensagem do assistente, e falá-lo
+	// duas vezes seria repetir a resposta para quem ouve.
+	if handler.respostaFim != "li os dois arquivos." {
+		t.Errorf("resposta final = %q", handler.respostaFim)
+	}
+}
+
+func TestInterrupcaoFechaFerramentaQueFicouGirando(t *testing.T) {
+	sessao := &agenteFalso{
+		updates: []acp.Update{
+			{Kind: acp.UpdateToolStart, Tool: &acp.ToolCall{
+				ID: "call-1", Kind: "execute", Title: "npm run build", Status: "in_progress",
+			}},
+		},
+		esperaCancelamento: true,
+	}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+	provider.StreamChat(ctx,
+		[]Message{{Role: "user", Content: "builda"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	// Este caminho não passa por OnDone nem por OnError, que são onde o handler
+	// faz a limpeza: sem desfecho, a ferramenta gira na tela para sempre.
+	if len(handler.ferramentas) != 2 {
+		t.Fatalf("esperava início e desfecho da ferramenta, obtive %+v", handler.ferramentas)
+	}
+	fim := handler.ferramentas[1]
+	if fim.Status != AgentToolCancelled {
+		t.Errorf("status = %q, quer cancelamento", fim.Status)
+	}
+	if fim.Kind != "execute" || fim.Title != "npm run build" {
+		t.Errorf("desfecho perdeu o que a ferramenta anunciou: %+v", fim)
+	}
+}
+
+func TestHandlerSemCanalDeAtividadeAindaRecebeOTurno(t *testing.T) {
+	sessao := &agenteFalso{updates: []acp.Update{
+		{Kind: acp.UpdateText, Text: "oi"},
+		{Kind: acp.UpdateToolStart, Tool: &acp.ToolCall{ID: "call-1", Kind: "read", Status: "in_progress"}},
+		{Kind: acp.UpdateText, Text: " tudo bem"},
+	}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiaoSurdo{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "oi"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if strings.Join(handler.chunks, "") != "oi tudo bem" || !handler.pronto {
+		t.Errorf("turno incompleto para handler sem canal de atividade: %+v", handler)
 	}
 }
 
