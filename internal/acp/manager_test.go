@@ -484,6 +484,44 @@ func TestShutdownDerrubaOsProcessosMasGuardaOsRegistros(t *testing.T) {
 	}
 }
 
+func TestTrocaDeUsuarioNaoHerdaOProcessoNemASessao(t *testing.T) {
+	ctx := context.Background()
+	daAna := newFakeManagedClient()
+	doLeo := newFakeManagedClient()
+	clientes := []*fakeManagedClient{daAna, doLeo}
+
+	dials := 0
+	m := NewManager(ManagerConfig{
+		Store:   newMemoryStore(),
+		WorkDir: func() (string, error) { return "/projeto", nil },
+		Dial: func(Config, RequestHandler) (Client, error) {
+			c := clientes[dials]
+			dials++
+			return c, nil
+		},
+	})
+
+	if _, err := m.Conversation(ctx, testSpec(), "conv-da-ana"); err != nil {
+		t.Fatalf("conversa da ana: %v", err)
+	}
+	m.DisconnectAll()
+
+	if _, _, fechado := daAna.counters(); !fechado {
+		t.Fatal("o agente da pessoa que saiu continuou de pé")
+	}
+	// Mesmo id de provider, outra pessoa: precisa ser outro processo, senão a
+	// conversa dela fala com o agente que a anterior configurou.
+	if _, err := m.Conversation(ctx, testSpec(), "conv-do-leo"); err != nil {
+		t.Fatalf("conversa do leo: %v", err)
+	}
+	if dials != 2 {
+		t.Fatalf("processos criados = %d, esperado 2 depois da troca de usuário", dials)
+	}
+	if novas, _, _ := doLeo.counters(); novas != 1 {
+		t.Fatalf("o agente novo abriu %d sessões, esperado 1", novas)
+	}
+}
+
 func TestSessaoPerdidaEhRemontadaNoProximoUso(t *testing.T) {
 	store := newMemoryStore()
 	client := newFakeManagedClient()

@@ -108,7 +108,7 @@ type ManagerConfig struct {
 // GetChatProvider devolve uma instância nova a cada chamada, então guardar
 // processo ou sessão dentro dela daria um agente por turno — e a fila que
 // impede dois turnos simultâneos na mesma sessão (D10) guardaria nada, porque
-// cada goroteia seguraria o mutex de um objeto diferente. Aqui a fila vem de
+// cada goroutine seguraria o mutex de um objeto diferente. Aqui a fila vem de
 // graça: as duas goroutines do barge-in recebem a mesma Session.
 type Manager struct {
 	store         SessionStore
@@ -280,10 +280,25 @@ func (m *Manager) CloseConversation(ctx context.Context, conversationID string) 
 	return errors.Join(errs...)
 }
 
-// Shutdown derruba os processos dos agentes. Os registros das sessões ficam no
-// banco de propósito: o agente costuma sobreviver ao app e, na volta, o
-// session/load recupera a conversa de onde ela parou (AEP-0084 D4).
+// DisconnectAll derruba os processos e esquece as sessões em memória, deixando
+// o serviço utilizável. É o que a troca de usuário precisa: identificador de
+// provider se repete entre pessoas, e um processo herdado faria a conversa de
+// uma falar com o agente que a outra configurou (AEP-0052).
+//
+// Os registros no banco ficam — eles são por usuário, e cada um reencontra os
+// seus no próximo login.
+func (m *Manager) DisconnectAll() {
+	m.drop(false)
+}
+
+// Shutdown derruba os processos dos agentes e fecha o serviço. Os registros das
+// sessões ficam no banco de propósito: o agente costuma sobreviver ao app e, na
+// volta, o session/load recupera a conversa de onde ela parou (AEP-0084 D4).
 func (m *Manager) Shutdown() {
+	m.drop(true)
+}
+
+func (m *Manager) drop(closing bool) {
 	m.mu.Lock()
 	procs := make([]*agentProcess, 0, len(m.procs))
 	for _, proc := range m.procs {
@@ -291,7 +306,9 @@ func (m *Manager) Shutdown() {
 	}
 	m.procs = make(map[string]*agentProcess)
 	m.convs = make(map[string]*Conversation)
-	m.closed = true
+	if closing {
+		m.closed = true
+	}
 	m.mu.Unlock()
 
 	for _, proc := range procs {

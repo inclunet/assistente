@@ -286,6 +286,9 @@ func (a *App) rollbackLoginState(refreshToken string) {
 	if a.mcpMgr != nil {
 		a.mcpMgr.DisconnectAll()
 	}
+	if a.acpMgr != nil {
+		a.acpMgr.DisconnectAll()
+	}
 }
 
 func (a *App) RefreshAuth(req RefreshRequest) (*AuthUser, error) {
@@ -887,6 +890,11 @@ func (a *App) stopUserScopedRuntime() {
 	}
 	if a.mcpMgr != nil {
 		a.mcpMgr.DisconnectAll()
+	}
+	// Sem isso o processo do agente da pessoa que saiu continuaria de pé e
+	// seria reaproveitado por quem entrar com um provider de mesmo id.
+	if a.acpMgr != nil {
+		a.acpMgr.DisconnectAll()
 	}
 }
 
