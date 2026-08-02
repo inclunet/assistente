@@ -123,6 +123,56 @@ func TestEdicaoConsegueLimparOsArgumentosDoAgente(t *testing.T) {
 	}
 }
 
+// Voltar um agente para HTTP tem que ser edição, e não apagar e recriar: o
+// comando antigo sai junto com o formato, senão a própria validação — que
+// recusa comando em provedor HTTP — travaria a mudança.
+func TestAgentePodeVoltarASerProvedorHTTP(t *testing.T) {
+	svc, _ := acpService(t)
+	ctx := context.Background()
+	if _, err := svc.Create(ctx, CreateRequest{
+		ID: "cursor", Name: "Cursor", APIFormat: string(llm.APIFormatACP),
+		ACPCommand: "cursor-agent", ACPArgs: []string{"acp"},
+		ACPEnv: map[string]string{"CURSOR_LOG": "debug"},
+	}); err != nil {
+		t.Fatalf("Create falhou: %v", err)
+	}
+
+	res, err := svc.Update(ctx, "cursor", UpdateRequest{
+		APIFormat: string(llm.APIFormatOpenAI),
+		BaseURL:   "https://api.openai.com/v1",
+	})
+	if err != nil {
+		t.Fatalf("Update falhou: %v", err)
+	}
+	if res.Provider.ACPCommand != "" || len(res.Provider.ACPArgs) != 0 || len(res.Provider.ACPEnv) != 0 {
+		t.Errorf("sobrou configuração de agente: %+v", res.Provider)
+	}
+	if res.Provider.CredentialPattern != "api.openai.com" {
+		t.Errorf("credential_pattern = %q, esperado o hostname novo", res.Provider.CredentialPattern)
+	}
+}
+
+// Mandar comando de agente para um provedor que continua HTTP é engano de quem
+// edita: recusar avisa, e limpar em silêncio deixaria a pessoa achando que
+// configurou alguma coisa.
+func TestComandoDeAgenteEmProvedorHTTPEhRecusadoNaEdicao(t *testing.T) {
+	svc, _ := acpService(t)
+	ctx := context.Background()
+	if _, err := svc.Create(ctx, CreateRequest{
+		ID: "openai", Name: "OpenAI", Type: string(llm.ProviderOpenAI),
+		BaseURL: "https://api.openai.com/v1",
+	}); err != nil {
+		t.Fatalf("Create falhou: %v", err)
+	}
+
+	if _, err := svc.Update(ctx, "openai", UpdateRequest{ACPCommand: "cursor-agent"}); err == nil {
+		t.Fatal("esperava recusa do comando em provedor HTTP")
+	}
+	if got := svc.registry.Get("openai"); got == nil || got.ACPCommand != "" {
+		t.Errorf("o provedor não deveria ter guardado o comando: %#v", got)
+	}
+}
+
 // A edição troca o provedor removendo e registrando de novo. Se a validação
 // só acontecesse no registro, uma edição inválida faria o provedor sumir da
 // lista em vez de a edição falhar.

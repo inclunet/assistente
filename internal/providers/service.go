@@ -414,6 +414,17 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	if req.ACPEnv != nil {
 		updated.ACPEnv = copyStringMap(*req.ACPEnv)
 	}
+	if !updated.IsACP() {
+		if req.ACPCommand != "" || req.ACPArgs != nil || req.ACPEnv != nil {
+			return nil, fmt.Errorf("provider '%s' não é acp: para configurar um agente, mude o api_format para %q", id, llm.APIFormatACP)
+		}
+		// Deixar de ser agente é largar o comando junto. Guardá-lo escondido
+		// travaria a própria edição — a validação recusa comando em provedor
+		// HTTP — e ressuscitaria o processo antigo se o formato voltasse.
+		updated.ACPCommand = ""
+		updated.ACPArgs = nil
+		updated.ACPEnv = nil
+	}
 	normalizeProviderRuntimeDefaults(updated)
 	if updated.IsACP() && req.APIKey != "" {
 		return nil, fmt.Errorf("provedor acp não guarda credencial no app; autentique o agente pelo CLI dele")
