@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -12,7 +13,16 @@ import (
 	"gorm.io/gorm"
 )
 
-func exportProvider(provider *database.LLMProvider) ProviderExport {
+// acpAPIFormat repete o valor de `llm.APIFormatACP` porque importar o pacote
+// `llm` aqui fecha um ciclo: o teste de `llm` usa `mcp`, e `mcp` usa este
+// pacote. A cópia é travada por teste, que compara as duas constantes.
+const acpAPIFormat = "acp"
+
+func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
+	args, err := decodeStringSlice(provider.ACPArgs)
+	if err != nil {
+		return ProviderExport{}, fmt.Errorf("erro ao decodificar argumentos do agente do provider %s: %w", provider.ID, err)
+	}
 	return ProviderExport{
 		ID:                provider.ID,
 		Name:              provider.Name,
@@ -25,7 +35,9 @@ func exportProvider(provider *database.LLMProvider) ProviderExport {
 		Timeout:           provider.Timeout,
 		CredentialPattern: provider.CredentialPattern,
 		CreatedAt:         provider.CreatedAt,
-	}
+		ACPCommand:        provider.ACPCommand,
+		ACPArgs:           args,
+	}, nil
 }
 
 func importProvider(ctx context.Context, provider ProviderExport) (bool, error) {
@@ -74,6 +86,14 @@ func overwriteProvider(ctx context.Context, provider ProviderExport) (bool, erro
 }
 
 func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, existing *database.LLMProvider) error {
+	acpArgs, err := encodeJSON(provider.ACPArgs)
+	if err != nil {
+		return fmt.Errorf("erro ao serializar argumentos do agente do provider %q: %w", provider.ID, err)
+	}
+	acpEnv, err := encodeJSON(provider.ACPEnv)
+	if err != nil {
+		return fmt.Errorf("erro ao serializar ambiente do agente do provider %q: %w", provider.ID, err)
+	}
 	createdAt := provider.CreatedAt
 	if createdAt.IsZero() {
 		if existing != nil && !existing.CreatedAt.IsZero() {
@@ -107,6 +127,9 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 			IsDefault:         provider.IsDefault,
 			Timeout:           provider.Timeout,
 			CredentialPattern: provider.CredentialPattern,
+			ACPCommand:        provider.ACPCommand,
+			ACPArgs:           acpArgs,
+			ACPEnv:            acpEnv,
 			CreatedAt:         createdAt,
 			UpdatedAt:         updatedAt,
 		}
@@ -125,6 +148,9 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	existing.IsDefault = provider.IsDefault
 	existing.Timeout = provider.Timeout
 	existing.CredentialPattern = provider.CredentialPattern
+	existing.ACPCommand = provider.ACPCommand
+	existing.ACPArgs = acpArgs
+	existing.ACPEnv = acpEnv
 	existing.CreatedAt = createdAt
 	existing.UpdatedAt = updatedAt
 	return tx.Save(existing).Error
@@ -140,6 +166,7 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 	normalized.Model = strings.TrimSpace(provider.Model)
 	normalized.DefaultModel = strings.TrimSpace(provider.DefaultModel)
 	normalized.CredentialPattern = strings.TrimSpace(provider.CredentialPattern)
+	normalized.ACPCommand = strings.TrimSpace(provider.ACPCommand)
 
 	if normalized.ID == "" {
 		return ProviderExport{}, fmt.Errorf("provider sem id não pode ser importado")
@@ -150,10 +177,47 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 	if normalized.Type == "" {
 		return ProviderExport{}, fmt.Errorf("provider %q sem type não pode ser importado", normalized.ID)
 	}
+	if isACPExport(normalized) {
+		// O agente não tem endereço: o que o encontra é o comando, e é ele que
+		// passa a ser obrigatório.
+		if normalized.ACPCommand == "" {
+			return ProviderExport{}, fmt.Errorf("provider %q em formato acp sem acpCommand não pode ser importado", normalized.ID)
+		}
+		return normalized, nil
+	}
+	// Configuração de agente fora do formato acp não teria leitor: nenhum
+	// caminho HTTP sobe processo. Recusar avisa quem montou o arquivo; guardar
+	// em silêncio deixaria a pessoa achando que configurou alguma coisa.
+	if normalized.ACPCommand != "" || len(normalized.ACPArgs) > 0 || len(normalized.ACPEnv) > 0 {
+		return ProviderExport{}, fmt.Errorf("provider %q traz configuração de agente mas apiFormat é %q; use %q", normalized.ID, normalized.APIFormat, acpAPIFormat)
+	}
 	if normalized.BaseURL == "" {
 		return ProviderExport{}, fmt.Errorf("provider %q sem baseUrl não pode ser importado", normalized.ID)
 	}
 	return normalized, nil
+}
+
+func isACPExport(provider ProviderExport) bool {
+	return strings.TrimSpace(provider.APIFormat) == acpAPIFormat
+}
+
+// acpCommandWarning conta que o agente importado não existe nesta máquina.
+// Caminho de binário é a parte do provider que não viaja: quem exportou pode
+// ter o Cursor em outro lugar, ou não tê-lo instalado aqui. O provider entra
+// assim mesmo — corrigir o comando é editá-lo, como em qualquer outro — mas
+// entrar calado faria a primeira conversa falhar sem explicação.
+func acpCommandWarning(provider ProviderExport) string {
+	if !isACPExport(provider) {
+		return ""
+	}
+	command := strings.TrimSpace(provider.ACPCommand)
+	if command == "" {
+		return ""
+	}
+	if _, err := exec.LookPath(command); err == nil {
+		return ""
+	}
+	return fmt.Sprintf("Provider %q usa o agente %q, que não foi encontrado nesta máquina. Instale o agente ou edite o comando do provider antes de usá-lo.", provider.ID, command)
 }
 
 func findExistingProviderByID(ctx context.Context, providerID string) (*database.LLMProvider, error) {

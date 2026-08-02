@@ -549,7 +549,10 @@ formulário do frontend exige `http(s)`. As mudanças:
   do agente, fora do app;
 - export/import (`ProviderExport`) hoje carrega `BaseURL` como obrigatório e não
   tem onde guardar comando e argumentos. Ganha os campos novos, com o
-  `MCPServerExport` como precedente — ele já exporta `Command`/`Args`. Caminho
+  `MCPServerExport` como precedente — ele já exporta `Command`/`Args`. O
+  **ambiente fica de fora do arquivo exportado** e só é aceito na importação,
+  pela mesma razão que o `Env` do MCP: variável de ambiente de processo é onde
+  token costuma parar, e arquivo de export viaja entre máquinas. Caminho
   de binário é específico da máquina: na importação, um provider ACP cujo
   comando não existe **entra com aviso**, em vez de falhar a importação inteira.
   Não existe provider desativado no app — nem coluna, nem efeito na resolução de
