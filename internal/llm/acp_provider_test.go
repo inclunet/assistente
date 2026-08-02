@@ -161,8 +161,10 @@ func (e *espiao) texto() string { return strings.Join(e.chunks, "") }
 func TestTurnoDoAgenteEntregaRaciocinioEResposta(t *testing.T) {
 	sessao := &agenteFalso{updates: []acp.Update{
 		{Kind: acp.UpdateThought, Text: "vou ler o arquivo"},
-		{Kind: acp.UpdateThought, Text: " e conferir o teste"},
 		{Kind: acp.UpdateText, Text: "Encontrei o problema"},
+		// O agente volta a pensar no meio do turno, e é comum: quem fecha o
+		// raciocínio a cada troca faz a UI piscar "pensando" durante o texto.
+		{Kind: acp.UpdateThought, Text: " e conferir o teste"},
 		{Kind: acp.UpdateText, Text: " na linha 12."},
 	}}
 	provider := providerDeAgente(t, sessao)
@@ -187,9 +189,9 @@ func TestTurnoDoAgenteEntregaRaciocinioEResposta(t *testing.T) {
 	if got, want := handler.modeloFim, "auto"; got != want {
 		t.Errorf("modelo do turno = %q, quer %q", got, want)
 	}
-	// O raciocínio precisa fechar antes do primeiro texto, senão a UI segue
-	// anunciando "pensando" enquanto a resposta já está sendo escrita.
-	want := []string{"thinking", "thinking", "thinking_done", "chunk", "chunk", "done"}
+	// O raciocínio fecha uma vez, no fim do turno, como nos demais provedores
+	// do barramento — e nunca reabre.
+	want := []string{"thinking", "chunk", "thinking", "chunk", "thinking_done", "done"}
 	if strings.Join(handler.ordem, ",") != strings.Join(want, ",") {
 		t.Errorf("ordem dos eventos = %v, quer %v", handler.ordem, want)
 	}

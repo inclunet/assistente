@@ -231,10 +231,6 @@ type acpTurn struct {
 func (t *acpTurn) update(update acp.Update) {
 	switch update.Kind {
 	case acp.UpdateText:
-		// Voltar a escrever encerra o raciocínio: o pensamento é do trecho que
-		// veio antes, e deixá-lo aberto manteria a UI "pensando" durante a
-		// resposta.
-		t.finishThinking()
 		t.text.WriteString(update.Text)
 		t.handler.OnChunk(update.Text)
 	case acp.UpdateThought:
@@ -244,6 +240,11 @@ func (t *acpTurn) update(update acp.Update) {
 	}
 }
 
+// finishThinking fecha o raciocínio do turno, uma vez só e no fim, como fazem
+// os demais provedores do barramento. Um agente alterna pensamento e resposta
+// várias vezes no mesmo turno, e fechar a cada troca faria a UI abrir e fechar
+// o estado de "pensando" no meio do texto — barulho que nenhum outro provedor
+// produz.
 func (t *acpTurn) finishThinking() {
 	if !t.thinking {
 		return
