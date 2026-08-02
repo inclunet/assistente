@@ -89,6 +89,32 @@ type LLMProvider struct {
 	UpdatedAt  time.Time
 }
 
+// ACPSession vincula uma conversa do app à sessão que o agente de código mantém
+// do lado dele (AEP-0084 D4). É o registro que faz a conversa sobreviver ao
+// restart: com um agente ACP o histórico vive na sessão dele, não em mensagens
+// reenviadas a cada turno, então perder esta linha é perder a memória do agente
+// e deixar uma sessão órfã aberta lá.
+type ACPSession struct {
+	UUIDModel
+	// Uma conversa tem no máximo uma sessão por provider. O provider entra na
+	// chave porque trocar de perfil no meio da conversa pode trocar de agente,
+	// e voltar ao anterior deve reencontrar a sessão que ele ainda lembra.
+	UserID         string `gorm:"uniqueIndex:idx_acp_sessions_scope"`
+	ConversationID string `gorm:"index;uniqueIndex:idx_acp_sessions_scope;not null"`
+	ProviderID     string `gorm:"uniqueIndex:idx_acp_sessions_scope;not null"`
+	// SessionID é o identificador que o agente atribuiu, guardado exatamente
+	// como ele mandou: é ele que volta no session/load.
+	SessionID string `gorm:"not null"`
+	// PromptPrefixHash resume o prefixo estável do perfil (persona, skills) que
+	// esta sessão já ouviu. Mora aqui, e não na conversa, porque quem lembra é
+	// a sessão: sessão nova é agente sem memória nenhuma, e tudo é dito de novo.
+	PromptPrefixHash string
+	// Cwd é o diretório com que a sessão foi aberta (AEP-0084 D5). Retomá-la em
+	// outro diretório seria continuar a conversa sobre outros arquivos, então
+	// uma mudança aqui recria a sessão em vez de retomar.
+	Cwd string
+}
+
 // ==================== Conversation & Messages ====================
 
 // Kinds de conversa (AEP-0068). Conversas normais têm Kind="" (vazio);
