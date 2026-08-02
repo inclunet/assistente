@@ -108,7 +108,7 @@ func TestChatRequest_DisabledToolsPattern(t *testing.T) {
 		Temperature: 0.7,
 		MaxTokens:   2000,
 		Tools:       llmToolDefs, // nil
-		ToolChoice:  nil,          // nil
+		ToolChoice:  nil,         // nil
 	}
 
 	// Serializar
@@ -177,7 +177,7 @@ func TestStreamChatRequest_NoToolsWhenDisabled(t *testing.T) {
 
 	// Simular DisableTools=true: llmToolDefs é nil (não slice vazio)
 	var tools []ToolDefinition // nil
-	var toolChoice interface{}  // nil
+	var toolChoice interface{} // nil
 
 	// Construir request como StreamChat faria
 	body := ChatRequest{

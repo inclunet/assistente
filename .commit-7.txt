@@ -1,0 +1,14 @@
+Chamadas sem identificador não engolem uma a outra
+
+O protocolo exige identificador de tool call, mas o Cursor já mandou sem —
+o handler inclusive correlaciona por classe quando isso acontece. No
+provider, porém, todas as chamadas anônimas caíam na mesma chave: a
+primeira a concluir marcava a chave como encerrada e a seguinte era
+descartada em silêncio, sem aparecer na tela nem no anúncio.
+
+A chave de acompanhamento passa a distinguir a chamada anônima por classe,
+e uma chamada anônima concluída libera a chave para a próxima, como o
+handler já faz. O identificador que vai no evento continua sendo o do
+agente, vazio inclusive.
+
+Junto: leitura final só com espaço em branco não vira pedido de fala.

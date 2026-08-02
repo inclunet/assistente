@@ -14,8 +14,8 @@ func TestEstimateTokens(t *testing.T) {
 		expected int
 	}{
 		{"", 0},
-		{"abcd", 1},    // 4 chars = 1 token
-		{"abcde", 2},   // 5 chars = 2 tokens (ceil)
+		{"abcd", 1},     // 4 chars = 1 token
+		{"abcde", 2},    // 5 chars = 2 tokens (ceil)
 		{"12345678", 2}, // 8 chars = 2 tokens
 	}
 	for _, tt := range tests {

@@ -73,8 +73,8 @@ func (m msgRepoStub) SearchMessages(context.Context, string, int) ([]chat.Messag
 
 type capturingMsgRepo struct {
 	conversationID string
-	lastContent  string
-	lastToolCall string
+	lastContent    string
+	lastToolCall   string
 }
 
 func (m *capturingMsgRepo) CreateMessage(context.Context, chat.MessageOptions) (*chat.Message, error) {

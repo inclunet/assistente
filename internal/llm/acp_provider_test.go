@@ -446,6 +446,36 @@ func TestAvisoRepetidoDeConclusaoNaoCriaFerramentaFantasma(t *testing.T) {
 	}
 }
 
+func TestChamadasSemIdentificadorNaoEngolemUmaAOutra(t *testing.T) {
+	// O protocolo exige identificador, mas o Cursor já mandou sem. Guardadas sob
+	// a mesma chave, a primeira chamada concluída faria o app calar a seguinte.
+	sessao := &agenteFalso{updates: []acp.Update{
+		{Kind: acp.UpdateToolStart, Tool: &acp.ToolCall{Kind: "read", Title: "lendo a.go", Status: "in_progress"}},
+		{Kind: acp.UpdateToolProgress, Tool: &acp.ToolCall{Kind: "read", Status: "completed"}},
+		{Kind: acp.UpdateToolStart, Tool: &acp.ToolCall{Kind: "read", Title: "lendo b.go", Status: "in_progress"}},
+		{Kind: acp.UpdateToolProgress, Tool: &acp.ToolCall{Kind: "read", Status: "completed"}},
+	}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "lê os dois"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if len(handler.ferramentas) != 4 {
+		t.Fatalf("esperava começo e fim das duas chamadas, obtive %+v", handler.ferramentas)
+	}
+	// A segunda chamada não herda o título da primeira: são leituras diferentes.
+	if handler.ferramentas[2].Title != "lendo b.go" || handler.ferramentas[3].Title != "lendo b.go" {
+		t.Errorf("a segunda chamada anônima veio com o rótulo da primeira: %+v", handler.ferramentas[2:])
+	}
+	for _, ferramenta := range handler.ferramentas {
+		if ferramenta.ID != "" {
+			t.Errorf("identificador inventado vazou para o barramento: %+v", ferramenta)
+		}
+	}
+}
+
 func TestRotuloDeFerramentaChegaSaneadoAoAnuncio(t *testing.T) {
 	// Título é dado não confiável: pode ser a linha de comando literal, com
 	// escape de terminal e quebra de linha (AEP-0084 D11).

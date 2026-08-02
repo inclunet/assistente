@@ -310,7 +310,7 @@ func (s *Service) SaveAndFinish(
 	if result.ReadInSegments {
 		speech = result.RemainingSpeech
 	}
-	if s.onSpeechRequest != nil && speech != "" {
+	if s.onSpeechRequest != nil && strings.TrimSpace(speech) != "" {
 		s.onSpeechRequest(conversationID, savedMsgID, "assistant", speech, "assistant_message", profileSlug, true)
 	}
 

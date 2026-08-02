@@ -273,6 +273,9 @@ type acpTurn struct {
 // agentToolState é o que o app precisa lembrar de uma chamada entre o começo e
 // o fim dela, já saneado.
 type agentToolState struct {
+	// id é o identificador que veio do agente, que pode ser vazio: a chave de
+	// acompanhamento é outra coisa, e quem recebe o evento precisa do original.
+	id    string
 	kind  string
 	title string
 	// done marca a chamada que já teve desfecho. Um agente que repete o aviso
@@ -304,10 +307,12 @@ func (t *acpTurn) toolActivity(call *acp.ToolCall) {
 	if t.activity == nil || call == nil {
 		return
 	}
-	state, seen := t.tools[call.ID]
+	key, anonymous := trackingKey(call)
+	state, seen := t.tools[key]
 	if state.done {
 		return
 	}
+	state.id = call.ID
 	// A atualização de uma chamada traz só o que mudou; o campo que vier vazio
 	// continua valendo o que foi anunciado no começo.
 	if strings.TrimSpace(call.Kind) != "" {
@@ -330,11 +335,22 @@ func (t *acpTurn) toolActivity(call *acp.ToolCall) {
 		if t.tools == nil {
 			t.tools = map[string]agentToolState{}
 		}
-		t.toolOrder = append(t.toolOrder, call.ID)
+		t.toolOrder = append(t.toolOrder, key)
 	}
+
 	status := agentToolStatus(call.Status)
-	state.done = status != AgentToolRunning
-	t.tools[call.ID] = state
+	switch {
+	case status == AgentToolRunning:
+		t.tools[key] = state
+	case anonymous:
+		// A próxima chamada anônima da mesma classe é outra chamada e precisa de
+		// estado limpo; guardar a anterior como concluída engoliria os eventos
+		// dela.
+		delete(t.tools, key)
+	default:
+		state.done = true
+		t.tools[key] = state
+	}
 
 	t.activity.OnAgentToolEvent(AgentToolEvent{
 		ID:     call.ID,
@@ -342,6 +358,18 @@ func (t *acpTurn) toolActivity(call *acp.ToolCall) {
 		Title:  state.title,
 		Status: status,
 	})
+}
+
+// trackingKey escolhe como acompanhar a chamada entre o começo e o fim dela. O
+// protocolo exige identificador, mas o Cursor já mandou tool call sem — e, sem
+// ele, a classe é o que resta para ligar as pontas, que é como o handler
+// também correlaciona. Guardar duas chamadas anônimas sob a mesma chave faria
+// uma engolir os eventos da outra.
+func trackingKey(call *acp.ToolCall) (key string, anonymous bool) {
+	if call.ID != "" {
+		return call.ID, false
+	}
+	return "\x00anônima:" + agentToolKind(call.Kind), true
 }
 
 // cutSegment fecha o bloco corrente de resposta. Sem texto novo desde o último
@@ -362,15 +390,15 @@ func (t *acpTurn) cancelPendingTools() {
 	if t.activity == nil {
 		return
 	}
-	for _, id := range t.toolOrder {
-		state := t.tools[id]
-		if state.done {
+	for _, key := range t.toolOrder {
+		state, running := t.tools[key]
+		if !running || state.done {
 			continue
 		}
 		state.done = true
-		t.tools[id] = state
+		t.tools[key] = state
 		t.activity.OnAgentToolEvent(AgentToolEvent{
-			ID:     id,
+			ID:     state.id,
 			Kind:   state.kind,
 			Title:  state.title,
 			Status: AgentToolCancelled,

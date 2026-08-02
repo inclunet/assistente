@@ -423,7 +423,7 @@ func (h *recordingHandler) OnChunk(string)                                {}
 func (h *recordingHandler) OnThinking(string)                             {}
 func (h *recordingHandler) OnThinkingDone(string)                         {}
 func (h *recordingHandler) OnToolCalls([]ToolCall, string, Usage, string) {}
-func (h *recordingHandler) OnError(err string)                           { h.lastError = err }
+func (h *recordingHandler) OnError(err string)                            { h.lastError = err }
 func (h *recordingHandler) OnDone(string, Usage, string)                  { h.doneCount++ }
 func (h *recordingHandler) OnMCPToolEvent(MCPToolEvent)                   {}
 

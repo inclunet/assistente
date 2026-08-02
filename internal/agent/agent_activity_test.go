@@ -335,6 +335,21 @@ func TestLeituraFinalNaoRepeteOQueJaFoiFaladoEmSegmentos(t *testing.T) {
 	}
 }
 
+func TestFinalSoComEspacoNaoViraPedidoDeFala(t *testing.T) {
+	emitter := &mockEmitter{}
+	var fala []speechCall
+	handler := novoHandlerDeAgente(t, emitter, &fala)
+
+	handler.OnChunk("bloco único.")
+	handler.OnSegmentDone()
+	handler.OnChunk("\n")
+	handler.OnDone("bloco único.\n", llm.Usage{}, "agente")
+
+	if len(fala) != 1 || fala[0].origin != "segment" {
+		t.Errorf("fala=%+v, esperava só a do segmento: não sobrou texto para ler", fala)
+	}
+}
+
 func TestTurnoSemSegmentoLeAMensagemInteira(t *testing.T) {
 	emitter := &mockEmitter{}
 	var fala []speechCall
