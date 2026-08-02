@@ -28,6 +28,7 @@ import { normalizePathKey } from '../utils/path';
 import { useEditorInlineChatPatch } from '../hooks/useEditorInlineChatPatch';
 import type { MediaFile } from '../services/mediaService';
 import type { Message } from '../store/chatStore';
+import { isAppToolEvent } from '../types/chat';
 import { GetProfile } from '@wailsjs/go/app/App';
 import {
   buildEditorInlineChatSurfaceContext,
@@ -465,14 +466,16 @@ export function useEditorInlineChat({
 
       const donePromise = waitForChatDone(expectedConversationId);
       if (filePathBeforeToolTurn) {
-        unsubscribeEditorApplyToolStart = EventsOn('chat:tool_start', (data: { conversationId?: string; name?: string }) => {
+        unsubscribeEditorApplyToolStart = EventsOn('chat:tool_start', (data: { conversationId?: string; name?: string; origin?: string }) => {
           if (String(data?.conversationId || '') !== expectedConversationId) return;
+          if (!isAppToolEvent(data?.origin)) return;
           if (EDITOR_APPLY_TOOL_NAMES.has(String(data?.name || ''))) {
             sawEditorApplyTool = true;
           }
         });
-        unsubscribeEditorApplyToolEnd = EventsOn('chat:tool_end', (data: { conversationId?: string; name?: string; status?: string }) => {
+        unsubscribeEditorApplyToolEnd = EventsOn('chat:tool_end', (data: { conversationId?: string; name?: string; status?: string; origin?: string }) => {
           if (String(data?.conversationId || '') !== expectedConversationId) return;
+          if (!isAppToolEvent(data?.origin)) return;
           if (!EDITOR_APPLY_TOOL_NAMES.has(String(data?.name || ''))) return;
           if (String(data?.status || '') !== 'error') {
             sawEditorApplyToolSuccess = true;

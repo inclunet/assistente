@@ -10,6 +10,10 @@ const (
 	OriginBuiltin   = "builtin"
 	OriginMCPBridge = "mcp_bridge"
 	OriginMCPNative = "mcp_native"
+	// OriginACPAgent marca ferramentas que o agente externo rodou por conta
+	// própria. Elas aparecem para informar, não porque o app agiu; quem reage a
+	// nome de tool precisa ignorá-las (AEP-0084 D7).
+	OriginACPAgent = "acp_agent"
 )
 
 // EmitToolStart emits a chat:tool_start event with the Origin field populated.

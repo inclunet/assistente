@@ -22,7 +22,13 @@ type SimpleStreamHandler struct {
 	profileSlug           string // Profile slug for TTS resolution
 	lastError             string
 	suppressTerminalError bool
+	// activity acompanha um turno conduzido por agente externo (AEP-0084):
+	// ferramentas que o agente rodou e os segmentos já fechados.
+	activity agentActivity
 }
+
+// SimpleStreamHandler também recebe a atividade de agentes externos.
+var _ llm.AgentActivitySink = (*SimpleStreamHandler)(nil)
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.
 // It is created by the owning Service so it can close over its dependencies.
@@ -55,6 +61,7 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 
 func (h *SimpleStreamHandler) OnError(err string) {
 	h.lastError = err
+	h.closePendingAgentTools()
 	h.FinishThinkingIfActive()
 	content, _ := h.Finalize()
 	if h.suppressTerminalError {
@@ -100,6 +107,7 @@ func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 }
 
 func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
+	h.closePendingAgentTools()
 	accumulatedContent, accumulatedReasoning := h.Finalize()
 
 	finalContent := fullResponse

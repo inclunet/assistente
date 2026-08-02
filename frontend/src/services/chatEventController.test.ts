@@ -568,6 +568,60 @@ describe('chatEventController', () => {
     });
   });
 
+  it('guarda a origem da ferramenta do agente para a UI não creditá-la ao app', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-acp',
+      name: 'execute',
+      callId: 'call-acp',
+      summary: 'npm test',
+      origin: 'acp_agent',
+    });
+
+    expect(sessions['conversation-1'].activeToolCalls[0]).toMatchObject({
+      name: 'execute',
+      callId: 'call-acp',
+      status: 'running',
+      summary: 'npm test',
+      origin: 'acp_agent',
+    });
+
+    emitEvent('chat:tool_end', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-acp',
+      name: 'execute',
+      callId: 'call-acp',
+      status: 'ok',
+      origin: 'acp_agent',
+    });
+
+    expect(sessions['conversation-1'].activeToolCalls[0]).toMatchObject({
+      status: 'done',
+      origin: 'acp_agent',
+    });
+
+    emitEvent('chat:segment_done', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-acp',
+      content: 'primeiro bloco',
+      hasMore: true,
+    });
+
+    const segmentoDeFerramentas = sessions['conversation-1'].completedSegments
+      .find((segment) => segment.type === 'tool_calls');
+    expect(segmentoDeFerramentas?.toolCalls?.[0]).toMatchObject({
+      id: 'call-acp',
+      origin: 'acp_agent',
+    });
+  });
+
   it('atualiza chunk sem messageId quando assistant já veio de thinking', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
