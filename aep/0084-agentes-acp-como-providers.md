@@ -534,18 +534,31 @@ formulário do frontend exige `http(s)`. As mudanças:
 - `ProviderConfig` ganha `ACPCommand`, `ACPArgs` e `ACPEnv`; `BaseURL` deixa de
   ser obrigatório **quando** `APIFormat == acp`, e a validação passa a exigir
   `ACPCommand` nesse caso;
-- a coluna `base_url` perde o `NOT NULL` (migração versionada, AEP-0076) e as
-  novas colunas entram pelo mesmo caminho;
+- as colunas novas entram por `AutoMigrate`. A coluna `base_url` **mantém** o
+  `NOT NULL`: o campo é `string` (não ponteiro), então um provider ACP grava
+  string vazia — que a coluna aceita. Tirar o `NOT NULL` no SQLite exigiria
+  recriar a tabela inteira (criar, copiar, renomear), o procedimento mais
+  arriscado do banco, para trocar vazio por nulo sem mudar comportamento
+  nenhum;
 - descoberta e health ramificam por formato: para ACP, "saudável" é **spawnar,
   fazer `initialize` e receber `authMethods`** — e a falta de autenticação vira
   um estado próprio, com a instrução (`agent login`), não um erro genérico;
-- credenciais não se aplicam: `CredentialPattern` vazio, `AuthMode` = none;
+- credenciais não se aplicam: `CredentialPattern` vazio, `AuthMode` = none.
+  Chave de API mandada para um provider ACP é **recusada** em vez de ignorada:
+  quem a informou espera que ela autentique algo, e aqui o login é feito no CLI
+  do agente, fora do app;
 - export/import (`ProviderExport`) hoje carrega `BaseURL` como obrigatório e não
   tem onde guardar comando e argumentos. Ganha os campos novos, com o
   `MCPServerExport` como precedente — ele já exporta `Command`/`Args`. Caminho
   de binário é específico da máquina: na importação, um provider ACP cujo
-  comando não existe entra **desativado com aviso**, em vez de falhar a
-  importação inteira ou fingir que funciona.
+  comando não existe **entra com aviso**, em vez de falhar a importação inteira.
+  Não existe provider desativado no app — nem coluna, nem efeito na resolução de
+  perfil — e inventar esse estado só para a importação criaria um provider
+  invisível que ninguém sabe reativar. O caminho é o oposto: o provider ACP é
+  criado como qualquer outro, escolhendo o tipo, e o formulário da Fase 3 lista
+  os agentes encontrados na máquina e deixa de pedir o que não se aplica (URL e
+  chave). Corrigir um comando errado é editar o provider, como em qualquer
+  outro.
 
 ### D13. Segmentar a resposta é responsabilidade do provider ACP
 

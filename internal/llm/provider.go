@@ -103,6 +103,13 @@ const (
 
 	APIFormatAnthropic APIFormat = "anthropic" // anthropic-sdk-go SDK — suporta MCP nativo
 	APIFormatGoogle    APIFormat = "google"    // google.golang.org/genai SDK — sem MCP nativo
+
+	// APIFormatACP é o Agent Client Protocol sobre stdio (AEP-0084). Aqui o
+	// "provedor" é um agente de código instalado na máquina, iniciado por
+	// comando, que fala JSON-RPC pela entrada e saída padrão. Não tem URL nem
+	// credencial guardada pelo app: quem autentica é o CLI do agente, fora
+	// dele. É o único formato em que `BaseURL` não faz sentido.
+	APIFormatACP APIFormat = "acp"
 )
 
 // ProviderConfig descreve um provedor LLM
@@ -122,6 +129,23 @@ type ProviderConfig struct {
 	// AuthMode controla o tratamento de credenciais. Ver `AuthMode` para detalhes.
 	// Vazio = inferido a partir de CredentialPattern (sem pattern → none, com pattern → required).
 	AuthMode AuthMode `json:"auth_mode,omitempty"`
+
+	// ACPCommand, ACPArgs e ACPEnv dizem como subir o agente quando o formato
+	// é acp. Guardamos comando e argumentos em vez de um caminho mágico
+	// porque a instalação varia por máquina: no Windows o Cursor entrega um
+	// wrapper, e o binário versionado troca de lugar a cada atualização
+	// (AEP-0084 D15). ACPEnv acrescenta variáveis ao ambiente herdado; não o
+	// substitui.
+	ACPCommand string            `json:"acp_command,omitempty"`
+	ACPArgs    []string          `json:"acp_args,omitempty"`
+	ACPEnv     map[string]string `json:"acp_env,omitempty"`
+}
+
+// IsACP diz se o provedor é um agente ACP local, e não um serviço HTTP. É a
+// pergunta que separa os caminhos que presumem URL — descoberta de modelos,
+// health, credencial por hostname — dos que falam com um processo.
+func (p *ProviderConfig) IsACP() bool {
+	return p != nil && p.GetAPIFormat() == APIFormatACP
 }
 
 // EffectiveAuthMode devolve o AuthMode resolvido, aplicando a inferência
@@ -272,12 +296,27 @@ func (p *ProviderConfig) Validate() error {
 	p.Name = strings.TrimSpace(p.Name)
 	p.BaseURL = strings.TrimSpace(p.BaseURL)
 	p.CredentialPattern = strings.TrimSpace(p.CredentialPattern)
+	p.ACPCommand = strings.TrimSpace(p.ACPCommand)
 
 	if p.ID == "" {
 		return fmt.Errorf("provider id vazio")
 	}
 	if p.Name == "" {
 		return fmt.Errorf("provider name vazio")
+	}
+	if p.IsACP() {
+		// O que endereça um agente é o comando, e é ele que passa a ser
+		// obrigatório. Exigir URL aqui seria pedir um endereço que não existe.
+		if p.ACPCommand == "" {
+			return fmt.Errorf("provider acp sem comando: informe o executável do agente")
+		}
+		return nil
+	}
+	// Comando fora do formato acp seria configuração que ninguém lê: nenhum
+	// caminho HTTP sobe processo. Recusar é melhor do que guardar em silêncio
+	// algo que a pessoa configurou esperando efeito.
+	if p.ACPCommand != "" {
+		return fmt.Errorf("provider %s tem comando de agente mas api_format é %q; use %q", p.ID, p.GetAPIFormat(), APIFormatACP)
 	}
 	if p.BaseURL == "" {
 		return fmt.Errorf("provider base_url vazio")

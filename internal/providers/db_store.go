@@ -2,9 +2,13 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/logging"
 )
 
 // DBStore implementa ProviderStore usando o banco de dados SQLite via GORM.
@@ -50,7 +54,16 @@ func (s *DBStore) Load(ctx context.Context) ([]*llm.ProviderConfig, error) {
 	}
 	result := make([]*llm.ProviderConfig, 0, len(dbProviders))
 	for _, dbP := range dbProviders {
-		result = append(result, fromDBModel(dbP))
+		p, err := fromDBModel(dbP)
+		if err != nil {
+			// Uma linha ilegível não pode derrubar a lista inteira, e também
+			// não pode virar um provedor pela metade: subir um agente de
+			// código sem os argumentos que definem o modo dele é pior do que
+			// ele não aparecer.
+			logging.Errorf(ctx, "providers.store", "[providers] provedor %q ignorado: %v", dbP.ID, err)
+			continue
+		}
+		result = append(result, p)
 	}
 	return result, nil
 }
@@ -72,7 +85,7 @@ func (s *DBStore) GetDefault(ctx context.Context) (*llm.ProviderConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	return fromDBModel(dbP), nil
+	return fromDBModel(dbP)
 }
 
 // Get retorna um provedor por ID.
@@ -84,7 +97,7 @@ func (s *DBStore) Get(ctx context.Context, id string) (*llm.ProviderConfig, erro
 	if err != nil {
 		return nil, err
 	}
-	return fromDBModel(dbP), nil
+	return fromDBModel(dbP)
 }
 
 // Count retorna a contagem total de provedores no banco.
@@ -113,10 +126,21 @@ func toDBModel(p *llm.ProviderConfig) *database.LLMProvider {
 		Timeout:           p.Timeout,
 		CredentialPattern: p.CredentialPattern,
 		AuthMode:          string(p.AuthMode),
+		ACPCommand:        p.ACPCommand,
+		ACPArgs:           encodeACPList(p.ACPArgs),
+		ACPEnv:            encodeACPMap(p.ACPEnv),
 	}
 }
 
-func fromDBModel(dbP *database.LLMProvider) *llm.ProviderConfig {
+func fromDBModel(dbP *database.LLMProvider) (*llm.ProviderConfig, error) {
+	args, err := decodeACPList(dbP.ACPArgs)
+	if err != nil {
+		return nil, fmt.Errorf("argumentos do agente ilegíveis: %w", err)
+	}
+	env, err := decodeACPMap(dbP.ACPEnv)
+	if err != nil {
+		return nil, fmt.Errorf("variáveis de ambiente do agente ilegíveis: %w", err)
+	}
 	p := &llm.ProviderConfig{
 		ID:                dbP.ID,
 		Name:              dbP.Name,
@@ -129,7 +153,59 @@ func fromDBModel(dbP *database.LLMProvider) *llm.ProviderConfig {
 		Timeout:           dbP.Timeout,
 		CredentialPattern: dbP.CredentialPattern,
 		AuthMode:          llm.AuthMode(dbP.AuthMode),
+		ACPCommand:        dbP.ACPCommand,
+		ACPArgs:           args,
+		ACPEnv:            env,
 	}
 	normalizeProviderRuntimeDefaults(p)
-	return p
+	return p, nil
+}
+
+// A lista de argumentos e o mapa de ambiente viajam como JSON em coluna de
+// texto — mesmo arranjo do servidor MCP stdio, porque o SQLite não guarda
+// lista nem mapa. Vazio vira coluna vazia em vez de "null" ou "[]": é o que
+// mantém legível a linha de um provedor HTTP, que nunca terá isso.
+
+func encodeACPList(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(values)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func encodeACPMap(values map[string]string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(values)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func decodeACPList(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var values []string
+	if err := json.Unmarshal([]byte(raw), &values); err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+func decodeACPMap(raw string) (map[string]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var values map[string]string
+	if err := json.Unmarshal([]byte(raw), &values); err != nil {
+		return nil, err
+	}
+	return values, nil
 }

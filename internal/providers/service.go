@@ -174,6 +174,11 @@ type CreateRequest struct {
 	BaseURL      string
 	APIKey       string
 	DefaultModel string
+	// ACPCommand, ACPArgs e ACPEnv valem quando APIFormat é acp: é assim que
+	// o agente de código é endereçado, no lugar de BaseURL e APIKey.
+	ACPCommand string
+	ACPArgs    []string
+	ACPEnv     map[string]string
 }
 
 // CreateResult contém os dados retornados após criar um provedor.
@@ -213,23 +218,71 @@ func normalizeProviderAPIFormat(p *llm.ProviderConfig) {
 	}
 }
 
+// normalizeProviderACP tira do provedor de agente o que só existe para
+// provedor HTTP. Sem URL não há hostname para casar credencial, e o login do
+// agente é da máquina, feito fora do app (AEP-0084 D12): guardar pattern aqui
+// faria a tela pedir uma chave que não vai a lugar nenhum.
+func normalizeProviderACP(p *llm.ProviderConfig) {
+	if p == nil || !p.IsACP() {
+		return
+	}
+	p.CredentialPattern = ""
+	p.AuthMode = llm.AuthModeNone
+}
+
+// copyStringMap devolve uma cópia rasa, ou nil quando não há nada. Guardar o
+// mapa de quem chamou deixaria o ambiente do agente a um passo de qualquer
+// código que ainda segure a requisição.
+func copyStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for k, v := range values {
+		out[k] = v
+	}
+	return out
+}
+
 func normalizeProviderRuntimeDefaults(p *llm.ProviderConfig) {
 	normalizeProviderAuthMode(p)
 	normalizeProviderAPIFormat(p)
+	// Por último: o modo de autenticação do agente não se decide pela marca
+	// do provedor, e sim por ele não ter para onde mandar credencial.
+	normalizeProviderACP(p)
 }
 
 // Create cria e registra um novo provedor LLM.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult, error) {
-	if req.ID == "" || req.Name == "" || req.BaseURL == "" {
+	isACP := llm.APIFormat(req.APIFormat) == llm.APIFormatACP
+	if req.ID == "" || req.Name == "" {
+		return nil, fmt.Errorf("campos obrigatórios faltando (id, name)")
+	}
+	if isACP {
+		if strings.TrimSpace(req.ACPCommand) == "" {
+			return nil, fmt.Errorf("campo obrigatório faltando (acp_command)")
+		}
+		// Recusar em vez de ignorar: quem mandou uma chave espera que ela
+		// autentique alguma coisa, e aqui ela não autenticaria nada — o login
+		// do agente é feito no CLI dele, na máquina.
+		if req.APIKey != "" {
+			return nil, fmt.Errorf("provedor acp não guarda credencial no app; autentique o agente pelo CLI dele")
+		}
+	} else if req.BaseURL == "" {
 		return nil, fmt.Errorf("campos obrigatórios faltando (id, name, base_url)")
 	}
 	if s.registry.Get(req.ID) != nil {
 		return nil, fmt.Errorf("provider com ID '%s' já existe", req.ID)
 	}
 
-	hostname, err := ExtractHostname(req.BaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
+	// O agente não tem host: o que o endereça é o comando.
+	hostname := ""
+	if !isACP {
+		extracted, err := ExtractHostname(req.BaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
+		}
+		hostname = extracted
 	}
 
 	credConfigured := false
@@ -254,6 +307,9 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		IsDefault:         isFirst,
 		Timeout:           180,
 		CredentialPattern: hostname,
+		ACPCommand:        req.ACPCommand,
+		ACPArgs:           append([]string(nil), req.ACPArgs...),
+		ACPEnv:            copyStringMap(req.ACPEnv),
 	}
 	normalizeProviderRuntimeDefaults(provider)
 
@@ -269,7 +325,11 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		}
 	}
 
-	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (hostname=%s, default=%v)", req.ID, hostname, isFirst)
+	if isACP {
+		logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (agente=%q, default=%v)", req.ID, provider.ACPCommand, isFirst)
+	} else {
+		logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (hostname=%s, default=%v)", req.ID, hostname, isFirst)
+	}
 	return &CreateResult{
 		Provider:             provider,
 		CredentialPattern:    hostname,
@@ -285,6 +345,13 @@ type UpdateRequest struct {
 	BaseURL      string
 	APIKey       string
 	DefaultModel string
+	// ACPCommand segue a convenção dos demais: vazio é "não mexer".
+	ACPCommand string
+	// ACPArgs e ACPEnv são ponteiros porque, aqui, lista vazia é uma escolha
+	// legítima — tirar todos os argumentos de um agente é edição de verdade,
+	// e "vazio é não mexer" tornaria isso impossível.
+	ACPArgs *[]string
+	ACPEnv  *map[string]string
 }
 
 // UpdateResult contém os dados após atualização.
@@ -312,6 +379,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		Timeout:           existing.Timeout,
 		CredentialPattern: existing.CredentialPattern,
 		AuthMode:          existing.AuthMode,
+		ACPCommand:        existing.ACPCommand,
+		ACPArgs:           append([]string(nil), existing.ACPArgs...),
+		ACPEnv:            copyStringMap(existing.ACPEnv),
 	}
 
 	if req.Name != "" {
@@ -335,7 +405,25 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		updated.BaseURL = req.BaseURL
 		updated.CredentialPattern = hostname
 	}
+	if req.ACPCommand != "" {
+		updated.ACPCommand = req.ACPCommand
+	}
+	if req.ACPArgs != nil {
+		updated.ACPArgs = append([]string(nil), (*req.ACPArgs)...)
+	}
+	if req.ACPEnv != nil {
+		updated.ACPEnv = copyStringMap(*req.ACPEnv)
+	}
 	normalizeProviderRuntimeDefaults(updated)
+	if updated.IsACP() && req.APIKey != "" {
+		return nil, fmt.Errorf("provedor acp não guarda credencial no app; autentique o agente pelo CLI dele")
+	}
+	// Conferir antes de mexer no registro: a troca é remover e registrar de
+	// novo, e uma edição inválida — virar acp sem informar o comando, por
+	// exemplo — faria o provedor sumir da lista em vez de a edição falhar.
+	if err := updated.Validate(); err != nil {
+		return nil, fmt.Errorf("provider '%s' inválido após a edição: %w", id, err)
+	}
 
 	credConfigured := false
 	if req.APIKey != "" {
