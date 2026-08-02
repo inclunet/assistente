@@ -3,6 +3,7 @@ package portability
 import (
 	"encoding/json"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +72,57 @@ func TestImportaProvedorACPComComandoEArgumentos(t *testing.T) {
 	// conversa falharia sem explicação.
 	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "não foi encontrado nesta máquina") {
 		t.Fatalf("avisos inesperados: %v", result.Warnings)
+	}
+}
+
+// Um arquivo escrito à mão pode trazer "acpArgs": [] num provedor HTTP. Isso
+// não é configuração de agente, e não pode virar uma no banco: a coluna com o
+// literal "[]" contradiz a convenção do store, onde vazio é vazio.
+func TestColecaoVaziaDoAgenteNaoViraLiteralNoBanco(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	// O JSON é montado à mão de propósito: `ProviderExport` marca os campos do
+	// agente com omitempty, então serializar a struct com coleções vazias
+	// simplesmente não escreveria "acpArgs" — e o teste não exercitaria o caso.
+	raw := `{
+	  "version": ` + strconv.Itoa(ExportVersion) + `,
+	  "exportedAt": "` + time.Now().UTC().Format(time.RFC3339) + `",
+	  "options": {},
+	  "resources": {
+	    "providers": [
+	      {
+	        "id": "openai", "name": "OpenAI", "type": "openai", "apiFormat": "openai",
+	        "baseUrl": "https://api.openai.com/v1",
+	        "acpArgs": [], "acpEnv": {}
+	      },
+	      {
+	        "id": "cursor", "name": "Cursor", "type": "custom", "apiFormat": "acp",
+	        "acpCommand": "agente-que-nao-existe-nesta-maquina",
+	        "acpArgs": [], "acpEnv": {}
+	      }
+	    ]
+	  }
+	}`
+
+	result, err := ImportConversationsWithContext(portabilityTestCtx(), raw, nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+	if result.Imported != 2 || result.Failed != 0 {
+		t.Fatalf("resultado inesperado: %+v", result)
+	}
+
+	for _, id := range []string{"openai", "cursor"} {
+		imported, err := database.GetLLMProviderWithContext(portabilityTestCtx(), id)
+		if err != nil {
+			t.Fatalf("GetLLMProvider(%s) error = %v", id, err)
+		}
+		if imported.ACPArgs != "" {
+			t.Errorf("provider %s guardou argumentos = %q, esperado coluna vazia", id, imported.ACPArgs)
+		}
+		if imported.ACPEnv != "" {
+			t.Errorf("provider %s guardou ambiente = %q, esperado coluna vazia", id, imported.ACPEnv)
+		}
 	}
 }
 
