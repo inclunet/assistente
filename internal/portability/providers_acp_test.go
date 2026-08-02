@@ -3,6 +3,7 @@ package portability
 import (
 	"encoding/json"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -80,30 +81,30 @@ func TestImportaProvedorACPComComandoEArgumentos(t *testing.T) {
 func TestColecaoVaziaDoAgenteNaoViraLiteralNoBanco(t *testing.T) {
 	setupPortabilityTestDB(t)
 
-	file := &ExportFile{
-		Version:    ExportVersion,
-		ExportedAt: time.Now().UTC(),
-		Resources: ExportResources{
-			Providers: []ProviderExport{
-				{
-					ID: "openai", Name: "OpenAI", Type: "openai", APIFormat: "openai",
-					BaseURL: "https://api.openai.com/v1",
-					ACPArgs: []string{}, ACPEnv: map[string]string{},
-				},
-				{
-					ID: "cursor", Name: "Cursor", Type: "custom", APIFormat: "acp",
-					ACPCommand: "agente-que-nao-existe-nesta-maquina",
-					ACPArgs:    []string{}, ACPEnv: map[string]string{},
-				},
-			},
-		},
-	}
-	raw, err := json.Marshal(file)
-	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
-	}
+	// O JSON é montado à mão de propósito: `ProviderExport` marca os campos do
+	// agente com omitempty, então serializar a struct com coleções vazias
+	// simplesmente não escreveria "acpArgs" — e o teste não exercitaria o caso.
+	raw := `{
+	  "version": ` + strconv.Itoa(ExportVersion) + `,
+	  "exportedAt": "` + time.Now().UTC().Format(time.RFC3339) + `",
+	  "options": {},
+	  "resources": {
+	    "providers": [
+	      {
+	        "id": "openai", "name": "OpenAI", "type": "openai", "apiFormat": "openai",
+	        "baseUrl": "https://api.openai.com/v1",
+	        "acpArgs": [], "acpEnv": {}
+	      },
+	      {
+	        "id": "cursor", "name": "Cursor", "type": "custom", "apiFormat": "acp",
+	        "acpCommand": "agente-que-nao-existe-nesta-maquina",
+	        "acpArgs": [], "acpEnv": {}
+	      }
+	    ]
+	  }
+	}`
 
-	result, err := ImportConversationsWithContext(portabilityTestCtx(), string(raw), nil, "")
+	result, err := ImportConversationsWithContext(portabilityTestCtx(), raw, nil, "")
 	if err != nil {
 		t.Fatalf("ImportConversations() error = %v", err)
 	}
