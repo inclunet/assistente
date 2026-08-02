@@ -75,6 +75,16 @@ func registroComAgente(t *testing.T) *llm.ProviderRegistry {
 	return registro
 }
 
+// resolvePara imita o ProfileResolver do app: troca o sentinela `$default` pelo
+// provedor que responde pelo padrão global.
+func resolvePara(providerID string) func(context.Context, *profiles.Profile) *profiles.Profile {
+	return func(_ context.Context, p *profiles.Profile) *profiles.Profile {
+		resolvido := *p
+		resolvido.Chat.LLMProvider = providerID
+		return &resolvido
+	}
+}
+
 func perfilDeAgente(providerID string) *profiles.Profile {
 	perfil := profiles.DefaultProfile()
 	perfil.Chat.LLMProvider = providerID
@@ -134,20 +144,40 @@ func TestConversaComProvedorComumSegueSumarizando(t *testing.T) {
 	}
 }
 
-// O sentinela `$default` só vira provedor concreto na execução, então a recusa
-// precisa existir também lá — e sem anunciar um resumo que não vai acontecer.
+// Perfil que herda o provedor padrão global não escapa da guarda: quem resolve
+// o sentinela `$default` é o ProfileResolver, e ele roda antes de decidir.
+func TestConversaComPadraoGlobalDeAgenteNaoDisparaSumarizacao(t *testing.T) {
+	profileMgr := setupProfileTestEnv(t)
+	slug, err := profileMgr.Create(perfilDeAgente(profiles.DefaultProviderSentinel))
+	if err != nil {
+		t.Fatalf("criar perfil: %v", err)
+	}
+	repo := &repoDeMentira{}
+	svc := NewService(ServiceConfig{
+		Repo:            repo,
+		Emitter:         &emissorEspiao{},
+		LLMRegistry:     registroComAgente(t),
+		ProfileManager:  profileMgr,
+		ProfileResolver: resolvePara("cursor"),
+	})
+
+	svc.CheckAndTriggerSummarization(context.Background(), "conversa-1", slug)
+
+	if repo.mensagensPedidas != 0 {
+		t.Errorf("o sentinela escondeu o agente e o check seguiu adiante (%d leituras)", repo.mensagensPedidas)
+	}
+}
+
+// A execução é por onde passa qualquer disparo de sumarização, inclusive os que
+// não vieram do check — e uma recusa não anuncia um resumo que não vai sair.
 func TestExecucaoRecusaResumoQuandoOProvedorEhAgente(t *testing.T) {
 	repo := &repoDeMentira{}
 	emissor := &emissorEspiao{}
 	svc := NewService(ServiceConfig{
-		Repo:        repo,
-		Emitter:     emissor,
-		LLMRegistry: registroComAgente(t),
-		ProfileResolver: func(_ context.Context, p *profiles.Profile) *profiles.Profile {
-			resolvido := *p
-			resolvido.Chat.LLMProvider = "cursor"
-			return &resolvido
-		},
+		Repo:            repo,
+		Emitter:         emissor,
+		LLMRegistry:     registroComAgente(t),
+		ProfileResolver: resolvePara("cursor"),
 	})
 
 	svc.executeSummarization(

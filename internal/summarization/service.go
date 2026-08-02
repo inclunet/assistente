@@ -486,6 +486,16 @@ func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversation
 	if profile == nil {
 		return
 	}
+	// O perfil pode apontar para o sentinela `$default`, que só vira provider
+	// concreto aqui. Sem resolver antes da guarda abaixo, uma conversa cujo
+	// padrão global é um agente atravessaria o check e só seria recusada na
+	// execução — com aviso na tela a cada turno.
+	if s.cfg.ProfileResolver != nil {
+		profile = s.cfg.ProfileResolver(ctx, profile)
+		if profile == nil {
+			return
+		}
+	}
 	if profile.Chat.ContextWindow <= 0 {
 		return
 	}
