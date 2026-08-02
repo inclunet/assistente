@@ -135,10 +135,10 @@ func TestProviderRouting_ChatProviderHitsCorrectEndpoint(t *testing.T) {
 
 	googleCP := llm.NewChatProvider(&llm.ProviderConfig{
 		ID: "google", Name: "Google", Type: llm.ProviderCustom, BaseURL: googleServer.URL,
-	}, credMgr)
+	}, credMgr, nil)
 	litellmCP := llm.NewChatProvider(&llm.ProviderConfig{
 		ID: "litellm", Name: "LiteLLM", Type: llm.ProviderCustom, BaseURL: litellmServer.URL,
-	}, credMgr)
+	}, credMgr, nil)
 
 	_, err := googleCP.GetModels(t.Context())
 	if err != nil {
@@ -190,11 +190,11 @@ func TestProviderRouting_StreamChatHitsCorrectEndpoint(t *testing.T) {
 	cpA := llm.NewChatProvider(&llm.ProviderConfig{
 		ID: "provider-a", Name: "Provider A", Type: llm.ProviderCustom,
 		BaseURL: serverA.URL, Model: "model-a",
-	}, credMgr)
+	}, credMgr, nil)
 	cpB := llm.NewChatProvider(&llm.ProviderConfig{
 		ID: "provider-b", Name: "Provider B", Type: llm.ProviderCustom,
 		BaseURL: serverB.URL, Model: "model-b",
-	}, credMgr)
+	}, credMgr, nil)
 
 	handler := &testStreamHandler{done: make(chan struct{})}
 
@@ -364,7 +364,7 @@ func TestProviderRouting_RequestContainsCorrectModel(t *testing.T) {
 	credMgr := credentials.NewManager(testKey)
 	cp := llm.NewChatProvider(&llm.ProviderConfig{
 		ID: "test-provider", Name: "Test", Type: llm.ProviderCustom, BaseURL: server.URL,
-	}, credMgr)
+	}, credMgr, nil)
 
 	messages := []llm.Message{{Role: "user", Content: "test"}}
 	params := llm.ChatParams{Model: "gpt-4o-mini"}

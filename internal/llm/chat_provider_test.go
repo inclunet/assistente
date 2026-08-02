@@ -97,7 +97,7 @@ func TestNewChatProvider_Factory(t *testing.T) {
 				BaseURL:   "https://api.test.com/v1",
 				APIFormat: tt.format,
 			}
-			provider := NewChatProvider(p, credMgr)
+			provider := NewChatProvider(p, credMgr, nil)
 			if provider == nil {
 				t.Fatal("NewChatProvider returned nil")
 			}
@@ -775,7 +775,7 @@ func TestNewChatProvider_Factory_InfersResponses(t *testing.T) {
 		Name:    "OpenAI Real",
 		BaseURL: "https://api.openai.com/v1",
 	}
-	provider := NewChatProvider(p, credMgr)
+	provider := NewChatProvider(p, credMgr, nil)
 	openaiP, ok := provider.(*OpenAIProvider)
 	if !ok {
 		t.Fatal("Expected *OpenAIProvider")

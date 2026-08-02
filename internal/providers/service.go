@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/acp"
 	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
@@ -36,6 +37,11 @@ type ServiceConfig struct {
 	// RateLimitKeyFunc extrai a chave de limite (tipicamente o userID) do
 	// contexto. Opcional: nil cai na chave global do limitador.
 	RateLimitKeyFunc func(context.Context) string
+	// ACPManager é o serviço dono dos processos e das sessões dos agentes de
+	// código (AEP-0084 D3). Opcional: sem ele um provedor ACP recusa o turno
+	// explicando que o serviço não está de pé, em vez de subir um agente por
+	// conta própria a cada chamada de GetChatProvider.
+	ACPManager *acp.Manager
 }
 
 // Service encapsula a lógica de negócio de gerenciamento de provedores LLM.
@@ -46,6 +52,7 @@ type Service struct {
 	store            ProviderStore
 	rateLimiter      *llm.RateLimiter
 	rateLimitKeyFunc func(context.Context) string
+	acpMgr           *acp.Manager
 }
 
 // Count retorna o número de provedores no store.
@@ -61,6 +68,7 @@ func NewService(cfg ServiceConfig) *Service {
 		store:            cfg.Store,
 		rateLimiter:      cfg.RateLimiter,
 		rateLimitKeyFunc: cfg.RateLimitKeyFunc,
+		acpMgr:           cfg.ACPManager,
 	}
 }
 
@@ -790,7 +798,7 @@ func (s *Service) GetChatProvider(ctx context.Context, providerID string) (llm.C
 	cm, _ := s.credMgr.(*credentials.Manager)
 	// Aplica rate limiting por usuário de forma central (Issue #27). Quando
 	// rateLimiter é nil, NewRateLimitedProvider devolve o provider inalterado.
-	return llm.NewRateLimitedProvider(llm.NewChatProvider(provider, cm), s.rateLimiter, s.rateLimitKeyFunc), nil
+	return llm.NewRateLimitedProvider(llm.NewChatProvider(provider, cm, s.acpMgr), s.rateLimiter, s.rateLimitKeyFunc), nil
 }
 
 // ListModelsRawRequest contém os parâmetros para listagem de modelos via credenciais ad-hoc.
@@ -870,7 +878,8 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 		}
 	}
 
-	cp := llm.NewChatProvider(tempProvider, cm)
+	// Sem agente: esta rota exige base_url e só atende provedor HTTP.
+	cp := llm.NewChatProvider(tempProvider, cm, nil)
 	return cp.GetModels(ctx)
 }
 
