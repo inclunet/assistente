@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"strings"
 
 	"assistente/internal/acp"
 	"assistente/internal/database"
@@ -21,9 +23,24 @@ func (a *App) initACP() {
 		// permissão é a camada do D9, que ainda não existe; até lá negar é o
 		// comportamento seguro, e nunca deixar um turno pendurado é regra.
 		Handler:       nil,
+		WorkDir:       a.acpWorkDir,
 		ClientName:    "assistente",
 		ClientVersion: AppVersion,
 	})
+}
+
+// acpWorkDir é o diretório sobre o qual o agente age (AEP-0084 D5): o workspace
+// ativo, o mesmo que o terminal e a allowlist de rede seguem. Ele muda em
+// runtime sem mexer no cwd do processo, e usar o cwd cru faria o agente editar
+// arquivos de uma árvore enquanto o terminal roda comandos em outra. Sem
+// workspace ativo sobra o cwd, que é de onde o app foi iniciado.
+func (a *App) acpWorkDir() (string, error) {
+	if a != nil && a.workspaceMgr != nil {
+		if base := strings.TrimSpace(a.workspaceMgr.ActivePath()); base != "" {
+			return base, nil
+		}
+	}
+	return os.Getwd()
 }
 
 // closeACPSession encerra a sessão que o agente mantém para esta conversa. É o

@@ -340,6 +340,10 @@ type Conversation struct {
 type mountedSession struct {
 	proc       *agentProcess
 	providerID string
+	// dir é o diretório com que ela foi aberta. Guardado porque o workspace
+	// ativo muda em runtime, e uma sessão de outro diretório fala de outros
+	// arquivos (AEP-0084 D5).
+	dir        string
 	session    Session
 	origin     SessionOrigin
 	prefixHash string
@@ -353,20 +357,25 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 	if err != nil {
 		return err
 	}
-	if current := c.mounted[spec.ID]; current != nil {
-		if current.proc == proc && current.session != nil {
-			c.active = current
-			return nil
-		}
-		// O processo é outro: caiu, ou a configuração mudou. A sessão que
-		// estava aqui morreu com ele, então não há despedida a fazer — só
-		// remontar.
-		delete(c.mounted, spec.ID)
-	}
-
 	dir, err := c.manager.workDir()
 	if err != nil {
 		return fmt.Errorf("diretório de trabalho do agente ACP: %w", err)
+	}
+
+	if current := c.mounted[spec.ID]; current != nil {
+		switch {
+		case current.session != nil && current.proc == proc && current.dir == dir:
+			c.active = current
+			return nil
+		case current.session != nil && current.proc == proc:
+			// Mesmo agente, outro diretório: quem trocou de workspace passou a
+			// falar de outros arquivos. A sessão continua viva do lado de lá, e
+			// é agora que ela se despede — o registro vai apontar para outra.
+			c.closeOrphan(ctx, current.session)
+		}
+		// Quando o processo é outro (caiu, ou a configuração mudou), a sessão
+		// morreu com ele e não há despedida a fazer.
+		delete(c.mounted, spec.ID)
 	}
 
 	var stored *StoredSession
@@ -410,6 +419,7 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 	mounted := &mountedSession{
 		proc:       proc,
 		providerID: spec.ID,
+		dir:        dir,
 		session:    session,
 		origin:     origin,
 		prefixHash: prefix,

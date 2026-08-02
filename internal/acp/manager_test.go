@@ -547,6 +547,47 @@ func TestTrocarDeAgenteNoMeioDaConversaNaoAbandonaASessaoAnterior(t *testing.T) 
 	}
 }
 
+func TestTrocarDeWorkspaceRecriaASessaoNoDiretorioNovo(t *testing.T) {
+	store := newMemoryStore()
+	client := newFakeManagedClient()
+	ctx := context.Background()
+
+	diretorio := "/projeto-a"
+	m := NewManager(ManagerConfig{
+		Store:   store,
+		WorkDir: func() (string, error) { return diretorio, nil },
+		Dial: func(Config, RequestHandler) (Client, error) {
+			return client, nil
+		},
+	})
+
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa no primeiro workspace: %v", err)
+	}
+	sessaoA := conv.Session().(*fakeManagedSession)
+
+	diretorio = "/projeto-b"
+	conv, err = m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa no segundo workspace: %v", err)
+	}
+	sessaoB := conv.Session().(*fakeManagedSession)
+
+	if sessaoA == sessaoB {
+		t.Fatal("a conversa continuou na sessão aberta no workspace anterior")
+	}
+	if sessaoB.cwd != "/projeto-b" {
+		t.Fatalf("sessão nova abriu em %q", sessaoB.cwd)
+	}
+	if !sessaoA.isClosed() {
+		t.Fatal("a sessão do workspace anterior ficou aberta no agente")
+	}
+	if conv.Origin() != SessionRecreated {
+		t.Fatalf("origem = %v, esperado recriada: o agente não tem a memória da conversa anterior", conv.Origin())
+	}
+}
+
 func TestSessaoQueNaoVoltouEhEncerradaAntesDeSerSubstituida(t *testing.T) {
 	store := newMemoryStore()
 	ctx := context.Background()

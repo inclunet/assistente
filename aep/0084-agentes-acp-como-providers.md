@@ -286,16 +286,24 @@ comum na mesma sessão, que o agente lê com todo o contexto do que já tinha
 feito. Ela obedece à serialização do D10: continuar não fura a fila de um turno
 ainda em voo.
 
-### D5. `cwd` é o diretório de trabalho do app
+### D5. `cwd` é o diretório do workspace ativo
 
 O `session/new` exige um diretório: é ele que define onde o agente edita
-arquivos e qual `.cursor/mcp.json` vale. Nesta fase **não há seletor**: usa-se o
-diretório de trabalho do app.
+arquivos e qual `.cursor/mcp.json` vale. Nesta fase **não há seletor por
+conversa**: usa-se o **workspace ativo** do app, o mesmo que o terminal e a
+allowlist de rede já seguem, com o diretório de onde o app foi iniciado como
+recurso quando não há workspace.
+
+O cwd cru do processo seria mais simples e estaria errado: o workspace ativo
+muda em runtime sem mexer nele, e o agente ficaria editando arquivos de uma
+árvore enquanto o terminal roda comandos em outra.
 
 A consequência precisa estar visível, não implícita: **o agente age sobre o
-diretório de onde o app foi iniciado**. A UI mostra qual é esse diretório junto
-ao provider, e o primeiro turno de cada sessão o anuncia. Um seletor por
-conversa é evolução natural (Fase 5), não requisito.
+workspace ativo**. A UI mostra qual é esse diretório junto ao provider, e o
+primeiro turno de cada sessão o anuncia. Trocar de workspace no meio da conversa
+**recria a sessão** — a anterior fala de outros arquivos —, com o mesmo aviso de
+perda de memória que a recriação sempre carrega. Um seletor por conversa é
+evolução natural (Fase 5), não requisito.
 
 ### D6. Modelos: `configOptions` com fallback para o formato legado
 
