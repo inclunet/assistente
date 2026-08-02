@@ -87,12 +87,15 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	}
 
 	response := turn.response()
-	if msg, refused := stopWithoutAnswer(stop, response); refused {
-		handler.OnError(msg)
-		return
+	if notice, empty := stopWithoutAnswer(stop, response); empty {
+		// O desfecho vai como resposta, e não como erro: recusa e limite são
+		// o turno terminando, não o transporte falhando. Como erro, o texto
+		// não seria salvo nem falado — e a auto-recuperação ainda repetiria
+		// para o agente um pedido que ele já aceitou.
+		response = notice
 	}
 	if stop != acp.StopEndTurn {
-		logging.Infof(ctx, acpProviderComponent, "[ACP] turno encerrado por %q com resposta parcial", string(stop))
+		logging.Infof(ctx, acpProviderComponent, "[ACP] turno encerrado por %q", string(stop))
 	}
 	// Sem contagem de tokens: o agente cobra na conta dele e não reporta uso.
 	handler.OnDone(response, Usage{}, resolveModel(p.provider, params.Model))
@@ -168,9 +171,10 @@ func (p *ACPChatProvider) turnError(err error) string {
 	}
 }
 
-// stopWithoutAnswer trata o turno que terminou sem texto nenhum. Com resposta
-// escrita, o motivo é informação; sem ela, é o desfecho — e uma mensagem vazia
-// não conta à pessoa que o agente recusou ou esbarrou num limite.
+// stopWithoutAnswer devolve o que dizer quando o turno terminou sem texto
+// nenhum. Com resposta escrita, o motivo é informação; sem ela, é o desfecho —
+// e uma mensagem vazia não conta à pessoa que o agente recusou ou esbarrou num
+// limite.
 func stopWithoutAnswer(stop acp.StopReason, response string) (string, bool) {
 	if strings.TrimSpace(response) != "" {
 		return "", false

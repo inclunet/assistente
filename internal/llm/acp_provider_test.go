@@ -314,7 +314,7 @@ func TestProcessoDoAgenteCaidoViraMensagemAcionavel(t *testing.T) {
 	}
 }
 
-func TestRecusaSemTextoVinculaOMotivo(t *testing.T) {
+func TestRecusaSemTextoViraRespostaDoTurno(t *testing.T) {
 	sessao := &agenteFalso{stop: acp.StopRefusal}
 	provider := providerDeAgente(t, sessao)
 	handler := &espiao{}
@@ -323,9 +323,31 @@ func TestRecusaSemTextoVinculaOMotivo(t *testing.T) {
 		[]Message{{Role: "user", Content: "faz algo proibido"}},
 		ChatParams{ConversationID: "conversa-1"}, handler)
 
-	// Sem texto, uma mensagem vazia esconderia a recusa de quem só ouve.
-	if !strings.Contains(handler.erro, "recusou") {
-		t.Errorf("erro = %q, quer contar que o agente recusou", handler.erro)
+	// Recusa é o turno terminando, não o transporte falhando: como erro, o
+	// texto não seria salvo nem falado, e a auto-recuperação repetiria para o
+	// agente um pedido que ele já aceitou.
+	if handler.erro != "" {
+		t.Fatalf("recusa virou erro: %s", handler.erro)
+	}
+	if !handler.pronto || !strings.Contains(handler.respostaFim, "recusou") {
+		t.Errorf("resposta final = %q, quer contar que o agente recusou", handler.respostaFim)
+	}
+}
+
+func TestLimiteDeTokensSemTextoViraRespostaDoTurno(t *testing.T) {
+	sessao := &agenteFalso{stop: acp.StopMaxTokens}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "escreve um livro"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if handler.erro != "" {
+		t.Fatalf("limite de tokens virou erro: %s", handler.erro)
+	}
+	if !strings.Contains(handler.respostaFim, "limite de tokens") {
+		t.Errorf("resposta final = %q, quer explicar o limite atingido", handler.respostaFim)
 	}
 }
 
