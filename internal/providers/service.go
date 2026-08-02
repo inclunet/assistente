@@ -272,8 +272,16 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		if req.APIKey != "" {
 			return nil, fmt.Errorf("provedor acp não guarda credencial no app; autentique o agente pelo CLI dele")
 		}
-	} else if req.BaseURL == "" {
-		return nil, fmt.Errorf("campos obrigatórios faltando (id, name, base_url)")
+	} else {
+		if req.BaseURL == "" {
+			return nil, fmt.Errorf("campos obrigatórios faltando (id, name, base_url)")
+		}
+		// Recusar aqui, e não lá na frente: a validação do registro só roda
+		// depois de a credencial já ter ido para o cofre, e um provedor que
+		// nem chegou a existir não pode deixar segredo para trás.
+		if strings.TrimSpace(req.ACPCommand) != "" || len(req.ACPArgs) > 0 || len(req.ACPEnv) > 0 {
+			return nil, fmt.Errorf("configuração de agente exige api_format %q", llm.APIFormatACP)
+		}
 	}
 	if s.registry.Get(req.ID) != nil {
 		return nil, fmt.Errorf("provider com ID '%s' já existe", req.ID)

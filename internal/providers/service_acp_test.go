@@ -123,6 +123,40 @@ func TestEdicaoConsegueLimparOsArgumentosDoAgente(t *testing.T) {
 	}
 }
 
+// Configuração de agente num provedor HTTP é recusada antes de qualquer
+// efeito colateral: a validação do registro só roda depois de a credencial ir
+// para o cofre, e um provedor que nem chegou a existir não pode deixar segredo
+// para trás.
+func TestConfiguracaoDeAgenteEmProvedorHTTPParaAntesDoCofre(t *testing.T) {
+	casos := map[string]CreateRequest{
+		"comando":    {ACPCommand: "cursor-agent"},
+		"argumentos": {ACPArgs: []string{"acp"}},
+		"ambiente":   {ACPEnv: map[string]string{"CURSOR_LOG": "debug"}},
+	}
+
+	for nome, extra := range casos {
+		t.Run(nome, func(t *testing.T) {
+			svc, spy := acpService(t)
+			req := extra
+			req.ID = "openai"
+			req.Name = "OpenAI"
+			req.Type = string(llm.ProviderOpenAI)
+			req.BaseURL = "https://api.openai.com/v1"
+			req.APIKey = "sk-secreta"
+
+			if _, err := svc.Create(context.Background(), req); err == nil {
+				t.Fatal("esperava recusa da configuração de agente")
+			}
+			if len(spy.registrados) != 0 {
+				t.Errorf("a credencial foi para o cofre de um provedor que não existe: %v", spy.registrados)
+			}
+			if svc.registry.Get("openai") != nil {
+				t.Error("o provedor não deveria ter sido criado")
+			}
+		})
+	}
+}
+
 // Virar agente é perder o endereço. A URL antiga ficaria no banco sem ninguém
 // para usá-la, e quem for depurar a linha vai acreditar nela.
 func TestVirarAgenteApagaOEnderecoAntigo(t *testing.T) {
