@@ -478,6 +478,33 @@ func TestChamadasSemIdentificadorNaoEngolemUmaAOutra(t *testing.T) {
 	}
 }
 
+func TestFimSemIdentificadorNemClasseAindaEncontraOComeco(t *testing.T) {
+	// Sem identificador e com a atualização trazendo só o que mudou, o fim pode
+	// chegar sem classe nenhuma. Tratá-lo como chamada nova abriria uma segunda
+	// ferramenta na tela para algo que está terminando.
+	sessao := &agenteFalso{updates: []acp.Update{
+		{Kind: acp.UpdateToolStart, Tool: &acp.ToolCall{Kind: "search", Title: "grep TODO", Status: "in_progress"}},
+		{Kind: acp.UpdateToolProgress, Tool: &acp.ToolCall{Status: "completed"}},
+	}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "procura"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if len(handler.ferramentas) != 2 {
+		t.Fatalf("esperava começo e fim da mesma chamada, obtive %+v", handler.ferramentas)
+	}
+	fim := handler.ferramentas[1]
+	if fim.Kind != "search" || fim.Title != "grep TODO" {
+		t.Errorf("fim = %+v, quer a classe e o título herdados do começo", fim)
+	}
+	if fim.Status != AgentToolCompleted {
+		t.Errorf("status = %q, quer conclusão", fim.Status)
+	}
+}
+
 func TestRotuloDeFerramentaChegaSaneadoAoAnuncio(t *testing.T) {
 	// Título é dado não confiável: pode ser a linha de comando literal, com
 	// escape de terminal e quebra de linha (AEP-0084 D11).

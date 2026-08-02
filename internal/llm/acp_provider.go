@@ -268,6 +268,10 @@ type acpTurn struct {
 	// atualização só repete o que mudou.
 	tools     map[string]agentToolState
 	toolOrder []string
+	// lastAnonymous é a chave da última chamada sem identificador ainda aberta,
+	// e é por ela que uma atualização sem identificador nem classe encontra o
+	// começo dela.
+	lastAnonymous string
 }
 
 // agentToolState é o que o app precisa lembrar de uma chamada entre o começo e
@@ -307,7 +311,7 @@ func (t *acpTurn) toolActivity(call *acp.ToolCall) {
 	if t.activity == nil || call == nil {
 		return
 	}
-	key := trackingKey(call)
+	key := t.trackingKey(call)
 	state, seen := t.tools[key]
 	status := agentToolStatus(call.Status)
 	if state.done {
@@ -347,6 +351,13 @@ func (t *acpTurn) toolActivity(call *acp.ToolCall) {
 
 	state.done = status != AgentToolRunning
 	t.tools[key] = state
+	if call.ID == "" {
+		if state.done && t.lastAnonymous == key {
+			t.lastAnonymous = ""
+		} else if !state.done {
+			t.lastAnonymous = key
+		}
+	}
 
 	t.activity.OnAgentToolEvent(AgentToolEvent{
 		ID:     call.ID,
@@ -361,9 +372,16 @@ func (t *acpTurn) toolActivity(call *acp.ToolCall) {
 // ele, a classe é o que resta para ligar as pontas, que é como o handler
 // também correlaciona. Uma chave só para todas as anônimas faria uma engolir os
 // eventos da outra.
-func trackingKey(call *acp.ToolCall) string {
+func (t *acpTurn) trackingKey(call *acp.ToolCall) string {
 	if call.ID != "" {
 		return call.ID
+	}
+	// A atualização traz só o que mudou, então ela pode vir sem classe também.
+	// Aí a última chamada anônima ainda aberta é a correlação possível: cair na
+	// classe "other" abriria uma ferramenta fantasma para o que é o fim de uma
+	// que já está na tela.
+	if strings.TrimSpace(call.Kind) == "" && t.lastAnonymous != "" {
+		return t.lastAnonymous
 	}
 	return "\x00anônima:" + agentToolKind(call.Kind)
 }
