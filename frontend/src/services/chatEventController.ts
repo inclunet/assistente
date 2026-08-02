@@ -635,6 +635,7 @@ export function startChatEventController({
           type: 'function',
           function: { name: tc.name, arguments: tc.args || '' },
           result: tc.summary,
+          origin: tc.origin,
         })),
       });
       if (!external) {

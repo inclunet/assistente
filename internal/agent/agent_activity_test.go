@@ -119,6 +119,35 @@ func TestFerramentaSemClassificacaoNaoFicaSemNome(t *testing.T) {
 	}
 }
 
+func TestTextoDoAgenteChegaEmUmaLinhaSo(t *testing.T) {
+	emitter := &mockEmitter{}
+	handler := novoHandlerDeAgente(t, emitter, nil)
+
+	handler.OnAgentToolEvent(llm.AgentToolEvent{
+		ID:     "call-\n11",
+		Kind:   "execute",
+		Title:  "npm test\r\n--watch",
+		Status: llm.AgentToolFailed,
+		Error:  "saiu com erro\nlinha dois",
+	})
+
+	inicio := eventosPorNome(emitter, "chat:tool_start")[0].(ports.ToolStartEvent)
+	if inicio.CallID != "call- 11" {
+		t.Errorf("callID=%q, esperava o identificador em uma linha só", inicio.CallID)
+	}
+	if inicio.Summary != "npm test --watch" {
+		t.Errorf("resumo=%q, esperava o título em uma linha só", inicio.Summary)
+	}
+	fim := eventosPorNome(emitter, "chat:tool_end")[0].(ports.ToolEndEvent)
+	if fim.Error != "saiu com erro linha dois" {
+		t.Errorf("erro=%q, esperava a mensagem em uma linha só", fim.Error)
+	}
+	falha := eventosPorNome(emitter, "chat:tool_failure")[0].(ports.ToolFailureEvent)
+	if falha.Message != "saiu com erro linha dois" {
+		t.Errorf("mensagem da falha=%q, esperava em uma linha só", falha.Message)
+	}
+}
+
 func TestFerramentaSemIdentificadorNaoRoubaOItemDaOutra(t *testing.T) {
 	emitter := &mockEmitter{}
 	handler := novoHandlerDeAgente(t, emitter, nil)

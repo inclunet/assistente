@@ -605,6 +605,21 @@ describe('chatEventController', () => {
       status: 'done',
       origin: 'acp_agent',
     });
+
+    emitEvent('chat:segment_done', {
+      conversationId: 'conversation-1',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-db-acp',
+      content: 'primeiro bloco',
+      hasMore: true,
+    });
+
+    const segmentoDeFerramentas = sessions['conversation-1'].completedSegments
+      .find((segment) => segment.type === 'tool_calls');
+    expect(segmentoDeFerramentas?.toolCalls?.[0]).toMatchObject({
+      id: 'call-acp',
+      origin: 'acp_agent',
+    });
   });
 
   it('atualiza chunk sem messageId quando assistant já veio de thinking', () => {

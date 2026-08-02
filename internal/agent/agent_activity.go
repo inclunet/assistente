@@ -19,6 +19,15 @@ import (
 // acp_agent, servem para a UI e o leitor de telas, e nada é executado nem
 // persistido como invocação de ferramenta do app.
 
+// singleLine achata quebras de linha vindas do protocolo. O saneamento de
+// conteúdo não confiável é do provider (AEP-0084 D11), mas rótulo e anúncio são
+// de linha única: uma quebra aqui estoura o layout e atrapalha o leitor de
+// telas, então a garantia também vale na saída.
+func singleLine(s string) string {
+	replaced := strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(s)
+	return strings.TrimSpace(replaced)
+}
+
 // agentToolTrack guarda o que o app precisa lembrar de uma ferramenta do agente
 // entre o aviso de início e o de fim.
 type agentToolTrack struct {
@@ -40,17 +49,18 @@ type agentActivity struct {
 // OnAgentToolEvent traduz a atividade de ferramenta do agente para os eventos de
 // chat que a UI já sabe renderizar e anunciar.
 func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
-	name := strings.TrimSpace(event.Kind)
+	name := singleLine(event.Kind)
 	if name == "" {
 		name = llm.AgentToolKindOther
 	}
-	title := strings.TrimSpace(event.Title)
+	title := singleLine(event.Title)
+	failure := singleLine(event.Error)
 
 	h.activity.mu.Lock()
 	if h.activity.running == nil {
 		h.activity.running = map[string]agentToolTrack{}
 	}
-	callID := strings.TrimSpace(event.ID)
+	callID := singleLine(event.ID)
 	if callID == "" {
 		h.activity.anonymous++
 		callID = fmt.Sprintf("agent-%d", h.activity.anonymous)
@@ -107,7 +117,7 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 		CallID:             callID,
 		Status:             status,
 		Summary:            title,
-		Error:              strings.TrimSpace(event.Error),
+		Error:              failure,
 		Origin:             OriginACPAgent,
 		DurationMs:         duration,
 		SurfaceOrigin:      h.SurfaceOrigin,
@@ -124,7 +134,7 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 			CallID:             callID,
 			ErrorKind:          errorKind,
 			Retryable:          false,
-			Message:            strings.TrimSpace(event.Error),
+			Message:            failure,
 			DurationMs:         duration,
 			Origin:             OriginACPAgent,
 			SurfaceOrigin:      h.SurfaceOrigin,

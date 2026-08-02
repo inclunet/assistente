@@ -1,4 +1,5 @@
 import { chat } from '../../wailsjs/go/models';
+import type { ToolOrigin } from '../types/chat';
 
 export interface TurnSegment {
   type: 'text' | 'tool_calls';
@@ -8,6 +9,7 @@ export interface TurnSegment {
     type: string;
     function: { name: string; arguments: string };
     result?: string;
+    origin?: ToolOrigin;
   }>;
 }
 
