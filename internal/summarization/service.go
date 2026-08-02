@@ -493,7 +493,9 @@ func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversation
 	// administra o contexto é o próprio agente, e compactar do lado do app não
 	// teria efeito no wire — só gastaria um turno de agente de código.
 	if s.isAgentDrivenProfile(profile) {
-		logging.Infof(ctx, "summarization.service", "[Summary] Conversa %s usa provider de agente externo — sumarização automática não se aplica", conversationID)
+		// Debug, não info: o check roda a cada turno e este desvio é o esperado
+		// para a conversa inteira, não uma condição anômala.
+		logging.Debugf(ctx, "summarization.service", "[Summary] Conversa %s usa provider de agente externo — sumarização automática não se aplica", conversationID)
 		return
 	}
 
