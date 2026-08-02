@@ -465,6 +465,11 @@ type mountedSession struct {
 	sessionID  string
 	origin     SessionOrigin
 	prefixHash string
+	// suffixHash resume o que o app já contou de contexto que muda — resumo da
+	// conversa, memória, tasklists. Diferente do prefixo, ele fica só em
+	// memória: é conteúdo que muda sozinho, e recontá-lo uma vez depois de
+	// reiniciar o app custa pouco perto de uma escrita no banco por mudança.
+	suffixHash string
 }
 
 func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
@@ -725,6 +730,31 @@ func (c *Conversation) MarkPrefixSent(ctx context.Context, hash string) error {
 		return fmt.Errorf("anotar prefixo já enviado à sessão ACP: %w", err)
 	}
 	return nil
+}
+
+// NeedsSuffix diz se o contexto que muda ainda precisa ser contado a esta
+// sessão neste turno (AEP-0084 D4). Reenviá-lo sem ter mudado gastaria contexto
+// do agente repetindo o que ele acabou de ouvir.
+func (c *Conversation) NeedsSuffix(hash string) bool {
+	if strings.TrimSpace(hash) == "" {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.active == nil {
+		return true
+	}
+	return c.active.suffixHash != hash
+}
+
+// MarkSuffixSent registra que a sessão já ouviu este contexto.
+func (c *Conversation) MarkSuffixSent(hash string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.active == nil {
+		return
+	}
+	c.active.suffixHash = hash
 }
 
 // abandon se despede de uma sessão registrada que o app não vai mais usar. É
