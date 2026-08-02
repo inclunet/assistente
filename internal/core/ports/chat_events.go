@@ -91,16 +91,19 @@ type SkillLoadedEvent struct {
 
 // ToolStartEvent is the payload for chat:tool_start.
 type ToolStartEvent struct {
-	ConversationID     string             `json:"conversationId"`
-	TurnID             string             `json:"turnId,omitempty"`
-	AssistantMessageID string             `json:"assistantMessageId,omitempty"`
-	Name               string             `json:"name"`
-	CallID             string             `json:"callId"`
-	Args               string             `json:"args,omitempty"`
-	ServerLabel        string             `json:"serverLabel,omitempty"`
-	Origin             string             `json:"origin,omitempty"` // "builtin" | "mcp_bridge" | "mcp_native"
-	Attempt            int                `json:"attempt"`          // Tentativa (0=primeira, 1=retry)
-	SurfaceOrigin      *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
+	ConversationID     string `json:"conversationId"`
+	TurnID             string `json:"turnId,omitempty"`
+	AssistantMessageID string `json:"assistantMessageId,omitempty"`
+	Name               string `json:"name"`
+	CallID             string `json:"callId"`
+	Args               string `json:"args,omitempty"`
+	// Summary descreve a chamada em texto legível quando a ferramenta não é do
+	// app e não há argumentos estruturados para mostrar (AEP-0084 D7).
+	Summary       string             `json:"summary,omitempty"`
+	ServerLabel   string             `json:"serverLabel,omitempty"`
+	Origin        string             `json:"origin,omitempty"` // "builtin" | "mcp_bridge" | "mcp_native" | "acp_agent"
+	Attempt       int                `json:"attempt"`          // Tentativa (0=primeira, 1=retry)
+	SurfaceOrigin *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }
 
 // ToolEndEvent is the payload for chat:tool_end.
@@ -114,7 +117,7 @@ type ToolEndEvent struct {
 	Summary            string             `json:"summary,omitempty"`
 	Error              string             `json:"error,omitempty"`
 	ServerLabel        string             `json:"serverLabel,omitempty"`
-	Origin             string             `json:"origin,omitempty"`     // "builtin" | "mcp_bridge" | "mcp_native"
+	Origin             string             `json:"origin,omitempty"`     // "builtin" | "mcp_bridge" | "mcp_native" | "acp_agent"
 	DurationMs         int64              `json:"durationMs,omitempty"` // AEP-0039 Fase 3
 	Attempt            int                `json:"attempt"`              // Tentativa (0=primeira, 1=retry)
 	SurfaceOrigin      *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
@@ -133,7 +136,7 @@ type ToolFailureEvent struct {
 	Retryable          bool               `json:"retryable"`
 	Message            string             `json:"message,omitempty"`
 	DurationMs         int64              `json:"durationMs,omitempty"`
-	Origin             string             `json:"origin,omitempty"`    // "builtin" | "mcp_bridge" | "mcp_native"
+	Origin             string             `json:"origin,omitempty"`    // "builtin" | "mcp_bridge" | "mcp_native" | "acp_agent"
 	WillRetry          bool               `json:"willRetry,omitempty"` // true se retry automático será tentado
 	Attempt            int                `json:"attempt"`             // Tentativa (0=primeira, 1=retry)
 	SurfaceOrigin      *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
@@ -145,7 +148,7 @@ type ToolSummary struct {
 	Status      string `json:"status"`               // "ok" | "error"
 	ErrorKind   string `json:"errorKind,omitempty"`  // AEP-0039 Fase 3
 	DurationMs  int64  `json:"durationMs,omitempty"` // AEP-0039 Fase 3
-	Origin      string `json:"origin,omitempty"`     // "builtin" | "mcp_bridge" | "mcp_native"
+	Origin      string `json:"origin,omitempty"`     // "builtin" | "mcp_bridge" | "mcp_native" | "acp_agent"
 	ServerLabel string `json:"serverLabel,omitempty"`
 }
 
