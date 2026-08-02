@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 
+	"assistente/internal/acp"
 	"assistente/internal/credentials"
 )
 
@@ -78,8 +79,16 @@ func resolveModel(provider *ProviderConfig, requested string) string {
 }
 
 // NewChatProvider cria o ChatProvider adequado baseado no api_format do provider.
-func NewChatProvider(provider *ProviderConfig, credMgr *credentials.Manager) ChatProvider {
+//
+// agents é o serviço de longa duração dos agentes de código (AEP-0084 D3) e só
+// o formato acp o usa. Ele é parâmetro, e não um registro global, porque o
+// processo do agente pertence ao serviço: quem constrói um provider de agente
+// sem ter o serviço em mãos precisa descobrir isso na chamada, e não num turno
+// que falha depois.
+func NewChatProvider(provider *ProviderConfig, credMgr *credentials.Manager, agents *acp.Manager) ChatProvider {
 	switch provider.GetAPIFormat() {
+	case APIFormatACP:
+		return NewACPChatProvider(provider, agents)
 	case APIFormatAnthropic:
 		return NewAnthropicProvider(provider, credMgr)
 	case APIFormatGoogle:

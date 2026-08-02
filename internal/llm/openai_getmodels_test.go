@@ -34,7 +34,7 @@ func TestGetModelsNoAPIKey(t *testing.T) {
 		Timeout:           15,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -66,7 +66,7 @@ func TestGetModelsNilCredManager(t *testing.T) {
 	}
 
 	// credMgr nil - deve funcionar sem panic
-	cp := NewChatProvider(provider, nil)
+	cp := NewChatProvider(provider, nil, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -93,7 +93,7 @@ func TestGetModelsServerUnavailable(t *testing.T) {
 		Timeout:           2,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -118,7 +118,7 @@ func TestGetModelsNullBody(t *testing.T) {
 		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -146,7 +146,7 @@ func TestGetModelsEmptyObject(t *testing.T) {
 		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -174,7 +174,7 @@ func TestGetModelsPlainText(t *testing.T) {
 		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -202,7 +202,7 @@ func TestGetModelsHTML(t *testing.T) {
 		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -236,7 +236,7 @@ func TestGetModelsHTTP_PreservaBodyDoUpstreamEm400(t *testing.T) {
 		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -271,7 +271,7 @@ func TestGetModelsHTTP_PreservaBodyDoUpstreamEm401(t *testing.T) {
 		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -302,7 +302,7 @@ func TestGetModelsNoContentType(t *testing.T) {
 		BaseURL: srv.URL + "/v1", CredentialPattern: "localhost", Timeout: 5,
 	}
 
-	cp := NewChatProvider(provider, credMgr)
+	cp := NewChatProvider(provider, credMgr, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

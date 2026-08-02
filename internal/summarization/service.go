@@ -724,7 +724,10 @@ func (s *Service) executeSummarization(
 	// sumarização também consome cota/custo do provedor (Issue #27 / AEP-0065).
 	// Quando RateLimiter é nil, NewRateLimitedProvider devolve o provider inalterado.
 	cp := llm.NewRateLimitedProvider(
-		llm.NewChatProvider(provider, s.cfg.CredMgr),
+		// Sem agente de código: a guarda acima recusa o resumo antes de chegar
+		// aqui, e um provedor ACP construído nesta linha só teria como cobrar
+		// um turno de agente por um parágrafo (AEP-0084 D14).
+		llm.NewChatProvider(provider, s.cfg.CredMgr, nil),
 		s.cfg.RateLimiter,
 		s.cfg.RateLimitKeyFunc,
 	)

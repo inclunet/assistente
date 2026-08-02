@@ -107,6 +107,17 @@ func (m *Message) GetContentAsString() string {
 			return ""
 		}
 		return *v
+	case []ContentPart:
+		// Partes tipadas: é assim que o builder monta a mensagem do turno
+		// quando ela é multimodal. Sem este caso, o texto sairia pelo
+		// fmt.Sprintf do default, como despejo da estrutura.
+		var texts []string
+		for _, part := range v {
+			if part.Type == "text" && part.Text != "" {
+				texts = append(texts, part.Text)
+			}
+		}
+		return strings.Join(texts, "\n")
 	case []interface{}:
 		// Concatena apenas as partes de texto
 		var texts []string
@@ -223,6 +234,11 @@ type ChatParams struct {
 	TopP            float64 `json:"topP,omitempty"`
 	ReasoningEffort string  `json:"reasoningEffort,omitempty"` // off, low, medium, high
 	ProfileSlug     string  `json:"profileSlug,omitempty"`     // Perfil específico (canais). Vazio = perfil ativo global
+	// ConversationID é a conversa do turno. Provider HTTP não precisa dele —
+	// o histórico vai na request —, mas o agente ACP guarda o histórico na
+	// sessão da conversa, e é por aqui que ele encontra qual é (AEP-0084 D4).
+	// Metadado interno do backend, como os demais campos sem serialização.
+	ConversationID string `json:"-"`
 	// MaxContextMessages limita mensagens carregadas no histórico deste turno.
 	// 0 = usar o valor do perfil (GetMaxContextMessages). Usado por canais via
 	// ChannelConfig.max_history.

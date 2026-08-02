@@ -267,6 +267,11 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		return ""
 	}
 
+	// Inicializa o serviço dos agentes ACP (processos e sessões). Nada sobe
+	// aqui; ele precisa existir antes do provider service porque é dele que um
+	// provedor de agente empresta a sessão da conversa (AEP-0084 D3).
+	a.initACP()
+
 	// Inicializa o Provider Service (camada de negócio para provedores LLM)
 	a.providerSvc = providers.NewService(providers.ServiceConfig{
 		Registry:         a.llmRegistry,
@@ -274,6 +279,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		Store:            providers.NewDBStore(),
 		RateLimiter:      llmRateLimiter,
 		RateLimitKeyFunc: llmRateLimitKeyFunc,
+		ACPManager:       a.acpMgr,
 	})
 
 	// Inicializa o Token Service (estatísticas de tokens)
@@ -327,8 +333,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa o gerenciador de servidores MCP (após tool registry)
 	a.initMCP()
 
-	// Inicializa o serviço dos agentes ACP (processos e sessões).
-	a.initACP()
 	a.toolInvocationSvc = toolinvocations.NewService(toolinvocations.NewDBRepository(database.DB()), a.toolExecutor)
 
 	// Inicializa o gateway de mensageria (Telegram, etc.).

@@ -286,6 +286,10 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		return "", prepResult.Err
 	}
 	messages = prepResult.Messages
+	// A conversa acompanha o turno até o provider: o agente de código guarda o
+	// histórico na sessão dela, e é assim que ele sabe qual sessão usar
+	// (AEP-0084 D4).
+	params.ConversationID = req.ConversationID
 	params.DebugDump.ConversationID = req.ConversationID
 	params.DebugDump.TurnID = userMsg.ID
 	if params.DebugDump.ProfileSlug == "" {
