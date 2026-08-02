@@ -3402,6 +3402,9 @@ const en = {
         started: 'Summarizing conversation ({{count}} messages)...',
         completed: 'Conversation summary updated ({{count}} messages summarized)',
         error: 'Error summarizing conversation: {{error}}',
+        errors: {
+          agentProvider: 'No summary generated: the profile provider is an external agent, which manages its own context.',
+        },
       },
       legacyImport: {
         summary: 'Legacy import: {{imported}} imported, {{skipped}} already present, {{failed}} failures, {{warnings}} warnings.',

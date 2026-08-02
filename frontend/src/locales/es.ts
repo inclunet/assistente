@@ -3401,6 +3401,9 @@ const es = {
         started: 'Resumiendo conversación ({{count}} mensajes)...',
         completed: 'Resumen de conversación actualizado ({{count}} mensajes resumidos)',
         error: 'Error al resumir la conversación: {{error}}',
+        errors: {
+          agentProvider: 'Resumen no generado: el proveedor del perfil es un agente externo, que administra su propio contexto.',
+        },
       },
       legacyImport: {
         summary: 'Importación legada: {{imported}} importados, {{skipped}} ya existentes, {{failed}} fallas, {{warnings}} avisos.',

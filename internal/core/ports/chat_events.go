@@ -233,10 +233,19 @@ type SummaryStartedEvent struct {
 	MessageCount   int    `json:"messageCount"`
 }
 
+// SummaryErrorCodeAgentProvider identifica a recusa de resumir uma conversa
+// cujo provider é um agente externo (AEP-0084 D14). Não é uma falha: é uma
+// condição prevista, e a interface a traduz no idioma de quem lê.
+const SummaryErrorCodeAgentProvider = "agent_provider"
+
 // SummaryErrorEvent is the payload for chat:summary_error.
+//
+// Code nomeia os motivos que a interface sabe traduzir; quando vazio, resta
+// Error, que é a mensagem crua (mensagem de erro do provedor, por exemplo).
 type SummaryErrorEvent struct {
 	ConversationID string `json:"conversationId"`
 	Error          string `json:"error"`
+	Code           string `json:"code,omitempty"`
 }
 
 // SummaryCompletedEvent is the payload for chat:summary_completed.

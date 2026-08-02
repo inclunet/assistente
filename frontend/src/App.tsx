@@ -20,6 +20,7 @@ import { ConfigProvider } from 'antd';
 import type { Locale } from 'antd/es/locale';
 import { getAntdTheme } from './theme/antdTheme';
 import { waitForWailsBridge } from './lib/waitForWailsBridge';
+import { summaryErrorMessage } from './lib/summaryError';
 import { AuthGate } from './components/auth/AuthGate';
 
 function useAntdLocale(lang: string): Locale | undefined {
@@ -212,8 +213,8 @@ function App() {
         }));
 
         unsubs.push(EventsOn('chat:summary_error', (data: unknown) => {
-            const eventData = data as { error?: string };
-            addToast(t('app.summary.error', { error: eventData.error || '' }), 'error');
+            const eventData = data as { error?: string; code?: string };
+            addToast(summaryErrorMessage(t, eventData), 'error');
         }));
 
         unsubs.push(EventsOn('legacy:import_summary', (data: unknown) => {

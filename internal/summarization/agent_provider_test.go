@@ -44,13 +44,13 @@ func (r *repoDeMentira) UpdateConversationSummary(_ context.Context, _ string, s
 // emissorEspiao guarda os eventos na ordem em que saíram.
 type emissorEspiao struct {
 	eventos []string
-	erros   []string
+	erros   []ports.SummaryErrorEvent
 }
 
 func (e *emissorEspiao) Emit(nome string, payload any) {
 	e.eventos = append(e.eventos, nome)
 	if evt, ok := payload.(ports.SummaryErrorEvent); ok {
-		e.erros = append(e.erros, evt.Error)
+		e.erros = append(e.erros, evt)
 	}
 }
 
@@ -165,8 +165,16 @@ func TestExecucaoRecusaResumoQuandoOProvedorEhAgente(t *testing.T) {
 	if !emissor.emitiu("chat:summary_error") {
 		t.Error("a recusa precisa chegar à interface com explicação")
 	}
-	if len(emissor.erros) != 1 || !strings.Contains(emissor.erros[0], "agente externo") {
-		t.Errorf("a explicação não diz por que o resumo não saiu: %v", emissor.erros)
+	if len(emissor.erros) != 1 {
+		t.Fatalf("esperava um aviso de recusa, recebeu %d", len(emissor.erros))
+	}
+	// O código é o que a interface traduz; o texto é a sobra para quem não o
+	// conhece, e por isso também precisa explicar o motivo.
+	if emissor.erros[0].Code != ports.SummaryErrorCodeAgentProvider {
+		t.Errorf("código do motivo = %q, esperado %q", emissor.erros[0].Code, ports.SummaryErrorCodeAgentProvider)
+	}
+	if !strings.Contains(emissor.erros[0].Error, "agente externo") {
+		t.Errorf("a explicação não diz por que o resumo não saiu: %q", emissor.erros[0].Error)
 	}
 	if repo.resumoSalvo != "" {
 		t.Errorf("nenhum resumo deveria ter sido salvo, salvou %q", repo.resumoSalvo)

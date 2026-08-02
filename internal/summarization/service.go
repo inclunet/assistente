@@ -680,6 +680,7 @@ func (s *Service) executeSummarization(
 		logging.Infof(ctx, "summarization.service", "[Summary] Provider %s é agente externo — sumarização recusada para a conversa %s", profile.Chat.LLMProvider, conversationID)
 		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
 			ConversationID: conversationID,
+			Code:           ports.SummaryErrorCodeAgentProvider,
 			Error:          "Resumo não gerado: o provedor do perfil é um agente externo, que administra o próprio contexto.",
 		})
 		return
