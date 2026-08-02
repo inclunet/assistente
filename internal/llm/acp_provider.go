@@ -182,6 +182,11 @@ func stopWithoutAnswer(stop acp.StopReason, response string) (string, bool) {
 	switch stop {
 	case acp.StopRefusal:
 		return "O agente recusou o pedido.", true
+	case acp.StopCancelled:
+		// Interrupção partida do agente: quem parou o turno não foi a pessoa,
+		// que sem isso receberia uma mensagem vazia sem saber por quê. A
+		// interrupção pedida por ela nem chega aqui — sai antes, pelo ctx.
+		return "O agente interrompeu o turno antes de responder.", true
 	case acp.StopMaxTokens:
 		return "O agente atingiu o limite de tokens antes de escrever a resposta.", true
 	case acp.StopMaxTurnRequests:

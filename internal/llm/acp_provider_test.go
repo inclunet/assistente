@@ -360,6 +360,25 @@ func TestRecusaSemTextoViraRespostaDoTurno(t *testing.T) {
 	}
 }
 
+func TestInterrupcaoVindaDoAgenteNaoViraMensagemVazia(t *testing.T) {
+	sessao := &agenteFalso{stop: acp.StopCancelled}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	// Aqui quem parou o turno foi o agente: o ctx segue vivo, e sem contar o
+	// desfecho a pessoa receberia uma mensagem vazia sem saber por quê.
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "faz aí"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if handler.erro != "" {
+		t.Fatalf("interrupção do agente virou erro: %s", handler.erro)
+	}
+	if !strings.Contains(handler.respostaFim, "interrompeu") {
+		t.Errorf("resposta final = %q, quer contar que o agente interrompeu o turno", handler.respostaFim)
+	}
+}
+
 func TestLimiteDeTokensSemTextoViraRespostaDoTurno(t *testing.T) {
 	sessao := &agenteFalso{stop: acp.StopMaxTokens}
 	provider := providerDeAgente(t, sessao)
