@@ -486,7 +486,26 @@ func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversation
 	if profile == nil {
 		return
 	}
+	// O perfil pode apontar para o sentinela `$default`, que só vira provider
+	// concreto aqui. Sem resolver antes da guarda abaixo, uma conversa cujo
+	// padrão global é um agente atravessaria o check e só seria recusada na
+	// execução — com aviso na tela a cada turno.
+	if s.cfg.ProfileResolver != nil {
+		profile = s.cfg.ProfileResolver(ctx, profile)
+		if profile == nil {
+			return
+		}
+	}
 	if profile.Chat.ContextWindow <= 0 {
+		return
+	}
+	// Conversa conduzida por agente externo não sumariza (AEP-0084 D14): quem
+	// administra o contexto é o próprio agente, e compactar do lado do app não
+	// teria efeito no wire — só gastaria um turno de agente de código.
+	if s.isAgentDrivenProfile(profile) {
+		// Debug, não info: o check roda a cada turno e este desvio é o esperado
+		// para a conversa inteira, não uma condição anômala.
+		logging.Debugf(ctx, "summarization.service", "[Summary] Conversa %s usa provider de agente externo — sumarização automática não se aplica", conversationID)
 		return
 	}
 
@@ -551,6 +570,17 @@ func (s *Service) resolveConversationProfile(profileSlug string) *profiles.Profi
 		return nil
 	}
 	return profile
+}
+
+// isAgentDrivenProfile informa se o provider do perfil é um agente externo
+// (ACP), que não é elegível para as tarefas auxiliares do perfil: cada chamada
+// dessas seria um turno inteiro de agente de código — sessão, ferramentas,
+// permissões e custo — para produzir um resumo (AEP-0084 D14).
+func (s *Service) isAgentDrivenProfile(profile *profiles.Profile) bool {
+	if profile == nil || s.cfg.LLMRegistry == nil {
+		return false
+	}
+	return s.cfg.LLMRegistry.Get(profile.Chat.LLMProvider).IsACP()
 }
 
 // TriggerSummarizationInBackground lança uma goroutine para sumarizar mensagens antigas.
@@ -647,16 +677,29 @@ func (s *Service) executeSummarization(
 		profile = s.cfg.ProfileResolver(ctx, profile)
 	}
 
-	s.cfg.Emitter.Emit("chat:summary_started", ports.SummaryStartedEvent{
-		ConversationID: conversationID,
-		MessageCount:   len(newMessages),
-	})
-
 	defer func() {
 		if err := s.cfg.Repo.SetSummarizingInProgress(ctx, conversationID, false); err != nil {
 			logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao desmarcar summarizing_in_progress: %v", err)
 		}
 	}()
+
+	// Só aqui o sentinela `$default` do perfil vira provider concreto, então a
+	// recusa do D14 (AEP-0084) precisa existir também neste ponto — antes de
+	// anunciar que a sumarização começou.
+	if s.isAgentDrivenProfile(profile) {
+		logging.Infof(ctx, "summarization.service", "[Summary] Provider %s é agente externo — sumarização recusada para a conversa %s", profile.Chat.LLMProvider, conversationID)
+		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
+			ConversationID: conversationID,
+			Code:           ports.SummaryErrorCodeAgentProvider,
+			Error:          "Resumo não gerado: o provedor do perfil é um agente externo, que administra o próprio contexto.",
+		})
+		return
+	}
+
+	s.cfg.Emitter.Emit("chat:summary_started", ports.SummaryStartedEvent{
+		ConversationID: conversationID,
+		MessageCount:   len(newMessages),
+	})
 
 	model := profile.Chat.Model
 

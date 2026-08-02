@@ -3403,6 +3403,9 @@ const ptBR = {
         started: 'Sumarizando conversa ({{count}} mensagens)...',
         completed: 'Resumo da conversa atualizado ({{count}} mensagens resumidas)',
         error: 'Erro ao sumarizar conversa: {{error}}',
+        errors: {
+          agentProvider: 'Resumo não gerado: o provedor do perfil é um agente externo, que administra o próprio contexto.',
+        },
       },
       legacyImport: {
         summary: 'Importação legada: {{imported}} importados, {{skipped}} já existentes, {{failed}} falhas, {{warnings}} avisos.',

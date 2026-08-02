@@ -950,6 +950,20 @@ func (s *Service) SupportsAssistantPrefill(ctx context.Context, activeProfile *p
 	return llm.SupportsAssistantPrefill(s.registry.Get(activeProfile.Chat.LLMProvider))
 }
 
+// UsesAgentTurn informa se o turno do perfil é conduzido por um agente externo
+// (provider ACP). Nesse caso as ferramentas são do agente, e o app planeja o
+// turno sem oferecer as suas (AEP-0084 D7).
+func (s *Service) UsesAgentTurn(ctx context.Context, activeProfile *profiles.Profile) bool {
+	if activeProfile == nil || s.registry == nil {
+		return false
+	}
+	activeProfile = s.ResolveProfileDefaults(ctx, activeProfile)
+	if activeProfile == nil {
+		return false
+	}
+	return s.registry.Get(activeProfile.Chat.LLMProvider).IsACP()
+}
+
 // SupportsExplicitCacheControl aplica a resolução de perfil usada em runtime
 // para decidir se o provider ativo aceita cache_control explícito no payload.
 func (s *Service) SupportsExplicitCacheControl(ctx context.Context, activeProfile *profiles.Profile) bool {
