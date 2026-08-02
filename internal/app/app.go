@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"assistente/controllers"
+	"assistente/internal/acp"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
 	"assistente/internal/auth"
@@ -79,6 +80,7 @@ type App struct {
 	allowlistMgr      *allowlist.Manager          // Gerenciador de allowlists de comandos
 	netTrustMgr       *nettrust.Manager           // Allowlist de rede escopável (anti-SSRF override)
 	mcpMgr            *mcpmgr.Manager             // Gerenciador de servidores MCP
+	acpMgr            *acp.Manager                // Processos e sessões dos agentes ACP (AEP-0084)
 	skillMgr          *skills.Manager             // Gerenciador de skills
 	responseNotifier  *messaging.ResponseNotifier // Notificador de respostas para mensageiros
 	msgGateway        *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
@@ -324,6 +326,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o gerenciador de servidores MCP (após tool registry)
 	a.initMCP()
+
+	// Inicializa o serviço dos agentes ACP (processos e sessões).
+	a.initACP()
 	a.toolInvocationSvc = toolinvocations.NewService(toolinvocations.NewDBRepository(database.DB()), a.toolExecutor)
 
 	// Inicializa o gateway de mensageria (Telegram, etc.).
@@ -633,6 +638,12 @@ func (a *App) Shutdown() {
 	// Encerra todos os servidores MCP
 	if a.mcpMgr != nil {
 		a.mcpMgr.CloseAll()
+	}
+
+	// Derruba os processos dos agentes ACP. As sessões ficam registradas: o
+	// agente sobrevive ao app e, na volta, a conversa é retomada de onde parou.
+	if a.acpMgr != nil {
+		a.acpMgr.Shutdown()
 	}
 
 	// Encerra todas as sessões de terminal
