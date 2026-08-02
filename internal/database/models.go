@@ -62,11 +62,15 @@ type Session struct {
 
 // LLMProvider armazena configuração de provedor LLM
 type LLMProvider struct {
-	ID                string `gorm:"primaryKey"`
-	UserID            string `json:"userId,omitempty" gorm:"index"`
-	Name              string `gorm:"not null"`
-	Type              string `gorm:"not null"` // openai, claude, ollama, etc
-	APIFormat         string // openai, anthropic, google (SDK/protocolo)
+	ID        string `gorm:"primaryKey"`
+	UserID    string `json:"userId,omitempty" gorm:"index"`
+	Name      string `gorm:"not null"`
+	Type      string `gorm:"not null"` // openai, claude, ollama, etc
+	APIFormat string // openai, anthropic, google, acp (SDK/protocolo)
+	// BaseURL segue NOT NULL: um provedor acp (AEP-0084) não tem endereço e
+	// grava string vazia, que a coluna aceita. Recriar a tabela só para
+	// trocar vazio por NULL custaria o procedimento mais arriscado do banco
+	// sem mudar nada de comportamento.
 	BaseURL           string `gorm:"not null"`
 	Model             string
 	DefaultModel      string
@@ -74,8 +78,15 @@ type LLMProvider struct {
 	Timeout           int
 	CredentialPattern string
 	AuthMode          string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// ACPCommand, ACPArgs e ACPEnv guardam como subir o agente de código
+	// quando o formato é acp. Mesmo formato de armazenamento do servidor MCP
+	// stdio, que tem o mesmo problema: JSON em texto, porque SQLite não tem
+	// lista nem mapa.
+	ACPCommand string `gorm:"type:text"`
+	ACPArgs    string `gorm:"type:text"` // array JSON
+	ACPEnv     string `gorm:"type:text"` // objeto JSON
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // ==================== Conversation & Messages ====================
