@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -43,7 +42,6 @@ type agentActivity struct {
 	running      map[string]agentToolTrack
 	segmentTools []ports.ToolSummary
 	iteration    int
-	anonymous    int
 }
 
 // OnAgentToolEvent traduz a atividade de ferramenta do agente para os eventos de
@@ -62,8 +60,11 @@ func (h *SimpleStreamHandler) OnAgentToolEvent(event llm.AgentToolEvent) {
 	}
 	callID := singleLine(event.ID)
 	if callID == "" {
-		h.activity.anonymous++
-		callID = fmt.Sprintf("agent-%d", h.activity.anonymous)
+		// O protocolo exige identificador; sem ele o fim ainda precisa achar o
+		// começo. A classe da ferramenta é o que resta para correlacionar — pior
+		// que isso só seria deixar o item preso em execução para sempre e abrir
+		// outro no lugar dele.
+		callID = "agent-" + name
 	}
 	track, known := h.activity.running[callID]
 	if !known {

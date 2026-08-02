@@ -166,6 +166,26 @@ func TestFerramentaSemIdentificadorNaoRoubaOItemDaOutra(t *testing.T) {
 	}
 }
 
+func TestFimSemIdentificadorAindaEncontraOComeco(t *testing.T) {
+	emitter := &mockEmitter{}
+	handler := novoHandlerDeAgente(t, emitter, nil)
+
+	handler.OnAgentToolEvent(llm.AgentToolEvent{Kind: "execute", Status: llm.AgentToolRunning})
+	handler.OnAgentToolEvent(llm.AgentToolEvent{Kind: "execute", Status: llm.AgentToolCompleted})
+	handler.OnDone("resposta", llm.Usage{}, "modelo")
+
+	if len(eventosPorNome(emitter, "chat:tool_start")) != 1 {
+		t.Error("o fim sem identificador abriu um segundo item em vez de fechar o primeiro")
+	}
+	fins := eventosPorNome(emitter, "chat:tool_end")
+	if len(fins) != 1 {
+		t.Fatalf("esperava 1 chat:tool_end, recebi %d", len(fins))
+	}
+	if fins[0].(ports.ToolEndEvent).Status != "ok" {
+		t.Error("a ferramenta terminou bem e não pode ser encerrada como pendente")
+	}
+}
+
 func TestFerramentaQueFalhaAvisaComFalhaSemPedirRetry(t *testing.T) {
 	emitter := &mockEmitter{}
 	handler := novoHandlerDeAgente(t, emitter, nil)
