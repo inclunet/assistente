@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func setupStoreTest(t *testing.T) (SessionStore, *gorm.DB, context.Context, context.Context) {
+func bancoDeTeste(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -19,7 +19,13 @@ func setupStoreTest(t *testing.T) (SessionStore, *gorm.DB, context.Context, cont
 	if err := db.AutoMigrate(&database.User{}, &database.ACPSession{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
-	return NewDBSessionStore(db), db,
+	return db
+}
+
+func setupStoreTest(t *testing.T) (SessionStore, *gorm.DB, context.Context, context.Context) {
+	t.Helper()
+	db := bancoDeTeste(t)
+	return NewDBSessionStore(func() *gorm.DB { return db }), db,
 		database.WithUserID(context.Background(), "user-ana"),
 		database.WithUserID(context.Background(), "user-leo")
 }
@@ -41,7 +47,7 @@ func TestSemBancoNaoSobraPonteiroNuloDisfarcadoDeStore(t *testing.T) {
 	}
 	m := NewManager(ManagerConfig{
 		Store:   NewDBSessionStore(nil),
-		WorkDir: func() (string, error) { return "/projeto", nil },
+		WorkDir: func() (string, error) { return dirDeTeste("projeto"), nil },
 		Dial: func(Config, RequestHandler) (Client, error) {
 			return newFakeManagedClient(), nil
 		},
@@ -52,6 +58,50 @@ func TestSemBancoNaoSobraPonteiroNuloDisfarcadoDeStore(t *testing.T) {
 	}
 	if conv.Session() == nil {
 		t.Fatal("conversa sem banco ficou sem sessão")
+	}
+}
+
+func TestResetarOBancoNaoDeixaOStoreFalandoComOAntigo(t *testing.T) {
+	atual := bancoDeTeste(t)
+	store := NewDBSessionStore(func() *gorm.DB { return atual })
+	ana := database.WithUserID(context.Background(), "user-ana")
+
+	rec := StoredSession{ConversationID: "conv-1", ProviderID: "cursor", SessionID: "sess-antes"}
+	if err := store.Save(ana, rec); err != nil {
+		t.Fatalf("gravar antes do reset: %v", err)
+	}
+
+	// Resetar o banco fecha a conexão e abre outra. Um ponteiro guardado no
+	// início continuaria na fechada, e a gravação abaixo falharia.
+	if sql, err := atual.DB(); err == nil {
+		_ = sql.Close()
+	}
+	atual = bancoDeTeste(t)
+
+	rec.SessionID = "sess-depois"
+	if err := store.Save(ana, rec); err != nil {
+		t.Fatalf("gravar depois do reset: %v", err)
+	}
+	got, err := store.Load(ana, "conv-1", "cursor")
+	if err != nil {
+		t.Fatalf("ler depois do reset: %v", err)
+	}
+	if got == nil || got.SessionID != "sess-depois" {
+		t.Fatalf("vínculo depois do reset = %+v", got)
+	}
+}
+
+func TestSemBancoAberturaDeSessaoFalhaEmVezDeFingirQueGravou(t *testing.T) {
+	// Fingir sucesso deixaria a sessão viva no agente sem registro que a
+	// reencontre — nem para retomar, nem para encerrar.
+	store := NewDBSessionStore(func() *gorm.DB { return nil })
+	ana := database.WithUserID(context.Background(), "user-ana")
+
+	if err := store.Save(ana, StoredSession{ConversationID: "conv-1", ProviderID: "cursor", SessionID: "sess-abc"}); err == nil {
+		t.Fatal("gravação com banco indisponível passou")
+	}
+	if _, err := store.Load(ana, "conv-1", "cursor"); err == nil {
+		t.Fatal("leitura com banco indisponível passou")
 	}
 }
 

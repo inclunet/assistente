@@ -57,18 +57,32 @@ const storeTimeout = 5 * time.Second
 // DBSessionStore implementa SessionStore no banco do app, escopado por usuário
 // (AEP-0052): a sessão de um agente carrega a conversa de quem a abriu.
 type DBSessionStore struct {
-	db *gorm.DB
+	// resolve busca o banco a cada uso em vez de guardar a conexão. Resetar o
+	// banco fecha a conexão e abre outra; um ponteiro guardado no início
+	// continuaria apontando para a fechada, e toda gravação de sessão falharia
+	// até reiniciar o app.
+	resolve func() *gorm.DB
 }
 
-// NewDBSessionStore devolve o store persistente. Sem banco devolve nil de
-// verdade — a interface, não um ponteiro nulo dentro dela, que passaria pelo
-// teste de nulidade do manager e estouraria no primeiro uso. O manager sem
-// store funciona; é o caso de um app ainda sem banco aberto.
-func NewDBSessionStore(db *gorm.DB) SessionStore {
-	if db == nil {
+// NewDBSessionStore devolve o store persistente. Sem jeito de achar o banco
+// devolve nil de verdade — a interface, não um ponteiro nulo dentro dela, que
+// passaria pelo teste de nulidade do manager e estouraria no primeiro uso. O
+// manager sem store funciona; é o caso de um app ainda sem banco aberto.
+func NewDBSessionStore(resolve func() *gorm.DB) SessionStore {
+	if resolve == nil {
 		return nil
 	}
-	return &DBSessionStore{db: db}
+	return &DBSessionStore{resolve: resolve}
+}
+
+// db devolve a conexão do momento. Banco fechado é falha de verdade: fingir que
+// deu certo deixaria a sessão viva no agente sem registro que a reencontre.
+func (s *DBSessionStore) db(ctx context.Context) (*gorm.DB, error) {
+	db := s.resolve()
+	if db == nil {
+		return nil, errors.New("banco indisponível para as sessões ACP")
+	}
+	return db.WithContext(ctx), nil
 }
 
 func (s *DBSessionStore) Load(ctx context.Context, conversationID, providerID string) (*StoredSession, error) {
@@ -79,8 +93,12 @@ func (s *DBSessionStore) Load(ctx context.Context, conversationID, providerID st
 	if conversationID == "" || providerID == "" {
 		return nil, errors.New("conversa ou provider vazio ao buscar sessão ACP")
 	}
+	db, err := s.db(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var row database.ACPSession
-	err := database.ScopeByUser(ctx, s.db.WithContext(ctx), "user_id").
+	err = database.ScopeByUser(ctx, db, "user_id").
 		Where("conversation_id = ? AND provider_id = ?", conversationID, providerID).
 		First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -111,7 +129,11 @@ func (s *DBSessionStore) Save(ctx context.Context, rec StoredSession) error {
 	if strings.TrimSpace(rec.SessionID) == "" {
 		return errors.New("sessão ACP sem identificador")
 	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	db, err := s.db(ctx)
+	if err != nil {
+		return err
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
 		var existing database.ACPSession
 		err := tx.Where("user_id = ? AND conversation_id = ? AND provider_id = ?", userID, rec.ConversationID, rec.ProviderID).
 			First(&existing).Error
@@ -146,7 +168,11 @@ func (s *DBSessionStore) SavePrefixHash(ctx context.Context, conversationID, pro
 	if conversationID == "" || providerID == "" {
 		return errors.New("conversa ou provider vazio ao anotar prefixo da sessão ACP")
 	}
-	res := s.db.WithContext(ctx).Model(&database.ACPSession{}).
+	db, err := s.db(ctx)
+	if err != nil {
+		return err
+	}
+	res := db.Model(&database.ACPSession{}).
 		Where("user_id = ? AND conversation_id = ? AND provider_id = ?", userID, conversationID, providerID).
 		Update("prompt_prefix_hash", hash)
 	if res.Error != nil {
@@ -166,7 +192,11 @@ func (s *DBSessionStore) Delete(ctx context.Context, conversationID string) erro
 	if conversationID == "" {
 		return nil
 	}
-	return database.ScopeByUser(ctx, s.db.WithContext(ctx), "user_id").
+	db, err := s.db(ctx)
+	if err != nil {
+		return err
+	}
+	return database.ScopeByUser(ctx, db, "user_id").
 		Where("conversation_id = ?", conversationID).
 		Delete(&database.ACPSession{}).Error
 }
@@ -175,6 +205,10 @@ func (s *DBSessionStore) DeleteAll(ctx context.Context) error {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return err
 	}
-	return database.ScopeByUser(ctx, s.db.WithContext(ctx), "user_id").
+	db, err := s.db(ctx)
+	if err != nil {
+		return err
+	}
+	return database.ScopeByUser(ctx, db, "user_id").
 		Delete(&database.ACPSession{}).Error
 }

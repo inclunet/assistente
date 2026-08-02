@@ -35,6 +35,9 @@ func (a *App) ResetDatabase() error {
 		logging.Errorf(context.Background(), "app.app-database", "[ResetDatabase] falha: %v", err)
 		return ErrDatabaseResetFailed
 	}
+	// O banco foi recriado do zero: sessões e processos de agente que sobraram
+	// falam de conversas que não existem mais (AEP-0084 D4).
+	a.resetACPRuntime()
 	return nil
 }
 

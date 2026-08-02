@@ -15,10 +15,10 @@ import (
 // no primeiro uso — um turno, uma consulta de modelos, um health check.
 func (a *App) initACP() {
 	a.acpMgr = acp.NewManager(acp.ManagerConfig{
-		// Sem banco o serviço funciona em memória e cada reinício começa com um
-		// agente que não lembra da conversa. É o caso de um app ainda sem banco
-		// aberto, não o normal.
-		Store: acp.NewDBSessionStore(database.DB()),
+		// O banco é buscado a cada uso, não guardado: resetá-lo fecha a conexão
+		// e abre outra, e uma conexão guardada aqui ficaria apontando para a
+		// fechada até o app reiniciar.
+		Store: acp.NewDBSessionStore(database.DB),
 		// Handler nulo nega todo pedido do agente na hora. Quem responde
 		// permissão é a camada do D9, que ainda não existe; até lá negar é o
 		// comportamento seguro, e nunca deixar um turno pendurado é regra.
@@ -67,4 +67,15 @@ func (a *App) closeAllACPSessions(ctx context.Context) {
 	if err := a.acpMgr.CloseAllConversations(ctx); err != nil {
 		logging.Warnf(ctx, "app.app-acp", "[ACP] erro ao encerrar as sessões das conversas apagadas: %v", err)
 	}
+}
+
+// resetACPRuntime derruba processos e sessões sem tocar no banco. É o que o
+// reset do banco precisa: o arquivo inteiro foi recriado, então não há registro
+// para apagar, e o que sobrou em memória descreve conversas de um banco que já
+// não existe.
+func (a *App) resetACPRuntime() {
+	if a == nil || a.acpMgr == nil {
+		return
+	}
+	a.acpMgr.DisconnectAll()
 }
