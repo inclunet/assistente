@@ -3,6 +3,7 @@ package llm
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestRotuloDoAgenteNaoCarregaOQueOTerminalEscreveu(t *testing.T) {
@@ -71,5 +72,35 @@ func TestRotuloLongoNaoViraRecitacaoNoLeitorDeTelas(t *testing.T) {
 	}
 	if !strings.HasPrefix(got, "npm test -- arquivo.spec.ts") {
 		t.Errorf("o começo do rótulo se perdeu: %q", got)
+	}
+}
+
+func TestRotuloAbsurdoNaoEVarridoInteiro(t *testing.T) {
+	// Quem manda o texto é o agente, e ele manda o tamanho que quiser: varrer
+	// megabytes para produzir 200 runas seria trabalho gasto à toa.
+	enorme := "início do comando " + strings.Repeat("x", 4<<20)
+
+	got := sanitizeAgentLabel(enorme)
+
+	if len([]rune(got)) != agentLabelLimit+1 {
+		t.Fatalf("tamanho = %d runas, quer o limite mais a reticência", len([]rune(got)))
+	}
+	if !strings.HasPrefix(got, "início do comando xxx") {
+		t.Errorf("o começo do rótulo se perdeu: %q", got)
+	}
+}
+
+func TestCaractereMultibyteNaoEPartidoAoMeioNoCorteDeEntrada(t *testing.T) {
+	// O corte por bytes cai no meio de um caractere de três bytes; partido, ele
+	// viraria lixo na tela.
+	enorme := strings.Repeat("ç", agentLabelInputBudget)
+
+	got := sanitizeAgentLabel(enorme)
+
+	if !utf8.ValidString(got) {
+		t.Fatalf("rótulo saneado não é UTF-8 válido: %q", got)
+	}
+	if !strings.HasPrefix(got, "ççç") {
+		t.Errorf("rótulo = %q", got)
 	}
 }

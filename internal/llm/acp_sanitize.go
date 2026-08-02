@@ -21,6 +21,12 @@ import (
 // leitor de telas recitar argumento por argumento.
 const agentLabelLimit = 200
 
+// agentLabelInputBudget é o quanto do texto original vale a pena examinar. Quem
+// manda é o agente, e ele manda o tamanho que quiser; nenhum rótulo honesto
+// precisa de mais do que isto para render as primeiras agentLabelLimit runas,
+// mesmo em escrita de três bytes por caractere.
+const agentLabelInputBudget = 8 << 10
+
 // ansiEscape casa as sequências de escape que ferramentas de terminal usam para
 // cor e movimento de cursor. Sem tirá-las antes dos controles, sobraria o resto
 // da sequência ("[31m") como se fosse texto.
@@ -32,36 +38,41 @@ var ansiEscape = regexp.MustCompile("\x1b(?:\\[[0-9;?]*[ -/]*[@-~]|\\][^\x07\x1b
 // um texto ser lido diferente do que ele é —, em linha única e com tamanho
 // limitado.
 func sanitizeAgentLabel(s string) string {
-	s = ansiEscape.ReplaceAllString(s, "")
+	s = ansiEscape.ReplaceAllString(withinBudget(s), "")
 
-	var out strings.Builder
-	out.Grow(len(s))
+	// A saída tem tamanho conhecido, e uma runa além do limite já basta para
+	// saber que o rótulo foi cortado.
+	out := make([]rune, 0, agentLabelLimit+1)
 	pendingSpace := false
 	for _, r := range s {
 		switch {
-		case r == utf8.RuneError:
-			continue
 		case unicode.IsSpace(r):
 			pendingSpace = true
-		case unicode.IsControl(r), unicode.Is(unicode.Cf, r):
 			continue
-		default:
-			if pendingSpace && out.Len() > 0 {
-				out.WriteRune(' ')
-			}
-			pendingSpace = false
-			out.WriteRune(r)
+		case r == utf8.RuneError, unicode.IsControl(r), unicode.Is(unicode.Cf, r):
+			continue
+		}
+		if pendingSpace && len(out) > 0 {
+			out = append(out, ' ')
+		}
+		pendingSpace = false
+		out = append(out, r)
+		if len(out) > agentLabelLimit {
+			return strings.TrimRight(string(out[:agentLabelLimit]), " ") + "…"
 		}
 	}
-	return truncateRunes(out.String(), agentLabelLimit)
+	return string(out)
 }
 
-// truncateRunes corta por runa, e não por byte, para não partir um caractere
-// ao meio e deixar lixo na tela.
-func truncateRunes(s string, limit int) string {
-	if utf8.RuneCountInString(s) <= limit {
+// withinBudget corta o texto antes de qualquer trabalho sobre ele, em fronteira
+// de runa para não partir um caractere ao meio.
+func withinBudget(s string) string {
+	if len(s) <= agentLabelInputBudget {
 		return s
 	}
-	runes := []rune(s)
-	return strings.TrimRight(string(runes[:limit]), " ") + "…"
+	cut := agentLabelInputBudget
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
