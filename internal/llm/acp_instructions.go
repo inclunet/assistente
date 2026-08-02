@@ -91,8 +91,13 @@ func (t turnInstructions) markSent(ctx context.Context, conv *acp.Conversation) 
 
 // splitSystemPrompt corta a mensagem de sistema na fronteira que o app já
 // marca para cache de prompt: antes dela está o que se repete turno a turno,
-// depois dela o que muda. Sem a marca, tudo conta como estável — e qualquer
-// mudança no conjunto o reenvia inteiro, que é o comportamento seguro.
+// depois dela o que muda.
+//
+// Zero é "sem marca" em todo o barramento — é o que InjectSystemPrompt passa
+// quando não há prefixo a marcar, e o que o provider da Anthropic já lê assim.
+// Sem a marca, tudo conta como estável: o hash passa a cobrir o conjunto
+// inteiro, e mudar qualquer parte dele reenvia tudo. Custa uma repetição da
+// persona; não deixa nenhuma mudança sem chegar ao agente.
 func splitSystemPrompt(messages []Message) (stable, dynamic string) {
 	for _, message := range messages {
 		if message.Role != "system" {

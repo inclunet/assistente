@@ -161,6 +161,28 @@ func TestSistemaSemFronteiraMarcadaVaiInteiroComoPerfil(t *testing.T) {
 	}
 }
 
+func TestSemFronteiraMarcadaAMudancaAindaChegaAoAgente(t *testing.T) {
+	sessao := &agenteFalso{}
+	provider := providerDeAgente(t, sessao)
+
+	provider.StreamChat(t.Context(), []Message{
+		{Role: "system", Content: "persona\n<conversation_summary>falamos de CSS</conversation_summary>"},
+		{Role: "user", Content: "e agora?"},
+	}, ChatParams{ConversationID: "conversa-1"}, &espiao{})
+	provider.StreamChat(t.Context(), []Message{
+		{Role: "system", Content: "persona\n<conversation_summary>agora falamos de ARIA</conversation_summary>"},
+		{Role: "user", Content: "e depois?"},
+	}, ChatParams{ConversationID: "conversa-1"}, &espiao{})
+
+	// Sem a marca não dá para saber onde termina o que se repete, e o conjunto
+	// inteiro vira o prefixo. Mudar qualquer parte dele muda o hash: o agente
+	// ouve tudo de novo, e não deixa de ouvir o que mudou.
+	segundo := textoDoTurno(t, sessao.turnos()[1])
+	if !strings.Contains(segundo, "falamos de ARIA") {
+		t.Errorf("o resumo novo não chegou ao agente: %q", segundo)
+	}
+}
+
 func TestTurnoQueFalhouNaoContaAsInstrucoesComoOuvidas(t *testing.T) {
 	sessao := &agenteFalso{err: acp.ErrSessionLost}
 	provider := providerDeAgente(t, sessao)
