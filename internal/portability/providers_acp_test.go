@@ -74,6 +74,57 @@ func TestImportaProvedorACPComComandoEArgumentos(t *testing.T) {
 	}
 }
 
+// Um arquivo escrito à mão pode trazer "acpArgs": [] num provedor HTTP. Isso
+// não é configuração de agente, e não pode virar uma no banco: a coluna com o
+// literal "[]" contradiz a convenção do store, onde vazio é vazio.
+func TestColecaoVaziaDoAgenteNaoViraLiteralNoBanco(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			Providers: []ProviderExport{
+				{
+					ID: "openai", Name: "OpenAI", Type: "openai", APIFormat: "openai",
+					BaseURL: "https://api.openai.com/v1",
+					ACPArgs: []string{}, ACPEnv: map[string]string{},
+				},
+				{
+					ID: "cursor", Name: "Cursor", Type: "custom", APIFormat: "acp",
+					ACPCommand: "agente-que-nao-existe-nesta-maquina",
+					ACPArgs:    []string{}, ACPEnv: map[string]string{},
+				},
+			},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result, err := ImportConversationsWithContext(portabilityTestCtx(), string(raw), nil, "")
+	if err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+	if result.Imported != 2 || result.Failed != 0 {
+		t.Fatalf("resultado inesperado: %+v", result)
+	}
+
+	for _, id := range []string{"openai", "cursor"} {
+		imported, err := database.GetLLMProviderWithContext(portabilityTestCtx(), id)
+		if err != nil {
+			t.Fatalf("GetLLMProvider(%s) error = %v", id, err)
+		}
+		if imported.ACPArgs != "" {
+			t.Errorf("provider %s guardou argumentos = %q, esperado coluna vazia", id, imported.ACPArgs)
+		}
+		if imported.ACPEnv != "" {
+			t.Errorf("provider %s guardou ambiente = %q, esperado coluna vazia", id, imported.ACPEnv)
+		}
+	}
+}
+
 // Agente que existe aqui não vira alarme falso: aviso repetido em importação
 // que está certa ensina a ignorar aviso.
 func TestAgenteEncontradoNaMaquinaNaoGeraAviso(t *testing.T) {

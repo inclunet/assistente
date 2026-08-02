@@ -2,6 +2,7 @@ package portability
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -86,11 +87,11 @@ func overwriteProvider(ctx context.Context, provider ProviderExport) (bool, erro
 }
 
 func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, existing *database.LLMProvider) error {
-	acpArgs, err := encodeJSON(provider.ACPArgs)
+	acpArgs, err := encodeACPList(provider.ACPArgs)
 	if err != nil {
 		return fmt.Errorf("erro ao serializar argumentos do agente do provider %q: %w", provider.ID, err)
 	}
-	acpEnv, err := encodeJSON(provider.ACPEnv)
+	acpEnv, err := encodeACPMap(provider.ACPEnv)
 	if err != nil {
 		return fmt.Errorf("erro ao serializar ambiente do agente do provider %q: %w", provider.ID, err)
 	}
@@ -195,6 +196,34 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 		return ProviderExport{}, fmt.Errorf("provider %q sem baseUrl não pode ser importado", normalized.ID)
 	}
 	return normalized, nil
+}
+
+// encodeACPList e encodeACPMap gravam lista e mapa do agente com a mesma
+// convenção do store de providers: coleção vazia é coluna vazia, e não o
+// literal "[]" ou "{}". Um arquivo de importação escrito à mão pode trazer
+// "acpArgs": [], e gravar o literal deixaria a linha de um provider HTTP com
+// configuração de agente escrita — exatamente o que a validação recusa quando
+// ela vem preenchida.
+func encodeACPList(values []string) (string, error) {
+	if len(values) == 0 {
+		return "", nil
+	}
+	raw, err := json.Marshal(values)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
+}
+
+func encodeACPMap(values map[string]string) (string, error) {
+	if len(values) == 0 {
+		return "", nil
+	}
+	raw, err := json.Marshal(values)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }
 
 func isACPExport(provider ProviderExport) bool {
