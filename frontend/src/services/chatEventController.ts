@@ -211,6 +211,13 @@ const flushPendingUpdate = (
   }
 };
 
+/**
+ * Origem já conhecida da ferramenta. O evento de fim costuma repeti-la, mas se
+ * vier sem ela o anúncio não pode creditar ao app o que o agente fez.
+ */
+const knownToolOrigin = (session: ChatEventSession, callId: string): ToolOrigin | undefined =>
+  session.activeToolCalls.find((tc) => tc.callId === callId)?.origin;
+
 const discardPendingUpdate = (messageId: string) => {
   const existingTimer = streamUpdateTimers.get(messageId);
   if (existingTimer) {
@@ -560,7 +567,7 @@ export function startChatEventController({
         : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const, summary: event.summary, origin: event.origin }],
     });
     if (external) {
-      const runningMessage = isAppToolEvent(event.origin)
+      const runningMessage = isAppToolEvent(event.origin ?? knownToolOrigin(session, event.callId))
         ? i18next.t('chat.toolRunning', { name: event.name })
         : i18next.t('chat.agentToolRunning', { name: event.name });
       announceForActiveChatConversation(conversationId, runningMessage, 'polite', getEventOrigin(event));
@@ -581,7 +588,7 @@ export function startChatEventController({
       ),
     });
     if (!external) return;
-    const fromApp = isAppToolEvent(event.origin);
+    const fromApp = isAppToolEvent(event.origin ?? knownToolOrigin(session, event.callId));
     if (event.status !== 'error') {
       const doneMessage = fromApp
         ? i18next.t('chat.toolDone', { name: event.name })
@@ -609,7 +616,7 @@ export function startChatEventController({
       return;
     }
     announce(
-      isAppToolEvent(event.origin)
+      isAppToolEvent(event.origin ?? knownToolOrigin(getCurrentSession(), event.callId))
         ? i18next.t('chat.toolFailed', { name: event.name })
         : i18next.t('chat.agentToolFailed', { name: event.name }),
       'assertive',
