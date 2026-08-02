@@ -90,6 +90,25 @@ func TestRotuloAbsurdoNaoEVarridoInteiro(t *testing.T) {
 	}
 }
 
+func TestEscapeCortadoAoMeioNaoVazaComoTexto(t *testing.T) {
+	// O corte por tamanho pode cair dentro de uma sequência de escape. Sem o
+	// byte final ela não é reconhecida, e o miolo dela sobraria no rótulo.
+	// O enchimento é invisível de propósito: só assim a varredura chega até o
+	// limite de entrada em vez de parar nas primeiras 200 runas. Ele para a
+	// quatro bytes do corte, e o escape seguinte fica partido bem em cima dele.
+	enchimento := strings.Repeat("\x1b[0m", (agentLabelInputBudget-4)/4)
+	if len(enchimento) != agentLabelInputBudget-4 {
+		t.Fatalf("enchimento com %d bytes: o corte não cairia dentro do escape", len(enchimento))
+	}
+	cortadoAoMeio := enchimento + "\x1b[31" + strings.Repeat("m vermelho", 100)
+
+	got := sanitizeAgentLabel(cortadoAoMeio)
+
+	if got != "" {
+		t.Errorf("rótulo = %q, o resto do escape vazou", got)
+	}
+}
+
 func TestCaractereMultibyteNaoEPartidoAoMeioNoCorteDeEntrada(t *testing.T) {
 	// O corte por bytes cai no meio de um caractere de três bytes; partido, ele
 	// viraria lixo na tela.

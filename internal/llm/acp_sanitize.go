@@ -74,5 +74,12 @@ func withinBudget(s string) string {
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
-	return s[:cut]
+	s = s[:cut]
+	// O corte também pode cair no meio de uma sequência de escape. Sem o byte
+	// final ela não casa com ansiEscape, o \x1b sai como controle e o resto
+	// ("[31") sobraria como texto no rótulo.
+	if esc := strings.LastIndexByte(s, 0x1b); esc >= 0 && ansiEscape.FindStringIndex(s[esc:]) == nil {
+		s = s[:esc]
+	}
+	return s
 }
