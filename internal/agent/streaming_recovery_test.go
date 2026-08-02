@@ -211,6 +211,97 @@ func TestStreamSimpleWithRecovery_RetriesWithoutTerminalError(t *testing.T) {
 	}
 }
 
+// marcarNaoRetentavel imita o provider de agente de código: o turno já saiu, e
+// o erro que vem depois não pode ser repetido pelo app (AEP-0084 D4).
+func marcarNaoRetentavel(h llm.StreamHandler, err string) {
+	if sink, ok := h.(llm.NonRetryableErrorSink); ok {
+		sink.MarkErrorNotRetryable()
+	}
+	h.OnError(err)
+}
+
+func TestStreamSimpleWithRecovery_NaoRepeteTurnoJaAceitoPeloAgente(t *testing.T) {
+	em := &captureEmitter{}
+	repo := &inMemoryMsgRepo{}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+
+	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
+		func(h llm.StreamHandler) {
+			h.OnChunk("editei o arquivo")
+			marcarNaoRetentavel(h, "o processo do agente caiu no meio do turno")
+		},
+		func(h llm.StreamHandler) {
+			t.Error("turno já aceito pelo agente não pode ser repetido")
+		},
+	}}
+
+	svc.StreamSimpleWithRecovery(context.Background(), streamer, []llm.Message{{Role: "user", Content: "refatora"}}, llm.ChatParams{}, "c1", "t1", "", nil, true, 3)
+
+	if streamer.calls != 1 {
+		t.Fatalf("calls=%d, want 1", streamer.calls)
+	}
+	// A supressão do erro terminal só faz sentido com tentativa pela frente:
+	// sem ela, a tela ficaria esperando um turno que não volta.
+	var terminal *ports.StreamEvent
+	for _, ev := range em.find("chat:stream") {
+		se, ok := ev.data.(ports.StreamEvent)
+		if ok && se.Error != "" {
+			tmp := se
+			terminal = &tmp
+		}
+	}
+	if terminal == nil {
+		t.Fatal("erro sem repetição possível precisa chegar ao frontend como evento terminal")
+	}
+	if !terminal.Done {
+		t.Error("evento terminal de erro precisa fechar o streaming")
+	}
+	// O que o agente já tinha escrito não se perde.
+	if len(repo.messages) == 0 || repo.messages[0].Content != "editei o arquivo" {
+		t.Errorf("parcial não persistido: %+v", repo.messages)
+	}
+}
+
+func TestRunAgenticLoop_NaoRepeteTurnoJaAceitoPeloAgente(t *testing.T) {
+	em := &captureEmitter{}
+	repo := &inMemoryMsgRepo{}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+
+	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
+		func(h llm.StreamHandler) {
+			h.OnChunk("rodei o comando")
+			marcarNaoRetentavel(h, "o processo do agente caiu no meio do turno")
+		},
+		func(h llm.StreamHandler) {
+			t.Error("turno já aceito pelo agente não pode ser repetido")
+		},
+	}}
+
+	svc.RunAgenticLoop(
+		context.Background(),
+		[]llm.Message{{Role: "user", Content: "refatora"}},
+		llm.ChatParams{MaxAgenticIterations: 1},
+		"c1",
+		"t1",
+		nil,
+		streamer,
+		nil,
+		func(convID string, iter int) IterationHandler {
+			return NewAgenticStreamHandler(em, convID, iter, nil, "t1")
+		},
+		nil,
+		true,
+		3,
+	)
+
+	if streamer.calls != 1 {
+		t.Fatalf("calls=%d, want 1", streamer.calls)
+	}
+	if len(repo.messages) == 0 || repo.messages[0].Content != "rodei o comando" {
+		t.Errorf("parcial não persistido: %+v", repo.messages)
+	}
+}
+
 func TestStreamSimpleWithRecovery_StopsWhenAssistantPlaceholderFails(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{createErr: fmt.Errorf("db down")}

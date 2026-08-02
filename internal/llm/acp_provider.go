@@ -80,9 +80,17 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 		return
 	}
 	if err != nil {
-		// TODO(AEP-0084 D4): marcar como não retentável o erro de turno já
-		// aceito, para a auto-recuperação não repetir edições e comandos.
-		handler.OnError(p.turnError(err))
+		accepted := turnAccepted(err)
+		if accepted {
+			// A auto-recuperação reinvoca StreamChat sozinha depois de um erro
+			// de transporte. Para um provider HTTP isso é inofensivo; aqui
+			// seria repetir para o agente um pedido que ele já aceitou — ou
+			// seja, refazer arquivo editado e comando rodado (AEP-0084 D4).
+			if sink, ok := handler.(NonRetryableErrorSink); ok {
+				sink.MarkErrorNotRetryable()
+			}
+		}
+		handler.OnError(turnErrorMessage(err, accepted))
 		return
 	}
 
@@ -154,18 +162,37 @@ func (p *ACPChatProvider) promptContent(ctx context.Context, messages []Message)
 	return nil, errors.New("turno sem mensagem do usuário para enviar ao agente")
 }
 
-// turnError traduz a falha do turno para uma frase que diz o que aconteceu com
-// o agente — quem lê precisa saber se o pedido chegou a sair da máquina.
-func (p *ACPChatProvider) turnError(err error) string {
+// turnAccepted diz se o pedido chegou a sair para o agente. A definição é
+// conservadora de propósito (AEP-0084 D4): o turno conta como aceito assim que
+// o envio não falha, e um erro que não sabe dizer conta como aceito. Silêncio
+// depois do envio não prova que nada aconteceu — a linha já está com o agente,
+// e ele pode estar editando.
+func turnAccepted(err error) bool {
+	var promptErr *acp.PromptError
+	if errors.As(err, &promptErr) {
+		return promptErr.Accepted
+	}
+	return true
+}
+
+// turnErrorMessage traduz a falha do turno para uma frase que diz o que
+// aconteceu com o agente. Ter aceitado o pedido ou não muda a orientação: sem
+// aceite, reenviar é seguro; com aceite, pode haver trabalho feito pela metade
+// no disco, e mandar de novo sem conferir repetiria edição e comando.
+func turnErrorMessage(err error, accepted bool) string {
 	switch {
-	case errors.Is(err, acp.ErrSessionLost):
-		return "O processo do agente caiu durante o turno. Envie novamente para reconectar."
-	case errors.Is(err, acp.ErrSessionClosed):
-		return "A sessão do agente para esta conversa foi encerrada."
 	case errors.Is(err, acp.ErrCancelNotConfirmed):
 		return "O agente não confirmou a interrupção do turno e pode ainda estar trabalhando nos arquivos. Confira o estado antes de pedir de novo."
+	case errors.Is(err, acp.ErrSessionLost) && !accepted:
+		return "O processo do agente caiu antes de receber o pedido. Envie novamente para reconectar."
+	case errors.Is(err, acp.ErrSessionLost):
+		return "O processo do agente caiu no meio do turno. Ele pode ter feito parte do pedido; confira o estado antes de enviar de novo."
+	case errors.Is(err, acp.ErrSessionClosed):
+		return "A sessão do agente para esta conversa foi encerrada."
 	case errors.Is(err, acp.ErrConversationGone):
 		return "A conversa foi encerrada antes de o agente responder."
+	case accepted:
+		return fmt.Sprintf("Falha no turno depois de o agente aceitá-lo; ele pode ter feito parte do pedido. Confira o estado antes de enviar de novo: %v", err)
 	default:
 		return fmt.Sprintf("Falha no turno do agente: %v", err)
 	}

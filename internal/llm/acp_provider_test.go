@@ -113,16 +113,17 @@ func providerDeAgente(t *testing.T, sessao *agenteFalso) *ACPChatProvider {
 
 // espiao registra o que o provider entregou ao barramento.
 type espiao struct {
-	chunks       []string
-	pensamento   []string
-	raciocinio   string
-	fimPensou    bool
-	ordem        []string
-	erro         string
-	pronto       bool
-	respostaFim  string
-	modeloFim    string
-	chamouOnDone int
+	chunks        []string
+	pensamento    []string
+	raciocinio    string
+	fimPensou     bool
+	ordem         []string
+	erro          string
+	naoRetentavel bool
+	pronto        bool
+	respostaFim   string
+	modeloFim     string
+	chamouOnDone  int
 }
 
 func (e *espiao) OnChunk(content string) {
@@ -144,6 +145,10 @@ func (e *espiao) OnToolCalls([]ToolCall, string, Usage, string) {
 func (e *espiao) OnError(err string) {
 	e.erro = err
 	e.ordem = append(e.ordem, "error")
+}
+func (e *espiao) MarkErrorNotRetryable() {
+	e.naoRetentavel = true
+	e.ordem = append(e.ordem, "nao_retentavel")
 }
 func (e *espiao) OnDone(fullResponse string, _ Usage, model string) {
 	e.pronto = true
@@ -397,26 +402,97 @@ func TestTurnoSemTextoNenhumSempreDizOQueAconteceu(t *testing.T) {
 }
 
 func TestFalhaDoTurnoVirouFraseQueDizOEstadoDoAgente(t *testing.T) {
-	provider := providerDeAgente(t, &agenteFalso{})
 	casos := []struct {
-		nome  string
-		err   error
-		trata string
+		nome    string
+		err     error
+		aceito  bool
+		trata   string
+		naoQuer string
 	}{
-		{"processo caiu", acp.ErrSessionLost, "processo do agente caiu"},
-		{"sessão encerrada", acp.ErrSessionClosed, "foi encerrada"},
+		{nome: "processo caiu antes de receber", err: acp.ErrSessionLost, trata: "caiu antes de receber o pedido"},
+		// Depois do aceite, "envie novamente" seria conselho ruim: o agente pode
+		// ter mexido no disco antes de cair.
+		{nome: "processo caiu no meio", err: acp.ErrSessionLost, aceito: true, trata: "confira o estado", naoQuer: "Envie novamente"},
+		{nome: "sessão encerrada", err: acp.ErrSessionClosed, aceito: true, trata: "foi encerrada"},
 		// Sem confirmação do "pare", o agente pode continuar mexendo no disco:
 		// pedir de novo sem conferir repetiria edição e comando.
-		{"cancelamento sem confirmação", acp.ErrCancelNotConfirmed, "pode ainda estar trabalhando"},
-		{"conversa excluída", acp.ErrConversationGone, "conversa foi encerrada"},
-		{"falha qualquer", errors.New("cano quebrado"), "cano quebrado"},
+		{nome: "cancelamento sem confirmação", err: acp.ErrCancelNotConfirmed, aceito: true, trata: "pode ainda estar trabalhando"},
+		{nome: "conversa excluída", err: acp.ErrConversationGone, aceito: true, trata: "conversa foi encerrada"},
+		{nome: "falha qualquer antes do envio", err: errors.New("cano quebrado"), trata: "cano quebrado"},
+		{nome: "falha qualquer depois do aceite", err: errors.New("cano quebrado"), aceito: true, trata: "pode ter feito parte do pedido"},
 	}
 	for _, caso := range casos {
 		t.Run(caso.nome, func(t *testing.T) {
-			if got := provider.turnError(&acp.PromptError{Accepted: true, Err: caso.err}); !strings.Contains(got, caso.trata) {
-				t.Errorf("turnError = %q, quer conter %q", got, caso.trata)
+			got := turnErrorMessage(&acp.PromptError{Accepted: caso.aceito, Err: caso.err}, caso.aceito)
+			if !strings.Contains(got, caso.trata) {
+				t.Errorf("mensagem = %q, quer conter %q", got, caso.trata)
+			}
+			if caso.naoQuer != "" && strings.Contains(got, caso.naoQuer) {
+				t.Errorf("mensagem = %q, não pode conter %q", got, caso.naoQuer)
 			}
 		})
+	}
+}
+
+// ==================== Turno já aceito não se repete (D4) ====================
+
+func TestTurnoJaAceitoNaoPodeSerRepetidoPelaAutoRecuperacao(t *testing.T) {
+	casos := []struct {
+		nome   string
+		err    error
+		marcar bool
+	}{
+		{
+			nome:   "falha depois do aceite",
+			err:    &acp.PromptError{Accepted: true, Err: acp.ErrSessionLost},
+			marcar: true,
+		},
+		{
+			// Sem aceite nada saiu para o agente: reenviar não refaz trabalho.
+			nome: "falha antes do envio",
+			err:  &acp.PromptError{Err: acp.ErrSessionClosed},
+		},
+		{
+			// No escuro, a escolha é a cara: parar e devolver o controle.
+			nome:   "falha que não sabe dizer se saiu",
+			err:    errors.New("cano quebrado"),
+			marcar: true,
+		},
+	}
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			provider := providerDeAgente(t, &agenteFalso{err: caso.err})
+			handler := &espiao{}
+
+			provider.StreamChat(t.Context(),
+				[]Message{{Role: "user", Content: "refatora o módulo"}},
+				ChatParams{ConversationID: "conversa-1"}, handler)
+
+			if handler.erro == "" {
+				t.Fatal("falha do turno precisa chegar ao barramento como erro")
+			}
+			if handler.naoRetentavel != caso.marcar {
+				t.Errorf("marca de não retentável = %v, quer %v", handler.naoRetentavel, caso.marcar)
+			}
+		})
+	}
+}
+
+func TestErroAntesDaSessaoNaoBloqueiaNovaTentativa(t *testing.T) {
+	// A conversa sem sessão falha dentro do app, sem nada ter saído para o
+	// agente: barrar a repetição aqui só tiraria uma chance de acertar.
+	provider := providerDeAgente(t, &agenteFalso{})
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "oi"}},
+		ChatParams{}, handler)
+
+	if handler.erro == "" {
+		t.Fatal("turno sem conversa precisa falhar")
+	}
+	if handler.naoRetentavel {
+		t.Error("falha antes de falar com o agente não pode barrar a auto-recuperação")
 	}
 }
 
