@@ -107,6 +107,17 @@ func (m *Message) GetContentAsString() string {
 			return ""
 		}
 		return *v
+	case []ContentPart:
+		// Partes tipadas: é assim que o builder monta a mensagem do turno
+		// quando ela é multimodal. Sem este caso, o texto sairia pelo
+		// fmt.Sprintf do default, como despejo da estrutura.
+		var texts []string
+		for _, part := range v {
+			if part.Type == "text" && part.Text != "" {
+				texts = append(texts, part.Text)
+			}
+		}
+		return strings.Join(texts, "\n")
 	case []interface{}:
 		// Concatena apenas as partes de texto
 		var texts []string

@@ -217,6 +217,32 @@ func TestTurnoLevaSoAUltimaMensagemDoUsuario(t *testing.T) {
 	}
 }
 
+func TestTurnoEnviaOTextoDeMensagemMultimodal(t *testing.T) {
+	sessao := &agenteFalso{updates: []acp.Update{{Kind: acp.UpdateText, Text: "ok"}}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	// O builder monta a mensagem do turno em partes tipadas quando ela é
+	// multimodal. Sem tratar esse formato, o agente receberia o despejo da
+	// estrutura no lugar do pedido da pessoa.
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: []ContentPart{
+		{Type: "text", Text: "<turn_context>arquivo aberto</turn_context>"},
+		{Type: "image_url", ImageURL: &ImageURL{URL: "data:image/png;base64,abc"}},
+		{Type: "text", Text: "o que tem nesta imagem?"},
+	}}}, ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if handler.erro != "" {
+		t.Fatalf("turno falhou: %s", handler.erro)
+	}
+	turnos := sessao.turnos()
+	if len(turnos) != 1 || len(turnos[0]) != 1 {
+		t.Fatalf("o agente recebeu %+v, quer um bloco de texto", turnos)
+	}
+	if got, want := turnos[0][0].Text, "<turn_context>arquivo aberto</turn_context>\no que tem nesta imagem?"; got != want {
+		t.Errorf("texto enviado ao agente = %q, quer %q", got, want)
+	}
+}
+
 func TestTurnoDoAgenteIgnoraFerramentasDoApp(t *testing.T) {
 	sessao := &agenteFalso{updates: []acp.Update{{Kind: acp.UpdateText, Text: "feito"}}}
 	provider := providerDeAgente(t, sessao)

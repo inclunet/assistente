@@ -191,17 +191,23 @@ func stopWithoutAnswer(stop acp.StopReason, response string) (string, bool) {
 	}
 }
 
-// imagePartCount conta os anexos de imagem da mensagem, no formato multimodal
-// que o pipeline monta (partes com type "image_url").
+// imagePartCount conta os anexos de imagem da mensagem. A lista de partes
+// chega nos dois formatos que o pipeline produz: tipada, quando o builder a
+// montou, e destipada, quando ela veio de JSON.
 func imagePartCount(msg Message) int {
-	parts, ok := msg.Content.([]interface{})
-	if !ok {
-		return 0
-	}
 	count := 0
-	for _, part := range parts {
-		if partMap, ok := part.(map[string]interface{}); ok && partMap["type"] == "image_url" {
-			count++
+	switch parts := msg.Content.(type) {
+	case []ContentPart:
+		for _, part := range parts {
+			if part.Type == "image_url" {
+				count++
+			}
+		}
+	case []interface{}:
+		for _, part := range parts {
+			if partMap, ok := part.(map[string]interface{}); ok && partMap["type"] == "image_url" {
+				count++
+			}
 		}
 	}
 	return count
