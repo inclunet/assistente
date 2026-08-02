@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -133,6 +136,12 @@ type memoryStore struct {
 	rows    map[string]StoredSession
 	loadErr error
 	saveErr error
+
+	// deleteHold segura o apagamento até o teste soltar, e deleteStarted avisa
+	// quando ele já começou. É o que permite pôr um turno exatamente dentro da
+	// janela da exclusão.
+	deleteHold    chan struct{}
+	deleteStarted chan struct{}
 }
 
 func newMemoryStore() *memoryStore {
@@ -179,7 +188,44 @@ func (s *memoryStore) SavePrefixHash(_ context.Context, conversationID, provider
 	return nil
 }
 
+func (s *memoryStore) blockDelete() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deleteHold = make(chan struct{})
+	s.deleteStarted = make(chan struct{})
+}
+
+func (s *memoryStore) waitDeleteStarted(t *testing.T) {
+	t.Helper()
+	s.mu.Lock()
+	started := s.deleteStarted
+	s.mu.Unlock()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("o apagamento do registro não começou")
+	}
+}
+
+func (s *memoryStore) releaseDelete() {
+	s.mu.Lock()
+	hold := s.deleteHold
+	s.deleteHold = nil
+	s.mu.Unlock()
+	if hold != nil {
+		close(hold)
+	}
+}
+
 func (s *memoryStore) Delete(_ context.Context, conversationID string) error {
+	s.mu.Lock()
+	hold, started := s.deleteHold, s.deleteStarted
+	s.mu.Unlock()
+	if hold != nil {
+		close(started)
+		<-hold
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for key, rec := range s.rows {
@@ -207,13 +253,24 @@ func testSpec() ProviderSpec {
 	return ProviderSpec{ID: "cursor", Name: "Cursor", Command: "cursor-agent", Args: []string{"acp"}}
 }
 
+// dirDeTeste devolve um diretório absoluto no formato do sistema. O manager
+// resolve o caminho antes de abrir a sessão, então um caminho cru de barra só
+// bateria com o resolvido fora do Windows.
+func dirDeTeste(nome string) string {
+	dir, err := filepath.Abs(filepath.FromSlash("/" + nome))
+	if err != nil {
+		return filepath.FromSlash("/" + nome)
+	}
+	return dir
+}
+
 // managerWith monta um manager sobre um agente de mentira, contando quantas
 // vezes o transporte foi criado.
 func managerWith(store SessionStore, client *fakeManagedClient) (*Manager, *int) {
 	dials := 0
 	m := NewManager(ManagerConfig{
 		Store:   store,
-		WorkDir: func() (string, error) { return "/projeto", nil },
+		WorkDir: func() (string, error) { return dirDeTeste("projeto"), nil },
 		Dial: func(Config, RequestHandler) (Client, error) {
 			dials++
 			return client, nil
@@ -329,7 +386,7 @@ func TestAgenteQueNaoRetomaDeixaClaroQueAMemoriaSePerdeu(t *testing.T) {
 		ProviderID:     "cursor",
 		SessionID:      "sess-antiga",
 		PrefixHash:     "hash-persona",
-		WorkDir:        "/projeto",
+		WorkDir:        dirDeTeste("projeto"),
 	}); err != nil {
 		t.Fatalf("preparar registro: %v", err)
 	}
@@ -364,7 +421,7 @@ func TestSessaoAbertaEmOutroDiretorioNaoEhRetomada(t *testing.T) {
 		ConversationID: "conv-1",
 		ProviderID:     "cursor",
 		SessionID:      "sess-antiga",
-		WorkDir:        "/outro-projeto",
+		WorkDir:        dirDeTeste("outro-projeto"),
 	}); err != nil {
 		t.Fatalf("preparar registro: %v", err)
 	}
@@ -393,7 +450,7 @@ func TestTrocarOComandoDoProviderDerrubaOAgenteAntigo(t *testing.T) {
 	dials := 0
 	m := NewManager(ManagerConfig{
 		Store:   newMemoryStore(),
-		WorkDir: func() (string, error) { return "/projeto", nil },
+		WorkDir: func() (string, error) { return dirDeTeste("projeto"), nil },
 		Dial: func(Config, RequestHandler) (Client, error) {
 			c := clientes[dials]
 			dials++
@@ -421,7 +478,7 @@ func TestTrocarOComandoDoProviderDerrubaOAgenteAntigo(t *testing.T) {
 	if novas+cargas != 1 {
 		t.Fatalf("o agente novo montou %d sessões (novas=%d, retomadas=%d), esperado 1", novas+cargas, novas, cargas)
 	}
-	if conv.Session().(*fakeManagedSession).cwd != "/projeto" {
+	if conv.Session().(*fakeManagedSession).cwd != dirDeTeste("projeto") {
 		t.Fatal("a sessão não usou o diretório de trabalho do app")
 	}
 	// O fechamento do processo antigo é assíncrono para não segurar quem pediu
@@ -505,7 +562,7 @@ func TestTrocarDeAgenteNoMeioDaConversaNaoAbandonaASessaoAnterior(t *testing.T) 
 	store := newMemoryStore()
 	m := NewManager(ManagerConfig{
 		Store:   store,
-		WorkDir: func() (string, error) { return "/projeto", nil },
+		WorkDir: func() (string, error) { return dirDeTeste("projeto"), nil },
 		Dial: func(cfg Config, _ RequestHandler) (Client, error) {
 			return porComando[cfg.Command], nil
 		},
@@ -552,7 +609,7 @@ func TestTrocarDeWorkspaceRecriaASessaoNoDiretorioNovo(t *testing.T) {
 	client := newFakeManagedClient()
 	ctx := context.Background()
 
-	diretorio := "/projeto-a"
+	diretorio := dirDeTeste("projeto-a")
 	m := NewManager(ManagerConfig{
 		Store:   store,
 		WorkDir: func() (string, error) { return diretorio, nil },
@@ -567,7 +624,7 @@ func TestTrocarDeWorkspaceRecriaASessaoNoDiretorioNovo(t *testing.T) {
 	}
 	sessaoA := conv.Session().(*fakeManagedSession)
 
-	diretorio = "/projeto-b"
+	diretorio = dirDeTeste("projeto-b")
 	conv, err = m.Conversation(ctx, testSpec(), "conv-1")
 	if err != nil {
 		t.Fatalf("conversa no segundo workspace: %v", err)
@@ -577,7 +634,7 @@ func TestTrocarDeWorkspaceRecriaASessaoNoDiretorioNovo(t *testing.T) {
 	if sessaoA == sessaoB {
 		t.Fatal("a conversa continuou na sessão aberta no workspace anterior")
 	}
-	if sessaoB.cwd != "/projeto-b" {
+	if sessaoB.cwd != dirDeTeste("projeto-b") {
 		t.Fatalf("sessão nova abriu em %q", sessaoB.cwd)
 	}
 	if !sessaoA.isClosed() {
@@ -588,6 +645,87 @@ func TestTrocarDeWorkspaceRecriaASessaoNoDiretorioNovo(t *testing.T) {
 	}
 }
 
+func TestOMesmoDiretorioEscritoDeOutroJeitoRetomaASessao(t *testing.T) {
+	store := newMemoryStore()
+	ctx := context.Background()
+
+	registrado := dirDeTeste("projeto")
+	if err := store.Save(ctx, StoredSession{
+		ConversationID: "conv-1",
+		ProviderID:     "cursor",
+		SessionID:      "sess-antiga",
+		WorkDir:        registrado,
+	}); err != nil {
+		t.Fatalf("preparar registro: %v", err)
+	}
+
+	// O mesmo diretório como outra fonte poderia devolvê-lo: barra ao final e,
+	// no Windows, caixa diferente. Nada disso é troca de workspace.
+	informado := registrado + string(filepath.Separator)
+	if runtime.GOOS == "windows" {
+		informado = strings.ToUpper(informado)
+	}
+
+	client := newFakeManagedClient()
+	m := NewManager(ManagerConfig{
+		Store:   store,
+		WorkDir: func() (string, error) { return informado, nil },
+		Dial: func(Config, RequestHandler) (Client, error) {
+			return client, nil
+		},
+	})
+
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+	if conv.Origin() != SessionResumed {
+		t.Fatalf("origem = %v; %q e %q são o mesmo diretório e a memória do agente se perdeu à toa",
+			conv.Origin(), registrado, informado)
+	}
+}
+
+func TestTurnoQueChegaDuranteAExclusaoNaoRessuscitaAConversa(t *testing.T) {
+	store := newMemoryStore()
+	client := newFakeManagedClient()
+	m, _ := managerWith(store, client)
+	ctx := context.Background()
+
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("primeira conversa: %v", err)
+	}
+	// O turno já tem o objeto da conversa em mãos quando a exclusão começa —
+	// é essa a janela. A exclusão segura o lock da conversa enquanto apaga, e
+	// depois dela o turno precisa descobrir que chegou tarde: montar sessão
+	// nova aqui gravaria um vínculo de uma conversa que não existe mais.
+	store.blockDelete()
+
+	fim := make(chan error, 1)
+	go func() { fim <- m.CloseConversation(ctx, "conv-1") }()
+	store.waitDeleteStarted(t)
+
+	tarde := make(chan error, 1)
+	go func() { tarde <- conv.ensure(ctx, testSpec()) }()
+
+	store.releaseDelete()
+	if err := <-fim; err != nil {
+		t.Fatalf("encerrar conversa: %v", err)
+	}
+	if err := <-tarde; !errors.Is(err, ErrConversationGone) {
+		t.Fatalf("turno atrasado devolveu %v, esperado conversa encerrada", err)
+	}
+	if store.size() != 0 {
+		t.Fatalf("registros que sobraram = %d; o turno atrasado regravou o vínculo da conversa apagada", store.size())
+	}
+
+	// Depois que a exclusão termina, a conversa volta a ser utilizável: o app
+	// recicla conversas vazias em vez de criar outra.
+	if _, err := m.Conversation(ctx, testSpec(), "conv-1"); err != nil {
+		t.Fatalf("conversa depois da exclusão: %v", err)
+	}
+}
+
 func TestSessaoQueNaoVoltouEhEncerradaAntesDeSerSubstituida(t *testing.T) {
 	store := newMemoryStore()
 	ctx := context.Background()
@@ -595,7 +733,7 @@ func TestSessaoQueNaoVoltouEhEncerradaAntesDeSerSubstituida(t *testing.T) {
 		ConversationID: "conv-1",
 		ProviderID:     "cursor",
 		SessionID:      "sess-antiga",
-		WorkDir:        "/outro-projeto",
+		WorkDir:        dirDeTeste("outro-projeto"),
 	}); err != nil {
 		t.Fatalf("preparar registro: %v", err)
 	}
@@ -624,7 +762,7 @@ func TestTrocaDeUsuarioNaoHerdaOProcessoNemASessao(t *testing.T) {
 	dials := 0
 	m := NewManager(ManagerConfig{
 		Store:   newMemoryStore(),
-		WorkDir: func() (string, error) { return "/projeto", nil },
+		WorkDir: func() (string, error) { return dirDeTeste("projeto"), nil },
 		Dial: func(Config, RequestHandler) (Client, error) {
 			c := clientes[dials]
 			dials++

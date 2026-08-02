@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -14,6 +16,11 @@ import (
 )
 
 const managerComponent = "acp.manager"
+
+// ErrConversationGone é o turno que chegou tarde: a conversa foi limpa ou
+// excluída enquanto ele começava. Não é falha do agente, e retomar seria
+// ressuscitar no banco um vínculo de algo que a pessoa acabou de apagar.
+var ErrConversationGone = errors.New("conversa encerrada")
 
 // ProviderSpec descreve o provider ACP para o manager. É de propósito uma cópia
 // magra do que o provider guarda: o transporte não conhece o pacote de
@@ -211,11 +218,35 @@ func (m *Manager) process(spec ProviderSpec) (*agentProcess, error) {
 // agente: sem diretório o processo herda o do app, que é justamente o que o D5
 // manda usar.
 func (m *Manager) processWorkDir() string {
-	dir, err := m.workDir()
+	dir, err := m.currentDir()
 	if err != nil {
 		return ""
 	}
 	return dir
+}
+
+// currentDir é o diretório do turno já resolvido, do mesmo jeito que ele vai
+// para o agente. Guardar o caminho como veio deixaria "projeto" e "./projeto/"
+// parecerem diretórios diferentes na próxima comparação.
+func (m *Manager) currentDir() (string, error) {
+	dir, err := m.workDir()
+	if err != nil {
+		return "", fmt.Errorf("diretório de trabalho do agente ACP: %w", err)
+	}
+	return absoluteDir(dir)
+}
+
+// sameDir diz se dois caminhos apontam para o mesmo diretório. A comparação
+// literal erraria: no Windows o mesmo diretório volta com maiúsculas diferentes
+// conforme quem responde — o workspace ativo, o os.Getwd, o que a pessoa
+// digitou —, e tratar isso como troca de workspace faria a conversa perder a
+// memória do agente sem que nada tivesse mudado.
+func sameDir(a, b string) bool {
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // Conversation devolve a sessão desta conversa com este provider, montando-a
@@ -231,20 +262,28 @@ func (m *Manager) Conversation(ctx context.Context, spec ProviderSpec, conversat
 		return nil, err
 	}
 
+	conv, err := m.entry(conversationID)
+	if err != nil {
+		return nil, err
+	}
+	if err := conv.ensure(ctx, spec); err != nil {
+		return nil, err
+	}
+	return conv, nil
+}
+
+// entry devolve o objeto da conversa, criando-o se ainda não existir. É por ele
+// que as chamadas concorrentes da mesma conversa se encontram.
+func (m *Manager) entry(conversationID string) (*Conversation, error) {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.closed {
-		m.mu.Unlock()
 		return nil, ErrClosed
 	}
 	conv := m.convs[conversationID]
 	if conv == nil {
 		conv = &Conversation{manager: m, id: conversationID}
 		m.convs[conversationID] = conv
-	}
-	m.mu.Unlock()
-
-	if err := conv.ensure(ctx, spec); err != nil {
-		return nil, err
 	}
 	return conv, nil
 }
@@ -261,23 +300,42 @@ func (m *Manager) CloseConversation(ctx context.Context, conversationID string) 
 		return nil
 	}
 
+	// Mesmo sem nada em memória a conversa é obtida pelo objeto: é ele que
+	// serializa com um turno que esteja começando agora. Apagar direto no banco
+	// levaria embora o vínculo que esse turno acabou de gravar, e a sessão dele
+	// ficaria aberta no agente sem ninguém que soubesse o nome dela.
+	conv, err := m.entry(conversationID)
+	if err != nil {
+		// Serviço encerrado: não há sessão viva para despedir, mas o registro
+		// precisa sumir mesmo assim — senão a próxima execução retomaria uma
+		// sessão que fala de mensagens que a pessoa apagou.
+		return m.forget(ctx, conversationID)
+	}
+
+	conv.mu.Lock()
+	errs := []error{conv.closeLocked(ctx), m.forget(ctx, conversationID)}
+	// Marcada antes de sair do mapa: quem estava esperando neste lock segue
+	// segurando este objeto e precisa descobrir que a conversa acabou.
+	conv.gone = true
+	conv.mu.Unlock()
+
 	m.mu.Lock()
-	conv := m.convs[conversationID]
-	delete(m.convs, conversationID)
+	if m.convs[conversationID] == conv {
+		delete(m.convs, conversationID)
+	}
 	m.mu.Unlock()
 
-	var errs []error
-	if conv != nil {
-		if err := conv.close(ctx); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	if m.store != nil {
-		if err := m.store.Delete(ctx, conversationID); err != nil {
-			errs = append(errs, fmt.Errorf("apagar registro da sessão ACP: %w", err))
-		}
-	}
 	return errors.Join(errs...)
+}
+
+func (m *Manager) forget(ctx context.Context, conversationID string) error {
+	if m.store == nil {
+		return nil
+	}
+	if err := m.store.Delete(ctx, conversationID); err != nil {
+		return fmt.Errorf("apagar registro da sessão ACP: %w", err)
+	}
+	return nil
 }
 
 // DisconnectAll derruba os processos e esquece as sessões em memória, deixando
@@ -334,6 +392,10 @@ type Conversation struct {
 	// Esquecê-la deixaria uma conversa aberta que ninguém mais fecharia.
 	active  *mountedSession
 	mounted map[string]*mountedSession
+	// gone marca a conversa que acabou de ser limpa ou excluída. O objeto ainda
+	// existe porque alguém pode estar esperando no lock; o que ele responde é
+	// que chegou tarde.
+	gone bool
 }
 
 // mountedSession é uma sessão montada e o que o app lembra sobre ela.
@@ -353,18 +415,22 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.gone {
+		return ErrConversationGone
+	}
+
 	proc, err := c.manager.process(spec)
 	if err != nil {
 		return err
 	}
-	dir, err := c.manager.workDir()
+	dir, err := c.manager.currentDir()
 	if err != nil {
-		return fmt.Errorf("diretório de trabalho do agente ACP: %w", err)
+		return err
 	}
 
 	if current := c.mounted[spec.ID]; current != nil {
 		switch {
-		case current.session != nil && current.proc == proc && current.dir == dir:
+		case current.session != nil && current.proc == proc && sameDir(current.dir, dir):
 			c.active = current
 			return nil
 		case current.session != nil && current.proc == proc:
@@ -438,7 +504,7 @@ func (c *Conversation) resume(ctx context.Context, proc *agentProcess, stored *S
 	if stored == nil || strings.TrimSpace(stored.SessionID) == "" {
 		return nil, SessionNew, ""
 	}
-	if stored.WorkDir != dir {
+	if !sameDir(stored.WorkDir, dir) {
 		// Retomar em outro diretório seria continuar a conversa sobre outros
 		// arquivos, com o agente achando que é a mesma (AEP-0084 D5).
 		logging.Infof(ctx, managerComponent,
@@ -474,18 +540,17 @@ func (c *Conversation) closeOrphan(ctx context.Context, session Session) {
 	}
 }
 
-// close encerra todas as sessões desta conversa, e não só a do provider em uso:
-// a conversa pode ter passado por mais de um agente, e cada um ainda guarda a
-// sua.
-func (c *Conversation) close(ctx context.Context) error {
-	c.mu.Lock()
+// closeLocked encerra todas as sessões desta conversa, e não só a do provider
+// em uso: a conversa pode ter passado por mais de um agente, e cada um ainda
+// guarda a sua. Roda com o lock da conversa segurado — quem apaga precisa que
+// nenhum turno monte sessão nova no meio da despedida.
+func (c *Conversation) closeLocked(ctx context.Context) error {
 	mounted := make([]*mountedSession, 0, len(c.mounted))
 	for _, entry := range c.mounted {
 		mounted = append(mounted, entry)
 	}
 	c.mounted = nil
 	c.active = nil
-	c.mu.Unlock()
 
 	var errs []error
 	for _, entry := range mounted {
