@@ -238,6 +238,16 @@ func (h *BaseStreamHandler) Finalize() (content, reasoning string) {
 	return h.promotedContent + h.accumulatedContent, h.accumulatedReasoning
 }
 
+// UnreadTail devolve o texto que ainda não virou segmento e diz se o turno já
+// foi lido em blocos. É o que a leitura final precisa saber: com a resposta já
+// falada pedaço a pedaço, ler o turno inteiro no fim faria a pessoa ouvir tudo
+// de novo (AEP-0084 D13).
+func (h *BaseStreamHandler) UnreadTail() (tail string, readInSegments bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.accumulatedContent, h.promotedContent != ""
+}
+
 // CutSegment fecha o bloco de texto corrente: devolve o que foi acumulado desde
 // o corte anterior e zera o acumulador visível, para que o próximo chat:stream
 // não repita o texto que a UI já promoveu a segmento. O conteúdo cortado

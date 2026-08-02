@@ -115,6 +115,7 @@ func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 
 func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
 	h.closePendingAgentTools()
+	remainingSpeech, readInSegments := h.UnreadTail()
 	accumulatedContent, accumulatedReasoning := h.Finalize()
 
 	finalContent := fullResponse
@@ -130,5 +131,9 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 		Usage:        usage,
 		Model:        model,
 		IsDone:       true,
+		// A mensagem salva é o turno inteiro; a leitura final é só o que ainda
+		// não foi falado nos segmentos.
+		ReadInSegments:  readInSegments,
+		RemainingSpeech: remainingSpeech,
 	}, h.profileSlug, nil, h.SurfaceOrigin)
 }

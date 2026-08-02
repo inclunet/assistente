@@ -32,6 +32,15 @@ type AgenticResult struct {
 	Model           string
 	Error           string
 	IsDone          bool
+
+	// ReadInSegments diz que a resposta já foi lida em voz alta em blocos ao
+	// longo do turno (AEP-0084 D13). A leitura final passa a ser só
+	// RemainingSpeech: sem isso, quem ouve receberia o turno inteiro de novo no
+	// fim, depois de já ter acompanhado cada bloco.
+	ReadInSegments bool
+	// RemainingSpeech é o trecho que ainda não foi lido. Vazio com
+	// ReadInSegments significa que não sobrou nada para ler.
+	RemainingSpeech string
 }
 
 // IterationHandler é implementado pelo agenticStreamHandler (package main) para cada iteração.
@@ -297,8 +306,12 @@ func (s *Service) SaveAndFinish(
 	})
 
 	// TTS proativo: dispara ANTES de chat:done pois chat:done causa cleanup dos listeners no frontend
-	if s.onSpeechRequest != nil && result.FullResponse != "" {
-		s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", profileSlug, true)
+	speech := result.FullResponse
+	if result.ReadInSegments {
+		speech = result.RemainingSpeech
+	}
+	if s.onSpeechRequest != nil && strings.TrimSpace(speech) != "" {
+		s.onSpeechRequest(conversationID, savedMsgID, "assistant", speech, "assistant_message", profileSlug, true)
 	}
 
 	hadTools := false

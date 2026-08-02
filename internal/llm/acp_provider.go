@@ -66,7 +66,10 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 		return
 	}
 
-	turn := &acpTurn{handler: handler}
+	// O canal de atividade é opcional: sem ele o turno ainda entrega texto e
+	// raciocínio, só não conta as ferramentas do agente nem fecha segmentos.
+	activity, _ := handler.(AgentActivitySink)
+	turn := &acpTurn{handler: handler, activity: activity}
 	// O sink roda na goroutine de entrega do transporte, mas Prompt só volta
 	// depois de desligá-lo sob trava: o que o turno acumulou pode ser lido aqui
 	// sem sincronização adicional.
@@ -77,6 +80,7 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 		// Quem pediu para parar já é dono do desfecho: o laço de streaming
 		// persiste o parcial e emite o evento terminal. Um erro daqui viraria
 		// aviso de falha para uma interrupção que a própria pessoa pediu.
+		turn.cancelPendingTools()
 		return
 	}
 	if err != nil {
@@ -249,24 +253,208 @@ func imagePartCount(msg Message) int {
 }
 
 // acpTurn acumula o turno e o entrega ao StreamHandler (AEP-0084 D8). Texto vai
-// como chunk e pensamento como raciocínio; ferramentas do agente e segmentação
-// da fala entram na sequência desta fase.
+// como chunk, pensamento como raciocínio e a atividade de ferramenta pelo canal
+// próprio do agente, que também fecha os segmentos de fala (D7 e D13).
 type acpTurn struct {
 	handler   StreamHandler
+	activity  AgentActivitySink
 	text      strings.Builder
 	reasoning strings.Builder
 	thinking  bool
+	// segmentPending diz que há texto escrito depois do último corte, e é o que
+	// impede um segmento vazio quando o agente emenda uma ferramenta na outra.
+	segmentPending bool
+	// tools guarda o que cada chamada em andamento anunciou, porque a
+	// atualização só repete o que mudou.
+	tools     map[string]agentToolState
+	toolOrder []string
+	// lastAnonymous é a chave da última chamada sem identificador ainda aberta,
+	// e é por ela que uma atualização sem identificador nem classe encontra o
+	// começo dela.
+	lastAnonymous string
+}
+
+// agentToolState é o que o app precisa lembrar de uma chamada entre o começo e
+// o fim dela, já saneado.
+type agentToolState struct {
+	// id é o identificador que veio do agente, que pode ser vazio: a chave de
+	// acompanhamento é outra coisa, e quem recebe o evento precisa do original.
+	id    string
+	kind  string
+	title string
+	// done marca a chamada que já teve desfecho. Um agente que repete o aviso
+	// de conclusão criaria uma segunda ferramenta na tela, porque para o
+	// handler ela seria um fim sem começo.
+	done bool
 }
 
 func (t *acpTurn) update(update acp.Update) {
 	switch update.Kind {
 	case acp.UpdateText:
 		t.text.WriteString(update.Text)
+		t.segmentPending = true
 		t.handler.OnChunk(update.Text)
 	case acp.UpdateThought:
 		t.thinking = true
 		t.reasoning.WriteString(update.Text)
 		t.handler.OnThinking(update.Text)
+	case acp.UpdateToolStart, acp.UpdateToolProgress:
+		t.toolActivity(update.Tool)
+	}
+}
+
+// toolActivity conta o que o agente está fazendo com as ferramentas dele. O app
+// não executa nada aqui e nunca chama OnToolCalls: esse callback significa "o
+// modelo pediu que o app execute uma tool" e mandaria o turno para o loop
+// agêntico tentar rodar uma ferramenta que não é dele (AEP-0084 D7).
+func (t *acpTurn) toolActivity(call *acp.ToolCall) {
+	if t.activity == nil || call == nil {
+		return
+	}
+	key := t.trackingKey(call)
+	state, seen := t.tools[key]
+	status := agentToolStatus(call.Status)
+	if state.done {
+		// Depois do desfecho, só um novo começo reabre o acompanhamento. O aviso
+		// terminal repetido não pode passar: para o handler, um fim sem começo é
+		// chamada nova, e ele abriria uma ferramenta fantasma na tela.
+		if status != AgentToolRunning {
+			return
+		}
+		state = agentToolState{}
+	}
+	state.id = call.ID
+	// A atualização de uma chamada traz só o que mudou; o campo que vier vazio
+	// continua valendo o que foi anunciado no começo.
+	if strings.TrimSpace(call.Kind) != "" {
+		state.kind = agentToolKind(call.Kind)
+	}
+	if state.kind == "" {
+		state.kind = AgentToolKindOther
+	}
+	if strings.TrimSpace(call.Title) != "" {
+		state.title = sanitizeAgentLabel(call.Title)
+	}
+
+	// O bloco de texto que veio antes desta atividade está encerrado: vira
+	// segmento e é lido em voz alta agora, em vez de esperar um turno que pode
+	// passar minutos alternando texto e ferramenta (AEP-0084 D13). Vale para
+	// qualquer atividade, e não só para o início de uma chamada: o agente
+	// também escreve entre duas atualizações da mesma ferramenta.
+	t.cutSegment()
+	if !seen {
+		if t.tools == nil {
+			t.tools = map[string]agentToolState{}
+		}
+		t.toolOrder = append(t.toolOrder, key)
+	}
+
+	state.done = status != AgentToolRunning
+	t.tools[key] = state
+	if call.ID == "" {
+		if state.done && t.lastAnonymous == key {
+			t.lastAnonymous = ""
+		} else if !state.done {
+			t.lastAnonymous = key
+		}
+	}
+
+	t.activity.OnAgentToolEvent(AgentToolEvent{
+		ID:     call.ID,
+		Kind:   state.kind,
+		Title:  state.title,
+		Status: status,
+	})
+}
+
+// trackingKey escolhe como acompanhar a chamada entre o começo e o fim dela. O
+// protocolo exige identificador, mas o Cursor já mandou tool call sem — e, sem
+// ele, a classe é o que resta para ligar as pontas, que é como o handler
+// também correlaciona. Uma chave só para todas as anônimas faria uma engolir os
+// eventos da outra.
+func (t *acpTurn) trackingKey(call *acp.ToolCall) string {
+	if call.ID != "" {
+		return call.ID
+	}
+	// A atualização traz só o que mudou, então ela pode vir sem classe também.
+	// Aí a última chamada anônima ainda aberta é a correlação possível: cair na
+	// classe "other" abriria uma ferramenta fantasma para o que é o fim de uma
+	// que já está na tela.
+	if strings.TrimSpace(call.Kind) == "" && t.lastAnonymous != "" {
+		return t.lastAnonymous
+	}
+	return "\x00anônima:" + agentToolKind(call.Kind)
+}
+
+// cutSegment fecha o bloco corrente de resposta. Sem texto novo desde o último
+// corte não há bloco: cortar aí só produziria segmento vazio.
+func (t *acpTurn) cutSegment() {
+	if t.activity == nil || !t.segmentPending {
+		return
+	}
+	t.segmentPending = false
+	t.activity.OnSegmentDone()
+}
+
+// cancelPendingTools dá desfecho às ferramentas que ficaram em andamento quando
+// a pessoa manda parar. Este caminho não passa por OnDone nem por OnError, que
+// são onde o handler faz essa limpeza — sem isso, a ferramenta giraria na tela
+// até o fim dos tempos.
+func (t *acpTurn) cancelPendingTools() {
+	if t.activity == nil {
+		return
+	}
+	for _, key := range t.toolOrder {
+		state, running := t.tools[key]
+		if !running || state.done {
+			continue
+		}
+		state.done = true
+		t.tools[key] = state
+		t.activity.OnAgentToolEvent(AgentToolEvent{
+			ID:     state.id,
+			Kind:   state.kind,
+			Title:  state.title,
+			Status: AgentToolCancelled,
+		})
+	}
+}
+
+// agentToolKinds é o conjunto de classes do protocolo. O kind vira o nome
+// exibido e anunciado da ferramenta, então aceitar qualquer string deixaria o
+// agente escrever direto no anúncio do leitor de telas; o que não for do
+// conjunto conhecido cai em "other" (AEP-0084 D7 e D11).
+var agentToolKinds = map[string]struct{}{
+	"read":        {},
+	"edit":        {},
+	"delete":      {},
+	"move":        {},
+	"search":      {},
+	"execute":     {},
+	"think":       {},
+	"fetch":       {},
+	"switch_mode": {},
+	"other":       {},
+}
+
+func agentToolKind(kind string) string {
+	normalized := strings.ToLower(strings.TrimSpace(kind))
+	if _, known := agentToolKinds[normalized]; known {
+		return normalized
+	}
+	return AgentToolKindOther
+}
+
+// agentToolStatus traduz o ciclo de vida do protocolo. Pendente e em andamento
+// são a mesma coisa para quem olha a tela: a ferramenta ainda não terminou.
+func agentToolStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "completed":
+		return AgentToolCompleted
+	case "failed":
+		return AgentToolFailed
+	default:
+		return AgentToolRunning
 	}
 }
 
