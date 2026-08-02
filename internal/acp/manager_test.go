@@ -17,13 +17,15 @@ type fakeManagedClient struct {
 
 	caps Capabilities
 
-	newErr  error
-	loadErr error
+	newErr          error
+	loadErr         error
+	closeSessionErr error
 
-	newCalls  int
-	loadCalls int
-	loadedIDs []string
-	closed    bool
+	newCalls   int
+	loadCalls  int
+	loadedIDs  []string
+	closedByID []string
+	closed     bool
 
 	sessions []*fakeManagedSession
 	nextID   int
@@ -57,6 +59,13 @@ func (c *fakeManagedClient) LoadSession(_ context.Context, sessionID, cwd string
 	sess := &fakeManagedSession{id: sessionID, cwd: cwd}
 	c.sessions = append(c.sessions, sess)
 	return sess, nil
+}
+
+func (c *fakeManagedClient) CloseSession(_ context.Context, sessionID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closedByID = append(c.closedByID, sessionID)
+	return c.closeSessionErr
 }
 
 func (c *fakeManagedClient) Capabilities(context.Context) (Capabilities, error) {
@@ -481,6 +490,87 @@ func TestShutdownDerrubaOsProcessosMasGuardaOsRegistros(t *testing.T) {
 	}
 	if _, err := m.Conversation(ctx, testSpec(), "conv-2"); !errors.Is(err, ErrClosed) {
 		t.Fatalf("erro após shutdown = %v, esperado ErrClosed", err)
+	}
+}
+
+func TestTrocarDeAgenteNoMeioDaConversaNaoAbandonaASessaoAnterior(t *testing.T) {
+	ctx := context.Background()
+	cursor := newFakeManagedClient()
+	claude := newFakeManagedClient()
+	porComando := map[string]*fakeManagedClient{
+		"cursor-agent": cursor,
+		"claude-code":  claude,
+	}
+
+	store := newMemoryStore()
+	m := NewManager(ManagerConfig{
+		Store:   store,
+		WorkDir: func() (string, error) { return "/projeto", nil },
+		Dial: func(cfg Config, _ RequestHandler) (Client, error) {
+			return porComando[cfg.Command], nil
+		},
+	})
+
+	primeiro := testSpec()
+	conv, err := m.Conversation(ctx, primeiro, "conv-1")
+	if err != nil {
+		t.Fatalf("conversa com o primeiro agente: %v", err)
+	}
+	sessaoAntiga := conv.Session().(*fakeManagedSession)
+
+	segundo := ProviderSpec{ID: "claude", Name: "Claude Code", Command: "claude-code"}
+	conv, err = m.Conversation(ctx, segundo, "conv-1")
+	if err != nil {
+		t.Fatalf("conversa com o segundo agente: %v", err)
+	}
+	sessaoNova := conv.Session().(*fakeManagedSession)
+	if sessaoAntiga == sessaoNova {
+		t.Fatal("trocar de provider reaproveitou a sessão do agente anterior")
+	}
+	if sessaoAntiga.isClosed() {
+		// Trocar de perfil não apaga a memória: voltar ao agente anterior deve
+		// reencontrar a conversa dele.
+		t.Fatal("a sessão do agente anterior foi encerrada só por troca de provider")
+	}
+
+	if err := m.CloseConversation(ctx, "conv-1"); err != nil {
+		t.Fatalf("encerrar conversa: %v", err)
+	}
+	if !sessaoAntiga.isClosed() {
+		t.Fatal("a sessão do agente anterior ficou aberta depois de excluir a conversa")
+	}
+	if !sessaoNova.isClosed() {
+		t.Fatal("a sessão do agente em uso ficou aberta depois de excluir a conversa")
+	}
+	if store.size() != 0 {
+		t.Fatalf("registros que sobraram = %d, esperado nenhum", store.size())
+	}
+}
+
+func TestSessaoQueNaoVoltouEhEncerradaAntesDeSerSubstituida(t *testing.T) {
+	store := newMemoryStore()
+	ctx := context.Background()
+	if err := store.Save(ctx, StoredSession{
+		ConversationID: "conv-1",
+		ProviderID:     "cursor",
+		SessionID:      "sess-antiga",
+		WorkDir:        "/outro-projeto",
+	}); err != nil {
+		t.Fatalf("preparar registro: %v", err)
+	}
+
+	client := newFakeManagedClient()
+	m, _ := managerWith(store, client)
+
+	if _, err := m.Conversation(ctx, testSpec(), "conv-1"); err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+
+	client.mu.Lock()
+	despedidas := append([]string(nil), client.closedByID...)
+	client.mu.Unlock()
+	if len(despedidas) != 1 || despedidas[0] != "sess-antiga" {
+		t.Fatalf("despedidas = %v; a sessão substituída precisa ser encerrada no agente", despedidas)
 	}
 }
 

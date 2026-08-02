@@ -210,6 +210,43 @@ func (c *client) LoadSession(ctx context.Context, sessionID, cwd string) (Sessio
 	return sess, nil
 }
 
+// CloseSession encerra uma sessão pelo identificador, sem exigir o objeto dela.
+// De propósito não sobe processo: subir o agente para despedir uma sessão que
+// morreu junto com o processo anterior seria pagar o spawn para não fazer nada.
+func (c *client) CloseSession(ctx context.Context, sessionID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return errors.New("identificador de sessão ACP vazio")
+	}
+
+	c.mu.Lock()
+	cn, closed := c.conn, c.closed
+	c.mu.Unlock()
+	if closed {
+		return ErrClosed
+	}
+	if cn == nil || cn.isDead() {
+		return nil
+	}
+	// Sessão que o app ainda conhece se despede pelo caminho normal, que
+	// cancela o turno em andamento antes de encerrar.
+	if sess := cn.session(sessionID); sess != nil {
+		return sess.Close(ctx)
+	}
+	if !cn.caps.CloseSession {
+		return nil
+	}
+
+	cctx, cancel := context.WithTimeout(ctx, closeTimeout)
+	defer cancel()
+	_, err := sdk.SendRequest[sdk.CloseSessionResponse](cn.rpc, cctx, sdk.AgentMethodSessionClose,
+		sdk.CloseSessionRequest{SessionId: sdk.SessionId(sessionID)})
+	if err != nil {
+		return wrapCallError(fmt.Sprintf("encerrar a sessão %q", sessionID), err)
+	}
+	return nil
+}
+
 func (c *client) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	if strings.TrimSpace(method) == "" {
 		return nil, errors.New("método JSON-RPC vazio")

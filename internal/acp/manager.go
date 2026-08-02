@@ -327,7 +327,17 @@ type Conversation struct {
 
 	// mu protege a montagem e a troca da sessão. Ordem dos locks: quem segura
 	// este pode pegar o do manager, nunca o contrário.
-	mu         sync.Mutex
+	mu sync.Mutex
+	// active é a sessão do provider em uso. mounted guarda também as dos
+	// providers que a conversa usou antes: trocar de perfil no meio da conversa
+	// troca de agente, e a sessão do anterior continua viva no processo dele.
+	// Esquecê-la deixaria uma conversa aberta que ninguém mais fecharia.
+	active  *mountedSession
+	mounted map[string]*mountedSession
+}
+
+// mountedSession é uma sessão montada e o que o app lembra sobre ela.
+type mountedSession struct {
 	proc       *agentProcess
 	providerID string
 	session    Session
@@ -343,14 +353,16 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 	if err != nil {
 		return err
 	}
-	if c.session != nil && c.proc == proc && c.providerID == spec.ID {
-		return nil
+	if current := c.mounted[spec.ID]; current != nil {
+		if current.proc == proc && current.session != nil {
+			c.active = current
+			return nil
+		}
+		// O processo é outro: caiu, ou a configuração mudou. A sessão que
+		// estava aqui morreu com ele, então não há despedida a fazer — só
+		// remontar.
+		delete(c.mounted, spec.ID)
 	}
-	// Ou o processo é outro (caiu, ou a configuração mudou) ou o provider é
-	// outro: nos dois casos a sessão que estava aqui não existe mais do lado de
-	// lá. Remontar é o caminho.
-	c.session = nil
-	c.proc = nil
 
 	dir, err := c.manager.workDir()
 	if err != nil {
@@ -370,6 +382,13 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 
 	session, origin, prefix := c.resume(ctx, proc, stored, dir)
 	if session == nil {
+		if origin == SessionRecreated && stored != nil {
+			// A sessão registrada ficou para trás — não retomou, ou era de
+			// outro diretório. Se o agente ainda a tem, é agora que ela some:
+			// daqui a pouco o registro aponta para outra e ninguém mais saberia
+			// que ela existiu.
+			c.manager.abandon(ctx, proc, stored.SessionID)
+		}
 		session, err = proc.client.NewSession(ctx, dir)
 		if err != nil {
 			return err
@@ -388,11 +407,18 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 		}
 	}
 
-	c.proc = proc
-	c.providerID = spec.ID
-	c.session = session
-	c.origin = origin
-	c.prefixHash = prefix
+	mounted := &mountedSession{
+		proc:       proc,
+		providerID: spec.ID,
+		session:    session,
+		origin:     origin,
+		prefixHash: prefix,
+	}
+	if c.mounted == nil {
+		c.mounted = make(map[string]*mountedSession)
+	}
+	c.mounted[spec.ID] = mounted
+	c.active = mounted
 	return nil
 }
 
@@ -438,27 +464,39 @@ func (c *Conversation) closeOrphan(ctx context.Context, session Session) {
 	}
 }
 
+// close encerra todas as sessões desta conversa, e não só a do provider em uso:
+// a conversa pode ter passado por mais de um agente, e cada um ainda guarda a
+// sua.
 func (c *Conversation) close(ctx context.Context) error {
 	c.mu.Lock()
-	session := c.session
-	c.session = nil
-	c.proc = nil
+	mounted := make([]*mountedSession, 0, len(c.mounted))
+	for _, entry := range c.mounted {
+		mounted = append(mounted, entry)
+	}
+	c.mounted = nil
+	c.active = nil
 	c.mu.Unlock()
 
-	if session == nil {
-		return nil
+	var errs []error
+	for _, entry := range mounted {
+		if entry.session == nil {
+			continue
+		}
+		if err := entry.session.Close(ctx); err != nil && !errors.Is(err, ErrSessionClosed) && !errors.Is(err, ErrSessionLost) {
+			errs = append(errs, fmt.Errorf("encerrar sessão ACP da conversa %s no provider %q: %w", c.id, entry.providerID, err))
+		}
 	}
-	if err := session.Close(ctx); err != nil && !errors.Is(err, ErrSessionClosed) && !errors.Is(err, ErrSessionLost) {
-		return fmt.Errorf("encerrar sessão ACP da conversa %s: %w", c.id, err)
-	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // Session é a sessão viva desta conversa.
 func (c *Conversation) Session() Session {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.session
+	if c.active == nil {
+		return nil
+	}
+	return c.active.session
 }
 
 // Origin diz como a sessão atual foi obtida. Vale a leitura antes do primeiro
@@ -466,7 +504,10 @@ func (c *Conversation) Session() Session {
 func (c *Conversation) Origin() SessionOrigin {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.origin
+	if c.active == nil {
+		return SessionNew
+	}
+	return c.active.origin
 }
 
 // Invalidate esquece a sessão em memória sem apagar o registro. É o que fazer
@@ -475,8 +516,11 @@ func (c *Conversation) Origin() SessionOrigin {
 func (c *Conversation) Invalidate() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.session = nil
-	c.proc = nil
+	if c.active == nil {
+		return
+	}
+	delete(c.mounted, c.active.providerID)
+	c.active = nil
 }
 
 // NeedsPrefix diz se o prefixo estável do perfil ainda precisa ser entregue a
@@ -488,7 +532,10 @@ func (c *Conversation) NeedsPrefix(hash string) bool {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.prefixHash != hash
+	if c.active == nil {
+		return true
+	}
+	return c.active.prefixHash != hash
 }
 
 // MarkPrefixSent registra que a sessão já ouviu este prefixo. Persiste junto do
@@ -496,12 +543,17 @@ func (c *Conversation) NeedsPrefix(hash string) bool {
 // já ouviu a persona, e repetir tudo seria desperdício.
 func (c *Conversation) MarkPrefixSent(ctx context.Context, hash string) error {
 	c.mu.Lock()
-	if c.prefixHash == hash {
+	active := c.active
+	if active == nil {
+		c.mu.Unlock()
+		return errors.New("conversa sem sessão ACP para anotar o prefixo")
+	}
+	if active.prefixHash == hash {
 		c.mu.Unlock()
 		return nil
 	}
-	c.prefixHash = hash
-	providerID := c.providerID
+	active.prefixHash = hash
+	providerID := active.providerID
 	c.mu.Unlock()
 
 	if c.manager.store == nil {
@@ -513,6 +565,22 @@ func (c *Conversation) MarkPrefixSent(ctx context.Context, hash string) error {
 		return fmt.Errorf("anotar prefixo já enviado à sessão ACP: %w", err)
 	}
 	return nil
+}
+
+// abandon se despede de uma sessão registrada que o app não vai mais usar. É
+// tentativa: o agente pode não saber encerrar sessões, e a sessão pode já ter
+// morrido — o que não pode é o app trocar o registro sem nem tentar, deixando
+// no agente uma conversa que ninguém mais consegue nomear.
+func (m *Manager) abandon(ctx context.Context, proc *agentProcess, sessionID string) {
+	if strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	detached, cancel := context.WithTimeout(context.WithoutCancel(ctx), storeTimeout)
+	defer cancel()
+	if err := proc.client.CloseSession(detached, sessionID); err != nil {
+		logging.Debugf(detached, managerComponent,
+			"[ACP] sessão %q não pôde ser encerrada ao ser substituída: %v", sessionID, err)
+	}
 }
 
 // saveSession grava o vínculo fora do cancelamento do turno: o pedido que
