@@ -75,7 +75,11 @@ func BuildExportFileWithContext(ctx context.Context, conversationIDs []string, p
 		if err != nil {
 			return nil, fmt.Errorf("erro ao buscar provider %s: %w", id, err)
 		}
-		providers = append(providers, exportProvider(provider))
+		exported, err := exportProvider(provider)
+		if err != nil {
+			return nil, err
+		}
+		providers = append(providers, exported)
 	}
 
 	mcpServers, err := buildMCPServerExports(ctx, req.MCPServerSlugs)
@@ -584,6 +588,9 @@ func ImportConversationsWithResolutions(
 		}
 		if imported {
 			result.Imported++
+			if warning := acpCommandWarning(provider); warning != "" {
+				result.Warnings = append(result.Warnings, warning)
+			}
 		}
 	}
 

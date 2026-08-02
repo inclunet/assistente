@@ -81,6 +81,15 @@ type ProviderExport struct {
 	Timeout           int       `json:"timeout,omitempty"`
 	CredentialPattern string    `json:"credentialPattern,omitempty"`
 	CreatedAt         time.Time `json:"createdAt"`
+	// ACPCommand e ACPArgs endereçam o agente de código quando o provider é
+	// ACP (AEP-0084): é o que substitui a URL. Caminho de binário é da
+	// máquina, então a importação avisa quando o comando não existe aqui.
+	ACPCommand string   `json:"acpCommand,omitempty"`
+	ACPArgs    []string `json:"acpArgs,omitempty"`
+	// ACPEnv é aceito na importação e NÃO sai na exportação, pelo mesmo motivo
+	// que `MCPServerExport.Env`: variável de ambiente de processo é onde token
+	// costuma parar, e arquivo de export viaja entre máquinas.
+	ACPEnv map[string]string `json:"acpEnv,omitempty"`
 }
 
 type MCPServerExport struct {
