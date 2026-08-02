@@ -43,7 +43,13 @@ func (a *App) ClearMessages() error {
 	if err != nil {
 		return err
 	}
-	return a.settingsCtrl.ClearMessages(ctx)
+	if err := a.settingsCtrl.ClearMessages(ctx); err != nil {
+		return err
+	}
+	// As conversas sumiram; as sessões que falam delas precisam sumir junto
+	// (AEP-0084 D4).
+	a.closeAllACPSessions(ctx)
+	return nil
 }
 
 // ============================================================================

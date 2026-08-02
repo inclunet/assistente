@@ -42,6 +42,11 @@ type SessionStore interface {
 	// Delete esquece todas as sessões da conversa, de todos os providers. É o
 	// que acontece quando a conversa é limpa ou excluída.
 	Delete(ctx context.Context, conversationID string) error
+
+	// DeleteAll esquece as sessões de todas as conversas de quem pediu. É o
+	// "limpar tudo": as conversas que essas sessões descrevem sumiram, e um
+	// vínculo sem conversa nunca mais seria reencontrado nem apagado.
+	DeleteAll(ctx context.Context) error
 }
 
 // storeTimeout limita a escrita do vínculo. Ela roda fora do cancelamento de
@@ -163,5 +168,13 @@ func (s *DBSessionStore) Delete(ctx context.Context, conversationID string) erro
 	}
 	return database.ScopeByUser(ctx, s.db.WithContext(ctx), "user_id").
 		Where("conversation_id = ?", conversationID).
+		Delete(&database.ACPSession{}).Error
+}
+
+func (s *DBSessionStore) DeleteAll(ctx context.Context) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.ScopeByUser(ctx, s.db.WithContext(ctx), "user_id").
 		Delete(&database.ACPSession{}).Error
 }

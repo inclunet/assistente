@@ -217,14 +217,21 @@ func (s *memoryStore) releaseDelete() {
 	}
 }
 
-func (s *memoryStore) Delete(_ context.Context, conversationID string) error {
+// holdDelete segura o apagamento no ponto em que o teste pediu, avisando que
+// ele começou.
+func (s *memoryStore) holdDelete() {
 	s.mu.Lock()
 	hold, started := s.deleteHold, s.deleteStarted
 	s.mu.Unlock()
-	if hold != nil {
-		close(started)
-		<-hold
+	if hold == nil {
+		return
 	}
+	close(started)
+	<-hold
+}
+
+func (s *memoryStore) Delete(_ context.Context, conversationID string) error {
+	s.holdDelete()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -233,6 +240,14 @@ func (s *memoryStore) Delete(_ context.Context, conversationID string) error {
 			delete(s.rows, key)
 		}
 	}
+	return nil
+}
+
+func (s *memoryStore) DeleteAll(_ context.Context) error {
+	s.holdDelete()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	clear(s.rows)
 	return nil
 }
 
@@ -723,6 +738,81 @@ func TestTurnoQueChegaDuranteAExclusaoNaoRessuscitaAConversa(t *testing.T) {
 	// recicla conversas vazias em vez de criar outra.
 	if _, err := m.Conversation(ctx, testSpec(), "conv-1"); err != nil {
 		t.Fatalf("conversa depois da exclusão: %v", err)
+	}
+}
+
+func TestLimparTudoEncerraAsSessoesDeTodasAsConversas(t *testing.T) {
+	store := newMemoryStore()
+	client := newFakeManagedClient()
+	m, dials := managerWith(store, client)
+	ctx := context.Background()
+
+	primeira, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("primeira conversa: %v", err)
+	}
+	segunda, err := m.Conversation(ctx, testSpec(), "conv-2")
+	if err != nil {
+		t.Fatalf("segunda conversa: %v", err)
+	}
+	sessaoUm := primeira.Session().(*fakeManagedSession)
+	sessaoDois := segunda.Session().(*fakeManagedSession)
+
+	if err := m.CloseAllConversations(ctx); err != nil {
+		t.Fatalf("limpar tudo: %v", err)
+	}
+
+	if !sessaoUm.isClosed() || !sessaoDois.isClosed() {
+		t.Fatal("sessões continuaram abertas depois de apagar todas as conversas")
+	}
+	if store.size() != 0 {
+		t.Fatalf("registros que sobraram = %d, esperado nenhum", store.size())
+	}
+	// O processo é por provider, não por conversa: derrubá-lo só faria a
+	// próxima mensagem esperar o agente subir de novo.
+	if _, _, fechado := client.counters(); fechado {
+		t.Fatal("o agente foi derrubado por uma limpeza de conversas")
+	}
+
+	nova, err := m.Conversation(ctx, testSpec(), "conv-3")
+	if err != nil {
+		t.Fatalf("conversa depois da limpeza: %v", err)
+	}
+	if nova.Session() == nil {
+		t.Fatal("a conversa criada depois da limpeza ficou sem sessão")
+	}
+	if *dials != 1 {
+		t.Fatalf("processos criados = %d, esperado 1 para o provider", *dials)
+	}
+}
+
+func TestTurnoQueChegaDuranteALimpezaGeralNaoDeixaVinculo(t *testing.T) {
+	store := newMemoryStore()
+	client := newFakeManagedClient()
+	m, _ := managerWith(store, client)
+	ctx := context.Background()
+
+	if _, err := m.Conversation(ctx, testSpec(), "conv-1"); err != nil {
+		t.Fatalf("primeira conversa: %v", err)
+	}
+	store.blockDelete()
+
+	fim := make(chan error, 1)
+	go func() { fim <- m.CloseAllConversations(ctx) }()
+	store.waitDeleteStarted(t)
+
+	// Conversa que nem existia quando a limpeza começou: montá-la agora
+	// gravaria um vínculo que o apagamento em curso levaria embora.
+	if _, err := m.Conversation(ctx, testSpec(), "conv-nova"); !errors.Is(err, ErrConversationGone) {
+		t.Fatalf("conversa montada no meio da limpeza devolveu %v, esperado conversa encerrada", err)
+	}
+
+	store.releaseDelete()
+	if err := <-fim; err != nil {
+		t.Fatalf("limpar tudo: %v", err)
+	}
+	if store.size() != 0 {
+		t.Fatalf("registros que sobraram = %d; a limpeza deixou vínculo sem conversa", store.size())
 	}
 }
 

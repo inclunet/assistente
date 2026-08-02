@@ -169,6 +169,50 @@ func TestSemUsuarioNoContextoOStoreFalhaFechado(t *testing.T) {
 	if err := store.Delete(semUsuario, "conv-1"); err == nil {
 		t.Fatal("exclusão sem usuário no contexto passou")
 	}
+	if err := store.DeleteAll(semUsuario); err == nil {
+		t.Fatal("limpeza geral sem usuário no contexto passou")
+	}
+}
+
+func TestLimparTudoNaoPassaPorCimaDasSessoesDeOutroUsuario(t *testing.T) {
+	store, _, ana, leo := setupStoreTest(t)
+
+	for _, conversa := range []string{"conv-1", "conv-2"} {
+		if err := store.Save(ana, StoredSession{
+			ConversationID: conversa,
+			ProviderID:     "cursor",
+			SessionID:      "sess-" + conversa,
+			WorkDir:        "/projeto",
+		}); err != nil {
+			t.Fatalf("gravar %s: %v", conversa, err)
+		}
+	}
+	if err := store.Save(leo, StoredSession{
+		ConversationID: "conv-1",
+		ProviderID:     "cursor",
+		SessionID:      "sess-do-leo",
+		WorkDir:        "/projeto",
+	}); err != nil {
+		t.Fatalf("gravar leo: %v", err)
+	}
+
+	if err := store.DeleteAll(ana); err != nil {
+		t.Fatalf("limpar tudo: %v", err)
+	}
+
+	for _, conversa := range []string{"conv-1", "conv-2"} {
+		got, err := store.Load(ana, conversa, "cursor")
+		if err != nil {
+			t.Fatalf("ler %s após limpar: %v", conversa, err)
+		}
+		if got != nil {
+			t.Fatalf("sessão de %s sobreviveu à limpeza geral", conversa)
+		}
+	}
+	doLeo, err := store.Load(leo, "conv-1", "cursor")
+	if err != nil || doLeo == nil {
+		t.Fatalf("a limpeza de uma pessoa levou junto a sessão da outra: %v", err)
+	}
 }
 
 func TestApagarConversaLevaAsSessoesDeTodosOsProviders(t *testing.T) {

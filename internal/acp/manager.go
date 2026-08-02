@@ -132,6 +132,10 @@ type Manager struct {
 	procs  map[string]*agentProcess
 	convs  map[string]*Conversation
 	closed bool
+	// clearing marca o "limpar tudo" em andamento. Enquanto ele roda nenhuma
+	// conversa é montada: a que nascesse no meio teria o vínculo apagado logo
+	// depois de gravado.
+	clearing bool
 }
 
 // agentProcess é o processo de um provider e o spec que o descreve, para
@@ -280,6 +284,9 @@ func (m *Manager) entry(conversationID string) (*Conversation, error) {
 	if m.closed {
 		return nil, ErrClosed
 	}
+	if m.clearing {
+		return nil, ErrConversationGone
+	}
 	conv := m.convs[conversationID]
 	if conv == nil {
 		conv = &Conversation{manager: m, id: conversationID}
@@ -326,6 +333,52 @@ func (m *Manager) CloseConversation(ctx context.Context, conversationID string) 
 	m.mu.Unlock()
 
 	return errors.Join(errs...)
+}
+
+// CloseAllConversations encerra as sessões de todas as conversas e esquece os
+// registros de quem pediu. É o "limpar tudo": nenhuma das conversas que essas
+// sessões descrevem existe mais, e um vínculo sem conversa nunca seria
+// reencontrado — ficaria no banco para sempre, com a sessão aberta no agente.
+//
+// Os processos continuam de pé: eles são por provider, não por conversa, e
+// derrubá-los só faria a próxima mensagem esperar o agente subir de novo.
+func (m *Manager) CloseAllConversations(ctx context.Context) error {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return m.forgetAll(ctx)
+	}
+	// Enquanto limpa, nenhuma conversa nova é montada: uma que nascesse agora
+	// gravaria um vínculo que o apagamento logo em seguida levaria embora.
+	m.clearing = true
+	convs := slices.Collect(maps.Values(m.convs))
+	m.mu.Unlock()
+
+	errs := make([]error, 0, len(convs)+1)
+	for _, conv := range convs {
+		conv.mu.Lock()
+		errs = append(errs, conv.closeLocked(ctx))
+		conv.gone = true
+		conv.mu.Unlock()
+	}
+	errs = append(errs, m.forgetAll(ctx))
+
+	m.mu.Lock()
+	m.convs = make(map[string]*Conversation)
+	m.clearing = false
+	m.mu.Unlock()
+
+	return errors.Join(errs...)
+}
+
+func (m *Manager) forgetAll(ctx context.Context) error {
+	if m.store == nil {
+		return nil
+	}
+	if err := m.store.DeleteAll(ctx); err != nil {
+		return fmt.Errorf("apagar registros de sessão ACP: %w", err)
+	}
+	return nil
 }
 
 func (m *Manager) forget(ctx context.Context, conversationID string) error {

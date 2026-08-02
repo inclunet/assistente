@@ -55,3 +55,16 @@ func (a *App) closeACPSession(ctx context.Context, conversationID string) {
 		logging.Warnf(ctx, "app.app-acp", "[ACP] erro ao encerrar a sessão da conversa %s: %v", conversationID, err)
 	}
 }
+
+// closeAllACPSessions é o mesmo para o "limpar tudo": nenhuma das conversas que
+// as sessões descrevem existe mais. Sem isso o agente segue respondendo com base
+// em mensagens apagadas e os vínculos ficam no banco sem conversa que os
+// reencontre.
+func (a *App) closeAllACPSessions(ctx context.Context) {
+	if a == nil || a.acpMgr == nil {
+		return
+	}
+	if err := a.acpMgr.CloseAllConversations(ctx); err != nil {
+		logging.Warnf(ctx, "app.app-acp", "[ACP] erro ao encerrar as sessões das conversas apagadas: %v", err)
+	}
+}
