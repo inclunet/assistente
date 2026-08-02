@@ -35,7 +35,7 @@ func (a *App) CreateConversation(title, model string) (*Conversation, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.resetConversationScopedState(conv.ID)
+	a.resetConversationScopedState(ctx, conv.ID)
 	return conv, nil
 }
 
@@ -96,7 +96,7 @@ func (a *App) EnsureConversation(title string) (*Conversation, error) {
 	if err != nil {
 		return nil, fmt.Errorf("erro ao garantir conversa: %w", err)
 	}
-	a.resetConversationScopedState(conv.ID)
+	a.resetConversationScopedState(ctx, conv.ID)
 	return conv, nil
 }
 
@@ -108,14 +108,19 @@ func (a *App) resetLoadedToolsForConversation(conversationID string) {
 }
 
 // resetConversationScopedState limpa o estado efêmero amarrado a uma conversa
-// (tools carregadas + allowlist de rede do escopo de sessão) quando ela é
-// criada/reciclada, limpa ou excluída — evitando que um novo chat que reutilize o
-// mesmo ConversationID herde estado da sessão anterior sem novo consentimento.
-func (a *App) resetConversationScopedState(conversationID string) {
+// (tools carregadas, allowlist de rede do escopo de sessão e a sessão do agente
+// ACP) quando ela é criada/reciclada, limpa ou excluída — evitando que um novo
+// chat que reutilize o mesmo ConversationID herde estado da sessão anterior sem
+// novo consentimento.
+func (a *App) resetConversationScopedState(ctx context.Context, conversationID string) {
 	a.resetLoadedToolsForConversation(conversationID)
 	if a != nil && a.netTrustMgr != nil {
 		a.netTrustMgr.ClearSession(conversationID)
 	}
+	// A sessão do agente é onde vive o histórico dessa conversa do lado dele
+	// (AEP-0084 D4): mantê-la faria o agente responder com base em mensagens
+	// que a pessoa já não vê na tela.
+	a.closeACPSession(ctx, conversationID)
 }
 
 // GetMessages retorna mensagens com filtro por parent (API unificada com LAZY LOADING)
@@ -496,7 +501,7 @@ func (a *App) DeleteConversation(id string) error {
 	if err := database.DeleteConversationWithContext(ctx, id); err != nil {
 		return err
 	}
-	a.resetConversationScopedState(id)
+	a.resetConversationScopedState(ctx, id)
 
 	a.emitter.Emit("conversation:deleted", map[string]interface{}{
 		"conversation_id": id,
@@ -726,7 +731,7 @@ func (a *App) ClearConversation(conversationID string) error {
 	if err := database.DeleteAllMessagesWithContext(ctx, conversationID); err != nil {
 		return err
 	}
-	a.resetConversationScopedState(conversationID)
+	a.resetConversationScopedState(ctx, conversationID)
 
 	a.emitter.Emit("conversation:cleared", map[string]interface{}{
 		"conversation_id": conversationID,

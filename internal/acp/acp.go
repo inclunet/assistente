@@ -87,6 +87,13 @@ type Client interface {
 	// processo se ainda não estiver de pé. Serve também como health check.
 	Capabilities(ctx context.Context) (Capabilities, error)
 
+	// CloseSession encerra no agente uma sessão que o app abandonou sem ter o
+	// objeto dela em mãos — um registro antigo que não pôde ser retomado, por
+	// exemplo. Não sobe processo: sem agente de pé a sessão já morreu com ele.
+	// Quando o agente não anuncia o método, não há o que fazer e a sessão vive
+	// até o processo acabar.
+	CloseSession(ctx context.Context, sessionID string) error
+
 	// Call é a saída para métodos que este pacote não tipa: extensões do agente
 	// e seletores legados que os SDKs vão deixando de tipar. Sem ela, o app
 	// ficaria refém do que o SDK resolveu cobrir (AEP-0084 D2).
