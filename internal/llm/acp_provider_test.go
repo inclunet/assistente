@@ -23,6 +23,9 @@ type agenteFalso struct {
 	// esperaCancelamento faz o turno só terminar quando o ctx for cancelado,
 	// como um agente que está trabalhando quando a pessoa manda parar.
 	esperaCancelamento bool
+	// duranteOTurno roda enquanto o agente tem o turno, que é quando ele
+	// pergunta ao app.
+	duranteOTurno func()
 
 	mu       sync.Mutex
 	recebido [][]acp.Content
@@ -35,6 +38,9 @@ func (a *agenteFalso) Prompt(ctx context.Context, content []acp.Content, sink ac
 	a.recebido = append(a.recebido, content)
 	a.mu.Unlock()
 
+	if a.duranteOTurno != nil {
+		a.duranteOTurno()
+	}
 	for _, update := range a.updates {
 		sink(update)
 	}
