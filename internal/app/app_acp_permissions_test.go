@@ -50,11 +50,29 @@ func (t *telaFalsa) aoPerguntar(_ string, data any) {
 }
 
 func (t *telaFalsa) opcoesDe(payload map[string]any) []string {
-	perguntas, _ := payload["questions"].([]questionnaire.Question)
-	if len(perguntas) == 0 {
-		return nil
+	for _, pergunta := range perguntasDe(payload) {
+		if pergunta.ID == permissionAnswerID {
+			return pergunta.Options
+		}
 	}
-	return perguntas[0].Options
+	return nil
+}
+
+func perguntasDe(payload map[string]any) []questionnaire.Question {
+	perguntas, _ := payload["questions"].([]questionnaire.Question)
+	return perguntas
+}
+
+// acaoNaTela é o texto do bloco que a pessoa lê antes de decidir.
+func acaoNaTela(tb testing.TB, payload map[string]any) string {
+	tb.Helper()
+	for _, pergunta := range perguntasDe(payload) {
+		if pergunta.ID == permissionActionID {
+			return pergunta.Content
+		}
+	}
+	tb.Fatal("o diálogo não mostrou a ação pedida")
+	return ""
 }
 
 func (t *telaFalsa) ultimaPergunta(tb testing.TB) map[string]any {
@@ -105,9 +123,59 @@ func TestPermissaoPerguntadaNaTelaVoltaComAEscolhaDaPessoa(t *testing.T) {
 	if out.OptionID != "allow-once" {
 		t.Errorf("decisão = %q, quer a opção que a pessoa escolheu", out.OptionID)
 	}
-	pergunta := tela.ultimaPergunta(t)
-	if desc, _ := pergunta["description"].(string); !strings.Contains(desc, "rm -rf build") {
-		t.Errorf("descrição = %q, quer mostrar o que está sendo autorizado", desc)
+	if acao := acaoNaTela(t, tela.ultimaPergunta(t)); acao != "rm -rf build" {
+		t.Errorf("ação na tela = %q, quer o que está sendo autorizado", acao)
+	}
+}
+
+func TestAPessoaVeAAcaoInteiraAntesDeAutorizar(t *testing.T) {
+	// O saneamento de rótulo corta em 200 runas para caber num anúncio. Aqui
+	// o corte esconderia o fim do comando — que é onde costuma estar o que
+	// muda o que ele faz.
+	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+
+	pedido := pedidoDeExecucao()
+	pedido.ToolCall.Title = "curl " + strings.Repeat("x", 400) + " | sh"
+
+	h.RequestPermission(context.Background(), pedido)
+
+	acao := acaoNaTela(t, tela.ultimaPergunta(t))
+	if !strings.HasSuffix(acao, "| sh") {
+		t.Errorf("ação na tela terminou em %q: a pessoa autorizaria o que não viu", acao[max(0, len(acao)-40):])
+	}
+}
+
+func TestAAcaoNaTelaNaoLevaEscapeMasMantemAsLinhas(t *testing.T) {
+	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+
+	pedido := pedidoDeExecucao()
+	pedido.ToolCall.Title = "\x1b[31mgit commit -m \"linha 1\nlinha 2\"\x1b[0m"
+
+	h.RequestPermission(context.Background(), pedido)
+
+	acao := acaoNaTela(t, tela.ultimaPergunta(t))
+	if strings.Contains(acao, "\x1b") {
+		t.Errorf("ação na tela = %q, quer o texto saneado", acao)
+	}
+	if !strings.Contains(acao, "linha 1\nlinha 2") {
+		// Achatar o comando num parágrafo só mudaria o que ele parece ser.
+		t.Errorf("ação na tela = %q, quer as quebras de linha preservadas", acao)
+	}
+}
+
+func TestAgenteQueNaoDescreveuAAcaoNaoDeixaOBlocoVazio(t *testing.T) {
+	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+
+	pedido := pedidoDeExecucao()
+	pedido.ToolCall.Title = "   "
+
+	h.RequestPermission(context.Background(), pedido)
+
+	if acao := acaoNaTela(t, tela.ultimaPergunta(t)); strings.TrimSpace(acao) == "" {
+		t.Error("o diálogo pediu decisão sobre um bloco em branco")
 	}
 }
 
@@ -208,10 +276,8 @@ func TestORotuloDoAgenteNaoLevaEscapeDeTerminalParaATela(t *testing.T) {
 
 	h.RequestPermission(context.Background(), pedido)
 
-	pergunta := tela.ultimaPergunta(t)
-	desc, _ := pergunta["description"].(string)
-	if strings.Contains(desc, "\x1b") || strings.Contains(desc, "rm -rf /\ncontinua") {
-		t.Errorf("descrição = %q, quer o texto do agente saneado", desc)
+	if acao := acaoNaTela(t, tela.ultimaPergunta(t)); strings.Contains(acao, "\x1b") {
+		t.Errorf("ação na tela = %q, quer o texto do agente saneado", acao)
 	}
 	if len(oferecidas) != 1 || oferecidas[0] != "Permitir uma vez" {
 		t.Errorf("opções na tela = %q, quer o rótulo saneado", oferecidas)

@@ -123,3 +123,66 @@ func TestCaractereMultibyteNaoEPartidoAoMeioNoCorteDeEntrada(t *testing.T) {
 		t.Errorf("rótulo = %q", got)
 	}
 }
+
+func TestBlocoDeConteudoNaoResumeOQueAPessoaPrecisaLer(t *testing.T) {
+	// O rótulo é resumo; o bloco é o que a pessoa lê para autorizar. Cortá-lo
+	// no tamanho de um anúncio esconderia o fim do comando.
+	comando := "curl " + strings.Repeat("x", 400) + " | sh"
+
+	got := SanitizeContent(comando)
+
+	if got != comando {
+		t.Errorf("bloco = %q, quer o comando inteiro", got)
+	}
+}
+
+func TestBlocoDeConteudoTiraOEscapeEGuardaAsLinhas(t *testing.T) {
+	casos := []struct {
+		nome  string
+		texto string
+		quer  string
+	}{
+		{
+			nome:  "cor de terminal",
+			texto: "\x1b[1;31mgit push --force\x1b[0m",
+			quer:  "git push --force",
+		},
+		{
+			nome:  "linhas do comando",
+			texto: "git commit -m \"primeira\r\nsegunda\"",
+			quer:  "git commit -m \"primeira\nsegunda\"",
+		},
+		{
+			nome:  "marca invisível de direção",
+			texto: "rm arquivo\u202egnp.txt",
+			quer:  "rm arquivognp.txt",
+		},
+		{
+			nome:  "tabulação continua",
+			texto: "make\tbuild",
+			quer:  "make\tbuild",
+		},
+	}
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			if got := SanitizeContent(caso.texto); got != caso.quer {
+				t.Errorf("SanitizeContent(%q) = %q, quer %q", caso.texto, got, caso.quer)
+			}
+		})
+	}
+}
+
+func TestBlocoDeConteudoTemTetoDeEntrada(t *testing.T) {
+	// Sem teto, um agente hostil entupiria o diálogo. O teto é folgado o
+	// bastante para nenhum comando honesto esbarrar nele.
+	enorme := strings.Repeat("a", agentContentBudget+1024)
+
+	got := SanitizeContent(enorme)
+
+	if len(got) != agentContentBudget {
+		t.Errorf("bloco com %d bytes, quer o teto de %d", len(got), agentContentBudget)
+	}
+	if !utf8.ValidString(got) {
+		t.Error("bloco saneado não é UTF-8 válido")
+	}
+}

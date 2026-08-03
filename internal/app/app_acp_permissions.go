@@ -13,8 +13,11 @@ import (
 
 const acpPermissionComponent = "app.acp-permissions"
 
-// permissionAnswerID é a chave da escolha dentro do questionário.
-const permissionAnswerID = "decision"
+// Chaves dos itens do questionário: a ação que se lê e a escolha que se faz.
+const (
+	permissionActionID = "action"
+	permissionAnswerID = "decision"
+)
 
 // acpRequestHandler responde ao que o agente de código pergunta ao app
 // (AEP-0084 D9). Hoje isso é o pedido de permissão para agir na máquina; as
@@ -40,7 +43,13 @@ var _ acp.RequestHandler = (*acpRequestHandler)(nil)
 // mesmo ofereceu. Nunca deixa o pedido sem resposta: um turno pendurado é pior
 // do que uma ação negada.
 func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.PermissionRequest) acp.PermissionOutcome {
-	action := acp.SanitizeLabel(req.ToolCall.Title)
+	// A ação vai inteira para a tela, e não pelo saneamento de rótulo: o corte
+	// que serve a um anúncio esconderia o fim de uma linha de comando longa,
+	// e é justamente o fim dela que costuma mudar o que ela faz.
+	action := acp.SanitizeContent(req.ToolCall.Title)
+	if action == "" {
+		action = "(o agente não descreveu a ação)"
+	}
 	registro := permissionLogSummary(req.ToolCall)
 
 	owner, ok := h.turnOwner(req.SessionID)
@@ -72,18 +81,30 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	// teto tiraria da pessoa a chance de responder (AEP-0084 D9).
 	resp, err := manager.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
 		Title:       "O agente pede permissão",
-		Description: permissionDescription(action, req.ToolCall.Kind),
+		Description: permissionDescription(req.ToolCall.Kind),
 		AllowCancel: true,
 		SubmitLabel: "Confirmar",
 		CancelLabel: "Negar",
-		Questions: []questionnaire.Question{{
-			ID:        permissionAnswerID,
-			Type:      "single_choice",
-			Prompt:    "O que o agente pode fazer?",
-			Options:   choices.labels(),
-			Required:  true,
-			AutoFocus: true,
-		}},
+		Questions: []questionnaire.Question{
+			{
+				// A ação vai inteira, em bloco: é o que a pessoa lê para
+				// decidir, e um resumo faria autorizar o que não apareceu na
+				// tela. É o mesmo formato da confirmação de edição e da
+				// autorização de rede.
+				ID:      permissionActionID,
+				Type:    "readonly_code",
+				Prompt:  "Ação pedida",
+				Content: action,
+			},
+			{
+				ID:        permissionAnswerID,
+				Type:      "single_choice",
+				Prompt:    "O que o agente pode fazer?",
+				Options:   choices.labels(),
+				Required:  true,
+				AutoFocus: true,
+			},
+		},
 	})
 	if err != nil {
 		// Prazo estourado, turno cancelado ou app encerrando. Todos viram a
@@ -146,18 +167,14 @@ func permissionLogSummary(call acp.ToolCall) string {
 	return fmt.Sprintf("%s, chamada %q", kind, acp.SanitizeLabel(call.ID))
 }
 
-// permissionDescription monta o texto do diálogo. Quem autoriza precisa ver o
-// que está autorizando, e o que o agente manda é dado não confiável: o título
-// costuma ser a linha de comando literal (AEP-0084 D9/D11).
-func permissionDescription(action, kind string) string {
-	action = strings.TrimSpace(action)
-	if action == "" {
-		action = "(o agente não descreveu a ação)"
-	}
+// permissionDescription abre o diálogo dizendo a classe da ação, que é
+// enumerável — ao contrário do que o agente escreve, que vai no bloco abaixo
+// dela (AEP-0084 D9/D11).
+func permissionDescription(kind string) string {
 	if kind = strings.TrimSpace(acp.SanitizeLabel(kind)); kind != "" {
-		return fmt.Sprintf("O agente quer executar uma ação do tipo %q:\n\n%s", kind, action)
+		return fmt.Sprintf("O agente quer executar uma ação do tipo %q na sua máquina. Confira o que ele pede antes de decidir.", kind)
 	}
-	return fmt.Sprintf("O agente quer executar:\n\n%s", action)
+	return "O agente quer executar uma ação na sua máquina. Confira o que ele pede antes de decidir."
 }
 
 // permissionChoice é uma opção do pedido já pronta para a tela: o rótulo que
