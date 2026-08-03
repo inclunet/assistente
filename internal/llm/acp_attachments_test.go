@@ -1,0 +1,282 @@
+package llm
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"assistente/internal/acp"
+)
+
+// imagemPNG é uma imagem embutida como o pipeline a monta.
+const imagemPNG = "data:image/png;base64,QUJD"
+
+// aceitaImagem é o agente que recebe imagem, para os testes que montam o
+// conteúdo sem passar pelo provider.
+func aceitaImagem() bool { return true }
+
+func mensagemComImagem(texto, url string) Message {
+	return Message{Role: "user", Content: []ContentPart{
+		{Type: "text", Text: texto},
+		{Type: "image_url", ImageURL: &ImageURL{URL: url}},
+	}}
+}
+
+func TestImagemVaiAoAgenteQueAceitaImagem(t *testing.T) {
+	sessao := &agenteFalso{updates: []acp.Update{{Kind: acp.UpdateText, Text: "é um gráfico"}}}
+	provider := providerComCapacidades(t, sessao, acp.Capabilities{PromptImage: true})
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{mensagemComImagem("o que tem nesta imagem?", imagemPNG)},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if handler.erro != "" {
+		t.Fatalf("turno falhou: %s", handler.erro)
+	}
+	turno := sessao.turnos()[0]
+	if len(turno) != 2 {
+		t.Fatalf("o agente recebeu %+v, quer o texto e a imagem", turno)
+	}
+	// A ordem é a da mensagem: a pergunta se refere à imagem que vem depois.
+	if turno[0].Text != "o que tem nesta imagem?" {
+		t.Errorf("primeiro bloco = %+v, quer o texto", turno[0])
+	}
+	if turno[1].ImageData != "QUJD" || turno[1].ImageMIME != "image/png" {
+		t.Errorf("bloco de imagem = %+v, quer os dados e o tipo separados", turno[1])
+	}
+	if len(handler.avisos) != 0 {
+		t.Errorf("avisos = %+v, o anexo foi enviado e não há o que avisar", handler.avisos)
+	}
+}
+
+func TestAnexoRecusadoPeloAgenteNaoSomeEmSilencio(t *testing.T) {
+	sessao := &agenteFalso{updates: []acp.Update{{Kind: acp.UpdateText, Text: "não recebi imagem"}}}
+	// Agente sem promptCapabilities.image: o Cursor aceita imagem, outros não.
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{mensagemComImagem("o que tem nesta imagem?", imagemPNG)},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if handler.erro != "" {
+		t.Fatalf("turno falhou: %s", handler.erro)
+	}
+	// O turno segue com o texto…
+	turno := sessao.turnos()[0]
+	if len(turno) != 1 || turno[0].Text != "o que tem nesta imagem?" {
+		t.Fatalf("o agente recebeu %+v, quer só o texto", turno)
+	}
+	// …e a pessoa fica sabendo do que ficou de fora, senão espera uma resposta
+	// sobre uma imagem que o agente nunca viu.
+	if len(handler.avisos) != 1 {
+		t.Fatalf("avisos = %+v, quer um", handler.avisos)
+	}
+	if got := handler.avisos[0]; got.Kind != TurnNoticeAttachmentsNotSent || got.Count != 1 {
+		t.Errorf("aviso = %+v, quer um anexo não enviado", got)
+	}
+}
+
+func TestImagemQueNaoEstaEmbutidaNaoVaiEViraAviso(t *testing.T) {
+	sessao := &agenteFalso{updates: []acp.Update{{Kind: acp.UpdateText, Text: "ok"}}}
+	provider := providerComCapacidades(t, sessao, acp.Capabilities{PromptImage: true})
+	handler := &espiao{}
+
+	// O bloco do protocolo é base64 mais tipo MIME: um endereço remoto não tem
+	// como ser embutido no pedido, mesmo com o agente aceitando imagem.
+	provider.StreamChat(t.Context(),
+		[]Message{mensagemComImagem("e nesta?", "https://exemplo.com/foto.png")},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if len(sessao.turnos()[0]) != 1 {
+		t.Fatalf("o agente recebeu %+v, quer só o texto", sessao.turnos()[0])
+	}
+	if len(handler.avisos) != 1 || handler.avisos[0].Count != 1 {
+		t.Errorf("avisos = %+v, quer um anexo não enviado", handler.avisos)
+	}
+}
+
+func TestMensagemSoComAnexoRecusadoNaoViraTurnoVazio(t *testing.T) {
+	sessao := &agenteFalso{}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: []ContentPart{
+		{Type: "image_url", ImageURL: &ImageURL{URL: imagemPNG}},
+	}}}, ChatParams{ConversationID: "conversa-1"}, handler)
+
+	// Sem texto e sem a imagem não sobra pedido nenhum: mandar assim seria
+	// gastar um turno do agente com nada.
+	if handler.erro == "" {
+		t.Fatal("turno sem conteúdo nenhum precisa dizer o que aconteceu")
+	}
+	if len(sessao.turnos()) != 0 {
+		t.Errorf("o agente recebeu %+v, não devia receber nada", sessao.turnos())
+	}
+}
+
+func TestPedidoQueNemSaiuNaoAvisaSobreAnexo(t *testing.T) {
+	sessao := &agenteFalso{err: &acp.PromptError{Accepted: false, Err: errors.New("agente recusou o pedido")}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{mensagemComImagem("o que tem nesta imagem?", imagemPNG)},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if handler.erro == "" {
+		t.Fatal("a falha do turno precisa chegar à pessoa")
+	}
+	// Nada foi enviado: dizer que "o turno seguiu só com o texto" mandaria a
+	// pessoa conferir uma resposta que não existe.
+	if len(handler.avisos) != 0 {
+		t.Errorf("avisos = %+v, o pedido nem chegou ao agente", handler.avisos)
+	}
+}
+
+func TestPedidoAceitoQueFalhouDepoisAindaAvisaSobreOAnexo(t *testing.T) {
+	sessao := &agenteFalso{err: &acp.PromptError{Accepted: true, Err: errors.New("transporte caiu")}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{mensagemComImagem("o que tem nesta imagem?", imagemPNG)},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	// O agente recebeu o pedido sem a imagem: o que ele fez, fez sem vê-la.
+	if len(handler.avisos) != 1 {
+		t.Errorf("avisos = %+v, quer o do anexo que não foi", handler.avisos)
+	}
+	// O mesmo aceite que gera o aviso barra a auto-recuperação, que reinvoca
+	// StreamChat sozinha. Sem essa marca, cada tentativa repetiria o aviso e a
+	// pessoa veria o mesmo alerta várias vezes para um único turno.
+	if !handler.naoRetentavel {
+		t.Error("turno aceito precisa impedir a repetição automática")
+	}
+}
+
+func TestInterrupcaoNaoVemAcompanhadaDeAvisoDeAnexo(t *testing.T) {
+	sessao := &agenteFalso{esperaCancelamento: true}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	provider.StreamChat(ctx,
+		[]Message{mensagemComImagem("o que tem nesta imagem?", imagemPNG)},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	// Quem mandou parar não precisa de um alerta sobre o turno que ela mesma
+	// interrompeu.
+	if len(handler.avisos) != 0 {
+		t.Errorf("avisos = %+v, o turno foi interrompido pela pessoa", handler.avisos)
+	}
+}
+
+func TestHandlerSemCanalDeAvisoAindaRecebeOTurno(t *testing.T) {
+	sessao := &agenteFalso{updates: []acp.Update{{Kind: acp.UpdateText, Text: "ok"}}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiaoSurdo{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{mensagemComImagem("e esta?", imagemPNG)},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if !handler.pronto || len(handler.chunks) == 0 {
+		t.Errorf("o turno precisa seguir para quem não sabe receber aviso: %+v", handler)
+	}
+}
+
+func TestSeparacaoDaImagemEmbutida(t *testing.T) {
+	casos := []struct {
+		nome string
+		url  string
+		data string
+		mime string
+		ok   bool
+	}{
+		{nome: "png em base64", url: imagemPNG, data: "QUJD", mime: "image/png", ok: true},
+		{nome: "endereço remoto", url: "https://exemplo.com/foto.png"},
+		{nome: "data url sem base64", url: "data:image/svg+xml,<svg/>"},
+		{nome: "sem tipo", url: "data:;base64,QUJD"},
+		{nome: "sem dados", url: "data:image/png;base64,"},
+		{nome: "vazia", url: ""},
+	}
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			data, mime, ok := inlineImage(ContentPart{Type: "image_url", ImageURL: &ImageURL{URL: caso.url}})
+			if ok != caso.ok || data != caso.data || mime != caso.mime {
+				t.Errorf("data=%q mime=%q ok=%t, quer %q, %q e %t", data, mime, ok, caso.data, caso.mime, caso.ok)
+			}
+		})
+	}
+	if _, _, ok := inlineImage(ContentPart{Type: "image_url"}); ok {
+		t.Error("parte sem image_url não descreve imagem nenhuma")
+	}
+}
+
+func TestPartesDestipadasViramOsMesmosBlocos(t *testing.T) {
+	// A mensagem também chega destipada, quando veio de JSON.
+	msg := Message{Role: "user", Content: []interface{}{
+		map[string]interface{}{"type": "text", "text": "olha isto"},
+		map[string]interface{}{"type": "image_url", "image_url": map[string]interface{}{"url": imagemPNG}},
+	}}
+
+	content, notSent := turnContent(msg, aceitaImagem)
+
+	if notSent != 0 {
+		t.Errorf("anexos não enviados = %d, quer 0", notSent)
+	}
+	if len(content) != 2 || content[0].Text != "olha isto" || content[1].ImageData != "QUJD" {
+		t.Errorf("blocos = %+v, quer o texto e a imagem", content)
+	}
+}
+
+func TestAnexoQueNaoEImagemTambemEContado(t *testing.T) {
+	// O pipeline monta estas partes para os modelos que as recebem
+	// nativamente; o bloco do ACP só carrega texto e imagem.
+	msg := Message{Role: "user", Content: []interface{}{
+		map[string]interface{}{"type": "text", "text": "o que tem nestes arquivos?"},
+		map[string]interface{}{"type": "input_audio", "input_audio": map[string]interface{}{"data": "..."}},
+		map[string]interface{}{"type": "file", "file": map[string]interface{}{"filename": "nota.pdf"}},
+		map[string]interface{}{"type": "video", "video": map[string]interface{}{"data": "..."}},
+	}}
+
+	content, notSent := turnContent(msg, aceitaImagem)
+
+	if notSent != 3 {
+		t.Errorf("anexos não enviados = %d, quer os três: sumir com eles calado é o que o AEP proíbe", notSent)
+	}
+	if len(content) != 1 || content[0].Text != "o que tem nestes arquivos?" {
+		t.Errorf("blocos = %+v, quer só o texto", content)
+	}
+}
+
+func TestParteSemTipoNaoViraAlarmeFalso(t *testing.T) {
+	msg := Message{Role: "user", Content: []interface{}{
+		map[string]interface{}{"type": "text", "text": "oi"},
+		map[string]interface{}{"algo": "sem tipo"},
+	}}
+
+	// Sem tipo não dá para dizer que era anexo: contar isso avisaria a pessoa
+	// sobre um anexo que ela não mandou.
+	if _, notSent := turnContent(msg, aceitaImagem); notSent != 0 {
+		t.Errorf("anexos não enviados = %d, quer 0", notSent)
+	}
+}
+
+func TestTurnoDeTextoPuroNaoPerguntaOQueOAgenteAceita(t *testing.T) {
+	perguntas := 0
+	msg := Message{Role: "user", Content: "só texto"}
+
+	turnContent(msg, func() bool { perguntas++; return true })
+
+	if perguntas != 0 {
+		t.Errorf("perguntou %d vez(es) sobre imagem numa mensagem sem imagem", perguntas)
+	}
+}

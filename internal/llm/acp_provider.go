@@ -66,7 +66,7 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 		return
 	}
 	instructions := profileInstructions(messages, conv)
-	content, err := p.promptContent(ctx, messages)
+	content, notSent, err := p.promptContent(ctx, conv, messages)
 	if err != nil {
 		handler.OnError(err.Error())
 		return
@@ -95,8 +95,20 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 		turn.cancelPendingTools()
 		return
 	}
+
+	accepted := err == nil || turnAccepted(err)
+	if notSent > 0 && accepted {
+		// O aviso só vale depois de o pedido chegar ao agente: sem aceite nada
+		// foi enviado, e dizer que "o turno seguiu só com o texto" mandaria a
+		// pessoa conferir uma resposta que não existe. Com aceite, ela precisa
+		// saber que o agente não viu o anexo — senão espera resposta sobre ele.
+		logging.Warnf(ctx, acpProviderComponent, "[ACP] %d anexo(s) ficaram de fora do turno", notSent)
+		if sink, ok := handler.(TurnNoticeSink); ok {
+			sink.OnTurnNotice(TurnNotice{Kind: TurnNoticeAttachmentsNotSent, Count: notSent})
+		}
+	}
+
 	if err != nil {
-		accepted := turnAccepted(err)
 		if accepted {
 			// A auto-recuperação reinvoca StreamChat sozinha depois de um erro
 			// de transporte. Para um provider HTTP isso é inofensivo; aqui
@@ -156,23 +168,35 @@ func (p *ACPChatProvider) conversation(ctx context.Context, params ChatParams) (
 
 // promptContent monta o que vai ao agente neste turno: só a última mensagem do
 // usuário (AEP-0084 D4). O histórico está na sessão dele, e reenviá-lo
-// duplicaria contexto e custo.
-func (p *ACPChatProvider) promptContent(ctx context.Context, messages []Message) ([]acp.Content, error) {
+// duplicaria contexto e custo. Devolve também quantos anexos não puderam ir.
+func (p *ACPChatProvider) promptContent(ctx context.Context, conv *acp.Conversation, messages []Message) ([]acp.Content, int, error) {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role != "user" {
 			continue
 		}
-		if n := imagePartCount(messages[i]); n > 0 {
-			logging.Warnf(ctx, acpProviderComponent,
-				"[ACP] %d anexo(s) de imagem ficaram de fora do turno: o envio multimodal ao agente ainda não está implementado", n)
+		content, notSent := turnContent(messages[i], func() bool { return p.acceptsImage(ctx, conv) })
+		if len(content) == 0 {
+			if notSent > 0 {
+				return nil, 0, errors.New("o anexo não pôde ser enviado ao agente, e a mensagem não tem texto para enviar no lugar")
+			}
+			return nil, 0, errors.New("mensagem sem texto para enviar ao agente")
 		}
-		text := strings.TrimSpace(messages[i].GetContentAsString())
-		if text == "" {
-			return nil, errors.New("mensagem sem texto para enviar ao agente")
-		}
-		return []acp.Content{acp.TextContent(text)}, nil
+		return content, notSent, nil
 	}
-	return nil, errors.New("turno sem mensagem do usuário para enviar ao agente")
+	return nil, 0, errors.New("turno sem mensagem do usuário para enviar ao agente")
+}
+
+// acceptsImage diz se o agente recebe imagem. Não saber conta como não aceitar:
+// mandar assim mesmo faria o turno inteiro falhar por causa do anexo, quando
+// seguir só com o texto entrega a resposta e ainda conta o que ficou de fora.
+func (p *ACPChatProvider) acceptsImage(ctx context.Context, conv *acp.Conversation) bool {
+	caps, err := conv.Capabilities(ctx)
+	if err != nil {
+		logging.Warnf(ctx, acpProviderComponent,
+			"[ACP] capacidades do agente indisponíveis; anexos ficam de fora deste turno: %v", err)
+		return false
+	}
+	return caps.PromptImage
 }
 
 // turnAccepted diz se o pedido chegou a sair para o agente. A definição é
@@ -237,28 +261,6 @@ func stopWithoutAnswer(stop acp.StopReason, response string) (string, bool) {
 		// é o mesmo que resposta nenhuma sem explicação.
 		return "O agente terminou o turno sem escrever resposta.", true
 	}
-}
-
-// imagePartCount conta os anexos de imagem da mensagem. A lista de partes
-// chega nos dois formatos que o pipeline produz: tipada, quando o builder a
-// montou, e destipada, quando ela veio de JSON.
-func imagePartCount(msg Message) int {
-	count := 0
-	switch parts := msg.Content.(type) {
-	case []ContentPart:
-		for _, part := range parts {
-			if part.Type == "image_url" {
-				count++
-			}
-		}
-	case []interface{}:
-		for _, part := range parts {
-			if partMap, ok := part.(map[string]interface{}); ok && partMap["type"] == "image_url" {
-				count++
-			}
-		}
-	}
-	return count
 }
 
 // acpTurn acumula o turno e o entrega ao StreamHandler (AEP-0084 D8). Texto vai

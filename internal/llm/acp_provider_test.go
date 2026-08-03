@@ -67,7 +67,10 @@ func (a *agenteFalso) turnos() [][]acp.Content {
 	return a.recebido
 }
 
-type clienteFalso struct{ sessao *agenteFalso }
+type clienteFalso struct {
+	sessao *agenteFalso
+	caps   acp.Capabilities
+}
 
 func (c *clienteFalso) NewSession(context.Context, string) (acp.Session, error) {
 	return c.sessao, nil
@@ -76,7 +79,7 @@ func (c *clienteFalso) LoadSession(context.Context, string, string) (acp.Session
 	return c.sessao, nil
 }
 func (c *clienteFalso) Capabilities(context.Context) (acp.Capabilities, error) {
-	return acp.Capabilities{}, nil
+	return c.caps, nil
 }
 func (c *clienteFalso) CloseSession(context.Context, string) error { return nil }
 func (c *clienteFalso) Call(context.Context, string, any) (json.RawMessage, error) {
@@ -87,20 +90,27 @@ func (c *clienteFalso) Close() error { return nil }
 // servicoDeAgentes monta o serviço de longa duração com o transporte trocado
 // pelo agente falso: o provider passa pelo caminho real de sessão por conversa
 // (AEP-0084 D3) sem subir processo.
-func servicoDeAgentes(t *testing.T, sessao *agenteFalso) *acp.Manager {
+func servicoDeAgentes(t *testing.T, sessao *agenteFalso, caps acp.Capabilities) *acp.Manager {
 	t.Helper()
 	dir := t.TempDir()
 	mgr := acp.NewManager(acp.ManagerConfig{
 		WorkDir: func() (string, error) { return dir, nil },
 		Dial: func(acp.Config, acp.RequestHandler) (acp.Client, error) {
-			return &clienteFalso{sessao: sessao}, nil
+			return &clienteFalso{sessao: sessao, caps: caps}, nil
 		},
 	})
 	t.Cleanup(mgr.Shutdown)
 	return mgr
 }
 
+// providerDeAgente monta o provider sobre um agente que só recebe texto, que é
+// o mínimo do protocolo.
 func providerDeAgente(t *testing.T, sessao *agenteFalso) *ACPChatProvider {
+	t.Helper()
+	return providerComCapacidades(t, sessao, acp.Capabilities{})
+}
+
+func providerComCapacidades(t *testing.T, sessao *agenteFalso, caps acp.Capabilities) *ACPChatProvider {
 	t.Helper()
 	return NewACPChatProvider(&ProviderConfig{
 		ID:         "cursor",
@@ -108,7 +118,7 @@ func providerDeAgente(t *testing.T, sessao *agenteFalso) *ACPChatProvider {
 		APIFormat:  APIFormatACP,
 		ACPCommand: "cursor-agent",
 		Model:      "auto",
-	}, servicoDeAgentes(t, sessao))
+	}, servicoDeAgentes(t, sessao, caps))
 }
 
 // espiao registra o que o provider entregou ao barramento.
@@ -121,6 +131,7 @@ type espiao struct {
 	erro          string
 	naoRetentavel bool
 	ferramentas   []AgentToolEvent
+	avisos        []TurnNotice
 	segmentos     int
 	pronto        bool
 	respostaFim   string
@@ -169,6 +180,12 @@ func (e *espiao) OnAgentToolEvent(event AgentToolEvent) {
 func (e *espiao) OnSegmentDone() {
 	e.segmentos++
 	e.ordem = append(e.ordem, "segment_done")
+}
+
+// E também os avisos sobre o turno, como o do anexo que não pôde ir.
+func (e *espiao) OnTurnNotice(notice TurnNotice) {
+	e.avisos = append(e.avisos, notice)
+	e.ordem = append(e.ordem, "notice_"+string(notice.Kind))
 }
 
 func (e *espiao) texto() string { return strings.Join(e.chunks, "") }
@@ -257,29 +274,31 @@ func TestTurnoLevaSoAUltimaMensagemDoUsuario(t *testing.T) {
 	}
 }
 
-func TestTurnoEnviaOTextoDeMensagemMultimodal(t *testing.T) {
+func TestTurnoEnviaOTextoDeMensagemEmPartesTipadas(t *testing.T) {
 	sessao := &agenteFalso{updates: []acp.Update{{Kind: acp.UpdateText, Text: "ok"}}}
 	provider := providerDeAgente(t, sessao)
 	handler := &espiao{}
 
-	// O builder monta a mensagem do turno em partes tipadas quando ela é
-	// multimodal. Sem tratar esse formato, o agente receberia o despejo da
-	// estrutura no lugar do pedido da pessoa.
+	// O builder monta a mensagem do turno em partes tipadas. Sem tratar esse
+	// formato, o agente receberia o despejo da estrutura no lugar do pedido da
+	// pessoa. O que vira imagem está em acp_attachments_test.go.
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: []ContentPart{
 		{Type: "text", Text: "<turn_context>arquivo aberto</turn_context>"},
-		{Type: "image_url", ImageURL: &ImageURL{URL: "data:image/png;base64,abc"}},
-		{Type: "text", Text: "o que tem nesta imagem?"},
+		{Type: "text", Text: "o que mudou aqui?"},
 	}}}, ChatParams{ConversationID: "conversa-1"}, handler)
 
 	if handler.erro != "" {
 		t.Fatalf("turno falhou: %s", handler.erro)
 	}
 	turnos := sessao.turnos()
-	if len(turnos) != 1 || len(turnos[0]) != 1 {
-		t.Fatalf("o agente recebeu %+v, quer um bloco de texto", turnos)
+	if len(turnos) != 1 || len(turnos[0]) != 2 {
+		t.Fatalf("o agente recebeu %+v, quer as duas partes de texto", turnos)
 	}
-	if got, want := turnos[0][0].Text, "<turn_context>arquivo aberto</turn_context>\no que tem nesta imagem?"; got != want {
-		t.Errorf("texto enviado ao agente = %q, quer %q", got, want)
+	if got, want := turnos[0][0].Text, "<turn_context>arquivo aberto</turn_context>"; got != want {
+		t.Errorf("primeiro bloco = %q, quer %q", got, want)
+	}
+	if got, want := turnos[0][1].Text, "o que mudou aqui?"; got != want {
+		t.Errorf("segundo bloco = %q, quer %q", got, want)
 	}
 }
 

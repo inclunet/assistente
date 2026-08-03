@@ -258,3 +258,17 @@ func (h *SimpleStreamHandler) OnSegmentDone() {
 		h.svc.onSpeechRequest(h.ConversationID, "", "assistant", text, "segment", h.profileSlug, false)
 	}
 }
+
+// OnTurnNotice repassa à interface um aviso sobre o turno. Vai como evento
+// próprio, e não como texto na resposta: o aviso é do app, e emendá-lo na
+// mensagem do modelo o deixaria salvo e lido como se fosse fala dele.
+func (h *SimpleStreamHandler) OnTurnNotice(notice llm.TurnNotice) {
+	if h.Emitter == nil || strings.TrimSpace(string(notice.Kind)) == "" {
+		return
+	}
+	h.Emitter.Emit("chat:notice", ports.ChatNoticeEvent{
+		ConversationID: h.ConversationID,
+		Kind:           string(notice.Kind),
+		Count:          notice.Count,
+	})
+}

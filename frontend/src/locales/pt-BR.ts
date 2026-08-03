@@ -3407,6 +3407,10 @@ const ptBR = {
           agentProvider: 'Resumo não gerado: o provedor do perfil é um agente externo, que administra o próprio contexto.',
         },
       },
+      chatNotice: {
+        attachmentsNotSent_one: '{{count}} anexo não foi enviado: este provedor não o recebe ou ele não pôde ser embutido no pedido. O turno seguiu só com o texto.',
+        attachmentsNotSent_other: '{{count}} anexos não foram enviados: este provedor não os recebe ou eles não puderam ser embutidos no pedido. O turno seguiu só com o texto.',
+      },
       legacyImport: {
         summary: 'Importação legada: {{imported}} importados, {{skipped}} já existentes, {{failed}} falhas, {{warnings}} avisos.',
       },

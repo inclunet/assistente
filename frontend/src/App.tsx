@@ -21,6 +21,7 @@ import type { Locale } from 'antd/es/locale';
 import { getAntdTheme } from './theme/antdTheme';
 import { waitForWailsBridge } from './lib/waitForWailsBridge';
 import { summaryErrorMessage } from './lib/summaryError';
+import { chatNoticeMessage, type ChatNoticeEvent } from './lib/chatNotice';
 import { AuthGate } from './components/auth/AuthGate';
 
 function useAntdLocale(lang: string): Locale | undefined {
@@ -215,6 +216,16 @@ function App() {
         unsubs.push(EventsOn('chat:summary_error', (data: unknown) => {
             const eventData = data as { error?: string; code?: string };
             addToast(summaryErrorMessage(t, eventData), 'error');
+        }));
+
+        // Aviso sobre o turno (ex.: anexo que o provedor não recebe). É global
+        // de propósito: o controller de streaming vive só entre o envio e o
+        // chat:done, e o aviso pode chegar antes de ele estar de pé.
+        unsubs.push(EventsOn('chat:notice', (data: unknown) => {
+            const message = chatNoticeMessage(t, data as ChatNoticeEvent);
+            if (message) {
+                addToast(message, 'warning', 10000);
+            }
         }));
 
         unsubs.push(EventsOn('legacy:import_summary', (data: unknown) => {

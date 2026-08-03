@@ -59,6 +59,32 @@ type AgentActivitySink interface {
 	OnSegmentDone()
 }
 
+// TurnNoticeKind identifica o que o aviso conta. É código, e não frase: quem
+// exibe traduz para o idioma de quem lê.
+type TurnNoticeKind string
+
+// TurnNoticeAttachmentsNotSent: o turno seguiu sem parte dos anexos, porque o
+// agente não recebe esse tipo de conteúdo ou porque o anexo não pôde ser
+// embutido no pedido (AEP-0084). Descartá-los em silêncio deixaria a pessoa
+// esperando uma resposta sobre uma imagem que o agente nunca viu.
+const TurnNoticeAttachmentsNotSent TurnNoticeKind = "attachments_not_sent"
+
+// TurnNotice é um aviso sobre o próprio turno: não é a resposta, não é falha e
+// não encerra nada.
+type TurnNotice struct {
+	Kind TurnNoticeKind
+	// Count é a quantidade a que o aviso se refere, quando ele conta coisas.
+	Count int
+}
+
+// TurnNoticeSink é o canal por onde o provider avisa a pessoa de algo que
+// aconteceu com o turno dela.
+//
+// É opcional — o provider descobre com type assertion sobre o StreamHandler.
+type TurnNoticeSink interface {
+	OnTurnNotice(notice TurnNotice)
+}
+
 // NonRetryableErrorSink recebe do provider o aviso de que o erro que vem a
 // seguir não pode ser repetido sozinho pela auto-recuperação.
 //

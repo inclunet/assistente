@@ -732,6 +732,19 @@ func (c *Conversation) MarkPrefixSent(ctx context.Context, hash string) error {
 	return nil
 }
 
+// Capabilities diz o que o agente desta conversa sabe receber — imagem, áudio,
+// contexto embutido. Vem do initialize e já está em memória: quem monta o turno
+// precisa disso antes de mandar um anexo que o agente não aceita.
+func (c *Conversation) Capabilities(ctx context.Context) (Capabilities, error) {
+	c.mu.Lock()
+	active := c.active
+	c.mu.Unlock()
+	if active == nil {
+		return Capabilities{}, errors.New("conversa sem sessão ACP")
+	}
+	return active.proc.client.Capabilities(ctx)
+}
+
 // NeedsSuffix diz se o contexto que muda ainda precisa ser contado a esta
 // sessão neste turno (AEP-0084 D4). Reenviá-lo sem ter mudado gastaria contexto
 // do agente repetindo o que ele acabou de ouvir.
