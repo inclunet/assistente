@@ -1,7 +1,10 @@
 package llm
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"assistente/internal/acp"
 )
@@ -107,6 +110,61 @@ func TestMensagemSoComAnexoRecusadoNaoViraTurnoVazio(t *testing.T) {
 	}
 	if len(sessao.turnos()) != 0 {
 		t.Errorf("o agente recebeu %+v, não devia receber nada", sessao.turnos())
+	}
+}
+
+func TestPedidoQueNemSaiuNaoAvisaSobreAnexo(t *testing.T) {
+	sessao := &agenteFalso{err: &acp.PromptError{Accepted: false, Err: errors.New("agente recusou o pedido")}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{mensagemComImagem("o que tem nesta imagem?", imagemPNG)},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if handler.erro == "" {
+		t.Fatal("a falha do turno precisa chegar à pessoa")
+	}
+	// Nada foi enviado: dizer que "o turno seguiu só com o texto" mandaria a
+	// pessoa conferir uma resposta que não existe.
+	if len(handler.avisos) != 0 {
+		t.Errorf("avisos = %+v, o pedido nem chegou ao agente", handler.avisos)
+	}
+}
+
+func TestPedidoAceitoQueFalhouDepoisAindaAvisaSobreOAnexo(t *testing.T) {
+	sessao := &agenteFalso{err: &acp.PromptError{Accepted: true, Err: errors.New("transporte caiu")}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{mensagemComImagem("o que tem nesta imagem?", imagemPNG)},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	// O agente recebeu o pedido sem a imagem: o que ele fez, fez sem vê-la.
+	if len(handler.avisos) != 1 {
+		t.Errorf("avisos = %+v, quer o do anexo que não foi", handler.avisos)
+	}
+}
+
+func TestInterrupcaoNaoVemAcompanhadaDeAvisoDeAnexo(t *testing.T) {
+	sessao := &agenteFalso{esperaCancelamento: true}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	provider.StreamChat(ctx,
+		[]Message{mensagemComImagem("o que tem nesta imagem?", imagemPNG)},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	// Quem mandou parar não precisa de um alerta sobre o turno que ela mesma
+	// interrompeu.
+	if len(handler.avisos) != 0 {
+		t.Errorf("avisos = %+v, o turno foi interrompido pela pessoa", handler.avisos)
 	}
 }
 

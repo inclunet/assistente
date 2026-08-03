@@ -72,14 +72,6 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 		return
 	}
 	content = append(instructions.blocks(), content...)
-	if notSent > 0 {
-		// O turno segue com o texto, mas quem mandou a imagem precisa saber que
-		// o agente não a viu — senão fica esperando resposta sobre ela.
-		logging.Warnf(ctx, acpProviderComponent, "[ACP] %d anexo(s) ficaram de fora do turno", notSent)
-		if sink, ok := handler.(TurnNoticeSink); ok {
-			sink.OnTurnNotice(TurnNotice{Kind: TurnNoticeAttachmentsNotSent, Count: notSent})
-		}
-	}
 
 	// O canal de atividade é opcional: sem ele o turno ainda entrega texto e
 	// raciocínio, só não conta as ferramentas do agente nem fecha segmentos.
@@ -103,8 +95,20 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 		turn.cancelPendingTools()
 		return
 	}
+
+	accepted := err == nil || turnAccepted(err)
+	if notSent > 0 && accepted {
+		// O aviso só vale depois de o pedido chegar ao agente: sem aceite nada
+		// foi enviado, e dizer que "o turno seguiu só com o texto" mandaria a
+		// pessoa conferir uma resposta que não existe. Com aceite, ela precisa
+		// saber que o agente não viu o anexo — senão espera resposta sobre ele.
+		logging.Warnf(ctx, acpProviderComponent, "[ACP] %d anexo(s) ficaram de fora do turno", notSent)
+		if sink, ok := handler.(TurnNoticeSink); ok {
+			sink.OnTurnNotice(TurnNotice{Kind: TurnNoticeAttachmentsNotSent, Count: notSent})
+		}
+	}
+
 	if err != nil {
-		accepted := turnAccepted(err)
 		if accepted {
 			// A auto-recuperação reinvoca StreamChat sozinha depois de um erro
 			// de transporte. Para um provider HTTP isso é inofensivo; aqui
