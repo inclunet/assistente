@@ -164,9 +164,11 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		// uma decisão que não chega a lugar nenhum. Quem está lendo precisa
 		// saber disso — ainda mais quem lê por leitor de telas, que teria de
 		// percorrer o diálogo inteiro para descobrir que ele não vale mais.
-		if ctx.Err() != nil {
-			m.emitClosed(req.ID, closedReason(ctx.Err()))
-			return Response{}, fmt.Errorf("solicitação cancelada")
+		if err := ctx.Err(); err != nil {
+			m.emitClosed(req.ID, closedReason(err))
+			// O erro leva a causa do contexto: quem chamou (e o log) precisa
+			// distinguir desistência de prazo tanto quanto a tela.
+			return Response{}, fmt.Errorf("solicitação encerrada sem resposta: %w", err)
 		}
 		m.emitClosed(req.ID, ClosedTimeout)
 		return Response{}, fmt.Errorf("timeout aguardando respostas do usuário (%s)", timeout)

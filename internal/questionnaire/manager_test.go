@@ -2,6 +2,7 @@ package questionnaire
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -240,10 +241,11 @@ func TestQuemDesistiuDaPerguntaTiraODialogoDaTela(t *testing.T) {
 		cancel()
 	}()
 
-	if _, err := mgr.RequestQuestionnaire(ctx, RequestPayload{
+	_, err := mgr.RequestQuestionnaire(ctx, RequestPayload{
 		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
-	}); err == nil {
-		t.Fatal("esperava erro de cancelamento")
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("erro = %v, quer o cancelamento do contexto", err)
 	}
 
 	if _, reason := fechamento.esperar(t); reason != ClosedCancelled {
@@ -261,10 +263,11 @@ func TestPrazoDeQuemPerguntouNaoViraDesistencia(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 
-	if _, err := mgr.RequestQuestionnaire(ctx, RequestPayload{
+	_, err := mgr.RequestQuestionnaire(ctx, RequestPayload{
 		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
-	}); err == nil {
-		t.Fatal("esperava erro")
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("erro = %v, quer o prazo do contexto para quem chamou saber a causa", err)
 	}
 
 	if _, reason := fechamento.esperar(t); reason != ClosedTimeout {
