@@ -186,20 +186,11 @@ func (h *acpRequestHandler) notifyDenied(owner acp.TurnOwner, kind, action strin
 	emitter.Emit("chat:notice", ports.ChatNoticeEvent{
 		ConversationID: owner.ConversationID,
 		Kind:           kind,
-		Action:         permissionActionCode(action),
+		// A classe passa pelo conjunto do protocolo: o que o agente inventar
+		// vira "other", que quem exibe traduz na frase genérica. Sem isso,
+		// texto do agente entraria no meio do aviso.
+		Action: acp.ToolKind(action),
 	})
-}
-
-// permissionActionCode devolve a classe da ação em forma de código, que quem
-// exibe traduz. Classe que o app não conhece fica de fora: um código cru na
-// tela não diz nada a ninguém, e a frase genérica já diz o que houve.
-func permissionActionCode(kind string) string {
-	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other":
-		return strings.ToLower(strings.TrimSpace(kind))
-	default:
-		return ""
-	}
 }
 
 // permissionLogSummary descreve o pedido para o log sem levar junto o que o

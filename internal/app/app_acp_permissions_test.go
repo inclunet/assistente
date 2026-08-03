@@ -330,8 +330,8 @@ func TestClasseDeAcaoDesconhecidaNaoViraCodigoCruNaTela(t *testing.T) {
 
 	h.RequestPermission(context.Background(), pedido)
 
-	if aviso := avisoNaConversa(t, avisos); aviso.Action != "" {
-		t.Errorf("ação = %q, quer vazio: o aviso genérico já diz o que houve", aviso.Action)
+	if aviso := avisoNaConversa(t, avisos); aviso.Action != acp.ToolKindOther {
+		t.Errorf("ação = %q, quer %q: o que o agente inventa não vai para a frase", aviso.Action, acp.ToolKindOther)
 	}
 }
 

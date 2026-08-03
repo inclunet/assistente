@@ -5,6 +5,8 @@ import (
 	"math/rand"
 	"strings"
 	"time"
+
+	"assistente/internal/acp"
 )
 
 // MCPToolEvent descreve uma chamada MCP nativa executada server-side pelo LLM provider.
@@ -28,8 +30,9 @@ const (
 	AgentToolCancelled = "cancelled"
 )
 
-// AgentToolKindOther é o nome usado quando o agente não classifica a ferramenta.
-const AgentToolKindOther = "other"
+// AgentToolKindOther é o nome usado quando o agente não classifica a
+// ferramenta, ou classifica com algo fora do protocolo.
+const AgentToolKindOther = acp.ToolKindOther
 
 // AgentToolEvent descreve uma ferramenta que o agente externo executou por conta
 // própria. O app não executa nada aqui: o evento existe para a UI e o leitor de
