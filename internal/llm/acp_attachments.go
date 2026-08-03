@@ -28,12 +28,12 @@ const (
 // ficaram de fora.
 func turnContent(msg Message, acceptsImage bool) (content []acp.Content, notSent int) {
 	for _, part := range messageParts(msg) {
-		switch {
-		case part.Type == "text":
+		switch part.Type {
+		case "text":
 			if text := strings.TrimSpace(part.Text); text != "" {
 				content = append(content, acp.TextContent(text))
 			}
-		case part.Type == "image_url":
+		case "image_url":
 			data, mime, inline := inlineImage(part)
 			if !acceptsImage || !inline {
 				notSent++
