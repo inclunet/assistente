@@ -245,6 +245,59 @@ func TestOpcoesComOMesmoNomeNaoViramAMesmaEscolha(t *testing.T) {
 	}
 }
 
+func TestOIdentificadorVoltaAoAgenteComoEleOMandou(t *testing.T) {
+	// O transporte só aceita a opção escrita como foi oferecida: um
+	// identificador aparado aqui não bateria com nenhuma, e a escolha da
+	// pessoa cairia na recusa.
+	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+
+	pedido := pedidoDeExecucao()
+	pedido.Options = []acp.PermissionOption{{ID: " allow-once ", Name: "Permitir uma vez", Kind: "allow_once"}}
+
+	if out := h.RequestPermission(context.Background(), pedido); out.OptionID != " allow-once " {
+		t.Errorf("decisão = %q, quer o identificador como o agente o mandou", out.OptionID)
+	}
+}
+
+func TestIdentificadorQueDesempataRotuloTambemEhSaneado(t *testing.T) {
+	var oferecidas []string
+	tela := novaTelaFalsa(func(opcoes []string) string {
+		oferecidas = opcoes
+		return opcoes[1]
+	})
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+
+	pedido := pedidoDeExecucao()
+	pedido.Options = []acp.PermissionOption{
+		{ID: "allow-once", Name: "Permitir", Kind: "allow_once"},
+		{ID: "\x1b[31mallow-always", Name: "Permitir", Kind: "allow_always"},
+	}
+
+	out := h.RequestPermission(context.Background(), pedido)
+
+	for _, rotulo := range oferecidas {
+		if strings.Contains(rotulo, "\x1b") {
+			t.Errorf("opção na tela = %q, quer o identificador saneado", rotulo)
+		}
+	}
+	if out.OptionID != "\x1b[31mallow-always" {
+		t.Errorf("decisão = %q, quer o identificador cru de volta ao agente", out.OptionID)
+	}
+}
+
+func TestOBotaoDeConfirmarDizOQueEleFaz(t *testing.T) {
+	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	pergunta := tela.ultimaPergunta(t)
+	if rotulo, _ := pergunta["submitLabel"].(string); rotulo == "" {
+		t.Error("o diálogo foi para a tela com o botão genérico de enviar")
+	}
+}
+
 func TestOpcaoSemNomeGanhaORotuloDaClasse(t *testing.T) {
 	var oferecidas []string
 	tela := novaTelaFalsa(func(opcoes []string) string {

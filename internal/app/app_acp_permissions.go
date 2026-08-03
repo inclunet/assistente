@@ -73,6 +73,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		Title:       "O agente pede permissão",
 		Description: permissionDescription(action, req.ToolCall.Kind),
 		AllowCancel: true,
+		SubmitLabel: "Confirmar",
 		CancelLabel: "Negar",
 		Questions: []questionnaire.Question{{
 			ID:        permissionAnswerID,
@@ -183,8 +184,7 @@ func permissionChoicesFrom(options []acp.PermissionOption) permissionChoices {
 	out := make(permissionChoices, 0, len(options))
 	seen := make(map[string]bool, len(options))
 	for _, option := range options {
-		id := strings.TrimSpace(option.ID)
-		if id == "" {
+		if strings.TrimSpace(option.ID) == "" {
 			continue
 		}
 		label := acp.SanitizeLabel(option.Name)
@@ -192,13 +192,17 @@ func permissionChoicesFrom(options []acp.PermissionOption) permissionChoices {
 			label = permissionKindLabel(option.Kind)
 		}
 		if seen[label] {
-			label = fmt.Sprintf("%s (%s)", label, id)
+			// O identificador desempata o rótulo, e por isso vira texto na
+			// tela: passa pelo mesmo saneamento do resto do que o agente
+			// manda. O que volta a ele continua sendo o identificador cru —
+			// o transporte só aceita a opção escrita como foi oferecida.
+			label = fmt.Sprintf("%s (%s)", label, acp.SanitizeLabel(option.ID))
 		}
 		if seen[label] {
 			continue
 		}
 		seen[label] = true
-		out = append(out, permissionChoice{id: id, label: label})
+		out = append(out, permissionChoice{id: option.ID, label: label})
 	}
 	return out
 }
