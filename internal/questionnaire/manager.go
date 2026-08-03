@@ -14,6 +14,26 @@ const (
 	DefaultTimeout = 20 * time.Minute
 )
 
+// Eventos que o backend emite sobre um questionário.
+const (
+	// EventQuestionnaire abre o diálogo na tela.
+	EventQuestionnaire = "tool:questionnaire"
+	// EventQuestionnaireClosed diz que a pergunta perdeu o dono: quem
+	// esperava a resposta desistiu ou o prazo estourou. Sem ele o diálogo
+	// ficaria aberto pedindo decisão sobre algo que já não existe, e a
+	// resposta só descobriria isso ao ser recusada.
+	EventQuestionnaireClosed = "tool:questionnaire:closed"
+)
+
+// Motivos pelos quais uma pergunta se encerra sem resposta.
+const (
+	// ClosedCancelled é quem perguntou tendo desistido — turno cancelado,
+	// conversa excluída, app encerrando.
+	ClosedCancelled = "cancelled"
+	// ClosedTimeout é o prazo da pergunta estourado.
+	ClosedTimeout = "timeout"
+)
+
 // Question define um item do questionário.
 type Question struct {
 	ID          string   `json:"id"`
@@ -125,7 +145,7 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 	if req.RejectReason != nil {
 		eventData["rejectReason"] = req.RejectReason
 	}
-	m.emitEvent("tool:questionnaire", eventData)
+	m.emitEvent(EventQuestionnaire, eventData)
 
 	timeout := payload.Timeout
 	if timeout <= 0 {
@@ -139,11 +159,24 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 	case resp := <-req.response:
 		return resp, nil
 	case <-timeoutCtx.Done():
+		// A pergunta acabou sem dono, mas o diálogo continua na tela pedindo
+		// uma decisão que não chega a lugar nenhum. Quem está lendo precisa
+		// saber disso — ainda mais quem lê por leitor de telas, que teria de
+		// percorrer o diálogo inteiro para descobrir que ele não vale mais.
 		if ctx.Err() != nil {
+			m.emitClosed(req.ID, ClosedCancelled)
 			return Response{}, fmt.Errorf("solicitação cancelada")
 		}
+		m.emitClosed(req.ID, ClosedTimeout)
 		return Response{}, fmt.Errorf("timeout aguardando respostas do usuário (%s)", timeout)
 	}
+}
+
+func (m *Manager) emitClosed(requestID, reason string) {
+	m.emitEvent(EventQuestionnaireClosed, map[string]any{
+		"id":     requestID,
+		"reason": reason,
+	})
 }
 
 // Respond envia a resposta do usuário para um questionário pendente.
