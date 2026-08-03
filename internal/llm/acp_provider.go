@@ -1,4 +1,4 @@
-package llm
+﻿package llm
 
 import (
 	"context"
@@ -344,7 +344,7 @@ func (t *acpTurn) toolActivity(call *acp.ToolCall) {
 		state.kind = AgentToolKindOther
 	}
 	if strings.TrimSpace(call.Title) != "" {
-		state.title = sanitizeAgentLabel(call.Title)
+		state.title = acp.SanitizeLabel(call.Title)
 	}
 
 	// O bloco de texto que veio antes desta atividade está encerrado: vira

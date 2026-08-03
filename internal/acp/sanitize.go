@@ -1,4 +1,4 @@
-package llm
+package acp
 
 import (
 	"regexp"
@@ -32,12 +32,12 @@ const agentLabelInputBudget = 8 << 10
 // da sequência ("[31m") como se fosse texto.
 var ansiEscape = regexp.MustCompile("\x1b(?:\\[[0-9;?]*[ -/]*[@-~]|\\][^\x07\x1b]*(?:\x07|\x1b\\\\)?|[@-Z\\\\-_])")
 
-// sanitizeAgentLabel prepara um texto do agente para virar rótulo de UI ou
+// SanitizeLabel prepara um texto do agente para virar rótulo de UI ou
 // anúncio: sem escapes de terminal, sem caracteres de controle, sem marcas
 // invisíveis de formatação — inclusive as de inversão de direção, que deixam
 // um texto ser lido diferente do que ele é —, em linha única e com tamanho
 // limitado.
-func sanitizeAgentLabel(s string) string {
+func SanitizeLabel(s string) string {
 	s = ansiEscape.ReplaceAllString(withinBudget(s), "")
 
 	// A saída tem tamanho conhecido, e uma runa além do limite já basta para

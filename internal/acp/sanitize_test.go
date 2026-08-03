@@ -1,4 +1,4 @@
-package llm
+﻿package acp
 
 import (
 	"strings"
@@ -52,8 +52,8 @@ func TestRotuloDoAgenteNaoCarregaOQueOTerminalEscreveu(t *testing.T) {
 	}
 	for _, caso := range casos {
 		t.Run(caso.nome, func(t *testing.T) {
-			if got := sanitizeAgentLabel(caso.texto); got != caso.quer {
-				t.Errorf("sanitizeAgentLabel(%q) = %q, quer %q", caso.texto, got, caso.quer)
+			if got := SanitizeLabel(caso.texto); got != caso.quer {
+				t.Errorf("SanitizeLabel(%q) = %q, quer %q", caso.texto, got, caso.quer)
 			}
 		})
 	}
@@ -62,7 +62,7 @@ func TestRotuloDoAgenteNaoCarregaOQueOTerminalEscreveu(t *testing.T) {
 func TestRotuloLongoNaoViraRecitacaoNoLeitorDeTelas(t *testing.T) {
 	longo := "npm test -- " + strings.Repeat("arquivo.spec.ts ", 60)
 
-	got := sanitizeAgentLabel(longo)
+	got := SanitizeLabel(longo)
 
 	if len([]rune(got)) != agentLabelLimit+1 {
 		t.Fatalf("tamanho = %d runas, quer o limite mais a reticência", len([]rune(got)))
@@ -80,7 +80,7 @@ func TestRotuloAbsurdoNaoEVarridoInteiro(t *testing.T) {
 	// megabytes para produzir 200 runas seria trabalho gasto à toa.
 	enorme := "início do comando " + strings.Repeat("x", 4<<20)
 
-	got := sanitizeAgentLabel(enorme)
+	got := SanitizeLabel(enorme)
 
 	if len([]rune(got)) != agentLabelLimit+1 {
 		t.Fatalf("tamanho = %d runas, quer o limite mais a reticência", len([]rune(got)))
@@ -102,7 +102,7 @@ func TestEscapeCortadoAoMeioNaoVazaComoTexto(t *testing.T) {
 	}
 	cortadoAoMeio := enchimento + "\x1b[31" + strings.Repeat("m vermelho", 100)
 
-	got := sanitizeAgentLabel(cortadoAoMeio)
+	got := SanitizeLabel(cortadoAoMeio)
 
 	if got != "" {
 		t.Errorf("rótulo = %q, o resto do escape vazou", got)
@@ -114,7 +114,7 @@ func TestCaractereMultibyteNaoEPartidoAoMeioNoCorteDeEntrada(t *testing.T) {
 	// viraria lixo na tela.
 	enorme := strings.Repeat("ç", agentLabelInputBudget)
 
-	got := sanitizeAgentLabel(enorme)
+	got := SanitizeLabel(enorme)
 
 	if !utf8.ValidString(got) {
 		t.Fatalf("rótulo saneado não é UTF-8 válido: %q", got)
