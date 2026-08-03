@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"assistente/internal/acp"
+	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/questionnaire"
@@ -21,6 +22,7 @@ func (a *App) initACP() {
 	// turno.
 	handler := &acpRequestHandler{
 		questions: func() *questionnaire.Manager { return a.questionnaireMgr },
+		notices:   func() ports.Emitter { return a.emitter },
 	}
 	a.acpMgr = acp.NewManager(acp.ManagerConfig{
 		// O banco é buscado a cada uso, não guardado: resetá-lo fecha a conexão

@@ -3,10 +3,12 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"assistente/internal/acp"
+	"assistente/internal/core/ports"
 	"assistente/internal/logging"
 	"assistente/internal/questionnaire"
 )
@@ -33,6 +35,9 @@ type acpRequestHandler struct {
 	// questions é o questionário do desktop, o mesmo mecanismo acessível que
 	// shell, HTTP mutável e confirmação de edição já usam.
 	questions func() *questionnaire.Manager
+	// notices leva à conversa o aviso do que foi negado sem decisão de
+	// ninguém.
+	notices func() ports.Emitter
 }
 
 var _ acp.RequestHandler = (*acpRequestHandler)(nil)
@@ -59,6 +64,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		logging.Infof(ctx, acpPermissionComponent,
 			"[ACP] permissão negada na hora, sem ninguém a quem perguntar (sessão %q, conversa %q): %s",
 			req.SessionID, owner.ConversationID, registro)
+		h.notifyDenied(owner, ports.ChatNoticeKindPermissionNoWatcher, req.ToolCall.Kind)
 		return acp.PermissionOutcome{}
 	}
 
@@ -67,12 +73,14 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		// Pedido sem opção nenhuma: não há o que oferecer à pessoa, e inventar
 		// uma resposta seria decidir por ela.
 		logging.Warnf(ctx, acpPermissionComponent, "[ACP] pedido de permissão sem opções: %s", registro)
+		h.notifyDenied(owner, ports.ChatNoticeKindPermissionUnavailable, req.ToolCall.Kind)
 		return acp.PermissionOutcome{}
 	}
 
 	manager := h.questionnaireManager()
 	if manager == nil {
 		logging.Warnf(ctx, acpPermissionComponent, "[ACP] permissão negada: o questionário não está disponível")
+		h.notifyDenied(owner, ports.ChatNoticeKindPermissionUnavailable, req.ToolCall.Kind)
 		return acp.PermissionOutcome{}
 	}
 
@@ -111,6 +119,12 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		// mesma coisa para o agente: ninguém autorizou.
 		logging.Infof(ctx, acpPermissionComponent,
 			"[ACP] permissão sem resposta na conversa %q (%s): %v", owner.ConversationID, registro, err)
+		// Turno cancelado não vira aviso: foi a própria pessoa que desistiu, e
+		// o diálogo já saiu da tela dizendo isso. Avisar de novo seria cobrar
+		// explicação de quem acabou de dar uma.
+		if !turnCancelled(ctx, err) {
+			h.notifyDenied(owner, ports.ChatNoticeKindPermissionTimeout, req.ToolCall.Kind)
+		}
 		return acp.PermissionOutcome{}
 	}
 	if resp.Cancelled {
@@ -151,6 +165,46 @@ func (h *acpRequestHandler) questionnaireManager() *questionnaire.Manager {
 		return nil
 	}
 	return h.questions()
+}
+
+// turnCancelled diz se o pedido acabou porque o turno foi abortado, e não
+// porque o tempo acabou. Olha o contexto do turno além do erro: o erro é a
+// via normal, mas depender só dele amarraria esta decisão ao jeito como o
+// questionário embrulha a causa — e um dia em que ela se perder no caminho, a
+// pessoa que cancelou receberia um "ninguém respondeu a tempo".
+//
+// Prazo do turno estourado não é cancelamento: o teto que o transporte impõe
+// ao handler existe justamente como limite de espera por uma resposta, e ao
+// estourar vale o mesmo desfecho do prazo da pergunta (AEP-0084 D9). Para quem
+// lê, ninguém respondeu a tempo — que é o que o aviso diz.
+func turnCancelled(ctx context.Context, err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
+}
+
+// notifyDenied conta à conversa que uma ação foi negada sem que ninguém
+// decidisse. O agente costuma seguir o turno dizendo apenas que não conseguiu;
+// sem este aviso, a pessoa fica sem saber que houve um pedido, muito menos por
+// que ele não chegou até ela.
+//
+// Vai só a classe da ação, nunca o texto do agente: o aviso pode aparecer numa
+// conversa que ninguém está olhando agora, e a linha de comando literal
+// costuma carregar segredo.
+func (h *acpRequestHandler) notifyDenied(owner acp.TurnOwner, kind, action string) {
+	if h == nil || h.notices == nil || strings.TrimSpace(owner.ConversationID) == "" {
+		return
+	}
+	emitter := h.notices()
+	if emitter == nil {
+		return
+	}
+	emitter.Emit("chat:notice", ports.ChatNoticeEvent{
+		ConversationID: owner.ConversationID,
+		Kind:           kind,
+		// A classe passa pelo conjunto do protocolo: o que o agente inventar
+		// vira "other", que quem exibe traduz na frase genérica. Sem isso,
+		// texto do agente entraria no meio do aviso.
+		Action: acp.ToolKind(action),
+	})
 }
 
 // permissionLogSummary descreve o pedido para o log sem levar junto o que o

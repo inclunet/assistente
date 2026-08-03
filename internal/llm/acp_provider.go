@@ -451,29 +451,10 @@ func (t *acpTurn) cancelPendingTools() {
 	}
 }
 
-// agentToolKinds é o conjunto de classes do protocolo. O kind vira o nome
-// exibido e anunciado da ferramenta, então aceitar qualquer string deixaria o
-// agente escrever direto no anúncio do leitor de telas; o que não for do
-// conjunto conhecido cai em "other" (AEP-0084 D7 e D11).
-var agentToolKinds = map[string]struct{}{
-	"read":        {},
-	"edit":        {},
-	"delete":      {},
-	"move":        {},
-	"search":      {},
-	"execute":     {},
-	"think":       {},
-	"fetch":       {},
-	"switch_mode": {},
-	"other":       {},
-}
-
+// agentToolKind normaliza a classe da ferramenta pelo conjunto do protocolo,
+// que mora junto dele (AEP-0084 D7 e D11).
 func agentToolKind(kind string) string {
-	normalized := strings.ToLower(strings.TrimSpace(kind))
-	if _, known := agentToolKinds[normalized]; known {
-		return normalized
-	}
-	return AgentToolKindOther
+	return acp.ToolKind(kind)
 }
 
 // agentToolStatus traduz o ciclo de vida do protocolo. Pendente e em andamento

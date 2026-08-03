@@ -3410,6 +3410,22 @@ const ptBR = {
       chatNotice: {
         attachmentsNotSent_one: '{{count}} anexo não foi enviado: este provedor não o recebe ou ele não pôde ser embutido no pedido. O turno seguiu só com o texto.',
         attachmentsNotSent_other: '{{count}} anexos não foram enviados: este provedor não os recebe ou eles não puderam ser embutidos no pedido. O turno seguiu só com o texto.',
+        permissionNoWatcher: 'O agente pediu permissão para {{action}} nesta conversa, mas não havia ninguém para responder. A ação foi negada.',
+        permissionTimeout: 'O agente pediu permissão para {{action}} e ninguém respondeu a tempo. A ação foi negada.',
+        permissionUnavailable: 'O agente pediu permissão para {{action}}, mas o app não conseguiu apresentar o pedido. A ação foi negada.',
+        action: {
+          read: 'ler um arquivo',
+          edit: 'editar um arquivo',
+          delete: 'apagar um arquivo',
+          move: 'mover um arquivo',
+          search: 'fazer uma busca',
+          execute: 'executar um comando',
+          think: 'pensar',
+          fetch: 'buscar algo na rede',
+          switchMode: 'mudar de modo',
+          other: 'agir na sua máquina',
+          unknown: 'agir na sua máquina',
+        },
       },
       legacyImport: {
         summary: 'Importação legada: {{imported}} importados, {{skipped}} já existentes, {{failed}} falhas, {{warnings}} avisos.',

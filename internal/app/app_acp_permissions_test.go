@@ -2,12 +2,14 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"assistente/internal/acp"
+	"assistente/internal/core/ports"
 	"assistente/internal/questionnaire"
 )
 
@@ -166,6 +168,28 @@ func handlerCom(tela *telaFalsa, owner acp.TurnOwner, temTurno bool) *acpRequest
 	return h
 }
 
+// escutandoAvisos liga o handler à conversa para ler o que ela recebe.
+func escutandoAvisos(h *acpRequestHandler) *testEmitter {
+	emitter := &testEmitter{}
+	h.notices = func() ports.Emitter { return emitter }
+	return emitter
+}
+
+// avisoNaConversa devolve o único aviso recebido, falhando se houver outro
+// número deles.
+func avisoNaConversa(tb testing.TB, emitter *testEmitter) ports.ChatNoticeEvent {
+	tb.Helper()
+	eventos := emitter.find("chat:notice")
+	if len(eventos) != 1 {
+		tb.Fatalf("avisos na conversa = %d, quer 1", len(eventos))
+	}
+	aviso, ok := eventos[0].data.(ports.ChatNoticeEvent)
+	if !ok {
+		tb.Fatalf("aviso veio como %T, quer ports.ChatNoticeEvent", eventos[0].data)
+	}
+	return aviso
+}
+
 func pedidoDeExecucao() acp.PermissionRequest {
 	return acp.PermissionRequest{
 		SessionID: "sessao-1",
@@ -255,6 +279,153 @@ func TestTurnoSemNinguemNaTelaNegaNaHoraSemPerguntar(t *testing.T) {
 	}
 	if tela.quantasPerguntas() != 0 {
 		t.Error("abriu diálogo para um turno que ninguém está vendo")
+	}
+}
+
+func TestConversaSemTelaFicaSabendoDoQueFoiNegado(t *testing.T) {
+	// Job agendado, canal, subagente: o agente segue o turno dizendo apenas
+	// que não conseguiu. Sem este aviso ninguém saberia que houve um pedido,
+	// muito menos por que ele não chegou a ninguém.
+	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1"}, true)
+	avisos := escutandoAvisos(h)
+
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	aviso := avisoNaConversa(t, avisos)
+	if aviso.ConversationID != "conversa-1" {
+		t.Errorf("aviso foi para %q, quer a conversa dona do turno", aviso.ConversationID)
+	}
+	if aviso.Kind != ports.ChatNoticeKindPermissionNoWatcher {
+		t.Errorf("motivo = %q, quer %q", aviso.Kind, ports.ChatNoticeKindPermissionNoWatcher)
+	}
+	if aviso.Action != "execute" {
+		t.Errorf("ação = %q, quer a classe do que foi negado", aviso.Action)
+	}
+}
+
+func TestAvisoNaoLevaOComandoDoAgenteParaAConversa(t *testing.T) {
+	// O aviso pode parar numa conversa que ninguém está olhando agora, e linha
+	// de comando carrega segredo em flag e em variável de ambiente. A classe
+	// da ação diz o que houve sem guardar o que o agente escreveu.
+	h := handlerCom(nil, acp.TurnOwner{ConversationID: "conversa-1"}, true)
+	avisos := escutandoAvisos(h)
+
+	pedido := pedidoDeExecucao()
+	pedido.ToolCall.Title = "deploy --token=segredo-do-cliente"
+
+	h.RequestPermission(context.Background(), pedido)
+
+	aviso := avisoNaConversa(t, avisos)
+	if strings.Contains(aviso.Action, "segredo") || strings.Contains(aviso.Kind, "segredo") {
+		t.Errorf("o aviso levou o comando do agente: %+v", aviso)
+	}
+}
+
+func TestClasseDeAcaoDesconhecidaNaoViraCodigoCruNaTela(t *testing.T) {
+	h := handlerCom(nil, acp.TurnOwner{ConversationID: "conversa-1"}, true)
+	avisos := escutandoAvisos(h)
+
+	pedido := pedidoDeExecucao()
+	pedido.ToolCall.Kind = "invocar_o_kraken"
+
+	h.RequestPermission(context.Background(), pedido)
+
+	if aviso := avisoNaConversa(t, avisos); aviso.Action != acp.ToolKindOther {
+		t.Errorf("ação = %q, quer %q: o que o agente inventa não vai para a frase", aviso.Action, acp.ToolKindOther)
+	}
+}
+
+func TestPrazoEstouradoAvisaAConversa(t *testing.T) {
+	mudo := questionnaire.NewManager(func(string, any) {})
+	h := handlerCom(nil, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	h.questions = func() *questionnaire.Manager { return mudo }
+	avisos := escutandoAvisos(h)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	h.RequestPermission(ctx, pedidoDeExecucao())
+
+	if aviso := avisoNaConversa(t, avisos); aviso.Kind != ports.ChatNoticeKindPermissionTimeout {
+		t.Errorf("motivo = %q, quer %q", aviso.Kind, ports.ChatNoticeKindPermissionTimeout)
+	}
+}
+
+func TestQuemCancelouOTurnoNaoRecebeAvisoDoQueEleMesmoFez(t *testing.T) {
+	// A pessoa desistiu e o diálogo já saiu da tela dizendo isso. Um aviso
+	// aqui cobraria explicação de quem acabou de dar uma.
+	tela := novaTelaMuda()
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	avisos := escutandoAvisos(h)
+
+	ctx, cancelarTurno := context.WithCancel(context.Background())
+	pronto := make(chan acp.PermissionOutcome, 1)
+	go func() { pronto <- h.RequestPermission(ctx, pedidoDeExecucao()) }()
+
+	tela.esperarPergunta(t)
+	cancelarTurno()
+
+	select {
+	case <-pronto:
+	case <-time.After(5 * time.Second):
+		t.Fatal("o handler não voltou depois do cancelamento")
+	}
+
+	if eventos := avisos.find("chat:notice"); len(eventos) != 0 {
+		t.Errorf("avisos = %d, quer 0: quem cancelou já sabe o que houve", len(eventos))
+	}
+}
+
+func TestCancelamentoCalaOAvisoAindaQueOErroNaoDigaAcausa(t *testing.T) {
+	// A decisão não pode depender de o erro carregar a causa do contexto: se
+	// esse elo se perder, quem cancelou o turno receberia um "ninguém
+	// respondeu a tempo" logo depois de ter desistido.
+	ctx, cancelar := context.WithCancel(context.Background())
+	cancelar()
+
+	if !turnCancelled(ctx, errors.New("solicitação encerrada sem resposta")) {
+		t.Error("o cancelamento do turno passou despercebido")
+	}
+	if turnCancelled(context.Background(), errors.New("timeout aguardando respostas do usuário")) {
+		t.Error("prazo estourado virou cancelamento: o aviso não sairia")
+	}
+}
+
+func TestDecisaoDaPessoaNaoViraAviso(t *testing.T) {
+	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[len(opcoes)-1] })
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	avisos := escutandoAvisos(h)
+
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	if eventos := avisos.find("chat:notice"); len(eventos) != 0 {
+		t.Errorf("avisos = %d, quer 0: negar por escolha é decisão, não surpresa", len(eventos))
+	}
+}
+
+func TestPedidoQueOAppNaoConsegueMostrarTambemEhAvisado(t *testing.T) {
+	h := handlerCom(nil, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	avisos := escutandoAvisos(h)
+
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	if aviso := avisoNaConversa(t, avisos); aviso.Kind != ports.ChatNoticeKindPermissionUnavailable {
+		t.Errorf("motivo = %q, quer %q", aviso.Kind, ports.ChatNoticeKindPermissionUnavailable)
+	}
+}
+
+func TestPedidoSemDonoNaoAvisaConversaNenhuma(t *testing.T) {
+	// Sem turno não há conversa a quem contar; avisar "alguma conversa" seria
+	// pior do que o silêncio, porque a pessoa procuraria o pedido onde ele não
+	// aconteceu.
+	h := handlerCom(nil, acp.TurnOwner{}, false)
+	avisos := escutandoAvisos(h)
+
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	if eventos := avisos.find("chat:notice"); len(eventos) != 0 {
+		t.Errorf("avisos = %d, quer 0", len(eventos))
 	}
 }
 

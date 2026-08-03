@@ -3409,6 +3409,22 @@ const en = {
       chatNotice: {
         attachmentsNotSent_one: '{{count}} attachment was not sent: this provider does not accept it, or it could not be embedded in the request. The turn went through with the text only.',
         attachmentsNotSent_other: '{{count}} attachments were not sent: this provider does not accept them, or they could not be embedded in the request. The turn went through with the text only.',
+        permissionNoWatcher: 'The agent asked permission to {{action}} in this conversation, but there was no one to answer. The action was denied.',
+        permissionTimeout: 'The agent asked permission to {{action}} and no one answered in time. The action was denied.',
+        permissionUnavailable: 'The agent asked permission to {{action}}, but the app could not present the request. The action was denied.',
+        action: {
+          read: 'read a file',
+          edit: 'edit a file',
+          delete: 'delete a file',
+          move: 'move a file',
+          search: 'run a search',
+          execute: 'run a command',
+          think: 'think',
+          fetch: 'fetch something from the network',
+          switchMode: 'switch mode',
+          other: 'act on your machine',
+          unknown: 'act on your machine',
+        },
       },
       legacyImport: {
         summary: 'Legacy import: {{imported}} imported, {{skipped}} already present, {{failed}} failures, {{warnings}} warnings.',

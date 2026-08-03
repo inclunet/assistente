@@ -233,6 +233,21 @@ type ContextWarningEvent struct {
 // esperar uma resposta sobre uma imagem que o modelo nunca viu.
 const ChatNoticeKindAttachmentsNotSent = "attachments_not_sent"
 
+// Permissão que o agente pediu e o app negou sem que ninguém decidisse
+// (AEP-0084 D9). Negar é melhor do que pendurar o turno, mas negar em silêncio
+// deixa a pessoa diante de um agente que desiste sem explicar por quê.
+const (
+	// ChatNoticeKindPermissionNoWatcher é o turno sem tela onde perguntar —
+	// canal, job agendado, subagente, CLI não interativa.
+	ChatNoticeKindPermissionNoWatcher = "permission_denied_no_watcher"
+	// ChatNoticeKindPermissionTimeout é a pergunta que foi feita e ficou sem
+	// resposta dentro do prazo.
+	ChatNoticeKindPermissionTimeout = "permission_denied_timeout"
+	// ChatNoticeKindPermissionUnavailable é o pedido que o app não conseguiu
+	// apresentar: sem o questionário no ar, ou sem opção nenhuma para oferecer.
+	ChatNoticeKindPermissionUnavailable = "permission_denied_unavailable"
+)
+
 // ChatNoticeEvent is the payload for chat:notice — um aviso sobre o turno que
 // não é a resposta, não é falha e não encerra nada.
 //
@@ -242,6 +257,10 @@ type ChatNoticeEvent struct {
 	ConversationID string `json:"conversationId"`
 	Kind           string `json:"kind"`
 	Count          int    `json:"count,omitempty"`
+	// Action é a classe da ação envolvida (`read`, `edit`, `execute`…), quando
+	// o aviso é sobre uma. Vai como código pelo mesmo motivo do Kind, e nunca
+	// leva o texto que o agente escreveu.
+	Action string `json:"action,omitempty"`
 }
 
 // SummaryStartedEvent is the payload for chat:summary_started.

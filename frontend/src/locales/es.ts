@@ -3408,6 +3408,22 @@ const es = {
       chatNotice: {
         attachmentsNotSent_one: '{{count}} adjunto no fue enviado: este proveedor no lo recibe o no se pudo incrustar en la solicitud. El turno siguió solo con el texto.',
         attachmentsNotSent_other: '{{count}} adjuntos no fueron enviados: este proveedor no los recibe o no se pudieron incrustar en la solicitud. El turno siguió solo con el texto.',
+        permissionNoWatcher: 'El agente pidió permiso para {{action}} en esta conversación, pero no había nadie para responder. La acción fue denegada.',
+        permissionTimeout: 'El agente pidió permiso para {{action}} y nadie respondió a tiempo. La acción fue denegada.',
+        permissionUnavailable: 'El agente pidió permiso para {{action}}, pero la app no pudo presentar la solicitud. La acción fue denegada.',
+        action: {
+          read: 'leer un archivo',
+          edit: 'editar un archivo',
+          delete: 'borrar un archivo',
+          move: 'mover un archivo',
+          search: 'hacer una búsqueda',
+          execute: 'ejecutar un comando',
+          think: 'pensar',
+          fetch: 'buscar algo en la red',
+          switchMode: 'cambiar de modo',
+          other: 'actuar en tu máquina',
+          unknown: 'actuar en tu máquina',
+        },
       },
       legacyImport: {
         summary: 'Importación legada: {{imported}} importados, {{skipped}} ya existentes, {{failed}} fallas, {{warnings}} avisos.',
