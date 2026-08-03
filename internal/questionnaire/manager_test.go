@@ -2,6 +2,8 @@ package questionnaire
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -157,6 +159,150 @@ func TestRequestQuestionnaire_CustomTimeout(t *testing.T) {
 	}
 	if elapsed > 2*time.Second {
 		t.Fatalf("custom timeout not respected: elapsed %v", elapsed)
+	}
+}
+
+// eventoDeFechamento espera o aviso de que a pergunta perdeu o dono.
+type eventoDeFechamento struct {
+	mu     sync.Mutex
+	id     string
+	reason string
+	visto  chan struct{}
+}
+
+func novoEventoDeFechamento() *eventoDeFechamento {
+	return &eventoDeFechamento{visto: make(chan struct{}, 1)}
+}
+
+func (e *eventoDeFechamento) registrar(event string, data any) {
+	if event != EventQuestionnaireClosed {
+		return
+	}
+	payload, _ := data.(map[string]any)
+	e.mu.Lock()
+	e.id, _ = payload["id"].(string)
+	e.reason, _ = payload["reason"].(string)
+	e.mu.Unlock()
+	select {
+	case e.visto <- struct{}{}:
+	default:
+	}
+}
+
+func (e *eventoDeFechamento) esperar(t *testing.T) (id, reason string) {
+	t.Helper()
+	select {
+	case <-e.visto:
+	case <-time.After(2 * time.Second):
+		t.Fatal("o diálogo não foi avisado de que a pergunta acabou")
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.id, e.reason
+}
+
+func TestPerguntaComPrazoEstouradoFechaODialogo(t *testing.T) {
+	fechamento := novoEventoDeFechamento()
+	var aberto string
+	mgr := NewManager(func(event string, data any) {
+		if event == EventQuestionnaire {
+			payload, _ := data.(map[string]any)
+			aberto, _ = payload["id"].(string)
+		}
+		fechamento.registrar(event, data)
+	})
+
+	_, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+		Timeout:   50 * time.Millisecond,
+	})
+	if err == nil {
+		t.Fatal("esperava erro de prazo")
+	}
+
+	id, reason := fechamento.esperar(t)
+	if id != aberto {
+		t.Errorf("fechou o diálogo %q, quer o %q que estava aberto", id, aberto)
+	}
+	if reason != ClosedTimeout {
+		t.Errorf("motivo = %q, quer %q", reason, ClosedTimeout)
+	}
+}
+
+func TestQuemDesistiuDaPerguntaTiraODialogoDaTela(t *testing.T) {
+	// O turno foi cancelado enquanto a pessoa lia o diálogo: pedir decisão
+	// sobre um turno abortado é ruído, e a resposta não iria a lugar nenhum.
+	fechamento := novoEventoDeFechamento()
+	mgr := NewManager(fechamento.registrar)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+
+	_, err := mgr.RequestQuestionnaire(ctx, RequestPayload{
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("erro = %v, quer o cancelamento do contexto", err)
+	}
+
+	if _, reason := fechamento.esperar(t); reason != ClosedCancelled {
+		t.Errorf("motivo = %q, quer %q", reason, ClosedCancelled)
+	}
+}
+
+func TestPrazoDeQuemPerguntouNaoViraDesistencia(t *testing.T) {
+	// O teto de quem pergunta (o transporte do agente tem o seu) chega como
+	// prazo do contexto pai. Para quem lê é o tempo que acabou, não alguém
+	// que desistiu — e o diálogo diria a frase errada.
+	fechamento := novoEventoDeFechamento()
+	mgr := NewManager(fechamento.registrar)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	_, err := mgr.RequestQuestionnaire(ctx, RequestPayload{
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("erro = %v, quer o prazo do contexto para quem chamou saber a causa", err)
+	}
+
+	if _, reason := fechamento.esperar(t); reason != ClosedTimeout {
+		t.Errorf("motivo = %q, quer %q", reason, ClosedTimeout)
+	}
+}
+
+func TestPerguntaRespondidaNaoAvisaFechamento(t *testing.T) {
+	// O diálogo já se fechou sozinho ao ser respondido; um aviso aqui poderia
+	// derrubar o diálogo seguinte, que reusa a mesma tela.
+	fechamentos := 0
+	var mu sync.Mutex
+	var mgr *Manager
+	mgr = NewManager(func(event string, data any) {
+		if event == EventQuestionnaireClosed {
+			mu.Lock()
+			fechamentos++
+			mu.Unlock()
+			return
+		}
+		payload, _ := data.(map[string]any)
+		id, _ := payload["id"].(string)
+		go func() { _ = mgr.Respond(id, map[string]any{"q1": "ok"}, false) }()
+	})
+
+	if _, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+	}); err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if fechamentos != 0 {
+		t.Errorf("avisos de fechamento = %d, quer 0", fechamentos)
 	}
 }
 

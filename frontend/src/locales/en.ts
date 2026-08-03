@@ -3415,6 +3415,9 @@ const en = {
       },
       questionnaire: {
         submitError: 'Error submitting questionnaire',
+        closed: 'The question ended and the dialog was closed.',
+        closedCancelled: 'Whoever asked gave up; the dialog closed without an answer.',
+        closedTimeout: 'Time to answer ran out; the dialog closed without an answer.',
       },
     },
     auth: {

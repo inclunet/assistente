@@ -3416,6 +3416,9 @@ const ptBR = {
       },
       questionnaire: {
         submitError: 'Erro ao enviar questionário',
+        closed: 'A pergunta foi encerrada e o diálogo foi fechado.',
+        closedCancelled: 'Quem fez a pergunta desistiu; o diálogo foi fechado sem resposta.',
+        closedTimeout: 'O prazo para responder acabou; o diálogo foi fechado sem resposta.',
       },
     },
     auth: {
