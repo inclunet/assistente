@@ -16,6 +16,13 @@ type TurnOwner struct {
 	// perguntar seria pendurar o agente até o prazo estourar, e a regra é
 	// negar na hora.
 	Interactive bool
+
+	// ProfileSlug é o perfil que pediu o turno, quando ele foi escolhido
+	// explicitamente (canais, jobs). Vazio quer dizer o perfil ativo, e quem
+	// precisa do slug resolve isso — é o mesmo acordo do resto do app. As
+	// autorizações permanentes valem por perfil, então é por aqui que elas
+	// encontram de quem são (AEP-0084 D9).
+	ProfileSlug string
 }
 
 // BeginTurn anota que o turno desta conversa começou e devolve o encerramento.
@@ -24,7 +31,7 @@ type TurnOwner struct {
 //
 // Sem sessão montada não há o que anotar — e também não haverá pedido, porque
 // nada foi mandado ao agente.
-func (c *Conversation) BeginTurn(interactive bool) (end func()) {
+func (c *Conversation) BeginTurn(owner TurnOwner) (end func()) {
 	c.mu.Lock()
 	sessionID := ""
 	if c.active != nil {
@@ -35,10 +42,8 @@ func (c *Conversation) BeginTurn(interactive bool) (end func()) {
 	if strings.TrimSpace(sessionID) == "" {
 		return func() {}
 	}
-	token := c.manager.setTurnOwner(sessionID, TurnOwner{
-		ConversationID: c.id,
-		Interactive:    interactive,
-	})
+	owner.ConversationID = c.id
+	token := c.manager.setTurnOwner(sessionID, owner)
 	return func() { c.manager.clearTurnOwner(sessionID, token) }
 }
 

@@ -13,7 +13,7 @@ func TestOTurnoDizAQuemOAgenteDevePerguntar(t *testing.T) {
 	}
 	sessionID := conv.Session().ID()
 
-	fim := conv.BeginTurn(true)
+	fim := conv.BeginTurn(TurnOwner{Interactive: true, ProfileSlug: "agente-de-codigo"})
 
 	owner, ok := m.TurnOwnerOf(sessionID)
 	if !ok {
@@ -21,6 +21,10 @@ func TestOTurnoDizAQuemOAgenteDevePerguntar(t *testing.T) {
 	}
 	if owner.ConversationID != "conv-1" || !owner.Interactive {
 		t.Errorf("dono do turno = %+v, quer a conversa 1 com alguém esperando", owner)
+	}
+	// O perfil do turno é o que diz de quem são as autorizações permanentes.
+	if owner.ProfileSlug != "agente-de-codigo" {
+		t.Errorf("perfil do turno = %q, quer o que pediu o turno", owner.ProfileSlug)
 	}
 
 	fim()
@@ -37,7 +41,7 @@ func TestTurnoSemGenteNaTelaContinuaSendoDaConversa(t *testing.T) {
 	if err != nil {
 		t.Fatalf("conversa: %v", err)
 	}
-	defer conv.BeginTurn(false)()
+	defer conv.BeginTurn(TurnOwner{})()
 
 	owner, ok := m.TurnOwnerOf(conv.Session().ID())
 	if !ok {
@@ -62,8 +66,8 @@ func TestTurnoQueSaiNaoApagaODonoDoQueEntrou(t *testing.T) {
 
 	// Barge-in: a mensagem nova cancela o turno anterior, e por um instante os
 	// dois convivem na mesma sessão.
-	fimDoAnterior := conv.BeginTurn(false)
-	fimDoNovo := conv.BeginTurn(true)
+	fimDoAnterior := conv.BeginTurn(TurnOwner{})
+	fimDoNovo := conv.BeginTurn(TurnOwner{Interactive: true})
 	defer fimDoNovo()
 
 	fimDoAnterior()
