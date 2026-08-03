@@ -172,6 +172,11 @@ func (h *acpRequestHandler) questionnaireManager() *questionnaire.Manager {
 // via normal, mas depender só dele amarraria esta decisão ao jeito como o
 // questionário embrulha a causa — e um dia em que ela se perder no caminho, a
 // pessoa que cancelou receberia um "ninguém respondeu a tempo".
+//
+// Prazo do turno estourado não é cancelamento: o teto que o transporte impõe
+// ao handler existe justamente como limite de espera por uma resposta, e ao
+// estourar vale o mesmo desfecho do prazo da pergunta (AEP-0084 D9). Para quem
+// lê, ninguém respondeu a tempo — que é o que o aviso diz.
 func turnCancelled(ctx context.Context, err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
 }
