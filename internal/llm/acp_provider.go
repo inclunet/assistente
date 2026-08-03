@@ -55,16 +55,23 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 			"[ACP] turno do agente chegou com %d ferramentas do app; ignoradas (AEP-0084 D7)", len(tools))
 	}
 
-	session, err := p.session(ctx, params)
+	conv, err := p.conversation(ctx, params)
 	if err != nil {
 		handler.OnError(err.Error())
 		return
 	}
+	session := conv.Session()
+	if session == nil {
+		handler.OnError("agente sem sessão para esta conversa")
+		return
+	}
+	instructions := profileInstructions(messages, conv)
 	content, err := p.promptContent(ctx, messages)
 	if err != nil {
 		handler.OnError(err.Error())
 		return
 	}
+	content = append(instructions.blocks(), content...)
 
 	// O canal de atividade é opcional: sem ele o turno ainda entrega texto e
 	// raciocínio, só não conta as ferramentas do agente nem fecha segmentos.
@@ -75,6 +82,11 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	// sem sincronização adicional.
 	stop, err := session.Prompt(ctx, content, turn.update)
 	turn.finishThinking()
+	if err == nil {
+		// O agente ouviu o que foi mandado, mesmo que a pessoa interrompa em
+		// seguida: o que já foi dito não precisa ser repetido no próximo turno.
+		instructions.markSent(ctx, conv)
+	}
 
 	if ctx.Err() != nil {
 		// Quem pediu para parar já é dono do desfecho: o laço de streaming
@@ -113,8 +125,9 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	handler.OnDone(response, Usage{}, resolveModel(p.provider, params.Model))
 }
 
-// session empresta do serviço a sessão que o agente mantém para esta conversa.
-func (p *ACPChatProvider) session(ctx context.Context, params ChatParams) (acp.Session, error) {
+// conversation empresta do serviço a conversa que o agente mantém, com a sessão
+// dela e a memória do que o app já contou a essa sessão.
+func (p *ACPChatProvider) conversation(ctx context.Context, params ChatParams) (*acp.Conversation, error) {
 	if p.provider == nil {
 		return nil, errors.New("provedor de agente sem configuração")
 	}
@@ -138,11 +151,7 @@ func (p *ACPChatProvider) session(ctx context.Context, params ChatParams) (acp.S
 	if err != nil {
 		return nil, fmt.Errorf("agente indisponível: %w", err)
 	}
-	session := conv.Session()
-	if session == nil {
-		return nil, errors.New("agente sem sessão para esta conversa")
-	}
-	return session, nil
+	return conv, nil
 }
 
 // promptContent monta o que vai ao agente neste turno: só a última mensagem do

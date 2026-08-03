@@ -397,6 +397,49 @@ func TestConversaRetomaASessaoRegistradaDepoisDeReiniciar(t *testing.T) {
 	}
 }
 
+func TestContextoQueMudaSoEhCobradoQuandoMuda(t *testing.T) {
+	ctx := context.Background()
+	m, _ := managerWith(newMemoryStore(), newFakeManagedClient())
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+
+	if !conv.NeedsSuffix("hash-resumo") {
+		t.Fatal("sessão nova ainda não ouviu contexto nenhum")
+	}
+	conv.MarkSuffixSent("hash-resumo")
+	if conv.NeedsSuffix("hash-resumo") {
+		t.Fatal("contexto inalterado foi cobrado de novo")
+	}
+	if !conv.NeedsSuffix("hash-outro-resumo") {
+		t.Fatal("contexto que mudou precisa voltar ao agente")
+	}
+}
+
+func TestSessaoRecriadaPrecisaOuvirOContextoDeNovo(t *testing.T) {
+	ctx := context.Background()
+	client := newFakeManagedClient()
+	m, _ := managerWith(newMemoryStore(), client)
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+	conv.MarkSuffixSent("hash-resumo")
+
+	// Sessão perdida no meio da conversa: a próxima é outra sessão, e o que a
+	// anterior ouviu morreu com ela.
+	conv.Invalidate()
+	client.loadErr = errors.New("sessão desconhecida")
+	if _, err := m.Conversation(ctx, testSpec(), "conv-1"); err != nil {
+		t.Fatalf("remontar conversa: %v", err)
+	}
+
+	if !conv.NeedsSuffix("hash-resumo") {
+		t.Fatal("a sessão nova não ouviu o contexto que a anterior recebeu")
+	}
+}
+
 func TestAgenteQueNaoRetomaDeixaClaroQueAMemoriaSePerdeu(t *testing.T) {
 	store := newMemoryStore()
 	ctx := context.Background()

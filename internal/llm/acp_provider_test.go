@@ -245,9 +245,15 @@ func TestTurnoLevaSoAUltimaMensagemDoUsuario(t *testing.T) {
 		t.Fatalf("o agente recebeu %d turnos, quer 1", len(turnos))
 	}
 	// A sessão do agente tem o histórico dela (D4): reenviá-lo duplicaria
-	// contexto e custo.
-	if len(turnos[0]) != 1 || turnos[0][0].Text != "segunda pergunta" {
-		t.Errorf("conteúdo enviado ao agente = %+v, quer só a última mensagem do usuário", turnos[0])
+	// contexto e custo. O que acompanha a mensagem nova são as instruções do
+	// perfil, que não estão na sessão dele.
+	texto := textoDoTurno(t, turnos[0])
+	if strings.Contains(texto, "primeira pergunta") || strings.Contains(texto, "primeira resposta") {
+		t.Errorf("o histórico foi reenviado ao agente: %q", texto)
+	}
+	ultimo := turnos[0][len(turnos[0])-1]
+	if ultimo.Text != "segunda pergunta" {
+		t.Errorf("último bloco = %q, quer a última mensagem do usuário", ultimo.Text)
 	}
 }
 
