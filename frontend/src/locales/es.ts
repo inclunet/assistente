@@ -3414,6 +3414,9 @@ const es = {
       },
       questionnaire: {
         submitError: 'Error al enviar el cuestionario',
+        closed: 'La pregunta terminó y el diálogo se cerró.',
+        closedCancelled: 'Quien preguntó desistió; el diálogo se cerró sin respuesta.',
+        closedTimeout: 'Se acabó el plazo para responder; el diálogo se cerró sin respuesta.',
       },
     },
     auth: {

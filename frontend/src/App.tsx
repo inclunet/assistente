@@ -22,6 +22,11 @@ import { getAntdTheme } from './theme/antdTheme';
 import { waitForWailsBridge } from './lib/waitForWailsBridge';
 import { summaryErrorMessage } from './lib/summaryError';
 import { chatNoticeMessage, type ChatNoticeEvent } from './lib/chatNotice';
+import {
+    questionnaireClosedMessage,
+    QUESTIONNAIRE_CLOSED_EVENT,
+    type QuestionnaireClosedEvent,
+} from './lib/questionnaireClosed';
 import { AuthGate } from './components/auth/AuthGate';
 
 function useAntdLocale(lang: string): Locale | undefined {
@@ -302,6 +307,22 @@ function App() {
         });
         return unsub;
     }, []);
+
+    // Pergunta que perdeu o dono (turno cancelado, prazo estourado) sai da
+    // tela: responder já não levaria a lugar nenhum. Só fecha o diálogo do
+    // próprio pedido, para não derrubar a pergunta seguinte.
+    const openQuestionnaireId = questionnaireOpen ? questionnaireData?.id : undefined;
+    useEffect(() => {
+        const unsub = EventsOn(QUESTIONNAIRE_CLOSED_EVENT, (data: QuestionnaireClosedEvent) => {
+            if (!openQuestionnaireId || data?.id !== openQuestionnaireId) {
+                return;
+            }
+            setQuestionnaireOpen(false);
+            setQuestionnaireData(null);
+            addToast(questionnaireClosedMessage(t, data), 'warning', 8000);
+        });
+        return unsub;
+    }, [openQuestionnaireId, addToast, t]);
 
     // Quando um questionário da UI abre, captura o foco atual
     useEffect(() => {
