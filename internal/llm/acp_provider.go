@@ -73,6 +73,12 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	}
 	content = append(instructions.blocks(), content...)
 
+	// O agente pergunta no meio do turno, e o pedido chega por outra goroutine
+	// sabendo só o nome da sessão. É esta marca que diz a quem perguntar — e
+	// se há alguém (AEP-0084 D9).
+	endTurn := conv.BeginTurn(turnHasWatcher(params))
+	defer endTurn()
+
 	// O canal de atividade é opcional: sem ele o turno ainda entrega texto e
 	// raciocínio, só não conta as ferramentas do agente nem fecha segmentos.
 	activity, _ := handler.(AgentActivitySink)
@@ -164,6 +170,20 @@ func (p *ACPChatProvider) conversation(ctx context.Context, params ChatParams) (
 		return nil, fmt.Errorf("agente indisponível: %w", err)
 	}
 	return conv, nil
+}
+
+// turnHasWatcher diz se este turno saiu de uma superfície de tela identificada
+// — a mesma identidade que ports.NewChatSurfaceOrigin exige para dizer que o
+// turno tem origem visual (AEP-0042/0080). Turno de canal, de job agendado, de
+// subagente ou da CLI chega sem ela, e é justamente aí que o pedido de
+// permissão não pode esperar por ninguém (AEP-0084 D9).
+//
+// Errar para o lado de "não tem ninguém" nega uma ação; errar para o outro
+// pendura o agente até o prazo estourar.
+func turnHasWatcher(params ChatParams) bool {
+	return strings.TrimSpace(params.SurfaceSessionKey) != "" &&
+		strings.TrimSpace(params.SurfaceID) != "" &&
+		strings.TrimSpace(params.SurfaceType) != ""
 }
 
 // promptContent monta o que vai ao agente neste turno: só a última mensagem do
@@ -344,7 +364,7 @@ func (t *acpTurn) toolActivity(call *acp.ToolCall) {
 		state.kind = AgentToolKindOther
 	}
 	if strings.TrimSpace(call.Title) != "" {
-		state.title = sanitizeAgentLabel(call.Title)
+		state.title = acp.SanitizeLabel(call.Title)
 	}
 
 	// O bloco de texto que veio antes desta atividade está encerrado: vira

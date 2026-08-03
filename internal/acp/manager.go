@@ -136,6 +136,14 @@ type Manager struct {
 	// conversa é montada: a que nascesse no meio teria o vínculo apagado logo
 	// depois de gravado.
 	clearing bool
+
+	// owners diz, por sessão do agente, de quem é o turno em voo (AEP-0084
+	// D9). Lock próprio: quem consulta é a goroutine que entrega o pedido do
+	// agente, e ela não pode ficar atrás do lock que sobe processo e monta
+	// sessão — o agente fica parado esperando essa resposta.
+	ownersMu   sync.Mutex
+	owners     map[string]turnRegistration
+	ownerToken uint64
 }
 
 // agentProcess é o processo de um provider e o spec que o descreve, para

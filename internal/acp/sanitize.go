@@ -1,4 +1,4 @@
-package llm
+package acp
 
 import (
 	"regexp"
@@ -32,13 +32,13 @@ const agentLabelInputBudget = 8 << 10
 // da sequência ("[31m") como se fosse texto.
 var ansiEscape = regexp.MustCompile("\x1b(?:\\[[0-9;?]*[ -/]*[@-~]|\\][^\x07\x1b]*(?:\x07|\x1b\\\\)?|[@-Z\\\\-_])")
 
-// sanitizeAgentLabel prepara um texto do agente para virar rótulo de UI ou
+// SanitizeLabel prepara um texto do agente para virar rótulo de UI ou
 // anúncio: sem escapes de terminal, sem caracteres de controle, sem marcas
 // invisíveis de formatação — inclusive as de inversão de direção, que deixam
 // um texto ser lido diferente do que ele é —, em linha única e com tamanho
 // limitado.
-func sanitizeAgentLabel(s string) string {
-	s = ansiEscape.ReplaceAllString(withinBudget(s), "")
+func SanitizeLabel(s string) string {
+	s = ansiEscape.ReplaceAllString(withinBudget(s, agentLabelInputBudget), "")
 
 	// A saída tem tamanho conhecido, e uma runa além do limite já basta para
 	// saber que o rótulo foi cortado.
@@ -64,13 +64,46 @@ func sanitizeAgentLabel(s string) string {
 	return string(out)
 }
 
+// agentContentBudget é o teto de um bloco de conteúdo. Ele é folgado perto do
+// rótulo porque aqui o texto não é resumo: é o que a pessoa lê para decidir, e
+// cortá-lo cedo faria alguém autorizar uma linha de comando cuja metade nunca
+// apareceu na tela.
+const agentContentBudget = 64 << 10
+
+// SanitizeContent prepara um texto do agente para virar bloco de conteúdo — o
+// comando que ele quer rodar, mostrado inteiro para quem vai autorizar. Tira o
+// que engana e o que atravanca o leitor de telas, mas preserva as quebras de
+// linha e não resume: um rótulo cortado informa mal; um comando cortado faz a
+// pessoa autorizar o que não viu.
+func SanitizeContent(s string) string {
+	s = ansiEscape.ReplaceAllString(withinBudget(s, agentContentBudget), "")
+
+	var out strings.Builder
+	out.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r == '\n', r == '\t':
+			out.WriteRune(r)
+		case r == '\r':
+			// O retorno de carro sozinho reescreve a linha no terminal: no
+			// bloco ele some, e o par \r\n já entrega a quebra pelo \n.
+			continue
+		case r == utf8.RuneError, unicode.IsControl(r), unicode.Is(unicode.Cf, r):
+			continue
+		default:
+			out.WriteRune(r)
+		}
+	}
+	return strings.TrimSpace(out.String())
+}
+
 // withinBudget corta o texto antes de qualquer trabalho sobre ele, em fronteira
 // de runa para não partir um caractere ao meio.
-func withinBudget(s string) string {
-	if len(s) <= agentLabelInputBudget {
+func withinBudget(s string, budget int) string {
+	if len(s) <= budget {
 		return s
 	}
-	cut := agentLabelInputBudget
+	cut := budget
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
