@@ -174,10 +174,10 @@ func (p *ACPChatProvider) promptContent(ctx context.Context, conv *acp.Conversat
 		if messages[i].Role != "user" {
 			continue
 		}
-		content, notSent := turnContent(messages[i], p.acceptsImage(ctx, conv))
+		content, notSent := turnContent(messages[i], func() bool { return p.acceptsImage(ctx, conv) })
 		if len(content) == 0 {
 			if notSent > 0 {
-				return nil, 0, errors.New("o agente não recebe esse tipo de anexo, e a mensagem não tem texto para enviar no lugar")
+				return nil, 0, errors.New("o anexo não pôde ser enviado ao agente, e a mensagem não tem texto para enviar no lugar")
 			}
 			return nil, 0, errors.New("mensagem sem texto para enviar ao agente")
 		}

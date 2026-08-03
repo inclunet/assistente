@@ -3407,8 +3407,8 @@ const en = {
         },
       },
       chatNotice: {
-        attachmentsNotSent_one: '{{count}} attachment was not sent: this provider does not accept it. The turn went through with the text only.',
-        attachmentsNotSent_other: '{{count}} attachments were not sent: this provider does not accept them. The turn went through with the text only.',
+        attachmentsNotSent_one: '{{count}} attachment was not sent: this provider does not accept it, or it could not be embedded in the request. The turn went through with the text only.',
+        attachmentsNotSent_other: '{{count}} attachments were not sent: this provider does not accept them, or they could not be embedded in the request. The turn went through with the text only.',
       },
       legacyImport: {
         summary: 'Legacy import: {{imported}} imported, {{skipped}} already present, {{failed}} failures, {{warnings}} warnings.',

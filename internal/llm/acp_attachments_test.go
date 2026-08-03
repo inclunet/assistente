@@ -12,6 +12,10 @@ import (
 // imagemPNG é uma imagem embutida como o pipeline a monta.
 const imagemPNG = "data:image/png;base64,QUJD"
 
+// aceitaImagem é o agente que recebe imagem, para os testes que montam o
+// conteúdo sem passar pelo provider.
+func aceitaImagem() bool { return true }
+
 func mensagemComImagem(texto, url string) Message {
 	return Message{Role: "user", Content: []ContentPart{
 		{Type: "text", Text: texto},
@@ -221,15 +225,58 @@ func TestPartesDestipadasViramOsMesmosBlocos(t *testing.T) {
 	msg := Message{Role: "user", Content: []interface{}{
 		map[string]interface{}{"type": "text", "text": "olha isto"},
 		map[string]interface{}{"type": "image_url", "image_url": map[string]interface{}{"url": imagemPNG}},
-		map[string]interface{}{"type": "audio", "data": "..."},
 	}}
 
-	content, notSent := turnContent(msg, true)
+	content, notSent := turnContent(msg, aceitaImagem)
 
 	if notSent != 0 {
 		t.Errorf("anexos não enviados = %d, quer 0", notSent)
 	}
 	if len(content) != 2 || content[0].Text != "olha isto" || content[1].ImageData != "QUJD" {
 		t.Errorf("blocos = %+v, quer o texto e a imagem", content)
+	}
+}
+
+func TestAnexoQueNaoEImagemTambemEContado(t *testing.T) {
+	// O pipeline monta estas partes para os modelos que as recebem
+	// nativamente; o bloco do ACP só carrega texto e imagem.
+	msg := Message{Role: "user", Content: []interface{}{
+		map[string]interface{}{"type": "text", "text": "o que tem nestes arquivos?"},
+		map[string]interface{}{"type": "input_audio", "input_audio": map[string]interface{}{"data": "..."}},
+		map[string]interface{}{"type": "file", "file": map[string]interface{}{"filename": "nota.pdf"}},
+		map[string]interface{}{"type": "video", "video": map[string]interface{}{"data": "..."}},
+	}}
+
+	content, notSent := turnContent(msg, aceitaImagem)
+
+	if notSent != 3 {
+		t.Errorf("anexos não enviados = %d, quer os três: sumir com eles calado é o que o AEP proíbe", notSent)
+	}
+	if len(content) != 1 || content[0].Text != "o que tem nestes arquivos?" {
+		t.Errorf("blocos = %+v, quer só o texto", content)
+	}
+}
+
+func TestParteSemTipoNaoViraAlarmeFalso(t *testing.T) {
+	msg := Message{Role: "user", Content: []interface{}{
+		map[string]interface{}{"type": "text", "text": "oi"},
+		map[string]interface{}{"algo": "sem tipo"},
+	}}
+
+	// Sem tipo não dá para dizer que era anexo: contar isso avisaria a pessoa
+	// sobre um anexo que ela não mandou.
+	if _, notSent := turnContent(msg, aceitaImagem); notSent != 0 {
+		t.Errorf("anexos não enviados = %d, quer 0", notSent)
+	}
+}
+
+func TestTurnoDeTextoPuroNaoPerguntaOQueOAgenteAceita(t *testing.T) {
+	perguntas := 0
+	msg := Message{Role: "user", Content: "só texto"}
+
+	turnContent(msg, func() bool { perguntas++; return true })
+
+	if perguntas != 0 {
+		t.Errorf("perguntou %d vez(es) sobre imagem numa mensagem sem imagem", perguntas)
 	}
 }

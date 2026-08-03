@@ -26,20 +26,38 @@ const (
 
 // turnContent monta os blocos da mensagem da pessoa e devolve quantos anexos
 // ficaram de fora.
-func turnContent(msg Message, acceptsImage bool) (content []acp.Content, notSent int) {
+//
+// acceptsImage é função porque a resposta vem do agente: perguntar num turno de
+// texto puro seria conversa à toa, e uma falha nela viraria aviso de anexo numa
+// mensagem que não tem anexo nenhum.
+func turnContent(msg Message, acceptsImage func() bool) (content []acp.Content, notSent int) {
+	accepts, asked := false, false
 	for _, part := range messageParts(msg) {
 		switch part.Type {
+		case "":
+			// Sem tipo não há como saber o que é: não é conteúdo que o app
+			// tenha deixado de enviar, e contá-lo daria alarme falso.
+			continue
 		case "text":
 			if text := strings.TrimSpace(part.Text); text != "" {
 				content = append(content, acp.TextContent(text))
 			}
 		case "image_url":
+			if !asked {
+				accepts, asked = acceptsImage(), true
+			}
 			data, mime, inline := inlineImage(part)
-			if !acceptsImage || !inline {
+			if !accepts || !inline {
 				notSent++
 				continue
 			}
 			content = append(content, acp.ImageContent(data, mime))
+		default:
+			// Áudio, documento e vídeo chegam aqui: o pipeline os monta quando
+			// o modelo os recebe nativamente, e o bloco do ACP só carrega texto
+			// e imagem. Some deles em silêncio e a pessoa espera uma resposta
+			// sobre o que o agente nunca recebeu.
+			notSent++
 		}
 	}
 	return content, notSent
@@ -71,6 +89,11 @@ func messageParts(msg Message) []ContentPart {
 					part.ImageURL = &ImageURL{URL: url}
 				}
 				out = append(out, part)
+			default:
+				// O tipo desconhecido aqui é anexo que o app monta para outros
+				// modelos (áudio, documento, vídeo). Filtrá-lo nesta passagem o
+				// esconderia de quem conta o que não foi enviado.
+				out = append(out, ContentPart{Type: kind})
 			}
 		}
 		return out
