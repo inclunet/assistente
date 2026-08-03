@@ -251,6 +251,27 @@ func TestQuemDesistiuDaPerguntaTiraODialogoDaTela(t *testing.T) {
 	}
 }
 
+func TestPrazoDeQuemPerguntouNaoViraDesistencia(t *testing.T) {
+	// O teto de quem pergunta (o transporte do agente tem o seu) chega como
+	// prazo do contexto pai. Para quem lê é o tempo que acabou, não alguém
+	// que desistiu — e o diálogo diria a frase errada.
+	fechamento := novoEventoDeFechamento()
+	mgr := NewManager(fechamento.registrar)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	if _, err := mgr.RequestQuestionnaire(ctx, RequestPayload{
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+	}); err == nil {
+		t.Fatal("esperava erro")
+	}
+
+	if _, reason := fechamento.esperar(t); reason != ClosedTimeout {
+		t.Errorf("motivo = %q, quer %q", reason, ClosedTimeout)
+	}
+}
+
 func TestPerguntaRespondidaNaoAvisaFechamento(t *testing.T) {
 	// O diálogo já se fechou sozinho ao ser respondido; um aviso aqui poderia
 	// derrubar o diálogo seguinte, que reusa a mesma tela.

@@ -2,6 +2,7 @@ package questionnaire
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -164,12 +165,22 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		// saber disso — ainda mais quem lê por leitor de telas, que teria de
 		// percorrer o diálogo inteiro para descobrir que ele não vale mais.
 		if ctx.Err() != nil {
-			m.emitClosed(req.ID, ClosedCancelled)
+			m.emitClosed(req.ID, closedReason(ctx.Err()))
 			return Response{}, fmt.Errorf("solicitação cancelada")
 		}
 		m.emitClosed(req.ID, ClosedTimeout)
 		return Response{}, fmt.Errorf("timeout aguardando respostas do usuário (%s)", timeout)
 	}
+}
+
+// closedReason distingue quem desistiu de quem ficou sem tempo. O teto que
+// quem pergunta impõe (o transporte do agente tem o seu) é prazo estourado
+// para quem lê, não desistência: dizer "desistiram" aí seria mentira.
+func closedReason(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ClosedTimeout
+	}
+	return ClosedCancelled
 }
 
 func (m *Manager) emitClosed(requestID, reason string) {
