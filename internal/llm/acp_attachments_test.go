@@ -145,6 +145,12 @@ func TestPedidoAceitoQueFalhouDepoisAindaAvisaSobreOAnexo(t *testing.T) {
 	if len(handler.avisos) != 1 {
 		t.Errorf("avisos = %+v, quer o do anexo que não foi", handler.avisos)
 	}
+	// O mesmo aceite que gera o aviso barra a auto-recuperação, que reinvoca
+	// StreamChat sozinha. Sem essa marca, cada tentativa repetiria o aviso e a
+	// pessoa veria o mesmo alerta várias vezes para um único turno.
+	if !handler.naoRetentavel {
+		t.Error("turno aceito precisa impedir a repetição automática")
+	}
 }
 
 func TestInterrupcaoNaoVemAcompanhadaDeAvisoDeAnexo(t *testing.T) {
