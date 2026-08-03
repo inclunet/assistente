@@ -17,27 +17,63 @@ type telaFalsa struct {
 	mu        sync.Mutex
 	manager   *questionnaire.Manager
 	perguntas []map[string]any
+	fechados  []fechamentoNaTela
 	// escolhe recebe as opções oferecidas e devolve a escolhida; nulo cancela
 	// o diálogo, como quem fecha a janela.
 	escolhe func(opcoes []string) string
+	// muda deixa o diálogo aberto sem resposta, como quem ainda está lendo.
+	muda      bool
+	perguntou chan struct{}
+	fechou    chan struct{}
+}
+
+// fechamentoNaTela é o aviso de que um diálogo saiu da tela sem resposta.
+type fechamentoNaTela struct {
+	id     string
+	motivo string
 }
 
 func novaTelaFalsa(escolhe func(opcoes []string) string) *telaFalsa {
-	tela := &telaFalsa{escolhe: escolhe}
+	tela := &telaFalsa{
+		escolhe:   escolhe,
+		perguntou: make(chan struct{}, 1),
+		fechou:    make(chan struct{}, 1),
+	}
 	tela.manager = questionnaire.NewManager(tela.aoPerguntar)
 	return tela
 }
 
-// aoPerguntar responde ao evento do questionário como o frontend faria.
-func (t *telaFalsa) aoPerguntar(_ string, data any) {
+// novaTelaMuda é a pessoa que abriu o diálogo e ainda não decidiu nada.
+func novaTelaMuda() *telaFalsa {
+	tela := novaTelaFalsa(nil)
+	tela.muda = true
+	return tela
+}
+
+// aoPerguntar responde aos eventos do questionário como o frontend faria.
+func (t *telaFalsa) aoPerguntar(event string, data any) {
 	payload, ok := data.(map[string]any)
 	if !ok {
 		return
 	}
+	if event == questionnaire.EventQuestionnaireClosed {
+		id, _ := payload["id"].(string)
+		motivo, _ := payload["reason"].(string)
+		t.mu.Lock()
+		t.fechados = append(t.fechados, fechamentoNaTela{id: id, motivo: motivo})
+		t.mu.Unlock()
+		avisar(t.fechou)
+		return
+	}
+
 	t.mu.Lock()
 	t.perguntas = append(t.perguntas, payload)
 	t.mu.Unlock()
+	avisar(t.perguntou)
 
+	if t.muda {
+		return
+	}
 	id, _ := payload["id"].(string)
 	opcoes := t.opcoesDe(payload)
 	go func() {
@@ -47,6 +83,34 @@ func (t *telaFalsa) aoPerguntar(_ string, data any) {
 		}
 		_ = t.manager.Respond(id, map[string]any{permissionAnswerID: t.escolhe(opcoes)}, false)
 	}()
+}
+
+func avisar(ch chan struct{}) {
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
+
+func (t *telaFalsa) esperarPergunta(tb testing.TB) {
+	tb.Helper()
+	select {
+	case <-t.perguntou:
+	case <-time.After(2 * time.Second):
+		tb.Fatal("o diálogo não chegou à tela")
+	}
+}
+
+func (t *telaFalsa) esperarFechamento(tb testing.TB) fechamentoNaTela {
+	tb.Helper()
+	select {
+	case <-t.fechou:
+	case <-time.After(2 * time.Second):
+		tb.Fatal("o diálogo ficou na tela pedindo uma decisão que já não vale")
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.fechados[len(t.fechados)-1]
 }
 
 func (t *telaFalsa) opcoesDe(payload map[string]any) []string {
@@ -212,6 +276,39 @@ func TestDialogoFechadoSemEscolherNega(t *testing.T) {
 
 	if out := h.RequestPermission(context.Background(), pedidoDeExecucao()); out.OptionID != "" {
 		t.Errorf("decisão = %q, quer nenhuma", out.OptionID)
+	}
+}
+
+func TestTurnoCanceladoTiraOPedidoDaTela(t *testing.T) {
+	// Quem cancela o turno não deve continuar diante de um diálogo pedindo
+	// autorização para uma ação que já não vai acontecer — e nada dali levaria
+	// resposta ao agente, que também já desistiu do pedido.
+	tela := novaTelaMuda()
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+
+	ctx, cancelarTurno := context.WithCancel(context.Background())
+	pronto := make(chan acp.PermissionOutcome, 1)
+	go func() { pronto <- h.RequestPermission(ctx, pedidoDeExecucao()) }()
+
+	tela.esperarPergunta(t)
+	aberta, _ := tela.ultimaPergunta(t)["id"].(string)
+	cancelarTurno()
+
+	select {
+	case out := <-pronto:
+		if out.OptionID != "" {
+			t.Errorf("decisão = %q, quer nenhuma", out.OptionID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("o handler não voltou depois do cancelamento")
+	}
+
+	fechado := tela.esperarFechamento(t)
+	if fechado.id != aberta {
+		t.Errorf("fechou o diálogo %q, quer o %q que estava aberto", fechado.id, aberta)
+	}
+	if fechado.motivo != questionnaire.ClosedCancelled {
+		t.Errorf("motivo = %q, quer %q", fechado.motivo, questionnaire.ClosedCancelled)
 	}
 }
 
