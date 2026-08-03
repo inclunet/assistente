@@ -274,14 +274,14 @@ func TestTurnoLevaSoAUltimaMensagemDoUsuario(t *testing.T) {
 	}
 }
 
-func TestTurnoEnviaOTextoDeMensagemMultimodal(t *testing.T) {
+func TestTurnoEnviaOTextoDeMensagemEmPartesTipadas(t *testing.T) {
 	sessao := &agenteFalso{updates: []acp.Update{{Kind: acp.UpdateText, Text: "ok"}}}
 	provider := providerDeAgente(t, sessao)
 	handler := &espiao{}
 
-	// O builder monta a mensagem do turno em partes tipadas quando ela é
-	// multimodal. Sem tratar esse formato, o agente receberia o despejo da
-	// estrutura no lugar do pedido da pessoa.
+	// O builder monta a mensagem do turno em partes tipadas. Sem tratar esse
+	// formato, o agente receberia o despejo da estrutura no lugar do pedido da
+	// pessoa. O que vira imagem está em acp_attachments_test.go.
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: []ContentPart{
 		{Type: "text", Text: "<turn_context>arquivo aberto</turn_context>"},
 		{Type: "text", Text: "o que mudou aqui?"},
