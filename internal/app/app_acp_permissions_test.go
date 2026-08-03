@@ -286,6 +286,37 @@ func TestIdentificadorQueDesempataRotuloTambemEhSaneado(t *testing.T) {
 	}
 }
 
+func TestNenhumaOpcaoDoAgenteFicaForaDaTela(t *testing.T) {
+	// Nomes iguais e identificadores que saneiam para o mesmo texto: sem
+	// desempate a segunda opção sumiria, e com ela a chance de a pessoa
+	// autorizar.
+	var oferecidas []string
+	tela := novaTelaFalsa(func(opcoes []string) string {
+		oferecidas = opcoes
+		return opcoes[len(opcoes)-1]
+	})
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+
+	pedido := pedidoDeExecucao()
+	pedido.Options = []acp.PermissionOption{
+		{ID: "allow\x01", Name: "Permitir", Kind: "allow_once"},
+		{ID: "allow\x02", Name: "Permitir", Kind: "allow_always"},
+		{ID: "\x03", Name: "Permitir", Kind: "allow_always"},
+	}
+
+	out := h.RequestPermission(context.Background(), pedido)
+
+	if len(oferecidas) != 3 {
+		t.Fatalf("opções na tela = %q, quer as três que o agente ofereceu", oferecidas)
+	}
+	if oferecidas[0] == oferecidas[1] || oferecidas[1] == oferecidas[2] || oferecidas[0] == oferecidas[2] {
+		t.Errorf("opções na tela = %q, quer rótulos distinguíveis", oferecidas)
+	}
+	if out.OptionID != "\x03" {
+		t.Errorf("decisão = %q, quer a última opção", out.OptionID)
+	}
+}
+
 func TestOBotaoDeConfirmarDizOQueEleFaz(t *testing.T) {
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
 	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)

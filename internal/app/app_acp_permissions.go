@@ -191,20 +191,36 @@ func permissionChoicesFrom(options []acp.PermissionOption) permissionChoices {
 		if label == "" {
 			label = permissionKindLabel(option.Kind)
 		}
-		if seen[label] {
-			// O identificador desempata o rótulo, e por isso vira texto na
-			// tela: passa pelo mesmo saneamento do resto do que o agente
-			// manda. O que volta a ele continua sendo o identificador cru —
-			// o transporte só aceita a opção escrita como foi oferecida.
-			label = fmt.Sprintf("%s (%s)", label, acp.SanitizeLabel(option.ID))
-		}
-		if seen[label] {
-			continue
-		}
+		label = distinctLabel(seen, label, option.ID)
 		seen[label] = true
 		out = append(out, permissionChoice{id: option.ID, label: label})
 	}
 	return out
+}
+
+// distinctLabel devolve um rótulo que ainda não esteja na lista. O
+// identificador é o primeiro desempate por ser o que informa, e vira texto na
+// tela: passa pelo saneamento como o resto do que o agente manda. O que volta
+// a ele continua sendo o identificador cru — o transporte só aceita a opção
+// escrita como foi oferecida.
+//
+// Quando nem o identificador desempata (dois que saneiam igual, ou que somem
+// no saneamento), o número resolve. Deixar a opção de fora seria tirar da
+// pessoa uma escolha que o agente ofereceu — inclusive a de autorizar.
+func distinctLabel(seen map[string]bool, label, id string) string {
+	if !seen[label] {
+		return label
+	}
+	if suffix := acp.SanitizeLabel(id); suffix != "" {
+		if candidate := fmt.Sprintf("%s (%s)", label, suffix); !seen[candidate] {
+			return candidate
+		}
+	}
+	for n := 2; ; n++ {
+		if candidate := fmt.Sprintf("%s (%d)", label, n); !seen[candidate] {
+			return candidate
+		}
+	}
 }
 
 // permissionKindLabel nomeia a opção quando o agente não mandou rótulo. A
