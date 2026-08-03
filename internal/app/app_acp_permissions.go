@@ -3,10 +3,12 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"assistente/internal/acp"
+	"assistente/internal/core/ports"
 	"assistente/internal/logging"
 	"assistente/internal/questionnaire"
 )
@@ -33,6 +35,9 @@ type acpRequestHandler struct {
 	// questions é o questionário do desktop, o mesmo mecanismo acessível que
 	// shell, HTTP mutável e confirmação de edição já usam.
 	questions func() *questionnaire.Manager
+	// notices leva à conversa o aviso do que foi negado sem decisão de
+	// ninguém.
+	notices func() ports.Emitter
 }
 
 var _ acp.RequestHandler = (*acpRequestHandler)(nil)
@@ -59,6 +64,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		logging.Infof(ctx, acpPermissionComponent,
 			"[ACP] permissão negada na hora, sem ninguém a quem perguntar (sessão %q, conversa %q): %s",
 			req.SessionID, owner.ConversationID, registro)
+		h.notifyDenied(owner, ports.ChatNoticeKindPermissionNoWatcher, req.ToolCall.Kind)
 		return acp.PermissionOutcome{}
 	}
 
@@ -67,12 +73,14 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		// Pedido sem opção nenhuma: não há o que oferecer à pessoa, e inventar
 		// uma resposta seria decidir por ela.
 		logging.Warnf(ctx, acpPermissionComponent, "[ACP] pedido de permissão sem opções: %s", registro)
+		h.notifyDenied(owner, ports.ChatNoticeKindPermissionUnavailable, req.ToolCall.Kind)
 		return acp.PermissionOutcome{}
 	}
 
 	manager := h.questionnaireManager()
 	if manager == nil {
 		logging.Warnf(ctx, acpPermissionComponent, "[ACP] permissão negada: o questionário não está disponível")
+		h.notifyDenied(owner, ports.ChatNoticeKindPermissionUnavailable, req.ToolCall.Kind)
 		return acp.PermissionOutcome{}
 	}
 
@@ -111,6 +119,12 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		// mesma coisa para o agente: ninguém autorizou.
 		logging.Infof(ctx, acpPermissionComponent,
 			"[ACP] permissão sem resposta na conversa %q (%s): %v", owner.ConversationID, registro, err)
+		// Turno cancelado não vira aviso: foi a própria pessoa que desistiu, e
+		// o diálogo já saiu da tela dizendo isso. Avisar de novo seria cobrar
+		// explicação de quem acabou de dar uma.
+		if !errors.Is(err, context.Canceled) {
+			h.notifyDenied(owner, ports.ChatNoticeKindPermissionTimeout, req.ToolCall.Kind)
+		}
 		return acp.PermissionOutcome{}
 	}
 	if resp.Cancelled {
@@ -151,6 +165,41 @@ func (h *acpRequestHandler) questionnaireManager() *questionnaire.Manager {
 		return nil
 	}
 	return h.questions()
+}
+
+// notifyDenied conta à conversa que uma ação foi negada sem que ninguém
+// decidisse. O agente costuma seguir o turno dizendo apenas que não conseguiu;
+// sem este aviso, a pessoa fica sem saber que houve um pedido, muito menos por
+// que ele não chegou até ela.
+//
+// Vai só a classe da ação, nunca o texto do agente: o aviso pode aparecer numa
+// conversa que ninguém está olhando agora, e a linha de comando literal
+// costuma carregar segredo.
+func (h *acpRequestHandler) notifyDenied(owner acp.TurnOwner, kind, action string) {
+	if h == nil || h.notices == nil || strings.TrimSpace(owner.ConversationID) == "" {
+		return
+	}
+	emitter := h.notices()
+	if emitter == nil {
+		return
+	}
+	emitter.Emit("chat:notice", ports.ChatNoticeEvent{
+		ConversationID: owner.ConversationID,
+		Kind:           kind,
+		Action:         permissionActionCode(action),
+	})
+}
+
+// permissionActionCode devolve a classe da ação em forma de código, que quem
+// exibe traduz. Classe que o app não conhece fica de fora: um código cru na
+// tela não diz nada a ninguém, e a frase genérica já diz o que houve.
+func permissionActionCode(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other":
+		return strings.ToLower(strings.TrimSpace(kind))
+	default:
+		return ""
+	}
 }
 
 // permissionLogSummary descreve o pedido para o log sem levar junto o que o
