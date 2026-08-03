@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -373,6 +374,21 @@ func TestQuemCancelouOTurnoNaoRecebeAvisoDoQueEleMesmoFez(t *testing.T) {
 
 	if eventos := avisos.find("chat:notice"); len(eventos) != 0 {
 		t.Errorf("avisos = %d, quer 0: quem cancelou já sabe o que houve", len(eventos))
+	}
+}
+
+func TestCancelamentoCalaOAvisoAindaQueOErroNaoDigaAcausa(t *testing.T) {
+	// A decisão não pode depender de o erro carregar a causa do contexto: se
+	// esse elo se perder, quem cancelou o turno receberia um "ninguém
+	// respondeu a tempo" logo depois de ter desistido.
+	ctx, cancelar := context.WithCancel(context.Background())
+	cancelar()
+
+	if !turnCancelled(ctx, errors.New("solicitação encerrada sem resposta")) {
+		t.Error("o cancelamento do turno passou despercebido")
+	}
+	if turnCancelled(context.Background(), errors.New("timeout aguardando respostas do usuário")) {
+		t.Error("prazo estourado virou cancelamento: o aviso não sairia")
 	}
 }
 

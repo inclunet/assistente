@@ -122,7 +122,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		// Turno cancelado não vira aviso: foi a própria pessoa que desistiu, e
 		// o diálogo já saiu da tela dizendo isso. Avisar de novo seria cobrar
 		// explicação de quem acabou de dar uma.
-		if !errors.Is(err, context.Canceled) {
+		if !turnCancelled(ctx, err) {
 			h.notifyDenied(owner, ports.ChatNoticeKindPermissionTimeout, req.ToolCall.Kind)
 		}
 		return acp.PermissionOutcome{}
@@ -165,6 +165,15 @@ func (h *acpRequestHandler) questionnaireManager() *questionnaire.Manager {
 		return nil
 	}
 	return h.questions()
+}
+
+// turnCancelled diz se o pedido acabou porque o turno foi abortado, e não
+// porque o tempo acabou. Olha o contexto do turno além do erro: o erro é a
+// via normal, mas depender só dele amarraria esta decisão ao jeito como o
+// questionário embrulha a causa — e um dia em que ela se perder no caminho, a
+// pessoa que cancelou receberia um "ninguém respondeu a tempo".
+func turnCancelled(ctx context.Context, err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
 }
 
 // notifyDenied conta à conversa que uma ação foi negada sem que ninguém
