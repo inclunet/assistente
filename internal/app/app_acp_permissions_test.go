@@ -317,6 +317,24 @@ func TestNenhumaOpcaoDoAgenteFicaForaDaTela(t *testing.T) {
 	}
 }
 
+func TestOLogNaoGuardaALinhaDeComandoDoAgente(t *testing.T) {
+	// Linha de comando carrega segredo em flag e em variável de ambiente; o
+	// shell do app já não registra a dele. O log daqui identifica o pedido
+	// pela classe e pela chamada.
+	registro := permissionLogSummary(acp.ToolCall{
+		ID:    "call-1",
+		Kind:  "execute",
+		Title: "curl -H 'Authorization: Bearer segredo' https://exemplo",
+	})
+
+	if strings.Contains(registro, "segredo") || strings.Contains(registro, "curl") {
+		t.Errorf("registro = %q, quer o pedido sem o que o agente escreveu", registro)
+	}
+	if !strings.Contains(registro, "execute") || !strings.Contains(registro, "call-1") {
+		t.Errorf("registro = %q, quer identificar o pedido", registro)
+	}
+}
+
 func TestOBotaoDeConfirmarDizOQueEleFaz(t *testing.T) {
 	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
 	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)

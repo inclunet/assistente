@@ -41,6 +41,7 @@ var _ acp.RequestHandler = (*acpRequestHandler)(nil)
 // do que uma ação negada.
 func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.PermissionRequest) acp.PermissionOutcome {
 	action := acp.SanitizeLabel(req.ToolCall.Title)
+	registro := permissionLogSummary(req.ToolCall)
 
 	owner, ok := h.turnOwner(req.SessionID)
 	if !ok || !owner.Interactive {
@@ -48,7 +49,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		// Esperar aqui penduraria o agente até o teto do transporte.
 		logging.Infof(ctx, acpPermissionComponent,
 			"[ACP] permissão negada na hora, sem ninguém a quem perguntar (sessão %q, conversa %q): %s",
-			req.SessionID, owner.ConversationID, action)
+			req.SessionID, owner.ConversationID, registro)
 		return acp.PermissionOutcome{}
 	}
 
@@ -56,7 +57,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	if len(choices) == 0 {
 		// Pedido sem opção nenhuma: não há o que oferecer à pessoa, e inventar
 		// uma resposta seria decidir por ela.
-		logging.Warnf(ctx, acpPermissionComponent, "[ACP] pedido de permissão sem opções: %s", action)
+		logging.Warnf(ctx, acpPermissionComponent, "[ACP] pedido de permissão sem opções: %s", registro)
 		return acp.PermissionOutcome{}
 	}
 
@@ -88,7 +89,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		// Prazo estourado, turno cancelado ou app encerrando. Todos viram a
 		// mesma coisa para o agente: ninguém autorizou.
 		logging.Infof(ctx, acpPermissionComponent,
-			"[ACP] permissão sem resposta na conversa %q (%s): %v", owner.ConversationID, action, err)
+			"[ACP] permissão sem resposta na conversa %q (%s): %v", owner.ConversationID, registro, err)
 		return acp.PermissionOutcome{}
 	}
 	if resp.Cancelled {
@@ -129,6 +130,20 @@ func (h *acpRequestHandler) questionnaireManager() *questionnaire.Manager {
 		return nil
 	}
 	return h.questions()
+}
+
+// permissionLogSummary descreve o pedido para o log sem levar junto o que o
+// agente escreveu. O título costuma ser a linha de comando literal, e linha de
+// comando carrega segredo em flag e em variável de ambiente — é o mesmo motivo
+// pelo qual o shell do app não registra o comando cru. Na tela o texto
+// integral aparece, porque quem autoriza precisa ver o que está autorizando;
+// no log ele ficaria guardado sem que ninguém tenha pedido.
+func permissionLogSummary(call acp.ToolCall) string {
+	kind := acp.SanitizeLabel(call.Kind)
+	if kind == "" {
+		kind = "ação sem classe"
+	}
+	return fmt.Sprintf("%s, chamada %q", kind, acp.SanitizeLabel(call.ID))
 }
 
 // permissionDescription monta o texto do diálogo. Quem autoriza precisa ver o
