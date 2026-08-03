@@ -8,25 +8,31 @@ import (
 	"assistente/internal/acp"
 	"assistente/internal/database"
 	"assistente/internal/logging"
+	"assistente/internal/questionnaire"
 )
 
 // initACP cria o serviço que é dono dos processos e das sessões dos agentes de
 // código (AEP-0084 D3). Nada sobe aqui: o processo de um provider ACP só nasce
 // no primeiro uso — um turno, uma consulta de modelos, um health check.
 func (a *App) initACP() {
+	// O handler pergunta ao serviço quem espera o turno, e o serviço precisa
+	// do handler para nascer. Ele é preenchido logo abaixo: nenhum pedido do
+	// agente chega antes disso, porque o primeiro processo só sobe no primeiro
+	// turno.
+	handler := &acpRequestHandler{
+		questions: func() *questionnaire.Manager { return a.questionnaireMgr },
+	}
 	a.acpMgr = acp.NewManager(acp.ManagerConfig{
 		// O banco é buscado a cada uso, não guardado: resetá-lo fecha a conexão
 		// e abre outra, e uma conexão guardada aqui ficaria apontando para a
 		// fechada até o app reiniciar.
-		Store: acp.NewDBSessionStore(database.DB),
-		// Handler nulo nega todo pedido do agente na hora. Quem responde
-		// permissão é a camada do D9, que ainda não existe; até lá negar é o
-		// comportamento seguro, e nunca deixar um turno pendurado é regra.
-		Handler:       nil,
+		Store:         acp.NewDBSessionStore(database.DB),
+		Handler:       handler,
 		WorkDir:       a.acpWorkDir,
 		ClientName:    "assistente",
 		ClientVersion: AppVersion,
 	})
+	handler.owner = a.acpMgr.TurnOwnerOf
 }
 
 // acpWorkDir é o diretório sobre o qual o agente age (AEP-0084 D5): o workspace
