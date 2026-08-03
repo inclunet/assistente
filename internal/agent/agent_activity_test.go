@@ -52,6 +52,43 @@ func eventosPorNome(emitter *mockEmitter, nome string) []any {
 	return encontrados
 }
 
+func TestAvisoDoTurnoViraEventoProprioENaoTextoDaResposta(t *testing.T) {
+	emitter := &mockEmitter{}
+	var fala []speechCall
+	handler := novoHandlerDeAgente(t, emitter, &fala)
+
+	handler.OnTurnNotice(llm.TurnNotice{Kind: llm.TurnNoticeAttachmentsNotSent, Count: 2})
+
+	avisos := eventosPorNome(emitter, "chat:notice")
+	if len(avisos) != 1 {
+		t.Fatalf("esperava 1 chat:notice, recebi %d", len(avisos))
+	}
+	aviso := avisos[0].(ports.ChatNoticeEvent)
+	if aviso.ConversationID != "conversa-1" {
+		t.Errorf("conversa=%q, esperava a do turno", aviso.ConversationID)
+	}
+	// O motivo vai como código: quem exibe traduz para o idioma de quem lê.
+	if aviso.Kind != ports.ChatNoticeKindAttachmentsNotSent || aviso.Count != 2 {
+		t.Errorf("aviso=%+v, esperava dois anexos não enviados", aviso)
+	}
+	// O aviso é do app: emendá-lo na resposta o deixaria salvo e lido como
+	// fala do modelo.
+	if streams := eventosPorNome(emitter, "chat:stream"); len(streams) != 0 {
+		t.Errorf("o aviso virou conteúdo da resposta: %+v", streams)
+	}
+}
+
+func TestAvisoSemMotivoNaoEEmitido(t *testing.T) {
+	emitter := &mockEmitter{}
+	handler := novoHandlerDeAgente(t, emitter, nil)
+
+	handler.OnTurnNotice(llm.TurnNotice{Count: 1})
+
+	if avisos := eventosPorNome(emitter, "chat:notice"); len(avisos) != 0 {
+		t.Errorf("aviso sem motivo não tem o que dizer a ninguém: %+v", avisos)
+	}
+}
+
 func TestFerramentaDoAgenteChegaMarcadaComoDele(t *testing.T) {
 	emitter := &mockEmitter{}
 	handler := novoHandlerDeAgente(t, emitter, nil)

@@ -227,6 +227,23 @@ type ContextWarningEvent struct {
 	ContextLimit   int     `json:"contextLimit"`
 }
 
+// ChatNoticeKindAttachmentsNotSent identifica o turno que seguiu sem parte dos
+// anexos, porque o provedor não os recebe (AEP-0084). Não é falha: o turno
+// segue com o texto, e a pessoa é avisada do que ficou de fora em vez de
+// esperar uma resposta sobre uma imagem que o modelo nunca viu.
+const ChatNoticeKindAttachmentsNotSent = "attachments_not_sent"
+
+// ChatNoticeEvent is the payload for chat:notice — um aviso sobre o turno que
+// não é a resposta, não é falha e não encerra nada.
+//
+// O motivo vai como código, e não como frase: quem exibe traduz para o idioma
+// de quem lê.
+type ChatNoticeEvent struct {
+	ConversationID string `json:"conversationId"`
+	Kind           string `json:"kind"`
+	Count          int    `json:"count,omitempty"`
+}
+
 // SummaryStartedEvent is the payload for chat:summary_started.
 type SummaryStartedEvent struct {
 	ConversationID string `json:"conversationId"`
