@@ -414,7 +414,28 @@ confirmação de edição, que já é acessível por teclado e leitor de telas.
 - As opções vêm do próprio pedido (`allow-once`, `allow-always`,
   `reject-once`), com os rótulos que o agente mandou.
 - `allow-always` é registrado numa **allowlist por perfil**, com o mesmo padrão
-  de escopo das allowlists existentes.
+  de escopo das allowlists existentes: um arquivo por perfil em
+  `.assistente/acp-permissions/`, gravado de forma atômica, como a allowlist de
+  rede.
+- A autorização permanente vale **por classe de ação** (`execute`, `edit`,
+  `read`…), e não pelo texto do pedido. O título que o agente manda é a linha de
+  comando literal e muda a cada chamada: guardar por texto nunca casaria de
+  novo, e casar por pedaço de comando seria pior, porque um prefixo idêntico não
+  diz nada sobre o que vem depois dele. Como a classe é mais ampla do que o
+  comando que está na tela, o diálogo diz isso antes de alguém escolher
+  "permitir sempre" — quem autoriza precisa saber o alcance do que autoriza.
+  Pedido em que o agente não declara classe cai em `other`, e autoriza só
+  `other`.
+- O que já foi autorizado é respondido **sem abrir diálogo**, com a permissão
+  pontual do próprio pedido: quem lembra da decisão é o app, e é ele que a
+  repete a cada pedido. Dizer "sempre" ao agente todas as vezes faria ele
+  guardar do lado dele uma decisão que a pessoa pode revogar aqui. Um pedido que
+  não ofereça nenhuma opção de permitir volta para a tela: sem ela não há como
+  dizer sim no idioma do método.
+- A autorização permanente **também é consultada só pelo desktop**, pelo mesmo
+  motivo que só pode ser concedida ali: turno sem interlocutor nega na hora,
+  antes de olhar a allowlist, para que um canal remoto não colha o sim que
+  alguém deu na tela.
 - **Toda pergunta tem prazo.** Sem resposta dentro do prazo, respondemos o
   desfecho negativo **daquele método** — `reject-once` em
   `session/request_permission`, `skipped` em `cursor/ask_question`, `rejected`
