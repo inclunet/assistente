@@ -41,18 +41,27 @@ func TestATelaMostraOQueCadaPerfilAutorizou(t *testing.T) {
 	}
 }
 
-func TestClasseQueNinguemReconheceNaoViraCodigoCruNaTela(t *testing.T) {
-	// O que o agente inventou passa pelo conjunto do protocolo antes de virar
-	// linha na tela, como em todo o resto do D11.
+func TestClasseQueOAppNaoConheceAindaPodeSerRevogada(t *testing.T) {
+	// A classe vai como o arquivo a guarda. Passá-la pelo conjunto conhecido
+	// hoje transformaria em "other" o que uma versão futura (ou um arquivo
+	// editado à mão) tivesse gravado, e a revogação então não casaria com a
+	// entrada: a linha ficaria na tela, impossível de tirar. Quem exibe é que
+	// traduz o desconhecido para a frase genérica.
 	a := appComAutorizacoes(t)
-	if err := a.acpTrust.Allow("cursor", "faz-tudo"); err != nil {
+	if err := a.acpTrust.Allow("cursor", "classe-nova"); err != nil {
 		t.Fatalf("autorizar: %v", err)
 	}
 
 	lista := a.GetAgentPermissions()
 
-	if len(lista) != 1 || lista[0].Action != "other" {
-		t.Errorf("classe na tela = %+v, quer other", lista)
+	if len(lista) != 1 || lista[0].Action != "classe-nova" {
+		t.Fatalf("classe na tela = %+v, quer a que está guardada", lista)
+	}
+	if err := a.RevokeAgentPermission(lista[0].ProfileSlug, lista[0].Action); err != nil {
+		t.Errorf("revogar o que a tela mostra: %v", err)
+	}
+	if len(a.GetAgentPermissions()) != 0 {
+		t.Error("a autorização continuou na lista depois de revogada")
 	}
 }
 

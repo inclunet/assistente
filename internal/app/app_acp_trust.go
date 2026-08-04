@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"assistente/internal/acp"
 	"assistente/internal/acptrust"
 )
 
@@ -20,7 +19,10 @@ type AgentPermissionView struct {
 	// foi apagado com a autorização ainda guardada — e aí a tela mostra o
 	// slug, que é o que sobrou dele.
 	ProfileName string `json:"profileName,omitempty"`
-	// Action é a classe da ação, como código. Quem exibe traduz.
+	// Action é a classe da ação como o arquivo a guarda, e é ela que volta na
+	// revogação. Vai como código: quem exibe traduz, e o que não estiver no
+	// conjunto que a interface conhece vira a frase genérica em vez de aparecer
+	// cru na tela.
 	Action string `json:"action"`
 	// GrantedAt é quando a pessoa autorizou, em RFC 3339.
 	GrantedAt string `json:"grantedAt"`
@@ -43,7 +45,11 @@ func (a *App) GetAgentPermissions() []AgentPermissionView {
 			out = append(out, AgentPermissionView{
 				ProfileSlug: slug,
 				ProfileName: names[slug],
-				Action:      acp.ToolKind(entry.Kind),
+				// A classe vai como está guardada, e não pelo conjunto que o
+				// app conhece hoje: o que ele não reconhecesse viraria "other"
+				// na tela e na revogação, que então não casaria com a entrada
+				// do arquivo — a linha ficaria lá, impossível de tirar.
+				Action:      strings.ToLower(strings.TrimSpace(entry.Kind)),
 				GrantedAt:   entry.GrantedAt.Format(time.RFC3339),
 			})
 		}
