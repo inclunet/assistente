@@ -7,6 +7,7 @@ import {
   AGENT_OPTION_MODE,
   AGENT_OPTION_MODEL,
   agentModeLabel,
+  labelOfValue,
   optionByCategory,
   useAgentSessionOptions,
   type AgentConfigOption,
@@ -112,18 +113,4 @@ function itemsOf(
     value: item.value,
     label: labelOfValue(option, item.value, translateValue),
   }));
-}
-
-/**
- * labelOfValue é o texto de um valor da opção. Mora aqui, e é usado tanto pelos
- * itens quanto pelo anúncio, para o que a pessoa ouve ser o mesmo que está
- * escrito na lista.
- */
-function labelOfValue(
-  option: AgentConfigOption,
-  value: string,
-  translateValue?: (value: string) => string,
-): string {
-  const item = option.values.find((candidate) => candidate.value === value);
-  return item?.name || translateValue?.(value) || value;
 }

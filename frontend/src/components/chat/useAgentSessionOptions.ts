@@ -112,14 +112,25 @@ export function useAgentSessionOptions(conversationId?: string | null): UseAgent
       // A pessoa precisa saber com quem está falando: o agente troca de modelo
       // por conta própria quando bate num limite de uso, e descobrir isso pela
       // resposta estranha é pior do que ouvir a troca.
+      const options = event.options ?? [];
       if (event.modelChanged && event.model) {
-        announceRef.current(tRef.current('chat.agentOptions.modelChangedByAgent', { model: event.model }));
+        // Pelo rótulo da lista, e não pelo identificador do protocolo: falado,
+        // `claude-sonnet-4-5-20250929` é ilegível. Esta troca é a que mais
+        // depende do anúncio — a pessoa não a viu acontecer.
+        announceRef.current(tRef.current('chat.agentOptions.modelChangedByAgent', {
+          model: labelOfValue(optionByCategory(options, AGENT_OPTION_MODEL), event.model),
+        }));
       }
       if (event.modeChanged && event.mode) {
-        // O agente manda o modo pelo valor do protocolo (`plan`, `ask`). Falar
-        // isso cru faria o leitor de telas ler inglês no meio do português.
+        // O agente manda o modo pelo valor do protocolo (`plan`, `ask`), e em
+        // geral sem rótulo nenhum. Falar isso cru faria o leitor de telas ler
+        // inglês no meio do português.
         announceRef.current(tRef.current('chat.agentOptions.modeChangedByAgent', {
-          mode: agentModeLabel(tRef.current, event.mode),
+          mode: labelOfValue(
+            optionByCategory(options, AGENT_OPTION_MODE),
+            event.mode,
+            (value) => agentModeLabel(tRef.current, value),
+          ),
         }));
       }
     });
@@ -162,6 +173,25 @@ export function optionByCategory(
   category: string,
 ): AgentConfigOption | undefined {
   return options.find((option) => (option.category ?? '').toLowerCase() === category);
+}
+
+/**
+ * labelOfValue é o texto de um valor da opção: o rótulo que o agente mandou;
+ * quando ele não manda nenhum — o modo não traz —, a tradução de quem exibe; e o
+ * último recurso é o valor cru.
+ *
+ * Mora aqui, e é usado tanto pelos itens dos seletores quanto pelos anúncios,
+ * porque o que a pessoa ouve tem de ser o que está escrito na lista. A opção
+ * pode faltar: um aviso do agente sobre uma opção que ele acabou de retirar
+ * ainda precisa ser dito, e aí o valor cru é melhor do que o silêncio.
+ */
+export function labelOfValue(
+  option: AgentConfigOption | undefined,
+  value: string,
+  translateValue?: (value: string) => string,
+): string {
+  const item = option?.values.find((candidate) => candidate.value === value);
+  return item?.name || translateValue?.(value) || value;
 }
 
 /** Rótulos dos modos que o protocolo enumera. O agente manda só o valor. */

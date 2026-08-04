@@ -60,15 +60,18 @@ const opcoesDoAgente = (modelo = 'modelo-a', modo = 'agent') => ({
 });
 
 /**
- * anuncioDaTroca acha o anúncio da troca de modelo entre os que o seletor faz —
- * ele também anuncia a navegação pela lista, e procurar no texto todo confundiria
- * o rótulo do item percorrido com o do modelo que valeu.
+ * anuncioDe acha um anúncio pela chave entre os que o seletor faz — ele também
+ * anuncia a navegação pela lista, e procurar no texto todo confundiria o rótulo
+ * do item percorrido com o do valor que valeu.
  */
-const anuncioDaTroca = (): string => {
-  const call = announce.mock.calls.find(([msg]) => String(msg).includes('chat.agentOptions.modelChanged'));
-  expect(call, 'a troca de modelo não foi anunciada').toBeTruthy();
+const anuncioDe = (key: string): string => {
+  const call = announce.mock.calls.find(([msg]) => String(msg).includes(key));
+  expect(call, `nada foi anunciado com ${key}`).toBeTruthy();
   return String(call?.[0]);
 };
+
+/** anuncioDaTroca é o anúncio da troca de modelo pedida pela pessoa. */
+const anuncioDaTroca = (): string => anuncioDe('chat.agentOptions.modelChanged|');
 
 beforeEach(() => {
   getOptions.mockReset();
@@ -170,9 +173,45 @@ describe('AgentOptionsPickers', () => {
     });
 
     await waitFor(() => expect(screen.getByText('Modelo B')).toBeInTheDocument());
-    const anunciado = announce.mock.calls.map(([msg]) => String(msg)).join(' ');
-    expect(anunciado).toContain('chat.agentOptions.modelChangedByAgent');
-    expect(anunciado).toContain('modelo-b');
+    // Esta é a troca que a pessoa não viu acontecer, e é por isso que ela mais
+    // depende do anúncio. Falada, tem de sair pelo rótulo da lista: o
+    // identificador do protocolo é ilegível.
+    const anunciado = anuncioDe('chat.agentOptions.modelChangedByAgent');
+    expect(anunciado).toContain('Modelo B');
+    expect(anunciado).not.toContain('modelo-b');
+  });
+
+  it('anuncia o modo que o agente trocou pelo rótulo que o agente deu', async () => {
+    const comRotuloDeModo = () => {
+      const estado = opcoesDoAgente('modelo-a', 'plan');
+      // O agente pode mandar rótulo próprio para o modo. Quando manda, é ele que
+      // aparece na lista — e é ele que a pessoa precisa ouvir, e não a tradução
+      // que este app usa quando o agente não diz nada.
+      estado.options[1].values = [
+        { value: 'agent', name: 'Agente autônomo' },
+        { value: 'plan', name: 'Planejamento' },
+      ];
+      return estado;
+    };
+    getOptions.mockResolvedValue(comRotuloDeModo());
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await screen.findByText('Modelo A');
+
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1',
+        options: comRotuloDeModo().options,
+        mode: 'plan',
+        modelChanged: false,
+        modeChanged: true,
+        announce: true,
+      });
+    });
+
+    const anunciado = await waitFor(() => anuncioDe('chat.agentOptions.modeChangedByAgent'));
+    expect(anunciado).toContain('Planejamento');
+    expect(anunciado).not.toContain('chat.agentOptions.mode.plan');
   });
 
   it('ignora o aviso de outra conversa', async () => {
