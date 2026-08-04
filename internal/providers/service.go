@@ -909,6 +909,30 @@ func (s *Service) GetModelsByProvider(ctx context.Context, providerID string) ([
 	return cp.GetModels(ctx)
 }
 
+// RefreshModelsByProvider relista os modelos descartando o que o provedor tiver
+// guardado. É o que a pessoa pede ao recarregar a lista na tela: sem isso, um
+// agente de código serviria para sempre a lista da sua sessão de descoberta, e
+// quem instalou um modelo novo nele não o veria aparecer (AEP-0084 D6).
+func (s *Service) RefreshModelsByProvider(ctx context.Context, providerID string) ([]string, error) {
+	if providerID == "" {
+		return []string{}, nil
+	}
+	cp, err := s.GetChatProvider(ctx, providerID)
+	if err != nil {
+		return nil, err
+	}
+	return llm.RefreshModels(ctx, cp)
+}
+
+// RefreshModels é o mesmo para o provedor do perfil ativo.
+func (s *Service) RefreshModels(ctx context.Context, activeProfile *profiles.Profile) ([]string, error) {
+	activeProfile = s.ResolveProfileDefaults(ctx, activeProfile)
+	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
+		return nil, fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
+	}
+	return s.RefreshModelsByProvider(ctx, activeProfile.Chat.LLMProvider)
+}
+
 // ActiveProviderInfo contém campos informativos sobre o provedor ativo.
 type ActiveProviderInfo struct {
 	ID                       string           `json:"id"`

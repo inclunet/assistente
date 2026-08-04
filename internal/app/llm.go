@@ -46,6 +46,27 @@ func (a *App) GetModelsByProvider(providerID string) ([]string, error) {
 	return a.providerSvc.GetModelsByProvider(ctx, providerID)
 }
 
+// RefreshModels relista os modelos do provedor ativo descartando o que ele tiver
+// guardado. É o recarregar da tela: para um agente de código, é a única forma de
+// ver um modelo que ele passou a oferecer (AEP-0084 D6).
+func (a *App) RefreshModels() ([]string, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	activeProfile, _ := a.profileManager.GetActive()
+	return a.providerSvc.RefreshModels(ctx, activeProfile)
+}
+
+// RefreshModelsByProvider é o mesmo para um provedor escolhido pelo identificador.
+func (a *App) RefreshModelsByProvider(providerID string) ([]string, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return nil, err
+	}
+	return a.providerSvc.RefreshModelsByProvider(ctx, providerID)
+}
+
 // Constantes de validação de input — re-exportadas de internal/chat para uso no pacote main.
 const (
 	MaxMessageContentSize = chat.MaxMessageContentSize
