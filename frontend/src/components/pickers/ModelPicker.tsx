@@ -1,7 +1,14 @@
 import { useState, useEffect, useImperativeHandle, forwardRef, type ReactNode } from 'react';
-import { CloseCircleOutlined, RobotOutlined } from '@ant-design/icons';
+import { CloseCircleOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { GetModels, GetModelsByProvider, GetLLMProvidersWithStatus } from '@wailsjs/go/app/App';
+import {
+  GetModels,
+  GetModelsByProvider,
+  GetLLMProvidersWithStatus,
+  RefreshModels,
+  RefreshModelsByProvider,
+} from '@wailsjs/go/app/App';
+import { Button } from '../ui/Button';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import './ModelPicker.css';
@@ -57,7 +64,14 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     }
   };
 
-  const loadModels = async () => {
+  /**
+   * loadModels busca a lista de modelos. `refresh` diz que foi a pessoa que
+   * pediu de novo, e só então o que o provedor tiver guardado é descartado: um
+   * agente de código responde de uma sessão de descoberta guardada por processo,
+   * e invalidar a cada render faria a tela de perfil bater no agente sem motivo
+   * (AEP-0084 D6).
+   */
+  const loadModels = async (refresh = false) => {
     if (variant === 'form' && !providerID) {
       setLoading(false);
       setError(t('pickers.model.selectProvider'));
@@ -74,9 +88,11 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
 
       const resolvedID = providerID ? await resolveProviderID(providerID) : '';
       if (resolvedID) {
-        modelsList = await GetModelsByProvider(resolvedID);
+        modelsList = refresh
+          ? await RefreshModelsByProvider(resolvedID)
+          : await GetModelsByProvider(resolvedID);
       } else if (!providerID) {
-        modelsList = await GetModels();
+        modelsList = refresh ? await RefreshModels() : await GetModels();
       } else {
         modelsList = [];
       }
@@ -116,8 +132,9 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     loadModels();
   }, [providerID]); // Recarrega quando providerID muda
 
+  // Quem chama reload está pedindo a lista de novo, e não a que já tínhamos.
   useImperativeHandle(ref, () => ({
-    reload: loadModels
+    reload: () => { void loadModels(true); }
   }));
 
   const defaultModelLabel = t('pickers.model.default', 'Padrão do provedor');
@@ -131,7 +148,13 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     onChange(selectedValue);
   };
 
-  return (
+  const handleRefresh = () => {
+    void loadModels(true).then(() => {
+      onAnnounce?.(t('pickers.model.refreshed', 'Lista de modelos recarregada'));
+    });
+  };
+
+  const picker = (
     <BasePicker
       variant={variant}
       items={items}
@@ -146,7 +169,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       onAnnounce={onAnnounce}
       loading={loading && !endpointNotSupported}
       error={endpointNotSupported ? null : (error || null)}
-      onRetry={endpointNotSupported ? undefined : loadModels}
+      onRetry={endpointNotSupported ? undefined : handleRefresh}
       retryLabel={t('pickers.model.retry')}
       showFormLabel={variant === 'form'}
       showFormLabelIcon={false}
@@ -161,6 +184,28 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       loadingLabel={{ form: t('pickers.model.loading'), toolbar: t('common.loading') }}
       errorLabel={{ form: error || t('pickers.model.loadError'), toolbar: t('common.error') }}
     />
+  );
+
+  if (variant !== 'form') return picker;
+
+  // O recarregar só existe no formulário porque é lá que a pessoa escolhe o
+  // modelo do perfil. Provedor que guarda a lista — o agente de código — só
+  // volta a perguntar por aqui.
+  return (
+    <div className="model-picker-form__stack">
+      {picker}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={handleRefresh}
+        disabled={disabled || loading}
+        aria-label={t('pickers.model.refreshLabel', 'Recarregar a lista de modelos do provedor')}
+      >
+        <ReloadOutlined aria-hidden="true" />
+        {t('pickers.model.refresh', 'Recarregar modelos')}
+      </Button>
+    </div>
   );
 });
 
