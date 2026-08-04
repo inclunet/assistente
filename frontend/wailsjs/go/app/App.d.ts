@@ -4,8 +4,8 @@ import {database} from '../models';
 import {workspace} from '../models';
 import {portability} from '../models';
 import {updater} from '../models';
-import {context} from '../models';
 import {app} from '../models';
+import {context} from '../models';
 import {allowlist} from '../models';
 import {controllers} from '../models';
 import {memory} from '../models';
@@ -54,6 +54,8 @@ export function CheckContextWindowThreshold(arg1:string,arg2:number):Promise<boo
 
 export function CheckForUpdates():Promise<updater.UpdateInfo>;
 
+export function CleanupLegacyChannelJSON(arg1:app.CleanupLegacyChannelJSONOptions):Promise<app.CleanupLegacyChannelJSONResult>;
+
 export function ClearAllChannels():Promise<void>;
 
 export function ClearAllCredentials():Promise<void>;
@@ -61,8 +63,6 @@ export function ClearAllCredentials():Promise<void>;
 export function ClearAllProfiles():Promise<void>;
 
 export function ClearAllSkills():Promise<void>;
-
-export function CleanupLegacyChannelJSON(arg1:app.CleanupLegacyChannelJSONOptions):Promise<app.CleanupLegacyChannelJSONResult>;
 
 export function ClearConversation(arg1:string):Promise<void>;
 
@@ -207,6 +207,8 @@ export function GetActiveProfileSlug():Promise<string>;
 export function GetActiveProviderInfo():Promise<Record<string, any>>;
 
 export function GetActiveWorkspace():Promise<workspace.Workspace>;
+
+export function GetAgentPermissions():Promise<Array<app.AgentPermissionView>>;
 
 export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelConfig>>;
 
@@ -473,6 +475,8 @@ export function RestartChannel(arg1:string):Promise<void>;
 export function RetryMessage(arg1:string,arg2:string,arg3:llm.ChatParams):Promise<string>;
 
 export function RetryUserRuntimeInit():Promise<app.RuntimePartialInitPayload>;
+
+export function RevokeAgentPermission(arg1:string,arg2:string):Promise<void>;
 
 export function RunDatabaseMaintenance(arg1:boolean):Promise<database.CompactionResult>;
 

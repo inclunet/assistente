@@ -62,6 +62,10 @@ export function CheckForUpdates() {
   return window['go']['app']['App']['CheckForUpdates']();
 }
 
+export function CleanupLegacyChannelJSON(arg1) {
+  return window['go']['app']['App']['CleanupLegacyChannelJSON'](arg1);
+}
+
 export function ClearAllChannels() {
   return window['go']['app']['App']['ClearAllChannels']();
 }
@@ -76,10 +80,6 @@ export function ClearAllProfiles() {
 
 export function ClearAllSkills() {
   return window['go']['app']['App']['ClearAllSkills']();
-}
-
-export function CleanupLegacyChannelJSON(arg1) {
-  return window['go']['app']['App']['CleanupLegacyChannelJSON'](arg1);
 }
 
 export function ClearConversation(arg1) {
@@ -368,6 +368,10 @@ export function GetActiveProviderInfo() {
 
 export function GetActiveWorkspace() {
   return window['go']['app']['App']['GetActiveWorkspace']();
+}
+
+export function GetAgentPermissions() {
+  return window['go']['app']['App']['GetAgentPermissions']();
 }
 
 export function GetAllChannelConfigs() {
@@ -900,6 +904,10 @@ export function RetryMessage(arg1, arg2, arg3) {
 
 export function RetryUserRuntimeInit() {
   return window['go']['app']['App']['RetryUserRuntimeInit']();
+}
+
+export function RevokeAgentPermission(arg1, arg2) {
+  return window['go']['app']['App']['RevokeAgentPermission'](arg1, arg2);
 }
 
 export function RunDatabaseMaintenance(arg1) {

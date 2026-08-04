@@ -83,6 +83,24 @@ export namespace allowlist {
 
 export namespace app {
 	
+	export class AgentPermissionView {
+	    profileSlug: string;
+	    profileName?: string;
+	    action: string;
+	    grantedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentPermissionView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.profileSlug = source["profileSlug"];
+	        this.profileName = source["profileName"];
+	        this.action = source["action"];
+	        this.grantedAt = source["grantedAt"];
+	    }
+	}
 	export class AuthStatus {
 	    vaultConfigured: boolean;
 	    vaultUnlocked: boolean;
@@ -612,8 +630,11 @@ export namespace channels {
 	    profile?: string;
 	    max_history?: number;
 	    max_contacts?: number;
+	    type?: string;
+	    display_name?: string;
 	    owner_user_id?: string;
 	    conversations?: Record<string, string>;
+	    reply_chat_ids?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChannelConfig(source);
@@ -633,8 +654,11 @@ export namespace channels {
 	        this.profile = source["profile"];
 	        this.max_history = source["max_history"];
 	        this.max_contacts = source["max_contacts"];
+	        this.type = source["type"];
+	        this.display_name = source["display_name"];
 	        this.owner_user_id = source["owner_user_id"];
 	        this.conversations = source["conversations"];
+	        this.reply_chat_ids = source["reply_chat_ids"];
 	    }
 	}
 	export class ChannelTemplateField {
@@ -2870,6 +2894,7 @@ export namespace llm {
 	    topP?: number;
 	    reasoningEffort?: string;
 	    profileSlug?: string;
+	    maxContextMessages?: number;
 	    allowAssistantPrefill?: boolean;
 	    continueViaUserMessage?: boolean;
 	    maxAgenticIterations?: number;
@@ -2897,6 +2922,7 @@ export namespace llm {
 	        this.topP = source["topP"];
 	        this.reasoningEffort = source["reasoningEffort"];
 	        this.profileSlug = source["profileSlug"];
+	        this.maxContextMessages = source["maxContextMessages"];
 	        this.allowAssistantPrefill = source["allowAssistantPrefill"];
 	        this.continueViaUserMessage = source["continueViaUserMessage"];
 	        this.maxAgenticIterations = source["maxAgenticIterations"];
@@ -3115,6 +3141,9 @@ export namespace llm {
 	    headers?: Record<string, string>;
 	    credential_pattern?: string;
 	    auth_mode?: string;
+	    acp_command?: string;
+	    acp_args?: string[];
+	    acp_env?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProviderConfig(source);
@@ -3134,6 +3163,9 @@ export namespace llm {
 	        this.headers = source["headers"];
 	        this.credential_pattern = source["credential_pattern"];
 	        this.auth_mode = source["auth_mode"];
+	        this.acp_command = source["acp_command"];
+	        this.acp_args = source["acp_args"];
+	        this.acp_env = source["acp_env"];
 	    }
 	}
 	

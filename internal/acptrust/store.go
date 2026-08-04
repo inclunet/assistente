@@ -34,6 +34,12 @@ var ErrEntryNotFound = errors.New("autorização permanente não encontrada")
 // allowlists de rede e de comando, que têm formato e propósito próprios.
 const subdir = "acp-permissions"
 
+// Cada perfil tem seu arquivo, nomeado como os da allowlist de rede.
+const (
+	profilePrefix = "profile-"
+	profileSuffix = ".json"
+)
+
 // storeFile é o formato em disco.
 type storeFile struct {
 	Version int     `json:"version"`
@@ -143,6 +149,40 @@ func (s *Store) List(profileSlug string) []Entry {
 	return entries
 }
 
+// Profiles diz quais perfis têm alguma autorização guardada. Quem revoga
+// precisa ver tudo o que já autorizou, e não só o do perfil aberto agora: uma
+// autorização esquecida num perfil que não se usa há meses continua valendo no
+// dia em que ele voltar.
+func (s *Store) Profiles() []string {
+	if s == nil || s.homeDir == nil {
+		return nil
+	}
+	home := s.homeDir()
+	if home == "" {
+		return nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	entries, err := os.ReadDir(filepath.Join(home, subdir))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, profilePrefix) || !strings.HasSuffix(name, profileSuffix) {
+			continue
+		}
+		slug := strings.TrimSuffix(strings.TrimPrefix(name, profilePrefix), profileSuffix)
+		if slug == "" {
+			continue
+		}
+		out = append(out, slug)
+	}
+	return out
+}
+
 // Revoke tira a autorização permanente daquela classe.
 func (s *Store) Revoke(profileSlug, kind string) error {
 	kind = normalizeKind(kind)
@@ -176,7 +216,7 @@ func (s *Store) profilePath(profileSlug string) string {
 	if home == "" {
 		return ""
 	}
-	return filepath.Join(home, subdir, "profile-"+slug+".json")
+	return filepath.Join(home, subdir, profilePrefix+slug+profileSuffix)
 }
 
 // loadFile distingue arquivo ausente (nada autorizado, sem erro) de arquivo
