@@ -446,9 +446,14 @@ func (c *conn) removeSession(id string) {
 	delete(c.sessions, id)
 }
 
-// sessionOf descobre a que sessão um pedido pertence. Métodos de sessão do ACP
-// — e as extensões do Cursor — carregam sessionId; os globais não, e para esses
-// scoped volta falso.
+// sessionOf descobre a que sessão um pedido pertence pelo corpo dele. Métodos
+// de sessão do ACP carregam sessionId; os globais não, e para esses scoped
+// volta falso.
+//
+// As extensões do Cursor estão do lado dos globais, ao contrário do que se
+// supunha: cursor/ask_question e cursor/create_plan levam só o toolCallId, e o
+// cursor/task observado na sonda chegou sem sessionId nenhum. Quem trata esses
+// pedidos encontra a conversa por soleTurnInFlight.
 func (c *conn) sessionOf(params json.RawMessage) (sess *session, scoped bool) {
 	var payload struct {
 		SessionID string `json:"sessionId"`
@@ -471,6 +476,31 @@ func (c *conn) session(id string) *session {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.sessions[id]
+}
+
+// soleTurnInFlight devolve a única sessão que está no meio de um turno. É por
+// aqui que um pedido sem sessionId acha a conversa dona dele: o agente só
+// pergunta durante um turno, e uma sessão tem no máximo um em voo (AEP-0084
+// D10).
+//
+// Com dois turnos correndo ao mesmo tempo — duas conversas do app falando com
+// o mesmo processo — não há como saber de quem é a pergunta, e volta nada.
+// Chutar mostraria a uma pessoa a pergunta da conversa de outra, e receberia
+// como resposta uma decisão que não é sobre o trabalho dela.
+func (c *conn) soleTurnInFlight() *session {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var found *session
+	for _, sess := range c.sessions {
+		if !sess.turnInFlight() {
+			continue
+		}
+		if found != nil {
+			return nil
+		}
+		found = sess
+	}
+	return found
 }
 
 // handleInbound trata tudo que o agente manda para o app. Todo caminho aqui
@@ -610,9 +640,18 @@ func (c *conn) handleCustom(ctx context.Context, method string, params json.RawM
 	if scoped && sess == nil {
 		return nil, sdk.NewRequestCancelled(map[string]any{"error": "sessão encerrada"})
 	}
+	if sess == nil {
+		// Pedido sem sessionId, que é como as extensões do Cursor chegam: a
+		// conversa dona dele é a do turno em voo. Sem turno nenhum — ou com
+		// mais de um — segue sem sessão, e quem trata resolve o pedido sem
+		// perguntar a ninguém.
+		sess = c.soleTurnInFlight()
+	}
 	var cancelled <-chan struct{}
+	req := CustomRequest{Method: method, Params: params}
 	if sess != nil {
 		cancelled = sess.cancelSignal()
+		req.SessionID = sess.ID()
 	}
 	hctx, stopHandler := c.handlerContext(ctx, cancelled)
 	defer stopHandler()
@@ -622,7 +661,7 @@ func (c *conn) handleCustom(ctx context.Context, method string, params json.RawM
 		handled bool
 	}
 	out, decided := guard(hctx, custom{}, func() custom {
-		result, handled := c.handler.HandleCustom(hctx, method, params)
+		result, handled := c.handler.HandleCustom(hctx, req)
 		return custom{result: result, handled: handled}
 	})
 	if signalFired(cancelled) {

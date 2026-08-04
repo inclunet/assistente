@@ -70,7 +70,7 @@ type scriptedHandler struct {
 	requests []PermissionRequest
 
 	decide   func(context.Context, PermissionRequest) PermissionOutcome
-	custom   func(ctx context.Context, method string, params json.RawMessage) (any, bool)
+	custom   func(ctx context.Context, req CustomRequest) (any, bool)
 	fallback func(method string) (any, bool)
 }
 
@@ -84,11 +84,11 @@ func (h *scriptedHandler) RequestPermission(ctx context.Context, req PermissionR
 	return h.decide(ctx, req)
 }
 
-func (h *scriptedHandler) HandleCustom(ctx context.Context, method string, params json.RawMessage) (any, bool) {
+func (h *scriptedHandler) HandleCustom(ctx context.Context, req CustomRequest) (any, bool) {
 	if h.custom == nil {
 		return nil, false
 	}
-	return h.custom(ctx, method, params)
+	return h.custom(ctx, req)
 }
 
 func (h *scriptedHandler) CustomFallback(method string) (any, bool) {
@@ -631,8 +631,8 @@ func TestExtensaoTratadaPeloHandlerRespondeAoAgente(t *testing.T) {
 	ctx := testContext(t)
 	var vistos []string
 	handler := &scriptedHandler{
-		custom: func(_ context.Context, method string, _ json.RawMessage) (any, bool) {
-			vistos = append(vistos, method)
+		custom: func(_ context.Context, req CustomRequest) (any, bool) {
+			vistos = append(vistos, req.Method)
 			return map[string]any{"answer": "sim"}, true
 		},
 	}
@@ -654,12 +654,92 @@ func TestExtensaoTratadaPeloHandlerRespondeAoAgente(t *testing.T) {
 	}
 }
 
+// As extensões do Cursor não carregam sessionId — cursor/ask_question e
+// cursor/create_plan levam só o toolCallId. Sem achar a conversa dona do
+// pedido, quem decide não saberia a quem perguntar, e a pergunta seria
+// resolvida no escuro. O agente só pergunta durante um turno, então é o turno
+// em voo que responde por ela.
+func TestExtensaoSemSessaoEncontraOTurnoEmVoo(t *testing.T) {
+	ctx := testContext(t)
+	vistos := make(chan string, 2)
+	handler := &scriptedHandler{
+		custom: func(_ context.Context, req CustomRequest) (any, bool) {
+			vistos <- req.SessionID
+			return map[string]any{"answer": "sim"}, true
+		},
+	}
+	client := newTestClient(t, scriptSemSessao, handler)
+	sess := startSession(t, client, ctx)
+
+	col := &collector{}
+	if _, err := sess.Prompt(ctx, []Content{TextContent("pergunte algo")}, col.sink); err != nil {
+		t.Fatalf("turno falhou: %v", err)
+	}
+
+	close(vistos)
+	var recebidos []string
+	for sessionID := range vistos {
+		recebidos = append(recebidos, sessionID)
+	}
+	if len(recebidos) != 1 || recebidos[0] != sess.ID() {
+		t.Errorf("conversa entregue a quem decide = %v, quer a do turno em voo (%q)", recebidos, sess.ID())
+	}
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, `"answer":"sim"`) {
+		t.Errorf("resposta da extensão não chegou ao agente: %q", got)
+	}
+}
+
+// Cancelar o turno também precisa alcançar a extensão que não diz a que sessão
+// pertence: sem isso a pessoa continuaria diante de uma pergunta sobre um
+// turno que ela mesma abortou, e o agente esperando por ela.
+func TestCancelarOTurnoCancelaAExtensaoSemSessao(t *testing.T) {
+	ctx := testContext(t)
+	perguntou := make(chan struct{})
+	handler := &scriptedHandler{
+		custom: func(hctx context.Context, _ CustomRequest) (any, bool) {
+			close(perguntou)
+			<-hctx.Done()
+			return nil, false
+		},
+	}
+	client := newTestClient(t, scriptSemSessao, handler)
+	sess := startSession(t, client, ctx)
+
+	turno, desistir := context.WithCancel(ctx)
+	defer desistir()
+
+	col := &collector{}
+	resultado := make(chan error, 1)
+	go func() {
+		_, err := sess.Prompt(turno, []Content{TextContent("pergunte algo")}, col.sink)
+		resultado <- err
+	}()
+
+	select {
+	case <-perguntou:
+	case <-time.After(testTimeout):
+		t.Fatal("a extensão nunca chegou ao handler")
+	}
+	desistir()
+
+	select {
+	case <-resultado:
+	case <-time.After(testTimeout):
+		t.Fatal("o turno cancelado nunca voltou")
+	}
+
+	esperado := fmt.Sprintf("erro:%d", sdk.NewRequestCancelled(nil).Code)
+	if got := col.textOfKind(UpdateText); !strings.Contains(got, esperado) {
+		t.Errorf("esperava %s, obtive: %q", esperado, got)
+	}
+}
+
 // Um handler quebrado é defeito do app, não falta de suporte à extensão:
 // responder "método não encontrado" faria o agente riscar a extensão da lista.
 func TestExtensaoComHandlerEmPanicoRespondeErroInternoENaoFaltaDeSuporte(t *testing.T) {
 	ctx := testContext(t)
 	handler := &scriptedHandler{
-		custom: func(context.Context, string, json.RawMessage) (any, bool) {
+		custom: func(context.Context, CustomRequest) (any, bool) {
 			panic("handler quebrado")
 		},
 	}
@@ -684,7 +764,7 @@ func TestCancelarOTurnoCancelaAExtensaoBloqueante(t *testing.T) {
 	perguntou := make(chan struct{})
 	dialogoFechou := make(chan struct{})
 	handler := &scriptedHandler{
-		custom: func(hctx context.Context, _ string, _ json.RawMessage) (any, bool) {
+		custom: func(hctx context.Context, _ CustomRequest) (any, bool) {
 			close(perguntou)
 			<-hctx.Done()
 			close(dialogoFechou)
@@ -1336,7 +1416,7 @@ func TestOEstadoDaSessaoNaoCompartilhaMemoriaComQuemEscuta(t *testing.T) {
 func TestIdentificadorSujoDaConversaContinuaRoteando(t *testing.T) {
 	ctx := testContext(t)
 	handler := &scriptedHandler{
-		custom: func(context.Context, string, json.RawMessage) (any, bool) {
+		custom: func(context.Context, CustomRequest) (any, bool) {
 			return map[string]any{"answer": "sim"}, true
 		},
 	}
@@ -1571,7 +1651,7 @@ func TestExtensaoSemDecisaoRecebeODesfechoQueElaEntende(t *testing.T) {
 
 	pedidos := make(chan string, 4)
 	handler := &scriptedHandler{
-		custom: func(context.Context, string, json.RawMessage) (any, bool) {
+		custom: func(context.Context, CustomRequest) (any, bool) {
 			<-preso
 			return map[string]any{"answer": "tarde demais"}, true
 		},
@@ -1611,7 +1691,7 @@ func TestExtensaoSemDesfechoConhecidoRecebeErroInterno(t *testing.T) {
 	t.Cleanup(func() { close(preso) })
 
 	handler := &scriptedHandler{
-		custom: func(context.Context, string, json.RawMessage) (any, bool) {
+		custom: func(context.Context, CustomRequest) (any, bool) {
 			<-preso
 			return nil, true
 		},

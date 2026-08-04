@@ -971,14 +971,3 @@ func TestClasseQueOAgenteNaoNomeouNaoViraAutorizacaoDeTudo(t *testing.T) {
 		t.Error("autorizar uma ação sem classe liberou execução de comando")
 	}
 }
-
-func TestExtensaoDoAgenteAindaNaoEhTratadaAqui(t *testing.T) {
-	h := handlerCom(nil, acp.TurnOwner{}, false)
-
-	if _, tratou := h.HandleCustom(context.Background(), "cursor/ask_question", nil); tratou {
-		t.Error("o handler disse tratar uma extensão que não trata")
-	}
-	if _, ok := h.CustomFallback("cursor/ask_question"); ok {
-		t.Error("ofereceu desfecho para um método que não implementa")
-	}
-}

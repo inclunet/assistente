@@ -10,6 +10,12 @@ import {
   CHAT_NOTICE_PERMISSION_NO_WATCHER,
   CHAT_NOTICE_PERMISSION_TIMEOUT,
   CHAT_NOTICE_PERMISSION_UNAVAILABLE,
+  CHAT_NOTICE_PLAN_NO_WATCHER,
+  CHAT_NOTICE_PLAN_TIMEOUT,
+  CHAT_NOTICE_PLAN_UNAVAILABLE,
+  CHAT_NOTICE_QUESTION_NO_WATCHER,
+  CHAT_NOTICE_QUESTION_TIMEOUT,
+  CHAT_NOTICE_QUESTION_UNAVAILABLE,
 } from './chatNotice';
 
 // Mock de TFunction: ecoa a chave + os args interpolados.
@@ -84,6 +90,30 @@ describe('chatNoticeMessage', () => {
 
     expect(message).toContain('app.chatNotice.permissionAlwaysNotSaved|');
     expect(message).toContain('"actionClass":"agentPermissions.action.edit"');
+  });
+
+  it('conta que a pergunta do agente passou sem que ninguém respondesse', () => {
+    expect(chatNoticeMessage(t, { kind: CHAT_NOTICE_QUESTION_NO_WATCHER })).toContain(
+      'app.chatNotice.questionNoWatcher|',
+    );
+    expect(chatNoticeMessage(t, { kind: CHAT_NOTICE_QUESTION_TIMEOUT })).toContain(
+      'app.chatNotice.questionTimeout|',
+    );
+    expect(chatNoticeMessage(t, { kind: CHAT_NOTICE_QUESTION_UNAVAILABLE })).toContain(
+      'app.chatNotice.questionUnavailable|',
+    );
+  });
+
+  it('conta que o plano foi recusado sem que ninguém decidisse', () => {
+    expect(chatNoticeMessage(t, { kind: CHAT_NOTICE_PLAN_NO_WATCHER })).toContain(
+      'app.chatNotice.planNoWatcher|',
+    );
+    expect(chatNoticeMessage(t, { kind: CHAT_NOTICE_PLAN_TIMEOUT })).toContain(
+      'app.chatNotice.planTimeout|',
+    );
+    expect(chatNoticeMessage(t, { kind: CHAT_NOTICE_PLAN_UNAVAILABLE })).toContain(
+      'app.chatNotice.planUnavailable|',
+    );
   });
 });
 

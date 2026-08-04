@@ -24,6 +24,10 @@ const (
 	scriptCancel        = "cancel"     // só termina quando recebe session/cancel
 	scriptDie           = "die"        // morre no meio do turno
 	scriptCustom        = "custom"     // usa um método de extensão fora do padrão
+	// scriptSemSessao é a extensão como o Cursor a manda de verdade: sem
+	// sessionId no corpo, só com o toolCallId (AEP-0084, descobertas
+	// empíricas).
+	scriptSemSessao = "semsessao"
 	scriptEcho          = "echo"       // devolve o que recebeu no prompt
 	scriptStall         = "stall"      // sobe, mas nunca responde ao handshake
 	scriptStuck         = "stuck"      // aceita o turno e nunca responde, nem ao cancelamento
@@ -407,6 +411,17 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 			},
 		})
 		a.chunk("agent_message_chunk", "decisão: "+describeOutcome(resp))
+
+	case scriptSemSessao:
+		resp := a.request("cursor/ask_question", map[string]any{
+			"toolCallId": "chamada-1\nfc-2",
+			"title":      "Prosseguir?",
+		})
+		if resp.Error != nil {
+			a.chunk("agent_message_chunk", fmt.Sprintf("erro:%d", resp.Error.Code))
+		} else {
+			a.chunk("agent_message_chunk", "resposta:"+string(resp.Result))
+		}
 
 	case scriptCustom:
 		resp := a.request("cursor/ask_question", map[string]any{

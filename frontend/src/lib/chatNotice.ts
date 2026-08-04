@@ -9,6 +9,12 @@ export const CHAT_NOTICE_PERMISSION_TIMEOUT = 'permission_denied_timeout';
 export const CHAT_NOTICE_PERMISSION_UNAVAILABLE = 'permission_denied_unavailable';
 export const CHAT_NOTICE_PERMISSION_ALWAYS_ALLOWED = 'permission_always_allowed';
 export const CHAT_NOTICE_PERMISSION_ALWAYS_NOT_SAVED = 'permission_always_not_saved';
+export const CHAT_NOTICE_QUESTION_NO_WATCHER = 'question_skipped_no_watcher';
+export const CHAT_NOTICE_QUESTION_TIMEOUT = 'question_skipped_timeout';
+export const CHAT_NOTICE_QUESTION_UNAVAILABLE = 'question_skipped_unavailable';
+export const CHAT_NOTICE_PLAN_NO_WATCHER = 'plan_rejected_no_watcher';
+export const CHAT_NOTICE_PLAN_TIMEOUT = 'plan_rejected_timeout';
+export const CHAT_NOTICE_PLAN_UNAVAILABLE = 'plan_rejected_unavailable';
 
 const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_ATTACHMENTS_NOT_SENT]: 'app.chatNotice.attachmentsNotSent',
@@ -17,6 +23,12 @@ const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_PERMISSION_UNAVAILABLE]: 'app.chatNotice.permissionUnavailable',
   [CHAT_NOTICE_PERMISSION_ALWAYS_ALLOWED]: 'app.chatNotice.permissionAlwaysAllowed',
   [CHAT_NOTICE_PERMISSION_ALWAYS_NOT_SAVED]: 'app.chatNotice.permissionAlwaysNotSaved',
+  [CHAT_NOTICE_QUESTION_NO_WATCHER]: 'app.chatNotice.questionNoWatcher',
+  [CHAT_NOTICE_QUESTION_TIMEOUT]: 'app.chatNotice.questionTimeout',
+  [CHAT_NOTICE_QUESTION_UNAVAILABLE]: 'app.chatNotice.questionUnavailable',
+  [CHAT_NOTICE_PLAN_NO_WATCHER]: 'app.chatNotice.planNoWatcher',
+  [CHAT_NOTICE_PLAN_TIMEOUT]: 'app.chatNotice.planTimeout',
+  [CHAT_NOTICE_PLAN_UNAVAILABLE]: 'app.chatNotice.planUnavailable',
 };
 
 /**

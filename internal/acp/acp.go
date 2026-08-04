@@ -330,6 +330,25 @@ type PermissionOutcome struct {
 	OptionID string
 }
 
+// CustomRequest é um método fora do padrão que o agente mandou ao app: as
+// extensões bloqueantes do Cursor e o que mais um agente inventar.
+type CustomRequest struct {
+	// Method é o nome do método JSON-RPC, como o agente o escreveu.
+	Method string
+
+	// SessionID é a conversa do agente a que o pedido pertence, resolvida pelo
+	// transporte. Vem do corpo quando o agente o manda; as extensões do Cursor
+	// não mandam — cursor/ask_question e cursor/create_plan carregam apenas o
+	// toolCallId —, e aí vale o único turno em voo. Vazio quer dizer que não
+	// deu para saber de quem é o pedido, e quem trata precisa resolvê-lo sem
+	// perguntar a ninguém.
+	SessionID string
+
+	// Params é o corpo cru do pedido. É dado não confiável como o resto do que
+	// vem do agente (AEP-0084 D11).
+	Params json.RawMessage
+}
+
 // RequestHandler responde ao que o agente pergunta ao app. Sem ele, todo pedido
 // é negado na hora: um turno pendurado é pior do que uma ação negada.
 //
@@ -343,7 +362,7 @@ type RequestHandler interface {
 	// HandleCustom responde métodos fora do padrão, como as extensões
 	// bloqueantes do Cursor. Devolver handled=false faz o transporte responder
 	// "método não encontrado", que desbloqueia o agente sem fingir suporte.
-	HandleCustom(ctx context.Context, method string, params json.RawMessage) (result any, handled bool)
+	HandleCustom(ctx context.Context, req CustomRequest) (result any, handled bool)
 
 	// CustomFallback devolve o desfecho negativo que o método aceita quando
 	// ninguém decidiu: o teto de tempo do transporte estourou ou o handler
@@ -366,7 +385,7 @@ func (denyAll) RequestPermission(context.Context, PermissionRequest) PermissionO
 	return PermissionOutcome{}
 }
 
-func (denyAll) HandleCustom(context.Context, string, json.RawMessage) (any, bool) {
+func (denyAll) HandleCustom(context.Context, CustomRequest) (any, bool) {
 	return nil, false
 }
 
