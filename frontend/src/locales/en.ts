@@ -352,6 +352,7 @@ const en = {
         contacts: 'Contacts',
         credentials: 'Cred Manager',
         allowlists: 'Allow Lists',
+        'agent-permissions': 'Agent Permissions',
         appearance: 'Appearance',
         data: 'Data',
         'restore-defaults': 'Restore Defaults',
@@ -514,6 +515,48 @@ const en = {
       error: {
         loadFailed: 'Error loading contacts',
         removeFailed: 'Error removing contact',
+      },
+    },
+
+    agentPermissions: {
+      title: 'Agent Permissions',
+      loading: 'Loading permissions...',
+      toolbarLabel: 'Agent permissions toolbar',
+      gridLabel: 'Standing agent permissions',
+      description: 'Actions you allowed a coding agent to take without asking again. The permission covers every action of that class in the profile, until you revoke it here.',
+      empty: 'No standing permissions. The agent asks before every action.',
+      loadFailedBody: 'Could not load the permissions. Any that exist are still in effect — reload to try again.',
+      columns: {
+        profile: 'Profile',
+        action: 'Allowed action',
+        grantedAt: 'Granted on',
+      },
+      actions: {
+        revoke: 'Revoke',
+        reload: 'Reload',
+      },
+      action: {
+        read: 'Read files',
+        edit: 'Edit files',
+        delete: 'Delete files',
+        move: 'Move files',
+        search: 'Run searches',
+        execute: 'Run commands',
+        think: 'Think',
+        fetch: 'Fetch from the network',
+        switchMode: 'Switch mode',
+        other: 'Actions with no declared class',
+        unknown: 'Actions of a class this app does not recognize',
+      },
+      confirm: {
+        title: 'Revoke permission',
+        message: 'Revoke "{{action}}" in profile {{profile}}? The agent will ask again before every action of that class.',
+      },
+      toast: { revoked: 'Permission revoked' },
+      announce: { revoked: 'Permission revoked: {{action}} in profile {{profile}}.' },
+      error: {
+        loadFailed: 'Error loading agent permissions',
+        revokeFailed: 'Error revoking permission',
       },
     },
 

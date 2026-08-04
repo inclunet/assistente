@@ -3,6 +3,7 @@ package acptrust
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -136,6 +137,51 @@ func TestArquivoIlegivelNaoLiberaNemApagaNada(t *testing.T) {
 	}
 	if data, err := os.ReadFile(caminho); err != nil || string(data) != "{isto não é json" {
 		t.Errorf("o arquivo original foi alterado: %q, %v", string(data), err)
+	}
+}
+
+func TestQuemRevogaVeTodosOsPerfisQueAutorizaramAlgo(t *testing.T) {
+	// Uma autorização esquecida num perfil que não se usa há meses continua
+	// valendo no dia em que ele voltar.
+	loja, dir := lojaEmDiretorioTemporario(t)
+	if err := loja.Allow("cursor", "execute"); err != nil {
+		t.Fatalf("autorizar: %v", err)
+	}
+	if err := loja.Allow("claude-code", "read"); err != nil {
+		t.Fatalf("autorizar: %v", err)
+	}
+	// Arquivo alheio no mesmo diretório não vira perfil.
+	if err := os.WriteFile(filepath.Join(dir, subdir, "outra-coisa.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatalf("preparar arquivo: %v", err)
+	}
+
+	perfis := loja.Profiles()
+
+	if len(perfis) != 2 {
+		t.Fatalf("perfis = %q, quer os dois que autorizaram algo", perfis)
+	}
+	for _, esperado := range []string{"cursor", "claude-code"} {
+		if !slices.Contains(perfis, esperado) {
+			t.Errorf("perfil %q ficou de fora da lista", esperado)
+		}
+	}
+}
+
+func TestAChaveDoPerfilEhAMesmaQueNomeiaOArquivo(t *testing.T) {
+	// Quem cruza a lista de perfis com as autorizações compara por aqui.
+	if chave := ProfileKey(" Cursor "); chave != "cursor" {
+		t.Errorf("chave = %q, quer a forma que nomeia o arquivo", chave)
+	}
+	if chave := ProfileKey("../fora"); chave != "fora" {
+		t.Errorf("chave = %q, quer o slug sem o que sai do diretório", chave)
+	}
+}
+
+func TestSemNadaAutorizadoNaoHaPerfilNenhum(t *testing.T) {
+	loja, _ := lojaEmDiretorioTemporario(t)
+
+	if perfis := loja.Profiles(); len(perfis) != 0 {
+		t.Errorf("perfis = %q, quer nenhum", perfis)
 	}
 }
 

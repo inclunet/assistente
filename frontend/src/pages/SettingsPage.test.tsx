@@ -27,6 +27,7 @@ vi.mock('react-i18next', () => ({
         'settingsPage.tabs.contacts': 'Contatos',
         'settingsPage.tabs.credentials': 'Cred Manager',
         'settingsPage.tabs.allowlists': 'Allow Lists',
+        'settingsPage.tabs.agent-permissions': 'Autorizações do Agente',
         'settingsPage.tabs.appearance': 'Aparência',
         'settingsPage.tabs.data': 'Dados',
         'settingsPage.tabs.restore-defaults': 'Restaurar Padrões',
@@ -41,6 +42,7 @@ vi.mock('./ChannelsPage', () => ({ default: () => <button data-testid="channels-
 vi.mock('./ContactsPage', () => ({ default: () => <button data-testid="contacts-default">ContactsPage</button> }));
 vi.mock('./CredentialsPage', () => ({ default: () => <button data-testid="credentials-default">CredentialsPage</button> }));
 vi.mock('./AllowlistPage', () => ({ default: () => <button data-testid="allowlists-default">AllowlistPage</button> }));
+vi.mock('./AgentPermissionsPage', () => ({ default: () => <button data-testid="agent-permissions-default">AgentPermissionsPage</button> }));
 vi.mock('./AppearancePage', () => ({ default: () => <button data-testid="appearance-default">AppearancePage</button> }));
 vi.mock('./DataManagementPage', () => ({ default: () => <button data-testid="data-default">DataManagementPage</button> }));
 vi.mock('./RestoreDefaultsPage', () => ({ default: () => <button data-testid="restore-defaults-default">RestoreDefaultsPage</button> }));
@@ -99,18 +101,18 @@ describe('SettingsPage', () => {
     expect(tablist).toHaveAttribute('aria-label', 'Configurações');
   });
 
-  it('renderiza todas as 10 tabs com role="tab"', () => {
+  it('renderiza todas as 11 tabs com role="tab"', () => {
     render(<SettingsPage />);
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(10);
+    expect(tabs).toHaveLength(11);
   });
 
-  it('renderiza todos os 10 tabpanels', () => {
+  it('renderiza todos os 11 tabpanels', () => {
     render(<SettingsPage />);
 
     const panels = screen.getAllByRole('tabpanel', { hidden: true });
-    expect(panels).toHaveLength(10);
+    expect(panels).toHaveLength(11);
   });
 
   it('renderiza o conteúdo do ProvidersPage no panel correspondente', async () => {
