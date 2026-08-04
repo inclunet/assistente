@@ -74,6 +74,15 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	}
 	content = append(instructions.blocks(), content...)
 
+	// O modelo do perfil chega ao agente antes do turno sair, e não depois: é o
+	// que faz a escolha da pessoa valer já no turno seguinte à troca (AEP-0084
+	// D6). O aviso, quando há, vai depois do envio — antes dele, o turno ainda
+	// pode falhar e a pessoa levaria um aviso sobre uma resposta que não veio.
+	// O modelo passa pela mesma cadeia dos outros provedores — pedido do turno,
+	// depois o do provider —, senão a escolha feita na configuração do provedor
+	// valeria para todo mundo menos para os agentes.
+	modelNotice, hasModelNotice := p.applyModel(ctx, conv, resolveModel(p.provider, params.Model))
+
 	// O agente pergunta no meio do turno, e o pedido chega por outra goroutine
 	// sabendo só o nome da sessão. É esta marca que diz a quem perguntar — e
 	// se há alguém (AEP-0084 D9). O dono do turno vai junto porque o contexto
@@ -110,15 +119,18 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	}
 
 	accepted := err == nil || turnAccepted(err)
+	if hasModelNotice && accepted {
+		// Só depois do aceite, pelo mesmo motivo do aviso de anexo: sem pedido
+		// entregue não há resposta sobre a qual avisar de que modelo ela veio.
+		notifyTurn(handler, TurnNotice{Kind: modelNotice, Model: p.currentModel(conv, params.Model)})
+	}
 	if notSent > 0 && accepted {
 		// O aviso só vale depois de o pedido chegar ao agente: sem aceite nada
 		// foi enviado, e dizer que "o turno seguiu só com o texto" mandaria a
 		// pessoa conferir uma resposta que não existe. Com aceite, ela precisa
 		// saber que o agente não viu o anexo — senão espera resposta sobre ele.
 		logging.Warnf(ctx, acpProviderComponent, "[ACP] %d anexo(s) ficaram de fora do turno", notSent)
-		if sink, ok := handler.(TurnNoticeSink); ok {
-			sink.OnTurnNotice(TurnNotice{Kind: TurnNoticeAttachmentsNotSent, Count: notSent})
-		}
+		notifyTurn(handler, TurnNotice{Kind: TurnNoticeAttachmentsNotSent, Count: notSent})
 	}
 
 	if err != nil {
@@ -146,8 +158,32 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	if stop != acp.StopEndTurn {
 		logging.Infof(ctx, acpProviderComponent, "[ACP] turno encerrado por %q", string(stop))
 	}
-	// Sem contagem de tokens: o agente cobra na conta dele e não reporta uso.
-	handler.OnDone(response, Usage{}, resolveModel(p.provider, params.Model))
+	// Sem contagem de tokens: o agente cobra na conta dele e não reporta uso. O
+	// modelo relatado é o da sessão, e não o que o perfil pediu: o agente troca
+	// sozinho, e dizer o pedido faria a mensagem ficar salva com a autoria
+	// errada.
+	handler.OnDone(response, Usage{}, p.currentModel(conv, params.Model))
+}
+
+// currentModel é o modelo em que a sessão está. Quando o agente não expõe
+// escolha, sobra o que o perfil pediu — que é o melhor palpite disponível e o
+// mesmo que os outros provedores do barramento relatam.
+func (p *ACPChatProvider) currentModel(conv *acp.Conversation, requested string) string {
+	if option, ok := acp.OptionByCategory(conv.Options(), acp.CategoryModel); ok {
+		if current := strings.TrimSpace(option.CurrentValue); current != "" {
+			return current
+		}
+	}
+	return resolveModel(p.provider, requested)
+}
+
+// notifyTurn entrega um aviso sobre o turno quando o handler sabe recebê-lo. É
+// um caminho só porque os avisos do turno já são três, e cada type assertion
+// solta é uma chance de esquecer de fazê-la.
+func notifyTurn(handler StreamHandler, notice TurnNotice) {
+	if sink, ok := handler.(TurnNoticeSink); ok {
+		sink.OnTurnNotice(notice)
+	}
 }
 
 // conversation empresta do serviço a conversa que o agente mantém, com a sessão
@@ -166,13 +202,7 @@ func (p *ACPChatProvider) conversation(ctx context.Context, params ChatParams) (
 		// que não é a desta conversa.
 		return nil, errors.New("turno sem conversa: provedor de agente de código só atende conversas")
 	}
-	conv, err := p.agents.Conversation(ctx, acp.ProviderSpec{
-		ID:      p.provider.ID,
-		Name:    p.provider.Name,
-		Command: p.provider.ACPCommand,
-		Args:    p.provider.ACPArgs,
-		Env:     p.provider.ACPEnv,
-	}, conversationID)
+	conv, err := p.agents.Conversation(ctx, p.spec(), conversationID)
 	if err != nil {
 		return nil, fmt.Errorf("agente indisponível: %w", err)
 	}
@@ -514,13 +544,6 @@ func (p *ACPChatProvider) SendChat(ctx context.Context, messages []Message, para
 // (AEP-0084 D14).
 func (p *ACPChatProvider) SimpleChat(ctx context.Context, model, systemPrompt, userMessage string) (string, error) {
 	return "", ErrACPAuxiliaryRole
-}
-
-// GetModels depende de uma sessão de descoberta no processo do agente e chega
-// com a troca de modelo e modo (AEP-0084 D6, Fase 4). Devolver uma lista vazia
-// em silêncio faria a tela de modelos parecer quebrada.
-func (p *ACPChatProvider) GetModels(ctx context.Context) ([]string, error) {
-	return nil, errors.New("listar modelos de um agente de código ainda não está disponível: quem escolhe o modelo é o agente")
 }
 
 // NativeMCPCapable é falso: o MCP de um agente é dele, configurado no projeto

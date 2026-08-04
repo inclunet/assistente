@@ -16,6 +16,8 @@ import {
   CHAT_NOTICE_QUESTION_NO_WATCHER,
   CHAT_NOTICE_QUESTION_TIMEOUT,
   CHAT_NOTICE_QUESTION_UNAVAILABLE,
+  CHAT_NOTICE_MODEL_NOT_APPLIED,
+  CHAT_NOTICE_MODEL_NOT_OFFERED,
 } from './chatNotice';
 
 // Mock de TFunction: ecoa a chave + os args interpolados.
@@ -114,6 +116,25 @@ describe('chatNoticeMessage', () => {
     expect(chatNoticeMessage(t, { kind: CHAT_NOTICE_PLAN_UNAVAILABLE })).toContain(
       'app.chatNotice.planUnavailable|',
     );
+  });
+
+  it('diz que modelo atendeu quando o escolhido não pôde valer', () => {
+    const naoOferecido = chatNoticeMessage(t, {
+      conversationId: 'conversa-1',
+      kind: CHAT_NOTICE_MODEL_NOT_OFFERED,
+      model: 'sonnet-4.5',
+    });
+    const naoAplicado = chatNoticeMessage(t, {
+      kind: CHAT_NOTICE_MODEL_NOT_APPLIED,
+      model: 'sonnet-4.5',
+    });
+
+    expect(naoOferecido).toContain('app.chatNotice.modelNotOffered|');
+    // O nome do modelo precisa chegar à frase: sem ele o aviso diz que a
+    // resposta veio de outro modelo sem dizer de qual.
+    expect(naoOferecido).toContain('"model":"sonnet-4.5"');
+    expect(naoAplicado).toContain('app.chatNotice.modelNotApplied|');
+    expect(naoAplicado).toContain('"model":"sonnet-4.5"');
   });
 });
 

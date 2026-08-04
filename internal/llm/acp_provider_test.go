@@ -29,6 +29,12 @@ type agenteFalso struct {
 
 	mu       sync.Mutex
 	recebido [][]acp.Content
+	// opcoes é o estado de configuração da sessão: em que modelo e modo o agente
+	// está e o que ele oferece.
+	opcoes        []acp.ConfigOption
+	trocas        []string
+	erroDaTroca   error
+	modeloDoTurno []string
 }
 
 func (a *agenteFalso) ID() string { return "sessao-de-teste" }
@@ -36,6 +42,13 @@ func (a *agenteFalso) ID() string { return "sessao-de-teste" }
 func (a *agenteFalso) Prompt(ctx context.Context, content []acp.Content, sink acp.UpdateSink) (acp.StopReason, error) {
 	a.mu.Lock()
 	a.recebido = append(a.recebido, content)
+	// O modelo em que o agente estava quando o turno chegou. É o que decide se a
+	// escolha da pessoa valeu para este turno ou só para a próxima vez.
+	for _, option := range a.opcoes {
+		if option.Category == acp.CategoryModel {
+			a.modeloDoTurno = append(a.modeloDoTurno, option.CurrentValue)
+		}
+	}
 	a.mu.Unlock()
 
 	if a.duranteOTurno != nil {
@@ -60,11 +73,67 @@ func (a *agenteFalso) Prompt(ctx context.Context, content []acp.Content, sink ac
 
 func (a *agenteFalso) Close(context.Context) error  { return nil }
 func (a *agenteFalso) Cancel(context.Context) error { return nil }
+
 func (a *agenteFalso) ConfigOptions() []acp.ConfigOption {
-	return nil
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return copiarOpcoes(a.opcoes)
 }
-func (a *agenteFalso) SetConfigOption(context.Context, string, string) ([]acp.ConfigOption, error) {
-	return nil, nil
+
+// SetConfigOption troca o valor corrente e devolve o conjunto resultante, como o
+// agente faz. O que a sessão guarda importa aqui: é o estado dela que decide se
+// o turno seguinte vai no modelo que a pessoa escolheu.
+func (a *agenteFalso) SetConfigOption(_ context.Context, id, value string) ([]acp.ConfigOption, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.trocas = append(a.trocas, id+"="+value)
+	if a.erroDaTroca != nil {
+		return nil, a.erroDaTroca
+	}
+	for i := range a.opcoes {
+		if a.opcoes[i].ID == id {
+			a.opcoes[i].CurrentValue = value
+		}
+	}
+	return copiarOpcoes(a.opcoes), nil
+}
+
+// trocasPedidas é o que o app pediu ao agente, na ordem.
+func (a *agenteFalso) trocasPedidas() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.trocas...)
+}
+
+// modelosDosTurnos é o modelo em que o agente estava em cada turno recebido.
+func (a *agenteFalso) modelosDosTurnos() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.modeloDoTurno...)
+}
+
+func copiarOpcoes(options []acp.ConfigOption) []acp.ConfigOption {
+	out := make([]acp.ConfigOption, len(options))
+	for i, option := range options {
+		option.Values = append([]acp.ConfigValue(nil), option.Values...)
+		out[i] = option
+	}
+	return out
+}
+
+// opcaoDeModelo é a opção de modelo como um agente a devolve: categoria de
+// modelo, valor corrente e a lista do que ele oferece.
+func opcaoDeModelo(corrente string, valores ...string) acp.ConfigOption {
+	option := acp.ConfigOption{
+		ID:           "model",
+		Name:         "Modelo",
+		Category:     acp.CategoryModel,
+		CurrentValue: corrente,
+	}
+	for _, valor := range valores {
+		option.Values = append(option.Values, acp.ConfigValue{Value: valor, Name: valor})
+	}
+	return option
 }
 
 func (a *agenteFalso) turnos() [][]acp.Content {
@@ -76,6 +145,11 @@ func (a *agenteFalso) turnos() [][]acp.Content {
 type clienteFalso struct {
 	sessao *agenteFalso
 	caps   acp.Capabilities
+
+	mu         sync.Mutex
+	cache      []acp.ConfigOption
+	invalidado bool
+	consultas  int
 }
 
 func (c *clienteFalso) NewSession(context.Context, string) (acp.Session, error) {
@@ -88,6 +162,32 @@ func (c *clienteFalso) Capabilities(context.Context) (acp.Capabilities, error) {
 	return c.caps, nil
 }
 func (c *clienteFalso) CloseSession(context.Context, string) error { return nil }
+
+// Options imita a descoberta: responde o que a sessão do agente conhece e conta
+// quantas vezes foi consultado, que é como o teste vê o cache funcionando.
+func (c *clienteFalso) Options(context.Context, string) ([]acp.ConfigOption, error) {
+	c.mu.Lock()
+	c.consultas++
+	invalidado := c.invalidado
+	c.invalidado = false
+	cache := c.cache
+	c.mu.Unlock()
+
+	if cache != nil && !invalidado {
+		return cache, nil
+	}
+	options := c.sessao.ConfigOptions()
+	c.mu.Lock()
+	c.cache = options
+	c.mu.Unlock()
+	return options, nil
+}
+
+func (c *clienteFalso) InvalidateOptions() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.invalidado = true
+}
 func (c *clienteFalso) Call(context.Context, string, any) (json.RawMessage, error) {
 	return nil, nil
 }
@@ -98,15 +198,24 @@ func (c *clienteFalso) Close() error { return nil }
 // (AEP-0084 D3) sem subir processo.
 func servicoDeAgentes(t *testing.T, sessao *agenteFalso, caps acp.Capabilities) *acp.Manager {
 	t.Helper()
+	mgr, _ := servicoComTransporte(t, sessao, caps)
+	return mgr
+}
+
+// servicoComTransporte devolve também o transporte, para os testes que precisam
+// ver quantas vezes a descoberta foi consultada.
+func servicoComTransporte(t *testing.T, sessao *agenteFalso, caps acp.Capabilities) (*acp.Manager, *clienteFalso) {
+	t.Helper()
 	dir := t.TempDir()
+	cliente := &clienteFalso{sessao: sessao, caps: caps}
 	mgr := acp.NewManager(acp.ManagerConfig{
 		WorkDir: func() (string, error) { return dir, nil },
 		Dial: func(acp.Config, acp.RequestHandler) (acp.Client, error) {
-			return &clienteFalso{sessao: sessao, caps: caps}, nil
+			return cliente, nil
 		},
 	})
 	t.Cleanup(mgr.Shutdown)
-	return mgr
+	return mgr, cliente
 }
 
 // providerDeAgente monta o provider sobre um agente que só recebe texto, que é
@@ -866,12 +975,16 @@ func TestAgenteNaoRecebeMCPDoApp(t *testing.T) {
 	}
 }
 
-func TestListarModelosDoAgenteExplicaAAusencia(t *testing.T) {
-	provider := providerDeAgente(t, &agenteFalso{})
+// Sem o serviço de agentes não há descoberta possível, e a tela precisa ouvir o
+// motivo: lista vazia em silêncio pareceria um agente sem modelo nenhum.
+func TestListarModelosSemOServicoDeAgentesExplicaAAusencia(t *testing.T) {
+	provider := NewACPChatProvider(&ProviderConfig{
+		ID: "cursor", Name: "Cursor", APIFormat: APIFormatACP, ACPCommand: "cursor-agent",
+	}, nil)
 
 	models, err := provider.GetModels(t.Context())
 	if err == nil {
-		t.Fatal("listar modelos deveria explicar que a descoberta ainda não existe, e não devolver lista vazia em silêncio")
+		t.Fatal("listar modelos sem o serviço de agentes deveria explicar a falha")
 	}
 	if len(models) != 0 {
 		t.Errorf("modelos = %v, quer nenhum", models)

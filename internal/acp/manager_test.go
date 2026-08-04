@@ -31,6 +31,17 @@ type fakeManagedClient struct {
 	closedByID []string
 	closed     bool
 
+	// options é o que a descoberta responde, optionCalls conta quantas vezes o
+	// agente foi consultado de fato e invalidations quantas vezes o cache foi
+	// descartado.
+	options       []ConfigOption
+	optionCalls   int
+	invalidations int
+
+	// sessionOptions é o estado com que cada sessão nova nasce, como o agente
+	// devolve no session/new.
+	sessionOptions []ConfigOption
+
 	sessions []*fakeManagedSession
 	nextID   int
 }
@@ -47,7 +58,11 @@ func (c *fakeManagedClient) NewSession(_ context.Context, cwd string) (Session, 
 		return nil, c.newErr
 	}
 	c.nextID++
-	sess := &fakeManagedSession{id: fmt.Sprintf("sess-%d", c.nextID), cwd: cwd}
+	sess := &fakeManagedSession{
+		id:      fmt.Sprintf("sess-%d", c.nextID),
+		cwd:     cwd,
+		options: copyOptions(c.sessionOptions),
+	}
 	c.sessions = append(c.sessions, sess)
 	return sess, nil
 }
@@ -60,7 +75,7 @@ func (c *fakeManagedClient) LoadSession(_ context.Context, sessionID, cwd string
 	if c.loadErr != nil {
 		return nil, c.loadErr
 	}
-	sess := &fakeManagedSession{id: sessionID, cwd: cwd}
+	sess := &fakeManagedSession{id: sessionID, cwd: cwd, options: copyOptions(c.sessionOptions)}
 	c.sessions = append(c.sessions, sess)
 	return sess, nil
 }
@@ -79,6 +94,25 @@ func (c *fakeManagedClient) Capabilities(context.Context) (Capabilities, error) 
 		return Capabilities{}, c.capsErr
 	}
 	return c.caps, nil
+}
+
+func (c *fakeManagedClient) Options(context.Context, string) ([]ConfigOption, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.optionCalls++
+	return copyOptions(c.options), nil
+}
+
+func (c *fakeManagedClient) InvalidateOptions() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.invalidations++
+}
+
+func (c *fakeManagedClient) discovery() (calls, invalidations int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.optionCalls, c.invalidations
 }
 
 func (c *fakeManagedClient) Call(context.Context, string, any) (json.RawMessage, error) {
@@ -105,6 +139,22 @@ type fakeManagedSession struct {
 	mu       sync.Mutex
 	closed   bool
 	closeErr error
+
+	options  []ConfigOption
+	setErr   error
+	setCalls []setOptionCall
+	// duringSet roda no meio da troca, entre o pedido e a resposta. É o agente
+	// contando a mudança por notificação enquanto ainda responde a ela: a
+	// entrega vem por outra goroutine, e nada ordena as duas.
+	duringSet func(id, value string)
+	// setApplied é o valor que o agente aplica de verdade, quando ele acomoda o
+	// pedido em outro. Vazio significa que ele aplica o que foi pedido.
+	setApplied string
+}
+
+type setOptionCall struct {
+	id    string
+	value string
 }
 
 func (s *fakeManagedSession) ID() string { return s.id }
@@ -125,10 +175,46 @@ func (s *fakeManagedSession) Close(context.Context) error {
 
 func (s *fakeManagedSession) Cancel(context.Context) error { return nil }
 
-func (s *fakeManagedSession) ConfigOptions() []ConfigOption { return nil }
+func (s *fakeManagedSession) ConfigOptions() []ConfigOption {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return copyOptions(s.options)
+}
 
-func (s *fakeManagedSession) SetConfigOption(context.Context, string, string) ([]ConfigOption, error) {
-	return nil, nil
+// SetConfigOption troca o valor corrente como um agente de verdade faria, e
+// devolve o conjunto resultante. Guardar a troca importa: o teste da troca vinda
+// do agente precisa distinguir o que o app pediu do que o agente decidiu.
+func (s *fakeManagedSession) SetConfigOption(_ context.Context, id, value string) ([]ConfigOption, error) {
+	s.mu.Lock()
+	s.setCalls = append(s.setCalls, setOptionCall{id: id, value: value})
+	during := s.duringSet
+	s.mu.Unlock()
+
+	if during != nil {
+		during(id, value)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.setErr != nil {
+		return nil, s.setErr
+	}
+	applied := value
+	if s.setApplied != "" {
+		applied = s.setApplied
+	}
+	for i := range s.options {
+		if s.options[i].ID == id {
+			s.options[i].CurrentValue = applied
+		}
+	}
+	return copyOptions(s.options), nil
+}
+
+func (s *fakeManagedSession) optionSets() []setOptionCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]setOptionCall(nil), s.setCalls...)
 }
 
 func (s *fakeManagedSession) isClosed() bool {

@@ -19,21 +19,32 @@ const (
 	fakeScriptEnv = "ASSISTENTE_ACP_FAKE_SCRIPT"
 
 	// Roteiros do agente falso.
-	scriptTurn          = "turn"       // um turno completo com texto, raciocínio e ferramenta
-	scriptPermission    = "permission" // pede permissão e conta o que foi decidido
-	scriptCancel        = "cancel"     // só termina quando recebe session/cancel
-	scriptDie           = "die"        // morre no meio do turno
-	scriptCustom        = "custom"     // usa um método de extensão fora do padrão
+	scriptTurn       = "turn"       // um turno completo com texto, raciocínio e ferramenta
+	scriptPermission = "permission" // pede permissão e conta o que foi decidido
+	scriptCancel     = "cancel"     // só termina quando recebe session/cancel
+	scriptDie        = "die"        // morre no meio do turno
+	scriptCustom     = "custom"     // usa um método de extensão fora do padrão
 	// scriptSemSessao é a extensão como o Cursor a manda de verdade: sem
 	// sessionId no corpo, só com o toolCallId (AEP-0084, descobertas
 	// empíricas).
 	scriptSemSessao = "semsessao"
-	scriptEcho          = "echo"       // devolve o que recebeu no prompt
-	scriptStall         = "stall"      // sobe, mas nunca responde ao handshake
-	scriptStuck         = "stuck"      // aceita o turno e nunca responde, nem ao cancelamento
-	scriptTeimoso       = "teimoso"    // ignora o cancelamento e segue falando para sempre
-	scriptDuasConversas = "duas"       // fala em pedaços, assinando cada um com a conversa
-	scriptIDSujo        = "idsujo"     // abre a conversa com identificador cheio de sujeira
+	// scriptDescoberta conta, em cada sessão nova, quantas ele já abriu e
+	// quantas foram fechadas, e dá a cada uma um modelo corrente diferente. É
+	// como o teste vê de fora se a descoberta reperguntou ao agente ou serviu o
+	// que já tinha, e se sobrou sessão pendurada nele (AEP-0084 D6).
+	scriptDescoberta = "descoberta"
+	// scriptLegado é o agente anterior ao configOptions: desconhece
+	// session/set_config_option e só entende os seletores de antes.
+	scriptLegado = "legado"
+	// scriptModelo responde ao turno dizendo em que modelo ele está, que é como
+	// o teste confere que a troca valeu para o turno seguinte.
+	scriptModelo        = "modelo"
+	scriptEcho          = "echo"    // devolve o que recebeu no prompt
+	scriptStall         = "stall"   // sobe, mas nunca responde ao handshake
+	scriptStuck         = "stuck"   // aceita o turno e nunca responde, nem ao cancelamento
+	scriptTeimoso       = "teimoso" // ignora o cancelamento e segue falando para sempre
+	scriptDuasConversas = "duas"    // fala em pedaços, assinando cada um com a conversa
+	scriptIDSujo        = "idsujo"  // abre a conversa com identificador cheio de sujeira
 
 	fakeSessionID = "sess-falsa-1"
 	// fakeMuteValue faz o agente aceitar a troca e responder com um conjunto de
@@ -90,6 +101,12 @@ type fakeAgent struct {
 	// uso normal do agente, o que não pode acontecer é na mesma sessão.
 	inTurn  map[string]bool
 	overlap bool
+
+	// closes conta os session/close atendidos e model guarda o modelo corrente
+	// de cada sessão. Os dois viram resposta no fio: o agente roda em outro
+	// processo, e contador que o teste não pode ler não prova nada.
+	closes int
+	model  map[string]string
 }
 
 func runFakeAgent(script string) {
@@ -100,6 +117,7 @@ func runFakeAgent(script string) {
 		pending:   make(map[string]chan rpcMessage),
 		inTurn:    make(map[string]bool),
 		cancelled: make(map[string]chan struct{}),
+		model:     make(map[string]string),
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -190,12 +208,21 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 		})
 
 	case "session/new":
+		sid := a.newSessionID()
+		option := fakeModelOption(a.startModel(sid))
+		if a.script == scriptDescoberta {
+			// O nome carrega a escrituração do agente: quantas sessões ele
+			// abriu e quantas foram fechadas. É o único jeito de o teste, que
+			// roda em outro processo, conferir que a descoberta não deixou
+			// sessão pendurada.
+			option["name"] = a.bookkeeping()
+		}
 		a.reply(*msg.ID, map[string]any{
-			"sessionId":     a.newSessionID(),
-			"configOptions": []any{fakeModelOption("modelo-a")},
+			"sessionId":     sid,
+			"configOptions": []any{option},
 			"modes": map[string]any{
 				"currentModeId":  "agent",
-				"availableModes": []any{map[string]any{"id": "agent", "name": "Agente"}},
+				"availableModes": []any{map[string]any{"id": "agent", "name": "Agente"}, map[string]any{"id": "plan", "name": "Plano"}},
 			},
 		})
 
@@ -204,18 +231,71 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 			// Vivo, mas surdo: é o agente que penduraria o fechamento do app.
 			return
 		}
+		a.countClose()
 		a.reply(*msg.ID, map[string]any{})
+
+	case legacySetModelMethod:
+		// Só o agente legado conhece o seletor de antes; nos outros ele cai no
+		// método desconhecido, como num agente que já migrou.
+		if a.script != scriptLegado {
+			a.replyError(*msg.ID, -32601, "método desconhecido: "+msg.Method)
+			return
+		}
+		var params struct {
+			SessionId string `json:"sessionId"`
+			ModelId   string `json:"modelId"`
+		}
+		_ = json.Unmarshal(msg.Params, &params)
+		if params.SessionId == "" || params.ModelId == "" {
+			a.replyError(*msg.ID, -32602, "parâmetros inesperados: "+string(msg.Params))
+			return
+		}
+		a.setModel(params.SessionId, params.ModelId)
+		// O seletor legado não devolve estado nenhum: é justamente o caso em
+		// que o app tem de anotar por conta própria o que pediu.
+		a.reply(*msg.ID, nil)
+
+	case "session/set_mode":
+		if a.script != scriptLegado {
+			a.replyError(*msg.ID, -32601, "método desconhecido: "+msg.Method)
+			return
+		}
+		var params struct {
+			SessionId string `json:"sessionId"`
+			ModeId    string `json:"modeId"`
+		}
+		_ = json.Unmarshal(msg.Params, &params)
+		if params.SessionId == "" || params.ModeId == "" {
+			a.replyError(*msg.ID, -32602, "parâmetros inesperados: "+string(msg.Params))
+			return
+		}
+		a.reply(*msg.ID, nil)
 
 	case "session/load":
 		a.reply(*msg.ID, map[string]any{"configOptions": []any{fakeModelOption("modelo-b")}})
 
 	case "session/set_config_option":
+		if a.script == scriptLegado {
+			// Agente anterior ao formato estável: só conhece os seletores de
+			// antes, e é este erro que o app usa para tentar o outro caminho.
+			a.replyError(*msg.ID, -32601, "método desconhecido: "+msg.Method)
+			return
+		}
 		var params struct {
 			SessionId string `json:"sessionId"`
 			ConfigId  string `json:"configId"`
 			Value     string `json:"value"`
 		}
 		_ = json.Unmarshal(msg.Params, &params)
+		if a.script == scriptModelo {
+			if params.SessionId == "" || params.ConfigId != "model" || params.Value == "" {
+				a.replyError(*msg.ID, -32602, "parâmetros inesperados: "+string(msg.Params))
+				return
+			}
+			a.setModel(params.SessionId, params.Value)
+			a.reply(*msg.ID, map[string]any{"configOptions": []any{fakeModelOption(params.Value)}})
+			return
+		}
 		if params.SessionId != fakeSessionID {
 			a.replyError(*msg.ID, -32602, "parâmetros inesperados: "+string(msg.Params))
 			return
@@ -276,6 +356,48 @@ func (a *fakeAgent) newSessionID() string {
 		return fmt.Sprintf("sess-falsa-%d", a.sessions)
 	}
 	return a.first
+}
+
+// startModel é o modelo em que uma sessão nasce. No roteiro de descoberta cada
+// sessão nasce num modelo diferente: é o que permite distinguir a lista que veio
+// do agente agora da que estava guardada.
+func (a *fakeAgent) startModel(sid string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	model := "modelo-a"
+	if a.script == scriptDescoberta {
+		model = fmt.Sprintf("modelo-%d", a.sessions)
+	}
+	a.model[sid] = model
+	return model
+}
+
+func (a *fakeAgent) setModel(sid, model string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.model[sid] = model
+}
+
+func (a *fakeAgent) currentModel(sid string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.model[sid]
+}
+
+func (a *fakeAgent) countClose() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.closes++
+}
+
+// bookkeeping é o que o agente sabe de si: sessões abertas e fechadas até agora,
+// e qual processo está contando. O processo entra porque duas execuções do mesmo
+// roteiro contam igual — sem ele, uma lista servida do cache de um processo
+// morto seria indistinguível da resposta de um processo novo.
+func (a *fakeAgent) bookkeeping() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return fmt.Sprintf("abertas=%d fechadas=%d processo=%d", a.sessions, a.closes, os.Getpid())
 }
 
 // firstID é a conversa para onde vão as atualizações dos roteiros de uma
@@ -371,6 +493,23 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 
 	case scriptEcho:
 		a.chunk("agent_message_chunk", string(msg.Params))
+
+	case scriptDescoberta:
+		if len(params.Prompt) > 0 && params.Prompt[0].Text == "morra" {
+			// Morrer a pedido do turno é como o processo cai no uso real: no
+			// meio de uma conversa, com o cache do processo já povoado.
+			os.Exit(3)
+		}
+		// Fora disso, o agente troca de modelo por conta própria e anuncia.
+		a.updateFor(params.SessionId, map[string]any{
+			"sessionUpdate": "config_option_update",
+			"configOptions": []any{fakeModelOption("modelo-b")},
+		})
+
+	case scriptModelo, scriptLegado:
+		// O turno diz em que modelo o agente está. É o que prova que a troca
+		// pedida pelo app valeu para o turno seguinte, e não só para a tela.
+		a.chunkOf(params.SessionId, "agent_message_chunk", "modelo="+a.currentModel(params.SessionId))
 
 	case scriptCancel:
 		a.chunkOf(params.SessionId, "agent_message_chunk", "trabalhando")
@@ -516,16 +655,23 @@ func describeOutcome(resp rpcMessage) string {
 }
 
 func fakeModelOption(current string) map[string]any {
+	values := []any{
+		map[string]any{"value": "modelo-a", "name": "Modelo A"},
+		map[string]any{"value": "modelo-b", "name": "Modelo B"},
+	}
+	// Um agente sempre oferece o modelo em que está. Sem isso, um roteiro que
+	// nasce fora da dupla padrão anunciaria um corrente que ele não oferece —
+	// estado que existe no mundo real, mas não é o que estes roteiros contam.
+	if current != "modelo-a" && current != "modelo-b" {
+		values = append(values, map[string]any{"value": current, "name": current})
+	}
 	return map[string]any{
 		"type":         "select",
 		"id":           "model",
 		"name":         "Modelo",
 		"category":     "model",
 		"currentValue": current,
-		"options": []any{
-			map[string]any{"value": "modelo-a", "name": "Modelo A"},
-			map[string]any{"value": "modelo-b", "name": "Modelo B"},
-		},
+		"options":      values,
 	}
 }
 

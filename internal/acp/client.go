@@ -159,8 +159,15 @@ func (c *client) NewSession(ctx context.Context, cwd string) (Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	return cn.openSession(ctx, dir)
+}
 
-	resp, err := sdk.SendRequest[sdk.NewSessionResponse](cn.rpc, ctx, sdk.AgentMethodSessionNew, sdk.NewSessionRequest{
+// openSession abre uma sessão no agente. É o caminho único: a sessão de uma
+// conversa e a de descoberta (AEP-0084 D6) nascem do mesmo session/new, e
+// duplicar isso deixaria a segunda sem o tratamento das opções que a primeira
+// recebe.
+func (c *conn) openSession(ctx context.Context, dir string) (*session, error) {
+	resp, err := sdk.SendRequest[sdk.NewSessionResponse](c.rpc, ctx, sdk.AgentMethodSessionNew, sdk.NewSessionRequest{
 		Cwd:        dir,
 		McpServers: []sdk.McpServer{},
 	})
@@ -172,7 +179,7 @@ func (c *client) NewSession(ctx context.Context, cwd string) (Session, error) {
 	}
 
 	options := withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes)
-	return cn.registerSession(string(resp.SessionId), dir, options), nil
+	return c.registerSession(string(resp.SessionId), dir, options), nil
 }
 
 func (c *client) LoadSession(ctx context.Context, sessionID, cwd string) (Session, error) {
@@ -293,6 +300,13 @@ type conn struct {
 	// backstop é o teto de tempo de quem decide; campo, e não constante direta,
 	// para que o teste não precise esperar meia hora.
 	backstop time.Duration
+
+	// disco é a sessão de descoberta deste processo e o cache das opções que
+	// ela produziu (AEP-0084 D6). Mora na conexão, e não no cliente, e é isso
+	// que dá de graça a invalidação por queda do processo: a conexão nova
+	// começa com o cache vazio, porque a sessão que produziu a lista anterior
+	// morreu com a antiga.
+	disco discovery
 
 	mu       sync.Mutex
 	sessions map[string]*session

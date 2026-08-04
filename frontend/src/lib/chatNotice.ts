@@ -15,6 +15,8 @@ export const CHAT_NOTICE_QUESTION_UNAVAILABLE = 'question_skipped_unavailable';
 export const CHAT_NOTICE_PLAN_NO_WATCHER = 'plan_rejected_no_watcher';
 export const CHAT_NOTICE_PLAN_TIMEOUT = 'plan_rejected_timeout';
 export const CHAT_NOTICE_PLAN_UNAVAILABLE = 'plan_rejected_unavailable';
+export const CHAT_NOTICE_MODEL_NOT_OFFERED = 'model_not_offered';
+export const CHAT_NOTICE_MODEL_NOT_APPLIED = 'model_not_applied';
 
 const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_ATTACHMENTS_NOT_SENT]: 'app.chatNotice.attachmentsNotSent',
@@ -29,6 +31,8 @@ const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_PLAN_NO_WATCHER]: 'app.chatNotice.planNoWatcher',
   [CHAT_NOTICE_PLAN_TIMEOUT]: 'app.chatNotice.planTimeout',
   [CHAT_NOTICE_PLAN_UNAVAILABLE]: 'app.chatNotice.planUnavailable',
+  [CHAT_NOTICE_MODEL_NOT_OFFERED]: 'app.chatNotice.modelNotOffered',
+  [CHAT_NOTICE_MODEL_NOT_APPLIED]: 'app.chatNotice.modelNotApplied',
 };
 
 /**
@@ -44,6 +48,8 @@ export interface ChatNoticeEvent {
   kind?: string;
   count?: number;
   action?: string;
+  /** Modelo que atendeu ao turno, quando o escolhido não pôde valer. */
+  model?: string;
 }
 
 /**
@@ -59,6 +65,7 @@ export function chatNoticeMessage(t: TFunction, event: ChatNoticeEvent): string 
   }
   return t(key, {
     count: event.count ?? 0,
+    model: event.model ?? '',
     // As duas formas de nomear a mesma classe: dentro da frase e como item de
     // lista. Cada aviso usa a que couber na sua frase, e nenhum precisa saber
     // qual foi a classe para escolher.
