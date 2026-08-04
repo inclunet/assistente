@@ -3652,7 +3652,7 @@ const ptBR = {
           urlTitle: 'Configuração do Servidor',
           urlDescription: 'Informe a URL do servidor OpenAI-compatible.',
           urlPrompt: 'URL do servidor',
-          urlInvalid: '⚠️ {{detail}}\n\nCorreija a URL e tente novamente.',
+          urlInvalid: '⚠️ {{detail}}\n\nCorrija a URL e tente novamente.',
           urlUnreachable: '⚠️ {{detail}}',
           apiKeyTitle: 'Chave de API',
           apiKeyDescription: 'Informe sua chave de API. Deixe em branco se o servidor não requer autenticação.',

@@ -227,7 +227,7 @@ func welcomeInvalidURL(err error) questionnaire.Text {
 	return questionnaire.KeyedWith(
 		welcomeTextKey("urlInvalid"),
 		map[string]any{"detail": err.Error()},
-		fmt.Sprintf("⚠️ %v\n\nCorreija a URL e tente novamente.", err),
+		fmt.Sprintf("⚠️ %v\n\nCorrija a URL e tente novamente.", err),
 	)
 }
 

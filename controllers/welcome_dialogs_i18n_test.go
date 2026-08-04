@@ -337,7 +337,7 @@ func TestOsAvisosDoWizardTemChaveEDetalheInterpolado(t *testing.T) {
 		},
 		"URL inválida": {
 			texto:     welcomeInvalidURL(errURLDeTeste),
-			fallback:  "⚠️ esquema não suportado\n\nCorreija a URL e tente novamente.",
+			fallback:  "⚠️ esquema não suportado\n\nCorrija a URL e tente novamente.",
 			temDetail: true,
 		},
 		"servidor inalcançável": {
