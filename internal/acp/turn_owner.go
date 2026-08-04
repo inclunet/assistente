@@ -12,10 +12,16 @@ type TurnOwner struct {
 	ConversationID string
 
 	// Interactive é o turno que tem gente esperando numa tela capaz de
-	// responder. Turno de job agendado, de subagente ou de canal não tem: ali
-	// perguntar seria pendurar o agente até o prazo estourar, e a regra é
-	// negar na hora.
+	// responder. Turno de job agendado, de subagente ou de canal não tem tela;
+	// o de canal tem a própria conversa, e quem resolve essa superfície precisa
+	// de UserID para chegar até ela (AEP-0084 D9, Fase 5).
 	Interactive bool
+
+	// UserID é o dono do turno. Ele é anotado aqui porque o pedido de permissão
+	// chega depois, por outra goroutine e num contexto do transporte, onde o
+	// escopo de usuário já não existe — e sem ele não há como descobrir de que
+	// canal veio a conversa sem ler dados de outra pessoa (AEP-0052).
+	UserID string
 
 	// ProfileSlug é o perfil que pediu o turno, quando ele foi escolhido
 	// explicitamente (canais, jobs). Vazio quer dizer o perfil ativo, e quem
