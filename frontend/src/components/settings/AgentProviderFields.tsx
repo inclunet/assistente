@@ -118,6 +118,7 @@ export const AgentProviderFields = ({
   // que agora é HTTP; trocar de agente deixa em voo a procura do anterior, que
   // descreve outra coisa.
   const searchSeq = useRef(0);
+  const probeSeq = useRef(0);
   const mountedRef = useRef(true);
   useEffect(
     () => () => {
@@ -223,8 +224,16 @@ export const AgentProviderFields = ({
     // desmonta o formulário. A tela já escondia o resultado de outra
     // configuração pela assinatura, mas o anúncio saía de qualquer jeito, e quem
     // usa leitor de telas ouviria "conectado" sobre o comando anterior.
+    //
+    // O número da sonda entra pelo mesmo motivo que na detecção. Duas sondas em
+    // voo não deveriam acontecer — o botão fica desabilitado enquanto uma roda —,
+    // e é justamente por isso que a guarda é barata: se um dia acontecer, a
+    // resposta velha não desliga o "testando..." da nova nem fala por ela.
+    const seq = ++probeSeq.current;
     const outraConfiguracao = () =>
-      !mountedRef.current || signature !== configSignature(commandRef.current, argsRef.current);
+      !mountedRef.current ||
+      seq !== probeSeq.current ||
+      signature !== configSignature(commandRef.current, argsRef.current);
 
     setTesting(true);
     setTested(null);
@@ -240,7 +249,7 @@ export const AgentProviderFields = ({
       setTested({ signature, health: null, error: message });
       announce(message, 'assertive');
     } finally {
-      if (mountedRef.current) {
+      if (mountedRef.current && seq === probeSeq.current) {
         setTesting(false);
       }
     }
