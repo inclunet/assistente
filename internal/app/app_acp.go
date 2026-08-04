@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"assistente/internal/acp"
+	"assistente/internal/acptrust"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/logging"
@@ -20,9 +21,19 @@ func (a *App) initACP() {
 	// do handler para nascer. Ele é preenchido logo abaixo: nenhum pedido do
 	// agente chega antes disso, porque o primeiro processo só sobe no primeiro
 	// turno.
+	if a.acpTrust == nil {
+		a.acpTrust = acptrust.NewStore()
+	}
 	handler := &acpRequestHandler{
 		questions: func() *questionnaire.Manager { return a.questionnaireMgr },
 		notices:   func() ports.Emitter { return a.emitter },
+		trust:     func() *acptrust.Store { return a.acpTrust },
+		activeProfile: func() string {
+			if a.profileManager == nil {
+				return ""
+			}
+			return a.profileManager.GetActiveSlug()
+		},
 	}
 	a.acpMgr = acp.NewManager(acp.ManagerConfig{
 		// O banco é buscado a cada uso, não guardado: resetá-lo fecha a conexão

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"assistente/internal/acp"
+	"assistente/internal/acptrust"
 	"assistente/internal/core/ports"
 	"assistente/internal/questionnaire"
 )
@@ -166,6 +167,16 @@ func handlerCom(tela *telaFalsa, owner acp.TurnOwner, temTurno bool) *acpRequest
 		h.questions = func() *questionnaire.Manager { return tela.manager }
 	}
 	return h
+}
+
+// lembrandoAutorizacoes dá ao handler onde guardar o "permitir sempre", num
+// diretório que só existe durante o teste.
+func lembrandoAutorizacoes(tb testing.TB, h *acpRequestHandler, perfilAtivo string) *acptrust.Store {
+	tb.Helper()
+	store := acptrust.NewStoreWithDir(tb.TempDir())
+	h.trust = func() *acptrust.Store { return store }
+	h.activeProfile = func() string { return perfilAtivo }
+	return store
 }
 
 // escutandoAvisos liga o handler à conversa para ler o que ela recebe.
@@ -706,6 +717,181 @@ func TestRespostaForaDasOpcoesNaoAutorizaNada(t *testing.T) {
 
 	if out := h.RequestPermission(context.Background(), pedidoDeExecucao()); out.OptionID != "" {
 		t.Errorf("decisão = %q, quer nenhuma", out.OptionID)
+	}
+}
+
+// escolhendo devolve a opção cujo rótulo começa com o texto pedido, para o
+// teste dizer o que a pessoa clicou sem repetir a lista inteira.
+func escolhendo(rotulo string) func([]string) string {
+	return func(opcoes []string) string {
+		for _, opcao := range opcoes {
+			if strings.HasPrefix(opcao, rotulo) {
+				return opcao
+			}
+		}
+		return ""
+	}
+}
+
+func TestQuemAutorizouParaSempreNaoEPerguntadoDeNovo(t *testing.T) {
+	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	lembrandoAutorizacoes(t, h, "cursor")
+
+	if out := h.RequestPermission(context.Background(), pedidoDeExecucao()); out.OptionID != "allow-always" {
+		t.Fatalf("primeira decisão = %q, quer a que a pessoa escolheu", out.OptionID)
+	}
+
+	out := h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	if tela.quantasPerguntas() != 1 {
+		t.Errorf("perguntas na tela = %d, quer 1: a pessoa já tinha respondido", tela.quantasPerguntas())
+	}
+	// Volta a permissão pontual: quem lembra da autorização é o app, e é ele
+	// quem a repete a cada pedido.
+	if out.OptionID != "allow-once" {
+		t.Errorf("decisão = %q, quer a permissão pontual", out.OptionID)
+	}
+}
+
+func TestPermitirUmaVezNaoAutorizaAProxima(t *testing.T) {
+	tela := novaTelaFalsa(escolhendo("Permitir uma vez"))
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	lembrandoAutorizacoes(t, h, "cursor")
+
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	if tela.quantasPerguntas() != 2 {
+		t.Errorf("perguntas na tela = %d, quer 2: só a desta vez foi autorizada", tela.quantasPerguntas())
+	}
+}
+
+func TestAutorizarUmaClasseNaoLiberaAsOutras(t *testing.T) {
+	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	lembrandoAutorizacoes(t, h, "cursor")
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	// Autorizar comandos não pode liberar edição de arquivo.
+	pedido := pedidoDeExecucao()
+	pedido.ToolCall = acp.ToolCall{ID: "call-2", Kind: "edit", Title: "reescrever main.go"}
+	h.RequestPermission(context.Background(), pedido)
+
+	if tela.quantasPerguntas() != 2 {
+		t.Errorf("perguntas na tela = %d, quer 2: a outra classe nunca foi autorizada", tela.quantasPerguntas())
+	}
+}
+
+func TestAAutorizacaoDoTurnoEhADoPerfilQuePediuOTurno(t *testing.T) {
+	// Canal e job dizem em qual perfil correm. Guardar tudo no perfil ativo do
+	// desktop misturaria autorizações de agentes diferentes.
+	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true, ProfileSlug: "cursor"}, true)
+	store := lembrandoAutorizacoes(t, h, "outro-perfil")
+
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	if !store.Allows("cursor", "execute") {
+		t.Error("a autorização não ficou no perfil que pediu o turno")
+	}
+	if store.Allows("outro-perfil", "execute") {
+		t.Error("a autorização foi parar no perfil ativo, e não no do turno")
+	}
+}
+
+func TestSemPerfilNenhumOAgenteContinuaPerguntando(t *testing.T) {
+	// Sem saber de quem é a autorização, guardá-la valeria para todos os
+	// perfis — o oposto do que a pessoa autorizou.
+	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	lembrandoAutorizacoes(t, h, "")
+
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	if tela.quantasPerguntas() != 2 {
+		t.Errorf("perguntas na tela = %d, quer 2: não havia onde guardar a autorização", tela.quantasPerguntas())
+	}
+}
+
+func TestSemOndeGuardarOTurnoAindaSegueComOSimDaPessoa(t *testing.T) {
+	// Não conseguir lembrar não é motivo para desautorizar o que a pessoa
+	// acabou de permitir.
+	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+
+	if out := h.RequestPermission(context.Background(), pedidoDeExecucao()); out.OptionID != "allow-always" {
+		t.Errorf("decisão = %q, quer a que a pessoa escolheu", out.OptionID)
+	}
+}
+
+func TestODialogoDizAteOndeVaiOSempre(t *testing.T) {
+	// "Permitir sempre" vale para a classe inteira, e não só para o comando
+	// que está na tela. Quem não souber disso autoriza mais do que pretende.
+	tela := novaTelaFalsa(escolhendo("Permitir uma vez"))
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	lembrandoAutorizacoes(t, h, "cursor")
+
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	descricao, _ := tela.ultimaPergunta(t)["description"].(string)
+	if !strings.Contains(descricao, "permitir sempre") || !strings.Contains(descricao, "execute") {
+		t.Errorf("descrição = %q, quer dizer o que o sempre abrange", descricao)
+	}
+}
+
+func TestPedidoSemOpcaoDeSempreNaoFalaDeAutorizacaoPermanente(t *testing.T) {
+	tela := novaTelaFalsa(func(opcoes []string) string { return opcoes[0] })
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	lembrandoAutorizacoes(t, h, "cursor")
+
+	pedido := pedidoDeExecucao()
+	pedido.Options = []acp.PermissionOption{
+		{ID: "allow-once", Name: "Permitir uma vez", Kind: "allow_once"},
+		{ID: "reject-once", Name: "Negar", Kind: "reject_once"},
+	}
+	h.RequestPermission(context.Background(), pedido)
+
+	descricao, _ := tela.ultimaPergunta(t)["description"].(string)
+	if strings.Contains(descricao, "permitir sempre") {
+		t.Errorf("descrição = %q, fala de uma opção que o agente não ofereceu", descricao)
+	}
+}
+
+func TestSemOpcaoDePermitirAPerguntaVoltaParaATela(t *testing.T) {
+	// A autorização é do app, mas quem responde é o agente: se ele não
+	// ofereceu como dizer sim, não há o que responder no lugar dele.
+	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	lembrandoAutorizacoes(t, h, "cursor")
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	pedido := pedidoDeExecucao()
+	pedido.Options = []acp.PermissionOption{{ID: "reject-once", Name: "Negar", Kind: "reject_once"}}
+	h.RequestPermission(context.Background(), pedido)
+
+	if tela.quantasPerguntas() != 2 {
+		t.Errorf("perguntas na tela = %d, quer 2: não havia como dizer sim", tela.quantasPerguntas())
+	}
+}
+
+func TestClasseQueOAgenteNaoNomeouNaoViraAutorizacaoDeTudo(t *testing.T) {
+	// Pedido sem classe cai em "other", e é só "other" que fica autorizado:
+	// um pedido de execução depois disso continua sendo perguntado.
+	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	store := lembrandoAutorizacoes(t, h, "cursor")
+
+	pedido := pedidoDeExecucao()
+	pedido.ToolCall = acp.ToolCall{ID: "call-1", Title: "algo"}
+	h.RequestPermission(context.Background(), pedido)
+
+	if !store.Allows("cursor", acp.ToolKindOther) {
+		t.Error("a autorização da classe sem nome não foi guardada")
+	}
+	if store.Allows("cursor", "execute") {
+		t.Error("autorizar uma ação sem classe liberou execução de comando")
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"assistente/internal/acp"
+	"assistente/internal/acptrust"
 	"assistente/internal/core/ports"
 	"assistente/internal/logging"
 	"assistente/internal/questionnaire"
@@ -38,6 +39,11 @@ type acpRequestHandler struct {
 	// notices leva à conversa o aviso do que foi negado sem decisão de
 	// ninguém.
 	notices func() ports.Emitter
+	// trust guarda o que a pessoa já autorizou para sempre naquele perfil.
+	trust func() *acptrust.Store
+	// activeProfile resolve o perfil corrente quando o turno não nomeia um,
+	// que é o caso do desktop. Mesmo acordo das allowlists de rede.
+	activeProfile func() string
 }
 
 var _ acp.RequestHandler = (*acpRequestHandler)(nil)
@@ -77,6 +83,25 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		return acp.PermissionOutcome{}
 	}
 
+	kind := acp.ToolKind(req.ToolCall.Kind)
+	profile := h.profileOf(owner)
+
+	// Autorização permanente é o "permitir sempre" de antes: perguntar de novo
+	// seria ignorar o que a pessoa já respondeu. Só se chega aqui com turno de
+	// desktop — a negativa acima vem primeiro de propósito, para que um canal
+	// remoto não colha o sim que alguém deu na tela (AEP-0084 D9).
+	if h.alreadyAllowed(profile, kind) {
+		if id, ok := choices.approval(); ok {
+			logging.Infof(ctx, acpPermissionComponent,
+				"[ACP] permissão concedida pelo que o perfil %q já autorizou (%s)", profile, registro)
+			return acp.PermissionOutcome{OptionID: id}
+		}
+		// O agente não ofereceu como dizer sim. Não há o que responder no
+		// lugar dele: a pergunta segue para a tela.
+		logging.Warnf(ctx, acpPermissionComponent,
+			"[ACP] o perfil %q autoriza esta classe, mas o pedido não trouxe opção de permitir: %s", profile, registro)
+	}
+
 	manager := h.questionnaireManager()
 	if manager == nil {
 		logging.Warnf(ctx, acpPermissionComponent, "[ACP] permissão negada: o questionário não está disponível")
@@ -89,7 +114,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	// teto tiraria da pessoa a chance de responder (AEP-0084 D9).
 	resp, err := manager.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
 		Title:       "O agente pede permissão",
-		Description: permissionDescription(req.ToolCall.Kind),
+		Description: permissionDescription(kind) + alwaysWarning(choices, kind),
 		AllowCancel: true,
 		SubmitLabel: "Confirmar",
 		CancelLabel: "Negar",
@@ -132,12 +157,15 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	}
 
 	label, _ := resp.Answers[permissionAnswerID].(string)
-	id, ok := choices.optionID(label)
+	choice, ok := choices.byLabel(label)
 	if !ok {
 		logging.Warnf(ctx, acpPermissionComponent, "[ACP] resposta de permissão fora das opções oferecidas; negando")
 		return acp.PermissionOutcome{}
 	}
-	return acp.PermissionOutcome{OptionID: id}
+	if choice.always() {
+		h.rememberAlways(ctx, profile, kind, registro)
+	}
+	return acp.PermissionOutcome{OptionID: choice.id}
 }
 
 // HandleCustom ainda não trata as extensões bloqueantes do Cursor. Devolver
@@ -207,6 +235,73 @@ func (h *acpRequestHandler) notifyDenied(owner acp.TurnOwner, kind, action strin
 	})
 }
 
+// profileOf diz de quem é a autorização permanente deste turno. O turno nomeia
+// o perfil quando ele foi escolhido na origem (canal, job); no desktop vale o
+// perfil corrente, como nas allowlists de rede.
+func (h *acpRequestHandler) profileOf(owner acp.TurnOwner) string {
+	if slug := strings.TrimSpace(owner.ProfileSlug); slug != "" {
+		return slug
+	}
+	if h == nil || h.activeProfile == nil {
+		return ""
+	}
+	return strings.TrimSpace(h.activeProfile())
+}
+
+func (h *acpRequestHandler) trustStore() *acptrust.Store {
+	if h == nil || h.trust == nil {
+		return nil
+	}
+	return h.trust()
+}
+
+// alreadyAllowed diz se este perfil já resolveu esta classe de ação antes.
+// Sem perfil não há autorização a consultar: guardar por "perfil nenhum"
+// valeria para todo mundo, que é o oposto do que a pessoa autorizou.
+func (h *acpRequestHandler) alreadyAllowed(profile, kind string) bool {
+	if profile == "" {
+		return false
+	}
+	store := h.trustStore()
+	if store == nil {
+		return false
+	}
+	return store.Allows(profile, kind)
+}
+
+// rememberAlways guarda o "permitir sempre". Falhar ao gravar não desfaz a
+// autorização desta vez — a pessoa disse sim, e o agente vai agir —, mas a
+// próxima volta a perguntar, que é o lado seguro de não conseguir lembrar.
+func (h *acpRequestHandler) rememberAlways(ctx context.Context, profile, kind, registro string) {
+	store := h.trustStore()
+	if store == nil || profile == "" {
+		logging.Warnf(ctx, acpPermissionComponent,
+			"[ACP] permissão dada para sempre não pôde ser guardada (perfil %q): %s", profile, registro)
+		return
+	}
+	if err := store.Allow(profile, kind); err != nil {
+		logging.Warnf(ctx, acpPermissionComponent,
+			"[ACP] erro ao guardar a autorização permanente do perfil %q: %v", profile, err)
+		return
+	}
+	logging.Infof(ctx, acpPermissionComponent,
+		"[ACP] o perfil %q passa a autorizar %q sem perguntar (%s)", profile, kind, registro)
+}
+
+// alwaysWarning explica o alcance do "permitir sempre" antes de alguém
+// escolhê-lo. A autorização vale para a classe inteira da ação, e não só para
+// o comando que está na tela: sem dizer isso, quem autorizasse um comando
+// inofensivo estaria liberando todos os outros da mesma classe sem saber.
+func alwaysWarning(choices permissionChoices, kind string) string {
+	if !choices.hasAlways() {
+		return ""
+	}
+	if kind == "" || kind == acp.ToolKindOther {
+		return " Se escolher permitir sempre, este perfil passa a autorizar sem perguntar qualquer ação que o agente não classifique, até você revogar."
+	}
+	return fmt.Sprintf(" Se escolher permitir sempre, este perfil passa a autorizar qualquer ação da classe %q sem perguntar, até você revogar.", kind)
+}
+
 // permissionLogSummary descreve o pedido para o log sem levar junto o que o
 // agente escreveu. O título costuma ser a linha de comando literal, e linha de
 // comando carrega segredo em flag e em variável de ambiente — é o mesmo motivo
@@ -223,19 +318,33 @@ func permissionLogSummary(call acp.ToolCall) string {
 
 // permissionDescription abre o diálogo dizendo a classe da ação, que é
 // enumerável — ao contrário do que o agente escreve, que vai no bloco abaixo
-// dela (AEP-0084 D9/D11).
+// dela. A classe vem pelo conjunto do protocolo: o que o agente inventar vira
+// "other", e a frase genérica, para que texto dele não entre aqui (D9/D11).
 func permissionDescription(kind string) string {
-	if kind = strings.TrimSpace(acp.SanitizeLabel(kind)); kind != "" {
-		return fmt.Sprintf("O agente quer executar uma ação do tipo %q na sua máquina. Confira o que ele pede antes de decidir.", kind)
+	if kind == "" || kind == acp.ToolKindOther {
+		return "O agente quer executar uma ação na sua máquina. Confira o que ele pede antes de decidir."
 	}
-	return "O agente quer executar uma ação na sua máquina. Confira o que ele pede antes de decidir."
+	return fmt.Sprintf("O agente quer executar uma ação do tipo %q na sua máquina. Confira o que ele pede antes de decidir.", kind)
 }
 
+// Classes de opção do protocolo que interessam à decisão.
+const (
+	optionAllowOnce   = "allow_once"
+	optionAllowAlways = "allow_always"
+)
+
 // permissionChoice é uma opção do pedido já pronta para a tela: o rótulo que
-// aparece e o identificador que volta ao agente.
+// aparece, o identificador que volta ao agente e a classe, que diz o que a
+// escolha significa para o app.
 type permissionChoice struct {
 	id    string
 	label string
+	kind  string
+}
+
+// always é a escolha que autoriza daqui em diante, e não só desta vez.
+func (c permissionChoice) always() bool {
+	return c.kind == optionAllowAlways
 }
 
 type permissionChoices []permissionChoice
@@ -248,11 +357,40 @@ func (c permissionChoices) labels() []string {
 	return out
 }
 
-// optionID reencontra a opção pelo rótulo escolhido. É por rótulo porque é o
+// byLabel reencontra a opção pelo rótulo escolhido. É por rótulo porque é o
 // que o questionário devolve — daí os rótulos precisarem ser distintos.
-func (c permissionChoices) optionID(label string) (string, bool) {
+func (c permissionChoices) byLabel(label string) (permissionChoice, bool) {
 	for _, choice := range c {
 		if choice.label == label {
+			return choice, true
+		}
+	}
+	return permissionChoice{}, false
+}
+
+// hasAlways diz se o agente ofereceu autorizar para sempre. Só então o diálogo
+// explica o que "sempre" abrange.
+func (c permissionChoices) hasAlways() bool {
+	for _, choice := range c {
+		if choice.always() {
+			return true
+		}
+	}
+	return false
+}
+
+// approval escolhe como responder "pode" a um pedido que o perfil já autorizou.
+// Prefere a permissão pontual: a autorização permanente é do app, e é ele quem
+// a repete a cada pedido — dizer "sempre" ao agente todas as vezes o faria
+// guardar do lado dele uma decisão que a pessoa pode revogar aqui.
+func (c permissionChoices) approval() (string, bool) {
+	for _, choice := range c {
+		if choice.kind == optionAllowOnce {
+			return choice.id, true
+		}
+	}
+	for _, choice := range c {
+		if choice.always() {
 			return choice.id, true
 		}
 	}
@@ -279,7 +417,11 @@ func permissionChoicesFrom(options []acp.PermissionOption) permissionChoices {
 		}
 		label = distinctLabel(seen, label, option.ID)
 		seen[label] = true
-		out = append(out, permissionChoice{id: option.ID, label: label})
+		out = append(out, permissionChoice{
+			id:    option.ID,
+			label: label,
+			kind:  strings.ToLower(strings.TrimSpace(option.Kind)),
+		})
 	}
 	return out
 }

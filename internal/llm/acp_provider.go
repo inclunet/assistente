@@ -76,7 +76,10 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	// O agente pergunta no meio do turno, e o pedido chega por outra goroutine
 	// sabendo só o nome da sessão. É esta marca que diz a quem perguntar — e
 	// se há alguém (AEP-0084 D9).
-	endTurn := conv.BeginTurn(turnHasWatcher(params))
+	endTurn := conv.BeginTurn(acp.TurnOwner{
+		Interactive: turnHasWatcher(params),
+		ProfileSlug: params.ProfileSlug,
+	})
 	defer endTurn()
 
 	// O canal de atividade é opcional: sem ele o turno ainda entrega texto e
