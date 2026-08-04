@@ -30,6 +30,19 @@ func textoDaPergunta(t *testing.T, payload map[string]any, id string) questionna
 	return questionnaire.Text{}
 }
 
+// opcoesDaPergunta devolve as opções de um item de escolha, falhando se o item
+// não estiver no diálogo: sem ele não há o que a pessoa escolha.
+func opcoesDaPergunta(t *testing.T, payload map[string]any, id string) []questionnaire.Text {
+	t.Helper()
+	for _, pergunta := range perguntasDe(payload) {
+		if pergunta.ID == id {
+			return pergunta.Options
+		}
+	}
+	t.Fatalf("o diálogo não trouxe o item de escolha %q", id)
+	return nil
+}
+
 func TestAPerguntaDoAgenteVaiTraduzivelParaATela(t *testing.T) {
 	payload := dialogoDeExtensao(t, pedidoDePergunta(t))
 
@@ -207,24 +220,21 @@ func TestOPlanoPropostoVaiTraduzivelParaATela(t *testing.T) {
 func TestAsOpcoesDoPlanoTemChaveESeguemValendoPeloTextoPronto(t *testing.T) {
 	payload := dialogoDeExtensao(t, pedidoDePlano(t))
 
-	for _, pergunta := range perguntasDe(payload) {
-		if pergunta.ID != planAnswerID {
-			continue
+	opcoes := opcoesDaPergunta(t, payload, planAnswerID)
+	for _, opcao := range opcoes {
+		if opcao.Key == "" {
+			t.Errorf("opção %+v sem chave: a decisão do plano ficaria só em português", opcao)
 		}
-		for _, opcao := range pergunta.Options {
-			if opcao.Key == "" {
-				t.Errorf("opção %+v sem chave: a decisão do plano ficaria só em português", opcao)
-			}
-		}
-		valores := questionnaire.TextValues(pergunta.Options)
-		quer := []string{planApproveLabel, planRejectLabel}
-		if len(valores) != len(quer) {
-			t.Fatalf("opções = %q, quer %q", valores, quer)
-		}
-		for i, valor := range valores {
-			if valor != quer[i] {
-				t.Errorf("valor da opção %d = %q, quer o que o backend reencontra (%q)", i, valor, quer[i])
-			}
+	}
+
+	valores := questionnaire.TextValues(opcoes)
+	quer := []string{planApproveLabel, planRejectLabel}
+	if len(valores) != len(quer) {
+		t.Fatalf("opções = %q, quer %q", valores, quer)
+	}
+	for i, valor := range valores {
+		if valor != quer[i] {
+			t.Errorf("valor da opção %d = %q, quer o que o backend reencontra (%q)", i, valor, quer[i])
 		}
 	}
 }
