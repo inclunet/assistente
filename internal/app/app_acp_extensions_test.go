@@ -112,6 +112,8 @@ func escolhendoAPrimeira() func([]questionnaire.Question) map[string]any {
 	return respondendo(func(opcoes []string) any { return opcoes[0] })
 }
 
+// handlerDeExtensao monta o handler sobre uma tela. Sem canal ligado: o turno
+// sem tela continua sem ninguém a quem perguntar, como no desktop de hoje.
 func handlerDeExtensao(tela *telaDeExtensao, owner acp.TurnOwner, temTurno bool) *acpRequestHandler {
 	h := &acpRequestHandler{
 		owner: func(string) (acp.TurnOwner, bool) { return owner, temTurno },
@@ -119,6 +121,9 @@ func handlerDeExtensao(tela *telaDeExtensao, owner acp.TurnOwner, temTurno bool)
 	if tela != nil {
 		h.questions = func() *questionnaire.Manager { return tela.manager }
 	}
+	// O questionário é lido na hora do uso, como em produção: teste que troca a
+	// tela depois de montar o handler continua valendo.
+	h.surfaces = questionnaire.NewRouter(h.questionnaireManager, nil)
 	return h
 }
 
@@ -362,13 +367,104 @@ func TestTurnoCanceladoTiraAPerguntaDaTelaSemCobrarExplicacao(t *testing.T) {
 	tela.esperarDialogo(t)
 	cancelarTurno()
 
+	var resultado any
 	select {
-	case <-pronto:
+	case resultado = <-pronto:
 	case <-time.After(5 * time.Second):
 		t.Fatal("o handler não voltou depois do cancelamento")
 	}
 	if eventos := avisos.find("chat:notice"); len(eventos) != 0 {
 		t.Errorf("avisos = %d, quer 0: quem cancelou já sabe o que houve", len(eventos))
+	}
+	// O motivo é o único texto que o agente costuma repetir à pessoa: dizer que
+	// ninguém respondeu a tempo daria a entender que o app perdeu a resposta
+	// dela, quando foi ela que interrompeu o turno.
+	if motivo := respostaDaPergunta(t, resultado).Outcome.Reason; motivo != reasonCancelled {
+		t.Errorf("motivo = %q, quer %q", motivo, reasonCancelled)
+	}
+}
+
+func TestHandlerSemRoteadorNegaNaHoraEmVezDeQuebrar(t *testing.T) {
+	// O handler é montado antes do resto do app existir: se o roteador ainda
+	// não estiver de pé quando o agente perguntar, o pedido tem que morrer
+	// fechado — pergunta pulada, plano recusado, aviso na conversa —, nunca
+	// derrubar o processo nem pendurar o agente.
+	casos := map[string]struct {
+		pedido func(testing.TB) acp.CustomRequest
+		checar func(*testing.T, any)
+		aviso  string
+	}{
+		"pergunta": {
+			pedido: pedidoDePergunta,
+			checar: func(t *testing.T, resultado any) {
+				resposta := respostaDaPergunta(t, resultado)
+				if resposta.Outcome.Outcome != askOutcomeSkipped {
+					t.Errorf("desfecho = %q, quer %q", resposta.Outcome.Outcome, askOutcomeSkipped)
+				}
+				if resposta.Outcome.Reason != reasonUnavailable {
+					t.Errorf("motivo = %q, quer %q", resposta.Outcome.Reason, reasonUnavailable)
+				}
+			},
+			aviso: ports.ChatNoticeKindQuestionUnavailable,
+		},
+		"plano": {
+			pedido: pedidoDePlano,
+			checar: func(t *testing.T, resultado any) {
+				resposta := respostaDoPlano(t, resultado)
+				if resposta.Outcome.Outcome != planOutcomeRejected {
+					t.Errorf("desfecho = %q, quer %q", resposta.Outcome.Outcome, planOutcomeRejected)
+				}
+				if resposta.Outcome.Reason != reasonUnavailable {
+					t.Errorf("motivo = %q, quer %q", resposta.Outcome.Reason, reasonUnavailable)
+				}
+			},
+			aviso: ports.ChatNoticeKindPlanUnavailable,
+		},
+	}
+	for nome, caso := range casos {
+		t.Run(nome, func(t *testing.T) {
+			h := handlerDeExtensao(nil, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+			h.surfaces = nil
+			avisos := escutandoAvisos(h)
+
+			caso.checar(t, mustHandle(t, h, caso.pedido(t)))
+			if aviso := avisoNaConversa(t, avisos); aviso.Kind != caso.aviso {
+				t.Errorf("motivo do aviso = %q, quer %q", aviso.Kind, caso.aviso)
+			}
+		})
+	}
+}
+
+func TestTurnoCanceladoTiraOPlanoDaTelaComOMotivoCerto(t *testing.T) {
+	tela := novaTelaDeExtensaoMuda()
+	h := handlerDeExtensao(tela, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	avisos := escutandoAvisos(h)
+
+	ctx, cancelarTurno := context.WithCancel(context.Background())
+	pronto := make(chan any, 1)
+	go func() {
+		resultado, _ := h.HandleCustom(ctx, pedidoDePlano(t))
+		pronto <- resultado
+	}()
+
+	tela.esperarDialogo(t)
+	cancelarTurno()
+
+	var resultado any
+	select {
+	case resultado = <-pronto:
+	case <-time.After(5 * time.Second):
+		t.Fatal("o handler não voltou depois do cancelamento")
+	}
+	if eventos := avisos.find("chat:notice"); len(eventos) != 0 {
+		t.Errorf("avisos = %d, quer 0: quem cancelou já sabe o que houve", len(eventos))
+	}
+	resposta := respostaDoPlano(t, resultado)
+	if resposta.Outcome.Outcome != planOutcomeRejected {
+		t.Errorf("desfecho = %q, quer %q", resposta.Outcome.Outcome, planOutcomeRejected)
+	}
+	if resposta.Outcome.Reason != reasonCancelled {
+		t.Errorf("motivo = %q, quer %q", resposta.Outcome.Reason, reasonCancelled)
 	}
 }
 

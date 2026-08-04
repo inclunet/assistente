@@ -422,6 +422,14 @@ func TestDialogoQueNaoCabeNumaMensagemNaoEhPerguntado(t *testing.T) {
 		"escolha sem opção nenhuma": {
 			{ID: "decision", Type: "single_choice", Prompt: questionnaire.Plain("Qual?")},
 		},
+		// A pergunta do agente que aceita marcar mais de uma opção: um número
+		// não diz quantas nem quais, e aceitar uma lista escrita à mão faria uma
+		// resposta parecida decidir por aproximação.
+		"escolha múltipla": {
+			{ID: "prompt", Type: "readonly_code", Content: "Quais provedores habilitar?"},
+			{ID: "resposta", Type: "multiple_choice", Prompt: questionnaire.Plain("Sua resposta"),
+				Options: questionnaire.PlainTexts([]string{"Google", "GitHub"})},
+		},
 	}
 	for nome, questoes := range casos {
 		t.Run(nome, func(t *testing.T) {

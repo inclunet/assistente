@@ -73,6 +73,7 @@ const (
 	reasonNoWatcher    = "Não havia ninguém na tela para responder."
 	reasonUnavailable  = "O app não conseguiu apresentar o pedido."
 	reasonNoAnswer     = "Ninguém respondeu dentro do prazo."
+	reasonCancelled    = "O turno foi interrompido antes da resposta."
 	reasonDismissed    = "A pessoa preferiu não responder."
 	reasonNothingTaken = "A pessoa não escolheu nenhuma opção."
 	reasonUndecided    = "O app não conseguiu decidir."
@@ -178,10 +179,12 @@ func (h *acpRequestHandler) askQuestion(ctx context.Context, req acp.CustomReque
 			"[ACP] pergunta pulada: o pedido não pôde ser atribuído a nenhuma conversa (%s)", registro)
 		return askSkipped(reasonUndecided)
 	}
-	if !owner.Interactive {
-		// Canal, job agendado, subagente ou CLI: não há tela onde perguntar, e
-		// esperar aqui penduraria o agente até o teto do transporte. Mesma
-		// regra do pedido de permissão (AEP-0084 D9).
+	surface := h.surfaceOf(owner, ok)
+	if !surface.HasInterlocutor() {
+		// Job agendado, subagente, CLI, e conversa de canal que já não se sabe
+		// de onde veio: não há onde perguntar, e esperar aqui penduraria o
+		// agente até o teto do transporte. Mesma regra do pedido de permissão
+		// (AEP-0084 D9).
 		logging.Infof(ctx, acpExtensionComponent,
 			"[ACP] pergunta pulada na hora, sem ninguém a quem perguntar (conversa %q): %s",
 			owner.ConversationID, registro)
@@ -190,19 +193,18 @@ func (h *acpRequestHandler) askQuestion(ctx context.Context, req acp.CustomReque
 	}
 
 	itens, respostas := askDialogFrom(pedido)
-	manager := h.questionnaireManager()
-	if len(respostas) == 0 || manager == nil {
-		// Pergunta sem opção nenhuma, ou questionário fora do ar: não há o que
-		// oferecer à pessoa, e inventar uma resposta seria decidir por ela.
+	if len(respostas) == 0 {
+		// Pergunta sem opção nenhuma: não há o que oferecer à pessoa, e inventar
+		// uma resposta seria decidir por ela.
 		logging.Warnf(ctx, acpExtensionComponent, "[ACP] pergunta não pôde ser apresentada: %s", registro)
 		h.notifyConversation(owner, ports.ChatNoticeKindQuestionUnavailable, "")
 		return askSkipped(reasonUnavailable)
 	}
 
-	// Sem prazo próprio: vale o do questionário, que cabe dentro do teto que o
-	// transporte impõe ao handler. Um prazo maior que o teto tiraria da pessoa
-	// a chance de responder (AEP-0084 D9).
-	resp, err := manager.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+	// Sem prazo próprio: vale o da superfície de origem, e os dois cabem dentro
+	// do teto que o transporte impõe ao handler. Um prazo maior que o teto
+	// tiraria de quem responde a chance de fazê-lo (AEP-0084 D9).
+	resp, err := h.askOnSurface(ctx, surface, questionnaire.RequestPayload{
 		Title:       questionnaire.Keyed(askTextKey("title"), "O agente tem uma pergunta"),
 		Description: askDescriptionText(pedido.Title),
 		AllowCancel: true,
@@ -211,16 +213,19 @@ func (h *acpRequestHandler) askQuestion(ctx context.Context, req acp.CustomReque
 		Questions:   itens,
 	})
 	if err != nil {
-		// Prazo estourado, turno cancelado ou app encerrando. Para o agente
-		// tudo isso é a mesma coisa: ninguém respondeu.
+		// Prazo estourado, turno cancelado, pergunta que a superfície não soube
+		// apresentar, app encerrando. Para o agente é tudo a mesma coisa —
+		// ninguém respondeu —, mas o motivo que ele repete à pessoa e o aviso
+		// que fica na conversa mudam com a causa.
 		logging.Infof(ctx, acpExtensionComponent,
 			"[ACP] pergunta sem resposta na conversa %q (%s): %v", owner.ConversationID, registro, err)
+		causa := undecidedCauseOf(ctx, err)
 		// Turno cancelado não vira aviso: foi a própria pessoa que desistiu, e
 		// o diálogo já saiu da tela dizendo isso.
-		if !turnCancelled(ctx, err) {
-			h.notifyConversation(owner, ports.ChatNoticeKindQuestionTimeout, "")
+		if notice := askFailureNotice(causa); notice != "" {
+			h.notifyConversation(owner, notice, "")
 		}
-		return askSkipped(reasonNoAnswer)
+		return askSkipped(undecidedReason(causa))
 	}
 	if resp.Cancelled {
 		return askSkipped(reasonDismissed)
@@ -231,6 +236,53 @@ func (h *acpRequestHandler) askQuestion(ctx context.Context, req acp.CustomReque
 		return askSkipped(reasonNothingTaken)
 	}
 	return askAnswered(answers)
+}
+
+// askFailureNotice é o aviso que a conversa recebe quando a pergunta do agente
+// acabou sem resposta. Vazio quer dizer não avisar.
+func askFailureNotice(causa undecidedCause) string {
+	switch causa {
+	case causeCancelled:
+		return ""
+	case causeNoInterlocutor:
+		return ports.ChatNoticeKindQuestionNoWatcher
+	case causeUnavailable:
+		return ports.ChatNoticeKindQuestionUnavailable
+	default:
+		return ports.ChatNoticeKindQuestionTimeout
+	}
+}
+
+// planFailureNotice é o mesmo para o plano proposto.
+func planFailureNotice(causa undecidedCause) string {
+	switch causa {
+	case causeCancelled:
+		return ""
+	case causeNoInterlocutor:
+		return ports.ChatNoticeKindPlanNoWatcher
+	case causeUnavailable:
+		return ports.ChatNoticeKindPlanUnavailable
+	default:
+		return ports.ChatNoticeKindPlanTimeout
+	}
+}
+
+// undecidedReason é o que o agente repete à pessoa. Ele erra ao dizer que
+// ninguém respondeu a tempo se a pergunta nunca apareceu — quem lê acharia que
+// ela foi ignorada —, e erra do mesmo jeito num turno que a própria pessoa
+// interrompeu: ela sabe que interrompeu, e ouvir que ninguém respondeu daria a
+// entender que o app perdeu a resposta dela.
+func undecidedReason(causa undecidedCause) string {
+	switch causa {
+	case causeNoInterlocutor:
+		return reasonNoWatcher
+	case causeUnavailable:
+		return reasonUnavailable
+	case causeCancelled:
+		return reasonCancelled
+	default:
+		return reasonNoAnswer
+	}
 }
 
 // askChoice é uma opção da pergunta pronta para a tela: o rótulo que aparece e
@@ -543,7 +595,8 @@ func (h *acpRequestHandler) createPlan(ctx context.Context, req acp.CustomReques
 			"[ACP] plano recusado: o pedido não pôde ser atribuído a nenhuma conversa (%s)", registro)
 		return planRejected(reasonUndecided)
 	}
-	if !owner.Interactive {
+	surface := h.surfaceOf(owner, ok)
+	if !surface.HasInterlocutor() {
 		logging.Infof(ctx, acpExtensionComponent,
 			"[ACP] plano recusado na hora, sem ninguém a quem apresentá-lo (conversa %q): %s",
 			owner.ConversationID, registro)
@@ -551,14 +604,7 @@ func (h *acpRequestHandler) createPlan(ctx context.Context, req acp.CustomReques
 		return planRejected(reasonNoWatcher)
 	}
 
-	manager := h.questionnaireManager()
-	if manager == nil {
-		logging.Warnf(ctx, acpExtensionComponent, "[ACP] plano não pôde ser apresentado: %s", registro)
-		h.notifyConversation(owner, ports.ChatNoticeKindPlanUnavailable, "")
-		return planRejected(reasonUnavailable)
-	}
-
-	resp, err := manager.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+	resp, err := h.askOnSurface(ctx, surface, questionnaire.RequestPayload{
 		Title:       questionnaire.Keyed(planTextKey("title"), "O agente propôs um plano"),
 		Description: planDescriptionText(pedido),
 		AllowCancel: true,
@@ -593,10 +639,11 @@ func (h *acpRequestHandler) createPlan(ctx context.Context, req acp.CustomReques
 	if err != nil {
 		logging.Infof(ctx, acpExtensionComponent,
 			"[ACP] plano sem decisão na conversa %q (%s): %v", owner.ConversationID, registro, err)
-		if !turnCancelled(ctx, err) {
-			h.notifyConversation(owner, ports.ChatNoticeKindPlanTimeout, "")
+		causa := undecidedCauseOf(ctx, err)
+		if notice := planFailureNotice(causa); notice != "" {
+			h.notifyConversation(owner, notice, "")
 		}
-		return planRejected(reasonNoAnswer)
+		return planRejected(undecidedReason(causa))
 	}
 	// Sair pelo botão de cancelar é recusar: ele se chama "Recusar", e é a
 	// saída de quem leu o plano e não quis. Dizer ao agente que o pedido foi

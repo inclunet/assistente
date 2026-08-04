@@ -763,6 +763,16 @@ justamente o turno que espera a decisão. A superfície aceita um diálogo de um
 única decisão (escolha ou sim/não); o que não couber num número é recusado com o
 desfecho negativo na hora, em vez de virar mensagem que ninguém sabe responder.
 
+Os três diálogos bloqueantes do D9 usam o mesmo roteamento:
+`session/request_permission`, `cursor/ask_question` e `cursor/create_plan`. Antes
+desta fase os dois últimos desistiam na hora quando o turno não tinha tela, e
+conversa de canal caía nesse caso; agora a pergunta e o plano vão para o canal
+pelo mesmo `Router`, e o que volta ao agente continua sendo o desfecho que o
+método dele entende — pergunta pulada, plano recusado. O motivo que o agente
+repete e o aviso que fica na conversa saem de uma classificação única de "acabou
+sem decisão", partilhada pelos três: turno cancelado não vira aviso, pergunta que
+nunca apareceu não é contada como prazo estourado.
+
 Decisões que a fase fixou:
 
 - **Prazo de 3 minutos** no canal, contra os 20 do desktop: na tela a pessoa está
