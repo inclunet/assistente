@@ -167,7 +167,9 @@ func (t *telaFalsa) quantasPerguntas() int {
 	return len(t.perguntas)
 }
 
-// handlerCom monta o handler sobre uma tela e um turno de origem conhecida.
+// handlerCom monta o handler sobre uma tela e um turno de origem conhecida. Sem
+// canal ligado: o turno sem tela continua sem ninguém a quem perguntar, que é o
+// comportamento de sempre do desktop.
 func handlerCom(tela *telaFalsa, owner acp.TurnOwner, temTurno bool) *acpRequestHandler {
 	h := &acpRequestHandler{
 		owner: func(string) (acp.TurnOwner, bool) { return owner, temTurno },
@@ -175,6 +177,9 @@ func handlerCom(tela *telaFalsa, owner acp.TurnOwner, temTurno bool) *acpRequest
 	if tela != nil {
 		h.questions = func() *questionnaire.Manager { return tela.manager }
 	}
+	// O questionário é lido na hora do uso, como em produção: teste que troca a
+	// tela depois de montar o handler continua valendo.
+	h.surfaces = questionnaire.NewRouter(h.questionnaireManager, nil)
 	return h
 }
 
@@ -507,10 +512,8 @@ func TestPrazoEstouradoNaoPenduraOAgente(t *testing.T) {
 	// Questionário que nunca é respondido: o handler precisa voltar mesmo
 	// assim, senão o agente fica esperando até o teto do transporte.
 	mudo := questionnaire.NewManager(func(string, any) {})
-	h := &acpRequestHandler{
-		owner:     func(string) (acp.TurnOwner, bool) { return acp.TurnOwner{ConversationID: "c", Interactive: true}, true },
-		questions: func() *questionnaire.Manager { return mudo },
-	}
+	h := handlerCom(nil, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	h.questions = func() *questionnaire.Manager { return mudo }
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
