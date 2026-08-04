@@ -3470,6 +3470,8 @@ const es = {
         planNoWatcher: 'El agente propuso un plan en esta conversación, pero no había nadie para aprobarlo. El plan fue rechazado.',
         planTimeout: 'El agente propuso un plan y nadie decidió a tiempo. El plan fue rechazado.',
         planUnavailable: 'El agente propuso un plan, pero la app no pudo presentarlo. El plan fue rechazado.',
+        modelNotOffered: 'Este agente no ofrece el modelo elegido en el perfil. La respuesta vino de {{model}}.',
+        modelNotApplied: 'No se pudo cambiar el modelo del agente. La respuesta vino de {{model}}.',
         action: {
           read: 'leer un archivo',
           edit: 'editar un archivo',

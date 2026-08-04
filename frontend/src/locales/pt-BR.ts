@@ -3472,6 +3472,8 @@ const ptBR = {
         planNoWatcher: 'O agente propôs um plano nesta conversa, mas não havia ninguém para aprová-lo. O plano foi recusado.',
         planTimeout: 'O agente propôs um plano e ninguém decidiu a tempo. O plano foi recusado.',
         planUnavailable: 'O agente propôs um plano, mas o app não conseguiu apresentá-lo. O plano foi recusado.',
+        modelNotOffered: 'Este agente não oferece o modelo escolhido no perfil. A resposta veio de {{model}}.',
+        modelNotApplied: 'Não foi possível trocar o modelo do agente. A resposta veio de {{model}}.',
         action: {
           read: 'ler um arquivo',
           edit: 'editar um arquivo',

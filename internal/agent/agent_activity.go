@@ -270,5 +270,6 @@ func (h *SimpleStreamHandler) OnTurnNotice(notice llm.TurnNotice) {
 		ConversationID: h.ConversationID,
 		Kind:           string(notice.Kind),
 		Count:          notice.Count,
+		Model:          notice.Model,
 	})
 }

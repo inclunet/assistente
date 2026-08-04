@@ -233,6 +233,17 @@ type ContextWarningEvent struct {
 // esperar uma resposta sobre uma imagem que o modelo nunca viu.
 const ChatNoticeKindAttachmentsNotSent = "attachments_not_sent"
 
+// O modelo escolhido não pôde valer neste turno (AEP-0084 D6). O turno seguiu no
+// modelo em que o agente está, porque resposta do modelo errado é melhor do que
+// resposta nenhuma — mas quem escolheu precisa saber, senão lê a resposta
+// atribuindo-a a um modelo que não a escreveu.
+const (
+	// ChatNoticeKindModelNotOffered é o modelo que este agente não tem.
+	ChatNoticeKindModelNotOffered = "model_not_offered"
+	// ChatNoticeKindModelNotApplied é a troca que o agente recusou.
+	ChatNoticeKindModelNotApplied = "model_not_applied"
+)
+
 // Permissão que o agente pediu e o app negou sem que ninguém decidisse
 // (AEP-0084 D9). Negar é melhor do que pendurar o turno, mas negar em silêncio
 // deixa a pessoa diante de um agente que desiste sem explicar por quê.
@@ -309,6 +320,10 @@ type ChatNoticeEvent struct {
 	// o aviso é sobre uma. Vai como código pelo mesmo motivo do Kind, e nunca
 	// leva o texto que o agente escreveu.
 	Action string `json:"action,omitempty"`
+	// Model é o modelo de que o aviso fala — o que atendeu ao turno, quando o
+	// escolhido não pôde valer. É identificador do provedor, e não frase: quem
+	// exibe o mostra como ele aparece no seletor.
+	Model string `json:"model,omitempty"`
 }
 
 // SummaryStartedEvent is the payload for chat:summary_started.
