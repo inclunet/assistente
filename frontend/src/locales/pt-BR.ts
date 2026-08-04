@@ -169,6 +169,7 @@ const ptBR = {
         modelChangedByAgent: 'O agente passou a usar o modelo {{model}}.',
         modeChangedByAgent: 'O agente passou para o modo {{mode}}.',
         changeError: 'Não foi possível alterar a configuração do agente. Tente novamente.',
+        changeUnknownState: 'O agente aceitou a troca, mas não informou em que modelo e modo a conversa ficou.',
         mode: {
           agent: 'Agente',
           plan: 'Planejar',

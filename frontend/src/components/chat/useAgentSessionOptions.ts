@@ -149,6 +149,18 @@ export function useAgentSessionOptions(conversationId?: string | null): UseAgent
       // A conversa da tela pode ter mudado enquanto o agente respondia. Escrever
       // agora poria o modelo de uma conversa no seletor de outra.
       if (conversationRef.current !== requested) return null;
+      if (applied.length === 0) {
+        // Conjunto vazio não descreve seletor nenhum: escrevê-lo faria os
+        // controles sumirem no meio da conversa. E como o agente não disse em
+        // que estado ficou, não há troca a anunciar — sucesso anunciado com
+        // controle desaparecendo é o estado que ninguém consegue explicar
+        // depois. Acontece com um agente que responde a troca com opções sem
+        // valores para escolher, que o backend descarta por não desenharem
+        // seletor.
+        logger.warn('[AgentOptions] o agente aceitou a troca sem dizer em que estado a sessão ficou');
+        announceRef.current(tRef.current('chat.agentOptions.changeUnknownState'));
+        return null;
+      }
       setOptions(applied);
       return applied;
     } catch (error: unknown) {

@@ -169,6 +169,7 @@ const en = {
         modelChangedByAgent: 'The agent switched to the {{model}} model.',
         modeChangedByAgent: 'The agent switched to {{mode}} mode.',
         changeError: 'The agent setting could not be changed. Please try again.',
+        changeUnknownState: 'The agent accepted the change but did not report which model and mode the conversation is on.',
         mode: {
           agent: 'Agent',
           plan: 'Plan',

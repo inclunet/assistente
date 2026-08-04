@@ -168,6 +168,7 @@ const es = {
         modelChangedByAgent: 'El agente pasó a usar el modelo {{model}}.',
         modeChangedByAgent: 'El agente pasó al modo {{mode}}.',
         changeError: 'No se pudo cambiar la configuración del agente. Inténtalo de nuevo.',
+        changeUnknownState: 'El agente aceptó el cambio, pero no informó en qué modelo y modo quedó la conversación.',
         mode: {
           agent: 'Agente',
           plan: 'Planificar',

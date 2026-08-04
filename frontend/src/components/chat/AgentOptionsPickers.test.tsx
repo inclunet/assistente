@@ -284,6 +284,31 @@ describe('AgentOptionsPickers', () => {
     expect(anunciado).not.toContain('"mode":"plan"');
   });
 
+  // Um agente que responde a troca com opções sem valores para escolher chega
+  // aqui como lista vazia — o backend descarta o que não desenha seletor. Lista
+  // vazia é truthy em JavaScript, e tratada como sucesso ela anunciaria a troca
+  // enquanto os controles somem da barra: estado que ninguém consegue explicar
+  // depois.
+  it('resposta sem opções não anuncia troca nem faz os seletores sumirem', async () => {
+    getOptions.mockResolvedValue(opcoesDoAgente());
+    setOption.mockResolvedValue({ conversationId: 'conversa-1', available: false, options: [] });
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await userEvent.click(await screen.findByRole('button', { name: /Modelo/ }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Modelo B' }));
+
+    await waitFor(() => expect(setOption).toHaveBeenCalled());
+    await waitFor(() => {
+      const anunciado = announce.mock.calls.map(([msg]) => String(msg)).join(' ');
+      expect(anunciado).toContain('chat.agentOptions.changeUnknownState');
+    });
+    const anunciado = announce.mock.calls.map(([msg]) => String(msg)).join(' ');
+    expect(anunciado).not.toContain('chat.agentOptions.modelChanged|');
+    // Os seletores continuam mostrando o que a sessão conhecia.
+    expect(screen.getByRole('button', { name: 'Modelo, Modelo A' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Modo/ })).toBeInTheDocument();
+  });
+
   it('não leva o resultado da troca para a conversa que entrou no lugar', async () => {
     getOptions.mockImplementation((id: string) => Promise.resolve(
       id === 'conversa-1' ? opcoesDoAgente('modelo-a') : opcoesDoAgente('modelo-b'),
