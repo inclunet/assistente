@@ -70,14 +70,18 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
    * agente de código responde de uma sessão de descoberta guardada por processo,
    * e invalidar a cada render faria a tela de perfil bater no agente sem motivo
    * (AEP-0084 D6).
+   *
+   * Devolve o que houve porque quem chamou pode precisar anunciar: o estado da
+   * tela vive em `useState` e não está legível na volta da promessa.
    */
-  const loadModels = async (refresh = false) => {
+  const loadModels = async (refresh = false): Promise<{ ok: boolean; message: string }> => {
     if (variant === 'form' && !providerID) {
+      const msg = t('pickers.model.selectProvider');
       setLoading(false);
-      setError(t('pickers.model.selectProvider'));
+      setError(msg);
       setModels([]);
       setEndpointNotSupported(false);
-      return;
+      return { ok: false, message: msg };
     }
 
     setLoading(true);
@@ -103,7 +107,9 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
           ? t('pickers.model.noModels')
           : t('pickers.model.noModelsGlobal');
         setError(msg);
+        return { ok: false, message: msg };
       }
+      return { ok: true, message: '' };
     } catch (e: unknown) {
       const err = e as { message?: unknown } | null;
       const errorMsg = String(err?.message || e || 'Erro desconhecido');
@@ -113,16 +119,21 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
         setEndpointNotSupported(true);
         setError('');
         setModels([]);
-      } else if (errorMsg.includes('credencial não configurada') || errorMsg.includes('Missing bearer authentication')) {
-        // Detecta erro de credencial não configurada
-        setError(t('pickers.model.configureApiKey'));
-        setEndpointNotSupported(false);
-        setModels([]);
-      } else {
-        setError(`${t('pickers.model.loadError')} ${errorMsg}`);
-        setEndpointNotSupported(false);
-        setModels([]);
+        return { ok: false, message: t('pickers.model.notLoaded') };
       }
+      if (errorMsg.includes('credencial não configurada') || errorMsg.includes('Missing bearer authentication')) {
+        // Detecta erro de credencial não configurada
+        const msg = t('pickers.model.configureApiKey');
+        setError(msg);
+        setEndpointNotSupported(false);
+        setModels([]);
+        return { ok: false, message: msg };
+      }
+      const msg = `${t('pickers.model.loadError')} ${errorMsg}`;
+      setError(msg);
+      setEndpointNotSupported(false);
+      setModels([]);
+      return { ok: false, message: msg };
     } finally {
       setLoading(false);
     }
@@ -148,9 +159,13 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     onChange(selectedValue);
   };
 
+  // Quem pediu o recarregar ouve o que houve, e não sempre "recarregada": a
+  // lista pode não ter vindo — credencial que falta, provedor que não lista — e
+  // anunciar sucesso nesses casos diria a quem usa leitor de telas o contrário
+  // do que a tela mostra.
   const handleRefresh = () => {
-    void loadModels(true).then(() => {
-      onAnnounce?.(t('pickers.model.refreshed', 'Lista de modelos recarregada'));
+    void loadModels(true).then(({ ok, message }) => {
+      onAnnounce?.(ok ? t('pickers.model.refreshed', 'Lista de modelos recarregada') : message);
     });
   };
 

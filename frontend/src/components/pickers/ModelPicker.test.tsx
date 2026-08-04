@@ -86,6 +86,54 @@ describe('ModelPicker', () => {
     expect(anuncios).toContain('pickers.model.refreshed');
   });
 
+  // Anunciar "lista recarregada" quando a lista não veio diria a quem usa leitor
+  // de telas o contrário do que a tela mostra.
+  it('recarregar que falha anuncia o problema, não sucesso', async () => {
+    getModelsSpy.mockResolvedValueOnce(['m1']);
+    refreshModelsSpy.mockRejectedValueOnce(new Error('credencial não configurada'));
+    const anuncios: string[] = [];
+
+    render(
+      <ModelPicker
+        value=""
+        onChange={() => {}}
+        providerID="p1"
+        variant="form"
+        onAnnounce={(message) => anuncios.push(message)}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('base-picker')).toHaveAttribute('data-items', '2'));
+
+    await userEvent.click(screen.getByRole('button', { name: 'pickers.model.refreshLabel' }));
+
+    await waitFor(() => expect(anuncios.length).toBeGreaterThan(0));
+    expect(anuncios).toContain('pickers.model.configureApiKey');
+    expect(anuncios).not.toContain('pickers.model.refreshed');
+  });
+
+  it('recarregar que volta vazio anuncia que não há modelos', async () => {
+    getModelsSpy.mockResolvedValueOnce(['m1']);
+    refreshModelsSpy.mockResolvedValueOnce([]);
+    const anuncios: string[] = [];
+
+    render(
+      <ModelPicker
+        value=""
+        onChange={() => {}}
+        providerID="p1"
+        variant="form"
+        onAnnounce={(message) => anuncios.push(message)}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('base-picker')).toHaveAttribute('data-items', '2'));
+
+    await userEvent.click(screen.getByRole('button', { name: 'pickers.model.refreshLabel' }));
+
+    await waitFor(() => expect(anuncios.length).toBeGreaterThan(0));
+    expect(anuncios).toContain('pickers.model.noModels');
+    expect(anuncios).not.toContain('pickers.model.refreshed');
+  });
+
   it('a barra de ferramentas não ganha botão de recarregar', async () => {
     getModelsSpy.mockResolvedValueOnce(['m1']);
 

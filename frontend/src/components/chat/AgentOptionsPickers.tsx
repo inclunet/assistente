@@ -6,6 +6,7 @@ import { useAnnouncer } from '../../hooks/useAnnouncer';
 import {
   AGENT_OPTION_MODE,
   AGENT_OPTION_MODEL,
+  agentModeLabel,
   optionByCategory,
   useAgentSessionOptions,
   type AgentConfigOption,
@@ -15,13 +16,6 @@ export interface AgentOptionsPickersProps {
   conversationId?: string | null;
   disabled?: boolean;
 }
-
-/** Rótulos dos modos que o protocolo enumera. O agente manda só o valor. */
-const MODE_LABEL_KEYS: Record<string, string> = {
-  agent: 'chat.agentOptions.mode.agent',
-  plan: 'chat.agentOptions.mode.plan',
-  ask: 'chat.agentOptions.mode.ask',
-};
 
 /**
  * AgentOptionsPickers mostra em que modelo e modo o agente desta conversa está,
@@ -54,7 +48,7 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
   const handleModeChange = useCallback(async (value: string) => {
     if (!mode || value === mode.currentValue) return;
     if (await change(mode.id, value)) {
-      announce(t('chat.agentOptions.modeChanged', { mode: modeLabel(t, value) }));
+      announce(t('chat.agentOptions.modeChanged', { mode: agentModeLabel(t, value) }));
     }
   }, [announce, change, mode, t]);
 
@@ -79,7 +73,7 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
       {mode && (
         <BasePicker
           variant="toolbar"
-          items={itemsOf(mode, (value) => modeLabel(t, value))}
+          items={itemsOf(mode, (value) => agentModeLabel(t, value))}
           selected={mode.currentValue}
           onSelect={(value) => void handleModeChange(value)}
           label={mode.name || t('chat.agentOptions.modeLabel')}
@@ -108,10 +102,4 @@ function itemsOf(
     value: item.value,
     label: item.name || translateValue?.(item.value) || item.value,
   }));
-}
-
-/** modeLabel traduz os modos do protocolo; um modo novo sai pelo próprio valor. */
-function modeLabel(t: (key: string, options?: Record<string, unknown>) => string, value: string): string {
-  const key = MODE_LABEL_KEYS[value.toLowerCase()];
-  return key ? t(key) : value;
 }

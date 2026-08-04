@@ -184,6 +184,62 @@ describe('AgentOptionsPickers', () => {
     expect(announce).not.toHaveBeenCalled();
   });
 
+  it('anuncia o modo trocado pelo agente com o rótulo traduzido', async () => {
+    getOptions.mockResolvedValue(opcoesDoAgente());
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await screen.findByText('Modelo A');
+
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1',
+        options: opcoesDoAgente('modelo-a', 'plan').options,
+        mode: 'plan',
+        modelChanged: false,
+        modeChanged: true,
+        announce: true,
+      });
+    });
+
+    const anunciado = await waitFor(() => {
+      const texto = announce.mock.calls.map(([msg]) => String(msg)).join(' ');
+      expect(texto).toContain('chat.agentOptions.modeChangedByAgent');
+      return texto;
+    });
+    // O valor do protocolo é `plan`, em inglês. Falado cru, o leitor de telas
+    // leria inglês no meio do português.
+    expect(anunciado).toContain('chat.agentOptions.mode.plan');
+    expect(anunciado).not.toContain('"mode":"plan"');
+  });
+
+  it('não leva o resultado da troca para a conversa que entrou no lugar', async () => {
+    getOptions.mockImplementation((id: string) => Promise.resolve(
+      id === 'conversa-1' ? opcoesDoAgente('modelo-a') : opcoesDoAgente('modelo-b'),
+    ));
+    let concluirTroca: ((valor: unknown) => void) | null = null;
+    setOption.mockImplementation(() => new Promise((resolve) => { concluirTroca = resolve; }));
+
+    const { rerender } = render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await userEvent.click(await screen.findByRole('button', { name: /Modelo/ }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Modelo B' }));
+    await waitFor(() => expect(setOption).toHaveBeenCalled());
+
+    // A pessoa muda de conversa enquanto o agente ainda responde à troca.
+    rerender(<AgentOptionsPickers conversationId="conversa-2" />);
+    await waitFor(() => expect(screen.getByText('Modelo B')).toBeInTheDocument());
+
+    // A resposta é da conversa que saiu da tela: escrevê-la aqui poria o estado
+    // de uma conversa no seletor de outra.
+    await act(async () => {
+      concluirTroca?.(opcoesDoAgente('modelo-a'));
+    });
+
+    expect(screen.getByText('Modelo B')).toBeInTheDocument();
+    // E o seletor da conversa nova não pode ficar travado esperando uma troca
+    // que nunca foi dela.
+    expect(screen.getByRole('button', { name: /Modelo/ })).not.toBeDisabled();
+  });
+
   it('avisa quando a troca não valeu, em vez de voltar o seletor calado', async () => {
     getOptions.mockResolvedValue(opcoesDoAgente());
     setOption.mockRejectedValue(new Error('o agente recusou'));

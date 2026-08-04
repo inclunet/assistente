@@ -61,6 +61,9 @@ export function useAgentSessionOptions(conversationId?: string | null): UseAgent
   const [changing, setChanging] = useState(false);
   const announceRef = useRef(announce);
   const tRef = useRef(t);
+  // conversationRef diz qual conversa está na tela agora. A troca de opção é uma
+  // ida ao agente, e a pessoa pode mudar de conversa antes da volta.
+  const conversationRef = useRef(conversationId ?? '');
 
   useEffect(() => {
     announceRef.current = announce;
@@ -68,6 +71,10 @@ export function useAgentSessionOptions(conversationId?: string | null): UseAgent
   }, [announce, t]);
 
   useEffect(() => {
+    conversationRef.current = conversationId ?? '';
+    // Trocar de conversa zera o "trocando": o pedido em voo é da conversa
+    // anterior, e deixar a marca de pé travaria os seletores desta.
+    setChanging(false);
     if (!conversationId) {
       setOptions([]);
       return;
@@ -104,26 +111,36 @@ export function useAgentSessionOptions(conversationId?: string | null): UseAgent
         announceRef.current(tRef.current('chat.agentOptions.modelChangedByAgent', { model: event.model }));
       }
       if (event.modeChanged && event.mode) {
-        announceRef.current(tRef.current('chat.agentOptions.modeChangedByAgent', { mode: event.mode }));
+        // O agente manda o modo pelo valor do protocolo (`plan`, `ask`). Falar
+        // isso cru faria o leitor de telas ler inglês no meio do português.
+        announceRef.current(tRef.current('chat.agentOptions.modeChangedByAgent', {
+          mode: agentModeLabel(tRef.current, event.mode),
+        }));
       }
     });
   }, [conversationId]);
 
   const change = useCallback(async (optionId: string, value: string): Promise<boolean> => {
     if (!conversationId) return false;
+    const requested = conversationId;
     setChanging(true);
     try {
-      const state = await SetAgentSessionOption(conversationId, optionId, value);
+      const state = await SetAgentSessionOption(requested, optionId, value);
+      // A conversa da tela pode ter mudado enquanto o agente respondia. Escrever
+      // agora poria o modelo de uma conversa no seletor de outra.
+      if (conversationRef.current !== requested) return false;
       setOptions(state?.options ?? []);
       return true;
     } catch (error: unknown) {
       logger.error('[AgentOptions] falha ao trocar a opção do agente:', error);
+      if (conversationRef.current !== requested) return false;
       // Anunciar a falha é obrigatório: sem isso o seletor volta ao valor antigo
-      // sem explicação, e a pessoa acharia que errou o clique.
+      // sem explicação, e a pessoa acharia que errou o clique. Só que anunciar a
+      // falha de uma conversa que a pessoa já deixou seria ruído.
       announceRef.current(tRef.current('chat.agentOptions.changeError'));
       return false;
     } finally {
-      setChanging(false);
+      if (conversationRef.current === requested) setChanging(false);
     }
   }, [conversationId]);
 
@@ -136,4 +153,23 @@ export function optionByCategory(
   category: string,
 ): AgentConfigOption | undefined {
   return options.find((option) => (option.category ?? '').toLowerCase() === category);
+}
+
+/** Rótulos dos modos que o protocolo enumera. O agente manda só o valor. */
+const MODE_LABEL_KEYS: Record<string, string> = {
+  agent: 'chat.agentOptions.mode.agent',
+  plan: 'chat.agentOptions.mode.plan',
+  ask: 'chat.agentOptions.mode.ask',
+};
+
+/**
+ * agentModeLabel traduz os modos do protocolo. Um modo que este app ainda não
+ * conhece sai pelo próprio valor — melhor o valor cru do que nada dito.
+ */
+export function agentModeLabel(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  value: string,
+): string {
+  const key = MODE_LABEL_KEYS[value.trim().toLowerCase()];
+  return key ? t(key) : value;
 }
