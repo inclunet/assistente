@@ -173,6 +173,14 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     func(*gorm.DB) error { return migrateRefreshURLToEnc() },
 	},
+	{
+		Version: 10,
+		Name:    "acp_session_user_id_not_null",
+		// PRÉ: o AutoMigrate aplica o NOT NULL recriando a tabela, e a cópia
+		// das linhas quebra se alguma tiver user_id nulo.
+		Phase: phasePreAutoMigrate,
+		Run:   normalizeACPSessionUserID,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
