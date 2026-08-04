@@ -238,6 +238,10 @@ export function DemoteTask(arg1, arg2) {
   return window['go']['app']['App']['DemoteTask'](arg1, arg2);
 }
 
+export function DetectACPAgent(arg1) {
+  return window['go']['app']['App']['DetectACPAgent'](arg1);
+}
+
 export function DisconnectMCPServer(arg1) {
   return window['go']['app']['App']['DisconnectMCPServer'](arg1);
 }

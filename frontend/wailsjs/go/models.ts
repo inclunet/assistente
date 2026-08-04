@@ -83,6 +83,30 @@ export namespace allowlist {
 
 export namespace app {
 	
+	export class ACPAgentSetup {
+	    found: boolean;
+	    command: string;
+	    args: string[];
+	    version?: string;
+	    source?: string;
+	    searched?: string[];
+	    work_dir?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPAgentSetup(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.found = source["found"];
+	        this.command = source["command"];
+	        this.args = source["args"];
+	        this.version = source["version"];
+	        this.source = source["source"];
+	        this.searched = source["searched"];
+	        this.work_dir = source["work_dir"];
+	    }
+	}
 	export class AgentPermissionView {
 	    profileSlug: string;
 	    profileName?: string;
@@ -1270,6 +1294,8 @@ export namespace controllers {
 	    api_key?: string;
 	    default_model?: string;
 	    api_format?: string;
+	    acp_command?: string;
+	    acp_args?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new CreateLLMProviderRequest(source);
@@ -1284,6 +1310,8 @@ export namespace controllers {
 	        this.api_key = source["api_key"];
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
+	        this.acp_command = source["acp_command"];
+	        this.acp_args = source["acp_args"];
 	    }
 	}
 	export class CredentialInput {
@@ -1500,6 +1528,8 @@ export namespace controllers {
 	    api_key?: string;
 	    default_model?: string;
 	    api_format?: string;
+	    acp_command?: string;
+	    acp_args?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new UpdateLLMProviderRequest(source);
@@ -1513,6 +1543,8 @@ export namespace controllers {
 	        this.api_key = source["api_key"];
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
+	        this.acp_command = source["acp_command"];
+	        this.acp_args = source["acp_args"];
 	    }
 	}
 
