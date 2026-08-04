@@ -329,14 +329,16 @@ func TestSimOuNaoViraDuasOpcoesNumeradas(t *testing.T) {
 func TestOTextoDoAgenteNaoVaiCruParaOCanal(t *testing.T) {
 	// A mensagem fica gravada no histórico de um app de terceiro: escape de
 	// terminal e espaço invisível não têm o que fazer ali, e o invisível é como
-	// se esconde conteúdo de quem está decidindo.
+	// se esconde conteúdo de quem está decidindo. A marca de direção é pior que
+	// esconder: com ela o comando aparece de trás para frente, e quem autoriza
+	// leu outra coisa.
 	perguntas, canal := mecanismoDePergunta(time.Minute)
 	payload := pedidoDePermissao()
-	payload.Questions[0].Content = "\x1b[31mrm -rf /\x1b[0m\u200b oculto\nsegunda linha"
+	payload.Questions[0].Content = "\x1b[31mrm -rf /\x1b[0m\u200b oculto\u202e\u2066\u200f\nsegunda linha"
 	pronto := perguntaEmVoo(t, perguntas, payload)
 
 	mensagem := canal.esperarMensagem(t)
-	for _, proibido := range []string{"\x1b", "\u200b"} {
+	for _, proibido := range []string{"\x1b", "\u200b", "\u202e", "\u2066", "\u200f"} {
 		if strings.Contains(mensagem.texto, proibido) {
 			t.Errorf("a mensagem levou %q para o canal:\n%q", proibido, mensagem.texto)
 		}

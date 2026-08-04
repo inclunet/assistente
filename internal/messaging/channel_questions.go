@@ -529,9 +529,12 @@ func channelDeadlineText(timeout time.Duration) string {
 }
 
 // sanitizeChannelText tira do texto o que não se lê numa mensagem: caracteres
-// de controle e espaço invisível, que numa superfície de terceiro servem para
-// esconder conteúdo de quem está decidindo. Quebra de linha e tabulação ficam:
-// são a formatação do bloco que a pessoa precisa ler inteiro.
+// de controle e os invisíveis de formatação (categoria Cf do Unicode), que numa
+// superfície de terceiro servem para esconder conteúdo de quem está decidindo —
+// espaço de largura zero, e também as marcas de direção (U+202E e parentes), com
+// as quais um caminho ou uma linha de comando aparece de trás para frente e a
+// pessoa autoriza uma coisa lendo outra. Quebra de linha e tabulação ficam: são
+// a formatação do bloco que ela precisa ler inteiro.
 func sanitizeChannelText(text string) string {
 	replaced := strings.ReplaceAll(text, "\r\n", "\n")
 	var b strings.Builder
@@ -542,7 +545,7 @@ func sanitizeChannelText(text string) string {
 			b.WriteRune(r)
 		case r == '\r':
 			b.WriteRune('\n')
-		case unicode.IsControl(r), r == '\u200b', r == '\u200c', r == '\u200d', r == '\ufeff':
+		case unicode.IsControl(r), unicode.Is(unicode.Cf, r):
 			continue
 		default:
 			b.WriteRune(r)
