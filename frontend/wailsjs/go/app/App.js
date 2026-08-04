@@ -374,6 +374,10 @@ export function GetAgentPermissions() {
   return window['go']['app']['App']['GetAgentPermissions']();
 }
 
+export function GetAgentSessionCommands(arg1) {
+  return window['go']['app']['App']['GetAgentSessionCommands'](arg1);
+}
+
 export function GetAgentSessionOptions(arg1) {
   return window['go']['app']['App']['GetAgentSessionOptions'](arg1);
 }

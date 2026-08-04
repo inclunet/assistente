@@ -139,6 +139,8 @@ const ptBR = {
       slashCommands: 'Slash commands',
       noSkillsFound: 'Nenhum skill encontrado',
       availableSkills: 'Skills disponíveis',
+      agentCommands: 'Comandos do agente',
+      agentCommandAcceptsInput: 'aceita texto depois do nome',
       disableTTS: 'Desabilitar TTS',
       enableTTS: 'Habilitar TTS',
       disableTTSLabel: 'Desabilitar leitura de texto',

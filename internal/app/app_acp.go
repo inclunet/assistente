@@ -47,8 +47,11 @@ func (a *App) initACP() {
 		// O agente troca de modelo sozinho e avisa. A tela precisa refletir isso,
 		// e quem usa leitor de telas precisa ouvi-lo (AEP-0084 D6).
 		OnSessionOptions: a.agentSessionOptionsChanged,
-		ClientName:       "assistente",
-		ClientVersion:    AppVersion,
+		// Os comandos do agente aparecem no menu da barra, e ele conta quais
+		// existem assim que a sessão abre (AEP-0084 D8).
+		OnSessionCommands: a.agentSessionCommandsChanged,
+		ClientName:        "assistente",
+		ClientVersion:     AppVersion,
 	})
 	handler.owner = a.acpMgr.TurnOwnerOf
 }

@@ -1,17 +1,20 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { skills } from '../../../wailsjs/go/models';
+import type { app, skills } from '../../../wailsjs/go/models';
+import { buildSlashItems, filterSlashItems, type SlashItem, type SlashItemSource } from './slashItems';
 import './SlashCommandMenu.css';
 
 export interface SlashCommandMenuProps {
   /** Lista de skills invocáveis pelo usuário */
   skills: skills.SkillInfo[];
+  /** Comandos que o agente de código desta conversa oferece (AEP-0084 D8) */
+  agentCommands?: app.AgentCommand[];
   /** Texto de filtro digitado após o "/" */
   filter: string;
   /** Índice do item selecionado */
   selectedIndex: number;
-  /** Callback quando um skill é selecionado */
-  onSelect: (skill: skills.SkillInfo) => void;
+  /** Callback quando um item é selecionado */
+  onSelect: (item: SlashItem) => void;
   /** Callback quando o menu deve ser fechado */
   onClose: () => void;
   /** Posição do menu (referência ao textarea) */
@@ -20,6 +23,7 @@ export interface SlashCommandMenuProps {
 
 export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
   skills: skillList,
+  agentCommands = [],
   filter,
   selectedIndex,
   onSelect,
@@ -30,15 +34,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  // Filtra skills pelo texto digitado
-  const filteredSkills = skillList.filter((s) => {
-    const searchText = filter.toLowerCase();
-    if (!searchText) return true;
-    const name = (s.displayName || s.name || '').toLowerCase();
-    const slug = (s.slug || '').toLowerCase();
-    const desc = (s.description || '').toLowerCase();
-    return name.includes(searchText) || slug.includes(searchText) || desc.includes(searchText);
-  });
+  const filtered = filterSlashItems(buildSlashItems(skillList, agentCommands), filter);
 
   // Scroll para item selecionado
   useEffect(() => {
@@ -68,7 +64,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [handleClickOutside]);
 
-  if (filteredSkills.length === 0) {
+  if (filtered.length === 0) {
     return (
       <div className="slash-menu" ref={menuRef} role="listbox" aria-label={t('chat.slashCommands')}>
         <div className="slash-menu__empty">{t('chat.noSkillsFound')}</div>
@@ -76,57 +72,73 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
     );
   }
 
+  // Os grupos preservam a ordem da lista: o índice de cada item continua sendo o
+  // da lista inteira, que é o mesmo que as setas percorrem. Separar em dois
+  // arrays independentes faria a seta e o rótulo discordarem.
+  const groups: Array<{ source: SlashItemSource; label: string; items: Array<{ item: SlashItem; index: number }> }> = [
+    { source: 'skill', label: t('chat.availableSkills'), items: [] },
+    { source: 'agent', label: t('chat.agentCommands', 'Comandos do agente'), items: [] },
+  ];
+  filtered.forEach((item, index) => {
+    const group = groups.find((candidate) => candidate.source === item.source);
+    group?.items.push({ item, index });
+  });
+
   return (
     <div className="slash-menu" ref={menuRef} role="listbox" aria-label={t('chat.slashCommands')}>
-      <div className="slash-menu__header">{t('chat.availableSkills')}</div>
-      <div className="slash-menu__list">
-        {filteredSkills.map((skill, index) => {
-          const displayName = skill.displayName || skill.name || skill.slug;
-          const isSelected = index === selectedIndex;
-
-          return (
-            <button
-              key={skill.slug}
-              ref={(el) => { itemRefs.current[index] = el; }}
-              className={`slash-menu__item ${isSelected ? 'slash-menu__item--selected' : ''}`}
-              role="option"
-              aria-selected={isSelected}
-              onClick={() => onSelect(skill)}
-              onMouseEnter={() => {
-                // O hover visual é controlado pelo CSS, mas o selectedIndex é controlado pelo pai
-              }}
-            >
-              <div className="slash-menu__item-header">
-                <span className="slash-menu__item-name">/{skill.slug}</span>
-                {displayName !== skill.slug && (
-                  <span className="slash-menu__item-display">{displayName}</span>
-                )}
-                {skill.argumentHint && (
-                  <span className="slash-menu__item-hint">{skill.argumentHint}</span>
-                )}
-              </div>
-              {skill.description && (
-                <div className="slash-menu__item-desc">{skill.description}</div>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      {groups.map((group) => {
+        if (group.items.length === 0) return null;
+        return (
+          <div key={group.source} role="group" aria-label={group.label} className="slash-menu__group">
+            <div className="slash-menu__header">{group.label}</div>
+            <div className="slash-menu__list">
+              {group.items.map(({ item, index }) => {
+                const isSelected = index === selectedIndex;
+                return (
+                  <button
+                    key={item.key}
+                    ref={(el) => { itemRefs.current[index] = el; }}
+                    className={`slash-menu__item ${isSelected ? 'slash-menu__item--selected' : ''}`}
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => onSelect(item)}
+                  >
+                    <div className="slash-menu__item-header">
+                      <span className="slash-menu__item-name">/{item.token}</span>
+                      {item.label !== item.token && (
+                        <span className="slash-menu__item-display">{item.label}</span>
+                      )}
+                      {item.argumentHint && (
+                        <span className="slash-menu__item-hint">{item.argumentHint}</span>
+                      )}
+                      {!item.argumentHint && item.acceptsInput && (
+                        <span className="slash-menu__item-hint">
+                          {t('chat.agentCommandAcceptsInput', 'aceita texto depois do nome')}
+                        </span>
+                      )}
+                    </div>
+                    {item.description && (
+                      <div className="slash-menu__item-desc">{item.description}</div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 };
 
 /**
- * Retorna o número de skills filtrados para o texto dado.
- * Útil para controlar o selectedIndex no pai.
+ * Retorna o número de itens do menu para o texto dado — skills do app e
+ * comandos do agente juntos. É por ele que as setas sabem onde dar a volta.
  */
-export function countFilteredSkills(skillList: skills.SkillInfo[], filter: string): number {
-  const searchText = filter.toLowerCase();
-  if (!searchText) return skillList.length;
-  return skillList.filter((s) => {
-    const name = (s.displayName || s.name || '').toLowerCase();
-    const slug = (s.slug || '').toLowerCase();
-    const desc = (s.description || '').toLowerCase();
-    return name.includes(searchText) || slug.includes(searchText) || desc.includes(searchText);
-  }).length;
+export function countFilteredSlashItems(
+  skillList: skills.SkillInfo[],
+  agentCommands: app.AgentCommand[],
+  filter: string,
+): number {
+  return filterSlashItems(buildSlashItems(skillList, agentCommands), filter).length;
 }

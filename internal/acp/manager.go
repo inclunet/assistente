@@ -111,6 +111,12 @@ type ManagerConfig struct {
 	// pode voltar a falar com o agente.
 	OnSessionOptions func(event SessionOptionsEvent)
 
+	// OnSessionCommands é avisado quando o agente conta quais comandos a sessão
+	// de uma conversa oferece (AEP-0084 D8). Nulo apenas silencia o aviso.
+	//
+	// Mesmo cuidado do OnSessionOptions: roda na goroutine de entrega.
+	OnSessionCommands func(event SessionCommandsEvent)
+
 	// Dial existe para os testes trocarem o transporte. Padrão: New.
 	Dial func(cfg Config, handler RequestHandler) (Client, error)
 }
@@ -132,6 +138,7 @@ type Manager struct {
 	clientName    string
 	clientVersion string
 	onOptions     func(SessionOptionsEvent)
+	onCommands    func(SessionCommandsEvent)
 	dial          func(Config, RequestHandler) (Client, error)
 
 	// mu protege os mapas. Ordem dos locks: quem segura o de uma conversa pode
@@ -178,6 +185,7 @@ func NewManager(cfg ManagerConfig) *Manager {
 		clientName:    cfg.ClientName,
 		clientVersion: cfg.ClientVersion,
 		onOptions:     cfg.OnSessionOptions,
+		onCommands:    cfg.OnSessionCommands,
 		dial:          cfg.Dial,
 		procs:         make(map[string]*agentProcess),
 		convs:         make(map[string]*Conversation),
@@ -239,6 +247,7 @@ func (m *Manager) process(spec ProviderSpec) (*agentProcess, error) {
 		// O transporte só conhece o nome da sessão; quem sabe de que conversa
 		// ela é, e o que o app já sabia dela, é este serviço (AEP-0084 D6).
 		OnConfigOptions: m.sessionOptionsChanged,
+		OnCommands:      m.sessionCommandsChanged,
 	}, m.handler)
 	if err != nil {
 		return nil, err
@@ -497,9 +506,9 @@ type mountedSession struct {
 	dir string
 	// session é nula depois de Invalidate: o app deixou de usá-la, mas o nome
 	// dela continua conhecido para que a despedida ainda seja possível.
-	session    Session
-	sessionID  string
-	origin     SessionOrigin
+	session   Session
+	sessionID string
+	origin    SessionOrigin
 	// originTold marca que a origem desta sessão já foi contada à pessoa. A
 	// sessão recriada precisa ser anunciada uma vez, e não a cada turno: o
 	// agente perdeu a memória quando ela nasceu, e repetir o aviso em todo

@@ -1,16 +1,17 @@
 import { logger } from '../../utils/logger';
-import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback, useImperativeHandle } from 'react';
+import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback, useImperativeHandle, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PaperClipOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
 import { MediaPreview } from './MediaPreview';
 import { VoiceButton } from './VoiceButton';
-import { SlashCommandMenu, countFilteredSkills } from './SlashCommandMenu';
+import { SlashCommandMenu, countFilteredSlashItems } from './SlashCommandMenu';
+import { buildSlashItems, filterSlashItems, type SlashItem } from './slashItems';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { DIMENSIONS } from '../../constants/chat';
 import { GetUserInvocableSkillsForProfile } from '@wailsjs/go/app/App';
-import type { skills } from '../../../wailsjs/go/models';
+import type { app, skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
 
 export interface ChatInputProps {
@@ -28,6 +29,12 @@ export interface ChatInputProps {
   onMessageChange?: (message: string) => void;
   onMediaFilesChange?: (mediaFiles: MediaFile[]) => void;
   profileSlug?: string;
+  /**
+   * Comandos que o agente de código desta conversa oferece (AEP-0084 D8). Eles
+   * entram no mesmo menu da barra: quem digita "/" quer ver o que pode pedir,
+   * e não de onde cada coisa vem.
+   */
+  agentCommands?: app.AgentCommand[];
 }
 
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
@@ -45,6 +52,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     onMessageChange,
     onMediaFilesChange,
     profileSlug,
+    agentCommands,
   },
   ref
 ) => {
@@ -135,9 +143,18 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     }
   };
 
+  // As duas origens do menu numa lista só, que é a que as setas percorrem e a
+  // que o Enter escolhe. Uma lista por origem faria o índice da seta e o item
+  // escolhido discordarem assim que o agente oferecesse o primeiro comando.
+  const slashCommands = useMemo(() => agentCommands ?? [], [agentCommands]);
+  const slashItems = useMemo(
+    () => buildSlashItems(invocableSkills, slashCommands),
+    [invocableSkills, slashCommands],
+  );
+
   // Detecta slash command no texto
   const updateSlashMenu = useCallback((text: string) => {
-    if (invocableSkills.length === 0) {
+    if (slashItems.length === 0) {
       setShowSlashMenu(false);
       return;
     }
@@ -156,18 +173,19 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     } else {
       setShowSlashMenu(false);
     }
-  }, [invocableSkills]);
+  }, [slashItems]);
 
-  // Quando um skill é selecionado no menu
-  const handleSlashSelect = useCallback((skill: skills.SkillInfo) => {
-    const hint = skill.argumentHint ? ` ` : '';
-    setMessage(`/${skill.slug}${hint}`);
+  // Quando um item do menu é escolhido. O espaço no fim só aparece quando ainda
+  // falta escrever alguma coisa: pôr espaço num comando sem argumento faria a
+  // mensagem sair com um espaço solto no fim.
+  const handleSlashSelect = useCallback((item: SlashItem) => {
+    setMessage(`/${item.token}${item.acceptsInput ? ' ' : ''}`);
     setShowSlashMenu(false);
     // Foca o textarea
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
     });
-  }, [textareaRef]);
+  }, [textareaRef, setMessage]);
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -283,7 +301,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Navegação no menu slash
     if (showSlashMenu) {
-      const totalFiltered = countFilteredSkills(invocableSkills, slashFilter);
+      const totalFiltered = countFilteredSlashItems(invocableSkills, slashCommands, slashFilter);
 
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -297,15 +315,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       }
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
         e.preventDefault();
-        // Seleciona o skill na posição atual
-        const filtered = invocableSkills.filter((s) => {
-          const searchText = slashFilter.toLowerCase();
-          if (!searchText) return true;
-          const name = (s.displayName || s.name || '').toLowerCase();
-          const slug = (s.slug || '').toLowerCase();
-          const desc = (s.description || '').toLowerCase();
-          return name.includes(searchText) || slug.includes(searchText) || desc.includes(searchText);
-        });
+        // O item na posição atual da mesma lista que o menu desenha.
+        const filtered = filterSlashItems(slashItems, slashFilter);
         if (filtered[slashSelectedIndex]) {
           handleSlashSelect(filtered[slashSelectedIndex]);
         }
@@ -359,9 +370,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         </div>
       )}
 
-      {showSlashMenu && invocableSkills.length > 0 && (
+      {showSlashMenu && slashItems.length > 0 && (
         <SlashCommandMenu
           skills={invocableSkills}
+          agentCommands={slashCommands}
           filter={slashFilter}
           selectedIndex={slashSelectedIndex}
           onSelect={handleSlashSelect}

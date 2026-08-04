@@ -61,9 +61,10 @@ type session struct {
 	sinkMu sync.RWMutex
 	sink   UpdateSink
 
-	mu      sync.Mutex
-	options []ConfigOption
-	closed  bool
+	mu       sync.Mutex
+	options  []ConfigOption
+	commands []Command
+	closed   bool
 
 	// unconfirmedSig fecha quando o turno em andamento foi cancelado e o agente
 	// não confirmou no prazo. O slot continua ocupado nesse caso — dois
@@ -155,6 +156,25 @@ func (s *session) mergeConfigOptions(fresh []ConfigOption) ([]ConfigOption, bool
 	return copyOptions(s.options), true
 }
 
+// Commands devolve os comandos que o agente ofereceu para esta sessão. Cópia
+// pelo mesmo motivo das opções: quem lê é código de UI, e o agente refaz a lista
+// quando quiser.
+func (s *session) Commands() []Command {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Command(nil), s.commands...)
+}
+
+// setCommands substitui a lista inteira. O evento do agente é o conjunto
+// completo, então lista vazia é resposta: ele deixou de oferecer comandos, e
+// manter os antigos ofereceria à pessoa algo que já não existe.
+func (s *session) setCommands(commands []Command) []Command {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.commands = append([]Command(nil), commands...)
+	return append([]Command(nil), s.commands...)
+}
+
 func copyOptions(options []ConfigOption) []ConfigOption {
 	out := make([]ConfigOption, len(options))
 	for i, option := range options {
@@ -231,6 +251,11 @@ func (s *session) deliver(update Update) {
 	case UpdateMode:
 		s.setCurrentMode(update.Mode)
 		s.cn.announceOptions(s.id, s.ConfigOptions())
+	case UpdateCommands:
+		// A lista chega fora de turno — o agente a manda assim que a sessão
+		// abre —, então quem escuta é o canal próprio, e não o sink, que só
+		// existe entre o começo e o fim de um turno.
+		s.cn.announceCommands(s.id, s.setCommands(update.Commands))
 	}
 
 	s.sinkMu.RLock()

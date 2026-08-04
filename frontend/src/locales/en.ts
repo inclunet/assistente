@@ -139,6 +139,8 @@ const en = {
       slashCommands: 'Slash commands',
       noSkillsFound: 'No skill found',
       availableSkills: 'Available Skills',
+      agentCommands: 'Agent commands',
+      agentCommandAcceptsInput: 'takes text after the name',
       disableTTS: 'Disable TTS',
       enableTTS: 'Enable TTS',
       disableTTSLabel: 'Disable text reading',

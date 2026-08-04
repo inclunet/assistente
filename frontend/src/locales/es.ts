@@ -138,6 +138,8 @@ const es = {
       slashCommands: 'Slash commands',
       noSkillsFound: 'Ningún skill encontrado',
       availableSkills: 'Skills disponibles',
+      agentCommands: 'Comandos del agente',
+      agentCommandAcceptsInput: 'acepta texto después del nombre',
       disableTTS: 'Deshabilitar TTS',
       enableTTS: 'Habilitar TTS',
       disableTTSLabel: 'Deshabilitar lectura de texto',
