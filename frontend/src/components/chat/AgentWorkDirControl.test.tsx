@@ -38,7 +38,13 @@ const estado = (over: Record<string, unknown> = {}) => ({
 const abrirDialogo = async (user: ReturnType<typeof userEvent.setup>) => {
   const botao = await screen.findByRole('button', { name: /chat\.agentWorkDir\.button/ });
   await user.click(botao);
-  return screen.findByRole('textbox', { name: 'chat.agentWorkDir.fieldLabel' });
+  const campo = await screen.findByRole('textbox', { name: 'chat.agentWorkDir.fieldLabel' });
+  // O modal aplica o foco inicial em dois tempos, e o segundo é uma conferência
+  // 150ms depois da abertura. Digitar por cima dela mediria a corrida entre as
+  // teclas e o foco — que foi o que quebrou este teste numa máquina mais lenta —
+  // em vez de medir o campo.
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  return campo;
 };
 
 beforeEach(() => {

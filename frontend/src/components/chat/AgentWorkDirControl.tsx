@@ -96,6 +96,8 @@ export const AgentWorkDirControl: React.FC<AgentWorkDirControlProps> = ({
         title={t('chat.agentWorkDir.title')}
         size="md"
         ariaDescribedBy={warningId}
+        // O campo do caminho é o que a pessoa veio fazer aqui, e a heurística
+        // padrão do modal não chega a ele.
         initialFocusSelector={`#${CSS.escape(inputId)}`}
       >
         <div className="agent-workdir__body">
