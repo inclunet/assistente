@@ -19,6 +19,11 @@ type fakeMachine struct {
 	files []string
 	dirs  map[string][]string
 	path  map[string]string
+
+	// recusas são os caminhos que a máquina se nega a conferir, como um
+	// diretório sem permissão de leitura. É o que separa "não existe" de "não
+	// deu para olhar" nos testes.
+	recusas map[string]error
 }
 
 func (m fakeMachine) probe() probe {
@@ -31,11 +36,21 @@ func (m fakeMachine) probe() probe {
 			}
 			return "", errors.New("não está no PATH")
 		},
-		isFile: func(path string) bool { return slices.Contains(m.files, path) },
+		isFile: func(path string) (bool, error) {
+			if err, ok := m.recusas[path]; ok {
+				return false, err
+			}
+			return slices.Contains(m.files, path), nil
+		},
 		readDir: func(dir string) ([]fs.DirEntry, error) {
+			if err, ok := m.recusas[dir]; ok {
+				return nil, err
+			}
 			names, ok := m.dirs[dir]
 			if !ok {
-				return nil, errors.New("diretório inexistente")
+				// O mesmo erro que o sistema devolve: ausência é resposta, e a
+				// detecção só guarda o que não deu para conferir.
+				return nil, fs.ErrNotExist
 			}
 			entries := make([]fs.DirEntry, 0, len(names))
 			for _, name := range names {
@@ -287,6 +302,90 @@ func TestDetectCursorSemLocalAppDataNaoQuebra(t *testing.T) {
 
 	if install.Found {
 		t.Fatalf("encontrou agente sem LOCALAPPDATA: %+v", install)
+	}
+}
+
+func TestDetectCursorGuardaOLugarQueNaoDeuParaConferir(t *testing.T) {
+	home := filepath.Join(`C:\Users\alguem\AppData\Local`, "cursor-agent")
+	machine := fakeMachine{
+		goos:    "windows",
+		env:     map[string]string{"LOCALAPPDATA": `C:\Users\alguem\AppData\Local`},
+		recusas: map[string]error{filepath.Join(home, "versions"): fs.ErrPermission},
+	}
+
+	install := detectCursor(machine.probe())
+
+	if install.Found {
+		t.Fatalf("encontrou agente onde não deu nem para ler: %+v", install)
+	}
+	if len(install.Failures) == 0 {
+		t.Fatalf("permissão negada não ficou registrada: %+v", install)
+	}
+	if !strings.Contains(install.Failures[0], filepath.Join(home, "versions")) {
+		t.Errorf("falha registrada não diz o lugar: %q", install.Failures[0])
+	}
+}
+
+func TestDetectCursorNaoTrataAusenciaComoFalha(t *testing.T) {
+	// Máquina sem Cursor: nada existe, e nada disso é falha de procura — senão a
+	// tela deixaria de dar a instrução de instalar, que é a certa aqui.
+	machine := fakeMachine{
+		goos: "windows",
+		env:  map[string]string{"LOCALAPPDATA": `C:\Users\alguem\AppData\Local`},
+	}
+
+	install := detectCursor(machine.probe())
+
+	if len(install.Failures) != 0 {
+		t.Fatalf("ausência virou falha de procura: %q", install.Failures)
+	}
+}
+
+func TestDetectAgentNaoConfundeProcuraFalhadaComAgenteAusente(t *testing.T) {
+	home := filepath.Join(`C:\Users\alguem\AppData\Local`, "cursor-agent")
+	machine := fakeMachine{
+		goos:    "windows",
+		env:     map[string]string{"LOCALAPPDATA": `C:\Users\alguem\AppData\Local`},
+		path:    map[string]string{"powershell": `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`},
+		recusas: map[string]error{filepath.Join(home, "agent.ps1"): fs.ErrPermission},
+	}
+
+	_, err := detectAgent(AgentKindCursor, machine.probe())
+
+	if err == nil {
+		t.Fatal("procura interrompida por permissão passou como agente não instalado")
+	}
+	if !strings.Contains(err.Error(), "agent.ps1") {
+		t.Errorf("erro não diz o que não deu para conferir: %v", err)
+	}
+}
+
+func TestDetectAgentSemInstalacaoNaoEErro(t *testing.T) {
+	machine := fakeMachine{goos: "linux", env: map[string]string{"HOME": "/home/alguem"}}
+
+	install, err := detectAgent(AgentKindCursor, machine.probe())
+
+	if err != nil {
+		t.Fatalf("não achar o CLI virou erro: %v", err)
+	}
+	if install.Found {
+		t.Errorf("encontrou agente numa máquina sem nada: %+v", install)
+	}
+}
+
+func TestDetectAgentComAgenteEncontradoIgnoraFalhaEmOutroLugar(t *testing.T) {
+	// Uma pasta ilegível não importa quando o agente foi achado em outra: já há
+	// comando para subir, e reclamar disso seria assustar sem motivo.
+	machine := windowsInstall("2026.07.23-e383d2b")
+	machine.recusas = map[string]error{filepath.Join(`C:\Users\alguem\AppData\Local`, "cursor-agent", "cursor-agent.ps1"): fs.ErrPermission}
+
+	install, err := detectAgent(AgentKindCursor, machine.probe())
+
+	if err != nil {
+		t.Fatalf("falha em lugar irrelevante virou erro: %v", err)
+	}
+	if !install.Found {
+		t.Errorf("não achou o agente instalado: %+v", install)
 	}
 }
 

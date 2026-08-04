@@ -3,6 +3,9 @@ package providers
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -54,20 +57,67 @@ func TestCursorTemplateNaoCompartilhaAListaDeArgumentosComADeteccao(t *testing.T
 	}
 }
 
-func TestBuiltinTemplateCursorNaoDizTipoInvalido(t *testing.T) {
-	// A máquina que roda o teste pode ou não ter o Cursor instalado, e o teste
-	// não decide isso. O que precisa valer nos dois casos: quando não há
-	// instalação, o motivo é "agente não encontrado" — e não "tipo inválido",
-	// que mandaria a pessoa mexer no formulário em vez de instalar o CLI.
-	p, err := BuiltinTemplate("cursor")
-	if err != nil {
-		if !errors.Is(err, ErrAgentNotFound) {
-			t.Fatalf("erro = %v, queria ErrAgentNotFound", err)
-		}
-		return
+// cursorFalsoNoPath faz esta execução ver um Cursor instalado, sem depender de
+// como está a máquina de quem roda o teste. Sem isso os testes de template
+// seriam pulados no CI, onde o CLI não existe — justamente onde a cobertura
+// precisa valer. O arquivo não precisa funcionar: a detecção resolve caminho e
+// não executa nada.
+func cursorFalsoNoPath(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	nome := "cursor-agent"
+	if runtime.GOOS == "windows" {
+		// No Windows a detecção só aceita executável, e o LookPath procura pelas
+		// extensões do PATHEXT: um arquivo sem extensão não seria encontrado.
+		nome += ".exe"
 	}
-	if p.ACPCommand == "" {
-		t.Fatalf("template devolvido sem comando do agente: %+v", p)
+	caminho := filepath.Join(dir, nome)
+	if err := os.WriteFile(caminho, []byte("agente falso"), 0o755); err != nil {
+		t.Fatalf("não deu para criar o agente falso: %v", err)
+	}
+
+	t.Setenv("PATH", dir)
+	// Um LOCALAPPDATA vazio evita que a instalação real desta máquina responda
+	// antes do PATH e mude o comando esperado.
+	t.Setenv("LOCALAPPDATA", filepath.Join(t.TempDir(), "sem-cursor"))
+	t.Setenv("HOME", filepath.Join(t.TempDir(), "sem-cursor"))
+	return caminho
+}
+
+// maquinaSemCursor deixa esta execução sem nenhum lugar onde achar o CLI.
+func maquinaSemCursor(t *testing.T) {
+	t.Helper()
+
+	vazio := t.TempDir()
+	t.Setenv("PATH", vazio)
+	t.Setenv("LOCALAPPDATA", filepath.Join(vazio, "sem-cursor"))
+	t.Setenv("HOME", filepath.Join(vazio, "sem-cursor"))
+}
+
+func TestBuiltinTemplateCursorNaoDizTipoInvalido(t *testing.T) {
+	// Sem instalação, o motivo tem de ser "agente não encontrado" — e não "tipo
+	// inválido", que mandaria a pessoa mexer no formulário em vez de instalar o
+	// CLI.
+	maquinaSemCursor(t)
+
+	_, err := BuiltinTemplate("cursor")
+
+	if !errors.Is(err, ErrAgentNotFound) {
+		t.Fatalf("erro = %v, queria ErrAgentNotFound", err)
+	}
+}
+
+func TestBuiltinTemplateCursorUsaOComandoDetectado(t *testing.T) {
+	caminho := cursorFalsoNoPath(t)
+
+	p, err := BuiltinTemplate("cursor")
+
+	if err != nil {
+		t.Fatalf("BuiltinTemplate falhou com o CLI no PATH: %v", err)
+	}
+	if p.ACPCommand != caminho {
+		t.Errorf("comando = %q, queria o do PATH (%q)", p.ACPCommand, caminho)
 	}
 	if err := p.Validate(); err != nil {
 		t.Errorf("template inválido: %v", err)
@@ -75,9 +125,7 @@ func TestBuiltinTemplateCursorNaoDizTipoInvalido(t *testing.T) {
 }
 
 func TestCreateFromTemplateRecusaChaveParaAgente(t *testing.T) {
-	if _, err := BuiltinTemplate("cursor"); err != nil {
-		t.Skipf("Cursor não instalado nesta máquina: %v", err)
-	}
+	cursorFalsoNoPath(t)
 	svc, spy := acpService(t)
 
 	err := svc.CreateFromTemplate(context.Background(), "cursor", "sk-uma-chave")
@@ -94,9 +142,7 @@ func TestCreateFromTemplateRecusaChaveParaAgente(t *testing.T) {
 }
 
 func TestCreateFromTemplateCursorRegistraOAgente(t *testing.T) {
-	if _, err := BuiltinTemplate("cursor"); err != nil {
-		t.Skipf("Cursor não instalado nesta máquina: %v", err)
-	}
+	caminho := cursorFalsoNoPath(t)
 	svc, _ := acpService(t)
 
 	if err := svc.CreateFromTemplate(context.Background(), "cursor", ""); err != nil {
@@ -107,7 +153,21 @@ func TestCreateFromTemplateCursorRegistraOAgente(t *testing.T) {
 	if registrado == nil {
 		t.Fatal("provedor do Cursor não ficou registrado")
 	}
-	if !registrado.IsACP() || registrado.ACPCommand == "" {
-		t.Errorf("provedor registrado não é um agente utilizável: %+v", registrado)
+	if !registrado.IsACP() || registrado.ACPCommand != caminho {
+		t.Errorf("provedor registrado não é o agente detectado: %+v", registrado)
+	}
+}
+
+func TestCreateFromTemplateCursorSemInstalacaoExplicaOQueFalta(t *testing.T) {
+	maquinaSemCursor(t)
+	svc, _ := acpService(t)
+
+	err := svc.CreateFromTemplate(context.Background(), "cursor", "")
+
+	if !errors.Is(err, ErrAgentNotFound) {
+		t.Fatalf("erro = %v, queria ErrAgentNotFound", err)
+	}
+	if svc.registry.Get("cursor-agent") != nil {
+		t.Error("registrou um agente que não existe nesta máquina")
 	}
 }

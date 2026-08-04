@@ -2,6 +2,7 @@ package acp
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -52,13 +53,34 @@ type Install struct {
 	// específico da máquina entra aqui: a procura no PATH acontece sempre e é a
 	// mensagem da tela que a menciona, no idioma de quem lê.
 	Searched []string
+
+	// Failures são os lugares que não deu para conferir — permissão negada,
+	// disco com erro — já com o motivo. Ausência não entra: não existir é a
+	// resposta esperada de quem não instalou o CLI. Quem chama transforma isto
+	// em erro quando nada foi encontrado; achado o agente, não importa mais.
+	Failures []string
 }
 
 // DetectAgent procura o agente de código nesta máquina.
+//
+// Não encontrar não é erro: é o estado que a tela explica. Erro é não ter dado
+// para procurar — aí devolver "não instalado" mandaria instalar um CLI que pode
+// já estar lá, quando o que falta é permissão de leitura.
 func DetectAgent(kind AgentKind) (Install, error) {
+	return detectAgent(kind, systemProbe())
+}
+
+// detectAgent é o DetectAgent com a máquina injetada, para o teste poder
+// descrever um sistema de arquivos que recusa leitura.
+func detectAgent(kind AgentKind, p probe) (Install, error) {
 	switch kind {
 	case AgentKindCursor:
-		return detectCursor(systemProbe()), nil
+		install := detectCursor(p)
+		if !install.Found && len(install.Failures) > 0 {
+			return install, fmt.Errorf("a procura pelo agente não pôde ser concluída: %s",
+				strings.Join(install.Failures, "; "))
+		}
+		return install, nil
 	default:
 		// O nome vem da chamada da UI e pode chegar de qualquer lugar: sai
 		// citado e achatado, como todo texto de fora (AEP-0084 D11).
@@ -69,11 +91,13 @@ func DetectAgent(kind AgentKind) (Install, error) {
 // probe é tudo o que a detecção pergunta ao sistema. Existe para o teste poder
 // descrever uma máquina — Windows com Cursor instalado, Unix sem nada — em vez
 // de depender de como está a máquina que roda o teste.
+// O erro de isFile e readDir vem junto da resposta porque "não existe" e "não
+// deu para olhar" pedem instruções diferentes de quem está configurando.
 type probe struct {
 	goos     string
 	getenv   func(string) string
 	lookPath func(string) (string, error)
-	isFile   func(string) bool
+	isFile   func(string) (bool, error)
 	readDir  func(string) ([]fs.DirEntry, error)
 }
 
@@ -87,9 +111,17 @@ func systemProbe() probe {
 	}
 }
 
-func isRegularFile(path string) bool {
+// isRegularFile diz se o caminho é um arquivo. Não existir é resposta, e não
+// falha: quem não instalou o CLI cai aí, e o erro guardado seria ruído.
+func isRegularFile(path string) (bool, error) {
 	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular()
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return info.Mode().IsRegular(), nil
 }
 
 // detectCursor procura o CLI do Cursor. A ordem não é arbitrária: no Windows o
@@ -116,14 +148,15 @@ func detectCursor(p probe) Install {
 			return install
 		}
 	}
-	return Install{Searched: searched.paths}
+	return Install{Searched: searched.paths, Failures: searched.failures}
 }
 
 // searchLog guarda onde se procurou, sem repetir: um mesmo diretório é
 // consultado por mais de um candidato, e listá-lo duas vezes na tela faria
 // parecer que a busca se perdeu.
 type searchLog struct {
-	paths []string
+	paths    []string
+	failures []string
 }
 
 func (s *searchLog) add(path string) {
@@ -131,6 +164,29 @@ func (s *searchLog) add(path string) {
 		return
 	}
 	s.paths = append(s.paths, path)
+}
+
+// fail registra um lugar que não deu para conferir. Ausência não conta: é a
+// resposta normal da máquina sem o CLI instalado. Permissão negada, sim — é uma
+// pergunta que ficou sem resposta, e ler isso como "não instalado" mandaria a
+// pessoa reinstalar o que talvez já esteja lá.
+func (s *searchLog) fail(path string, err error) {
+	if err == nil || errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	entry := fmt.Sprintf("%s: %s", path, singleLine(err.Error()))
+	if slices.Contains(s.failures, entry) {
+		return
+	}
+	s.failures = append(s.failures, entry)
+}
+
+// exists responde se o arquivo serve de candidato, guardando de lado o motivo
+// quando não deu para saber.
+func exists(p probe, searched *searchLog, path string) bool {
+	ok, err := p.isFile(path)
+	searched.fail(path, err)
+	return ok
 }
 
 // cursorHome é o diretório onde o instalador do Cursor põe o CLI no Windows.
@@ -153,7 +209,7 @@ func cursorVersionedNode(p probe, searched *searchLog) (Install, bool) {
 	}
 	searched.add(home)
 
-	if install, ok := nodePairIn(p, home, ""); ok {
+	if install, ok := nodePairIn(p, searched, home, ""); ok {
 		return install, true
 	}
 
@@ -161,6 +217,7 @@ func cursorVersionedNode(p probe, searched *searchLog) (Install, bool) {
 	searched.add(versions)
 	entries, err := p.readDir(versions)
 	if err != nil {
+		searched.fail(versions, err)
 		return Install{}, false
 	}
 
@@ -175,7 +232,7 @@ func cursorVersionedNode(p probe, searched *searchLog) (Install, bool) {
 	// pessoa já atualizou.
 	slices.SortFunc(names, func(a, b string) int { return cmp.Compare(cursorVersionOrder(b), cursorVersionOrder(a)) })
 	for _, name := range names {
-		if install, ok := nodePairIn(p, filepath.Join(versions, name), name); ok {
+		if install, ok := nodePairIn(p, searched, filepath.Join(versions, name), name); ok {
 			return install, true
 		}
 	}
@@ -184,10 +241,10 @@ func cursorVersionedNode(p probe, searched *searchLog) (Install, bool) {
 
 // nodePairIn devolve o comando para o par node/index de um diretório, quando os
 // dois arquivos estão lá.
-func nodePairIn(p probe, dir, version string) (Install, bool) {
+func nodePairIn(p probe, searched *searchLog, dir, version string) (Install, bool) {
 	node := filepath.Join(dir, "node.exe")
 	index := filepath.Join(dir, "index.js")
-	if !p.isFile(node) || !p.isFile(index) {
+	if !exists(p, searched, node) || !exists(p, searched, index) {
 		return Install{}, false
 	}
 	return Install{
@@ -250,7 +307,7 @@ func cursorScriptWrapper(p probe, searched *searchLog) (Install, bool) {
 	}
 	for _, name := range []string{"agent.ps1", "cursor-agent.ps1"} {
 		script := filepath.Join(home, name)
-		if !p.isFile(script) {
+		if !exists(p, searched, script) {
 			continue
 		}
 		return Install{
@@ -302,7 +359,7 @@ func cursorInLocalBin(p probe, searched *searchLog) (Install, bool) {
 	for _, name := range cursorAgentNames {
 		candidate := filepath.Join(home, ".local", "bin", name)
 		searched.add(candidate)
-		if p.isFile(candidate) {
+		if exists(p, searched, candidate) {
 			return Install{Command: candidate, Args: []string{acpSubcommand}, Source: candidate}, true
 		}
 	}
