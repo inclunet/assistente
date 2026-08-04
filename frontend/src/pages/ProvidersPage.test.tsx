@@ -96,9 +96,21 @@ vi.mock('../components/ui/Modal', () => ({
   isModalOpen: () => false,
 }));
 
+// O dublê mostra o que recebeu: é a única forma de um teste de página provar que
+// a configuração salva chega ao formulário, em vez de ser montada à mão nele.
 vi.mock('../components/settings/ProviderForm', () => ({
-  ProviderForm: ({ onSave, onCancel }: { onSave: () => void; onCancel: () => void }) => (
+  ProviderForm: ({
+    provider,
+    onSave,
+    onCancel,
+  }: {
+    provider?: { acp_command?: string; acp_args?: string[] };
+    onSave: () => void;
+    onCancel: () => void;
+  }) => (
     <div>
+      <span data-testid="form-acp-command">{provider?.acp_command ?? ''}</span>
+      <span data-testid="form-acp-args">{JSON.stringify(provider?.acp_args ?? [])}</span>
       <button type="button" onClick={onSave}>Salvar</button>
       <button type="button" onClick={onCancel}>Cancelar</button>
     </div>
@@ -154,6 +166,77 @@ describe('ProvidersPage', () => {
         base_url: 'https://api.openai.com',
       }));
     });
+  });
+
+  it('leva o comando salvo do agente ao formulario de edicao', async () => {
+    // Um provedor de agente é endereçado pelo comando, e não por URL: sem ele o
+    // formulário mostraria menos do que está salvo e a validação barraria até
+    // quem só queria renomear.
+    mockGetProviders.mockResolvedValue([
+      {
+        id: 'cursor-1',
+        name: 'Cursor local',
+        type: 'cursor',
+        api_format: 'acp',
+        base_url: '',
+        credential_required: false,
+        credential_status: 'none',
+        acp_command: '/opt/cursor/agente',
+        acp_args: ['acp', '--forcar'],
+      },
+    ]);
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Cursor local')).toBeInTheDocument();
+    });
+
+    const editButtons = screen.getAllByRole('button', { name: 'Editar' });
+    const rowEdit = editButtons.find((button) => !button.hasAttribute('disabled'));
+    expect(rowEdit).toBeTruthy();
+    await user.click(rowEdit!);
+
+    expect(await screen.findByTestId('form-acp-command')).toHaveTextContent('/opt/cursor/agente');
+    expect(screen.getByTestId('form-acp-args')).toHaveTextContent('["acp","--forcar"]');
+  });
+
+  it('duplica provedor de agente com o comando que o sobe', async () => {
+    mockGetProviders.mockResolvedValue([
+      {
+        id: 'cursor-1',
+        name: 'Cursor local',
+        type: 'cursor',
+        api_format: 'acp',
+        base_url: '',
+        credential_required: false,
+        credential_status: 'none',
+        acp_command: '/opt/cursor/agente',
+        acp_args: ['acp'],
+      },
+    ]);
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Cursor local')).toBeInTheDocument();
+    });
+
+    const duplicateButtons = screen.getAllByRole('button', { name: 'Duplicar' });
+    const rowDuplicate = duplicateButtons.find((button) => !button.hasAttribute('disabled'));
+    await user.click(rowDuplicate!);
+
+    await waitFor(() => {
+      expect(mockCreateProvider).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'cursor',
+        api_format: 'acp',
+        acp_command: '/opt/cursor/agente',
+        acp_args: ['acp'],
+      }));
+    });
+    // Sem erro: o backend recusa o formato acp sem comando, e a cópia sem ele
+    // morreria em toast de erro.
+    expect(mockAddToast).not.toHaveBeenCalledWith(expect.anything(), 'error');
   });
 
   it('habilita acao de excluir na toolbar apos foco', async () => {

@@ -142,6 +142,40 @@ func TestMonitor_OfflineLatencyNotAveraged(t *testing.T) {
 	}
 }
 
+// TestMonitor_UnauthenticatedChegaInteiroAoFrontend: o estado de agente sem
+// login atravessa o monitor como ele mesmo. Achatá-lo em offline apagaria a
+// única informação que diz à pessoa o que fazer (AEP-0084 D12), e o detalhe do
+// erro precisa chegar junto para a tela poder instruir.
+func TestMonitor_UnauthenticatedChegaInteiroAoFrontend(t *testing.T) {
+	emitter := &captureEmitter{}
+	m := New(func(context.Context) Snapshot {
+		return Snapshot{
+			State:        StateUnauthenticated,
+			ProviderID:   "cursor-1",
+			ProviderName: "Cursor local",
+			LatencyMs:    12,
+			Error:        "abrir sessão no agente ACP: agente ACP não autenticado",
+			ErrorType:    "agent_not_authenticated",
+		}
+	}, emitter, time.Hour)
+
+	m.checkOnce(context.Background())
+
+	events := emitter.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("eventos emitidos = %d, esperado 1", len(events))
+	}
+	if events[0].State != StateUnauthenticated {
+		t.Fatalf("estado = %q, esperado %q", events[0].State, StateUnauthenticated)
+	}
+	if events[0].ErrorType != "agent_not_authenticated" {
+		t.Errorf("tipo de erro = %q", events[0].ErrorType)
+	}
+	if events[0].AvgLatencyMs != 0 {
+		t.Errorf("média = %d; só sondagem online alimenta a janela de latência", events[0].AvgLatencyMs)
+	}
+}
+
 // TestMonitor_ResetsLatencyWindowOnProviderChange: ao trocar o provider ativo
 // (ProviderID diferente entre checks), a janela de latência é zerada para a
 // média não misturar latências de providers distintos.

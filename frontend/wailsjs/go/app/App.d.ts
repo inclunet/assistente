@@ -142,6 +142,8 @@ export function DeleteWorkspace(arg1:string):Promise<void>;
 
 export function DemoteTask(arg1:string,arg2:string):Promise<void>;
 
+export function DetectACPAgent(arg1:string):Promise<app.ACPAgentSetup>;
+
 export function DisconnectMCPServer(arg1:string):Promise<void>;
 
 export function DiscoverMCPServerAuth(arg1:string):Promise<mcp.OAuthDiscoveryResult>;
@@ -583,6 +585,8 @@ export function SynthesizeOpenAI(arg1:string):Promise<app.SynthesisResultInfo>;
 export function SynthesizeOpenAIStream(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SynthesizeOpenAIWithVoice(arg1:string,arg2:string):Promise<app.SynthesisResultInfo>;
+
+export function TestACPAgent(arg1:string,arg2:Array<string>):Promise<app.ACPAgentHealth>;
 
 export function TestConnection():Promise<boolean>;
 

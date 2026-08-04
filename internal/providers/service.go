@@ -233,6 +233,14 @@ func normalizeProviderAPIFormat(p *llm.ProviderConfig) {
 // hostname para casar credencial, e o login do agente é da máquina, feito fora
 // do app (AEP-0084 D12): guardar pattern aqui faria a tela pedir uma chave que
 // não vai a lugar nenhum.
+//
+// Sai o ponteiro para a credencial, não o segredo: o padrão é por hostname, e
+// outro provedor da mesma casa pode estar usando o mesmo — apagá-lo do cofre
+// derrubaria a autenticação dele sem ninguém pedir.
+//
+// É por aqui que a edição que transforma um provedor HTTP em agente perde URL e
+// credencial; o sentido oposto, largar o comando, é no próprio Update, que precisa
+// distinguir o que a requisição pediu do que o provedor já era.
 func normalizeProviderACP(p *llm.ProviderConfig) {
 	if p == nil || !p.IsACP() {
 		return
@@ -450,7 +458,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		}
 		// Deixar de ser agente é largar o comando junto. Guardá-lo escondido
 		// travaria a própria edição — a validação recusa comando em provedor
-		// HTTP — e ressuscitaria o processo antigo se o formato voltasse.
+		// HTTP — e ressuscitaria o processo antigo se o formato voltasse. O par
+		// deste bloco, virar agente e largar URL e credencial, está no
+		// normalizeProviderACP chamado logo abaixo.
 		updated.ACPCommand = ""
 		updated.ACPArgs = nil
 		updated.ACPEnv = nil

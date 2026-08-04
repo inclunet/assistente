@@ -36,6 +36,13 @@
   background: var(--color-danger-dim);
 }
 
+/* Sem login não é queda: o agente respondeu, o que falta é autenticar. */
+.connection-status[data-state='unauthenticated'] {
+  color: var(--color-warning);
+  border-color: var(--color-warning-dim);
+  background: var(--color-warning-dim);
+}
+
 .connection-status[data-state='checking'] {
   color: var(--color-info);
   border-color: var(--color-info-dim);
