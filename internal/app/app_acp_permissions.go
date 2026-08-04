@@ -70,7 +70,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		logging.Infof(ctx, acpPermissionComponent,
 			"[ACP] permissão negada na hora, sem ninguém a quem perguntar (sessão %q, conversa %q): %s",
 			req.SessionID, owner.ConversationID, registro)
-		h.notifyDenied(owner, ports.ChatNoticeKindPermissionNoWatcher, req.ToolCall.Kind)
+		h.notifyConversation(owner, ports.ChatNoticeKindPermissionNoWatcher, req.ToolCall.Kind)
 		return acp.PermissionOutcome{}
 	}
 
@@ -79,7 +79,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		// Pedido sem opção nenhuma: não há o que oferecer à pessoa, e inventar
 		// uma resposta seria decidir por ela.
 		logging.Warnf(ctx, acpPermissionComponent, "[ACP] pedido de permissão sem opções: %s", registro)
-		h.notifyDenied(owner, ports.ChatNoticeKindPermissionUnavailable, req.ToolCall.Kind)
+		h.notifyConversation(owner, ports.ChatNoticeKindPermissionUnavailable, req.ToolCall.Kind)
 		return acp.PermissionOutcome{}
 	}
 
@@ -105,7 +105,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	manager := h.questionnaireManager()
 	if manager == nil {
 		logging.Warnf(ctx, acpPermissionComponent, "[ACP] permissão negada: o questionário não está disponível")
-		h.notifyDenied(owner, ports.ChatNoticeKindPermissionUnavailable, req.ToolCall.Kind)
+		h.notifyConversation(owner, ports.ChatNoticeKindPermissionUnavailable, req.ToolCall.Kind)
 		return acp.PermissionOutcome{}
 	}
 
@@ -148,7 +148,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		// o diálogo já saiu da tela dizendo isso. Avisar de novo seria cobrar
 		// explicação de quem acabou de dar uma.
 		if !turnCancelled(ctx, err) {
-			h.notifyDenied(owner, ports.ChatNoticeKindPermissionTimeout, req.ToolCall.Kind)
+			h.notifyConversation(owner, ports.ChatNoticeKindPermissionTimeout, req.ToolCall.Kind)
 		}
 		return acp.PermissionOutcome{}
 	}
@@ -163,7 +163,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		return acp.PermissionOutcome{}
 	}
 	if choice.always() {
-		h.rememberAlways(ctx, profile, kind, registro)
+		h.rememberAlways(ctx, owner, profile, kind, registro)
 	}
 	return acp.PermissionOutcome{OptionID: choice.id}
 }
@@ -209,15 +209,16 @@ func turnCancelled(ctx context.Context, err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
 }
 
-// notifyDenied conta à conversa que uma ação foi negada sem que ninguém
-// decidisse. O agente costuma seguir o turno dizendo apenas que não conseguiu;
-// sem este aviso, a pessoa fica sem saber que houve um pedido, muito menos por
-// que ele não chegou até ela.
+// notifyConversation conta à conversa o que o app decidiu sobre um pedido de
+// permissão: a ação negada sem que ninguém decidisse, ou a autorização que
+// passou a valer daqui em diante. O agente costuma seguir o turno dizendo
+// apenas que não conseguiu; sem este aviso, a pessoa fica sem saber que houve
+// um pedido, muito menos o que aconteceu com ele.
 //
 // Vai só a classe da ação, nunca o texto do agente: o aviso pode aparecer numa
 // conversa que ninguém está olhando agora, e a linha de comando literal
 // costuma carregar segredo.
-func (h *acpRequestHandler) notifyDenied(owner acp.TurnOwner, kind, action string) {
+func (h *acpRequestHandler) notifyConversation(owner acp.TurnOwner, kind, action string) {
 	if h == nil || h.notices == nil || strings.TrimSpace(owner.ConversationID) == "" {
 		return
 	}
@@ -269,23 +270,28 @@ func (h *acpRequestHandler) alreadyAllowed(profile, kind string) bool {
 	return store.Allows(profile, kind)
 }
 
-// rememberAlways guarda o "permitir sempre". Falhar ao gravar não desfaz a
-// autorização desta vez — a pessoa disse sim, e o agente vai agir —, mas a
-// próxima volta a perguntar, que é o lado seguro de não conseguir lembrar.
-func (h *acpRequestHandler) rememberAlways(ctx context.Context, profile, kind, registro string) {
+// rememberAlways guarda o "permitir sempre" e conta à conversa o que houve.
+// Falhar ao gravar não desfaz a autorização desta vez — a pessoa disse sim, e o
+// agente vai agir —, mas a próxima volta a perguntar, que é o lado seguro de
+// não conseguir lembrar. Nos dois casos o aviso fica na conversa: a escolha
+// vale além deste turno, e o diálogo que a recebeu já saiu da tela.
+func (h *acpRequestHandler) rememberAlways(ctx context.Context, owner acp.TurnOwner, profile, kind, registro string) {
 	store := h.trustStore()
 	if store == nil || profile == "" {
 		logging.Warnf(ctx, acpPermissionComponent,
 			"[ACP] permissão dada para sempre não pôde ser guardada (perfil %q): %s", profile, registro)
+		h.notifyConversation(owner, ports.ChatNoticeKindPermissionAlwaysNotSaved, kind)
 		return
 	}
 	if err := store.Allow(profile, kind); err != nil {
 		logging.Warnf(ctx, acpPermissionComponent,
 			"[ACP] erro ao guardar a autorização permanente do perfil %q: %v", profile, err)
+		h.notifyConversation(owner, ports.ChatNoticeKindPermissionAlwaysNotSaved, kind)
 		return
 	}
 	logging.Infof(ctx, acpPermissionComponent,
 		"[ACP] o perfil %q passa a autorizar %q sem perguntar (%s)", profile, kind, registro)
+	h.notifyConversation(owner, ports.ChatNoticeKindPermissionAlwaysAllowed, kind)
 }
 
 // alwaysWarning explica o alcance do "permitir sempre" antes de alguém

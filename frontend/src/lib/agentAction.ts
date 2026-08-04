@@ -1,3 +1,5 @@
+import type { TFunction } from 'i18next';
+
 /**
  * Classes de ação de um agente de código (backend: `acp.ToolKind`).
  *
@@ -26,4 +28,14 @@ const ACTION_KEYS: Record<string, string> = {
  */
 export function agentActionKey(action?: string): string {
   return (action && ACTION_KEYS[action]) || 'unknown';
+}
+
+/**
+ * Nome da classe como item de lista ("Executar comandos"). É o mesmo texto da
+ * tela de autorizações de propósito: o aviso na conversa diz que existe algo a
+ * revogar, e quem for revogar precisa reconhecer ali a linha pelo nome que
+ * acabou de ler.
+ */
+export function agentActionClassName(t: TFunction, action?: string): string {
+  return t(`agentPermissions.action.${agentActionKey(action)}`);
 }

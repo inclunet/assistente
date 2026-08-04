@@ -826,6 +826,74 @@ func TestSemOndeGuardarOTurnoAindaSegueComOSimDaPessoa(t *testing.T) {
 	}
 }
 
+func TestAConversaFicaSabendoDaAutorizacaoPermanente(t *testing.T) {
+	// O diálogo some assim que a pessoa responde, e com ele a única pista de
+	// que o app passou a autorizar sozinho. O aviso fica na conversa para que
+	// isso não vire uma mudança silenciosa de comportamento.
+	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	lembrandoAutorizacoes(t, h, "cursor")
+	emitter := escutandoAvisos(h)
+
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	aviso := avisoNaConversa(t, emitter)
+	if aviso.Kind != ports.ChatNoticeKindPermissionAlwaysAllowed {
+		t.Errorf("aviso = %q, quer o da autorização permanente", aviso.Kind)
+	}
+	if aviso.ConversationID != "conversa-1" {
+		t.Errorf("conversa do aviso = %q, quer a do turno", aviso.ConversationID)
+	}
+	if aviso.Action != "execute" {
+		t.Errorf("classe no aviso = %q, quer a que ficou autorizada", aviso.Action)
+	}
+}
+
+func TestPermitirUmaVezNaoAnunciaAutorizacaoPermanente(t *testing.T) {
+	tela := novaTelaFalsa(escolhendo("Permitir uma vez"))
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	lembrandoAutorizacoes(t, h, "cursor")
+	emitter := escutandoAvisos(h)
+
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	if avisos := emitter.find("chat:notice"); len(avisos) != 0 {
+		t.Errorf("avisos na conversa = %d, quer 0: nada passou a valer além deste turno", len(avisos))
+	}
+}
+
+func TestOSempreQueNaoPodeSerGuardadoEhContadoAConversa(t *testing.T) {
+	// Quem escolheu "sempre" espera não ser perguntado de novo. Se o app não
+	// conseguiu lembrar, a pergunta volta — e a pessoa precisa saber disso
+	// antes de estranhar a repetição.
+	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	emitter := escutandoAvisos(h)
+
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	aviso := avisoNaConversa(t, emitter)
+	if aviso.Kind != ports.ChatNoticeKindPermissionAlwaysNotSaved {
+		t.Errorf("aviso = %q, quer o de autorização não guardada", aviso.Kind)
+	}
+}
+
+func TestOAvisoDaAutorizacaoNaoSeRepeteACadaPedido(t *testing.T) {
+	// Depois de guardada, a autorização passa a valer em silêncio: repetir o
+	// aviso a cada pedido encheria a conversa de uma notícia velha.
+	tela := novaTelaFalsa(escolhendo("Permitir sempre"))
+	h := handlerCom(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+	lembrandoAutorizacoes(t, h, "cursor")
+	emitter := escutandoAvisos(h)
+
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+	h.RequestPermission(context.Background(), pedidoDeExecucao())
+
+	if aviso := avisoNaConversa(t, emitter); aviso.Kind != ports.ChatNoticeKindPermissionAlwaysAllowed {
+		t.Errorf("aviso = %q, quer o da autorização permanente", aviso.Kind)
+	}
+}
+
 func TestODialogoDizAteOndeVaiOSempre(t *testing.T) {
 	// "Permitir sempre" vale para a classe inteira, e não só para o comando
 	// que está na tela. Quem não souber disso autoriza mais do que pretende.

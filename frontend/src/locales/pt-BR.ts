@@ -3456,6 +3456,8 @@ const ptBR = {
         permissionNoWatcher: 'O agente pediu permissão para {{action}} nesta conversa, mas não havia ninguém para responder. A ação foi negada.',
         permissionTimeout: 'O agente pediu permissão para {{action}} e ninguém respondeu a tempo. A ação foi negada.',
         permissionUnavailable: 'O agente pediu permissão para {{action}}, mas o app não conseguiu apresentar o pedido. A ação foi negada.',
+        permissionAlwaysAllowed: 'Autorização permanente criada neste perfil: {{actionClass}}. O agente não vai mais perguntar antes dessas ações; para revogar, abra Configurações e vá em Autorizações do Agente.',
+        permissionAlwaysNotSaved: 'A autorização permanente não pôde ser guardada: {{actionClass}}. A ação desta vez foi permitida, mas na próxima o agente vai perguntar de novo.',
         action: {
           read: 'ler um arquivo',
           edit: 'editar um arquivo',

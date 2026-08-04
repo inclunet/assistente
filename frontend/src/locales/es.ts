@@ -3454,6 +3454,8 @@ const es = {
         permissionNoWatcher: 'El agente pidió permiso para {{action}} en esta conversación, pero no había nadie para responder. La acción fue denegada.',
         permissionTimeout: 'El agente pidió permiso para {{action}} y nadie respondió a tiempo. La acción fue denegada.',
         permissionUnavailable: 'El agente pidió permiso para {{action}}, pero la app no pudo presentar la solicitud. La acción fue denegada.',
+        permissionAlwaysAllowed: 'Autorización permanente creada en este perfil: {{actionClass}}. El agente ya no preguntará antes de esas acciones; para revocarla, abre Configuración y ve a Permisos del Agente.',
+        permissionAlwaysNotSaved: 'La autorización permanente no se pudo guardar: {{actionClass}}. Esta acción fue permitida, pero la próxima vez el agente volverá a preguntar.',
         action: {
           read: 'leer un archivo',
           edit: 'editar un archivo',

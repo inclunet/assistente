@@ -1,19 +1,31 @@
 import type { TFunction } from 'i18next';
 
-import { agentActionKey } from './agentAction';
+import { agentActionClassName, agentActionKey } from './agentAction';
 
 /** Motivos de aviso de turno que a interface sabe traduzir (backend: ChatNoticeKind*). */
 export const CHAT_NOTICE_ATTACHMENTS_NOT_SENT = 'attachments_not_sent';
 export const CHAT_NOTICE_PERMISSION_NO_WATCHER = 'permission_denied_no_watcher';
 export const CHAT_NOTICE_PERMISSION_TIMEOUT = 'permission_denied_timeout';
 export const CHAT_NOTICE_PERMISSION_UNAVAILABLE = 'permission_denied_unavailable';
+export const CHAT_NOTICE_PERMISSION_ALWAYS_ALLOWED = 'permission_always_allowed';
+export const CHAT_NOTICE_PERMISSION_ALWAYS_NOT_SAVED = 'permission_always_not_saved';
 
 const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_ATTACHMENTS_NOT_SENT]: 'app.chatNotice.attachmentsNotSent',
   [CHAT_NOTICE_PERMISSION_NO_WATCHER]: 'app.chatNotice.permissionNoWatcher',
   [CHAT_NOTICE_PERMISSION_TIMEOUT]: 'app.chatNotice.permissionTimeout',
   [CHAT_NOTICE_PERMISSION_UNAVAILABLE]: 'app.chatNotice.permissionUnavailable',
+  [CHAT_NOTICE_PERMISSION_ALWAYS_ALLOWED]: 'app.chatNotice.permissionAlwaysAllowed',
+  [CHAT_NOTICE_PERMISSION_ALWAYS_NOT_SAVED]: 'app.chatNotice.permissionAlwaysNotSaved',
 };
+
+/**
+ * Avisos que contam algo que deu certo, e não um problema. O tom do toast é
+ * lido em voz alta pelo leitor de telas antes da frase; anunciar "aviso" para
+ * uma autorização que a própria pessoa acabou de conceder daria alarme onde
+ * não houve nenhum.
+ */
+const INFORMATIVE_KINDS = new Set<string>([CHAT_NOTICE_PERMISSION_ALWAYS_ALLOWED]);
 
 export interface ChatNoticeEvent {
   conversationId?: string;
@@ -33,7 +45,19 @@ export function chatNoticeMessage(t: TFunction, event: ChatNoticeEvent): string 
   if (!key) {
     return null;
   }
-  return t(key, { count: event.count ?? 0, action: actionName(t, event.action) });
+  return t(key, {
+    count: event.count ?? 0,
+    // As duas formas de nomear a mesma classe: dentro da frase e como item de
+    // lista. Cada aviso usa a que couber na sua frase, e nenhum precisa saber
+    // qual foi a classe para escolher.
+    action: actionName(t, event.action),
+    actionClass: agentActionClassName(t, event.action),
+  });
+}
+
+/** Tom do aviso na tela: problema no turno é alerta; o resto é informação. */
+export function chatNoticeTone(kind?: string): 'warning' | 'info' {
+  return kind && INFORMATIVE_KINDS.has(kind) ? 'info' : 'warning';
 }
 
 /**

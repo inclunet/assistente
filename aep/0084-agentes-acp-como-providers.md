@@ -436,6 +436,14 @@ confirmação de edição, que já é acessível por teclado e leitor de telas.
   motivo que só pode ser concedida ali: turno sem interlocutor nega na hora,
   antes de olhar a allowlist, para que um canal remoto não colha o sim que
   alguém deu na tela.
+- **Conceder o "sempre" vira aviso na conversa**, dizendo a classe que passou a
+  valer e onde revogá-la. A escolha muda o comportamento do app daí em diante, e
+  o diálogo que a recebeu some da tela junto com a única pista disso — sem o
+  aviso, a autorização existiria só num arquivo que ninguém sabe que foi
+  escrito. O aviso nomeia a classe com o mesmo texto da tela de autorizações,
+  para que quem for revogar reconheça a linha. Não conseguir guardar também é
+  contado: a ação desta vez seguiu autorizada, mas a próxima volta a perguntar,
+  e quem escolheu "sempre" precisa saber disso antes de estranhar a repetição.
 - **Toda pergunta tem prazo.** Sem resposta dentro do prazo, respondemos o
   desfecho negativo **daquele método** — `reject-once` em
   `session/request_permission`, `skipped` em `cursor/ask_question`, `rejected`
