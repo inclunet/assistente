@@ -576,6 +576,8 @@ export function SynthesizeOpenAIStream(arg1:string,arg2:string,arg3:string):Prom
 
 export function SynthesizeOpenAIWithVoice(arg1:string,arg2:string):Promise<app.SynthesisResultInfo>;
 
+export function TestACPAgent(arg1:string,arg2:Array<string>):Promise<app.ACPAgentHealth>;
+
 export function TestConnection():Promise<boolean>;
 
 export function TestConnectionWithModels():Promise<Array<string>>;
