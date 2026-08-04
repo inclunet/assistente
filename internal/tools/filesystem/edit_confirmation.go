@@ -69,17 +69,72 @@ func sanitizeForDialogText(s string) string {
 	return s
 }
 
+// editConfirmationTextKey é o assunto deste diálogo nas chaves de tradução
+// (AEP-0085 D7). O texto pronto em pt-BR continua viajando como fallback: é ele
+// que aparece se a chave faltar num locale, e é ele que serve às superfícies que
+// não traduzem nada.
+func editConfirmationTextKey(field string) string {
+	return "app.questionnaire.editConfirmation." + field
+}
+
+// editConfirmTitle é o título de quem altera parte de um arquivo.
+func editConfirmTitle() questionnaire.Text {
+	return questionnaire.Keyed(editConfirmationTextKey("titleEdit"), "Confirmar edição")
+}
+
+// overwriteConfirmTitle é o título de quem substitui o arquivo inteiro. Vale
+// dizer isso no título: quem só ouve o começo do diálogo decide sabendo que o
+// "Depois" é o arquivo todo, e não um trecho dele.
+func overwriteConfirmTitle() questionnaire.Text {
+	return questionnaire.Keyed(editConfirmationTextKey("titleOverwrite"), "Confirmar sobrescrita")
+}
+
 // confirmDescriptionForPath monta a descrição padrão do diálogo de confirmação.
 // Texto simples, sem Markdown: o QuestionnaireDialog renderiza description
 // literalmente, então marcadores como ** apareceriam para o usuário.
-func confirmDescriptionForPath(displayPath string) string {
-	return fmt.Sprintf("Revise a alteração em %q e clique em Aplicar para confirmar.", sanitizeForDialogText(displayPath))
+//
+// O caminho vai como parâmetro da tradução, e não na chave: não existe tradução
+// para o nome de um arquivo (AEP-0085 D6). O fallback já vai com ele no lugar.
+func confirmDescriptionForPath(displayPath string) questionnaire.Text {
+	path := sanitizeForDialogText(displayPath)
+	return questionnaire.KeyedWith(
+		editConfirmationTextKey("description"),
+		map[string]any{"path": path},
+		fmt.Sprintf("Revise a alteração em %q e clique em Aplicar para confirmar.", path),
+	)
+}
+
+// editConfirmDescription monta a descrição da confirmação do editor, que o
+// modelo pode escrever no lugar da padrão e complementar com uma justificativa.
+//
+// Descrição e justificativa vindas do modelo são conteúdo, nunca chave (AEP-0085
+// D6): a descrição substitui a frase inteira, então vai como texto puro; a
+// justificativa se soma à frase padrão, então entra como parâmetro dela. As duas
+// formas da frase padrão dividiriam um campo só, e por isso cada uma tem a sua
+// chave — com uma só, quem traduz deixaria a justificativa de fora.
+func editConfirmDescription(fromModel, displayPath, notes string) questionnaire.Text {
+	if fromModel != "" {
+		if notes != "" {
+			return questionnaire.Plain(fromModel + "\n\n" + notes)
+		}
+		return questionnaire.Plain(fromModel)
+	}
+
+	padrao := confirmDescriptionForPath(displayPath)
+	if notes == "" {
+		return padrao
+	}
+	return questionnaire.KeyedWith(
+		editConfirmationTextKey("descriptionNotes"),
+		map[string]any{"path": padrao.Params["path"], "notes": notes},
+		padrao.Fallback+"\n\n"+notes,
+	)
 }
 
 // confirmBeforeAfter exibe um questionário com conteúdo Antes/Depois e aguarda confirmação do usuário.
 // Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou em caso de erro.
 // Sem gerenciador de questionários (contextos não-UI: CLI/testes), aprova direto.
-func confirmBeforeAfter(ctx context.Context, questMgr QuestionnaireRequester, title, displayPath, before, after string) (bool, tools.ToolResult) {
+func confirmBeforeAfter(ctx context.Context, questMgr QuestionnaireRequester, title questionnaire.Text, displayPath, before, after string) (bool, tools.ToolResult) {
 	return confirmEditWithDiff(ctx, questMgr, title, confirmDescriptionForPath(displayPath), before, after)
 }
 
@@ -107,28 +162,46 @@ func extractRejectReason(answers map[string]any) string {
 // a confirmação do usuário. Compartilhado por edit_file, write_file e text_edit.
 // Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou em erro.
 // Sem gerenciador de questionários (contextos não-UI: CLI/testes), aprova direto.
-func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, title, description, before, after string) (bool, tools.ToolResult) {
+// O conteúdo dos blocos é o texto do arquivo: vai cru, sem chave de tradução,
+// porque não existe tradução para o conteúdo de um arquivo (AEP-0085 D6). O
+// motivo da rejeição tem rótulo e placeholder do app, e esses se traduzem: é por
+// eles que a pessoa entende que pode dizer ao assistente o que faltou.
+func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, title, description questionnaire.Text, before, after string) (bool, tools.ToolResult) {
 	if questMgr == nil {
 		return true, tools.ToolResult{}
 	}
 
 	resp, err := questMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       questionnaire.Plain(title),
-		Description: questionnaire.Plain(description),
+		Title:       title,
+		Description: description,
 		Questions: []questionnaire.Question{
-			{ID: "before", Type: "readonly_code", Prompt: questionnaire.Plain("Antes"), Content: before},
+			{
+				ID:      "before",
+				Type:    "readonly_code",
+				Prompt:  questionnaire.Keyed(editConfirmationTextKey("beforePrompt"), "Antes"),
+				Content: before,
+			},
 			// Foco inicial no "Depois": o usuário quer ouvir primeiro como o
 			// texto vai ficar, não preencher o motivo de rejeição.
-			{ID: "after", Type: "readonly_code", Prompt: questionnaire.Plain("Depois"), Content: after, AutoFocus: true},
+			{
+				ID:        "after",
+				Type:      "readonly_code",
+				Prompt:    questionnaire.Keyed(editConfirmationTextKey("afterPrompt"), "Depois"),
+				Content:   after,
+				AutoFocus: true,
+			},
 		},
 		AllowCancel: true,
-		SubmitLabel: questionnaire.Plain("Aplicar"),
-		CancelLabel: questionnaire.Plain("Rejeitar"),
+		SubmitLabel: questionnaire.Keyed(editConfirmationTextKey("submit"), "Aplicar"),
+		CancelLabel: questionnaire.Keyed(editConfirmationTextKey("cancel"), "Rejeitar"),
 		RejectReason: &questionnaire.RejectReasonConfig{
-			ID:          rejectReasonAnswerID,
-			Label:       questionnaire.Plain("Motivo da rejeição (opcional)"),
-			Placeholder: questionnaire.Plain("Explique o que deveria ser diferente para o assistente propor nova versão"),
-			MaxLen:      rejectReasonMaxLen,
+			ID:    rejectReasonAnswerID,
+			Label: questionnaire.Keyed(editConfirmationTextKey("rejectReasonLabel"), "Motivo da rejeição (opcional)"),
+			Placeholder: questionnaire.Keyed(
+				editConfirmationTextKey("rejectReasonPlaceholder"),
+				"Explique o que deveria ser diferente para o assistente propor nova versão",
+			),
+			MaxLen: rejectReasonMaxLen,
 		},
 	})
 	if err != nil {

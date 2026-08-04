@@ -171,7 +171,7 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	policy := resolveEditPolicy(ctx, fullPath)
 
 	if policy == policyConfirmWithDiff {
-		if confirmed, toolResult := confirmBeforeAfter(ctx, t.questMgr, "Confirmar edição", a.Path, a.OldString, a.NewString); !confirmed {
+		if confirmed, toolResult := confirmBeforeAfter(ctx, t.questMgr, editConfirmTitle(), a.Path, a.OldString, a.NewString); !confirmed {
 			return toolResult, nil
 		}
 	}

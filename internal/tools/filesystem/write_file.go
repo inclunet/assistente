@@ -147,7 +147,7 @@ func (t *WriteFile) Execute(ctx context.Context, args json.RawMessage) (tools.To
 			}
 			before = prefix
 		}
-		if confirmed, toolResult := confirmBeforeAfter(ctx, t.questMgr, "Confirmar sobrescrita",
+		if confirmed, toolResult := confirmBeforeAfter(ctx, t.questMgr, overwriteConfirmTitle(),
 			a.Path, truncateForPreview(before), truncateForPreview(a.Content)); !confirmed {
 			return toolResult, nil
 		}

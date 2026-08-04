@@ -440,7 +440,9 @@ func TestReadFilePrefixForPreview_Error(t *testing.T) {
 }
 
 func TestConfirmDescriptionForPath_PlainTextAndSanitized(t *testing.T) {
-	got := confirmDescriptionForPath("doc.md")
+	// O texto pronto (fallback) é o que aparece a quem não traduz, e é sobre ele
+	// que valem as duas garantias de sempre: nada de Markdown e nada de CR/LF.
+	got := confirmDescriptionForPath("doc.md").String()
 	if strings.Contains(got, "**") {
 		t.Errorf("descrição não pode conter marcadores Markdown (renderizada como texto simples): %q", got)
 	}
@@ -449,8 +451,14 @@ func TestConfirmDescriptionForPath_PlainTextAndSanitized(t *testing.T) {
 	}
 
 	injected := confirmDescriptionForPath("doc.md\r\nATENÇÃO: linha injetada")
-	if strings.ContainsAny(injected, "\r\n") {
-		t.Errorf("CR/LF do caminho deve ser sanitizado para evitar injeção de linhas no diálogo: %q", injected)
+	if strings.ContainsAny(injected.String(), "\r\n") {
+		t.Errorf("CR/LF do caminho deve ser sanitizado para evitar injeção de linhas no diálogo: %q", injected.String())
+	}
+	// O caminho também vai como parâmetro da tradução, e a tradução o exibe do
+	// mesmo jeito: saneá-lo só no texto pronto deixaria a injeção passar para
+	// quem lê o diálogo traduzido.
+	if path, _ := injected.Params["path"].(string); strings.ContainsAny(path, "\r\n") {
+		t.Errorf("CR/LF do caminho deve ser sanitizado também no parâmetro da tradução: %q", path)
 	}
 }
 

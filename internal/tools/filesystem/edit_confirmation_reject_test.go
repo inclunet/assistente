@@ -23,7 +23,7 @@ func (f *rejectReasonFakeRequester) RequestQuestionnaire(_ context.Context, payl
 func TestConfirmEditWithDiff_PayloadIncludesRejectReason(t *testing.T) {
 	quest := &rejectReasonFakeRequester{response: questionnaire.Response{}}
 
-	ok, result := confirmEditWithDiff(context.Background(), quest, "Título", "Descrição", "antes", "depois")
+	ok, result := confirmEditWithDiff(context.Background(), quest, questionnaire.Plain("Título"), questionnaire.Plain("Descrição"), "antes", "depois")
 	if !ok || result.IsError {
 		t.Fatalf("aprovação deve retornar ok sem erro: ok=%v result=%+v", ok, result)
 	}
@@ -66,7 +66,7 @@ func TestConfirmEditWithDiff_RejectedWithReason(t *testing.T) {
 		Answers:   map[string]any{"reject_reason": "  Prefiro manter o parágrafo original.  "},
 	}}
 
-	ok, result := confirmEditWithDiff(context.Background(), quest, "Título", "Descrição", "antes", "depois")
+	ok, result := confirmEditWithDiff(context.Background(), quest, questionnaire.Plain("Título"), questionnaire.Plain("Descrição"), "antes", "depois")
 	if ok {
 		t.Fatal("rejeição deve retornar ok=false")
 	}
@@ -96,7 +96,7 @@ func TestConfirmEditWithDiff_RejectedWithoutReason(t *testing.T) {
 				Answers:   answers,
 			}}
 
-			ok, result := confirmEditWithDiff(context.Background(), quest, "Título", "Descrição", "antes", "depois")
+			ok, result := confirmEditWithDiff(context.Background(), quest, questionnaire.Plain("Título"), questionnaire.Plain("Descrição"), "antes", "depois")
 			if ok {
 				t.Fatal("rejeição deve retornar ok=false")
 			}
