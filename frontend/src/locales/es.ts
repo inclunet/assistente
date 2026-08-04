@@ -1794,6 +1794,14 @@ const es = {
         hintEscape: 'Presiona Escape para limpiar la selección.',
       },
       confirm: { title: 'Confirmar' },
+      questionnaire: {
+        defaultTitle: 'Cuestionario',
+        submit: 'Enviar',
+        cancel: 'Cancelar',
+        requiredAnswer: 'Respuesta obligatoria',
+        yes: 'Sí',
+        no: 'No',
+      },
       collapsible: { open: 'abrir', close: 'cerrar' },
       jsonEditor: { label: 'Editor de JSON', codeLabel: 'Editor de código JSON', readonlyLabel: 'Editor de código solo lectura', editableLabel: 'Editor de código', variableHint: 'Variable disponible:', templateVar: 'template variable' },
       shortcuts: {
@@ -3478,6 +3486,39 @@ const es = {
         closed: 'La pregunta terminó y el diálogo se cerró.',
         closedCancelled: 'Quien preguntó desistió; el diálogo se cerró sin respuesta.',
         closedTimeout: 'Se acabó el plazo para responder; el diálogo se cerró sin respuesta.',
+        // Diálogos que arma el backend (AEP-0085). El payload trae el texto ya
+        // listo en pt-BR como fallback; estas claves son su traducción.
+        shell: {
+          title: 'Confirmar ejecución de comando',
+          description: 'El asistente quiere ejecutar:\n\n{{command}}\n\nen: {{workDir}}',
+          prompt: '¿Permitir la ejecución de este comando?',
+          submit: 'Permitir',
+          cancel: 'Denegar',
+        },
+        http: {
+          title: 'Confirmar operación {{method}}',
+          description: 'El asistente quiere ejecutar:\n\n{{method}} {{url}}\n\nBody:\n{{body}}',
+          prompt: '¿Permitir esta operación {{method}}?',
+          submit: 'Permitir',
+          cancel: 'Denegar',
+        },
+        network: {
+          title: 'Autorizar acceso a un host bloqueado (anti-SSRF)',
+          description: 'El asistente intentó acceder a un host que resuelve a una dirección interna/privada ({{category}}). Autoriza solo si confías en este destino.',
+          submit: 'Autorizar',
+          cancel: 'Denegar',
+          detailsPrompt: 'Detalles del destino',
+          scopePrompt: '¿Por cuánto tiempo autorizar este host?',
+          reasonPrompt: 'Observación (opcional)',
+          reasonPlaceholder: 'Ej.: API interna de workflows',
+          scope: {
+            once: 'Solo esta solicitud',
+            session: 'Durante esta conversación',
+            workspace: 'En este workspace (proyecto)',
+            profile: 'En este perfil',
+            global: 'Global (todos los workspaces y perfiles)',
+          },
+        },
       },
     },
     auth: {

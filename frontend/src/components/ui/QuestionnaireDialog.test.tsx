@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import i18n from 'i18next';
 import { axe } from '../../test/a11yAxe';
 import { QuestionnaireDialog } from './QuestionnaireDialog';
 import { Modal } from './Modal';
@@ -689,6 +690,109 @@ describe('QuestionnaireDialog', () => {
       render(
         <QuestionnaireDialog isOpen data={editConfirmData} onSubmit={vi.fn()} onCancel={vi.fn()} />
       );
+
+      const dialog = screen.getByRole('dialog');
+      expect(await axe(dialog)).toHaveNoViolations();
+    });
+  });
+
+  describe('textos com chave de tradução (AEP-0085)', () => {
+    // Diálogo de decisão crítica como o backend o manda: chave de tradução,
+    // parâmetros e o texto pronto em pt-BR como fallback.
+    const shellData = {
+      id: 'q-i18n',
+      title: {
+        key: 'app.questionnaire.shell.title',
+        fallback: 'Confirmar execução de comando',
+      },
+      description: {
+        key: 'app.questionnaire.shell.description',
+        params: { command: 'rm -rf build', workDir: 'C:/projeto' },
+        fallback: 'O assistente quer executar:\n\nrm -rf build\n\nem: C:/projeto',
+      },
+      submitLabel: { key: 'app.questionnaire.shell.submit', fallback: 'Permitir' },
+      cancelLabel: { key: 'app.questionnaire.shell.cancel', fallback: 'Negar' },
+      allowCancel: true,
+      questions: [
+        {
+          id: 'scope',
+          type: 'single_choice' as const,
+          prompt: { key: 'app.questionnaire.network.scopePrompt', fallback: 'Por quanto tempo?' },
+          required: true,
+          options: [
+            {
+              key: 'app.questionnaire.network.scope.session',
+              fallback: 'session — Durante esta conversa',
+            },
+          ],
+        },
+      ],
+    };
+
+    afterEach(() => {
+      i18n.removeResourceBundle('en', 'translation');
+    });
+
+    it('traduz título, botões e opções quando a chave existe', async () => {
+      i18n.addResourceBundle(
+        'en',
+        'translation',
+        {
+          app: {
+            questionnaire: {
+              shell: {
+                title: 'Confirm command execution',
+                description: 'The assistant wants to run:\n\n{{command}}\n\nin: {{workDir}}',
+                submit: 'Allow',
+                cancel: 'Deny',
+              },
+              network: {
+                scopePrompt: 'For how long?',
+                scope: { session: 'For this conversation' },
+              },
+            },
+          },
+        },
+        true,
+        true
+      );
+
+      const onSubmit = vi.fn();
+      render(<QuestionnaireDialog isOpen data={shellData} onSubmit={onSubmit} onCancel={vi.fn()} />);
+
+      expect(screen.getByRole('button', { name: 'Allow' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Deny' })).toBeInTheDocument();
+      expect(screen.getByText('Confirm command execution')).toBeInTheDocument();
+      // Parâmetros interpolados na tradução: o comando não se traduz, mas
+      // precisa aparecer na frase traduzida.
+      expect(
+        screen.getByText(/The assistant wants to run:\s*rm -rf build\s*in: C:\/projeto/)
+      ).toBeInTheDocument();
+
+      const opcao = screen.getByRole('radio', { name: 'For this conversation' });
+      await userEvent.setup().click(opcao);
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Allow' }));
+
+      // A resposta volta com o valor estável do backend, nunca com a tradução:
+      // é por ele que o backend reencontra a opção escolhida.
+      expect(onSubmit).toHaveBeenCalledWith({ scope: 'session — Durante esta conversa' });
+    });
+
+    it('cai no texto do backend quando a chave não existe no locale', () => {
+      render(<QuestionnaireDialog isOpen data={shellData} onSubmit={vi.fn()} onCancel={vi.fn()} />);
+
+      // Nada pode chegar em branco a quem lê por leitor de telas.
+      expect(screen.getByRole('button', { name: 'Permitir' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Negar' })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: 'session — Durante esta conversa' })).toBeInTheDocument();
+      expect(announceMock).toHaveBeenCalledWith(
+        expect.stringContaining('Confirmar execução de comando'),
+        'assertive'
+      );
+    });
+
+    it('diálogo com textos traduzíveis não tem violações de acessibilidade', async () => {
+      render(<QuestionnaireDialog isOpen data={shellData} onSubmit={vi.fn()} onCancel={vi.fn()} />);
 
       const dialog = screen.getByRole('dialog');
       expect(await axe(dialog)).toHaveNoViolations();
