@@ -384,6 +384,57 @@ func TestTurnoCanceladoTiraAPerguntaDaTelaSemCobrarExplicacao(t *testing.T) {
 	}
 }
 
+func TestHandlerSemRoteadorNegaNaHoraEmVezDeQuebrar(t *testing.T) {
+	// O handler é montado antes do resto do app existir: se o roteador ainda
+	// não estiver de pé quando o agente perguntar, o pedido tem que morrer
+	// fechado — pergunta pulada, plano recusado, aviso na conversa —, nunca
+	// derrubar o processo nem pendurar o agente.
+	casos := map[string]struct {
+		pedido func(testing.TB) acp.CustomRequest
+		checar func(*testing.T, any)
+		aviso  string
+	}{
+		"pergunta": {
+			pedido: pedidoDePergunta,
+			checar: func(t *testing.T, resultado any) {
+				resposta := respostaDaPergunta(t, resultado)
+				if resposta.Outcome.Outcome != askOutcomeSkipped {
+					t.Errorf("desfecho = %q, quer %q", resposta.Outcome.Outcome, askOutcomeSkipped)
+				}
+				if resposta.Outcome.Reason != reasonUnavailable {
+					t.Errorf("motivo = %q, quer %q", resposta.Outcome.Reason, reasonUnavailable)
+				}
+			},
+			aviso: ports.ChatNoticeKindQuestionUnavailable,
+		},
+		"plano": {
+			pedido: pedidoDePlano,
+			checar: func(t *testing.T, resultado any) {
+				resposta := respostaDoPlano(t, resultado)
+				if resposta.Outcome.Outcome != planOutcomeRejected {
+					t.Errorf("desfecho = %q, quer %q", resposta.Outcome.Outcome, planOutcomeRejected)
+				}
+				if resposta.Outcome.Reason != reasonUnavailable {
+					t.Errorf("motivo = %q, quer %q", resposta.Outcome.Reason, reasonUnavailable)
+				}
+			},
+			aviso: ports.ChatNoticeKindPlanUnavailable,
+		},
+	}
+	for nome, caso := range casos {
+		t.Run(nome, func(t *testing.T) {
+			h := handlerDeExtensao(nil, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+			h.surfaces = nil
+			avisos := escutandoAvisos(h)
+
+			caso.checar(t, mustHandle(t, h, caso.pedido(t)))
+			if aviso := avisoNaConversa(t, avisos); aviso.Kind != caso.aviso {
+				t.Errorf("motivo do aviso = %q, quer %q", aviso.Kind, caso.aviso)
+			}
+		})
+	}
+}
+
 func TestTurnoCanceladoTiraOPlanoDaTelaComOMotivoCerto(t *testing.T) {
 	tela := novaTelaDeExtensaoMuda()
 	h := handlerDeExtensao(tela, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
