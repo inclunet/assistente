@@ -208,7 +208,9 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 type undecidedCause int
 
 const (
-	// causeCancelled é o turno abortado por quem estava decidindo.
+	// causeCancelled é o turno interrompido antes da resposta: quase sempre
+	// porque a pessoa cancelou, mas também quando a conversa fecha ou o app
+	// encerra. O que os une é que ninguém está mais esperando a decisão.
 	causeCancelled undecidedCause = iota
 	// causeNoInterlocutor é a conversa que não tinha onde perguntar.
 	causeNoInterlocutor
