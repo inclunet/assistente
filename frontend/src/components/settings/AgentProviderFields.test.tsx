@@ -128,6 +128,34 @@ describe('AgentProviderFields — agente encontrado', () => {
     expect(screen.getByLabelText(/comando do agente/i)).toHaveValue('/usr/local/bin/cursor-agent');
   });
 
+  it('não pisa no comando digitado enquanto a detecção estava em voo', async () => {
+    // A detecção automática decide preencher quando a resposta chega, não quando
+    // a chamada sai: quem digita nesse meio-tempo não pode perder o que escreveu.
+    let responder: (setup: typeof cursorFound) => void = () => {};
+    detectMock.mockReturnValue(new Promise((resolve) => { responder = resolve; }));
+    const user = userEvent.setup();
+
+    render(<Host />);
+    const campo = screen.getByLabelText(/comando do agente/i);
+    await user.type(campo, '/opt/cursor/agente');
+    responder(cursorFound);
+
+    await waitFor(() => expect(screen.getByText(new RegExp(`versão ${cursorFound.version}`, 'i'))).toBeInTheDocument());
+    expect(campo).toHaveValue('/opt/cursor/agente');
+  });
+
+  it('detecção em voo preenche o campo que continuou vazio', async () => {
+    let responder: (setup: typeof cursorFound) => void = () => {};
+    detectMock.mockReturnValue(new Promise((resolve) => { responder = resolve; }));
+
+    render(<Host />);
+    responder(cursorFound);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
+    });
+  });
+
   it('detecção pedida no botão aplica o comando encontrado e anuncia', async () => {
     detectMock.mockResolvedValue(cursorFound);
     const user = userEvent.setup();

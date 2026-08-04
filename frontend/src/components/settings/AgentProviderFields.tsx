@@ -48,10 +48,21 @@ export const AgentProviderFields = ({
   const [detecting, setDetecting] = useState(false);
   const [detectError, setDetectError] = useState('');
 
+  // O comando atual em uma ref: a detecção é assíncrona e precisa consultar o
+  // campo no instante em que a resposta chega, não no instante em que começou.
+  const commandRef = useRef(command);
+  commandRef.current = command;
+
   // A detecção fica em uma ref, e não em useCallback, porque ela usa o comando
   // digitado e os callbacks do pai. Como dependência de efeito, qualquer um
   // deles disparia uma detecção nova a cada tecla ou a cada render do pai.
-  const detectRef = useRef<(options: { applyCommand: boolean; announceFound: boolean }) => Promise<void>>();
+  //
+  // `applyCommand` distingue a detecção pedida da automática: `always` é o
+  // clique no botão, que existe justamente para sobrescrever; `ifEmpty` é a
+  // automática, que só preenche campo vazio; `never` é a da edição, que apenas
+  // informa o que há na máquina.
+  const detectRef =
+    useRef<(options: { applyCommand: 'always' | 'ifEmpty' | 'never'; announceFound: boolean }) => Promise<void>>();
   detectRef.current = async ({ applyCommand, announceFound }) => {
     setDetecting(true);
     setDetectError('');
@@ -59,7 +70,11 @@ export const AgentProviderFields = ({
       const result = await DetectACPAgent(agentKind);
       setSetup(result);
       if (result?.found) {
-        if (applyCommand) {
+        // A decisão de preencher é tomada agora, com o valor atual do campo, e
+        // não antes do await: quem começou a digitar o comando enquanto a
+        // detecção automática estava em voo perderia o que digitou.
+        const apply = applyCommand === 'always' || (applyCommand === 'ifEmpty' && commandRef.current.trim() === '');
+        if (apply) {
           onCommandChange(result.command);
           onArgsChange(result.args || []);
         }
@@ -83,14 +98,11 @@ export const AgentProviderFields = ({
     }
   };
 
-  const commandRef = useRef(command);
-  commandRef.current = command;
-
   useEffect(() => {
     // A detecção automática nunca substitui um comando que já existe: na edição
     // ele é o que está salvo, e na criação é o que a pessoa acabou de digitar.
     void detectRef.current?.({
-      applyCommand: autoFill && commandRef.current.trim() === '',
+      applyCommand: autoFill ? 'ifEmpty' : 'never',
       announceFound: false,
     });
   }, [agentKind, autoFill]);
@@ -98,7 +110,7 @@ export const AgentProviderFields = ({
   const handleRedetect = () => {
     // Clique explícito aplica o que achou: é justamente para isso que alguém
     // pede a detecção de novo depois de o CLI se atualizar e mudar de caminho.
-    void detectRef.current?.({ applyCommand: true, announceFound: true });
+    void detectRef.current?.({ applyCommand: 'always', announceFound: true });
   };
 
   const status = (() => {
