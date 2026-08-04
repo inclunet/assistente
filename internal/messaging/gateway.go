@@ -77,6 +77,20 @@ type Gateway struct {
 	reconcileMu sync.Mutex
 	// reconcileRetrySem limita goroutines de retry no startup (M14).
 	reconcileRetrySem chan struct{}
+	// questions leva a canais as perguntas que o backend faria na tela e lê a
+	// resposta em handleIncoming (AEP-0084 D9, Fase 5).
+	questions *ChannelQuestions
+}
+
+// ChannelQuestions é o mecanismo de pergunta em canal deste gateway. Quem
+// precisa perguntar fora do desktop (permissão de agente de código,
+// confirmação de comando, de HTTP mutável ou de edição de arquivo) chega aqui
+// pelo roteador do questionnaire, e não por um caminho próprio.
+func (g *Gateway) ChannelQuestions() *ChannelQuestions {
+	if g == nil {
+		return nil
+	}
+	return g.questions
 }
 
 // SetCancelStream configura barge-in ao receber nova mensagem no mesmo conv.
@@ -121,7 +135,7 @@ func NewGateway(
 	synthesizeTTS SynthesizeTTSFunc,
 	saveAudio SaveAudioFunc,
 ) *Gateway {
-	return &Gateway{
+	g := &Gateway{
 		messengers:        make(map[string]Messenger),
 		notifier:          notifier,
 		ttsBroker:         NewTTSBroker(),
@@ -132,6 +146,16 @@ func NewGateway(
 		saveAudio:         saveAudio,
 		reconcileRetrySem: make(chan struct{}, 8),
 	}
+	// A pergunta em canal sai pelo mensageiro registrado, o mesmo caminho do
+	// código de pareamento — não há transporte novo (AEP-0040).
+	g.questions = newChannelQuestions(func(ctx context.Context, channel, chatID, text string) error {
+		messenger, ok := g.GetMessenger(channel)
+		if !ok {
+			return fmt.Errorf("messenger %s ausente", channel)
+		}
+		return messenger.Send(ctx, OutgoingMessage{ChatID: chatID, Text: text})
+	})
+	return g
 }
 
 // Register registra um adapter de mensageiro e configura seu handler.
@@ -414,6 +438,17 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	}
 	logging.Debugf(ctx, "messaging.gateway", "[Gateway] trace=%s conv=%s channel=%s contact=%s msg=%s recebida",
 		traceID, conversationID, msg.Channel, maskIdentifier(msg.From.ID), msg.ID)
+
+	// 2.1 Pergunta pendente nesta conversa: esta mensagem decide algo que o
+	//     backend perguntou, e não começa um turno novo (AEP-0084 D9, Fase 5).
+	//     A checagem vem antes do barge-in de propósito — cancelar o streaming
+	//     aqui derrubaria justamente o turno que espera a decisão.
+	if result := g.questions.TryAnswer(ctx, conversationID, msg.From.ID, msg.Text); result != AnswerNotPending {
+		logging.Debugf(ctx, "messaging.gateway",
+			"[Gateway] trace=%s conv=%s channel=%s msg=%s tratada como resposta de pergunta pendente (resultado=%d)",
+			traceID, conversationID, msg.Channel, msg.ID, result)
+		return
+	}
 
 	// 3. Converte attachments em media JSON (mesmo formato que o frontend)
 	mediaJSON := ""

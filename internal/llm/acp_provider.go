@@ -8,6 +8,7 @@ import (
 
 	"assistente/internal/acp"
 	"assistente/internal/logging"
+	"assistente/internal/userctx"
 )
 
 const acpProviderComponent = "llm.acp-provider"
@@ -75,10 +76,13 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 
 	// O agente pergunta no meio do turno, e o pedido chega por outra goroutine
 	// sabendo só o nome da sessão. É esta marca que diz a quem perguntar — e
-	// se há alguém (AEP-0084 D9).
+	// se há alguém (AEP-0084 D9). O dono do turno vai junto porque o contexto
+	// do transporte não o carrega, e sem ele a superfície de origem da conversa
+	// não pode ser descoberta sem ler dados de outro usuário (AEP-0052).
 	endTurn := conv.BeginTurn(acp.TurnOwner{
 		Interactive: turnHasWatcher(params),
 		ProfileSlug: params.ProfileSlug,
+		UserID:      turnUserID(ctx),
 	})
 	defer endTurn()
 
@@ -187,6 +191,15 @@ func turnHasWatcher(params ChatParams) bool {
 	return strings.TrimSpace(params.SurfaceSessionKey) != "" &&
 		strings.TrimSpace(params.SurfaceID) != "" &&
 		strings.TrimSpace(params.SurfaceType) != ""
+}
+
+// turnUserID é o dono do turno, lido do contexto enquanto ele existe. O pedido
+// de permissão chega por outra goroutine, com o contexto do transporte, onde
+// esse escopo já não está — e é ele que permite descobrir de qual canal a
+// conversa veio sem consultar dados de outro usuário (AEP-0052).
+func turnUserID(ctx context.Context) string {
+	userID, _ := userctx.UserIDFromContext(ctx)
+	return userID
 }
 
 // promptContent monta o que vai ao agente neste turno: só a última mensagem do

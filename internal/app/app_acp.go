@@ -26,6 +26,8 @@ func (a *App) initACP() {
 	}
 	handler := &acpRequestHandler{
 		questions: func() *questionnaire.Manager { return a.questionnaireMgr },
+		surfaces:  a.questionnaireRouter(),
+		origin:    a.acpConversationSurface,
 		notices:   func() ports.Emitter { return a.emitter },
 		trust:     func() *acptrust.Store { return a.acpTrust },
 		activeProfile: func() string {
@@ -46,6 +48,55 @@ func (a *App) initACP() {
 		ClientVersion: AppVersion,
 	})
 	handler.owner = a.acpMgr.TurnOwnerOf
+}
+
+// questionnaireRouter é por onde qualquer diálogo do backend chega a quem
+// decide: a tela, quando há alguém nela, ou o canal de onde a conversa veio
+// (AEP-0084 Fase 5). As duas pontas são resolvidas na hora do uso, e não agora:
+// o questionário e o gateway de mensageria nascem depois deste ponto, e um valor
+// guardado aqui congelaria um nulo.
+func (a *App) questionnaireRouter() *questionnaire.Router {
+	return questionnaire.NewRouter(
+		func() *questionnaire.Manager { return a.questionnaireMgr },
+		func() questionnaire.ChannelAsker {
+			if a == nil || a.msgGateway == nil {
+				return nil
+			}
+			return a.msgGateway.ChannelQuestions()
+		},
+	)
+}
+
+// acpConversationSurface descobre de onde veio a conversa de um turno sem tela.
+// Conversa de canal pergunta pelo próprio canal; o que não veio de canal — job
+// agendado, subagente, CLI — não tem a quem perguntar.
+//
+// O contexto é montado aqui com o dono do turno porque o pedido do agente chega
+// pelo contexto do transporte, sem escopo de usuário: sem ele a consulta falha
+// (fail-closed do AEP-0052), e com o dono errado leria a conversa de outra
+// pessoa.
+func (a *App) acpConversationSurface(owner acp.TurnOwner) questionnaire.Surface {
+	return conversationSurface(owner, database.GetConversationInfoWithContext)
+}
+
+// conversationSurface é a regra de descoberta, separada de onde a conversa é
+// lida para poder ser exercitada sem banco.
+func conversationSurface(owner acp.TurnOwner, lookup func(context.Context, string) (*database.Conversation, error)) questionnaire.Surface {
+	conversationID := strings.TrimSpace(owner.ConversationID)
+	userID := strings.TrimSpace(owner.UserID)
+	if conversationID == "" || userID == "" || lookup == nil {
+		return questionnaire.NoSurface(conversationID)
+	}
+	ctx := database.WithUserID(context.Background(), userID)
+	conv, err := lookup(ctx, conversationID)
+	if err != nil || conv == nil {
+		logging.Warnf(ctx, "app.app-acp",
+			"[ACP] não foi possível descobrir a origem da conversa %s para perguntar: %v", conversationID, err)
+		return questionnaire.NoSurface(conversationID)
+	}
+	// ChannelSurface recusa o que não estiver completo: conversa local, ou de
+	// canal sem contato, cai em superfície nenhuma.
+	return questionnaire.ChannelSurface(conversationID, conv.Channel, conv.ContactID)
 }
 
 // acpWorkDir é o diretório sobre o qual o agente age (AEP-0084 D5): o workspace

@@ -44,6 +44,14 @@ type acpRequestHandler struct {
 	// questions é o questionário do desktop, o mesmo mecanismo acessível que
 	// shell, HTTP mutável e confirmação de edição já usam.
 	questions func() *questionnaire.Manager
+	// surfaces roteia a pergunta para a superfície de origem da conversa: o
+	// questionário do desktop ou o canal de onde a conversa veio (AEP-0084
+	// Fase 5). É o mesmo roteador que as confirmações do app usam, e ele já
+	// resolve as duas pontas na hora do uso.
+	surfaces *questionnaire.Router
+	// origin descobre de qual canal a conversa veio, para o turno que não tem
+	// tela. Sem isso o pedido de um canal não teria onde ser perguntado.
+	origin func(acp.TurnOwner) questionnaire.Surface
 	// notices leva à conversa o aviso do que foi negado sem decisão de
 	// ninguém.
 	notices func() ports.Emitter
@@ -72,8 +80,10 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	registro := permissionLogSummary(req.ToolCall)
 
 	owner, ok := h.turnOwner(req.SessionID)
-	if !ok || !owner.Interactive {
-		// Turno de canal, job, subagente ou CLI: não há tela onde perguntar.
+	surface := h.surfaceOf(owner, ok)
+	if !surface.HasInterlocutor() {
+		// Turno de job, de subagente ou de CLI, e conversa de canal que já não
+		// se sabe de onde veio: não há tela nem conversa onde perguntar.
 		// Esperar aqui penduraria o agente até o teto do transporte.
 		logging.Infof(ctx, acpPermissionComponent,
 			"[ACP] permissão negada na hora, sem ninguém a quem perguntar (sessão %q, conversa %q): %s",
@@ -94,33 +104,45 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	kind := acp.ToolKind(req.ToolCall.Kind)
 	profile := h.profileOf(owner)
 
-	// Autorização permanente é o "permitir sempre" de antes: perguntar de novo
-	// seria ignorar o que a pessoa já respondeu. Só se chega aqui com turno de
-	// desktop — a negativa acima vem primeiro de propósito, para que um canal
-	// remoto não colha o sim que alguém deu na tela (AEP-0084 D9).
-	if h.alreadyAllowed(profile, kind) {
-		if id, ok := choices.approval(); ok {
-			logging.Infof(ctx, acpPermissionComponent,
-				"[ACP] permissão concedida pelo que o perfil %q já autorizou (%s)", profile, registro)
-			return acp.PermissionOutcome{OptionID: id}
+	if surface.AllowsPersistentAuthorization() {
+		// Autorização permanente é o "permitir sempre" de antes: perguntar de
+		// novo seria ignorar o que a pessoa já respondeu. Só o desktop consulta,
+		// pelo mesmo motivo que só ele concede — assim um canal remoto não colhe
+		// o sim que alguém deu na tela (AEP-0084 D9).
+		if h.alreadyAllowed(profile, kind) {
+			if id, ok := choices.approval(); ok {
+				logging.Infof(ctx, acpPermissionComponent,
+					"[ACP] permissão concedida pelo que o perfil %q já autorizou (%s)", profile, registro)
+				return acp.PermissionOutcome{OptionID: id}
+			}
+			// O agente não ofereceu como dizer sim. Não há o que responder no
+			// lugar dele: a pergunta segue para a tela.
+			logging.Warnf(ctx, acpPermissionComponent,
+				"[ACP] o perfil %q autoriza esta classe, mas o pedido não trouxe opção de permitir: %s", profile, registro)
 		}
-		// O agente não ofereceu como dizer sim. Não há o que responder no
-		// lugar dele: a pergunta segue para a tela.
-		logging.Warnf(ctx, acpPermissionComponent,
-			"[ACP] o perfil %q autoriza esta classe, mas o pedido não trouxe opção de permitir: %s", profile, registro)
+	} else {
+		// Fora do desktop o "permitir sempre" nem é oferecido: ele mudaria o
+		// comportamento do app daí em diante a partir de uma mensagem, onde não
+		// há como mostrar o alcance da classe nem onde revogá-la (AEP-0084
+		// Fase 5). A recusa de gravar em rememberAlways continua valendo — esta
+		// é a primeira das duas travas, não a única.
+		choices = choices.withoutAlways()
+		if _, canApprove := choices.approval(); !canApprove {
+			// Sobrou só negar. Ao contrário da tela, onde o diálogo já está
+			// aberto e negar explicitamente tem valor, aqui a mensagem custaria
+			// uma ida e volta e uma espera por uma decisão que já está tomada.
+			logging.Warnf(ctx, acpPermissionComponent,
+				"[ACP] permissão negada: fora do desktop o pedido só oferecia autorizar para sempre (%s)", registro)
+			h.notifyConversation(owner, ports.ChatNoticeKindPermissionUnavailable, req.ToolCall.Kind)
+			return acp.PermissionOutcome{}
+		}
 	}
 
-	manager := h.questionnaireManager()
-	if manager == nil {
-		logging.Warnf(ctx, acpPermissionComponent, "[ACP] permissão negada: o questionário não está disponível")
-		h.notifyConversation(owner, ports.ChatNoticeKindPermissionUnavailable, req.ToolCall.Kind)
-		return acp.PermissionOutcome{}
-	}
-
-	// Sem prazo próprio: vale o do questionário, que é o do desktop e cabe
-	// dentro do teto que o transporte impõe ao handler. Um prazo maior que o
-	// teto tiraria da pessoa a chance de responder (AEP-0084 D9).
-	resp, err := manager.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+	// Sem prazo próprio: vale o da superfície — os vinte minutos do desktop, os
+	// poucos minutos do canal —, e os dois cabem dentro do teto que o transporte
+	// impõe ao handler. Um prazo maior que o teto tiraria de quem decide a
+	// chance de responder (AEP-0084 D9).
+	resp, err := h.askOnSurface(ctx, surface, questionnaire.RequestPayload{
 		Title:       questionnaire.Keyed(permissionTextKey("title"), "O agente pede permissão"),
 		Description: permissionDescriptionText(choices, kind),
 		AllowCancel: true,
@@ -152,15 +174,15 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		},
 	})
 	if err != nil {
-		// Prazo estourado, turno cancelado ou app encerrando. Todos viram a
-		// mesma coisa para o agente: ninguém autorizou.
+		// Prazo estourado, turno cancelado, diálogo indisponível ou app
+		// encerrando. Todos viram a mesma coisa para o agente: ninguém
+		// autorizou. Para quem lê a conversa, não: quem esperou o prazo precisa
+		// saber que houve pergunta, e quem nunca a viu precisa saber que ela não
+		// chegou a aparecer.
 		logging.Infof(ctx, acpPermissionComponent,
 			"[ACP] permissão sem resposta na conversa %q (%s): %v", owner.ConversationID, registro, err)
-		// Turno cancelado não vira aviso: foi a própria pessoa que desistiu, e
-		// o diálogo já saiu da tela dizendo isso. Avisar de novo seria cobrar
-		// explicação de quem acabou de dar uma.
-		if !turnCancelled(ctx, err) {
-			h.notifyConversation(owner, ports.ChatNoticeKindPermissionTimeout, req.ToolCall.Kind)
+		if notice := permissionFailureNotice(ctx, err); notice != "" {
+			h.notifyConversation(owner, notice, req.ToolCall.Kind)
 		}
 		return acp.PermissionOutcome{}
 	}
@@ -175,9 +197,59 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		return acp.PermissionOutcome{}
 	}
 	if choice.always() {
-		h.rememberAlways(ctx, owner, profile, kind, registro)
+		h.rememberAlways(ctx, owner, surface, profile, kind, registro)
 	}
 	return acp.PermissionOutcome{OptionID: choice.id}
+}
+
+// permissionFailureNotice escolhe o que contar à conversa quando o pedido acabou
+// sem decisão de ninguém.
+//
+// Turno cancelado não vira aviso: foi a própria pessoa que desistiu, e o diálogo
+// já saiu da tela dizendo isso. Avisar de novo seria cobrar explicação de quem
+// acabou de dar uma.
+func permissionFailureNotice(ctx context.Context, err error) string {
+	switch {
+	case turnCancelled(ctx, err):
+		return ""
+	case errors.Is(err, questionnaire.ErrNoInterlocutor):
+		return ports.ChatNoticeKindPermissionNoWatcher
+	case errors.Is(err, questionnaire.ErrAskerUnavailable):
+		// A superfície existe, mas a pergunta não chegou a aparecer: diálogo
+		// fora do ar, pergunta que não cabe numa mensagem, canal que não
+		// entregou. Dizer "ninguém respondeu a tempo" culparia quem nunca viu a
+		// pergunta.
+		return ports.ChatNoticeKindPermissionUnavailable
+	default:
+		return ports.ChatNoticeKindPermissionTimeout
+	}
+}
+
+// surfaceOf diz onde perguntar sobre este turno. Turno com tela pergunta na
+// tela; sem ela, a conversa de canal pergunta por mensagem, e o resto — job,
+// subagente, CLI — não tem a quem perguntar (AEP-0084 Fase 5).
+func (h *acpRequestHandler) surfaceOf(owner acp.TurnOwner, known bool) questionnaire.Surface {
+	if !known {
+		// Sessão sem turno anotado: não se sabe nem de que conversa é o pedido.
+		return questionnaire.Surface{}
+	}
+	if owner.Interactive {
+		return questionnaire.DesktopSurface(owner.ConversationID)
+	}
+	if h == nil || h.origin == nil {
+		return questionnaire.NoSurface(owner.ConversationID)
+	}
+	return h.origin(owner)
+}
+
+// askOnSurface leva o diálogo à superfície de origem. Sem roteador não há como
+// perguntar, e o erro é o mesmo de uma superfície que não sabe apresentar a
+// pergunta: ninguém decidiu.
+func (h *acpRequestHandler) askOnSurface(ctx context.Context, surface questionnaire.Surface, payload questionnaire.RequestPayload) (questionnaire.Response, error) {
+	if h == nil {
+		return questionnaire.Response{}, questionnaire.ErrAskerUnavailable
+	}
+	return h.surfaces.Ask(ctx, surface, payload)
 }
 
 func (h *acpRequestHandler) turnOwner(sessionID string) (acp.TurnOwner, bool) {
@@ -274,7 +346,21 @@ func (h *acpRequestHandler) alreadyAllowed(profile, kind string) bool {
 // agente vai agir —, mas a próxima volta a perguntar, que é o lado seguro de
 // não conseguir lembrar. Nos dois casos o aviso fica na conversa: a escolha
 // vale além deste turno, e o diálogo que a recebeu já saiu da tela.
-func (h *acpRequestHandler) rememberAlways(ctx context.Context, owner acp.TurnOwner, profile, kind, registro string) {
+func (h *acpRequestHandler) rememberAlways(ctx context.Context, owner acp.TurnOwner, surface questionnaire.Surface, profile, kind, registro string) {
+	if !surface.AllowsPersistentAuthorization() {
+		// Trava de verdade, e não só a opção escondida: quem chegar aqui por
+		// outro caminho — pergunta montada em outro lugar, superfície nova,
+		// resposta que casou com um rótulo que não devia estar na lista — não
+		// grava. A autorização permanente muda o app daí em diante, e só vale
+		// concedida na tela, onde dá para mostrar o alcance da classe e onde
+		// revogá-la (AEP-0084 D9 e Fase 5). A ação desta vez segue autorizada:
+		// alguém com direito de decidir disse sim.
+		logging.Warnf(ctx, acpPermissionComponent,
+			"[ACP] autorização permanente recusada: a decisão não veio do desktop (superfície %q, perfil %q): %s",
+			surface.Kind, profile, registro)
+		h.notifyConversation(owner, ports.ChatNoticeKindPermissionAlwaysNotSaved, kind)
+		return
+	}
 	store := h.trustStore()
 	if store == nil || profile == "" {
 		logging.Warnf(ctx, acpPermissionComponent,
@@ -418,6 +504,20 @@ func (c permissionChoices) hasAlways() bool {
 		}
 	}
 	return false
+}
+
+// withoutAlways tira da lista o que autoriza daqui em diante. É o que sobra para
+// oferecer fora do desktop: o resto das opções do agente continua inteiro, e a
+// pessoa segue podendo autorizar esta vez ou negar (AEP-0084 Fase 5).
+func (c permissionChoices) withoutAlways() permissionChoices {
+	out := make(permissionChoices, 0, len(c))
+	for _, choice := range c {
+		if choice.always() {
+			continue
+		}
+		out = append(out, choice)
+	}
+	return out
 }
 
 // approval escolhe como responder "pode" a um pedido que o perfil já autorizou.

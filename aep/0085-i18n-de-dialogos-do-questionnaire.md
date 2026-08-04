@@ -220,11 +220,18 @@ Números vão interpolados, com nome próprio: a contagem de modelos se chama
 Namespaces (D7): `app.questionnaire.update.*`,
 `app.questionnaire.updateElevation.*` e `app.questionnaire.welcome.*`.
 
-### Fase 5 — Superfícies sem camada de tradução
+### Fase 5 — Superfícies sem camada de tradução (feita)
 
 Quando o diálogo virar mensagem em canal (AEP-0084 Fase 5), a superfície usa
 `Text.String()` — o fallback pronto. Se um dia houver idioma por contato, é ela
 que passa a traduzir, com o mesmo payload.
+
+Implementado em `internal/messaging/channel_questions.go`: título, descrição,
+enunciado e rótulos das opções saem por `Text.String()`, e o valor devolvido em
+`answers` é o mesmo do desktop (D5) — é isso que faz quem perguntou não precisar
+saber por onde a resposta veio. Os textos próprios da superfície (o "Sim"/"Não"
+do booleano, o pedido de responder com o número, o aviso de prazo estourado)
+ficam nela, e é ali que a tradução por contato entraria.
 
 ## Riscos
 
