@@ -125,7 +125,7 @@ func (m *Manager) probe(ctx context.Context, spec ProviderSpec, client Client, s
 	}
 	report.AgentName = SanitizeLabel(caps.AgentName)
 	report.AgentVersion = SanitizeLabel(caps.AgentVersion)
-	report.AuthMethods = caps.AuthMethods
+	report.AuthMethods = sanitizedAuthMethods(caps.AuthMethods)
 
 	dir, err := m.currentDir()
 	if err != nil {
@@ -147,6 +147,25 @@ func (m *Manager) probe(ctx context.Context, spec ProviderSpec, client Client, s
 	report.State = HealthOnline
 	report.Latency = time.Since(start)
 	return report
+}
+
+// sanitizedAuthMethods trata nome e descrição dos métodos de login como o que
+// eles são: texto vindo do agente (AEP-0084 D11). Eles chegam à tela junto com o
+// estado sem login, e o mesmo cuidado do nome do agente vale aqui — escape de
+// terminal, caractere de controle ou parágrafo inteiro no lugar de um rótulo. O
+// ID sai intacto de propósito: ele identifica o método para o protocolo, não é
+// para ler.
+func sanitizedAuthMethods(methods []AuthMethod) []AuthMethod {
+	if len(methods) == 0 {
+		return nil
+	}
+	out := make([]AuthMethod, 0, len(methods))
+	for _, method := range methods {
+		method.Name = SanitizeLabel(method.Name)
+		method.Description = SanitizeLabel(method.Description)
+		out = append(out, method)
+	}
+	return out
 }
 
 // stateForError separa "faça login" de "não conectou". É a única distinção que

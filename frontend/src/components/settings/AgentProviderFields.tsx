@@ -44,6 +44,25 @@ const healthAnnouncement = (t: TFunction, health: AgentHealth): string => {
 const lerArgumentos = (texto: string): string[] =>
   texto.split('\n').map((linha) => linha.trim()).filter(Boolean);
 
+/**
+ * Monta o comando de login a partir da configuração que está na tela. O login é
+ * o mesmo CLI com outro subcomando, então `acp` — que é o que sobe o protocolo —
+ * sai e `login` entra.
+ *
+ * Um `cursor-agent login` fixo mandaria a pessoa a um comando que pode não
+ * existir: no Windows a detecção configura `node.exe ...\index.js acp`, e não há
+ * `cursor-agent` no PATH (o CLI instala `cursor-agent.cmd` na pasta dele). Já
+ * `node.exe ...\index.js login` é o login do mesmo agente.
+ */
+export const agentLoginCommand = (command: string, args: string[]): string => {
+  const executavel = command.trim();
+  if (!executavel) return '';
+  const partes = [executavel, ...args.map((arg) => arg.trim()).filter((arg) => arg && arg !== 'acp'), 'login'];
+  // Caminho com espaço precisa de aspas para quem for copiar a linha para o
+  // terminal — é o caso comum no Windows (`C:\Program Files\...`).
+  return partes.map((parte) => (/\s/.test(parte) ? `"${parte}"` : parte)).join(' ');
+};
+
 export interface AgentProviderFieldsProps {
   /** Tipo do agente procurado na máquina (ex.: `cursor`). */
   agentKind: string;
@@ -343,7 +362,9 @@ export const AgentProviderFields = ({
       {health?.state === 'unauthenticated' && (
         <div className="agent-fields__login">
           <p>{t('providerForm.agent.test.loginHelp')}</p>
-          <code className="agent-fields__login-command">{t('providerForm.agent.test.loginCommand')}</code>
+          <code className="agent-fields__login-command">
+            {agentLoginCommand(command, args) || t('providerForm.agent.test.loginCommand')}
+          </code>
           {!!health.login_methods?.length && (
             <p className="agent-fields__login-methods">
               {t('providerForm.agent.test.loginMethods', {

@@ -4,7 +4,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ptBR from '../../locales/pt-BR';
 import { axe } from '../../test/a11yAxe';
-import { AgentProviderFields } from './AgentProviderFields';
+import { AgentProviderFields, agentLoginCommand } from './AgentProviderFields';
 
 const announceMock = vi.hoisted(() => vi.fn());
 const detectMock = vi.hoisted(() => vi.fn());
@@ -331,6 +331,28 @@ describe('AgentProviderFields — agente ausente', () => {
   });
 });
 
+describe('agentLoginCommand', () => {
+  it('troca o subcomando do protocolo pelo do login', () => {
+    expect(agentLoginCommand('cursor-agent', ['acp'])).toBe('cursor-agent login');
+  });
+
+  it('mantém o caminho do agente do Windows, com o index.js', () => {
+    expect(agentLoginCommand(cursorFound.command, cursorFound.args)).toBe(
+      `${cursorFound.command} ${cursorFound.args[0]} login`,
+    );
+  });
+
+  it('põe aspas em caminho com espaço, para a linha poder ser copiada', () => {
+    expect(agentLoginCommand('C:\\Program Files\\node\\node.exe', ['C:\\cli\\index.js', 'acp'])).toBe(
+      '"C:\\Program Files\\node\\node.exe" C:\\cli\\index.js login',
+    );
+  });
+
+  it('sem comando não inventa comando nenhum', () => {
+    expect(agentLoginCommand('   ', [])).toBe('');
+  });
+});
+
 describe('AgentProviderFields — teste do agente', () => {
   it('testa o comando configurado e diz que ele atende', async () => {
     detectMock.mockResolvedValue(cursorFound);
@@ -377,11 +399,11 @@ describe('AgentProviderFields — teste do agente', () => {
     await user.click(screen.getByRole('button', { name: /testar agente/i }));
 
     expect(await screen.findByText(/instalado, mas não está autenticado/i)).toBeInTheDocument();
-    expect(screen.getByText(/abra um terminal e rode o login do cli do agente/i)).toBeInTheDocument();
-    // A instrução não promete que o comando está no PATH: nesta máquina Windows
-    // ele não está, e mandar rodá-lo assim mandaria a pessoa a um erro.
-    expect(screen.getByText(/pela pasta onde o cli está instalado/i)).toBeInTheDocument();
-    expect(screen.getByText('cursor-agent login')).toBeInTheDocument();
+    expect(screen.getByText(/abra um terminal e rode o comando abaixo/i)).toBeInTheDocument();
+    // O comando mostrado é o do agente configurado, com `login` no lugar do
+    // `acp`. Um `cursor-agent login` fixo não existiria nesta máquina Windows,
+    // onde o agente é o `node.exe` com o `index.js`.
+    expect(screen.getByText(`${cursorFound.command} ${cursorFound.args[0]} login`)).toBeInTheDocument();
     expect(screen.getByText(/entrar no cursor/i)).toBeInTheDocument();
     expect(announceMock).toHaveBeenCalledWith(
       expect.stringMatching(/instalado, mas não está autenticado/i),
@@ -407,7 +429,7 @@ describe('AgentProviderFields — teste do agente', () => {
 
     expect(await screen.findByText(/confira o comando e a instalação/i)).toBeInTheDocument();
     expect(screen.getByText(/executável não encontrado/i)).toBeInTheDocument();
-    expect(screen.queryByText('cursor-agent login')).not.toBeInTheDocument();
+    expect(screen.queryByText(/login$/)).not.toBeInTheDocument();
     expect(announceMock).toHaveBeenCalledWith(
       expect.stringMatching(/confira o comando e a instalação/i),
       'assertive',

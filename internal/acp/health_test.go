@@ -224,6 +224,43 @@ func TestProbeHandshakeQueFalhaEhOffline(t *testing.T) {
 	}
 }
 
+// Nome e descrição do método de login são texto do agente (D11) e vão para a
+// tela junto com o estado sem login. Sem saneamento, um escape de terminal ou um
+// parágrafo inteiro chegariam ali como se fossem rótulo.
+func TestProbeSaneiaOsRotulosDosMetodosDeAutenticacao(t *testing.T) {
+	client := newFakeManagedClient()
+	client.caps = Capabilities{
+		AgentName: "Cursor",
+		AuthMethods: []AuthMethod{{
+			ID:          "cursor_login",
+			Name:        "\x1b[31mEntrar\x1b[0m no\tCursor",
+			Description: "rode\no login\ndo CLI",
+			Kind:        AuthKindAgent,
+		}},
+	}
+	client.newErr = fmt.Errorf("abrir sessão no agente ACP: %w", ErrNotAuthenticated)
+	m, _ := managerWith(newMemoryStore(), client)
+	t.Cleanup(m.Shutdown)
+
+	report := m.Probe(context.Background(), testSpec())
+
+	if len(report.AuthMethods) != 1 {
+		t.Fatalf("métodos de autenticação = %+v", report.AuthMethods)
+	}
+	metodo := report.AuthMethods[0]
+	if metodo.Name != "Entrar no Cursor" {
+		t.Errorf("nome = %q, esperado sem escape nem tabulação", metodo.Name)
+	}
+	if metodo.Description != "rode o login do CLI" {
+		t.Errorf("descrição = %q, esperada em uma linha", metodo.Description)
+	}
+	// O ID endereça o método no protocolo: ele não é rótulo, e mexer nele
+	// quebraria quem o usa para escolher o fluxo de login.
+	if metodo.ID != "cursor_login" {
+		t.Errorf("id = %q, esperado intacto", metodo.ID)
+	}
+}
+
 func TestProbeHandshakeSemLoginTambemEhEstadoDeAutenticacao(t *testing.T) {
 	client := newFakeManagedClient()
 	client.capsErr = fmt.Errorf("apresentar o agente: %w", ErrNotAuthenticated)

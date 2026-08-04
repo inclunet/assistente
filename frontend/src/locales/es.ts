@@ -1732,7 +1732,7 @@ const es = {
           unauthenticated: 'El agente está instalado, pero no está autenticado. Inicia sesión desde su CLI antes de usarlo.',
           offline: 'No se pudo hablar con el agente. Revisa el comando y la instalación.',
           offlineDetail: 'No se pudo hablar con el agente. Revisa el comando y la instalación. Detalles: {{detail}}',
-          loginHelp: 'Abre una terminal y ejecuta el inicio de sesión del CLI del agente; luego vuelve aquí y prueba de nuevo. Si el comando de abajo no se encuentra, ejecútalo desde la carpeta donde el CLI está instalado — en Windows suele no estar en el PATH.',
+          loginHelp: 'Abre una terminal y ejecuta el comando de abajo; luego vuelve aquí y prueba de nuevo.',
           loginCommand: 'cursor-agent login',
           loginMethods: 'Autenticación solicitada por el agente: {{methods}}.',
         },
