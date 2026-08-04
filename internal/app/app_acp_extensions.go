@@ -152,7 +152,16 @@ func (h *acpRequestHandler) askQuestion(ctx context.Context, req acp.CustomReque
 	registro := askLogSummary(req.SessionID, pedido)
 
 	owner, ok := h.turnOwner(req.SessionID)
-	if !ok || !owner.Interactive {
+	if !ok {
+		// O transporte não soube dizer de quem é o pedido: sem turno em voo,
+		// ou com mais de um. Não é o mesmo que não haver ninguém na tela — e o
+		// agente costuma repetir o motivo à pessoa, então ele diz o que houve.
+		// Sem conversa dona também não há a quem avisar.
+		logging.Infof(ctx, acpExtensionComponent,
+			"[ACP] pergunta pulada: o pedido não pôde ser atribuído a nenhuma conversa (%s)", registro)
+		return askSkipped(reasonUndecided)
+	}
+	if !owner.Interactive {
 		// Canal, job agendado, subagente ou CLI: não há tela onde perguntar, e
 		// esperar aqui penduraria o agente até o teto do transporte. Mesma
 		// regra do pedido de permissão (AEP-0084 D9).
@@ -464,7 +473,12 @@ func (h *acpRequestHandler) createPlan(ctx context.Context, req acp.CustomReques
 	registro := planLogSummary(req.SessionID, pedido)
 
 	owner, ok := h.turnOwner(req.SessionID)
-	if !ok || !owner.Interactive {
+	if !ok {
+		logging.Infof(ctx, acpExtensionComponent,
+			"[ACP] plano recusado: o pedido não pôde ser atribuído a nenhuma conversa (%s)", registro)
+		return planRejected(reasonUndecided)
+	}
+	if !owner.Interactive {
 		logging.Infof(ctx, acpExtensionComponent,
 			"[ACP] plano recusado na hora, sem ninguém a quem apresentá-lo (conversa %q): %s",
 			owner.ConversationID, registro)

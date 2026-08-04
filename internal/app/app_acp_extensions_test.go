@@ -429,6 +429,27 @@ func TestPedidoSemTurnoNaoAvisaConversaNenhuma(t *testing.T) {
 	}
 }
 
+func TestPedidoSemDonoNaoDizQueNinguemEstavaNaTela(t *testing.T) {
+	// Não saber de quem é o pedido é diferente de saber e não haver ninguém
+	// vendo. O agente costuma repetir o motivo à pessoa: dizer "não havia
+	// ninguém para responder" a quem está olhando a tela seria mentira.
+	semDono := handlerDeExtensao(nil, acp.TurnOwner{}, false)
+	semTela := handlerDeExtensao(nil, acp.TurnOwner{ConversationID: "c"}, true)
+
+	pergunta := respostaDaPergunta(t, mustHandle(t, semDono, pedidoDePergunta(t)))
+	if pergunta.Outcome.Reason == reasonNoWatcher {
+		t.Errorf("motivo = %q, quer um que não afirme que ninguém estava na tela", pergunta.Outcome.Reason)
+	}
+	if outro := respostaDaPergunta(t, mustHandle(t, semTela, pedidoDePergunta(t))); outro.Outcome.Reason != reasonNoWatcher {
+		t.Errorf("motivo do turno sem tela = %q, quer %q", outro.Outcome.Reason, reasonNoWatcher)
+	}
+
+	plano := respostaDoPlano(t, mustHandle(t, semDono, pedidoDePlano(t)))
+	if plano.Outcome.Reason == reasonNoWatcher {
+		t.Errorf("motivo = %q, quer um que não afirme que ninguém estava na tela", plano.Outcome.Reason)
+	}
+}
+
 func TestPerguntaSemOpcaoNaoInventaResposta(t *testing.T) {
 	tela := novaTelaDeExtensao(escolhendoAPrimeira())
 	h := handlerDeExtensao(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
