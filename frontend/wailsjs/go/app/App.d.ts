@@ -210,6 +210,8 @@ export function GetActiveWorkspace():Promise<workspace.Workspace>;
 
 export function GetAgentPermissions():Promise<Array<app.AgentPermissionView>>;
 
+export function GetAgentSessionOptions(arg1:string):Promise<app.AgentSessionOptions>;
+
 export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelConfig>>;
 
 export function GetAllTaskLists():Promise<Array<database.TaskList>>;
@@ -442,6 +444,10 @@ export function ReconnectMCPServer(arg1:string):Promise<void>;
 
 export function RefreshAuth(arg1:app.RefreshRequest):Promise<app.AuthUser>;
 
+export function RefreshModels():Promise<Array<string>>;
+
+export function RefreshModelsByProvider(arg1:string):Promise<Array<string>>;
+
 export function RegenerateJobCatalog():Promise<void>;
 
 export function ReloadLLMClient():Promise<void>;
@@ -513,6 +519,8 @@ export function SendTerminalInput(arg1:string,arg2:string):Promise<void>;
 export function SetActiveProfile(arg1:string):Promise<void>;
 
 export function SetActiveWorkspaceTab(arg1:string):Promise<void>;
+
+export function SetAgentSessionOption(arg1:string,arg2:string,arg3:string):Promise<app.AgentSessionOptions>;
 
 export function SetConversationModel(arg1:string,arg2:string):Promise<void>;
 

@@ -158,6 +158,22 @@ const es = {
         pending_one: '{{count}} turno en cola',
         pending_other: '{{count}} turnos en cola',
       },
+      agentOptions: {
+        modelLabel: 'Modelo del agente',
+        modelDescription: 'Elige el modelo que el agente usa en esta conversación, a partir del próximo turno',
+        modeLabel: 'Modo del agente',
+        modeDescription: 'Elige cómo trabaja el agente en esta conversación, a partir del próximo turno',
+        modelChanged: 'Modelo del agente cambiado a {{model}}. Se aplica desde el próximo turno.',
+        modeChanged: 'Modo del agente cambiado a {{mode}}. Se aplica desde el próximo turno.',
+        modelChangedByAgent: 'El agente pasó a usar el modelo {{model}}.',
+        modeChangedByAgent: 'El agente pasó al modo {{mode}}.',
+        changeError: 'No se pudo cambiar la configuración del agente. Inténtalo de nuevo.',
+        mode: {
+          agent: 'Agente',
+          plan: 'Planificar',
+          ask: 'Preguntar',
+        },
+      },
       validation: {
         messageTooLarge: 'Mensaje demasiado grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
         mediaTooLarge: 'Archivos de medios demasiado grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
@@ -1653,7 +1669,7 @@ const es = {
     pickers: {
       base: { loading: 'Cargando...', loadError: 'Error al cargar', empty: 'Ninguna opción disponible', retry: 'Reintentar' },
       llmProvider: { label: 'Proveedor LLM', description: 'Selecciona el proveedor de modelo de lenguaje', noneConfigured: 'Ningún proveedor configurado. Configura un proveedor primero.', loadError: 'Error al cargar proveedores', placeholder: 'Selecciona un proveedor...', retry: 'Reintentar', loading: 'Cargando proveedores...' },
-      model: { label: 'Modelo', filterPlaceholder: 'Filtrar modelos...', selectProvider: 'Selecciona un proveedor primero', noModels: 'Ningún modelo disponible para este proveedor.', noModelsGlobal: 'Ningún modelo disponible. Configura un proveedor primero.', configureApiKey: 'Configura la API key de este proveedor en Configuración → Credenciales', loadError: 'Error al cargar modelos:', typePlaceholder: 'Escribe el modelo...', notLoaded: 'Modelos no cargados. Escribe manualmente el nombre del modelo.', retry: 'Reintentar', loading: 'Cargando modelos...' },
+      model: { label: 'Modelo', filterPlaceholder: 'Filtrar modelos...', selectProvider: 'Selecciona un proveedor primero', noModels: 'Ningún modelo disponible para este proveedor.', noModelsGlobal: 'Ningún modelo disponible. Configura un proveedor primero.', configureApiKey: 'Configura la API key de este proveedor en Configuración → Credenciales', loadError: 'Error al cargar modelos:', typePlaceholder: 'Escribe el modelo...', notLoaded: 'Modelos no cargados. Escribe manualmente el nombre del modelo.', retry: 'Reintentar', loading: 'Cargando modelos...', refresh: 'Recargar modelos', refreshLabel: 'Recargar la lista de modelos del proveedor', refreshed: 'Lista de modelos recargada' },
       voice: { disabled: 'Desactivado', system: 'Sistema', windows: 'Windows (SAPI5)', openai: 'OpenAI (Premium)', label: 'Voz', description: 'Selecciona la voz para síntesis de habla', loadError: 'Error al cargar voces', screenReader: 'Desactivada (usar lector de pantalla)', accessibility: 'Accesibilidad', premium: '• Premium', loading: 'Cargando voces...' },
       voiceProvider: { label: 'Proveedor de Voz', description: 'Selecciona el proveedor de síntesis de voz', loading: 'Cargando proveedores...', loadError: 'Error al cargar proveedores', screenReader: 'Lector de pantalla (desactivar TTS)', screenReaderDesc: 'Usa el lector de pantalla y desactiva la síntesis de voz', default: 'Predeterminado (Asistente)', defaultDesc: 'Usa el proveedor del Asistente', webspeech: 'WebSpeech (Navegador)', webspeechDesc: 'Voces del navegador (gratis)', sapi5: 'SAPI5 (Windows)', sapi5Desc: 'Voces de Windows', followAssistant: 'Seguir voz del Asistente', followAssistantDesc: 'Usa la misma voz del Asistente', followUser: 'Seguir voz del Usuario', followUserDesc: 'Usa la misma voz del Usuario', followSystem: 'Seguir voz del Sistema', followSystemDesc: 'Usa la misma voz del Sistema', llmProvider: 'Proveedor LLM', llmProviderWithHost: 'TTS/STT vía {{host}}' },
       stt: { label: 'STT', description: 'Selecciona el proveedor de reconocimiento de voz', webSpeech: 'WebSpeech', webSpeechDesc: 'Navegador (gratis)', whisper: 'Whisper', whisperDesc: 'OpenAI (premium)', whisperViaProvider: 'Whisper (vía proveedor LLM)', loadError: 'Error al cargar proveedores', loading: 'Cargando proveedores...' },

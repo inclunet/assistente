@@ -18,6 +18,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useUIStore } from '../../store/uiStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
+import { AgentOptionsPickers } from './AgentOptionsPickers';
 import { useChatSession } from './ChatSessionContext';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
@@ -337,6 +338,13 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
             />
 
             <ToolbarSeparator />
+
+            {/* Modelo e modo do agente desta conversa. Só aparecem quando há
+                agente do outro lado com escolhas a oferecer (AEP-0084 D6). */}
+            <AgentOptionsPickers
+              conversationId={effectiveConversationId}
+              disabled={isLoading}
+            />
 
             <div
               ref={profileContainerRef}

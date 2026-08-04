@@ -7,6 +7,11 @@ const clearConversationMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefin
 const loadConversationSessionMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const clearConversationMessagesMock = vi.hoisted(() => vi.fn());
 const historyClickMock = vi.hoisted(() => vi.fn());
+const getAgentSessionOptionsMock = vi.hoisted(() => vi.fn().mockResolvedValue({
+  conversationId: 'conversation-1',
+  available: false,
+  options: [],
+}));
 const profileClickMock = vi.hoisted(() => vi.fn());
 const modalState = vi.hoisted(() => ({
   open: false,
@@ -23,6 +28,8 @@ vi.mock('react-i18next', () => ({
 vi.mock('@wailsjs/go/app/App', () => ({
   ClearConversation: clearConversationMock,
   GetActiveProfileSlug: vi.fn().mockResolvedValue('padrao'),
+  GetAgentSessionOptions: getAgentSessionOptionsMock,
+  SetAgentSessionOption: vi.fn(),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -70,6 +77,9 @@ vi.mock('./ChatSessionContext', () => ({
 
 vi.mock('../workspace/WorkspacePanelContext', () => ({
   useWorkspacePanel: () => ({
+    tab: { id: 'tab-chat', title: 'Chat', type: 'chat' },
+  }),
+  useOptionalWorkspacePanel: () => ({
     tab: { id: 'tab-chat', title: 'Chat', type: 'chat' },
   }),
 }));
@@ -217,5 +227,46 @@ describe('ChatToolbar shortcuts', () => {
     expect(screen.getByRole('heading', { name: 'Conversa' })).toBeInTheDocument();
     expect(historyClickMock).toHaveBeenCalledTimes(1);
     expect(profileClickMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// O seletor de modelo do agente precisa aparecer na barra da conversa aberta, e
+// pela conversa dela: é o caminho que a pessoa usa para trocar de modelo, e uma
+// ligação errada aqui trocaria o modelo de outra conversa (AEP-0084 D6).
+describe('ChatToolbar e o modelo do agente', () => {
+  beforeEach(() => {
+    getAgentSessionOptionsMock.mockClear();
+  });
+
+  it('mostra o modelo do agente da conversa aberta', async () => {
+    getAgentSessionOptionsMock.mockResolvedValueOnce({
+      conversationId: 'conversation-1',
+      available: true,
+      options: [{
+        id: 'model',
+        name: 'Modelo',
+        category: 'model',
+        currentValue: 'modelo-a',
+        values: [{ value: 'modelo-a', name: 'Modelo A' }, { value: 'modelo-b', name: 'Modelo B' }],
+      }],
+    });
+
+    renderToolbar();
+
+    await waitFor(() => expect(getAgentSessionOptionsMock).toHaveBeenCalledWith('conversation-1'));
+    expect(await screen.findByRole('button', { name: 'Modelo, Modelo A' })).toBeInTheDocument();
+  });
+
+  it('não mostra seletor quando a conversa não fala com agente', async () => {
+    getAgentSessionOptionsMock.mockResolvedValueOnce({
+      conversationId: 'conversation-1',
+      available: false,
+      options: [],
+    });
+
+    renderToolbar();
+
+    await waitFor(() => expect(getAgentSessionOptionsMock).toHaveBeenCalledWith('conversation-1'));
+    expect(screen.queryByRole('button', { name: /Modelo/ })).toBeNull();
   });
 });
