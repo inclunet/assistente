@@ -83,6 +83,34 @@ describe('useConnectionStatusListener', () => {
     });
   });
 
+  it('anuncia (assertivo) e avisa quando o agente está sem login', () => {
+    renderHook(() => useConnectionStatusListener());
+    act(() => lastHandler?.(payload({ state: 'online' })));
+    act(() =>
+      lastHandler?.(payload({ state: 'unauthenticated', errorType: 'agent_not_authenticated' })),
+    );
+
+    expect(announceSpy).toHaveBeenCalledWith('connectionStatus.announce.unauthenticated', 'assertive');
+    expect(addToastSpy).toHaveBeenCalledWith(
+      'connectionStatus.announce.unauthenticated',
+      'warning',
+      undefined,
+      undefined,
+      { suppressAnnounce: true },
+    );
+  });
+
+  it('sem login é estado estável: voltar dele anuncia restauração', () => {
+    renderHook(() => useConnectionStatusListener());
+    act(() => lastHandler?.(payload({ state: 'unauthenticated' })));
+    announceSpy.mockClear();
+    addToastSpy.mockClear();
+
+    act(() => lastHandler?.(payload({ state: 'online' })));
+
+    expect(announceSpy).toHaveBeenCalledWith('connectionStatus.announce.restored', 'polite');
+  });
+
   it('ignora o estado intermediário "checking" para não gerar anúncios espúrios', () => {
     renderHook(() => useConnectionStatusListener());
     act(() => lastHandler?.(payload({ state: 'online' })));

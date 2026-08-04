@@ -38,6 +38,13 @@ interface Provider {
   credential_domain_patterns?: string[];
   is_default?: boolean;
   default_model?: string;
+  /**
+   * Comando e argumentos do agente de código (AEP-0084 D12). Para um provedor
+   * ACP é isto que faz o papel de `base_url`: sem os dois, o que chega ao
+   * formulário não descreve o provedor salvo.
+   */
+  acp_command?: string;
+  acp_args?: string[];
 }
 
 interface ProviderRow extends Provider {
@@ -140,6 +147,8 @@ export default function ProvidersPage() {
       api_key: '',
       default_model: (provider as Provider).default_model || '',
       api_format: (provider as Provider).api_format || '',
+      acp_command: provider.acp_command || '',
+      acp_args: provider.acp_args || [],
     });
     setIsEditing(true);
   }, []);
@@ -177,6 +186,11 @@ export default function ProvidersPage() {
         type: provider.type,
         base_url: provider.base_url,
         api_format: (provider as Provider).api_format || undefined,
+        // A cópia de um agente precisa subir o mesmo agente: o backend recusa o
+        // formato acp sem comando, e sem argumentos o processo subiria em outro
+        // modo que não o do original.
+        acp_command: provider.acp_command || undefined,
+        acp_args: provider.acp_args || undefined,
       });
       addToast(t('providers.toast.duplicated'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('providers.toast.duplicated'));

@@ -1,0 +1,82 @@
+.agent-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.agent-fields__detection {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.agent-fields__status {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+/* Estado transmitido por texto; a cor é só reforço visual. */
+.agent-fields__status[data-state='missing'] {
+  color: var(--color-warning);
+}
+
+.agent-fields__health {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-success);
+}
+
+/* Estado transmitido por texto; a cor é só reforço visual. */
+.agent-fields__health[data-state='missing'] {
+  color: var(--color-warning);
+}
+
+.agent-fields__login {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-left: 3px solid var(--color-warning);
+  background-color: var(--color-warning-dim);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.agent-fields__login p {
+  margin: 0;
+}
+
+.agent-fields__login-command {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-input);
+  color: var(--text-code);
+  align-self: flex-start;
+}
+
+.agent-fields__login-methods {
+  color: var(--text-secondary);
+}
+
+.agent-fields__install {
+  padding: 0.75rem;
+  border-left: 3px solid var(--color-warning);
+  background-color: var(--color-warning-dim);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.agent-fields__install p {
+  margin: 0;
+}
+
+.agent-fields__searched {
+  margin-top: 0.5rem;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
