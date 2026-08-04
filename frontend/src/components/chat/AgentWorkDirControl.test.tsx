@@ -27,6 +27,7 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 /** estado é o que o backend devolve para uma conversa de agente de código. */
 const estado = (over: Record<string, unknown> = {}) => ({
   conversationId: 'conversa-1',
+  available: true,
   dir: '/casa/ana/projeto',
   workspaceDir: '/casa/ana/projeto',
   pinned: false,
@@ -60,9 +61,21 @@ describe('AgentWorkDirControl', () => {
   });
 
   // Conversa que não fala com agente de código não tem diretório nenhum, e um
-  // botão vazio seria mais um controle para o Tab atravessar sem nada a fazer.
+  // botão com o caminho do workspace ali diria que um agente age sobre ele.
+  // Este é o caso que a produção monta: o backend responde, e responde que não
+  // há o que mostrar.
   it('não aparece quando a conversa não tem agente de código', async () => {
-    getWorkDir.mockRejectedValue(new Error('sem agente'));
+    getWorkDir.mockResolvedValue(estado({ available: false, dir: '', pinned: false }));
+    render(<AgentWorkDirControl conversationId="conversa-1" />);
+
+    await waitFor(() => expect(getWorkDir).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: /chat\.agentWorkDir/ })).toBeNull();
+  });
+
+  // Falha ao perguntar também esconde o controle: sem saber onde o agente age,
+  // mostrar um caminho seria inventar o alcance dele.
+  it('não aparece quando a pergunta ao backend falha', async () => {
+    getWorkDir.mockRejectedValue(new Error('banco indisponível'));
     render(<AgentWorkDirControl conversationId="conversa-1" />);
 
     await waitFor(() => expect(getWorkDir).toHaveBeenCalled());

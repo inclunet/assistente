@@ -71,7 +71,7 @@ export const AgentWorkDirControl: React.FC<AgentWorkDirControlProps> = ({
     }
   }, [announce, save, t]);
 
-  if (!state) return null;
+  if (!state?.available) return null;
 
   const pending = pendingRecreate(state);
   const short = dirName(state.dir) || state.dir;

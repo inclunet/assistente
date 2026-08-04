@@ -1,4 +1,4 @@
-.agent-workdir__button {
+﻿.agent-workdir__button {
   max-width: 180px;
 }
 
@@ -18,12 +18,12 @@
 .agent-workdir__body {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm, 8px);
+  gap: var(--spacing-sm);
 }
 
 .agent-workdir__warning {
   margin: 0;
-  padding: var(--space-sm, 8px);
+  padding: var(--spacing-sm);
   border-radius: var(--radius-md);
   background: var(--color-warning-dim);
   color: var(--text-primary);
@@ -37,7 +37,7 @@
 
 .agent-workdir__input {
   height: 32px;
-  padding: 0 var(--space-sm, 8px);
+  padding: 0 var(--spacing-sm);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--bg-input);
@@ -66,6 +66,6 @@
 .agent-workdir__actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--space-sm, 8px);
-  margin-top: var(--space-sm, 8px);
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
 }

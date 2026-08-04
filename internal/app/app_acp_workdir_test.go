@@ -70,15 +70,36 @@ func conversaNoBanco(t *testing.T, a *App, titulo string) string {
 	return conv.ID
 }
 
-// A conversa nasce seguindo o workspace ativo, e a tela precisa dizer isso: o
-// diretório é o alcance do que o agente pode editar, e "nenhum" não é resposta.
-func TestConversaNovaMostraODiretorioDoWorkspace(t *testing.T) {
-	a, workspace := appComAgenteEBanco(t, novoAgenteFalso())
+// Conversa que nunca falou com agente de código e nunca escolheu diretório não
+// tem alcance de agente a mostrar: o caminho do workspace ali diria que um
+// agente age sobre ele.
+func TestConversaSemAgenteNaoTemDiretorioAMostrar(t *testing.T) {
+	a, _ := appComAgenteEBanco(t, novoAgenteFalso())
 	conversa := conversaNoBanco(t, a, "Conversa")
 
 	out, err := a.GetAgentConversationWorkDir(conversa)
 	if err != nil {
 		t.Fatalf("GetAgentConversationWorkDir: %v", err)
+	}
+	if out.Available {
+		t.Error("uma conversa sem agente de código mostraria o diretório do workspace")
+	}
+}
+
+// A conversa que já falou com o agente segue o workspace ativo, e a tela precisa
+// dizer isso: o diretório é o alcance do que o agente pode editar, e "nenhum"
+// não é resposta.
+func TestConversaComSessaoMostraODiretorioDoWorkspace(t *testing.T) {
+	a, workspace := appComAgenteEBanco(t, novoAgenteFalso())
+	conversa := conversaNoBanco(t, a, "Conversa")
+	conversaComSessao(t, a, conversa)
+
+	out, err := a.GetAgentConversationWorkDir(conversa)
+	if err != nil {
+		t.Fatalf("GetAgentConversationWorkDir: %v", err)
+	}
+	if !out.Available {
+		t.Fatal("a conversa que fala com agente de código escondeu o diretório dele")
 	}
 	if !acp.SameDir(out.Dir, workspace) {
 		t.Fatalf("diretório mostrado = %q, quer o workspace %q", out.Dir, workspace)
@@ -89,8 +110,60 @@ func TestConversaNovaMostraODiretorioDoWorkspace(t *testing.T) {
 	if out.Pinned {
 		t.Error("a conversa que nunca escolheu diretório apareceu presa a um")
 	}
-	if out.SessionDir != "" || out.PendingRecreate() {
-		t.Errorf("conversa sem sessão anunciou recriação pendente: %+v", out)
+	if out.PendingRecreate() {
+		t.Errorf("a sessão que nasceu no diretório certo anunciou recriação pendente: %+v", out)
+	}
+}
+
+// Escolher o diretório antes do primeiro turno também é motivo para mostrar o
+// controle: a decisão já foi tomada, e escondê-la deixaria a pessoa sem como
+// desfazê-la.
+func TestConversaQueEscolheuDiretorioMostraOControle(t *testing.T) {
+	a, _ := appComAgenteEBanco(t, novoAgenteFalso())
+	conversa := conversaNoBanco(t, a, "Conversa")
+	escolhido := t.TempDir()
+
+	out, err := a.SetAgentConversationWorkDir(conversa, escolhido)
+	if err != nil {
+		t.Fatalf("SetAgentConversationWorkDir: %v", err)
+	}
+	if !out.Available || !out.Pinned {
+		t.Fatalf("a escolha guardada não apareceu na tela: %+v", out)
+	}
+	if out.PendingRecreate() {
+		t.Error("conversa sem sessão de pé anunciou recriação pendente")
+	}
+}
+
+// Não conseguir ler a escolha da conversa não pode virar "use o workspace": o
+// manager trata caminho vazio como consentimento para o diretório do app, e o
+// agente acabaria editando uma árvore que ninguém escolheu.
+func TestFalhaAoLerAEscolhaNaoViraOWorkspace(t *testing.T) {
+	a, _ := appComAgenteEBanco(t, novoAgenteFalso())
+	conversa := conversaNoBanco(t, a, "Conversa")
+
+	// Sem a tabela, ler a conversa é uma falha de banco, e não uma conversa que
+	// ainda não existe.
+	if err := database.DB().Migrator().DropTable(&database.Conversation{}); err != nil {
+		t.Fatalf("derrubar a tabela: %v", err)
+	}
+
+	if _, err := a.agentConversationDir(conversa); err == nil {
+		t.Fatal("a falha ao ler a escolha da conversa passou por 'siga o workspace'")
+	}
+}
+
+// Conversa que ainda não está no banco é o primeiro turno da que nasce junto com
+// ele: não escolheu diretório nenhum, e tratar isso como falha impediria o turno.
+func TestConversaQueAindaNaoExisteSegueOWorkspace(t *testing.T) {
+	a, _ := appComAgenteEBanco(t, novoAgenteFalso())
+
+	dir, err := a.agentConversationDir("conversa-que-ainda-nao-nasceu")
+	if err != nil {
+		t.Fatalf("a conversa que ainda não existe falhou: %v", err)
+	}
+	if dir != "" {
+		t.Fatalf("diretório = %q, quer vazio para seguir o workspace", dir)
 	}
 }
 

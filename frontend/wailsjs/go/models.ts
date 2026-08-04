@@ -171,6 +171,7 @@ export namespace app {
 	}
 	export class AgentWorkDir {
 	    conversationId: string;
+	    available: boolean;
 	    dir: string;
 	    workspaceDir: string;
 	    pinned: boolean;
@@ -183,6 +184,7 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.conversationId = source["conversationId"];
+	        this.available = source["available"];
 	        this.dir = source["dir"];
 	        this.workspaceDir = source["workspaceDir"];
 	        this.pinned = source["pinned"];

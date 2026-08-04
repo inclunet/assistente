@@ -17,6 +17,7 @@ vi.mock('@wailsjs/go/app/App', () => ({
 
 const estado = (over: Partial<AgentWorkDirState> = {}): AgentWorkDirState => ({
   conversationId: 'conversa-1',
+  available: true,
   dir: '/casa/ana/projeto',
   workspaceDir: '/casa/ana/projeto',
   pinned: false,

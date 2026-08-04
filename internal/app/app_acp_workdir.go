@@ -11,6 +11,8 @@ import (
 	"assistente/internal/acp"
 	"assistente/internal/database"
 	"assistente/internal/logging"
+
+	"gorm.io/gorm"
 )
 
 const acpWorkDirComponent = "app.app-acp-workdir"
@@ -20,6 +22,11 @@ const acpWorkDirComponent = "app.app-acp-workdir"
 // isso fica visível na barra da conversa em vez de implícito.
 type AgentWorkDir struct {
 	ConversationID string `json:"conversationId"`
+	// Available é falso quando não há diretório de agente a mostrar: conversa
+	// que nunca falou com agente de código e nunca escolheu diretório. A tela
+	// esconde o controle em vez de mostrar o caminho do workspace numa conversa
+	// que não tem agente nenhum agindo sobre ele.
+	Available bool `json:"available"`
 	// Dir é o diretório que vale para o próximo turno.
 	Dir string `json:"dir"`
 	// WorkspaceDir é o diretório do app, que é o padrão de quem não escolheu.
@@ -73,6 +80,11 @@ func (a *App) GetAgentConversationWorkDir(conversationID string) (AgentWorkDir, 
 	}
 	out.Dir = dir
 	out.SessionDir = a.acpMgr.ConversationSessionDir(conversationID)
+	// Ter sessão de pé é a prova de que esta conversa fala com agente de código;
+	// ter escolha guardada é a de que alguém já decidiu onde ele age. Fora
+	// desses dois, não há diretório de agente a mostrar: numa conversa de
+	// provedor HTTP o caminho do workspace não descreve alcance nenhum.
+	out.Available = out.Pinned || out.SessionDir != ""
 	return out, nil
 }
 
@@ -143,27 +155,32 @@ func resolveAgentWorkDir(dir string) (string, error) {
 // agentConversationDir é o que o serviço de agentes consulta para saber onde
 // pôr o agente de uma conversa. Roda no caminho do turno, então lê o registro e
 // nada mais.
+//
+// Erro é erro, e não "use o workspace": o manager trata caminho vazio como
+// consentimento para o diretório do app, e engolir uma falha de banco aqui poria
+// o agente a editar uma árvore que ninguém escolheu para esta conversa.
 func (a *App) agentConversationDir(conversationID string) (string, error) {
 	if a == nil {
 		return "", nil
 	}
 	ctx, err := a.requireAuthenticatedContext()
 	if err != nil {
-		// Sem sessão autenticada não há registro a ler. O turno em si já vai
-		// falhar por conta própria; devolver erro aqui só trocaria a mensagem
-		// por uma que não explica nada.
-		return "", nil
+		return "", fmt.Errorf("sem sessão para ler o diretório do agente: %w", err)
 	}
 	return a.conversationAgentDir(ctx, conversationID)
 }
 
 func (a *App) conversationAgentDir(ctx context.Context, conversationID string) (string, error) {
 	conv, err := database.GetConversationInfoWithContext(ctx, conversationID)
-	if err != nil {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// Conversa que ainda não está no banco não escolheu diretório nenhum, e
 		// tratar isso como falha impediria o primeiro turno de uma conversa que
-		// nasce junto com ele.
+		// nasce junto com ele. Só este caso é silencioso: qualquer outro erro é
+		// não saber a resposta, e não sabê-la é diferente de saber que não há.
 		return "", nil
+	}
+	if err != nil {
+		return "", err
 	}
 	return strings.TrimSpace(conv.AgentWorkDir), nil
 }

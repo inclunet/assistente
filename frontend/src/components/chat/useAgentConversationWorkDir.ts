@@ -7,6 +7,11 @@ import { logger } from '../../utils/logger';
 
 export interface AgentWorkDirState {
   conversationId: string;
+  /**
+   * Falso quando não há diretório de agente a mostrar: conversa que nunca falou
+   * com agente de código e nunca escolheu diretório.
+   */
+  available: boolean;
   /** Diretório que vale para o próximo turno desta conversa. */
   dir: string;
   /** Diretório do app, que é o padrão de quem não escolheu. */
