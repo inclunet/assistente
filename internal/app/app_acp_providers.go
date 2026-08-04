@@ -1,6 +1,8 @@
 package app
 
 import (
+	"errors"
+
 	"assistente/internal/acp"
 )
 
@@ -33,6 +35,90 @@ type ACPAgentSetup struct {
 	// workspace. Fica visível porque é onde o agente vai editar arquivos, e
 	// esconder isso seria esconder o alcance do que a pessoa está autorizando.
 	WorkDir string `json:"work_dir,omitempty"`
+}
+
+// ACPAgentHealth é o resultado de testar um agente de código: se ele sobe, se
+// atende e, quando não atende, por quê.
+//
+// São três estados porque a saída de cada um é diferente (AEP-0084 D12):
+// `online` dá para usar, `unauthenticated` pede o login do CLI e `offline` pede
+// conferir comando e instalação. Tratar falta de login como erro de conexão
+// mandaria a pessoa arrumar o que já está certo.
+type ACPAgentHealth struct {
+	// State é `online`, `unauthenticated` ou `offline`.
+	State string `json:"state"`
+
+	// AgentName e AgentVersion são como o agente se apresentou. Servem de prova
+	// de que se falou com o programa esperado.
+	AgentName    string `json:"agent_name,omitempty"`
+	AgentVersion string `json:"agent_version,omitempty"`
+
+	// LoginMethods são os métodos de login anunciados pelo agente, para a tela
+	// dizer qual autenticação está em falta. Só vêm preenchidos quando importam.
+	LoginMethods []ACPLoginMethod `json:"login_methods,omitempty"`
+
+	// WorkDir é o diretório com que a sonda abriu a sessão: o mesmo que um turno
+	// usaria (AEP-0084 D5).
+	WorkDir string `json:"work_dir,omitempty"`
+
+	// LatencyMs é quanto a sondagem levou, do spawn à sessão.
+	LatencyMs int64 `json:"latency_ms"`
+
+	// Error é o motivo técnico, já achatado em uma linha. Complementa a
+	// instrução da tela; não a substitui.
+	Error string `json:"error,omitempty"`
+}
+
+// ACPLoginMethod é um método de autenticação anunciado pelo agente.
+type ACPLoginMethod struct {
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// TestACPAgent testa um comando de agente antes de ele virar provider: sobe o
+// agente, faz o handshake e tenta abrir uma sessão.
+//
+// O processo desta sondagem é descartável — a configuração pode nem ser salva, e
+// deixar um agente de pé por clique em "testar" acumularia processos.
+func (a *App) TestACPAgent(command string, args []string) (ACPAgentHealth, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return ACPAgentHealth{}, err
+	}
+	if a.acpMgr == nil {
+		return ACPAgentHealth{}, errors.New("serviço de agentes de código não inicializado")
+	}
+
+	report := a.acpMgr.ProbeCandidate(ctx, acp.ProviderSpec{
+		// A sondagem não pertence a provider nenhum: o identificador existe só
+		// para o log dizer de que agente se está falando.
+		ID:      "acp-test",
+		Name:    "teste de configuração",
+		Command: command,
+		Args:    args,
+	})
+
+	health := ACPAgentHealth{
+		State:        string(report.State),
+		AgentName:    report.AgentName,
+		AgentVersion: report.AgentVersion,
+		WorkDir:      report.WorkDir,
+		LatencyMs:    report.Latency.Milliseconds(),
+		Error:        report.Error,
+	}
+	// Os métodos de login só interessam quando é o login que falta: em provider
+	// saudável eles seriam ruído, e o Cursor anuncia o dele sempre.
+	if report.Unauthenticated() {
+		for _, method := range report.AuthMethods {
+			health.LoginMethods = append(health.LoginMethods, ACPLoginMethod{
+				ID:          acp.SanitizeLabel(method.ID),
+				Name:        acp.SanitizeLabel(method.Name),
+				Description: acp.SanitizeLabel(method.Description),
+			})
+		}
+	}
+	return health, nil
 }
 
 // DetectACPAgent procura na máquina o agente de código pedido e devolve, junto,

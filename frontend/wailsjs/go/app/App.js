@@ -1106,6 +1106,10 @@ export function SynthesizeOpenAIWithVoice(arg1, arg2) {
   return window['go']['app']['App']['SynthesizeOpenAIWithVoice'](arg1, arg2);
 }
 
+export function TestACPAgent(arg1, arg2) {
+  return window['go']['app']['App']['TestACPAgent'](arg1, arg2);
+}
+
 export function TestConnection() {
   return window['go']['app']['App']['TestConnection']();
 }
