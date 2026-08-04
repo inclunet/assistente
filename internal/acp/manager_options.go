@@ -136,12 +136,16 @@ func (m *Manager) sessionOptionsChanged(sessionID string, options []ConfigOption
 	m.onOptions(event)
 }
 
+// currentValueOf lê o valor corrente de uma categoria, aparado. O espaço nas
+// pontas some aqui porque este valor é comparado com o que o app já conhecia:
+// cru, um agente que respondesse o mesmo modelo com um espaço a mais viraria
+// anúncio de troca que não houve.
 func currentValueOf(options []ConfigOption, category string) (string, bool) {
 	option, ok := OptionByCategory(options, category)
 	if !ok {
 		return "", false
 	}
-	return option.CurrentValue, true
+	return strings.TrimSpace(option.CurrentValue), true
 }
 
 // ProviderOptions são as opções que o agente deste provider oferece — modelos e

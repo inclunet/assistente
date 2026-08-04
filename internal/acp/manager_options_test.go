@@ -221,6 +221,34 @@ func TestAvisoQueRepeteOEstadoNaoPedeAnuncio(t *testing.T) {
 	}
 }
 
+// O mesmo modelo com um espaço a mais na resposta do agente não é troca. Sem
+// aparar, toda repetição desse tipo seria anunciada como decisão dele — e o
+// anúncio atropelaria a leitura da resposta em curso por nada.
+func TestRepeticaoComEspacoNoValorNaoViraTroca(t *testing.T) {
+	client := newFakeManagedClient()
+	client.sessionOptions = []ConfigOption{opcaoDeModelo("modelo-a", "modelo-a", "modelo-b")}
+	m, eventos, avisar := managerComAvisos(t, client)
+	ctx := context.Background()
+
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+
+	avisar(conv.Session().ID(), []ConfigOption{opcaoDeModelo(" modelo-a ", "modelo-a", "modelo-b")})
+
+	got := eventos()
+	if len(got) != 1 {
+		t.Fatalf("esperava 1 evento, obtive %d", len(got))
+	}
+	if got[0].ModelChanged || got[0].Announceable() {
+		t.Errorf("espaço na resposta do agente virou troca de modelo: %+v", got[0])
+	}
+	if got[0].Model != "modelo-a" {
+		t.Errorf("o modelo do evento saiu com espaço: %q", got[0].Model)
+	}
+}
+
 func TestTrocaPedidaPeloAppNaoVoltaComoDecisaoDoAgente(t *testing.T) {
 	client := newFakeManagedClient()
 	client.sessionOptions = []ConfigOption{opcaoDeModelo("modelo-a", "modelo-a", "modelo-b")}

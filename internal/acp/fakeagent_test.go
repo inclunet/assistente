@@ -19,11 +19,11 @@ const (
 	fakeScriptEnv = "ASSISTENTE_ACP_FAKE_SCRIPT"
 
 	// Roteiros do agente falso.
-	scriptTurn          = "turn"       // um turno completo com texto, raciocínio e ferramenta
-	scriptPermission    = "permission" // pede permissão e conta o que foi decidido
-	scriptCancel        = "cancel"     // só termina quando recebe session/cancel
-	scriptDie           = "die"        // morre no meio do turno
-	scriptCustom        = "custom"     // usa um método de extensão fora do padrão
+	scriptTurn       = "turn"       // um turno completo com texto, raciocínio e ferramenta
+	scriptPermission = "permission" // pede permissão e conta o que foi decidido
+	scriptCancel     = "cancel"     // só termina quando recebe session/cancel
+	scriptDie        = "die"        // morre no meio do turno
+	scriptCustom     = "custom"     // usa um método de extensão fora do padrão
 	// scriptSemSessao é a extensão como o Cursor a manda de verdade: sem
 	// sessionId no corpo, só com o toolCallId (AEP-0084, descobertas
 	// empíricas).
@@ -39,12 +39,12 @@ const (
 	// scriptModelo responde ao turno dizendo em que modelo ele está, que é como
 	// o teste confere que a troca valeu para o turno seguinte.
 	scriptModelo        = "modelo"
-	scriptEcho          = "echo"       // devolve o que recebeu no prompt
-	scriptStall         = "stall"      // sobe, mas nunca responde ao handshake
-	scriptStuck         = "stuck"      // aceita o turno e nunca responde, nem ao cancelamento
-	scriptTeimoso       = "teimoso"    // ignora o cancelamento e segue falando para sempre
-	scriptDuasConversas = "duas"       // fala em pedaços, assinando cada um com a conversa
-	scriptIDSujo        = "idsujo"     // abre a conversa com identificador cheio de sujeira
+	scriptEcho          = "echo"    // devolve o que recebeu no prompt
+	scriptStall         = "stall"   // sobe, mas nunca responde ao handshake
+	scriptStuck         = "stuck"   // aceita o turno e nunca responde, nem ao cancelamento
+	scriptTeimoso       = "teimoso" // ignora o cancelamento e segue falando para sempre
+	scriptDuasConversas = "duas"    // fala em pedaços, assinando cada um com a conversa
+	scriptIDSujo        = "idsujo"  // abre a conversa com identificador cheio de sujeira
 
 	fakeSessionID = "sess-falsa-1"
 	// fakeMuteValue faz o agente aceitar a troca e responder com um conjunto de

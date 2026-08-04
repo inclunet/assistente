@@ -92,7 +92,7 @@ func (p *ACPChatProvider) applyModel(ctx context.Context, conv *acp.Conversation
 			"[ACP] o agente não oferece escolha de modelo; o perfil pedia %q", model)
 		return "", false
 	}
-	if option.CurrentValue == model {
+	if option.IsCurrent(model) {
 		return "", false
 	}
 	if !option.Offers(model) {

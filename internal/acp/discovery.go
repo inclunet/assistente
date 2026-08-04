@@ -53,13 +53,26 @@ func ModelValues(options []ConfigOption) []string {
 // Offers diz se um valor está entre os que a opção oferece. Mandar ao agente um
 // modelo que ele não tem faria o turno inteiro falhar por causa de uma escolha
 // antiga guardada no perfil.
+//
+// A comparação ignora espaço nas pontas porque é aparado que o valor chega à
+// escolha da pessoa: ModelValues entrega a lista sem os espaços, e é o que ela
+// escolheu que fica no perfil. Comparar cru diria que o agente não oferece
+// justamente o modelo que ele acabou de listar.
 func (o ConfigOption) Offers(value string) bool {
+	wanted := strings.TrimSpace(value)
 	for _, candidate := range o.Values {
-		if candidate.Value == value {
+		if strings.TrimSpace(candidate.Value) == wanted {
 			return true
 		}
 	}
 	return false
+}
+
+// IsCurrent diz se a opção já está no valor pedido, pela mesma comparação
+// aparada de Offers: um espaço a mais na resposta do agente não é troca de
+// modelo, e trataria como troca um pedido que não muda nada.
+func (o ConfigOption) IsCurrent(value string) bool {
+	return strings.TrimSpace(o.CurrentValue) == strings.TrimSpace(value)
 }
 
 // discovery é a sessão de descoberta de um processo e o que ela produziu

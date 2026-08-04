@@ -133,6 +133,67 @@ func TestModeloJaCorrenteNaoViraPedidoAoAgente(t *testing.T) {
 	}
 }
 
+// O que o agente manda é dado de fora, e pode vir com espaço nas pontas
+// (AEP-0084 D11). A lista que a pessoa escolhe sai aparada, então é o valor
+// aparado que fica no perfil e volta no turno: comparando cru, o app diria que o
+// agente não oferece justamente o modelo que ele acabou de listar, e o turno
+// sairia no modelo errado com um aviso mentiroso.
+func TestModeloListadoPelaTelaValeMesmoComEspacoNaResposta(t *testing.T) {
+	sessao := &agenteFalso{
+		opcoes:  []acp.ConfigOption{opcaoDeModelo(" modelo-a ", " modelo-a ", " modelo-b ")},
+		updates: []acp.Update{{Kind: acp.UpdateText, Text: "pronto"}},
+	}
+	provider, _ := providerComModelo(t, sessao)
+	ctx := t.Context()
+
+	modelos, err := provider.GetModels(ctx)
+	if err != nil {
+		t.Fatalf("listar modelos: %v", err)
+	}
+	if len(modelos) != 2 || modelos[1] != "modelo-b" {
+		t.Fatalf("a lista mostrada à pessoa = %v", modelos)
+	}
+
+	handler := &espiao{}
+	// O perfil guarda exatamente o que a pessoa escolheu na lista.
+	provider.StreamChat(ctx,
+		[]Message{{Role: "user", Content: "oi"}},
+		ChatParams{ConversationID: "conversa-1", Model: modelos[1]}, handler)
+
+	if len(handler.avisos) != 0 {
+		t.Fatalf("o modelo estava na lista do agente e não devia render aviso: %+v", handler.avisos)
+	}
+	if trocas := sessao.trocasPedidas(); len(trocas) != 1 || trocas[0] != "model=modelo-b" {
+		t.Fatalf("o que chegou ao agente = %v", trocas)
+	}
+	if handler.modeloFim != "modelo-b" {
+		t.Errorf("modelo relatado no fim = %q", handler.modeloFim)
+	}
+}
+
+// E o contrário: o modelo pedido já é o corrente, e só o espaço na resposta do
+// agente os faz parecer diferentes. Pedir a troca de novo seria gastar uma ida ao
+// agente por nada, a cada turno.
+func TestModeloCorrenteComEspacoNaoViraPedidoRedundante(t *testing.T) {
+	sessao := &agenteFalso{
+		opcoes:  []acp.ConfigOption{opcaoDeModelo(" modelo-a ", " modelo-a ", "modelo-b")},
+		updates: []acp.Update{{Kind: acp.UpdateText, Text: "pronto"}},
+	}
+	provider, _ := providerComModelo(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "oi"}},
+		ChatParams{ConversationID: "conversa-1", Model: "modelo-a"}, handler)
+
+	if trocas := sessao.trocasPedidas(); len(trocas) != 0 {
+		t.Errorf("pedido redundante foi ao agente: %v", trocas)
+	}
+	if len(handler.avisos) != 0 {
+		t.Errorf("nada mudou e nada precisava ser avisado: %+v", handler.avisos)
+	}
+}
+
 func TestAgenteQueNaoOfereceOModeloDoPerfilAvisaSemDerrubarOTurno(t *testing.T) {
 	sessao := &agenteFalso{
 		opcoes:  []acp.ConfigOption{opcaoDeModelo("modelo-a", "modelo-a", "modelo-b")},
