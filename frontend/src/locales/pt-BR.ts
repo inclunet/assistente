@@ -1702,6 +1702,31 @@ const ptBR = {
       loadModelsBtn: 'Carregar Modelos',
       modelAutomatic: '(Automático — primeiro disponível)',
       modelPlaceholder: 'ex: gpt-4o-mini',
+      agent: {
+        command: 'Comando do agente',
+        commandHelp: 'Executável que sobe o agente de código nesta máquina. Detectado automaticamente; ajuste se a sua instalação estiver em outro lugar.',
+        commandPlaceholder: 'ex: cursor-agent',
+        args: 'Argumentos',
+        argsHelp: 'Um argumento por linha, na ordem em que serão passados ao comando.',
+        detectBtn: 'Detectar instalação',
+        detecting: 'Procurando o agente...',
+        found: 'Agente encontrado em {{source}}.',
+        foundVersion: 'Agente encontrado em {{source}} (versão {{version}}).',
+        notFound: 'Agente não encontrado nesta máquina.',
+        detectFailed: 'Não foi possível procurar o agente nesta máquina.',
+        installHelp: 'Instale o CLI do agente e clique em "Detectar instalação". Se ele já estiver instalado em um caminho fora do padrão, informe o comando manualmente no campo acima.',
+        searchedIn: 'Procuramos no PATH e em: {{places}}.',
+        workDir: 'Diretório de trabalho',
+        workDirHelp: 'É onde o agente lê e edita arquivos. Corresponde ao workspace ativo do aplicativo.',
+        workDirUnknown: 'Nenhum workspace ativo',
+        announce: {
+          found: 'Agente encontrado. Comando preenchido: {{command}}.',
+          notFound: 'Agente não encontrado nesta máquina. Instale o CLI do agente ou informe o comando manualmente.',
+        },
+        error: {
+          commandRequired: 'Comando do agente é obrigatório',
+        },
+      },
     },
 
     providers: {

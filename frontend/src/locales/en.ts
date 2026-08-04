@@ -1702,6 +1702,31 @@ const en = {
       loadModelsBtn: 'Load Models',
       modelAutomatic: '(Automatic — first available)',
       modelPlaceholder: 'e.g. gpt-4o-mini',
+      agent: {
+        command: 'Agent command',
+        commandHelp: 'Executable that starts the code agent on this machine. Detected automatically; adjust it if your installation lives somewhere else.',
+        commandPlaceholder: 'e.g. cursor-agent',
+        args: 'Arguments',
+        argsHelp: 'One argument per line, in the order they will be passed to the command.',
+        detectBtn: 'Detect installation',
+        detecting: 'Looking for the agent...',
+        found: 'Agent found at {{source}}.',
+        foundVersion: 'Agent found at {{source}} (version {{version}}).',
+        notFound: 'Agent not found on this machine.',
+        detectFailed: 'Could not search for the agent on this machine.',
+        installHelp: 'Install the agent CLI and click "Detect installation". If it is already installed in a non-standard path, type the command manually in the field above.',
+        searchedIn: 'We looked in PATH and in: {{places}}.',
+        workDir: 'Working directory',
+        workDirHelp: 'This is where the agent reads and edits files. It matches the application\u2019s active workspace.',
+        workDirUnknown: 'No active workspace',
+        announce: {
+          found: 'Agent found. Command filled in: {{command}}.',
+          notFound: 'Agent not found on this machine. Install the agent CLI or type the command manually.',
+        },
+        error: {
+          commandRequired: 'Agent command is required',
+        },
+      },
     },
 
     providers: {

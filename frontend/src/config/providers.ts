@@ -286,6 +286,22 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     tts: DYNAMIC_TTS,
   },
 
+  // --- Agentes de código locais (ACP, AEP-0084) ---
+  cursor: {
+    // Só a marca, como nos demais: o formulário do agente é que explica, em
+    // texto traduzido, o que esse tipo de provedor exige.
+    label: 'Cursor CLI',
+    // Um agente não tem endereço: o que o endereça é o comando dele, e é o
+    // formulário do agente que pede isso no lugar de URL e chave.
+    defaultUrl: '',
+    urlEditable: false,
+    apiKeyRequired: false,
+    testRequiresApiKey: false,
+    helpText: 'Local code agent. Requires the Cursor CLI installed and authenticated.',
+    apiFormat: 'acp',
+    tts: NO_TTS,
+  },
+
   // --- Custom ---
   custom: {
     label: 'Custom',
@@ -297,6 +313,19 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     tts: DYNAMIC_TTS,
   },
 };
+
+/**
+ * Formato de API dos provedores que são agentes de código locais falando ACP
+ * (AEP-0084). Serve de fonte única para os caminhos que precisam se comportar
+ * diferente: não há URL para validar, credencial para guardar nem endpoint de
+ * modelos para consultar.
+ */
+export const AGENT_API_FORMAT = 'acp';
+
+/** Diz se o tipo de provedor é um agente de código local, e não um serviço HTTP. */
+export function providerIsAgent(providerType: string): boolean {
+  return PROVIDER_CONFIG[providerType]?.apiFormat === AGENT_API_FORMAT;
+}
 
 /** Retorna o preset TTS para um tipo de provedor */
 export function getTTSCapabilities(providerType: string): TTSCapabilities {
