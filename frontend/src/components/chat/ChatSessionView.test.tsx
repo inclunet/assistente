@@ -134,6 +134,9 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetActiveProviderInfo: vi.fn().mockResolvedValue({
     supports_assistant_prefill: true,
   }),
+  // A conversa destes testes não fala com agente de código: o menu da barra só
+  // tem as skills do app.
+  GetAgentSessionCommands: vi.fn().mockResolvedValue({ conversationId: '', commands: [] }),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
