@@ -145,6 +145,9 @@ func (a *agenteFalso) turnos() [][]acp.Content {
 type clienteFalso struct {
 	sessao *agenteFalso
 	caps   acp.Capabilities
+	// erroAoRetomar é o agente que não reconhece a sessão registrada, que é o
+	// caso em que reabrir a conversa custa a memória dela (AEP-0084 D4).
+	erroAoRetomar error
 
 	mu         sync.Mutex
 	cache      []acp.ConfigOption
@@ -156,6 +159,9 @@ func (c *clienteFalso) NewSession(context.Context, string) (acp.Session, error) 
 	return c.sessao, nil
 }
 func (c *clienteFalso) LoadSession(context.Context, string, string) (acp.Session, error) {
+	if c.erroAoRetomar != nil {
+		return nil, c.erroAoRetomar
+	}
 	return c.sessao, nil
 }
 func (c *clienteFalso) Capabilities(context.Context) (acp.Capabilities, error) {

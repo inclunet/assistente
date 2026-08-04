@@ -85,6 +85,12 @@ const (
 	TurnNoticeModelNotApplied TurnNoticeKind = "model_not_applied"
 )
 
+// TurnNoticeAgentMemoryLost: a conversa foi reaberta e a sessão anterior do
+// agente não voltou, então ele responde sem lembrar do que já foi dito
+// (AEP-0084 D4). O que está na tela continua sendo o histórico da pessoa; o que
+// mudou é o que o agente sabe, e só ela pode decidir o que vale recontar.
+const TurnNoticeAgentMemoryLost TurnNoticeKind = "agent_memory_lost"
+
 // TurnNotice é um aviso sobre o próprio turno: não é a resposta, não é falha e
 // não encerra nada.
 type TurnNotice struct {

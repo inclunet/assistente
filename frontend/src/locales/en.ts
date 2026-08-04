@@ -3490,6 +3490,7 @@ const en = {
         planUnavailable: 'The agent proposed a plan, but the app could not present it. The plan was rejected.',
         modelNotOffered: 'This agent does not offer the model chosen in the profile. The answer came from {{model}}.',
         modelNotApplied: 'The agent’s model could not be changed. The answer came from {{model}}.',
+        agentMemoryLost: 'The agent could not resume this conversation’s earlier session and answered without remembering what was already said. The history on screen is still here; bring back whatever matters in your next message.',
         action: {
           read: 'read a file',
           edit: 'edit a file',

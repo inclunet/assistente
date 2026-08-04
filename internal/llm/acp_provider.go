@@ -119,6 +119,12 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	}
 
 	accepted := err == nil || turnAccepted(err)
+	if accepted && conv.TakeLostMemoryNotice() {
+		// A sessão anterior não voltou: o agente responde sem lembrar do que já
+		// foi conversado (AEP-0084 D4). Vem antes dos outros avisos porque é o
+		// que muda a leitura da resposta inteira, e não só a autoria dela.
+		notifyTurn(handler, TurnNotice{Kind: TurnNoticeAgentMemoryLost})
+	}
 	if hasModelNotice && accepted {
 		// Só depois do aceite, pelo mesmo motivo do aviso de anexo: sem pedido
 		// entregue não há resposta sobre a qual avisar de que modelo ela veio.
