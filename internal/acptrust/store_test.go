@@ -167,6 +167,16 @@ func TestQuemRevogaVeTodosOsPerfisQueAutorizaramAlgo(t *testing.T) {
 	}
 }
 
+func TestAChaveDoPerfilEhAMesmaQueNomeiaOArquivo(t *testing.T) {
+	// Quem cruza a lista de perfis com as autorizações compara por aqui.
+	if chave := ProfileKey(" Cursor "); chave != "cursor" {
+		t.Errorf("chave = %q, quer a forma que nomeia o arquivo", chave)
+	}
+	if chave := ProfileKey("../fora"); chave != "fora" {
+		t.Errorf("chave = %q, quer o slug sem o que sai do diretório", chave)
+	}
+}
+
 func TestSemNadaAutorizadoNaoHaPerfilNenhum(t *testing.T) {
 	loja, _ := lojaEmDiretorioTemporario(t)
 

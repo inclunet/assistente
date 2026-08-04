@@ -308,6 +308,14 @@ func normalizeKind(kind string) string {
 	return strings.ToLower(strings.TrimSpace(kind))
 }
 
+// ProfileKey é o slug como as autorizações o guardam. Quem cruza esta lista com
+// os perfis do app precisa comparar pela mesma forma: o slug vira nome de
+// arquivo aqui, e um perfil escrito com maiúsculas não casaria com o arquivo
+// que ele mesmo criou.
+func ProfileKey(slug string) string {
+	return sanitizeSlug(slug)
+}
+
 // sanitizeSlug tira separadores de caminho do slug: ele vira nome de arquivo, e
 // um slug com ".." apontaria para fora do diretório.
 func sanitizeSlug(slug string) string {
