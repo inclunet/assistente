@@ -37,6 +37,15 @@ func (a *agenteFalso) Capabilities(context.Context) (acp.Capabilities, error) { 
 
 func (a *agenteFalso) CloseSession(context.Context, string) error { return nil }
 
+// Options e InvalidateOptions completam o contrato do cliente. A sonda de health
+// não pergunta modelo nenhum — o que ela quer saber é se o agente responde e se
+// aceita abrir sessão —, então a lista vazia aqui é a resposta fiel.
+func (a *agenteFalso) Options(context.Context, string) ([]acp.ConfigOption, error) {
+	return nil, nil
+}
+
+func (a *agenteFalso) InvalidateOptions() {}
+
 func (a *agenteFalso) Call(context.Context, string, any) (json.RawMessage, error) {
 	return nil, errors.New("não usado no teste")
 }
