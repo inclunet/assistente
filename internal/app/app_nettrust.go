@@ -17,16 +17,19 @@ import (
 // scopeOption associa o rótulo exibido ao usuário ao Scope correspondente. A
 // ordem define a apresentação (do mais efêmero ao mais amplo).
 type scopeOption struct {
+	// key é a chave de tradução do rótulo; label é o texto pronto em pt-BR,
+	// que também compõe o valor estável da opção.
+	key   string
 	label string
 	scope nettrust.Scope
 }
 
 var networkScopeOptions = []scopeOption{
-	{"Somente esta requisição", nettrust.ScopeOnce},
-	{"Durante esta conversa", nettrust.ScopeSession},
-	{"Neste workspace (projeto)", nettrust.ScopeWorkspace},
-	{"Neste perfil", nettrust.ScopeProfile},
-	{"Global (todos os workspaces e perfis)", nettrust.ScopeGlobal},
+	{"app.questionnaire.network.scope.once", "Somente esta requisição", nettrust.ScopeOnce},
+	{"app.questionnaire.network.scope.session", "Durante esta conversa", nettrust.ScopeSession},
+	{"app.questionnaire.network.scope.workspace", "Neste workspace (projeto)", nettrust.ScopeWorkspace},
+	{"app.questionnaire.network.scope.profile", "Neste perfil", nettrust.ScopeProfile},
+	{"app.questionnaire.network.scope.global", "Global (todos os workspaces e perfis)", nettrust.ScopeGlobal},
 }
 
 // scopeOptionSep separa o valor ESTÁVEL do escopo (parseável pelo backend) do
@@ -39,10 +42,14 @@ func scopeOptionText(o scopeOption) string {
 	return string(o.scope) + scopeOptionSep + o.label
 }
 
-func scopeOptions() []string {
-	out := make([]string, 0, len(networkScopeOptions))
+// scopeOptions monta as opções para a tela. O valor que volta em Answers é o
+// fallback (scopeOptionText), com o prefixo estável que scopeFromOption parseia;
+// a tradução mostra só o rótulo humano, porque o prefixo é máquina e quem lê o
+// diálogo não tem o que fazer com ele (AEP-0085).
+func scopeOptions() []questionnaire.Text {
+	out := make([]questionnaire.Text, 0, len(networkScopeOptions))
 	for _, o := range networkScopeOptions {
-		out = append(out, scopeOptionText(o))
+		out = append(out, questionnaire.Keyed(o.key, scopeOptionText(o)))
 	}
 	return out
 }
@@ -93,22 +100,31 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 	}
 
 	resp, err := p.qm.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       "Autorizar acesso a host bloqueado (anti-SSRF)",
-		Description: fmt.Sprintf("O assistente tentou acessar um host que resolve para um endereço interno/privado (%s). Autorize apenas se você confia neste destino.", req.Category),
+		Title: questionnaire.Keyed(
+			"app.questionnaire.network.title",
+			"Autorizar acesso a host bloqueado (anti-SSRF)",
+		),
+		Description: questionnaire.KeyedWith(
+			"app.questionnaire.network.description",
+			map[string]any{"category": req.Category},
+			fmt.Sprintf("O assistente tentou acessar um host que resolve para um endereço interno/privado (%s). Autorize apenas se você confia neste destino.", req.Category),
+		),
 		AllowCancel: true,
-		SubmitLabel: "Autorizar",
-		CancelLabel: "Negar",
+		SubmitLabel: questionnaire.Keyed("app.questionnaire.network.submit", "Autorizar"),
+		CancelLabel: questionnaire.Keyed("app.questionnaire.network.cancel", "Negar"),
 		Questions: []questionnaire.Question{
 			{
-				ID:      "details",
-				Type:    "readonly_code",
-				Prompt:  "Detalhes do destino",
+				ID:     "details",
+				Type:   "readonly_code",
+				Prompt: questionnaire.Keyed("app.questionnaire.network.detailsPrompt", "Detalhes do destino"),
+				// Host, porta, IP e motivo são dados do pedido: vão como
+				// conteúdo, não como chave.
 				Content: details.String(),
 			},
 			{
 				ID:       "scope",
 				Type:     "single_choice",
-				Prompt:   "Por quanto tempo autorizar este host?",
+				Prompt:   questionnaire.Keyed("app.questionnaire.network.scopePrompt", "Por quanto tempo autorizar este host?"),
 				Required: true,
 				Options:  scopeOptions(),
 				Default:  scopeOptionText(networkScopeOptions[0]),
@@ -116,8 +132,8 @@ func (p *appNetworkPrompter) PromptNetworkAuthorization(ctx context.Context, req
 			{
 				ID:          "reason",
 				Type:        "text",
-				Prompt:      "Observação (opcional)",
-				Placeholder: "Ex.: API interna de workflows",
+				Prompt:      questionnaire.Keyed("app.questionnaire.network.reasonPrompt", "Observação (opcional)"),
+				Placeholder: questionnaire.Keyed("app.questionnaire.network.reasonPlaceholder", "Ex.: API interna de workflows"),
 			},
 		},
 	})

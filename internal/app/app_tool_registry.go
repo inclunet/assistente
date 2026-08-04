@@ -10,7 +10,6 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/nettrust"
-	"assistente/internal/questionnaire"
 	"assistente/internal/tasklist"
 	"assistente/internal/tools"
 	deeplinktool "assistente/internal/tools/deeplink"
@@ -193,21 +192,7 @@ func (a *App) initToolRegistry() {
 		if bodyPreview == "" {
 			bodyPreview = "(sem body)"
 		}
-		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-			Title:       fmt.Sprintf("Confirmar operação %s", method),
-			Description: fmt.Sprintf("O assistente quer executar:\n\n%s %s\n\nBody:\n%s", method, url, bodyPreview),
-			AllowCancel: true,
-			SubmitLabel: "Permitir",
-			CancelLabel: "Negar",
-			Questions: []questionnaire.Question{
-				{
-					ID:       "approve",
-					Type:     "boolean",
-					Prompt:   fmt.Sprintf("Permitir esta operação %s?", method),
-					Required: true,
-				},
-			},
-		})
+		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, httpConfirmationPayload(method, url, bodyPreview))
 		if err != nil {
 			return false, err
 		}
@@ -236,21 +221,7 @@ func (a *App) initToolRegistry() {
 		if a.questionnaireMgr == nil {
 			return false, fmt.Errorf("questionnaire manager não inicializado")
 		}
-		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-			Title:       "Confirmar execução de comando",
-			Description: fmt.Sprintf("O assistente quer executar:\n\n%s\n\nem: %s", cmd, wd),
-			AllowCancel: true,
-			SubmitLabel: "Permitir",
-			CancelLabel: "Negar",
-			Questions: []questionnaire.Question{
-				{
-					ID:       "approve",
-					Type:     "boolean",
-					Prompt:   "Permitir a execução deste comando?",
-					Required: true,
-				},
-			},
-		})
+		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, shellConfirmationPayload(cmd, wd))
 		if err != nil {
 			return false, err
 		}
