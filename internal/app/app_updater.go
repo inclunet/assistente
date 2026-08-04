@@ -49,20 +49,20 @@ func (a *App) initUpdater() {
 		defer cancel()
 
 		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-			Title:       "Permissão Necessária",
-			Description: "Para atualizar o aplicativo, precisamos de permissões de administrador para substituir o arquivo executável.\n\nDeseja permitir?",
+			Title:       questionnaire.Plain("Permissão Necessária"),
+			Description: questionnaire.Plain("Para atualizar o aplicativo, precisamos de permissões de administrador para substituir o arquivo executável.\n\nDeseja permitir?"),
 			Questions: []questionnaire.Question{
 				{
 					ID:       "allow",
 					Type:     "boolean",
-					Prompt:   "Permitir atualização com privilégios de administrador?",
+					Prompt:   questionnaire.Plain("Permitir atualização com privilégios de administrador?"),
 					Required: true,
 					Default:  true,
 				},
 			},
 			AllowCancel: true,
-			SubmitLabel: "Permitir",
-			CancelLabel: "Cancelar",
+			SubmitLabel: questionnaire.Plain("Permitir"),
+			CancelLabel: questionnaire.Plain("Cancelar"),
 		})
 
 		if err != nil {

@@ -519,16 +519,16 @@ func (a *App) DeleteMessage(messageID string) error {
 	}
 
 	resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       "Excluir mensagem",
-		Description: "Tem certeza que deseja excluir esta mensagem e todas as suas respostas? Esta ação não pode ser desfeita.",
+		Title:       questionnaire.Plain("Excluir mensagem"),
+		Description: questionnaire.Plain("Tem certeza que deseja excluir esta mensagem e todas as suas respostas? Esta ação não pode ser desfeita."),
 		AllowCancel: true,
-		SubmitLabel: "Excluir",
-		CancelLabel: "Cancelar",
+		SubmitLabel: questionnaire.Plain("Excluir"),
+		CancelLabel: questionnaire.Plain("Cancelar"),
 		Questions: []questionnaire.Question{
 			{
 				ID:       "confirm",
 				Type:     "boolean",
-				Prompt:   "Confirmar exclusão?",
+				Prompt:   questionnaire.Plain("Confirmar exclusão?"),
 				Required: true,
 			},
 		},

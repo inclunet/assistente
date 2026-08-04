@@ -113,21 +113,21 @@ func confirmEditWithDiff(ctx context.Context, questMgr QuestionnaireRequester, t
 	}
 
 	resp, err := questMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       title,
-		Description: description,
+		Title:       questionnaire.Plain(title),
+		Description: questionnaire.Plain(description),
 		Questions: []questionnaire.Question{
-			{ID: "before", Type: "readonly_code", Prompt: "Antes", Content: before},
+			{ID: "before", Type: "readonly_code", Prompt: questionnaire.Plain("Antes"), Content: before},
 			// Foco inicial no "Depois": o usuário quer ouvir primeiro como o
 			// texto vai ficar, não preencher o motivo de rejeição.
-			{ID: "after", Type: "readonly_code", Prompt: "Depois", Content: after, AutoFocus: true},
+			{ID: "after", Type: "readonly_code", Prompt: questionnaire.Plain("Depois"), Content: after, AutoFocus: true},
 		},
 		AllowCancel: true,
-		SubmitLabel: "Aplicar",
-		CancelLabel: "Rejeitar",
+		SubmitLabel: questionnaire.Plain("Aplicar"),
+		CancelLabel: questionnaire.Plain("Rejeitar"),
 		RejectReason: &questionnaire.RejectReasonConfig{
 			ID:          rejectReasonAnswerID,
-			Label:       "Motivo da rejeição (opcional)",
-			Placeholder: "Explique o que deveria ser diferente para o assistente propor nova versão",
+			Label:       questionnaire.Plain("Motivo da rejeição (opcional)"),
+			Placeholder: questionnaire.Plain("Explique o que deveria ser diferente para o assistente propor nova versão"),
 			MaxLen:      rejectReasonMaxLen,
 		},
 	})

@@ -96,10 +96,10 @@ func TestTextEdit_QuestionnaireShowsBeforeAfter(t *testing.T) {
 	if quest.lastPayload.Questions[0].Content != "antes" || quest.lastPayload.Questions[1].Content != "depois" {
 		t.Errorf("conteúdo Antes/Depois incorreto: %#v", quest.lastPayload.Questions)
 	}
-	if quest.lastPayload.SubmitLabel != "Aplicar" || quest.lastPayload.CancelLabel != "Rejeitar" {
+	if quest.lastPayload.SubmitLabel.String() != "Aplicar" || quest.lastPayload.CancelLabel.String() != "Rejeitar" {
 		t.Errorf("labels incorretos: submit=%q cancel=%q", quest.lastPayload.SubmitLabel, quest.lastPayload.CancelLabel)
 	}
-	if !containsString(quest.lastPayload.Description, "melhoria de clareza") {
+	if !containsString(quest.lastPayload.Description.String(), "melhoria de clareza") {
 		t.Errorf("notes deveria aparecer na descrição: %q", quest.lastPayload.Description)
 	}
 }

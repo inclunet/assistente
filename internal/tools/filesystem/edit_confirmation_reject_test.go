@@ -52,7 +52,7 @@ func TestConfirmEditWithDiff_PayloadIncludesRejectReason(t *testing.T) {
 	if rr.ID != "reject_reason" {
 		t.Errorf("RejectReason.ID deve ser 'reject_reason', obtido %q", rr.ID)
 	}
-	if rr.Label == "" {
+	if rr.Label.String() == "" {
 		t.Error("RejectReason.Label não pode ser vazio")
 	}
 	if rr.MaxLen != rejectReasonMaxLen {

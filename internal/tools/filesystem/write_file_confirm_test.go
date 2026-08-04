@@ -69,13 +69,13 @@ func TestWriteFile_EditorActiveFile_ApprovedWrites(t *testing.T) {
 	if len(payload.Questions) != 2 {
 		t.Fatalf("payload deve ter 2 questões (Antes/Depois), tem %d", len(payload.Questions))
 	}
-	if payload.Questions[0].Prompt != "Antes" || payload.Questions[0].Content != "conteúdo antigo" {
+	if payload.Questions[0].Prompt.String() != "Antes" || payload.Questions[0].Content != "conteúdo antigo" {
 		t.Errorf("questão 'Antes' incorreta: %+v", payload.Questions[0])
 	}
-	if payload.Questions[1].Prompt != "Depois" || payload.Questions[1].Content != "conteúdo novo" {
+	if payload.Questions[1].Prompt.String() != "Depois" || payload.Questions[1].Content != "conteúdo novo" {
 		t.Errorf("questão 'Depois' incorreta: %+v", payload.Questions[1])
 	}
-	if payload.SubmitLabel != "Aplicar" || payload.CancelLabel != "Rejeitar" || !payload.AllowCancel {
+	if payload.SubmitLabel.String() != "Aplicar" || payload.CancelLabel.String() != "Rejeitar" || !payload.AllowCancel {
 		t.Errorf("labels/cancel incorretos: %+v", payload)
 	}
 

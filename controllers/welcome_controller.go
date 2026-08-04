@@ -191,27 +191,27 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			}
 
 			passwordResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       "Segurança: senha mestre",
-				Description: description,
+				Title:       questionnaire.Plain("Segurança: senha mestre"),
+				Description: questionnaire.Plain(description),
 				Questions: []questionnaire.Question{
 					{
 						ID:          "masterPassword",
 						Type:        "password",
-						Prompt:      "Senha mestre",
+						Prompt:      questionnaire.Plain("Senha mestre"),
 						Required:    true,
-						Placeholder: "Digite uma senha forte",
+						Placeholder: questionnaire.Plain("Digite uma senha forte"),
 					},
 					{
 						ID:          "confirmPassword",
 						Type:        "password",
-						Prompt:      "Confirmar senha mestre",
+						Prompt:      questionnaire.Plain("Confirmar senha mestre"),
 						Required:    true,
-						Placeholder: "Repita a senha",
+						Placeholder: questionnaire.Plain("Repita a senha"),
 					},
 				},
 				AllowCancel: true,
-				SubmitLabel: "Continuar",
-				CancelLabel: "Cancelar",
+				SubmitLabel: questionnaire.Plain("Continuar"),
+				CancelLabel: questionnaire.Plain("Cancelar"),
 			})
 
 			if err != nil || passwordResp.Cancelled {
@@ -240,24 +240,24 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 
 		case 1: // Etapa 1: Código de recuperação
 			_, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       "Código de recuperação",
-				Description: "Guarde este código em local seguro. Ele permite recuperar suas credenciais se você esquecer a senha mestre.",
+				Title:       questionnaire.Plain("Código de recuperação"),
+				Description: questionnaire.Plain("Guarde este código em local seguro. Ele permite recuperar suas credenciais se você esquecer a senha mestre."),
 				Questions: []questionnaire.Question{
 					{
 						ID:      "recoveryCode",
 						Type:    "readonly_code",
-						Prompt:  "Código de recuperação",
+						Prompt:  questionnaire.Plain("Código de recuperação"),
 						Content: recoveryKey,
 					},
 					{
 						ID:       "confirmed",
 						Type:     "boolean",
-						Prompt:   "Eu salvei o código de recuperação em local seguro",
+						Prompt:   questionnaire.Plain("Eu salvei o código de recuperação em local seguro"),
 						Required: true,
 					},
 				},
 				AllowCancel: false,
-				SubmitLabel: "Continuar",
+				SubmitLabel: questionnaire.Plain("Continuar"),
 			})
 			if err != nil {
 				return false, err
@@ -266,15 +266,18 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 
 		case 2: // Etapa 2: Escolher provedor
 			providerResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       "Bem-vindo ao Assistente!",
-				Description: "Vamos configurar seu assistente em alguns passos simples.",
+				Title:       questionnaire.Plain("Bem-vindo ao Assistente!"),
+				Description: questionnaire.Plain("Vamos configurar seu assistente em alguns passos simples."),
 				Questions: []questionnaire.Question{
 					{
 						ID:       "provider",
 						Type:     "single_choice",
-						Prompt:   "Qual provedor de IA você deseja usar?",
+						Prompt:   questionnaire.Plain("Qual provedor de IA você deseja usar?"),
 						Required: true,
-						Options: []string{
+						// Nome de provedor não se traduz, e a resposta volta
+						// como o próprio rótulo — WizardLabelToProviderType o
+						// reconhece por ele.
+						Options: questionnaire.PlainTexts([]string{
 							"OpenAI",
 							"Anthropic (Claude)",
 							"Google (Gemini)",
@@ -290,13 +293,13 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 							"Ollama (Local)",
 							"LiteLLM",
 							"Outro (URL personalizada)",
-						},
+						}),
 						Default: provider,
 					},
 				},
 				AllowCancel: true,
-				SubmitLabel: "Próximo",
-				CancelLabel: "Cancelar",
+				SubmitLabel: questionnaire.Plain("Próximo"),
+				CancelLabel: questionnaire.Plain("Cancelar"),
 			})
 
 			if err != nil || providerResp.Cancelled {
@@ -335,21 +338,21 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			}
 
 			urlResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       "Configuração do Servidor",
-				Description: urlDescription,
+				Title:       questionnaire.Plain("Configuração do Servidor"),
+				Description: questionnaire.Plain(urlDescription),
 				Questions: []questionnaire.Question{
 					{
 						ID:          "baseURL",
 						Type:        "text",
-						Prompt:      "URL do servidor",
+						Prompt:      questionnaire.Plain("URL do servidor"),
 						Required:    true,
-						Placeholder: placeholderURL,
+						Placeholder: questionnaire.Plain(placeholderURL),
 						Default:     baseURL,
 					},
 				},
 				AllowCancel: true,
-				SubmitLabel: "Próximo",
-				CancelLabel: "Voltar",
+				SubmitLabel: questionnaire.Plain("Próximo"),
+				CancelLabel: questionnaire.Plain("Voltar"),
 			})
 
 			if err != nil {
@@ -382,21 +385,21 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			}
 
 			keyResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       "Chave de API",
-				Description: keyDescription,
+				Title:       questionnaire.Plain("Chave de API"),
+				Description: questionnaire.Plain(keyDescription),
 				Questions: []questionnaire.Question{
 					{
 						ID:          "apiKey",
 						Type:        "text",
-						Prompt:      "Chave de API (opcional)",
+						Prompt:      questionnaire.Plain("Chave de API (opcional)"),
 						Required:    false,
-						Placeholder: "sk-...",
+						Placeholder: questionnaire.Plain("sk-..."),
 						Default:     apiKey,
 					},
 				},
 				AllowCancel: true,
-				SubmitLabel: "Próximo",
-				CancelLabel: "Voltar",
+				SubmitLabel: questionnaire.Plain("Próximo"),
+				CancelLabel: questionnaire.Plain("Voltar"),
 			})
 
 			if err != nil {
@@ -463,21 +466,23 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 				}
 
 				modelResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-					Title:       "Escolha o Modelo Padrão",
-					Description: fmt.Sprintf("Conexão validada com sucesso! %d modelo(s) disponível(is).\n\nSelecione o modelo padrão. Você pode alterar depois nas configurações.", len(validatedModels)),
+					Title:       questionnaire.Plain("Escolha o Modelo Padrão"),
+					Description: questionnaire.Plain(fmt.Sprintf("Conexão validada com sucesso! %d modelo(s) disponível(is).\n\nSelecione o modelo padrão. Você pode alterar depois nas configurações.", len(validatedModels))),
 					Questions: []questionnaire.Question{
 						{
 							ID:       "model",
 							Type:     "single_choice",
-							Prompt:   "Modelo padrão:",
+							Prompt:   questionnaire.Plain("Modelo padrão:"),
 							Required: true,
-							Options:  validatedModels,
-							Default:  modelDefault,
+							// Nome de modelo é identificador do provedor: vai
+							// como texto, sem tradução.
+							Options: questionnaire.PlainTexts(validatedModels),
+							Default: modelDefault,
 						},
 					},
 					AllowCancel: true,
-					SubmitLabel: "Finalizar",
-					CancelLabel: "Voltar",
+					SubmitLabel: questionnaire.Plain("Finalizar"),
+					CancelLabel: questionnaire.Plain("Voltar"),
 				})
 
 				if err != nil {
@@ -492,21 +497,21 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 				defaultModel = modelResp.Answers["model"].(string)
 			} else {
 				manualResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-					Title:       "Configurar Modelo",
-					Description: "Conexão validada! O servidor não suporta listagem automática de modelos.\n\nInforme o nome do modelo que deseja usar.",
+					Title:       questionnaire.Plain("Configurar Modelo"),
+					Description: questionnaire.Plain("Conexão validada! O servidor não suporta listagem automática de modelos.\n\nInforme o nome do modelo que deseja usar."),
 					Questions: []questionnaire.Question{
 						{
 							ID:          "defaultModel",
 							Type:        "text",
-							Prompt:      "Nome do modelo",
+							Prompt:      questionnaire.Plain("Nome do modelo"),
 							Required:    true,
-							Placeholder: "gpt-4o-mini",
+							Placeholder: questionnaire.Plain("gpt-4o-mini"),
 							Default:     defaultModel,
 						},
 					},
 					AllowCancel: true,
-					SubmitLabel: "Finalizar",
-					CancelLabel: "Voltar",
+					SubmitLabel: questionnaire.Plain("Finalizar"),
+					CancelLabel: questionnaire.Plain("Voltar"),
 				})
 
 				if err != nil {
