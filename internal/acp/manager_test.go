@@ -139,6 +139,13 @@ type fakeManagedSession struct {
 	options  []ConfigOption
 	setErr   error
 	setCalls []setOptionCall
+	// duringSet roda no meio da troca, entre o pedido e a resposta. É o agente
+	// contando a mudança por notificação enquanto ainda responde a ela: a
+	// entrega vem por outra goroutine, e nada ordena as duas.
+	duringSet func(id, value string)
+	// setApplied é o valor que o agente aplica de verdade, quando ele acomoda o
+	// pedido em outro. Vazio significa que ele aplica o que foi pedido.
+	setApplied string
 }
 
 type setOptionCall struct {
@@ -175,14 +182,26 @@ func (s *fakeManagedSession) ConfigOptions() []ConfigOption {
 // do agente precisa distinguir o que o app pediu do que o agente decidiu.
 func (s *fakeManagedSession) SetConfigOption(_ context.Context, id, value string) ([]ConfigOption, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.setCalls = append(s.setCalls, setOptionCall{id: id, value: value})
+	during := s.duringSet
+	s.mu.Unlock()
+
+	if during != nil {
+		during(id, value)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.setErr != nil {
 		return nil, s.setErr
 	}
+	applied := value
+	if s.setApplied != "" {
+		applied = s.setApplied
+	}
 	for i := range s.options {
 		if s.options[i].ID == id {
-			s.options[i].CurrentValue = value
+			s.options[i].CurrentValue = applied
 		}
 	}
 	return copyOptions(s.options), nil

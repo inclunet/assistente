@@ -95,6 +95,74 @@ func (m *Manager) noteSessionValues(sessionID, model, mode string) {
 	m.known[sessionID] = known
 }
 
+// noteSessionIntent anota o valor que o app está pedindo ao agente antes de o
+// pedido sair, e devolve o que estava anotado para quem precisar desfazer.
+//
+// Antes, e não depois: o agente confirma a troca por notificação, e a entrega
+// vem por outra goroutine — nada garante que ela chegue depois da resposta.
+// Anotada só na volta, a confirmação da troca que a pessoa acabou de pedir seria
+// comparada com o valor antigo e voltaria anunciada como decisão do agente.
+func (m *Manager) noteSessionIntent(sessionID, category, value string) (previous string, noted bool) {
+	sessionID = strings.TrimSpace(sessionID)
+	value = strings.TrimSpace(value)
+	if sessionID == "" || value == "" {
+		return "", false
+	}
+	m.knownMu.Lock()
+	defer m.knownMu.Unlock()
+	known, ok := m.known[sessionID]
+	if !ok {
+		return "", false
+	}
+	switch category {
+	case CategoryModel:
+		previous, known.model = known.model, value
+	case CategoryMode:
+		previous, known.mode = known.mode, value
+	default:
+		// Opção de categoria que este pacote não representa: não há anotação a
+		// fazer, e inventar uma faria o aviso do agente ser comparado com o
+		// valor de outra coisa.
+		return "", false
+	}
+	m.known[sessionID] = known
+	return previous, true
+}
+
+// undoSessionIntent desfaz a anotação de uma troca que não valeu — o app não pode
+// ficar achando que está num modelo que o agente recusou.
+//
+// Só desfaz se a anotação ainda for a que este pedido escreveu: o agente pode ter
+// contado uma troca dele enquanto o pedido falhava, e essa é a verdade mais nova.
+func (m *Manager) undoSessionIntent(sessionID, category, intended, previous string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	intended = strings.TrimSpace(intended)
+	m.knownMu.Lock()
+	defer m.knownMu.Unlock()
+	known, ok := m.known[sessionID]
+	if !ok {
+		return
+	}
+	switch category {
+	case CategoryModel:
+		if known.model != intended {
+			return
+		}
+		known.model = previous
+	case CategoryMode:
+		if known.mode != intended {
+			return
+		}
+		known.mode = previous
+	default:
+		return
+	}
+	m.known[sessionID] = known
+}
+
 // sessionOptionsChanged traduz o aviso do transporte num evento de conversa. O
 // transporte só sabe o nome da sessão; quem sabe de quem ela é somos nós.
 func (m *Manager) sessionOptionsChanged(sessionID string, options []ConfigOption) {
@@ -193,9 +261,10 @@ func (c *Conversation) Options() []ConfigOption {
 // SetOption troca uma opção da sessão desta conversa e devolve o estado
 // resultante — trocar de modelo pode mexer nas opções que dependem dele.
 //
-// A troca é anotada como conhecida antes de voltar: o agente costuma repetir a
-// escolha por notificação, e sem a anotação a troca que a pessoa acabou de pedir
-// voltaria anunciada como decisão dele.
+// A troca é anotada como conhecida antes de o pedido sair, e reconciliada com o
+// estado que voltar: o agente costuma repetir a escolha por notificação, e sem a
+// anotação a troca que a pessoa acabou de pedir voltaria anunciada como decisão
+// dele.
 func (c *Conversation) SetOption(ctx context.Context, id, value string) ([]ConfigOption, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -205,12 +274,35 @@ func (c *Conversation) SetOption(ctx context.Context, id, value string) ([]Confi
 	if session == nil {
 		return nil, errors.New("conversa sem sessão ACP para trocar opção do agente")
 	}
+	// A categoria sai do estado da sessão porque a anotação é por categoria —
+	// modelo, modo — enquanto o identificador é escolha do agente.
+	category := categoryOfOption(session.ConfigOptions(), id)
+	previous, noted := c.manager.noteSessionIntent(session.ID(), category, value)
+
 	options, err := session.SetConfigOption(ctx, id, value)
 	if err != nil {
+		if noted {
+			c.manager.undoSessionIntent(session.ID(), category, value, previous)
+		}
 		return nil, err
 	}
+	// O que voltou é a verdade, e pode não ser o que foi pedido: o agente às
+	// vezes acomoda o pedido em outro valor. Guardar o real é o que impede a
+	// repetição dele virar anúncio de troca — quem exibe conta à pessoa o valor
+	// que voltou, não o que ela pediu.
 	model, _ := currentValueOf(options, CategoryModel)
 	mode, _ := currentValueOf(options, CategoryMode)
 	c.manager.noteSessionValues(session.ID(), model, mode)
 	return options, nil
+}
+
+// categoryOfOption acha a categoria de uma opção pelo identificador que o app
+// pediu, no conjunto que a sessão conhece.
+func categoryOfOption(options []ConfigOption, id string) string {
+	for _, option := range options {
+		if option.ID == id {
+			return option.Category
+		}
+	}
+	return ""
 }

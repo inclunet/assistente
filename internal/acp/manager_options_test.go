@@ -275,6 +275,105 @@ func TestTrocaPedidaPeloAppNaoVoltaComoDecisaoDoAgente(t *testing.T) {
 	}
 }
 
+// A confirmação do agente pode chegar enquanto ele ainda responde ao pedido: a
+// notificação vem pela goroutine de entrega do transporte, e nada a ordena com a
+// resposta. Anotada só na volta da chamada, essa confirmação seria comparada com
+// o modelo antigo, e a pessoa ouviria "o agente trocou de modelo" no instante em
+// que ela mesma acabou de trocar.
+func TestConfirmacaoQueChegaNoMeioDaTrocaNaoViraAnuncio(t *testing.T) {
+	client := newFakeManagedClient()
+	client.sessionOptions = []ConfigOption{opcaoDeModelo("modelo-a", "modelo-a", "modelo-b")}
+	m, eventos, avisar := managerComAvisos(t, client)
+	ctx := context.Background()
+
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+	sessionID := conv.Session().ID()
+	client.sessions[0].duringSet = func(_, value string) {
+		avisar(sessionID, []ConfigOption{opcaoDeModelo(value, "modelo-a", "modelo-b")})
+	}
+
+	if _, err := conv.SetOption(ctx, "model", "modelo-b"); err != nil {
+		t.Fatalf("trocar modelo: %v", err)
+	}
+
+	got := eventos()
+	if len(got) != 1 {
+		t.Fatalf("esperava 1 evento vindo da notificação, obtive %d: %+v", len(got), got)
+	}
+	if got[0].Announceable() {
+		t.Errorf("a confirmação da troca pedida pelo app pediu anúncio: %+v", got[0])
+	}
+}
+
+// Troca que o agente recusou não pode deixar anotação para trás: o app ficaria
+// achando que está num modelo em que não está, e o próximo aviso do agente com o
+// modelo de verdade viraria anúncio de uma troca que ele não fez.
+func TestTrocaRecusadaNaoDeixaAnotacaoDeModeloQueNaoValeu(t *testing.T) {
+	client := newFakeManagedClient()
+	client.sessionOptions = []ConfigOption{opcaoDeModelo("modelo-a", "modelo-a", "modelo-b")}
+	m, eventos, avisar := managerComAvisos(t, client)
+	ctx := context.Background()
+
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+	sessionID := conv.Session().ID()
+	client.sessions[0].setErr = errors.New("modelo indisponível")
+
+	if _, err := conv.SetOption(ctx, "model", "modelo-b"); err == nil {
+		t.Fatal("a recusa do agente deveria virar erro")
+	}
+
+	// O agente segue no modelo de sempre e conta isso na próxima notificação.
+	avisar(sessionID, []ConfigOption{opcaoDeModelo("modelo-a", "modelo-a", "modelo-b")})
+
+	got := eventos()
+	if len(got) != 1 {
+		t.Fatalf("esperava 1 evento, obtive %d: %+v", len(got), got)
+	}
+	if got[0].Announceable() {
+		t.Errorf("o modelo de sempre virou anúncio de troca depois de uma recusa: %+v", got[0])
+	}
+}
+
+// O agente pode acomodar o pedido em outro valor. Aí quem decidiu foi ele, e é o
+// valor que voltou que precisa ficar anotado: a pessoa ouve esse — quem exibe
+// anuncia o estado devolvido — e a repetição dele não pode ser contada de novo
+// como decisão nova.
+func TestAgenteQueAcomodaOPedidoDeixaAnotadoOValorQueValeu(t *testing.T) {
+	client := newFakeManagedClient()
+	client.sessionOptions = []ConfigOption{opcaoDeModelo("modelo-a", "modelo-a", "modelo-b", "modelo-c")}
+	m, eventos, avisar := managerComAvisos(t, client)
+	ctx := context.Background()
+
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+	sessionID := conv.Session().ID()
+	client.sessions[0].setApplied = "modelo-c"
+
+	options, err := conv.SetOption(ctx, "model", "modelo-b")
+	if err != nil {
+		t.Fatalf("trocar modelo: %v", err)
+	}
+	if got, _ := OptionByCategory(options, CategoryModel); got.CurrentValue != "modelo-c" {
+		t.Fatalf("o estado devolvido esconde o que o agente aplicou: %+v", got)
+	}
+
+	avisar(sessionID, []ConfigOption{opcaoDeModelo("modelo-c", "modelo-a", "modelo-b", "modelo-c")})
+
+	for _, event := range eventos() {
+		if event.Announceable() {
+			t.Errorf("a repetição do valor que o agente já devolveu pediu anúncio: %+v", event)
+		}
+	}
+}
+
 func TestAvisoDeSessaoQueNaoEDeConversaNaoViraEvento(t *testing.T) {
 	client := newFakeManagedClient()
 	m, eventos, avisar := managerComAvisos(t, client)
