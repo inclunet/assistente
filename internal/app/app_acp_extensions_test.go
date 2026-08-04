@@ -112,6 +112,8 @@ func escolhendoAPrimeira() func([]questionnaire.Question) map[string]any {
 	return respondendo(func(opcoes []string) any { return opcoes[0] })
 }
 
+// handlerDeExtensao monta o handler sobre uma tela. Sem canal ligado: o turno
+// sem tela continua sem ninguém a quem perguntar, como no desktop de hoje.
 func handlerDeExtensao(tela *telaDeExtensao, owner acp.TurnOwner, temTurno bool) *acpRequestHandler {
 	h := &acpRequestHandler{
 		owner: func(string) (acp.TurnOwner, bool) { return owner, temTurno },
@@ -119,6 +121,9 @@ func handlerDeExtensao(tela *telaDeExtensao, owner acp.TurnOwner, temTurno bool)
 	if tela != nil {
 		h.questions = func() *questionnaire.Manager { return tela.manager }
 	}
+	// O questionário é lido na hora do uso, como em produção: teste que troca a
+	// tela depois de montar o handler continua valendo.
+	h.surfaces = questionnaire.NewRouter(h.questionnaireManager, nil)
 	return h
 }
 
