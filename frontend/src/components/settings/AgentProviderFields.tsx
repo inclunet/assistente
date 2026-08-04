@@ -1,0 +1,402 @@
+import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
+import { DetectACPAgent, TestACPAgent } from '@wailsjs/go/app/App';
+import type { app } from '@wailsjs/go/models';
+import { Button, FormField, Input, Textarea } from '../';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import './AgentProviderFields.css';
+
+/** O que a detecção do backend devolve sobre o agente instalado. */
+type AgentSetup = app.ACPAgentSetup;
+
+/** O que a sondagem do backend devolve sobre o agente configurado. */
+type AgentHealth = app.ACPAgentHealth;
+
+/** Identifica a configuração testada, para o resultado não sobreviver a ela. */
+const configSignature = (command: string, args: string[]): string => `${command.trim()}\u0000${args.join('\n')}`;
+
+/**
+ * Frase que descreve o resultado do teste. É a mesma para a tela e para o
+ * anúncio: o estado precisa chegar por texto a quem usa leitor de telas, e um
+ * texto só para o anúncio divergiria do que está escrito na tela.
+ */
+const healthAnnouncement = (t: TFunction, health: AgentHealth): string => {
+  if (health.state === 'online') {
+    return health.agent_name
+      ? t('providerForm.agent.test.onlineNamed', { agent: health.agent_name })
+      : t('providerForm.agent.test.online');
+  }
+  if (health.state === 'unauthenticated') {
+    return t('providerForm.agent.test.unauthenticated');
+  }
+  return health.error
+    ? t('providerForm.agent.test.offlineDetail', { detail: health.error })
+    : t('providerForm.agent.test.offline');
+};
+
+/**
+ * Lê os argumentos digitados: uma linha por argumento porque caminho de arquivo
+ * tem espaço, e separar por espaço partiria `C:\Program Files\...` em dois
+ * argumentos que o agente não entenderia. Linha vazia não é argumento — mandá-la
+ * viraria um `""` na linha de comando do agente.
+ */
+const lerArgumentos = (texto: string): string[] =>
+  texto.split('\n').map((linha) => linha.trim()).filter(Boolean);
+
+/**
+ * Monta o comando de login a partir da configuração que está na tela. O login é
+ * o mesmo CLI com outro subcomando, então `acp` — que é o que sobe o protocolo —
+ * sai e `login` entra.
+ *
+ * Um `cursor-agent login` fixo mandaria a pessoa a um comando que pode não
+ * existir: no Windows a detecção configura `node.exe ...\index.js acp`, e não há
+ * `cursor-agent` no PATH (o CLI instala `cursor-agent.cmd` na pasta dele). Já
+ * `node.exe ...\index.js login` é o login do mesmo agente.
+ */
+export const agentLoginCommand = (command: string, args: string[]): string => {
+  const executavel = command.trim();
+  if (!executavel) return '';
+  const partes = [executavel, ...args.map((arg) => arg.trim()).filter((arg) => arg && arg !== 'acp'), 'login'];
+  // Caminho com espaço precisa de aspas para quem for copiar a linha para o
+  // terminal — é o caso comum no Windows (`C:\Program Files\...`).
+  return partes.map((parte) => (/\s/.test(parte) ? `"${parte}"` : parte)).join(' ');
+};
+
+export interface AgentProviderFieldsProps {
+  /** Tipo do agente procurado na máquina (ex.: `cursor`). */
+  agentKind: string;
+  command: string;
+  args: string[];
+  onCommandChange: (command: string) => void;
+  onArgsChange: (args: string[]) => void;
+  commandError?: string;
+  /**
+   * Deixa a detecção preencher o comando sozinha. Vale na criação; na edição o
+   * comando salvo é a escolha de quem configurou, e sobrescrevê-lo ao abrir a
+   * tela desfaria um ajuste manual sem ninguém pedir.
+   */
+  autoFill: boolean;
+}
+
+/**
+ * Campos de um provedor que é um agente de código local (AEP-0084 Fase 3):
+ * comando, argumentos e o diretório sobre o qual o agente age.
+ *
+ * O diretório é leitura, não escolha: nesta fase ele é o workspace ativo do app
+ * (D5). Ele aparece porque é onde o agente edita arquivos — esconder isso
+ * esconderia o alcance do que a pessoa está autorizando.
+ */
+export const AgentProviderFields = ({
+  agentKind,
+  command,
+  args,
+  onCommandChange,
+  onArgsChange,
+  commandError,
+  autoFill,
+}: AgentProviderFieldsProps) => {
+  const { t } = useTranslation();
+  const { announce } = useAnnouncer();
+  const [setup, setSetup] = useState<AgentSetup | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [detectError, setDetectError] = useState('');
+  const [testing, setTesting] = useState(false);
+  // O resultado do teste guarda a configuração testada junto. Sem isso, mexer no
+  // comando depois de testar deixaria na tela um "conectado" que se refere a
+  // outro comando — e alguém salvaria confiando nele.
+  const [tested, setTested] = useState<{ signature: string; health: AgentHealth | null; error: string } | null>(null);
+
+  // Os campos atuais em refs: a detecção é assíncrona e precisa consultá-los no
+  // instante em que a resposta chega, não no instante em que começou.
+  const commandRef = useRef(command);
+  commandRef.current = command;
+  const argsRef = useRef(args);
+  argsRef.current = args;
+
+  // O texto dos argumentos é estado daqui, e não `args.join`, porque quem digita
+  // precisa abrir a linha do próximo argumento com Enter. Como linha vazia não é
+  // argumento, o valor derivado da lista apagava essa linha na tecla seguinte à
+  // que a abriu, e só dava para configurar um argumento sem colar texto pronto.
+  const [argsText, setArgsText] = useState(() => args.join('\n'));
+  const argsTextRef = useRef(argsText);
+  argsTextRef.current = argsText;
+  useEffect(() => {
+    // Quem escreve de fora — a detecção, ou a volta ao provedor salvo — manda no
+    // texto. Enquanto os dois lados descreverem os mesmos argumentos, o
+    // rascunho fica como está, com as linhas em branco que a pessoa abriu.
+    const deFora = args.join('\n');
+    if (deFora !== lerArgumentos(argsTextRef.current).join('\n')) {
+      setArgsText(deFora);
+    }
+  }, [args]);
+
+  // Uma procura só vale se ainda é a última e se ainda há formulário de agente
+  // para receber o que ela achou. Trocar o tipo desmonta estes campos, e uma
+  // resposta que chegasse depois repovoaria comando e argumentos de um provedor
+  // que agora é HTTP; trocar de agente deixa em voo a procura do anterior, que
+  // descreve outra coisa.
+  const searchSeq = useRef(0);
+  const probeSeq = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
+
+  // A detecção fica em uma ref, e não em useCallback, porque ela usa o comando
+  // digitado e os callbacks do pai. Como dependência de efeito, qualquer um
+  // deles disparia uma detecção nova a cada tecla ou a cada render do pai.
+  //
+  // `applyCommand` distingue a detecção pedida da automática: `always` é o
+  // clique no botão, que existe justamente para sobrescrever; `ifEmpty` é a
+  // automática, que só preenche campo vazio; `never` é a da edição, que apenas
+  // informa o que há na máquina.
+  const detectRef =
+    useRef<(options: { applyCommand: 'always' | 'ifEmpty' | 'never'; announceFound: boolean }) => Promise<void>>();
+  detectRef.current = async ({ applyCommand, announceFound }) => {
+    const seq = ++searchSeq.current;
+    const obsoleta = () => seq !== searchSeq.current || !mountedRef.current;
+    setDetecting(true);
+    setDetectError('');
+    try {
+      const result = await DetectACPAgent(agentKind);
+      if (obsoleta()) return;
+      setSetup(result);
+
+      // As decisões de preencher são tomadas agora, com os valores atuais dos
+      // campos, e não antes do await: quem começou a digitar enquanto a detecção
+      // estava em voo perderia o que digitou. Comando e argumentos decidem
+      // separado porque são campos separados — quem digitou só os argumentos
+      // mantém os seus e ganha o comando que faltava.
+      const pedida = applyCommand === 'always';
+      const preencheComando = pedida || (applyCommand === 'ifEmpty' && commandRef.current.trim() === '');
+      const preencheArgumentos = pedida || (applyCommand === 'ifEmpty' && argsRef.current.length === 0);
+
+      if (result?.found) {
+        if (preencheComando) {
+          onCommandChange(result.command);
+        }
+        if (preencheArgumentos) {
+          onArgsChange(result.args || []);
+        }
+        if (announceFound) {
+          announce(t('providerForm.agent.announce.found', { command: result.command }), 'polite');
+        }
+        return;
+      }
+      // Não encontrado interrompe com anúncio assertivo exatamente quando é o
+      // estado que exige ação: a procura pedida no botão e a automática que
+      // deixaria o campo do comando vazio por falta de instalação — quem usa
+      // leitor de telas não descobriria sozinho que ele veio vazio. Na edição de
+      // um provedor que já tem comando, a procura é informativa: o comando salvo
+      // é a escolha de quem configurou, e o alarme não descreveria problema
+      // nenhum. O texto continua na tela nos dois casos.
+      if (preencheComando) {
+        announce(t('providerForm.agent.announce.notFound'), 'assertive');
+      }
+    } catch (error: unknown) {
+      if (obsoleta()) return;
+      const err = error as { message?: unknown } | null;
+      const message = String(err?.message || error || t('providerForm.agent.detectFailed'));
+      setSetup(null);
+      setDetectError(message);
+      // A procura ter quebrado é anomalia em qualquer modo: mesmo com um comando
+      // salvo, quem configura precisa saber que não deu para conferir a máquina.
+      announce(message, 'assertive');
+    } finally {
+      if (!obsoleta()) {
+        setDetecting(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    // A detecção automática nunca substitui um comando que já existe: na edição
+    // ele é o que está salvo, e na criação é o que a pessoa acabou de digitar.
+    void detectRef.current?.({
+      applyCommand: autoFill ? 'ifEmpty' : 'never',
+      announceFound: false,
+    });
+  }, [agentKind, autoFill]);
+
+  const handleRedetect = () => {
+    // Clique explícito aplica o que achou: é justamente para isso que alguém
+    // pede a detecção de novo depois de o CLI se atualizar e mudar de caminho.
+    void detectRef.current?.({ applyCommand: 'always', announceFound: true });
+  };
+
+  const handleTest = async () => {
+    const trimmed = command.trim();
+    const signature = configSignature(command, args);
+    if (!trimmed) {
+      const message = t('providerForm.agent.test.needsCommand');
+      setTested({ signature, health: null, error: message });
+      announce(message, 'assertive');
+      return;
+    }
+
+    // Resultado que não descreve mais o que está na tela não é dito nem
+    // guardado: os campos seguem editáveis durante a sonda, e trocar o tipo
+    // desmonta o formulário. A tela já escondia o resultado de outra
+    // configuração pela assinatura, mas o anúncio saía de qualquer jeito, e quem
+    // usa leitor de telas ouviria "conectado" sobre o comando anterior.
+    //
+    // O número da sonda entra pelo mesmo motivo que na detecção. Duas sondas em
+    // voo não deveriam acontecer — o botão fica desabilitado enquanto uma roda —,
+    // e é justamente por isso que a guarda é barata: se um dia acontecer, a
+    // resposta velha não desliga o "testando..." da nova nem fala por ela.
+    const seq = ++probeSeq.current;
+    const outraConfiguracao = () =>
+      !mountedRef.current ||
+      seq !== probeSeq.current ||
+      signature !== configSignature(commandRef.current, argsRef.current);
+
+    setTesting(true);
+    setTested(null);
+    try {
+      const result = await TestACPAgent(trimmed, args);
+      if (outraConfiguracao()) return;
+      setTested({ signature, health: result, error: '' });
+      announce(healthAnnouncement(t, result), result.state === 'online' ? 'polite' : 'assertive');
+    } catch (error: unknown) {
+      if (outraConfiguracao()) return;
+      const err = error as { message?: unknown } | null;
+      const message = String(err?.message || error || t('providerForm.agent.test.failed'));
+      setTested({ signature, health: null, error: message });
+      announce(message, 'assertive');
+    } finally {
+      if (mountedRef.current && seq === probeSeq.current) {
+        setTesting(false);
+      }
+    }
+  };
+
+  const status = (() => {
+    if (detecting) return t('providerForm.agent.detecting');
+    if (detectError) return detectError;
+    if (!setup) return '';
+    if (setup.found) {
+      return setup.version
+        ? t('providerForm.agent.foundVersion', { source: setup.source, version: setup.version })
+        : t('providerForm.agent.found', { source: setup.source });
+    }
+    return t('providerForm.agent.notFound');
+  })();
+
+  const notFound = !!setup && !setup.found && !detecting;
+
+  // O resultado só vale para a configuração que foi testada.
+  const current = tested?.signature === configSignature(command, args) ? tested : null;
+  const health = current?.health ?? null;
+  const result = (() => {
+    if (testing) return t('providerForm.agent.test.testing');
+    if (!current) return '';
+    if (current.error) return current.error;
+    return health ? healthAnnouncement(t, health) : '';
+  })();
+  const resultState = health?.state === 'online' ? 'ok' : 'missing';
+
+  return (
+    <div className="agent-fields">
+      <FormField
+        label={t('providerForm.agent.command')}
+        required
+        error={commandError}
+        description={t('providerForm.agent.commandHelp')}
+      >
+        <Input
+          value={command}
+          onChange={(e) => onCommandChange(e.target.value)}
+          placeholder={t('providerForm.agent.commandPlaceholder')}
+          fullWidth
+        />
+      </FormField>
+
+      <FormField
+        label={t('providerForm.agent.args')}
+        description={t('providerForm.agent.argsHelp')}
+      >
+        <Textarea
+          value={argsText}
+          onChange={(e) => {
+            setArgsText(e.target.value);
+            onArgsChange(lerArgumentos(e.target.value));
+          }}
+          rows={3}
+          fullWidth
+        />
+      </FormField>
+
+      <div className="agent-fields__detection">
+        <Button type="button" variant="secondary" onClick={handleRedetect} disabled={detecting}>
+          {detecting ? t('providerForm.agent.detecting') : t('providerForm.agent.detectBtn')}
+        </Button>
+        <Button type="button" variant="secondary" onClick={handleTest} disabled={testing}>
+          {testing ? t('providerForm.agent.test.testing') : t('providerForm.agent.test.btn')}
+        </Button>
+        {status && (
+          <p className="agent-fields__status" data-state={notFound || detectError ? 'missing' : 'ok'}>
+            {status}
+          </p>
+        )}
+      </div>
+
+      {/*
+        Resultado do teste em texto, com o estado no data-state apenas como
+        reforço visual. Não é live region: o anúncio vai pelo announcer global.
+      */}
+      {result && (
+        <p className="agent-fields__health" data-state={resultState}>
+          {result}
+        </p>
+      )}
+
+      {/*
+        Sem login não é erro de configuração: o comando está certo e o agente
+        respondeu. O que falta se resolve no terminal, então a tela mostra o
+        comando a rodar em vez de mandar conferir caminho.
+      */}
+      {health?.state === 'unauthenticated' && (
+        <div className="agent-fields__login">
+          <p>{t('providerForm.agent.test.loginHelp')}</p>
+          <code className="agent-fields__login-command">
+            {agentLoginCommand(command, args) || t('providerForm.agent.test.loginCommand')}
+          </code>
+          {!!health.login_methods?.length && (
+            <p className="agent-fields__login-methods">
+              {t('providerForm.agent.test.loginMethods', {
+                methods: health.login_methods.map((method) => method.name || method.id).join(', '),
+              })}
+            </p>
+          )}
+        </div>
+      )}
+
+      {notFound && (
+        <div className="agent-fields__install">
+          <p>{t('providerForm.agent.installHelp')}</p>
+          {!!setup?.searched?.length && (
+            <p className="agent-fields__searched">
+              {t('providerForm.agent.searchedIn', { places: setup.searched.join(', ') })}
+            </p>
+          )}
+        </div>
+      )}
+
+      <FormField
+        label={t('providerForm.agent.workDir')}
+        description={t('providerForm.agent.workDirHelp')}
+      >
+        <Input
+          value={setup?.work_dir || ''}
+          readOnly
+          fullWidth
+          placeholder={t('providerForm.agent.workDirUnknown')}
+        />
+      </FormField>
+    </div>
+  );
+};

@@ -3,8 +3,9 @@ import { EyeOutlined, EyeInvisibleOutlined, WarningOutlined } from '@ant-design/
 import { useTranslation } from 'react-i18next';
 import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go/app/App';
 import { Input, Select, Button, FormField } from '../';
-import { PROVIDER_CONFIG } from '../../config/providers';
+import { AGENT_API_FORMAT, PROVIDER_CONFIG } from '../../config/providers';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { AgentProviderFields } from './AgentProviderFields';
 export { PROVIDER_CONFIG } from '../../config/providers';
 import './ProviderForm.css';
 
@@ -24,6 +25,9 @@ export interface ProviderFormData {
   api_key: string;
   default_model?: string;
   api_format?: string;
+  /** Comando e argumentos do agente de código, quando o formato é acp. */
+  acp_command?: string;
+  acp_args?: string[];
 }
 
 export interface ProviderFormProps {
@@ -41,12 +45,24 @@ const PROVIDER_TYPES = Object.entries(PROVIDER_CONFIG).map(([key, config]) => ({
   label: config.label,
 }));
 
+// Só formatos HTTP: `acp` não entra porque não é uma escolha de protocolo que
+// alguém faça para um endereço. Um agente é agente por ser um agente, e a
+// combinação "URL + acp" é recusada pelo backend — oferecê-la aqui seria
+// oferecer um erro.
 export const API_FORMAT_OPTIONS = [
   { value: 'openai_responses', label: 'OpenAI — Responses API' },
   { value: 'openai',           label: 'OpenAI-compatible — Chat Completions' },
   { value: 'anthropic',        label: 'Anthropic — Messages API' },
   { value: 'google',           label: 'Google — Gemini API' },
 ];
+
+/**
+ * Diz se estes dados descrevem um agente de código local. Vem do formato porque
+ * é ele que o backend usa para decidir, e um provedor já salvo carrega o dele
+ * mesmo que o preset do tipo mude depois.
+ */
+const isAgentForm = (data: Pick<ProviderFormData, 'type' | 'api_format'>): boolean =>
+  (data.api_format || PROVIDER_CONFIG[data.type]?.apiFormat || '') === AGENT_API_FORMAT;
 
 export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) => {
   const { t } = useTranslation();
@@ -72,11 +88,34 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
   const [endpointNotSupported, setEndpointNotSupported] = useState(false);
   const [modelsLoaded, setModelsLoaded] = useState(false);
 
+  // Agente de código: o formulário deixa de pedir URL, chave e modelo e passa a
+  // pedir o comando que sobe o agente (AEP-0084 D12).
+  const isAgent = isAgentForm(formData);
+
+  // Referências estáveis: os campos do agente detectam a instalação em um efeito
+  // e um callback recriado a cada render disparia detecção sem parar.
+  const handleAgentCommandChange = useCallback((command: string) => {
+    setFormData((prev) => ({ ...prev, acp_command: command }));
+    setErrors((prev) => {
+      if (!prev.acp_command) return prev;
+      const next = { ...prev };
+      delete next.acp_command;
+      return next;
+    });
+  }, []);
+
+  const handleAgentArgsChange = useCallback((args: string[]) => {
+    setFormData((prev) => ({ ...prev, acp_args: args }));
+  }, []);
+
   const loadModels = useCallback(async (overrideData?: Partial<ProviderFormData>) => {
     const data = { ...formData, ...overrideData };
     const config = PROVIDER_CONFIG[data.type] || PROVIDER_CONFIG.custom;
     const canonicalUrl = !config.urlEditable ? config.defaultUrl : data.base_url;
 
+    // Agente não tem endpoint de modelos: a lista dele vem da sessão ACP, que é
+    // outra fase. Bater aqui só produziria um erro de URL vazia.
+    if (isAgentForm(data)) return;
     if (!canonicalUrl.trim()) return;
 
     setLoadingModels(true);
@@ -150,6 +189,8 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         api_key: '',
         default_model: provider.default_model || '',
         api_format: provider.api_format ?? provConfig.apiFormat ?? '',
+        acp_command: provider.acp_command || '',
+        acp_args: provider.acp_args || [],
       });
       setApiTested(false);
       setShowApiKeyField(false);
@@ -166,6 +207,8 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         base_url: config.defaultUrl,
         api_key: '',
         api_format: config.apiFormat || '',
+        acp_command: '',
+        acp_args: [],
       });
       setApiTested(false);
       setShowApiKeyField(true);
@@ -198,26 +241,91 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         type: provider.type,
         base_url: provider.base_url,
         default_model: provider.default_model,
+        api_format: provider.api_format,
       });
     }
   }, [provider]);
 
-  // Atualiza URL e api_format quando tipo de provedor muda
-  useEffect(() => {
-    if (!provider) {
-      const config = PROVIDER_CONFIG[formData.type] || PROVIDER_CONFIG.custom;
-      setFormData((prev) => ({
-        ...prev,
-        base_url: config.defaultUrl,
-        default_model: '',
-        api_format: config.apiFormat || '',
-      }));
-      setApiTested(false);
-      setModels([]);
-      setModelsLoaded(false);
-      setEndpointNotSupported(false);
+  /**
+   * Recoloca no formulário a configuração do provedor salvo, como a carga
+   * inicial faz. O nome fica como está — quem renomeou não pediu para desfazer
+   * isso — e a chave digitada nesta sessão também, porque é o único dado do
+   * formulário que ainda não existe em lugar nenhum.
+   */
+  const restoreSavedProvider = () => {
+    if (!provider) return;
+    const savedConfig = PROVIDER_CONFIG[provider.type] || PROVIDER_CONFIG.custom;
+    setFormData((prev) => ({
+      ...prev,
+      type: provider.type,
+      api_format: provider.api_format ?? savedConfig.apiFormat ?? '',
+      base_url: provider.base_url,
+      default_model: provider.default_model || '',
+      api_key: apiKeyChangedInThisSession ? prev.api_key : '',
+      acp_command: provider.acp_command || '',
+      acp_args: provider.acp_args || [],
+    }));
+    setErrors({});
+    setApiTested(false);
+    setModels([]);
+    setModelsLoaded(false);
+    setEndpointNotSupported(false);
+    setShowApiKeyField(apiKeyChangedInThisSession);
+  };
+
+  /**
+   * Trocar o tipo é passar a configurar outra coisa, então o preset do novo tipo
+   * passa a valer inteiro — inclusive o `api_format`, que é quem decide a forma
+   * do formulário e o caminho de gravação.
+   *
+   * Isto vive no handler, e não em um efeito de `formData.type`, porque efeito
+   * não distingue "a pessoa trocou o tipo" de "o formulário acabou de carregar o
+   * provedor salvo". Era por não distinguir que a sincronia precisava ficar de
+   * fora da edição (para não sobrescrever a URL salva ao abrir a tela) — e com
+   * ela de fora, editar um agente e escolher um tipo HTTP deixava o formulário
+   * na forma de agente gravando por um pipeline que discorda do tipo escolhido.
+   *
+   * A exceção é voltar ao tipo do provedor salvo: aí a configuração existe, e o
+   * preset não passa de um palpite sobre ela. Quem troca o tipo e desiste tem de
+   * encontrar de volta o que estava salvo — a URL customizada, o comando do
+   * agente —, e não o padrão do preset gravado como se nada tivesse acontecido.
+   */
+  const handleTypeChange = (nextType: string) => {
+    const config = PROVIDER_CONFIG[nextType] || PROVIDER_CONFIG.custom;
+    const nextIsAgent = (config.apiFormat || '') === AGENT_API_FORMAT;
+    const leavingAgent = isAgent && !nextIsAgent;
+
+    if (provider && nextType === provider.type) {
+      restoreSavedProvider();
+      return;
     }
-  }, [formData.type, provider]);
+
+    setFormData((prev) => ({
+      ...prev,
+      type: nextType,
+      api_format: config.apiFormat || '',
+      base_url: config.defaultUrl,
+      default_model: '',
+      // O que não pertence ao novo tipo não fica pendurado: agente não tem
+      // credencial no app, e provedor HTTP não tem comando para subir.
+      api_key: nextIsAgent ? '' : prev.api_key,
+      acp_command: '',
+      acp_args: [],
+    }));
+    // Erros descrevem a forma anterior do formulário; a validação do submit
+    // recalcula o que ainda valer.
+    setErrors({});
+    setApiTested(false);
+    setModels([]);
+    setModelsLoaded(false);
+    setEndpointNotSupported(false);
+    if (leavingAgent) {
+      // Um agente não guardou credencial nenhuma, então o botão "alterar chave"
+      // mentiria dizendo que já existe uma configurada.
+      setShowApiKeyField(true);
+      setApiKeyChangedInThisSession(false);
+    }
+  };
 
   // Retorna a URL canônica que será REALMENTE salva no banco
   // Isso garante que URLs do Google sempre sejam corretas, etc.
@@ -315,6 +423,18 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       newErrors.name = t('providerForm.error.nameRequired');
     }
 
+    if (isAgent) {
+      // O que endereça um agente é o comando; URL, chave e teste de modelos não
+      // se aplicam. Salvar sem ter conseguido testar é permitido de propósito:
+      // um agente instalado e ainda sem login precisa poder ser cadastrado, e é
+      // o diagnóstico que explica o que falta.
+      if (!(formData.acp_command || '').trim()) {
+        newErrors.acp_command = t('providerForm.agent.error.commandRequired');
+      }
+      setErrors(newErrors);
+      return Object.keys(newErrors).length === 0;
+    }
+
     // URL é sempre validada, mas sempre usa a URL canônica
     const canonicalUrl = getCanonicalUrl(formData.type);
     if (!canonicalUrl.trim()) {
@@ -343,6 +463,42 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     return Object.keys(newErrors).length === 0;
   };
 
+  // saveAgentProvider grava um provedor de agente de código. Nada de base_url
+  // nem api_key: o backend recusa credencial para um agente, e mandar URL vazia
+  // junto com o formato acp é o contrato que ele espera (AEP-0084 D12). O modelo
+  // padrão também fica de fora — a lista de modelos de um agente vem da sessão.
+  const saveAgentProvider = async () => {
+    const command = (formData.acp_command || '').trim();
+    const args = formData.acp_args || [];
+    if (formData.id) {
+      await withTimeout(
+        UpdateLLMProvider(formData.id, {
+          name: formData.name,
+          type: formData.type,
+          api_format: AGENT_API_FORMAT,
+          acp_command: command,
+          acp_args: args,
+        }),
+        15000,
+        'UpdateLLMProvider'
+      );
+      return;
+    }
+    await withTimeout(
+      CreateLLMProvider({
+        id: `${formData.type}-${Date.now()}`,
+        name: formData.name,
+        type: formData.type,
+        base_url: '',
+        api_format: AGENT_API_FORMAT,
+        acp_command: command,
+        acp_args: args,
+      }),
+      15000,
+      'CreateLLMProvider'
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -353,7 +509,13 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       // IMPORTANTE: Sempre usa a URL canônica ao salvar
       // Isso garante que URLs incorretas (ex: Google incompleto) sejam corrigidas automaticamente
       const canonicalUrl = getCanonicalUrl(formData.type);
-      
+
+      if (isAgent) {
+        await saveAgentProvider();
+        onSave();
+        return;
+      }
+
       if (formData.id) {
         // Update
         await withTimeout(
@@ -430,11 +592,29 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         <Select
           options={PROVIDER_TYPES}
           value={formData.type}
-          onChange={(e) => handleChange('type', e.target.value)}
+          onChange={(e) => handleTypeChange(e.target.value)}
           fullWidth
         />
       </FormField>
 
+      {isAgent ? (
+        <AgentProviderFields
+          agentKind={formData.type}
+          command={formData.acp_command || ''}
+          args={formData.acp_args || []}
+          onCommandChange={handleAgentCommandChange}
+          onArgsChange={handleAgentArgsChange}
+          commandError={errors.acp_command}
+          // Na edição o comando salvo é a escolha de quem configurou e não se
+          // toca — mas se o tipo foi trocado à mão, não há nada salvo para o
+          // novo agente, e deixar o campo vazio faria a pessoa procurar o
+          // caminho na mão sem motivo. Voltar ao tipo salvo cai no primeiro
+          // caso: o comando restaurado é o que vale, e a detecção só informa o
+          // que existe na máquina.
+          autoFill={!formData.id || formData.type !== provider?.type}
+        />
+      ) : (
+        <>
       <FormField
         label={t('providerForm.apiProtocol')}
         description={t('providerForm.apiProtocolHelp')}
@@ -615,6 +795,8 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           </div>
         )}
       </FormField>
+        </>
+      )}
 
       {errors.submit && (
         <div className="provider-form__error">
@@ -629,8 +811,8 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         <Button
           type="submit"
           variant="primary"
-          disabled={saving || !apiTested}
-          title={!apiTested ? t('providerForm.error.testFirst') : undefined}
+          disabled={saving || (!isAgent && !apiTested)}
+          title={!isAgent && !apiTested ? t('providerForm.error.testFirst') : undefined}
         >
           {saving
             ? t('common.saving')

@@ -25,15 +25,16 @@ export function useConnectionStatusListener() {
   const resetStatus = useConnectionStore((s) => s.reset);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
-  // Último estado "estável" (online/offline) já notificado, para anunciar
-  // apenas transições reais e ignorar o intermediário "checking".
-  const lastStableRef = useRef<'online' | 'offline' | null>(null);
+  // Último estado "estável" já notificado, para anunciar apenas transições
+  // reais e ignorar o intermediário "checking". "Sem login" é estável: o agente
+  // respondeu, e o que falta a pessoa resolve fora do app (AEP-0084 D12).
+  const lastStableRef = useRef<'online' | 'offline' | 'unauthenticated' | null>(null);
 
   useWailsEvent<ConnectionStatusPayload>(CONNECTION_STATUS_EVENT, (data) => {
     if (!data || typeof data.state !== 'string') return;
     setStatus(data);
 
-    if (data.state !== 'online' && data.state !== 'offline') return;
+    if (data.state !== 'online' && data.state !== 'offline' && data.state !== 'unauthenticated') return;
 
     const prev = lastStableRef.current;
     if (prev !== null && prev !== data.state) {
@@ -43,6 +44,12 @@ export function useConnectionStatusListener() {
         announce(message, 'assertive');
         // suppressAnnounce: já anunciamos acima; evita fala duplicada.
         addToast(message, 'error', undefined, undefined, { suppressAnnounce: true });
+      } else if (data.state === 'unauthenticated') {
+        // Assertivo e com a instrução dentro: um aviso que só diz "sem login"
+        // deixaria quem usa leitor de telas sem saber onde autenticar.
+        const message = t('connectionStatus.announce.unauthenticated', { provider: providerName });
+        announce(message, 'assertive');
+        addToast(message, 'warning', undefined, undefined, { suppressAnnounce: true });
       } else {
         const message = t('connectionStatus.announce.restored', { provider: providerName });
         announce(message, 'polite');
