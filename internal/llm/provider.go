@@ -26,6 +26,11 @@ const (
 	ProviderLocalAI    ProviderType = "localai"
 	ProviderLlamaCPP   ProviderType = "llamacpp"
 	ProviderCustom     ProviderType = "custom"
+
+	// ProviderCursor é o CLI do Cursor rodando como agente de código local
+	// (AEP-0084). Como os demais, é só o rótulo da marca: quem define o
+	// comportamento é o APIFormat, que aqui é sempre acp.
+	ProviderCursor ProviderType = "cursor"
 )
 
 // AuthMode descreve o tratamento de autenticação para o provedor.
