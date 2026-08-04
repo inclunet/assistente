@@ -186,11 +186,11 @@ func (h *acpRequestHandler) askQuestion(ctx context.Context, req acp.CustomReque
 	// transporte impõe ao handler. Um prazo maior que o teto tiraria da pessoa
 	// a chance de responder (AEP-0084 D9).
 	resp, err := manager.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       "O agente tem uma pergunta",
-		Description: askDescription(pedido.Title),
+		Title:       questionnaire.Plain("O agente tem uma pergunta"),
+		Description: questionnaire.Plain(askDescription(pedido.Title)),
 		AllowCancel: true,
-		SubmitLabel: "Responder",
-		CancelLabel: "Pular a pergunta",
+		SubmitLabel: questionnaire.Plain("Responder"),
+		CancelLabel: questionnaire.Plain("Pular a pergunta"),
 		Questions:   itens,
 	})
 	if err != nil {
@@ -247,14 +247,17 @@ func askDialogFrom(pedido askQuestionRequest) ([]questionnaire.Question, []askIt
 			questionnaire.Question{
 				ID:      fmt.Sprintf("%s%d", askPromptPrefix, i),
 				Type:    "readonly_code",
-				Prompt:  askPromptLabel(i, len(perguntas)),
+				Prompt:  questionnaire.Plain(askPromptLabel(i, len(perguntas))),
 				Content: askPromptContent(pergunta.Prompt),
 			},
 			questionnaire.Question{
-				ID:      answerID,
-				Type:    askChoiceType(pergunta.AllowMultiple),
-				Prompt:  askChoicePrompt(pergunta.AllowMultiple),
-				Options: askLabels(pergunta.choices),
+				ID:   answerID,
+				Type: askChoiceType(pergunta.AllowMultiple),
+				// Rótulo que o agente mandou é texto, nunca chave de tradução:
+				// traduzir o que vem de fora exibiria o texto de outro lugar do
+				// app no lugar da opção que ele ofereceu (AEP-0085).
+				Prompt:  questionnaire.Plain(askChoicePrompt(pergunta.AllowMultiple)),
+				Options: questionnaire.PlainTexts(askLabels(pergunta.choices)),
 				// A múltipla escolha aceita nenhuma marcada — exigir uma
 				// obrigaria a inventar resposta para sair do diálogo.
 				Required:  !pergunta.AllowMultiple,
@@ -494,11 +497,11 @@ func (h *acpRequestHandler) createPlan(ctx context.Context, req acp.CustomReques
 	}
 
 	resp, err := manager.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       "O agente propôs um plano",
-		Description: planDescription(pedido),
+		Title:       questionnaire.Plain("O agente propôs um plano"),
+		Description: questionnaire.Plain(planDescription(pedido)),
 		AllowCancel: true,
-		SubmitLabel: "Confirmar",
-		CancelLabel: "Recusar",
+		SubmitLabel: questionnaire.Plain("Confirmar"),
+		CancelLabel: questionnaire.Plain("Recusar"),
 		Questions: []questionnaire.Question{
 			{
 				// O plano vai inteiro, em bloco: é o que a pessoa lê para
@@ -506,14 +509,14 @@ func (h *acpRequestHandler) createPlan(ctx context.Context, req acp.CustomReques
 				// tela.
 				ID:      planContentID,
 				Type:    "readonly_code",
-				Prompt:  "Plano proposto",
+				Prompt:  questionnaire.Plain("Plano proposto"),
 				Content: planContent(pedido),
 			},
 			{
 				ID:        planAnswerID,
 				Type:      "single_choice",
-				Prompt:    "O agente pode seguir este plano?",
-				Options:   []string{planApproveLabel, planRejectLabel},
+				Prompt:    questionnaire.Plain("O agente pode seguir este plano?"),
+				Options:   questionnaire.PlainTexts([]string{planApproveLabel, planRejectLabel}),
 				Required:  true,
 				AutoFocus: true,
 			},
