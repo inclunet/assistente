@@ -214,6 +214,35 @@ describe('AgentOptionsPickers', () => {
     expect(anunciado).not.toContain('chat.agentOptions.mode.plan');
   });
 
+  it('aviso sem opções mostra o modelo novo e mantém os seletores', async () => {
+    getOptions.mockResolvedValue(opcoesDoAgente());
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await screen.findByText('Modelo A');
+
+    // O agente pode contar a troca sem repetir a lista que oferece. Aí o que a
+    // tela tem continua valendo: só o valor corrente muda, e o rótulo do
+    // anúncio sai dessa mesma lista.
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1',
+        options: [],
+        model: 'modelo-b',
+        modelChanged: true,
+        modeChanged: false,
+        announce: true,
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText('Modelo B')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Modelo, Modelo B' })).toBeInTheDocument();
+    // O seletor de modo não tinha por que sumir: o agente não falou dele.
+    expect(screen.getByRole('button', { name: 'Modo, chat.agentOptions.mode.agent' })).toBeInTheDocument();
+    const anunciado = anuncioDe('chat.agentOptions.modelChangedByAgent');
+    expect(anunciado).toContain('Modelo B');
+    expect(anunciado).not.toContain('modelo-b');
+  });
+
   it('acha o rótulo mesmo com espaço sobrando no valor que o agente listou', async () => {
     // O valor que vem no aviso chega aparado do backend, que apara para não
     // anunciar troca falsa por espaço. O da lista chega como o agente escreveu.

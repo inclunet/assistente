@@ -69,11 +69,19 @@ export function useAgentSessionOptions(conversationId?: string | null): UseAgent
   // conversationRef diz qual conversa está na tela agora. A troca de opção é uma
   // ida ao agente, e a pessoa pode mudar de conversa antes da volta.
   const conversationRef = useRef(conversationId ?? '');
+  // optionsRef é o que os seletores mostram agora. O aviso do agente chega de
+  // fora do render e precisa desta lista para achar o rótulo do valor novo
+  // quando ele conta a troca sem repetir as opções.
+  const optionsRef = useRef<AgentConfigOption[]>([]);
 
   useEffect(() => {
     announceRef.current = announce;
     tRef.current = t;
   }, [announce, t]);
+
+  useEffect(() => {
+    optionsRef.current = options;
+  }, [options]);
 
   useEffect(() => {
     conversationRef.current = conversationId ?? '';
@@ -107,12 +115,17 @@ export function useAgentSessionOptions(conversationId?: string | null): UseAgent
     if (!conversationId) return;
     return EventsOn('chat:agent_options', (event: AgentSessionOptionsEvent) => {
       if (!event || event.conversationId !== conversationId) return;
-      setOptions(event.options ?? []);
+      const fresh = event.options ?? [];
+      // Aviso sem opção alguma não descreve seletor: o agente pode contar a
+      // troca sem repetir a lista. Escrever o vazio faria os controles sumirem
+      // no meio da conversa, então o que a tela já tem continua valendo — com o
+      // valor novo anotado, que é o que a pessoa precisa ver.
+      const options = fresh.length > 0 ? fresh : withAgentValues(optionsRef.current, event);
+      setOptions(options);
       if (!event.announce) return;
       // A pessoa precisa saber com quem está falando: o agente troca de modelo
       // por conta própria quando bate num limite de uso, e descobrir isso pela
       // resposta estranha é pior do que ouvir a troca.
-      const options = event.options ?? [];
       if (event.modelChanged && event.model) {
         // Pelo rótulo da lista, e não pelo identificador do protocolo: falado,
         // `claude-sonnet-4-5-20250929` é ilegível. Esta troca é a que mais
@@ -185,6 +198,24 @@ export function optionByCategory(
   category: string,
 ): AgentConfigOption | undefined {
   return options.find((option) => (option.category ?? '').toLowerCase() === category);
+}
+
+/**
+ * withAgentValues anota na lista que a tela mostra o valor corrente que o agente
+ * contou. Serve ao aviso que traz a troca sem trazer as opções: a lista de
+ * valores continua sendo a que se conhecia, e só o valor corrente muda.
+ */
+function withAgentValues(
+  options: AgentConfigOption[],
+  event: AgentSessionOptionsEvent,
+): AgentConfigOption[] {
+  if (options.length === 0) return options;
+  return options.map((option) => {
+    const value = option.category === AGENT_OPTION_MODEL
+      ? event.model
+      : option.category === AGENT_OPTION_MODE ? event.mode : '';
+    return value ? { ...option, currentValue: value } : option;
+  });
 }
 
 /**

@@ -119,11 +119,15 @@ func (a *App) agentSessionOptionsChanged(event acp.SessionOptionsEvent) {
 		return
 	}
 	options := agentOptionsFrom(event.Options)
-	if len(options) == 0 {
+	if len(options) == 0 && !event.Announceable() {
 		// Conjunto do qual nada é aproveitável não descreve seletor nenhum, e
-		// emitir o vazio faria a tela esconder o modelo no meio da conversa.
+		// nada mudou: não há o que dizer nem o que desenhar.
 		return
 	}
+	// Conjunto vazio com troca dentro segue viagem: o agente pode contar que
+	// mudou de modelo sem repetir a lista de opções, e engolir esse aviso seria
+	// engolir justamente a troca que a pessoa não viu acontecer. Quem exibe sabe
+	// que vazio aqui não é ordem de apagar os seletores.
 	if event.Announceable() {
 		logging.Infof(context.Background(), acpOptionsComponent,
 			"[ACP] o agente da conversa %s mudou de configuração: modelo=%q modo=%q",

@@ -118,6 +118,23 @@ func (a *agenteFalso) avisaSozinho(modelo string) {
 	aviso("sessao-1", opcoesDeAgente(modelo, "agent"))
 }
 
+// avisaSemLista é o agente contando a troca sem repetir os valores que oferece —
+// o protocolo permite descrever a mudança só pelo valor corrente.
+func (a *agenteFalso) avisaSemLista(modelo string) {
+	a.mu.Lock()
+	aviso := a.anuncia
+	a.mu.Unlock()
+	if aviso == nil {
+		return
+	}
+	aviso("sessao-1", []acp.ConfigOption{{
+		ID:           "model",
+		Name:         "Modelo",
+		Category:     acp.CategoryModel,
+		CurrentValue: modelo,
+	}})
+}
+
 // sessaoFalsa é a sessão do agente falso.
 type sessaoFalsa struct {
 	agente *agenteFalso
@@ -332,6 +349,41 @@ func TestOAgenteRepetindoOMesmoModeloNaoRendeAnuncio(t *testing.T) {
 	evento := eventos[0].data.(AgentSessionOptionsEvent)
 	if evento.Announce || evento.ModelChanged {
 		t.Fatalf("estado repetido foi tratado como troca: %+v", evento)
+	}
+}
+
+// A troca que o agente faz sozinho é a que mais depende do aviso, e o agente
+// pode contá-la sem repetir a lista de valores. Descartar o aviso porque não
+// sobrou seletor para desenhar seria descartar a única notícia de que a conversa
+// mudou de modelo.
+func TestTrocaContadaSemListaDeValoresAindaChegaATela(t *testing.T) {
+	agente := novoAgenteFalso()
+	a, emissor := appComAgente(t, agente)
+	conversaComSessao(t, a, "conversa-1")
+
+	agente.avisaSemLista("modelo-b")
+
+	eventos := emissor.find("chat:agent_options")
+	if len(eventos) != 1 {
+		t.Fatalf("eventos de opções = %d, esperado 1", len(eventos))
+	}
+	evento := eventos[0].data.(AgentSessionOptionsEvent)
+	if evento.Model != "modelo-b" || !evento.ModelChanged || !evento.Announce {
+		t.Fatalf("a troca do agente não chegou marcada para anúncio: %+v", evento)
+	}
+}
+
+// Aviso sem valores e sem troca nenhuma não tem o que fazer na tela: não há
+// seletor a desenhar nem notícia a dar.
+func TestAvisoSemValoresESemTrocaNaoViraEvento(t *testing.T) {
+	agente := novoAgenteFalso()
+	a, emissor := appComAgente(t, agente)
+	conversaComSessao(t, a, "conversa-1")
+
+	agente.avisaSemLista("modelo-a")
+
+	if eventos := emissor.find("chat:agent_options"); len(eventos) != 0 {
+		t.Fatalf("aviso sem notícia virou evento: %+v", eventos)
 	}
 }
 
