@@ -3,7 +3,10 @@ import type { TFunction } from 'i18next';
 
 import {
   chatNoticeMessage,
+  chatNoticeTone,
   CHAT_NOTICE_ATTACHMENTS_NOT_SENT,
+  CHAT_NOTICE_PERMISSION_ALWAYS_ALLOWED,
+  CHAT_NOTICE_PERMISSION_ALWAYS_NOT_SAVED,
   CHAT_NOTICE_PERMISSION_NO_WATCHER,
   CHAT_NOTICE_PERMISSION_TIMEOUT,
   CHAT_NOTICE_PERMISSION_UNAVAILABLE,
@@ -60,5 +63,38 @@ describe('chatNoticeMessage', () => {
 
     expect(message).toContain('"action":"app.chatNotice.action.unknown"');
     expect(message).not.toContain('invocar_o_kraken');
+  });
+
+  it('conta a autorização permanente com o nome que a tela de revogar usa', () => {
+    const message = chatNoticeMessage(t, {
+      conversationId: 'conversa-1',
+      kind: CHAT_NOTICE_PERMISSION_ALWAYS_ALLOWED,
+      action: 'execute',
+    });
+
+    expect(message).toContain('app.chatNotice.permissionAlwaysAllowed|');
+    expect(message).toContain('"actionClass":"agentPermissions.action.execute"');
+  });
+
+  it('avisa quando o sempre não pôde ser guardado', () => {
+    const message = chatNoticeMessage(t, {
+      kind: CHAT_NOTICE_PERMISSION_ALWAYS_NOT_SAVED,
+      action: 'edit',
+    });
+
+    expect(message).toContain('app.chatNotice.permissionAlwaysNotSaved|');
+    expect(message).toContain('"actionClass":"agentPermissions.action.edit"');
+  });
+});
+
+describe('chatNoticeTone', () => {
+  it('a autorização concedida é informação, não alerta', () => {
+    expect(chatNoticeTone(CHAT_NOTICE_PERMISSION_ALWAYS_ALLOWED)).toBe('info');
+  });
+
+  it('o que atrapalhou o turno continua sendo alerta', () => {
+    expect(chatNoticeTone(CHAT_NOTICE_PERMISSION_ALWAYS_NOT_SAVED)).toBe('warning');
+    expect(chatNoticeTone(CHAT_NOTICE_PERMISSION_NO_WATCHER)).toBe('warning');
+    expect(chatNoticeTone(undefined)).toBe('warning');
   });
 });

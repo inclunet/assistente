@@ -3455,6 +3455,8 @@ const en = {
         permissionNoWatcher: 'The agent asked permission to {{action}} in this conversation, but there was no one to answer. The action was denied.',
         permissionTimeout: 'The agent asked permission to {{action}} and no one answered in time. The action was denied.',
         permissionUnavailable: 'The agent asked permission to {{action}}, but the app could not present the request. The action was denied.',
+        permissionAlwaysAllowed: 'Standing permission created in this profile: {{actionClass}}. The agent will no longer ask before those actions; to revoke it, open Settings and go to Agent Permissions.',
+        permissionAlwaysNotSaved: 'The standing permission could not be saved: {{actionClass}}. This action was allowed, but the agent will ask again next time.',
         action: {
           read: 'read a file',
           edit: 'edit a file',

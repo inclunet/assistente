@@ -13,7 +13,7 @@ import { Toolbar } from '../components/ui/Toolbar';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { PageLoading } from '../components/ui/PageLoading';
-import { agentActionKey } from '../lib/agentAction';
+import { agentActionClassName } from '../lib/agentAction';
 import './AgentPermissionsPage.css';
 
 interface PermissionRow {
@@ -50,10 +50,7 @@ export default function AgentPermissionsPage() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [focused, setFocused] = useState<PermissionRow | null>(null);
 
-  const actionName = useCallback(
-    (action: string) => t(`agentPermissions.action.${agentActionKey(action)}`),
-    [t],
-  );
+  const actionName = useCallback((action: string) => agentActionClassName(t, action), [t]);
 
   const load = useCallback(async () => {
     setLoading(true);

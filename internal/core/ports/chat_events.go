@@ -248,6 +248,21 @@ const (
 	ChatNoticeKindPermissionUnavailable = "permission_denied_unavailable"
 )
 
+// O que aconteceu com um "permitir sempre" (AEP-0084 D9). A escolha muda o
+// comportamento do app daí em diante, e uma mudança dessas não pode acontecer
+// dentro de um diálogo que já sumiu da tela: a conversa é onde a pessoa fica
+// sabendo que existe algo a revogar, e onde.
+const (
+	// ChatNoticeKindPermissionAlwaysAllowed é a autorização permanente que
+	// passou a valer no perfil.
+	ChatNoticeKindPermissionAlwaysAllowed = "permission_always_allowed"
+	// ChatNoticeKindPermissionAlwaysNotSaved é o "sempre" que o app não
+	// conseguiu guardar. A ação desta vez foi autorizada, mas a próxima volta a
+	// perguntar — e quem escolheu "sempre" precisa saber disso antes de estranhar
+	// a pergunta repetida.
+	ChatNoticeKindPermissionAlwaysNotSaved = "permission_always_not_saved"
+)
+
 // ChatNoticeEvent is the payload for chat:notice — um aviso sobre o turno que
 // não é a resposta, não é falha e não encerra nada.
 //

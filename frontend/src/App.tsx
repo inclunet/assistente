@@ -21,7 +21,7 @@ import type { Locale } from 'antd/es/locale';
 import { getAntdTheme } from './theme/antdTheme';
 import { waitForWailsBridge } from './lib/waitForWailsBridge';
 import { summaryErrorMessage } from './lib/summaryError';
-import { chatNoticeMessage, type ChatNoticeEvent } from './lib/chatNotice';
+import { chatNoticeMessage, chatNoticeTone, type ChatNoticeEvent } from './lib/chatNotice';
 import { useBackendQuestionnaire } from './hooks/useBackendQuestionnaire';
 import { AuthGate } from './components/auth/AuthGate';
 
@@ -224,9 +224,10 @@ function App() {
         // de propósito: o controller de streaming vive só entre o envio e o
         // chat:done, e o aviso pode chegar antes de ele estar de pé.
         unsubs.push(EventsOn('chat:notice', (data: unknown) => {
-            const message = chatNoticeMessage(t, data as ChatNoticeEvent);
+            const notice = data as ChatNoticeEvent;
+            const message = chatNoticeMessage(t, notice);
             if (message) {
-                addToast(message, 'warning', 10000);
+                addToast(message, chatNoticeTone(notice.kind), 10000);
             }
         }));
 
