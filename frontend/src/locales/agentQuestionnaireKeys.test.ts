@@ -4,11 +4,12 @@ import es from './es';
 import ptBR from './pt-BR';
 
 /**
- * Chaves dos diálogos que o agente de código faz o backend abrir (AEP-0085
- * Fase 2). O risco que o AEP nomeia é justamente este: chave criada no Go e
- * esquecida em `en.ts` ou `es.ts`. O fallback pt-BR salva o diálogo de sair em
- * branco, mas quem lê em inglês ou espanhol recebe em português um pedido de
- * autorização que precisa entender *antes* de responder.
+ * Chaves dos diálogos que o backend abre (AEP-0085): os do agente de código
+ * (Fase 2), a confirmação de alteração de arquivo (Fase 3) e o updater com o
+ * wizard de boas-vindas (Fase 4). O risco que o AEP nomeia é justamente este:
+ * chave criada no Go e esquecida em `en.ts` ou `es.ts`. O fallback pt-BR salva o
+ * diálogo de sair em branco, mas quem lê em inglês ou espanhol recebe em
+ * português um pedido de autorização que precisa entender *antes* de responder.
  */
 const localeModules = { en, es, 'pt-BR': ptBR } as const;
 
@@ -62,16 +63,112 @@ const planKeys = [
   'descriptionProjectSteps',
 ].map((sufixo) => `app.questionnaire.agentPlan.${sufixo}`);
 
+const editConfirmationKeys = [
+  'titleEdit',
+  'titleOverwrite',
+  'description',
+  'descriptionNotes',
+  'beforePrompt',
+  'afterPrompt',
+  'submit',
+  'cancel',
+  'rejectReasonLabel',
+  'rejectReasonPlaceholder',
+].map((sufixo) => `app.questionnaire.editConfirmation.${sufixo}`);
+
+const updateKeys = [
+  'title',
+  'description',
+  'descriptionNotes',
+  'descriptionSize',
+  'descriptionNotesSize',
+  'prompt',
+  'submit',
+  'cancel',
+].map((sufixo) => `app.questionnaire.update.${sufixo}`);
+
+const elevationKeys = ['title', 'description', 'prompt', 'submit', 'cancel'].map(
+  (sufixo) => `app.questionnaire.updateElevation.${sufixo}`
+);
+
+const welcomeKeys = [
+  'submitContinue',
+  'submitNext',
+  'submitFinish',
+  'cancel',
+  'back',
+  'passwordTitle',
+  'passwordDescription',
+  'passwordPrompt',
+  'passwordPlaceholder',
+  'passwordConfirmPrompt',
+  'passwordConfirmPlaceholder',
+  'passwordMismatch',
+  'recoveryTitle',
+  'recoveryDescription',
+  'recoveryPrompt',
+  'recoveryConfirmPrompt',
+  'providerTitle',
+  'providerDescription',
+  'providerPrompt',
+  'providerOptionOther',
+  'urlTitle',
+  'urlDescription',
+  'urlPrompt',
+  'urlInvalid',
+  'urlUnreachable',
+  'apiKeyTitle',
+  'apiKeyDescription',
+  'apiKeyDescriptionLocal',
+  'apiKeyPrompt',
+  'connectionFailed',
+  'authRequired',
+  'authInvalid',
+  'serverError',
+  'modelTitle',
+  'modelDescription',
+  'modelPrompt',
+  'modelManualTitle',
+  'modelManualDescription',
+  'modelManualPrompt',
+].map((sufixo) => `app.questionnaire.welcome.${sufixo}`);
+
 /**
  * Valores que o backend manda interpolar. A tradução que não os usa perde o
- * dado do pedido: "Assunto:" sem assunto, "Pergunta de" sem número.
+ * dado do pedido: "Assunto:" sem assunto, "Pergunta de" sem número, a
+ * confirmação sem o arquivo que ela vai alterar.
  */
 const requiredPlaceholders: Record<string, string[]> = {
   'app.questionnaire.agentQuestion.descriptionSubject': ['{{subject}}'],
   'app.questionnaire.agentQuestion.promptLabelNumbered': ['{{position}}', '{{total}}'],
   'app.questionnaire.agentPlan.descriptionSteps': ['{{steps}}'],
   'app.questionnaire.agentPlan.descriptionProjectSteps': ['{{steps}}'],
+  'app.questionnaire.editConfirmation.description': ['{{path}}'],
+  'app.questionnaire.editConfirmation.descriptionNotes': ['{{path}}', '{{notes}}'],
+  'app.questionnaire.update.description': ['{{current}}', '{{latest}}'],
+  'app.questionnaire.update.descriptionNotes': ['{{current}}', '{{latest}}', '{{notes}}'],
+  'app.questionnaire.update.descriptionSize': ['{{current}}', '{{latest}}', '{{size}}'],
+  'app.questionnaire.update.descriptionNotesSize': [
+    '{{current}}',
+    '{{latest}}',
+    '{{notes}}',
+    '{{size}}',
+  ],
+  'app.questionnaire.welcome.urlInvalid': ['{{detail}}'],
+  'app.questionnaire.welcome.urlUnreachable': ['{{detail}}'],
+  'app.questionnaire.welcome.connectionFailed': ['{{provider}}', '{{url}}', '{{detail}}'],
+  'app.questionnaire.welcome.authRequired': ['{{detail}}'],
+  'app.questionnaire.welcome.authInvalid': ['{{detail}}'],
+  'app.questionnaire.welcome.serverError': ['{{detail}}'],
+  'app.questionnaire.welcome.modelDescription': ['{{models}}'],
 };
+
+/**
+ * Nomes que o i18next reserva: um parâmetro assim mudaria a pluralização, a
+ * variante ou o idioma da frase, e não o valor interpolado (AEP-0085 D2). O
+ * backend não os usa, e a tradução também não pode esperá-los.
+ */
+const reservedPlaceholders = ['{{count}}', '{{context}}', '{{lng}}'];
 
 function getLocaleValue(locale: unknown, key: string): unknown {
   const root = (locale as { translation: Record<string, unknown> }).translation;
@@ -81,8 +178,16 @@ function getLocaleValue(locale: unknown, key: string): unknown {
   }, root);
 }
 
-describe('chaves dos diálogos do agente de código', () => {
-  const keys = [...permissionKeys, ...questionKeys, ...planKeys];
+describe('chaves dos diálogos que o backend monta', () => {
+  const keys = [
+    ...permissionKeys,
+    ...questionKeys,
+    ...planKeys,
+    ...editConfirmationKeys,
+    ...updateKeys,
+    ...elevationKeys,
+    ...welcomeKeys,
+  ];
 
   it.each(Object.entries(localeModules))('traduz todos os campos visíveis em %s', (_nome, locale) => {
     for (const key of keys) {
@@ -97,6 +202,15 @@ describe('chaves dos diálogos do agente de código', () => {
       const value = getLocaleValue(locale, key) as string;
       for (const placeholder of placeholders) {
         expect(value, `${key} sem ${placeholder}`).toContain(placeholder);
+      }
+    }
+  });
+
+  it.each(Object.entries(localeModules))('não espera parâmetro reservado em %s', (_nome, locale) => {
+    for (const key of keys) {
+      const value = getLocaleValue(locale, key) as string;
+      for (const reserved of reservedPlaceholders) {
+        expect(value, `${key} interpola ${reserved}`).not.toContain(reserved);
       }
     }
   });
