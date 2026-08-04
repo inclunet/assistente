@@ -141,8 +141,15 @@ func TestRevogarOQueNaoExisteNaoDizQueFechouAPorta(t *testing.T) {
 func TestSemAutorizacaoNenhumaATelaAbreVazia(t *testing.T) {
 	a := appComAutorizacoes(t)
 
-	if lista := a.GetAgentPermissions(); len(lista) != 0 {
+	lista := a.GetAgentPermissions()
+
+	if len(lista) != 0 {
 		t.Errorf("autorizações na tela = %+v, quer nenhuma", lista)
+	}
+	// Lista vazia é lista: nula chegaria à interface como null, e o tipo
+	// gerado promete um array.
+	if lista == nil {
+		t.Error("a lista vazia foi entregue como ausência de lista")
 	}
 }
 

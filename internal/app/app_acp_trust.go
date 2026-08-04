@@ -40,7 +40,9 @@ func (a *App) GetAgentPermissions() []AgentPermissionView {
 		return nil
 	}
 	names := a.profileNames()
-	var out []AgentPermissionView
+	// Lista vazia é lista, não ausência: um slice nulo chegaria à interface
+	// como null, e o tipo gerado promete um array.
+	out := make([]AgentPermissionView, 0)
 	for _, slug := range a.acpTrust.Profiles() {
 		for _, entry := range a.acpTrust.List(slug) {
 			out = append(out, AgentPermissionView{
