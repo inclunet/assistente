@@ -111,11 +111,11 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	// dentro do teto que o transporte impõe ao handler. Um prazo maior que o
 	// teto tiraria da pessoa a chance de responder (AEP-0084 D9).
 	resp, err := manager.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       "O agente pede permissão",
-		Description: permissionDescription(kind) + alwaysWarning(choices, kind),
+		Title:       questionnaire.Plain("O agente pede permissão"),
+		Description: questionnaire.Plain(permissionDescription(kind) + alwaysWarning(choices, kind)),
 		AllowCancel: true,
-		SubmitLabel: "Confirmar",
-		CancelLabel: "Negar",
+		SubmitLabel: questionnaire.Plain("Confirmar"),
+		CancelLabel: questionnaire.Plain("Negar"),
 		Questions: []questionnaire.Question{
 			{
 				// A ação vai inteira, em bloco: é o que a pessoa lê para
@@ -124,14 +124,17 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 				// autorização de rede.
 				ID:      permissionActionID,
 				Type:    "readonly_code",
-				Prompt:  "Ação pedida",
+				Prompt:  questionnaire.Plain("Ação pedida"),
 				Content: action,
 			},
 			{
-				ID:        permissionAnswerID,
-				Type:      "single_choice",
-				Prompt:    "O que o agente pode fazer?",
-				Options:   choices.labels(),
+				ID:   permissionAnswerID,
+				Type: "single_choice",
+				// Rótulo que o agente mandou é texto, nunca chave de tradução:
+				// traduzir o que vem de fora exibiria o texto de outro lugar do
+				// app no lugar da opção que ele ofereceu (AEP-0085).
+				Prompt:    questionnaire.Plain("O que o agente pode fazer?"),
+				Options:   questionnaire.PlainTexts(choices.labels()),
 				Required:  true,
 				AutoFocus: true,
 			},

@@ -98,10 +98,11 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 | [0082](0082-network-trust-allowlist.md) | Network Trust Allowlist | 📝 Draft |
 | [0083](0083-channels-database-migration.md) | Migração de Canais e Contatos para Banco de Dados | ✅ Done |
 | [0084](0084-agentes-acp-como-providers.md) | Agentes de código ACP como providers LLM | 📝 Draft |
+| [0085](0085-i18n-de-dialogos-do-questionnaire.md) | i18n dos diálogos que o backend manda para a tela (questionnaire) | 🚧 In Progress |
 
 > **Números livres:** 0054 e 0055 estão vagos (lacunas). Novos AEPs devem ser
-> numerados sequencialmente a partir do **maior número existente** (0084 → próximo
-> 0085), salvo decisão explícita de reaproveitar uma lacuna.
+> numerados sequencialmente a partir do **maior número existente** (0085 → próximo
+> 0086), salvo decisão explícita de reaproveitar uma lacuna.
 
 ## Status Legend
 

@@ -33,9 +33,9 @@ func TestRequestQuestionnaire_Answered(t *testing.T) {
 	})
 
 	resp, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
-		Title: "Teste",
+		Title: Plain("Teste"),
 		Questions: []Question{
-			{ID: "q1", Type: "text", Prompt: "Pergunta"},
+			{ID: "q1", Type: "text", Prompt: Plain("Pergunta")},
 		},
 	})
 	if err != nil {
@@ -63,9 +63,9 @@ func TestRequestQuestionnaire_Cancelled(t *testing.T) {
 	})
 
 	resp, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
-		Title: "Teste",
+		Title: Plain("Teste"),
 		Questions: []Question{
-			{ID: "q1", Type: "text", Prompt: "Pergunta"},
+			{ID: "q1", Type: "text", Prompt: Plain("Pergunta")},
 		},
 	})
 	if err != nil {
@@ -89,9 +89,9 @@ func TestRequestQuestionnaire_CancelledWithAnswers(t *testing.T) {
 	})
 
 	resp, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
-		Title:        "Teste",
-		Questions:    []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
-		RejectReason: &RejectReasonConfig{ID: "reject_reason", Label: "Motivo"},
+		Title:        Plain("Teste"),
+		Questions:    []Question{{ID: "q1", Type: "text", Prompt: Plain("Pergunta")}},
+		RejectReason: &RejectReasonConfig{ID: "reject_reason", Label: Plain("Motivo")},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -117,7 +117,7 @@ func TestRequestQuestionnaire_EventOmitsRejectReasonWhenAbsent(t *testing.T) {
 	})
 
 	if _, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
-		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: Plain("Pergunta")}},
 	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestRequestQuestionnaire_ContextCancelled(t *testing.T) {
 		cancel()
 	}()
 
-	_, err := mgr.RequestQuestionnaire(ctx, RequestPayload{Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}}})
+	_, err := mgr.RequestQuestionnaire(ctx, RequestPayload{Questions: []Question{{ID: "q1", Type: "text", Prompt: Plain("Pergunta")}}})
 	if err == nil {
 		t.Fatalf("expected error on cancel")
 	}
@@ -149,7 +149,7 @@ func TestRequestQuestionnaire_CustomTimeout(t *testing.T) {
 
 	start := time.Now()
 	_, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
-		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: Plain("Pergunta")}},
 		Timeout:   100 * time.Millisecond,
 	})
 	elapsed := time.Since(start)
@@ -213,7 +213,7 @@ func TestPerguntaComPrazoEstouradoFechaODialogo(t *testing.T) {
 	})
 
 	_, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
-		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: Plain("Pergunta")}},
 		Timeout:   50 * time.Millisecond,
 	})
 	if err == nil {
@@ -242,7 +242,7 @@ func TestQuemDesistiuDaPerguntaTiraODialogoDaTela(t *testing.T) {
 	}()
 
 	_, err := mgr.RequestQuestionnaire(ctx, RequestPayload{
-		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: Plain("Pergunta")}},
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("erro = %v, quer o cancelamento do contexto", err)
@@ -264,7 +264,7 @@ func TestPrazoDeQuemPerguntouNaoViraDesistencia(t *testing.T) {
 	defer cancel()
 
 	_, err := mgr.RequestQuestionnaire(ctx, RequestPayload{
-		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: Plain("Pergunta")}},
 	})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("erro = %v, quer o prazo do contexto para quem chamou saber a causa", err)
@@ -294,7 +294,7 @@ func TestPerguntaRespondidaNaoAvisaFechamento(t *testing.T) {
 	})
 
 	if _, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
-		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: Plain("Pergunta")}},
 	}); err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestRequestQuestionnaire_ZeroTimeoutUsesDefault(t *testing.T) {
 	})
 
 	resp, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
-		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: Plain("Pergunta")}},
 		Timeout:   0,
 	})
 	if err != nil {

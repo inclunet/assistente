@@ -1795,6 +1795,14 @@ const en = {
         hintEscape: 'Press Escape to clear selection.',
       },
       confirm: { title: 'Confirm' },
+      questionnaire: {
+        defaultTitle: 'Questionnaire',
+        submit: 'Submit',
+        cancel: 'Cancel',
+        requiredAnswer: 'Answer required',
+        yes: 'Yes',
+        no: 'No',
+      },
       collapsible: { open: 'open', close: 'close' },
       jsonEditor: { label: 'JSON Editor', codeLabel: 'JSON code editor', readonlyLabel: 'Read-only code editor', editableLabel: 'Code editor', variableHint: 'Available variable:', templateVar: 'template variable' },
       shortcuts: {
@@ -3485,6 +3493,39 @@ const en = {
         closed: 'The question ended and the dialog was closed.',
         closedCancelled: 'Whoever asked gave up; the dialog closed without an answer.',
         closedTimeout: 'Time to answer ran out; the dialog closed without an answer.',
+        // Dialogs built by the backend (AEP-0085). The payload carries the
+        // ready-made pt-BR text as fallback; these keys are its translation.
+        shell: {
+          title: 'Confirm command execution',
+          description: 'The assistant wants to run:\n\n{{command}}\n\nin: {{workDir}}',
+          prompt: 'Allow running this command?',
+          submit: 'Allow',
+          cancel: 'Deny',
+        },
+        http: {
+          title: 'Confirm {{method}} operation',
+          description: 'The assistant wants to run:\n\n{{method}} {{url}}\n\nBody:\n{{body}}',
+          prompt: 'Allow this {{method}} operation?',
+          submit: 'Allow',
+          cancel: 'Deny',
+        },
+        network: {
+          title: 'Authorize access to a blocked host (anti-SSRF)',
+          description: 'The assistant tried to reach a host that resolves to an internal/private address ({{category}}). Only authorize it if you trust this destination.',
+          submit: 'Authorize',
+          cancel: 'Deny',
+          detailsPrompt: 'Destination details',
+          scopePrompt: 'For how long should this host be authorized?',
+          reasonPrompt: 'Note (optional)',
+          reasonPlaceholder: 'E.g.: internal workflow API',
+          scope: {
+            once: 'This request only',
+            session: 'For this conversation',
+            workspace: 'In this workspace (project)',
+            profile: 'In this profile',
+            global: 'Global (all workspaces and profiles)',
+          },
+        },
       },
     },
     auth: {

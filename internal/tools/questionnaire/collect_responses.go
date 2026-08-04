@@ -120,13 +120,15 @@ func (t *CollectResponsesTool) Execute(ctx context.Context, args json.RawMessage
 		allowCancel = *params.AllowCancel
 	}
 
+	// Tudo aqui é texto do modelo, então vai como texto e nunca como chave de
+	// tradução: a chave é decisão do app (AEP-0085).
 	resp, err := t.mgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       strings.TrimSpace(params.Title),
-		Description: strings.TrimSpace(params.Description),
-		Questions:   params.Questions,
+		Title:       questionnaire.Plain(strings.TrimSpace(params.Title)),
+		Description: questionnaire.Plain(strings.TrimSpace(params.Description)),
+		Questions:   questionnaire.PlainQuestions(params.Questions),
 		AllowCancel: allowCancel,
-		SubmitLabel: strings.TrimSpace(params.SubmitLabel),
-		CancelLabel: strings.TrimSpace(params.CancelLabel),
+		SubmitLabel: questionnaire.Plain(strings.TrimSpace(params.SubmitLabel)),
+		CancelLabel: questionnaire.Plain(strings.TrimSpace(params.CancelLabel)),
 	})
 	if err != nil {
 		return tools.ToolResult{
@@ -189,7 +191,7 @@ func validateQuestions(questions []questionnaire.Question) error {
 		if !allowedTypes[qType] {
 			return fmt.Errorf("tipo de pergunta inválido '%s' (id: %s)", q.Type, id)
 		}
-		if strings.TrimSpace(q.Prompt) == "" {
+		if strings.TrimSpace(q.Prompt.String()) == "" {
 			return fmt.Errorf("pergunta sem prompt (id: %s)", id)
 		}
 		if qType == "single_choice" || qType == "multiple_choice" {

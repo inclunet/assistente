@@ -36,18 +36,23 @@ const (
 )
 
 // Question define um item do questionário.
+//
+// Os campos de texto são Text (chave de tradução + texto pronto); Content é
+// conteúdo cru — comando, diff, caminho, código de recuperação —, que não se
+// traduz. Default aponta para o valor estável da opção (Text.String()), e não
+// para o rótulo traduzido.
 type Question struct {
 	ID          string   `json:"id"`
 	Type        string   `json:"type"`
-	Prompt      string   `json:"prompt"`
-	Description string   `json:"description,omitempty"`
+	Prompt      Text     `json:"prompt"`
+	Description Text     `json:"description,omitzero"`
 	Content     string   `json:"content,omitempty"`
 	Required    bool     `json:"required,omitempty"`
-	Options     []string `json:"options,omitempty"`
+	Options     []Text   `json:"options,omitempty"`
 	Min         *float64 `json:"min,omitempty"`
 	Max         *float64 `json:"max,omitempty"`
 	Step        *float64 `json:"step,omitempty"`
-	Placeholder string   `json:"placeholder,omitempty"`
+	Placeholder Text     `json:"placeholder,omitzero"`
 	Default     any      `json:"default,omitempty"`
 	// AutoFocus indica que este item deve receber o foco inicial quando o
 	// diálogo abre, sobrepondo a heurística padrão do frontend (primeiro
@@ -60,21 +65,23 @@ type Question struct {
 // volta em Response.Answers sob a chave ID mesmo quando Cancelled=true.
 type RejectReasonConfig struct {
 	ID          string `json:"id"`
-	Label       string `json:"label"`
-	Placeholder string `json:"placeholder,omitempty"`
+	Label       Text   `json:"label"`
+	Placeholder Text   `json:"placeholder,omitzero"`
 	// MaxLen limita o tamanho do texto no frontend (em caracteres); 0 = sem limite explícito.
 	MaxLen int `json:"maxLen,omitempty"`
 }
 
-// RequestPayload representa uma solicitação de questionário pendente.
+// RequestPayload representa uma solicitação de questionário pendente. Os
+// textos visíveis são Text: quem monta o diálogo diz a chave de tradução e o
+// texto pronto, e quem o exibe escolhe entre os dois (AEP-0085).
 type RequestPayload struct {
 	ID           string              `json:"id"`
-	Title        string              `json:"title,omitempty"`
-	Description  string              `json:"description,omitempty"`
+	Title        Text                `json:"title,omitzero"`
+	Description  Text                `json:"description,omitzero"`
 	Questions    []Question          `json:"questions"`
 	AllowCancel  bool                `json:"allowCancel,omitempty"`
-	SubmitLabel  string              `json:"submitLabel,omitempty"`
-	CancelLabel  string              `json:"cancelLabel,omitempty"`
+	SubmitLabel  Text                `json:"submitLabel,omitzero"`
+	CancelLabel  Text                `json:"cancelLabel,omitzero"`
 	RejectReason *RejectReasonConfig `json:"rejectReason,omitempty"`
 	Timeout      time.Duration       `json:"-"` // 0 = DefaultTimeout
 	CreatedAt    string              `json:"createdAt"`

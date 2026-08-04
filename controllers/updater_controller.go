@@ -143,20 +143,20 @@ func (c *UpdaterController) promptForUpdate(ctx context.Context, info *updater.U
 	}
 
 	resp, err := c.questionnaireMgr.RequestQuestionnaire(qCtx, questionnaire.RequestPayload{
-		Title:       "Atualização Disponível",
-		Description: description,
+		Title:       questionnaire.Plain("Atualização Disponível"),
+		Description: questionnaire.Plain(description),
 		Questions: []questionnaire.Question{
 			{
 				ID:       "confirm",
 				Type:     "boolean",
-				Prompt:   "Deseja atualizar agora?",
+				Prompt:   questionnaire.Plain("Deseja atualizar agora?"),
 				Required: true,
 				Default:  true,
 			},
 		},
 		AllowCancel: true,
-		SubmitLabel: "Atualizar",
-		CancelLabel: "Mais Tarde",
+		SubmitLabel: questionnaire.Plain("Atualizar"),
+		CancelLabel: questionnaire.Plain("Mais Tarde"),
 	})
 
 	if err != nil {

@@ -99,7 +99,9 @@ func respondendo(escolhe func(opcoes []string) any) func([]questionnaire.Questio
 			if item.Type != "single_choice" && item.Type != "multiple_choice" {
 				continue
 			}
-			respostas[item.ID] = escolhe(item.Options)
+			// O valor que volta em Answers é o estável, não o rótulo
+			// traduzido — é assim que a tela responde (AEP-0085).
+			respostas[item.ID] = escolhe(questionnaire.TextValues(item.Options))
 		}
 		return respostas
 	}
@@ -199,7 +201,7 @@ func rotulosDosBlocos(payload map[string]any, prefixo string) []string {
 	var out []string
 	for _, item := range perguntasDe(payload) {
 		if item.Type == "readonly_code" && strings.HasPrefix(item.ID, prefixo) {
-			out = append(out, item.Prompt)
+			out = append(out, item.Prompt.String())
 		}
 	}
 	return out
@@ -208,7 +210,7 @@ func rotulosDosBlocos(payload map[string]any, prefixo string) []string {
 func opcoesNaTela(payload map[string]any) []string {
 	for _, item := range perguntasDe(payload) {
 		if item.Type == "single_choice" || item.Type == "multiple_choice" {
-			return item.Options
+			return questionnaire.TextValues(item.Options)
 		}
 	}
 	return nil
@@ -595,8 +597,8 @@ func TestSairPeloBotaoDeRecusarERecusarOPlano(t *testing.T) {
 		t.Errorf("motivo do cancelar = %q, quer o mesmo de escolher recusar (%q)",
 			resposta.Outcome.Reason, escolhido.Outcome.Reason)
 	}
-	if dialogo := tela.ultimoDialogo(t); dialogo["cancelLabel"] != "Recusar" {
-		t.Errorf("rótulo do cancelar = %v, quer o que o motivo diz", dialogo["cancelLabel"])
+	if rotulo := textoDoDialogo(tela.ultimoDialogo(t), "cancelLabel"); rotulo != "Recusar" {
+		t.Errorf("rótulo do cancelar = %q, quer o que o motivo diz", rotulo)
 	}
 }
 
@@ -645,7 +647,7 @@ func TestOTextoDoAgenteEhSaneadoAntesDeIrParaATela(t *testing.T) {
 		// Achatar num parágrafo só mudaria o que a pergunta parece ser.
 		t.Errorf("pergunta na tela = %q, quer as quebras de linha preservadas", pergunta)
 	}
-	if descricao, _ := dialogo["description"].(string); strings.Contains(descricao, "\x1b") {
+	if descricao := textoDoDialogo(dialogo, "description"); strings.Contains(descricao, "\x1b") {
 		t.Errorf("descrição = %q, quer o assunto saneado", descricao)
 	}
 	for _, opcao := range opcoesNaTela(dialogo) {
@@ -720,8 +722,8 @@ func TestOpcoesComOMesmoRotuloNaoViramAMesmaEscolha(t *testing.T) {
 			if item.Type != "single_choice" {
 				continue
 			}
-			oferecidas = item.Options
-			respostas[item.ID] = item.Options[1]
+			oferecidas = questionnaire.TextValues(item.Options)
+			respostas[item.ID] = oferecidas[1]
 		}
 		return respostas
 	})

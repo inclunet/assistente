@@ -116,10 +116,12 @@ func (t *telaFalsa) esperarFechamento(tb testing.TB) fechamentoNaTela {
 	return t.fechados[len(t.fechados)-1]
 }
 
+// opcoesDe devolve o que a pessoa vê e escolhe: o valor estável de cada opção,
+// que é o que volta em Answers.
 func (t *telaFalsa) opcoesDe(payload map[string]any) []string {
 	for _, pergunta := range perguntasDe(payload) {
 		if pergunta.ID == permissionAnswerID {
-			return pergunta.Options
+			return questionnaire.TextValues(pergunta.Options)
 		}
 	}
 	return nil
@@ -128,6 +130,13 @@ func (t *telaFalsa) opcoesDe(payload map[string]any) []string {
 func perguntasDe(payload map[string]any) []questionnaire.Question {
 	perguntas, _ := payload["questions"].([]questionnaire.Question)
 	return perguntas
+}
+
+// textoDoDialogo lê um texto do diálogo como a tela o exibiria: os campos
+// visíveis são questionnaire.Text (chave de tradução + texto pronto).
+func textoDoDialogo(payload map[string]any, campo string) string {
+	texto, _ := payload[campo].(questionnaire.Text)
+	return texto.String()
 }
 
 // acaoNaTela é o texto do bloco que a pessoa lê antes de decidir.
@@ -687,7 +696,7 @@ func TestOBotaoDeConfirmarDizOQueEleFaz(t *testing.T) {
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
 
 	pergunta := tela.ultimaPergunta(t)
-	if rotulo, _ := pergunta["submitLabel"].(string); rotulo == "" {
+	if rotulo := textoDoDialogo(pergunta, "submitLabel"); rotulo == "" {
 		t.Error("o diálogo foi para a tela com o botão genérico de enviar")
 	}
 }
@@ -903,7 +912,7 @@ func TestODialogoDizAteOndeVaiOSempre(t *testing.T) {
 
 	h.RequestPermission(context.Background(), pedidoDeExecucao())
 
-	descricao, _ := tela.ultimaPergunta(t)["description"].(string)
+	descricao := textoDoDialogo(tela.ultimaPergunta(t), "description")
 	if !strings.Contains(descricao, "permitir sempre") || !strings.Contains(descricao, "execute") {
 		t.Errorf("descrição = %q, quer dizer o que o sempre abrange", descricao)
 	}
@@ -921,7 +930,7 @@ func TestPedidoSemOpcaoDeSempreNaoFalaDeAutorizacaoPermanente(t *testing.T) {
 	}
 	h.RequestPermission(context.Background(), pedido)
 
-	descricao, _ := tela.ultimaPergunta(t)["description"].(string)
+	descricao := textoDoDialogo(tela.ultimaPergunta(t), "description")
 	if strings.Contains(descricao, "permitir sempre") {
 		t.Errorf("descrição = %q, fala de uma opção que o agente não ofereceu", descricao)
 	}
