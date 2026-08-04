@@ -2,6 +2,7 @@ package acp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -21,6 +22,16 @@ const cancelGrace = 30 * time.Second
 // closeTimeout limita o session/close. Encerrar a conversa não pode segurar a
 // saída do app por causa de um agente que não responde.
 const closeTimeout = 5 * time.Second
+
+// legacySetModelMethod é o seletor de modelo anterior ao configOptions. Escrito
+// à mão porque o SDK deixou de tipá-lo quando o formato estável virou o caminho
+// único — e é justamente o tipo de coisa que a chamada crua existe para cobrir
+// (AEP-0084 D2 e D6).
+const legacySetModelMethod = "session/set_model"
+
+// methodNotFoundCode é o erro JSON-RPC de método desconhecido. É o que separa
+// "este agente é antigo" de "este agente recusou a troca".
+const methodNotFoundCode = -32601
 
 type session struct {
 	id  string
@@ -211,8 +222,15 @@ func (s *session) deliver(update Update) {
 		// modo no meio da conversa — enquanto o estado da sessão ainda diria
 		// que o modo existe.
 		update.ConfigOptions, _ = s.mergeConfigOptions(update.ConfigOptions)
+		// O agente trocou de modelo por conta própria — fallback de limite, por
+		// exemplo. A lista que a tela de configurações guarda descreve um estado
+		// que acabou de mudar, e servir a antiga mostraria opções que já não são
+		// as dele (AEP-0084 D6).
+		s.cn.invalidateOptions()
+		s.cn.announceOptions(s.id, update.ConfigOptions)
 	case UpdateMode:
 		s.setCurrentMode(update.Mode)
+		s.cn.announceOptions(s.id, s.ConfigOptions())
 	}
 
 	s.sinkMu.RLock()
@@ -650,7 +668,16 @@ func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]Conf
 			},
 		})
 	if err != nil {
-		return nil, wrapCallError(fmt.Sprintf("trocar a opção %q da sessão", id), err)
+		if !isMethodNotFound(err) {
+			return nil, wrapCallError(fmt.Sprintf("trocar a opção %q da sessão", id), err)
+		}
+		// O agente é anterior ao formato estável e só conhece os seletores
+		// legados. O estado completo não volta por lá, então o valor pedido é
+		// anotado à mão (AEP-0084 D6).
+		if err := s.setLegacyOption(ctx, id, value); err != nil {
+			return nil, err
+		}
+		return s.confirmLocally(ctx, id, value), nil
 	}
 
 	// Mesmo cuidado do deliver: o agente no formato legado responde só com o
@@ -666,15 +693,77 @@ func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]Conf
 	// que ainda não modelamos, por exemplo —, então o valor pedido é guardado
 	// à mão: sem isso a tela anunciaria o modelo antigo para uma troca que
 	// aconteceu de verdade.
+	return s.confirmLocally(ctx, id, value), nil
+}
+
+// confirmLocally anota o valor que o agente aceitou sem devolver estado. Vale
+// para o seletor legado, que não responde nada, e para a resposta que só traz
+// opções de tipos que este pacote ainda não modela.
+func (s *session) confirmLocally(ctx context.Context, id, value string) []ConfigOption {
 	novas, achou := s.setCurrentValue(id, value)
 	if !achou {
-		// Nem isso deu, porque a opção trocada também é uma que não
-		// acompanhamos. Fica registrado: é o que explica uma tela que não
-		// mudou depois de uma troca bem-sucedida.
+		// A opção trocada é uma que não acompanhamos. Fica registrado: é o que
+		// explica uma tela que não mudou depois de uma troca bem-sucedida.
 		logging.Debugf(ctx, logComponent,
 			"[ACP] o agente confirmou a troca de %q na sessão %q, opção que não acompanhamos", id, s.id)
 	}
-	return novas, nil
+	return novas
+}
+
+// setLegacyOption fala com o agente pelo seletor anterior ao configOptions. O
+// método depende da categoria da opção — modelo e modo têm um cada —, e é por
+// isso que a escolha mora aqui: só a sessão sabe de que categoria é o
+// identificador que o app pediu.
+//
+// Os dois vão como chamada crua. O session/set_model já saiu do SDK conforme o
+// configOptions virou o caminho único, e depender do que ele tipou hoje é o que
+// a saída de baixo nível existe para evitar (AEP-0084 D2).
+func (s *session) setLegacyOption(ctx context.Context, id, value string) error {
+	method, field, ok := legacySelector(s.categoryOf(id))
+	if !ok {
+		return fmt.Errorf("o agente não conhece %s e a opção %q não tem seletor anterior",
+			sdk.AgentMethodSessionSetConfigOption, id)
+	}
+	_, err := sdk.SendRequest[json.RawMessage](s.cn.rpc, ctx, method, map[string]any{
+		"sessionId": s.id,
+		field:       value,
+	})
+	if err != nil {
+		return wrapCallError(fmt.Sprintf("trocar a opção %q da sessão pelo seletor %s", id, method), err)
+	}
+	return nil
+}
+
+// legacySelector devolve o método legado de uma categoria e o nome do campo que
+// carrega o valor nele.
+func legacySelector(category string) (method, field string, ok bool) {
+	switch category {
+	case CategoryModel:
+		return legacySetModelMethod, "modelId", true
+	case CategoryMode:
+		return sdk.AgentMethodSessionSetMode, "modeId", true
+	default:
+		return "", "", false
+	}
+}
+
+func (s *session) categoryOf(id string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, option := range s.options {
+		if option.ID == id {
+			return option.Category
+		}
+	}
+	return ""
+}
+
+// isMethodNotFound distingue o agente que não conhece o método do agente que
+// recusou a troca. Só o primeiro justifica tentar o seletor anterior: repetir um
+// valor que o agente rejeitou pelo outro caminho não o faria aceitar.
+func isMethodNotFound(err error) bool {
+	var reqErr *sdk.RequestError
+	return errors.As(err, &reqErr) && reqErr.Code == methodNotFoundCode
 }
 
 // PromptError diz, além do que falhou, se o agente chegou a aceitar o turno.

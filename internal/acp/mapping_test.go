@@ -188,8 +188,16 @@ func TestConversaExcluidaNaoInventaQueOTurnoSaiu(t *testing.T) {
 // precisa receber o mesmo conjunto que a sessão passou a guardar. Um agente que
 // manda só os modelos não pode fazer o seletor de modo sumir da tela no meio da
 // conversa enquanto a sessão ainda diz que o modo está lá.
+// sessaoSolta monta uma sessão fora de qualquer processo, para os testes que
+// olham só o estado dela. A conexão é vazia, mas existe: a entrega de uma
+// atualização de opções mexe no cache de descoberta do processo (AEP-0084 D6), e
+// uma sessão sem conexão nenhuma é estado que a produção não constrói.
+func sessaoSolta(options []ConfigOption) *session {
+	return newSession("sess-teste", "/tmp", &conn{}, options)
+}
+
 func TestOModoPreservadoTambemChegaAQuemEscuta(t *testing.T) {
-	s := newSession("sess-teste", "/tmp", nil, []ConfigOption{
+	s := sessaoSolta([]ConfigOption{
 		{ID: "mode", Category: modeCategory, CurrentValue: "plan", Values: []ConfigValue{{Value: "plan"}}},
 		{ID: "model", Category: "model", CurrentValue: "antigo", Values: []ConfigValue{{Value: "antigo"}}},
 	})
@@ -225,7 +233,7 @@ func TestOModoPreservadoTambemChegaAQuemEscuta(t *testing.T) {
 // que começou antes grava por cima do que foi trocado depois, e o modo volta
 // sozinho para o anterior na tela de quem acabou de mudá-lo.
 func TestOModoTrocadoNaoVoltaSozinhoComAnuncioConcorrente(t *testing.T) {
-	s := newSession("sess-teste", "/tmp", nil, []ConfigOption{
+	s := sessaoSolta([]ConfigOption{
 		{ID: "mode", Category: modeCategory, CurrentValue: "agente", Values: []ConfigValue{{Value: "agente"}, {Value: "plano"}}},
 		{ID: "model", Category: "model", CurrentValue: "antigo", Values: []ConfigValue{{Value: "antigo"}}},
 	})
