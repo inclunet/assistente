@@ -1,5 +1,10 @@
 import { useTranslation } from 'react-i18next';
-import { CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined } from '@ant-design/icons';
+import {
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  ExclamationCircleOutlined,
+  LoadingOutlined,
+} from '@ant-design/icons';
 import { useConnectionStore } from '../../store/connectionStore';
 import type { ConnectionState } from '../../types/connection';
 import './ConnectionStatusIndicator.css';
@@ -7,7 +12,15 @@ import './ConnectionStatusIndicator.css';
 const STATE_ICON: Record<Exclude<ConnectionState, 'unknown'>, React.ReactNode> = {
   online: <CheckCircleOutlined aria-hidden="true" />,
   offline: <CloseCircleOutlined aria-hidden="true" />,
+  unauthenticated: <ExclamationCircleOutlined aria-hidden="true" />,
   checking: <LoadingOutlined spin aria-hidden="true" />,
+};
+
+const STATE_LABEL: Record<Exclude<ConnectionState, 'unknown'>, string> = {
+  online: 'connectionStatus.online',
+  offline: 'connectionStatus.offline',
+  unauthenticated: 'connectionStatus.unauthenticated',
+  checking: 'connectionStatus.checking',
 };
 
 /**
@@ -32,13 +45,11 @@ export function ConnectionStatusIndicator() {
   const avgLatency = Math.max(0, Math.round(status.avgLatencyMs));
   const showLatency = state === 'online' && avgLatency > 0;
 
-  const label =
-    state === 'online'
-      ? t('connectionStatus.online')
-      : state === 'offline'
-        ? t('connectionStatus.offline')
-        : t('connectionStatus.checking');
+  const label = t(STATE_LABEL[state]);
 
+  // O rótulo de "sem login" diz o que fazer, e não só que algo está errado: é o
+  // estado que a pessoa resolve fora do app, rodando o login do CLI do agente
+  // (AEP-0084 D12).
   const ariaLabel =
     state === 'online'
       ? showLatency
@@ -46,7 +57,9 @@ export function ConnectionStatusIndicator() {
         : t('connectionStatus.aria.online', { provider: providerName })
       : state === 'offline'
         ? t('connectionStatus.aria.offline', { provider: providerName })
-        : t('connectionStatus.aria.checking', { provider: providerName });
+        : state === 'unauthenticated'
+          ? t('connectionStatus.aria.unauthenticated', { provider: providerName })
+          : t('connectionStatus.aria.checking', { provider: providerName });
 
   return (
     <div

@@ -24,6 +24,10 @@ const (
 	StateOnline   = "online"
 	StateOffline  = "offline"
 	StateChecking = "checking" // sondagem em andamento (usado para "reconectando")
+	// StateUnauthenticated é o provedor de agente de código que está de pé mas
+	// sem login. Não é offline: nada há para consertar no app, e a saída é
+	// rodar o login do CLI do agente (AEP-0084 D12).
+	StateUnauthenticated = "unauthenticated"
 )
 
 // Emitter abstrai o envio de eventos para o frontend (Wails runtime).

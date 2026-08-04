@@ -53,6 +53,19 @@ describe('ConnectionStatusIndicator', () => {
     expect(el).toHaveTextContent('connectionStatus.offline');
   });
 
+  it('reflete o estado sem login com rótulo próprio', () => {
+    act(() =>
+      useConnectionStore
+        .getState()
+        .setStatus(payload({ state: 'unauthenticated', errorType: 'agent_not_authenticated' })),
+    );
+    render(<ConnectionStatusIndicator />);
+
+    const el = screen.getByLabelText('connectionStatus.aria.unauthenticated');
+    expect(el).toHaveAttribute('data-state', 'unauthenticated');
+    expect(el).toHaveTextContent('connectionStatus.unauthenticated');
+  });
+
   it('reflete o estado checking (reconectando)', () => {
     act(() => useConnectionStore.getState().setStatus(payload({ state: 'checking' })));
     render(<ConnectionStatusIndicator />);
