@@ -6,8 +6,14 @@ import { ProviderForm } from './ProviderForm';
 
 const announceMock = vi.hoisted(() => vi.fn());
 const detectMock = vi.hoisted(() => vi.fn());
-const createMock = vi.hoisted(() => vi.fn(() => Promise.resolve({ id: 'cursor-1' })));
-const updateMock = vi.hoisted(() => vi.fn(() => Promise.resolve({})));
+// Assinatura declarada nos mocks para os testes poderem inspecionar o payload:
+// sem os parâmetros, `mock.calls[0]` é uma tupla vazia para o TypeScript.
+const createMock = vi.hoisted(() =>
+  vi.fn((_payload: Record<string, unknown>) => Promise.resolve({ id: 'cursor-1' })),
+);
+const updateMock = vi.hoisted(() =>
+  vi.fn((_id: string, _payload: Record<string, unknown>) => Promise.resolve({})),
+);
 const listModelsMock = vi.hoisted(() => vi.fn(() => Promise.resolve(['gpt-4o'])));
 
 function resolveLocaleString(key: string, vars?: Record<string, unknown>): string | undefined {
@@ -148,6 +154,94 @@ describe('ProviderForm — provedor de agente de código', () => {
     expect(await screen.findByText(/comando do agente é obrigatório/i)).toBeInTheDocument();
     expect(createMock).not.toHaveBeenCalled();
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('trocar o tipo de um agente salvo devolve o formulário à forma HTTP', async () => {
+    // O tipo é editável na edição, e o formato é quem decide a forma do
+    // formulário e o caminho de gravação: se ele não acompanhasse a troca, a
+    // pessoa continuaria vendo campos de agente e gravaria um provedor HTTP
+    // pelo pipeline do agente.
+    detectMock.mockResolvedValue(detected);
+    listModelsMock.mockResolvedValue(['llama3']);
+    const user = userEvent.setup();
+
+    render(
+      <ProviderForm
+        provider={{
+          id: 'cursor-1',
+          name: 'Cursor local',
+          type: 'cursor',
+          base_url: '',
+          api_key: '',
+          api_format: 'acp',
+          acp_command: '/opt/cursor/agente',
+          acp_args: ['acp'],
+        }}
+        onCancel={() => {}}
+        onSave={() => {}}
+      />
+    );
+    await screen.findByLabelText(/comando do agente/i);
+
+    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'ollama');
+
+    expect(screen.queryByLabelText(/comando do agente/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/base url/i)).toHaveValue('http://localhost:11434');
+    // Agente não guardou credencial, então o campo aparece para preencher em vez
+    // do botão que diria que já existe uma chave configurada.
+    expect(screen.getByLabelText(/api key/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /carregar modelos/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /atualizar/i })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: /atualizar/i }));
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    const payload = updateMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload).toMatchObject({ type: 'ollama', base_url: 'http://localhost:11434' });
+    expect(payload.api_format).not.toBe('acp');
+    expect(payload.acp_command).toBeUndefined();
+  });
+
+  it('trocar um provedor HTTP salvo para agente troca a forma e o caminho de gravação', async () => {
+    detectMock.mockResolvedValue(detected);
+    listModelsMock.mockResolvedValue(['gpt-4o']);
+    const user = userEvent.setup();
+
+    render(
+      <ProviderForm
+        provider={{
+          id: 'openai-1',
+          name: 'OpenAI',
+          type: 'openai',
+          base_url: 'https://api.openai.com/v1',
+          api_key: '',
+          api_format: 'openai_responses',
+        }}
+        onCancel={() => {}}
+        onSave={() => {}}
+      />
+    );
+    await screen.findByLabelText(/base url/i);
+
+    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'cursor');
+
+    // O tipo trocado à mão não tem comando salvo, então a detecção preenche.
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(detected.command));
+    expect(screen.queryByLabelText(/base url/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/api key/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /atualizar/i }));
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    const payload = updateMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      type: 'cursor',
+      api_format: 'acp',
+      acp_command: detected.command,
+      acp_args: detected.args,
+    });
+    expect(payload.base_url).toBeUndefined();
+    expect(payload.api_key).toBeUndefined();
   });
 
   it('edição preserva o comando salvo e atualiza pelo mesmo contrato', async () => {
