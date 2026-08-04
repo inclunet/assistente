@@ -62,6 +62,16 @@ type AgentActivitySink interface {
 	OnSegmentDone()
 }
 
+// AgentTitleSink recebe o título que o agente de código gerou para a conversa
+// (AEP-0084 D8). O agente batiza a sessão dele por conta própria, e esse nome
+// costuma dizer melhor do que se trata do que o recorte da primeira mensagem
+// que o app usa como rótulo provisório.
+//
+// É opcional — o provider descobre com type assertion sobre o StreamHandler.
+type AgentTitleSink interface {
+	OnAgentTitle(title string)
+}
+
 // TurnNoticeKind identifica o que o aviso conta. É código, e não frase: quem
 // exibe traduz para o idioma de quem lê.
 type TurnNoticeKind string

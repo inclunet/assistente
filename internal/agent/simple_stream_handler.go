@@ -33,6 +33,7 @@ var (
 	_ llm.AgentActivitySink     = (*SimpleStreamHandler)(nil)
 	_ llm.NonRetryableErrorSink = (*SimpleStreamHandler)(nil)
 	_ llm.TurnNoticeSink        = (*SimpleStreamHandler)(nil)
+	_ llm.AgentTitleSink        = (*SimpleStreamHandler)(nil)
 )
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.

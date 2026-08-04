@@ -253,6 +253,7 @@ type espiao struct {
 	naoRetentavel bool
 	ferramentas   []AgentToolEvent
 	avisos        []TurnNotice
+	titulos       []string
 	segmentos     int
 	pronto        bool
 	respostaFim   string
@@ -307,6 +308,12 @@ func (e *espiao) OnSegmentDone() {
 func (e *espiao) OnTurnNotice(notice TurnNotice) {
 	e.avisos = append(e.avisos, notice)
 	e.ordem = append(e.ordem, "notice_"+string(notice.Kind))
+}
+
+// E o nome que o agente deu à sessão, que vira o título da conversa.
+func (e *espiao) OnAgentTitle(title string) {
+	e.titulos = append(e.titulos, title)
+	e.ordem = append(e.ordem, "title")
 }
 
 func (e *espiao) texto() string { return strings.Join(e.chunks, "") }
