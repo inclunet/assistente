@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -23,9 +22,8 @@ const (
 )
 
 // acpRequestHandler responde ao que o agente de código pergunta ao app
-// (AEP-0084 D9). Hoje isso é o pedido de permissão para agir na máquina; as
-// extensões bloqueantes do Cursor ainda não são tratadas, e o transporte
-// responde por elas que o método não existe.
+// (AEP-0084 D9): o pedido de permissão para agir na máquina, tratado aqui, e as
+// extensões bloqueantes do Cursor, em app_acp_extensions.go.
 //
 // As dependências entram como função porque este handler nasce antes do resto
 // do app: o serviço de agentes é criado cedo, e o questionário só existe
@@ -166,19 +164,6 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 		h.rememberAlways(ctx, owner, profile, kind, registro)
 	}
 	return acp.PermissionOutcome{OptionID: choice.id}
-}
-
-// HandleCustom ainda não trata as extensões bloqueantes do Cursor. Devolver
-// que não foram tratadas faz o transporte responder "método não encontrado",
-// que desbloqueia o agente sem fingir suporte.
-func (h *acpRequestHandler) HandleCustom(context.Context, string, json.RawMessage) (any, bool) {
-	return nil, false
-}
-
-// CustomFallback não tem desfecho a oferecer enquanto nenhuma extensão é
-// tratada aqui.
-func (h *acpRequestHandler) CustomFallback(string) (any, bool) {
-	return nil, false
 }
 
 func (h *acpRequestHandler) turnOwner(sessionID string) (acp.TurnOwner, bool) {

@@ -91,6 +91,39 @@ Dois detalhes de implementação que só aparecem na prática:
   `"call-…-0\nfc_…"`). IDs vindos do agente precisam ser normalizados antes de
   virar chave, atributo de DOM ou texto anunciado.
 
+### Segunda sonda: as extensões bloqueantes não apareceram
+
+Sonda executada em 2026-08-04 contra o mesmo Cursor CLI `2026.07.23-e383d2b`,
+desta vez atrás de `cursor/ask_question` e `cursor/create_plan`: três turnos, nos
+modos `ask`, `plan` e `agent`, com prompts que mandavam o agente perguntar antes
+de agir ("Pergunte-me qual arquivo usando sua ferramenta de pergunta ao usuário;
+não adivinhe") e pedir aprovação de um plano.
+
+**Nenhuma das duas extensões foi emitida.** Nos três turnos o agente respondeu no
+próprio texto do turno e encerrou com `stopReason: end_turn` — e o raciocínio
+dele diz por quê: *"Não encontrei uma ferramenta dedicada para perguntar ao
+usuário"*, *"Vou formular perguntas clarificadoras diretamente na conversa, sem
+usar a ferramenta de pergunta"*. Nesta versão do CLI as duas ferramentas
+aparentemente só existem quando o cliente as anuncia de algum modo que o
+`initialize` do ACP não cobre, ou não existem. **O schema de
+`cursor/ask_question` e `cursor/create_plan` continua sem confirmação empírica**;
+o que o app implementa vem da documentação e do que já foi observado das outras
+extensões.
+
+O que a sonda capturou de novo, e que muda a implementação:
+
+- **`cursor/task` chega sem `sessionId`.** O payload cru observado traz
+  `toolCallId`, `description`, `prompt`, `subagentType`, `model`, `agentId` e
+  `durationMs` — e nenhum campo de sessão, ao contrário de
+  `session/request_permission`, que traz. Ou seja: **extensão `cursor/*` não
+  carrega sessão por padrão**, e um handler que dependa de `params.sessionId`
+  para achar a conversa dona do pedido não vai achar nada. Quem resolve isso é o
+  transporte, atribuindo o pedido ao único turno em voo quando o payload não
+  nomeia sessão; sem isso, o cancelamento do turno não alcançaria a extensão
+  pendente e o pedido ficaria pendurado até o teto de tempo.
+- O `toolCallId` com quebra de linha reapareceu aqui também (`"call-…-0\nfc_…"`),
+  agora numa extensão — o saneamento não é exclusividade do `session/update`.
+
 Uma premissa anterior também caiu: **`internal/mcp` não implementa JSON-RPC** —
 ele usa o SDK oficial de MCP. O que existe de reaproveitável ali é o padrão de
 subprocesso (spawn com contexto, `osutil.HideConsoleWindow`, env, backoff,
@@ -476,6 +509,14 @@ confirmação de edição, que já é acessível por teclado e leitor de telas.
   pertencem ao turno: elas recebem o erro JSON-RPC de pedido cancelado, e não
   "método não encontrado" — que faria o agente concluir que o app não suporta a
   extensão. Encerrar a conversa tem o mesmo efeito de cancelar.
+- **Quem descobre a sessão da extensão é o transporte.** O pedido de permissão
+  nomeia a sessão; a extensão `cursor/*` observada na sonda não nomeia nenhuma.
+  Sem sessão não há conversa dona, não há perfil, não há para quem perguntar — e
+  o cancelamento do turno não alcançaria o pedido pendente. O transporte
+  atribui o pedido ao **único turno em voo** quando o payload não diz a qual
+  sessão ele pertence; havendo mais de um, não há como adivinhar, e o pedido
+  segue sem sessão para a camada acima resolvê-lo pelo desfecho negativo. Isso
+  é do transporte, e não de cada método: é ele que sabe quais turnos existem.
 - O título do `toolCall` contém o comando literal e é **dado não confiável**:
   passa pelo mesmo saneamento de texto de diálogo antes de virar rótulo ou
   anúncio.
