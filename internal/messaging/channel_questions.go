@@ -557,13 +557,17 @@ func sanitizeChannelText(text string) string {
 // truncateChannelText corta o bloco no orçamento dele, contando runas e não
 // bytes — cortar no meio de um caractere entregaria texto quebrado a quem
 // precisa lê-lo para decidir.
+// A marca sai de dentro do orçamento, não por cima dele: ela é parte do bloco
+// que vai para a mensagem, e cobrá-la fora estouraria o teto justamente quando
+// há vários blocos cortados — cada corte somaria uma marca que ninguém contou.
 func truncateChannelText(text string, budget int) string {
-	if budget <= 0 {
+	mark := utf8.RuneCountInString(channelTruncatedMark)
+	if budget <= mark {
 		return channelTruncatedMark
 	}
 	runes := []rune(text)
 	if len(runes) <= budget {
 		return text
 	}
-	return strings.TrimRight(string(runes[:budget]), " \n\t") + channelTruncatedMark
+	return strings.TrimRight(string(runes[:budget-mark]), " \n\t") + channelTruncatedMark
 }

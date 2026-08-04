@@ -374,6 +374,38 @@ func TestBlocoLongoEhCortadoSemLevarAsOpcoesEmbora(t *testing.T) {
 	esperarResultado(t, pronto)
 }
 
+func TestVariosBlocosCortadosNaoEstouramOTetoDaMensagem(t *testing.T) {
+	// Cada corte acrescenta a marca de "texto cortado", e ela é parte do bloco:
+	// cobrá-la fora do orçamento faria a mensagem passar do teto justamente no
+	// diálogo com mais de um bloco longo — que é o que a plataforma recusa.
+	perguntas, canal := mecanismoDePergunta(time.Minute)
+	payload := pedidoDePermissao()
+	longo := strings.Repeat("comando muito longo ", 500)
+	payload.Questions[0].Content = longo
+	extras := []questionnaire.Question{
+		{ID: "arquivo", Type: "readonly_code", Prompt: questionnaire.Plain("Arquivo"), Content: longo},
+		{ID: "diff", Type: "readonly_code", Prompt: questionnaire.Plain("Alteração"), Content: longo},
+	}
+	payload.Questions = append(payload.Questions[:1], append(extras, payload.Questions[1])...)
+	pronto := perguntaEmVoo(t, perguntas, payload)
+
+	mensagem := canal.esperarMensagem(t)
+	if tamanho := len([]rune(mensagem.texto)); tamanho > channelMessageBudget {
+		t.Errorf("a mensagem tem %d runas, quer no máximo %d", tamanho, channelMessageBudget)
+	}
+	if cortes := strings.Count(mensagem.texto, channelTruncatedMark); cortes != len(extras)+1 {
+		t.Errorf("marcas de corte = %d, quer uma por bloco longo (%d)", cortes, len(extras)+1)
+	}
+	for _, trecho := range []string{"1 - Permitir uma vez", "2 - Negar", "Responda com o número"} {
+		if !strings.Contains(mensagem.texto, trecho) {
+			t.Errorf("o corte levou embora %q: ninguém teria como responder", trecho)
+		}
+	}
+
+	perguntas.TryAnswer(context.Background(), "conversa-1", "contato-1", "2")
+	esperarResultado(t, pronto)
+}
+
 func TestDialogoQueNaoCabeNumaMensagemNaoEhPerguntado(t *testing.T) {
 	casos := map[string][]questionnaire.Question{
 		"texto livre obrigatório": {
