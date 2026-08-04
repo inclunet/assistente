@@ -729,8 +729,21 @@ describe('QuestionnaireDialog', () => {
       ],
     };
 
-    afterEach(() => {
+    // O idioma é estado global do i18next: outro teste (ou o ambiente) pode
+    // deixá-lo em outro valor, e aí as chaves em inglês deste bloco não seriam
+    // encontradas. Fixamos aqui e devolvemos o que estava.
+    let idiomaOriginal = '';
+
+    beforeEach(async () => {
+      idiomaOriginal = i18n.language;
+      await i18n.changeLanguage('en');
+    });
+
+    afterEach(async () => {
       i18n.removeResourceBundle('en', 'translation');
+      if (idiomaOriginal && idiomaOriginal !== 'en') {
+        await i18n.changeLanguage(idiomaOriginal);
+      }
     });
 
     it('traduz título, botões e opções quando a chave existe', async () => {
