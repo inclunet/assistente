@@ -352,6 +352,7 @@ const ptBR = {
         contacts: 'Contatos',
         credentials: 'Cred Manager',
         allowlists: 'Allow Lists',
+        'agent-permissions': 'Autorizações do Agente',
         appearance: 'Aparência',
         data: 'Dados',
         'restore-defaults': 'Restaurar Padrões',
@@ -514,6 +515,47 @@ const ptBR = {
       error: {
         loadFailed: 'Erro ao carregar contatos',
         removeFailed: 'Erro ao remover contato',
+      },
+    },
+
+    agentPermissions: {
+      title: 'Autorizações do Agente',
+      loading: 'Carregando autorizações...',
+      toolbarLabel: 'Barra de ferramentas de autorizações do agente',
+      gridLabel: 'Autorizações permanentes do agente',
+      description: 'Ações que você autorizou um agente de código a fazer sem perguntar de novo. A autorização vale para todas as ações daquela classe no perfil, até você revogá-la aqui.',
+      empty: 'Nenhuma autorização permanente. O agente pergunta antes de cada ação.',
+      columns: {
+        profile: 'Perfil',
+        action: 'Ação autorizada',
+        grantedAt: 'Autorizada em',
+      },
+      actions: {
+        revoke: 'Revogar',
+        reload: 'Recarregar',
+      },
+      action: {
+        read: 'Ler arquivos',
+        edit: 'Editar arquivos',
+        delete: 'Apagar arquivos',
+        move: 'Mover arquivos',
+        search: 'Fazer buscas',
+        execute: 'Executar comandos',
+        think: 'Pensar',
+        fetch: 'Buscar na rede',
+        switchMode: 'Mudar de modo',
+        other: 'Ações sem classe declarada',
+        unknown: 'Ações sem classe declarada',
+      },
+      confirm: {
+        title: 'Revogar autorização',
+        message: 'Revogar "{{action}}" no perfil {{profile}}? O agente volta a pedir permissão antes de cada ação dessa classe.',
+      },
+      toast: { revoked: 'Autorização revogada' },
+      announce: { revoked: 'Autorização revogada: {{action}} no perfil {{profile}}.' },
+      error: {
+        loadFailed: 'Erro ao carregar as autorizações do agente',
+        revokeFailed: 'Erro ao revogar a autorização',
       },
     },
 

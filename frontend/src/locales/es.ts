@@ -351,6 +351,7 @@ const es = {
         contacts: 'Contactos',
         credentials: 'Cred Manager',
         allowlists: 'Allow Lists',
+        'agent-permissions': 'Permisos del Agente',
         appearance: 'Apariencia',
         data: 'Datos',
         'restore-defaults': 'Restaurar valores predeterminados',
@@ -513,6 +514,47 @@ const es = {
       error: {
         loadFailed: 'Error al cargar contactos',
         removeFailed: 'Error al eliminar contacto',
+      },
+    },
+
+    agentPermissions: {
+      title: 'Permisos del Agente',
+      loading: 'Cargando permisos...',
+      toolbarLabel: 'Barra de herramientas de permisos del agente',
+      gridLabel: 'Permisos permanentes del agente',
+      description: 'Acciones que autorizó a un agente de código a realizar sin volver a preguntar. El permiso vale para todas las acciones de esa clase en el perfil, hasta que lo revoque aquí.',
+      empty: 'No hay permisos permanentes. El agente pregunta antes de cada acción.',
+      columns: {
+        profile: 'Perfil',
+        action: 'Acción autorizada',
+        grantedAt: 'Autorizada el',
+      },
+      actions: {
+        revoke: 'Revocar',
+        reload: 'Recargar',
+      },
+      action: {
+        read: 'Leer archivos',
+        edit: 'Editar archivos',
+        delete: 'Eliminar archivos',
+        move: 'Mover archivos',
+        search: 'Realizar búsquedas',
+        execute: 'Ejecutar comandos',
+        think: 'Pensar',
+        fetch: 'Buscar en la red',
+        switchMode: 'Cambiar de modo',
+        other: 'Acciones sin clase declarada',
+        unknown: 'Acciones sin clase declarada',
+      },
+      confirm: {
+        title: 'Revocar permiso',
+        message: '¿Revocar "{{action}}" en el perfil {{profile}}? El agente volverá a pedir permiso antes de cada acción de esa clase.',
+      },
+      toast: { revoked: 'Permiso revocado' },
+      announce: { revoked: 'Permiso revocado: {{action}} en el perfil {{profile}}.' },
+      error: {
+        loadFailed: 'Error al cargar los permisos del agente',
+        revokeFailed: 'Error al revocar el permiso',
       },
     },
 
