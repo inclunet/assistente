@@ -202,23 +202,51 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	return acp.PermissionOutcome{OptionID: choice.id}
 }
 
+// undecidedCause é por que um diálogo do agente acabou sem decisão de ninguém.
+// A classificação é a mesma para permissão, pergunta e plano; o que muda é o
+// aviso e o desfecho que cada método aceita.
+type undecidedCause int
+
+const (
+	// causeCancelled é o turno abortado por quem estava decidindo.
+	causeCancelled undecidedCause = iota
+	// causeNoInterlocutor é a conversa que não tinha onde perguntar.
+	causeNoInterlocutor
+	// causeUnavailable é a superfície que não conseguiu apresentar a pergunta:
+	// diálogo fora do ar, pergunta que não cabe numa mensagem, canal que não
+	// entregou. A pergunta não chegou a aparecer.
+	causeUnavailable
+	// causeNoAnswer é a pergunta que apareceu e ninguém decidiu no prazo.
+	causeNoAnswer
+)
+
+func undecidedCauseOf(ctx context.Context, err error) undecidedCause {
+	switch {
+	case turnCancelled(ctx, err):
+		return causeCancelled
+	case errors.Is(err, questionnaire.ErrNoInterlocutor):
+		return causeNoInterlocutor
+	case errors.Is(err, questionnaire.ErrAskerUnavailable):
+		return causeUnavailable
+	default:
+		return causeNoAnswer
+	}
+}
+
 // permissionFailureNotice escolhe o que contar à conversa quando o pedido acabou
-// sem decisão de ninguém.
+// sem decisão de ninguém. Vazio quer dizer não avisar.
 //
 // Turno cancelado não vira aviso: foi a própria pessoa que desistiu, e o diálogo
 // já saiu da tela dizendo isso. Avisar de novo seria cobrar explicação de quem
-// acabou de dar uma.
+// acabou de dar uma. Dizer "ninguém respondeu a tempo" numa pergunta que nunca
+// apareceu culparia quem não a viu.
 func permissionFailureNotice(ctx context.Context, err error) string {
-	switch {
-	case turnCancelled(ctx, err):
+	switch undecidedCauseOf(ctx, err) {
+	case causeCancelled:
 		return ""
-	case errors.Is(err, questionnaire.ErrNoInterlocutor):
+	case causeNoInterlocutor:
 		return ports.ChatNoticeKindPermissionNoWatcher
-	case errors.Is(err, questionnaire.ErrAskerUnavailable):
-		// A superfície existe, mas a pergunta não chegou a aparecer: diálogo
-		// fora do ar, pergunta que não cabe numa mensagem, canal que não
-		// entregou. Dizer "ninguém respondeu a tempo" culparia quem nunca viu a
-		// pergunta.
+	case causeUnavailable:
 		return ports.ChatNoticeKindPermissionUnavailable
 	default:
 		return ports.ChatNoticeKindPermissionTimeout
