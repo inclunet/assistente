@@ -123,6 +123,57 @@ func (c *UpdaterController) PromptForUpdate(ctx context.Context, info *updater.U
 	go c.promptForUpdate(ctx, info)
 }
 
+// updateTextKey é o assunto deste diálogo nas chaves de tradução (AEP-0085 D7).
+func updateTextKey(field string) string {
+	return "app.questionnaire.update." + field
+}
+
+// updatePromptPayload monta o convite para atualizar. Versões, notas da release e
+// tamanho do download são dados da release: vão como parâmetros da tradução, e o
+// texto pronto já vai com eles no lugar (AEP-0085 D6).
+//
+// A descrição muda com o que a release traz, e as quatro formas dividem um campo
+// só: é a chave que diz qual delas está na tela. Com uma chave só, quem traduz
+// deixaria de fora as notas ou o tamanho — e é pelo tamanho que alguém em conexão
+// limitada decide esperar.
+func updatePromptPayload(info *updater.UpdateInfo) questionnaire.RequestPayload {
+	campo := "description"
+	params := map[string]any{
+		"current": info.CurrentVersion,
+		"latest":  info.LatestVersion,
+	}
+	fallback := fmt.Sprintf("Versão atual: %s\nNova versão: %s", info.CurrentVersion, info.LatestVersion)
+
+	if info.ReleaseNotes != "" {
+		campo += "Notes"
+		params["notes"] = info.ReleaseNotes
+		fallback += "\n\nNotas da versão:\n" + info.ReleaseNotes
+	}
+	if info.DownloadSize > 0 {
+		campo += "Size"
+		size := fmt.Sprintf("%.2f", float64(info.DownloadSize)/(1024*1024))
+		params["size"] = size
+		fallback += fmt.Sprintf("\n\nTamanho do download: %s MB", size)
+	}
+
+	return questionnaire.RequestPayload{
+		Title:       questionnaire.Keyed(updateTextKey("title"), "Atualização Disponível"),
+		Description: questionnaire.KeyedWith(updateTextKey(campo), params, fallback),
+		Questions: []questionnaire.Question{
+			{
+				ID:       "confirm",
+				Type:     "boolean",
+				Prompt:   questionnaire.Keyed(updateTextKey("prompt"), "Deseja atualizar agora?"),
+				Required: true,
+				Default:  true,
+			},
+		},
+		AllowCancel: true,
+		SubmitLabel: questionnaire.Keyed(updateTextKey("submit"), "Atualizar"),
+		CancelLabel: questionnaire.Keyed(updateTextKey("cancel"), "Mais Tarde"),
+	}
+}
+
 // promptForUpdate pergunta ao usuário se deseja atualizar.
 func (c *UpdaterController) promptForUpdate(ctx context.Context, info *updater.UpdateInfo) {
 	if c.questionnaireMgr == nil {
@@ -133,31 +184,7 @@ func (c *UpdaterController) promptForUpdate(ctx context.Context, info *updater.U
 	qCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	description := fmt.Sprintf("Versão atual: %s\nNova versão: %s", info.CurrentVersion, info.LatestVersion)
-	if info.ReleaseNotes != "" {
-		description += "\n\nNotas da versão:\n" + info.ReleaseNotes
-	}
-	if info.DownloadSize > 0 {
-		sizeMB := float64(info.DownloadSize) / (1024 * 1024)
-		description += fmt.Sprintf("\n\nTamanho do download: %.2f MB", sizeMB)
-	}
-
-	resp, err := c.questionnaireMgr.RequestQuestionnaire(qCtx, questionnaire.RequestPayload{
-		Title:       questionnaire.Plain("Atualização Disponível"),
-		Description: questionnaire.Plain(description),
-		Questions: []questionnaire.Question{
-			{
-				ID:       "confirm",
-				Type:     "boolean",
-				Prompt:   questionnaire.Plain("Deseja atualizar agora?"),
-				Required: true,
-				Default:  true,
-			},
-		},
-		AllowCancel: true,
-		SubmitLabel: questionnaire.Plain("Atualizar"),
-		CancelLabel: questionnaire.Plain("Mais Tarde"),
-	})
+	resp, err := c.questionnaireMgr.RequestQuestionnaire(qCtx, updatePromptPayload(info))
 
 	if err != nil {
 		logging.Errorf(ctx, "controllers.updater-controller", "[Updater] Erro ao solicitar confirmação: %v", err)

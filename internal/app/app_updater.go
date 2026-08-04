@@ -17,6 +17,41 @@ import (
 // Em dev, permanece como "dev".
 var AppVersion = "dev"
 
+// updateElevationTextKey é o assunto deste diálogo nas chaves de tradução
+// (AEP-0085 D7).
+func updateElevationTextKey(field string) string {
+	return "app.questionnaire.updateElevation." + field
+}
+
+// updateElevationPayload monta o pedido de privilégio de administrador para
+// substituir o executável. É decisão de segurança, e das que não se avaliam sem
+// entender: quem lê o pedido num idioma que não fala não tem como saber o que
+// está autorizando (AEP-0085).
+func updateElevationPayload() questionnaire.RequestPayload {
+	return questionnaire.RequestPayload{
+		Title: questionnaire.Keyed(updateElevationTextKey("title"), "Permissão Necessária"),
+		Description: questionnaire.Keyed(
+			updateElevationTextKey("description"),
+			"Para atualizar o aplicativo, precisamos de permissões de administrador para substituir o arquivo executável.\n\nDeseja permitir?",
+		),
+		Questions: []questionnaire.Question{
+			{
+				ID:   "allow",
+				Type: "boolean",
+				Prompt: questionnaire.Keyed(
+					updateElevationTextKey("prompt"),
+					"Permitir atualização com privilégios de administrador?",
+				),
+				Required: true,
+				Default:  true,
+			},
+		},
+		AllowCancel: true,
+		SubmitLabel: questionnaire.Keyed(updateElevationTextKey("submit"), "Permitir"),
+		CancelLabel: questionnaire.Keyed(updateElevationTextKey("cancel"), "Cancelar"),
+	}
+}
+
 // initUpdater inicializa o gerenciador de atualizações e configura seus callbacks.
 func (a *App) initUpdater() {
 	a.updater = updater.New(AppVersion, a.credMgr)
@@ -48,22 +83,7 @@ func (a *App) initUpdater() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
-		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-			Title:       questionnaire.Plain("Permissão Necessária"),
-			Description: questionnaire.Plain("Para atualizar o aplicativo, precisamos de permissões de administrador para substituir o arquivo executável.\n\nDeseja permitir?"),
-			Questions: []questionnaire.Question{
-				{
-					ID:       "allow",
-					Type:     "boolean",
-					Prompt:   questionnaire.Plain("Permitir atualização com privilégios de administrador?"),
-					Required: true,
-					Default:  true,
-				},
-			},
-			AllowCancel: true,
-			SubmitLabel: questionnaire.Plain("Permitir"),
-			CancelLabel: questionnaire.Plain("Cancelar"),
-		})
+		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, updateElevationPayload())
 
 		if err != nil {
 			logging.Errorf(context.Background(), "app.app-updater", "[Updater] Erro ao solicitar confirmação de elevação: %v", err)
