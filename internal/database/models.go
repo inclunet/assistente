@@ -99,7 +99,17 @@ type ACPSession struct {
 	// Uma conversa tem no máximo uma sessão por provider. O provider entra na
 	// chave porque trocar de perfil no meio da conversa pode trocar de agente,
 	// e voltar ao anterior deve reencontrar a sessão que ele ainda lembra.
-	UserID         string `gorm:"uniqueIndex:idx_acp_sessions_scope"`
+	//
+	// UserID segue o `not null;default:''` dos outros models com dono (Channel,
+	// ChannelContact): o campo é `string`, nunca ponteiro, então "sem dono" já
+	// é string vazia e a coluna nunca precisa aceitar NULL. Não é preciosismo —
+	// no SQLite dois NULL não se comparam iguais, então uma coluna nula
+	// desligava `idx_acp_sessions_scope` justamente nas linhas sem dono, e a
+	// mesma conversa podia acumular vários vínculos com o mesmo provider.
+	// Bases antigas são acertadas pela migração v10, que roda antes do
+	// AutoMigrate aplicar a constraint. Sem `index` próprio: user_id é o
+	// primeiro campo do índice composto, que já serve de prefixo.
+	UserID         string `gorm:"not null;default:'';uniqueIndex:idx_acp_sessions_scope"`
 	ConversationID string `gorm:"index;uniqueIndex:idx_acp_sessions_scope;not null"`
 	ProviderID     string `gorm:"uniqueIndex:idx_acp_sessions_scope;not null"`
 	// SessionID é o identificador que o agente atribuiu, guardado exatamente

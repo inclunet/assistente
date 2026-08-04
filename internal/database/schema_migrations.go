@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"gorm.io/gorm"
 )
 
 // ensureTaskNoteExternalUniqueIndex aplica índice único parcial em (external_source, external_id).
@@ -300,6 +302,87 @@ func migrateRefreshURLToEnc() error {
 		// errors.Join preserva o erro original na cadeia de unwrap além do
 		// sentinela errMigrationDeferred (mesmo padrão de deferIfErr).
 		return errors.Join(fmt.Errorf("dropar coluna legacy refresh_url: %w", err), errMigrationDeferred)
+	}
+	return nil
+}
+
+// dedupACPSessionsSemDono elege uma única sobrevivente por (conversa, provider)
+// entre as linhas que ficarão com `user_id` vazio depois da normalização.
+//
+// O `COALESCE(i.user_id, '') = ''` junta num mesmo grupo o que o índice unique
+// hoje enxerga como linhas diferentes: NULL e string vazia. O `ORDER BY` decide
+// quem fica — `(i.user_id IS NULL) ASC` põe a linha que JÁ está com string
+// vazia na frente (ela é a que o app grava hoje), e entre linhas nulas vence a
+// mais recente, com desempate por `id` UUIDv7 desc.
+const dedupACPSessionsSemDono = `
+	DELETE FROM acp_sessions
+	WHERE user_id IS NULL
+	  AND id NOT IN (
+		SELECT s.id FROM acp_sessions s
+		WHERE s.user_id IS NULL
+		  AND s.id = (
+			SELECT i.id FROM acp_sessions i
+			WHERE COALESCE(i.user_id, '') = ''
+			  AND i.conversation_id = s.conversation_id
+			  AND i.provider_id = s.provider_id
+			ORDER BY (i.user_id IS NULL) ASC, i.updated_at DESC, i.id DESC
+			LIMIT 1
+		  )
+	  )`
+
+// normalizeACPSessionUserID troca `acp_sessions.user_id` NULL por string vazia
+// em bases criadas antes de a coluna virar `NOT NULL DEFAULT ''` (AEP-0084
+// D12).
+//
+// Roda **antes** do AutoMigrate porque é ele quem aplica a constraint, e o
+// SQLite não sabe alterar coluna no lugar: o driver recria a tabela e copia as
+// linhas para dentro do novo formato. Com uma única linha nula essa cópia falha
+// com `NOT NULL constraint failed: acp_sessions__temp.user_id` — o Init aborta
+// e o app não sobe. Mesma razão do dedup de credential_entries (v2).
+//
+// A limpeza vem antes da troca porque hoje o índice unique não protege quem não
+// tem dono: no SQLite dois NULL não se comparam iguais, então
+// `idx_acp_sessions_scope` deixa passar várias linhas nulas para a mesma
+// conversa e provider. Trocar tudo por string vazia de uma vez faria essas
+// linhas colidirem — o UPDATE morre no índice antes mesmo do AutoMigrate.
+//
+// Perder um vínculo desses custa: sem ele o app não reencontra a sessão que o
+// agente ainda mantém, e ela fica órfã do lado dele (AEP-0084 D4). Por isso a
+// remoção é anunciada no log, e o critério guarda a linha mais recente — a que
+// tem a maior chance de descrever a sessão viva.
+//
+// Erros aqui abortam o boot em vez de adiar: o AutoMigrate logo em seguida
+// falharia do mesmo jeito, só que com uma mensagem sobre uma tabela temporária
+// que não existe em lugar nenhum do código.
+func normalizeACPSessionUserID(database *gorm.DB) error {
+	if database == nil {
+		return nil
+	}
+	if !database.Migrator().HasTable("acp_sessions") {
+		return nil
+	}
+	var semDono int64
+	if err := database.Raw(`SELECT count(*) FROM acp_sessions WHERE user_id IS NULL`).Scan(&semDono).Error; err != nil {
+		return fmt.Errorf("contar sessões ACP com user_id nulo: %w", err)
+	}
+	if semDono == 0 {
+		return nil
+	}
+
+	res := database.Exec(dedupACPSessionsSemDono)
+	if res.Error != nil {
+		return fmt.Errorf("dedup de acp_sessions sem dono: %w", res.Error)
+	}
+	if res.RowsAffected > 0 {
+		logging.Warnf(context.Background(), "database.schema-migrations", "[Database] acp_sessions: %d vínculos sem dono descartados por disputarem a mesma conversa e provider — a sessão correspondente pode ter ficado aberta no agente", res.RowsAffected)
+	}
+
+	up := database.Exec(`UPDATE acp_sessions SET user_id = '' WHERE user_id IS NULL`)
+	if up.Error != nil {
+		return fmt.Errorf("normalizar acp_sessions.user_id nulo: %w", up.Error)
+	}
+	if up.RowsAffected > 0 {
+		logging.Infof(context.Background(), "database.schema-migrations", "[Database] acp_sessions: %d linhas com user_id nulo normalizadas para string vazia", up.RowsAffected)
 	}
 	return nil
 }
