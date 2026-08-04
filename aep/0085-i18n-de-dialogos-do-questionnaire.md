@@ -141,11 +141,31 @@ Chave é decisão do app. Vira texto puro (`Plain`), sempre:
 - Demais consumidores adaptados ao tipo mecanicamente com `Plain`, exibindo o
   mesmo texto de antes.
 
-### Fase 2 — Permissões do agente ACP
+### Fase 2 — Diálogos do agente ACP (feita)
 
-`internal/app/app_acp_permissions.go`: título, descrição e prompts ganham chave;
-os rótulos das opções continuam `Plain` (D6). Fica para PR próprio porque há
-outro PR em voo no arquivo (AEP-0084).
+Os três diálogos bloqueantes que o agente de código faz o app abrir (AEP-0084
+D9):
+
+- **pedido de permissão**, em `internal/app/app_acp_permissions.go`;
+- **pergunta do agente** (`cursor/ask_question`) e **plano proposto**
+  (`cursor/create_plan`), em `internal/app/app_acp_extensions.go`.
+
+Ganham chave o título, a descrição, os rótulos de confirmar/cancelar e os prompts
+das perguntas. Continuam `Plain` (D6) os rótulos de opção que o agente ofereceu —
+no pedido de permissão e na pergunta — e todo conteúdo de bloco: a ação pedida, o
+texto da pergunta e o plano. As opções do plano são do app, e não do agente:
+ganham chave, e o valor que volta em `answers` segue sendo o fallback (D5).
+
+A classe da ação (`acp.ToolKind`) tem **uma chave por classe**, em vez de entrar
+interpolada na frase: o código do protocolo é inglês, e interpolá-lo deixaria "o
+agente quer execute" em qualquer idioma. O vocabulário acompanha o conjunto
+equivalente do frontend (`agentPermissions.action.*`), para que a mesma classe se
+chame igual no diálogo e no aviso da conversa. O aviso do "permitir sempre" muda
+a frase inteira e mora no mesmo campo da abertura, então é a chave que distingue
+as duas variações — assim como as quatro variações da descrição do plano.
+
+Namespaces (D7): `app.questionnaire.agentPermission.*`,
+`app.questionnaire.agentQuestion.*` e `app.questionnaire.agentPlan.*`.
 
 ### Fase 3 — Confirmação de edição de arquivo pelo editor
 

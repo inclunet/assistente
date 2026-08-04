@@ -21,6 +21,16 @@ const (
 	permissionAnswerID = "decision"
 )
 
+// permissionTextNamespace é o assunto deste diálogo nas chaves de tradução
+// (AEP-0085 D7). O texto pronto em pt-BR continua viajando como fallback: é ele
+// que aparece se a chave faltar num locale, e é ele que serve às superfícies
+// que não traduzem nada.
+const permissionTextNamespace = "app.questionnaire.agentPermission."
+
+func permissionTextKey(field string) string {
+	return permissionTextNamespace + field
+}
+
 // acpRequestHandler responde ao que o agente de código pergunta ao app
 // (AEP-0084 D9): o pedido de permissão para agir na máquina, tratado aqui, e as
 // extensões bloqueantes do Cursor, em app_acp_extensions.go.
@@ -111,20 +121,21 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 	// dentro do teto que o transporte impõe ao handler. Um prazo maior que o
 	// teto tiraria da pessoa a chance de responder (AEP-0084 D9).
 	resp, err := manager.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       questionnaire.Plain("O agente pede permissão"),
-		Description: questionnaire.Plain(permissionDescription(kind) + alwaysWarning(choices, kind)),
+		Title:       questionnaire.Keyed(permissionTextKey("title"), "O agente pede permissão"),
+		Description: permissionDescriptionText(choices, kind),
 		AllowCancel: true,
-		SubmitLabel: questionnaire.Plain("Confirmar"),
-		CancelLabel: questionnaire.Plain("Negar"),
+		SubmitLabel: questionnaire.Keyed(permissionTextKey("submit"), "Confirmar"),
+		CancelLabel: questionnaire.Keyed(permissionTextKey("cancel"), "Negar"),
 		Questions: []questionnaire.Question{
 			{
 				// A ação vai inteira, em bloco: é o que a pessoa lê para
 				// decidir, e um resumo faria autorizar o que não apareceu na
 				// tela. É o mesmo formato da confirmação de edição e da
-				// autorização de rede.
+				// autorização de rede. O conteúdo do bloco é do agente: vai
+				// como texto, sem chave de tradução (AEP-0085 D6).
 				ID:      permissionActionID,
 				Type:    "readonly_code",
-				Prompt:  questionnaire.Plain("Ação pedida"),
+				Prompt:  questionnaire.Keyed(permissionTextKey("actionPrompt"), "Ação pedida"),
 				Content: action,
 			},
 			{
@@ -133,7 +144,7 @@ func (h *acpRequestHandler) RequestPermission(ctx context.Context, req acp.Permi
 				// Rótulo que o agente mandou é texto, nunca chave de tradução:
 				// traduzir o que vem de fora exibiria o texto de outro lugar do
 				// app no lugar da opção que ele ofereceu (AEP-0085).
-				Prompt:    questionnaire.Plain("O que o agente pode fazer?"),
+				Prompt:    questionnaire.Keyed(permissionTextKey("choicePrompt"), "O que o agente pode fazer?"),
 				Options:   questionnaire.PlainTexts(choices.labels()),
 				Required:  true,
 				AutoFocus: true,
@@ -308,6 +319,42 @@ func permissionLogSummary(call acp.ToolCall) string {
 		kind = "ação sem classe"
 	}
 	return fmt.Sprintf("%s, chamada %q", kind, acp.SanitizeLabel(call.ID))
+}
+
+// permissionDescriptionText é a descrição do diálogo pronta para a tela: a
+// frase de abertura e, quando o agente ofereceu autorizar para sempre, o aviso
+// do que esse sempre abrange. As duas moram num campo só, então é a chave que
+// carrega as duas variações — não há onde exibir dois textos ali.
+//
+// A classe entra na chave, e não como valor interpolado: o código do protocolo
+// é inglês, e "o agente quer execute" continuaria em inglês em qualquer idioma
+// (AEP-0085 D6). O fallback vai com o texto de sempre, já montado em pt-BR.
+func permissionDescriptionText(choices permissionChoices, kind string) questionnaire.Text {
+	campo := "description"
+	if choices.hasAlways() {
+		// O aviso do "sempre" muda a frase inteira, e não só a acrescenta: a
+		// chave precisa dizer de qual das duas ele fala.
+		campo = "descriptionAlways"
+	}
+	return questionnaire.Keyed(
+		permissionTextKey(campo+"."+permissionKindKey(kind)),
+		permissionDescription(kind)+alwaysWarning(choices, kind),
+	)
+}
+
+// permissionKindKey é o pedaço da chave que diz de que classe a frase fala. O
+// que não estiver no conjunto do protocolo cai em "other", a frase genérica.
+func permissionKindKey(kind string) string {
+	switch normalized := acp.ToolKind(kind); normalized {
+	case "switch_mode":
+		// O código do protocolo tem underscore e a chave do locale não: o
+		// conjunto equivalente do lado da tela (agentPermissions.action.*) já
+		// nomeia as classes assim, e duas grafias fariam a mesma classe
+		// aparecer com dois nomes nos arquivos de tradução.
+		return "switchMode"
+	default:
+		return normalized
+	}
 }
 
 // permissionDescription abre o diálogo dizendo a classe da ação, que é

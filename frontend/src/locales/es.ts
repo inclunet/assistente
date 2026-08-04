@@ -3550,6 +3550,72 @@ const es = {
             global: 'Global (todos los workspaces y perfiles)',
           },
         },
+        agentPermission: {
+          title: 'El agente pide permiso',
+          submit: 'Confirmar',
+          cancel: 'Denegar',
+          actionPrompt: 'Acción solicitada',
+          choicePrompt: '¿Qué puede hacer el agente?',
+          // Una frase por clase de acción (backend: acp.ToolKind), y no la clase
+          // interpolada: el código del protocolo está en inglés, así que "el
+          // agente quiere execute" seguiría en inglés en cualquier idioma. El
+          // vocabulario es el de app.chatNotice.action.*, para que la misma
+          // clase se llame igual en el diálogo y en el aviso de la conversación.
+          description: {
+            read: 'El agente quiere leer un archivo en tu máquina. Revisa lo que pide antes de decidir.',
+            edit: 'El agente quiere editar un archivo en tu máquina. Revisa lo que pide antes de decidir.',
+            delete: 'El agente quiere borrar un archivo en tu máquina. Revisa lo que pide antes de decidir.',
+            move: 'El agente quiere mover un archivo en tu máquina. Revisa lo que pide antes de decidir.',
+            search: 'El agente quiere hacer una búsqueda en tu máquina. Revisa lo que pide antes de decidir.',
+            execute: 'El agente quiere ejecutar un comando en tu máquina. Revisa lo que pide antes de decidir.',
+            think: 'El agente quiere registrar un razonamiento. Revisa lo que pide antes de decidir.',
+            fetch: 'El agente quiere buscar algo en la red. Revisa lo que pide antes de decidir.',
+            switchMode: 'El agente quiere cambiar de modo de trabajo. Revisa lo que pide antes de decidir.',
+            other: 'El agente quiere ejecutar una acción en tu máquina. Revisa lo que pide antes de decidir.',
+          },
+          // La misma frase con el aviso de "permitir siempre", usada solo cuando
+          // el agente ofreció esa opción. El aviso dice el alcance de la
+          // autorización: vale para toda la clase, no solo para lo que está en
+          // la pantalla.
+          descriptionAlways: {
+            read: 'El agente quiere leer un archivo en tu máquina. Revisa lo que pide antes de decidir. Si eliges permitir siempre, este perfil dejará de preguntar por cada lectura de archivo, hasta que lo revoques.',
+            edit: 'El agente quiere editar un archivo en tu máquina. Revisa lo que pide antes de decidir. Si eliges permitir siempre, este perfil dejará de preguntar por cada edición de archivo, hasta que lo revoques.',
+            delete: 'El agente quiere borrar un archivo en tu máquina. Revisa lo que pide antes de decidir. Si eliges permitir siempre, este perfil dejará de preguntar por cada borrado de archivo, hasta que lo revoques.',
+            move: 'El agente quiere mover un archivo en tu máquina. Revisa lo que pide antes de decidir. Si eliges permitir siempre, este perfil dejará de preguntar por cada movimiento de archivo, hasta que lo revoques.',
+            search: 'El agente quiere hacer una búsqueda en tu máquina. Revisa lo que pide antes de decidir. Si eliges permitir siempre, este perfil dejará de preguntar por cada búsqueda, hasta que lo revoques.',
+            execute: 'El agente quiere ejecutar un comando en tu máquina. Revisa lo que pide antes de decidir. Si eliges permitir siempre, este perfil dejará de preguntar por cada comando que el agente quiera ejecutar, hasta que lo revoques.',
+            think: 'El agente quiere registrar un razonamiento. Revisa lo que pide antes de decidir. Si eliges permitir siempre, este perfil dejará de preguntar por cada razonamiento registrado, hasta que lo revoques.',
+            fetch: 'El agente quiere buscar algo en la red. Revisa lo que pide antes de decidir. Si eliges permitir siempre, este perfil dejará de preguntar por cada búsqueda en la red, hasta que lo revoques.',
+            switchMode: 'El agente quiere cambiar de modo de trabajo. Revisa lo que pide antes de decidir. Si eliges permitir siempre, este perfil dejará de preguntar por cada cambio de modo, hasta que lo revoques.',
+            other: 'El agente quiere ejecutar una acción en tu máquina. Revisa lo que pide antes de decidir. Si eliges permitir siempre, este perfil dejará de preguntar por cualquier acción que el agente no clasifique, hasta que lo revoques.',
+          },
+        },
+        agentQuestion: {
+          title: 'El agente tiene una pregunta',
+          submit: 'Responder',
+          cancel: 'Saltar la pregunta',
+          description: 'El agente detuvo el turno para preguntar. Sin respuesta sigue de todos modos, y lo que venga después puede no ser lo que querías.',
+          // El asunto viene del agente, saneado: es un valor interpolado, nunca
+          // una clave.
+          descriptionSubject: 'El agente detuvo el turno para preguntar. Sin respuesta sigue de todos modos, y lo que venga después puede no ser lo que querías. Asunto: "{{subject}}".',
+          promptLabel: 'Pregunta del agente',
+          promptLabelNumbered: 'Pregunta {{position}} de {{total}}',
+          answerPrompt: 'Tu respuesta',
+          answerPromptMultiple: 'Tu respuesta (puedes marcar más de una)',
+        },
+        agentPlan: {
+          title: 'El agente propuso un plan',
+          submit: 'Confirmar',
+          cancel: 'Rechazar',
+          contentPrompt: 'Plan propuesto',
+          choicePrompt: '¿El agente puede seguir este plan?',
+          approve: 'Aprobar el plan',
+          reject: 'Rechazar el plan',
+          description: 'Aprobar deja que el agente ejecute los pasos de abajo en tu máquina. Lee el plan completo antes de decidir.',
+          descriptionSteps: 'Aprobar deja que el agente ejecute los pasos de abajo en tu máquina. Lee el plan completo antes de decidir. Tiene {{steps}} paso(s).',
+          descriptionProject: 'Aprobar deja que el agente ejecute los pasos de abajo en tu máquina. Lee el plan completo antes de decidir. El agente marcó este plan como de proyecto.',
+          descriptionProjectSteps: 'Aprobar deja que el agente ejecute los pasos de abajo en tu máquina. Lee el plan completo antes de decidir. El agente marcó este plan como de proyecto. Tiene {{steps}} paso(s).',
+        },
       },
     },
     auth: {
