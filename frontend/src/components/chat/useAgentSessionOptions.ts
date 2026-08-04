@@ -192,12 +192,22 @@ export function useAgentSessionOptions(conversationId?: string | null): UseAgent
   return useMemo(() => ({ options, changing, change }), [options, changing, change]);
 }
 
+/**
+ * isCategory diz se a opção é da categoria pedida. A comparação some com a caixa
+ * porque a categoria vem do agente pelo fio; ela mora aqui para que todo mundo
+ * neste arquivo decida isso igual — duas funções com critérios diferentes para a
+ * mesma entrada é armadilha para quem mexer depois.
+ */
+function isCategory(option: AgentConfigOption, category: string): boolean {
+  return (option.category ?? '').toLowerCase() === category;
+}
+
 /** optionByCategory acha a opção de uma categoria do protocolo. */
 export function optionByCategory(
   options: AgentConfigOption[],
   category: string,
 ): AgentConfigOption | undefined {
-  return options.find((option) => (option.category ?? '').toLowerCase() === category);
+  return options.find((option) => isCategory(option, category));
 }
 
 /**
@@ -211,11 +221,29 @@ function withAgentValues(
 ): AgentConfigOption[] {
   if (options.length === 0) return options;
   return options.map((option) => {
-    const value = option.category === AGENT_OPTION_MODEL
+    const value = isCategory(option, AGENT_OPTION_MODEL)
       ? event.model
-      : option.category === AGENT_OPTION_MODE ? event.mode : '';
-    return value ? { ...option, currentValue: value } : option;
+      : isCategory(option, AGENT_OPTION_MODE) ? event.mode : '';
+    return value ? { ...option, currentValue: valueAsListed(option, value) } : option;
   });
+}
+
+/**
+ * valueAsListed devolve o valor do aviso escrito como a lista o escreve.
+ *
+ * O valor do aviso chega aparado do backend, e o da lista chega como o agente
+ * escreveu. Gravar o aparado como valor corrente faria o seletor comparar coisas
+ * diferentes: ele acha o item por igualdade exata, e sem achar mostra o
+ * identificador cru no lugar do rótulo e deixa a lista inteira sem item marcado
+ * — o leitor de telas deixaria de dizer qual é o modelo de agora.
+ *
+ * Sem correspondência, o valor do aviso é melhor do que nada: é o que o agente
+ * disse que vale, ainda que não esteja na lista que ele ofereceu antes.
+ */
+function valueAsListed(option: AgentConfigOption, value: string): string {
+  const wanted = value.trim();
+  const item = option.values.find((candidate) => candidate.value.trim() === wanted);
+  return item ? item.value : value;
 }
 
 /**

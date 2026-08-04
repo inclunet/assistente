@@ -275,6 +275,42 @@ describe('AgentOptionsPickers', () => {
     expect(anunciado).not.toContain('modelo-b');
   });
 
+  it('marca o modelo do aviso sem opções mesmo com espaço no valor da lista', async () => {
+    // O caminho mais difícil dos dois: o aviso não repete a lista, então o valor
+    // corrente é anotado na lista que a tela já tinha. Ele chega aparado do
+    // backend; o da lista, como o agente escreveu. Anotado cru, o seletor não
+    // acharia o item — mostraria o identificador do protocolo e deixaria a lista
+    // sem item marcado, e o leitor de telas pararia de dizer qual é o modelo de
+    // agora.
+    const estado = opcoesDoAgente();
+    estado.options[0].values = [
+      { value: 'modelo-a', name: 'Modelo A' },
+      { value: ' modelo-b ', name: 'Modelo B' },
+    ];
+    getOptions.mockResolvedValue(estado);
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await screen.findByText('Modelo A');
+
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1',
+        options: [],
+        model: 'modelo-b',
+        modelChanged: true,
+        modeChanged: false,
+        announce: true,
+      });
+    });
+
+    const botao = await screen.findByRole('button', { name: 'Modelo, Modelo B' });
+    expect(botao).toBeInTheDocument();
+
+    await userEvent.click(botao);
+    const item = await screen.findByRole('option', { name: 'Modelo B' });
+    expect(item).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('ignora o aviso de outra conversa', async () => {
     getOptions.mockResolvedValue(opcoesDoAgente());
 
