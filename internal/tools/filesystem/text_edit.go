@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"assistente/internal/questionnaire"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 )
@@ -185,18 +186,18 @@ func (t *TextEdit) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		}, nil
 	}
 
-	// Confirmação Antes/Depois (Aplicar/Rejeitar) — sempre, pois a tool é da superfície do editor
-	title := strings.TrimSpace(a.Title)
-	if title == "" {
-		title = "Confirmar edição"
+	// Confirmação Antes/Depois (Aplicar/Rejeitar) — sempre, pois a tool é da
+	// superfície do editor. Título e descrição que o modelo escreve são
+	// conteúdo: vão como texto puro, sem chave de tradução (AEP-0085 D6).
+	title := editConfirmTitle()
+	if doModelo := strings.TrimSpace(a.Title); doModelo != "" {
+		title = questionnaire.Plain(doModelo)
 	}
-	description := strings.TrimSpace(a.Description)
-	if description == "" {
-		description = confirmDescriptionForPath(fullPath)
-	}
-	if notes := strings.TrimSpace(a.Notes); notes != "" {
-		description += "\n\n" + notes
-	}
+	description := editConfirmDescription(
+		strings.TrimSpace(a.Description),
+		fullPath,
+		strings.TrimSpace(a.Notes),
+	)
 	if confirmed, toolResult := confirmEditWithDiff(ctx, t.questMgr, title, description, a.Original, a.Replacement); !confirmed {
 		return toolResult, nil
 	}

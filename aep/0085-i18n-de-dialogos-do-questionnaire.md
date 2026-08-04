@@ -167,16 +167,58 @@ as duas variações — assim como as quatro variações da descrição do plano
 Namespaces (D7): `app.questionnaire.agentPermission.*`,
 `app.questionnaire.agentQuestion.*` e `app.questionnaire.agentPlan.*`.
 
-### Fase 3 — Confirmação de edição de arquivo pelo editor
+### Fase 3 — Confirmação de edição de arquivo pelo editor (feita)
 
-`internal/tools/filesystem/edit_confirmation.go`, incluindo o rótulo e o
-placeholder do motivo da rejeição. O diff continua conteúdo de bloco.
+A confirmação Antes/Depois que `edit_file`, `write_file` e `text_edit` abrem
+antes de gravar, em `internal/tools/filesystem/edit_confirmation.go`.
 
-### Fase 4 — Updater e wizard de boas-vindas
+Ganham chave o título, a descrição, os rótulos dos dois blocos, os rótulos de
+aplicar/rejeitar e o rótulo e o placeholder do motivo da rejeição — é por eles
+que a pessoa entende que pode dizer ao assistente o que faltou, em vez de só
+recusar.
 
-`controllers/updater_controller.go`, `internal/app/app_updater.go` (elevação de
-privilégio) e `controllers/welcome_controller.go`. No wizard, nomes de provedor e
-de modelo são conteúdo, não rótulo: seguem `Plain`.
+Continua `Plain` (D6) o diff: o conteúdo dos blocos é o texto do arquivo, e não
+existe tradução para ele. Continuam `Plain` também o título e a descrição que o
+modelo escreve em `text_edit`, que substituem as do app.
+
+O caminho do arquivo vai interpolado, e o saneamento de CR/LF que já protegia o
+texto pronto passou a valer também para o parâmetro: saneá-lo em um só deixaria a
+injeção de linhas voltar pelo lado traduzido. A justificativa que o modelo
+escreve se soma à frase padrão e entra como parâmetro dela; como as duas formas
+dividem um campo só, é a chave que distingue as duas. Alterar um trecho e
+substituir o arquivo inteiro têm títulos distintos, porque são decisões
+diferentes.
+
+Namespace (D7): `app.questionnaire.editConfirmation.*`.
+
+### Fase 4 — Updater e wizard de boas-vindas (feita)
+
+O convite para atualizar (`controllers/updater_controller.go`), o pedido de
+privilégio de administrador para substituir o executável
+(`internal/app/app_updater.go`) e as etapas do wizard de boas-vindas
+(`controllers/welcome_controller.go`, com os payloads em
+`controllers/welcome_dialogs.go`).
+
+Ganham chave todos os campos visíveis, inclusive os avisos de erro do wizard:
+eles ocupam o lugar da descrição da etapa, e é o aviso que diz o que fazer agora.
+Cada aviso tem a sua chave, porque cada um manda fazer uma coisa diferente — com
+uma chave só, a tradução pediria para conferir a chave de API onde o problema era
+o servidor. Pelo mesmo motivo, a descrição da atualização tem uma chave por forma
+(com notas da versão, com tamanho do download, com os dois, com nenhum), como as
+quatro variações da descrição do plano na Fase 2.
+
+Continuam `Plain` (D6) nome de provedor e nome de modelo, a URL de exemplo do
+servidor, o prefixo de exemplo da chave de API, o detalhe que o servidor devolveu
+e o código de recuperação, que é bloco de conteúdo. A escolha "Outro (URL
+personalizada)" não nomeia provedor nenhum — é texto do app — e ganha chave, mas
+o valor que volta em `answers` segue sendo o fallback (D5): é por ele que o
+wizard sabe que precisa pedir a URL do servidor com o app em qualquer idioma.
+
+Números vão interpolados, com nome próprio: a contagem de modelos se chama
+`models`, e não `count`, que o i18next reserva (D2).
+
+Namespaces (D7): `app.questionnaire.update.*`,
+`app.questionnaire.updateElevation.*` e `app.questionnaire.welcome.*`.
 
 ### Fase 5 — Superfícies sem camada de tradução
 

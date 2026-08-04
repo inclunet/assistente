@@ -169,9 +169,11 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 	var apiKey string
 	var defaultModel string
 	var recoveryKey string
-	var passwordError string
-	var urlError string
-	var keyError string
+	// Os avisos de erro ocupam o lugar da descrição da etapa e também se
+	// traduzem: o texto vazio significa "nenhum erro pendente".
+	var passwordError questionnaire.Text
+	var urlError questionnaire.Text
+	var keyError questionnaire.Text
 	var validatedModels []string
 
 	store := credentials.NewDBStore()
@@ -185,34 +187,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 	for currentStep >= 0 {
 		switch currentStep {
 		case 0: // Etapa 0: Senha mestre
-			description := "Defina uma senha mestre para criptografar credenciais locais. Guarde com cuidado."
-			if passwordError != "" {
-				description = passwordError
-			}
-
-			passwordResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       questionnaire.Plain("Segurança: senha mestre"),
-				Description: questionnaire.Plain(description),
-				Questions: []questionnaire.Question{
-					{
-						ID:          "masterPassword",
-						Type:        "password",
-						Prompt:      questionnaire.Plain("Senha mestre"),
-						Required:    true,
-						Placeholder: questionnaire.Plain("Digite uma senha forte"),
-					},
-					{
-						ID:          "confirmPassword",
-						Type:        "password",
-						Prompt:      questionnaire.Plain("Confirmar senha mestre"),
-						Required:    true,
-						Placeholder: questionnaire.Plain("Repita a senha"),
-					},
-				},
-				AllowCancel: true,
-				SubmitLabel: questionnaire.Plain("Continuar"),
-				CancelLabel: questionnaire.Plain("Cancelar"),
-			})
+			passwordResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeMasterPasswordPayload(passwordError))
 
 			if err != nil || passwordResp.Cancelled {
 				return false, err
@@ -221,7 +196,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			masterPassword, _ := passwordResp.Answers["masterPassword"].(string)
 			confirmPassword, _ := passwordResp.Answers["confirmPassword"].(string)
 			if strings.TrimSpace(masterPassword) == "" || masterPassword != confirmPassword {
-				passwordError = "As senhas não conferem. Tente novamente."
+				passwordError = welcomePasswordMismatch()
 				currentStep = 0
 				continue
 			}
@@ -235,72 +210,18 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			if c.configureCredentialManager != nil {
 				c.configureCredentialManager(setupResult.DEK, true)
 			}
-			passwordError = ""
+			passwordError = questionnaire.Text{}
 			currentStep = 1
 
 		case 1: // Etapa 1: Código de recuperação
-			_, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       questionnaire.Plain("Código de recuperação"),
-				Description: questionnaire.Plain("Guarde este código em local seguro. Ele permite recuperar suas credenciais se você esquecer a senha mestre."),
-				Questions: []questionnaire.Question{
-					{
-						ID:      "recoveryCode",
-						Type:    "readonly_code",
-						Prompt:  questionnaire.Plain("Código de recuperação"),
-						Content: recoveryKey,
-					},
-					{
-						ID:       "confirmed",
-						Type:     "boolean",
-						Prompt:   questionnaire.Plain("Eu salvei o código de recuperação em local seguro"),
-						Required: true,
-					},
-				},
-				AllowCancel: false,
-				SubmitLabel: questionnaire.Plain("Continuar"),
-			})
+			_, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeRecoveryCodePayload(recoveryKey))
 			if err != nil {
 				return false, err
 			}
 			currentStep = 2
 
 		case 2: // Etapa 2: Escolher provedor
-			providerResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       questionnaire.Plain("Bem-vindo ao Assistente!"),
-				Description: questionnaire.Plain("Vamos configurar seu assistente em alguns passos simples."),
-				Questions: []questionnaire.Question{
-					{
-						ID:       "provider",
-						Type:     "single_choice",
-						Prompt:   questionnaire.Plain("Qual provedor de IA você deseja usar?"),
-						Required: true,
-						// Nome de provedor não se traduz, e a resposta volta
-						// como o próprio rótulo — WizardLabelToProviderType o
-						// reconhece por ele.
-						Options: questionnaire.PlainTexts([]string{
-							"OpenAI",
-							"Anthropic (Claude)",
-							"Google (Gemini)",
-							"DeepSeek",
-							"xAI (Grok)",
-							"OpenRouter",
-							"Mistral AI",
-							"Groq",
-							"Together AI",
-							"Fireworks AI",
-							"Perplexity",
-							"Azure OpenAI",
-							"Ollama (Local)",
-							"LiteLLM",
-							"Outro (URL personalizada)",
-						}),
-						Default: provider,
-					},
-				},
-				AllowCancel: true,
-				SubmitLabel: questionnaire.Plain("Próximo"),
-				CancelLabel: questionnaire.Plain("Cancelar"),
-			})
+			providerResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeProviderPayload(provider))
 
 			if err != nil || providerResp.Cancelled {
 				return false, err
@@ -317,43 +238,20 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			currentStep = 3
 
 		case 3: // Etapa 3: URL personalizada (se necessário)
-			needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
-
-			if !needsCustomURL {
+			if !wizardNeedsCustomURL(provider) {
 				currentStep = 4
 				continue
 			}
 
 			placeholderURL := "http://localhost:11434/v1"
 			switch provider {
-			case "LiteLLM":
+			case wizardProviderLiteLLM:
 				placeholderURL = "http://localhost:4000"
-			case "Azure OpenAI":
+			case wizardProviderAzure:
 				placeholderURL = "https://your-resource.openai.azure.com"
 			}
 
-			urlDescription := "Informe a URL do servidor OpenAI-compatible."
-			if urlError != "" {
-				urlDescription = urlError
-			}
-
-			urlResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       questionnaire.Plain("Configuração do Servidor"),
-				Description: questionnaire.Plain(urlDescription),
-				Questions: []questionnaire.Question{
-					{
-						ID:          "baseURL",
-						Type:        "text",
-						Prompt:      questionnaire.Plain("URL do servidor"),
-						Required:    true,
-						Placeholder: questionnaire.Plain(placeholderURL),
-						Default:     baseURL,
-					},
-				},
-				AllowCancel: true,
-				SubmitLabel: questionnaire.Plain("Próximo"),
-				CancelLabel: questionnaire.Plain("Voltar"),
-			})
+			urlResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeServerURLPayload(placeholderURL, baseURL, urlError))
 
 			if err != nil {
 				return false, err
@@ -365,10 +263,10 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			}
 
 			baseURL = urlResp.Answers["baseURL"].(string)
-			urlError = ""
+			urlError = questionnaire.Text{}
 
 			if err := c.ValidateWizardURL(ctx, baseURL); err != nil {
-				urlError = fmt.Sprintf("⚠️ %v\n\nCorreija a URL e tente novamente.", err)
+				urlError = welcomeInvalidURL(err)
 				currentStep = 3
 				continue
 			}
@@ -376,40 +274,15 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			currentStep = 4
 
 		case 4: // Etapa 4: API Key + validação de conexão
-			keyDescription := "Informe sua chave de API. Deixe em branco se o servidor não requer autenticação."
-			if provider == "Ollama (Local)" {
-				keyDescription = "Ollama local geralmente não precisa de chave. Você pode deixar em branco."
-			}
-			if keyError != "" {
-				keyDescription = keyError
-			}
-
-			keyResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       questionnaire.Plain("Chave de API"),
-				Description: questionnaire.Plain(keyDescription),
-				Questions: []questionnaire.Question{
-					{
-						ID:          "apiKey",
-						Type:        "text",
-						Prompt:      questionnaire.Plain("Chave de API (opcional)"),
-						Required:    false,
-						Placeholder: questionnaire.Plain("sk-..."),
-						Default:     apiKey,
-					},
-				},
-				AllowCancel: true,
-				SubmitLabel: questionnaire.Plain("Próximo"),
-				CancelLabel: questionnaire.Plain("Voltar"),
-			})
+			keyResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeAPIKeyPayload(provider, apiKey, keyError))
 
 			if err != nil {
 				return false, err
 			}
 
 			if keyResp.Cancelled {
-				keyError = ""
-				needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
-				if needsCustomURL {
+				keyError = questionnaire.Text{}
+				if wizardNeedsCustomURL(provider) {
 					currentStep = 3
 				} else {
 					currentStep = 2
@@ -420,36 +293,34 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			if keyResp.Answers["apiKey"] != nil {
 				apiKey = keyResp.Answers["apiKey"].(string)
 			}
-			keyError = ""
+			keyError = questionnaire.Text{}
 
 			logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Validando conexão: %s (com key: %v)", baseURL, apiKey != "")
 			validation := c.ValidateWizardConnection(ctx, baseURL, apiKey)
 
-			needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
-
 			switch validation.ErrorType {
 			case "url_invalid", "url_unreachable":
-				if needsCustomURL {
-					urlError = fmt.Sprintf("⚠️ %s", validation.ErrorDetail)
+				if wizardNeedsCustomURL(provider) {
+					urlError = welcomeURLUnreachable(validation.ErrorDetail)
 					currentStep = 3
 				} else {
-					keyError = fmt.Sprintf("⚠️ Não foi possível conectar ao servidor do %s (%s).\n\n%s\n\nClique \"Próximo\" para tentar novamente ou \"Voltar\" para escolher outro provedor.", provider, baseURL, validation.ErrorDetail)
+					keyError = welcomeConnectionFailed(provider, baseURL, validation.ErrorDetail)
 					currentStep = 4
 				}
 				continue
 
 			case "auth_required":
-				keyError = fmt.Sprintf("⚠️ %s\n\nInforme uma API Key válida para continuar.", validation.ErrorDetail)
+				keyError = welcomeAuthRequired(validation.ErrorDetail)
 				currentStep = 4
 				continue
 
 			case "auth_invalid":
-				keyError = fmt.Sprintf("⚠️ %s\n\nVerifique sua chave e tente novamente.", validation.ErrorDetail)
+				keyError = welcomeAuthInvalid(validation.ErrorDetail)
 				currentStep = 4
 				continue
 
 			case "server_error":
-				keyError = fmt.Sprintf("⚠️ %s\n\nClique \"Próximo\" para tentar novamente ou \"Voltar\" para alterar configurações.", validation.ErrorDetail)
+				keyError = welcomeServerError(validation.ErrorDetail)
 				currentStep = 4
 				continue
 			}
@@ -465,25 +336,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 					modelDefault = validatedModels[0]
 				}
 
-				modelResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-					Title:       questionnaire.Plain("Escolha o Modelo Padrão"),
-					Description: questionnaire.Plain(fmt.Sprintf("Conexão validada com sucesso! %d modelo(s) disponível(is).\n\nSelecione o modelo padrão. Você pode alterar depois nas configurações.", len(validatedModels))),
-					Questions: []questionnaire.Question{
-						{
-							ID:       "model",
-							Type:     "single_choice",
-							Prompt:   questionnaire.Plain("Modelo padrão:"),
-							Required: true,
-							// Nome de modelo é identificador do provedor: vai
-							// como texto, sem tradução.
-							Options: questionnaire.PlainTexts(validatedModels),
-							Default: modelDefault,
-						},
-					},
-					AllowCancel: true,
-					SubmitLabel: questionnaire.Plain("Finalizar"),
-					CancelLabel: questionnaire.Plain("Voltar"),
-				})
+				modelResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeModelChoicePayload(validatedModels, modelDefault))
 
 				if err != nil {
 					return false, err
@@ -496,23 +349,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 
 				defaultModel = modelResp.Answers["model"].(string)
 			} else {
-				manualResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-					Title:       questionnaire.Plain("Configurar Modelo"),
-					Description: questionnaire.Plain("Conexão validada! O servidor não suporta listagem automática de modelos.\n\nInforme o nome do modelo que deseja usar."),
-					Questions: []questionnaire.Question{
-						{
-							ID:          "defaultModel",
-							Type:        "text",
-							Prompt:      questionnaire.Plain("Nome do modelo"),
-							Required:    true,
-							Placeholder: questionnaire.Plain("gpt-4o-mini"),
-							Default:     defaultModel,
-						},
-					},
-					AllowCancel: true,
-					SubmitLabel: questionnaire.Plain("Finalizar"),
-					CancelLabel: questionnaire.Plain("Voltar"),
-				})
+				manualResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeManualModelPayload(defaultModel))
 
 				if err != nil {
 					return false, err
