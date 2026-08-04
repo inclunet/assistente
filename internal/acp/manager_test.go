@@ -30,6 +30,17 @@ type fakeManagedClient struct {
 	closedByID []string
 	closed     bool
 
+	// options é o que a descoberta responde, optionCalls conta quantas vezes o
+	// agente foi consultado de fato e invalidations quantas vezes o cache foi
+	// descartado.
+	options       []ConfigOption
+	optionCalls   int
+	invalidations int
+
+	// sessionOptions é o estado com que cada sessão nova nasce, como o agente
+	// devolve no session/new.
+	sessionOptions []ConfigOption
+
 	sessions []*fakeManagedSession
 	nextID   int
 }
@@ -46,7 +57,11 @@ func (c *fakeManagedClient) NewSession(_ context.Context, cwd string) (Session, 
 		return nil, c.newErr
 	}
 	c.nextID++
-	sess := &fakeManagedSession{id: fmt.Sprintf("sess-%d", c.nextID), cwd: cwd}
+	sess := &fakeManagedSession{
+		id:      fmt.Sprintf("sess-%d", c.nextID),
+		cwd:     cwd,
+		options: copyOptions(c.sessionOptions),
+	}
 	c.sessions = append(c.sessions, sess)
 	return sess, nil
 }
@@ -59,7 +74,7 @@ func (c *fakeManagedClient) LoadSession(_ context.Context, sessionID, cwd string
 	if c.loadErr != nil {
 		return nil, c.loadErr
 	}
-	sess := &fakeManagedSession{id: sessionID, cwd: cwd}
+	sess := &fakeManagedSession{id: sessionID, cwd: cwd, options: copyOptions(c.sessionOptions)}
 	c.sessions = append(c.sessions, sess)
 	return sess, nil
 }
@@ -75,6 +90,25 @@ func (c *fakeManagedClient) Capabilities(context.Context) (Capabilities, error) 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.caps, nil
+}
+
+func (c *fakeManagedClient) Options(context.Context, string) ([]ConfigOption, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.optionCalls++
+	return copyOptions(c.options), nil
+}
+
+func (c *fakeManagedClient) InvalidateOptions() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.invalidations++
+}
+
+func (c *fakeManagedClient) discovery() (calls, invalidations int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.optionCalls, c.invalidations
 }
 
 func (c *fakeManagedClient) Call(context.Context, string, any) (json.RawMessage, error) {
@@ -101,6 +135,15 @@ type fakeManagedSession struct {
 	mu       sync.Mutex
 	closed   bool
 	closeErr error
+
+	options  []ConfigOption
+	setErr   error
+	setCalls []setOptionCall
+}
+
+type setOptionCall struct {
+	id    string
+	value string
 }
 
 func (s *fakeManagedSession) ID() string { return s.id }
@@ -121,10 +164,34 @@ func (s *fakeManagedSession) Close(context.Context) error {
 
 func (s *fakeManagedSession) Cancel(context.Context) error { return nil }
 
-func (s *fakeManagedSession) ConfigOptions() []ConfigOption { return nil }
+func (s *fakeManagedSession) ConfigOptions() []ConfigOption {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return copyOptions(s.options)
+}
 
-func (s *fakeManagedSession) SetConfigOption(context.Context, string, string) ([]ConfigOption, error) {
-	return nil, nil
+// SetConfigOption troca o valor corrente como um agente de verdade faria, e
+// devolve o conjunto resultante. Guardar a troca importa: o teste da troca vinda
+// do agente precisa distinguir o que o app pediu do que o agente decidiu.
+func (s *fakeManagedSession) SetConfigOption(_ context.Context, id, value string) ([]ConfigOption, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.setCalls = append(s.setCalls, setOptionCall{id: id, value: value})
+	if s.setErr != nil {
+		return nil, s.setErr
+	}
+	for i := range s.options {
+		if s.options[i].ID == id {
+			s.options[i].CurrentValue = value
+		}
+	}
+	return copyOptions(s.options), nil
+}
+
+func (s *fakeManagedSession) optionSets() []setOptionCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]setOptionCall(nil), s.setCalls...)
 }
 
 func (s *fakeManagedSession) isClosed() bool {

@@ -63,6 +63,17 @@ type Config struct {
 	// ClientName e ClientVersion identificam o app no handshake.
 	ClientName    string
 	ClientVersion string
+
+	// OnConfigOptions é avisado quando o agente conta o estado das opções de uma
+	// sessão — o que ele faz ao trocar de modelo sozinho, inclusive entre turnos
+	// (AEP-0084 D6). É um canal próprio, e não o sink do turno, justamente por
+	// isso: o sink só existe entre o começo e o fim de um turno, e a pessoa
+	// precisa saber com quem está falando também fora dele.
+	//
+	// Roda na goroutine de entrega do transporte, então precisa retornar rápido
+	// e não pode conversar com o agente: enquanto ela não volta, o protocolo
+	// fica parado.
+	OnConfigOptions func(sessionID string, options []ConfigOption)
 }
 
 func (c Config) validate() error {
@@ -93,6 +104,16 @@ type Client interface {
 	// Quando o agente não anuncia o método, não há o que fazer e a sessão vive
 	// até o processo acabar.
 	CloseSession(ctx context.Context, sessionID string) error
+
+	// Options devolve as opções que o agente oferece — modelos, modos —, lidas
+	// de uma sessão de descoberta sem prompt na mesma conexão de todo mundo
+	// (AEP-0084 D6). O resultado é guardado por processo, para a tela de
+	// configurações não bater no agente a cada render.
+	Options(ctx context.Context, cwd string) ([]ConfigOption, error)
+
+	// InvalidateOptions descarta o que foi descoberto, para a próxima consulta
+	// perguntar de novo ao agente.
+	InvalidateOptions()
 
 	// Call é a saída para métodos que este pacote não tipa: extensões do agente
 	// e seletores legados que os SDKs vão deixando de tipar. Sem ela, o app
