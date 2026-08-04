@@ -37,8 +37,13 @@ export interface UseAgentSessionOptionsResult {
   options: AgentConfigOption[];
   /** Verdadeiro enquanto uma troca está indo ao agente. */
   changing: boolean;
-  /** Troca uma opção e devolve se valeu. */
-  change: (optionId: string, value: string) => Promise<boolean>;
+  /**
+   * Troca uma opção e devolve o estado que o agente confirmou, ou nulo quando a
+   * troca não valeu. É o estado dele que volta, e não o valor pedido: o agente
+   * pode acomodar o pedido em outro valor, e quem anuncia precisa dizer o que
+   * valeu de verdade.
+   */
+  change: (optionId: string, value: string) => Promise<AgentConfigOption[] | null>;
 }
 
 /**
@@ -120,25 +125,29 @@ export function useAgentSessionOptions(conversationId?: string | null): UseAgent
     });
   }, [conversationId]);
 
-  const change = useCallback(async (optionId: string, value: string): Promise<boolean> => {
-    if (!conversationId) return false;
+  const change = useCallback(async (
+    optionId: string,
+    value: string,
+  ): Promise<AgentConfigOption[] | null> => {
+    if (!conversationId) return null;
     const requested = conversationId;
     setChanging(true);
     try {
       const state = await SetAgentSessionOption(requested, optionId, value);
+      const applied = state?.options ?? [];
       // A conversa da tela pode ter mudado enquanto o agente respondia. Escrever
       // agora poria o modelo de uma conversa no seletor de outra.
-      if (conversationRef.current !== requested) return false;
-      setOptions(state?.options ?? []);
-      return true;
+      if (conversationRef.current !== requested) return null;
+      setOptions(applied);
+      return applied;
     } catch (error: unknown) {
       logger.error('[AgentOptions] falha ao trocar a opção do agente:', error);
-      if (conversationRef.current !== requested) return false;
+      if (conversationRef.current !== requested) return null;
       // Anunciar a falha é obrigatório: sem isso o seletor volta ao valor antigo
       // sem explicação, e a pessoa acharia que errou o clique. Só que anunciar a
       // falha de uma conversa que a pessoa já deixou seria ruído.
       announceRef.current(tRef.current('chat.agentOptions.changeError'));
-      return false;
+      return null;
     } finally {
       if (conversationRef.current === requested) setChanging(false);
     }

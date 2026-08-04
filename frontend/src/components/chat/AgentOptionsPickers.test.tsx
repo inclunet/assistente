@@ -59,6 +59,17 @@ const opcoesDoAgente = (modelo = 'modelo-a', modo = 'agent') => ({
   ],
 });
 
+/**
+ * anuncioDaTroca acha o anúncio da troca de modelo entre os que o seletor faz —
+ * ele também anuncia a navegação pela lista, e procurar no texto todo confundiria
+ * o rótulo do item percorrido com o do modelo que valeu.
+ */
+const anuncioDaTroca = (): string => {
+  const call = announce.mock.calls.find(([msg]) => String(msg).includes('chat.agentOptions.modelChanged'));
+  expect(call, 'a troca de modelo não foi anunciada').toBeTruthy();
+  return String(call?.[0]);
+};
+
 beforeEach(() => {
   getOptions.mockReset();
   setOption.mockReset();
@@ -103,7 +114,29 @@ describe('AgentOptionsPickers', () => {
 
     await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'model', 'modelo-b'));
     await waitFor(() => expect(screen.getByText('Modelo B')).toBeInTheDocument());
-    expect(announce.mock.calls.some(([msg]) => String(msg).includes('chat.agentOptions.modelChanged'))).toBe(true);
+    // O que a pessoa ouve é o rótulo que está escrito na lista, e não o
+    // identificador do modelo: falado, ele é ilegível.
+    const anunciado = anuncioDaTroca();
+    expect(anunciado).toContain('Modelo B');
+    expect(anunciado).not.toContain('modelo-b');
+  });
+
+  it('anuncia o modelo que o agente aplicou quando ele acomoda o pedido em outro', async () => {
+    getOptions.mockResolvedValue(opcoesDoAgente());
+    // O agente aceita a troca, mas em outro valor — fallback de limite de uso,
+    // por exemplo. Quem decidiu foi ele, e é o valor dele que a pessoa precisa
+    // ouvir: anunciar o pedido seria dizer que ela está num modelo em que não
+    // está.
+    setOption.mockResolvedValue(opcoesDoAgente('modelo-a'));
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await userEvent.click(await screen.findByRole('button', { name: /Modelo/ }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Modelo B' }));
+
+    await waitFor(() => expect(setOption).toHaveBeenCalled());
+    const anunciado = await waitFor(anuncioDaTroca);
+    expect(anunciado).toContain('Modelo A');
+    expect(anunciado).not.toContain('Modelo B');
   });
 
   it('troca o modo no agente', async () => {

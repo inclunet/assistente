@@ -34,6 +34,14 @@ export interface ModelPickerRef {
     reload: () => void;
 }
 
+/** LoadOutcome é o que uma listagem produziu, para quem precisa anunciá-la. */
+interface LoadOutcome {
+    ok: boolean;
+    /** Message explica a falha, já traduzida. Vazia quando deu certo. */
+    message: string;
+    count: number;
+}
+
 export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   value,
   onChange,
@@ -74,14 +82,14 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
    * Devolve o que houve porque quem chamou pode precisar anunciar: o estado da
    * tela vive em `useState` e não está legível na volta da promessa.
    */
-  const loadModels = async (refresh = false): Promise<{ ok: boolean; message: string }> => {
+  const loadModels = async (refresh = false): Promise<LoadOutcome> => {
     if (variant === 'form' && !providerID) {
       const msg = t('pickers.model.selectProvider');
       setLoading(false);
       setError(msg);
       setModels([]);
       setEndpointNotSupported(false);
-      return { ok: false, message: msg };
+      return { ok: false, message: msg, count: 0 };
     }
 
     setLoading(true);
@@ -107,9 +115,9 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
           ? t('pickers.model.noModels')
           : t('pickers.model.noModelsGlobal');
         setError(msg);
-        return { ok: false, message: msg };
+        return { ok: false, message: msg, count: 0 };
       }
-      return { ok: true, message: '' };
+      return { ok: true, message: '', count: modelsList.length };
     } catch (e: unknown) {
       const err = e as { message?: unknown } | null;
       const errorMsg = String(err?.message || e || 'Erro desconhecido');
@@ -119,7 +127,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
         setEndpointNotSupported(true);
         setError('');
         setModels([]);
-        return { ok: false, message: t('pickers.model.notLoaded') };
+        return { ok: false, message: t('pickers.model.notLoaded'), count: 0 };
       }
       if (errorMsg.includes('credencial não configurada') || errorMsg.includes('Missing bearer authentication')) {
         // Detecta erro de credencial não configurada
@@ -127,13 +135,13 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
         setError(msg);
         setEndpointNotSupported(false);
         setModels([]);
-        return { ok: false, message: msg };
+        return { ok: false, message: msg, count: 0 };
       }
       const msg = `${t('pickers.model.loadError')} ${errorMsg}`;
       setError(msg);
       setEndpointNotSupported(false);
       setModels([]);
-      return { ok: false, message: msg };
+      return { ok: false, message: msg, count: 0 };
     } finally {
       setLoading(false);
     }
@@ -163,9 +171,17 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   // lista pode não ter vindo — credencial que falta, provedor que não lista — e
   // anunciar sucesso nesses casos diria a quem usa leitor de telas o contrário
   // do que a tela mostra.
+  //
+  // Deu certo, o que é dito é o tamanho da lista, não que ela foi buscada de
+  // novo: um agente de código responde da sessão de descoberta que ele já tem —
+  // sem `session/close` no protocolo dele, outra sessão ficaria pendurada — e
+  // prometer uma consulta que não houve faria a pessoa clicar de novo achando
+  // que não funcionou (AEP-0084 D6).
   const handleRefresh = () => {
-    void loadModels(true).then(({ ok, message }) => {
-      onAnnounce?.(ok ? t('pickers.model.refreshed', 'Lista de modelos recarregada') : message);
+    void loadModels(true).then(({ ok, message, count }) => {
+      onAnnounce?.(ok
+        ? t('pickers.model.refreshed', { count, defaultValue: 'Lista de modelos atualizada: {{count}}' })
+        : message);
     });
   };
 

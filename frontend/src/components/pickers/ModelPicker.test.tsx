@@ -7,7 +7,11 @@ const getModelsSpy = vi.fn();
 const refreshModelsSpy = vi.fn();
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, options?: unknown) => (
+      options && typeof options === 'object' ? `${key}|${JSON.stringify(options)}` : key
+    ),
+  }),
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
@@ -83,7 +87,12 @@ describe('ModelPicker', () => {
     await waitFor(() => expect(refreshModelsSpy).toHaveBeenCalledWith('p1'));
     // Um modelo a mais que o do primeiro carregamento, mais o "padrão do provedor".
     await waitFor(() => expect(screen.getByTestId('base-picker')).toHaveAttribute('data-items', '3'));
-    expect(anuncios).toContain('pickers.model.refreshed');
+    const anunciado = anuncios.join(' ');
+    expect(anunciado).toContain('pickers.model.refreshed');
+    // O anúncio conta o tamanho da lista, que é fato. Dizer que ela foi buscada
+    // de novo seria promessa: um agente de código responde da sessão de
+    // descoberta que ele já tem (AEP-0084 D6).
+    expect(anunciado).toContain('"count":2');
   });
 
   // Anunciar "lista recarregada" quando a lista não veio diria a quem usa leitor
@@ -108,7 +117,7 @@ describe('ModelPicker', () => {
 
     await waitFor(() => expect(anuncios.length).toBeGreaterThan(0));
     expect(anuncios).toContain('pickers.model.configureApiKey');
-    expect(anuncios).not.toContain('pickers.model.refreshed');
+    expect(anuncios.join(' ')).not.toContain('pickers.model.refreshed');
   });
 
   it('recarregar que volta vazio anuncia que não há modelos', async () => {
@@ -131,7 +140,7 @@ describe('ModelPicker', () => {
 
     await waitFor(() => expect(anuncios.length).toBeGreaterThan(0));
     expect(anuncios).toContain('pickers.model.noModels');
-    expect(anuncios).not.toContain('pickers.model.refreshed');
+    expect(anuncios.join(' ')).not.toContain('pickers.model.refreshed');
   });
 
   it('a barra de ferramentas não ganha botão de recarregar', async () => {
