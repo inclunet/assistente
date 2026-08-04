@@ -310,6 +310,9 @@ type conn struct {
 
 	mu       sync.Mutex
 	sessions map[string]*session
+	// pending guarda o que o agente contou de uma sessão que ainda não estava
+	// registrada aqui. Ver holdEarlyUpdate.
+	pending map[string][]Update
 
 	dead     chan struct{}
 	deadOnce sync.Once
@@ -359,6 +362,7 @@ func dial(ctx context.Context, cfg Config, handler RequestHandler) (*conn, error
 		stderr:   stderr,
 		backstop: handlerBackstop,
 		sessions: make(map[string]*session),
+		pending:  make(map[string][]Update),
 		dead:     make(chan struct{}),
 	}
 	cn.rpc = sdk.NewConnection(cn.handleInbound, stdin, stdout)
@@ -442,8 +446,8 @@ func (c *conn) shutdown() {
 
 func (c *conn) registerSession(id, cwd string, options []ConfigOption) *session {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if existing, ok := c.sessions[id]; ok {
+		c.mu.Unlock()
 		if len(options) > 0 {
 			existing.setConfigOptions(options)
 		}
@@ -451,6 +455,15 @@ func (c *conn) registerSession(id, cwd string, options []ConfigOption) *session 
 	}
 	sess := newSession(id, cwd, c, options)
 	c.sessions[id] = sess
+	early := c.pending[id]
+	delete(c.pending, id)
+	c.mu.Unlock()
+
+	// O que o agente contou antes de nós sabermos o número da sessão é
+	// entregue agora, na ordem em que chegou.
+	for _, update := range early {
+		sess.deliver(update)
+	}
 	return sess
 }
 
@@ -458,6 +471,38 @@ func (c *conn) removeSession(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.sessions, id)
+	delete(c.pending, id)
+}
+
+// maxPendingUpdates é o teto do que se guarda por sessão ainda desconhecida.
+// Agente que despeja atualizações de uma sessão que nunca vai ser registrada
+// não pode crescer memória sem fim; o teto é folgado porque o que se espera
+// aqui são as poucas notificações da abertura.
+const maxPendingUpdates = 32
+
+// holdEarlyUpdate guarda a atualização que chegou antes de a sessão existir
+// para nós.
+//
+// Ela existe porque o agente responde ao session/new e já manda, pela mesma
+// conexão, o que a sessão oferece — os comandos dela, por exemplo. Essas
+// notificações podem ser lidas antes de a resposta terminar de virar uma sessão
+// registrada aqui, e descartá-las apagaria justamente a lista que o menu da
+// barra mostra, num defeito que só aparece em algumas máquinas.
+//
+// Devolve falso quando a sessão apareceu no meio do caminho — aí a entrega é
+// direta — e quando o teto já foi atingido, que é o agente falando de uma sessão
+// que não vai ser registrada: a de uma conversa da qual já nos despedimos.
+func (c *conn) holdEarlyUpdate(id string, update Update) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.sessions[id]; ok {
+		return false
+	}
+	if len(c.pending[id]) >= maxPendingUpdates {
+		return false
+	}
+	c.pending[id] = append(c.pending[id], update)
+	return true
 }
 
 // sessionOf descobre a que sessão um pedido pertence pelo corpo dele. Métodos
@@ -548,16 +593,22 @@ func (c *conn) handleInbound(ctx context.Context, method string, params json.Raw
 }
 
 func (c *conn) dispatchUpdate(ctx context.Context, notification sdk.SessionNotification) {
-	sess := c.session(string(notification.SessionId))
-	if sess == nil {
-		logging.Debugf(ctx, logComponent, "[ACP] atualização de sessão desconhecida (%q) descartada", notification.SessionId)
-		return
-	}
+	id := string(notification.SessionId)
 	update, ok := updateFrom(notification.Update)
 	if !ok {
 		return
 	}
-	sess.deliver(update)
+	if sess := c.session(id); sess != nil {
+		sess.deliver(update)
+		return
+	}
+	// Pode ser cedo demais, e não tarde demais: o agente manda o que a sessão
+	// oferece logo depois de responder ao session/new, e a resposta ainda pode
+	// estar virando sessão registrada aqui.
+	if c.holdEarlyUpdate(id, update) {
+		return
+	}
+	logging.Debugf(ctx, logComponent, "[ACP] atualização de sessão desconhecida (%q) descartada", id)
 }
 
 func (c *conn) requestPermission(ctx context.Context, params json.RawMessage) (any, *sdk.RequestError) {
