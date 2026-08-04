@@ -47,6 +47,7 @@ export default function AgentPermissionsPage() {
 
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<PermissionRow[]>([]);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [focused, setFocused] = useState<PermissionRow | null>(null);
 
   const actionName = useCallback(
@@ -56,8 +57,13 @@ export default function AgentPermissionsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    // A linha que estava sob o foco pode não existir depois desta carga. Manter
+    // a marca deixaria a barra oferecendo "revogar" sobre algo que saiu da
+    // lista, e quem navega por teclado só descobriria isso pelo erro.
+    setFocused(null);
     try {
       const permissions = (await GetAgentPermissions()) ?? [];
+      setLoadFailed(false);
       setRows(
         permissions.map((permission) => ({
           id: `${permission.profileSlug}:${permission.action}`,
@@ -72,6 +78,7 @@ export default function AgentPermissionsPage() {
     } catch (error) {
       logger.error('Erro ao carregar autorizações do agente:', error);
       addToast(t('agentPermissions.error.loadFailed'), 'error');
+      setLoadFailed(true);
       setRows([]);
     } finally {
       setLoading(false);
@@ -190,7 +197,12 @@ export default function AgentPermissionsPage() {
       />
       <div className="agent-permissions-page__content">
         <p className="agent-permissions-page__description">{t('agentPermissions.description')}</p>
-        {rows.length > 0 ? (
+        {loadFailed ? (
+          // Cair no texto de lista vazia depois de uma falha diria que não há
+          // autorização nenhuma. As que existirem continuam valendo, e quem
+          // acreditasse na tela não iria procurá-las.
+          <p className="agent-permissions-page__empty">{t('agentPermissions.loadFailedBody')}</p>
+        ) : rows.length > 0 ? (
           <DataGrid
             items={rows}
             columns={columns}

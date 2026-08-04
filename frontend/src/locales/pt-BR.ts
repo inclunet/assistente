@@ -525,6 +525,7 @@ const ptBR = {
       gridLabel: 'Autorizações permanentes do agente',
       description: 'Ações que você autorizou um agente de código a fazer sem perguntar de novo. A autorização vale para todas as ações daquela classe no perfil, até você revogá-la aqui.',
       empty: 'Nenhuma autorização permanente. O agente pergunta antes de cada ação.',
+      loadFailedBody: 'Não foi possível carregar as autorizações. As que existirem continuam valendo — recarregue para tentar de novo.',
       columns: {
         profile: 'Perfil',
         action: 'Ação autorizada',

@@ -69,9 +69,10 @@ vi.mock('../components/layout/MenuButton', () => ({
 }));
 
 vi.mock('../components/ui/DataGrid', () => ({
-  DataGrid: ({ items, columns }: {
+  DataGrid: ({ items, columns, onFocusChange }: {
     items: Array<Record<string, unknown>>;
     columns: Array<{ key: string; format?: (value: unknown, item: Record<string, unknown>) => ReactNode }>;
+    onFocusChange?: (item: Record<string, unknown> | null) => void;
   }) => (
     <div role="grid">
       {items.map((item) => (
@@ -81,6 +82,9 @@ vi.mock('../components/ui/DataGrid', () => ({
               {column.format ? column.format(item[column.key], item) : String(item[column.key] ?? '')}
             </span>
           ))}
+          <button type="button" onClick={() => onFocusChange?.(item)}>
+            {`focar:${String(item.id)}`}
+          </button>
         </div>
       ))}
     </div>
@@ -202,5 +206,38 @@ describe('AgentPermissionsPage', () => {
     await waitFor(() => {
       expect(mockAddToast).toHaveBeenCalledWith('agentPermissions.error.loadFailed', 'error');
     });
+  });
+
+  it('falha de carga não diz que não há autorização nenhuma', async () => {
+    // As que existirem continuam valendo; quem acreditasse na lista vazia não
+    // iria procurá-las.
+    mockGetAgentPermissions.mockRejectedValue(new Error('sem acesso'));
+
+    render(<AgentPermissionsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('agentPermissions.loadFailedBody')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('agentPermissions.empty')).not.toBeInTheDocument();
+  });
+
+  it('a barra deixa de oferecer revogar quando a linha sai da lista', async () => {
+    // Sem isso, o botão continuaria habilitado sobre uma autorização que já não
+    // existe, e quem navega por teclado só descobriria pelo erro.
+    const user = userEvent.setup();
+    mockGetAgentPermissions.mockResolvedValueOnce([autorizacaoDeExecutar]).mockResolvedValueOnce([]);
+    render(<AgentPermissionsPage />);
+    await waitFor(() => expect(screen.getByText('Cursor')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'focar:cursor:execute' }));
+    const naBarra = screen.getByRole('button', { name: 'toolbar:agentPermissions.actions.revoke' });
+    expect(naBarra).toBeEnabled();
+
+    await user.click(naBarra);
+
+    await waitFor(() => {
+      expect(screen.getByText('agentPermissions.empty')).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'toolbar:agentPermissions.actions.revoke' })).toBeDisabled();
   });
 });

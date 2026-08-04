@@ -524,6 +524,7 @@ const es = {
       gridLabel: 'Permisos permanentes del agente',
       description: 'Acciones que autorizó a un agente de código a realizar sin volver a preguntar. El permiso vale para todas las acciones de esa clase en el perfil, hasta que lo revoque aquí.',
       empty: 'No hay permisos permanentes. El agente pregunta antes de cada acción.',
+      loadFailedBody: 'No se pudieron cargar los permisos. Los que existan siguen vigentes: recargue para intentarlo de nuevo.',
       columns: {
         profile: 'Perfil',
         action: 'Acción autorizada',

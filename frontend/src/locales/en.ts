@@ -525,6 +525,7 @@ const en = {
       gridLabel: 'Standing agent permissions',
       description: 'Actions you allowed a coding agent to take without asking again. The permission covers every action of that class in the profile, until you revoke it here.',
       empty: 'No standing permissions. The agent asks before every action.',
+      loadFailedBody: 'Could not load the permissions. Any that exist are still in effect — reload to try again.',
       columns: {
         profile: 'Profile',
         action: 'Allowed action',
