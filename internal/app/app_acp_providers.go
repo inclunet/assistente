@@ -112,9 +112,14 @@ func (a *App) TestACPAgent(command string, args []string) (ACPAgentHealth, error
 	if report.Unauthenticated() {
 		for _, method := range report.AuthMethods {
 			health.LoginMethods = append(health.LoginMethods, ACPLoginMethod{
+				// Nome e descrição já vêm saneados do relatório. O ID chega
+				// intacto de lá porque lá ele é identificador de protocolo, mas
+				// daqui para a frente ele é rótulo de última instância — a tela
+				// mostra o nome ou, na falta dele, o ID —, e como rótulo ele passa
+				// pelo mesmo tratamento.
 				ID:          acp.SanitizeLabel(method.ID),
-				Name:        acp.SanitizeLabel(method.Name),
-				Description: acp.SanitizeLabel(method.Description),
+				Name:        method.Name,
+				Description: method.Description,
 			})
 		}
 	}

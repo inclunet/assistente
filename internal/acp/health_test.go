@@ -289,3 +289,25 @@ func TestProbeAchataOErroDoAgenteEmUmaLinha(t *testing.T) {
 		t.Errorf("erro = %q; texto do agente com quebra de linha forja linha de log e de anúncio", report.Error)
 	}
 }
+
+// O erro é lido na tela e pelo leitor de telas: achatar em uma linha não bastava,
+// porque o \x1b some como controle e o resto da sequência fica como texto.
+func TestProbeSaneiaOErroComoRotulo(t *testing.T) {
+	client := newFakeManagedClient()
+	client.newErr = errors.New("\x1b[31mnão deu\x1b[0m: " + strings.Repeat("detalhe ", 60))
+	m, _ := managerWith(newMemoryStore(), client)
+	t.Cleanup(m.Shutdown)
+
+	report := m.Probe(context.Background(), testSpec())
+
+	if strings.Contains(report.Error, "[31m") || strings.Contains(report.Error, "\x1b") {
+		t.Errorf("erro = %q; sobrou sequência de cor no texto", report.Error)
+	}
+	if !strings.HasPrefix(report.Error, "não deu:") {
+		t.Errorf("erro = %q; o motivo tem de continuar legível", report.Error)
+	}
+	// Um erro sem fim faria o anúncio recitar despejo em vez de dizer o que houve.
+	if runas := len([]rune(report.Error)); runas > 201 {
+		t.Errorf("erro com %d runas; esperado cortado no limite de rótulo", runas)
+	}
+}

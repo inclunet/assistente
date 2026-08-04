@@ -52,6 +52,12 @@ type HealthReport struct {
 	Latency time.Duration
 
 	// Error é o motivo, quando há um. Vazio em HealthOnline.
+	//
+	// Ele é saneado como rótulo, e não só achatado em uma linha: parte do texto
+	// vem do agente (D11), a tela o mostra e o leitor de telas o lê. Achatar
+	// deixava passar o resto de uma sequência de cor ("[31m") como se fosse
+	// texto, e um erro de mil caracteres faria o anúncio recitar despejo de pilha
+	// em vez de dizer o que fazer.
 	Error string
 }
 
@@ -73,7 +79,7 @@ func (m *Manager) Probe(ctx context.Context, spec ProviderSpec) HealthReport {
 	start := time.Now()
 	client, err := m.Client(spec)
 	if err != nil {
-		return HealthReport{State: HealthOffline, Error: singleLine(err.Error()), Latency: time.Since(start)}
+		return HealthReport{State: HealthOffline, Error: SanitizeLabel(err.Error()), Latency: time.Since(start)}
 	}
 	return m.probe(ctx, spec, client, start)
 }
@@ -87,7 +93,7 @@ func (m *Manager) Probe(ctx context.Context, spec ProviderSpec) HealthReport {
 func (m *Manager) ProbeCandidate(ctx context.Context, spec ProviderSpec) HealthReport {
 	start := time.Now()
 	if err := spec.validate(); err != nil {
-		return HealthReport{State: HealthOffline, Error: singleLine(err.Error()), Latency: time.Since(start)}
+		return HealthReport{State: HealthOffline, Error: SanitizeLabel(err.Error()), Latency: time.Since(start)}
 	}
 
 	client, err := m.dial(Config{
@@ -99,7 +105,7 @@ func (m *Manager) ProbeCandidate(ctx context.Context, spec ProviderSpec) HealthR
 		ClientVersion: m.clientVersion,
 	}, m.handler)
 	if err != nil {
-		return HealthReport{State: HealthOffline, Error: singleLine(err.Error()), Latency: time.Since(start)}
+		return HealthReport{State: HealthOffline, Error: SanitizeLabel(err.Error()), Latency: time.Since(start)}
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
@@ -119,7 +125,7 @@ func (m *Manager) probe(ctx context.Context, spec ProviderSpec, client Client, s
 	caps, err := client.Capabilities(ctx)
 	if err != nil {
 		report.State = stateForError(err)
-		report.Error = singleLine(err.Error())
+		report.Error = SanitizeLabel(err.Error())
 		report.Latency = time.Since(start)
 		return report
 	}
@@ -129,7 +135,7 @@ func (m *Manager) probe(ctx context.Context, spec ProviderSpec, client Client, s
 
 	dir, err := m.currentDir()
 	if err != nil {
-		report.Error = singleLine(err.Error())
+		report.Error = SanitizeLabel(err.Error())
 		report.Latency = time.Since(start)
 		return report
 	}
@@ -138,7 +144,7 @@ func (m *Manager) probe(ctx context.Context, spec ProviderSpec, client Client, s
 	session, err := client.NewSession(ctx, dir)
 	if err != nil {
 		report.State = stateForError(err)
-		report.Error = singleLine(err.Error())
+		report.Error = SanitizeLabel(err.Error())
 		report.Latency = time.Since(start)
 		return report
 	}
