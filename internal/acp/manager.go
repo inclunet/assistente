@@ -111,6 +111,15 @@ type ManagerConfig struct {
 	// pode voltar a falar com o agente.
 	OnSessionOptions func(event SessionOptionsEvent)
 
+	// ConversationDir é o diretório escolhido para uma conversa específica
+	// (AEP-0084 D5). Devolver vazio — ou ser nulo — deixa a conversa no
+	// diretório do WorkDir, que é o workspace ativo e continua sendo o padrão.
+	//
+	// Existe porque o alcance do agente é por conversa, e não por app: uma
+	// conversa sobre um projeto não deve passar a editar outro só porque a
+	// pessoa trocou de workspace para olhar outra coisa.
+	ConversationDir func(conversationID string) (string, error)
+
 	// OnSessionCommands é avisado quando o agente conta quais comandos a sessão
 	// de uma conversa oferece (AEP-0084 D8). Nulo apenas silencia o aviso.
 	//
@@ -135,6 +144,7 @@ type Manager struct {
 	store         SessionStore
 	handler       RequestHandler
 	workDir       func() (string, error)
+	convDir       func(string) (string, error)
 	clientName    string
 	clientVersion string
 	onOptions     func(SessionOptionsEvent)
@@ -182,6 +192,7 @@ func NewManager(cfg ManagerConfig) *Manager {
 		store:         cfg.Store,
 		handler:       cfg.Handler,
 		workDir:       cfg.WorkDir,
+		convDir:       cfg.ConversationDir,
 		clientName:    cfg.ClientName,
 		clientVersion: cfg.ClientVersion,
 		onOptions:     cfg.OnSessionOptions,
@@ -277,6 +288,28 @@ func (m *Manager) currentDir() (string, error) {
 		return "", fmt.Errorf("diretório de trabalho do agente ACP: %w", err)
 	}
 	return absoluteDir(dir)
+}
+
+// dirFor é o diretório desta conversa: o que ela escolheu, quando escolheu, e
+// o do app quando não (AEP-0084 D5). Resolvido do mesmo jeito que o global —
+// "projeto" e "./projeto/" precisam sair iguais daqui, senão a comparação da
+// próxima montagem acharia que o diretório mudou e a conversa perderia a
+// memória do agente sem nada ter mudado.
+//
+// Erro ao ler a escolha da conversa não cai para o padrão em silêncio: o
+// diretório é o alcance do que o agente pode editar, e supor o do app faria o
+// agente trabalhar numa árvore que ninguém autorizou.
+func (m *Manager) dirFor(conversationID string) (string, error) {
+	if m.convDir != nil {
+		chosen, err := m.convDir(conversationID)
+		if err != nil {
+			return "", fmt.Errorf("diretório do agente da conversa %s: %w", conversationID, err)
+		}
+		if strings.TrimSpace(chosen) != "" {
+			return absoluteDir(chosen)
+		}
+	}
+	return m.currentDir()
 }
 
 // sameDir diz se dois caminhos apontam para o mesmo diretório. A comparação
@@ -534,7 +567,7 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 	if err != nil {
 		return err
 	}
-	dir, err := c.manager.currentDir()
+	dir, err := c.manager.dirFor(c.id)
 	if err != nil {
 		return err
 	}

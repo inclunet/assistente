@@ -335,8 +335,13 @@ A consequência precisa estar visível, não implícita: **o agente age sobre o
 workspace ativo**. A UI mostra qual é esse diretório junto ao provider, e o
 primeiro turno de cada sessão o anuncia. Trocar de workspace no meio da conversa
 **recria a sessão** — a anterior fala de outros arquivos —, com o mesmo aviso de
-perda de memória que a recriação sempre carrega. Um seletor por conversa é
-evolução natural (Fase 5), não requisito.
+perda de memória que a recriação sempre carrega.
+
+O seletor por conversa, que a Fase 6 entregou, é a mesma regra por conversa: a
+escolha vive na conversa e vazio significa "siga o workspace ativo". Uma conversa
+que escolheu diretório deixa de acompanhar a troca de workspace do app —
+conversar sobre um projeto não pode passar a editar outro só porque a pessoa foi
+olhar outra coisa —, e trocar a escolha recria a sessão com o mesmo aviso.
 
 ### D6. Modelos: `configOptions` com fallback para o formato legado
 
@@ -840,10 +845,57 @@ arquivo continuam só na tela. Elas já usam o mesmo `RequestPayload`, mas o
 diálogo delas nasce na camada de tools, que hoje não sabe de que conversa o turno
 é — levar a superfície até lá é trabalho próprio, não um detalhe desta fase.
 
-### Fase 6 — Continuidade e conveniências
+### Fase 6 — Continuidade e conveniências (feita)
 
 `session/load` na reabertura, título vindo de `session_info_update`, slash
 commands de `available_commands_update`, seletor de diretório por conversa.
+
+**Aceite:** reabrir uma conversa volta a falar com a mesma sessão do agente
+quando ele sabe retomá-la, e conta que o contexto se perdeu quando não sabe; o
+nome que o agente dá à sessão vira o título da conversa sem apagar nome
+escolhido por alguém; os comandos que o agente anuncia aparecem no menu da barra
+junto das skills; e o diretório em que o agente trabalha é visível e trocável
+por conversa.
+
+Decisões que a fase fixou:
+
+- **A retomada é tentada sempre, e a perda é contada uma vez.** `session/load` já
+  era chamado na montagem; o que faltava era dizer que ele falhou. A sessão que
+  nasce recriada carrega um aviso que o primeiro turno consome
+  (`TurnNoticeAgentMemoryLost`): repeti-lo a cada turno diria que o agente
+  esqueceu de novo, e omiti-lo faria a pessoa descobrir pela resposta estranha.
+  O aviso é consumido no turno que o entrega, e não na montagem — turno que nem
+  chegou ao agente não contou nada a ninguém.
+- **Sessão retomada é registrada como a que nasce agora.** O registro é o que
+  permite anotar a intenção de uma troca de modelo antes de pedi-la ao agente
+  (Fase 4); sem ele, o eco da troca que a pessoa pediu voltaria anunciado como
+  decisão do agente. O sintoma só apareceria no anúncio, então o caso tem teste
+  próprio.
+- **O título do agente só substitui título automático.** O nome gerado troca o
+  padrão de conversa nova e o recorte da primeira mensagem, e mais nada: nome
+  diferente desses dois foi escolhido por alguém, na tela, e sobrescrevê-lo
+  trocaria uma decisão por um palpite. O título chega ao fim do turno, e não
+  durante: renomear é escrita no banco, e o sink das atualizações roda na
+  goroutine de entrega do transporte — enquanto ela não volta, o protocolo do
+  agente fica parado.
+- **Comandos do agente entram no menu que já existe.** A barra abre uma lista só,
+  com as skills do app e os comandos do agente agrupados e rotulados: dois menus
+  de barra obrigariam a pessoa a saber de antemão de quem é o comando que ela
+  quer. Comando com espaço no nome é descartado no mapeamento, porque o menu
+  separa nome e argumento pelo espaço.
+- **O diretório é por conversa, visível e resolvido no backend.** Ele é o alcance
+  do que a pessoa autorizou o agente a ler e editar, e por isso fica na barra em
+  vez de escondido em configuração. A escolha vive na conversa
+  (`Conversation.AgentWorkDir`), e vazio significa "siga o workspace ativo", que
+  segue sendo o padrão. O caminho é conferido na hora da escolha — existe, e é
+  diretório — e resolvido para absoluto: caminho equivalente escrito de outro
+  jeito não pode custar a memória da conversa na comparação da próxima montagem.
+- **Trocar o diretório recria a sessão, com o mesmo aviso.** Quem recria é a
+  montagem do turno seguinte, que vê o diretório diferente; a tela conta antes
+  disso que a recriação está pendente, porque a decisão de trocar agora ou
+  terminar o assunto primeiro é de quem conversa. Não conseguir ler a escolha da
+  conversa falha o turno em vez de cair no workspace: supor um diretório poria o
+  agente a editar uma árvore que ninguém autorizou.
 
 ### Fase 7 — Claude Code
 

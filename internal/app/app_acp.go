@@ -44,6 +44,10 @@ func (a *App) initACP() {
 		Store:   acp.NewDBSessionStore(database.DB),
 		Handler: handler,
 		WorkDir: a.acpWorkDir,
+		// Conversa que escolheu diretório fica nele mesmo quando o app troca de
+		// workspace: o alcance do agente é o que aquela conversa autorizou
+		// (AEP-0084 D5).
+		ConversationDir: a.agentConversationDir,
 		// O agente troca de modelo sozinho e avisa. A tela precisa refletir isso,
 		// e quem usa leitor de telas precisa ouvi-lo (AEP-0084 D6).
 		OnSessionOptions: a.agentSessionOptionsChanged,

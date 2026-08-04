@@ -1,0 +1,71 @@
+.agent-workdir__button {
+  max-width: 180px;
+}
+
+.agent-workdir__button .toolbar__button-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A escolha feita ainda não chegou ao agente: a sessão de pé é de outro
+   diretório. A borda é acompanhada do texto do aviso dentro do diálogo — cor
+   sozinha não conta nada a quem não a vê. */
+.agent-workdir__button--pending {
+  border-color: var(--color-warning);
+}
+
+.agent-workdir__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm, 8px);
+}
+
+.agent-workdir__warning {
+  margin: 0;
+  padding: var(--space-sm, 8px);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-dim);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.agent-workdir__label {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.agent-workdir__input {
+  height: 32px;
+  padding: 0 var(--space-sm, 8px);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+}
+
+.agent-workdir__input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.agent-workdir__error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.agent-workdir__hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  word-break: break-all;
+}
+
+.agent-workdir__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm, 8px);
+  margin-top: var(--space-sm, 8px);
+}

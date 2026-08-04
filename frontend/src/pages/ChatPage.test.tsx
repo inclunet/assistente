@@ -123,8 +123,10 @@ vi.mock('../hooks/useContextMenu', () => ({
 vi.mock('@wailsjs/go/app/App', () => ({
   DeleteMessage: vi.fn(),
   // A conversa destes testes não fala com agente de código: sem comandos do
-  // agente no menu da barra.
+  // agente no menu da barra e sem diretório de agente a mostrar.
   GetAgentSessionCommands: vi.fn().mockResolvedValue({ conversationId: '', commands: [] }),
+  GetAgentConversationWorkDir: vi.fn().mockRejectedValue(new Error('sem agente')),
+  SetAgentConversationWorkDir: vi.fn(),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({

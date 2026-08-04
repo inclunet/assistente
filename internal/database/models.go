@@ -154,6 +154,13 @@ type Conversation struct {
 	// sub_agent_runs. Vazio para conversas comuns. Campo calculado, não persiste.
 	LatestStatus string `json:"latestStatus,omitempty" gorm:"-:migration;->"`
 
+	// AgentWorkDir é o diretório em que o agente de código desta conversa
+	// trabalha (AEP-0084 D5). Vazio significa "o workspace ativo", que é o
+	// padrão; preenchido, esta conversa fica presa a esta árvore mesmo quando o
+	// workspace do app muda. É o alcance do que a pessoa autorizou o agente a
+	// editar, e por isso fica visível na barra da conversa.
+	AgentWorkDir string `json:"agentWorkDir,omitempty"`
+
 	// Rolling Context: sumarização automática de mensagens antigas
 	Summary               string `json:"summary,omitempty" gorm:"type:text"`                     // Resumo acumulativo da conversa
 	SummaryUpToMessageID  string `json:"summary_up_to_message_id,omitempty"`                     // ID da última mensagem coberta pelo resumo
