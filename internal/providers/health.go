@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"assistente/internal/acp"
+	"assistente/internal/llm"
 	"assistente/internal/profiles"
 )
 
@@ -16,6 +18,11 @@ const (
 	HealthOnline HealthState = "online"
 	// HealthOffline indica que o endpoint está inacessível ou rejeitou a autenticação.
 	HealthOffline HealthState = "offline"
+	// HealthUnauthenticated indica um agente de código instalado e de pé, mas
+	// sem login. Estado próprio porque a saída é outra: não se conserta
+	// endereço nem credencial no app, roda-se o login do CLI do agente
+	// (AEP-0084 D12).
+	HealthUnauthenticated HealthState = "unauthenticated"
 )
 
 // HealthResult é o resultado de uma sondagem de saúde do provider ativo.
@@ -70,6 +77,12 @@ func (s *Service) CheckHealth(ctx context.Context, activeProfile *profiles.Profi
 		res.Model = provider.DefaultModel
 	}
 
+	// Agente de código não tem endpoint: sondá-lo é subir o processo, fazer o
+	// handshake e ver se ele aceita abrir sessão (AEP-0084 D12).
+	if provider.IsACP() {
+		return s.checkACPHealth(ctx, provider, res)
+	}
+
 	apiKey := ""
 	if provider.CredentialPattern != "" && s.credMgr != nil {
 		if auth, err := s.credMgr.GetByPatternWithContext(ctx, provider.CredentialPattern); err == nil && auth != nil {
@@ -91,5 +104,52 @@ func (s *Service) CheckHealth(ctx context.Context, activeProfile *profiles.Profi
 	res.State = HealthOffline
 	res.Error = probe.ErrorDetail
 	res.ErrorType = probe.ErrorType
+	return res
+}
+
+// checkACPHealth traduz a sondagem do agente para o mesmo resultado que o
+// indicador de conexão já consome. O modelo sai da conta: a lista de modelos de
+// um agente vem da sessão dele, e o que o perfil guardar não é o que o health
+// tem como confirmar.
+//
+// "Alcançável" aqui é o processo de pé e apresentado; "autenticado" é ele ter
+// aceitado abrir sessão. Sem manager, o app não tem como sondar — e dizer
+// offline sugeriria um agente com problema, quando o que falta é o serviço.
+func (s *Service) checkACPHealth(ctx context.Context, provider *llm.ProviderConfig, res HealthResult) HealthResult {
+	res.Model = ""
+	if s.acpMgr == nil {
+		res.State = HealthOffline
+		res.Error = "serviço de agentes de código não inicializado"
+		res.ErrorType = "acp_manager_missing"
+		return res
+	}
+
+	report := s.acpMgr.Probe(ctx, acp.ProviderSpec{
+		ID:      provider.ID,
+		Name:    provider.Name,
+		Command: provider.ACPCommand,
+		Args:    provider.ACPArgs,
+		Env:     provider.ACPEnv,
+	})
+	res.LatencyMs = report.Latency.Milliseconds()
+	res.Error = report.Error
+
+	switch report.State {
+	case acp.HealthOnline:
+		res.State = HealthOnline
+		res.Reachable = true
+		res.AuthOK = true
+		res.Error = ""
+	case acp.HealthUnauthenticated:
+		res.State = HealthUnauthenticated
+		// Alcançável: o agente subiu e falou. O que falta é o login, e é isso
+		// que o tipo de erro precisa dizer para a tela instruir em vez de
+		// mandar conferir caminho.
+		res.Reachable = true
+		res.ErrorType = "agent_not_authenticated"
+	default:
+		res.State = HealthOffline
+		res.ErrorType = "agent_unreachable"
+	}
 	return res
 }

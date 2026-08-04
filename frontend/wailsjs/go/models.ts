@@ -83,6 +83,89 @@ export namespace allowlist {
 
 export namespace app {
 	
+	export class ACPLoginMethod {
+	    id: string;
+	    name?: string;
+	    description?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPLoginMethod(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	    }
+	}
+	export class ACPAgentHealth {
+	    state: string;
+	    agent_name?: string;
+	    agent_version?: string;
+	    login_methods?: ACPLoginMethod[];
+	    work_dir?: string;
+	    latency_ms: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPAgentHealth(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.agent_name = source["agent_name"];
+	        this.agent_version = source["agent_version"];
+	        this.login_methods = this.convertValues(source["login_methods"], ACPLoginMethod);
+	        this.work_dir = source["work_dir"];
+	        this.latency_ms = source["latency_ms"];
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ACPAgentSetup {
+	    found: boolean;
+	    command: string;
+	    args: string[];
+	    version?: string;
+	    source?: string;
+	    searched?: string[];
+	    work_dir?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPAgentSetup(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.found = source["found"];
+	        this.command = source["command"];
+	        this.args = source["args"];
+	        this.version = source["version"];
+	        this.source = source["source"];
+	        this.searched = source["searched"];
+	        this.work_dir = source["work_dir"];
+	    }
+	}
+	
 	export class AgentConfigValue {
 	    value: string;
 	    name?: string;
@@ -135,6 +218,7 @@ export namespace app {
 		    return a;
 		}
 	}
+	
 	export class AgentPermissionView {
 	    profileSlug: string;
 	    profileName?: string;
@@ -1356,6 +1440,8 @@ export namespace controllers {
 	    api_key?: string;
 	    default_model?: string;
 	    api_format?: string;
+	    acp_command?: string;
+	    acp_args?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new CreateLLMProviderRequest(source);
@@ -1370,6 +1456,8 @@ export namespace controllers {
 	        this.api_key = source["api_key"];
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
+	        this.acp_command = source["acp_command"];
+	        this.acp_args = source["acp_args"];
 	    }
 	}
 	export class CredentialInput {
@@ -1586,6 +1674,8 @@ export namespace controllers {
 	    api_key?: string;
 	    default_model?: string;
 	    api_format?: string;
+	    acp_command?: string;
+	    acp_args?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new UpdateLLMProviderRequest(source);
@@ -1599,6 +1689,8 @@ export namespace controllers {
 	        this.api_key = source["api_key"];
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
+	        this.acp_command = source["acp_command"];
+	        this.acp_args = source["acp_args"];
 	    }
 	}
 

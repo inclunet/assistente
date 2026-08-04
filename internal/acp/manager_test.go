@@ -23,6 +23,7 @@ type fakeManagedClient struct {
 	newErr          error
 	loadErr         error
 	closeSessionErr error
+	capsErr         error
 
 	newCalls   int
 	loadCalls  int
@@ -89,6 +90,9 @@ func (c *fakeManagedClient) CloseSession(_ context.Context, sessionID string) er
 func (c *fakeManagedClient) Capabilities(context.Context) (Capabilities, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.capsErr != nil {
+		return Capabilities{}, c.capsErr
+	}
 	return c.caps, nil
 }
 
