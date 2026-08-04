@@ -119,8 +119,15 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       }
       return { ok: true, message: '', count: modelsList.length };
     } catch (e: unknown) {
+      // Só o que a falha disser de verdade entra aqui: a mensagem é lida em voz
+      // alta e exibida nos três idiomas, e texto inventado neste ponto sairia em
+      // português para quem usa o app em inglês ou espanhol. Nem o nome da
+      // classe do erro serve de detalhe — "Error" não explica nada a ninguém.
       const err = e as { message?: unknown } | null;
-      const errorMsg = String(err?.message || e || 'Erro desconhecido');
+      const errorMsg = (typeof err?.message === 'string'
+        ? err.message
+        : typeof e === 'string' ? e : ''
+      ).trim();
       
       // Detecta se o endpoint de modelos não é suportado (404)
       if (errorMsg.includes('models_endpoint_not_supported')) {
@@ -137,7 +144,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
         setModels([]);
         return { ok: false, message: msg, count: 0 };
       }
-      const msg = `${t('pickers.model.loadError')} ${errorMsg}`;
+      const msg = errorMsg ? `${t('pickers.model.loadError')} ${errorMsg}` : t('pickers.model.loadError');
       setError(msg);
       setEndpointNotSupported(false);
       setModels([]);

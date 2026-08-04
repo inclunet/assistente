@@ -202,8 +202,13 @@ export function labelOfValue(
   value: string,
   translateValue?: (value: string) => string,
 ): string {
-  const item = option?.values.find((candidate) => candidate.value === value);
-  return item?.name || translateValue?.(value) || value;
+  // Aparado dos dois lados: o valor que vem no aviso do agente chega aparado do
+  // backend, e o da lista chega como o agente escreveu. Comparando cru, um
+  // espaço sobrando na lista faria o anúncio sair pelo valor de protocolo mesmo
+  // havendo rótulo escrito na tela.
+  const wanted = value.trim();
+  const item = option?.values.find((candidate) => candidate.value.trim() === wanted);
+  return item?.name || translateValue?.(wanted) || wanted;
 }
 
 /** Rótulos dos modos que o protocolo enumera. O agente manda só o valor. */

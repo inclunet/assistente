@@ -214,6 +214,38 @@ describe('AgentOptionsPickers', () => {
     expect(anunciado).not.toContain('chat.agentOptions.mode.plan');
   });
 
+  it('acha o rótulo mesmo com espaço sobrando no valor que o agente listou', async () => {
+    // O valor que vem no aviso chega aparado do backend, que apara para não
+    // anunciar troca falsa por espaço. O da lista chega como o agente escreveu.
+    const comEspaco = () => {
+      const estado = opcoesDoAgente();
+      estado.options[0].values = [
+        { value: 'modelo-a', name: 'Modelo A' },
+        { value: ' modelo-b ', name: 'Modelo B' },
+      ];
+      return estado;
+    };
+    getOptions.mockResolvedValue(comEspaco());
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await screen.findByText('Modelo A');
+
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1',
+        options: comEspaco().options,
+        model: 'modelo-b',
+        modelChanged: true,
+        modeChanged: false,
+        announce: true,
+      });
+    });
+
+    const anunciado = await waitFor(() => anuncioDe('chat.agentOptions.modelChangedByAgent'));
+    expect(anunciado).toContain('Modelo B');
+    expect(anunciado).not.toContain('modelo-b');
+  });
+
   it('ignora o aviso de outra conversa', async () => {
     getOptions.mockResolvedValue(opcoesDoAgente());
 

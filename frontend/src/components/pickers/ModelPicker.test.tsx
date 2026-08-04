@@ -120,6 +120,32 @@ describe('ModelPicker', () => {
     expect(anuncios.join(' ')).not.toContain('pickers.model.refreshed');
   });
 
+  it('falha sem texto não anuncia recado em português', async () => {
+    getModelsSpy.mockResolvedValueOnce(['m1']);
+    // Falha que não traz mensagem alguma: rejeição sem `message`, como acontece
+    // quando a ponte devolve um valor vazio. O recado é lido em voz alta e vale
+    // nos três idiomas, então só a parte traduzida pode sair.
+    refreshModelsSpy.mockRejectedValueOnce(new Error(''));
+    const anuncios: string[] = [];
+
+    render(
+      <ModelPicker
+        value=""
+        onChange={() => {}}
+        providerID="p1"
+        variant="form"
+        onAnnounce={(message) => anuncios.push(message)}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('base-picker')).toHaveAttribute('data-items', '2'));
+
+    await userEvent.click(screen.getByRole('button', { name: 'pickers.model.refreshLabel' }));
+
+    await waitFor(() => expect(anuncios.length).toBeGreaterThan(0));
+    expect(anuncios).toContain('pickers.model.loadError');
+    expect(anuncios.join(' ')).not.toContain('desconhecido');
+  });
+
   it('recarregar que volta vazio anuncia que não há modelos', async () => {
     getModelsSpy.mockResolvedValueOnce(['m1']);
     refreshModelsSpy.mockResolvedValueOnce([]);
