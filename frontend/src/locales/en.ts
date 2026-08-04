@@ -137,7 +137,7 @@ const en = {
       reasoning: 'Reasoning',
       toolOnlyTurnPlaceholder: 'Turn without an assistant response. Preserved tool results appear below.',
       slashCommands: 'Slash commands',
-      noSkillsFound: 'No skill found',
+      noSlashItemsFound: 'No command found',
       availableSkills: 'Available Skills',
       agentCommands: 'Agent commands',
       agentCommandAcceptsInput: 'takes text after the name',

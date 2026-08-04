@@ -137,7 +137,7 @@ const ptBR = {
       reasoning: 'Raciocínio',
       toolOnlyTurnPlaceholder: 'Turno sem resposta do assistente. Os resultados de ferramenta preservados aparecem abaixo.',
       slashCommands: 'Slash commands',
-      noSkillsFound: 'Nenhum skill encontrado',
+      noSlashItemsFound: 'Nenhum comando encontrado',
       availableSkills: 'Skills disponíveis',
       agentCommands: 'Comandos do agente',
       agentCommandAcceptsInput: 'aceita texto depois do nome',

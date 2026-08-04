@@ -58,6 +58,6 @@ describe('SlashCommandMenu', () => {
       />
     );
 
-    expect(screen.getByText('chat.noSkillsFound')).toBeInTheDocument();
+    expect(screen.getByText('chat.noSlashItemsFound')).toBeInTheDocument();
   });
 });

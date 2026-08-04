@@ -136,7 +136,7 @@ const es = {
       reasoning: 'Razonamiento',
       toolOnlyTurnPlaceholder: 'Turno sin respuesta del asistente. Los resultados de herramientas preservados aparecen abajo.',
       slashCommands: 'Slash commands',
-      noSkillsFound: 'Ningún skill encontrado',
+      noSlashItemsFound: 'Ningún comando encontrado',
       availableSkills: 'Skills disponibles',
       agentCommands: 'Comandos del agente',
       agentCommandAcceptsInput: 'acepta texto después del nombre',

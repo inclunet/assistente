@@ -67,7 +67,10 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
   if (filtered.length === 0) {
     return (
       <div className="slash-menu" ref={menuRef} role="listbox" aria-label={t('chat.slashCommands')}>
-        <div className="slash-menu__empty">{t('chat.noSkillsFound')}</div>
+        {/* A lista tem skills do app e comandos do agente: falar só de skills
+            aqui deixaria de fora justamente o que a pessoa pode estar
+            procurando. */}
+        <div className="slash-menu__empty">{t('chat.noSlashItemsFound')}</div>
       </div>
     );
   }
