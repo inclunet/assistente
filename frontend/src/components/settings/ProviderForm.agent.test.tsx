@@ -9,12 +9,12 @@ const detectMock = vi.hoisted(() => vi.fn());
 // Assinatura declarada nos mocks para os testes poderem inspecionar o payload:
 // sem os parâmetros, `mock.calls[0]` é uma tupla vazia para o TypeScript.
 const createMock = vi.hoisted(() =>
-  vi.fn((_payload: Record<string, unknown>) => Promise.resolve({ id: 'cursor-1' })),
+  vi.fn((_req: Record<string, unknown>) => Promise.resolve({ id: 'cursor-1' })),
 );
 const updateMock = vi.hoisted(() =>
-  vi.fn((_id: string, _payload: Record<string, unknown>) => Promise.resolve({})),
+  vi.fn((_id: string, _req: Record<string, unknown>) => Promise.resolve({})),
 );
-const listModelsMock = vi.hoisted(() => vi.fn(() => Promise.resolve(['gpt-4o'])));
+const listModelsMock = vi.hoisted(() => vi.fn((_req: Record<string, unknown>) => Promise.resolve(['gpt-4o'])));
 
 function resolveLocaleString(key: string, vars?: Record<string, unknown>): string | undefined {
   const root = (ptBR as { translation: Record<string, unknown> }).translation;
@@ -115,7 +115,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     await user.click(screen.getByRole('button', { name: /criar/i }));
 
     await waitFor(() => expect(createMock).toHaveBeenCalled());
-    const payload = createMock.mock.calls[0][0] as Record<string, unknown>;
+    const payload = createMock.mock.calls[0][0];
     expect(payload).toMatchObject({
       type: 'cursor',
       api_format: 'acp',

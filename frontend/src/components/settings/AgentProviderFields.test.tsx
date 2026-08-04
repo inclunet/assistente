@@ -8,6 +8,7 @@ import { AgentProviderFields } from './AgentProviderFields';
 
 const announceMock = vi.hoisted(() => vi.fn());
 const detectMock = vi.hoisted(() => vi.fn());
+const testMock = vi.hoisted(() => vi.fn());
 
 function resolveLocaleString(key: string, vars?: Record<string, unknown>): string | undefined {
   const root = (ptBR as { translation: Record<string, unknown> }).translation;
@@ -43,6 +44,7 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 
 vi.mock('@wailsjs/go/app/App', () => ({
   DetectACPAgent: detectMock,
+  TestACPAgent: testMock,
 }));
 
 const cursorFound = {
@@ -210,6 +212,137 @@ describe('AgentProviderFields — agente ausente', () => {
   });
 });
 
+describe('AgentProviderFields — teste do agente', () => {
+  it('testa o comando configurado e diz que ele atende', async () => {
+    detectMock.mockResolvedValue(cursorFound);
+    testMock.mockResolvedValue({
+      state: 'online',
+      agent_name: 'Cursor',
+      agent_version: '2026.07.23',
+      latency_ms: 120,
+      work_dir: cursorFound.work_dir,
+    });
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
+    });
+
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+
+    expect(await screen.findByText(/cursor respondeu e aceitou abrir sessão/i)).toBeInTheDocument();
+    expect(testMock).toHaveBeenCalledWith(cursorFound.command, cursorFound.args);
+    expect(announceMock).toHaveBeenCalledWith(
+      expect.stringMatching(/respondeu e aceitou abrir sessão/i),
+      'polite',
+    );
+  });
+
+  it('estado sem login explica o login do CLI, mostra o comando e anuncia', async () => {
+    detectMock.mockResolvedValue(cursorFound);
+    testMock.mockResolvedValue({
+      state: 'unauthenticated',
+      agent_name: 'Cursor',
+      latency_ms: 90,
+      error: 'abrir sessão no agente ACP: agente ACP não autenticado',
+      login_methods: [{ id: 'cursor_login', name: 'Entrar no Cursor' }],
+    });
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
+    });
+
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+
+    expect(await screen.findByText(/instalado, mas não está autenticado/i)).toBeInTheDocument();
+    expect(screen.getByText(/abra um terminal e rode o comando abaixo/i)).toBeInTheDocument();
+    expect(screen.getByText('cursor-agent login')).toBeInTheDocument();
+    expect(screen.getByText(/entrar no cursor/i)).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith(
+      expect.stringMatching(/instalado, mas não está autenticado/i),
+      'assertive',
+    );
+  });
+
+  it('agente que não responde manda conferir comando e instalação, com o detalhe', async () => {
+    detectMock.mockResolvedValue(cursorFound);
+    testMock.mockResolvedValue({
+      state: 'offline',
+      latency_ms: 30,
+      error: 'executável não encontrado',
+    });
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
+    });
+
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+
+    expect(await screen.findByText(/confira o comando e a instalação/i)).toBeInTheDocument();
+    expect(screen.getByText(/executável não encontrado/i)).toBeInTheDocument();
+    expect(screen.queryByText('cursor-agent login')).not.toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith(
+      expect.stringMatching(/confira o comando e a instalação/i),
+      'assertive',
+    );
+  });
+
+  it('resultado não sobrevive à mudança do comando testado', async () => {
+    detectMock.mockResolvedValue(cursorFound);
+    testMock.mockResolvedValue({ state: 'online', agent_name: 'Cursor', latency_ms: 10 });
+    const user = userEvent.setup();
+
+    render(<Host />);
+    const commandInput = await screen.findByLabelText(/comando do agente/i);
+    await waitFor(() => expect(commandInput).toHaveValue(cursorFound.command));
+
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+    expect(await screen.findByText(/respondeu e aceitou abrir sessão/i)).toBeInTheDocument();
+
+    await user.type(commandInput, '-outro');
+
+    expect(screen.queryByText(/respondeu e aceitou abrir sessão/i)).not.toBeInTheDocument();
+  });
+
+  it('sem comando, nem chama o backend: pede o comando e anuncia', async () => {
+    detectMock.mockResolvedValue(cursorMissing);
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await screen.findByText(/agente não encontrado nesta máquina/i);
+
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+
+    expect(await screen.findByText(/informe o comando do agente para testar/i)).toBeInTheDocument();
+    expect(testMock).not.toHaveBeenCalled();
+    expect(announceMock).toHaveBeenCalledWith(
+      expect.stringMatching(/informe o comando do agente para testar/i),
+      'assertive',
+    );
+  });
+
+  it('falha da própria sondagem aparece e é anunciada', async () => {
+    detectMock.mockResolvedValue(cursorFound);
+    testMock.mockRejectedValue(new Error('serviço de agentes de código não inicializado'));
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
+    });
+
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+
+    expect(await screen.findByText(/serviço de agentes de código não inicializado/i)).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith('serviço de agentes de código não inicializado', 'assertive');
+  });
+});
+
 describe('AgentProviderFields — acessibilidade', () => {
   it('não tem violação de acessibilidade com o agente encontrado', async () => {
     detectMock.mockResolvedValue(cursorFound);
@@ -227,6 +360,25 @@ describe('AgentProviderFields — acessibilidade', () => {
 
     const { container } = render(<Host />);
     await screen.findByText(/agente não encontrado nesta máquina/i);
+
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('não tem violação de acessibilidade no estado sem login', async () => {
+    detectMock.mockResolvedValue(cursorFound);
+    testMock.mockResolvedValue({
+      state: 'unauthenticated',
+      agent_name: 'Cursor',
+      login_methods: [{ id: 'cursor_login', name: 'Entrar no Cursor' }],
+    });
+    const user = userEvent.setup();
+
+    const { container } = render(<Host />);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
+    });
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+    await screen.findByText(/instalado, mas não está autenticado/i);
 
     expect(await axe(container)).toHaveNoViolations();
   });

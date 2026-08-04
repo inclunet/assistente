@@ -32,7 +32,7 @@ function antDesignIconsStub() {
           'CompassOutlined', 'CompressOutlined', 'ConsoleSqlOutlined', 'CopyOutlined',
           'CustomerServiceOutlined',
           'DeleteOutlined', 'DownOutlined',
-          'EditOutlined', 'ExclamationOutlined', 'ExportOutlined',
+          'EditOutlined', 'ExclamationCircleOutlined', 'ExclamationOutlined', 'ExportOutlined',
           'EyeInvisibleOutlined', 'EyeOutlined',
           'FileOutlined', 'FilePdfOutlined', 'FileTextOutlined', 'FilterOutlined',
           'FullscreenOutlined',
