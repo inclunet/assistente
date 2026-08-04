@@ -1,6 +1,9 @@
 package acp
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // connDeTeste é a conexão sem processo nenhum: aqui interessa só a ordem entre
 // a notificação que chega e o registro da sessão.
@@ -63,6 +66,44 @@ func TestAFilaDeEsperaTemTeto(t *testing.T) {
 	}
 	if cn.holdEarlyUpdate("sess-fantasma", Update{Kind: UpdateText, Text: "eco"}) {
 		t.Fatal("a fila de espera passou do teto")
+	}
+}
+
+// O teto por sessão sozinho não protege nada: bastaria o agente trocar de
+// identificador a cada notificação para abrir uma entrada nova toda vez, e a
+// fila cresceria sem fim mesmo sem nenhuma sessão passando do teto dela.
+func TestAFilaDeEsperaTemTetoDeSessoes(t *testing.T) {
+	cn := connDeTeste(nil)
+
+	for i := 0; i < maxPendingSessions; i++ {
+		id := fmt.Sprintf("sess-fantasma-%d", i)
+		if !cn.holdEarlyUpdate(id, Update{Kind: UpdateText, Text: "eco"}) {
+			t.Fatalf("a fila recusou a sessão %d, antes do teto", i)
+		}
+	}
+	if cn.holdEarlyUpdate("sess-fantasma-a-mais", Update{Kind: UpdateText, Text: "eco"}) {
+		t.Fatal("a fila de espera aceitou uma sessão além do teto")
+	}
+
+	// A sessão que já está na fila continua sendo aceita: o teto é de quantas
+	// sessões se acompanha, e recusar quem já entrou perderia justamente a
+	// abertura que a fila existe para segurar.
+	if !cn.holdEarlyUpdate("sess-fantasma-0", Update{Kind: UpdateText, Text: "eco"}) {
+		t.Fatal("o teto de sessões recusou notificação de uma sessão que já estava na fila")
+	}
+}
+
+// A conexão montada sem a fila pronta — o que acontece em teste, e aconteceria
+// em qualquer construção futura que esqueça o mapa — não pode derrubar o app
+// quando o agente fala cedo demais.
+func TestFilaDeEsperaNaoExigeMapaJaCriado(t *testing.T) {
+	cn := &conn{}
+
+	if !cn.holdEarlyUpdate("sess-1", Update{Kind: UpdateText, Text: "oi"}) {
+		t.Fatal("a notificação foi descartada numa conexão sem fila criada")
+	}
+	if len(cn.pending["sess-1"]) != 1 {
+		t.Fatalf("a fila ficou com %d notificações", len(cn.pending["sess-1"]))
 	}
 }
 

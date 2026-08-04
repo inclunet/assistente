@@ -480,6 +480,13 @@ func (c *conn) removeSession(id string) {
 // aqui são as poucas notificações da abertura.
 const maxPendingUpdates = 32
 
+// maxPendingSessions é o teto de quantas sessões desconhecidas se espera ao
+// mesmo tempo. Sem ele, o teto por sessão não protege nada: bastaria o agente
+// trocar de identificador a cada notificação para abrir uma entrada nova toda
+// vez. O que se espera de verdade é uma sessão em trânsito, a que acabou de ser
+// pedida; o resto é agente falando de conversa que já acabou.
+const maxPendingSessions = 8
+
 // holdEarlyUpdate guarda a atualização que chegou antes de a sessão existir
 // para nós.
 //
@@ -490,18 +497,29 @@ const maxPendingUpdates = 32
 // barra mostra, num defeito que só aparece em algumas máquinas.
 //
 // Devolve falso quando a sessão apareceu no meio do caminho — aí a entrega é
-// direta — e quando o teto já foi atingido, que é o agente falando de uma sessão
-// que não vai ser registrada: a de uma conversa da qual já nos despedimos.
+// direta — e quando algum dos tetos já foi atingido, que é o agente falando de
+// sessões que não vão ser registradas: as de conversas das quais já nos
+// despedimos.
 func (c *conn) holdEarlyUpdate(id string, update Update) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, ok := c.sessions[id]; ok {
 		return false
 	}
-	if len(c.pending[id]) >= maxPendingUpdates {
+	guardadas, conhecida := c.pending[id]
+	if len(guardadas) >= maxPendingUpdates {
 		return false
 	}
-	c.pending[id] = append(c.pending[id], update)
+	if !conhecida && len(c.pending) >= maxPendingSessions {
+		return false
+	}
+	// A fila é criada aqui e não na montagem da conexão: assim uma conexão
+	// montada sem ela — o que acontece em teste — guarda em vez de derrubar o
+	// app na primeira notificação que chega cedo.
+	if c.pending == nil {
+		c.pending = make(map[string][]Update)
+	}
+	c.pending[id] = append(guardadas, update)
 	return true
 }
 
