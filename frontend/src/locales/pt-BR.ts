@@ -546,7 +546,7 @@ const ptBR = {
         fetch: 'Buscar na rede',
         switchMode: 'Mudar de modo',
         other: 'Ações sem classe declarada',
-        unknown: 'Ações sem classe declarada',
+        unknown: 'Ações de uma classe que este app não reconhece',
       },
       confirm: {
         title: 'Revogar autorização',

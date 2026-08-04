@@ -545,7 +545,7 @@ const es = {
         fetch: 'Buscar en la red',
         switchMode: 'Cambiar de modo',
         other: 'Acciones sin clase declarada',
-        unknown: 'Acciones sin clase declarada',
+        unknown: 'Acciones de una clase que esta app no reconoce',
       },
       confirm: {
         title: 'Revocar permiso',

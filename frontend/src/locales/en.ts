@@ -546,7 +546,7 @@ const en = {
         fetch: 'Fetch from the network',
         switchMode: 'Switch mode',
         other: 'Actions with no declared class',
-        unknown: 'Actions with no declared class',
+        unknown: 'Actions of a class this app does not recognize',
       },
       confirm: {
         title: 'Revoke permission',
