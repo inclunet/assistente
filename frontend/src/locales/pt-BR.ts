@@ -1733,7 +1733,7 @@ const ptBR = {
           unauthenticated: 'O agente está instalado, mas não está autenticado. Faça o login pelo CLI dele para poder usá-lo.',
           offline: 'Não foi possível falar com o agente. Confira o comando e a instalação.',
           offlineDetail: 'Não foi possível falar com o agente. Confira o comando e a instalação. Detalhes: {{detail}}',
-          loginHelp: 'Abra um terminal e rode o comando abaixo; depois volte aqui e teste de novo.',
+          loginHelp: 'Abra um terminal e rode o login do CLI do agente; depois volte aqui e teste de novo. Se o comando abaixo não for encontrado, rode-o pela pasta onde o CLI está instalado — no Windows ele costuma não ficar no PATH.',
           loginCommand: 'cursor-agent login',
           loginMethods: 'Autenticação pedida pelo agente: {{methods}}.',
         },

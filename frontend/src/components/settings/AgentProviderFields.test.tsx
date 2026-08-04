@@ -377,7 +377,10 @@ describe('AgentProviderFields — teste do agente', () => {
     await user.click(screen.getByRole('button', { name: /testar agente/i }));
 
     expect(await screen.findByText(/instalado, mas não está autenticado/i)).toBeInTheDocument();
-    expect(screen.getByText(/abra um terminal e rode o comando abaixo/i)).toBeInTheDocument();
+    expect(screen.getByText(/abra um terminal e rode o login do cli do agente/i)).toBeInTheDocument();
+    // A instrução não promete que o comando está no PATH: nesta máquina Windows
+    // ele não está, e mandar rodá-lo assim mandaria a pessoa a um erro.
+    expect(screen.getByText(/pela pasta onde o cli está instalado/i)).toBeInTheDocument();
     expect(screen.getByText('cursor-agent login')).toBeInTheDocument();
     expect(screen.getByText(/entrar no cursor/i)).toBeInTheDocument();
     expect(announceMock).toHaveBeenCalledWith(
