@@ -103,6 +103,14 @@ type ManagerConfig struct {
 	ClientName    string
 	ClientVersion string
 
+	// OnSessionOptions é avisado quando o modelo ou o modo da sessão de uma
+	// conversa muda, inclusive por decisão do próprio agente (AEP-0084 D6).
+	// Nulo apenas silencia o aviso.
+	//
+	// Roda na goroutine de entrega do transporte: precisa retornar rápido e não
+	// pode voltar a falar com o agente.
+	OnSessionOptions func(event SessionOptionsEvent)
+
 	// Dial existe para os testes trocarem o transporte. Padrão: New.
 	Dial func(cfg Config, handler RequestHandler) (Client, error)
 }
@@ -123,6 +131,7 @@ type Manager struct {
 	workDir       func() (string, error)
 	clientName    string
 	clientVersion string
+	onOptions     func(SessionOptionsEvent)
 	dial          func(Config, RequestHandler) (Client, error)
 
 	// mu protege os mapas. Ordem dos locks: quem segura o de uma conversa pode
@@ -144,6 +153,14 @@ type Manager struct {
 	ownersMu   sync.Mutex
 	owners     map[string]turnRegistration
 	ownerToken uint64
+
+	// known diz, por sessão do agente, de que conversa ela é e em que modelo e
+	// modo o app a conhece (AEP-0084 D6). Lock próprio pelo mesmo motivo de
+	// owners, e mais um: o aviso de troca de modelo chega pela goroutine de
+	// entrega do transporte, que ficaria parada atrás do lock de uma conversa
+	// que está abrindo sessão — e o protocolo inteiro pararia com ela.
+	knownMu sync.Mutex
+	known   map[string]sessionKnowledge
 }
 
 // agentProcess é o processo de um provider e o spec que o descreve, para
@@ -160,9 +177,11 @@ func NewManager(cfg ManagerConfig) *Manager {
 		workDir:       cfg.WorkDir,
 		clientName:    cfg.ClientName,
 		clientVersion: cfg.ClientVersion,
+		onOptions:     cfg.OnSessionOptions,
 		dial:          cfg.Dial,
 		procs:         make(map[string]*agentProcess),
 		convs:         make(map[string]*Conversation),
+		known:         make(map[string]sessionKnowledge),
 	}
 	if m.workDir == nil {
 		m.workDir = os.Getwd
@@ -217,6 +236,9 @@ func (m *Manager) process(spec ProviderSpec) (*agentProcess, error) {
 		WorkDir:       m.processWorkDir(),
 		ClientName:    m.clientName,
 		ClientVersion: m.clientVersion,
+		// O transporte só conhece o nome da sessão; quem sabe de que conversa
+		// ela é, e o que o app já sabia dela, é este serviço (AEP-0084 D6).
+		OnConfigOptions: m.sessionOptionsChanged,
 	}, m.handler)
 	if err != nil {
 		return nil, err
@@ -430,6 +452,12 @@ func (m *Manager) drop(closing bool) {
 	}
 	m.mu.Unlock()
 
+	// Sem processo não há sessão viva, e um vínculo sobrevivente faria o aviso
+	// da próxima sessão de mesmo nome cair na conversa de antes.
+	m.knownMu.Lock()
+	m.known = make(map[string]sessionKnowledge)
+	m.knownMu.Unlock()
+
 	for _, proc := range procs {
 		if err := proc.client.Close(); err != nil {
 			logging.Warnf(context.Background(), managerComponent,
@@ -516,6 +544,7 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 		// Quando o processo é outro (caiu, ou a configuração mudou), a sessão
 		// morreu com ele e não há despedida a fazer.
 		delete(c.mounted, spec.ID)
+		c.manager.forgetSession(current.sessionID)
 	}
 
 	var stored *StoredSession
@@ -579,6 +608,16 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 	}
 	c.mounted[spec.ID] = mounted
 	c.active = mounted
+	// O aviso de troca de modelo chega pelo transporte sabendo só o nome da
+	// sessão; é este registro que o liga de volta à conversa (AEP-0084 D6).
+	model, _ := currentValueOf(session.ConfigOptions(), CategoryModel)
+	mode, _ := currentValueOf(session.ConfigOptions(), CategoryMode)
+	c.manager.rememberSession(mounted.sessionID, sessionKnowledge{
+		conversationID: c.id,
+		providerID:     spec.ID,
+		model:          model,
+		mode:           mode,
+	})
 	return nil
 }
 
@@ -638,6 +677,10 @@ func (c *Conversation) closeLocked(ctx context.Context) error {
 
 	var errs []error
 	for _, entry := range mounted {
+		// A conversa acabou: um aviso do agente sobre esta sessão já não tem a
+		// quem chegar, e deixar o vínculo faria o evento apontar para uma
+		// conversa que a pessoa apagou.
+		c.manager.forgetSession(entry.sessionID)
 		if entry.session == nil {
 			// Sessão invalidada: o app não a usa mais, mas o agente pode ainda
 			// tê-la. Sem esta despedida ela ficaria aberta no processo do
