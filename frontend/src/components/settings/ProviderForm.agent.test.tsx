@@ -244,6 +244,50 @@ describe('ProviderForm — provedor de agente de código', () => {
     expect(payload.api_key).toBeUndefined();
   });
 
+  it('voltar ao tipo salvo devolve o comando e os argumentos que estavam salvos', async () => {
+    // Trocar o tipo e desistir não pode custar a configuração: o preset do
+    // agente não sabe qual comando está no banco, e a detecção acha outro.
+    detectMock.mockResolvedValue(detected);
+    listModelsMock.mockResolvedValue(['llama3']);
+    const user = userEvent.setup();
+
+    render(
+      <ProviderForm
+        provider={{
+          id: 'cursor-1',
+          name: 'Cursor local',
+          type: 'cursor',
+          base_url: '',
+          api_key: '',
+          api_format: 'acp',
+          acp_command: '/opt/cursor/agente',
+          acp_args: ['acp', '--forcar'],
+        }}
+        onCancel={() => {}}
+        onSave={() => {}}
+      />
+    );
+    await screen.findByLabelText(/comando do agente/i);
+
+    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'ollama');
+    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'cursor');
+
+    // Sem clicar em detectar: o que reaparece é o que está salvo, e não o que a
+    // detecção encontrou nesta máquina.
+    expect(await screen.findByLabelText(/comando do agente/i)).toHaveValue('/opt/cursor/agente');
+    expect(screen.getByLabelText(/argumentos/i)).toHaveValue('acp\n--forcar');
+
+    await user.click(screen.getByRole('button', { name: /atualizar/i }));
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    expect(updateMock.mock.calls[0][1]).toMatchObject({
+      type: 'cursor',
+      api_format: 'acp',
+      acp_command: '/opt/cursor/agente',
+      acp_args: ['acp', '--forcar'],
+    });
+  });
+
   it('edição preserva o comando salvo e atualiza pelo mesmo contrato', async () => {
     detectMock.mockResolvedValue(detected);
     const user = userEvent.setup();

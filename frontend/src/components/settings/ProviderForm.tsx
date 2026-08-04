@@ -247,6 +247,33 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
   }, [provider]);
 
   /**
+   * Recoloca no formulário a configuração do provedor salvo, como a carga
+   * inicial faz. O nome fica como está — quem renomeou não pediu para desfazer
+   * isso — e a chave digitada nesta sessão também, porque é o único dado do
+   * formulário que ainda não existe em lugar nenhum.
+   */
+  const restoreSavedProvider = () => {
+    if (!provider) return;
+    const savedConfig = PROVIDER_CONFIG[provider.type] || PROVIDER_CONFIG.custom;
+    setFormData((prev) => ({
+      ...prev,
+      type: provider.type,
+      api_format: provider.api_format ?? savedConfig.apiFormat ?? '',
+      base_url: provider.base_url,
+      default_model: provider.default_model || '',
+      api_key: apiKeyChangedInThisSession ? prev.api_key : '',
+      acp_command: provider.acp_command || '',
+      acp_args: provider.acp_args || [],
+    }));
+    setErrors({});
+    setApiTested(false);
+    setModels([]);
+    setModelsLoaded(false);
+    setEndpointNotSupported(false);
+    setShowApiKeyField(apiKeyChangedInThisSession);
+  };
+
+  /**
    * Trocar o tipo é passar a configurar outra coisa, então o preset do novo tipo
    * passa a valer inteiro — inclusive o `api_format`, que é quem decide a forma
    * do formulário e o caminho de gravação.
@@ -257,11 +284,21 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
    * fora da edição (para não sobrescrever a URL salva ao abrir a tela) — e com
    * ela de fora, editar um agente e escolher um tipo HTTP deixava o formulário
    * na forma de agente gravando por um pipeline que discorda do tipo escolhido.
+   *
+   * A exceção é voltar ao tipo do provedor salvo: aí a configuração existe, e o
+   * preset não passa de um palpite sobre ela. Quem troca o tipo e desiste tem de
+   * encontrar de volta o que estava salvo — a URL customizada, o comando do
+   * agente —, e não o padrão do preset gravado como se nada tivesse acontecido.
    */
   const handleTypeChange = (nextType: string) => {
     const config = PROVIDER_CONFIG[nextType] || PROVIDER_CONFIG.custom;
     const nextIsAgent = (config.apiFormat || '') === AGENT_API_FORMAT;
     const leavingAgent = isAgent && !nextIsAgent;
+
+    if (provider && nextType === provider.type) {
+      restoreSavedProvider();
+      return;
+    }
 
     setFormData((prev) => ({
       ...prev,
@@ -571,7 +608,9 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           // Na edição o comando salvo é a escolha de quem configurou e não se
           // toca — mas se o tipo foi trocado à mão, não há nada salvo para o
           // novo agente, e deixar o campo vazio faria a pessoa procurar o
-          // caminho na mão sem motivo.
+          // caminho na mão sem motivo. Voltar ao tipo salvo cai no primeiro
+          // caso: o comando restaurado é o que vale, e a detecção só informa o
+          // que existe na máquina.
           autoFill={!formData.id || formData.type !== provider?.type}
         />
       ) : (
