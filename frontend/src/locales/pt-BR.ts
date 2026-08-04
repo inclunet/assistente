@@ -3458,6 +3458,12 @@ const ptBR = {
         permissionUnavailable: 'O agente pediu permissão para {{action}}, mas o app não conseguiu apresentar o pedido. A ação foi negada.',
         permissionAlwaysAllowed: 'Autorização permanente criada neste perfil: {{actionClass}}. O agente não vai mais perguntar antes dessas ações; para revogar, abra Configurações e vá em Autorizações do Agente.',
         permissionAlwaysNotSaved: 'A autorização permanente não pôde ser guardada: {{actionClass}}. A ação desta vez foi permitida, mas na próxima o agente vai perguntar de novo.',
+        questionNoWatcher: 'O agente parou para perguntar algo nesta conversa, mas não havia ninguém para responder. Ele seguiu sem a sua resposta.',
+        questionTimeout: 'O agente fez uma pergunta e ninguém respondeu a tempo. Ele seguiu sem a sua resposta.',
+        questionUnavailable: 'O agente fez uma pergunta, mas o app não conseguiu apresentá-la. Ele seguiu sem a sua resposta.',
+        planNoWatcher: 'O agente propôs um plano nesta conversa, mas não havia ninguém para aprová-lo. O plano foi recusado.',
+        planTimeout: 'O agente propôs um plano e ninguém decidiu a tempo. O plano foi recusado.',
+        planUnavailable: 'O agente propôs um plano, mas o app não conseguiu apresentá-lo. O plano foi recusado.',
         action: {
           read: 'ler um arquivo',
           edit: 'editar um arquivo',

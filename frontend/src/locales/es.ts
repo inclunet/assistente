@@ -3456,6 +3456,12 @@ const es = {
         permissionUnavailable: 'El agente pidió permiso para {{action}}, pero la app no pudo presentar la solicitud. La acción fue denegada.',
         permissionAlwaysAllowed: 'Autorización permanente creada en este perfil: {{actionClass}}. El agente ya no preguntará antes de esas acciones; para revocarla, abre Configuración y ve a Permisos del Agente.',
         permissionAlwaysNotSaved: 'La autorización permanente no se pudo guardar: {{actionClass}}. Esta acción fue permitida, pero la próxima vez el agente volverá a preguntar.',
+        questionNoWatcher: 'El agente se detuvo para preguntar algo en esta conversación, pero no había nadie para responder. Siguió sin tu respuesta.',
+        questionTimeout: 'El agente hizo una pregunta y nadie respondió a tiempo. Siguió sin tu respuesta.',
+        questionUnavailable: 'El agente hizo una pregunta, pero la app no pudo presentarla. Siguió sin tu respuesta.',
+        planNoWatcher: 'El agente propuso un plan en esta conversación, pero no había nadie para aprobarlo. El plan fue rechazado.',
+        planTimeout: 'El agente propuso un plan y nadie decidió a tiempo. El plan fue rechazado.',
+        planUnavailable: 'El agente propuso un plan, pero la app no pudo presentarlo. El plan fue rechazado.',
         action: {
           read: 'leer un archivo',
           edit: 'editar un archivo',

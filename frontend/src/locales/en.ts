@@ -3457,6 +3457,12 @@ const en = {
         permissionUnavailable: 'The agent asked permission to {{action}}, but the app could not present the request. The action was denied.',
         permissionAlwaysAllowed: 'Standing permission created in this profile: {{actionClass}}. The agent will no longer ask before those actions; to revoke it, open Settings and go to Agent Permissions.',
         permissionAlwaysNotSaved: 'The standing permission could not be saved: {{actionClass}}. This action was allowed, but the agent will ask again next time.',
+        questionNoWatcher: 'The agent stopped to ask something in this conversation, but there was no one to answer. It went on without your answer.',
+        questionTimeout: 'The agent asked a question and no one answered in time. It went on without your answer.',
+        questionUnavailable: 'The agent asked a question, but the app could not present it. It went on without your answer.',
+        planNoWatcher: 'The agent proposed a plan in this conversation, but there was no one to approve it. The plan was rejected.',
+        planTimeout: 'The agent proposed a plan and no one decided in time. The plan was rejected.',
+        planUnavailable: 'The agent proposed a plan, but the app could not present it. The plan was rejected.',
         action: {
           read: 'read a file',
           edit: 'edit a file',
