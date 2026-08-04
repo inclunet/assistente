@@ -3526,6 +3526,71 @@ const en = {
             global: 'Global (all workspaces and profiles)',
           },
         },
+        agentPermission: {
+          title: 'The agent is asking for permission',
+          submit: 'Confirm',
+          cancel: 'Deny',
+          actionPrompt: 'Requested action',
+          choicePrompt: 'What may the agent do?',
+          // One sentence per action class (backend: acp.ToolKind) instead of the
+          // interpolated class: the protocol code is English, so "the agent
+          // wants execute" would stay English in every language. The wording
+          // follows app.chatNotice.action.*, so the same class reads the same
+          // way in the dialog and in the conversation notice.
+          description: {
+            read: 'The agent wants to read a file on your machine. Check what it is asking for before deciding.',
+            edit: 'The agent wants to edit a file on your machine. Check what it is asking for before deciding.',
+            delete: 'The agent wants to delete a file on your machine. Check what it is asking for before deciding.',
+            move: 'The agent wants to move a file on your machine. Check what it is asking for before deciding.',
+            search: 'The agent wants to run a search on your machine. Check what it is asking for before deciding.',
+            execute: 'The agent wants to run a command on your machine. Check what it is asking for before deciding.',
+            think: 'The agent wants to record a line of reasoning. Check what it is asking for before deciding.',
+            fetch: 'The agent wants to fetch something from the network. Check what it is asking for before deciding.',
+            switchMode: 'The agent wants to switch working mode. Check what it is asking for before deciding.',
+            other: 'The agent wants to run an action on your machine. Check what it is asking for before deciding.',
+          },
+          // The same sentence plus the "always allow" warning, used only when
+          // the agent offered that option. The warning states the reach of the
+          // permission: it covers the whole class, not just what is on screen.
+          descriptionAlways: {
+            read: 'The agent wants to read a file on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every file read, until you revoke it.',
+            edit: 'The agent wants to edit a file on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every file edit, until you revoke it.',
+            delete: 'The agent wants to delete a file on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every file deletion, until you revoke it.',
+            move: 'The agent wants to move a file on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every file move, until you revoke it.',
+            search: 'The agent wants to run a search on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every search, until you revoke it.',
+            execute: 'The agent wants to run a command on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every command the agent wants to run, until you revoke it.',
+            think: 'The agent wants to record a line of reasoning. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every recorded line of reasoning, until you revoke it.',
+            fetch: 'The agent wants to fetch something from the network. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every network fetch, until you revoke it.',
+            switchMode: 'The agent wants to switch working mode. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about every mode switch, until you revoke it.',
+            other: 'The agent wants to run an action on your machine. Check what it is asking for before deciding. If you choose to always allow, this profile will stop asking about any action the agent leaves unclassified, until you revoke it.',
+          },
+        },
+        agentQuestion: {
+          title: 'The agent has a question',
+          submit: 'Answer',
+          cancel: 'Skip the question',
+          description: 'The agent paused the turn to ask. Without an answer it carries on anyway, and what comes next may not be what you wanted.',
+          // The subject comes from the agent, sanitized: an interpolated value,
+          // never a key.
+          descriptionSubject: 'The agent paused the turn to ask. Without an answer it carries on anyway, and what comes next may not be what you wanted. Subject: "{{subject}}".',
+          promptLabel: 'Question from the agent',
+          promptLabelNumbered: 'Question {{position}} of {{total}}',
+          answerPrompt: 'Your answer',
+          answerPromptMultiple: 'Your answer (you may pick more than one)',
+        },
+        agentPlan: {
+          title: 'The agent proposed a plan',
+          submit: 'Confirm',
+          cancel: 'Reject',
+          contentPrompt: 'Proposed plan',
+          choicePrompt: 'May the agent follow this plan?',
+          approve: 'Approve the plan',
+          reject: 'Reject the plan',
+          description: 'Approving lets the agent carry out the steps below on your machine. Read the whole plan before deciding.',
+          descriptionSteps: 'Approving lets the agent carry out the steps below on your machine. Read the whole plan before deciding. It has {{steps}} step(s).',
+          descriptionProject: 'Approving lets the agent carry out the steps below on your machine. Read the whole plan before deciding. The agent marked this plan as a project plan.',
+          descriptionProjectSteps: 'Approving lets the agent carry out the steps below on your machine. Read the whole plan before deciding. The agent marked this plan as a project plan. It has {{steps}} step(s).',
+        },
       },
     },
     auth: {
