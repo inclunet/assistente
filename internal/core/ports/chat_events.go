@@ -248,6 +248,39 @@ const (
 	ChatNoticeKindPermissionUnavailable = "permission_denied_unavailable"
 )
 
+// Pergunta bloqueante do agente (cursor/ask_question) que o app pulou sem que
+// ninguém decidisse (AEP-0084 D9). Diferente da permissão, aqui nada foi
+// negado: o agente perguntou e seguiu o turno sem a resposta, o que costuma
+// mudar o que ele entrega — e sem aviso a pessoa lê a resposta sem saber que
+// ela partiu de um palpite.
+const (
+	// ChatNoticeKindQuestionNoWatcher é a pergunta feita num turno sem tela
+	// onde perguntar — canal, job agendado, subagente, CLI não interativa.
+	ChatNoticeKindQuestionNoWatcher = "question_skipped_no_watcher"
+	// ChatNoticeKindQuestionTimeout é a pergunta que ficou sem resposta dentro
+	// do prazo.
+	ChatNoticeKindQuestionTimeout = "question_skipped_timeout"
+	// ChatNoticeKindQuestionUnavailable é a pergunta que o app não conseguiu
+	// apresentar: sem o questionário no ar, ou sem opção nenhuma para oferecer.
+	ChatNoticeKindQuestionUnavailable = "question_skipped_unavailable"
+)
+
+// Plano que o agente montou (cursor/create_plan) e que o app recusou sem que
+// ninguém decidisse (AEP-0084 D9). Recusar é o desfecho seguro — executar um
+// plano que ninguém leu seria o oposto —, mas o agente costuma seguir dizendo
+// apenas que o plano foi rejeitado.
+const (
+	// ChatNoticeKindPlanNoWatcher é o plano apresentado num turno sem tela
+	// onde aprová-lo.
+	ChatNoticeKindPlanNoWatcher = "plan_rejected_no_watcher"
+	// ChatNoticeKindPlanTimeout é o plano que ficou sem decisão dentro do
+	// prazo.
+	ChatNoticeKindPlanTimeout = "plan_rejected_timeout"
+	// ChatNoticeKindPlanUnavailable é o plano que o app não conseguiu
+	// apresentar.
+	ChatNoticeKindPlanUnavailable = "plan_rejected_unavailable"
+)
+
 // O que aconteceu com um "permitir sempre" (AEP-0084 D9). A escolha muda o
 // comportamento do app daí em diante, e uma mudança dessas não pode acontecer
 // dentro de um diálogo que já sumiu da tela: a conversa é onde a pessoa fica
