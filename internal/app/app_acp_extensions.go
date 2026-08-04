@@ -42,11 +42,28 @@ const (
 )
 
 // Rótulos da decisão sobre o plano. São fixos, e não vindos do agente: ele
-// manda o plano, não as opções.
+// manda o plano, não as opções. Continuam sendo o valor estável da escolha —
+// é por eles que createPlan reencontra a decisão (AEP-0085 D5).
 const (
 	planApproveLabel = "Aprovar o plano"
 	planRejectLabel  = "Recusar o plano"
 )
+
+// Assuntos destes dois diálogos nas chaves de tradução (AEP-0085 D7). São
+// separados porque são diálogos diferentes: um pergunta, o outro submete um
+// plano à aprovação, e nenhum texto serve aos dois.
+const (
+	askTextNamespace  = "app.questionnaire.agentQuestion."
+	planTextNamespace = "app.questionnaire.agentPlan."
+)
+
+func askTextKey(field string) string {
+	return askTextNamespace + field
+}
+
+func planTextKey(field string) string {
+	return planTextNamespace + field
+}
 
 // O que dizemos ao agente quando o desfecho não foi decisão de ninguém. Ele
 // costuma repetir esse texto para a pessoa, então ele explica o que houve em
@@ -186,11 +203,11 @@ func (h *acpRequestHandler) askQuestion(ctx context.Context, req acp.CustomReque
 	// transporte impõe ao handler. Um prazo maior que o teto tiraria da pessoa
 	// a chance de responder (AEP-0084 D9).
 	resp, err := manager.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       questionnaire.Plain("O agente tem uma pergunta"),
-		Description: questionnaire.Plain(askDescription(pedido.Title)),
+		Title:       questionnaire.Keyed(askTextKey("title"), "O agente tem uma pergunta"),
+		Description: askDescriptionText(pedido.Title),
 		AllowCancel: true,
-		SubmitLabel: questionnaire.Plain("Responder"),
-		CancelLabel: questionnaire.Plain("Pular a pergunta"),
+		SubmitLabel: questionnaire.Keyed(askTextKey("submit"), "Responder"),
+		CancelLabel: questionnaire.Keyed(askTextKey("cancel"), "Pular a pergunta"),
 		Questions:   itens,
 	})
 	if err != nil {
@@ -245,9 +262,11 @@ func askDialogFrom(pedido askQuestionRequest) ([]questionnaire.Question, []askIt
 		answerID := fmt.Sprintf("%s%d", askAnswerPrefix, i)
 		itens = append(itens,
 			questionnaire.Question{
+				// O texto da pergunta é do agente: vai como conteúdo de bloco,
+				// sem chave de tradução (AEP-0085 D6).
 				ID:      fmt.Sprintf("%s%d", askPromptPrefix, i),
 				Type:    "readonly_code",
-				Prompt:  questionnaire.Plain(askPromptLabel(i, len(perguntas))),
+				Prompt:  askPromptLabelText(i, len(perguntas)),
 				Content: askPromptContent(pergunta.Prompt),
 			},
 			questionnaire.Question{
@@ -256,7 +275,7 @@ func askDialogFrom(pedido askQuestionRequest) ([]questionnaire.Question, []askIt
 				// Rótulo que o agente mandou é texto, nunca chave de tradução:
 				// traduzir o que vem de fora exibiria o texto de outro lugar do
 				// app no lugar da opção que ele ofereceu (AEP-0085).
-				Prompt:  questionnaire.Plain(askChoicePrompt(pergunta.AllowMultiple)),
+				Prompt:  askChoicePromptText(pergunta.AllowMultiple),
 				Options: questionnaire.PlainTexts(askLabels(pergunta.choices)),
 				// A múltipla escolha aceita nenhuma marcada — exigir uma
 				// obrigaria a inventar resposta para sair do diálogo.
@@ -340,6 +359,16 @@ func askChoicePrompt(multiple bool) string {
 	return "Sua resposta"
 }
 
+// askChoicePromptText nomeia o item de escolha. Cada forma da pergunta tem a
+// sua chave: a de múltipla escolha avisa que dá para marcar mais de uma, e é
+// disso que depende quem só ouve o rótulo antes de responder.
+func askChoicePromptText(multiple bool) questionnaire.Text {
+	if multiple {
+		return questionnaire.Keyed(askTextKey("answerPromptMultiple"), askChoicePrompt(true))
+	}
+	return questionnaire.Keyed(askTextKey("answerPrompt"), askChoicePrompt(false))
+}
+
 // askPromptLabel nomeia o bloco de leitura. Numerar só faz sentido quando há
 // mais de uma pergunta; com uma só, o número seria ruído para quem ouve.
 func askPromptLabel(index, total int) string {
@@ -347,6 +376,23 @@ func askPromptLabel(index, total int) string {
 		return "Pergunta do agente"
 	}
 	return fmt.Sprintf("Pergunta %d de %d", index+1, total)
+}
+
+// askPromptLabelText leva o nome do bloco traduzível. A numeração vai em
+// valores interpolados, e não na chave: a posição é número, não assunto — e o
+// fallback já vai com ela no lugar (AEP-0085 D3).
+//
+// Os nomes evitam os reservados do i18next (count, context, lng), que mudariam
+// pluralização, contexto ou idioma da tradução.
+func askPromptLabelText(index, total int) questionnaire.Text {
+	if total <= 1 {
+		return questionnaire.Keyed(askTextKey("promptLabel"), askPromptLabel(index, total))
+	}
+	return questionnaire.KeyedWith(
+		askTextKey("promptLabelNumbered"),
+		map[string]any{"position": index + 1, "total": total},
+		askPromptLabel(index, total),
+	)
 }
 
 // askPromptContent é o texto da pergunta como a pessoa vai lê-lo: saneado, mas
@@ -367,6 +413,22 @@ func askDescription(title string) string {
 		return fmt.Sprintf("%s Assunto: %q.", base, assunto)
 	}
 	return base
+}
+
+// askDescriptionText leva a descrição traduzível. O assunto é texto do agente:
+// entra como valor interpolado, nunca na chave, porque chave é decisão do app
+// (AEP-0085 D6). Sem assunto a frase é outra, e por isso tem chave própria —
+// uma só deixaria "Assunto:" vazio na tela de quem traduz.
+func askDescriptionText(title string) questionnaire.Text {
+	assunto := acp.SanitizeLabel(title)
+	if assunto == "" {
+		return questionnaire.Keyed(askTextKey("description"), askDescription(title))
+	}
+	return questionnaire.KeyedWith(
+		askTextKey("descriptionSubject"),
+		map[string]any{"subject": assunto},
+		askDescription(title),
+	)
 }
 
 // askAnswersFrom traduz o que a tela devolveu nos identificadores que o agente
@@ -497,26 +559,32 @@ func (h *acpRequestHandler) createPlan(ctx context.Context, req acp.CustomReques
 	}
 
 	resp, err := manager.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       questionnaire.Plain("O agente propôs um plano"),
-		Description: questionnaire.Plain(planDescription(pedido)),
+		Title:       questionnaire.Keyed(planTextKey("title"), "O agente propôs um plano"),
+		Description: planDescriptionText(pedido),
 		AllowCancel: true,
-		SubmitLabel: questionnaire.Plain("Confirmar"),
-		CancelLabel: questionnaire.Plain("Recusar"),
+		SubmitLabel: questionnaire.Keyed(planTextKey("submit"), "Confirmar"),
+		CancelLabel: questionnaire.Keyed(planTextKey("cancel"), "Recusar"),
 		Questions: []questionnaire.Question{
 			{
 				// O plano vai inteiro, em bloco: é o que a pessoa lê para
 				// decidir, e um resumo faria aprovar o que não apareceu na
-				// tela.
+				// tela. O bloco é texto do agente, sem chave (AEP-0085 D6).
 				ID:      planContentID,
 				Type:    "readonly_code",
-				Prompt:  questionnaire.Plain("Plano proposto"),
+				Prompt:  questionnaire.Keyed(planTextKey("contentPrompt"), "Plano proposto"),
 				Content: planContent(pedido),
 			},
 			{
-				ID:        planAnswerID,
-				Type:      "single_choice",
-				Prompt:    questionnaire.Plain("O agente pode seguir este plano?"),
-				Options:   questionnaire.PlainTexts([]string{planApproveLabel, planRejectLabel}),
+				ID:     planAnswerID,
+				Type:   "single_choice",
+				Prompt: questionnaire.Keyed(planTextKey("choicePrompt"), "O agente pode seguir este plano?"),
+				// Aqui a opção é do app, e não do agente: ganha chave. O valor
+				// que volta em Answers continua sendo o fallback, que é como
+				// createPlan reencontra a escolha (AEP-0085 D5).
+				Options: []questionnaire.Text{
+					questionnaire.Keyed(planTextKey("approve"), planApproveLabel),
+					questionnaire.Keyed(planTextKey("reject"), planRejectLabel),
+				},
 				Required:  true,
 				AutoFocus: true,
 			},
@@ -540,6 +608,28 @@ func (h *acpRequestHandler) createPlan(ctx context.Context, req acp.CustomReques
 		return planAccepted()
 	}
 	return planRejected(reasonPlanRefused)
+}
+
+// planDescriptionText leva a descrição do plano traduzível. A frase muda com o
+// que o pedido traz — plano de projeto, contagem de passos —, e como a descrição
+// é um campo só, é a chave que diz qual das quatro frases é. O número de passos
+// vai como valor interpolado: número não é assunto, e o fallback já vai com ele
+// no lugar (AEP-0085 D3).
+func planDescriptionText(pedido createPlanRequest) questionnaire.Text {
+	fallback := planDescription(pedido)
+	passos := len(pedido.Todos) + phaseTodos(pedido.Phases)
+	switch {
+	case pedido.IsProject && passos > 0:
+		return questionnaire.KeyedWith(planTextKey("descriptionProjectSteps"),
+			map[string]any{"steps": passos}, fallback)
+	case pedido.IsProject:
+		return questionnaire.Keyed(planTextKey("descriptionProject"), fallback)
+	case passos > 0:
+		return questionnaire.KeyedWith(planTextKey("descriptionSteps"),
+			map[string]any{"steps": passos}, fallback)
+	default:
+		return questionnaire.Keyed(planTextKey("description"), fallback)
+	}
 }
 
 // planDescription diz o alcance do plano antes de alguém aprová-lo. Só o que é
