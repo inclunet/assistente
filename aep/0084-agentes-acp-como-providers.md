@@ -466,9 +466,12 @@ confirmação de edição, que já é acessível por teclado e leitor de telas.
   não ofereça nenhuma opção de permitir volta para a tela: sem ela não há como
   dizer sim no idioma do método.
 - A autorização permanente **também é consultada só pelo desktop**, pelo mesmo
-  motivo que só pode ser concedida ali: turno sem interlocutor nega na hora,
-  antes de olhar a allowlist, para que um canal remoto não colha o sim que
-  alguém deu na tela.
+  motivo que só pode ser concedida ali: um canal remoto não pode colher o sim que
+  alguém deu na tela. Antes da Fase 5, isso saía de graça — turno sem
+  interlocutor negava na hora, antes de olhar a allowlist. Com a pergunta em
+  canal, a conversa de canal passou a ter interlocutor, e a regra virou
+  explícita: só a superfície de desktop consulta a allowlist, e só ela grava.
+  Turno sem interlocutor nenhum continua negando na hora.
 - **Conceder o "sempre" vira aviso na conversa**, dizendo a classe que passou a
   valer e onde revogá-la. A escolha muda o comportamento do app daí em diante, e
   o diálogo que a recebeu some da tela junto com a única pista disso — sem o
@@ -736,7 +739,7 @@ na criação da sessão.
 **Aceite:** trocar de modelo pelo app muda o modelo do turno seguinte; troca
 feita pelo agente aparece na UI e é anunciada.
 
-### Fase 5 — Perguntar fora do desktop
+### Fase 5 — Perguntar fora do desktop (feita)
 
 Roteamento da pergunta pela superfície de origem (D9): pedido vira mensagem no
 canal, com opções numeradas, resposta restrita ao dono do canal, prazo curto e
@@ -746,6 +749,46 @@ confirmações que já existem.
 **Aceite:** uma conversa de canal com perfil ACP consegue autorizar e negar uma
 ação pela própria conversa; sem resposta no prazo, o pedido é negado e a pessoa
 é informada; resposta de quem não é dono do canal é ignorada.
+
+O mecanismo vive no `questionnaire`, e não no ACP: `Surface` diz de onde a
+conversa veio e `Router` leva o `RequestPayload` para lá, devolvendo a mesma
+`Response` do diálogo de tela. Quem pergunta não sabe onde a pessoa está — é o
+que torna o mecanismo aproveitável por qualquer diálogo do backend.
+
+Do lado do canal, `messaging.ChannelQuestions` traduz o diálogo em mensagem
+(título, o bloco do que foi pedido, opções numeradas e o prazo) e lê a resposta
+em `handleIncoming`, o mesmo ponto por onde toda mensagem de canal entra
+(AEP-0040) — a mensagem que decide não vira turno, senão o barge-in cancelaria
+justamente o turno que espera a decisão. A superfície aceita um diálogo de uma
+única decisão (escolha ou sim/não); o que não couber num número é recusado com o
+desfecho negativo na hora, em vez de virar mensagem que ninguém sabe responder.
+
+Decisões que a fase fixou:
+
+- **Prazo de 3 minutos** no canal, contra os 20 do desktop: na tela a pessoa está
+  diante do diálogo; numa mensagem, o turno do agente fica parado. O prazo cabe
+  com folga no teto do transporte, que nunca corta antes da chance de responder.
+- **Só o contato dono da conversa decide.** A pergunta guarda de quem ela é, e a
+  mensagem de outra pessoa é ignorada por decisão — a pergunta continua pendente,
+  e nada é respondido a quem não é dono, porque a própria existência do pedido já
+  contaria a um terceiro o que o agente está tentando fazer.
+- **`allow-always` barrado em duas camadas.** A opção não é oferecida fora do
+  desktop, e o caminho que grava na allowlist recusa quando a decisão não veio da
+  tela. Um pedido que só ofereça o "sempre" é negado sem virar mensagem: sem como
+  dizer sim, a pergunta custaria uma espera por uma decisão já tomada.
+- **O bloco do que foi pedido vai para o canal, saneado e com teto.** Autorizar
+  sem ver o que se autoriza seria pior do que o registro ficar no histórico de um
+  app de terceiro; o corte avisa que o texto não veio inteiro e onde ele está
+  completo.
+- **A superfície de origem é resolvida no início do turno**, e não no pedido de
+  permissão: o pedido chega por outra goroutine, num contexto de transporte sem
+  escopo de usuário, e descobrir de qual canal a conversa veio exige saber de quem
+  ela é (AEP-0052). Por isso `TurnOwner` carrega o dono do turno.
+
+Fora do escopo desta fase: as confirmações de shell, HTTP mutável e edição de
+arquivo continuam só na tela. Elas já usam o mesmo `RequestPayload`, mas o
+diálogo delas nasce na camada de tools, que hoje não sabe de que conversa o turno
+é — levar a superfície até lá é trabalho próprio, não um detalhe desta fase.
 
 ### Fase 6 — Continuidade e conveniências
 
