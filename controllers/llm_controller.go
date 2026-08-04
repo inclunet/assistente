@@ -21,6 +21,16 @@ type CreateLLMProviderRequest struct {
 	APIKey       string `json:"api_key,omitempty"`
 	DefaultModel string `json:"default_model,omitempty"`
 	APIFormat    string `json:"api_format,omitempty"`
+	// ACPCommand e ACPArgs endereçam o agente de código quando APIFormat é
+	// acp: é o que substitui BaseURL e APIKey, que ali não existem
+	// (AEP-0084 D12).
+	//
+	// ACPEnv fica de fora de propósito. Variável de ambiente de processo é onde
+	// token costuma parar, e não há tela que a edite: expô-la na fronteira só
+	// criaria um caminho para segredo entrar sem que ninguém o veja. Quem
+	// precisa dela usa a importação de configuração, que já a aceita.
+	ACPCommand string   `json:"acp_command,omitempty"`
+	ACPArgs    []string `json:"acp_args,omitempty"`
 }
 
 // TestLLMProviderRequest é o payload para testar um provedor LLM.
@@ -39,6 +49,13 @@ type UpdateLLMProviderRequest struct {
 	APIKey       string `json:"api_key,omitempty"`
 	DefaultModel string `json:"default_model,omitempty"`
 	APIFormat    string `json:"api_format,omitempty"`
+	// ACPCommand segue a convenção dos demais campos daqui: vazio é "não
+	// mexer".
+	ACPCommand string `json:"acp_command,omitempty"`
+	// ACPArgs é ponteiro porque, aqui, lista vazia é edição legítima — tirar
+	// todos os argumentos do agente —, e "vazio é não mexer" tornaria isso
+	// impossível.
+	ACPArgs *[]string `json:"acp_args,omitempty"`
 }
 
 // LLMControllerConfig agrupa as dependências do LLMController.
@@ -136,6 +153,12 @@ func (c *LLMController) ListModelsRaw(ctx context.Context, req TestLLMProviderRe
 
 // providerToMap serializa um ProviderConfig para o formato esperado pelo frontend.
 func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialConfigured bool) map[string]interface{} {
+	// Lista sempre presente: `null` faria a tela distinguir "sem argumentos" de
+	// "campo ausente" antes de conseguir preencher o formulário de edição.
+	acpArgs := p.ACPArgs
+	if acpArgs == nil {
+		acpArgs = []string{}
+	}
 	return map[string]interface{}{
 		"id":                    p.ID,
 		"name":                  p.Name,
@@ -149,6 +172,8 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 		"credential_pattern":    credentialPattern,
 		"credential_configured": credentialConfigured,
 		"auth_mode":             string(p.EffectiveAuthMode()),
+		"acp_command":           p.ACPCommand,
+		"acp_args":              acpArgs,
 	}
 }
 
@@ -161,6 +186,8 @@ func (c *LLMController) CreateLLMProvider(ctx context.Context, req CreateLLMProv
 		BaseURL:      req.BaseURL,
 		APIKey:       req.APIKey,
 		DefaultModel: req.DefaultModel,
+		ACPCommand:   req.ACPCommand,
+		ACPArgs:      req.ACPArgs,
 	})
 	if err != nil {
 		return nil, err
@@ -176,6 +203,8 @@ func (c *LLMController) UpdateLLMProvider(ctx context.Context, id string, req Up
 		BaseURL:      req.BaseURL,
 		APIKey:       req.APIKey,
 		DefaultModel: req.DefaultModel,
+		ACPCommand:   req.ACPCommand,
+		ACPArgs:      req.ACPArgs,
 	})
 	if err != nil {
 		return nil, err

@@ -142,6 +142,8 @@ export function DeleteWorkspace(arg1:string):Promise<void>;
 
 export function DemoteTask(arg1:string,arg2:string):Promise<void>;
 
+export function DetectACPAgent(arg1:string):Promise<app.ACPAgentSetup>;
+
 export function DisconnectMCPServer(arg1:string):Promise<void>;
 
 export function DiscoverMCPServerAuth(arg1:string):Promise<mcp.OAuthDiscoveryResult>;
