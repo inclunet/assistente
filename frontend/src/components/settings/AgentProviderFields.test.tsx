@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ptBR from '../../locales/pt-BR';
 import { axe } from '../../test/a11yAxe';
@@ -73,16 +73,53 @@ const Host = ({ initialCommand = '', autoFill = true }: { initialCommand?: strin
   const [command, setCommand] = useState(initialCommand);
   const [args, setArgs] = useState<string[]>([]);
   return (
-    <AgentProviderFields
-      agentKind="cursor"
-      command={command}
-      args={args}
-      onCommandChange={setCommand}
-      onArgsChange={setArgs}
-      autoFill={autoFill}
-    />
+    <div>
+      <span data-testid="args-atual">{args.join(',')}</span>
+      <AgentProviderFields
+        agentKind="cursor"
+        command={command}
+        args={args}
+        onCommandChange={setCommand}
+        onArgsChange={setArgs}
+        autoFill={autoFill}
+      />
+    </div>
   );
 };
+
+/**
+ * Hospeda os campos do jeito que o formulário faz e permite sair do modo agente,
+ * que é o que acontece quando alguém troca o tipo do provedor.
+ */
+const HostQueTrocaDeTipo = () => {
+  const [ehAgente, setEhAgente] = useState(true);
+  const [command, setCommand] = useState('');
+  const [args, setArgs] = useState<string[]>([]);
+  return (
+    <div>
+      <span data-testid="comando-do-pai">{command}</span>
+      <span data-testid="argumentos-do-pai">{JSON.stringify(args)}</span>
+      <button type="button" onClick={() => setEhAgente(false)}>trocar para http</button>
+      {ehAgente && (
+        <AgentProviderFields
+          agentKind="cursor"
+          command={command}
+          args={args}
+          onCommandChange={setCommand}
+          onArgsChange={setArgs}
+          autoFill
+        />
+      )}
+    </div>
+  );
+};
+
+/** Detecção que só responde quando o teste quiser. */
+function deteccaoControlada() {
+  let responder: (setup: unknown) => void = () => {};
+  detectMock.mockReturnValue(new Promise((resolve) => { responder = resolve; }));
+  return (setup: unknown) => responder(setup);
+}
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -133,8 +170,7 @@ describe('AgentProviderFields — agente encontrado', () => {
   it('não pisa no comando digitado enquanto a detecção estava em voo', async () => {
     // A detecção automática decide preencher quando a resposta chega, não quando
     // a chamada sai: quem digita nesse meio-tempo não pode perder o que escreveu.
-    let responder: (setup: typeof cursorFound) => void = () => {};
-    detectMock.mockReturnValue(new Promise((resolve) => { responder = resolve; }));
+    const responder = deteccaoControlada();
     const user = userEvent.setup();
 
     render(<Host />);
@@ -146,9 +182,39 @@ describe('AgentProviderFields — agente encontrado', () => {
     expect(campo).toHaveValue('/opt/cursor/agente');
   });
 
+  it('não pisa nos argumentos digitados, e ainda preenche o comando que faltava', async () => {
+    // Comando e argumentos são campos separados: decidir pelos dois olhando só o
+    // comando fazia quem digitou argumentos perdê-los.
+    const responder = deteccaoControlada();
+    const user = userEvent.setup();
+
+    render(<Host />);
+    await user.type(screen.getByLabelText(/argumentos/i), 'acp{enter}--meu-modo');
+    responder(cursorFound);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
+    });
+    expect(screen.getByLabelText(/argumentos/i)).toHaveValue('acp\n--meu-modo');
+  });
+
+  it('deixa digitar mais de um argumento, uma linha por vez', async () => {
+    // Linha vazia não é argumento, mas apagá-la a cada tecla tirava o Enter de
+    // quem configura pelo teclado: dava para colar dois argumentos e não para
+    // digitá-los.
+    detectMock.mockResolvedValue(cursorMissing);
+    const user = userEvent.setup();
+
+    render(<Host />);
+    const campo = screen.getByLabelText(/argumentos/i);
+    await user.type(campo, 'acp{enter}--modo-teste');
+
+    expect(campo).toHaveValue('acp\n--modo-teste');
+    expect(screen.getByTestId('args-atual')).toHaveTextContent('acp,--modo-teste');
+  });
+
   it('detecção em voo preenche o campo que continuou vazio', async () => {
-    let responder: (setup: typeof cursorFound) => void = () => {};
-    detectMock.mockReturnValue(new Promise((resolve) => { responder = resolve; }));
+    const responder = deteccaoControlada();
 
     render(<Host />);
     responder(cursorFound);
@@ -156,6 +222,27 @@ describe('AgentProviderFields — agente encontrado', () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
     });
+  });
+
+  it('descarta resposta que chega depois de o formulário deixar de ser de agente', async () => {
+    // Trocar o tipo desmonta estes campos. Escrever no pai depois disso deixaria
+    // comando e argumentos de agente pendurados num provedor que agora é HTTP.
+    const responder = deteccaoControlada();
+    const user = userEvent.setup();
+
+    render(<HostQueTrocaDeTipo />);
+    await waitFor(() => expect(detectMock).toHaveBeenCalledWith('cursor'));
+
+    await user.click(screen.getByRole('button', { name: /trocar para http/i }));
+    expect(screen.queryByLabelText(/comando do agente/i)).not.toBeInTheDocument();
+
+    await act(async () => {
+      responder(cursorFound);
+    });
+
+    expect(screen.getByTestId('comando-do-pai')).toHaveTextContent('');
+    expect(screen.getByTestId('argumentos-do-pai')).toHaveTextContent('[]');
+    expect(announceMock).not.toHaveBeenCalled();
   });
 
   it('detecção pedida no botão aplica o comando encontrado e anuncia', async () => {
@@ -193,6 +280,38 @@ describe('AgentProviderFields — agente ausente', () => {
     detectMock.mockResolvedValue(cursorMissing);
 
     render(<Host />);
+
+    await waitFor(() => {
+      expect(announceMock).toHaveBeenCalledWith(
+        expect.stringMatching(/instale o cli do agente ou informe o comando manualmente/i),
+        'assertive',
+      );
+    });
+  });
+
+  it('não alarma quem edita um provedor que já tem comando salvo', async () => {
+    // Ali a procura é informativa: o comando salvo é a escolha de quem
+    // configurou, e um alarme assertivo interromperia a leitura para descrever
+    // um problema que não existe.
+    detectMock.mockResolvedValue(cursorMissing);
+
+    render(<Host initialCommand="/opt/cursor/agente" autoFill={false} />);
+
+    expect(await screen.findByText(/agente não encontrado nesta máquina/i)).toBeInTheDocument();
+    expect(announceMock).not.toHaveBeenCalled();
+    // O comando salvo continua onde estava, e o texto explica o que a máquina tem.
+    expect(screen.getByLabelText(/comando do agente/i)).toHaveValue('/opt/cursor/agente');
+  });
+
+  it('alarma na detecção pedida, mesmo com comando salvo', async () => {
+    // Aqui a pessoa pediu a procura: o resultado é a resposta a uma ação dela.
+    detectMock.mockResolvedValue(cursorMissing);
+    const user = userEvent.setup();
+
+    render(<Host initialCommand="/opt/cursor/agente" autoFill={false} />);
+    await screen.findByText(/agente não encontrado nesta máquina/i);
+
+    await user.click(screen.getByRole('button', { name: /detectar instalação/i }));
 
     await waitFor(() => {
       expect(announceMock).toHaveBeenCalledWith(

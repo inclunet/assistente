@@ -35,6 +35,15 @@ const healthAnnouncement = (t: TFunction, health: AgentHealth): string => {
     : t('providerForm.agent.test.offline');
 };
 
+/**
+ * Lê os argumentos digitados: uma linha por argumento porque caminho de arquivo
+ * tem espaço, e separar por espaço partiria `C:\Program Files\...` em dois
+ * argumentos que o agente não entenderia. Linha vazia não é argumento — mandá-la
+ * viraria um `""` na linha de comando do agente.
+ */
+const lerArgumentos = (texto: string): string[] =>
+  texto.split('\n').map((linha) => linha.trim()).filter(Boolean);
+
 export interface AgentProviderFieldsProps {
   /** Tipo do agente procurado na máquina (ex.: `cursor`). */
   agentKind: string;
@@ -79,10 +88,43 @@ export const AgentProviderFields = ({
   // outro comando — e alguém salvaria confiando nele.
   const [tested, setTested] = useState<{ signature: string; health: AgentHealth | null; error: string } | null>(null);
 
-  // O comando atual em uma ref: a detecção é assíncrona e precisa consultar o
-  // campo no instante em que a resposta chega, não no instante em que começou.
+  // Os campos atuais em refs: a detecção é assíncrona e precisa consultá-los no
+  // instante em que a resposta chega, não no instante em que começou.
   const commandRef = useRef(command);
   commandRef.current = command;
+  const argsRef = useRef(args);
+  argsRef.current = args;
+
+  // O texto dos argumentos é estado daqui, e não `args.join`, porque quem digita
+  // precisa abrir a linha do próximo argumento com Enter. Como linha vazia não é
+  // argumento, o valor derivado da lista apagava essa linha na tecla seguinte à
+  // que a abriu, e só dava para configurar um argumento sem colar texto pronto.
+  const [argsText, setArgsText] = useState(() => args.join('\n'));
+  const argsTextRef = useRef(argsText);
+  argsTextRef.current = argsText;
+  useEffect(() => {
+    // Quem escreve de fora — a detecção, ou a volta ao provedor salvo — manda no
+    // texto. Enquanto os dois lados descreverem os mesmos argumentos, o
+    // rascunho fica como está, com as linhas em branco que a pessoa abriu.
+    const deFora = args.join('\n');
+    if (deFora !== lerArgumentos(argsTextRef.current).join('\n')) {
+      setArgsText(deFora);
+    }
+  }, [args]);
+
+  // Uma procura só vale se ainda é a última e se ainda há formulário de agente
+  // para receber o que ela achou. Trocar o tipo desmonta estes campos, e uma
+  // resposta que chegasse depois repovoaria comando e argumentos de um provedor
+  // que agora é HTTP; trocar de agente deixa em voo a procura do anterior, que
+  // descreve outra coisa.
+  const searchSeq = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
 
   // A detecção fica em uma ref, e não em useCallback, porque ela usa o comando
   // digitado e os callbacks do pai. Como dependência de efeito, qualquer um
@@ -95,18 +137,29 @@ export const AgentProviderFields = ({
   const detectRef =
     useRef<(options: { applyCommand: 'always' | 'ifEmpty' | 'never'; announceFound: boolean }) => Promise<void>>();
   detectRef.current = async ({ applyCommand, announceFound }) => {
+    const seq = ++searchSeq.current;
+    const obsoleta = () => seq !== searchSeq.current || !mountedRef.current;
     setDetecting(true);
     setDetectError('');
     try {
       const result = await DetectACPAgent(agentKind);
+      if (obsoleta()) return;
       setSetup(result);
+
+      // As decisões de preencher são tomadas agora, com os valores atuais dos
+      // campos, e não antes do await: quem começou a digitar enquanto a detecção
+      // estava em voo perderia o que digitou. Comando e argumentos decidem
+      // separado porque são campos separados — quem digitou só os argumentos
+      // mantém os seus e ganha o comando que faltava.
+      const pedida = applyCommand === 'always';
+      const preencheComando = pedida || (applyCommand === 'ifEmpty' && commandRef.current.trim() === '');
+      const preencheArgumentos = pedida || (applyCommand === 'ifEmpty' && argsRef.current.length === 0);
+
       if (result?.found) {
-        // A decisão de preencher é tomada agora, com o valor atual do campo, e
-        // não antes do await: quem começou a digitar o comando enquanto a
-        // detecção automática estava em voo perderia o que digitou.
-        const apply = applyCommand === 'always' || (applyCommand === 'ifEmpty' && commandRef.current.trim() === '');
-        if (apply) {
+        if (preencheComando) {
           onCommandChange(result.command);
+        }
+        if (preencheArgumentos) {
           onArgsChange(result.args || []);
         }
         if (announceFound) {
@@ -114,18 +167,29 @@ export const AgentProviderFields = ({
         }
         return;
       }
-      // Não encontrado é sempre anunciado, mesmo na detecção automática: é o
-      // estado que exige ação, e quem usa leitor de telas não descobriria
-      // sozinho que o campo veio vazio por falta de instalação.
-      announce(t('providerForm.agent.announce.notFound'), 'assertive');
+      // Não encontrado interrompe com anúncio assertivo exatamente quando é o
+      // estado que exige ação: a procura pedida no botão e a automática que
+      // deixaria o campo do comando vazio por falta de instalação — quem usa
+      // leitor de telas não descobriria sozinho que ele veio vazio. Na edição de
+      // um provedor que já tem comando, a procura é informativa: o comando salvo
+      // é a escolha de quem configurou, e o alarme não descreveria problema
+      // nenhum. O texto continua na tela nos dois casos.
+      if (preencheComando) {
+        announce(t('providerForm.agent.announce.notFound'), 'assertive');
+      }
     } catch (error: unknown) {
+      if (obsoleta()) return;
       const err = error as { message?: unknown } | null;
       const message = String(err?.message || error || t('providerForm.agent.detectFailed'));
       setSetup(null);
       setDetectError(message);
+      // A procura ter quebrado é anomalia em qualquer modo: mesmo com um comando
+      // salvo, quem configura precisa saber que não deu para conferir a máquina.
       announce(message, 'assertive');
     } finally {
-      setDetecting(false);
+      if (!obsoleta()) {
+        setDetecting(false);
+      }
     }
   };
 
@@ -158,15 +222,22 @@ export const AgentProviderFields = ({
     setTested(null);
     try {
       const result = await TestACPAgent(trimmed, args);
+      // Pelo mesmo motivo da detecção: se o formulário deixou de ser de agente
+      // enquanto a sonda rodava, dizer "agente conectado" descreveria uma tela
+      // que não está mais ali.
+      if (!mountedRef.current) return;
       setTested({ signature, health: result, error: '' });
       announce(healthAnnouncement(t, result), result.state === 'online' ? 'polite' : 'assertive');
     } catch (error: unknown) {
+      if (!mountedRef.current) return;
       const err = error as { message?: unknown } | null;
       const message = String(err?.message || error || t('providerForm.agent.test.failed'));
       setTested({ signature, health: null, error: message });
       announce(message, 'assertive');
     } finally {
-      setTesting(false);
+      if (mountedRef.current) {
+        setTesting(false);
+      }
     }
   };
 
@@ -216,13 +287,11 @@ export const AgentProviderFields = ({
         description={t('providerForm.agent.argsHelp')}
       >
         <Textarea
-          value={args.join('\n')}
-          onChange={(e) =>
-            // Uma linha por argumento porque caminho de arquivo tem espaço:
-            // separar por espaço partiria `C:\Program Files\...` em dois
-            // argumentos que o agente não entenderia.
-            onArgsChange(e.target.value.split('\n').map((line) => line.trim()).filter(Boolean))
-          }
+          value={argsText}
+          onChange={(e) => {
+            setArgsText(e.target.value);
+            onArgsChange(lerArgumentos(e.target.value));
+          }}
           rows={3}
           fullWidth
         />
