@@ -56,9 +56,10 @@ const (
 	reasonNoWatcher    = "Não havia ninguém na tela para responder."
 	reasonUnavailable  = "O app não conseguiu apresentar o pedido."
 	reasonNoAnswer     = "Ninguém respondeu dentro do prazo."
-	reasonDismissed    = "A pessoa dispensou o pedido."
+	reasonDismissed    = "A pessoa preferiu não responder."
 	reasonNothingTaken = "A pessoa não escolheu nenhuma opção."
 	reasonUndecided    = "O app não conseguiu decidir."
+	reasonPlanRefused  = "A pessoa recusou o plano."
 )
 
 // HandleCustom traduz as extensões bloqueantes do Cursor para o questionário —
@@ -224,42 +225,61 @@ type askItem struct {
 // itens: o texto do agente em bloco de leitura, inteiro, e a escolha. É o
 // mesmo formato do pedido de permissão, e pelo mesmo motivo — o que a pessoa
 // lê para decidir não pode aparecer cortado.
-//
-// Pergunta sem opção fica de fora: não há o que oferecer, e um item de escolha
-// vazio na tela só atrapalharia quem navega por teclado.
 func askDialogFrom(pedido askQuestionRequest) ([]questionnaire.Question, []askItem) {
-	itens := make([]questionnaire.Question, 0, len(pedido.Questions)*2)
-	respostas := make([]askItem, 0, len(pedido.Questions))
-	for i, pergunta := range pedido.Questions {
-		escolhas := askChoicesFrom(pergunta.Options)
-		if len(escolhas) == 0 {
-			continue
-		}
+	// A numeração conta o que a pessoa vai ver, e não o que o agente mandou:
+	// com uma pergunta descartada no meio, "Pergunta 2 de 3" numa tela de duas
+	// faria quem ouve procurar a que não está lá.
+	perguntas := askAnswerableFrom(pedido.Questions)
+	itens := make([]questionnaire.Question, 0, len(perguntas)*2)
+	respostas := make([]askItem, 0, len(perguntas))
+	for i, pergunta := range perguntas {
 		answerID := fmt.Sprintf("%s%d", askAnswerPrefix, i)
 		itens = append(itens,
 			questionnaire.Question{
 				ID:      fmt.Sprintf("%s%d", askPromptPrefix, i),
 				Type:    "readonly_code",
-				Prompt:  askPromptLabel(i, len(pedido.Questions)),
+				Prompt:  askPromptLabel(i, len(perguntas)),
 				Content: askPromptContent(pergunta.Prompt),
 			},
 			questionnaire.Question{
 				ID:      answerID,
 				Type:    askChoiceType(pergunta.AllowMultiple),
 				Prompt:  askChoicePrompt(pergunta.AllowMultiple),
-				Options: askLabels(escolhas),
+				Options: askLabels(pergunta.choices),
 				// A múltipla escolha aceita nenhuma marcada — exigir uma
 				// obrigaria a inventar resposta para sair do diálogo.
 				Required:  !pergunta.AllowMultiple,
-				AutoFocus: len(respostas) == 0,
+				AutoFocus: i == 0,
 			})
 		respostas = append(respostas, askItem{
 			questionID: pergunta.ID,
 			answerID:   answerID,
-			choices:    escolhas,
+			choices:    pergunta.choices,
 		})
 	}
 	return itens, respostas
+}
+
+// askAnswerable é a pergunta que sobrou com algo a oferecer, junto das opções
+// já prontas para a tela.
+type askAnswerable struct {
+	askQuestion
+	choices []askChoice
+}
+
+// askAnswerableFrom descarta a pergunta sem opção nenhuma: não há o que
+// oferecer, e um item de escolha vazio na tela só atrapalharia quem navega por
+// teclado.
+func askAnswerableFrom(questions []askQuestion) []askAnswerable {
+	out := make([]askAnswerable, 0, len(questions))
+	for _, pergunta := range questions {
+		escolhas := askChoicesFrom(pergunta.Options)
+		if len(escolhas) == 0 {
+			continue
+		}
+		out = append(out, askAnswerable{askQuestion: pergunta, choices: escolhas})
+	}
+	return out
 }
 
 // askChoicesFrom prepara as opções que o agente ofereceu. Os rótulos são dele,
@@ -493,13 +513,16 @@ func (h *acpRequestHandler) createPlan(ctx context.Context, req acp.CustomReques
 		}
 		return planRejected(reasonNoAnswer)
 	}
+	// Sair pelo botão de cancelar é recusar: ele se chama "Recusar", e é a
+	// saída de quem leu o plano e não quis. Dizer ao agente que o pedido foi
+	// "dispensado" o faria contar à pessoa uma coisa diferente da que ela fez.
 	if resp.Cancelled {
-		return planRejected(reasonDismissed)
+		return planRejected(reasonPlanRefused)
 	}
 	if escolha, _ := resp.Answers[planAnswerID].(string); escolha == planApproveLabel {
 		return planAccepted()
 	}
-	return planRejected("A pessoa recusou o plano.")
+	return planRejected(reasonPlanRefused)
 }
 
 // planDescription diz o alcance do plano antes de alguém aprová-lo. Só o que é

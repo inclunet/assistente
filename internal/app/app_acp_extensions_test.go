@@ -193,6 +193,18 @@ func blocoNaTela(tb testing.TB, payload map[string]any, prefixo string) string {
 	return ""
 }
 
+// rotulosDosBlocos lista, na ordem, o nome de cada bloco de leitura do
+// diálogo — é o que quem usa leitor de telas ouve ao chegar em cada um.
+func rotulosDosBlocos(payload map[string]any, prefixo string) []string {
+	var out []string
+	for _, item := range perguntasDe(payload) {
+		if item.Type == "readonly_code" && strings.HasPrefix(item.ID, prefixo) {
+			out = append(out, item.Prompt)
+		}
+	}
+	return out
+}
+
 func opcoesNaTela(payload map[string]any) []string {
 	for _, item := range perguntasDe(payload) {
 		if item.Type == "single_choice" || item.Type == "multiple_choice" {
@@ -442,6 +454,42 @@ func TestPerguntaSemOpcaoNaoInventaResposta(t *testing.T) {
 	}
 }
 
+func TestANumeracaoContaSoAsPerguntasQueAparecem(t *testing.T) {
+	// A do meio não tem opção e fica de fora. Numerar pela lista do agente
+	// diria "Pergunta 3 de 3" na segunda tela de duas, e quem ouve iria
+	// procurar a que não está lá.
+	tela := novaTelaDeExtensao(escolhendoAPrimeira())
+	h := handlerDeExtensao(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+
+	comOpcao := func(id, prompt string) map[string]any {
+		return map[string]any{
+			"id": id, "prompt": prompt,
+			"options": []any{map[string]any{"id": "a", "label": "Sim"}},
+		}
+	}
+	pedido := pedidoCom(t, methodAskQuestion, map[string]any{
+		"toolCallId": "call-1",
+		"questions": []any{
+			comOpcao("q1", "Primeira?"),
+			map[string]any{"id": "q2", "prompt": "Sem opção?", "options": []any{}},
+			comOpcao("q3", "Segunda?"),
+		},
+	})
+
+	mustHandle(t, h, pedido)
+
+	rotulos := rotulosDosBlocos(tela.ultimoDialogo(t), askPromptPrefix)
+	quer := []string{"Pergunta 1 de 2", "Pergunta 2 de 2"}
+	if len(rotulos) != len(quer) {
+		t.Fatalf("blocos na tela = %q, quer %q", rotulos, quer)
+	}
+	for i, rotulo := range rotulos {
+		if rotulo != quer[i] {
+			t.Errorf("bloco %d = %q, quer %q", i, rotulo, quer[i])
+		}
+	}
+}
+
 func TestSemQuestionarioOPlanoEhRecusadoComAviso(t *testing.T) {
 	h := handlerDeExtensao(nil, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
 	avisos := escutandoAvisos(h)
@@ -502,6 +550,32 @@ func TestPlanoRecusadoNaTelaVoltaRecusadoAoAgente(t *testing.T) {
 	}
 	if eventos := avisos.find("chat:notice"); len(eventos) != 0 {
 		t.Errorf("avisos = %d, quer 0: recusar por escolha é decisão, não surpresa", len(eventos))
+	}
+}
+
+func TestSairPeloBotaoDeRecusarERecusarOPlano(t *testing.T) {
+	// O botão de cancelar deste diálogo se chama "Recusar". O agente costuma
+	// repetir à pessoa o motivo que recebe: dizer que ela "dispensou o pedido"
+	// contaria de volta uma coisa diferente da que ela fez.
+	tela := novaTelaDeExtensao(nil) // saiu pelo cancelar
+	h := handlerDeExtensao(tela, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+
+	resposta := respostaDoPlano(t, mustHandle(t, h, pedidoDePlano(t)))
+
+	if resposta.Outcome.Outcome != planOutcomeRejected {
+		t.Fatalf("desfecho = %q, quer %q", resposta.Outcome.Outcome, planOutcomeRejected)
+	}
+	escolhido := respostaDoPlano(t, mustHandle(t,
+		handlerDeExtensao(
+			novaTelaDeExtensao(respondendo(func([]string) any { return planRejectLabel })),
+			acp.TurnOwner{ConversationID: "c", Interactive: true}, true),
+		pedidoDePlano(t)))
+	if resposta.Outcome.Reason != escolhido.Outcome.Reason {
+		t.Errorf("motivo do cancelar = %q, quer o mesmo de escolher recusar (%q)",
+			resposta.Outcome.Reason, escolhido.Outcome.Reason)
+	}
+	if dialogo := tela.ultimoDialogo(t); dialogo["cancelLabel"] != "Recusar" {
+		t.Errorf("rótulo do cancelar = %v, quer o que o motivo diz", dialogo["cancelLabel"])
 	}
 }
 
