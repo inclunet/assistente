@@ -72,12 +72,29 @@ type TurnNoticeKind string
 // esperando uma resposta sobre uma imagem que o agente nunca viu.
 const TurnNoticeAttachmentsNotSent TurnNoticeKind = "attachments_not_sent"
 
+// O modelo escolhido no perfil não pôde valer neste turno (AEP-0084 D6). O turno
+// segue no modelo em que o agente está, porque uma resposta do modelo errado é
+// melhor do que resposta nenhuma — mas quem escolheu precisa saber, senão lê a
+// resposta atribuindo-a a um modelo que não a escreveu.
+const (
+	// TurnNoticeModelNotOffered é o modelo que este agente não tem. Costuma ser
+	// escolha antiga do perfil, guardada quando o provider era outro.
+	TurnNoticeModelNotOffered TurnNoticeKind = "model_not_offered"
+	// TurnNoticeModelNotApplied é a troca que o agente recusou ou que não chegou
+	// a ele.
+	TurnNoticeModelNotApplied TurnNoticeKind = "model_not_applied"
+)
+
 // TurnNotice é um aviso sobre o próprio turno: não é a resposta, não é falha e
 // não encerra nada.
 type TurnNotice struct {
 	Kind TurnNoticeKind
 	// Count é a quantidade a que o aviso se refere, quando ele conta coisas.
 	Count int
+	// Model é o modelo de que o aviso fala — o que de fato atendeu ao turno,
+	// quando o pedido não pôde valer. Vai como identificador do provedor, que é
+	// o mesmo texto que a pessoa vê no seletor.
+	Model string
 }
 
 // TurnNoticeSink é o canal por onde o provider avisa a pessoa de algo que
