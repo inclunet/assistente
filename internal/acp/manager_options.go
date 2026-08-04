@@ -248,6 +248,45 @@ func (m *Manager) InvalidateProviderOptions(providerID string) {
 	proc.client.InvalidateOptions()
 }
 
+// ConversationOptions são as opções da sessão de uma conversa, procurada pelo
+// identificador. Conversa sem sessão de pé não tem opção nenhuma, e de propósito
+// nada é aberto aqui: quem só quer saber em que modelo o agente está não deve
+// fazer nascer nem processo nem sessão.
+func (m *Manager) ConversationOptions(conversationID string) []ConfigOption {
+	conv := m.lookup(conversationID)
+	if conv == nil {
+		return nil
+	}
+	return conv.Options()
+}
+
+// SetConversationOption troca uma opção da sessão de uma conversa, procurada pelo
+// identificador. Conversa sem sessão não tem o que trocar: a escolha do modelo
+// antes do primeiro turno é do perfil, e é ele que a leva ao agente quando a
+// sessão nascer (AEP-0084 D6).
+func (m *Manager) SetConversationOption(ctx context.Context, conversationID, id, value string) ([]ConfigOption, error) {
+	conv := m.lookup(conversationID)
+	if conv == nil {
+		return nil, errors.New("esta conversa ainda não tem sessão com o agente")
+	}
+	return conv.SetOption(ctx, id, value)
+}
+
+// lookup acha a conversa sem criá-la, ao contrário de entry: quem consulta não
+// deve deixar registro de uma conversa que nunca falou com o agente.
+func (m *Manager) lookup(conversationID string) *Conversation {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || m.clearing {
+		return nil
+	}
+	return m.convs[conversationID]
+}
+
 // Options são as opções da sessão desta conversa: em que modelo e modo o agente
 // está agora, com os valores que ele oferece para cada um.
 func (c *Conversation) Options() []ConfigOption {
