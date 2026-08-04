@@ -218,18 +218,23 @@ export const AgentProviderFields = ({
       return;
     }
 
+    // Resultado que não descreve mais o que está na tela não é dito nem
+    // guardado: os campos seguem editáveis durante a sonda, e trocar o tipo
+    // desmonta o formulário. A tela já escondia o resultado de outra
+    // configuração pela assinatura, mas o anúncio saía de qualquer jeito, e quem
+    // usa leitor de telas ouviria "conectado" sobre o comando anterior.
+    const outraConfiguracao = () =>
+      !mountedRef.current || signature !== configSignature(commandRef.current, argsRef.current);
+
     setTesting(true);
     setTested(null);
     try {
       const result = await TestACPAgent(trimmed, args);
-      // Pelo mesmo motivo da detecção: se o formulário deixou de ser de agente
-      // enquanto a sonda rodava, dizer "agente conectado" descreveria uma tela
-      // que não está mais ali.
-      if (!mountedRef.current) return;
+      if (outraConfiguracao()) return;
       setTested({ signature, health: result, error: '' });
       announce(healthAnnouncement(t, result), result.state === 'online' ? 'polite' : 'assertive');
     } catch (error: unknown) {
-      if (!mountedRef.current) return;
+      if (outraConfiguracao()) return;
       const err = error as { message?: unknown } | null;
       const message = String(err?.message || error || t('providerForm.agent.test.failed'));
       setTested({ signature, health: null, error: message });

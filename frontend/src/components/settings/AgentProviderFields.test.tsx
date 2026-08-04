@@ -428,6 +428,31 @@ describe('AgentProviderFields — teste do agente', () => {
     expect(screen.queryByText(/respondeu e aceitou abrir sessão/i)).not.toBeInTheDocument();
   });
 
+  it('não anuncia resultado de configuração que a pessoa já trocou', async () => {
+    // Os campos seguem editáveis enquanto a sonda roda. A tela já escondia o
+    // resultado de outro comando, mas o anúncio saía: quem usa leitor de telas
+    // ouviria "conectado" sobre o comando anterior.
+    detectMock.mockResolvedValue(cursorFound);
+    let responderTeste: (health: unknown) => void = () => {};
+    testMock.mockReturnValue(new Promise((resolve) => { responderTeste = resolve; }));
+    const user = userEvent.setup();
+
+    render(<Host />);
+    const commandInput = await screen.findByLabelText(/comando do agente/i);
+    await waitFor(() => expect(commandInput).toHaveValue(cursorFound.command));
+
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+    await user.type(commandInput, '-outro');
+    announceMock.mockClear();
+
+    await act(async () => {
+      responderTeste({ state: 'online', agent_name: 'Cursor', latency_ms: 10 });
+    });
+
+    expect(announceMock).not.toHaveBeenCalled();
+    expect(screen.queryByText(/respondeu e aceitou abrir sessão/i)).not.toBeInTheDocument();
+  });
+
   it('sem comando, nem chama o backend: pede o comando e anuncia', async () => {
     detectMock.mockResolvedValue(cursorMissing);
     const user = userEvent.setup();
