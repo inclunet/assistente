@@ -73,6 +73,7 @@ const (
 	reasonNoWatcher    = "Não havia ninguém na tela para responder."
 	reasonUnavailable  = "O app não conseguiu apresentar o pedido."
 	reasonNoAnswer     = "Ninguém respondeu dentro do prazo."
+	reasonCancelled    = "O turno foi interrompido antes da resposta."
 	reasonDismissed    = "A pessoa preferiu não responder."
 	reasonNothingTaken = "A pessoa não escolheu nenhuma opção."
 	reasonUndecided    = "O app não conseguiu decidir."
@@ -268,13 +269,17 @@ func planFailureNotice(causa undecidedCause) string {
 
 // undecidedReason é o que o agente repete à pessoa. Ele erra ao dizer que
 // ninguém respondeu a tempo se a pergunta nunca apareceu — quem lê acharia que
-// ela foi ignorada.
+// ela foi ignorada —, e erra do mesmo jeito num turno que a própria pessoa
+// interrompeu: ela sabe que interrompeu, e ouvir que ninguém respondeu daria a
+// entender que o app perdeu a resposta dela.
 func undecidedReason(causa undecidedCause) string {
 	switch causa {
 	case causeNoInterlocutor:
 		return reasonNoWatcher
 	case causeUnavailable:
 		return reasonUnavailable
+	case causeCancelled:
+		return reasonCancelled
 	default:
 		return reasonNoAnswer
 	}

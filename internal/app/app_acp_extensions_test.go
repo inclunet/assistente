@@ -367,13 +367,53 @@ func TestTurnoCanceladoTiraAPerguntaDaTelaSemCobrarExplicacao(t *testing.T) {
 	tela.esperarDialogo(t)
 	cancelarTurno()
 
+	var resultado any
 	select {
-	case <-pronto:
+	case resultado = <-pronto:
 	case <-time.After(5 * time.Second):
 		t.Fatal("o handler não voltou depois do cancelamento")
 	}
 	if eventos := avisos.find("chat:notice"); len(eventos) != 0 {
 		t.Errorf("avisos = %d, quer 0: quem cancelou já sabe o que houve", len(eventos))
+	}
+	// O motivo é o único texto que o agente costuma repetir à pessoa: dizer que
+	// ninguém respondeu a tempo daria a entender que o app perdeu a resposta
+	// dela, quando foi ela que interrompeu o turno.
+	if motivo := respostaDaPergunta(t, resultado).Outcome.Reason; motivo != reasonCancelled {
+		t.Errorf("motivo = %q, quer %q", motivo, reasonCancelled)
+	}
+}
+
+func TestTurnoCanceladoTiraOPlanoDaTelaComOMotivoCerto(t *testing.T) {
+	tela := novaTelaDeExtensaoMuda()
+	h := handlerDeExtensao(tela, acp.TurnOwner{ConversationID: "conversa-1", Interactive: true}, true)
+	avisos := escutandoAvisos(h)
+
+	ctx, cancelarTurno := context.WithCancel(context.Background())
+	pronto := make(chan any, 1)
+	go func() {
+		resultado, _ := h.HandleCustom(ctx, pedidoDePlano(t))
+		pronto <- resultado
+	}()
+
+	tela.esperarDialogo(t)
+	cancelarTurno()
+
+	var resultado any
+	select {
+	case resultado = <-pronto:
+	case <-time.After(5 * time.Second):
+		t.Fatal("o handler não voltou depois do cancelamento")
+	}
+	if eventos := avisos.find("chat:notice"); len(eventos) != 0 {
+		t.Errorf("avisos = %d, quer 0: quem cancelou já sabe o que houve", len(eventos))
+	}
+	resposta := respostaDoPlano(t, resultado)
+	if resposta.Outcome.Outcome != planOutcomeRejected {
+		t.Errorf("desfecho = %q, quer %q", resposta.Outcome.Outcome, planOutcomeRejected)
+	}
+	if resposta.Outcome.Reason != reasonCancelled {
+		t.Errorf("motivo = %q, quer %q", resposta.Outcome.Reason, reasonCancelled)
 	}
 }
 
