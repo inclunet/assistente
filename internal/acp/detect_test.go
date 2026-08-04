@@ -152,7 +152,10 @@ func TestDetectCursorWindowsCaiNoWrapperQuandoNaoHaParNodeIndex(t *testing.T) {
 	if !install.Found {
 		t.Fatalf("wrapper não encontrado: %+v", install)
 	}
-	if !strings.EqualFold(filepath.Base(install.Command), "powershell.exe") {
+	// Sufixo, e não filepath.Base: este teste descreve uma máquina Windows mas
+	// roda também em Linux, onde a barra invertida não separa caminho e Base
+	// devolveria a string inteira.
+	if !strings.HasSuffix(strings.ToLower(install.Command), "powershell.exe") {
 		t.Errorf("comando = %q, queria o PowerShell", install.Command)
 	}
 	want := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "acp"}
