@@ -86,6 +86,68 @@ func RefreshModels(ctx context.Context, provider ChatProvider) ([]string, error)
 	return provider.GetModels(ctx)
 }
 
+// ModelOption é um modelo oferecido por um provedor com o nome pelo qual ele
+// quer ser chamado na tela.
+type ModelOption struct {
+	// Value é o que fica gravado no perfil e volta ao provedor.
+	Value string `json:"value"`
+	// Label é como exibi-lo. Igual ao Value quando o provedor só tem
+	// identificadores a oferecer, que é o caso de todo provedor HTTP.
+	Label string `json:"label"`
+}
+
+// ModelCatalog é a lista de modelos junto com o que a tela precisa saber para
+// interpretá-la. Lista vazia quer dizer coisas diferentes conforme quem
+// respondeu: de um provedor HTTP é falta de modelo, de um agente de código é
+// ele dizendo que a escolha é dele (AEP-0084, Fase 8).
+type ModelCatalog struct {
+	Models []ModelOption `json:"models"`
+	// Agent diz que quem respondeu é um agente de código.
+	Agent bool `json:"agent"`
+}
+
+// ModelDescriber é o provedor que sabe o nome legível de cada modelo. Um
+// provedor HTTP lista identificadores e nada mais; um agente de código oferece
+// o rótulo junto, e é ele que a pessoa reconhece (AEP-0084, Fase 8).
+type ModelDescriber interface {
+	ModelOptions(ctx context.Context) ([]ModelOption, error)
+	RefreshModelOptions(ctx context.Context) ([]ModelOption, error)
+}
+
+// ModelOptions lista os modelos de um provedor com rótulo. Quem não sabe
+// rotular é listado do mesmo jeito, com o identificador fazendo as duas vezes.
+func ModelOptions(ctx context.Context, provider ChatProvider) ([]ModelOption, error) {
+	if describer, ok := provider.(ModelDescriber); ok {
+		return describer.ModelOptions(ctx)
+	}
+	models, err := provider.GetModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return modelOptionsOf(models), nil
+}
+
+// RefreshModelOptions é ModelOptions descartando o que o provedor tiver
+// guardado, para o recarregar da tela.
+func RefreshModelOptions(ctx context.Context, provider ChatProvider) ([]ModelOption, error) {
+	if describer, ok := provider.(ModelDescriber); ok {
+		return describer.RefreshModelOptions(ctx)
+	}
+	models, err := RefreshModels(ctx, provider)
+	if err != nil {
+		return nil, err
+	}
+	return modelOptionsOf(models), nil
+}
+
+func modelOptionsOf(models []string) []ModelOption {
+	options := make([]ModelOption, 0, len(models))
+	for _, model := range models {
+		options = append(options, ModelOption{Value: model, Label: model})
+	}
+	return options
+}
+
 // resolveModel retorna o modelo a usar: param explícito > provider.Model > provider.DefaultModel.
 func resolveModel(provider *ProviderConfig, requested string) string {
 	if requested != "" {

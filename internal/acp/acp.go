@@ -28,6 +28,12 @@ var (
 	// conexão (AEP-0084 D12).
 	ErrNotAuthenticated = errors.New("agente ACP não autenticado")
 
+	// ErrAgentUnavailable indica que o agente não chegou a ficar de pé: o
+	// comando não existe, o binário não roda, o handshake não veio. Quem
+	// recebe isso não tem o que tentar de novo sem antes conferir a
+	// configuração do provider (AEP-0084 D12).
+	ErrAgentUnavailable = errors.New("agente ACP indisponível")
+
 	// ErrSessionLost indica que o processo do agente caiu e levou junto a
 	// memória da sessão. Quem recebe isso precisa retomar ou recriar a sessão,
 	// avisando a pessoa de que o agente perdeu o contexto (AEP-0084 D4).
