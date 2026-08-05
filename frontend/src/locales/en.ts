@@ -1250,6 +1250,10 @@ const en = {
         tools: 'Tools & MCP',
         audio: 'Audio',
       },
+      agentProfile: {
+        tabsHidden: 'Profile with a code agent: the Skills, Context Providers and Tools tabs do not apply and were hidden. What you had configured in them is still saved.',
+        tabsBack: 'Profile without a code agent: the Skills, Context Providers and Tools tabs are back, with what you had configured.',
+      },
       collapseContextProviders: 'Context Providers',
       contextProvidersHint: 'Control which providers can insert automatic prompt blocks and limit their budget in characters. Related tools can remain available through other mechanisms.',
       contextProvidersBudgetHint: 'Leave the budget empty or 0 to use the provider default. The limit is in characters, not tokens.',
@@ -1358,6 +1362,7 @@ const en = {
         model: 'Model',
         filterModels: 'Filter models...',
         selectProvider: 'Select a provider first',
+        agentOnlyModel: 'This profile uses a code agent: only the model is chosen here. Sampling, cache, context and recovery belong to the agent.',
         temperature: 'Temperature',
         maxTokens: 'Max Tokens',
         maxTokensFormat: 'max_tokens parameter format',
