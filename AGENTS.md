@@ -176,9 +176,10 @@ branch de outro PR):
 ### A main descendo nos PRs abertos
 Check verde envelhece: ele conta o encontro entre a branch e a main de quando
 rodou. Por isso, todo push na `main` dispara o workflow `Atualizar PRs com a
-main`, que mescla a main em cada PR aberto (fora rascunhos e forks) e pede o CI
-de novo. Quando o merge conflita, o PR é listado no resumo do run e a resolução
-é sua — o workflow não tenta adivinhar.
+main`, que mescla a main em cada PR aberto (fora rascunhos, forks e PRs parados
+há mais de 30 dias) e pede o CI de novo. No PR empilhado a branch-base desce
+junto, e o pai é atualizado antes do filho. Quando o merge conflita, o PR é
+listado no resumo do run e a resolução é sua — o workflow não tenta adivinhar.
 ### Checklist para novo código
 - [ ] Strings visíveis usam `t('key', 'fallback')` nos 3 locales
 - [ ] Ícones decorativos têm `aria-hidden="true"`
