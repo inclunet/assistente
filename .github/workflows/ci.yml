@@ -12,12 +12,14 @@ on:
   # cobre execução manual sob demanda.
   workflow_dispatch:
 
-# Um run por branch. O push que atualiza um PR torna o run anterior obsoleto, e
-# manter os dois só disputa runner. Na main não se cancela: cada commit ali é o
-# estado publicado e merece o seu próprio veredito.
+# Um run por PR. O push que atualiza um PR torna o run anterior obsoleto, e
+# manter os dois só disputa runner. A chave é o número do PR, não o nome da
+# branch: nome se repete entre forks, e duas pessoas com `feature/x` acabariam
+# cancelando o run uma da outra. Fora de PR (push na main, execução manual) nada
+# é cancelado — cada commit publicado merece o seu próprio veredito.
 concurrency:
-  group: ci-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: ${{ github.event_name != 'push' }}
+  group: ci-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   scripts:
