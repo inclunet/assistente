@@ -62,7 +62,9 @@ export function ProfileEditorTabs({
   const [activeTab, setActiveTab] = useState<EditorTabId>('general');
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingShortcutFocusRef = useRef<EditorTabId | null>(null);
-  const agentProvider = useAgentProvider(editingProfile.chat?.llm_provider || '');
+  const { isAgent: agentProvider, resolved: agentProviderResolved } = useAgentProvider(
+    editingProfile.chat?.llm_provider || '',
+  );
   const visibleTabs = agentProvider
     ? EDITOR_TABS.filter((id) => !AGENT_HIDDEN_TABS.includes(id))
     : EDITOR_TABS;
@@ -143,23 +145,28 @@ export function ProfileEditorTabs({
   // está numa guia que some precisa ir para lugar previsível, e ouvir o que
   // passou a valer (AEP-0084, Fase 8).
   //
-  // A primeira resposta da consulta não anuncia nada: aí ninguém trocou de
-  // provedor, o editor está abrindo com o perfil como ele já era.
+  // Corre antes da pintura: a guia ativa que some é trocada no mesmo quadro, sem
+  // um instante de editor sem guia selecionada.
+  //
+  // Descobrir que o perfil já era de um agente não anuncia nada: aí ninguém
+  // trocou de provedor, o editor está abrindo como o perfil já era. O anúncio é
+  // para quem trocou, e só existe troca depois que a consulta respondeu uma vez.
   const agentProviderRef = useRef<boolean | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!agentProviderResolved) return;
     const anterior = agentProviderRef.current;
     agentProviderRef.current = agentProvider;
-    if (anterior === null || anterior === agentProvider) return;
 
     if (agentProvider && AGENT_HIDDEN_TABS.includes(activeTab)) {
       setActiveTab('models');
     }
+    if (anterior === null || anterior === agentProvider) return;
     announce(
       agentProvider
         ? t('profiles.agentProfile.tabsHidden')
         : t('profiles.agentProfile.tabsBack'),
     );
-  }, [agentProvider, activeTab, t]);
+  }, [agentProvider, agentProviderResolved, activeTab, t]);
 
   // Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+PageDown / Ctrl+PageUp
   useEffect(() => {

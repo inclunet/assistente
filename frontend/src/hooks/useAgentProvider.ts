@@ -1,52 +1,71 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { GetLLMProvidersWithStatus } from '@wailsjs/go/app/App';
 import { AGENT_API_FORMAT } from '../config/providers';
 
 const DEFAULT_PROVIDER_SENTINEL = '$default';
+
+export interface AgentProviderState {
+  /** isAgent é `true` quando o provedor escolhido é um agente de código. */
+  isAgent: boolean;
+  /**
+   * resolved diz que a lista de provedores já chegou (ou já falhou). Antes
+   * disso `isAgent` é `false` por não se saber, e não por resposta.
+   */
+  resolved: boolean;
+}
 
 /**
  * useAgentProvider diz se o provedor escolhido é um agente de código. Quem
  * pergunta é o editor de perfil: com um agente, guias e campos inteiros deixam
  * de ter efeito e somem da tela (AEP-0084, Fase 8).
  *
- * A resposta começa em `false` e só vira `true` quando a consulta volta. É de
- * propósito: enquanto não se sabe, a tela mostra o formulário completo, que é o
- * caso da maioria dos provedores — o contrário faria as guias sumirem e voltarem
- * a cada abertura do editor.
+ * A lista de provedores é consultada uma vez por montagem, e a resposta sai
+ * dela: trocar de provedor no formulário muda `isAgent` no mesmo render, sem
+ * janela em que a tela ainda esconde o que o provedor novo usa.
  *
- * A consulta acontece a cada montagem, e o editor é um diálogo que só existe
- * enquanto está aberto: quem mexer no provedor padrão ou no formato de um
- * provedor em Configurações encontra a lista nova na próxima vez que abrir um
- * perfil.
+ * Enquanto a lista não chega — e se ela não chegar — a resposta é "não é
+ * agente", com `resolved` em `false` para quem precise separar as duas coisas.
+ * A tela mostra o formulário completo nesse meio tempo, que é o caso da maioria
+ * dos provedores; o contrário faria as guias sumirem e voltarem a cada abertura
+ * do editor.
+ *
+ * O editor é um diálogo que só existe enquanto está aberto, então quem mexer no
+ * provedor padrão ou no formato de um provedor em Configurações encontra a
+ * lista nova na próxima vez que abrir um perfil.
  */
-export function useAgentProvider(providerID: string): boolean {
-  const [isAgent, setIsAgent] = useState(false);
+export function useAgentProvider(providerID: string): AgentProviderState {
+  const [agents, setAgents] = useState<{ ids: Set<string>; defaultIsAgent: boolean } | null>(null);
 
   useEffect(() => {
-    if (!providerID) {
-      setIsAgent(false);
-      return;
-    }
     let current = true;
     void (async () => {
+      let ids = new Set<string>();
+      let defaultIsAgent = false;
       try {
         const providers = (await GetLLMProvidersWithStatus()) || [];
-        const chosen = providers.find((provider: Record<string, unknown>) =>
-          providerID === DEFAULT_PROVIDER_SENTINEL
-            ? provider.is_default === true
-            : provider.id === providerID,
-        );
-        if (current) setIsAgent(chosen?.api_format === AGENT_API_FORMAT);
+        for (const provider of providers as Record<string, unknown>[]) {
+          if (provider.api_format !== AGENT_API_FORMAT) continue;
+          if (typeof provider.id === 'string') ids.add(provider.id);
+          if (provider.is_default === true) defaultIsAgent = true;
+        }
       } catch {
         // Sem resposta, o editor segue completo: esconder guia por causa de
         // uma consulta que falhou tiraria da pessoa configuração que ela tem.
-        if (current) setIsAgent(false);
+        ids = new Set<string>();
+        defaultIsAgent = false;
       }
+      if (current) setAgents({ ids, defaultIsAgent });
     })();
     return () => {
       current = false;
     };
-  }, [providerID]);
+  }, []);
 
-  return isAgent;
+  return useMemo(() => {
+    if (!agents) return { isAgent: false, resolved: false };
+    if (!providerID) return { isAgent: false, resolved: true };
+    const isAgent =
+      providerID === DEFAULT_PROVIDER_SENTINEL ? agents.defaultIsAgent : agents.ids.has(providerID);
+    return { isAgent, resolved: true };
+  }, [agents, providerID]);
 }

@@ -316,6 +316,16 @@ describe('ProfileEditorTabs com provedor de agente', () => {
     expect(valoresDasAbas()).toHaveLength(6);
   });
 
+  // Abrir um perfil que já era de um agente não é uma troca: o editor está
+  // mostrando o perfil como ele é, e ninguém precisa ouvir que guias sumiram.
+  it('abrir um perfil que já é de agente não anuncia troca', async () => {
+    renderTabs(perfilCom('cursor'));
+
+    await waitFor(() => expect(valoresDasAbas()).toHaveLength(3));
+    expect(mockAnnounce).not.toHaveBeenCalledWith('profiles.agentProfile.tabsHidden');
+    expect(mockAnnounce).not.toHaveBeenCalledWith('profiles.agentProfile.tabsBack');
+  });
+
   // Quem estava na guia que sumiu não pode ficar num painel que não existe
   // mais: o foco vai para lugar previsível.
   it('quem estava na guia que sumiu vai para Modelos', async () => {
