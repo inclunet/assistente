@@ -12,6 +12,9 @@ const getAgentSessionOptionsMock = vi.hoisted(() => vi.fn().mockResolvedValue({
   available: false,
   options: [],
 }));
+// A conversa deste teste não fala com agente de código: o diretório do agente
+// não existe para ela, e o controle da barra some.
+const getAgentWorkDirMock = vi.hoisted(() => vi.fn().mockRejectedValue(new Error('sem agente')));
 const profileClickMock = vi.hoisted(() => vi.fn());
 const modalState = vi.hoisted(() => ({
   open: false,
@@ -30,6 +33,8 @@ vi.mock('@wailsjs/go/app/App', () => ({
   GetActiveProfileSlug: vi.fn().mockResolvedValue('padrao'),
   GetAgentSessionOptions: getAgentSessionOptionsMock,
   SetAgentSessionOption: vi.fn(),
+  GetAgentConversationWorkDir: getAgentWorkDirMock,
+  SetAgentConversationWorkDir: vi.fn(),
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({

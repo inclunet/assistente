@@ -390,6 +390,30 @@ func (r *ConversationRepository) UpdateConversationChannelWithContext(ctx contex
 	}).Error
 }
 
+// UpdateConversationAgentWorkDirWithContext grava o diretório em que o agente
+// de código desta conversa trabalha (AEP-0084 D5). Vazio volta a conversa para
+// o workspace ativo, que é o padrão.
+func UpdateConversationAgentWorkDirWithContext(ctx context.Context, id, workDir string) error {
+	return NewConversationRepository(db).UpdateConversationAgentWorkDirWithContext(ctx, id, workDir)
+}
+
+func (r *ConversationRepository) UpdateConversationAgentWorkDirWithContext(ctx context.Context, id, workDir string) error {
+	db := r.db
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	// A conversa é conferida antes: sem isso, um identificador de outra pessoa
+	// devolveria sucesso sem ter gravado nada, e a tela mostraria o diretório
+	// que ninguém guardou.
+	if _, err := r.GetConversationInfoWithContext(ctx, id); err != nil {
+		return err
+	}
+	return ScopeByUser(ctx, db.WithContext(ctx).Model(&Conversation{}), "user_id").Where("id = ?", id).Updates(map[string]interface{}{
+		"agent_work_dir": workDir,
+		"updated_at":     time.Now(),
+	}).Error
+}
+
 // DeleteConversationWithContext deleta uma conversa do usuário do contexto e
 // suas mensagens.
 func DeleteConversationWithContext(ctx context.Context, id string) error {

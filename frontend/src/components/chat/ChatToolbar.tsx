@@ -19,6 +19,7 @@ import { useUIStore } from '../../store/uiStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
 import { AgentOptionsPickers } from './AgentOptionsPickers';
+import { AgentWorkDirControl } from './AgentWorkDirControl';
 import { useChatSession } from './ChatSessionContext';
 import { useWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { buildVoiceAccessibilityOriginFromTab } from '../../services/voiceAccessibility/types';
@@ -342,6 +343,13 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
             {/* Modelo e modo do agente desta conversa. Só aparecem quando há
                 agente do outro lado com escolhas a oferecer (AEP-0084 D6). */}
             <AgentOptionsPickers
+              conversationId={effectiveConversationId}
+              disabled={isLoading}
+            />
+
+            {/* Diretório em que o agente desta conversa trabalha. Fica à vista
+                porque é o alcance do que ele pode ler e editar (AEP-0084 D5). */}
+            <AgentWorkDirControl
               conversationId={effectiveConversationId}
               disabled={isLoading}
             />

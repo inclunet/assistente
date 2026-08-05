@@ -253,6 +253,28 @@ export namespace app {
 	        this.grantedAt = source["grantedAt"];
 	    }
 	}
+	export class AgentWorkDir {
+	    conversationId: string;
+	    available: boolean;
+	    dir: string;
+	    workspaceDir: string;
+	    pinned: boolean;
+	    sessionDir?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AgentWorkDir(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.available = source["available"];
+	        this.dir = source["dir"];
+	        this.workspaceDir = source["workspaceDir"];
+	        this.pinned = source["pinned"];
+	        this.sessionDir = source["sessionDir"];
+	    }
+	}
 	export class AgentSessionCommands {
 	    conversationId: string;
 	    commands: AgentCommand[];

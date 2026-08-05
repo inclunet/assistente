@@ -212,6 +212,8 @@ export function GetActiveWorkspace():Promise<workspace.Workspace>;
 
 export function GetAgentPermissions():Promise<Array<app.AgentPermissionView>>;
 
+export function GetAgentConversationWorkDir(arg1:string):Promise<app.AgentWorkDir>;
+
 export function GetAgentSessionCommands(arg1:string):Promise<app.AgentSessionCommands>;
 
 export function GetAgentSessionOptions(arg1:string):Promise<app.AgentSessionOptions>;
@@ -523,6 +525,8 @@ export function SendTerminalInput(arg1:string,arg2:string):Promise<void>;
 export function SetActiveProfile(arg1:string):Promise<void>;
 
 export function SetActiveWorkspaceTab(arg1:string):Promise<void>;
+
+export function SetAgentConversationWorkDir(arg1:string,arg2:string):Promise<app.AgentWorkDir>;
 
 export function SetAgentSessionOption(arg1:string,arg2:string,arg3:string):Promise<app.AgentSessionOptions>;
 
