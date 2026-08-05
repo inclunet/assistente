@@ -60,6 +60,13 @@ export interface ProfileChatSectionProps {
   ) => void;
   onMultiChange?: (updates: Record<string, unknown>) => void;
   disabled?: boolean;
+  /**
+   * agentProvider diz que o provedor escolhido é um agente de código. O turno
+   * dele lê só o modelo: amostragem, cache, contexto e recuperação não chegam
+   * a existir, e o editor não os mostra (AEP-0084, Fase 8). O que já estiver
+   * gravado continua no perfil, esperando um provedor que o use.
+   */
+  agentProvider?: boolean;
 }
 
 /**
@@ -86,6 +93,7 @@ export function ProfileChatSection({
   onChange,
   onMultiChange,
   disabled = false,
+  agentProvider = false,
 }: ProfileChatSectionProps) {
   const { t } = useTranslation();
   const temperatureValue = temperature ?? 0.7;
@@ -182,8 +190,16 @@ export function ProfileChatSection({
             helpText={!llmProvider ? t('profiles.chatSection.selectProvider') : ''}
           />
         </div>
+
+        {agentProvider && (
+          <p className="profiles-field__hint" data-testid="profile-chat-agent-hint">
+            {t('profiles.chatSection.agentOnlyModel')}
+          </p>
+        )}
       </fieldset>
 
+      {!agentProvider && (
+        <>
       {/* ── Parâmetros de Geração ── */}
       <fieldset className="profiles-field-group">
         <legend className="profiles-field-group__title">
@@ -545,6 +561,8 @@ export function ProfileChatSection({
           {t('profiles.chatSection.streamingRecoveryShowContinueHint')}
         </span>
       </fieldset>
+        </>
+      )}
     </div>
   );
 }
