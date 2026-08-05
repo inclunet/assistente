@@ -74,6 +74,15 @@ type Config struct {
 	// e não pode conversar com o agente: enquanto ela não volta, o protocolo
 	// fica parado.
 	OnConfigOptions func(sessionID string, options []ConfigOption)
+
+	// OnCommands é avisado quando o agente conta quais comandos a sessão
+	// oferece. Ele manda isso logo depois de abrir a sessão, fora de qualquer
+	// turno, e pode refazer a lista depois — daí ser canal próprio, e não o
+	// sink do turno.
+	//
+	// Vale o mesmo cuidado do OnConfigOptions: roda na goroutine de entrega e
+	// segura o protocolo enquanto não voltar.
+	OnCommands func(sessionID string, commands []Command)
 }
 
 func (c Config) validate() error {
@@ -156,6 +165,10 @@ type Session interface {
 
 	// ConfigOptions devolve as opções conhecidas (modelo, modo) da sessão.
 	ConfigOptions() []ConfigOption
+
+	// Commands devolve os comandos que o agente oferece nesta sessão. Lista
+	// vazia é resposta legítima: nem todo agente oferece comando algum.
+	Commands() []Command
 
 	// SetConfigOption troca uma opção e devolve o estado completo resultante:
 	// mudar de modelo pode mudar as opções dependentes.
@@ -261,6 +274,9 @@ const (
 	UpdateMode UpdateKind = "mode"
 	// UpdateTitle é o título que o agente gerou para a conversa.
 	UpdateTitle UpdateKind = "title"
+	// UpdateCommands traz o conjunto completo de comandos que o agente oferece
+	// para esta sessão. Vazio significa que ele não oferece nenhum.
+	UpdateCommands UpdateKind = "commands"
 )
 
 // Update é um evento do turno. Tipos de notificação que este pacote ainda não
@@ -280,6 +296,22 @@ type Update struct {
 	// Mode vale para UpdateMode e Title para UpdateTitle.
 	Mode  string
 	Title string
+
+	// Commands vale para UpdateCommands.
+	Commands []Command
+}
+
+// Command é um comando que o agente oferece para a sessão — o que ele chama de
+// slash command (AEP-0084 D8). O agente resolve o comando dentro do turno: para
+// o app, mandar "/plan corrigir o teste" é mandar texto.
+type Command struct {
+	// Name é o que se digita depois da barra, sem ela.
+	Name string
+	// Description é a explicação curta que o agente deu.
+	Description string
+	// AcceptsInput diz que o comando usa o texto digitado depois do nome. Sem
+	// isso, quem vai escolher não sabe se ainda precisa escrever alguma coisa.
+	AcceptsInput bool
 }
 
 // UpdateSink recebe os eventos de um turno, na ordem em que o agente os

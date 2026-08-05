@@ -32,7 +32,9 @@ describe('SlashCommandMenu', () => {
     );
 
     fireEvent.click(screen.getByRole('option'));
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ slug: 'skill' }));
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'skill', token: 'skill', skill: expect.objectContaining({ slug: 'skill' }) }),
+    );
   });
 
   it('mostra estado vazio quando nao encontra', () => {
@@ -56,6 +58,6 @@ describe('SlashCommandMenu', () => {
       />
     );
 
-    expect(screen.getByText('chat.noSkillsFound')).toBeInTheDocument();
+    expect(screen.getByText('chat.noSlashItemsFound')).toBeInTheDocument();
   });
 });

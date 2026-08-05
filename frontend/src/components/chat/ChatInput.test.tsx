@@ -28,7 +28,7 @@ vi.mock('./SlashCommandMenu', () => ({
   SlashCommandMenu: ({ skills }: { skills: Array<{ name: string }> }) => (
     <div data-testid="slash-menu">{skills.map((skill) => skill.name).join(',')}</div>
   ),
-  countFilteredSkills: () => 1,
+  countFilteredSlashItems: () => 1,
 }));
 
 vi.mock('./MediaPreview', () => ({

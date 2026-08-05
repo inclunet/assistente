@@ -9,6 +9,7 @@ import { ttsService } from '../../services/tts';
 import { MessageList, type MessageWindowLoadTrigger } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatToolbar, type ChatToolbarConversationChangeHandler } from './ChatToolbar';
+import { useAgentSessionCommands } from './useAgentSessionCommands';
 import { ChatSessionProvider } from './ChatSessionContext';
 import type {
   ChatSurfaceIdentity,
@@ -174,6 +175,10 @@ function ChatSessionViewContent({
     setDraftMediaFiles,
     setScrollState,
   } = controller;
+
+  // Os comandos que o agente de código desta conversa oferece entram no menu da
+  // barra do campo de mensagem (AEP-0084 D8).
+  const agentCommands = useAgentSessionCommands(conversationId);
 
   const cancelStreaming = useChatStore((state) => state.cancelStreaming);
   const clearConversationSendFailure = useChatStore((state) => state.clearConversationSendFailure);
@@ -996,6 +1001,7 @@ function ChatSessionViewContent({
           onMessageChange={setDraftMessage}
           onMediaFilesChange={setDraftMediaFiles}
           profileSlug={profileSlug || activeProfileSlug}
+          agentCommands={agentCommands}
           onArrowUp={() => {
             const container = messagesContainerRef.current;
             if (!container) return;

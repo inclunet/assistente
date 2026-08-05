@@ -15,12 +15,14 @@ import (
 // que oferece, aceita a troca como o agente aceitaria e sabe anunciar por conta
 // própria — que é como o fallback de limite de uso chega ao app (AEP-0084 D6).
 type agenteFalso struct {
-	mu        sync.Mutex
-	opcoes    []acp.ConfigOption
-	trocas    []string
-	anuncia   func(sessionID string, options []acp.ConfigOption)
-	sessoes   []*sessaoFalsa
-	erroTroca error
+	mu         sync.Mutex
+	opcoes     []acp.ConfigOption
+	comandos   []acp.Command
+	trocas     []string
+	anuncia    func(sessionID string, options []acp.ConfigOption)
+	anunciaCmd func(sessionID string, commands []acp.Command)
+	sessoes    []*sessaoFalsa
+	erroTroca  error
 }
 
 func novoAgenteFalso() *agenteFalso {
@@ -151,6 +153,12 @@ func (s *sessaoFalsa) Prompt(context.Context, []acp.Content, acp.UpdateSink) (ac
 func (s *sessaoFalsa) Close(context.Context) error  { return nil }
 func (s *sessaoFalsa) Cancel(context.Context) error { return nil }
 
+func (s *sessaoFalsa) Commands() []acp.Command {
+	s.agente.mu.Lock()
+	defer s.agente.mu.Unlock()
+	return append([]acp.Command(nil), s.agente.comandos...)
+}
+
 func (s *sessaoFalsa) ConfigOptions() []acp.ConfigOption {
 	s.agente.mu.Lock()
 	defer s.agente.mu.Unlock()
@@ -176,11 +184,13 @@ func appComAgente(t *testing.T, agente *agenteFalso) (*App, *testEmitter) {
 	a := &App{ctx: context.Background(), emitter: emissor}
 	a.setCurrentUserID("dono-1")
 	a.acpMgr = acp.NewManager(acp.ManagerConfig{
-		WorkDir:          func() (string, error) { return t.TempDir(), nil },
-		OnSessionOptions: a.agentSessionOptionsChanged,
+		WorkDir:           func() (string, error) { return t.TempDir(), nil },
+		OnSessionOptions:  a.agentSessionOptionsChanged,
+		OnSessionCommands: a.agentSessionCommandsChanged,
 		Dial: func(cfg acp.Config, _ acp.RequestHandler) (acp.Client, error) {
 			agente.mu.Lock()
 			agente.anuncia = cfg.OnConfigOptions
+			agente.anunciaCmd = cfg.OnCommands
 			agente.mu.Unlock()
 			return agente, nil
 		},

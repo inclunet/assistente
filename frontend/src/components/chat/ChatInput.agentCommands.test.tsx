@@ -1,0 +1,165 @@
+import { useState } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { ChatInput } from './ChatInput';
+
+// De propósito sem mock do SlashCommandMenu: o defeito que interessa aqui mora
+// justamente entre o menu e o campo — a seta contando itens de uma lista e o
+// Enter escolhendo na outra.
+const getSkillsForProfileSpy = vi.fn();
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
+}));
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({ announce: vi.fn() }),
+}));
+
+vi.mock('@wailsjs/go/app/App', () => ({
+  GetUserInvocableSkillsForProfile: (profileSlug: string) => getSkillsForProfileSpy(profileSlug),
+}));
+
+vi.mock('../../services/mediaService', () => ({
+  processMediaFiles: vi.fn(),
+}));
+
+vi.mock('./MediaPreview', () => ({
+  MediaPreview: () => <div data-testid="media-preview" />,
+}));
+
+vi.mock('./VoiceButton', () => ({
+  VoiceButton: () => <button data-testid="voice-button" />,
+}));
+
+const comandos = [
+  { name: 'plan', description: 'Monta um plano', acceptsInput: true },
+  { name: 'revisar', description: 'Revisa o diff', acceptsInput: false },
+];
+
+// CampoControlado é o campo como o painel de chat o usa: com o texto vivendo
+// fora dele. Escolher um item escreve nesse texto, e o teste que guardasse o
+// valor por conta própria não provaria que a escrita chegou lá.
+function CampoControlado({ agentCommands = comandos }: { agentCommands?: typeof comandos }) {
+  const [message, setMessage] = useState('');
+  return (
+    <ChatInput
+      onSend={() => {}}
+      message={message}
+      onMessageChange={setMessage}
+      agentCommands={agentCommands}
+    />
+  );
+}
+
+async function digitaNoCampo(texto: string) {
+  const textarea = await screen.findByLabelText('chat.messageLabel');
+  fireEvent.change(textarea, { target: { value: texto } });
+  return textarea;
+}
+
+describe('ChatInput com comandos do agente', () => {
+  beforeEach(() => {
+    getSkillsForProfileSpy.mockReset();
+    getSkillsForProfileSpy.mockResolvedValue([]);
+  });
+
+  it('mostra os comandos do agente mesmo quando o perfil não tem skill nenhuma', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    await digitaNoCampo('/');
+
+    const opcoes = await screen.findAllByRole('option');
+    expect(opcoes.map((opcao) => opcao.textContent)).toEqual([
+      expect.stringContaining('/plan'),
+      expect.stringContaining('/revisar'),
+    ]);
+  });
+
+  it('separa os comandos do agente das skills do app, com rótulo de grupo', async () => {
+    getSkillsForProfileSpy.mockResolvedValue([
+      { slug: 'resumo', name: 'Resumo', description: 'Resume um texto' },
+    ]);
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    await digitaNoCampo('/');
+
+    expect(await screen.findByRole('group', { name: 'chat.availableSkills' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Comandos do agente' })).toBeInTheDocument();
+  });
+
+  it('digitar depois da barra filtra as duas origens juntas', async () => {
+    getSkillsForProfileSpy.mockResolvedValue([
+      { slug: 'planilha', name: 'Planilha', description: 'Abre uma planilha' },
+      { slug: 'resumo', name: 'Resumo', description: 'Resume um texto' },
+    ]);
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    // Uma letra por vez: filtrar só no valor final esconderia o campo que perde
+    // a digitação no meio do caminho.
+    await digitaNoCampo('/');
+    await digitaNoCampo('/p');
+    await digitaNoCampo('/pl');
+    await digitaNoCampo('/pla');
+
+    const opcoes = await screen.findAllByRole('option');
+    expect(opcoes.map((opcao) => opcao.textContent)).toEqual([
+      expect.stringContaining('/planilha'),
+      expect.stringContaining('/plan'),
+    ]);
+  });
+
+  it('a seta atravessa da última skill para o primeiro comando do agente', async () => {
+    getSkillsForProfileSpy.mockResolvedValue([
+      { slug: 'resumo', name: 'Resumo', description: 'Resume um texto' },
+    ]);
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+
+    fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+
+    const selecionado = screen.getAllByRole('option').find((opcao) => opcao.getAttribute('aria-selected') === 'true');
+    expect(selecionado?.textContent).toContain('/plan');
+  });
+
+  it('escolher um comando do agente escreve a barra e o nome no campo', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/');
+    await screen.findAllByRole('option');
+
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    // O comando aceita argumento, então o campo fica pronto para continuar
+    // escrevendo — sem isso a pessoa teria de apagar o cursor para dentro.
+    await waitFor(() => expect(textarea).toHaveValue('/plan '));
+  });
+
+  it('comando sem argumento não deixa espaço solto no fim da mensagem', async () => {
+    render(<CampoControlado />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    const textarea = await digitaNoCampo('/rev');
+    await screen.findAllByRole('option');
+
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    await waitFor(() => expect(textarea).toHaveValue('/revisar'));
+  });
+
+  it('sem skills e sem comandos o menu não aparece', async () => {
+    render(<CampoControlado agentCommands={[]} />);
+    await waitFor(() => expect(getSkillsForProfileSpy).toHaveBeenCalled());
+
+    await digitaNoCampo('/');
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+});

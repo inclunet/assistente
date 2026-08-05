@@ -32,6 +32,7 @@ type agenteFalso struct {
 	// opcoes é o estado de configuração da sessão: em que modelo e modo o agente
 	// está e o que ele oferece.
 	opcoes        []acp.ConfigOption
+	comandos      []acp.Command
 	trocas        []string
 	erroDaTroca   error
 	modeloDoTurno []string
@@ -73,6 +74,12 @@ func (a *agenteFalso) Prompt(ctx context.Context, content []acp.Content, sink ac
 
 func (a *agenteFalso) Close(context.Context) error  { return nil }
 func (a *agenteFalso) Cancel(context.Context) error { return nil }
+
+func (a *agenteFalso) Commands() []acp.Command {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]acp.Command(nil), a.comandos...)
+}
 
 func (a *agenteFalso) ConfigOptions() []acp.ConfigOption {
 	a.mu.Lock()

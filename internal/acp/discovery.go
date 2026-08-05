@@ -155,6 +155,25 @@ func (c *conn) announceOptions(sessionID string, options []ConfigOption) {
 	c.cfg.OnConfigOptions(sessionID, options)
 }
 
+// announceCommands conta a quem cuida do app quais comandos uma sessão passou a
+// oferecer. Isolado por pânico pelo mesmo motivo do anúncio das opções.
+//
+// Ao contrário das opções, a lista vazia é anunciada: ela diz que o agente
+// deixou de oferecer comandos, e calar isso deixaria na tela uma lista que não
+// vale mais.
+func (c *conn) announceCommands(sessionID string, commands []Command) {
+	if c.cfg.OnCommands == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Errorf(context.Background(), logComponent,
+				"[ACP] quem escuta os comandos da sessão %q quebrou: %v", sessionID, r)
+		}
+	}()
+	c.cfg.OnCommands(sessionID, commands)
+}
+
 // options lê as opções do agente. O cache é por processo, e por isso não precisa
 // de invalidação quando o processo cai: a conexão nova traz um cache vazio, e a
 // sessão que produziu a lista anterior morreu com a antiga.

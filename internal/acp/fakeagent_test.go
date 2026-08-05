@@ -45,6 +45,10 @@ const (
 	scriptTeimoso       = "teimoso" // ignora o cancelamento e segue falando para sempre
 	scriptDuasConversas = "duas"    // fala em pedaços, assinando cada um com a conversa
 	scriptIDSujo        = "idsujo"  // abre a conversa com identificador cheio de sujeira
+	// scriptComandos anuncia os comandos que oferece assim que a sessão abre,
+	// fora de qualquer turno, e refaz a lista durante o turno — que é como o
+	// available_commands_update chega de verdade (AEP-0084 D8).
+	scriptComandos = "comandos"
 
 	fakeSessionID = "sess-falsa-1"
 	// fakeMuteValue faz o agente aceitar a troca e responder com um conjunto de
@@ -225,6 +229,23 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 				"availableModes": []any{map[string]any{"id": "agent", "name": "Agente"}, map[string]any{"id": "plan", "name": "Plano"}},
 			},
 		})
+		if a.script == scriptComandos {
+			// Depois da resposta e fora de turno: é onde o agente de verdade
+			// conta os comandos dele.
+			a.updateFor(sid, map[string]any{
+				"sessionUpdate": "available_commands_update",
+				"availableCommands": []any{
+					map[string]any{
+						"name":        "plan",
+						"description": "\x1b[32mMonta um plano\x1b[0m",
+						"input":       map[string]any{"hint": "o que planejar"},
+					},
+					map[string]any{"name": "resumir", "description": "Resume a conversa"},
+					map[string]any{"name": "   ", "description": "comando sem nome"},
+					map[string]any{"name": "plan", "description": "repetido"},
+				},
+			})
+		}
 
 	case "session/close":
 		if a.script == scriptStuck || a.script == scriptIDSujo {
@@ -572,6 +593,15 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 		} else {
 			a.chunk("agent_message_chunk", "resposta:"+string(resp.Result))
 		}
+
+	case scriptComandos:
+		// A lista muda no meio da conversa: o agente que entra em outro modo
+		// passa a oferecer outra coisa.
+		a.update(map[string]any{
+			"sessionUpdate":     "available_commands_update",
+			"availableCommands": []any{map[string]any{"name": "revisar", "description": "Revisa o diff"}},
+		})
+		a.chunk("agent_message_chunk", "feito")
 
 	default: // scriptTurn
 		a.chunk("agent_thought_chunk", "pensando")

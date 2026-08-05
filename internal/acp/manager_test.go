@@ -141,6 +141,7 @@ type fakeManagedSession struct {
 	closeErr error
 
 	options  []ConfigOption
+	commands []Command
 	setErr   error
 	setCalls []setOptionCall
 	// duringSet roda no meio da troca, entre o pedido e a resposta. É o agente
@@ -174,6 +175,12 @@ func (s *fakeManagedSession) Close(context.Context) error {
 }
 
 func (s *fakeManagedSession) Cancel(context.Context) error { return nil }
+
+func (s *fakeManagedSession) Commands() []Command {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Command(nil), s.commands...)
+}
 
 func (s *fakeManagedSession) ConfigOptions() []ConfigOption {
 	s.mu.Lock()

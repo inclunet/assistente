@@ -65,8 +65,8 @@ func derefString(value *string) string {
 }
 
 // updateFrom traduz uma notificação do agente. O segundo retorno é falso para
-// o que este pacote ainda não mapeia (planos, comandos disponíveis, uso de
-// contexto): descartar no transporte é melhor do que entregar meio evento.
+// o que este pacote ainda não mapeia (planos, uso de contexto): descartar no
+// transporte é melhor do que entregar meio evento.
 func updateFrom(update sdk.SessionUpdate) (Update, bool) {
 	switch {
 	case update.AgentMessageChunk != nil:
@@ -105,6 +105,15 @@ func updateFrom(update sdk.SessionUpdate) (Update, bool) {
 	case update.CurrentModeUpdate != nil:
 		return Update{Kind: UpdateMode, Mode: string(update.CurrentModeUpdate.CurrentModeId)}, true
 
+	case update.AvailableCommandsUpdate != nil:
+		// Lista vazia é resposta, e não ausência de resposta: o agente está
+		// dizendo que não oferece comando nenhum, e o app precisa tirar da tela
+		// os que ofereceu antes.
+		return Update{
+			Kind:     UpdateCommands,
+			Commands: commandsFrom(update.AvailableCommandsUpdate.AvailableCommands),
+		}, true
+
 	case update.SessionInfoUpdate != nil:
 		if update.SessionInfoUpdate.Title == nil {
 			return Update{}, false
@@ -117,6 +126,37 @@ func updateFrom(update sdk.SessionUpdate) (Update, bool) {
 	}
 
 	return Update{}, false
+}
+
+// commandsFrom traduz os comandos que o agente oferece. Nome e descrição vão
+// para a tela e para o leitor de telas, então passam pelo saneamento de rótulo
+// (AEP-0084 D11) — texto vindo do agente é dado não confiável.
+//
+// Comando sem nome, ou com nome que não sobrevive ao saneamento, é descartado:
+// não há o que digitar depois da barra, e um item mudo no menu só atrapalha
+// quem navega por teclado. Nome com espaço sai pelo mesmo motivo: tudo que vem
+// depois do primeiro espaço é argumento para o agente, então "/criar plano"
+// invocaria "criar" com "plano" de entrada. Nome repetido também sai: dois itens
+// iguais no menu fazem a pessoa escolher às cegas.
+func commandsFrom(commands []sdk.AvailableCommand) []Command {
+	out := make([]Command, 0, len(commands))
+	seen := make(map[string]struct{}, len(commands))
+	for _, command := range commands {
+		name := SanitizeLabel(command.Name)
+		if name == "" || strings.ContainsAny(name, " \t") {
+			continue
+		}
+		if _, repeated := seen[name]; repeated {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, Command{
+			Name:         name,
+			Description:  SanitizeLabel(command.Description),
+			AcceptsInput: command.Input != nil,
+		})
+	}
+	return out
 }
 
 func textOf(block sdk.ContentBlock) string {

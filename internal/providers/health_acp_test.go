@@ -65,6 +65,10 @@ func (s *sessaoFalsa) Cancel(context.Context) error { return nil }
 
 func (s *sessaoFalsa) ConfigOptions() []acp.ConfigOption { return nil }
 
+// Commands fecha o contrato da sessão. A sonda de health abre a sessão só para
+// ver se o agente aceita abrir uma: comando nenhum é o que ela tem a dizer.
+func (s *sessaoFalsa) Commands() []acp.Command { return nil }
+
 func (s *sessaoFalsa) SetConfigOption(context.Context, string, string) ([]acp.ConfigOption, error) {
 	return nil, nil
 }
