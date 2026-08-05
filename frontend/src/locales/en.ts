@@ -159,6 +159,23 @@ const en = {
         pending_one: '{{count}} turn queued',
         pending_other: '{{count}} turns queued',
       },
+      agentOptions: {
+        modelLabel: 'Agent model',
+        modelDescription: 'Chooses the model the agent uses in this conversation, starting on the next turn',
+        modeLabel: 'Agent mode',
+        modeDescription: 'Chooses how the agent works in this conversation, starting on the next turn',
+        modelChanged: 'Agent model changed to {{model}}. It applies from the next turn on.',
+        modeChanged: 'Agent mode changed to {{mode}}. It applies from the next turn on.',
+        modelChangedByAgent: 'The agent switched to the {{model}} model.',
+        modeChangedByAgent: 'The agent switched to {{mode}} mode.',
+        changeError: 'The agent setting could not be changed. Please try again.',
+        changeUnknownState: 'The agent accepted the change but did not report which model and mode the conversation is on.',
+        mode: {
+          agent: 'Agent',
+          plan: 'Plan',
+          ask: 'Ask',
+        },
+      },
       validation: {
         messageTooLarge: 'Message too large ({{size}} bytes). Maximum allowed: {{max}} bytes',
         mediaTooLarge: 'Media files too large (~{{size}}MB). Maximum allowed: {{max}}MB',
@@ -1654,7 +1671,7 @@ const en = {
     pickers: {
       base: { loading: 'Loading...', loadError: 'Error loading', empty: 'No options available', retry: 'Try again' },
       llmProvider: { label: 'LLM Provider', description: 'Select the language model provider', noneConfigured: 'No provider configured. Configure a provider first.', loadError: 'Error loading providers', placeholder: 'Select a provider...', retry: 'Try again', loading: 'Loading providers...' },
-      model: { label: 'Model', filterPlaceholder: 'Filter models...', selectProvider: 'Select a provider first', noModels: 'No models available for this provider.', noModelsGlobal: 'No models available. Configure a provider first.', configureApiKey: 'Configure this provider\'s API key in Settings → Credentials', loadError: 'Error loading models:', typePlaceholder: 'Type the model...', notLoaded: 'Models not loaded. Type the model name manually.', retry: 'Try again', loading: 'Loading models...' },
+      model: { label: 'Model', filterPlaceholder: 'Filter models...', selectProvider: 'Select a provider first', noModels: 'No models available for this provider.', noModelsGlobal: 'No models available. Configure a provider first.', configureApiKey: 'Configure this provider\'s API key in Settings → Credentials', loadError: 'Error loading models:', typePlaceholder: 'Type the model...', notLoaded: 'Models not loaded. Type the model name manually.', retry: 'Try again', loading: 'Loading models...', refresh: 'Reload models', refreshLabel: 'Reload the provider model list', refreshed_one: 'Model list updated: {{count}} model', refreshed_other: 'Model list updated: {{count}} models' },
       voice: { disabled: 'Disabled', system: 'System', windows: 'Windows (SAPI5)', openai: 'OpenAI (Premium)', label: 'Voice', description: 'Select the voice for speech synthesis', loadError: 'Error loading voices', screenReader: 'Disabled (use screen reader)', accessibility: 'Accessibility', premium: '• Premium', loading: 'Loading voices...' },
       voiceProvider: { label: 'Voice Provider', description: 'Select the speech synthesis provider', loading: 'Loading providers...', loadError: 'Error loading providers', screenReader: 'Screen reader (disable TTS)', screenReaderDesc: 'Uses the screen reader and disables speech synthesis', default: 'Default (Assistant)', defaultDesc: 'Uses the Assistant provider', webspeech: 'WebSpeech (Browser)', webspeechDesc: 'Browser voices (free)', sapi5: 'SAPI5 (Windows)', sapi5Desc: 'Windows voices', followAssistant: 'Follow Assistant voice', followAssistantDesc: 'Uses the same voice as the Assistant', followUser: 'Follow User voice', followUserDesc: 'Uses the same voice as the User', followSystem: 'Follow System voice', followSystemDesc: 'Uses the same voice as the System', llmProvider: 'LLM provider', llmProviderWithHost: 'TTS/STT via {{host}}' },
       stt: { label: 'STT', description: 'Select the speech recognition provider', webSpeech: 'WebSpeech', webSpeechDesc: 'Browser (free)', whisper: 'Whisper', whisperDesc: 'OpenAI (premium)', whisperViaProvider: 'Whisper (via LLM provider)', loadError: 'Error loading providers', loading: 'Loading providers...' },

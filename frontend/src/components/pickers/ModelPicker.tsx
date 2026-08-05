@@ -1,7 +1,14 @@
 import { useState, useEffect, useImperativeHandle, forwardRef, type ReactNode } from 'react';
-import { CloseCircleOutlined, RobotOutlined } from '@ant-design/icons';
+import { CloseCircleOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { GetModels, GetModelsByProvider, GetLLMProvidersWithStatus } from '@wailsjs/go/app/App';
+import {
+  GetModels,
+  GetModelsByProvider,
+  GetLLMProvidersWithStatus,
+  RefreshModels,
+  RefreshModelsByProvider,
+} from '@wailsjs/go/app/App';
+import { Button } from '../ui/Button';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import './ModelPicker.css';
@@ -25,6 +32,14 @@ export interface ModelPickerProps {
 
 export interface ModelPickerRef {
     reload: () => void;
+}
+
+/** LoadOutcome é o que uma listagem produziu, para quem precisa anunciá-la. */
+interface LoadOutcome {
+    ok: boolean;
+    /** Message explica a falha, já traduzida. Vazia quando deu certo. */
+    message: string;
+    count: number;
 }
 
 export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
@@ -57,13 +72,24 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     }
   };
 
-  const loadModels = async () => {
+  /**
+   * loadModels busca a lista de modelos. `refresh` diz que foi a pessoa que
+   * pediu de novo, e só então o que o provedor tiver guardado é descartado: um
+   * agente de código responde de uma sessão de descoberta guardada por processo,
+   * e invalidar a cada render faria a tela de perfil bater no agente sem motivo
+   * (AEP-0084 D6).
+   *
+   * Devolve o que houve porque quem chamou pode precisar anunciar: o estado da
+   * tela vive em `useState` e não está legível na volta da promessa.
+   */
+  const loadModels = async (refresh = false): Promise<LoadOutcome> => {
     if (variant === 'form' && !providerID) {
+      const msg = t('pickers.model.selectProvider');
       setLoading(false);
-      setError(t('pickers.model.selectProvider'));
+      setError(msg);
       setModels([]);
       setEndpointNotSupported(false);
-      return;
+      return { ok: false, message: msg, count: 0 };
     }
 
     setLoading(true);
@@ -74,9 +100,11 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
 
       const resolvedID = providerID ? await resolveProviderID(providerID) : '';
       if (resolvedID) {
-        modelsList = await GetModelsByProvider(resolvedID);
+        modelsList = refresh
+          ? await RefreshModelsByProvider(resolvedID)
+          : await GetModelsByProvider(resolvedID);
       } else if (!providerID) {
-        modelsList = await GetModels();
+        modelsList = refresh ? await RefreshModels() : await GetModels();
       } else {
         modelsList = [];
       }
@@ -87,26 +115,40 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
           ? t('pickers.model.noModels')
           : t('pickers.model.noModelsGlobal');
         setError(msg);
+        return { ok: false, message: msg, count: 0 };
       }
+      return { ok: true, message: '', count: modelsList.length };
     } catch (e: unknown) {
+      // Só o que a falha disser de verdade entra aqui: a mensagem é lida em voz
+      // alta e exibida nos três idiomas, e texto inventado neste ponto sairia em
+      // português para quem usa o app em inglês ou espanhol. Nem o nome da
+      // classe do erro serve de detalhe — "Error" não explica nada a ninguém.
       const err = e as { message?: unknown } | null;
-      const errorMsg = String(err?.message || e || 'Erro desconhecido');
+      const errorMsg = (typeof err?.message === 'string'
+        ? err.message
+        : typeof e === 'string' ? e : ''
+      ).trim();
       
       // Detecta se o endpoint de modelos não é suportado (404)
       if (errorMsg.includes('models_endpoint_not_supported')) {
         setEndpointNotSupported(true);
         setError('');
         setModels([]);
-      } else if (errorMsg.includes('credencial não configurada') || errorMsg.includes('Missing bearer authentication')) {
-        // Detecta erro de credencial não configurada
-        setError(t('pickers.model.configureApiKey'));
-        setEndpointNotSupported(false);
-        setModels([]);
-      } else {
-        setError(`${t('pickers.model.loadError')} ${errorMsg}`);
-        setEndpointNotSupported(false);
-        setModels([]);
+        return { ok: false, message: t('pickers.model.notLoaded'), count: 0 };
       }
+      if (errorMsg.includes('credencial não configurada') || errorMsg.includes('Missing bearer authentication')) {
+        // Detecta erro de credencial não configurada
+        const msg = t('pickers.model.configureApiKey');
+        setError(msg);
+        setEndpointNotSupported(false);
+        setModels([]);
+        return { ok: false, message: msg, count: 0 };
+      }
+      const msg = errorMsg ? `${t('pickers.model.loadError')} ${errorMsg}` : t('pickers.model.loadError');
+      setError(msg);
+      setEndpointNotSupported(false);
+      setModels([]);
+      return { ok: false, message: msg, count: 0 };
     } finally {
       setLoading(false);
     }
@@ -116,8 +158,9 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     loadModels();
   }, [providerID]); // Recarrega quando providerID muda
 
+  // Quem chama reload está pedindo a lista de novo, e não a que já tínhamos.
   useImperativeHandle(ref, () => ({
-    reload: loadModels
+    reload: () => { void loadModels(true); }
   }));
 
   const defaultModelLabel = t('pickers.model.default', 'Padrão do provedor');
@@ -131,7 +174,25 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     onChange(selectedValue);
   };
 
-  return (
+  // Quem pediu o recarregar ouve o que houve, e não sempre "recarregada": a
+  // lista pode não ter vindo — credencial que falta, provedor que não lista — e
+  // anunciar sucesso nesses casos diria a quem usa leitor de telas o contrário
+  // do que a tela mostra.
+  //
+  // Deu certo, o que é dito é o tamanho da lista, não que ela foi buscada de
+  // novo: um agente de código responde da sessão de descoberta que ele já tem —
+  // sem `session/close` no protocolo dele, outra sessão ficaria pendurada — e
+  // prometer uma consulta que não houve faria a pessoa clicar de novo achando
+  // que não funcionou (AEP-0084 D6).
+  const handleRefresh = () => {
+    void loadModels(true).then(({ ok, message, count }) => {
+      onAnnounce?.(ok
+        ? t('pickers.model.refreshed', { count, defaultValue: 'Lista de modelos atualizada: {{count}}' })
+        : message);
+    });
+  };
+
+  const picker = (
     <BasePicker
       variant={variant}
       items={items}
@@ -146,7 +207,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       onAnnounce={onAnnounce}
       loading={loading && !endpointNotSupported}
       error={endpointNotSupported ? null : (error || null)}
-      onRetry={endpointNotSupported ? undefined : loadModels}
+      onRetry={endpointNotSupported ? undefined : handleRefresh}
       retryLabel={t('pickers.model.retry')}
       showFormLabel={variant === 'form'}
       showFormLabelIcon={false}
@@ -161,6 +222,28 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       loadingLabel={{ form: t('pickers.model.loading'), toolbar: t('common.loading') }}
       errorLabel={{ form: error || t('pickers.model.loadError'), toolbar: t('common.error') }}
     />
+  );
+
+  if (variant !== 'form') return picker;
+
+  // O recarregar só existe no formulário porque é lá que a pessoa escolhe o
+  // modelo do perfil. Provedor que guarda a lista — o agente de código — só
+  // volta a perguntar por aqui.
+  return (
+    <div className="model-picker-form__stack">
+      {picker}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={handleRefresh}
+        disabled={disabled || loading}
+        aria-label={t('pickers.model.refreshLabel', 'Recarregar a lista de modelos do provedor')}
+      >
+        <ReloadOutlined aria-hidden="true" />
+        {t('pickers.model.refresh', 'Recarregar modelos')}
+      </Button>
+    </div>
   );
 });
 

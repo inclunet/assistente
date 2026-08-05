@@ -41,11 +41,14 @@ func (a *App) initACP() {
 		// O banco é buscado a cada uso, não guardado: resetá-lo fecha a conexão
 		// e abre outra, e uma conexão guardada aqui ficaria apontando para a
 		// fechada até o app reiniciar.
-		Store:         acp.NewDBSessionStore(database.DB),
-		Handler:       handler,
-		WorkDir:       a.acpWorkDir,
-		ClientName:    "assistente",
-		ClientVersion: AppVersion,
+		Store:   acp.NewDBSessionStore(database.DB),
+		Handler: handler,
+		WorkDir: a.acpWorkDir,
+		// O agente troca de modelo sozinho e avisa. A tela precisa refletir isso,
+		// e quem usa leitor de telas precisa ouvi-lo (AEP-0084 D6).
+		OnSessionOptions: a.agentSessionOptionsChanged,
+		ClientName:       "assistente",
+		ClientVersion:    AppVersion,
 	})
 	handler.owner = a.acpMgr.TurnOwnerOf
 }

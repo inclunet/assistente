@@ -79,6 +79,13 @@ func (p *rateLimitedProvider) GetModels(ctx context.Context) ([]string, error) {
 	return p.inner.GetModels(ctx)
 }
 
+// RefreshModels atravessa o decorator pelo mesmo motivo que GetModels não é
+// limitada. Sem este repasse, o embrulho esconderia a capacidade de quem guarda
+// a lista, e o recarregar da tela devolveria a lista guardada para sempre.
+func (p *rateLimitedProvider) RefreshModels(ctx context.Context) ([]string, error) {
+	return RefreshModels(ctx, p.inner)
+}
+
 func (p *rateLimitedProvider) NativeMCPCapable() bool {
 	return p.inner.NativeMCPCapable()
 }

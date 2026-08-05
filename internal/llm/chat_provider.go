@@ -67,6 +67,25 @@ type ChatProvider interface {
 	WithMCPServers(servers []MCPServerConfig) ChatProvider
 }
 
+// ModelRefresher é o provedor que guarda a lista de modelos e sabe descartá-la.
+// Só faz sentido para quem tem cache: um provedor HTTP pergunta ao servidor a
+// cada listagem, enquanto o agente de código responde de uma sessão de
+// descoberta guardada por processo (AEP-0084 D6).
+type ModelRefresher interface {
+	// RefreshModels esquece o que sabia e pergunta de novo.
+	RefreshModels(ctx context.Context) ([]string, error)
+}
+
+// RefreshModels relista os modelos de um provedor, descartando o que ele tiver
+// guardado. Quem não guarda nada é listado normalmente: para ele, "de novo" e
+// "agora" são a mesma coisa.
+func RefreshModels(ctx context.Context, provider ChatProvider) ([]string, error) {
+	if refresher, ok := provider.(ModelRefresher); ok {
+		return refresher.RefreshModels(ctx)
+	}
+	return provider.GetModels(ctx)
+}
+
 // resolveModel retorna o modelo a usar: param explícito > provider.Model > provider.DefaultModel.
 func resolveModel(provider *ProviderConfig, requested string) string {
 	if requested != "" {

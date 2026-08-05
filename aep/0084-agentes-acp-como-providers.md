@@ -728,7 +728,7 @@ argumentos, diretório visível), health do D12, indicador de conexão e estado 
 **Aceite:** dá para criar, testar e usar um provider Cursor sem editar
 configuração na mão; o estado não autenticado é anunciado e explica o que fazer.
 
-### Fase 4 — Modelos e modos
+### Fase 4 — Modelos e modos (feita)
 
 `GetModels` com a sessão de descoberta do D6 e cache, troca por
 `set_config_option` com
@@ -738,6 +738,46 @@ na criação da sessão.
 
 **Aceite:** trocar de modelo pelo app muda o modelo do turno seguinte; troca
 feita pelo agente aparece na UI e é anunciada.
+
+A descoberta vive em `internal/acp/discovery.go`: uma sessão sem prompt na mesma
+conexão de todo mundo, aberta na primeira consulta e reaproveitada até o processo
+morrer. Ela é fechada pelo método do protocolo quando o agente anuncia essa
+capacidade — o Cursor de hoje não anuncia, e aí a sessão vive até o fim do
+processo em vez de virar rastro de sessões abandonadas a cada consulta.
+
+Decisões que a fase fixou:
+
+- **A invalidação do cache é sem trava.** A geração do cache é um contador
+  atômico porque quem invalida é a goroutine que entrega as notificações do
+  agente: se ela precisasse do mesmo mutex que a abertura da sessão de descoberta
+  segura, um `config_option_update` chegando durante a abertura pararia o
+  protocolo — e a abertura espera resposta pelo protocolo.
+- **Recarregar a lista é ato explícito da pessoa.** A abertura da tela lista o que
+  já se sabia; só o botão de recarregar (e a nova tentativa depois de um erro)
+  descarta o que o provedor guardou. Invalidar a cada render faria a tela de
+  perfil abrir uma descoberta no agente sem ninguém ter pedido.
+- **O recarregar atravessa as camadas por capacidade, não por tipo.** Provedor que
+  não guarda lista é listado normalmente; o embrulho de limite de uso repassa a
+  capacidade, senão ele a esconderia e a lista velha continuaria aparecendo,
+  correta o suficiente para ninguém desconfiar.
+- **Troca por `session/set_config_option`, com o seletor anterior como
+  alternativa.** O erro de "método não encontrado" é o único que faz cair para
+  `session/set_model` e `session/set_mode`; qualquer outro erro é do agente e
+  sobe. Quando a alternativa não devolve o estado, o app confirma localmente o
+  valor pedido — o agente aceitou, e mostrar o valor antigo seria mentir.
+- **O agente trocando de modelo sozinho é evento de conversa, não do turno.** O
+  aviso chega por `config_option_update` inclusive entre turnos, então ele vira
+  `chat:agent_options`, com o `conversationId` sempre presente (AEP-0040). O
+  evento só pede anúncio quando algo mudou de fato: o agente também repete o
+  estado, e anunciar cada repetição atropelaria a leitura da resposta em curso.
+- **O seletor da barra de ferramentas só aparece quando há o que escolher.**
+  Consultar as opções não sobe processo nem abre sessão: conversa que ainda não
+  falou com o agente não tem estado a mostrar, e pagar um processo porque uma
+  barra renderizou seria caro e invisível.
+- **O modelo do perfil é aplicado no começo do turno**, junto da sessão. Quando o
+  agente não oferece o modelo escolhido, ou quando a troca não vale, o turno segue
+  e a conversa recebe um aviso dizendo que modelo atendeu — descobrir isso pela
+  resposta estranha é pior do que ouvir a troca.
 
 ### Fase 5 — Perguntar fora do desktop (feita)
 
