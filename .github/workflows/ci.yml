@@ -3,12 +3,21 @@ name: CI
 on:
   push:
     branches: [main]
+  # Sem filtro de base: PR empilhado (aquele cuja base é a branch de outro PR)
+  # também precisa de CI. Sem isso, o par pai+filho só era conferido no merge,
+  # tarde demais para quem já tinha revisado os dois.
   pull_request:
-    branches: [main]
   # O detector de corrida (job backend-race) roda em push/PR com -short, então
   # não há gatilho `schedule`: ele só geraria runs noturnos vazios. workflow_dispatch
   # cobre execução manual sob demanda.
   workflow_dispatch:
+
+# Um run por branch. O push que atualiza um PR torna o run anterior obsoleto, e
+# manter os dois só disputa runner. Na main não se cancela: cada commit ali é o
+# estado publicado e merece o seu próprio veredito.
+concurrency:
+  group: ci-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   backend:
