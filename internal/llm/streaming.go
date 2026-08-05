@@ -62,6 +62,16 @@ type AgentActivitySink interface {
 	OnSegmentDone()
 }
 
+// AgentTitleSink recebe o título que o agente de código gerou para a conversa
+// (AEP-0084 D8). O agente batiza a sessão dele por conta própria, e esse nome
+// costuma dizer melhor do que se trata do que o recorte da primeira mensagem
+// que o app usa como rótulo provisório.
+//
+// É opcional — o provider descobre com type assertion sobre o StreamHandler.
+type AgentTitleSink interface {
+	OnAgentTitle(title string)
+}
+
 // TurnNoticeKind identifica o que o aviso conta. É código, e não frase: quem
 // exibe traduz para o idioma de quem lê.
 type TurnNoticeKind string
@@ -84,6 +94,12 @@ const (
 	// a ele.
 	TurnNoticeModelNotApplied TurnNoticeKind = "model_not_applied"
 )
+
+// TurnNoticeAgentMemoryLost: a conversa foi reaberta e a sessão anterior do
+// agente não voltou, então ele responde sem lembrar do que já foi dito
+// (AEP-0084 D4). O que está na tela continua sendo o histórico da pessoa; o que
+// mudou é o que o agente sabe, e só ela pode decidir o que vale recontar.
+const TurnNoticeAgentMemoryLost TurnNoticeKind = "agent_memory_lost"
 
 // TurnNotice é um aviso sobre o próprio turno: não é a resposta, não é falha e
 // não encerra nada.

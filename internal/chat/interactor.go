@@ -186,11 +186,8 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	// 4. Auto-rename conversation if it still has the generic default title
 	if req.UserContent != "" {
 		conv, convErr := i.convRepo.GetConversationInfo(ctx, req.ConversationID)
-		if convErr == nil && conv != nil && conv.Title == "Nova Conversa" {
-			title := req.UserContent
-			if len(title) > 50 {
-				title = title[:50]
-			}
+		if convErr == nil && conv != nil && conv.Title == DefaultConversationTitle {
+			title := automaticTitle(req.UserContent)
 			if err := i.convRepo.UpdateConversation(ctx, req.ConversationID, title, ""); err == nil {
 				i.emitter.Emit("conversation:renamed", ports.ConversationRenamedEvent{
 					ConversationID: req.ConversationID,

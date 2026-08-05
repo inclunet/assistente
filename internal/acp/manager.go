@@ -500,6 +500,11 @@ type mountedSession struct {
 	session    Session
 	sessionID  string
 	origin     SessionOrigin
+	// originTold marca que a origem desta sessão já foi contada à pessoa. A
+	// sessão recriada precisa ser anunciada uma vez, e não a cada turno: o
+	// agente perdeu a memória quando ela nasceu, e repetir o aviso em todo
+	// turno seguinte diria que ele a perdeu de novo.
+	originTold bool
 	prefixHash string
 	// suffixHash resume o que o app já contou de contexto que muda — resumo da
 	// conversa, memória, tasklists. Diferente do prefixo, ele fica só em
@@ -719,6 +724,27 @@ func (c *Conversation) Origin() SessionOrigin {
 		return SessionNew
 	}
 	return c.active.origin
+}
+
+// TakeLostMemoryNotice diz se ainda falta contar que o agente perdeu o contexto
+// anterior desta conversa, e marca o aviso como dado (AEP-0084 D4).
+//
+// Reabrir uma conversa tenta retomar a sessão do agente; quando ela não volta —
+// o agente não sabe retomar, o identificador guardado não vale mais, o diretório
+// mudou —, a conversa segue com um agente que não viveu o que está na tela. Sem
+// dizer isso, a pessoa descobre pela resposta estranha.
+//
+// O aviso é consumido no turno que o entrega, e não na montagem da sessão: turno
+// que nem chegou ao agente não contou nada a ninguém, e perder o aviso aqui
+// seria perdê-lo para sempre.
+func (c *Conversation) TakeLostMemoryNotice() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.active == nil || c.active.originTold || !c.active.origin.LostMemory() {
+		return false
+	}
+	c.active.originTold = true
+	return true
 }
 
 // Invalidate esquece a sessão em memória sem apagar o registro. É o que fazer

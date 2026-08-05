@@ -12,12 +12,19 @@ import (
 // passar pelo caminho real em vez de chamar o método interno na mão.
 func managerComAvisos(t *testing.T, client *fakeManagedClient) (*Manager, func() []SessionOptionsEvent, func(string, []ConfigOption)) {
 	t.Helper()
+	return managerComAvisosSobre(t, newMemoryStore(), client)
+}
+
+// managerComAvisosSobre é o mesmo com um registro de sessões preparado pelo
+// teste, para exercitar a conversa que reabre em vez da que nasce agora.
+func managerComAvisosSobre(t *testing.T, store SessionStore, client *fakeManagedClient) (*Manager, func() []SessionOptionsEvent, func(string, []ConfigOption)) {
+	t.Helper()
 
 	var eventos []SessionOptionsEvent
 	var doTransporte func(string, []ConfigOption)
 
 	m := NewManager(ManagerConfig{
-		Store:   newMemoryStore(),
+		Store:   store,
 		WorkDir: func() (string, error) { return dirDeTeste("projeto"), nil },
 		OnSessionOptions: func(event SessionOptionsEvent) {
 			eventos = append(eventos, event)
@@ -271,6 +278,47 @@ func TestTrocaPedidaPeloAppNaoVoltaComoDecisaoDoAgente(t *testing.T) {
 	for _, event := range eventos() {
 		if event.Announceable() {
 			t.Errorf("o eco da troca pedida pelo app pediu anúncio: %+v", event)
+		}
+	}
+}
+
+// A sessão que voltou pelo session/load precisa ficar tão registrada quanto a
+// que nasceu agora: é esse registro que permite anotar a troca antes de pedi-la
+// ao agente. Sem ele a anotação some em silêncio e o eco da troca que a pessoa
+// acabou de fazer volta anunciado como decisão do agente — sintoma que nenhum
+// teste de criação de sessão veria, porque ele só aparece no anúncio.
+func TestSessaoRetomadaFicaRegistradaParaAnotarATroca(t *testing.T) {
+	store := newMemoryStore()
+	ctx := context.Background()
+	if err := store.Save(ctx, StoredSession{
+		ConversationID: "conv-1",
+		ProviderID:     "cursor",
+		SessionID:      "sess-antiga",
+		WorkDir:        dirDeTeste("projeto"),
+	}); err != nil {
+		t.Fatalf("preparar registro: %v", err)
+	}
+
+	client := newFakeManagedClient()
+	client.sessionOptions = []ConfigOption{opcaoDeModelo("modelo-a", "modelo-a", "modelo-b")}
+	m, eventos, avisar := managerComAvisosSobre(t, store, client)
+
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+	if conv.Origin() != SessionResumed {
+		t.Fatalf("origem = %v; este teste precisa da conversa que reabriu", conv.Origin())
+	}
+	if _, err := conv.SetOption(ctx, "model", "modelo-b"); err != nil {
+		t.Fatalf("trocar modelo: %v", err)
+	}
+
+	avisar(conv.Session().ID(), []ConfigOption{opcaoDeModelo("modelo-b", "modelo-a", "modelo-b")})
+
+	for _, event := range eventos() {
+		if event.Announceable() {
+			t.Errorf("o eco da troca pedida numa sessão retomada pediu anúncio: %+v", event)
 		}
 	}
 }

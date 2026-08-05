@@ -3531,6 +3531,7 @@ const es = {
         planUnavailable: 'El agente propuso un plan, pero la app no pudo presentarlo. El plan fue rechazado.',
         modelNotOffered: 'Este agente no ofrece el modelo elegido en el perfil. La respuesta vino de {{model}}.',
         modelNotApplied: 'No se pudo cambiar el modelo del agente. La respuesta vino de {{model}}.',
+        agentMemoryLost: 'El agente no pudo retomar la sesión anterior de esta conversación y respondió sin recordar lo que ya se había dicho. El historial en pantalla sigue aquí; retoma lo que haga falta en el próximo mensaje.',
         action: {
           read: 'leer un archivo',
           edit: 'editar un archivo',

@@ -368,6 +368,14 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		GetTokenStats:    a.GetConversationTokenStats,
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
 		OnSpeechRequest:  speechDispatcher,
+		// O interactor nasce depois deste ponto, então ele é resolvido na hora
+		// do uso: guardá-lo agora congelaria um nulo.
+		RenameFromAgent: func(ctx context.Context, conversationID, turnMessageID, title string) error {
+			if a.chatInteractor == nil {
+				return nil
+			}
+			return a.chatInteractor.RenameFromAgent(ctx, conversationID, turnMessageID, title)
+		},
 	})
 
 	// Workspace antes do Prompt Builder: senão Workspace fica (*Manager)(nil) numa interface (typed nil)

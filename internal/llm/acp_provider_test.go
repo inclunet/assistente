@@ -145,6 +145,9 @@ func (a *agenteFalso) turnos() [][]acp.Content {
 type clienteFalso struct {
 	sessao *agenteFalso
 	caps   acp.Capabilities
+	// erroAoRetomar é o agente que não reconhece a sessão registrada, que é o
+	// caso em que reabrir a conversa custa a memória dela (AEP-0084 D4).
+	erroAoRetomar error
 
 	mu         sync.Mutex
 	cache      []acp.ConfigOption
@@ -156,6 +159,9 @@ func (c *clienteFalso) NewSession(context.Context, string) (acp.Session, error) 
 	return c.sessao, nil
 }
 func (c *clienteFalso) LoadSession(context.Context, string, string) (acp.Session, error) {
+	if c.erroAoRetomar != nil {
+		return nil, c.erroAoRetomar
+	}
 	return c.sessao, nil
 }
 func (c *clienteFalso) Capabilities(context.Context) (acp.Capabilities, error) {
@@ -247,6 +253,7 @@ type espiao struct {
 	naoRetentavel bool
 	ferramentas   []AgentToolEvent
 	avisos        []TurnNotice
+	titulos       []string
 	segmentos     int
 	pronto        bool
 	respostaFim   string
@@ -301,6 +308,12 @@ func (e *espiao) OnSegmentDone() {
 func (e *espiao) OnTurnNotice(notice TurnNotice) {
 	e.avisos = append(e.avisos, notice)
 	e.ordem = append(e.ordem, "notice_"+string(notice.Kind))
+}
+
+// E o nome que o agente deu à sessão, que vira o título da conversa.
+func (e *espiao) OnAgentTitle(title string) {
+	e.titulos = append(e.titulos, title)
+	e.ordem = append(e.ordem, "title")
 }
 
 func (e *espiao) texto() string { return strings.Join(e.chunks, "") }

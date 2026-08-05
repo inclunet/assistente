@@ -17,6 +17,7 @@ export const CHAT_NOTICE_PLAN_TIMEOUT = 'plan_rejected_timeout';
 export const CHAT_NOTICE_PLAN_UNAVAILABLE = 'plan_rejected_unavailable';
 export const CHAT_NOTICE_MODEL_NOT_OFFERED = 'model_not_offered';
 export const CHAT_NOTICE_MODEL_NOT_APPLIED = 'model_not_applied';
+export const CHAT_NOTICE_AGENT_MEMORY_LOST = 'agent_memory_lost';
 
 const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_ATTACHMENTS_NOT_SENT]: 'app.chatNotice.attachmentsNotSent',
@@ -33,6 +34,7 @@ const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_PLAN_UNAVAILABLE]: 'app.chatNotice.planUnavailable',
   [CHAT_NOTICE_MODEL_NOT_OFFERED]: 'app.chatNotice.modelNotOffered',
   [CHAT_NOTICE_MODEL_NOT_APPLIED]: 'app.chatNotice.modelNotApplied',
+  [CHAT_NOTICE_AGENT_MEMORY_LOST]: 'app.chatNotice.agentMemoryLost',
 };
 
 /**

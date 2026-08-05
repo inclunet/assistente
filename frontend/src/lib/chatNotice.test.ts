@@ -18,6 +18,7 @@ import {
   CHAT_NOTICE_QUESTION_UNAVAILABLE,
   CHAT_NOTICE_MODEL_NOT_APPLIED,
   CHAT_NOTICE_MODEL_NOT_OFFERED,
+  CHAT_NOTICE_AGENT_MEMORY_LOST,
 } from './chatNotice';
 
 // Mock de TFunction: ecoa a chave + os args interpolados.
@@ -135,6 +136,15 @@ describe('chatNoticeMessage', () => {
     expect(naoOferecido).toContain('"model":"sonnet-4.5"');
     expect(naoAplicado).toContain('app.chatNotice.modelNotApplied|');
     expect(naoAplicado).toContain('"model":"sonnet-4.5"');
+  });
+
+  it('conta que o agente reabriu a conversa sem a memória anterior', () => {
+    const message = chatNoticeMessage(t, {
+      conversationId: 'conversa-1',
+      kind: CHAT_NOTICE_AGENT_MEMORY_LOST,
+    });
+
+    expect(message).toContain('app.chatNotice.agentMemoryLost|');
   });
 });
 

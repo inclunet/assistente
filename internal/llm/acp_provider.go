@@ -119,6 +119,17 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	}
 
 	accepted := err == nil || turnAccepted(err)
+	// O nome que o agente deu à sessão vale mesmo quando o turno tropeça
+	// depois: ele descreve o que foi pedido, e o pedido chegou.
+	if accepted {
+		turn.deliverTitle()
+	}
+	if accepted && conv.TakeLostMemoryNotice() {
+		// A sessão anterior não voltou: o agente responde sem lembrar do que já
+		// foi conversado (AEP-0084 D4). Vem antes dos outros avisos porque é o
+		// que muda a leitura da resposta inteira, e não só a autoria dela.
+		notifyTurn(handler, TurnNotice{Kind: TurnNoticeAgentMemoryLost})
+	}
 	if hasModelNotice && accepted {
 		// Só depois do aceite, pelo mesmo motivo do aviso de anexo: sem pedido
 		// entregue não há resposta sobre a qual avisar de que modelo ela veio.
@@ -338,6 +349,9 @@ type acpTurn struct {
 	text      strings.Builder
 	reasoning strings.Builder
 	thinking  bool
+	// title é o nome que o agente deu à sessão, já saneado. Entregue depois do
+	// turno, e não durante: ver o comentário em update.
+	title string
 	// segmentPending diz que há texto escrito depois do último corte, e é o que
 	// impede um segmento vazio quando o agente emenda uma ferramenta na outra.
 	segmentPending bool
@@ -377,6 +391,12 @@ func (t *acpTurn) update(update acp.Update) {
 		t.handler.OnThinking(update.Text)
 	case acp.UpdateToolStart, acp.UpdateToolProgress:
 		t.toolActivity(update.Tool)
+	case acp.UpdateTitle:
+		// Guardado, não aplicado agora: renomear é escrita no banco, e este sink
+		// roda na goroutine de entrega do transporte — enquanto ele não volta, o
+		// protocolo do agente fica parado (AEP-0084 D8). O último título vale,
+		// porque o agente refina o dele conforme o turno avança.
+		t.title = acp.SanitizeLabel(update.Title)
 	}
 }
 
@@ -531,6 +551,18 @@ func (t *acpTurn) finishThinking() {
 
 func (t *acpTurn) response() string {
 	return t.text.String()
+}
+
+// deliverTitle entrega o nome que o agente deu à sessão, fora da goroutine que
+// entrega as atualizações do protocolo. Handler que não sabe receber título
+// simplesmente não recebe: renomear é conveniência, e nenhum turno depende dela.
+func (t *acpTurn) deliverTitle() {
+	if strings.TrimSpace(t.title) == "" {
+		return
+	}
+	if sink, ok := t.handler.(AgentTitleSink); ok {
+		sink.OnAgentTitle(t.title)
+	}
 }
 
 // SendChat não existe para um agente: o turno dele é conduzido por streaming e

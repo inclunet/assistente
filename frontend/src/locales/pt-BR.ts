@@ -3533,6 +3533,7 @@ const ptBR = {
         planUnavailable: 'O agente propôs um plano, mas o app não conseguiu apresentá-lo. O plano foi recusado.',
         modelNotOffered: 'Este agente não oferece o modelo escolhido no perfil. A resposta veio de {{model}}.',
         modelNotApplied: 'Não foi possível trocar o modelo do agente. A resposta veio de {{model}}.',
+        agentMemoryLost: 'O agente não conseguiu retomar a sessão anterior desta conversa e respondeu sem lembrar do que já foi dito. O histórico na tela continua aqui; retome o que for preciso na próxima mensagem.',
         action: {
           read: 'ler um arquivo',
           edit: 'editar um arquivo',

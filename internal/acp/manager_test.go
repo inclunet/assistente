@@ -566,6 +566,75 @@ func TestAgenteQueNaoRetomaDeixaClaroQueAMemoriaSePerdeu(t *testing.T) {
 	}
 }
 
+// A perda de memória é contada uma vez, no turno que a descobre. Repeti-la a
+// cada turno diria que o agente esqueceu de novo, e a conversa passaria a
+// carregar para sempre um aviso sobre algo que aconteceu na reabertura.
+func TestOAvisoDeMemoriaPerdidaEhDadoUmaVezSo(t *testing.T) {
+	store := newMemoryStore()
+	ctx := context.Background()
+	if err := store.Save(ctx, StoredSession{
+		ConversationID: "conv-1",
+		ProviderID:     "cursor",
+		SessionID:      "sess-antiga",
+		WorkDir:        dirDeTeste("projeto"),
+	}); err != nil {
+		t.Fatalf("preparar registro: %v", err)
+	}
+
+	client := newFakeManagedClient()
+	client.loadErr = errors.New("sessão desconhecida")
+	m, _ := managerWith(store, client)
+
+	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("conversa: %v", err)
+	}
+	if !conv.TakeLostMemoryNotice() {
+		t.Fatal("a sessão que não retomou precisa contar que o agente perdeu o contexto")
+	}
+	if conv.TakeLostMemoryNotice() {
+		t.Fatal("o aviso de memória perdida foi repetido no turno seguinte")
+	}
+
+	// O turno seguinte reencontra a mesma sessão pelo caminho de sempre, e
+	// remontá-la não pode ressuscitar o aviso.
+	if _, err := m.Conversation(ctx, testSpec(), "conv-1"); err != nil {
+		t.Fatalf("segundo turno: %v", err)
+	}
+	if conv.TakeLostMemoryNotice() {
+		t.Fatal("o aviso voltou depois de a conversa ser remontada")
+	}
+}
+
+// Conversa que nunca falou com o agente não perdeu memória nenhuma, e a que
+// retomou continua com a dela: nos dois casos o aviso seria mentira.
+func TestSessaoNovaOuRetomadaNaoAvisaPerdaDeMemoria(t *testing.T) {
+	store := newMemoryStore()
+	ctx := context.Background()
+
+	primeiro, _ := managerWith(store, newFakeManagedClient())
+	nova, err := primeiro.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("primeira sessão: %v", err)
+	}
+	if nova.TakeLostMemoryNotice() {
+		t.Fatal("a conversa que acabou de nascer avisou perda de memória")
+	}
+	primeiro.Shutdown()
+
+	segundo, _ := managerWith(store, newFakeManagedClient())
+	retomada, err := segundo.Conversation(ctx, testSpec(), "conv-1")
+	if err != nil {
+		t.Fatalf("retomar sessão: %v", err)
+	}
+	if retomada.Origin() != SessionResumed {
+		t.Fatalf("origem = %v, esperado retomada", retomada.Origin())
+	}
+	if retomada.TakeLostMemoryNotice() {
+		t.Fatal("a conversa retomada avisou perda de memória que não houve")
+	}
+}
+
 func TestSessaoAbertaEmOutroDiretorioNaoEhRetomada(t *testing.T) {
 	store := newMemoryStore()
 	ctx := context.Background()

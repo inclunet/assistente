@@ -65,6 +65,11 @@ type ServiceConfig struct {
 	// OnSpeechRequest é chamado após chat:done e chat:segment_done para disparar TTS proativo.
 	// Parâmetros: conversationID, messageID, role, text, origin, profileSlug, interrupt.
 	OnSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	// RenameFromAgent aplica o título que um agente de código gerou para a
+	// conversa (AEP-0084 D8). Recebe conversationID, a mensagem do turno e o
+	// título; a regra de quando o nome novo pode valer é de quem implementa.
+	// Nulo apenas ignora o título.
+	RenameFromAgent func(ctx context.Context, conversationID, turnMessageID, title string) error
 }
 
 // Service encapsula a lógica do agentic loop sem dependências do Wails.
@@ -77,6 +82,7 @@ type Service struct {
 	getTokenStats    func(string) (*chat.TokenStats, error)
 	triggerSummarize func(context.Context, string, string)
 	onSpeechRequest  func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	renameFromAgent  func(ctx context.Context, conversationID, turnMessageID, title string) error
 }
 
 // StreamSimpleWithRecovery executa um streaming simples (sem tool calling) com auto-retry opcional.
@@ -163,6 +169,7 @@ func NewService(cfg ServiceConfig) *Service {
 		getTokenStats:    cfg.GetTokenStats,
 		triggerSummarize: cfg.TriggerSummarize,
 		onSpeechRequest:  cfg.OnSpeechRequest,
+		renameFromAgent:  cfg.RenameFromAgent,
 	}
 }
 
