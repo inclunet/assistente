@@ -158,7 +158,8 @@ O diretório `aep/` é o repositório único de decisões arquiteturais do proje
 
 ## Enforcement Automatizado (CI)
 
-Todo PR para `main` roda automaticamente:
+Todo PR roda automaticamente, inclusive o empilhado (aquele cuja base é a
+branch de outro PR):
 - **Go**: build, vet e testes (incluindo job com detector de corrida)
 - **TypeScript**: `tsc --noEmit`
 - **ESLint** com `jsx-a11y`: detecta ARIA inválido, roles ausentes
@@ -172,6 +173,12 @@ Todo PR para `main` roda automaticamente:
 - Componentes sem labels de acessibilidade
 - Testes falhando (incluindo testes axe-core)
 
+### A main descendo nos PRs abertos
+Check verde envelhece: ele conta o encontro entre a branch e a main de quando
+rodou. Por isso, todo push na `main` dispara o workflow `Atualizar PRs com a
+main`, que mescla a main em cada PR aberto (fora rascunhos e forks) e pede o CI
+de novo. Quando o merge conflita, o PR é listado no resumo do run e a resolução
+é sua — o workflow não tenta adivinhar.
 ### Checklist para novo código
 - [ ] Strings visíveis usam `t('key', 'fallback')` nos 3 locales
 - [ ] Ícones decorativos têm `aria-hidden="true"`
