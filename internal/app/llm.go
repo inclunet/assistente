@@ -67,6 +67,29 @@ func (a *App) RefreshModelsByProvider(providerID string) ([]string, error) {
 	return a.providerSvc.RefreshModelsByProvider(ctx, providerID)
 }
 
+// GetModelCatalogByProvider lista os modelos de um provedor com o nome pelo qual
+// cada um quer ser chamado, e diz se quem respondeu é um agente de código. É o
+// que a escolha de modelo do perfil usa: o identificador de um modelo de agente
+// não é feito para ser lido, e a lista vazia dele quer dizer "quem escolhe sou
+// eu" (AEP-0084, Fase 8).
+func (a *App) GetModelCatalogByProvider(providerID string) (llm.ModelCatalog, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return llm.ModelCatalog{}, err
+	}
+	return a.providerSvc.GetModelCatalogByProvider(ctx, providerID)
+}
+
+// RefreshModelCatalogByProvider é o mesmo descartando o que o provedor tiver
+// guardado (AEP-0084 D6).
+func (a *App) RefreshModelCatalogByProvider(providerID string) (llm.ModelCatalog, error) {
+	ctx, err := a.requireAuthenticatedContext()
+	if err != nil {
+		return llm.ModelCatalog{}, err
+	}
+	return a.providerSvc.RefreshModelCatalogByProvider(ctx, providerID)
+}
+
 // Constantes de validação de input — re-exportadas de internal/chat para uso no pacote main.
 const (
 	MaxMessageContentSize = chat.MaxMessageContentSize

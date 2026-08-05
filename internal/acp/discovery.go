@@ -33,19 +33,47 @@ func OptionByCategory(options []ConfigOption, category string) (ConfigOption, bo
 	return ConfigOption{}, false
 }
 
-// ModelValues são os valores selecionáveis da opção de modelo, na ordem em que o
-// agente os ofereceu. Vazio quando o agente não expõe escolha de modelo: quem
-// lista modelos precisa distinguir "não há escolha" de "falhou".
-func ModelValues(options []ConfigOption) []string {
+// ModelChoice é um modelo que o agente oferece com o nome pelo qual ele quer
+// ser chamado. O identificador de um modelo de agente não é feito para ser lido
+// — "grok-4.5[max]" na tela é o app repassando um detalhe de protocolo a quem
+// só queria escolher um modelo (AEP-0084, Fase 8).
+type ModelChoice struct {
+	// Value é o identificador que volta ao agente na troca de modelo.
+	Value string
+	// Name é como chamá-lo na tela. Vem saneado porque é texto do agente
+	// (D11), e vazio quando ele não deu nome: quem exibe cai no Value.
+	Name string
+}
+
+// ModelChoices são os modelos selecionáveis, na ordem em que o agente os
+// ofereceu. Vazio quando o agente não expõe escolha de modelo: quem lista
+// modelos precisa distinguir "não há escolha" de "falhou".
+func ModelChoices(options []ConfigOption) []ModelChoice {
 	option, ok := OptionByCategory(options, CategoryModel)
 	if !ok {
 		return nil
 	}
-	values := make([]string, 0, len(option.Values))
+	choices := make([]ModelChoice, 0, len(option.Values))
 	for _, value := range option.Values {
-		if id := strings.TrimSpace(value.Value); id != "" {
-			values = append(values, id)
+		id := strings.TrimSpace(value.Value)
+		if id == "" {
+			continue
 		}
+		choices = append(choices, ModelChoice{Value: id, Name: SanitizeLabel(value.Name)})
+	}
+	return choices
+}
+
+// ModelValues são só os identificadores de ModelChoices, para quem escolhe o
+// modelo sem ter de exibi-lo.
+func ModelValues(options []ConfigOption) []string {
+	choices := ModelChoices(options)
+	if len(choices) == 0 {
+		return nil
+	}
+	values := make([]string, 0, len(choices))
+	for _, choice := range choices {
+		values = append(values, choice.Value)
 	}
 	return values
 }

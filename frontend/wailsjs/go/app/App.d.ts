@@ -322,6 +322,8 @@ export function GetMessagingStatus():Promise<Record<string, string>>;
 
 export function GetModels():Promise<Array<string>>;
 
+export function GetModelCatalogByProvider(arg1:string):Promise<llm.ModelCatalog>;
+
 export function GetModelsByProvider(arg1:string):Promise<Array<string>>;
 
 export function GetNativeTTSProviders():Promise<Array<string>>;
@@ -451,6 +453,8 @@ export function ReconnectMCPServer(arg1:string):Promise<void>;
 export function RefreshAuth(arg1:app.RefreshRequest):Promise<app.AuthUser>;
 
 export function RefreshModels():Promise<Array<string>>;
+
+export function RefreshModelCatalogByProvider(arg1:string):Promise<llm.ModelCatalog>;
 
 export function RefreshModelsByProvider(arg1:string):Promise<Array<string>>;
 

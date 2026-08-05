@@ -31,14 +31,50 @@ func (p *ACPChatProvider) GetModels(ctx context.Context) ([]string, error) {
 // pessoa que instalou um modelo novo no agente não teria como vê-lo aparecer
 // (AEP-0084 D6).
 func (p *ACPChatProvider) RefreshModels(ctx context.Context) ([]string, error) {
+	if err := p.forgetOptions(); err != nil {
+		return nil, err
+	}
+	return p.GetModels(ctx)
+}
+
+// ModelOptions lista os mesmos modelos de GetModels, cada um com o nome pelo
+// qual o agente quer ser chamado. É o que a escolha de modelo do perfil usa: o
+// identificador do agente não é feito para ser lido (AEP-0084, Fase 8).
+func (p *ACPChatProvider) ModelOptions(ctx context.Context) ([]ModelOption, error) {
+	options, err := p.providerOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	choices := acp.ModelChoices(options)
+	out := make([]ModelOption, 0, len(choices))
+	for _, choice := range choices {
+		label := choice.Name
+		if label == "" {
+			label = choice.Value
+		}
+		out = append(out, ModelOption{Value: choice.Value, Label: label})
+	}
+	return out, nil
+}
+
+// RefreshModelOptions é ModelOptions esquecendo o que a sessão de descoberta já
+// tinha respondido (AEP-0084 D6).
+func (p *ACPChatProvider) RefreshModelOptions(ctx context.Context) ([]ModelOption, error) {
+	if err := p.forgetOptions(); err != nil {
+		return nil, err
+	}
+	return p.ModelOptions(ctx)
+}
+
+func (p *ACPChatProvider) forgetOptions() error {
 	if p.provider == nil {
-		return nil, errors.New("provedor de agente sem configuração")
+		return errors.New("provedor de agente sem configuração")
 	}
 	if p.agents == nil {
-		return nil, errors.New("serviço de agentes de código indisponível: reinicie o app")
+		return errors.New("serviço de agentes de código indisponível: reinicie o app")
 	}
 	p.agents.InvalidateProviderOptions(p.provider.ID)
-	return p.GetModels(ctx)
+	return nil
 }
 
 func (p *ACPChatProvider) providerOptions(ctx context.Context) ([]acp.ConfigOption, error) {
@@ -50,9 +86,23 @@ func (p *ACPChatProvider) providerOptions(ctx context.Context) ([]acp.ConfigOpti
 	}
 	options, err := p.agents.ProviderOptions(ctx, p.spec())
 	if err != nil {
-		return nil, fmt.Errorf("listar modelos do agente %s: %w", p.provider.Name, err)
+		return nil, fmt.Errorf("listar modelos do agente %s: %w", p.provider.Name, agentListingError(err))
 	}
 	return options, nil
+}
+
+// ErrCodeAgentUnavailable marca a falha que a tela precisa tratar de outro
+// jeito: o agente não subiu, e insistir no recarregar não resolve — quem
+// resolve é a tela de provedores, refazendo a detecção do comando (AEP-0084,
+// Fase 8). Vai na mensagem, e não só como erro embrulhado, porque atravessa a
+// ponte para o frontend como texto.
+const ErrCodeAgentUnavailable = "acp_agent_unavailable"
+
+func agentListingError(err error) error {
+	if errors.Is(err, acp.ErrAgentUnavailable) {
+		return fmt.Errorf("%s: %w", ErrCodeAgentUnavailable, err)
+	}
+	return err
 }
 
 // spec descreve o agente para o serviço. É o mesmo descritor que o turno usa, e

@@ -86,6 +86,17 @@ func (p *rateLimitedProvider) RefreshModels(ctx context.Context) ([]string, erro
 	return RefreshModels(ctx, p.inner)
 }
 
+// ModelOptions e RefreshModelOptions atravessam pelo mesmo motivo: sem o
+// repasse, o embrulho esconderia quem sabe rotular os modelos e a tela voltaria
+// a exibir o identificador cru do agente (AEP-0084, Fase 8).
+func (p *rateLimitedProvider) ModelOptions(ctx context.Context) ([]ModelOption, error) {
+	return ModelOptions(ctx, p.inner)
+}
+
+func (p *rateLimitedProvider) RefreshModelOptions(ctx context.Context) ([]ModelOption, error) {
+	return RefreshModelOptions(ctx, p.inner)
+}
+
 func (p *rateLimitedProvider) NativeMCPCapable() bool {
 	return p.inner.NativeMCPCapable()
 }

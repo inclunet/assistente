@@ -261,7 +261,14 @@ func (m *Manager) process(spec ProviderSpec) (*agentProcess, error) {
 		OnCommands:      m.sessionCommandsChanged,
 	}, m.handler)
 	if err != nil {
-		return nil, err
+		// Quem só queria listar modelos precisa distinguir "o agente não
+		// subiu" de "o agente respondeu isso": o primeiro se resolve na tela
+		// de provedores, e não adianta tentar de novo antes disso. Falta de
+		// login já tem instrução própria e sai como está (D12).
+		if errors.Is(err, ErrNotAuthenticated) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: %w", ErrAgentUnavailable, err)
 	}
 	proc := &agentProcess{spec: spec, client: client}
 	m.procs[spec.ID] = proc

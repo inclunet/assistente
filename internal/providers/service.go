@@ -934,6 +934,52 @@ func (s *Service) RefreshModelsByProvider(ctx context.Context, providerID string
 	return llm.RefreshModels(ctx, cp)
 }
 
+// GetModelCatalogByProvider lista os modelos de um provider com o nome pelo
+// qual cada um quer ser chamado, junto com a natureza de quem respondeu. É o
+// que a escolha de modelo do perfil usa: um agente de código oferece rótulo, e
+// a lista vazia dele é ele dizendo que a escolha é dele — não falta de modelo
+// (AEP-0084, Fase 8).
+func (s *Service) GetModelCatalogByProvider(ctx context.Context, providerID string) (llm.ModelCatalog, error) {
+	return s.modelCatalog(ctx, providerID, llm.ModelOptions)
+}
+
+// RefreshModelCatalogByProvider é o mesmo descartando o que o provedor tiver
+// guardado (AEP-0084 D6).
+func (s *Service) RefreshModelCatalogByProvider(ctx context.Context, providerID string) (llm.ModelCatalog, error) {
+	return s.modelCatalog(ctx, providerID, llm.RefreshModelOptions)
+}
+
+func (s *Service) modelCatalog(
+	ctx context.Context,
+	providerID string,
+	list func(context.Context, llm.ChatProvider) ([]llm.ModelOption, error),
+) (llm.ModelCatalog, error) {
+	catalog := llm.ModelCatalog{Models: []llm.ModelOption{}}
+	if providerID == "" {
+		return catalog, nil
+	}
+	catalog.Agent = s.providerIsAgent(providerID)
+	cp, err := s.GetChatProvider(ctx, providerID)
+	if err != nil {
+		return llm.ModelCatalog{}, err
+	}
+	models, err := list(ctx, cp)
+	if err != nil {
+		return llm.ModelCatalog{}, err
+	}
+	if len(models) > 0 {
+		catalog.Models = models
+	}
+	return catalog, nil
+}
+
+func (s *Service) providerIsAgent(providerID string) bool {
+	if s.registry == nil {
+		return false
+	}
+	return s.registry.Get(providerID).IsACP()
+}
+
 // RefreshModels é o mesmo para o provedor do perfil ativo.
 func (s *Service) RefreshModels(ctx context.Context, activeProfile *profiles.Profile) ([]string, error) {
 	activeProfile = s.ResolveProfileDefaults(ctx, activeProfile)

@@ -598,6 +598,10 @@ export function GetModels() {
   return window['go']['app']['App']['GetModels']();
 }
 
+export function GetModelCatalogByProvider(arg1) {
+  return window['go']['app']['App']['GetModelCatalogByProvider'](arg1);
+}
+
 export function GetModelsByProvider(arg1) {
   return window['go']['app']['App']['GetModelsByProvider'](arg1);
 }
@@ -856,6 +860,10 @@ export function RefreshAuth(arg1) {
 
 export function RefreshModels() {
   return window['go']['app']['App']['RefreshModels']();
+}
+
+export function RefreshModelCatalogByProvider(arg1) {
+  return window['go']['app']['App']['RefreshModelCatalogByProvider'](arg1);
 }
 
 export function RefreshModelsByProvider(arg1) {
