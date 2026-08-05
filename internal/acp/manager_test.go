@@ -276,19 +276,6 @@ func (s *memoryStore) Save(_ context.Context, rec StoredSession) error {
 	return nil
 }
 
-func (s *memoryStore) SavePrefixHash(_ context.Context, conversationID, providerID, hash string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	key := storeKey(conversationID, providerID)
-	rec, ok := s.rows[key]
-	if !ok {
-		return errors.New("sessão não registrada")
-	}
-	rec.PrefixHash = hash
-	s.rows[key] = rec
-	return nil
-}
-
 func (s *memoryStore) blockDelete() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -464,9 +451,6 @@ func TestConversaRetomaASessaoRegistradaDepoisDeReiniciar(t *testing.T) {
 	if conv.Origin() != SessionNew {
 		t.Fatalf("origem = %v, esperado nova", conv.Origin())
 	}
-	if err := conv.MarkPrefixSent(ctx, "hash-persona"); err != nil {
-		t.Fatalf("marcar prefixo: %v", err)
-	}
 	sessionID := conv.Session().ID()
 	primeiro.Shutdown()
 
@@ -486,55 +470,6 @@ func TestConversaRetomaASessaoRegistradaDepoisDeReiniciar(t *testing.T) {
 	if novas, cargas, _ := clienteNovo.counters(); novas != 0 || cargas != 1 {
 		t.Fatalf("session/new=%d session/load=%d; a conversa devia ser retomada", novas, cargas)
 	}
-	if retomada.NeedsPrefix("hash-persona") {
-		t.Fatal("prefixo já entregue foi cobrado de novo numa sessão que se lembra dele")
-	}
-	if !retomada.NeedsPrefix("hash-outro-perfil") {
-		t.Fatal("troca de perfil precisa reenviar o prefixo")
-	}
-}
-
-func TestContextoQueMudaSoEhCobradoQuandoMuda(t *testing.T) {
-	ctx := context.Background()
-	m, _ := managerWith(newMemoryStore(), newFakeManagedClient())
-	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
-	if err != nil {
-		t.Fatalf("conversa: %v", err)
-	}
-
-	if !conv.NeedsSuffix("hash-resumo") {
-		t.Fatal("sessão nova ainda não ouviu contexto nenhum")
-	}
-	conv.MarkSuffixSent("hash-resumo")
-	if conv.NeedsSuffix("hash-resumo") {
-		t.Fatal("contexto inalterado foi cobrado de novo")
-	}
-	if !conv.NeedsSuffix("hash-outro-resumo") {
-		t.Fatal("contexto que mudou precisa voltar ao agente")
-	}
-}
-
-func TestSessaoRecriadaPrecisaOuvirOContextoDeNovo(t *testing.T) {
-	ctx := context.Background()
-	client := newFakeManagedClient()
-	m, _ := managerWith(newMemoryStore(), client)
-	conv, err := m.Conversation(ctx, testSpec(), "conv-1")
-	if err != nil {
-		t.Fatalf("conversa: %v", err)
-	}
-	conv.MarkSuffixSent("hash-resumo")
-
-	// Sessão perdida no meio da conversa: a próxima é outra sessão, e o que a
-	// anterior ouviu morreu com ela.
-	conv.Invalidate()
-	client.loadErr = errors.New("sessão desconhecida")
-	if _, err := m.Conversation(ctx, testSpec(), "conv-1"); err != nil {
-		t.Fatalf("remontar conversa: %v", err)
-	}
-
-	if !conv.NeedsSuffix("hash-resumo") {
-		t.Fatal("a sessão nova não ouviu o contexto que a anterior recebeu")
-	}
 }
 
 func TestAgenteQueNaoRetomaDeixaClaroQueAMemoriaSePerdeu(t *testing.T) {
@@ -544,7 +479,6 @@ func TestAgenteQueNaoRetomaDeixaClaroQueAMemoriaSePerdeu(t *testing.T) {
 		ConversationID: "conv-1",
 		ProviderID:     "cursor",
 		SessionID:      "sess-antiga",
-		PrefixHash:     "hash-persona",
 		WorkDir:        dirDeTeste("projeto"),
 	}); err != nil {
 		t.Fatalf("preparar registro: %v", err)
@@ -561,15 +495,9 @@ func TestAgenteQueNaoRetomaDeixaClaroQueAMemoriaSePerdeu(t *testing.T) {
 	if conv.Origin() != SessionRecreated || !conv.Origin().LostMemory() {
 		t.Fatalf("origem = %v, esperado recriada", conv.Origin())
 	}
-	if !conv.NeedsPrefix("hash-persona") {
-		t.Fatal("sessão nova é agente sem memória: o prefixo precisa ser dito de novo")
-	}
 	rec, ok := store.get("conv-1", "cursor")
 	if !ok || rec.SessionID == "sess-antiga" {
 		t.Fatalf("registro não foi trocado pela sessão nova: %+v", rec)
-	}
-	if rec.PrefixHash != "" {
-		t.Fatalf("prefixo da sessão morta sobreviveu: %q", rec.PrefixHash)
 	}
 }
 

@@ -174,6 +174,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// interruptor que o perfil oferece, para que prompt e roteamento enxerguem a
 	// mesma decisão. Oferecer tools levaria a conversa ao loop agêntico, que
 	// tentaria executar aqui o que não é dele.
+	//
+	// A marca também diz ao preparo do turno que nada do app acompanha a
+	// mensagem (Fase 8): persona, skills, memória e contexto ficam de fora, e a
+	// skill invocada por barra deixa de ser processada — num perfil de agente,
+	// quem responde por `/` é ele.
 	agentDrivenTurn := uc.providerSvc != nil && uc.providerSvc.UsesAgentTurn(ctx, activeProfile)
 	if agentDrivenTurn {
 		activeProfile = profileWithToolsDisabled(activeProfile)
@@ -223,8 +228,10 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		messages = rmsg.Messages
 		conversationSummary = rmsg.ConversationSummary
 		userContent = userMsg.Content
-		if err := uc.chatInteractor.ValidateSkillInvocation(activeProfile, userContent, req.ConversationID, surfaceOrigin); err != nil {
-			return "", err
+		if !agentDrivenTurn {
+			if err := uc.chatInteractor.ValidateSkillInvocation(activeProfile, userContent, req.ConversationID, surfaceOrigin); err != nil {
+				return "", err
+			}
 		}
 	} else {
 		// Resolve conteúdo: extrai áudio do media e aplica STT fallback para canais.
@@ -240,8 +247,10 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			Transcribe:  uc.whisperTranscribeFunc(),
 		})
 		userContent = resolved.Content
-		if err := uc.chatInteractor.ValidateSkillInvocation(activeProfile, userContent, req.ConversationID, surfaceOrigin); err != nil {
-			return "", err
+		if !agentDrivenTurn {
+			if err := uc.chatInteractor.ValidateSkillInvocation(activeProfile, userContent, req.ConversationID, surfaceOrigin); err != nil {
+				return "", err
+			}
 		}
 
 		// Persiste mensagem do usuário, emite ready e carrega histórico.
@@ -281,6 +290,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		ActiveProfile:       activeProfile,
 		SurfaceOrigin:       surfaceOrigin,
 		Transcribe:          uc.whisperTranscribeFunc(),
+		AgentTurn:           agentDrivenTurn,
 	})
 	if prepResult.Err != nil {
 		return "", prepResult.Err

@@ -115,10 +115,6 @@ type ACPSession struct {
 	// SessionID é o identificador que o agente atribuiu, guardado exatamente
 	// como ele mandou: é ele que volta no session/load.
 	SessionID string `gorm:"not null"`
-	// PromptPrefixHash resume o prefixo estável do perfil (persona, skills) que
-	// esta sessão já ouviu. Mora aqui, e não na conversa, porque quem lembra é
-	// a sessão: sessão nova é agente sem memória nenhuma, e tudo é dito de novo.
-	PromptPrefixHash string
 	// Cwd é o diretório com que a sessão foi aberta (AEP-0084 D5). Retomá-la em
 	// outro diretório seria continuar a conversa sobre outros arquivos, então
 	// uma mudança aqui recria a sessão em vez de retomar.

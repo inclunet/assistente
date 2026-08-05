@@ -547,12 +547,6 @@ type mountedSession struct {
 	// agente perdeu a memória quando ela nasceu, e repetir o aviso em todo
 	// turno seguinte diria que ele a perdeu de novo.
 	originTold bool
-	prefixHash string
-	// suffixHash resume o que o app já contou de contexto que muda — resumo da
-	// conversa, memória, tasklists. Diferente do prefixo, ele fica só em
-	// memória: é conteúdo que muda sozinho, e recontá-lo uma vez depois de
-	// reiniciar o app custa pouco perto de uma escrita no banco por mudança.
-	suffixHash string
 }
 
 func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
@@ -614,7 +608,7 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 		}
 	}
 
-	session, origin, prefix := c.resume(ctx, proc, stored, dir)
+	session, origin := c.resume(ctx, proc, stored, dir)
 	if session == nil {
 		if origin == SessionRecreated && stored != nil {
 			// A sessão registrada ficou para trás — não retomou, ou era de
@@ -627,7 +621,6 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 		if err != nil {
 			return err
 		}
-		prefix = ""
 		if err := c.manager.saveSession(ctx, StoredSession{
 			ConversationID: c.id,
 			ProviderID:     spec.ID,
@@ -648,7 +641,6 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 		session:    session,
 		sessionID:  session.ID(),
 		origin:     origin,
-		prefixHash: prefix,
 	}
 	if c.mounted == nil {
 		c.mounted = make(map[string]*mountedSession)
@@ -670,33 +662,33 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 
 // resume tenta retomar a sessão registrada. Devolve sessão nula quando não há o
 // que retomar ou quando a retomada falhou, junto da origem que explica o caso.
-func (c *Conversation) resume(ctx context.Context, proc *agentProcess, stored *StoredSession, dir string) (Session, SessionOrigin, string) {
+func (c *Conversation) resume(ctx context.Context, proc *agentProcess, stored *StoredSession, dir string) (Session, SessionOrigin) {
 	if stored == nil || strings.TrimSpace(stored.SessionID) == "" {
-		return nil, SessionNew, ""
+		return nil, SessionNew
 	}
 	if !sameDir(stored.WorkDir, dir) {
 		// Retomar em outro diretório seria continuar a conversa sobre outros
 		// arquivos, com o agente achando que é a mesma (AEP-0084 D5).
 		logging.Infof(ctx, managerComponent,
 			"[ACP] conversa %s abre sessão nova: o diretório mudou de %q para %q", c.id, stored.WorkDir, dir)
-		return nil, SessionRecreated, ""
+		return nil, SessionRecreated
 	}
 	caps, err := proc.client.Capabilities(ctx)
 	if err != nil {
 		logging.Warnf(ctx, managerComponent,
 			"[ACP] conversa %s: agente %q indisponível para retomar a sessão: %v", c.id, proc.spec.ID, err)
-		return nil, SessionRecreated, ""
+		return nil, SessionRecreated
 	}
 	if !caps.LoadSession {
-		return nil, SessionRecreated, ""
+		return nil, SessionRecreated
 	}
 	session, err := proc.client.LoadSession(ctx, stored.SessionID, dir)
 	if err != nil {
 		logging.Warnf(ctx, managerComponent,
 			"[ACP] conversa %s: o agente não retomou a sessão %q: %v", c.id, stored.SessionID, err)
-		return nil, SessionRecreated, ""
+		return nil, SessionRecreated
 	}
-	return session, SessionResumed, stored.PrefixHash
+	return session, SessionResumed
 }
 
 // closeOrphan fecha uma sessão que o app não vai usar. O contexto de quem pediu
@@ -807,50 +799,6 @@ func (c *Conversation) Invalidate() {
 	c.active = nil
 }
 
-// NeedsPrefix diz se o prefixo estável do perfil ainda precisa ser entregue a
-// esta sessão. Hash diferente é perfil trocado, e as instruções passaram a ser
-// outras (AEP-0084 D4).
-func (c *Conversation) NeedsPrefix(hash string) bool {
-	if strings.TrimSpace(hash) == "" {
-		return false
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.active == nil {
-		return true
-	}
-	return c.active.prefixHash != hash
-}
-
-// MarkPrefixSent registra que a sessão já ouviu este prefixo. Persiste junto do
-// identificador da sessão porque uma sessão retomada depois de reiniciar o app
-// já ouviu a persona, e repetir tudo seria desperdício.
-func (c *Conversation) MarkPrefixSent(ctx context.Context, hash string) error {
-	c.mu.Lock()
-	active := c.active
-	if active == nil {
-		c.mu.Unlock()
-		return errors.New("conversa sem sessão ACP para anotar o prefixo")
-	}
-	if active.prefixHash == hash {
-		c.mu.Unlock()
-		return nil
-	}
-	active.prefixHash = hash
-	providerID := active.providerID
-	c.mu.Unlock()
-
-	if c.manager.store == nil {
-		return nil
-	}
-	detached, cancel := context.WithTimeout(context.WithoutCancel(ctx), storeTimeout)
-	defer cancel()
-	if err := c.manager.store.SavePrefixHash(detached, c.id, providerID, hash); err != nil {
-		return fmt.Errorf("anotar prefixo já enviado à sessão ACP: %w", err)
-	}
-	return nil
-}
-
 // Capabilities diz o que o agente desta conversa sabe receber — imagem, áudio,
 // contexto embutido. Vem do initialize e já está em memória: quem monta o turno
 // precisa disso antes de mandar um anexo que o agente não aceita.
@@ -862,31 +810,6 @@ func (c *Conversation) Capabilities(ctx context.Context) (Capabilities, error) {
 		return Capabilities{}, errors.New("conversa sem sessão ACP")
 	}
 	return active.proc.client.Capabilities(ctx)
-}
-
-// NeedsSuffix diz se o contexto que muda ainda precisa ser contado a esta
-// sessão neste turno (AEP-0084 D4). Reenviá-lo sem ter mudado gastaria contexto
-// do agente repetindo o que ele acabou de ouvir.
-func (c *Conversation) NeedsSuffix(hash string) bool {
-	if strings.TrimSpace(hash) == "" {
-		return false
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.active == nil {
-		return true
-	}
-	return c.active.suffixHash != hash
-}
-
-// MarkSuffixSent registra que a sessão já ouviu este contexto.
-func (c *Conversation) MarkSuffixSent(hash string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.active == nil {
-		return
-	}
-	c.active.suffixHash = hash
 }
 
 // abandon se despede de uma sessão registrada que o app não vai mais usar. É

@@ -569,6 +569,11 @@ type PrepareMessagesRequest struct {
 	ActiveProfile       *profiles.Profile
 	SurfaceOrigin       *ports.ChatSurfaceOrigin
 	Transcribe          TranscribeFunc
+	// AgentTurn diz que quem conduz o turno é um agente de código (AEP-0084
+	// D4, revisto na Fase 8). Ele leva só a mensagem da pessoa: nada de
+	// persona, skills, memória ou blocos de contexto, que o agente resolve com
+	// recursos próprios e acesso direto à árvore de arquivos.
+	AgentTurn bool
 }
 
 // PrepareMessagesResponse carries the outputs of PrepareMessages.
@@ -586,6 +591,9 @@ type PrepareMessagesResponse struct {
 // It replaces the app-layer helpers prepareMessages, buildFullSystemPrompt,
 // and effectivePromptBuilder.
 func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesRequest) PrepareMessagesResponse {
+	if req.AgentTurn {
+		return i.prepareAgentMessages(ctx, req)
+	}
 	var skillTplData TemplateData
 	if i.promptBuilder != nil {
 		skillTplData = i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params, req.ConversationID)
@@ -715,6 +723,26 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		InvokedExecutionContext:     invokedExecutionContext,
 		ModelOnDemandSkillAvailable: modelOnDemandSkillAvailable,
 		Err:                         nil,
+	}
+}
+
+// prepareAgentMessages prepara o turno conduzido por um agente de código. Nada
+// do que o app sabe entra: sem system prompt, sem blocos de contexto e sem
+// skill invocada por barra — num perfil de agente o menu da barra é dele
+// (AEP-0084, Fase 8). O texto vai como a pessoa escreveu, e `/algo` que ele
+// entenda chega intacto.
+//
+// A mídia continua passando pelo mesmo pré-processamento: anexo é conteúdo da
+// pessoa, e transcrever áudio que o agente não recebe é o que permite mandar o
+// texto no lugar dele.
+func (i *Interactor) prepareAgentMessages(ctx context.Context, req PrepareMessagesRequest) PrepareMessagesResponse {
+	var audioSupported, docSupported *bool
+	if req.ActiveProfile != nil && req.ActiveProfile.MediaSupport != nil {
+		audioSupported = req.ActiveProfile.MediaSupport.Audio
+		docSupported = req.ActiveProfile.MediaSupport.Document
+	}
+	return PrepareMessagesResponse{
+		Messages: PreprocessMessages(ctx, req.Messages, req.Transcribe, audioSupported, docSupported),
 	}
 }
 

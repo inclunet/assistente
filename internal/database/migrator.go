@@ -181,6 +181,14 @@ var schemaMigrations = []migration{
 		Phase: phasePreAutoMigrate,
 		Run:   normalizeACPSessionUserID,
 	},
+	{
+		Version: 11,
+		Name:    "drop_acp_session_prompt_prefix_hash",
+		// PÓS: o campo saiu do model, então o AutoMigrate não recria a coluna
+		// e o drop pode acontecer com a tabela já no formato novo.
+		Phase: phasePostAutoMigrate,
+		Run:   dropACPSessionPromptPrefixHash,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

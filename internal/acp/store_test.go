@@ -112,7 +112,6 @@ func TestVinculoDaSessaoSobreviveAoIdaEVoltaDoBanco(t *testing.T) {
 		ConversationID: "conv-1",
 		ProviderID:     "cursor",
 		SessionID:      "sess-abc",
-		PrefixHash:     "hash-persona",
 		WorkDir:        "/projeto",
 	}
 	if err := store.Save(ana, rec); err != nil {
@@ -133,7 +132,6 @@ func TestVinculoDaSessaoSobreviveAoIdaEVoltaDoBanco(t *testing.T) {
 	// Trocar de sessão na mesma conversa substitui o registro; duas linhas
 	// deixariam o app sem saber qual sessão é a viva.
 	rec.SessionID = "sess-def"
-	rec.PrefixHash = ""
 	if err := store.Save(ana, rec); err != nil {
 		t.Fatalf("regravar: %v", err)
 	}
@@ -144,7 +142,7 @@ func TestVinculoDaSessaoSobreviveAoIdaEVoltaDoBanco(t *testing.T) {
 	if err != nil || got == nil {
 		t.Fatalf("ler após regravar: %v", err)
 	}
-	if got.SessionID != "sess-def" || got.PrefixHash != "" {
+	if got.SessionID != "sess-def" {
 		t.Fatalf("registro não foi substituído: %+v", *got)
 	}
 }
@@ -212,9 +210,6 @@ func TestSemUsuarioNoContextoOStoreFalhaFechado(t *testing.T) {
 		SessionID:      "sess-abc",
 	}); err == nil {
 		t.Fatal("escrita sem usuário no contexto passou")
-	}
-	if err := store.SavePrefixHash(semUsuario, "conv-1", "cursor", "hash"); err == nil {
-		t.Fatal("anotação de prefixo sem usuário no contexto passou")
 	}
 	if err := store.Delete(semUsuario, "conv-1"); err == nil {
 		t.Fatal("exclusão sem usuário no contexto passou")
@@ -302,36 +297,5 @@ func TestApagarConversaLevaAsSessoesDeTodosOsProviders(t *testing.T) {
 	sobrou, err := store.Load(ana, "conv-2", "cursor")
 	if err != nil || sobrou == nil {
 		t.Fatalf("apagar uma conversa levou junto a sessão da outra: %v", err)
-	}
-}
-
-func TestAnotarPrefixoExigeSessaoRegistrada(t *testing.T) {
-	store, _, ana, _ := setupStoreTest(t)
-
-	if err := store.SavePrefixHash(ana, "conv-1", "cursor", "hash-persona"); err == nil {
-		t.Fatal("prefixo anotado para uma sessão que não existe")
-	}
-
-	if err := store.Save(ana, StoredSession{
-		ConversationID: "conv-1",
-		ProviderID:     "cursor",
-		SessionID:      "sess-abc",
-		WorkDir:        "/projeto",
-	}); err != nil {
-		t.Fatalf("gravar: %v", err)
-	}
-	if err := store.SavePrefixHash(ana, "conv-1", "cursor", "hash-persona"); err != nil {
-		t.Fatalf("anotar prefixo: %v", err)
-	}
-
-	got, err := store.Load(ana, "conv-1", "cursor")
-	if err != nil || got == nil {
-		t.Fatalf("ler após anotar: %v", err)
-	}
-	if got.PrefixHash != "hash-persona" {
-		t.Fatalf("prefixo anotado = %q", got.PrefixHash)
-	}
-	if got.SessionID != "sess-abc" {
-		t.Fatalf("anotar o prefixo mexeu na sessão: %q", got.SessionID)
 	}
 }

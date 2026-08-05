@@ -19,8 +19,6 @@ type StoredSession struct {
 	// SessionID é o identificador que o agente atribuiu. Volta para ele no
 	// session/load, então é guardado como veio.
 	SessionID string
-	// PrefixHash resume o prefixo estável do perfil que esta sessão já ouviu.
-	PrefixHash string
 	// WorkDir é o diretório com que a sessão foi aberta.
 	WorkDir string
 }
@@ -35,9 +33,6 @@ type SessionStore interface {
 	// Save grava o vínculo, substituindo o anterior da mesma conversa com o
 	// mesmo provider.
 	Save(ctx context.Context, rec StoredSession) error
-
-	// SavePrefixHash anota o prefixo já entregue sem tocar no resto.
-	SavePrefixHash(ctx context.Context, conversationID, providerID, hash string) error
 
 	// Delete esquece todas as sessões da conversa, de todos os providers. É o
 	// que acontece quando a conversa é limpa ou excluída.
@@ -111,7 +106,6 @@ func (s *DBSessionStore) Load(ctx context.Context, conversationID, providerID st
 		ConversationID: row.ConversationID,
 		ProviderID:     row.ProviderID,
 		SessionID:      row.SessionID,
-		PrefixHash:     row.PromptPrefixHash,
 		WorkDir:        row.Cwd,
 	}, nil
 }
@@ -140,48 +134,21 @@ func (s *DBSessionStore) Save(ctx context.Context, rec StoredSession) error {
 		switch {
 		case errors.Is(err, gorm.ErrRecordNotFound):
 			return tx.Create(&database.ACPSession{
-				UserID:           userID,
-				ConversationID:   rec.ConversationID,
-				ProviderID:       rec.ProviderID,
-				SessionID:        rec.SessionID,
-				PromptPrefixHash: rec.PrefixHash,
-				Cwd:              rec.WorkDir,
+				UserID:         userID,
+				ConversationID: rec.ConversationID,
+				ProviderID:     rec.ProviderID,
+				SessionID:      rec.SessionID,
+				Cwd:            rec.WorkDir,
 			}).Error
 		case err != nil:
 			return err
 		default:
 			return tx.Model(&existing).Updates(map[string]any{
-				"session_id":         rec.SessionID,
-				"prompt_prefix_hash": rec.PrefixHash,
-				"cwd":                rec.WorkDir,
+				"session_id": rec.SessionID,
+				"cwd":        rec.WorkDir,
 			}).Error
 		}
 	})
-}
-
-func (s *DBSessionStore) SavePrefixHash(ctx context.Context, conversationID, providerID, hash string) error {
-	userID, err := database.RequireUserID(ctx)
-	if err != nil {
-		return err
-	}
-	conversationID, providerID = strings.TrimSpace(conversationID), strings.TrimSpace(providerID)
-	if conversationID == "" || providerID == "" {
-		return errors.New("conversa ou provider vazio ao anotar prefixo da sessão ACP")
-	}
-	db, err := s.db(ctx)
-	if err != nil {
-		return err
-	}
-	res := db.Model(&database.ACPSession{}).
-		Where("user_id = ? AND conversation_id = ? AND provider_id = ?", userID, conversationID, providerID).
-		Update("prompt_prefix_hash", hash)
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return errors.New("sessão ACP não encontrada para anotar o prefixo")
-	}
-	return nil
 }
 
 func (s *DBSessionStore) Delete(ctx context.Context, conversationID string) error {
