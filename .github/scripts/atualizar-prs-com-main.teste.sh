@@ -45,6 +45,14 @@ git add .
 git commit --quiet -m 'em dia'
 git push --quiet -u origin em-dia
 
+# Órfã: PR cuja base foi apagada do remoto, o que acontece toda vez que o PR pai
+# é mergeado e a branch dele some antes do GitHub reapontar o filho.
+git checkout --quiet -b orfa main
+echo 'orfa' > orfa.txt
+git add .
+git commit --quiet -m 'orfa'
+git push --quiet -u origin orfa
+
 git checkout --quiet main
 echo 'contrato v2' > contrato.txt
 echo 'versao da main' > comum.txt
@@ -81,6 +89,7 @@ chmod +x "$raiz/bin/gh"
 
 printf '%s\n' \
   $'11\tfilho\tpai' \
+  $'14\torfa\tbase-que-sumiu' \
   $'10\tpai\tmain' \
   $'12\tconflitante\tmain' \
   $'13\tem-dia\tmain' > "$raiz/prs.tsv"
@@ -131,13 +140,20 @@ conflitante_intacta=sim
 git -C "$raiz/trabalho" merge-base --is-ancestor origin/main origin/conflitante && conflitante_intacta=nao
 conferir 'branch em conflito ficou como estava' sim "$conflitante_intacta"
 
-conferir 'CI pedido para pai e filho, não para quem já estava em dia' \
-  'filho pai' "$(sort "$raiz/ci-pedido.txt" | tr '\n' ' ' | sed 's/ *$//')"
+orfa_tem_main=nao
+git -C "$raiz/trabalho" merge-base --is-ancestor origin/main origin/orfa && orfa_tem_main=sim
+conferir 'PR com base apagada recebeu a main assim mesmo' sim "$orfa_tem_main"
+
+conferir 'CI pedido para quem mudou, não para quem já estava em dia' \
+  'filho orfa pai' "$(sort "$raiz/ci-pedido.txt" | tr '\n' ' ' | sed 's/ *$//')"
 
 conferir 'conflito é notícia, não falha do run' 0 "$saida"
 
 grep -q 'conflitante' "$GITHUB_STEP_SUMMARY" && encontrou=sim || encontrou=nao
 conferir 'resumo lista o conflito' sim "$encontrou"
+
+grep -q 'base-que-sumiu' "$GITHUB_STEP_SUMMARY" && encontrou=sim || encontrou=nao
+conferir 'resumo diz que a base sumiu' sim "$encontrou"
 
 rm -rf "$raiz"
 if [ "$falhas" -gt 0 ]; then

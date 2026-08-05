@@ -26,14 +26,21 @@ atualizados=()
 conflitados=()
 falhados=()
 sem_ci=()
+sem_base=()
+sumidos=()
 
 # Draft fica de fora: é trabalho em curso, e commit de merge chegando por baixo
 # atrapalha quem ainda está reescrevendo a branch. PR de fork também: o token
 # desta execução não escreve no repositório de outra pessoa. E PR parado há mais
 # de um mês fica quieto: descer a main nele não aproxima nenhum merge, só pede
 # review de novo e enche a lista de notificação.
+#
+# A ordenação por atualização não é enfeite: o `--limit` corta a lista, e o
+# corte padrão é por data de criação. Um PR antigo e ativo ficaria de fora
+# justamente por ser antigo. Ordenado por atualização, o corte cai onde o filtro
+# de recência já cortaria.
 parado_em=$(( 30 * 24 * 60 * 60 ))
-prs=$(gh pr list --state open --limit 100 \
+prs=$(gh pr list --state open --limit 200 --search 'sort:updated-desc' \
   --json number,headRefName,baseRefName,isDraft,isCrossRepository,updatedAt \
   --jq ".[] | select(.isDraft == false and .isCrossRepository == false) \
     | select((.updatedAt | fromdateiso8601) > (now - $parado_em)) \
@@ -66,11 +73,24 @@ while read -r branch; do
   [ -n "$numero" ] || continue
 
   base=${base_de["$branch"]}
-  git fetch origin "$branch" --quiet
+  if ! git fetch origin "$branch" --quiet; then
+    echo "::warning::PR #$numero: a branch $branch sumiu do remoto."
+    sumidos+=("#$numero ($branch)")
+    continue
+  fi
+
   alvos=('origin/main')
+  # Base apagada acontece na vida normal da pilha: o PR pai é mergeado, a branch
+  # dele é apagada e o filho fica apontando para um nome que não existe mais até
+  # o GitHub reapontá-lo. Aí o que ele precisa receber é a main mesmo, e o lote
+  # não pode morrer por causa disso.
   if [ "$base" != 'main' ]; then
-    git fetch origin "$base" --quiet
-    alvos+=("origin/$base")
+    if git fetch origin "$base" --quiet; then
+      alvos+=("origin/$base")
+    else
+      echo "::warning::PR #$numero ($branch): a base $base sumiu; desço só a main."
+      sem_base+=("#$numero ($branch) × $base")
+    fi
   fi
 
   faltando=()
@@ -133,8 +153,14 @@ done <<< "$ordem"
   echo '### Em conflito (precisam de mão)'
   lista "${conflitados[@]+"${conflitados[@]}"}"
   echo ''
+  echo '### Atualizados só com a main (a base sumiu)'
+  lista "${sem_base[@]+"${sem_base[@]}"}"
+  echo ''
   echo '### Atualizados sem CI pedido'
   lista "${sem_ci[@]+"${sem_ci[@]}"}"
+  echo ''
+  echo '### Branch sumida do remoto'
+  lista "${sumidos[@]+"${sumidos[@]}"}"
   echo ''
   echo '### Falha ao empurrar'
   lista "${falhados[@]+"${falhados[@]}"}"
