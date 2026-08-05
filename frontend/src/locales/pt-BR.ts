@@ -1250,6 +1250,10 @@ const ptBR = {
         tools: 'Ferramentas & MCP',
         audio: 'Áudio',
       },
+      agentProfile: {
+        tabsHidden: 'Perfil com agente de código: as abas Skills, Context Providers e Ferramentas não se aplicam e foram ocultadas. O que estava configurado nelas continua guardado.',
+        tabsBack: 'Perfil sem agente de código: as abas Skills, Context Providers e Ferramentas voltaram, com o que estava configurado.',
+      },
       collapseContextProviders: 'Context Providers',
       contextProvidersHint: 'Controle quais providers podem inserir blocos automáticos no prompt e limite o budget em caracteres. Tools relacionadas podem continuar disponíveis por outros mecanismos.',
       contextProvidersBudgetHint: 'Deixe o budget vazio ou 0 para usar o default do provider. O limite é em caracteres, não tokens.',
@@ -1358,6 +1362,7 @@ const ptBR = {
         model: 'Modelo',
         filterModels: 'Filtrar modelos...',
         selectProvider: 'Selecione um provedor primeiro',
+        agentOnlyModel: 'Este perfil usa um agente de código: dele só o modelo é escolhido aqui. Amostragem, cache, contexto e recuperação são do agente.',
         temperature: 'Temperatura',
         maxTokens: 'Max Tokens',
         maxTokensFormat: 'Formato do parâmetro max_tokens',

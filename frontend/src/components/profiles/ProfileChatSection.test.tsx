@@ -419,4 +419,62 @@ describe('ProfileChatSection', () => {
     const modelPickerButton = screen.getByTestId('model-picker-mock').querySelector('button');
     expect(modelPickerButton).toBeDisabled();
   });
+
+  // Num perfil com agente o turno lê só o modelo: amostragem, cache, contexto e
+  // recuperação não chegam a existir (AEP-0084, Fase 8). Mostrá-los pedindo
+  // atenção de quem navega por teclado seria pedir atenção para nada.
+  describe('com provedor de agente', () => {
+    const comAgente = { ...defaultProps, llmProvider: 'cursor', agentProvider: true };
+
+    it('mantém a escolha de provedor e modelo', () => {
+      render(<ProfileChatSection {...comAgente} />);
+
+      expect(screen.getByTestId('llm-provider-picker-mock')).toBeInTheDocument();
+      expect(screen.getByTestId('model-picker-mock')).toBeInTheDocument();
+    });
+
+    it('esconde os ajustes que o turno do agente ignora', () => {
+      render(<ProfileChatSection {...comAgente} />);
+
+      expect(screen.queryByLabelText('Temperatura')).toBeNull();
+      expect(screen.queryByLabelText('Top P')).toBeNull();
+      expect(screen.queryByLabelText('Max Tokens')).toBeNull();
+      expect(screen.queryByLabelText('Raciocínio (Reasoning)')).toBeNull();
+      expect(screen.queryByLabelText('Janela de Contexto (tokens)')).toBeNull();
+      expect(screen.queryByLabelText('Timeout (segundos)')).toBeNull();
+      expect(screen.queryByLabelText('Habilitar mecanismos ativos de cache')).toBeNull();
+      expect(screen.queryByLabelText('Salvar dumps OpenAI Responses para debug')).toBeNull();
+      expect(
+        screen.queryByLabelText('Tentar recuperar respostas interrompidas automaticamente'),
+      ).toBeNull();
+    });
+
+    it('diz por que a guia é curta', () => {
+      render(<ProfileChatSection {...comAgente} />);
+
+      expect(screen.getByTestId('profile-chat-agent-hint')).toBeInTheDocument();
+    });
+
+    it('esconder campo não mexe no perfil', () => {
+      const handleChange = vi.fn();
+      const handleMultiChange = vi.fn();
+      render(
+        <ProfileChatSection
+          {...comAgente}
+          onChange={handleChange}
+          onMultiChange={handleMultiChange}
+        />,
+      );
+
+      expect(handleChange).not.toHaveBeenCalled();
+      expect(handleMultiChange).not.toHaveBeenCalled();
+    });
+
+    it('provedor comum continua com tudo', () => {
+      render(<ProfileChatSection {...defaultProps} />);
+
+      expect(screen.getByLabelText('Temperatura')).toBeInTheDocument();
+      expect(screen.queryByTestId('profile-chat-agent-hint')).toBeNull();
+    });
+  });
 });
