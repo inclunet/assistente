@@ -3,14 +3,37 @@ name: CI
 on:
   push:
     branches: [main]
+  # Sem filtro de base: PR empilhado (aquele cuja base é a branch de outro PR)
+  # também precisa de CI. Sem isso, o par pai+filho só era conferido no merge,
+  # tarde demais para quem já tinha revisado os dois.
   pull_request:
-    branches: [main]
   # O detector de corrida (job backend-race) roda em push/PR com -short, então
   # não há gatilho `schedule`: ele só geraria runs noturnos vazios. workflow_dispatch
   # cobre execução manual sob demanda.
   workflow_dispatch:
 
+# Um run por PR. O push que atualiza um PR torna o run anterior obsoleto, e
+# manter os dois só disputa runner. A chave é o número do PR, não o nome da
+# branch: nome se repete entre forks, e duas pessoas com `feature/x` acabariam
+# cancelando o run uma da outra. Fora de PR (push na main, execução manual) nada
+# é cancelado — cada commit publicado merece o seu próprio veredito.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck
+        run: shellcheck .github/scripts/*.sh
+
+      - name: Teste do atualizador de PRs
+        run: .github/scripts/atualizar-prs-com-main.teste.sh
+
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 20

@@ -1,0 +1,38 @@
+name: Atualizar PRs com a main
+
+# O check verde de um PR envelhece: ele fala do encontro entre a branch e a main
+# de quando rodou, e o GitHub não refaz esse encontro quando a main anda. Foi
+# assim que um par de PRs verdes quebrou junto no merge — cada um sozinho
+# compilava. Este workflow desce a main nos PRs abertos assim que ela muda, e
+# pede o CI de novo, para a quebra aparecer no dia em que nasce.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+  actions: write
+
+# Merges em sequência na main não podem se atropelar aqui: cada run empurra
+# commits nas branches dos PRs, e dois runs ao mesmo tempo brigariam pelo push.
+concurrency:
+  group: atualizar-prs
+  cancel-in-progress: false
+
+jobs:
+  atualizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Descer a main nos PRs abertos e pedir CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: .github/scripts/atualizar-prs-com-main.sh
