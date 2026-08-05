@@ -36,10 +36,11 @@ ouvir a resposta pelo mesmo caminho de sempre.
   mesma superfície de chat, o mesmo `SendMessage`, os mesmos eventos (AEP-0040).
 - **Não exporta as tools do app para o agente.** O Cursor usa as ferramentas
   dele (busca, edição, shell, MCP do `.cursor/mcp.json`). O app não anuncia
-  capacidades de filesystem nem de terminal no `initialize`, o `ToolPlanner`
-  (AEP-0077) não planeja tools para um provider ACP e o context provider
-  `tool_protocol` fica de fora do system prompt — senão o prefixo estável
-  mandaria o agente chamar `tool_catalog`, uma ferramenta que ele não tem.
+  capacidades de filesystem nem de terminal no `initialize` e o `ToolPlanner`
+  (AEP-0077) não planeja tools para um provider ACP.
+- **Não leva o prompt do app para o agente.** Persona, skills, memória e blocos
+  de contexto ficam de fora do turno: o agente tem recurso próprio para tudo
+  isso, e o app não tem como fazer melhor de fora (D4, revisto na Fase 8).
 - **Não gerencia credenciais do agente.** A autenticação é local ao CLI.
 
 ## Descobertas empíricas
@@ -216,38 +217,35 @@ porque muda o que o agente sabe.
 
 Limpar ou excluir a conversa encerra a sessão correspondente.
 
-#### As instruções do perfil precisam chegar ao agente
+#### As instruções do perfil não vão ao agente (revisto na Fase 8)
 
-O pipeline injeta persona, skills e blocos de contexto (AEP-0075) em uma única
-mensagem `system` antes do `StreamChat`. "Enviar só a última mensagem do
-usuário" não pode significar descartá-las — seria o único provider do barramento
-a ignorar o perfil. Mas o ACP não tem papel `system`: `session/prompt` recebe
-blocos de conteúdo do usuário.
+A primeira versão desta decisão dizia o contrário, e chegou a ser implementada:
+o pipeline injeta persona, skills e blocos de contexto (AEP-0075) numa única
+mensagem `system`, e o provider a entregava ao agente em blocos delimitados —
+`<app_instructions>` para o prefixo estável, `<app_context>` para o que muda —,
+guardando por sessão o hash do que já tinha dito para não repetir a persona a
+cada turno. O raciocínio era que descartá-las faria do ACP o único provider do
+barramento a ignorar o perfil.
 
-O app já marca, nessa mensagem, onde termina o **prefixo estável**
-(`SystemCacheControlPrefixLen`, usado hoje para cache de prompt). Usamos essa
-mesma fronteira:
+O uso mostrou o outro lado. Um agente de código chega com as regras do próprio
+projeto (`AGENTS.md`, `.cursor/rules`), com memória própria e com um jeito
+próprio de montar contexto a partir da árvore de arquivos — e faz isso com
+acesso direto ao disco, enquanto o app mandaria texto descrevendo a mesma coisa.
+Somar as nossas instruções às dele não completa o perfil: disputa espaço no
+prompt de quem já resolve aquilo, e com informação de segunda mão.
 
-- o **prefixo estável** (persona, skills) vai **uma vez por sessão**, como bloco
-  delimitado no primeiro `session/prompt`;
-- **tudo o que vem depois do prefixo** vai **no turno em que mudar**, como bloco
-  próprio junto da mensagem do usuário. Não é só o contexto de workspace: o
-  sufixo dinâmico carrega tasklists vinculadas, memória do usuário e o resumo da
-  conversa, e deixar qualquer um de fora seria entregar ao agente um perfil pela
-  metade. O que o builder já coloca dentro da própria mensagem do usuário
-  (`turn_context`) segue junto sem tratamento especial;
-- o provider guarda o hash do que já enviou **por sessão, não por conversa**:
-  sessão nova é agente sem memória nenhuma, então tudo é reenviado. Isso vale
-  para a sessão recriada por divergência e pela falha do `session/load` — o
-  estado do que "já foi dito" morre junto com a sessão que o ouviu. O hash é
-  persistido no mesmo registro do `sessionId`, e não só em memória: uma sessão
-  retomada com sucesso depois de reiniciar o app já ouviu a persona, e repetir
-  tudo seria desperdício. Trocar de perfil no meio da conversa reenvia o
-  prefixo, porque as instruções passaram a ser outras.
+A regra passa a ser a mais simples que existe: **o turno de um provider ACP leva
+só a mensagem da pessoa**. Sem persona, sem skills do app, sem memória do
+usuário, sem resumo da conversa, sem blocos de contexto — nem como prefixo, nem
+como sufixo, nem embutidos na própria mensagem. A mensagem vai como foi escrita,
+sem embrulho de contexto em volta. Anexos continuam indo, porque são conteúdo
+que a pessoa mandou, não instrução do app.
 
-Os blocos são delimitados como instrução do app, e não se confundem com o texto
-da pessoa. O agente também tem as regras do próprio projeto (`AGENTS.md`,
-`.cursor/rules`), que continuam sendo assunto dele.
+O preço está aceito e é conhecido: numa conversa com agente, o assistente não
+tem persona e não lembra do que a pessoa contou em outra superfície. Quem
+escolhe um perfil com agente está escolhendo falar com o agente. O que o app
+ainda faz por essa conversa é tudo o que não é prompt: permissões (D9),
+diretório (D5), segmentação da fala (D13), avisos e histórico na tela.
 
 #### Anexos
 
@@ -903,6 +901,69 @@ Segundo alvo pelo mesmo client, validando que o contrato é do protocolo e não 
 Cursor. Ajustes esperados: método de autenticação diferente e ausência das
 extensões `cursor/*`.
 
+### Fase 8 — O perfil diante de um agente
+
+Duas coisas apareceram no uso, e são a mesma coisa vista de dois lados: o perfil
+oferece ajustes que o agente ignora, e não oferece direito o único ajuste que o
+agente respeita.
+
+Do lado do que sobra: as guias de ferramentas, skills e provedores de contexto
+seguem editáveis num perfil de agente, e o turno passa por cima delas (D7, D14).
+Configuração visível que não muda nada é pior do que configuração ausente —
+quem a preenche fica achando que ajustou o comportamento.
+
+Do lado do que falta: o modelo do agente se escolhe no perfil desde a Fase 4,
+mas a tela recebe do backend só os valores crus. O Cursor oferece
+`grok-4.5[effort=high,fast=true]` com o rótulo "Cursor Grok 4.5", e o caminho de
+listagem achata o par num texto só, jogando o nome fora. Escolher modelo numa
+lista de identificadores é ruim de ler na tela e pior no leitor de telas.
+
+**Aceite:** num perfil com provedor de agente, a guia de modelos lista os
+modelos pelo nome que o agente dá, diz quando o agente não deixa escolher e
+explica o que fazer quando ele não sobe; as guias sem efeito não aparecem; e o
+turno chega ao agente sem nada além da mensagem da pessoa.
+
+Decisões que a fase fixou:
+
+- **O turno leva só a mensagem da pessoa.** É a revisão do D4 descrita lá em
+  cima: nem persona, nem skills, nem memória, nem contexto do app. Interferência
+  mínima com quem já tem recurso próprio para tudo isso.
+- **As skills do app ficam de fora inteiras, inclusive as invocadas por barra.**
+  A skill por `/` viaja dentro da mensagem, e não nas instruções, então dava para
+  mantê-la sem contradizer a decisão acima — mas mantê-la obrigaria a guia de
+  skills a continuar na tela com outro sentido ("o que dá para invocar", em vez
+  de "o que o assistente sabe"), e a explicar essa diferença a cada vez. Num
+  perfil de agente o menu da barra fica só com os comandos do próprio agente
+  (Fase 6). É reversível: se o uso pedir, a guia volta com o papel novo.
+- **O editor esconde o que não tem efeito, em vez de mostrar desabilitado.**
+  Guias de ferramentas, skills e provedores de contexto somem enquanto o
+  provedor do perfil for um agente, e com elas os parâmetros de amostragem da
+  guia de modelos — o provider ACP lê `params.Model` e nada mais. Esconder e
+  desabilitar informam a mesma coisa, mas o formulário desabilitado ainda pede
+  atenção de quem navega por teclado, guia por guia, para descobrir que não há
+  nada a fazer ali.
+- **Esconder não apaga.** O que estava configurado continua no arquivo do
+  perfil; voltar para um provedor HTTP traz tudo de volta como estava. Limpar
+  seria destruir configuração por causa de uma escolha de provedor, e uma troca
+  de ideia sairia cara.
+- **Sumiço de guia é mudança anunciada.** A contagem de guias muda debaixo de
+  quem navega, então a troca de provedor anuncia o que passou a valer, e o foco
+  vai para lugar previsível quando a guia aberta é justamente uma das que somem.
+- **A lista de modelos do agente vem com rótulo.** A consulta que a tela de
+  configuração usa passa a devolver valor e nome, como a barra da conversa já
+  recebe. O valor continua sendo o que se grava no perfil; o nome é só para ler.
+- **Agente que não oferece modelo não é erro.** Lista vazia quer dizer "quem
+  escolhe é ele", e a tela diz isso em vez de acusar falha — o app não tem o que
+  consertar aí.
+- **Agente que não sobe rende mensagem acionável.** Comando inexistente ou
+  desatualizado é o caso comum (o CLI se atualiza sozinho e muda de caminho), e
+  a tela do perfil não é o lugar de resolver: ela nomeia o problema e manda para
+  a tela de provedores, que já detecta e testa o agente (Fase 3). Duplicar ali o
+  diagnóstico faria o editor de perfil subir agente só para sondar.
+- **O modo continua só na conversa.** `agent`, `plan` e `ask` mudam com o
+  assunto, não com o perfil; guardar um padrão no perfil criaria uma segunda
+  fonte de verdade para algo que a pessoa troca no meio do caminho.
+
 ## Riscos
 
 - **SDK não oficial.** Mitigado pela interface interna (D2), versão pinada e
@@ -928,6 +989,11 @@ extensões `cursor/*`.
   cabe declarar a limitação onde o provider é configurado.
 - **Barge-in com efeito colateral** (D10): mandar mensagem por cima de um turno
   em andamento cancela um agente que pode estar no meio de uma edição.
+- **Conversa com agente é conversa sem o assistente** (Fase 8): sem persona e
+  sem memória do app, a mesma pergunta feita a um perfil comum e a um perfil de
+  agente rende respostas de interlocutores diferentes. É o efeito desejado, mas
+  precisa estar claro na tela de quem escolhe o provedor, senão a diferença
+  aparece como comportamento errático.
 
 ## Critérios de aceitação
 
@@ -948,8 +1014,11 @@ extensões `cursor/*`.
 - Lista de modelos e troca de modelo funcionam com o Cursor, pelos dois formatos
   de seleção.
 - Um provider ACP é criado, testado e diagnosticado pela UI sem `BaseURL`.
-- As instruções do perfil chegam ao agente, sem reenvio do prefixo estável a
-  cada turno.
+- O turno do agente leva só a mensagem da pessoa: persona, skills, memória,
+  resumo e blocos de contexto do app ficam de fora.
+- Num perfil com provedor de agente, a guia de modelos lista o que o agente
+  oferece pelo nome dele, e as guias sem efeito não aparecem — sem apagar o que
+  o perfil já tinha configurado.
 - Reabrir uma conversa retoma a sessão do agente ou informa que a memória se
   perdeu; retry, edição e exclusão nunca deixam o agente respondendo sobre um
   histórico que a pessoa não vê.
