@@ -47,6 +47,11 @@ func NewACPChatProvider(provider *ProviderConfig, agents *acp.Manager) *ACPChatP
 // um agente é o agente (D7). O roteamento já planeja o turno sem elas, e uma
 // que chegue aqui é descartada com registro, porque mandá-la ao agente não é
 // sequer possível pelo protocolo.
+//
+// O turno leva só a mensagem da pessoa (D4, revisto na Fase 8): persona, skills,
+// memória e blocos de contexto do app não vão ao agente. O pipeline já não os
+// monta para um turno de agente, e o que chegasse aqui numa mensagem `system`
+// seria ignorado — o agente tem os próprios recursos para tudo isso.
 func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
 	if handler == nil {
 		return
@@ -66,13 +71,11 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 		handler.OnError("agente sem sessão para esta conversa")
 		return
 	}
-	instructions := profileInstructions(messages, conv)
 	content, notSent, err := p.promptContent(ctx, conv, messages)
 	if err != nil {
 		handler.OnError(err.Error())
 		return
 	}
-	content = append(instructions.blocks(), content...)
 
 	// O modelo do perfil chega ao agente antes do turno sair, e não depois: é o
 	// que faz a escolha da pessoa valer já no turno seguinte à troca (AEP-0084
@@ -104,11 +107,6 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	// sem sincronização adicional.
 	stop, err := session.Prompt(ctx, content, turn.update)
 	turn.finishThinking()
-	if err == nil {
-		// O agente ouviu o que foi mandado, mesmo que a pessoa interrompa em
-		// seguida: o que já foi dito não precisa ser repetido no próximo turno.
-		instructions.markSent(ctx, conv)
-	}
 
 	if ctx.Err() != nil {
 		// Quem pediu para parar já é dono do desfecho: o laço de streaming

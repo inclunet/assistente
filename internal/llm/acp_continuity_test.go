@@ -33,16 +33,6 @@ func (r *registroEmMemoria) Save(_ context.Context, rec acp.StoredSession) error
 	return nil
 }
 
-func (r *registroEmMemoria) SavePrefixHash(_ context.Context, _, _, hash string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.linha == nil {
-		return errors.New("sessão não registrada")
-	}
-	r.linha.PrefixHash = hash
-	return nil
-}
-
 func (r *registroEmMemoria) Delete(context.Context, string) error { return nil }
 func (r *registroEmMemoria) DeleteAll(context.Context) error      { return nil }
 

@@ -387,6 +387,37 @@ func normalizeACPSessionUserID(database *gorm.DB) error {
 	return nil
 }
 
+// dropACPSessionPromptPrefixHash solta a coluna que guardava o resumo do
+// prefixo de perfil que a sessão do agente já tinha ouvido. Ela existia para
+// não repetir persona e skills a cada turno; agora nada do app vai ao agente
+// (AEP-0084 D4, revisto na Fase 8), e a coluna só guardaria o hash de um texto
+// que ninguém mais envia.
+//
+// Roda depois do AutoMigrate: o campo saiu do model, então não há quem a
+// recrie. Falhar aqui não impede o app de subir — a coluna sobra sem uso até a
+// próxima tentativa —, e por isso o erro vira adiamento, como no drop de
+// refresh_url (v9).
+func dropACPSessionPromptPrefixHash(database *gorm.DB) error {
+	if database == nil || !database.Migrator().HasTable("acp_sessions") {
+		return nil
+	}
+	var existe int64
+	if err := database.Raw(`SELECT COUNT(*) FROM pragma_table_info('acp_sessions') WHERE name = 'prompt_prefix_hash'`).Scan(&existe).Error; err != nil {
+		return errors.Join(fmt.Errorf("procurar a coluna prompt_prefix_hash: %w", err), errMigrationDeferred)
+	}
+	if existe == 0 {
+		return nil
+	}
+	if err := database.Exec(`ALTER TABLE acp_sessions DROP COLUMN prompt_prefix_hash`).Error; err != nil {
+		logging.Warnf(context.Background(), "database.schema-migrations",
+			"[Database] AVISO: falha ao dropar a coluna prompt_prefix_hash de acp_sessions (será retentado no próximo boot): %v", err)
+		return errors.Join(fmt.Errorf("dropar a coluna prompt_prefix_hash: %w", err), errMigrationDeferred)
+	}
+	logging.Infof(context.Background(), "database.schema-migrations",
+		"[Database] acp_sessions: coluna prompt_prefix_hash removida — o app não manda mais instruções ao agente")
+	return nil
+}
+
 // legacyColumnExists checa se uma coluna existe no DB via PRAGMA, sem
 // depender da struct Go atual (necessário para colunas removidas do model
 // mas ainda presentes no schema legado).
