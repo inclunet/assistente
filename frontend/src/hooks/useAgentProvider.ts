@@ -7,12 +7,17 @@ const DEFAULT_PROVIDER_SENTINEL = '$default';
 /**
  * useAgentProvider diz se o provedor escolhido é um agente de código. Quem
  * pergunta é o editor de perfil: com um agente, guias e campos inteiros deixam
- * de ter efeito e ssomem da tela (AEP-0084, Fase 8).
+ * de ter efeito e somem da tela (AEP-0084, Fase 8).
  *
  * A resposta começa em `false` e só vira `true` quando a consulta volta. É de
  * propósito: enquanto não se sabe, a tela mostra o formulário completo, que é o
  * caso da maioria dos provedores — o contrário faria as guias sumirem e voltarem
  * a cada abertura do editor.
+ *
+ * A consulta acontece a cada montagem, e o editor é um diálogo que só existe
+ * enquanto está aberto: quem mexer no provedor padrão ou no formato de um
+ * provedor em Configurações encontra a lista nova na próxima vez que abrir um
+ * perfil.
  */
 export function useAgentProvider(providerID: string): boolean {
   const [isAgent, setIsAgent] = useState(false);

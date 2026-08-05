@@ -68,6 +68,24 @@ describe('useAgentProvider', () => {
     expect(result.current).toBe(false);
   });
 
+  // Quem é o padrão se decide em outra tela. O editor é um diálogo que some ao
+  // fechar, então a consulta de cada abertura já traz a lista de agora.
+  it('abrir de novo pergunta de novo quem é o padrão', async () => {
+    const primeiro = renderHook(() => useAgentProvider('$default'));
+    await waitFor(() => expect(providersSpy).toHaveBeenCalled());
+    expect(primeiro.result.current).toBe(false);
+    primeiro.unmount();
+
+    providersSpy.mockResolvedValue([
+      { id: 'openai', api_format: 'openai' },
+      { id: 'cursor', api_format: 'acp', is_default: true },
+    ]);
+
+    const segundo = renderHook(() => useAgentProvider('$default'));
+
+    await waitFor(() => expect(segundo.result.current).toBe(true));
+  });
+
   it('trocar de provedor troca a resposta', async () => {
     const { result, rerender } = renderHook(({ id }) => useAgentProvider(id), {
       initialProps: { id: 'cursor' },
