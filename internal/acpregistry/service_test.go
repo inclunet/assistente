@@ -172,6 +172,46 @@ func TestPrimeiraExecucaoSemRedeDevolveCatalogoVazioComOMotivo(t *testing.T) {
 	}
 }
 
+func TestSemCatalogoAEsperaPelaRedeNaoSeRepeteACadaAbertura(t *testing.T) {
+	// Sem nada guardado a busca é síncrona, e quem está offline esperaria o
+	// timeout inteiro a cada abertura de tela para receber o motivo que já
+	// conhece.
+	servidor := novoServidor(t, indiceBom)
+	servidor.status(http.StatusInternalServerError)
+	servico, relogio := novoServico(t, servidor.URL, t.TempDir())
+
+	primeiro := servico.Catalog(context.Background())
+	if primeiro.Reason == "" {
+		t.Fatal("catálogo vazio sem motivo na primeira abertura")
+	}
+	if servidor.buscas() != 1 {
+		t.Fatalf("buscas na primeira abertura = %d, quer 1", servidor.buscas())
+	}
+
+	segundo := servico.Catalog(context.Background())
+	if servidor.buscas() != 1 {
+		t.Errorf("buscas na segunda abertura = %d, quer 1: a espera não deveria se repetir", servidor.buscas())
+	}
+	if segundo.Reason != primeiro.Reason {
+		t.Errorf("motivo = %q, quer o mesmo da primeira abertura (%q)", segundo.Reason, primeiro.Reason)
+	}
+	if len(segundo.Agents) != 0 || segundo.FromCache {
+		t.Errorf("catálogo = %d agentes, FromCache %v; quer vazio e não vindo de cache", len(segundo.Agents), segundo.FromCache)
+	}
+
+	// Passada a janela, tentar de novo é o que traz o catálogo de volta quando
+	// a rede volta.
+	relogio.avanca(DefaultRetryAfter)
+	servidor.serve(indiceBom)
+	terceiro := servico.Catalog(context.Background())
+	if len(terceiro.Agents) != 3 {
+		t.Errorf("agentes depois da janela = %d, quer 3", len(terceiro.Agents))
+	}
+	if terceiro.Reason != "" {
+		t.Errorf("motivo = %q depois de uma busca que deu certo", terceiro.Reason)
+	}
+}
+
 func TestVersaoDeMajorDesconhecidoERecusadaEOCacheAnteriorPermanece(t *testing.T) {
 	servidor := novoServidor(t, indiceBom)
 	dir := t.TempDir()

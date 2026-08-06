@@ -39,6 +39,12 @@ const (
 	// do teto é recusado sem ser parseado.
 	maxIndexBytes = 4 << 20
 
+	// DefaultRetryAfter é quanto tempo a primeira execução espera antes de
+	// tentar buscar de novo depois de falhar. Sem catálogo guardado a busca é
+	// síncrona, e sem essa janela quem está offline pagaria o timeout inteiro a
+	// cada abertura de tela — a mesma espera, pelo mesmo motivo já conhecido.
+	DefaultRetryAfter = time.Minute
+
 	// userAgent segue o formato dos outros clientes HTTP do app.
 	userAgent = "Assistente/1.0 (ACP Registry)"
 )
@@ -60,6 +66,9 @@ type Config struct {
 	Dir string
 	// TTL é a idade a partir da qual o catálogo é revalidado. Vazio usa DefaultTTL.
 	TTL time.Duration
+	// RetryAfter é a espera entre buscas síncronas quando não há catálogo
+	// nenhum para servir. Vazio usa DefaultRetryAfter.
+	RetryAfter time.Duration
 }
 
 // Service serve o catálogo de agentes do registro ACP.
@@ -69,18 +78,22 @@ type Config struct {
 // leitores ao mesmo tempo; o catálogo devolvido é para leitura, porque é o mesmo
 // índice servido a todos.
 type Service struct {
-	http     Doer
-	url      string
-	path     string
-	ttl      time.Duration
-	now      func() time.Time
-	maxBytes int64
+	http       Doer
+	url        string
+	path       string
+	ttl        time.Duration
+	retryAfter time.Duration
+	now        func() time.Time
+	maxBytes   int64
 
 	mu     sync.RWMutex
 	index  Index
 	stamp  time.Time
 	reason string
 	loaded bool
+	// failedAt é quando a última busca falhou sem haver catálogo para servir.
+	// É o que faz a espera pela rede acontecer uma vez, e não a cada abertura.
+	failedAt time.Time
 
 	// revalidating garante uma revalidação em segundo plano por vez: várias
 	// aberturas de tela seguidas não viram várias buscas na CDN.
@@ -120,6 +133,10 @@ func New(cfg Config) *Service {
 	if ttl <= 0 {
 		ttl = DefaultTTL
 	}
+	retryAfter := cfg.RetryAfter
+	if retryAfter <= 0 {
+		retryAfter = DefaultRetryAfter
+	}
 	dir := cfg.Dir
 	if dir == "" {
 		if home := configdir.GetHomeDir(); home != "" {
@@ -132,12 +149,13 @@ func New(cfg Config) *Service {
 	}
 
 	return &Service{
-		http:     client,
-		url:      IndexURL,
-		path:     path,
-		ttl:      ttl,
-		now:      time.Now,
-		maxBytes: maxIndexBytes,
+		http:       client,
+		url:        IndexURL,
+		path:       path,
+		ttl:        ttl,
+		retryAfter: retryAfter,
+		now:        time.Now,
+		maxBytes:   maxIndexBytes,
 	}
 }
 
@@ -146,17 +164,25 @@ func New(cfg Config) *Service {
 // Havendo o que servir, serve — e dispara a revalidação em segundo plano quando
 // o carimbo passou do TTL, sem esperar por ela. Sem nada guardado, busca de
 // forma síncrona: é a primeira execução, e não há alternativa a esperar. Se essa
-// busca falhar, o catálogo volta vazio com o motivo (D2).
+// busca falhar, o catálogo volta vazio com o motivo (D2), e a espera não se
+// repete enquanto a janela de nova tentativa não vencer: quem está sem rede
+// pagaria o timeout de novo a cada abertura de tela para receber o mesmo motivo.
 func (s *Service) Catalog(ctx context.Context) Catalog {
 	s.ensureLoaded(ctx)
 
 	s.mu.RLock()
-	index, stamp, reason := s.index, s.stamp, s.reason
+	index, stamp, reason, failedAt := s.index, s.stamp, s.reason, s.failedAt
 	s.mu.RUnlock()
 
 	if stamp.IsZero() {
-		// Primeira execução: não há o que servir enquanto isso, e o Refresh já
-		// devolve o motivo dentro do catálogo quando a busca não acontece.
+		if !failedAt.IsZero() && s.now().Sub(failedAt) < s.retryAfter {
+			catalog := s.catalogFrom(Index{}, time.Time{}, true)
+			catalog.Reason = reason
+			return catalog
+		}
+		// Primeira execução, ou janela vencida: não há o que servir enquanto
+		// isso, e o Refresh já devolve o motivo dentro do catálogo quando a
+		// busca não acontece.
 		catalog, _ := s.Refresh(ctx)
 		return catalog
 	}
@@ -186,6 +212,11 @@ func (s *Service) Refresh(ctx context.Context) (Catalog, error) {
 		s.mu.Lock()
 		s.reason = reason
 		current, stamp := s.index, s.stamp
+		if stamp.IsZero() {
+			// Sem catálogo para servir, a falha é o que a próxima abertura
+			// precisa saber para não esperar pela rede outra vez.
+			s.failedAt = s.now()
+		}
 		s.mu.Unlock()
 
 		catalog := s.catalogFrom(current, stamp, true)
@@ -195,7 +226,7 @@ func (s *Service) Refresh(ctx context.Context) (Catalog, error) {
 
 	stamp := s.now()
 	s.mu.Lock()
-	s.index, s.stamp, s.reason = index, stamp, ""
+	s.index, s.stamp, s.reason, s.failedAt = index, stamp, "", time.Time{}
 	s.mu.Unlock()
 
 	if err := saveCache(s.path, index, stamp); err != nil {
