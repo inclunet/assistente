@@ -277,13 +277,20 @@ describe('AgentProviderFields — remontado pelo StrictMode', () => {
         <Host />
       </StrictMode>,
     );
+    // A resposta só sai depois de a procura ter saído: responder antes disso
+    // testaria outra coisa.
+    await waitFor(() => expect(detectMock).toHaveBeenCalledWith('cursor'));
+
     await act(async () => {
       responder(cursorFound);
     });
 
-    expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
-    const botao = screen.getByRole('button', { name: /detectar instalação/i });
-    expect(botao).toBeEnabled();
+    await waitFor(() =>
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /detectar instalação/i })).toBeEnabled(),
+    );
   });
 
   it('o teste do agente também volta a responder depois da remontagem', async () => {
