@@ -257,7 +257,25 @@ func NPMEntryPoint(prefix, name string) (NPMPackage, error) {
 	if !withinDir(root, entry) {
 		return NPMPackage{}, fmt.Errorf("%w: o `bin` de %s aponta para fora da instalação", ErrNPMEntryPoint, manifestPath)
 	}
-	if ok, err := isRegularFile(entry); err != nil || !ok {
+	// O caminho textual estar dentro do prefixo não basta: um link dentro da
+	// instalação pode levar para fora dela, e quem escolhe o destino do link é o
+	// mesmo pacote que declarou o `bin`. A guarda do D9 vale sobre o destino
+	// real; o que se executa continua sendo o caminho legível.
+	real, err := filepath.EvalSymlinks(entry)
+	if err != nil {
+		return NPMPackage{}, fmt.Errorf("%w: o `bin` de %s aponta para %s, que não é um arquivo", ErrNPMEntryPoint, manifestPath, entry)
+	}
+	// O prefixo também é resolvido antes da comparação: em macOS `/var` é link
+	// para `/private/var`, e comparar um lado resolvido com o outro cru recusaria
+	// instalação legítima.
+	realRoot := root
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		realRoot = resolved
+	}
+	if !withinDir(realRoot, real) {
+		return NPMPackage{}, fmt.Errorf("%w: o `bin` de %s aponta para fora da instalação", ErrNPMEntryPoint, manifestPath)
+	}
+	if ok, err := isRegularFile(real); err != nil || !ok {
 		return NPMPackage{}, fmt.Errorf("%w: o `bin` de %s aponta para %s, que não é um arquivo", ErrNPMEntryPoint, manifestPath, entry)
 	}
 

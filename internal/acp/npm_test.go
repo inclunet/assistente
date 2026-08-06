@@ -99,6 +99,50 @@ func TestNPMEntryPointRecusaBinQueSaiDaInstalacao(t *testing.T) {
 	}
 }
 
+func TestNPMEntryPointRecusaBinQueSaiDaInstalacaoPorUmLink(t *testing.T) {
+	// Caminho de dentro do prefixo que leva para fora dele: o texto passa na
+	// guarda, o destino não. Quem escolhe o destino é o pacote, então a
+	// verificação tem de ser sobre o que se abre, não sobre o que se lê.
+	prefixo := t.TempDir()
+	fora := filepath.Join(t.TempDir(), "fora.js")
+	if err := os.WriteFile(fora, []byte("//"), 0o644); err != nil {
+		t.Fatalf("não deu para gravar o arquivo de fora: %v", err)
+	}
+	pacoteFalso(t, prefixo, "agente", `{"name":"agente","bin":"dist/index.js"}`)
+	link := filepath.Join(prefixo, "node_modules", "agente", "dist", "index.js")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatalf("não deu para criar o diretório do link: %v", err)
+	}
+	if err := os.Symlink(fora, link); err != nil {
+		// No Windows criar link exige privilégio, e não é a máquina que está
+		// sendo testada aqui.
+		t.Skipf("não deu para criar o link neste sistema: %v", err)
+	}
+
+	if _, err := NPMEntryPoint(prefixo, "agente"); err == nil {
+		t.Fatal("aceitou um `bin` que sai da instalação por um link")
+	}
+}
+
+func TestNPMEntryPointAceitaLinkQueFicaDentroDaInstalacao(t *testing.T) {
+	// O npm liga arquivos dentro da própria instalação o tempo todo; recusar
+	// link por ser link quebraria instalação legítima.
+	prefixo := t.TempDir()
+	pacoteFalso(t, prefixo, "agente", `{"name":"agente","bin":"dist/index.js"}`, "dist/real.js")
+	dist := filepath.Join(prefixo, "node_modules", "agente", "dist")
+	if err := os.Symlink(filepath.Join(dist, "real.js"), filepath.Join(dist, "index.js")); err != nil {
+		t.Skipf("não deu para criar o link neste sistema: %v", err)
+	}
+
+	pkg, err := NPMEntryPoint(prefixo, "agente")
+	if err != nil {
+		t.Fatalf("recusou um link que fica dentro da instalação: %v", err)
+	}
+	if filepath.Base(pkg.EntryPoint) != "index.js" {
+		t.Errorf("ponto de entrada = %q, queria o caminho declarado no manifesto", pkg.EntryPoint)
+	}
+}
+
 func TestNPMEntryPointRecusaManifestoSemBin(t *testing.T) {
 	// Sem `bin` não há o que rodar, e adivinhar um `dist/index.js` daria um
 	// provider que falha na primeira conversa (D8).
