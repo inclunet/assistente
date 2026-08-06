@@ -158,10 +158,19 @@ const (
 	// ReasonTimeout é o registro não respondendo no tempo esperado.
 	ReasonTimeout Reason = "timeout"
 
+	// ReasonBadStatus é o registro respondendo com erro. Ele é separado de
+	// ReasonUnreachable porque "não foi possível falar com o registro" seria
+	// falso: a conversa aconteceu, e quem lê iria conferir a própria rede em vez
+	// de esperar o outro lado voltar.
+	ReasonBadStatus Reason = "bad_status"
+
 	// ReasonUnreachable é não ter dado para falar com o registro: sem rede,
 	// DNS, proxy, TLS. É o desfecho da primeira execução offline.
 	ReasonUnreachable Reason = "unreachable"
 )
+
+// ErrBadStatus é a resposta do registro com status que não é 200.
+var ErrBadStatus = errors.New("o registro ACP respondeu com erro")
 
 // New monta o serviço.
 func New(cfg Config) *Service {
@@ -339,6 +348,13 @@ func (s *Service) fetch(ctx context.Context) (Index, error) {
 
 	resp, err := s.http.Do(ctx, req)
 	if err != nil {
+		// O cliente compartilhado esgota os retries do 5xx e devolve erro sem
+		// resposta. Isso não é falta de rede: o registro respondeu, e chamar
+		// assim mandaria conferir a própria conexão em vez de esperar o outro
+		// lado voltar.
+		if status := httpclient.ServerStatusOf(err); status != 0 {
+			return Index{}, fmt.Errorf("%w: HTTP %d", ErrBadStatus, status)
+		}
 		return Index{}, fmt.Errorf("não foi possível falar com o registro ACP: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -346,7 +362,7 @@ func (s *Service) fetch(ctx context.Context) (Index, error) {
 	if resp.StatusCode != http.StatusOK {
 		// Só o código: o texto da linha de status é escrito pelo servidor, e
 		// mensagem de erro do app acaba em tela e em anúncio.
-		return Index{}, fmt.Errorf("o registro ACP respondeu HTTP %d", resp.StatusCode)
+		return Index{}, fmt.Errorf("%w: HTTP %d", ErrBadStatus, resp.StatusCode)
 	}
 	if contentType := resp.Header.Get("Content-Type"); !isJSONContentType(contentType) {
 		return Index{}, fmt.Errorf("%w: o registro ACP respondeu com Content-Type %q", ErrMalformedIndex, acp.SanitizeLabel(contentType))
@@ -421,9 +437,24 @@ func reasonCodeFor(err error) (Reason, string) {
 		return ReasonCanceled, ""
 	case errors.Is(err, context.DeadlineExceeded):
 		return ReasonTimeout, ""
+	case errors.Is(err, ErrBadStatus):
+		// O detalhe é o status, e nada mais: a linha de status é texto do
+		// servidor, e ela acabaria na tela e no anúncio.
+		return ReasonBadStatus, httpStatusOf(err)
 	default:
 		return ReasonUnreachable, acp.SanitizeLabel(err.Error())
 	}
+}
+
+// httpStatusOf tira do erro o "HTTP nnn" que o fetch escreveu. Ele é
+// reconstruído a partir do erro, e não devolvido em paralelo, para o motivo
+// continuar sendo função de uma coisa só — o erro.
+func httpStatusOf(err error) string {
+	_, status, ok := strings.Cut(err.Error(), ErrBadStatus.Error()+": ")
+	if !ok {
+		return ""
+	}
+	return acp.SanitizeLabel(status)
 }
 
 // reasonFor é o motivo em texto, para o log e para quem consome este pacote em
@@ -440,6 +471,8 @@ func reasonFor(err error) string {
 		return "a busca do índice do registro ACP foi interrompida"
 	case ReasonTimeout:
 		return "o registro ACP não respondeu no tempo esperado"
+	case ReasonBadStatus:
+		return "o registro ACP respondeu com erro: " + detail
 	case ReasonUnreachable:
 		return "não foi possível buscar o índice do registro ACP: " + detail
 	default:

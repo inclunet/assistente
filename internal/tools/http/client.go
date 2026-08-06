@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -403,6 +404,31 @@ func (c *Client) applyAuth(ctx context.Context, req *http.Request) {
 	}
 }
 
+// ErrServerStatus é o 5xx que sobreviveu aos retries. Ele existe para quem
+// chama poder distinguir "o servidor respondeu com erro" de "não deu para falar
+// com o servidor": as duas coisas chegam aqui como erro, e quem vai explicar
+// isso a alguém precisa saber qual das duas foi.
+var ErrServerStatus = errors.New("server error")
+
+// ServerStatusOf devolve o status do 5xx que ErrServerStatus embrulha, ou 0
+// quando o erro é outro. Ele fica aqui, e não em quem chama, porque é aqui que a
+// mensagem é escrita: separar as duas pontas faria uma mudança de texto virar um
+// bug silencioso do outro lado.
+func ServerStatusOf(err error) int {
+	if !errors.Is(err, ErrServerStatus) {
+		return 0
+	}
+	_, digits, ok := strings.Cut(err.Error(), ErrServerStatus.Error()+": ")
+	if !ok {
+		return 0
+	}
+	status, convErr := strconv.Atoi(strings.TrimSpace(digits))
+	if convErr != nil {
+		return 0
+	}
+	return status
+}
+
 // doWithRetry executa requisição com lógica de retry
 func (c *Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
 	var lastErr error
@@ -436,7 +462,7 @@ func (c *Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Resp
 
 		// Status 5xx, pode tentar retry
 		_ = resp.Body.Close()
-		lastErr = fmt.Errorf("server error: %d", resp.StatusCode)
+		lastErr = fmt.Errorf("%w: %d", ErrServerStatus, resp.StatusCode)
 	}
 
 	return nil, lastErr

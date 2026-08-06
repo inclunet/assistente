@@ -24,6 +24,7 @@ func TestReasonCodeForClassificaCadaDesfecho(t *testing.T) {
 		{"índice quebrado", fmt.Errorf("%w: json", ErrMalformedIndex), ReasonMalformedIndex},
 		{"interrompida", fmt.Errorf("busca: %w", context.Canceled), ReasonCanceled},
 		{"sem resposta no tempo", fmt.Errorf("busca: %w", context.DeadlineExceeded), ReasonTimeout},
+		{"registro respondeu com erro", fmt.Errorf("%w: HTTP 503", ErrBadStatus), ReasonBadStatus},
 		{"sem rede", errors.New("dial tcp: lookup cdn: no such host"), ReasonUnreachable},
 	}
 	for _, caso := range casos {
@@ -45,6 +46,28 @@ func TestReasonCodeForSaneiaODetalheDoTransporte(t *testing.T) {
 	}
 	if strings.ContainsAny(detalhe, "\r\n\u0007") {
 		t.Errorf("detalhe = %q, quer uma linha só sem controle", detalhe)
+	}
+}
+
+func TestORegistroQueRespondeComErroNaoViraFalhaDeRede(t *testing.T) {
+	// Servidor que respondeu 503 não é servidor inalcançável: dizer "não foi
+	// possível falar com o registro" mandaria conferir a própria rede em vez de
+	// esperar o outro lado voltar.
+	servidor := novoServidor(t, indiceBom)
+	servico, _ := novoServico(t, servidor.URL, t.TempDir())
+	servidor.status(http.StatusServiceUnavailable)
+
+	if _, err := servico.Refresh(context.Background()); !errors.Is(err, ErrBadStatus) {
+		t.Fatalf("erro = %v, quer ErrBadStatus", err)
+	}
+	catalogo := servico.Catalog(context.Background())
+	if catalogo.ReasonCode != ReasonBadStatus {
+		t.Errorf("código = %q, quer %q", catalogo.ReasonCode, ReasonBadStatus)
+	}
+	// O detalhe é o status, e nada além dele: a linha de status é texto do
+	// servidor, e ela acabaria na tela e no anúncio.
+	if catalogo.ReasonDetail != "HTTP 503" {
+		t.Errorf("detalhe = %q, quer %q", catalogo.ReasonDetail, "HTTP 503")
 	}
 }
 
@@ -98,8 +121,8 @@ func TestOCodigoDoMotivoSaiComACargaBemSucedida(t *testing.T) {
 	if _, err := servico.Refresh(context.Background()); err == nil {
 		t.Fatal("a busca que falhou não devolveu erro")
 	}
-	if catalogo := servico.Catalog(context.Background()); catalogo.ReasonCode != ReasonUnreachable {
-		t.Fatalf("código = %q, quer %q", catalogo.ReasonCode, ReasonUnreachable)
+	if catalogo := servico.Catalog(context.Background()); catalogo.ReasonCode != ReasonBadStatus {
+		t.Fatalf("código = %q, quer %q", catalogo.ReasonCode, ReasonBadStatus)
 	}
 
 	servidor.serve(indiceBom)
