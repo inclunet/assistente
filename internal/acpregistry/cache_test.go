@@ -40,6 +40,34 @@ func TestOCacheGuardaOCarimboDaColeta(t *testing.T) {
 	}
 }
 
+// A segunda coleta grava por cima da primeira. No Windows o os.Rename do Go é
+// MoveFileEx com MOVEFILE_REPLACE_EXISTING, então o destino existente não é
+// obstáculo; este teste é a prova disso, e roda no sistema de quem o lê.
+func TestAColetaSeguinteGravaPorCimaDaAnterior(t *testing.T) {
+	index, err := ParseIndex(context.Background(), []byte(indiceBom))
+	if err != nil {
+		t.Fatalf("ParseIndex devolveu erro: %v", err)
+	}
+	caminho := filepath.Join(t.TempDir(), cacheFileName)
+	primeira := time.Date(2026, 8, 6, 9, 30, 0, 0, time.UTC)
+	segunda := primeira.Add(time.Hour)
+
+	if err := saveCache(caminho, index, primeira); err != nil {
+		t.Fatalf("saveCache da primeira coleta devolveu erro: %v", err)
+	}
+	if err := saveCache(caminho, index, segunda); err != nil {
+		t.Fatalf("saveCache da segunda coleta devolveu erro: %v", err)
+	}
+
+	_, carimbo, err := loadCache(context.Background(), caminho)
+	if err != nil {
+		t.Fatalf("loadCache devolveu erro: %v", err)
+	}
+	if !carimbo.Equal(segunda) {
+		t.Errorf("carimbo = %v, quer o da segunda coleta (%v)", carimbo, segunda)
+	}
+}
+
 func TestCacheAusenteNaoEProblemaDeDisco(t *testing.T) {
 	caminho := filepath.Join(t.TempDir(), cacheFileName)
 	_, _, err := loadCache(context.Background(), caminho)

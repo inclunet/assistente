@@ -443,6 +443,46 @@ func TestVariosLeitoresConcorrentesRecebemOCatalogoInteiro(t *testing.T) {
 	}
 }
 
+// Um leitor que mexe no que recebeu não estraga a leitura do próximo: o
+// catálogo entregue é cópia, e não o índice guardado pelo serviço.
+func TestOQueUmLeitorMexeNaoAlcancaOsOutros(t *testing.T) {
+	servidor := novoServidor(t, indiceBom)
+	servico, _ := novoServico(t, servidor.URL, t.TempDir())
+
+	primeiro := servico.Catalog(context.Background())
+	if len(primeiro.Agents) != 3 {
+		t.Fatalf("catálogo = %d agentes, quer 3", len(primeiro.Agents))
+	}
+	agente := agentePorID(t, primeiro.Agents, "goose")
+	nomeOriginal := agente.Name
+	alvoOriginal := agente.Distribution.Binary["windows-x86_64"]
+
+	for i := range primeiro.Agents {
+		primeiro.Agents[i].Name = "nome trocado"
+		for j := range primeiro.Agents[i].Authors {
+			primeiro.Agents[i].Authors[j] = "autor inventado"
+		}
+		for alvo := range primeiro.Agents[i].Distribution.Binary {
+			primeiro.Agents[i].Distribution.Binary[alvo] = BinaryTarget{Cmd: "comando trocado"}
+		}
+		if npx := primeiro.Agents[i].Distribution.NPX; npx != nil {
+			npx.Package = "pacote trocado"
+		}
+	}
+
+	segundo := servico.Catalog(context.Background())
+	depois := agentePorID(t, segundo.Agents, "goose")
+	if depois.Name != nomeOriginal {
+		t.Errorf("nome = %q, quer %q", depois.Name, nomeOriginal)
+	}
+	if got := depois.Distribution.Binary["windows-x86_64"]; got.Cmd != alvoOriginal.Cmd || got.SHA256 != alvoOriginal.SHA256 {
+		t.Errorf("alvo binário = %+v, quer %+v", got, alvoOriginal)
+	}
+	if len(segundo.Agents) != 3 {
+		t.Errorf("catálogo seguinte = %d agentes, quer 3", len(segundo.Agents))
+	}
+}
+
 // A busca manda os cabeçalhos que identificam o app e o que ele espera receber.
 func TestABuscaSeIdentificaEPedeJSON(t *testing.T) {
 	servidor := novoServidor(t, indiceBom)

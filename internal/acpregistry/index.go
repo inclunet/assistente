@@ -17,8 +17,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -102,6 +104,56 @@ type BinaryTarget struct {
 type PackageDistribution struct {
 	Package string   `json:"package"`
 	Args    []string `json:"args,omitempty"`
+}
+
+// cloneAgents devolve uma cópia funda da lista. O serviço guarda um índice só e
+// entrega o catálogo a quantos leitores quiserem: sem a cópia, o slice e os
+// mapas de dentro seriam os mesmos objetos em todas as mãos, e bastaria um
+// chamador distraído ordenar a lista ou mexer num argumento para corromper o que
+// os outros estão lendo — inclusive em paralelo.
+func cloneAgents(agents []Agent) []Agent {
+	if agents == nil {
+		return nil
+	}
+	copia := make([]Agent, 0, len(agents))
+	for _, agent := range agents {
+		copia = append(copia, agent.clone())
+	}
+	return copia
+}
+
+func (a Agent) clone() Agent {
+	a.Authors = slices.Clone(a.Authors)
+	a.Distribution = a.Distribution.clone()
+	return a
+}
+
+func (d Distribution) clone() Distribution {
+	if d.Binary != nil {
+		binary := make(map[string]BinaryTarget, len(d.Binary))
+		for alvo, target := range d.Binary {
+			binary[alvo] = target.clone()
+		}
+		d.Binary = binary
+	}
+	d.NPX = d.NPX.clone()
+	d.UVX = d.UVX.clone()
+	return d
+}
+
+func (b BinaryTarget) clone() BinaryTarget {
+	b.Args = slices.Clone(b.Args)
+	b.Env = maps.Clone(b.Env)
+	return b
+}
+
+func (p *PackageDistribution) clone() *PackageDistribution {
+	if p == nil {
+		return nil
+	}
+	copia := *p
+	copia.Args = slices.Clone(p.Args)
+	return &copia
 }
 
 // Limites de tamanho do que vem do documento. Nenhuma entrada honesta chega
