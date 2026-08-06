@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { StrictMode, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -261,6 +261,54 @@ describe('AgentProviderFields — agente encontrado', () => {
       expect.stringContaining(cursorFound.command),
       'polite',
     );
+  });
+});
+
+// O app roda dentro de `React.StrictMode`, que em desenvolvimento monta,
+// desmonta e remonta cada componente. A remontagem precisa deixar os campos tão
+// vivos quanto na primeira vez: o que sobrevive à desmontagem simulada e não é
+// refeito na volta cala a tela para sempre.
+describe('AgentProviderFields — remontado pelo StrictMode', () => {
+  it('a procura que responde depois da remontagem ainda preenche e destrava o botão', async () => {
+    const responder = deteccaoControlada();
+
+    render(
+      <StrictMode>
+        <Host />
+      </StrictMode>,
+    );
+    // A resposta só sai depois de a procura ter saído: responder antes disso
+    // testaria outra coisa.
+    await waitFor(() => expect(detectMock).toHaveBeenCalledWith('cursor'));
+
+    await act(async () => {
+      responder(cursorFound);
+    });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /detectar instalação/i })).toBeEnabled(),
+    );
+  });
+
+  it('o teste do agente também volta a responder depois da remontagem', async () => {
+    detectMock.mockResolvedValue(cursorFound);
+    testMock.mockResolvedValue({ state: 'online', agent_name: 'Cursor' });
+    const user = userEvent.setup();
+
+    render(
+      <StrictMode>
+        <Host />
+      </StrictMode>,
+    );
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command));
+
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+
+    expect(await screen.findByText(/cursor respondeu e aceitou abrir sessão/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /testar agente/i })).toBeEnabled();
   });
 });
 

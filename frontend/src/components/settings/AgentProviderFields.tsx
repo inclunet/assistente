@@ -136,15 +136,22 @@ export const AgentProviderFields = ({
   // resposta que chegasse depois repovoaria comando e argumentos de um provedor
   // que agora é HTTP; trocar de agente deixa em voo a procura do anterior, que
   // descreve outra coisa.
+  //
+  // A montagem reafirma que há formulário vivo, e não só a desmontagem o
+  // desmente: o `StrictMode` em que o app roda monta, desmonta e remonta cada
+  // componente, e uma ref que só sabe apagar ficaria apagada no componente que
+  // voltou. Aí toda resposta pareceria de um formulário que já não existe, e a
+  // procura ficaria eternamente "procurando o agente...", com o botão
+  // desabilitado e nada preenchido.
   const searchSeq = useRef(0);
   const probeSeq = useRef(0);
   const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   // A detecção fica em uma ref, e não em useCallback, porque ela usa o comando
   // digitado e os callbacks do pai. Como dependência de efeito, qualquer um
