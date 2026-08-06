@@ -153,9 +153,54 @@ describe('AgentProviderFields — agente encontrado', () => {
 
     render(<Host />);
 
-    const workDir = await screen.findByLabelText(/diretório de trabalho/i);
-    await waitFor(() => expect(workDir).toHaveValue(cursorFound.work_dir));
-    expect(workDir).toHaveAttribute('readonly');
+    // Rótulo e valor ligados no mesmo par: quem usa leitor de telas ouve o que
+    // o caminho significa, sem depender de o texto vir logo antes na tela.
+    const rotulo = await screen.findByRole('term');
+    expect(rotulo).toHaveTextContent(/diretório de trabalho/i);
+    const valor = screen.getByRole('definition');
+    await waitFor(() => expect(valor).toHaveTextContent(cursorFound.work_dir));
+    expect(valor.parentElement).toBe(rotulo.parentElement);
+
+    // Não é campo: não há caixa de texto do diretório para preencher, e as duas
+    // que sobram são as que se editam de verdade (comando e argumentos).
+    expect(screen.queryByLabelText(/diretório de trabalho/i)).not.toBeInTheDocument();
+    expect(screen.getAllByRole('textbox')).toHaveLength(2);
+  });
+
+  it('explica que o diretório é o workspace ativo, e não uma escolha desta tela', async () => {
+    detectMock.mockResolvedValue(cursorFound);
+
+    render(<Host />);
+
+    expect(
+      await screen.findByText(/é onde o agente lê e edita arquivos.*workspace ativo/i),
+    ).toBeInTheDocument();
+  });
+
+  it('sem workspace ativo, diz que não há em vez de deixar o diretório em branco', async () => {
+    detectMock.mockResolvedValue({ ...cursorFound, work_dir: '' });
+
+    render(<Host />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('definition')).toHaveTextContent(/nenhum workspace ativo/i);
+    });
+  });
+
+  it('diz o que cada botão faz antes de alguém clicar nele', async () => {
+    // Lado a lado e sem descrição, os dois pareciam duas formas de conferir a
+    // instalação — e só um deles sobrescreve o que está nos campos.
+    detectMock.mockResolvedValue(cursorFound);
+
+    render(<Host />);
+
+    const detectar = await screen.findByRole('button', { name: /detectar e preencher comando/i });
+    expect(detectar).toHaveAccessibleDescription(
+      /preenche o comando e os argumentos acima, substituindo/i,
+    );
+
+    const testar = screen.getByRole('button', { name: /testar agente/i });
+    expect(testar).toHaveAccessibleDescription(/informa se ele respondeu.*não altera os campos/i);
   });
 
   it('não sobrescreve o comando já salvo ao abrir a edição', async () => {
@@ -252,7 +297,7 @@ describe('AgentProviderFields — agente encontrado', () => {
     render(<Host initialCommand="cursor-agent-antigo" autoFill={false} />);
     await waitFor(() => expect(detectMock).toHaveBeenCalledTimes(1));
 
-    await user.click(screen.getByRole('button', { name: /detectar instalação/i }));
+    await user.click(screen.getByRole('button', { name: /detectar e preencher comando/i }));
 
     await waitFor(() => {
       expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
@@ -289,7 +334,7 @@ describe('AgentProviderFields — remontado pelo StrictMode', () => {
       expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command),
     );
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /detectar instalação/i })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: /detectar e preencher comando/i })).toBeEnabled(),
     );
   });
 
@@ -359,7 +404,7 @@ describe('AgentProviderFields — agente ausente', () => {
     render(<Host initialCommand="/opt/cursor/agente" autoFill={false} />);
     await screen.findByText(/agente não encontrado nesta máquina/i);
 
-    await user.click(screen.getByRole('button', { name: /detectar instalação/i }));
+    await user.click(screen.getByRole('button', { name: /detectar e preencher comando/i }));
 
     await waitFor(() => {
       expect(announceMock).toHaveBeenCalledWith(

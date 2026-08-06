@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { DetectACPAgent, TestACPAgent } from '@wailsjs/go/app/App';
@@ -98,6 +98,9 @@ export const AgentProviderFields = ({
 }: AgentProviderFieldsProps) => {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
+  const idBase = useId();
+  const detectHelpId = `${idBase}-detect-help`;
+  const testHelpId = `${idBase}-test-help`;
   const [setup, setSetup] = useState<AgentSetup | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [detectError, setDetectError] = useState('');
@@ -337,13 +340,42 @@ export const AgentProviderFields = ({
         />
       </FormField>
 
-      <div className="agent-fields__detection">
-        <Button type="button" variant="secondary" onClick={handleRedetect} disabled={detecting}>
-          {detecting ? t('providerForm.agent.detecting') : t('providerForm.agent.detectBtn')}
-        </Button>
-        <Button type="button" variant="secondary" onClick={handleTest} disabled={testing}>
-          {testing ? t('providerForm.agent.test.testing') : t('providerForm.agent.test.btn')}
-        </Button>
+      {/*
+        Cada botão vem com a descrição do que o clique faz, ligada por
+        `aria-describedby` e visível ao lado dele. Lado a lado e sem texto, os
+        dois pareciam duas formas de conferir a instalação, e só um deles
+        sobrescreve o comando e os argumentos que estão na tela — quem descobre
+        isso clicando descobre depois de perder o que havia digitado.
+      */}
+      <div className="agent-fields__actions">
+        <div className="agent-fields__action">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleRedetect}
+            disabled={detecting}
+            aria-describedby={detectHelpId}
+          >
+            {detecting ? t('providerForm.agent.detecting') : t('providerForm.agent.detectBtn')}
+          </Button>
+          <p id={detectHelpId} className="agent-fields__action-help">
+            {t('providerForm.agent.detectBtnHelp')}
+          </p>
+        </div>
+        <div className="agent-fields__action">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleTest}
+            disabled={testing}
+            aria-describedby={testHelpId}
+          >
+            {testing ? t('providerForm.agent.test.testing') : t('providerForm.agent.test.btn')}
+          </Button>
+          <p id={testHelpId} className="agent-fields__action-help">
+            {t('providerForm.agent.test.btnHelp')}
+          </p>
+        </div>
         {status && (
           <p className="agent-fields__status" data-state={notFound || detectError ? 'missing' : 'ok'}>
             {status}
@@ -393,17 +425,24 @@ export const AgentProviderFields = ({
         </div>
       )}
 
-      <FormField
-        label={t('providerForm.agent.workDir')}
-        description={t('providerForm.agent.workDirHelp')}
-      >
-        <Input
-          value={setup?.work_dir || ''}
-          readOnly
-          fullWidth
-          placeholder={t('providerForm.agent.workDirUnknown')}
-        />
-      </FormField>
+      {/*
+        O diretório é informação lida, e não campo a preencher: como `Input`
+        somente-leitura ele convidava a digitar e ocupava uma parada de Tab que
+        não fazia nada. O par `dt`/`dd` mantém rótulo e valor ligados para quem
+        usa leitor de telas, sem prometer edição que não existe.
+      */}
+      <div className="agent-fields__workdir">
+        <dl className="agent-fields__workdir-pair">
+          <dt className="agent-fields__workdir-term">{t('providerForm.agent.workDir')}</dt>
+          <dd
+            className="agent-fields__workdir-value"
+            data-empty={setup?.work_dir ? undefined : 'true'}
+          >
+            {setup?.work_dir || t('providerForm.agent.workDirUnknown')}
+          </dd>
+        </dl>
+        <p className="agent-fields__workdir-help">{t('providerForm.agent.workDirHelp')}</p>
+      </div>
     </div>
   );
 };
