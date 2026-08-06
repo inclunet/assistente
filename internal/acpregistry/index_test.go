@@ -256,15 +256,24 @@ func TestODigestQueNaoESha256EhDescartado(t *testing.T) {
 	}
 }
 
-// O nome do pacote vira argumento de `npm install` na Fase 3.
-func TestOPacoteComMetacaractereEhRecusado(t *testing.T) {
+// O nome do pacote vira argumento de `npm install` na Fase 3, e o `npm` aceita
+// mais coisa do que nome de pacote: caminho local e atalho de repositório
+// instalariam outra coisa, de outro lugar, pelo mesmo campo do índice.
+func TestOPacoteQueNaoEEspecificacaoDePacoteEhRecusado(t *testing.T) {
 	casos := map[string]string{
-		"ponto e vírgula": "pacote; rm -rf /",
-		"cifrão":          "pacote$(whoami)",
-		"crase":           "pacote`id`",
-		"espaço":          "dois pacotes",
-		"subida":          "../pacote",
-		"vazio":           "",
+		"ponto e vírgula":       "pacote; rm -rf /",
+		"cifrão":                "pacote$(whoami)",
+		"crase":                 "pacote`id`",
+		"espaço":                "dois pacotes",
+		"subida":                "../pacote",
+		"caminho relativo":      "./pacote",
+		"caminho de home":       "~/pacote",
+		"caminho absoluto":      "/usr/lib/pacote",
+		"atalho de repositório": "usuario/repositorio",
+		"escopo sem arroba":     "escopo/pacote",
+		"barra a mais":          "@escopo/grupo/pacote",
+		"protocolo":             "file:./pacote",
+		"vazio":                 "",
 	}
 	for nome, pacote := range casos {
 		t.Run(nome, func(t *testing.T) {
@@ -273,7 +282,13 @@ func TestOPacoteComMetacaractereEhRecusado(t *testing.T) {
 			}
 		})
 	}
-	for _, pacote := range []string{"@agentclientprotocol/codex-acp@1.1.9", "fast-agent-mcp", "@github/copilot@1.0.78"} {
+	for _, pacote := range []string{
+		"@agentclientprotocol/codex-acp@1.1.9",
+		"fast-agent-mcp",
+		"@github/copilot@1.0.78",
+		"kimi-cli",
+		"pacote@1.0.0-beta.1",
+	} {
 		got := sanitizePackage(&PackageDistribution{Package: pacote})
 		if got == nil || got.Package != pacote {
 			t.Errorf("sanitizePackage(%q) = %+v, quer o próprio", pacote, got)

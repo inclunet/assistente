@@ -164,6 +164,9 @@ func TestPrimeiraExecucaoSemRedeDevolveCatalogoVazioComOMotivo(t *testing.T) {
 	if catalogo.Reason == "" {
 		t.Fatal("catálogo vazio sem motivo: a tela não teria o que explicar")
 	}
+	if catalogo.FromCache {
+		t.Error("FromCache = true num catálogo que não veio de cache algum")
+	}
 	if _, err := os.Stat(filepath.Join(dir, cacheFileName)); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("cache criado sem índice algum: %v", err)
 	}
@@ -414,6 +417,23 @@ func TestABuscaSeIdentificaEPedeJSON(t *testing.T) {
 	}
 	if got := cabecalhos.Get("Accept"); got != "application/json" {
 		t.Errorf("Accept = %q, quer application/json", got)
+	}
+}
+
+// O motivo é texto de tela e de anúncio, inclusive quando vem de um erro de
+// transporte que carrega o que o outro lado escreveu.
+func TestOMotivoDaFalhaEhSaneadoAntesDeVirarTexto(t *testing.T) {
+	sujo := errors.New("falhou \x1b[31mvermelho\x1b[0m com\nquebra e \u202Eversão")
+	motivo := reasonFor(sujo)
+
+	if strings.ContainsAny(motivo, "\x1b\n\r\u202e") {
+		t.Errorf("motivo = %q, ainda carrega escape, quebra ou marca invisível", motivo)
+	}
+	if !strings.Contains(motivo, "não foi possível buscar o índice") {
+		t.Errorf("motivo = %q, quer nomear o que falhou", motivo)
+	}
+	if reasonFor(nil) != "" {
+		t.Errorf("reasonFor(nil) = %q, quer vazio", reasonFor(nil))
 	}
 }
 

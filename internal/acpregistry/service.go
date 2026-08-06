@@ -294,7 +294,8 @@ func (s *Service) catalogFrom(index Index, stamp time.Time, fromCache bool) Cata
 		Version:   index.Version,
 		Agents:    index.Agents,
 		FetchedAt: stamp,
-		FromCache: fromCache,
+		// Sem carimbo não há catálogo, e o que não existe não veio do cache.
+		FromCache: fromCache && !stamp.IsZero(),
 	}
 	if stamp.IsZero() {
 		return catalog
@@ -340,6 +341,9 @@ func reasonFor(err error) string {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "o registro ACP não respondeu no tempo esperado"
 	default:
-		return "não foi possível buscar o índice do registro ACP: " + err.Error()
+		// A parte variável é saneada como qualquer outro texto que chega à tela:
+		// um erro de transporte pode carregar o que o outro lado escreveu, e o
+		// erro completo já foi para o log de quem vai diagnosticar.
+		return "não foi possível buscar o índice do registro ACP: " + acp.SanitizeLabel(err.Error())
 	}
 }

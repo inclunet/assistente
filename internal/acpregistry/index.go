@@ -122,10 +122,12 @@ const (
 // do que confiar em quem for montar o caminho depois.
 var identRule = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
-// packageRule é o que um nome de pacote pode ter. Ele vira argumento de
-// `npm install` na Fase 3, então espaço e metacaractere de shell não passam
-// daqui.
-var packageRule = regexp.MustCompile(`^@?[a-zA-Z0-9][a-zA-Z0-9._~/@-]*$`)
+// packageRule é a forma de uma especificação de pacote: escopo opcional, nome e
+// versão opcional. Ele vira argumento de `npm install` na Fase 3, e a régua é
+// dessa forma e não de um conjunto de caracteres porque `npm` também aceita
+// caminho local e atalho de repositório — `./pacote`, `~/pacote`, `usuário/repo`
+// instalariam outra coisa, de outro lugar, com o mesmo campo do índice.
+var packageRule = regexp.MustCompile(`^(@[a-zA-Z0-9][a-zA-Z0-9._-]*/)?[a-zA-Z0-9][a-zA-Z0-9._-]*(@[a-zA-Z0-9][a-zA-Z0-9._+-]*)?$`)
 
 // digestRule casa os 64 hex de um SHA-256. O formato aceita maiúsculas, e o
 // saneamento normaliza para minúsculas.
