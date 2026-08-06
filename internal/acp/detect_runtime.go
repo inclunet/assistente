@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"cmp"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -173,7 +174,11 @@ func sortedVersionDirs(p probe, searched *searchLog, root string) []string {
 // recente para a mais antiga, comparando por número: como texto, a 9 ficaria na
 // frente da 22.
 func sortVersionNamesDesc(names []string) {
-	slices.SortFunc(names, func(a, b string) int { return nvmVersionOrder(b) - nvmVersionOrder(a) })
+	// Comparação, e não subtração: a diferença de dois inteiros pode estourar, e
+	// um comparador que estoura devolve a ordem trocada em vez de um erro.
+	slices.SortFunc(names, func(a, b string) int {
+		return cmp.Compare(nvmVersionOrder(b), nvmVersionOrder(a))
+	})
 }
 
 // uvOnPath é o caminho normal: o instalador do `uv` acrescenta o diretório dele

@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -410,23 +409,30 @@ func (c *Client) applyAuth(ctx context.Context, req *http.Request) {
 // isso a alguém precisa saber qual das duas foi.
 var ErrServerStatus = errors.New("server error")
 
-// ServerStatusOf devolve o status do 5xx que ErrServerStatus embrulha, ou 0
-// quando o erro é outro. Ele fica aqui, e não em quem chama, porque é aqui que a
-// mensagem é escrita: separar as duas pontas faria uma mudança de texto virar um
-// bug silencioso do outro lado.
+// ServerStatusError carrega o status junto do erro. Ele existe para o status
+// chegar a quem chama como número, e não como pedaço de mensagem: mensagem é
+// texto para gente ler, e reconstruir dado a partir dela faz uma mudança de
+// redação virar bug silencioso.
+type ServerStatusError struct {
+	StatusCode int
+}
+
+func (e *ServerStatusError) Error() string {
+	return fmt.Sprintf("%s: %d", ErrServerStatus.Error(), e.StatusCode)
+}
+
+// Unwrap mantém ErrServerStatus no caminho do errors.Is, para quem só precisa
+// saber que foi 5xx não ter de conhecer o tipo.
+func (e *ServerStatusError) Unwrap() error { return ErrServerStatus }
+
+// ServerStatusOf devolve o status do 5xx que sobreviveu aos retries, ou 0 quando
+// o erro é outro.
 func ServerStatusOf(err error) int {
-	if !errors.Is(err, ErrServerStatus) {
+	var statusErr *ServerStatusError
+	if !errors.As(err, &statusErr) {
 		return 0
 	}
-	_, digits, ok := strings.Cut(err.Error(), ErrServerStatus.Error()+": ")
-	if !ok {
-		return 0
-	}
-	status, convErr := strconv.Atoi(strings.TrimSpace(digits))
-	if convErr != nil {
-		return 0
-	}
-	return status
+	return statusErr.StatusCode
 }
 
 // doWithRetry executa requisição com lógica de retry
@@ -462,7 +468,7 @@ func (c *Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Resp
 
 		// Status 5xx, pode tentar retry
 		_ = resp.Body.Close()
-		lastErr = fmt.Errorf("%w: %d", ErrServerStatus, resp.StatusCode)
+		lastErr = &ServerStatusError{StatusCode: resp.StatusCode}
 	}
 
 	return nil, lastErr

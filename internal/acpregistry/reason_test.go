@@ -24,7 +24,8 @@ func TestReasonCodeForClassificaCadaDesfecho(t *testing.T) {
 		{"índice quebrado", fmt.Errorf("%w: json", ErrMalformedIndex), ReasonMalformedIndex},
 		{"interrompida", fmt.Errorf("busca: %w", context.Canceled), ReasonCanceled},
 		{"sem resposta no tempo", fmt.Errorf("busca: %w", context.DeadlineExceeded), ReasonTimeout},
-		{"registro respondeu com erro", fmt.Errorf("%w: HTTP 503", ErrBadStatus), ReasonBadStatus},
+		{"registro respondeu com erro", &BadStatusError{StatusCode: 503}, ReasonBadStatus},
+		{"registro respondeu com erro, embrulhado", fmt.Errorf("busca: %w", &BadStatusError{StatusCode: 502}), ReasonBadStatus},
 		{"sem rede", errors.New("dial tcp: lookup cdn: no such host"), ReasonUnreachable},
 	}
 	for _, caso := range casos {

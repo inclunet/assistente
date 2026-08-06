@@ -172,6 +172,22 @@ const (
 // ErrBadStatus é a resposta do registro com status que não é 200.
 var ErrBadStatus = errors.New("o registro ACP respondeu com erro")
 
+// BadStatusError carrega o status junto do erro, para o motivo que vai à tela
+// ser montado a partir de um número e não de um pedaço de mensagem. Ele também
+// é o que dispensa sanear o detalhe: um inteiro formatado não tem como carregar
+// o que o outro lado escreveu.
+type BadStatusError struct {
+	StatusCode int
+}
+
+func (e *BadStatusError) Error() string {
+	return fmt.Sprintf("%s: HTTP %d", ErrBadStatus.Error(), e.StatusCode)
+}
+
+// Unwrap mantém ErrBadStatus no caminho do errors.Is, para quem só precisa saber
+// que o registro respondeu com erro não ter de conhecer o tipo.
+func (e *BadStatusError) Unwrap() error { return ErrBadStatus }
+
 // New monta o serviço.
 func New(cfg Config) *Service {
 	client := cfg.HTTP
@@ -353,7 +369,7 @@ func (s *Service) fetch(ctx context.Context) (Index, error) {
 		// assim mandaria conferir a própria conexão em vez de esperar o outro
 		// lado voltar.
 		if status := httpclient.ServerStatusOf(err); status != 0 {
-			return Index{}, fmt.Errorf("%w: HTTP %d", ErrBadStatus, status)
+			return Index{}, &BadStatusError{StatusCode: status}
 		}
 		return Index{}, fmt.Errorf("não foi possível falar com o registro ACP: %w", err)
 	}
@@ -362,7 +378,7 @@ func (s *Service) fetch(ctx context.Context) (Index, error) {
 	if resp.StatusCode != http.StatusOK {
 		// Só o código: o texto da linha de status é escrito pelo servidor, e
 		// mensagem de erro do app acaba em tela e em anúncio.
-		return Index{}, fmt.Errorf("%w: HTTP %d", ErrBadStatus, resp.StatusCode)
+		return Index{}, &BadStatusError{StatusCode: resp.StatusCode}
 	}
 	if contentType := resp.Header.Get("Content-Type"); !isJSONContentType(contentType) {
 		return Index{}, fmt.Errorf("%w: o registro ACP respondeu com Content-Type %q", ErrMalformedIndex, acp.SanitizeLabel(contentType))
@@ -446,15 +462,15 @@ func reasonCodeFor(err error) (Reason, string) {
 	}
 }
 
-// httpStatusOf tira do erro o "HTTP nnn" que o fetch escreveu. Ele é
-// reconstruído a partir do erro, e não devolvido em paralelo, para o motivo
-// continuar sendo função de uma coisa só — o erro.
+// httpStatusOf é o status em texto, para virar o detalhe do motivo. Ele sai do
+// campo do erro, e não da mensagem dele: montado a partir de um inteiro, o
+// detalhe não tem como carregar texto do outro lado.
 func httpStatusOf(err error) string {
-	_, status, ok := strings.Cut(err.Error(), ErrBadStatus.Error()+": ")
-	if !ok {
+	var statusErr *BadStatusError
+	if !errors.As(err, &statusErr) {
 		return ""
 	}
-	return acp.SanitizeLabel(status)
+	return fmt.Sprintf("HTTP %d", statusErr.StatusCode)
 }
 
 // reasonFor é o motivo em texto, para o log e para quem consome este pacote em
