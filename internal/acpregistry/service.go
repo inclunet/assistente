@@ -108,7 +108,8 @@ type Service struct {
 type Catalog struct {
 	// Version é o `version` do documento, já validado.
 	Version string
-	// Agents é o catálogo. Vazio quando não houve como carregá-lo.
+	// Agents é o catálogo. Vazio quando não houve como carregá-lo. Cada chamada
+	// recebe a sua cópia, então mexer nela não alcança os outros leitores.
 	Agents []Agent
 	// FetchedAt é o carimbo da coleta. Zero quando não há catálogo.
 	FetchedAt time.Time
@@ -400,7 +401,7 @@ func (s *Service) fetch(ctx context.Context) (Index, error) {
 func (s *Service) catalogFrom(index Index, stamp time.Time, fromCache bool) Catalog {
 	catalog := Catalog{
 		Version:   index.Version,
-		Agents:    index.Agents,
+		Agents:    cloneAgents(index.Agents),
 		FetchedAt: stamp,
 		// Sem carimbo não há catálogo, e o que não existe não veio do cache.
 		FromCache: fromCache && !stamp.IsZero(),
