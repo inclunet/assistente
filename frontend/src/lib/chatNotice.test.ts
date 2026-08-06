@@ -19,6 +19,8 @@ import {
   CHAT_NOTICE_MODEL_NOT_APPLIED,
   CHAT_NOTICE_MODEL_NOT_OFFERED,
   CHAT_NOTICE_AGENT_MEMORY_LOST,
+  CHAT_NOTICE_MODE_SKIPS_PERMISSION,
+  CHAT_NOTICE_MODE_ASKS_PERMISSION,
 } from './chatNotice';
 
 // Mock de TFunction: ecoa a chave + os args interpolados.
@@ -146,6 +148,30 @@ describe('chatNoticeMessage', () => {
 
     expect(message).toContain('app.chatNotice.agentMemoryLost|');
   });
+
+  it('conta que o modo escolhido dispensa a autorização, nomeando o modo', () => {
+    const message = chatNoticeMessage(t, {
+      conversationId: 'conversa-1',
+      kind: CHAT_NOTICE_MODE_SKIPS_PERMISSION,
+      mode: 'Não perguntar',
+    });
+
+    expect(message).toContain('app.chatNotice.modeSkipsPermission|');
+    // Sem o nome do modo o aviso diria que o agente parou de perguntar sem
+    // dizer o que desfazer para ele voltar a perguntar.
+    expect(message).toContain('"mode":"Não perguntar"');
+  });
+
+  it('conta que a barreira voltou quando o modo pergunta de novo', () => {
+    const message = chatNoticeMessage(t, {
+      conversationId: 'conversa-1',
+      kind: CHAT_NOTICE_MODE_ASKS_PERMISSION,
+      mode: 'Plan Mode',
+    });
+
+    expect(message).toContain('app.chatNotice.modeAsksPermission|');
+    expect(message).toContain('"mode":"Plan Mode"');
+  });
 });
 
 describe('chatNoticeTone', () => {
@@ -153,9 +179,20 @@ describe('chatNoticeTone', () => {
     expect(chatNoticeTone(CHAT_NOTICE_PERMISSION_ALWAYS_ALLOWED)).toBe('info');
   });
 
+  it('a barreira de permissão que voltou é informação, não alerta', () => {
+    expect(chatNoticeTone(CHAT_NOTICE_MODE_ASKS_PERMISSION)).toBe('info');
+  });
+
   it('o que atrapalhou o turno continua sendo alerta', () => {
     expect(chatNoticeTone(CHAT_NOTICE_PERMISSION_ALWAYS_NOT_SAVED)).toBe('warning');
     expect(chatNoticeTone(CHAT_NOTICE_PERMISSION_NO_WATCHER)).toBe('warning');
     expect(chatNoticeTone(undefined)).toBe('warning');
+  });
+
+  // O modo que dispensa a autorização é a única mudança de comportamento que o
+  // app não consegue mais barrar: o alerta é lido em voz alta antes da frase, e
+  // é ele que distingue este aviso de uma notícia qualquer sobre o turno.
+  it('o modo que dispensa a autorização é alerta', () => {
+    expect(chatNoticeTone(CHAT_NOTICE_MODE_SKIPS_PERMISSION)).toBe('warning');
   });
 });

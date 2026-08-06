@@ -23,6 +23,13 @@ type SessionOptionsEvent struct {
 	Model string
 	Mode  string
 
+	// PreviousMode é o modo que o app conhecia antes deste aviso. Vai junto
+	// porque há decisão que depende da transição, e não só do estado novo: o
+	// aviso de que a barreira de permissão caiu (D9) precisa saber se ela
+	// estava de pé. Vem vazio na primeira leitura de uma sessão, que é estado
+	// inicial e não troca.
+	PreviousMode string
+
 	// ModelChanged e ModeChanged dizem que o valor passou a ser outro do que o
 	// app conhecia. Só isso merece anúncio: o agente também repete o estado sem
 	// nada ter mudado, e falar a cada repetição atropelaria a leitura da
@@ -186,6 +193,7 @@ func (m *Manager) sessionOptionsChanged(sessionID string, options []ConfigOption
 		Options:        options,
 		Model:          model,
 		Mode:           mode,
+		PreviousMode:   known.mode,
 		// Valor que o app nunca soube não conta como troca: a primeira leitura
 		// de uma sessão é o estado inicial dela, e anunciá-la faria toda conversa
 		// começar dizendo que o agente mudou de modelo.

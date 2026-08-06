@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"assistente/internal/acp"
+	"assistente/internal/core/ports"
 )
 
 // agenteFalso é o agente do outro lado das ligações de modelo: guarda as opções
@@ -50,6 +51,14 @@ func opcoesDeAgente(modelo, modo string) []acp.ConfigOption {
 			CurrentValue: modo,
 			Values: []acp.ConfigValue{
 				{Value: "agent"}, {Value: "plan"}, {Value: "ask"},
+				// Os modos de permissão do Claude Code. O `acceptEdits`
+				// dispensa a pergunta só para edição e continua perguntando
+				// pelo resto; os dois últimos a dispensam inteira. Um deles vem
+				// com rótulo do agente e o outro sem, que são os dois jeitos de
+				// o aviso ter de nomear o modo.
+				{Value: "acceptEdits", Name: "Aceitar edições"},
+				{Value: "dontAsk", Name: "Não perguntar"},
+				{Value: "bypassPermissions"},
 			},
 		},
 	}
@@ -118,6 +127,19 @@ func (a *agenteFalso) avisaSozinho(modelo string) {
 		return
 	}
 	aviso("sessao-1", opcoesDeAgente(modelo, "agent"))
+}
+
+// avisaModo é o agente contando que trocou de modo por conta própria, sem
+// ninguém ter clicado no seletor — o que o protocolo permite por
+// `config_option_update`.
+func (a *agenteFalso) avisaModo(modo string) {
+	a.mu.Lock()
+	aviso := a.anuncia
+	a.mu.Unlock()
+	if aviso == nil {
+		return
+	}
+	aviso("sessao-1", opcoesDeAgente("modelo-a", modo))
 }
 
 // avisaSemLista é o agente contando a troca sem repetir os valores que oferece —
@@ -395,6 +417,212 @@ func TestAvisoSemValoresESemTrocaNaoViraEvento(t *testing.T) {
 	if eventos := emissor.find("chat:agent_options"); len(eventos) != 0 {
 		t.Fatalf("aviso sem notícia virou evento: %+v", eventos)
 	}
+}
+
+// Escolher um modo que dispensa o pedido de permissão derruba a única barreira
+// que o app tem para autorizar o que o agente faz na máquina (AEP-0084 D9), e o
+// seletor que recebeu a escolha não fica na tela contando isso.
+func TestTrocarParaModoQueDispensaAPerguntaAvisaAConversa(t *testing.T) {
+	agente := novoAgenteFalso()
+	a, emissor := appComAgente(t, agente)
+	conversaComSessao(t, a, "conversa-1")
+
+	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "dontAsk"); err != nil {
+		t.Fatalf("SetAgentSessionOption: %v", err)
+	}
+
+	aviso := avisoUnico(t, emissor)
+	if aviso.Kind != ports.ChatNoticeKindModeSkipsPermission {
+		t.Fatalf("motivo do aviso = %q", aviso.Kind)
+	}
+	if aviso.ConversationID != "conversa-1" {
+		t.Fatalf("o aviso não disse de que conversa é: %q", aviso.ConversationID)
+	}
+	// Pelo nome que o agente deu ao modo: `dontAsk` lido em voz alta é inglês
+	// no meio do português, e não diz a ninguém o que passou a valer.
+	if aviso.Mode != "Não perguntar" {
+		t.Fatalf("o aviso não nomeou o modo como o seletor o nomeia: %q", aviso.Mode)
+	}
+}
+
+// Sem rótulo do agente sobra o valor cru — último recurso, mas melhor do que um
+// aviso que não diz de que modo fala.
+func TestModoSemRotuloDoAgenteEntraNoAvisoPeloValorCru(t *testing.T) {
+	agente := novoAgenteFalso()
+	a, emissor := appComAgente(t, agente)
+	conversaComSessao(t, a, "conversa-1")
+
+	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "bypassPermissions"); err != nil {
+		t.Fatalf("SetAgentSessionOption: %v", err)
+	}
+
+	if aviso := avisoUnico(t, emissor); aviso.Mode != "bypassPermissions" {
+		t.Fatalf("o aviso saiu sem nomear o modo: %+v", aviso)
+	}
+}
+
+// O valor corrente e o da lista vêm os dois do agente, e nada garante que ele
+// escreva os dois igual. Reconhecer o modo para alertar e não reconhecê-lo para
+// nomear jogaria o identificador cru numa frase que já tinha rótulo.
+func TestOModoENomeadoMesmoQuandoOAgenteMudaACaixaDoValor(t *testing.T) {
+	agente := novoAgenteFalso()
+	a, emissor := appComAgente(t, agente)
+	conversaComSessao(t, a, "conversa-1")
+
+	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "DONTASK"); err != nil {
+		t.Fatalf("SetAgentSessionOption: %v", err)
+	}
+
+	aviso := avisoUnico(t, emissor)
+	if aviso.Kind != ports.ChatNoticeKindModeSkipsPermission {
+		t.Fatalf("motivo do aviso = %q", aviso.Kind)
+	}
+	if aviso.Mode != "Não perguntar" {
+		t.Fatalf("o aviso não achou o rótulo do modo na lista: %q", aviso.Mode)
+	}
+}
+
+// A barreira que volta fecha o aviso anterior: quem leu que o agente ia agir
+// sozinho precisa saber quando isso deixou de valer, e nada mais na tela conta
+// essa volta.
+func TestVoltarParaModoQuePerguntaAvisaQueABarreiraVoltou(t *testing.T) {
+	agente := novoAgenteFalso()
+	a, emissor := appComAgente(t, agente)
+	conversaComSessao(t, a, "conversa-1")
+
+	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "dontAsk"); err != nil {
+		t.Fatalf("ligar o modo sem pergunta: %v", err)
+	}
+	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "plan"); err != nil {
+		t.Fatalf("voltar ao modo que pergunta: %v", err)
+	}
+
+	avisos := avisosDaConversa(t, emissor)
+	if len(avisos) != 2 {
+		t.Fatalf("avisos = %d, esperado 2: %+v", len(avisos), avisos)
+	}
+	if avisos[1].Kind != ports.ChatNoticeKindModeAsksPermission {
+		t.Fatalf("a volta da barreira não foi contada: %+v", avisos[1])
+	}
+	if avisos[1].Mode != "plan" {
+		t.Fatalf("o aviso da volta não nomeou o modo: %+v", avisos[1])
+	}
+}
+
+// O aviso é da transição, e não do estado: quem já estava sem barreira e trocou
+// para outro modo que também não pergunta não perdeu nada de novo. É o mesmo
+// acordo da autorização permanente, que não se repete a cada pedido.
+func TestTrocarEntreDoisModosSemPerguntaNaoRepeteOAviso(t *testing.T) {
+	agente := novoAgenteFalso()
+	a, emissor := appComAgente(t, agente)
+	conversaComSessao(t, a, "conversa-1")
+
+	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "dontAsk"); err != nil {
+		t.Fatalf("ligar o modo sem pergunta: %v", err)
+	}
+	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "bypassPermissions"); err != nil {
+		t.Fatalf("trocar para o outro modo sem pergunta: %v", err)
+	}
+
+	if avisos := avisosDaConversa(t, emissor); len(avisos) != 1 {
+		t.Fatalf("avisos = %d, esperado 1: %+v", len(avisos), avisos)
+	}
+}
+
+// Modo que continua pedindo permissão não vira aviso nenhum. O `acceptEdits`
+// está aqui de propósito: ele dispensa a pergunta só para edição, e dizer que a
+// barreira caiu inteira seria falso — a lista de modos conhecidos erra para o
+// lado do silêncio.
+func TestTrocaEntreModosQueContinuamPerguntandoNaoRendeAviso(t *testing.T) {
+	agente := novoAgenteFalso()
+	a, emissor := appComAgente(t, agente)
+	conversaComSessao(t, a, "conversa-1")
+
+	for _, modo := range []string{"plan", "acceptEdits", "agent"} {
+		if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, modo); err != nil {
+			t.Fatalf("trocar para %q: %v", modo, err)
+		}
+	}
+
+	if avisos := avisosDaConversa(t, emissor); len(avisos) != 0 {
+		t.Fatalf("troca entre modos que perguntam virou aviso: %+v", avisos)
+	}
+}
+
+// Troca recusada pelo agente não mudou barreira nenhuma: a sessão segue no modo
+// em que estava, e avisar contaria uma mudança que não houve.
+func TestTrocaDeModoRecusadaPeloAgenteNaoAvisaNada(t *testing.T) {
+	agente := novoAgenteFalso()
+	agente.erroTroca = errors.New("modo indisponível")
+	a, emissor := appComAgente(t, agente)
+	conversaComSessao(t, a, "conversa-1")
+
+	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "dontAsk"); err == nil {
+		t.Fatal("a recusa do agente deveria virar erro")
+	}
+
+	if avisos := avisosDaConversa(t, emissor); len(avisos) != 0 {
+		t.Fatalf("troca que não valeu virou aviso: %+v", avisos)
+	}
+}
+
+// O modo muda por `config_option_update` sem ninguém ter clicado. O aviso é
+// sobre a barreira ter caído, e não sobre quem a derrubou — e neste caso a
+// pessoa tem ainda menos como saber.
+func TestModoSemPerguntaLigadoPeloProprioAgenteTambemAvisa(t *testing.T) {
+	agente := novoAgenteFalso()
+	a, emissor := appComAgente(t, agente)
+	conversaComSessao(t, a, "conversa-1")
+
+	agente.avisaModo("bypassPermissions")
+
+	aviso := avisoUnico(t, emissor)
+	if aviso.Kind != ports.ChatNoticeKindModeSkipsPermission {
+		t.Fatalf("motivo do aviso = %q", aviso.Kind)
+	}
+	if aviso.ConversationID != "conversa-1" {
+		t.Fatalf("o aviso não disse de que conversa é: %q", aviso.ConversationID)
+	}
+}
+
+// A primeira leitura de uma sessão é o estado inicial dela, não uma queda: a
+// conversa que nasce num modo sem pergunta mostra esse modo no seletor desde o
+// começo, e um aviso ali diria que algo mudou quando nada mudou. O agente
+// repetindo o mesmo modo depois também não conta.
+func TestSessaoQueJaNasceSemPerguntaNaoViraAvisoDeQueda(t *testing.T) {
+	agente := &agenteFalso{opcoes: opcoesDeAgente("modelo-a", "dontAsk")}
+	a, emissor := appComAgente(t, agente)
+	conversaComSessao(t, a, "conversa-1")
+
+	agente.avisaModo("dontAsk")
+
+	if avisos := avisosDaConversa(t, emissor); len(avisos) != 0 {
+		t.Fatalf("o estado inicial da sessão virou aviso: %+v", avisos)
+	}
+}
+
+// avisosDaConversa lê os `chat:notice` que chegaram à tela.
+func avisosDaConversa(t *testing.T, emissor *testEmitter) []ports.ChatNoticeEvent {
+	t.Helper()
+	eventos := emissor.find("chat:notice")
+	out := make([]ports.ChatNoticeEvent, 0, len(eventos))
+	for _, evento := range eventos {
+		aviso, ok := evento.data.(ports.ChatNoticeEvent)
+		if !ok {
+			t.Fatalf("payload inesperado em chat:notice: %T", evento.data)
+		}
+		out = append(out, aviso)
+	}
+	return out
+}
+
+func avisoUnico(t *testing.T, emissor *testEmitter) ports.ChatNoticeEvent {
+	t.Helper()
+	avisos := avisosDaConversa(t, emissor)
+	if len(avisos) != 1 {
+		t.Fatalf("avisos = %d, esperado 1: %+v", len(avisos), avisos)
+	}
+	return avisos[0]
 }
 
 func TestLigacoesDeModeloExigemSessaoAutenticada(t *testing.T) {
