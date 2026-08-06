@@ -59,6 +59,9 @@ type npmFalso struct {
 	binario string
 	// manifesto substitui o manifesto padrão quando não está vazio.
 	manifesto string
+	// comShim faz o npm falso ligar também o atalho de lote em
+	// `node_modules/.bin`, que é o que o npm de verdade cria no Windows.
+	comShim bool
 	// erro é o que devolver em vez de instalar.
 	erro error
 	// bloqueia, quando não é nil, segura a instalação até o contexto morrer —
@@ -100,6 +103,17 @@ func (n *npmFalso) Install(ctx context.Context, prefix, spec string) error {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(manifesto), 0o644); err != nil {
 		return err
+	}
+	if n.comShim {
+		atalhos := filepath.Join(prefix, "node_modules", ".bin")
+		if err := os.MkdirAll(atalhos, 0o755); err != nil {
+			return err
+		}
+		for _, atalho := range []string{"codex-acp", "codex-acp.cmd", "codex-acp.ps1"} {
+			if err := os.WriteFile(filepath.Join(atalhos, atalho), []byte("@echo off\n"), 0o755); err != nil {
+				return err
+			}
+		}
 	}
 	return os.WriteFile(filepath.Join(dir, filepath.FromSlash(n.binario)), []byte("#!/usr/bin/env node\n"), 0o755)
 }
@@ -225,10 +239,6 @@ func TestInstallResolveOParNodeMaisPontoDeEntradaEGravaORegistro(t *testing.T) {
 	if !slices.Equal(instalacao.Args, []string{entrada, "--acp"}) {
 		t.Errorf("argumentos = %q, queria o ponto de entrada seguido de --acp", instalacao.Args)
 	}
-	if strings.HasSuffix(strings.ToLower(entrada), ".cmd") {
-		t.Error("resolveu para um arquivo de lote")
-	}
-
 	// A instalação mora em `<root>/<id>/<versão>` (D5).
 	if instalacao.Dir != filepath.Join(c.root, codexID, codexVersao) {
 		t.Errorf("diretório = %q, queria <root>/<id>/<versão>", instalacao.Dir)
@@ -255,6 +265,39 @@ func TestInstallResolveOParNodeMaisPontoDeEntradaEGravaORegistro(t *testing.T) {
 	}
 	if gravado.InstalledAt.IsZero() {
 		t.Error("registro sem data")
+	}
+}
+
+func TestInstallIgnoraOAtalhoDeLoteQueONpmLiga(t *testing.T) {
+	// O npm liga `node_modules/.bin/codex-acp.cmd` no Windows, e é o que ele
+	// mesmo publica para rodar. O app não pode usá-lo: matar um arquivo de lote
+	// mata o interpretador e deixa o agente vivo, e é por isso que `spawnable()`
+	// o recusa de propósito (D8, AEP-0084 D15). O comando resolvido vem do `bin`
+	// do manifesto, e o atalho existir do lado não muda isso.
+	c := montar(t, opcoes{npm: &npmFalso{pacote: codexPacote, binario: codexBinario, comShim: true}})
+
+	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	if err != nil {
+		t.Fatalf("não instalou o agente do catálogo: %v", err)
+	}
+
+	// O atalho está no disco: é justamente a armadilha que o teste monta.
+	atalho := filepath.Join(instalacao.Dir, "node_modules", ".bin", "codex-acp.cmd")
+	if _, err := os.Stat(atalho); err != nil {
+		t.Fatalf("o cenário não montou o atalho de lote: %v", err)
+	}
+
+	for _, parte := range append([]string{instalacao.Command}, instalacao.Args...) {
+		switch strings.ToLower(filepath.Ext(parte)) {
+		case ".cmd", ".bat", ".ps1":
+			t.Errorf("comando resolvido usa %q, que o app não consegue encerrar", parte)
+		}
+	}
+	if filepath.Base(instalacao.Args[0]) != filepath.Base(codexBinario) {
+		t.Errorf("ponto de entrada = %q, queria o `bin` do manifesto", instalacao.Args[0])
+	}
+	if strings.Contains(instalacao.Args[0], string(filepath.Separator)+".bin"+string(filepath.Separator)) {
+		t.Errorf("ponto de entrada = %q, queria o arquivo do pacote e não o atalho", instalacao.Args[0])
 	}
 }
 
