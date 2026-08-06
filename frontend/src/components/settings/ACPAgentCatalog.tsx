@@ -338,10 +338,14 @@ export const ACPAgentCatalog = () => {
   };
 
   const motivo = catalog ? reasonText(t, catalog) : '';
-  const coletado =
-    catalog?.fetched_at && catalog.age_seconds >= 0
-      ? formatRelativeTimeLocalized(Date.now() - catalog.age_seconds * 1000, i18n.language)
-      : '';
+  // A idade sai do instante da coleta, e não de `age_seconds`: a idade é de
+  // quando o backend respondeu, e subtraí-la do relógio de agora produziria um
+  // instante que anda junto com ele — a tela aberta diria "há cinco minutos"
+  // para sempre, enquanto o catálogo envelhece.
+  const coletadoEm = catalog?.fetched_at ? Date.parse(catalog.fetched_at) : NaN;
+  const coletado = Number.isNaN(coletadoEm)
+    ? ''
+    : formatRelativeTimeLocalized(coletadoEm, i18n.language);
 
   const status = (() => {
     if (erroTexto) return erroTexto;

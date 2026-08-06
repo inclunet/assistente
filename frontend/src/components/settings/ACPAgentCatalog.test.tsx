@@ -66,10 +66,14 @@ const agente = (over: Partial<CatalogAgent> & Pick<CatalogAgent, 'id' | 'name'>)
   ...over,
 });
 
+/** Carimbo de coleta a tantos segundos atrás, como o backend o manda. */
+const coletadoHa = (segundos: number): string =>
+  new Date(Date.now() - segundos * 1000).toISOString();
+
 const catalogo = (over: Partial<Catalog> = {}): Catalog => ({
   version: '1.0.0',
   agents: [],
-  fetched_at: '2026-08-06T12:00:00Z',
+  fetched_at: coletadoHa(60),
   age_seconds: 60,
   from_cache: false,
   stale: false,
@@ -269,12 +273,14 @@ describe('ACPAgentCatalog', () => {
     });
 
     it('mostra quando foi coletado e avisa que a cópia local está velha', async () => {
+      const tresDias = 3 * 24 * 60 * 60;
       getCatalogMock.mockResolvedValue(
         catalogo({
           agents: tresAgentes,
           from_cache: true,
           stale: true,
-          age_seconds: 3 * 24 * 60 * 60,
+          fetched_at: coletadoHa(tresDias),
+          age_seconds: tresDias,
           reason_code: 'timeout',
         })
       );
@@ -286,6 +292,18 @@ describe('ACPAgentCatalog', () => {
       expect(status).toHaveTextContent('o registro não respondeu no tempo esperado');
       // A lista continua na tela: o cache velho é melhor do que tela vazia (D2).
       expect(itens()).toHaveLength(3);
+    });
+
+    it('conta a idade a partir do carimbo da coleta, não da idade da resposta', async () => {
+      // `age_seconds` envelhece junto com a tela aberta; o carimbo, não. Aqui os
+      // dois discordam de propósito: quem manda é `fetched_at`.
+      getCatalogMock.mockResolvedValue(
+        catalogo({ agents: tresAgentes, fetched_at: coletadoHa(3 * 60 * 60), age_seconds: 60 })
+      );
+      render(<ACPAgentCatalog />);
+
+      const status = await screen.findByText(/Catálogo coletado/);
+      expect(status).toHaveTextContent('há 3 horas');
     });
 
     it('pede uma nova coleta ao backend quando se atualiza o catálogo', async () => {
