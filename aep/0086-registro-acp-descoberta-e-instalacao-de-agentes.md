@@ -67,7 +67,8 @@ não apenas dois agentes.
 ## Descobertas empíricas
 
 Colhidas em 2026-08-06, contra o índice em produção e contra o adaptador do
-Codex. Os scripts estão no [Apêndice: sondas](#apêndice-sondas).
+Codex, com Node 24 no Windows. Os scripts estão no
+[Apêndice: sondas](#apêndice-sondas).
 
 ### 1. O índice
 
@@ -90,7 +91,14 @@ agente traz `id`, `name`, `version`, `description`, `repository`, `website`,
 
 Os **38 agentes** de hoje se repartem assim: 19 só com `npx`, 15 só com
 `binary`, 2 só com `uvx` e 2 com `binary` e `npx`. Todas as 21 entradas `npx`
-**fixam versão** no nome do pacote (`@github/copilot@1.0.78`), sem exceção.
+**fixam versão** no nome do pacote — o agente de `id` `codex-acp` distribui
+`@agentclientprotocol/codex-acp@1.1.9`, e o de `id` `github-copilot-cli`
+distribui `@github/copilot@1.0.78` — sem exceção.
+
+Vale registrar a distinção que esses dois exemplos mostram, porque ela aparece
+em toda decisão daqui para baixo: o **`id` do registro** e o **nome do pacote**
+são coisas diferentes, e nenhum dos dois é o tipo de provider do app. O D11
+existe justamente para mapear os três sem espalhar `switch` pelo código.
 
 Entre os 90 alvos binários, os formatos observados são `.tar.gz` (55), `.zip`
 (27), `.tar.bz2` (4) e binário cru (4). Um único agente usa `env` — o `vtcode`,
@@ -793,6 +801,12 @@ um provider que sobe; sem `uv`, o requisito é dito com o mesmo tratamento do D7
 - Providers ACP já configurados continuam funcionando sem migração.
 
 ## Apêndice: sondas
+
+As duas são módulos ES e usam `await` no topo do arquivo; a primeira ainda usa
+`fetch`. Ou seja: salve cada uma como `.mjs` (ou num pacote com
+`"type": "module"`) e rode com **Node 18 ou mais novo** — foi com o 24 que elas
+rodaram. Fora isso, a primeira não precisa de nada instalado e a segunda só
+precisa do `npx`, que vem com o npm.
 
 ### A. O índice do registro
 
