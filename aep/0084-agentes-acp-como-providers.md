@@ -692,7 +692,11 @@ formulário do frontend exige `http(s)`. As mudanças:
 - credenciais não se aplicam: `CredentialPattern` vazio, `AuthMode` = none.
   Chave de API mandada para um provider ACP é **recusada** em vez de ignorada:
   quem a informou espera que ela autentique algo, e aqui o login é feito no CLI
-  do agente, fora do app;
+  do agente, fora do app. Esta recusa continua valendo, e o AEP-0086 D12 abre ao
+  lado dela um caminho nomeado e desligado por padrão: por provedor, uma
+  credencial já guardada no cofre pode ser entregue ao agente por variável de
+  ambiente. O campo de credencial do provider — que autentica chamadas HTTP —
+  segue recusado;
 - export/import (`ProviderExport`) hoje carrega `BaseURL` como obrigatório e não
   tem onde guardar comando e argumentos. Ganha os campos novos, com o
   `MCPServerExport` como precedente — ele já exporta `Command`/`Args`. O
