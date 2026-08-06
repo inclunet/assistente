@@ -302,16 +302,17 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     tts: NO_TTS,
   },
   'claude-code': {
-    label: 'Claude Code',
     // O Claude Code não fala ACP nativamente: quem traduz é um adaptador npm
-    // sobre o Claude Agent SDK. Para o app isso é indiferente — o contrato é com
-    // o protocolo —, mas a instalação exige as duas partes.
+    // sobre o Claude Agent SDK. Para o app isso é indiferente — o contrato é
+    // com o protocolo —, mas a instalação exige as duas partes.
+    label: 'Claude Code',
+    // Sem `helpText`: ele só aparece como descrição do campo de URL, que
+    // agente não tem. Quem explica o que instalar é o formulário do agente,
+    // em texto traduzido.
     defaultUrl: '',
     urlEditable: false,
     apiKeyRequired: false,
     testRequiresApiKey: false,
-    helpText:
-      'Local code agent. Requires the Claude Code CLI authenticated and the ACP adapter installed (npm i -g @agentclientprotocol/claude-agent-acp).',
     apiFormat: 'acp',
     tts: NO_TTS,
   },
