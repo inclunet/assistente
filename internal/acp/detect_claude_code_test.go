@@ -143,6 +143,23 @@ func TestDetectClaudeCodeAchaOAdaptadorInstaladoPeloNvm(t *testing.T) {
 	}
 }
 
+func TestOrdemDeVersaoDoNvmNaoEstouraNoMaiorNumeroAceito(t *testing.T) {
+	// O maior nome aceito tem de continuar cabendo no `int` de 32 bits, senão a
+	// ordenação daria resultado diferente por arquitetura.
+	const maiorInt32 = 1<<31 - 1
+	if ordem := nvmVersionOrder("v999.999.999"); ordem <= 0 || ordem > maiorInt32 {
+		t.Fatalf("ordem da maior versão = %d, queria positiva e dentro de int32", ordem)
+	}
+	if nvmVersionOrder("v999.999.999") <= nvmVersionOrder("v22.11.0") {
+		t.Error("a versão maior tem de vir na frente")
+	}
+	// Acima do teto o nome deixa de ser reconhecido, em vez de virar uma ordem
+	// truncada que poria essa versão no lugar errado da fila.
+	if ordem := nvmVersionOrder("v1000.0.0"); ordem != 0 {
+		t.Errorf("ordem = %d, queria 0 para nome fora do padrão", ordem)
+	}
+}
+
 func TestDetectClaudeCodeNoPathEmLinux(t *testing.T) {
 	machine := fakeMachine{
 		goos: "linux",

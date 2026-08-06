@@ -176,12 +176,14 @@ func nvmPrefixes(p probe, searched *searchLog, appdata string) []string {
 }
 
 // nvmVersionPattern aceita o nome de diretório que o nvm-windows usa: a versão
-// do Node, com ou sem o `v` na frente.
-var nvmVersionPattern = regexp.MustCompile(`^v?(\d{1,4})\.(\d{1,4})\.(\d{1,4})$`)
+// do Node, com ou sem o `v` na frente. Três dígitos por componente é o teto
+// porque é o que o peso de `nvmVersionOrder` comporta.
+var nvmVersionPattern = regexp.MustCompile(`^v?(\d{1,3})\.(\d{1,3})\.(\d{1,3})$`)
 
-// nvmVersionOrder transforma a versão em número comparável. O peso de mil por
-// componente cabe em `int` em qualquer arquitetura e é folgado para o que o
-// Node numera: comparar como texto poria a 9 na frente da 22.
+// nvmVersionOrder transforma a versão em número comparável — comparar como
+// texto poria a 9 na frente da 22. O peso de mil por componente mantém o maior
+// valor possível (999999999) dentro do `int` de 32 bits, para a ordenação valer
+// o mesmo em qualquer arquitetura.
 func nvmVersionOrder(name string) int {
 	match := nvmVersionPattern.FindStringSubmatch(name)
 	if match == nil {
