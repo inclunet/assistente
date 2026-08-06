@@ -73,10 +73,14 @@ const missing = {
 };
 
 /** Leva o formulário de criação até o tipo de agente, já detectado. */
-async function abrirFormularioDeAgente(user: ReturnType<typeof userEvent.setup>, nome = 'Cursor local') {
+async function abrirFormularioDeAgente(
+  user: ReturnType<typeof userEvent.setup>,
+  nome = 'Cursor local',
+  tipo = 'cursor',
+) {
   await user.type(screen.getByLabelText(/^nome/i), nome);
-  await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'cursor');
-  await waitFor(() => expect(detectMock).toHaveBeenCalledWith('cursor'));
+  await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), tipo);
+  await waitFor(() => expect(detectMock).toHaveBeenCalledWith(tipo));
 }
 
 afterEach(() => {
@@ -126,6 +130,44 @@ describe('ProviderForm — provedor de agente de código', () => {
     expect(payload.api_key).toBeUndefined();
     expect(payload.default_model).toBeUndefined();
     expect(onSave).toHaveBeenCalled();
+  });
+
+  it('trata o Claude Code como agente, com o comando do adaptador e sem subcomando', async () => {
+    // O segundo agente entra pelo mesmo formulário do primeiro: é isso que prova
+    // que o contrato do app é com o protocolo, e não com o Cursor (AEP-0084
+    // Fase 7). O comando aqui é o par node + adaptador npm, sem `acp`.
+    const claudeCode = {
+      found: true,
+      command: '/usr/bin/node',
+      args: ['/usr/lib/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js'],
+      version: '0.65.0',
+      source: '/usr/lib/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js',
+      searched: [],
+      work_dir: '/home/ana/projetos/assistente',
+      login_command: 'claude',
+    };
+    detectMock.mockResolvedValue(claudeCode);
+    const user = userEvent.setup();
+
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    await abrirFormularioDeAgente(user, 'Claude Code local', 'claude-code');
+    await waitFor(() => {
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(claudeCode.command);
+    });
+
+    expect(screen.queryByLabelText(/base url/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/api key/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /criar/i }));
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled());
+    expect(createMock.mock.calls[0][0]).toMatchObject({
+      type: 'claude-code',
+      api_format: 'acp',
+      base_url: '',
+      acp_command: claudeCode.command,
+      acp_args: claudeCode.args,
+    });
   });
 
   it('deixa salvar sem testar conexão, porque agente não tem endpoint para testar', async () => {

@@ -31,6 +31,14 @@ const (
 	// (AEP-0084). Como os demais, é só o rótulo da marca: quem define o
 	// comportamento é o APIFormat, que aqui é sempre acp.
 	ProviderCursor ProviderType = "cursor"
+
+	// ProviderClaudeCode é o Claude Code como agente de código local
+	// (AEP-0084 Fase 7). Ele fala ACP por um adaptador npm, e não nativamente;
+	// para o barramento isso não muda nada, que é justamente o ponto — o
+	// contrato do app é com o protocolo, não com o Cursor.
+	//
+	// Não se confunde com ProviderClaude, que é a API da Anthropic por HTTP.
+	ProviderClaudeCode ProviderType = "claude-code"
 )
 
 // AuthMode descreve o tratamento de autenticação para o provedor.
