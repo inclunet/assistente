@@ -20,6 +20,11 @@ type fakeMachine struct {
 	dirs  map[string][]string
 	path  map[string]string
 
+	// conteudos são os arquivos que a máquina sabe ler, e não só ver. Só
+	// interessam a quem lê algo de dentro do arquivo — hoje, a versão no
+	// `package.json` do adaptador do Claude Code.
+	conteudos map[string]string
+
 	// recusas são os caminhos que a máquina se nega a conferir, como um
 	// diretório sem permissão de leitura. É o que separa "não existe" de "não
 	// deu para olhar" nos testes.
@@ -41,6 +46,16 @@ func (m fakeMachine) probe() probe {
 				return false, err
 			}
 			return slices.Contains(m.files, path), nil
+		},
+		readFile: func(path string) ([]byte, error) {
+			if err, ok := m.recusas[path]; ok {
+				return nil, err
+			}
+			conteudo, ok := m.conteudos[path]
+			if !ok {
+				return nil, fs.ErrNotExist
+			}
+			return []byte(conteudo), nil
 		},
 		readDir: func(dir string) ([]fs.DirEntry, error) {
 			if err, ok := m.recusas[dir]; ok {
@@ -393,11 +408,14 @@ func TestDetectAgentComAgenteEncontradoIgnoraFalhaEmOutroLugar(t *testing.T) {
 }
 
 func TestDetectAgentRecusaAgenteDesconhecido(t *testing.T) {
-	_, err := DetectAgent(AgentKind("claude-code"))
+	// Um agente que ainda não tem detecção: o Gemini fala ACP, mas nada aqui
+	// sabe procurá-lo, e responder "não instalado" mandaria a pessoa instalar o
+	// que talvez já esteja na máquina.
+	_, err := DetectAgent(AgentKind("gemini-cli"))
 	if err == nil {
 		t.Fatal("aceitou um agente que não tem detecção")
 	}
-	if !strings.Contains(err.Error(), "claude-code") {
+	if !strings.Contains(err.Error(), "gemini-cli") {
 		t.Errorf("erro não nomeia o agente pedido: %v", err)
 	}
 }

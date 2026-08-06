@@ -15,15 +15,25 @@ import (
 	"strings"
 )
 
-// AgentKind identifica o agente de código procurado na máquina. Hoje só o
-// Cursor tem detecção; o Claude Code entra pelo mesmo caminho quando chegar a
-// vez dele (AEP-0084 Fase 7).
+// AgentKind identifica o agente de código procurado na máquina.
 type AgentKind string
 
-// AgentKindCursor é o CLI do Cursor em modo ACP (`agent acp`).
-const AgentKindCursor AgentKind = "cursor"
+const (
+	// AgentKindCursor é o CLI do Cursor em modo ACP (`agent acp`).
+	AgentKindCursor AgentKind = "cursor"
 
-// acpSubcommand é o argumento que põe o CLI em modo ACP.
+	// AgentKindClaudeCode é o Claude Code falando ACP por um adaptador npm.
+	//
+	// Aqui o app não fala com o CLI do agente, e é isso que diferencia esta
+	// detecção da do Cursor: a Anthropic não adotou o protocolo, e quem traduz é
+	// um pacote npm construído sobre o Claude Agent SDK (AEP-0084 Fase 7). O que
+	// se procura é o ponto de entrada desse pacote, e não um executável de marca.
+	AgentKindClaudeCode AgentKind = "claude-code"
+)
+
+// acpSubcommand é o argumento que põe o CLI do Cursor em modo ACP. O adaptador
+// do Claude Code não tem equivalente: ele sobe em ACP sem subcomando nenhum, e
+// passar um seria mandar argumento que ele não entende.
 const acpSubcommand = "acp"
 
 // Install é o que a procura encontrou. Não achar não é erro: é um estado que a
@@ -49,6 +59,16 @@ type Install struct {
 	// onde veio o comando que ela sugeriu.
 	Source string
 
+	// LoginCommand é o comando que autentica o agente, quando ele não é o
+	// próprio comando que sobe o ACP. Vazio quer dizer que o login é o mesmo
+	// programa com outro subcomando — o caso do Cursor, que a tela deriva do
+	// comando configurado, e que continua valendo se alguém o editar à mão.
+	//
+	// Ele vem preenchido mesmo quando não se achou nada: o login é do CLI do
+	// agente, não do pacote que a procura foi buscar, e quem digitou o comando
+	// na mão também precisa da instrução certa.
+	LoginCommand string
+
 	// Searched são os diretórios e arquivos consultados, na ordem. Só o que é
 	// específico da máquina entra aqui: a procura no PATH acontece sempre e é a
 	// mensagem da tela que a menciona, no idioma de quem lê.
@@ -73,19 +93,22 @@ func DetectAgent(kind AgentKind) (Install, error) {
 // detectAgent é o DetectAgent com a máquina injetada, para o teste poder
 // descrever um sistema de arquivos que recusa leitura.
 func detectAgent(kind AgentKind, p probe) (Install, error) {
+	var install Install
 	switch kind {
 	case AgentKindCursor:
-		install := detectCursor(p)
-		if !install.Found && len(install.Failures) > 0 {
-			return install, fmt.Errorf("a procura pelo agente não pôde ser concluída: %s",
-				strings.Join(install.Failures, "; "))
-		}
-		return install, nil
+		install = detectCursor(p)
+	case AgentKindClaudeCode:
+		install = detectClaudeCode(p)
 	default:
 		// O nome vem da chamada da UI e pode chegar de qualquer lugar: sai
 		// citado e achatado, como todo texto de fora (AEP-0084 D11).
 		return Install{}, fmt.Errorf("agente de código desconhecido: %q", singleLine(string(kind)))
 	}
+	if !install.Found && len(install.Failures) > 0 {
+		return install, fmt.Errorf("a procura pelo agente não pôde ser concluída: %s",
+			strings.Join(install.Failures, "; "))
+	}
+	return install, nil
 }
 
 // probe é tudo o que a detecção pergunta ao sistema. Existe para o teste poder
@@ -99,6 +122,11 @@ type probe struct {
 	lookPath func(string) (string, error)
 	isFile   func(string) (bool, error)
 	readDir  func(string) ([]fs.DirEntry, error)
+	// readFile existe para a versão do adaptador do Claude Code, que só está
+	// escrita no `package.json` do pacote. Ela passa por aqui, e não por
+	// os.ReadFile direto, para o teste continuar descrevendo máquinas inteiras
+	// sem tocar no disco.
+	readFile func(string) ([]byte, error)
 }
 
 func systemProbe() probe {
@@ -108,6 +136,7 @@ func systemProbe() probe {
 		lookPath: exec.LookPath,
 		isFile:   isRegularFile,
 		readDir:  os.ReadDir,
+		readFile: os.ReadFile,
 	}
 }
 
@@ -131,7 +160,6 @@ func isRegularFile(path string) (bool, error) {
 // encerraria o agente — que é um processo que edita arquivos (AEP-0084, risco
 // de processo órfão no Windows).
 func detectCursor(p probe) Install {
-	searched := &searchLog{}
 	candidates := []func(probe, *searchLog) (Install, bool){}
 	if p.goos == "windows" {
 		candidates = append(candidates,
@@ -140,7 +168,14 @@ func detectCursor(p probe) Install {
 		)
 	}
 	candidates = append(candidates, cursorOnPath, cursorInLocalBin)
+	return firstInstall(p, candidates)
+}
 
+// firstInstall pergunta aos candidatos, na ordem, e fica com o primeiro que
+// responder. Todos escrevem no mesmo registro de procura: mesmo o que falhou
+// contou onde olhou, e é isso que a tela mostra quando não se acha nada.
+func firstInstall(p probe, candidates []func(probe, *searchLog) (Install, bool)) Install {
+	searched := &searchLog{}
 	for _, candidate := range candidates {
 		if install, ok := candidate(p, searched); ok {
 			install.Found = true
