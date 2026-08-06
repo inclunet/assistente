@@ -197,6 +197,65 @@ func TestDetectClaudeCodeNoPathAceitaOBinarioAnterior(t *testing.T) {
 	}
 }
 
+func TestDetectClaudeCodeAchaOAdaptadorForaDoPathEmLocalBin(t *testing.T) {
+	// App aberto pelo lançador do sistema não herda o PATH do shell de login,
+	// e é lá que o `.profile` acrescenta os binários do npm do usuário. O
+	// Cursor já cobria este buraco.
+	//
+	// O caminho é montado com filepath.Join como o código monta: este teste
+	// roda também no Windows, onde o separador é outro.
+	esperado := filepath.Join("/home/alguem", ".local", "bin", "claude-agent-acp")
+	machine := fakeMachine{
+		goos:  "linux",
+		env:   map[string]string{"HOME": "/home/alguem"},
+		files: []string{esperado},
+	}
+
+	install := detectClaudeCode(machine.probe())
+
+	if !install.Found {
+		t.Fatalf("adaptador de ~/.local/bin não encontrado: %+v", install)
+	}
+	if install.Command != esperado {
+		t.Errorf("comando = %q", install.Command)
+	}
+	if len(install.Args) != 0 {
+		t.Errorf("argumentos = %q; o adaptador sobe em ACP sem subcomando", install.Args)
+	}
+}
+
+func TestDetectClaudeCodeEmLocalBinAceitaOBinarioAnterior(t *testing.T) {
+	esperado := filepath.Join("/home/alguem", ".local", "bin", "claude-code-acp")
+	machine := fakeMachine{
+		goos:  "linux",
+		env:   map[string]string{"HOME": "/home/alguem"},
+		files: []string{esperado},
+	}
+
+	install := detectClaudeCode(machine.probe())
+
+	if !install.Found || install.Command != esperado {
+		t.Fatalf("não aceitou o binário do pacote anterior em ~/.local/bin: %+v", install)
+	}
+}
+
+func TestDetectClaudeCodeNoPathVenceODeLocalBin(t *testing.T) {
+	// Quem está no PATH é o que um terminal rodaria, e é a instalação que a
+	// pessoa enxerga.
+	machine := fakeMachine{
+		goos:  "linux",
+		env:   map[string]string{"HOME": "/home/alguem"},
+		path:  map[string]string{"claude-agent-acp": "/usr/local/bin/claude-agent-acp"},
+		files: []string{filepath.Join("/home/alguem", ".local", "bin", "claude-agent-acp")},
+	}
+
+	install := detectClaudeCode(machine.probe())
+
+	if install.Command != "/usr/local/bin/claude-agent-acp" {
+		t.Errorf("comando = %q; o do PATH deveria vir primeiro", install.Command)
+	}
+}
+
 func TestDetectClaudeCodeWindowsNaoAceitaOAtalhoDeLoteDoNpm(t *testing.T) {
 	// No Windows o npm liga o adaptador como `.cmd`, e o Windows não cria
 	// processo a partir de arquivo de lote: aceitá-lo daria um provider que

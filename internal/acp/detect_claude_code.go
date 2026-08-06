@@ -51,7 +51,7 @@ func detectClaudeCode(p probe) Install {
 	if p.goos == "windows" {
 		candidates = append(candidates, claudeAdapterInNodeModules)
 	}
-	candidates = append(candidates, claudeAdapterOnPath)
+	candidates = append(candidates, claudeAdapterOnPath, claudeAdapterInLocalBin)
 
 	install := firstInstall(p, candidates)
 	install.LoginCommand = claudeLoginCommand
@@ -73,6 +73,29 @@ func claudeAdapterOnPath(p probe, _ *searchLog) (Install, bool) {
 		}
 		// Sem subcomando: o adaptador já sobe falando ACP.
 		return Install{Command: found, Source: found}, true
+	}
+	return Install{}, false
+}
+
+// claudeAdapterInLocalBin cobre Linux e macOS quando o diretório dos binários
+// do npm não está no PATH do processo do app — que herda o ambiente de quem
+// abriu o app, e não o do shell de login. É o mesmo buraco que o Cursor já
+// cobria, e ele aparece aqui pelo mesmo motivo: app aberto pelo lançador do
+// sistema não vê o que o `.profile` acrescentou.
+func claudeAdapterInLocalBin(p probe, searched *searchLog) (Install, bool) {
+	if p.goos == "windows" {
+		return Install{}, false
+	}
+	home := strings.TrimSpace(p.getenv("HOME"))
+	if home == "" {
+		return Install{}, false
+	}
+	for _, adapter := range claudeAdapters {
+		candidate := filepath.Join(home, ".local", "bin", adapter.bin)
+		searched.add(candidate)
+		if exists(p, searched, candidate) {
+			return Install{Command: candidate, Source: candidate}, true
+		}
 	}
 	return Install{}, false
 }
