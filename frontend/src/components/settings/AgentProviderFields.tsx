@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { DetectACPAgent, TestACPAgent } from '@wailsjs/go/app/App';
@@ -54,11 +54,19 @@ const lerArgumentos = (texto: string): string[] =>
  * existir: no Windows a detecção configura `node.exe ...\index.js acp`, e não há
  * `cursor-agent` no PATH (o CLI instala `cursor-agent.cmd` na pasta dele). Já
  * `node.exe ...\index.js login` é o login do mesmo agente.
+ *
+ * O `acp` nos argumentos é a premissa da troca. Sem ele o comando não é um CLI
+ * com subcomando, e sim outro programa rodando um script — o caso do adaptador
+ * npm do Claude Code, cujo login é o CLI `claude` e nunca um `...\index.js
+ * login`. Sem premissa não se deriva nada, e quem sabe o comando passa a ser só
+ * a detecção. Comando sem argumento nenhum continua valendo: é o CLI puro.
  */
 export const agentLoginCommand = (command: string, args: string[]): string => {
   const executavel = command.trim();
   if (!executavel) return '';
-  const partes = [executavel, ...args.map((arg) => arg.trim()).filter((arg) => arg && arg !== 'acp'), 'login'];
+  const argumentos = args.map((arg) => arg.trim()).filter(Boolean);
+  if (argumentos.length > 0 && !argumentos.includes('acp')) return '';
+  const partes = [executavel, ...argumentos.filter((arg) => arg !== 'acp'), 'login'];
   // Caminho com espaço precisa de aspas para quem for copiar a linha para o
   // terminal — é o caso comum no Windows (`C:\Program Files\...`).
   return partes.map((parte) => (/\s/.test(parte) ? `"${parte}"` : parte)).join(' ');
@@ -99,7 +107,16 @@ export const AgentProviderFields = ({
 }: AgentProviderFieldsProps) => {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
-  const [setup, setSetup] = useState<AgentSetup | null>(null);
+  const idBase = useId();
+  const detectHelpId = `${idBase}-detect-help`;
+  const testHelpId = `${idBase}-test-help`;
+  // O resultado da procura guarda de qual agente ele fala. Trocar o tipo do
+  // provedor não desmonta estes campos, e a procura nova leva um tempo: sem a
+  // marca, o que está na tela nesse intervalo descreve o agente anterior — e um
+  // deles é o comando de login, que mandaria rodar o login do Claude Code para
+  // autenticar o Cursor.
+  const [detected, setDetected] = useState<{ kind: string; result: AgentSetup } | null>(null);
+  const setup = detected?.kind === agentKind ? detected.result : null;
   const [detecting, setDetecting] = useState(false);
   const [detectError, setDetectError] = useState('');
   const [testing, setTesting] = useState(false);
@@ -166,13 +183,14 @@ export const AgentProviderFields = ({
     useRef<(options: { applyCommand: 'always' | 'ifEmpty' | 'never'; announceFound: boolean }) => Promise<void>>();
   detectRef.current = async ({ applyCommand, announceFound }) => {
     const seq = ++searchSeq.current;
+    const kind = agentKind;
     const obsoleta = () => seq !== searchSeq.current || !mountedRef.current;
     setDetecting(true);
     setDetectError('');
     try {
-      const result = await DetectACPAgent(agentKind);
+      const result = await DetectACPAgent(kind);
       if (obsoleta()) return;
-      setSetup(result);
+      setDetected({ kind, result });
 
       // As decisões de preencher são tomadas agora, com os valores atuais dos
       // campos, e não antes do await: quem começou a digitar enquanto a detecção
@@ -209,7 +227,7 @@ export const AgentProviderFields = ({
       if (obsoleta()) return;
       const err = error as { message?: unknown } | null;
       const message = String(err?.message || error || t('providerForm.agent.detectFailed'));
-      setSetup(null);
+      setDetected(null);
       setDetectError(message);
       // A procura ter quebrado é anomalia em qualquer modo: mesmo com um comando
       // salvo, quem configura precisa saber que não deu para conferir a máquina.
@@ -306,6 +324,9 @@ export const AgentProviderFields = ({
     return health ? healthAnnouncement(t, health) : '';
   })();
   const resultState = health?.state === 'online' ? 'ok' : 'missing';
+  // Quem sabe o comando de login é a procura, que sabe de que agente se trata;
+  // derivar do que está na tela é o recurso de quando ela não falou.
+  const loginCommand = setup?.login_command || agentLoginCommand(command, args);
 
   return (
     <div className="agent-fields">
@@ -338,13 +359,42 @@ export const AgentProviderFields = ({
         />
       </FormField>
 
-      <div className="agent-fields__detection">
-        <Button type="button" variant="secondary" onClick={handleRedetect} disabled={detecting}>
-          {detecting ? t('providerForm.agent.detecting') : t('providerForm.agent.detectBtn')}
-        </Button>
-        <Button type="button" variant="secondary" onClick={handleTest} disabled={testing}>
-          {testing ? t('providerForm.agent.test.testing') : t('providerForm.agent.test.btn')}
-        </Button>
+      {/*
+        Cada botão vem com a descrição do que o clique faz, ligada por
+        `aria-describedby` e visível ao lado dele. Lado a lado e sem texto, os
+        dois pareciam duas formas de conferir a instalação, e só um deles
+        sobrescreve o comando e os argumentos que estão na tela — quem descobre
+        isso clicando descobre depois de perder o que havia digitado.
+      */}
+      <div className="agent-fields__actions">
+        <div className="agent-fields__action">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleRedetect}
+            disabled={detecting}
+            aria-describedby={detectHelpId}
+          >
+            {detecting ? t('providerForm.agent.detecting') : t('providerForm.agent.detectBtn')}
+          </Button>
+          <p id={detectHelpId} className="agent-fields__action-help">
+            {t('providerForm.agent.detectBtnHelp')}
+          </p>
+        </div>
+        <div className="agent-fields__action">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleTest}
+            disabled={testing}
+            aria-describedby={testHelpId}
+          >
+            {testing ? t('providerForm.agent.test.testing') : t('providerForm.agent.test.btn')}
+          </Button>
+          <p id={testHelpId} className="agent-fields__action-help">
+            {t('providerForm.agent.test.btnHelp')}
+          </p>
+        </div>
         {status && (
           <p className="agent-fields__status" data-state={notFound || detectError ? 'missing' : 'ok'}>
             {status}
@@ -369,15 +419,15 @@ export const AgentProviderFields = ({
       */}
       {health?.state === 'unauthenticated' && (
         <div className="agent-fields__login">
-          <p>{t('providerForm.agent.test.loginHelp')}</p>
           {/*
             A detecção vem primeiro quando ela sabe o comando: no Claude Code o
             que sobe o ACP é um adaptador npm sem login nenhum, e derivar dali
-            mandaria a pessoa a um comando que não existe.
+            mandaria a pessoa a um comando que não existe. Quando ninguém sabe
+            dizer o comando, a tela pede a procura em vez de chutar um: comando
+            errado aqui é a pessoa indo ao terminal para ver um "not found".
           */}
-          <code className="agent-fields__login-command">
-            {setup?.login_command || agentLoginCommand(command, args) || t('providerForm.agent.test.loginCommand')}
-          </code>
+          <p>{loginCommand ? t('providerForm.agent.test.loginHelp') : t('providerForm.agent.test.loginUnknown')}</p>
+          {!!loginCommand && <code className="agent-fields__login-command">{loginCommand}</code>}
           {!!health.login_methods?.length && (
             <p className="agent-fields__login-methods">
               {t('providerForm.agent.test.loginMethods', {
@@ -399,17 +449,24 @@ export const AgentProviderFields = ({
         </div>
       )}
 
-      <FormField
-        label={t('providerForm.agent.workDir')}
-        description={t('providerForm.agent.workDirHelp')}
-      >
-        <Input
-          value={setup?.work_dir || ''}
-          readOnly
-          fullWidth
-          placeholder={t('providerForm.agent.workDirUnknown')}
-        />
-      </FormField>
+      {/*
+        O diretório é informação lida, e não campo a preencher: como `Input`
+        somente-leitura ele convidava a digitar e ocupava uma parada de Tab que
+        não fazia nada. O par `dt`/`dd` mantém rótulo e valor ligados para quem
+        usa leitor de telas, sem prometer edição que não existe.
+      */}
+      <div className="agent-fields__workdir">
+        <dl className="agent-fields__workdir-pair">
+          <dt className="agent-fields__workdir-term">{t('providerForm.agent.workDir')}</dt>
+          <dd
+            className="agent-fields__workdir-value"
+            data-empty={setup?.work_dir ? undefined : 'true'}
+          >
+            {setup?.work_dir || t('providerForm.agent.workDirUnknown')}
+          </dd>
+        </dl>
+        <p className="agent-fields__workdir-help">{t('providerForm.agent.workDirHelp')}</p>
+      </div>
     </div>
   );
 };

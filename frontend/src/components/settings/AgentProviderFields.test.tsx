@@ -122,6 +122,39 @@ const HostQueTrocaDeTipo = () => {
   );
 };
 
+/**
+ * Hospeda os campos do jeito que o formulário faz quando alguém troca de um
+ * agente para outro: os campos continuam na tela, e o comando é limpo para a
+ * detecção do agente novo preencher.
+ */
+const HostQueTrocaDeAgente = () => {
+  const [agentKind, setAgentKind] = useState('claude-code');
+  const [command, setCommand] = useState('');
+  const [args, setArgs] = useState<string[]>([]);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          setAgentKind('cursor');
+          setCommand('');
+          setArgs([]);
+        }}
+      >
+        trocar para cursor
+      </button>
+      <AgentProviderFields
+        agentKind={agentKind}
+        command={command}
+        args={args}
+        onCommandChange={setCommand}
+        onArgsChange={setArgs}
+        autoFill
+      />
+    </div>
+  );
+};
+
 /** Detecção que só responde quando o teste quiser. */
 function deteccaoControlada() {
   let responder: (setup: unknown) => void = () => {};
@@ -161,9 +194,54 @@ describe('AgentProviderFields — agente encontrado', () => {
 
     render(<Host />);
 
-    const workDir = await screen.findByLabelText(/diretório de trabalho/i);
-    await waitFor(() => expect(workDir).toHaveValue(cursorFound.work_dir));
-    expect(workDir).toHaveAttribute('readonly');
+    // Rótulo e valor ligados no mesmo par: quem usa leitor de telas ouve o que
+    // o caminho significa, sem depender de o texto vir logo antes na tela.
+    const rotulo = await screen.findByRole('term');
+    expect(rotulo).toHaveTextContent(/diretório de trabalho/i);
+    const valor = screen.getByRole('definition');
+    await waitFor(() => expect(valor).toHaveTextContent(cursorFound.work_dir));
+    expect(valor.parentElement).toBe(rotulo.parentElement);
+
+    // Não é campo: não há caixa de texto do diretório para preencher, e as duas
+    // que sobram são as que se editam de verdade (comando e argumentos).
+    expect(screen.queryByLabelText(/diretório de trabalho/i)).not.toBeInTheDocument();
+    expect(screen.getAllByRole('textbox')).toHaveLength(2);
+  });
+
+  it('explica que o diretório é o workspace ativo, e não uma escolha desta tela', async () => {
+    detectMock.mockResolvedValue(cursorFound);
+
+    render(<Host />);
+
+    expect(
+      await screen.findByText(/é onde o agente lê e edita arquivos.*workspace ativo/i),
+    ).toBeInTheDocument();
+  });
+
+  it('sem workspace ativo, diz que não há em vez de deixar o diretório em branco', async () => {
+    detectMock.mockResolvedValue({ ...cursorFound, work_dir: '' });
+
+    render(<Host />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('definition')).toHaveTextContent(/nenhum workspace ativo/i);
+    });
+  });
+
+  it('diz o que cada botão faz antes de alguém clicar nele', async () => {
+    // Lado a lado e sem descrição, os dois pareciam duas formas de conferir a
+    // instalação — e só um deles sobrescreve o que está nos campos.
+    detectMock.mockResolvedValue(cursorFound);
+
+    render(<Host />);
+
+    const detectar = await screen.findByRole('button', { name: /detectar e preencher comando/i });
+    expect(detectar).toHaveAccessibleDescription(
+      /preenche o comando e os argumentos acima, substituindo/i,
+    );
+
+    const testar = screen.getByRole('button', { name: /testar agente/i });
+    expect(testar).toHaveAccessibleDescription(/informa se ele respondeu.*não altera os campos/i);
   });
 
   it('não sobrescreve o comando já salvo ao abrir a edição', async () => {
@@ -260,7 +338,7 @@ describe('AgentProviderFields — agente encontrado', () => {
     render(<Host initialCommand="cursor-agent-antigo" autoFill={false} />);
     await waitFor(() => expect(detectMock).toHaveBeenCalledTimes(1));
 
-    await user.click(screen.getByRole('button', { name: /detectar instalação/i }));
+    await user.click(screen.getByRole('button', { name: /detectar e preencher comando/i }));
 
     await waitFor(() => {
       expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command);
@@ -297,7 +375,7 @@ describe('AgentProviderFields — remontado pelo StrictMode', () => {
       expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(cursorFound.command),
     );
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /detectar instalação/i })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: /detectar e preencher comando/i })).toBeEnabled(),
     );
   });
 
@@ -367,7 +445,7 @@ describe('AgentProviderFields — agente ausente', () => {
     render(<Host initialCommand="/opt/cursor/agente" autoFill={false} />);
     await screen.findByText(/agente não encontrado nesta máquina/i);
 
-    await user.click(screen.getByRole('button', { name: /detectar instalação/i }));
+    await user.click(screen.getByRole('button', { name: /detectar e preencher comando/i }));
 
     await waitFor(() => {
       expect(announceMock).toHaveBeenCalledWith(
@@ -406,6 +484,12 @@ describe('agentLoginCommand', () => {
 
   it('sem comando não inventa comando nenhum', () => {
     expect(agentLoginCommand('   ', [])).toBe('');
+  });
+
+  it('sem o subcomando do protocolo não há o que trocar', () => {
+    // É o adaptador npm do Claude Code: `node ...\index.js` não vira
+    // `node ...\index.js login`, porque o adaptador não tem login.
+    expect(agentLoginCommand('node', ['C:\\npm\\claude-agent-acp\\dist\\index.js'])).toBe('');
   });
 });
 
@@ -503,6 +587,51 @@ describe('AgentProviderFields — teste do agente', () => {
     expect(screen.getByText(/abra um terminal e rode o comando abaixo/i)).toBeInTheDocument();
     expect(screen.getByText('claude')).toBeInTheDocument();
     expect(screen.queryByText(/index\.js login/)).not.toBeInTheDocument();
+  });
+
+  it('o login do agente anterior some assim que o agente muda', async () => {
+    // A procura do agente novo demora, e nesse intervalo os campos continuam na
+    // tela: manter o comando de login da procura anterior mandaria autenticar o
+    // Claude Code num provedor do Cursor.
+    detectMock.mockResolvedValue({
+      found: true,
+      command: 'node',
+      args: ['claude-agent-acp/dist/index.js'],
+      searched: [],
+      login_command: 'claude',
+    });
+    testMock.mockResolvedValue({ state: 'unauthenticated', agent_name: 'Claude Agent' });
+    const user = userEvent.setup();
+
+    render(<HostQueTrocaDeAgente />);
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toHaveValue('node'));
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+    expect(await screen.findByText('claude')).toBeInTheDocument();
+
+    // A procura do Cursor fica em voo: é exatamente a janela em que a tela
+    // ainda teria o resultado do Claude Code em mãos.
+    deteccaoControlada();
+    await user.click(screen.getByRole('button', { name: /trocar para cursor/i }));
+
+    await waitFor(() => expect(screen.queryByText('claude')).not.toBeInTheDocument());
+  });
+
+  it('sem saber o comando de login, pede a procura em vez de chutar um', async () => {
+    // Comando configurado à mão, procura que não achou nada: ninguém tem o
+    // comando de login a oferecer, e derivá-lo do adaptador npm mandaria a
+    // pessoa a um `...\index.js login` que não existe.
+    detectMock.mockResolvedValue({ found: false, searched: [] });
+    testMock.mockResolvedValue({ state: 'unauthenticated', agent_name: 'Claude Agent' });
+    const user = userEvent.setup();
+
+    render(<Host initialCommand="node" autoFill={false} agentKind="claude-code" />);
+    await user.type(screen.getByLabelText(/argumentos/i), 'C:\\npm\\claude-agent-acp\\dist\\index.js');
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+
+    expect(await screen.findByText(/instalado, mas não está autenticado/i)).toBeInTheDocument();
+    expect(screen.getByText(/não dá para saber daqui qual comando autentica/i)).toBeInTheDocument();
+    expect(screen.queryByText(/index\.js login/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/cursor-agent login/)).not.toBeInTheDocument();
   });
 
   it('agente que não responde manda conferir comando e instalação, com o detalhe', async () => {
