@@ -18,6 +18,8 @@ export const CHAT_NOTICE_PLAN_UNAVAILABLE = 'plan_rejected_unavailable';
 export const CHAT_NOTICE_MODEL_NOT_OFFERED = 'model_not_offered';
 export const CHAT_NOTICE_MODEL_NOT_APPLIED = 'model_not_applied';
 export const CHAT_NOTICE_AGENT_MEMORY_LOST = 'agent_memory_lost';
+export const CHAT_NOTICE_MODE_SKIPS_PERMISSION = 'agent_mode_skips_permission';
+export const CHAT_NOTICE_MODE_ASKS_PERMISSION = 'agent_mode_asks_permission';
 
 const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_ATTACHMENTS_NOT_SENT]: 'app.chatNotice.attachmentsNotSent',
@@ -35,6 +37,8 @@ const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_MODEL_NOT_OFFERED]: 'app.chatNotice.modelNotOffered',
   [CHAT_NOTICE_MODEL_NOT_APPLIED]: 'app.chatNotice.modelNotApplied',
   [CHAT_NOTICE_AGENT_MEMORY_LOST]: 'app.chatNotice.agentMemoryLost',
+  [CHAT_NOTICE_MODE_SKIPS_PERMISSION]: 'app.chatNotice.modeSkipsPermission',
+  [CHAT_NOTICE_MODE_ASKS_PERMISSION]: 'app.chatNotice.modeAsksPermission',
 };
 
 /**
@@ -43,7 +47,12 @@ const KIND_KEYS: Record<string, string> = {
  * uma autorização que a própria pessoa acabou de conceder daria alarme onde
  * não houve nenhum.
  */
-const INFORMATIVE_KINDS = new Set<string>([CHAT_NOTICE_PERMISSION_ALWAYS_ALLOWED]);
+const INFORMATIVE_KINDS = new Set<string>([
+  CHAT_NOTICE_PERMISSION_ALWAYS_ALLOWED,
+  // A barreira de permissão que voltou é boa notícia: o agente volta a pedir
+  // autorização antes de agir. Só a queda dela é alerta.
+  CHAT_NOTICE_MODE_ASKS_PERMISSION,
+]);
 
 export interface ChatNoticeEvent {
   conversationId?: string;
@@ -52,6 +61,8 @@ export interface ChatNoticeEvent {
   action?: string;
   /** Modelo que atendeu ao turno, quando o escolhido não pôde valer. */
   model?: string;
+  /** Modo do agente de que o aviso fala, já nomeado como o seletor o nomeia. */
+  mode?: string;
 }
 
 /**
@@ -68,6 +79,7 @@ export function chatNoticeMessage(t: TFunction, event: ChatNoticeEvent): string 
   return t(key, {
     count: event.count ?? 0,
     model: event.model ?? '',
+    mode: event.mode ?? '',
     // As duas formas de nomear a mesma classe: dentro da frase e como item de
     // lista. Cada aviso usa a que couber na sua frase, e nenhum precisa saber
     // qual foi a classe para escolher.
