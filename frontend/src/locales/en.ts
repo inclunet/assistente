@@ -1777,6 +1777,69 @@ const en = {
             'There is no way to tell from here which command authenticates this agent. Use "Detect and fill in command" and test again.',
           loginMethods: 'Authentication requested by the agent: {{methods}}.',
         },
+        catalog: {
+          title: 'Install from the agent catalog',
+          intro:
+            'The protocol catalog publishes {{agent}} as an npm package. The application installs version {{version}} into a folder of its own and fills in the command for you.',
+          installBtn: 'Install from the catalog',
+          installBtnHelp:
+            'Shows what will be downloaded, installs the package published in the catalog and fills in the command and arguments above with what it installed.',
+          cancelBtn: 'Cancel installation',
+          cancelFailed: 'Could not cancel the installation.',
+          installed: 'Installed by the application: {{agent}} version {{version}}.',
+          installedDir: 'Installation folder: {{dir}}',
+          useBtn: 'Use the installed command',
+          useAnnounce: 'Command filled in with the installed agent: {{command}}.',
+          removeBtn: 'Remove installed agent',
+          removeBtnHelp:
+            'Deletes the folder of the agent the application installed. The provider stays saved, and its command stops existing.',
+          removed:
+            'Agent removed. The provider is still saved, and its command has stopped existing — test the agent to see that on screen.',
+          removeFailed: 'Could not remove the installed agent.',
+          runtimeMissing:
+            'Installing from the catalog requires {{runtime}}, which was not found on this machine. The application does not install {{runtime}}: install it and come back here.',
+          runtimeSearched: 'We looked for {{runtime}} in PATH and in: {{places}}.',
+          unavailable: 'Installing from the catalog is not possible right now: {{reason}}',
+          unavailableUnknown: 'Installing this agent from the catalog is not possible right now.',
+          planFailed: 'Could not query the agent catalog.',
+          failed: 'The installation failed: {{reason}}',
+          failedAtStep: 'The installation failed {{step}}: {{reason}}',
+          failedUnknown: 'no reason reported',
+          stage: {
+            started: 'Installation of {{agent}} has started.',
+            installing: 'Downloading and installing {{agent}}...',
+            verifying: 'Checking whether {{agent}} answers the protocol...',
+            done: '{{agent}} installed and answering the protocol. Command filled in.',
+            cancelled: 'Installation of {{agent}} cancelled. Nothing was left on disk.',
+          },
+          step: {
+            catalog: 'while querying the catalog',
+            runtime: 'while looking for the runtime on this machine',
+            prepare: 'while preparing the destination folder',
+            install: 'while downloading the package with npm',
+            resolve: 'while working out the command of the installed agent',
+            verify: 'while checking whether the agent answers the protocol',
+            record: 'while writing the installation record',
+          },
+          confirm: {
+            title: 'Install {{agent}} from the catalog?',
+            intro:
+              'The application will download the package and run the command below. Nothing is downloaded before you confirm.',
+            agent: 'Agent',
+            version: 'Version',
+            origin: 'Origin',
+            dir: 'Destination folder',
+            command: 'Command that will be run',
+            confirmBtn: 'Download and install',
+            cancelBtn: 'Cancel',
+          },
+          removeConfirm: {
+            title: 'Remove {{agent}}?',
+            message:
+              'The folder {{dir}} will be deleted. The provider stays saved with its current command, which will stop existing.',
+            confirmBtn: 'Remove',
+          },
+        },
         error: {
           commandRequired: 'Agent command is required',
         },

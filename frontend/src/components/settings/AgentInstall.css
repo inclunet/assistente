@@ -1,0 +1,117 @@
+.agent-install {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-surface);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.agent-install__title {
+  margin: 0;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.agent-install__intro {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+/* Caminho é dado literal: fonte mono, e quebra onde couber. */
+.agent-install__path {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.agent-install__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.agent-install__action {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.agent-install__action .btn {
+  flex: 0 0 auto;
+  min-width: 14rem;
+}
+
+.agent-install__action-help {
+  flex: 1 1 18rem;
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.agent-install__blocked {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-warning-dim);
+}
+
+.agent-install__blocked p {
+  margin: 0;
+}
+
+.agent-install__status {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+/* Estado transmitido por texto; a cor é só reforço visual. */
+.agent-install__status[data-state='busy'] {
+  color: var(--text-primary);
+}
+
+.agent-install__status[data-state='missing'] {
+  color: var(--color-warning);
+}
+
+.agent-install__confirm-intro {
+  margin: 0 0 0.75rem;
+  color: var(--text-primary);
+}
+
+.agent-install__details {
+  display: grid;
+  grid-template-columns: minmax(8rem, auto) 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0 0 1rem;
+  font-size: var(--font-size-sm);
+}
+
+.agent-install__details dt {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.agent-install__details dd {
+  margin: 0;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.agent-install__details-code {
+  font-family: var(--font-mono);
+  color: var(--text-code);
+}
+
+.agent-install__confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
