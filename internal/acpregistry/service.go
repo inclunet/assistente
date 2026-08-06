@@ -86,11 +86,13 @@ type Service struct {
 	now        func() time.Time
 	maxBytes   int64
 
-	mu     sync.RWMutex
-	index  Index
-	stamp  time.Time
-	reason string
-	loaded bool
+	mu           sync.RWMutex
+	index        Index
+	stamp        time.Time
+	reason       string
+	reasonCode   Reason
+	reasonDetail string
+	loaded       bool
 	// failedAt é quando a última busca falhou sem haver catálogo para servir.
 	// É o que faz a espera pela rede acontecer uma vez, e não a cada abertura.
 	failedAt time.Time
@@ -120,8 +122,46 @@ type Catalog struct {
 	Stale bool
 	// Reason explica, em texto, por que o catálogo está vazio ou por que a
 	// última atualização não aconteceu. Vazio quando não há nada a explicar.
+	//
+	// É o texto de quem lê log e de quem consome este pacote em Go. O que
+	// atravessa para a tela é o ReasonCode: a frase precisa existir nos três
+	// locales do app, e uma sentença montada aqui só existiria em um.
 	Reason string
+
+	// ReasonCode é o mesmo motivo como vocabulário fechado, para a tela dizê-lo
+	// no idioma de quem lê. Vazio quando não há nada a explicar.
+	ReasonCode Reason
+
+	// ReasonDetail é a parte variável do motivo, quando ele tem uma: o erro de
+	// transporte que a tela mostra junto da frase traduzida. Já saneado.
+	ReasonDetail string
 }
+
+// Reason é o vocabulário dos motivos pelos quais o catálogo está vazio ou
+// desatualizado (D2). Cada valor tem ação diferente para quem lê a tela, e é por
+// isso que ele não é um booleano de falha.
+type Reason string
+
+const (
+	// ReasonUnsupportedVersion é o documento com major que este app não lê. A
+	// ação é atualizar o app; o cache anterior continua valendo.
+	ReasonUnsupportedVersion Reason = "unsupported_version"
+
+	// ReasonMalformedIndex é a origem respondendo algo que não é um índice.
+	// Não há ação de quem usa: é problema do outro lado, e o app segue com o que
+	// tinha.
+	ReasonMalformedIndex Reason = "malformed_index"
+
+	// ReasonCanceled é a busca interrompida — o app fechando no meio dela.
+	ReasonCanceled Reason = "canceled"
+
+	// ReasonTimeout é o registro não respondendo no tempo esperado.
+	ReasonTimeout Reason = "timeout"
+
+	// ReasonUnreachable é não ter dado para falar com o registro: sem rede,
+	// DNS, proxy, TLS. É o desfecho da primeira execução offline.
+	ReasonUnreachable Reason = "unreachable"
+)
 
 // New monta o serviço.
 func New(cfg Config) *Service {
@@ -171,14 +211,18 @@ func (s *Service) Catalog(ctx context.Context) Catalog {
 	s.ensureLoaded(ctx)
 
 	s.mu.RLock()
-	index, stamp, reason, failedAt := s.index, s.stamp, s.reason, s.failedAt
+	index, stamp, failedAt := s.index, s.stamp, s.failedAt
+	reason, reasonCode, reasonDetail := s.reason, s.reasonCode, s.reasonDetail
 	s.mu.RUnlock()
+
+	explain := func(catalog Catalog) Catalog {
+		catalog.Reason, catalog.ReasonCode, catalog.ReasonDetail = reason, reasonCode, reasonDetail
+		return catalog
+	}
 
 	if stamp.IsZero() {
 		if !failedAt.IsZero() && s.now().Sub(failedAt) < s.retryAfter {
-			catalog := s.catalogFrom(Index{}, time.Time{}, true)
-			catalog.Reason = reason
-			return catalog
+			return explain(s.catalogFrom(Index{}, time.Time{}, true))
 		}
 		// Primeira execução, ou janela vencida: não há o que servir enquanto
 		// isso, e o Refresh já devolve o motivo dentro do catálogo quando a
@@ -187,8 +231,7 @@ func (s *Service) Catalog(ctx context.Context) Catalog {
 		return catalog
 	}
 
-	catalog := s.catalogFrom(index, stamp, true)
-	catalog.Reason = reason
+	catalog := explain(s.catalogFrom(index, stamp, true))
 	if catalog.Stale {
 		s.revalidate(ctx)
 	}
@@ -206,11 +249,12 @@ func (s *Service) Refresh(ctx context.Context) (Catalog, error) {
 
 	index, err := s.fetch(ctx)
 	if err != nil {
+		code, detail := reasonCodeFor(err)
 		reason := reasonFor(err)
 		logging.Warnf(ctx, serviceComponent, "não foi possível atualizar o índice do registro ACP: %v", err)
 
 		s.mu.Lock()
-		s.reason = reason
+		s.reason, s.reasonCode, s.reasonDetail = reason, code, detail
 		current, stamp := s.index, s.stamp
 		if stamp.IsZero() {
 			// Sem catálogo para servir, a falha é o que a próxima abertura
@@ -220,13 +264,14 @@ func (s *Service) Refresh(ctx context.Context) (Catalog, error) {
 		s.mu.Unlock()
 
 		catalog := s.catalogFrom(current, stamp, true)
-		catalog.Reason = reason
+		catalog.Reason, catalog.ReasonCode, catalog.ReasonDetail = reason, code, detail
 		return catalog, err
 	}
 
 	stamp := s.now()
 	s.mu.Lock()
-	s.index, s.stamp, s.reason, s.failedAt = index, stamp, "", time.Time{}
+	s.index, s.stamp, s.failedAt = index, stamp, time.Time{}
+	s.reason, s.reasonCode, s.reasonDetail = "", "", ""
 	s.mu.Unlock()
 
 	if err := saveCache(s.path, index, stamp); err != nil {
@@ -357,24 +402,47 @@ func isJSONContentType(contentType string) bool {
 	return mediaType == "application/json" || mediaType == "text/json" || strings.HasSuffix(mediaType, "+json")
 }
 
-// reasonFor traduz a falha para o texto que a tela mostra e o leitor de telas
-// diz. Cada desfecho tem ação diferente, então "falha ao carregar" não serve.
-func reasonFor(err error) string {
+// reasonCodeFor classifica a falha. Cada desfecho tem ação diferente, então
+// "falha ao carregar" não serve — nem como código, nem como frase.
+//
+// O detalhe só vem preenchido no desfecho que tem um: o erro de transporte, que
+// é a única parte do motivo que este pacote não sabe redigir de antemão. Ele é
+// saneado como qualquer outro texto que chega à tela, porque um erro de
+// transporte pode carregar o que o outro lado escreveu.
+func reasonCodeFor(err error) (Reason, string) {
 	switch {
 	case err == nil:
-		return ""
+		return "", ""
 	case errors.Is(err, ErrUnsupportedVersion):
-		return "o índice do registro ACP está num formato que este app ainda não conhece; atualize o app"
+		return ReasonUnsupportedVersion, ""
 	case errors.Is(err, ErrMalformedIndex):
-		return "o registro ACP respondeu algo que não é um índice válido"
+		return ReasonMalformedIndex, ""
 	case errors.Is(err, context.Canceled):
-		return "a busca do índice do registro ACP foi interrompida"
+		return ReasonCanceled, ""
 	case errors.Is(err, context.DeadlineExceeded):
-		return "o registro ACP não respondeu no tempo esperado"
+		return ReasonTimeout, ""
 	default:
-		// A parte variável é saneada como qualquer outro texto que chega à tela:
-		// um erro de transporte pode carregar o que o outro lado escreveu, e o
-		// erro completo já foi para o log de quem vai diagnosticar.
-		return "não foi possível buscar o índice do registro ACP: " + acp.SanitizeLabel(err.Error())
+		return ReasonUnreachable, acp.SanitizeLabel(err.Error())
+	}
+}
+
+// reasonFor é o motivo em texto, para o log e para quem consome este pacote em
+// Go. A tela não usa esta frase: ela recebe o código e o detalhe, e diz a frase
+// dela nos três locales do app.
+func reasonFor(err error) string {
+	code, detail := reasonCodeFor(err)
+	switch code {
+	case ReasonUnsupportedVersion:
+		return "o índice do registro ACP está num formato que este app ainda não conhece; atualize o app"
+	case ReasonMalformedIndex:
+		return "o registro ACP respondeu algo que não é um índice válido"
+	case ReasonCanceled:
+		return "a busca do índice do registro ACP foi interrompida"
+	case ReasonTimeout:
+		return "o registro ACP não respondeu no tempo esperado"
+	case ReasonUnreachable:
+		return "não foi possível buscar o índice do registro ACP: " + detail
+	default:
+		return ""
 	}
 }
