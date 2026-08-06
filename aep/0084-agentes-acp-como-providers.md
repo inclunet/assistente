@@ -5,9 +5,10 @@
 ## Resumo
 
 Agentes de codificação que falam **ACP (Agent Client Protocol)** — Cursor CLI
-(`agent acp`) e Claude Code (via adapter) — entram no app como **providers LLM
-comuns**, selecionáveis por perfil, conversando na superfície de chat como
-qualquer outro provider. Um novo `APIFormat = "acp"` no barramento, um client
+(`agent acp`), OpenCode (`opencode acp`), GitHub Copilot CLI (`copilot --acp`) e
+Claude Code (via adaptador) — entram no app como **providers LLM comuns**,
+selecionáveis por perfil, conversando na superfície de chat como qualquer outro
+provider. Um novo `APIFormat = "acp"` no barramento, um client
 JSON-RPC sobre stdio em `internal/acp`, e o pipeline de streaming existente
 (`StreamHandler` → eventos `chat:*`) permanece intacto.
 
@@ -129,6 +130,66 @@ Uma premissa anterior também caiu: **`internal/mcp` não implementa JSON-RPC** 
 ele usa o SDK oficial de MCP. O que existe de reaproveitável ali é o padrão de
 subprocesso (spawn com contexto, `osutil.HideConsoleWindow`, env, backoff,
 health), não o protocolo.
+
+### Terceira sonda: os outros três agentes
+
+Sonda executada em 2026-08-05 contra os outros três agentes que este AEP quer
+atender, na mesma máquina Windows e pelo mesmo script do apêndice. Ela responde à
+pergunta de que as fases seguintes dependem: quanto do desenho é do protocolo e
+quanto era do Cursor.
+
+**O Claude Code não fala ACP.** A Anthropic não adotou o protocolo; quem faz a
+ponte é um adaptador npm mantido pelo ecossistema ACP, escrito sobre o Claude
+Agent SDK. O pacote `@zed-industries/claude-code-acp` foi **renomeado** para
+`@agentclientprotocol/claude-agent-acp` — o antigo está deprecado e avisa isso na
+instalação. O binário do pacote novo é `claude-agent-acp`, com entry point em
+`dist/index.js`, e ele sobe em modo ACP **sem subcomando**. Como o `.cmd` que o
+npm escreve não pode ser criado como processo no Windows, o que se spawna é o par
+`node.exe <caminho>\dist\index.js` — a mesma forma do Cursor, por outro motivo.
+
+Com o adaptador 0.65.0 e o Claude Code 2.1.223, o `initialize` responde
+`protocolVersion: 1` e se identifica como `@agentclientprotocol/claude-agent-acp`
+("Claude Agent", 0.65.0). **`authMethods` vem vazio**: a autenticação é a do
+próprio Claude Code, feita fora do protocolo pelo CLI `claude`, e não existe
+método ACP de login como o `cursor_login`. As capacidades são generosas —
+`loadSession: true`; `sessionCapabilities` com `additionalDirectories`, `close`,
+`delete`, `fork`, `list` e `resume`; `promptCapabilities` com `image` e
+`embeddedContext`; MCP por http e sse; `auth: { logout: {} }`; e dois sinais em
+`_meta`, `claudeCode.promptQueueing: true` e `steering.supported: true` na raiz.
+
+O `session/new` dele devolve os dois formatos, como o Cursor, e traz **três**
+categorias de `configOptions`: `model` (`default`, `opus[1m]`, `sonnet` e
+`haiku`, com nome legível e descrição que inclui preço por Mtok); `mode`, que
+aqui é de **permissão**, e não de raciocínio — `auto`, `default` (Manual),
+`acceptEdits`, `plan`, `dontAsk` e `bypassPermissions`; e `thought_level`, de
+identificador `effort`, categoria que o app não conhece.
+
+**O OpenCode fala ACP nativamente**, por subcomando (`opencode acp`), como o
+Cursor. O que muda é o binário: o pacote npm `opencode-ai` (1.18.14) instala um
+**executável nativo** (`node_modules/opencode-ai/bin/opencode.exe`), e não o par
+node+js. Ele anuncia um método de login, `opencode-login`, cuja descrição é a
+instrução literal — "Run `opencode auth login` in the terminal". As capacidades
+são `loadSession: true`, `sessionCapabilities` com `close`, `fork`, `list` e
+`resume`, `promptCapabilities` com `image` e `embeddedContext`, e MCP por http e
+sse. O `session/new` responde **só no formato novo**, com o `model` trazendo
+valor e nome legível (`opencode/big-pickle` → "OpenCode Zen/Big Pickle") — que é
+justamente o formato que o app prefere.
+
+**O GitHub Copilot CLI fala ACP nativamente por flag**, e não por subcomando:
+`copilot --acp` (`@github/copilot` 1.0.78, em preview público desde janeiro de
+2026). O stdio é o padrão; há um `--port` para TCP que não nos interessa. No
+Windows o npm instala um executável nativo por plataforma
+(`@github/copilot-win32-x64/copilot.exe`) e deixa um `npm-loader.js` como entry
+do pacote principal. Ele anuncia um método de login, `copilot-login` ("Run
+`copilot login` in the terminal"), e o método traz `_meta["terminal-auth"]` com
+`command`, `args` e `label`: **o agente diz qual comando rodar para logar**, em
+vez de deixar o cliente adivinhar.
+
+O `session/new` dele responde **só no formato legado** — `models.availableModels`
+com `modelId`/`name`/`description` (`auto` → "Auto", `claude-sonnet-5` → "Claude
+Sonnet 5") —, sem `configOptions`. E as capacidades de sessão são as mais magras
+dos quatro: só `close` e `list`, sem `fork` nem `resume`, embora `loadSession`
+venha `true`.
 
 ## Decisões
 
@@ -693,7 +754,7 @@ o `buildEnv` do MCP.
 
 ## Fases
 
-### Fase 1 — Transporte (`internal/acp`)
+### Fase 1 — Transporte (`internal/acp`) (feita)
 
 Client sobre o SDK atrás da interface do D2: spawn com contexto, handshake,
 sessões multiplexadas, `prompt` com sink de updates, cancelamento, morte e
@@ -702,7 +763,7 @@ reconexão do processo. Testes contra um agente ACP falso.
 **Aceite:** um teste faz um turno completo contra o agente falso, incluindo
 pedido de permissão respondido e cancelamento.
 
-### Fase 2 — Provider no barramento
+### Fase 2 — Provider no barramento (feita)
 
 `APIFormatACP`, `NewACPChatProvider`, mapeamento do D8, tool events do D7,
 segmentação do D13, permissões do D9 no desktop e saneamento do D11.
@@ -722,7 +783,7 @@ o Cursor de ponta a ponta — texto segmentado e falado durante o turno,
 raciocínio, eventos de ferramenta, pedido de permissão acessível e cancelamento
 que chega ao agente. Nenhum caminho novo de envio (AEP-0040).
 
-### Fase 3 — Provider de primeira classe na UI
+### Fase 3 — Provider de primeira classe na UI (feita)
 
 Template builtin do Cursor com detecção da instalação, formulário (comando,
 argumentos, diretório visível), health do D12, indicador de conexão e estado de
@@ -897,11 +958,82 @@ Decisões que a fase fixou:
 
 ### Fase 7 — Claude Code
 
-Segundo alvo pelo mesmo client, validando que o contrato é do protocolo e não do
-Cursor. Ajustes esperados: método de autenticação diferente e ausência das
-extensões `cursor/*`.
+Segundo alvo pelo mesmo client, para separar o que é do protocolo do que era do
+Cursor. A sonda não desmentiu essa parte — o turno, as ferramentas e o
+cancelamento são iguais —, mas desmentiu a premissa de partida: **o Claude Code
+não fala ACP**. Quem atende é um adaptador de terceiros, e é ele que a fase
+integra. As extensões `cursor/*` de fato não existem lá, como se esperava; o que
+mudou de verdade foi a autenticação, o significado de "modo" e o que se spawna.
 
-### Fase 8 — O perfil diante de um agente
+Decisões que a fase toma:
+
+- **A detecção procura o adaptador, não o `claude`.** O CLI da Anthropic não
+  responde ao protocolo, e apontar o provider para ele daria um agente que sobe e
+  nunca se apresenta. O que se procura é o pacote npm, pelos **dois nomes**: o
+  atual (`@agentclientprotocol/claude-agent-acp`) primeiro e o deprecado
+  (`@zed-industries/claude-code-acp`) depois. Aceitar o antigo não é
+  complacência: quem o instalou meses atrás tem uma instalação que funciona, e
+  mandar reinstalar o que já está lá é pedir trabalho para não resolver nada. A
+  tela já diz de qual arquivo veio o comando sugerido, e é por aí que se descobre
+  qual dos dois está em uso.
+- **O modo ACP é a ausência de argumento, e isso é do agente.** O `acp` que o
+  Cursor e o OpenCode pedem é subcomando deles, não do protocolo; o adaptador do
+  Claude sobe sem nenhum. Os argumentos passam a ser parte do template de cada
+  agente, e não uma constante que o app aplica a todos.
+- **A autenticação não passa pelo protocolo, e `authMethods` vazio não quer
+  dizer "não precisa logar".** O diagnóstico de saúde continua correto sem
+  mudança, porque ele não olha a lista de métodos: quem revela a falta de login é
+  o `session/new` recusando. O que quebra é o comando que a tela mostra para
+  resolver — hoje ele é montado a partir do comando do agente, trocando o `acp`
+  por `login`, o que aqui produziria um subcomando do adaptador que não existe.
+  **O comando de login passa a ser do template do agente**, e no Claude Code ele
+  é o login do próprio CLI. A Fase 10 melhora isso para quem informa o comando
+  pelo protocolo; o Claude Code não informa, e por isso precisa da resposta que o
+  template dá.
+- **"Modo", no Claude, é permissão.** Os seis valores (`auto`, Manual,
+  `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions`) descrevem o quanto o
+  agente pergunta antes de agir, e não como ele raciocina — o oposto da leitura
+  de `agent`/`plan`/`ask` que o app herdou do Cursor. Então **o app para de
+  presumir o trio**: o seletor mostra o nome que o agente deu a cada valor, e a
+  tradução por categoria fica só para o formato legado, que não manda nome
+  nenhum. Presumir significado seria pior do que não traduzir: um rótulo do app
+  dizendo "planejar" sobre um modo que na verdade autoriza edições sem perguntar
+  descreveria errado justamente a escolha mais perigosa da lista.
+- **Escolher um modo que desliga a pergunta vira aviso na conversa.** O app não
+  esconde `dontAsk` nem `bypassPermissions` da lista — são modos do agente, que a
+  pessoa liga fora do app de qualquer jeito, e esconder daria a falsa impressão
+  de que não existem. Mas eles dispensam o `session/request_permission`, que é a
+  única barreira que o app tem (D9), e isso é exatamente o caso do aviso de
+  "permitir sempre": a escolha muda o comportamento daí em diante, e o seletor
+  que a recebeu não fica na tela contando isso.
+- **`promptQueueing` e `steering` ficam de fora.** O adaptador anuncia que sabe
+  enfileirar prompts e ser guiado no meio do turno; o app serializa em um turno
+  por sessão de propósito (D10), porque turno abandonado de agente de código
+  continua editando arquivo. Adotar a fila do agente seria abrir mão da regra que
+  torna o cancelamento observável, em troca de uma conveniência que a superfície
+  de chat não pede.
+- **A categoria `thought_level` fica registrada como pendência, e não entra
+  aqui.** O transporte já a carrega — qualquer opção de seleção vira
+  `ConfigOption`, seja qual for a categoria —, então nada se perde no fio; o que
+  falta é a tela. Generalizar o seletor para N categorias é trabalho próprio: o
+  par modelo/modo tem evento com campos nomeados (`chat:agent_options`), anúncio
+  próprio e persistência no perfil, e um terceiro membro obrigaria a repensar os
+  três de uma vez. Fazer isso dentro de uma fase que existe para provar que o
+  contrato é do protocolo trocaria a pergunta da fase. O gatilho para tratá-la é
+  concreto: **quando um segundo agente oferecer categoria fora do par**, o
+  seletor genérico deixa de ser especulação e vira desenho com dois casos reais.
+  Até lá o `effort` fica no valor padrão do agente, que é o que ele usaria se o
+  app não existisse.
+
+**Aceite:** um perfil apontando para o Claude Code conversa de ponta a ponta pelo
+mesmo caminho do Cursor — texto segmentado, raciocínio, ferramentas do agente,
+permissão acessível e cancelamento que chega ao agente —; a lista de modelos
+aparece com os nomes que o adaptador dá; o seletor de modo mostra os nomes dele,
+e escolher um modo que dispensa a pergunta é anunciado na conversa; e o estado
+sem login manda rodar o login do Claude Code, e não um subcomando do adaptador
+que não existe.
+
+### Fase 8 — O perfil diante de um agente (feita)
 
 Duas coisas apareceram no uso, e são a mesma coisa vista de dois lados: o perfil
 oferece ajustes que o agente ignora, e não oferece direito o único ajuste que o
@@ -964,12 +1096,114 @@ Decisões que a fase fixou:
   assunto, não com o perfil; guardar um padrão no perfil criaria uma segunda
   fonte de verdade para algo que a pessoa troca no meio do caminho.
 
+### Fase 9 — OpenCode
+
+Terceiro agente, e o primeiro que responde **só no formato novo**. Ele é a prova
+de que o `configOptions` é o caminho principal e o legado é mesmo alternativa —
+até aqui os dois vinham sempre juntos, do mesmo Cursor, e nada obrigava o app a
+funcionar com um só. Também é o primeiro cujo binário não é o par node+js: o
+pacote npm instala um executável nativo, o que exercita a detecção fora do
+layout que o Cursor impôs a ela.
+
+Entram na fase o tipo de agente `opencode` na detecção, com o layout de
+instalação do npm e o executável nativo por plataforma; o template com o
+subcomando `acp`; o comando de login vindo do agente; e a validação de um turno
+de ponta a ponta.
+
+Decisões que a fase toma:
+
+- **O app deixa de inventar o comando de login quando o agente o descreve.**
+  Hoje a tela monta `<comando> <argumentos sem "acp"> login`, que acerta no
+  Cursor por coincidência de forma e erraria aqui: o login do OpenCode é
+  `opencode auth login`, e não `opencode login`. Ele diz isso na descrição do
+  método `opencode-login`, em texto. Mostrar o que o agente disse é melhor do
+  que mostrar o palpite do app, e a ordem passa a ser essa — o que o agente
+  descreve primeiro, o palpite só para quem não descreve nada. A descrição é
+  texto do agente e passa pelo saneamento de rótulo (D11) antes de chegar à tela.
+- **Sem categoria de modo, o seletor de modo não aparece** — e isso já é a regra
+  da Fase 4, que só mostra o que há para escolher. Vale registrar porque é a
+  primeira vez que ela vale de verdade: o Cursor sempre ofereceu modo, e um
+  agente que não oferece nenhum é o caso que a regra existia para atender sem
+  ninguém ter visto acontecer.
+- **A continuidade da Fase 6 vale sem ressalva.** Ele anuncia `loadSession` e
+  `resume`, então reabrir uma conversa retoma a sessão pelo caminho normal, e o
+  aviso de memória perdida fica onde deve: só quando a retomada falha.
+
+**Aceite:** dá para criar um provedor OpenCode pela tela sem digitar caminho na
+mão; a lista de modelos aparece com os nomes que ele dá; uma conversa vai de
+ponta a ponta com texto segmentado, ferramentas e permissão acessível; e o estado
+sem login mostra `opencode auth login`, que é o comando que o próprio agente
+informa.
+
+### Fase 10 — GitHub Copilot CLI
+
+Quarto agente, e o que põe à prova duas coisas que até aqui só existiam no
+papel: o agente que sobe por **flag**, e o agente que fala **só o formato legado**
+de modelos. Ele também é o único que informa o login de forma estruturada, o que
+transforma a decisão da Fase 9 em algo melhor do que ler uma frase.
+
+Entram na fase o tipo de agente `copilot` na detecção, com o executável nativo
+por plataforma que o npm instala; o template com a flag `--acp`; o login vindo
+de `_meta`; e a leitura do formato legado de modelos, que é o que falta para a
+conversa funcionar.
+
+Decisões que a fase toma:
+
+- **A detecção aponta para o executável da plataforma, não para o
+  `npm-loader.js`.** É a mesma razão do par versionado do Cursor: o app spawna o
+  que ele consegue matar, e um carregador no meio deixaria o agente de verdade
+  como processo órfão quando a conversa terminasse — um agente que edita arquivos
+  sobrevivendo ao app que o abriu.
+- **A flag confirma que os argumentos são do agente.** `--acp` não é subcomando,
+  e o `--port` que ele oferece para TCP fica de fora: o transporte deste AEP é
+  stdio, que é o padrão dele, e abrir uma porta local seria criar superfície de
+  rede para não ganhar nada.
+- **O login vem de `_meta["terminal-auth"]` quando existe.** O método
+  `copilot-login` traz `command`, `args` e `label` prontos, e o palpite do app
+  erraria feio aqui — trocar `acp` por `login` num agente que sobe com `--acp`
+  produziria `copilot --acp login`. A ordem fica: o que o agente informa em
+  `_meta`, depois o que ele descreve em texto (Fase 9), e só então o comando que
+  o app monta. Comando e argumentos vindos do agente são texto não confiável
+  (D11): eles são **mostrados** para a pessoa copiar, e não executados pelo app.
+- **A lista de modelos no formato legado ainda não existe no código, e é o que
+  esta fase precisa entregar.** O D6 decidiu a alternativa, e nenhum agente até
+  hoje a exigiu — o Cursor manda os dois formatos, e a leitura só do
+  `configOptions` bastou. Na prática o `session/new` do Copilot não produz opção
+  nenhuma: o campo `models` sequer é tipado pelo SDK, e o único formato legado
+  que o app converte é o de **modos**. O efeito seria a tela dizer que o agente
+  não deixa escolher modelo, que é mentira, e a troca nunca chegar ao
+  `session/set_model` — o seletor anterior existe e funciona, mas ele é escolhido
+  pela categoria da opção, e sem opção não há categoria. O que falta é ler o
+  `models` cru da resposta de `session/new` e `session/load` — pela saída de
+  baixo nível do D2, já que o SDK não o tipa — e convertê-lo numa opção de
+  categoria `model`, do mesmo jeito que os modos legados já são convertidos. Só
+  a leitura falta: o `session/set_model` já está escrito como alternativa, e ele
+  passa a ser alcançável assim que a opção existir.
+- **A continuidade pode ficar degradada, e isso fica declarado.** Ele anuncia
+  `loadSession: true` e, ao mesmo tempo, capacidades de sessão sem `resume` — as
+  duas declarações discordam. O app segue a que já seguia e trata a falha como a
+  Fase 6 mandou: tenta retomar, e quando não dá, cria sessão nova avisando uma
+  única vez que a memória se perdeu. Escolher pela outra declaração e nem tentar
+  seria jogar fora a retomada de um agente que talvez a suporte.
+
+**Aceite:** um provedor Copilot criado pela tela conversa de ponta a ponta; a
+lista de modelos aparece com os nomes do formato legado e a troca chega ao agente
+por `session/set_model`; o estado sem login mostra o comando que o próprio agente
+informou; e reabrir uma conversa ou retoma a sessão, ou conta uma vez que a
+memória se perdeu.
+
 ## Riscos
 
 - **SDK não oficial.** Mitigado pela interface interna (D2), versão pinada e
   testes com agente falso; a troca de SDK não vaza para o provider.
 - **O protocolo está em movimento.** Modelos já vêm em dois formatos no mesmo
   payload; o legado deve sumir. Suportamos os dois e preferimos o estável.
+- **Um dos agentes é atendido por adaptador de terceiros** (Fase 7): o Claude
+  Code não fala ACP, e a ponte é um pacote npm do ecossistema, que já mudou de
+  nome uma vez. O risco não é o do SDK, que a interface interna isola: é o de a
+  detecção procurar um pacote que passou a se chamar outra coisa. Mitigado por
+  aceitar os nomes conhecidos e por a tela dizer de onde veio o comando que ela
+  sugeriu — quem for corrigir precisa saber o que o app achou.
 - **O agente age no disco.** Com `cwd` do app (D5), quem inicia o app decide o
   que o agente alcança. Risco aceito e mitigado por visibilidade + permissões;
   não é aceitável esconder o diretório.
@@ -1012,7 +1246,16 @@ Decisões que a fase fixou:
 - Sumarização automática e papéis auxiliares do perfil não gastam turnos do
   agente.
 - Lista de modelos e troca de modelo funcionam com o Cursor, pelos dois formatos
-  de seleção.
+  de seleção, e com os demais agentes pelo formato que cada um fala — inclusive
+  com quem só fala o legado.
+- Subir cada agente é configuração do template dele — subcomando, flag ou
+  argumento nenhum —, e não uma suposição do app sobre como todos sobem.
+- O comando de login que a tela mostra é o do agente, quando ele o informa em
+  `_meta` ou o descreve no método; o comando que o app monta é o último recurso,
+  para quem não diz nada.
+- Categoria de opção que o app não representa não impede a conversa: ela fica
+  fora do seletor, o agente segue no valor padrão dele, e a ausência está
+  declarada em vez de acontecer em silêncio.
 - Um provider ACP é criado, testado e diagnosticado pela UI sem `BaseURL`.
 - O turno do agente leva só a mensagem da pessoa: persona, skills, memória,
   resumo e blocos de contexto do app ficam de fora.
@@ -1031,6 +1274,13 @@ A verificação que produziu as descobertas acima é reproduzível. Requer o CLI
 instalado (`irm 'https://cursor.com/install?win32=true' | iex` no Windows) e
 autenticado (`agent login`). No Windows, `AGENT_BIN`/`AGENT_ARGS` apontam para o
 par `node.exe index.js` da versão instalada, porque não há `agent.exe`.
+
+As mesmas duas variáveis sondam os outros agentes: `AGENT_ARGS` é `["acp"]` no
+OpenCode, `["--acp"]` no Copilot CLI e `[]` no adaptador do Claude Code, que sobe
+em modo ACP sem argumento nenhum; e `AGENT_BIN` é o `node.exe` do par versionado
+para quem se instala como pacote npm com entry `.js`, ou o executável nativo nos
+demais. A chamada de `authenticate` é do Cursor e já vem com o erro engolido de
+propósito: quem não anuncia `cursor_login` a recusa, e a sonda segue.
 
 ```js
 import { spawn } from 'node:child_process';
@@ -1110,6 +1360,10 @@ O valor da sonda não se esgota: quando o Cursor mudar o formato de `session/new
 - Protocolo: <https://agentclientprotocol.com/> (Session Config Options
   estabilizadas em 2026-02-04)
 - Cursor CLI em modo ACP: <https://cursor.com/docs/cli/acp>
+- Adaptador do Claude Code: `@agentclientprotocol/claude-agent-acp` (antes
+  `@zed-industries/claude-code-acp`, deprecado)
+- OpenCode: pacote `opencode-ai`, subcomando `acp`
+- GitHub Copilot CLI: pacote `@github/copilot`, flag `--acp`
 - SDK adotado: `github.com/coder/acp-go-sdk`
 - AEP-0012 (barramento multi-provedor), AEP-0037 (contrato `ChatProvider`),
   AEP-0040 (messaging backend-driven), AEP-0064 (cancelamento), AEP-0068
