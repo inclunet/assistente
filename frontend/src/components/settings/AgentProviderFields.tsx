@@ -54,11 +54,19 @@ const lerArgumentos = (texto: string): string[] =>
  * existir: no Windows a detecção configura `node.exe ...\index.js acp`, e não há
  * `cursor-agent` no PATH (o CLI instala `cursor-agent.cmd` na pasta dele). Já
  * `node.exe ...\index.js login` é o login do mesmo agente.
+ *
+ * O `acp` nos argumentos é a premissa da troca. Sem ele o comando não é um CLI
+ * com subcomando, e sim outro programa rodando um script — o caso do adaptador
+ * npm do Claude Code, cujo login é o CLI `claude` e nunca um `...\index.js
+ * login`. Sem premissa não se deriva nada, e quem sabe o comando passa a ser só
+ * a detecção. Comando sem argumento nenhum continua valendo: é o CLI puro.
  */
 export const agentLoginCommand = (command: string, args: string[]): string => {
   const executavel = command.trim();
   if (!executavel) return '';
-  const partes = [executavel, ...args.map((arg) => arg.trim()).filter((arg) => arg && arg !== 'acp'), 'login'];
+  const argumentos = args.map((arg) => arg.trim()).filter(Boolean);
+  if (argumentos.length > 0 && !argumentos.includes('acp')) return '';
+  const partes = [executavel, ...argumentos.filter((arg) => arg !== 'acp'), 'login'];
   // Caminho com espaço precisa de aspas para quem for copiar a linha para o
   // terminal — é o caso comum no Windows (`C:\Program Files\...`).
   return partes.map((parte) => (/\s/.test(parte) ? `"${parte}"` : parte)).join(' ');
@@ -316,6 +324,9 @@ export const AgentProviderFields = ({
     return health ? healthAnnouncement(t, health) : '';
   })();
   const resultState = health?.state === 'online' ? 'ok' : 'missing';
+  // Quem sabe o comando de login é a procura, que sabe de que agente se trata;
+  // derivar do que está na tela é o recurso de quando ela não falou.
+  const loginCommand = setup?.login_command || agentLoginCommand(command, args);
 
   return (
     <div className="agent-fields">
@@ -408,15 +419,15 @@ export const AgentProviderFields = ({
       */}
       {health?.state === 'unauthenticated' && (
         <div className="agent-fields__login">
-          <p>{t('providerForm.agent.test.loginHelp')}</p>
           {/*
             A detecção vem primeiro quando ela sabe o comando: no Claude Code o
             que sobe o ACP é um adaptador npm sem login nenhum, e derivar dali
-            mandaria a pessoa a um comando que não existe.
+            mandaria a pessoa a um comando que não existe. Quando ninguém sabe
+            dizer o comando, a tela pede a procura em vez de chutar um: comando
+            errado aqui é a pessoa indo ao terminal para ver um "not found".
           */}
-          <code className="agent-fields__login-command">
-            {setup?.login_command || agentLoginCommand(command, args) || t('providerForm.agent.test.loginCommand')}
-          </code>
+          <p>{loginCommand ? t('providerForm.agent.test.loginHelp') : t('providerForm.agent.test.loginUnknown')}</p>
+          {!!loginCommand && <code className="agent-fields__login-command">{loginCommand}</code>}
           {!!health.login_methods?.length && (
             <p className="agent-fields__login-methods">
               {t('providerForm.agent.test.loginMethods', {

@@ -1772,7 +1772,8 @@ const es = {
           offline: 'No se pudo hablar con el agente. Revisa el comando y la instalación.',
           offlineDetail: 'No se pudo hablar con el agente. Revisa el comando y la instalación. Detalles: {{detail}}',
           loginHelp: 'Abre una terminal y ejecuta el comando de abajo; luego vuelve aquí y prueba de nuevo.',
-          loginCommand: 'cursor-agent login',
+          loginUnknown:
+            'Desde aquí no hay cómo saber qué comando autentica a este agente. Usa «Detectar y completar comando» y prueba de nuevo.',
           loginMethods: 'Autenticación solicitada por el agente: {{methods}}.',
         },
         error: {

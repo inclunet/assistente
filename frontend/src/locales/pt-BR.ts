@@ -1773,7 +1773,8 @@ const ptBR = {
           offline: 'Não foi possível falar com o agente. Confira o comando e a instalação.',
           offlineDetail: 'Não foi possível falar com o agente. Confira o comando e a instalação. Detalhes: {{detail}}',
           loginHelp: 'Abra um terminal e rode o comando abaixo; depois volte aqui e teste de novo.',
-          loginCommand: 'cursor-agent login',
+          loginUnknown:
+            'Não dá para saber daqui qual comando autentica este agente. Use "Detectar e preencher comando" e teste de novo.',
           loginMethods: 'Autenticação pedida pelo agente: {{methods}}.',
         },
         error: {
