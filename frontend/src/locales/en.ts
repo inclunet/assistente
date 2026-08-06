@@ -1812,6 +1812,8 @@ const en = {
         emptyReason: 'The catalog is empty: {{reason}}',
       },
       reason: {
+        badStatus: 'the registry answered with an error.',
+        badStatusDetail: 'the registry answered with an error ({{detail}}).',
         unreachable: 'the registry could not be reached.',
         unreachableDetail: 'the registry could not be reached ({{detail}}).',
         timeout: 'the registry did not answer in time.',

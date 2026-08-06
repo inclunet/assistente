@@ -15,6 +15,11 @@ import './ACPAgentCatalog.css';
  * O formato é descrito aqui em vez de vir dos tipos gerados do Wails porque
  * `app.ACPCatalog` é classe com método: um objeto literal de teste não satisfaz
  * o tipo, e o teste passaria a existir para agradar o compilador.
+ *
+ * Opcional aqui é exatamente o que é opcional no backend: os campos que o Go
+ * marca com `omitempty` de fato podem faltar, e os outros sempre chegam. Marcar
+ * `runtime_found` como opcional deixaria `undefined` se passar por "runtime
+ * ausente" sem ninguém notar que o campo não veio.
  */
 export interface CatalogAgent {
   id: string;
@@ -25,11 +30,11 @@ export interface CatalogAgent {
   license?: string;
   website?: string;
   repository?: string;
-  distributions?: string[];
+  distributions: string[];
   runtime?: string;
-  runtime_found?: boolean;
+  runtime_found: boolean;
   runtime_path?: string;
-  integrity?: string;
+  integrity: string;
   state: string;
   state_detail?: string;
   detected_version?: string;
@@ -41,8 +46,8 @@ export interface Catalog {
   agents: CatalogAgent[];
   fetched_at?: string;
   age_seconds: number;
-  from_cache?: boolean;
-  stale?: boolean;
+  from_cache: boolean;
+  stale: boolean;
   reason_code?: string;
   reason_detail?: string;
   platform?: string;
@@ -181,6 +186,10 @@ export const reasonText = (t: TFunction, catalog: Catalog): string => {
       return t('acpCatalog.reason.canceled');
     case 'timeout':
       return t('acpCatalog.reason.timeout');
+    case 'bad_status':
+      return catalog.reason_detail
+        ? t('acpCatalog.reason.badStatusDetail', { detail: catalog.reason_detail })
+        : t('acpCatalog.reason.badStatus');
     case 'unreachable':
       return catalog.reason_detail
         ? t('acpCatalog.reason.unreachableDetail', { detail: catalog.reason_detail })

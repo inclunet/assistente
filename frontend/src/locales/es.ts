@@ -1812,6 +1812,8 @@ const es = {
         emptyReason: 'El catálogo está vacío: {{reason}}',
       },
       reason: {
+        badStatus: 'el registro respondió con error.',
+        badStatusDetail: 'el registro respondió con error ({{detail}}).',
         unreachable: 'no se pudo contactar con el registro.',
         unreachableDetail: 'no se pudo contactar con el registro ({{detail}}).',
         timeout: 'el registro no respondió en el tiempo esperado.',

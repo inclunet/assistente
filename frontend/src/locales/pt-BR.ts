@@ -1812,6 +1812,8 @@ const ptBR = {
         emptyReason: 'O catálogo está vazio: {{reason}}',
       },
       reason: {
+        badStatus: 'o registro respondeu com erro.',
+        badStatusDetail: 'o registro respondeu com erro ({{detail}}).',
         unreachable: 'não foi possível falar com o registro.',
         unreachableDetail: 'não foi possível falar com o registro ({{detail}}).',
         timeout: 'o registro não respondeu no tempo esperado.',

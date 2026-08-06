@@ -249,6 +249,25 @@ describe('ACPAgentCatalog', () => {
       expect(screen.queryByRole('list')).not.toBeInTheDocument();
     });
 
+    it('não chama de falha de rede o registro que respondeu com erro', async () => {
+      getCatalogMock.mockResolvedValue(
+        catalogo({
+          agents: [],
+          fetched_at: '',
+          age_seconds: 0,
+          reason_code: 'bad_status',
+          reason_detail: 'HTTP 503',
+        })
+      );
+      render(<ACPAgentCatalog />);
+
+      const status = await screen.findByText(/O catálogo está vazio/);
+      expect(status).toHaveTextContent('o registro respondeu com erro (HTTP 503)');
+      // Mandar conferir a rede seria mandar procurar no lugar errado: a conversa
+      // com o registro aconteceu.
+      expect(status).not.toHaveTextContent('não foi possível falar com o registro');
+    });
+
     it('mostra quando foi coletado e avisa que a cópia local está velha', async () => {
       getCatalogMock.mockResolvedValue(
         catalogo({
