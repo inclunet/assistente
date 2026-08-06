@@ -323,7 +323,11 @@ func acpCatalogAgentFrom(
 	if fit.Runtime != "" {
 		install := runtimes[fit.Runtime]
 		row.RuntimeFound = install.Found
-		row.RuntimePath = install.Path
+		// O caminho é saneado como qualquer texto que vai à tela: ele é montado
+		// a partir de variáveis de ambiente e do PATH, e uma marca invisível de
+		// direção no meio dele faria o nome acessível do item ser lido diferente
+		// do que ele é.
+		row.RuntimePath = acp.SanitizeLabel(install.Path)
 		runtimeOK = install.Found
 	}
 
@@ -347,7 +351,7 @@ func acpCatalogState(
 		found := installs[kind]
 		switch {
 		case found.install.Found:
-			return ACPCatalogStateInstalled, found.install.Source, found.install.Version
+			return ACPCatalogStateInstalled, acp.SanitizeLabel(found.install.Source), found.install.Version
 		case found.err != nil:
 			return ACPCatalogStateDetectionFailed, acp.SanitizeLabel(found.err.Error()), ""
 		}

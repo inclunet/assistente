@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,6 +110,40 @@ func TestOAgenteEncontradoPelaDeteccaoDizOndeEstá(t *testing.T) {
 	}
 	if cursor.Integrity != string(acpregistry.IntegrityNoDigest) {
 		t.Errorf("integridade = %q, quer %q", cursor.Integrity, acpregistry.IntegrityNoDigest)
+	}
+}
+
+func TestOsCaminhosQueVaoAoNomeAcessivelSaoSaneados(t *testing.T) {
+	// Caminho é montado a partir de variáveis de ambiente e do PATH, e vira nome
+	// acessível do item na tela. Uma marca invisível de direção no meio dele
+	// faria o item ser lido diferente do que ele é.
+	const marcaDeDirecao = "\u202e"
+	installs := map[acp.AgentKind]acpDetection{
+		acp.AgentKindCursor: {install: acp.Install{
+			Found:  true,
+			Source: "/home/ana/" + marcaDeDirecao + "sj.exe\r\n",
+		}},
+	}
+	runtimes := map[acp.Runtime]acp.RuntimeInstall{
+		acp.RuntimeNode: {Found: true, Path: "/opt/" + marcaDeDirecao + "node\u0007"},
+	}
+
+	catalogo := acpCatalogFrom(
+		catalogoDe(agenteBinario("cursor", "Cursor", "linux-x86_64", digestQualquer), agenteNPM("amp", "Amp")),
+		"linux-x86_64", installs, runtimes,
+	)
+
+	cursor := acharPorID(t, catalogo, "cursor")
+	if strings.ContainsAny(cursor.StateDetail, marcaDeDirecao+"\r\n") {
+		t.Errorf("detalhe do estado = %q, quer uma linha só sem marca invisível", cursor.StateDetail)
+	}
+	amp := acharPorID(t, catalogo, "amp")
+	if strings.ContainsAny(amp.RuntimePath, marcaDeDirecao+"\u0007") {
+		t.Errorf("caminho do runtime = %q, quer uma linha só sem marca invisível", amp.RuntimePath)
+	}
+	// Saneado não é apagado: o caminho continua identificando a instalação.
+	if !strings.Contains(amp.RuntimePath, "node") {
+		t.Errorf("caminho do runtime = %q, quer ainda apontar o executável", amp.RuntimePath)
 	}
 }
 
