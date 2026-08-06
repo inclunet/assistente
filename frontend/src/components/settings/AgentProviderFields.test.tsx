@@ -69,14 +69,22 @@ const cursorMissing = {
  * Hospeda o componente com o mesmo estado controlado que o formulário dá a ele,
  * para os testes verem o que a detecção preenche de verdade.
  */
-const Host = ({ initialCommand = '', autoFill = true }: { initialCommand?: string; autoFill?: boolean }) => {
+const Host = ({
+  initialCommand = '',
+  autoFill = true,
+  agentKind = 'cursor',
+}: {
+  initialCommand?: string;
+  autoFill?: boolean;
+  agentKind?: string;
+}) => {
   const [command, setCommand] = useState(initialCommand);
   const [args, setArgs] = useState<string[]>([]);
   return (
     <div>
       <span data-testid="args-atual">{args.join(',')}</span>
       <AgentProviderFields
-        agentKind="cursor"
+        agentKind={agentKind}
         command={command}
         args={args}
         onCommandChange={setCommand}
@@ -457,6 +465,44 @@ describe('AgentProviderFields — teste do agente', () => {
       expect.stringMatching(/instalado, mas não está autenticado/i),
       'assertive',
     );
+  });
+
+  it('agente cujo login é outro programa mostra o comando que a detecção deu', async () => {
+    // No Claude Code o que sobe o ACP é um adaptador npm, que não tem login
+    // nenhum: quem autentica é o CLI `claude`. Derivar o login do comando
+    // configurado, como no Cursor, mandaria a pessoa a um comando inexistente.
+    const claudeCode = {
+      found: true,
+      command: 'C:\\Program Files\\nodejs\\node.exe',
+      args: ['C:\\Program Files\\nodejs\\node_modules\\@agentclientprotocol\\claude-agent-acp\\dist\\index.js'],
+      version: '0.65.0',
+      source: 'C:\\Program Files\\nodejs\\node_modules\\@agentclientprotocol\\claude-agent-acp\\dist\\index.js',
+      searched: [],
+      work_dir: 'C:\\Users\\ana\\projetos\\assistente',
+      login_command: 'claude',
+    };
+    detectMock.mockResolvedValue(claudeCode);
+    // O adaptador não anuncia método de login nenhum (`authMethods` vazio), e é
+    // por isso que a instrução da tela precisa bastar por si.
+    testMock.mockResolvedValue({
+      state: 'unauthenticated',
+      agent_name: 'Claude Agent',
+      agent_version: '0.65.0',
+      latency_ms: 140,
+    });
+    const user = userEvent.setup();
+
+    render(<Host agentKind="claude-code" />);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(claudeCode.command);
+    });
+
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+
+    expect(await screen.findByText(/instalado, mas não está autenticado/i)).toBeInTheDocument();
+    expect(screen.getByText(/abra um terminal e rode o comando abaixo/i)).toBeInTheDocument();
+    expect(screen.getByText('claude')).toBeInTheDocument();
+    expect(screen.queryByText(/index\.js login/)).not.toBeInTheDocument();
   });
 
   it('agente que não responde manda conferir comando e instalação, com o detalhe', async () => {

@@ -45,9 +45,10 @@ const lerArgumentos = (texto: string): string[] =>
   texto.split('\n').map((linha) => linha.trim()).filter(Boolean);
 
 /**
- * Monta o comando de login a partir da configuração que está na tela. O login é
- * o mesmo CLI com outro subcomando, então `acp` — que é o que sobe o protocolo —
- * sai e `login` entra.
+ * Monta o comando de login a partir da configuração que está na tela, para o
+ * agente cujo login é o mesmo CLI com outro subcomando: `acp` — que é o que sobe
+ * o protocolo — sai e `login` entra. Quando o login é outro programa, quem diz
+ * qual é ele é a detecção, que sabe de que agente se trata.
  *
  * Um `cursor-agent login` fixo mandaria a pessoa a um comando que pode não
  * existir: no Windows a detecção configura `node.exe ...\index.js acp`, e não há
@@ -369,8 +370,13 @@ export const AgentProviderFields = ({
       {health?.state === 'unauthenticated' && (
         <div className="agent-fields__login">
           <p>{t('providerForm.agent.test.loginHelp')}</p>
+          {/*
+            A detecção vem primeiro quando ela sabe o comando: no Claude Code o
+            que sobe o ACP é um adaptador npm sem login nenhum, e derivar dali
+            mandaria a pessoa a um comando que não existe.
+          */}
           <code className="agent-fields__login-command">
-            {agentLoginCommand(command, args) || t('providerForm.agent.test.loginCommand')}
+            {setup?.login_command || agentLoginCommand(command, args) || t('providerForm.agent.test.loginCommand')}
           </code>
           {!!health.login_methods?.length && (
             <p className="agent-fields__login-methods">

@@ -147,6 +147,7 @@ export namespace app {
 	    args: string[];
 	    version?: string;
 	    source?: string;
+	    login_command?: string;
 	    searched?: string[];
 	    work_dir?: string;
 	
@@ -161,6 +162,7 @@ export namespace app {
 	        this.args = source["args"];
 	        this.version = source["version"];
 	        this.source = source["source"];
+	        this.login_command = source["login_command"];
 	        this.searched = source["searched"];
 	        this.work_dir = source["work_dir"];
 	    }

@@ -26,6 +26,13 @@ type ACPAgentSetup struct {
 	Version string `json:"version,omitempty"`
 	Source  string `json:"source,omitempty"`
 
+	// LoginCommand é o que autenticar este agente exige rodar no terminal,
+	// quando o login não é o próprio comando que sobe o ACP. É o caso do Claude
+	// Code, cujo ACP vem de um adaptador npm sem login nenhum: quem autentica é
+	// o CLI `claude`. Vazio quer dizer que o login sai do comando configurado,
+	// com outro subcomando — o caso do Cursor, que a tela já sabe montar.
+	LoginCommand string `json:"login_command,omitempty"`
+
 	// Searched são os lugares consultados. Só interessa quando não se achou
 	// nada, e é o que transforma "não encontrado" em algo verificável.
 	Searched []string `json:"searched,omitempty"`
@@ -143,12 +150,13 @@ func (a *App) DetectACPAgent(kind string) (ACPAgentSetup, error) {
 	}
 
 	setup := ACPAgentSetup{
-		Found:    install.Found,
-		Command:  install.Command,
-		Args:     install.Args,
-		Version:  install.Version,
-		Source:   install.Source,
-		Searched: install.Searched,
+		Found:        install.Found,
+		Command:      install.Command,
+		Args:         install.Args,
+		Version:      install.Version,
+		Source:       install.Source,
+		Searched:     install.Searched,
+		LoginCommand: install.LoginCommand,
 	}
 	if setup.Args == nil {
 		// Lista sempre presente: `null` faria a tela distinguir "sem
