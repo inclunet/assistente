@@ -21,6 +21,11 @@ app pode instalá-lo onde ele escolher.
 O Codex entra por consequência disso, e não como fase manual: ele é uma linha
 do índice.
 
+Junto vem uma decisão que a chegada do Codex forçou (D12): autenticar o agente
+continua sendo assunto do próprio agente, mas passa a existir um caminho
+explícito, desligado por padrão e ligado por provedor, em que uma credencial que
+já vive no cofre do app é entregue ao agente por variável de ambiente.
+
 ## Motivação
 
 O AEP-0084 colocou agentes de código no barramento de providers, e o desenho
@@ -58,9 +63,11 @@ não apenas dois agentes.
   do app. Uma versão instalada por agente, escolhida por quem clicou.
 - **Não exibe uma terceira categoria de opção de sessão.** O `thought_level` que
   o Codex publica fica registrado e sai deste escopo (D14).
-- **Não gerencia credenciais do agente.** A regra do AEP-0084 D12 continua
-  valendo, e a proposta é mantê-la (D12 daqui) — com a questão registrada para o
-  dono do projeto decidir.
+- **Não autentica o agente pelo app.** O caminho normal continua sendo o
+  mecanismo do próprio agente, e nenhum fluxo de login é reimplementado aqui. O
+  que este AEP acrescenta é estreito e desligado por padrão: a pessoa pode pedir
+  que uma credencial já guardada no cofre seja entregue ao agente por variável de
+  ambiente, com o par variável/credencial à vista (D12).
 - **Não substitui a detecção do que já está instalado.** Quem já tem Cursor ou
   Claude Code na máquina continua sendo atendido pelo caminho de hoje (D1).
 
@@ -517,31 +524,172 @@ Provider já salvo **não é tocado**. O comando dele é a escolha de quem o
 configurou, e a Fase 3 do AEP-0084 já decidiu que nem a detecção automática o
 sobrescreve.
 
-### D12. O app não injeta credencial do agente (proposta; questão aberta em Q1)
+### D12. O caminho normal é a autenticação do próprio agente; passar credencial do cofre é opção explícita, por provedor
 
-O adaptador do Codex aceita chave por `CODEX_API_KEY`/`OPENAI_API_KEY`, e o app
-tem um cofre com chaves da OpenAI. A tentação é óbvia e a proposta é recusá-la:
-**o app não lê o próprio cofre para preencher ambiente de agente**. A
-autenticação continua sendo feita pelo caminho do próprio agente, como o
-AEP-0084 D12 já decidiu.
+O padrão não muda: **o app não injeta credencial**, e quem configura um agente
+autentica pelo mecanismo dele — `agent login` no Cursor, o CLI `claude` no
+adaptador do Claude Code, `api-key` ou `chat-gpt` no do Codex. É o que o
+AEP-0084 D12 já dizia, e continua sendo o que acontece se ninguém mexer em nada.
 
-O que se perde, dito sem maquiagem: quem já tem a chave no app precisa
-autenticar de novo, por fora; e o método `chat-gpt` do adaptador conduz a
-autenticação por navegador, que num app pensado para leitor de telas é um pulo
-de contexto caro. Passar a chave resolveria os dois de uma vez.
+O que passa a existir é um caminho a mais, **desligado por padrão e ligado por
+provedor**: a pessoa pode dizer que uma credencial que já vive no cofre do app
+seja entregue àquele agente por variável de ambiente. Sem isso, agente que só
+autentica por chave fica fora do alcance de quem guarda a chave no app — e o app
+é justamente onde ela está.
 
-O que se ganha mantendo a recusa: a credencial não se espalha para o ambiente de
-um processo de terceiro que o app não escreveu e cujo tratamento de log ele não
-controla — e o AEP-0084 D12 já recusa chave de API em provider ACP na cara, com
-mensagem explicando que o login é do CLI. Injetar por ambiente aquilo que se
-recusa pelo formulário seria a mesma decisão tomada duas vezes em sentidos
-opostos.
+#### O que já é possível hoje, e por que isto é melhor do que aquilo
 
-Nada disso impede a pessoa: `ACPEnv` existe no `ProviderConfig` e ela pode
-declarar a variável à mão. A diferença é entre o app **oferecer** a chave dele e
-a pessoa **informar** a dela.
+`ACPEnv` existe no `ProviderConfig` desde o AEP-0084 D12, e ninguém precisa de
+permissão para usá-lo: quem quer `CODEX_API_KEY` no ambiente do agente digita o
+nome e **cola o segredo literal** no formulário. Esse valor vai para uma coluna
+comum do provedor, em texto claro, fora do cofre — não passa pela DEK, não
+aparece na tela de credenciais, não é contado no inventário de segredos e não
+tem como ser rotacionado num lugar só.
 
-A decisão final é do dono do projeto — ver [Q1](#q1-o-app-deve-passar-credencial-do-cofre-para-o-agente).
+Então a escolha real nunca foi "vazar ou não vazar". Ela é entre **o segredo
+morar colado numa coluna de provedor** e **o provedor guardar uma referência que
+o app resolve no momento de subir o agente**. A segunda é melhor em tudo o que
+importa: o segredo fica onde o cofre o protege, a rotação acontece num ponto só,
+e a tela mostra qual credencial está sendo usada em vez de um campo opaco que
+alguém preencheu meses atrás.
+
+Recusar o caminho oficial não impediria a prática; empurraria quem precisa dela
+para a versão pior, e o app perderia a chance de saber que aquilo está
+acontecendo.
+
+#### Quem declara o nome da variável
+
+Não é adivinhação do app. As duas fontes de metadado que poderiam declarar isso
+foram conferidas, e **nenhuma das duas nomeia a variável**:
+
+- **O `env` do bloco de distribuição binária do registro** existe, mas não é
+  canal de credencial. Um único agente entre os 38 o usa (`vtcode`), com duas
+  variáveis que ligam o modo ACP dele (`VT_ACP_ENABLED`, `VT_ACP_ZED_ENABLED`) —
+  configuração, não segredo. E ele só existe em alvo `binary`: os blocos `npx` e
+  `uvx` não têm o campo, o que exclui justamente os 21 agentes onde a chave é o
+  caminho de autenticação mais comum.
+- **O `authMethods` do agente**, lido no `initialize`, diz de que credencial se
+  trata, e não onde pô-la. O Codex publica
+  `_meta["api-key"].provider = "openai"`, que nomeia o emissor da chave; nenhum
+  campo do método nomeia variável de ambiente.
+
+Ou seja: **quem declara a variável é quem cria o provedor**, no formulário, e o
+app não chuta. O que ele faz com o metadado é o que o metadado permite: o
+`_meta["api-key"].provider` **sugere qual entrada do cofre combina** — `openai`
+aponta para a credencial de `api.openai.com`, se ela existir —, e a sugestão é
+uma pré-seleção que a pessoa confirma, nunca uma escolha automática.
+
+O que falta para isso melhorar está claro, e vale registrar para o dia em que
+aparecer: nem o formato do registro nem o `authMethods` do protocolo têm um campo
+que diga "esta variável de ambiente recebe a credencial". Se um dos dois passar a
+ter, o app adota e o formulário deixa de perguntar.
+
+#### De onde sai a credencial
+
+Do cofre que já existe, sem componente novo. O `credentials.Manager`
+(`internal/credentials`) guarda entradas chaveadas por **padrão de domínio**
+(`DomainCredential.Pattern` — `api.openai.com`, `*.github.com`), cada uma com uma
+`AuthConfig`, cifradas por uma DEK que vive no keychain do sistema
+(`keyring.Get("assistente", "credential_dek")`) e escopadas por usuário do app
+(AEP-0052).
+
+O caminho é curto e todo ele já está escrito:
+
+- `Manager.ListVisibleCredentialsWithContext` dá a lista de padrões que a pessoa
+  escolhe no formulário — os mesmos que ela vê na tela de credenciais;
+- `Manager.GetByPatternWithContext(pattern)` devolve a `AuthConfig` decifrada no
+  instante de subir o agente;
+- `credentials.ResolveSecretFromAuth` extrai o valor a passar (token, senha ou o
+  primeiro header, na ordem que ele já define);
+- `credentials.ResolveExternalRef`, que a decifragem já chama, resolve entrada
+  que **aponta para fora** em vez de guardar o segredo: `keyring://serviço/usuário`,
+  `keyring://<TargetName>` (o Credential Manager do Windows) e `env://NOME`. Quem
+  não quer nem uma cópia dentro do app pode manter o segredo no cofre do sistema
+  e deixar no app só a referência.
+
+O provedor guarda **pares** de nome de variável e padrão do cofre, e não o
+segredo: um campo novo em `ProviderConfig`, ao lado de `ACPCommand`, `ACPArgs` e
+`ACPEnv`. Ele **não** reaproveita o `CredentialPattern`, e não por descuido:
+`normalizeProviderACP` zera esse campo de propósito em todo provedor ACP, porque
+ele significa "que credencial autentica as chamadas HTTP deste provedor" — e um
+agente não faz chamada HTTP nenhuma. Reusá-lo com outro sentido faria o mesmo
+campo querer dizer duas coisas conforme o formato.
+
+Vale a mesma regra de export do `ACPEnv`: a referência pode viajar no arquivo
+exportado, porque ela não é segredo; o segredo continua fora do arquivo, e a
+importação numa máquina sem aquela entrada no cofre entra com aviso, como o
+comando inexistente já entra.
+
+#### Onde a variável existe, e onde ela não existe
+
+A injeção acontece no `buildEnv` de `internal/acp/client.go`, que monta
+`os.Environ()` mais as extras e entrega o resultado ao `exec.Cmd.Env`. Isso não é
+detalhe: **o app nunca chama `os.Setenv`**, então a variável existe só no
+ambiente daquele processo de agente. Ela não entra no ambiente do app, não é
+herdada por servidor MCP, por comando de shell da tool ou por qualquer outro
+filho, e desaparece quando o processo do agente morre.
+
+Duas regras completam isso, e as duas são verificáveis por teste:
+
+- **A credencial nunca aparece em log do app.** O que se registra é o nome da
+  variável e o padrão do cofre, jamais o valor. Há precedente do lado certo:
+  `redactCommandForLog` em `internal/tools/shell`, o `env_redacted` da tool de
+  servidor MCP e o `RedactResolvedInputs` dos jobs.
+- **O valor não volta para a tela.** O formulário mostra qual variável recebe
+  qual entrada do cofre, e a entrada aparece mascarada pelo
+  `MaskCredentialValue`/`SummarizeAuth` que a tela de credenciais já usa. Não
+  existe caminho de leitura que devolva o segredo ao frontend.
+
+#### O que o app não tem como evitar, e fica escrito
+
+Variável de ambiente é onde token vaza, e ligar essa opção compra riscos que
+nenhuma mitigação do app cobre:
+
+- **O agente pode imprimir o próprio ambiente** num diagnóstico. E aqui há um
+  agravante que é nosso: o `newStderrLogger` do transporte encaminha o stderr do
+  agente para o log do app, linha a linha, para que um agente que não sobe possa
+  ser diagnosticado. Um agente que despeje `env` no stderr faria o app gravar a
+  chave no próprio arquivo de log. **O valor injetado é redigido das linhas de
+  stderr antes de virar log** — é a mitigação possível, e ela não cobre o que o
+  agente escreve nos arquivos dele.
+- **Relatório de falha e inspeção de processo.** No Windows, quem tem acesso ao
+  processo lê o ambiente dele; um dump de memória carrega o valor. Isso é
+  propriedade do mecanismo, não do app.
+- **A credencial vai para um binário de terceiro**, possivelmente baixado do
+  catálogo por este mesmo AEP. Ele decide o que fazer com ela, e o app não tem
+  visibilidade nem recurso contra isso.
+
+Por isso a opção é desligada por padrão, por provedor, e o diálogo que a liga diz
+o que ela implica em vez de só pedir confirmação.
+
+#### Consentimento e reversão
+
+Ligar é ação da pessoa, num provedor específico, com o que vai ser passado à
+vista: **qual variável** e **qual entrada do cofre**, com o valor mascarado. É a
+mesma disciplina do D3 — autorizar sem ver o que se autoriza não vale aqui
+tampouco.
+
+Desligar é imediato e não deixa rastro no agente pela nossa parte: o par sai do
+provedor e o próximo processo sobe sem a variável. O processo que já está de pé
+mantém o ambiente com que nasceu, porque ambiente de processo não se edita depois
+do `exec`; a tela diz isso, e reiniciar o agente é o que aplica a mudança na
+hora.
+
+Nada disso muda a recusa que já existe: **chave de API mandada pelo campo de
+credencial de um provedor ACP continua sendo recusada** (AEP-0084 D12), com a
+mensagem explicando que o login é do CLI. O campo de credencial do provedor
+autentica chamadas HTTP do app, e um agente não tem nenhuma; o caminho desta
+decisão é outro, é nomeado, e diz para onde a credencial vai.
+
+#### Acessibilidade e i18n
+
+O estado é texto legível por leitor de telas: se a passagem está ligada, qual
+variável, qual entrada do cofre, e o aviso de que reiniciar o agente aplica a
+mudança. Erro de resolução — entrada apagada do cofre, cofre trancado, referência
+externa que não resolve — nomeia o que falta e o que fazer, e **falha o spawn em
+vez de subir o agente sem a variável**: subir calado faria o agente pedir
+autenticação sem ninguém entender por quê. Strings nos três locales quando a fase
+chegar (Fase 8).
 
 ### D13. Progresso e erro de instalação são percebidos por leitor de telas
 
@@ -598,22 +746,12 @@ O que a sonda precisaria fazer está em [Q2](#q2-o-que-os-modos-do-codex-fazem-c
 
 ## Questões em aberto
 
-### Q1. O app deve passar credencial do cofre para o agente?
-
-A favor de passar: quem já configurou a chave da OpenAI no app espera que ela
-sirva; autenticar de novo por fora é atrito, e o caminho alternativo do Codex
-(`chat-gpt`) passa por navegador, que é justamente o tipo de salto de contexto
-que este app existe para evitar. Tecnicamente é trivial — `ACPEnv` já existe.
-
-Contra: o AEP-0084 D12 recusa chave de API em provider ACP com uma mensagem
-explicando que o login é do CLI, e injetá-la por ambiente contradiria essa
-recusa pela porta dos fundos. Variável de ambiente é onde token vaza — para log
-de processo, para relatório de crash, para o `env` que o próprio agente pode
-imprimir em diagnóstico. E a chave iria para um binário de terceiro que o app
-baixou de um catálogo, o que muda a conta em relação a um CLI que a pessoa
-instalou deliberadamente.
-
-Proposta deste AEP: **não injetar** (D12). A decisão é do dono.
+A Q1 desta seção — se o app deveria passar credencial do cofre para o agente —
+**foi decidida pelo dono do projeto e virou a [D12](#d12-o-caminho-normal-é-a-autenticação-do-próprio-agente-passar-credencial-do-cofre-é-opção-explícita-por-provedor)**:
+vale usar o caminho de autenticação do próprio agente, com a possibilidade de
+passar a credencial do cofre por variável de ambiente quando for necessário. A
+numeração daqui para baixo não foi reaproveitada, para que quem tenha visto a
+questão pelo número a encontre.
 
 ### Q2. O que os modos do Codex fazem com o pedido de permissão?
 
@@ -629,7 +767,10 @@ talvez para o comando; `agent-full-access` é o que precisa ser observado. Vale
 repetir com uma escrita fora do `cwd`, que é o que a descrição dele destaca.
 
 Ela não foi feita aqui porque exige autenticar o Codex e deixar o agente agir na
-máquina — o que uma sonda de leitura não deve fazer sem que alguém peça.
+máquina — o que uma sonda de leitura não deve fazer sem que alguém peça. **O dono
+do projeto decidiu deixá-la para depois**: a questão fica aberta por escolha, não
+por esquecimento, e a D15 já diz o que o app faz enquanto ela não tem resposta —
+não põe modo nenhum do Codex na lista de "barreira caída".
 
 ## Fases
 
@@ -724,7 +865,31 @@ oferece atualizar; a versão anterior só é removida depois que a nova responde
 `initialize`; atualizar com um turno em voo é recusado com motivo; um agente que
 parou de publicar digest não é atualizado, e a tela explica.
 
-### Fase 8 — `uvx`
+### Fase 8 — Credencial do cofre por variável de ambiente, opcional
+
+A D12 inteira, e só ela. Vem depois de a instalação estar de pé porque não
+bloqueia nada do catálogo: instalar, atualizar e usar agente autenticado pelo
+próprio CLI não depende desta fase em momento nenhum.
+
+O que entra: o par variável/padrão do cofre no `ProviderConfig` e no formulário
+do provedor, com a lista de padrões vinda do
+`ListVisibleCredentialsWithContext`; a sugestão de entrada a partir do
+`_meta["api-key"].provider` do `authMethods`, como pré-seleção confirmável; a
+resolução no `buildEnv` do `internal/acp/client.go`; a redação do valor nas linhas
+de stderr antes de virarem log; a referência no export sem o segredo.
+
+**Aceite:** com a opção desligada — que é o padrão — o ambiente do agente é
+exatamente o de hoje, sem variável nova; ligada, o processo do agente nasce com a
+variável declarada e o valor vindo do cofre, e o ambiente do app segue sem ela; o
+valor nunca aparece em log do app, inclusive quando o agente despeja o próprio
+`env` no stderr; nenhuma resposta ao frontend devolve o valor, apenas o padrão e a
+máscara; entrada apagada do cofre ou cofre trancado falha o spawn com mensagem que
+nomeia o que falta, em vez de subir o agente sem a variável; o arquivo exportado
+traz a referência e não o segredo; desligar tira a variável do processo seguinte;
+chave de API pelo campo de credencial de um provedor ACP continua recusada; as
+strings existem nos três locales e o estado é lido por leitor de telas.
+
+### Fase 9 — `uvx`
 
 Os dois agentes que dependem do `uv` (`fast-agent` e `minion-code`), pelo mesmo
 desenho do D6 com a ferramenta do `uv`. Última porque é a menor cobertura do
@@ -773,6 +938,19 @@ um provider que sobe; sem `uv`, o requisito é dito com o mesmo tratamento do D7
 - **A tela depende de rede na primeira vez.** Mitigado pelo cache (D2) da segunda
   em diante, mas a primeira execução offline mostra um catálogo vazio, e isso
   precisa parecer o que é.
+- **Credencial em variável de ambiente vaza por caminhos que o app não controla**
+  (D12). Ela existe só no ambiente do processo do agente, não é herdada por mais
+  ninguém, não vai para log do app e não volta para a tela — e ainda assim quem
+  inspeciona o processo lê o ambiente dele, um dump de memória o carrega, e o
+  agente pode escrevê-lo nos arquivos dele. O app redige o valor do stderr que
+  encaminha para o próprio log, que é a única dessas pontas que é nossa. Por isso
+  a opção nasce desligada, é ligada por provedor e o diálogo diz o que ela
+  implica.
+- **A credencial vai para um binário que o próprio app baixou do catálogo**
+  (D12). Combinar as duas coisas — instalar de terceiro e entregar segredo a ele —
+  é mais arriscado do que cada uma isolada, e é exatamente por isso que a segunda
+  não acontece por padrão nem por dedução: ela exige alguém dizer, naquele
+  provedor, qual credencial e em qual variável.
 
 ## Critérios de aceitação
 
@@ -801,6 +979,12 @@ um provider que sobe; sem `uv`, o requisito é dito com o mesmo tratamento do D7
 - Um agente do catálogo sem tipo próprio no app — Gemini CLI, por exemplo — pode
   ser instalado e usado sem código novo por agente.
 - Providers ACP já configurados continuam funcionando sem migração.
+- A autenticação do agente segue sendo feita pelo mecanismo dele por padrão: sem
+  ninguém ligar nada, o ambiente do processo do agente é o de hoje.
+- Quando a passagem de credencial é ligada num provedor, a tela mostra qual
+  variável e qual entrada do cofre, com o valor mascarado; o segredo não aparece em
+  log do app, não volta ao frontend e não sai no arquivo exportado; desligar é
+  imediato para o processo seguinte.
 
 ## Apêndice: sondas
 
@@ -922,3 +1106,6 @@ ter.
   saneamento, D12 provider sem HTTP, D15 spawn no Windows), AEP-0052
   (multiusuário), AEP-0058 (arbitragem de voz e anúncio), AEP-0082 (allowlist de
   rede)
+- Cofre de credenciais, para a D12: AEP-0014 (persistência), AEP-0015
+  (auto-extração), AEP-0026 (correções), AEP-0061 (incidente de perda e defesas —
+  a invariante da DEK)
