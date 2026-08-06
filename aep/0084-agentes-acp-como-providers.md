@@ -1099,6 +1099,11 @@ Decisões que a fase fixou:
 
 ### Fase 9 — OpenCode
 
+> **A ser reescrita.** O AEP-0086 adota o registro oficial do protocolo como
+> catálogo e caminho de instalação, e o OpenCode é um dos agentes que ele
+> instala com verificação de digest. Esta fase será refeita em cima do que o
+> registro resolve, em vez de acrescentar mais uma detecção escrita à mão.
+
 Terceiro agente, e o primeiro que responde **só no formato novo**. Ele é a prova
 de que o `configOptions` é o caminho principal e o legado é mesmo alternativa —
 até aqui os dois vinham sempre juntos, do mesmo Cursor, e nada obrigava o app a
@@ -1137,6 +1142,10 @@ sem login mostra `opencode auth login`, que é o comando que o próprio agente
 informa.
 
 ### Fase 10 — GitHub Copilot CLI
+
+> **A ser reescrita.** Pelo mesmo motivo da Fase 9: o AEP-0086 instala o
+> `github-copilot-cli` a partir do registro, com a versão que ele fixa, e a
+> detecção própria deste agente deixa de ser necessária.
 
 Quarto agente, e o que põe à prova duas coisas que até aqui só existiam no
 papel: o agente que sobe por **flag**, e o agente que fala **só o formato legado**
