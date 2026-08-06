@@ -101,7 +101,10 @@ describe('ProviderForm — provedor de agente de código', () => {
     expect(screen.queryByLabelText(/api key/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /carregar modelos/i })).not.toBeInTheDocument();
     expect(screen.getByLabelText(/comando do agente/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/diretório de trabalho/i)).toHaveValue(detected.work_dir);
+    // O diretório aparece como informação lida, ligada ao seu rótulo, e não como
+    // campo: não se escolhe o diretório aqui (AEP-0084 D5).
+    expect(screen.getByRole('term')).toHaveTextContent(/diretório de trabalho/i);
+    expect(screen.getByRole('definition')).toHaveTextContent(detected.work_dir);
     expect(listModelsMock).not.toHaveBeenCalled();
   });
 
