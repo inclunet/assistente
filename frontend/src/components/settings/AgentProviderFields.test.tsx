@@ -45,6 +45,17 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 vi.mock('@wailsjs/go/app/App', () => ({
   DetectACPAgent: detectMock,
   TestACPAgent: testMock,
+  // A instalação pelo catálogo tem teste próprio. Aqui ela só precisa não
+  // aparecer: um plano sem agente é o tipo de provedor que o catálogo não
+  // publica, e o bloco não é renderizado.
+  ACPAgentInstallPlanForKind: vi.fn().mockResolvedValue({}),
+  InstallACPAgent: vi.fn(),
+  CancelACPAgentInstall: vi.fn(),
+  RemoveACPAgent: vi.fn(),
+}));
+
+vi.mock('@wailsjs/runtime/runtime', () => ({
+  EventsOn: vi.fn(() => () => {}),
 }));
 
 const cursorFound = {
