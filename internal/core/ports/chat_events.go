@@ -307,6 +307,25 @@ const (
 	ChatNoticeKindPermissionAlwaysNotSaved = "permission_always_not_saved"
 )
 
+// O que o modo do agente passou a valer para o pedido de permissão (AEP-0084
+// D9, Fase 7). Há modos que dispensam o `session/request_permission`, e ele é a
+// única barreira que o app tem para autorizar o que o agente faz na máquina.
+// É o mesmo caso do "permitir sempre": a escolha muda o comportamento daí em
+// diante, e o seletor que a recebeu não fica na tela contando isso.
+//
+// O aviso é da transição, e não do estado: quem já estava sem barreira e trocou
+// para outro modo que também não pergunta não é avisado de novo, pelo mesmo
+// motivo que a autorização permanente não se repete a cada pedido.
+const (
+	// ChatNoticeKindModeSkipsPermission é a barreira que caiu: daqui em diante
+	// o agente age sem perguntar.
+	ChatNoticeKindModeSkipsPermission = "agent_mode_skips_permission"
+	// ChatNoticeKindModeAsksPermission é a barreira que voltou. Fecha o aviso
+	// anterior: quem leu que o agente ia agir sozinho precisa saber quando
+	// isso deixou de valer, e nada mais na tela conta essa volta.
+	ChatNoticeKindModeAsksPermission = "agent_mode_asks_permission"
+)
+
 // ChatNoticeEvent is the payload for chat:notice — um aviso sobre o turno que
 // não é a resposta, não é falha e não encerra nada.
 //
@@ -324,6 +343,11 @@ type ChatNoticeEvent struct {
 	// escolhido não pôde valer. É identificador do provedor, e não frase: quem
 	// exibe o mostra como ele aparece no seletor.
 	Model string `json:"model,omitempty"`
+	// Mode é o modo de que o aviso fala, escrito como o seletor o escreve: o
+	// rótulo que o agente deu, e o valor cru quando ele não deu nenhum. Vem
+	// resolvido daqui, ao contrário do Model, porque quem exibe o aviso é uma
+	// superfície global que não conhece as opções desta sessão.
+	Mode string `json:"mode,omitempty"`
 }
 
 // SummaryStartedEvent is the payload for chat:summary_started.
