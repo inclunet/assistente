@@ -911,6 +911,23 @@ func TestMetodoQueNaoTratamosContinuaSemSuporte(t *testing.T) {
 	}
 }
 
+func TestAgenteSemAsExtensoesDoCursorNaoDependeDelas(t *testing.T) {
+	// As extensões bloqueantes não são do padrão ACP: o Claude Code, que fala o
+	// protocolo por um adaptador, não emite nenhuma delas (AEP-0084 Fase 7).
+	// O caminho de método desconhecido é o que faz o app funcionar com um agente
+	// assim — e nada aqui pode exigir que elas apareçam.
+	h := handlerDeExtensao(nil, acp.TurnOwner{ConversationID: "c", Interactive: true}, true)
+
+	for _, metodo := range []string{"claude/ask_question", "_zed/algo", "session/algo_novo"} {
+		if _, tratou := h.HandleCustom(context.Background(), acp.CustomRequest{Method: metodo}); tratou {
+			t.Errorf("%s: o handler disse tratar um método que não é dele", metodo)
+		}
+		if _, ok := h.CustomFallback(metodo); ok {
+			t.Errorf("%s: ofereceu desfecho de um método que não implementa", metodo)
+		}
+	}
+}
+
 func TestOLogNaoGuardaOQueOAgentePerguntouNemOPlano(t *testing.T) {
 	// A pergunta e o plano falam do trabalho da pessoa e podem carregar
 	// caminho, segredo e nome de cliente. Na tela eles aparecem inteiros; no
