@@ -597,8 +597,8 @@ O caminho é curto e todo ele já está escrito:
 
 - `Manager.ListVisibleCredentialsWithContext` dá a lista de padrões que a pessoa
   escolhe no formulário — os mesmos que ela vê na tela de credenciais;
-- `Manager.GetByPatternWithContext(pattern)` devolve a `AuthConfig` decifrada no
-  instante de subir o agente;
+- `Manager.GetByPatternWithContext` devolve a `AuthConfig` decifrada daquele
+  padrão, no instante de subir o agente;
 - `credentials.ResolveSecretFromAuth` extrai o valor a passar (token, senha ou o
   primeiro header, na ordem que ele já define);
 - `credentials.ResolveExternalRef`, que a decifragem já chama, resolve entrada
