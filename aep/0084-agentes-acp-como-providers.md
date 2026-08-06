@@ -154,8 +154,9 @@ próprio Claude Code, feita fora do protocolo pelo CLI `claude`, e não existe
 método ACP de login como o `cursor_login`. As capacidades são generosas —
 `loadSession: true`; `sessionCapabilities` com `additionalDirectories`, `close`,
 `delete`, `fork`, `list` e `resume`; `promptCapabilities` com `image` e
-`embeddedContext`; MCP por http e sse; `auth: { logout: {} }`; e dois sinais em
-`_meta`, `claudeCode.promptQueueing: true` e `steering.supported: true` na raiz.
+`embeddedContext`; MCP por `http` e `sse`; `auth: { logout: {} }`; e dois sinais
+em `_meta`, `claudeCode.promptQueueing: true` e `steering.supported: true` na
+raiz.
 
 O `session/new` dele devolve os dois formatos, como o Cursor, e traz **três**
 categorias de `configOptions`: `model` (`default`, `opus[1m]`, `sonnet` e
@@ -170,8 +171,8 @@ Cursor. O que muda é o binário: o pacote npm `opencode-ai` (1.18.14) instala u
 node+js. Ele anuncia um método de login, `opencode-login`, cuja descrição é a
 instrução literal — "Run `opencode auth login` in the terminal". As capacidades
 são `loadSession: true`, `sessionCapabilities` com `close`, `fork`, `list` e
-`resume`, `promptCapabilities` com `image` e `embeddedContext`, e MCP por http e
-sse. O `session/new` responde **só no formato novo**, com o `model` trazendo
+`resume`, `promptCapabilities` com `image` e `embeddedContext`, e MCP por `http`
+e `sse`. O `session/new` responde **só no formato novo**, com o `model` trazendo
 valor e nome legível (`opencode/big-pickle` → "OpenCode Zen/Big Pickle") — que é
 justamente o formato que o app prefere.
 
@@ -990,15 +991,15 @@ Decisões que a fase toma:
   é o login do próprio CLI. A Fase 10 melhora isso para quem informa o comando
   pelo protocolo; o Claude Code não informa, e por isso precisa da resposta que o
   template dá.
-- **"Modo", no Claude, é permissão.** Os seis valores (`auto`, Manual,
-  `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions`) descrevem o quanto o
-  agente pergunta antes de agir, e não como ele raciocina — o oposto da leitura
-  de `agent`/`plan`/`ask` que o app herdou do Cursor. Então **o app para de
-  presumir o trio**: o seletor mostra o nome que o agente deu a cada valor, e a
-  tradução por categoria fica só para o formato legado, que não manda nome
-  nenhum. Presumir significado seria pior do que não traduzir: um rótulo do app
-  dizendo "planejar" sobre um modo que na verdade autoriza edições sem perguntar
-  descreveria errado justamente a escolha mais perigosa da lista.
+- **"Modo", no Claude, é permissão.** Os seis valores (`auto`, `default`
+  (Manual), `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions`) descrevem o
+  quanto o agente pergunta antes de agir, e não como ele raciocina — o oposto
+  da leitura de `agent`/`plan`/`ask` que o app herdou do Cursor. Então **o app
+  para de presumir o trio**: o seletor mostra o nome que o agente deu a cada
+  valor, e a tradução por categoria fica só para o formato legado, que não manda
+  nome nenhum. Presumir significado seria pior do que não traduzir: um rótulo do
+  app dizendo "planejar" sobre um modo que na verdade autoriza edições sem
+  perguntar descreveria errado justamente a escolha mais perigosa da lista.
 - **Escolher um modo que desliga a pergunta vira aviso na conversa.** O app não
   esconde `dontAsk` nem `bypassPermissions` da lista — são modos do agente, que a
   pessoa liga fora do app de qualquer jeito, e esconder daria a falsa impressão
