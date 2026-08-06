@@ -24,6 +24,10 @@ import {skills} from '../models';
 import {credentials} from '../models';
 import {ports} from '../models';
 
+export function ACPAgentInstallPlan(arg1:string):Promise<app.ACPInstallPlan>;
+
+export function ACPAgentInstallPlanForKind(arg1:string):Promise<app.ACPInstallPlan>;
+
 export function AddChildMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<database.ChatMessage>;
 
 export function AddMessage(arg1:string,arg2:string,arg3:string):Promise<database.ChatMessage>;
@@ -47,6 +51,8 @@ export function AssignConversationToChannel(arg1:string,arg2:string,arg3:string)
 export function AuthorizeMessagingContactFull(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function CanPersistCredentials():Promise<boolean>;
+
+export function CancelACPAgentInstall(arg1:string):Promise<void>;
 
 export function CancelStreamingForConversation(arg1:string):Promise<void>;
 
@@ -410,6 +416,8 @@ export function InferEventSchema(arg1:string):Promise<Record<string, any>>;
 
 export function InitSpeechManagerFromProfile():Promise<void>;
 
+export function InstallACPAgent(arg1:string):Promise<app.ACPInstallation>;
+
 export function InterruptTerminalCommand(arg1:string):Promise<void>;
 
 export function IsGlobalHotkeySupported():Promise<boolean>;
@@ -421,6 +429,8 @@ export function ListCardCustomActions(arg1:string,arg2:string):Promise<Array<app
 export function ListCredentials():Promise<Array<controllers.CredentialSummary>>;
 
 export function ListExternalSources(arg1:string):Promise<Array<controllers.ExternalSourceSuggestion>>;
+
+export function ListInstalledACPAgents():Promise<Array<app.ACPInstallation>>;
 
 export function ListKnownEvents():Promise<Array<string>>;
 
@@ -461,6 +471,8 @@ export function RefreshModelsByProvider(arg1:string):Promise<Array<string>>;
 export function RegenerateJobCatalog():Promise<void>;
 
 export function ReloadLLMClient():Promise<void>;
+
+export function RemoveACPAgent(arg1:string):Promise<void>;
 
 export function RemoveAuthorizedContact(arg1:string,arg2:string):Promise<void>;
 
