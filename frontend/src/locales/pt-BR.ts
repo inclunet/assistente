@@ -1783,6 +1783,96 @@ const ptBR = {
       },
     },
 
+    acpCatalog: {
+      open: 'Catálogo de agentes ACP',
+      title: 'Catálogo de agentes ACP',
+      intro:
+        'Agentes publicados no registro oficial do ACP. Esta tela mostra o que existe; instalar ainda não é possível daqui.',
+      listLabel: 'Agentes do registro do ACP',
+      navHelp: 'Use as setas para cima e para baixo para percorrer os agentes; Home e End vão ao primeiro e ao último.',
+      loading: 'Carregando o catálogo de agentes...',
+      count: 'Mostrando {{shown}} de {{total}} agentes.',
+      manualPath:
+        'Sem catálogo você ainda pode adicionar um agente à mão: crie um provedor do tipo agente e informe o comando e os argumentos dele.',
+      actions: {
+        refresh: 'Atualizar catálogo',
+        refreshing: 'Atualizando...',
+      },
+      search: {
+        label: 'Buscar agente',
+        placeholder: 'Nome, identificador, autor ou licença',
+        noMatch: 'Nenhum agente corresponde a "{{term}}".',
+        results: '{{total}} agentes encontrados.',
+      },
+      status: {
+        collected: 'Catálogo coletado {{when}}.',
+        stale: 'A cópia local está velha e pode não refletir o registro.',
+        notUpdated: 'Não foi possível atualizar agora: {{reason}}',
+        empty: 'O catálogo está vazio.',
+        emptyReason: 'O catálogo está vazio: {{reason}}',
+      },
+      reason: {
+        unreachable: 'não foi possível falar com o registro.',
+        unreachableDetail: 'não foi possível falar com o registro ({{detail}}).',
+        timeout: 'o registro não respondeu no tempo esperado.',
+        canceled: 'a consulta foi interrompida.',
+        malformedIndex: 'o registro respondeu algo que este app não conseguiu ler.',
+        unsupportedVersion:
+          'o registro mudou de formato de um jeito que esta versão do app não entende. Atualize o app.',
+        unknown: 'o registro não pôde ser consultado.',
+      },
+      item: {
+        version: 'versão {{version}}',
+        nameVersion: '{{name}}, versão {{version}}',
+        state: 'Nesta máquina:',
+        distributions: 'Distribuído como {{list}}',
+        authors: 'Autoria de {{list}}',
+        license: 'Licença {{license}}',
+        distributionsTerm: 'Distribuição',
+        integrityTerm: 'Integridade',
+        authorsTerm: 'Autoria',
+        licenseTerm: 'Licença',
+        websiteTerm: 'Site',
+        repositoryTerm: 'Repositório',
+      },
+      state: {
+        installed: 'encontrado nesta máquina.',
+        installedVersion: 'encontrado nesta máquina, versão {{version}}.',
+        notInstalled: 'não encontrado nesta máquina.',
+        noDetection:
+          'este app não sabe procurar este agente na máquina; se você já o tem, aponte o comando dele à mão no provedor.',
+        detectionFailed: 'a procura por este agente falhou.',
+        requirementMissing: '{{runtime}} não foi encontrado nesta máquina, e este agente precisa dele.',
+        noPlatformTarget: 'não há versão publicada para esta plataforma.',
+        unknown: 'estado não reconhecido ({{state}}).',
+      },
+      runtime: {
+        none: 'Não exige runtime: o agente é distribuído como binário.',
+        found: 'Requer {{runtime}}, que foi encontrado nesta máquina.',
+        foundAt: 'Requer {{runtime}}, encontrado em {{path}}.',
+        missing: 'Requer {{runtime}}, que não foi encontrado nesta máquina.',
+        name: {
+          node: 'Node.js',
+          uv: 'uv',
+        },
+      },
+      distribution: {
+        binary: 'binário',
+        npx: 'pacote npm (npx)',
+        uvx: 'pacote Python (uvx)',
+      },
+      integrity: {
+        digest:
+          'O registro publica a soma de verificação do arquivo desta plataforma, então o download pode ser conferido.',
+        noDigest:
+          'O registro não publica soma de verificação para esta plataforma, então não há como conferir o arquivo baixado.',
+        noPlatformTarget: 'O registro não publica arquivo para esta plataforma.',
+      },
+      error: {
+        loadFailed: 'Não foi possível carregar o catálogo de agentes.',
+      },
+    },
+
     providers: {
       pageTitle: 'Provedores LLM',
       search: 'Buscar provedores...',
