@@ -74,9 +74,11 @@ Codex, com Node 24 no Windows. Os scripts estão no
 
 Um arquivo só, em
 `https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`, com
-48.751 bytes hoje. A raiz é `{ "version": "1.0.0", "agents": [...] }` e cada
-agente traz `id`, `name`, `version`, `description`, `repository`, `website`,
-`authors[]`, `license`, `icon` (SVG na mesma CDN) e `distribution`.
+48.751 bytes na coleta de 2026-08-06. A raiz é
+`{ "version": "<semver>", "agents": [...] }` — na coleta, `"1.0.0"` —, e o que
+o app olha nesse campo é o **major**, não o valor exato (D2). Cada agente traz
+`id`, `name`, `version`, `description`, `repository`, `website`, `authors[]`,
+`license`, `icon` (SVG na mesma CDN) e `distribution`.
 
 `distribution` aceita três tipos, e pelo menos um é obrigatório:
 
