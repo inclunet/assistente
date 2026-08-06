@@ -122,6 +122,39 @@ const HostQueTrocaDeTipo = () => {
   );
 };
 
+/**
+ * Hospeda os campos do jeito que o formulário faz quando alguém troca de um
+ * agente para outro: os campos continuam na tela, e o comando é limpo para a
+ * detecção do agente novo preencher.
+ */
+const HostQueTrocaDeAgente = () => {
+  const [agentKind, setAgentKind] = useState('claude-code');
+  const [command, setCommand] = useState('');
+  const [args, setArgs] = useState<string[]>([]);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          setAgentKind('cursor');
+          setCommand('');
+          setArgs([]);
+        }}
+      >
+        trocar para cursor
+      </button>
+      <AgentProviderFields
+        agentKind={agentKind}
+        command={command}
+        args={args}
+        onCommandChange={setCommand}
+        onArgsChange={setArgs}
+        autoFill
+      />
+    </div>
+  );
+};
+
 /** Detecção que só responde quando o teste quiser. */
 function deteccaoControlada() {
   let responder: (setup: unknown) => void = () => {};
@@ -503,6 +536,33 @@ describe('AgentProviderFields — teste do agente', () => {
     expect(screen.getByText(/abra um terminal e rode o comando abaixo/i)).toBeInTheDocument();
     expect(screen.getByText('claude')).toBeInTheDocument();
     expect(screen.queryByText(/index\.js login/)).not.toBeInTheDocument();
+  });
+
+  it('o login do agente anterior some assim que o agente muda', async () => {
+    // A procura do agente novo demora, e nesse intervalo os campos continuam na
+    // tela: manter o comando de login da procura anterior mandaria autenticar o
+    // Claude Code num provedor do Cursor.
+    detectMock.mockResolvedValue({
+      found: true,
+      command: 'node',
+      args: ['claude-agent-acp/dist/index.js'],
+      searched: [],
+      login_command: 'claude',
+    });
+    testMock.mockResolvedValue({ state: 'unauthenticated', agent_name: 'Claude Agent' });
+    const user = userEvent.setup();
+
+    render(<HostQueTrocaDeAgente />);
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toHaveValue('node'));
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+    expect(await screen.findByText('claude')).toBeInTheDocument();
+
+    // A procura do Cursor fica em voo: é exatamente a janela em que a tela
+    // ainda teria o resultado do Claude Code em mãos.
+    deteccaoControlada();
+    await user.click(screen.getByRole('button', { name: /trocar para cursor/i }));
+
+    await waitFor(() => expect(screen.queryByText('claude')).not.toBeInTheDocument());
   });
 
   it('agente que não responde manda conferir comando e instalação, com o detalhe', async () => {

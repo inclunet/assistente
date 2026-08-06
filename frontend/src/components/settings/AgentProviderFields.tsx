@@ -99,7 +99,13 @@ export const AgentProviderFields = ({
 }: AgentProviderFieldsProps) => {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
-  const [setup, setSetup] = useState<AgentSetup | null>(null);
+  // O resultado da procura guarda de qual agente ele fala. Trocar o tipo do
+  // provedor não desmonta estes campos, e a procura nova leva um tempo: sem a
+  // marca, o que está na tela nesse intervalo descreve o agente anterior — e um
+  // deles é o comando de login, que mandaria rodar o login do Claude Code para
+  // autenticar o Cursor.
+  const [detected, setDetected] = useState<{ kind: string; result: AgentSetup } | null>(null);
+  const setup = detected?.kind === agentKind ? detected.result : null;
   const [detecting, setDetecting] = useState(false);
   const [detectError, setDetectError] = useState('');
   const [testing, setTesting] = useState(false);
@@ -166,13 +172,14 @@ export const AgentProviderFields = ({
     useRef<(options: { applyCommand: 'always' | 'ifEmpty' | 'never'; announceFound: boolean }) => Promise<void>>();
   detectRef.current = async ({ applyCommand, announceFound }) => {
     const seq = ++searchSeq.current;
+    const kind = agentKind;
     const obsoleta = () => seq !== searchSeq.current || !mountedRef.current;
     setDetecting(true);
     setDetectError('');
     try {
-      const result = await DetectACPAgent(agentKind);
+      const result = await DetectACPAgent(kind);
       if (obsoleta()) return;
-      setSetup(result);
+      setDetected({ kind, result });
 
       // As decisões de preencher são tomadas agora, com os valores atuais dos
       // campos, e não antes do await: quem começou a digitar enquanto a detecção
@@ -209,7 +216,7 @@ export const AgentProviderFields = ({
       if (obsoleta()) return;
       const err = error as { message?: unknown } | null;
       const message = String(err?.message || error || t('providerForm.agent.detectFailed'));
-      setSetup(null);
+      setDetected(null);
       setDetectError(message);
       // A procura ter quebrado é anomalia em qualquer modo: mesmo com um comando
       // salvo, quem configura precisa saber que não deu para conferir a máquina.
