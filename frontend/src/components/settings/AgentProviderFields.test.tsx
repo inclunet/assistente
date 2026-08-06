@@ -69,14 +69,22 @@ const cursorMissing = {
  * Hospeda o componente com o mesmo estado controlado que o formulário dá a ele,
  * para os testes verem o que a detecção preenche de verdade.
  */
-const Host = ({ initialCommand = '', autoFill = true }: { initialCommand?: string; autoFill?: boolean }) => {
+const Host = ({
+  initialCommand = '',
+  autoFill = true,
+  agentKind = 'cursor',
+}: {
+  initialCommand?: string;
+  autoFill?: boolean;
+  agentKind?: string;
+}) => {
   const [command, setCommand] = useState(initialCommand);
   const [args, setArgs] = useState<string[]>([]);
   return (
     <div>
       <span data-testid="args-atual">{args.join(',')}</span>
       <AgentProviderFields
-        agentKind="cursor"
+        agentKind={agentKind}
         command={command}
         args={args}
         onCommandChange={setCommand}
@@ -110,6 +118,39 @@ const HostQueTrocaDeTipo = () => {
           autoFill
         />
       )}
+    </div>
+  );
+};
+
+/**
+ * Hospeda os campos do jeito que o formulário faz quando alguém troca de um
+ * agente para outro: os campos continuam na tela, e o comando é limpo para a
+ * detecção do agente novo preencher.
+ */
+const HostQueTrocaDeAgente = () => {
+  const [agentKind, setAgentKind] = useState('claude-code');
+  const [command, setCommand] = useState('');
+  const [args, setArgs] = useState<string[]>([]);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          setAgentKind('cursor');
+          setCommand('');
+          setArgs([]);
+        }}
+      >
+        trocar para cursor
+      </button>
+      <AgentProviderFields
+        agentKind={agentKind}
+        command={command}
+        args={args}
+        onCommandChange={setCommand}
+        onArgsChange={setArgs}
+        autoFill
+      />
     </div>
   );
 };
@@ -444,6 +485,12 @@ describe('agentLoginCommand', () => {
   it('sem comando não inventa comando nenhum', () => {
     expect(agentLoginCommand('   ', [])).toBe('');
   });
+
+  it('sem o subcomando do protocolo não há o que trocar', () => {
+    // É o adaptador npm do Claude Code: `node ...\index.js` não vira
+    // `node ...\index.js login`, porque o adaptador não tem login.
+    expect(agentLoginCommand('node', ['C:\\npm\\claude-agent-acp\\dist\\index.js'])).toBe('');
+  });
 });
 
 describe('AgentProviderFields — teste do agente', () => {
@@ -502,6 +549,89 @@ describe('AgentProviderFields — teste do agente', () => {
       expect.stringMatching(/instalado, mas não está autenticado/i),
       'assertive',
     );
+  });
+
+  it('agente cujo login é outro programa mostra o comando que a detecção deu', async () => {
+    // No Claude Code o que sobe o ACP é um adaptador npm, que não tem login
+    // nenhum: quem autentica é o CLI `claude`. Derivar o login do comando
+    // configurado, como no Cursor, mandaria a pessoa a um comando inexistente.
+    const claudeCode = {
+      found: true,
+      command: 'C:\\Program Files\\nodejs\\node.exe',
+      args: ['C:\\Program Files\\nodejs\\node_modules\\@agentclientprotocol\\claude-agent-acp\\dist\\index.js'],
+      version: '0.65.0',
+      source: 'C:\\Program Files\\nodejs\\node_modules\\@agentclientprotocol\\claude-agent-acp\\dist\\index.js',
+      searched: [],
+      work_dir: 'C:\\Users\\ana\\projetos\\assistente',
+      login_command: 'claude',
+    };
+    detectMock.mockResolvedValue(claudeCode);
+    // O adaptador não anuncia método de login nenhum (`authMethods` vazio), e é
+    // por isso que a instrução da tela precisa bastar por si.
+    testMock.mockResolvedValue({
+      state: 'unauthenticated',
+      agent_name: 'Claude Agent',
+      agent_version: '0.65.0',
+      latency_ms: 140,
+    });
+    const user = userEvent.setup();
+
+    render(<Host agentKind="claude-code" />);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(claudeCode.command);
+    });
+
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+
+    expect(await screen.findByText(/instalado, mas não está autenticado/i)).toBeInTheDocument();
+    expect(screen.getByText(/abra um terminal e rode o comando abaixo/i)).toBeInTheDocument();
+    expect(screen.getByText('claude')).toBeInTheDocument();
+    expect(screen.queryByText(/index\.js login/)).not.toBeInTheDocument();
+  });
+
+  it('o login do agente anterior some assim que o agente muda', async () => {
+    // A procura do agente novo demora, e nesse intervalo os campos continuam na
+    // tela: manter o comando de login da procura anterior mandaria autenticar o
+    // Claude Code num provedor do Cursor.
+    detectMock.mockResolvedValue({
+      found: true,
+      command: 'node',
+      args: ['claude-agent-acp/dist/index.js'],
+      searched: [],
+      login_command: 'claude',
+    });
+    testMock.mockResolvedValue({ state: 'unauthenticated', agent_name: 'Claude Agent' });
+    const user = userEvent.setup();
+
+    render(<HostQueTrocaDeAgente />);
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toHaveValue('node'));
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+    expect(await screen.findByText('claude')).toBeInTheDocument();
+
+    // A procura do Cursor fica em voo: é exatamente a janela em que a tela
+    // ainda teria o resultado do Claude Code em mãos.
+    deteccaoControlada();
+    await user.click(screen.getByRole('button', { name: /trocar para cursor/i }));
+
+    await waitFor(() => expect(screen.queryByText('claude')).not.toBeInTheDocument());
+  });
+
+  it('sem saber o comando de login, pede a procura em vez de chutar um', async () => {
+    // Comando configurado à mão, procura que não achou nada: ninguém tem o
+    // comando de login a oferecer, e derivá-lo do adaptador npm mandaria a
+    // pessoa a um `...\index.js login` que não existe.
+    detectMock.mockResolvedValue({ found: false, searched: [] });
+    testMock.mockResolvedValue({ state: 'unauthenticated', agent_name: 'Claude Agent' });
+    const user = userEvent.setup();
+
+    render(<Host initialCommand="node" autoFill={false} agentKind="claude-code" />);
+    await user.type(screen.getByLabelText(/argumentos/i), 'C:\\npm\\claude-agent-acp\\dist\\index.js');
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+
+    expect(await screen.findByText(/instalado, mas não está autenticado/i)).toBeInTheDocument();
+    expect(screen.getByText(/não dá para saber daqui qual comando autentica/i)).toBeInTheDocument();
+    expect(screen.queryByText(/index\.js login/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/cursor-agent login/)).not.toBeInTheDocument();
   });
 
   it('agente que não responde manda conferir comando e instalação, com o detalhe', async () => {

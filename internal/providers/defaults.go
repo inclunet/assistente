@@ -21,23 +21,27 @@ var ErrAgentNotFound = errors.New("agente de código não encontrado nesta máqu
 // BuiltinTemplate retorna um ProviderConfig pré-configurado para um tipo conhecido.
 // providerType deve ser um dos: "openai", "claude", "google", "openrouter", "mistral",
 // "groq", "together", "fireworks", "perplexity", "deepseek", "grok", "ollama",
-// "localai", "llamacpp", "cursor".
+// "localai", "llamacpp", "cursor", "claude-code".
 // Retorna (nil, ErrUnknownProviderType) se o tipo não for reconhecido.
 //
-// O template de agente de código ("cursor") é o único que consulta a máquina:
-// o que endereça um agente é o comando dele, e o comando depende de onde o CLI
-// foi instalado (AEP-0084 D15). Sem instalação ele devolve ErrAgentNotFound.
+// Os templates de agente de código ("cursor" e "claude-code") são os únicos que
+// consultam a máquina: o que endereça um agente é o comando dele, e o comando
+// depende de onde o CLI foi instalado (AEP-0084 D15). Sem instalação eles
+// devolvem ErrAgentNotFound.
 func BuiltinTemplate(providerType string) (*llm.ProviderConfig, error) {
 	switch providerType {
 	case "cursor":
-		install, err := acp.DetectAgent(acp.AgentKindCursor)
+		install, err := detectedAgent(acp.AgentKindCursor)
 		if err != nil {
 			return nil, err
 		}
-		if !install.Found {
-			return nil, fmt.Errorf("cursor: %w", ErrAgentNotFound)
-		}
 		return CursorTemplate(install), nil
+	case "claude-code":
+		install, err := detectedAgent(acp.AgentKindClaudeCode)
+		if err != nil {
+			return nil, err
+		}
+		return ClaudeCodeTemplate(install), nil
 	case "openai":
 		return &llm.ProviderConfig{
 			ID:                "openai-default",
@@ -199,24 +203,52 @@ func BuiltinTemplate(providerType string) (*llm.ProviderConfig, error) {
 	}
 }
 
+// detectedAgent procura o agente na máquina e trata os dois desfechos que o
+// template não sabe resolver sozinho: a procura que não pôde ser feita e a
+// máquina sem o agente instalado.
+func detectedAgent(kind acp.AgentKind) (acp.Install, error) {
+	install, err := acp.DetectAgent(kind)
+	if err != nil {
+		return acp.Install{}, err
+	}
+	if !install.Found {
+		return acp.Install{}, fmt.Errorf("%s: %w", kind, ErrAgentNotFound)
+	}
+	return install, nil
+}
+
 // CursorTemplate monta o provider do Cursor a partir de uma instalação já
 // encontrada. Fica separado da detecção para poder ser testado sem depender de
 // o CLI estar instalado em quem roda o teste.
+func CursorTemplate(install acp.Install) *llm.ProviderConfig {
+	return agentTemplate("cursor-agent", "Cursor (agente de código)", llm.ProviderCursor, install)
+}
+
+// ClaudeCodeTemplate monta o provider do Claude Code (AEP-0084 Fase 7). O
+// comando aqui é o do adaptador npm, e não o do CLI do agente — a Anthropic não
+// adotou o protocolo —, mas para o provider isso é indiferente: o que ele guarda
+// é o que sobe alguém que fala ACP.
+func ClaudeCodeTemplate(install acp.Install) *llm.ProviderConfig {
+	return agentTemplate("claude-code-agent", "Claude Code (agente de código)", llm.ProviderClaudeCode, install)
+}
+
+// agentTemplate é o provider de um agente de código já encontrado na máquina.
 //
 // Nada de URL, credencial ou modelo: um agente não tem endereço, o login é
-// feito no CLI dele (AEP-0084 D12) e a lista de modelos vem da sessão, que é
-// assunto da fase seguinte.
-func CursorTemplate(install acp.Install) *llm.ProviderConfig {
+// feito fora do app (AEP-0084 D12) e a lista de modelos vem da sessão dele.
+func agentTemplate(id, name string, kind llm.ProviderType, install acp.Install) *llm.ProviderConfig {
 	return &llm.ProviderConfig{
-		ID:        "cursor-agent",
-		Name:      "Cursor (agente de código)",
-		Type:      llm.ProviderCursor,
+		ID:        id,
+		Name:      name,
+		Type:      kind,
 		APIFormat: llm.APIFormatACP,
 		// Um turno de agente de código roda ferramentas e edita arquivos: ele
 		// demora mais que uma resposta de LLM, e o teto dos provedores locais é
 		// o que mais se aproxima disso.
-		Timeout:    300,
-		AuthMode:   llm.AuthModeNone,
+		Timeout:  300,
+		AuthMode: llm.AuthModeNone,
+		// A cópia dos argumentos é o que impede o provider de seguir a lista de
+		// quem detectou, que é reaproveitada por quem chamou.
 		ACPCommand: install.Command,
 		ACPArgs:    slices.Clone(install.Args),
 	}
