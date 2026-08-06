@@ -178,6 +178,11 @@ func currentModeOf(options []acp.ConfigOption) string {
 //
 // O rótulo é texto do agente, então passa pelo saneamento como todo texto dele
 // que vira UI ou anúncio (AEP-0084 D11).
+//
+// O valor corrente é procurado na lista sem depender da caixa, pelo mesmo motivo
+// que ModeSkipsPermissionPrompt não depende dela: os dois vêm do agente pelo
+// fio, e um `DONTASK` corrente que não casasse com o `dontAsk` da lista faria o
+// aviso reconhecer o modo para alertar e não reconhecê-lo para nomear.
 func agentModeName(options []AgentConfigOption, mode string) string {
 	wanted := strings.TrimSpace(mode)
 	for _, option := range options {
@@ -185,7 +190,7 @@ func agentModeName(options []AgentConfigOption, mode string) string {
 			continue
 		}
 		for _, value := range option.Values {
-			if strings.TrimSpace(value.Value) != wanted {
+			if !strings.EqualFold(strings.TrimSpace(value.Value), wanted) {
 				continue
 			}
 			if name := acp.SanitizeLabel(value.Name); name != "" {

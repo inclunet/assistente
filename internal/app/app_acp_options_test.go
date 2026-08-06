@@ -461,6 +461,27 @@ func TestModoSemRotuloDoAgenteEntraNoAvisoPeloValorCru(t *testing.T) {
 	}
 }
 
+// O valor corrente e o da lista vêm os dois do agente, e nada garante que ele
+// escreva os dois igual. Reconhecer o modo para alertar e não reconhecê-lo para
+// nomear jogaria o identificador cru numa frase que já tinha rótulo.
+func TestOModoENomeadoMesmoQuandoOAgenteMudaACaixaDoValor(t *testing.T) {
+	agente := novoAgenteFalso()
+	a, emissor := appComAgente(t, agente)
+	conversaComSessao(t, a, "conversa-1")
+
+	if _, err := a.SetAgentSessionOption("conversa-1", acp.CategoryMode, "DONTASK"); err != nil {
+		t.Fatalf("SetAgentSessionOption: %v", err)
+	}
+
+	aviso := avisoUnico(t, emissor)
+	if aviso.Kind != ports.ChatNoticeKindModeSkipsPermission {
+		t.Fatalf("motivo do aviso = %q", aviso.Kind)
+	}
+	if aviso.Mode != "Não perguntar" {
+		t.Fatalf("o aviso não achou o rótulo do modo na lista: %q", aviso.Mode)
+	}
+}
+
 // A barreira que volta fecha o aviso anterior: quem leu que o agente ia agir
 // sozinho precisa saber quando isso deixou de valer, e nada mais na tela conta
 // essa volta.

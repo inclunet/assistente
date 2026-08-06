@@ -3554,7 +3554,7 @@ const en = {
         modelNotApplied: 'The agent’s model could not be changed. The answer came from {{model}}.',
         agentMemoryLost: 'The agent could not resume this conversation’s earlier session and answered without remembering what was already said. The history on screen is still here; bring back whatever matters in your next message.',
         modeSkipsPermission: 'The agent is in {{mode}} mode, which does not need your authorization: from now on it reads, edits and runs things on your machine without asking. Pick another mode in the conversation selector to be consulted again.',
-        modeAsksPermission: 'The agent is in {{mode}} mode and will ask for your authorization again before acting on your machine.',
+        modeAsksPermission: 'The agent is in {{mode}} mode, which does not waive your authorization: it asks for permission to act on your machine again, as far as that mode requires.',
         action: {
           read: 'read a file',
           edit: 'edit a file',
