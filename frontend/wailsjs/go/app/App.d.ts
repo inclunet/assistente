@@ -418,7 +418,7 @@ export function InferEventSchema(arg1:string):Promise<Record<string, any>>;
 
 export function InitSpeechManagerFromProfile():Promise<void>;
 
-export function InstallACPAgent(arg1:string):Promise<app.ACPInstallation>;
+export function InstallACPAgent(arg1:string,arg2:app.ACPInstallConfirmation):Promise<app.ACPInstallation>;
 
 export function InterruptTerminalCommand(arg1:string):Promise<void>;
 

@@ -1781,9 +1781,13 @@ const ptBR = {
           title: 'Instalar pelo catálogo de agentes',
           intro:
             'O catálogo do protocolo publica {{agent}} como pacote npm. O aplicativo instala a versão {{version}} em uma pasta própria e preenche o comando por você.',
+          introBinary:
+            'O catálogo do protocolo publica {{agent}} como programa pronto para o seu sistema. O aplicativo instala a versão {{version}} em uma pasta própria e preenche o comando por você.',
           installBtn: 'Instalar pelo catálogo',
           installBtnHelp:
             'Mostra o que será baixado, instala o pacote publicado no catálogo e preenche o comando e os argumentos acima com o que ele instalou.',
+          installBtnHelpBinary:
+            'Mostra o que será baixado, baixa o programa publicado no catálogo conferindo o código de verificação dele e preenche o comando e os argumentos acima com o que foi instalado.',
           cancelBtn: 'Cancelar instalação',
           cancelFailed: 'Não foi possível cancelar a instalação.',
           installed: 'Instalado pelo aplicativo: {{agent}} versão {{version}}.',
@@ -1817,6 +1821,8 @@ const ptBR = {
             runtime: 'ao procurar o runtime nesta máquina',
             prepare: 'ao preparar a pasta de destino',
             install: 'ao baixar o pacote com o npm',
+            download: 'ao baixar o arquivo do agente',
+            extract: 'ao abrir o arquivo baixado',
             resolve: 'ao descobrir o comando do agente instalado',
             verify: 'ao conferir se o agente responde ao protocolo',
             record: 'ao gravar o registro da instalação',
@@ -1825,11 +1831,15 @@ const ptBR = {
             title: 'Instalar {{agent}} pelo catálogo?',
             intro:
               'O aplicativo vai baixar o pacote e executar o comando abaixo. Nada é baixado antes de você confirmar.',
+            introBinary:
+              'O aplicativo vai baixar o arquivo abaixo e conferir se ele confere com o código de verificação publicado pelo registro. Nada é baixado antes de você confirmar.',
             agent: 'Agente',
             version: 'Versão',
             origin: 'Origem',
             dir: 'Pasta de destino',
             command: 'Comando que será executado',
+            target: 'Versão para o seu sistema',
+            digest: 'Código de verificação (SHA-256)',
             confirmBtn: 'Baixar e instalar',
             cancelBtn: 'Cancelar',
           },

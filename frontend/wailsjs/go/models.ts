@@ -167,8 +167,25 @@ export namespace app {
 	        this.work_dir = source["work_dir"];
 	    }
 	}
+	export class ACPInstallConfirmation {
+	    distribution?: string;
+	    origin?: string;
+	    sha256?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPInstallConfirmation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.distribution = source["distribution"];
+	        this.origin = source["origin"];
+	        this.sha256 = source["sha256"];
+	    }
+	}
 	export class ACPRuntimeStatus {
 	    name: string;
+	    required: boolean;
 	    found: boolean;
 	    path?: string;
 	    version?: string;
@@ -181,6 +198,7 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
+	        this.required = source["required"];
 	        this.found = source["found"];
 	        this.path = source["path"];
 	        this.version = source["version"];
@@ -196,6 +214,8 @@ export namespace app {
 	    command: string;
 	    args: string[];
 	    dir: string;
+	    sha256?: string;
+	    sha256_origin?: string;
 	    installed_at: string;
 	
 	    static createFrom(source: any = {}) {
@@ -209,6 +229,8 @@ export namespace app {
 	        this.version = source["version"];
 	        this.distribution = source["distribution"];
 	        this.target = source["target"];
+	        this.sha256 = source["sha256"];
+	        this.sha256_origin = source["sha256_origin"];
 	        this.command = source["command"];
 	        this.args = source["args"];
 	        this.dir = source["dir"];
@@ -221,6 +243,8 @@ export namespace app {
 	    version: string;
 	    distribution: string;
 	    origin: string;
+	    target?: string;
+	    sha256?: string;
 	    dir: string;
 	    install_command?: string;
 	    run_args: string[];
@@ -241,6 +265,8 @@ export namespace app {
 	        this.version = source["version"];
 	        this.distribution = source["distribution"];
 	        this.origin = source["origin"];
+	        this.target = source["target"];
+	        this.sha256 = source["sha256"];
 	        this.dir = source["dir"];
 	        this.install_command = source["install_command"];
 	        this.run_args = source["run_args"];

@@ -401,6 +401,18 @@ func cursorInLocalBin(p probe, searched *searchLog) (Install, bool) {
 	return Install{}, false
 }
 
+// Spawnable diz se o app consegue criar processo a partir deste arquivo nesta
+// máquina.
+//
+// É a mesma pergunta que a detecção faz do que encontra por aí, agora feita
+// também do que o app baixa do registro: o `cmd` publicado por um alvo pode ser
+// um `.cmd`, e o AEP-0084 D15 vale igual para os dois casos — um arquivo de
+// lote deixaria o agente de verdade como processo neto, e matar o que o app
+// segura não encerraria quem está editando arquivos.
+func Spawnable(path string) bool {
+	return spawnable(runtime.GOOS, path)
+}
+
 // spawnable diz se o app consegue criar processo a partir deste arquivo. Fora
 // do Windows a pergunta não existe; nele, script de lote e script do PowerShell
 // precisam de um intérprete e não sobem sozinhos.

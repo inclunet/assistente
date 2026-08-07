@@ -1781,9 +1781,13 @@ const en = {
           title: 'Install from the agent catalog',
           intro:
             'The protocol catalog publishes {{agent}} as an npm package. The application installs version {{version}} into a folder of its own and fills in the command for you.',
+          introBinary:
+            'The protocol catalog publishes {{agent}} as a ready-to-run program for your system. The application installs version {{version}} into a folder of its own and fills in the command for you.',
           installBtn: 'Install from the catalog',
           installBtnHelp:
             'Shows what will be downloaded, installs the package published in the catalog and fills in the command and arguments above with what it installed.',
+          installBtnHelpBinary:
+            'Shows what will be downloaded, downloads the program published in the catalog checking its verification code and fills in the command and arguments above with what was installed.',
           cancelBtn: 'Cancel installation',
           cancelFailed: 'Could not cancel the installation.',
           installed: 'Installed by the application: {{agent}} version {{version}}.',
@@ -1817,6 +1821,8 @@ const en = {
             runtime: 'while looking for the runtime on this machine',
             prepare: 'while preparing the destination folder',
             install: 'while downloading the package with npm',
+            download: 'while downloading the agent file',
+            extract: 'while opening the downloaded file',
             resolve: 'while working out the command of the installed agent',
             verify: 'while checking whether the agent answers the protocol',
             record: 'while writing the installation record',
@@ -1825,11 +1831,15 @@ const en = {
             title: 'Install {{agent}} from the catalog?',
             intro:
               'The application will download the package and run the command below. Nothing is downloaded before you confirm.',
+            introBinary:
+              'The application will download the file below and check it against the verification code published by the registry. Nothing is downloaded before you confirm.',
             agent: 'Agent',
             version: 'Version',
             origin: 'Origin',
             dir: 'Destination folder',
             command: 'Command that will be run',
+            target: 'Build for your system',
+            digest: 'Verification code (SHA-256)',
             confirmBtn: 'Download and install',
             cancelBtn: 'Cancel',
           },

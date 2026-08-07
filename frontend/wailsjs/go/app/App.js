@@ -790,8 +790,8 @@ export function InitSpeechManagerFromProfile() {
   return window['go']['app']['App']['InitSpeechManagerFromProfile']();
 }
 
-export function InstallACPAgent(arg1) {
-  return window['go']['app']['App']['InstallACPAgent'](arg1);
+export function InstallACPAgent(arg1, arg2) {
+  return window['go']['app']['App']['InstallACPAgent'](arg1, arg2);
 }
 
 export function InterruptTerminalCommand(arg1) {

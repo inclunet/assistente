@@ -39,6 +39,56 @@ const DistributionNPM = "npm"
 // não instala runtime; ele nomeia o que falta.
 const RuntimeNode = "Node.js"
 
+// Confirmed é o plano que quem pediu a instalação mostrou e teve aceito (D3).
+//
+// Ele existe porque o consentimento é sobre um artefato concreto, e o que seria
+// instalado pode mudar entre mostrar e clicar: o Node aparece quando alguém
+// termina de instalá-lo em outra janela, e o catálogo é revalidado a cada meia
+// hora — o registro republica versão e digest sozinho. Instalar assim mesmo
+// baixaria coisa que ninguém viu.
+//
+// Campo vazio não é exigência. O zero valor aceita o que o app escolher agora, e
+// é como quem programa contra este pacote pede "instale do jeito que der".
+type Confirmed struct {
+	// Distribution é o caminho de instalação que estava à vista.
+	Distribution string
+
+	// Origin é o pacote com a versão, ou a URL do artefato.
+	Origin string
+
+	// SHA256 é o digest publicado que a tela mostrou.
+	SHA256 string
+}
+
+// check confere o que foi confirmado contra o que será feito agora.
+//
+// A divergência é dita pelo campo, e não pelos dois valores: a frase vai para a
+// tela e para um leitor de telas, e duas URLs de artefato lidas em sequência
+// não ajudam ninguém a decidir se confirma de novo.
+func (c Confirmed) check(current Confirmed) error {
+	switch {
+	case c.Distribution != "" && c.Distribution != current.Distribution:
+		return failf(StepCatalog, "%w: o modo de instalação deixou de ser %s", ErrPlanChanged, c.Distribution)
+	case c.Origin != "" && c.Origin != current.Origin:
+		return failf(StepCatalog, "%w: a origem do que seria baixado mudou", ErrPlanChanged)
+	case c.SHA256 != "" && c.SHA256 != current.SHA256:
+		return failf(StepCatalog, "%w: o digest publicado para este artefato mudou", ErrPlanChanged)
+	}
+	return nil
+}
+
+// Origem do digest guardado no `installed.json` (D4).
+const (
+	// DigestVerified é o digest que o registro publicou e que bateu com o
+	// artefato que chegou.
+	DigestVerified = "verified"
+
+	// DigestObserved é o digest calculado do arquivo na falta de um publicado.
+	// Ele não atesta procedência; serve para perceber que a mesma versão mudou
+	// de conteúdo depois.
+	DigestObserved = "observed"
+)
+
 // Stage é o marco da instalação. São marcos, e não bytes: anunciar percentual
 // continuamente atropelaria qualquer outra leitura em curso (D13, AEP-0058).
 type Stage string
@@ -73,6 +123,12 @@ const (
 	StepPrepare Step = "prepare"
 	// StepInstall é o `npm install`.
 	StepInstall Step = "install"
+	// StepDownload é o download do artefato binário, com a conferência do
+	// digest. Falhar aqui é diferente de falhar ao abrir o arquivo: uma coisa
+	// pede olhar a rede, a outra pede olhar o que o registro publicou.
+	StepDownload Step = "download"
+	// StepExtract é a abertura do artefato no diretório da instalação.
+	StepExtract Step = "extract"
 	// StepResolve é a resolução do ponto de entrada e do comando.
 	StepResolve Step = "resolve"
 	// StepVerify é o handshake que prova que o comando resolvido fala ACP.
@@ -149,6 +205,26 @@ var (
 	// npm. Instalar binário é a Fase 4, e `uvx` é a Fase 9.
 	ErrNotNPM = errors.New("este agente não é distribuído por npm")
 
+	// ErrNotBinary é o agente que não publica artefato binário.
+	ErrNotBinary = errors.New("este agente não é distribuído como binário")
+
+	// ErrPlanChanged é a instalação pedida por um plano que deixou de valer. O
+	// que será instalado depende da máquina e do catálogo, e os dois mudam:
+	// quem confirmou baixar um arquivo com determinado digest não consentiu com
+	// outra coisa.
+	ErrPlanChanged = errors.New("o que seria instalado mudou desde a confirmação; confira de novo antes de baixar")
+
+	// ErrNoDigest é o alvo que existe para esta plataforma mas não publica
+	// `sha256`. Oito dos 17 agentes com binário estão neste conjunto, e o
+	// Cursor é um deles: não é caso raro, é metade do catálogo. Instalá-los
+	// exige a confirmação reforçada do D4, que é a fase seguinte.
+	ErrNoDigest = errors.New("o registro não publica o digest deste artefato, e esta versão do app só instala o que consegue conferir")
+
+	// ErrCommandNotResolved é o artefato aberto de que não saiu um comando que
+	// este app consiga executar (D8). O `.cmd` do Cursor no Windows é o caso
+	// que o AEP-0084 D15 recusa de propósito.
+	ErrCommandNotResolved = errors.New("não foi possível resolver um comando executável no que foi instalado")
+
 	// ErrRuntimeMissing é a falta do Node. Não é defeito do app nem do agente:
 	// é pré-requisito ausente, e o app não instala runtime (D7).
 	ErrRuntimeMissing = errors.New("o Node.js não foi encontrado nesta máquina")
@@ -208,6 +284,12 @@ type RuntimeStatus struct {
 	// Name é o nome do runtime, para a frase da tela.
 	Name string `json:"name"`
 
+	// Required diz se esta instalação depende dele. Artefato binário sobe sem
+	// runtime nenhum, e bloquear a instalação por falta de Node ali seria negar
+	// o download por um pré-requisito que não existe — justamente para os sete
+	// agentes que não têm alternativa npm.
+	Required bool `json:"required"`
+
 	// Found diz se ele está aqui.
 	Found bool `json:"found"`
 
@@ -238,9 +320,20 @@ type Plan struct {
 	// Distribution é o tipo de distribuição.
 	Distribution string `json:"distribution"`
 
-	// Origin é a origem: o nome completo do pacote com a versão. É o que
-	// responde "de onde isso vem" no diálogo de confirmação (D3).
+	// Origin é a origem: o nome completo do pacote com a versão, ou a URL do
+	// artefato. É o que responde "de onde isso vem" no diálogo de confirmação
+	// (D3).
 	Origin string `json:"origin"`
+
+	// Target é o alvo de plataforma que será baixado, quando a distribuição é
+	// binária. Ele fica à vista porque o mesmo agente publica arquivos
+	// diferentes por plataforma, e qual deles vem é parte de "o que vai ser
+	// baixado".
+	Target string `json:"target,omitempty"`
+
+	// SHA256 é o digest publicado para o alvo. Vazio quer dizer que o registro
+	// não publica um, e nesta fase isso é o que impede a instalação (D4).
+	SHA256 string `json:"sha256,omitempty"`
 
 	// Dir é onde a instalação vai morar (D5). Fica à vista porque o app está
 	// escrevendo no disco de alguém.
@@ -291,15 +384,21 @@ type Installation struct {
 	// Distribution é o tipo de distribuição — `npm` nesta fase.
 	Distribution string `json:"distribution"`
 
-	// Target é o alvo instalado: nesta fase, o pacote com a versão. É o
-	// equivalente npm do alvo de plataforma que a distribuição binária tem, e o
-	// que permite dizer exatamente o que foi baixado.
-	//
-	// Não há digest a guardar aqui: o registro não publica digest para pacote
-	// npm, e a integridade do que o npm baixa é conferida pelo próprio npm
-	// contra o `integrity` do registro dele. Digest de artefato é assunto da
-	// distribuição binária (D4, Fase 4).
+	// Target é o alvo instalado. O conteúdo varia com a distribuição: no npm é
+	// o pacote com a versão, no binário é o alvo de plataforma. Nos dois casos
+	// é o que permite dizer exatamente o que foi baixado.
 	Target string `json:"target"`
+
+	// SHA256 é o digest do artefato instalado, e SHA256Origin diz o que ele
+	// vale: `verified` é o digest que o registro publicou e que bateu com o que
+	// chegou; `observed` é o que foi calculado do arquivo na falta de um
+	// publicado, e serve para perceber que a mesma versão mudou depois (D4).
+	//
+	// Nenhum dos dois existe para pacote npm: o registro não publica digest de
+	// pacote, e a integridade do que o npm baixa é conferida pelo próprio npm
+	// contra o `integrity` do registro dele.
+	SHA256       string `json:"sha256,omitempty"`
+	SHA256Origin string `json:"sha256_origin,omitempty"`
 
 	// Command e Args são o comando resolvido, no formato que o provider guarda.
 	// Eles ficam gravados porque não são recalculados a cada turno (D8).
@@ -383,4 +482,13 @@ func runtimeStatus(runtime acp.NodeRuntime) RuntimeStatus {
 		Version:  runtime.Version,
 		Searched: runtime.Searched,
 	}
+}
+
+// requiredRuntime é a mesma procura, marcada como pré-requisito. Quem instala
+// por npm depende do Node para instalar e para executar; quem baixa artefato
+// não depende de nada, e é essa diferença que o campo carrega.
+func requiredRuntime(runtime acp.NodeRuntime) RuntimeStatus {
+	status := runtimeStatus(runtime)
+	status.Required = true
+	return status
 }

@@ -22,6 +22,11 @@ type ACPRuntimeStatus struct {
 	// Name é o nome do runtime, para a frase da tela.
 	Name string `json:"name"`
 
+	// Required diz se esta instalação depende dele. Artefato binário sobe sem
+	// runtime nenhum, e a tela só bloqueia por falta de Node quando o caminho
+	// escolhido de fato o usa.
+	Required bool `json:"required"`
+
 	// Found diz se ele está aqui.
 	Found bool `json:"found"`
 
@@ -48,6 +53,12 @@ type ACPInstallation struct {
 	Args         []string `json:"args"`
 	Dir          string   `json:"dir"`
 
+	// SHA256 e SHA256Origin são o digest do artefato instalado e o que ele
+	// vale: `verified` foi conferido contra o que o registro publicou. Pacote
+	// npm não tem nenhum dos dois — quem confere ali é o próprio npm.
+	SHA256       string `json:"sha256,omitempty"`
+	SHA256Origin string `json:"sha256_origin,omitempty"`
+
 	// InstalledAt é a data da instalação em RFC 3339, para a tela formatá-la no
 	// idioma de quem lê.
 	InstalledAt string `json:"installed_at"`
@@ -67,8 +78,17 @@ type ACPInstallPlan struct {
 	// Distribution é o tipo de distribuição.
 	Distribution string `json:"distribution"`
 
-	// Origin é a origem: o nome completo do pacote com a versão.
+	// Origin é a origem: o nome completo do pacote com a versão, ou a URL do
+	// artefato que será baixado.
 	Origin string `json:"origin"`
+
+	// Target é o alvo de plataforma do artefato, quando a distribuição é
+	// binária. O mesmo agente publica arquivos diferentes por plataforma, e
+	// qual deles vem é parte de "o que vai ser baixado".
+	Target string `json:"target,omitempty"`
+
+	// SHA256 é o digest publicado que será conferido contra o download.
+	SHA256 string `json:"sha256,omitempty"`
 
 	// Dir é onde a instalação vai morar. Fica à vista porque o app está
 	// escrevendo no disco de alguém.
@@ -99,6 +119,15 @@ type ACPInstallPlan struct {
 	// Installing diz que há instalação em voo deste agente, para a tela saber
 	// que o botão de cancelar tem o que cancelar.
 	Installing bool `json:"installing"`
+}
+
+// ACPInstallConfirmation é o plano que a tela mostrou e teve aceito (D3). Ela
+// volta com o pedido de instalação para o backend recusar o que mudou desde a
+// confirmação, em vez de baixar um artefato que ninguém viu.
+type ACPInstallConfirmation struct {
+	Distribution string `json:"distribution,omitempty"`
+	Origin       string `json:"origin,omitempty"`
+	SHA256       string `json:"sha256,omitempty"`
 }
 
 // ACPInstallProgress é um marco da instalação (D13). Marcos, e não bytes:
@@ -271,12 +300,20 @@ func (a *App) acpInstallPlan(ctx context.Context, agentID string) (ACPInstallPla
 // Instalar é ação pedida (D3): quem chama já mostrou o que vai ser baixado e
 // recebeu o consentimento. Este método não pergunta nada — e é por isso que o
 // diálogo de confirmação é obrigação da tela, não uma gentileza dela.
-func (a *App) InstallACPAgent(agentID string) (ACPInstallation, error) {
+// `confirmed` é o plano que a tela mostrou no diálogo. Ele viaja de volta
+// porque o que seria instalado depende da máquina e do catálogo, e os dois
+// mudam entre mostrar e confirmar: instalar assim mesmo baixaria coisa que
+// ninguém viu. Campos vazios aceitam o que o app escolher agora.
+func (a *App) InstallACPAgent(agentID string, confirmed ACPInstallConfirmation) (ACPInstallation, error) {
 	ctx, err := a.requireAuthenticatedContext()
 	if err != nil {
 		return ACPInstallation{}, err
 	}
-	installation, err := a.acpCatalogServices().installer.Install(ctx, agentID)
+	installation, err := a.acpCatalogServices().installer.Install(ctx, agentID, acpinstall.Confirmed{
+		Distribution: confirmed.Distribution,
+		Origin:       confirmed.Origin,
+		SHA256:       confirmed.SHA256,
+	})
 	if err != nil {
 		return ACPInstallation{}, err
 	}
@@ -331,11 +368,14 @@ func installPlanDTO(plan acpinstall.Plan, installing bool) ACPInstallPlan {
 		Version:        plan.Version,
 		Distribution:   plan.Distribution,
 		Origin:         plan.Origin,
+		Target:         plan.Target,
+		SHA256:         plan.SHA256,
 		Dir:            plan.Dir,
 		InstallCommand: plan.InstallCommand,
 		RunArgs:        plan.RunArgs,
 		Runtime: ACPRuntimeStatus{
 			Name:     plan.Runtime.Name,
+			Required: plan.Runtime.Required,
 			Found:    plan.Runtime.Found,
 			Path:     plan.Runtime.Path,
 			Version:  plan.Runtime.Version,
@@ -365,6 +405,8 @@ func installationDTO(installation acpinstall.Installation) ACPInstallation {
 		Version:      installation.Version,
 		Distribution: installation.Distribution,
 		Target:       installation.Target,
+		SHA256:       installation.SHA256,
+		SHA256Origin: installation.SHA256Origin,
 		Command:      installation.Command,
 		Args:         installation.Args,
 		Dir:          installation.Dir,
