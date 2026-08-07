@@ -281,6 +281,19 @@ describe('AgentInstall — instalando', () => {
     );
   });
 
+  it('reencontra a instalação que já estava em voo quando a tela abriu', async () => {
+    // A instalação roda no backend e sobrevive ao formulário fechado. Voltando à
+    // tela no meio dela, o botão de instalar não pode convidar a começar de novo
+    // — e o de cancelar precisa estar ali, porque há o que cancelar.
+    planMock.mockResolvedValue({ ...planoInstalavel, installing: true });
+
+    render(<Host />);
+
+    const instalar = await screen.findByRole('button', { name: /instalar pelo catálogo/i });
+    expect(instalar).toBeDisabled();
+    expect(screen.getByRole('button', { name: /cancelar instalação/i })).toBeInTheDocument();
+  });
+
   it('marco de outro agente não descreve este', async () => {
     // Duas instalações podem estar em voo: um progresso sem dono descreveria na
     // tela do Codex o que está acontecendo com outro agente.
