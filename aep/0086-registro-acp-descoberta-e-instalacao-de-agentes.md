@@ -303,8 +303,10 @@ nenhum.
 O `sha256` do registro é a única coisa que liga o arquivo que chegou ao que foi
 curado. TLS não substitui isso: ele autentica o transporte até o host que serve
 o artefato, e não diz nada sobre o artefato. Onde o digest existe, ele é
-obrigatório — o app confere antes de extrair, e divergência apaga o download e
-falha com mensagem que nomeia o que não bateu.
+obrigatório: o app confere o arquivo baixado antes de qualquer coisa sair dele —
+antes de extrair, quando é archive, e antes de pôr no destino, quando é binário
+cru. Divergência apaga o download e falha com mensagem que nomeia o que não
+bateu.
 
 O que esta decisão define é o que acontece **onde ele não existe**.
 
