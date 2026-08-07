@@ -145,6 +145,12 @@ export const AgentProviderFields = ({
   // O ajuste acontece no render, e não num efeito. Pelo efeito, o campo ficava
   // um render atrás da lista: havia um instante em que o comando já estava
   // preenchido pela detecção e a caixa dos argumentos ainda aparecia vazia.
+  //
+  // Ajustar estado durante o render é o padrão que o React documenta para este
+  // caso ("You Might Not Need an Effect", seção de ajustar estado quando uma
+  // prop muda): vale porque o `set` é do próprio componente e está sob guarda,
+  // e então o React refaz o render antes de pintar, sem efeito colateral
+  // externo e sem o quadro intermediário que o efeito deixava aparecer.
   const [argsDeFora, setArgsDeFora] = useState(() => args.join('\n'));
   const deFora = args.join('\n');
   if (deFora !== argsDeFora) {

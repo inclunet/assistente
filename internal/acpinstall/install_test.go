@@ -57,6 +57,9 @@ type npmFalso struct {
 	// pacote e binario dizem o que montar no prefixo.
 	pacote  string
 	binario string
+	// semComando é o npm que não sabe dizer a linha que executaria, que é o que
+	// acontece quando há Node mas o `npm-cli.js` não está ao lado dele.
+	semComando bool
 	// manifesto substitui o manifesto padrão quando não está vazio.
 	manifesto string
 	// comShim faz o npm falso ligar também o atalho de lote em
@@ -119,6 +122,9 @@ func (n *npmFalso) Install(ctx context.Context, prefix, spec string) error {
 }
 
 func (n *npmFalso) Describe(prefix, spec string) string {
+	if n.semComando {
+		return ""
+	}
 	return "node npm-cli.js install --prefix " + prefix + " " + spec
 }
 
@@ -366,6 +372,27 @@ func TestPlanSemNodeNaoOferecInstalacaoEDizOMotivo(t *testing.T) {
 	}
 	if len(c.npm.especificacoes()) != 0 {
 		t.Error("chamou o npm numa máquina sem Node")
+	}
+}
+
+func TestPlanComNodeMasSemNpmNaoOfereceInstalacao(t *testing.T) {
+	// Node encontrado não garante npm ao lado dele. Sem a linha de comando a
+	// confirmação prometeria executar nada, e a instalação falharia depois de
+	// aceita — o consentimento do D3 é sobre um comando, e não sobre um vazio.
+	c := montar(t, opcoes{npm: &npmFalso{pacote: codexPacote, binario: codexBinario, semComando: true}})
+
+	plano, err := c.instalador.Plan(context.Background(), codexID)
+	if err != nil {
+		t.Fatalf("o plano falhou em vez de explicar: %v", err)
+	}
+	if plano.CanInstall {
+		t.Error("ofereceu instalação sem ter comando para mostrar")
+	}
+	if plano.InstallCommand != "" {
+		t.Errorf("comando = %q, queria vazio", plano.InstallCommand)
+	}
+	if !strings.Contains(plano.Reason, "npm") {
+		t.Errorf("motivo = %q, queria que ele nomeasse o npm que falta", plano.Reason)
 	}
 }
 

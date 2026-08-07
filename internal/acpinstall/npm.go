@@ -129,27 +129,42 @@ func quoteCommandLine(parts []string) string {
 	return strings.Join(quoted, " ")
 }
 
-// limitedWriter guarda até limit bytes e descarta o resto. O npm escreve muito
-// quando falha, e o processo não pode travar por causa de um cano que ninguém
-// mais lê — então o excesso é contado como escrito.
+// limitedWriter guarda os últimos limit bytes e descarta o começo. O npm gasta
+// as primeiras linhas com progresso e diz o que deu errado no fim, então é o fim
+// que serve para quem vai resolver. O processo não pode travar por causa de um
+// cano que ninguém mais lê — o excesso é contado como escrito.
 type limitedWriter struct {
 	buf   *bytes.Buffer
 	limit int
 }
 
 func (w *limitedWriter) Write(p []byte) (int, error) {
-	if w.buf == nil {
+	if w.buf == nil || w.limit <= 0 {
 		return len(p), nil
 	}
-	if free := w.limit - w.buf.Len(); free > 0 {
-		if len(p) < free {
-			free = len(p)
-		}
-		if _, err := w.buf.Write(p[:free]); err != nil {
-			return 0, err
-		}
+	escrito := len(p)
+	if len(p) > w.limit {
+		p = p[len(p)-w.limit:]
 	}
-	return len(p), nil
+	if _, err := w.buf.Write(p); err != nil {
+		return 0, err
+	}
+	if excedente := w.buf.Len() - w.limit; excedente > 0 {
+		w.buf.Next(excedente)
+	}
+	w.buf.Next(bytesDeContinuacao(w.buf.Bytes()))
+	return escrito, nil
+}
+
+// bytesDeContinuacao conta os bytes do meio de um caractere que sobraram no
+// começo depois do corte. Sem descartá-los, a mensagem abriria com o rabo de uma
+// letra acentuada — um losango de interrogação no meio de um anúncio.
+func bytesDeContinuacao(b []byte) int {
+	n := 0
+	for n < len(b) && b[n]&0xC0 == 0x80 {
+		n++
+	}
+	return n
 }
 
 // HandshakeUnsupported é o handshake que recusa: ele existe para quem monta o

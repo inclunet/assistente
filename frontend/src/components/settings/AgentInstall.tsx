@@ -135,6 +135,14 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
   // "instalado" depois de remover, ou o contrário.
   const planSeq = useRef(0);
 
+  // Marca a instalação que já estava em voo quando esta tela abriu. A que começa
+  // aqui termina no `finally` de quem a pediu; a adotada não tem quem a espere, e
+  // sem isto a tela ficaria ocupada para sempre — botão de instalar desabilitado
+  // e o de cancelar oferecendo cancelar o que já acabou.
+  const adotadaRef = useRef(false);
+  const agentKindRef = useRef(agentKind);
+  agentKindRef.current = agentKind;
+
   const loadPlan = useCallback(async (kind: string) => {
     const seq = ++planSeq.current;
     const obsoleto = () => seq !== planSeq.current || !mountedRef.current;
@@ -145,7 +153,10 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
       if (obsoleto()) return;
       setPlanned({ kind, plan: result });
       // Instalação em voo sobrevive a esta tela: ela roda no backend, e o app
-      // pode ter fechado e reaberto o formulário no meio dela.
+      // pode ter fechado e reaberto o formulário no meio dela. Quem a começou de
+      // outra montagem não tem promessa para esperar aqui, então quem a encerra
+      // é o marco de desfecho — e é por isso que ela fica marcada.
+      adotadaRef.current = !!result?.installing;
       if (result?.installing) setBusy(true);
     } catch (error: unknown) {
       if (obsoleto()) return;
@@ -182,8 +193,17 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
       // do meio, e o cancelamento que a própria pessoa pediu, não atropelam
       // quem está lendo outra coisa na mesma tela (AEP-0058).
       announceRef.current(text, progress.stage === 'failed' ? 'assertive' : 'polite');
+      // Só a instalação adotada termina por aqui. A que começou nesta tela é
+      // encerrada por quem a pediu, que também recarrega o plano; fazer as duas
+      // coisas daria dois pedidos ao backend pelo mesmo desfecho.
+      if (!adotadaRef.current) return;
+      if (progress.stage === 'done' || progress.stage === 'failed' || progress.stage === 'cancelled') {
+        adotadaRef.current = false;
+        setBusy(false);
+        void loadPlan(agentKindRef.current);
+      }
     });
-  }, []);
+  }, [loadPlan]);
 
   const handleInstall = async () => {
     const agentID = plan?.agent_id;
@@ -324,9 +344,17 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
         </>
       ) : (
         <>
-          <p className="agent-install__intro">
-            {t('providerForm.agent.catalog.intro', { agent: plan.name, version: plan.version })}
-          </p>
+          {/*
+            Sem nome não há frase: o plano que sobra de uma consulta que falhou
+            traz só o identificador e o motivo, e a apresentação viraria "publica
+            como pacote, versão" com buracos onde deveriam estar as duas coisas
+            que ela existe para dizer. O motivo, esse, aparece abaixo.
+          */}
+          {!!plan.name && (
+            <p className="agent-install__intro">
+              {t('providerForm.agent.catalog.intro', { agent: plan.name, version: plan.version })}
+            </p>
+          )}
 
           {/*
             Sem runtime a instalação não é oferecida, e o motivo é o texto — não

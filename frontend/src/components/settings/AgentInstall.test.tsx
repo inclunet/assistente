@@ -244,6 +244,28 @@ describe('AgentInstall — sem o runtime', () => {
     expect(screen.getByText(/appdata\\roaming\\nvm/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /instalar pelo catálogo/i })).not.toBeInTheDocument();
   });
+
+  it('sem saber o nome do agente, não monta a frase de apresentação', async () => {
+    // A consulta ao catálogo que falha deixa um plano com o identificador e o
+    // motivo, e nada mais. A apresentação viraria "publica  como pacote" com
+    // buracos onde deveriam estar o agente e a versão.
+    planMock.mockResolvedValue({
+      agent_id: 'codex-acp',
+      name: '',
+      version: '',
+      distribution: 'npm',
+      run_args: [],
+      runtime: nodeEncontrado,
+      can_install: false,
+      installing: false,
+      reason: 'não foi possível consultar o catálogo',
+    });
+
+    render(<Host />);
+
+    expect(await screen.findByText(/não foi possível consultar o catálogo/i)).toBeInTheDocument();
+    expect(screen.queryByText(/publica/i)).not.toBeInTheDocument();
+  });
 });
 
 describe('AgentInstall — instalando', () => {
@@ -292,6 +314,27 @@ describe('AgentInstall — instalando', () => {
     const instalar = await screen.findByRole('button', { name: /instalar pelo catálogo/i });
     expect(instalar).toBeDisabled();
     expect(screen.getByRole('button', { name: /cancelar instalação/i })).toBeInTheDocument();
+  });
+
+  it('solta a tela quando a instalação adotada termina', async () => {
+    // Quem começou a instalação foi outra montagem do formulário, então não há
+    // promessa nenhuma para encerrar o estado ocupado aqui: sem o marco de
+    // desfecho, o botão de cancelar continuaria oferecendo cancelar o que já
+    // acabou, e a tela nunca diria que o agente está instalado.
+    planMock.mockResolvedValue({ ...planoInstalavel, installing: true });
+
+    render(<Host />);
+    expect(await screen.findByRole('button', { name: /cancelar instalação/i })).toBeInTheDocument();
+
+    planMock.mockResolvedValue({ ...planoInstalavel, can_install: false, installed: instalacao });
+    await act(async () => {
+      emitirProgresso({ agent_id: 'codex-acp', agent: 'Codex', stage: 'done' });
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /cancelar instalação/i })).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByRole('button', { name: /usar o comando instalado/i })).toBeInTheDocument();
   });
 
   it('marco de outro agente não descreve este', async () => {

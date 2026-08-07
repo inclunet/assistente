@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"assistente/internal/acp"
 )
@@ -56,9 +57,11 @@ func TestInstallSemRuntimeDizQueFaltaONpm(t *testing.T) {
 	}
 }
 
-func TestLimitedWriterGuardaOInicioEEngoleOResto(t *testing.T) {
-	// O npm escreve muito quando falha, e o processo não pode travar por causa de
-	// um cano que ninguém mais lê: o excesso é contado como escrito.
+func TestLimitedWriterGuardaOFimEEngoleOComeco(t *testing.T) {
+	// O npm gasta as primeiras linhas com progresso e diz o que deu errado no
+	// fim, então é o fim que serve para quem vai resolver. E o processo não pode
+	// travar por causa de um cano que ninguém mais lê: o excesso é contado como
+	// escrito.
 	var buf bytes.Buffer
 	w := &limitedWriter{buf: &buf, limit: 8}
 
@@ -69,8 +72,44 @@ func TestLimitedWriterGuardaOInicioEEngoleOResto(t *testing.T) {
 	if n != len("doze bytes a mais") {
 		t.Errorf("escreveu %d, queria dizer que aceitou tudo", n)
 	}
-	if buf.String() != "doze byt" {
-		t.Errorf("guardou %q, queria os primeiros 8 bytes", buf.String())
+	if buf.String() != "s a mais" {
+		t.Errorf("guardou %q, queria os últimos 8 bytes", buf.String())
+	}
+}
+
+func TestLimitedWriterEmVariasEscritasTerminaComOFinal(t *testing.T) {
+	// O npm escreve aos poucos, e é assim que a saída chega de verdade: o que
+	// vale é o que sobra ao final, e não o que coube na primeira escrita.
+	var buf bytes.Buffer
+	w := &limitedWriter{buf: &buf, limit: 10}
+
+	for _, parte := range []string{"progresso...", "npm ERR!", " falhou"} {
+		if _, err := w.Write([]byte(parte)); err != nil {
+			t.Fatalf("erro ao escrever %q: %v", parte, err)
+		}
+	}
+
+	if buf.String() != "RR! falhou" {
+		t.Errorf("guardou %q, queria o fim da saída", buf.String())
+	}
+}
+
+func TestLimitedWriterNaoDeixaCaractereCortadoNoComeco(t *testing.T) {
+	// Cortar por byte parte um caractere acentuado ao meio, e o resto dele abriria
+	// a mensagem como um losango de interrogação — no meio de um anúncio.
+	var buf bytes.Buffer
+	// Quatro bytes de "ção", que tem seis: o corte cai no meio do ç.
+	w := &limitedWriter{buf: &buf, limit: 4}
+
+	if _, err := w.Write([]byte("ção")); err != nil {
+		t.Fatalf("erro ao escrever: %v", err)
+	}
+
+	if !utf8.ValidString(buf.String()) {
+		t.Errorf("guardou %q, que não é texto válido", buf.String())
+	}
+	if buf.String() != "ão" {
+		t.Errorf("guardou %q, queria o fim sem o rabo do caractere cortado", buf.String())
 	}
 }
 

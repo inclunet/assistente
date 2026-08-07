@@ -158,8 +158,17 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 	case plan.Installed != nil:
 		plan.Reason = ErrAlreadyInstalled.Error()
 	default:
+		// Node encontrado não garante npm: o `npm-cli.js` pode não estar ao lado
+		// dele. Sem a linha de comando não há o que mostrar na confirmação, e
+		// oferecer o botão levaria a um diálogo que promete executar nada e a uma
+		// instalação que falha depois de aceita.
+		command := i.npm.Describe(dir, spec)
+		if command == "" {
+			plan.Reason = ErrNoNPM.Error()
+			break
+		}
 		plan.CanInstall = true
-		plan.InstallCommand = i.npm.Describe(dir, spec)
+		plan.InstallCommand = command
 	}
 	return plan, nil
 }
