@@ -219,9 +219,20 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
     });
   }, [loadPlan]);
 
+  // Diz se a resposta que chegou ainda é da tela que a pediu. Estar montado não
+  // basta: trocar o tipo do provedor não desmonta este bloco, e a instalação
+  // continua de pé no backend. Sem esta pergunta, o comando resolvido de um
+  // agente cairia nos campos de outro, e a frase de erro dele apareceria sob o
+  // nome do agente novo.
+  const doAgente = useCallback(
+    (kind: string) => mountedRef.current && agentKindRef.current === kind,
+    [],
+  );
+
   const handleInstall = async () => {
     const agentID = plan?.agent_id;
     if (!agentID) return;
+    const kind = agentKind;
     setConfirming(false);
     setBusy(true);
     outcomeRef.current = false;
@@ -235,12 +246,12 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
         origin: plan?.origin || '',
         sha256: plan?.sha256 || '',
       });
-      if (!mountedRef.current) return;
+      if (!doAgente(kind)) return;
       // O comando resolvido vai para os campos: instalar pelo catálogo termina
       // com um provedor pronto para salvar, e não com um caminho para copiar.
       onResolved(installation.command, installation.args || []);
     } catch (error: unknown) {
-      if (!mountedRef.current) return;
+      if (!doAgente(kind)) return;
       // O marco de desfecho já disse o que houve, e ele diz melhor: nomeia a
       // etapa, e distingue cancelar de falhar. Sem marco nenhum — a recusa que
       // acontece antes de a instalação começar, como runtime ausente — o texto
@@ -253,9 +264,9 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
         announce(message, 'assertive');
       }
     } finally {
-      if (mountedRef.current) {
+      if (doAgente(kind)) {
         setBusy(false);
-        void loadPlan(agentKind);
+        void loadPlan(kind);
       }
     }
   };
@@ -263,10 +274,11 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
   const handleCancel = async () => {
     const agentID = plan?.agent_id;
     if (!agentID) return;
+    const kind = agentKind;
     try {
       await CancelACPAgentInstall(agentID);
     } catch (error: unknown) {
-      if (!mountedRef.current) return;
+      if (!doAgente(kind)) return;
       const message = errorText(error, t('providerForm.agent.catalog.cancelFailed'));
       setStatus(message);
       announce(message, 'assertive');
@@ -274,27 +286,28 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
       // Cancelar o que já terminou não é erro — a instalação pode ter acabado
       // entre o render e o clique —, mas deixaria a tela oferecendo cancelar de
       // novo. O plano diz o que de fato está em voo.
-      if (mountedRef.current) void loadPlan(agentKind);
+      if (doAgente(kind)) void loadPlan(kind);
     }
   };
 
   const handleRemove = async () => {
     const agentID = plan?.agent_id;
     if (!agentID) return;
+    const kind = agentKind;
     setRemoving(false);
     try {
       await RemoveACPAgent(agentID);
-      if (!mountedRef.current) return;
+      if (!doAgente(kind)) return;
       const message = t('providerForm.agent.catalog.removed');
       setStatus(message);
       announce(message, 'polite');
     } catch (error: unknown) {
-      if (!mountedRef.current) return;
+      if (!doAgente(kind)) return;
       const message = errorText(error, t('providerForm.agent.catalog.removeFailed'));
       setStatus(message);
       announce(message, 'assertive');
     } finally {
-      if (mountedRef.current) void loadPlan(agentKind);
+      if (doAgente(kind)) void loadPlan(kind);
     }
   };
 

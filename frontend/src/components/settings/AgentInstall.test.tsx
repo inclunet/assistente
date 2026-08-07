@@ -482,6 +482,59 @@ describe('AgentInstall — instalando', () => {
     await waitFor(() => expect(screen.queryByText(/baixando/i)).not.toBeInTheDocument());
   });
 
+  it('trocar de agente com instalação em voo não aplica o comando dela', async () => {
+    // A instalação é do backend e sobrevive à troca. Se ela terminar depois, o
+    // comando do agente antigo cairia nos campos do provedor novo — e o
+    // formulário salvaria um executável que não é o do tipo escolhido.
+    planMock.mockResolvedValue(planoInstalavel);
+    const { concluir } = instalacaoControlada();
+    const user = userEvent.setup();
+
+    const { rerender } = render(<Host />);
+    await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+    await user.click(await screen.findByRole('button', { name: /baixar e instalar/i }));
+    await waitFor(() => expect(installMock).toHaveBeenCalled());
+
+    planMock.mockResolvedValue({ ...planoInstalavel, agent_id: 'claude-code', name: 'Claude Code' });
+    rerender(<Host agentKind="claude-code" />);
+    await waitFor(() => expect(planMock).toHaveBeenLastCalledWith('claude-code'));
+
+    await act(async () => {
+      concluir(instalacao);
+    });
+
+    expect(screen.getByTestId('comando')).toHaveTextContent('');
+    expect(screen.getByTestId('argumentos')).toHaveTextContent('');
+  });
+
+  it('trocar de agente com instalação em voo não mostra a falha dela sob o agente novo', async () => {
+    // A frase é a única pista de qual agente está sendo instalado: sob o nome do
+    // agente novo, ela diz que falhou uma instalação que ninguém pediu ali.
+    planMock.mockResolvedValue(planoInstalavel);
+    const { falhar } = instalacaoControlada();
+    const user = userEvent.setup();
+
+    const { rerender } = render(<Host />);
+    await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+    await user.click(await screen.findByRole('button', { name: /baixar e instalar/i }));
+    await waitFor(() => expect(installMock).toHaveBeenCalled());
+
+    planMock.mockResolvedValue({ ...planoInstalavel, agent_id: 'claude-code', name: 'Claude Code' });
+    rerender(<Host agentKind="claude-code" />);
+    await waitFor(() => expect(planMock).toHaveBeenLastCalledWith('claude-code'));
+    announceMock.mockClear();
+
+    await act(async () => {
+      falhar(new Error('npm ERR! network request failed'));
+    });
+
+    expect(screen.queryByText(/a instalação falhou/i)).not.toBeInTheDocument();
+    expect(announceMock).not.toHaveBeenCalled();
+    // O plano do agente novo continua sendo o último: um pedido pelo tipo
+    // antigo devolveria a este bloco a oferta do agente que saiu da tela.
+    expect(planMock).toHaveBeenLastCalledWith('claude-code');
+  });
+
   it('marco de outro agente não descreve este', async () => {
     // Duas instalações podem estar em voo: um progresso sem dono descreveria na
     // tela do Codex o que está acontecendo com outro agente.
