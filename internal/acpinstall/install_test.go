@@ -514,6 +514,29 @@ func TestInstallCanceladoNaoDeixaResiduo(t *testing.T) {
 	}
 }
 
+func TestOPlanoProcuraORuntimeUmaVezSo(t *testing.T) {
+	// O comando que o plano mostra tem de ser o do Node que ele diz ter
+	// encontrado. Com duas procuras, o que a confirmação promete executar sai de
+	// uma delas e o "Node encontrado em" sai da outra — e a máquina pode ter
+	// mudado no meio.
+	procuras := 0
+	c := montar(t, opcoes{runtime: func() acp.NodeRuntime {
+		procuras++
+		return runtimeComNode()
+	}})
+	// O npm de mentira do cenário atende sem consultar o runtime; o de verdade é
+	// quem procuraria de novo, e é o caminho que a contagem cobre.
+	c.instalador.npm = lazyNPM{lookup: c.instalador.runtime}
+
+	if _, err := c.instalador.Plan(context.Background(), codexID); err != nil {
+		t.Fatalf("o plano falhou: %v", err)
+	}
+
+	if procuras != 1 {
+		t.Errorf("procurou o runtime %d vezes, queria uma", procuras)
+	}
+}
+
 func TestInstallQueEstouraOPrazoFalhaEmVezDeDizerQueFoiCancelada(t *testing.T) {
 	// Cancelar é decisão de quem clicou. Prazo estourado não é decisão de
 	// ninguém, e anunciá-lo como cancelamento diria "nada ficou no disco, você

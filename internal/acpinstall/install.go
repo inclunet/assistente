@@ -134,6 +134,10 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 	}
 
 	dir := i.agentVersionDir(agent.ID, version)
+	// Uma procura só para o plano inteiro: a linha de comando que ele mostra tem
+	// de ser a do Node que ele diz ter encontrado, e não a de uma segunda
+	// procura feita alguns microssegundos depois.
+	runtime := i.runtime()
 	plan := Plan{
 		AgentID:      agent.ID,
 		Name:         agent.Name,
@@ -142,7 +146,7 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 		Origin:       spec,
 		Dir:          dir,
 		RunArgs:      slices.Clone(agent.Distribution.NPX.Args),
-		Runtime:      runtimeStatus(i.runtime()),
+		Runtime:      runtimeStatus(runtime),
 	}
 	if installed, ok := i.installationAt(dir); ok {
 		plan.Installed = &installed
@@ -162,7 +166,7 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 		// dele. Sem a linha de comando não há o que mostrar na confirmação, e
 		// oferecer o botão levaria a um diálogo que promete executar nada e a uma
 		// instalação que falha depois de aceita.
-		command := i.npm.Describe(dir, spec)
+		command := i.npmFor(runtime).Describe(dir, spec)
 		if command == "" {
 			plan.Reason = ErrNoNPM.Error()
 			break
@@ -171,6 +175,20 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 		plan.InstallCommand = command
 	}
 	return plan, nil
+}
+
+// npmFor é o npm da instalação que está acontecendo.
+//
+// O npm padrão é preguiçoso porque quem instalou o Node depois de abrir o app não
+// deveria ter de reabri-lo. Mas dentro de uma instalação o runtime já foi
+// procurado e conferido, e deixá-lo procurar de novo abriria espaço para o npm
+// falhar por causa de um Node que não é o que passou na conferência de instantes
+// atrás — e ainda pagaria a procura duas vezes.
+func (i *Installer) npmFor(runtime acp.NodeRuntime) NPM {
+	if _, lazy := i.npm.(lazyNPM); lazy {
+		return NewNPM(runtime)
+	}
+	return i.npm
 }
 
 // unavailablePlan é o item que o app não sabe instalar, com o motivo dito em
@@ -267,7 +285,7 @@ func (i *Installer) install(
 	}
 
 	i.emit(ctx, Progress{AgentID: agent.ID, Agent: agent.Name, Stage: StageInstalling})
-	if err := i.npm.Install(ctx, dir, spec); err != nil {
+	if err := i.npmFor(runtime).Install(ctx, dir, spec); err != nil {
 		return Installation{}, failf(StepInstall, "%w", err)
 	}
 
