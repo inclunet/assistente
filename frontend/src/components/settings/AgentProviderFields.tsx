@@ -5,6 +5,7 @@ import { DetectACPAgent, TestACPAgent } from '@wailsjs/go/app/App';
 import type { app } from '@wailsjs/go/models';
 import { Button, FormField, Input, Textarea } from '../';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { AgentInstall } from './AgentInstall';
 import './AgentProviderFields.css';
 
 /** O que a detecção do backend devolve sobre o agente instalado. */
@@ -137,17 +138,27 @@ export const AgentProviderFields = ({
   // argumento, o valor derivado da lista apagava essa linha na tecla seguinte à
   // que a abriu, e só dava para configurar um argumento sem colar texto pronto.
   const [argsText, setArgsText] = useState(() => args.join('\n'));
-  const argsTextRef = useRef(argsText);
-  argsTextRef.current = argsText;
-  useEffect(() => {
-    // Quem escreve de fora — a detecção, ou a volta ao provedor salvo — manda no
-    // texto. Enquanto os dois lados descreverem os mesmos argumentos, o
-    // rascunho fica como está, com as linhas em branco que a pessoa abriu.
-    const deFora = args.join('\n');
-    if (deFora !== lerArgumentos(argsTextRef.current).join('\n')) {
+  // Quem escreve de fora — a detecção, ou a volta ao provedor salvo — manda no
+  // texto. Enquanto os dois lados descreverem os mesmos argumentos, o rascunho
+  // fica como está, com as linhas em branco que a pessoa abriu.
+  //
+  // O ajuste acontece no render, e não num efeito. Pelo efeito, o campo ficava
+  // um render atrás da lista: havia um instante em que o comando já estava
+  // preenchido pela detecção e a caixa dos argumentos ainda aparecia vazia.
+  //
+  // Ajustar estado durante o render é o padrão que o React documenta para este
+  // caso ("You Might Not Need an Effect", seção de ajustar estado quando uma
+  // prop muda): vale porque o `set` é do próprio componente e está sob guarda,
+  // e então o React refaz o render antes de pintar, sem efeito colateral
+  // externo e sem o quadro intermediário que o efeito deixava aparecer.
+  const [argsDeFora, setArgsDeFora] = useState(() => args.join('\n'));
+  const deFora = args.join('\n');
+  if (deFora !== argsDeFora) {
+    setArgsDeFora(deFora);
+    if (deFora !== lerArgumentos(argsText).join('\n')) {
       setArgsText(deFora);
     }
-  }, [args]);
+  }
 
   // Uma procura só vale se ainda é a última e se ainda há formulário de agente
   // para receber o que ela achou. Trocar o tipo desmonta estes campos, e uma
@@ -448,6 +459,20 @@ export const AgentProviderFields = ({
           )}
         </div>
       )}
+
+      {/*
+        Instalar pelo catálogo é a alternativa a mandar a pessoa ao terminal
+        (AEP-0086 Fase 3). O bloco fica aqui, e não só no estado "não
+        encontrado", porque ele também é onde a instalação feita pelo app se
+        mostra e se desfaz — e isso vale mesmo quando o agente está na máquina.
+      */}
+      <AgentInstall
+        agentKind={agentKind}
+        onResolved={(installedCommand, installedArgs) => {
+          onCommandChange(installedCommand);
+          onArgsChange(installedArgs);
+        }}
+      />
 
       {/*
         O diretório é informação lida, e não campo a preencher: como `Input`

@@ -53,6 +53,15 @@ vi.mock('@wailsjs/go/app/App', () => ({
   CreateLLMProvider: createMock,
   UpdateLLMProvider: updateMock,
   ListModelsRaw: listModelsMock,
+  // A instalação pelo catálogo tem teste próprio; aqui basta ela não aparecer.
+  ACPAgentInstallPlanForKind: vi.fn().mockResolvedValue({}),
+  InstallACPAgent: vi.fn(),
+  CancelACPAgentInstall: vi.fn(),
+  RemoveACPAgent: vi.fn(),
+}));
+
+vi.mock('@wailsjs/runtime/runtime', () => ({
+  EventsOn: vi.fn(() => () => {}),
 }));
 
 const detected = {

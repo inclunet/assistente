@@ -1776,6 +1776,69 @@ const es = {
             'Desde aquí no hay cómo saber qué comando autentica a este agente. Usa «Detectar y completar comando» y prueba de nuevo.',
           loginMethods: 'Autenticación solicitada por el agente: {{methods}}.',
         },
+        catalog: {
+          title: 'Instalar desde el catálogo de agentes',
+          intro:
+            'El catálogo del protocolo publica {{agent}} como paquete npm. La aplicación instala la versión {{version}} en una carpeta propia y completa el comando por ti.',
+          installBtn: 'Instalar desde el catálogo',
+          installBtnHelp:
+            'Muestra lo que se va a descargar, instala el paquete publicado en el catálogo y completa el comando y los argumentos de arriba con lo que instaló.',
+          cancelBtn: 'Cancelar instalación',
+          cancelFailed: 'No se pudo cancelar la instalación.',
+          installed: 'Instalado por la aplicación: {{agent}} versión {{version}}.',
+          installedDir: 'Carpeta de la instalación: {{dir}}',
+          useBtn: 'Usar el comando instalado',
+          useAnnounce: 'Comando completado con el del agente instalado: {{command}}.',
+          removeBtn: 'Eliminar agente instalado',
+          removeBtnHelp:
+            'Borra la carpeta del agente que instaló la aplicación. El proveedor sigue guardado y su comando deja de existir.',
+          removed:
+            'Agente eliminado. El proveedor sigue guardado y su comando dejó de existir: prueba el agente para verlo en la pantalla.',
+          removeFailed: 'No se pudo eliminar el agente instalado.',
+          runtimeMissing:
+            'Instalar desde el catálogo requiere {{runtime}}, que no se encontró en esta máquina. La aplicación no instala {{runtime}}: instálalo y vuelve aquí.',
+          runtimeSearched: 'Buscamos {{runtime}} en el PATH y en: {{places}}.',
+          unavailable: 'Ahora no se puede instalar desde el catálogo: {{reason}}',
+          unavailableUnknown: 'Ahora no se puede instalar este agente desde el catálogo.',
+          planFailed: 'No se pudo consultar el catálogo de agentes.',
+          failed: 'La instalación falló: {{reason}}',
+          failedAtStep: 'La instalación falló {{step}}: {{reason}}',
+          failedUnknown: 'motivo no indicado',
+          stage: {
+            started: 'La instalación de {{agent}} comenzó.',
+            installing: 'Descargando e instalando {{agent}}...',
+            verifying: 'Comprobando si {{agent}} responde al protocolo...',
+            done: '{{agent}} instalado y respondiendo al protocolo. Comando completado.',
+            cancelled: 'Instalación de {{agent}} cancelada. No quedó nada en el disco.',
+          },
+          step: {
+            catalog: 'al consultar el catálogo',
+            runtime: 'al buscar el runtime en esta máquina',
+            prepare: 'al preparar la carpeta de destino',
+            install: 'al descargar el paquete con npm',
+            resolve: 'al averiguar el comando del agente instalado',
+            verify: 'al comprobar si el agente responde al protocolo',
+            record: 'al guardar el registro de la instalación',
+          },
+          confirm: {
+            title: '¿Instalar {{agent}} desde el catálogo?',
+            intro:
+              'La aplicación va a descargar el paquete y ejecutar el comando de abajo. No se descarga nada antes de que confirmes.',
+            agent: 'Agente',
+            version: 'Versión',
+            origin: 'Origen',
+            dir: 'Carpeta de destino',
+            command: 'Comando que se va a ejecutar',
+            confirmBtn: 'Descargar e instalar',
+            cancelBtn: 'Cancelar',
+          },
+          removeConfirm: {
+            title: '¿Eliminar {{agent}}?',
+            message:
+              'Se borrará la carpeta {{dir}}. El proveedor sigue guardado con su comando actual, que dejará de existir.',
+            confirmBtn: 'Eliminar',
+          },
+        },
         error: {
           commandRequired: 'El comando del agente es obligatorio',
         },
