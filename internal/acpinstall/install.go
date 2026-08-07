@@ -489,11 +489,27 @@ func (i *Installer) installationAt(dir string) (Installation, bool) {
 // `installed.json` trocado apontaria o provider para qualquer executável da
 // máquina, e o app o subiria achando que subiu o agente que instalou.
 func runsFromDir(dir string, installation Installation) bool {
+	// O prefixo é resolvido antes da comparação: em macOS `/var` é link para
+	// `/private/var`, e comparar um lado resolvido com o outro cru recusaria
+	// instalação legítima.
+	root := dir
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		root = resolved
+	}
 	for _, part := range append([]string{installation.Command}, installation.Args...) {
-		if !filepath.IsAbs(part) || !acp.WithinDir(dir, part) {
+		if !filepath.IsAbs(part) {
 			continue
 		}
-		if info, err := os.Stat(part); err == nil && info.Mode().IsRegular() {
+		// O caminho estar textualmente dentro não basta: um link dentro da
+		// instalação pode levar para fora dela, e quem escreveu o registro
+		// também pode ter posto o link ali. O que se executa é o destino, e é
+		// sobre ele que a guarda vale — a mesma conclusão a que a resolução do
+		// ponto de entrada já tinha chegado.
+		real, err := filepath.EvalSymlinks(part)
+		if err != nil || !acp.WithinDir(root, real) {
+			continue
+		}
+		if info, err := os.Stat(real); err == nil && info.Mode().IsRegular() {
 			return true
 		}
 	}

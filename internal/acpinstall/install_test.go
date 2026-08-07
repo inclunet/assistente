@@ -729,6 +729,32 @@ func TestRegistroQueApontaParaForaDaInstalacaoNaoContaComoInstalado(t *testing.T
 	}
 }
 
+func TestRegistroQueSaiDaInstalacaoPorUmLinkNaoContaComoInstalado(t *testing.T) {
+	// Caminho de dentro do diretório que leva para fora dele: o texto passa na
+	// guarda, o destino não. Quem escreveu o registro adulterado também pode ter
+	// posto o link ali, e o que se executa é o destino.
+	c := montar(t, opcoes{})
+	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	if err != nil {
+		t.Fatalf("não instalou: %v", err)
+	}
+	fora := filepath.Join(t.TempDir(), "outra-coisa.js")
+	if err := os.WriteFile(fora, []byte("//"), 0o644); err != nil {
+		t.Fatalf("não deu para gravar o arquivo de fora: %v", err)
+	}
+	link := filepath.Join(instalacao.Dir, "atalho.js")
+	if err := os.Symlink(fora, link); err != nil {
+		// No Windows criar link exige privilégio, e não é a máquina que está
+		// sendo testada aqui.
+		t.Skipf("não deu para criar o link neste sistema: %v", err)
+	}
+	regravarRegistro(t, instalacao.Dir, func(r *Installation) { r.Args = []string{link} })
+
+	if _, ok := c.instalador.Installed(codexID); ok {
+		t.Error("aceitou um registro que sai da instalação por um link")
+	}
+}
+
 func TestRegistroDaInstalacaoQueOAppFezContinuaValendo(t *testing.T) {
 	// A guarda não pode recusar o caso normal: o `node` mora fora do diretório da
 	// instalação, e é o ponto de entrada que fica dentro dele.
