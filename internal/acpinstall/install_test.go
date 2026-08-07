@@ -733,6 +733,62 @@ func regravarRegistro(t *testing.T, dir string, mexer func(*Installation)) {
 	}
 }
 
+func TestRegistroGrandeDemaisNaoVaiInteiroParaAMemoria(t *testing.T) {
+	// O registro que o app escreve tem algumas centenas de bytes. Um adulterado
+	// de tamanho absurdo seria lido inteiro só por alguém ter aberto a tela que
+	// lista o que está instalado.
+	c := montar(t, opcoes{})
+	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	if err != nil {
+		t.Fatalf("não instalou: %v", err)
+	}
+	gordo := append(make([]byte, 0, maxInstalledBytes+8), []byte(`{"schema":1,"command":"x"`)...)
+	for len(gordo) <= maxInstalledBytes {
+		gordo = append(gordo, ' ')
+	}
+	if err := os.WriteFile(filepath.Join(instalacao.Dir, installedFileName), append(gordo, '}'), 0o644); err != nil {
+		t.Fatalf("não deu para inchar o registro: %v", err)
+	}
+
+	if _, ok := c.instalador.Installed(codexID); ok {
+		t.Error("aceitou um registro maior que o teto")
+	}
+}
+
+func TestORegistroSobreviveAQuedaNoMeioDaGravacao(t *testing.T) {
+	// O registro é o que declara a instalação existente. Gravado por cima, uma
+	// queda no meio deixaria um JSON pela metade, e o agente instalado sumiria
+	// da tela na abertura seguinte — registro ilegível não conta como instalação.
+	dir := t.TempDir()
+	antigo := Installation{Schema: installationSchema, AgentID: codexID, Version: "1.0.0", Command: "node"}
+	if err := writeInstallation(dir, antigo); err != nil {
+		t.Fatalf("não gravou o registro antigo: %v", err)
+	}
+
+	novo := antigo
+	novo.Version = "2.0.0"
+	if err := writeInstallation(dir, novo); err != nil {
+		t.Fatalf("não regravou o registro: %v", err)
+	}
+
+	lido, err := readInstallation(dir)
+	if err != nil {
+		t.Fatalf("o registro regravado ficou ilegível: %v", err)
+	}
+	if lido.Version != "2.0.0" {
+		t.Errorf("versão = %q, queria a regravada", lido.Version)
+	}
+	// E o temporário não fica para trás: o diretório da instalação é lido por
+	// versão, e lixo ali vira pergunta na próxima abertura.
+	entradas, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("não deu para listar o diretório: %v", err)
+	}
+	if len(entradas) != 1 {
+		t.Errorf("sobrou arquivo além do registro: %d entradas", len(entradas))
+	}
+}
+
 func TestRegistroQueDescreveOutraInstalacaoNaoContaComoInstalado(t *testing.T) {
 	// O caminho é `<id>/<versão>` (D5), e o registro tem de falar do diretório em
 	// que está. Um que veio de outro lugar diria à tela uma versão que não é a

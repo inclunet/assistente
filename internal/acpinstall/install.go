@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -631,9 +632,17 @@ func removeTree(dir string) error {
 	return err
 }
 
+// maxInstalledBytes é o teto do `installed.json`.
+//
+// O arquivo que o app escreve tem algumas centenas de bytes, e ele é dado
+// externo: um adulterado de um gigabyte iria inteiro para a memória só por
+// alguém ter aberto a tela que lista o que está instalado. O teto é folgado o
+// bastante para nunca alcançar um registro de verdade.
+const maxInstalledBytes = 1 << 20
+
 // readInstallation lê o `installed.json` de um diretório de instalação.
 func readInstallation(dir string) (Installation, error) {
-	data, err := os.ReadFile(filepath.Join(dir, installedFileName))
+	data, err := readAtMost(filepath.Join(dir, installedFileName), maxInstalledBytes)
 	if err != nil {
 		return Installation{}, err
 	}
@@ -654,16 +663,71 @@ func readInstallation(dir string) (Installation, error) {
 	return installation, nil
 }
 
+// readAtMost lê o arquivo recusando o que passar do teto. O byte de folga do
+// LimitReader é o que permite saber que passou sem ter lido o excesso.
+func readAtMost(path string, limit int64) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%s passa de %d bytes e não é um registro de instalação", path, limit)
+	}
+	return data, nil
+}
+
 // writeInstallation grava o `installed.json` (D5).
+//
+// Grava no temporário e renomeia. O registro é o que declara a instalação
+// existente, e o app pode cair no meio da escrita: um JSON pela metade faria o
+// agente instalado sumir da tela na abertura seguinte, porque registro ilegível
+// não conta como instalação. O rename é o que troca um arquivo inteiro por
+// outro, e é o que o cache do registro já faz pelo mesmo motivo.
 func writeInstallation(dir string, installation Installation) error {
 	data, err := json.MarshalIndent(installation, "", "  ")
 	if err != nil {
 		return fmt.Errorf("erro ao serializar o registro da instalação: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, installedFileName), data, 0o644); err != nil {
+	tmp, err := os.CreateTemp(dir, ".installed-*.tmp")
+	if err != nil {
+		return fmt.Errorf("erro ao criar o arquivo temporário do registro da instalação: %w", err)
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		return fmt.Errorf("erro ao gravar o registro da instalação: %w", err)
 	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("erro ao finalizar o registro da instalação: %w", err)
+	}
+	if err := replaceFile(tmpName, filepath.Join(dir, installedFileName)); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("erro ao substituir o registro da instalação: %w", err)
+	}
 	return nil
+}
+
+// replaceFile põe o temporário no lugar do arquivo final. A repetição é do
+// Windows: um antivírus ou o indexador podem estar com o arquivo aberto no
+// instante da troca, e a espera curta resolve — é a mesma disciplina do
+// removeTree, e pelo mesmo motivo.
+func replaceFile(tmpName, path string) error {
+	const attempts = 5
+	var err error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if err = os.Rename(tmpName, path); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+	}
+	return err
 }
 
 // safePathSegment diz se o texto pode ser um segmento de caminho. É a guarda de
