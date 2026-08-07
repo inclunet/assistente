@@ -125,11 +125,13 @@ func entryPath(cmd string) string {
 // que não sobem como processo aqui.
 func resolveBinaryCommand(dir string, target acpregistry.BinaryTarget, node acp.NodeRuntime) (string, []string, error) {
 	rel := entryPath(target.Cmd)
-	candidate, err := resolveEntry(dir, rel)
+	candidate, err := resolveFileEntry(dir, rel)
 	if err != nil {
 		// O `cmd` é do índice, que é dado externo: um que aponte para fora do
 		// diretório da instalação é recusado antes de virar linha de comando
-		// (D9).
+		// (D9). O `.` cai aqui junto: como comando ele é o próprio diretório, e
+		// a alternativa do Windows sobre ele seria `<dir>.exe` — irmão da
+		// instalação, não parte dela.
 		return "", nil, failf(StepResolve, "%w: %s", ErrCommandNotResolved, acp.SanitizeLabel(target.Cmd))
 	}
 	args := slices.Clone(target.Args)

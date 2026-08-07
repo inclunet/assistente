@@ -102,7 +102,7 @@ func placeRawBinary(ctx context.Context, art artifact, dest, rawName string) err
 	if art.Bytes == 0 {
 		return fmt.Errorf("%w: o artefato veio vazio", ErrBadArchive)
 	}
-	target, err := resolveEntry(dest, rawName)
+	target, err := resolveFileEntry(dest, rawName)
 	if err != nil {
 		return err
 	}

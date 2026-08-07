@@ -479,6 +479,25 @@ func TestOCmdQueApontaParaForaDaInstalacaoERecusado(t *testing.T) {
 	}
 }
 
+func TestOCmdQueEOProprioDiretorioERecusado(t *testing.T) {
+	// O `.` fica dentro do diretório e passaria pela guarda de travessia, mas
+	// como comando ele é o próprio diretório da instalação — e a alternativa do
+	// Windows sobre ele seria `<dir>.exe`, um irmão da instalação. O caminho de
+	// fora aparece aqui sem `..` nenhum, então a recusa é a do arquivo.
+	dir := filepath.Join(t.TempDir(), "instalacao")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("erro ao preparar o diretório: %v", err)
+	}
+	escreverExecutavel(t, dir+".exe")
+
+	for _, cmd := range []string{".", "./", "./sub/.."} {
+		comando, _, err := resolveBinaryCommand(dir, acpregistry.BinaryTarget{Cmd: cmd}, acp.NodeRuntime{})
+		if !errors.Is(err, ErrCommandNotResolved) {
+			t.Errorf("%q: comando = %q, erro = %v, queria a recusa do comando", cmd, comando, err)
+		}
+	}
+}
+
 func TestOComandoQueNaoEstaLaFalhaDizendoOndeSeProcurou(t *testing.T) {
 	// "Não consegui resolver o comando" não é verificável por quem abriu o
 	// diretório para olhar: a mensagem diz o que foi procurado.
