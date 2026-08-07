@@ -317,8 +317,8 @@ alguma no prefixo — o que não bate morre no cache, e nada daquele pacote cheg
 ao diretório do agente nem é executado; o `uv` faz o equivalente com os hashes
 do índice Python.
 Exigir um segundo digest, publicado noutro lugar, seria pedir garantia que já
-está sendo dada — e é por isso que a Fase 3 instala pacote npm sem digest do
-registro sem que isso seja exceção a nada.
+está sendo dada — e é por isso que a Fase 3 instala pacote npm sem que o
+registro ACP publique digest algum, e isso não é exceção a nada.
 
 Dito de outro modo: dos 38 agentes, a regra abaixo alcança apenas os que só têm
 distribuição binária.
@@ -401,11 +401,15 @@ identificador, versão, tipo de distribuição, alvo de plataforma, comando e
 argumentos resolvidos, e a data. Sem esse registro, o app teria que reconstruir
 por adivinhação, a cada abertura, o que ele mesmo escreveu.
 
-O digest entra ali com a sua procedência dita: **conferido**, quando o registro
-publicou um `sha256` e o arquivo bateu com ele, ou **observado**, quando o app
-calculou o digest do que baixou por não haver com o que comparar (D4). São
-coisas diferentes e o arquivo não pode confundi-las: a primeira atesta o
-artefato, a segunda só permite perceber que ele mudou depois.
+O digest entra ali com a sua procedência dita, e em dois campos separados: o
+valor do `sha256` e de onde ele veio — `conferido`, quando o registro ACP
+publicou um digest e o arquivo bateu com ele, ou `observado`, quando o app
+calculou o digest do que baixou por não haver com o que comparar (D4). Duas
+chaves, e não uma com significado dependente do contexto: quem lê o arquivo
+depois — a tela, a atualização, o suporte a quem relata problema — precisa saber
+se aquele número atesta o artefato ou apenas permite perceber que ele mudou.
+Instalação por npm ou uv não tem nenhum dos dois: a verificação foi do
+gerenciador e não é o app quem a registra.
 
 Remover é apagar o diretório do agente. Provider que apontava para lá fica com
 um comando que não existe, e o health do AEP-0084 D12 já sabe dizer isso — não
