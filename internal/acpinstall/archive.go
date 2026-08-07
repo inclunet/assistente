@@ -71,7 +71,7 @@ func extractWithBudget(ctx context.Context, art artifact, dest, rawName string, 
 	if art.Format == formatRaw {
 		// O binário cru não é extraído: ele é o próprio artefato, e o que se
 		// faz com ele é pôr no lugar com o nome certo.
-		return placeRawBinary(art, dest, rawName)
+		return placeRawBinary(ctx, art, dest, rawName)
 	}
 
 	var err error
@@ -98,7 +98,7 @@ func extractWithBudget(ctx context.Context, art artifact, dest, rawName string, 
 // placeRawBinary põe o executável baixado no lugar com o nome pelo qual ele
 // será procurado, e com permissão de execução: o arquivo veio de um download, e
 // nada garante que o modo dele diga alguma coisa.
-func placeRawBinary(art artifact, dest, rawName string) error {
+func placeRawBinary(ctx context.Context, art artifact, dest, rawName string) error {
 	if art.Bytes == 0 {
 		return fmt.Errorf("%w: o artefato veio vazio", ErrBadArchive)
 	}
@@ -109,7 +109,7 @@ func placeRawBinary(art artifact, dest, rawName string) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("não foi possível preparar %s: %w", shownPath(filepath.Dir(target)), causeOf(err))
 	}
-	if err := os.Rename(art.Path, target); err != nil {
+	if err := moveFile(ctx, art.Path, target); err != nil {
 		return fmt.Errorf("não foi possível pôr o executável em %s: %w", shownPath(target), causeOf(err))
 	}
 	if err := os.Chmod(target, 0o755); err != nil {
@@ -118,6 +118,66 @@ func placeRawBinary(art artifact, dest, rawName string) error {
 		// sobe, então ele sai junto com o erro.
 		_ = os.Remove(target)
 		return fmt.Errorf("não foi possível dar permissão de execução a %s: %w", shownPath(target), causeOf(err))
+	}
+	return nil
+}
+
+// moveFile põe o arquivo no destino, copiando quando não dá para renomear.
+//
+// Hoje o download acontece dentro do próprio diretório da instalação, e ali o
+// rename resolve. Mas o rename não atravessa sistema de arquivos, e basta o
+// diretório de dados do app estar em outro volume — ou um temporário mudar de
+// lugar numa fase seguinte — para o binário cru deixar de instalar com o
+// download intacto na mão. A cópia é o caminho lento que só é percorrido
+// quando o rápido não existe.
+func moveFile(ctx context.Context, src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	if err := copyFile(ctx, src, dst); err != nil {
+		return err
+	}
+	// Com a cópia no lugar, a mudança aconteceu. Apagar a origem é arrumação:
+	// falhar aqui reportaria erro de uma instalação que deu certo, e mandaria
+	// jogar fora o executável que já está onde deveria. O que sobra é um
+	// arquivo a mais dentro do diretório da instalação, que some com ela.
+	if err := os.Remove(src); err != nil {
+		logging.Warnf(ctx, component, "não foi possível remover o artefato baixado em %s: %v", shownPath(src), causeOf(err))
+	}
+	return nil
+}
+
+// copyFile copia o arquivo parando quando o contexto acaba: é o caminho lento,
+// e é justamente nele que cancelar precisa valer.
+//
+// A cópia vai para um temporário ao lado e só então toma o lugar do destino.
+// Escrever direto no destino significaria truncá-lo antes de saber que a cópia
+// vai terminar, e uma queda no meio deixaria no lugar do que existia um arquivo
+// pela metade. O temporário fica no mesmo diretório justamente para que a troca
+// final seja um rename, que é o que este caminho já não pôde usar uma vez.
+func copyFile(ctx context.Context, src, dst string) error {
+	origem, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = origem.Close() }()
+
+	destino, err := os.CreateTemp(filepath.Dir(dst), ".copia-*.tmp")
+	if err != nil {
+		return err
+	}
+	parcial := destino.Name()
+	_, err = io.Copy(destino, watchful{ctx: ctx, src: origem})
+	if closeErr := destino.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(parcial)
+		return err
+	}
+	if err := os.Rename(parcial, dst); err != nil {
+		_ = os.Remove(parcial)
+		return err
 	}
 	return nil
 }

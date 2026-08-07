@@ -279,6 +279,45 @@ func TestOBinarioCruRecebeONomePeloQualEleSeraProcurado(t *testing.T) {
 	}
 }
 
+func TestOExecutavelChegaAoLugarQuandoORenameNaoServe(t *testing.T) {
+	// O rename não atravessa sistema de arquivos, e basta o diretório de dados
+	// do app estar em outro volume para o binário cru deixar de instalar com o
+	// download intacto na mão. Simular volumes num teste não é portável, então
+	// o que se prova aqui é o caminho lento em si.
+	origem, destino := t.TempDir(), t.TempDir()
+	baixado := filepath.Join(origem, "baixado")
+	if err := os.WriteFile(baixado, []byte("ELF..."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alvo := filepath.Join(destino, "agente")
+
+	if err := copyFile(context.Background(), baixado, alvo); err != nil {
+		t.Fatalf("esperava cópia, veio %v", err)
+	}
+	if conteudo, err := os.ReadFile(alvo); err != nil || string(conteudo) != "ELF..." {
+		t.Fatalf("o executável copiado não é o que foi baixado: %v", err)
+	}
+
+	// E o caminho lento é onde cancelar mais precisa valer. A cópia que não
+	// terminou também não pode ter levado junto o que estava no destino: numa
+	// atualização, o que está ali é o agente que funcionava.
+	if err := os.WriteFile(alvo, []byte("o que funcionava"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cancelado, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := copyFile(cancelado, baixado, alvo); !errors.Is(err, context.Canceled) {
+		t.Errorf("esperava cancelamento, veio %v", err)
+	}
+	if conteudo, err := os.ReadFile(alvo); err != nil || string(conteudo) != "o que funcionava" {
+		t.Errorf("a cópia interrompida mexeu no que já estava no lugar: %q, %v", conteudo, err)
+	}
+	if restou, _ := os.ReadDir(destino); len(restou) != 1 {
+		t.Errorf("a cópia interrompida deixou resíduo em %s: %v", destino, nomesDe(restou))
+	}
+}
+
 func TestOBinarioCruComNomeQueSaiDaInstalacaoERecusado(t *testing.T) {
 	dir, dest := t.TempDir(), t.TempDir()
 	art := artefatoEmDisco(t, dir, []byte("ELF..."), formatRaw)
