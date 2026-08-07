@@ -311,12 +311,15 @@ O que esta decisão define é o que acontece **onde ele não existe**.
 #### A regra do digest é dos binários, e só deles
 
 Ela não vale para `npx` e `uvx`, e nunca valeu: quem verifica o pacote é o
-gerenciador. O npm guarda um `integrity` (SHA-512) por tarball nos metadados do
-registro npm e confere o tarball baixado contra ele antes de extrair coisa
-alguma no prefixo — o que não bate morre no cache, e nada daquele pacote chega
-ao diretório do agente nem é executado; o `uv` faz o equivalente com os hashes
-que o índice Python publica, que é o caso do PyPI — em índice alternativo que
-não os publique, a garantia é a do índice, e não a do gerenciador.
+gerenciador. O npm guarda um campo `integrity` (SHA-512) por tarball nos
+metadados do registro npm e confere o tarball baixado contra ele antes de
+extrair coisa alguma no prefixo: o que não bate morre no cache, e nada daquele
+pacote chega ao diretório do agente nem é executado.
+
+O `uv` faz o equivalente com os hashes que o índice Python publica, e o PyPI os
+publica. Num índice alternativo que não publique, não há o que conferir — a
+confiança volta a ser no índice e no transporte, e não numa verificação de
+integridade feita pelo `uv`.
 Exigir um segundo digest, publicado noutro lugar, seria pedir garantia que já
 está sendo dada — e é por isso que a Fase 3 instala pacote npm sem que o
 registro ACP publique digest algum, e isso não é exceção a nada.
@@ -352,7 +355,7 @@ O app passa a oferecer a instalação, com uma confirmação que não é a de se
 - **A marca não some depois de instalado**: o item diz que aquela instalação não
   foi verificada, e continua dizendo. O `installed.json` (D5) guarda isso.
 
-#### O digest observado na primeira instalação protege as seguintes
+#### O digest observado na primeira instalação protege as próximas
 
 Quando o registro não publica digest, o app calcula o `sha256` do que baixou e o
 grava no `installed.json`, marcado como **observado**, e não como conferido. Isso
