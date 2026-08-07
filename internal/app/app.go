@@ -86,6 +86,12 @@ type App struct {
 	acpTrust          *acptrust.Store             // Permissões que o perfil concedeu ao agente para sempre (AEP-0084 D9)
 	acpRegistry       *acpregistry.Service        // Catálogo de agentes do registro oficial do ACP (AEP-0086 D2)
 	skillMgr          *skills.Manager             // Gerenciador de skills
+	// acpCatalogSvc é o catálogo do registro ACP: o serviço acima e o instalador
+	// de agentes (AEP-0086). Montado na primeira chamada que precisa dele — ver
+	// acpCatalogServices em app_acp_install.go —, porque o instalador só existe
+	// para quem for instalar, e nada no startup depende dele.
+	acpCatalogSvc  *acpCatalog
+	acpCatalogOnce sync.Once
 	responseNotifier  *messaging.ResponseNotifier // Notificador de respostas para mensageiros
 	msgGateway        *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
 	updater           *updater.Updater            // Gerenciador de atualizações automáticas

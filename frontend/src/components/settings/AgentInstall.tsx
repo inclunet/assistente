@@ -1,0 +1,516 @@
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
+import {
+  ACPAgentInstallPlanForKind,
+  CancelACPAgentInstall,
+  InstallACPAgent,
+  RemoveACPAgent,
+} from '@wailsjs/go/app/App';
+import { EventsOn } from '@wailsjs/runtime/runtime';
+import type { app } from '@wailsjs/go/models';
+import { Button } from '../ui/Button';
+import { Modal } from '../ui/Modal';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import './AgentInstall.css';
+
+/**
+ * Evento de progresso da instalação. O nome é o mesmo do backend
+ * (`ACPInstallProgressEvent`), e cada marco carrega o agente que o motivou.
+ */
+const INSTALL_PROGRESS_EVENT = 'acp:install:progress';
+
+type InstallPlan = app.ACPInstallPlan;
+type InstallProgress = app.ACPInstallProgress;
+
+/** Mensagem de erro que veio do backend, com recurso para o texto genérico. */
+const errorText = (error: unknown, fallback: string): string => {
+  const err = error as { message?: unknown } | null;
+  return String(err?.message || error || fallback);
+};
+
+/**
+ * Frase do marco da instalação, em texto (AEP-0086 D13).
+ *
+ * É a mesma frase para a tela e para o anúncio: um texto só para o anúncio
+ * divergiria do que está escrito, e quem usa leitor de telas conferiria a tela
+ * para ouvir outra coisa. `failed` nomeia a etapa junto do motivo, porque
+ * "falhou" sem etapa não diz o que fazer em seguida.
+ */
+export const installProgressText = (t: TFunction, progress: InstallProgress): string => {
+  const agent = progress.agent || '';
+  switch (progress.stage) {
+    case 'started':
+      return t('providerForm.agent.catalog.stage.started', { agent });
+    case 'installing':
+      return t('providerForm.agent.catalog.stage.installing', { agent });
+    case 'verifying':
+      return t('providerForm.agent.catalog.stage.verifying', { agent });
+    case 'done':
+      return t('providerForm.agent.catalog.stage.done', { agent });
+    case 'cancelled':
+      return t('providerForm.agent.catalog.stage.cancelled', { agent });
+    case 'failed': {
+      const reason = progress.reason || t('providerForm.agent.catalog.failedUnknown');
+      const step = progress.step ? t(`providerForm.agent.catalog.step.${progress.step}`, '') : '';
+      return step
+        ? t('providerForm.agent.catalog.failedAtStep', { step, reason })
+        : t('providerForm.agent.catalog.failed', { reason });
+    }
+    default:
+      return '';
+  }
+};
+
+export interface AgentInstallProps {
+  /** Tipo do provedor sendo configurado (ex.: `claude-code`). */
+  agentKind: string;
+
+  /**
+   * Recebe o comando resolvido da instalação, para os campos do formulário
+   * pararem de ser digitação. É o que faz "instalar pelo catálogo" terminar com
+   * um provedor pronto, e não com um caminho para alguém copiar.
+   */
+  onResolved: (command: string, args: string[]) => void;
+}
+
+/**
+ * Instalação de um agente de código pelo catálogo do registro ACP
+ * (AEP-0086 Fase 3).
+ *
+ * Ela não substitui o campo do comando: quem tem o agente instalado à mão
+ * continua detectando ou digitando. O que este bloco resolve é o caso de quem
+ * não tem — em vez de mandar a pessoa a um terminal, o app baixa o pacote que o
+ * catálogo publica, resolve o comando e confere que ele fala o protocolo.
+ *
+ * Três decisões do AEP moldam o que aparece aqui:
+ *
+ *   - D3: nada é baixado sem confirmação, e a confirmação mostra agente, versão,
+ *     origem e a linha de comando que será executada.
+ *   - D7: sem o runtime não se oferece instalação, e o motivo fica em texto — o
+ *     app não instala Node.
+ *   - D13: os marcos viram frase na tela e anúncio, o erro nomeia a etapa, e o
+ *     cancelamento diz que não sobrou nada no disco.
+ */
+export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
+  const { t } = useTranslation();
+  const { announce } = useAnnouncer();
+  const idBase = useId();
+  const titleId = `${idBase}-title`;
+  const installHelpId = `${idBase}-install-help`;
+  const removeHelpId = `${idBase}-remove-help`;
+  const confirmId = `${idBase}-confirm`;
+
+  // O plano guarda de qual tipo de provedor ele fala, pelo mesmo motivo que a
+  // detecção ao lado: trocar o tipo não desmonta este bloco, e o plano anterior
+  // ofereceria instalar um agente que não é o que está sendo configurado.
+  const [planned, setPlanned] = useState<{ kind: string; plan: InstallPlan } | null>(null);
+  const plan = planned?.kind === agentKind ? planned.plan : null;
+  const [loading, setLoading] = useState(false);
+  const [planError, setPlanError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  const [confirming, setConfirming] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Tradução e anúncio ficam em refs porque são consumidos por efeitos e por
+  // callbacks assíncronos. Como dependência de efeito, um `t` recriado a cada
+  // render — o que acontece dependendo de como o i18n é montado — refaria o
+  // efeito a cada render, e um efeito que consulta o backend viraria laço.
+  const tRef = useRef(t);
+  tRef.current = t;
+  const announceRef = useRef(announce);
+  announceRef.current = announce;
+
+  // O plano só vale se ainda é o último pedido: instalar e remover pedem um
+  // plano novo, e uma resposta atrasada devolveria à tela o estado anterior —
+  // "instalado" depois de remover, ou o contrário.
+  const planSeq = useRef(0);
+
+  // Marca a instalação que já estava em voo quando esta tela abriu. A que começa
+  // aqui termina no `finally` de quem a pediu; a adotada não tem quem a espere, e
+  // sem isto a tela ficaria ocupada para sempre — botão de instalar desabilitado
+  // e o de cancelar oferecendo cancelar o que já acabou.
+  const adotadaRef = useRef(false);
+  const agentKindRef = useRef(agentKind);
+  agentKindRef.current = agentKind;
+
+  const loadPlan = useCallback(async (kind: string) => {
+    const seq = ++planSeq.current;
+    const obsoleto = () => seq !== planSeq.current || !mountedRef.current;
+    setLoading(true);
+    setPlanError('');
+    try {
+      const result = await ACPAgentInstallPlanForKind(kind);
+      if (obsoleto()) return;
+      setPlanned({ kind, plan: result });
+      // Instalação em voo sobrevive a esta tela: ela roda no backend, e o app
+      // pode ter fechado e reaberto o formulário no meio dela. Quem a começou de
+      // outra montagem não tem promessa para esperar aqui, então quem a encerra
+      // é o marco de desfecho — e é por isso que ela fica marcada.
+      const emVoo = !!result?.installing;
+      // O marco também pode não chegar: a instalação adotada pode ter terminado
+      // entre o plano e o registro do ouvinte. O plano seguinte é a outra
+      // resposta possível, e ele solta a tela do mesmo jeito.
+      if (adotadaRef.current && !emVoo) setBusy(false);
+      adotadaRef.current = emVoo;
+      if (emVoo) setBusy(true);
+    } catch (error: unknown) {
+      if (obsoleto()) return;
+      setPlanned(null);
+      setPlanError(errorText(error, tRef.current('providerForm.agent.catalog.planFailed')));
+    } finally {
+      if (!obsoleto()) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // O que está na tela é do agente que estava nela: a frase do progresso, o
+    // diálogo aberto e o botão ocupado passariam a descrever o agente antigo
+    // depois da troca. A instalação em voo não é interrompida por isso — ela é
+    // do backend —, e o plano do agente novo diz se há alguma dele.
+    setStatus('');
+    setConfirming(false);
+    setRemoving(false);
+    setBusy(false);
+    adotadaRef.current = false;
+    void loadPlan(agentKind);
+  }, [agentKind, loadPlan]);
+
+  // Os marcos chegam por evento porque a instalação é do backend, e ela continua
+  // de pé se esta tela for fechada. Cada marco é filtrado pelo agente que o
+  // motivou: duas instalações podem estar em voo, e a frase da outra descreveria
+  // um agente que não é este.
+  const agentIdRef = useRef('');
+  agentIdRef.current = plan?.agent_id || '';
+  // Marca que um marco já disse como a instalação terminou. Sem ela, o erro que
+  // a chamada devolve depois falaria de novo pelo mesmo desfecho — e no
+  // cancelamento ele falaria errado: quem cancelou veria "a instalação falhou:
+  // context canceled" no lugar de "cancelada, nada ficou no disco".
+  const outcomeRef = useRef(false);
+  useEffect(() => {
+    return EventsOn(INSTALL_PROGRESS_EVENT, (progress: InstallProgress) => {
+      if (!progress || progress.agent_id !== agentIdRef.current) return;
+      const text = installProgressText(tRef.current, progress);
+      if (!text) return;
+      if (progress.stage === 'failed' || progress.stage === 'cancelled') outcomeRef.current = true;
+      setStatus(text);
+      // A falha interrompe a leitura em curso porque exige decisão; os marcos
+      // do meio, e o cancelamento que a própria pessoa pediu, não atropelam
+      // quem está lendo outra coisa na mesma tela (AEP-0058).
+      announceRef.current(text, progress.stage === 'failed' ? 'assertive' : 'polite');
+      // Só a instalação adotada termina por aqui. A que começou nesta tela é
+      // encerrada por quem a pediu, que também recarrega o plano; fazer as duas
+      // coisas daria dois pedidos ao backend pelo mesmo desfecho.
+      if (!adotadaRef.current) return;
+      if (progress.stage === 'done' || progress.stage === 'failed' || progress.stage === 'cancelled') {
+        adotadaRef.current = false;
+        setBusy(false);
+        void loadPlan(agentKindRef.current);
+      }
+    });
+  }, [loadPlan]);
+
+  const handleInstall = async () => {
+    const agentID = plan?.agent_id;
+    if (!agentID) return;
+    setConfirming(false);
+    setBusy(true);
+    outcomeRef.current = false;
+    setStatus(t('providerForm.agent.catalog.stage.started', { agent: plan?.name || '' }));
+    try {
+      const installation = await InstallACPAgent(agentID);
+      if (!mountedRef.current) return;
+      // O comando resolvido vai para os campos: instalar pelo catálogo termina
+      // com um provedor pronto para salvar, e não com um caminho para copiar.
+      onResolved(installation.command, installation.args || []);
+    } catch (error: unknown) {
+      if (!mountedRef.current) return;
+      // O marco de desfecho já disse o que houve, e ele diz melhor: nomeia a
+      // etapa, e distingue cancelar de falhar. Sem marco nenhum — a recusa que
+      // acontece antes de a instalação começar, como runtime ausente — o texto
+      // do erro é tudo o que existe, e ele não pode ficar sem aparecer.
+      if (!outcomeRef.current) {
+        const message = t('providerForm.agent.catalog.failed', {
+          reason: errorText(error, t('providerForm.agent.catalog.failedUnknown')),
+        });
+        setStatus(message);
+        announce(message, 'assertive');
+      }
+    } finally {
+      if (mountedRef.current) {
+        setBusy(false);
+        void loadPlan(agentKind);
+      }
+    }
+  };
+
+  const handleCancel = async () => {
+    const agentID = plan?.agent_id;
+    if (!agentID) return;
+    try {
+      await CancelACPAgentInstall(agentID);
+    } catch (error: unknown) {
+      if (!mountedRef.current) return;
+      const message = errorText(error, t('providerForm.agent.catalog.cancelFailed'));
+      setStatus(message);
+      announce(message, 'assertive');
+    } finally {
+      // Cancelar o que já terminou não é erro — a instalação pode ter acabado
+      // entre o render e o clique —, mas deixaria a tela oferecendo cancelar de
+      // novo. O plano diz o que de fato está em voo.
+      if (mountedRef.current) void loadPlan(agentKind);
+    }
+  };
+
+  const handleRemove = async () => {
+    const agentID = plan?.agent_id;
+    if (!agentID) return;
+    setRemoving(false);
+    try {
+      await RemoveACPAgent(agentID);
+      if (!mountedRef.current) return;
+      const message = t('providerForm.agent.catalog.removed');
+      setStatus(message);
+      announce(message, 'polite');
+    } catch (error: unknown) {
+      if (!mountedRef.current) return;
+      const message = errorText(error, t('providerForm.agent.catalog.removeFailed'));
+      setStatus(message);
+      announce(message, 'assertive');
+    } finally {
+      if (mountedRef.current) void loadPlan(agentKind);
+    }
+  };
+
+  // Tipo de provedor sem agente correspondente no catálogo não ganha bloco
+  // nenhum: oferecer "instalar pelo catálogo" para o que o catálogo não publica
+  // seria um botão que só sabe falhar. A falha de consulta, sim, aparece — quem
+  // está sem rede precisa saber por que a oferta não está lá.
+  if (planError) {
+    return (
+      <div className="agent-install" role="group" aria-labelledby={titleId}>
+        <p id={titleId} className="agent-install__title">
+          {t('providerForm.agent.catalog.title')}
+        </p>
+        <p className="agent-install__status" data-state="missing">{planError}</p>
+      </div>
+    );
+  }
+  if (!plan?.agent_id) return null;
+
+  const installed = plan.installed;
+  const runtime = plan.runtime;
+  const runtimeMissing = !runtime?.found;
+
+  return (
+    <div className="agent-install" role="group" aria-labelledby={titleId}>
+      <p id={titleId} className="agent-install__title">
+        {t('providerForm.agent.catalog.title')}
+      </p>
+
+      {installed ? (
+        <>
+          <p className="agent-install__intro">
+            {t('providerForm.agent.catalog.installed', {
+              agent: installed.name || plan.name,
+              version: installed.version,
+            })}
+          </p>
+          <p className="agent-install__path">
+            {t('providerForm.agent.catalog.installedDir', { dir: installed.dir })}
+          </p>
+          <div className="agent-install__actions">
+            <div className="agent-install__action">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  onResolved(installed.command, installed.args || []);
+                  // Preencher campo por clique não é visível a quem não vê o
+                  // campo: sem o anúncio, o botão pareceria não ter feito nada.
+                  announce(
+                    t('providerForm.agent.catalog.useAnnounce', { command: installed.command }),
+                    'polite',
+                  );
+                }}
+              >
+                {t('providerForm.agent.catalog.useBtn')}
+              </Button>
+            </div>
+            <div className="agent-install__action">
+              <Button
+                type="button"
+                variant="danger"
+                onClick={() => setRemoving(true)}
+                aria-describedby={removeHelpId}
+              >
+                {t('providerForm.agent.catalog.removeBtn')}
+              </Button>
+              <p id={removeHelpId} className="agent-install__action-help">
+                {t('providerForm.agent.catalog.removeBtnHelp')}
+              </p>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          {/*
+            Sem nome não há frase: o plano que sobra de uma consulta que falhou
+            traz só o identificador e o motivo, e a apresentação viraria "publica
+            como pacote, versão" com buracos onde deveriam estar as duas coisas
+            que ela existe para dizer. O motivo, esse, aparece abaixo.
+          */}
+          {!!plan.name && (
+            <p className="agent-install__intro">
+              {t('providerForm.agent.catalog.intro', { agent: plan.name, version: plan.version })}
+            </p>
+          )}
+
+          {/*
+            Sem runtime a instalação não é oferecida, e o motivo é o texto — não
+            um botão cinza (D7). Os lugares consultados vêm junto para "não
+            encontrado" ser verificável por quem vai instalar o Node.
+          */}
+          {runtimeMissing ? (
+            <div className="agent-install__blocked">
+              <p>{t('providerForm.agent.catalog.runtimeMissing', { runtime: runtime?.name })}</p>
+              {!!runtime?.searched?.length && (
+                <p className="agent-install__path">
+                  {t('providerForm.agent.catalog.runtimeSearched', {
+                    runtime: runtime.name,
+                    places: runtime.searched.join(', '),
+                  })}
+                </p>
+              )}
+            </div>
+          ) : plan.can_install ? (
+            <div className="agent-install__actions">
+              <div className="agent-install__action">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setConfirming(true)}
+                  disabled={busy || loading}
+                  aria-describedby={installHelpId}
+                >
+                  {t('providerForm.agent.catalog.installBtn')}
+                </Button>
+                <p id={installHelpId} className="agent-install__action-help">
+                  {t('providerForm.agent.catalog.installBtnHelp')}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="agent-install__blocked">
+              <p>
+                {plan.reason
+                  ? t('providerForm.agent.catalog.unavailable', { reason: plan.reason })
+                  : t('providerForm.agent.catalog.unavailableUnknown')}
+              </p>
+            </div>
+          )}
+          {/*
+            O cancelar acompanha a instalação, e não o ramo em que a tela caiu:
+            o plano pode passar a dizer "indisponível" — Node que sumiu do PATH,
+            catálogo que parou de responder — enquanto o npm continua escrevendo
+            no disco, e o botão sumiria com algo ainda por cancelar.
+          */}
+          {busy && (
+            <div className="agent-install__action">
+              <Button type="button" variant="outline" onClick={handleCancel}>
+                {t('providerForm.agent.catalog.cancelBtn')}
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/*
+        Estado em texto na tela, com o data-state apenas como reforço visual.
+        Não é live region: o anúncio sai pelo announcer global, e uma segunda
+        região viva faria o mesmo marco ser lido duas vezes.
+      */}
+      {!!status && (
+        <p className="agent-install__status" data-state={busy ? 'busy' : undefined}>
+          {status}
+        </p>
+      )}
+
+      {/*
+        A confirmação mostra o que vai ser baixado e o que vai ser executado
+        antes de qualquer byte sair da rede (D3). Os pares ficam em `dl` para o
+        rótulo e o valor chegarem ligados a quem usa leitor de telas.
+      */}
+      <Modal
+        isOpen={confirming}
+        onClose={() => setConfirming(false)}
+        title={t('providerForm.agent.catalog.confirm.title', { agent: plan.name })}
+        size="md"
+        ariaDescribedBy={confirmId}
+      >
+        <p id={confirmId} className="agent-install__confirm-intro">
+          {t('providerForm.agent.catalog.confirm.intro')}
+        </p>
+        <dl className="agent-install__details">
+          <dt>{t('providerForm.agent.catalog.confirm.agent')}</dt>
+          <dd>{plan.name}</dd>
+          <dt>{t('providerForm.agent.catalog.confirm.version')}</dt>
+          <dd>{plan.version}</dd>
+          <dt>{t('providerForm.agent.catalog.confirm.origin')}</dt>
+          <dd className="agent-install__details-code">{plan.origin}</dd>
+          <dt>{t('providerForm.agent.catalog.confirm.dir')}</dt>
+          <dd className="agent-install__details-code">{plan.dir}</dd>
+          <dt>{t('providerForm.agent.catalog.confirm.command')}</dt>
+          <dd className="agent-install__details-code">{plan.install_command}</dd>
+        </dl>
+        <div className="agent-install__confirm-actions">
+          <Button type="button" variant="outline" onClick={() => setConfirming(false)}>
+            {t('providerForm.agent.catalog.confirm.cancelBtn')}
+          </Button>
+          {/*
+            Confirmar duas vezes é um clique repetido, e não dois pedidos: o
+            diálogo fecha no primeiro, mas o segundo pode chegar antes disso.
+          */}
+          <Button type="button" variant="primary" onClick={handleInstall} disabled={busy}>
+            {t('providerForm.agent.catalog.confirm.confirmBtn')}
+          </Button>
+        </div>
+      </Modal>
+
+      {/*
+        Remover apaga o diretório do agente e deixa o provedor de pé (D5). O
+        aviso diz isso: quem espera que o provedor suma junto precisa saber que
+        ele fica, com um comando que passou a não existir.
+      */}
+      <Modal
+        isOpen={removing}
+        onClose={() => setRemoving(false)}
+        title={t('providerForm.agent.catalog.removeConfirm.title', {
+          agent: installed?.name || plan.name,
+        })}
+        size="sm"
+      >
+        <p className="agent-install__confirm-intro">
+          {t('providerForm.agent.catalog.removeConfirm.message', { dir: installed?.dir })}
+        </p>
+        <div className="agent-install__confirm-actions">
+          <Button type="button" variant="outline" onClick={() => setRemoving(false)}>
+            {t('providerForm.agent.catalog.confirm.cancelBtn')}
+          </Button>
+          <Button type="button" variant="danger" onClick={handleRemove}>
+            {t('providerForm.agent.catalog.removeConfirm.confirmBtn')}
+          </Button>
+        </div>
+      </Modal>
+    </div>
+  );
+};
