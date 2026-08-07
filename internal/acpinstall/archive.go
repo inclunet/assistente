@@ -167,7 +167,7 @@ func copyFile(ctx context.Context, src, dst string) error {
 		return err
 	}
 	parcial := destino.Name()
-	_, err = io.Copy(destino, watchful{ctx: ctx, src: origem})
+	_, err = io.Copy(destino, &watchful{ctx: ctx, src: origem})
 	if closeErr := destino.Close(); err == nil {
 		err = closeErr
 	}
@@ -234,9 +234,17 @@ func extractZip(ctx context.Context, archivePath, dest string, budget int64) err
 			return fmt.Errorf("%w: %v", ErrBadArchive, err)
 		}
 		n, err := writeEntry(ctx, target, file, mode, budget-written)
-		_ = file.Close()
+		closeErr := file.Close()
 		if err != nil {
 			return err
+		}
+		// O `.zip` guarda o CRC de cada entrada, e é no fechamento da leitura
+		// que ele é conferido: ignorar esse erro deixaria passar arquivo
+		// corrompido, e é a única conferência de conteúdo que existe para o
+		// artefato que não publica digest.
+		if closeErr != nil {
+			_ = os.Remove(target)
+			return fmt.Errorf("%w: %s: %v", ErrBadArchive, shownPath(entry.Name), closeErr)
 		}
 		written += n
 	}
@@ -334,7 +342,8 @@ func writeEntry(ctx context.Context, target string, src io.Reader, mode fs.FileM
 	if err != nil {
 		return 0, fmt.Errorf("não foi possível criar %s: %w", shownPath(target), causeOf(err))
 	}
-	written, err := io.Copy(file, io.LimitReader(watchful{ctx: ctx, src: src}, budget+1))
+	fonte := &watchful{ctx: ctx, src: src}
+	written, err := io.Copy(file, io.LimitReader(fonte, budget+1))
 	if closeErr := file.Close(); err == nil {
 		err = closeErr
 	}
@@ -342,8 +351,14 @@ func writeEntry(ctx context.Context, target string, src io.Reader, mode fs.FileM
 		// A gravação interrompida não deixa arquivo pela metade: ele teria o
 		// nome do que o archive prometia e não seria aquilo.
 		_ = os.Remove(target)
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return written, ctxErr
+		switch {
+		case ctx.Err() != nil:
+			return written, ctx.Err()
+		case fonte.err != nil:
+			// Quem falhou foi o artefato, e é isso que a mensagem diz. O `.zip`
+			// confere o CRC de cada entrada durante a leitura, e é por aqui que
+			// o erro dele chega.
+			return written, fmt.Errorf("%w: %v", ErrBadArchive, fonte.err)
 		}
 		return written, fmt.Errorf("não foi possível gravar %s: %w", shownPath(target), causeOf(err))
 	}
@@ -389,21 +404,31 @@ func causeOf(err error) error {
 	return err
 }
 
-// watchful é a leitura que para quando o contexto acaba.
+// watchful é a leitura que para quando o contexto acaba e que lembra o que a
+// fonte disse quando parou por conta própria.
 //
 // Conferir o contexto só entre entradas não bastaria: um artefato pode ser um
 // único arquivo de centenas de megabytes, e nele o laço de entradas passa uma
 // vez só. Quem cancelou continuaria esperando o disco encher até o teto.
+//
+// O erro da fonte é guardado porque `io.Copy` não diz de que lado veio a falha,
+// e os dois lados são coisas diferentes para quem lê a mensagem: um artefato
+// corrompido pede baixar de novo, e um disco cheio pede outra coisa.
 type watchful struct {
 	ctx context.Context
 	src io.Reader
+	err error
 }
 
-func (w watchful) Read(p []byte) (int, error) {
+func (w *watchful) Read(p []byte) (int, error) {
 	if err := w.ctx.Err(); err != nil {
 		return 0, err
 	}
-	return w.src.Read(p)
+	n, err := w.src.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) {
+		w.err = err
+	}
+	return n, err
 }
 
 // resolveEntry transforma o nome de uma entrada no caminho onde ela pode ser

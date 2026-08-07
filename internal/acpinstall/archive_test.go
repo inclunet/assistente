@@ -175,6 +175,41 @@ func TestOZipComLinkSimbolicoERecusado(t *testing.T) {
 	}
 }
 
+func TestOZipComEntradaCorrompidaNaoViraArquivoNoDisco(t *testing.T) {
+	// O `.zip` guarda o CRC de cada entrada, e ele é conferido no fechamento da
+	// leitura. Para o artefato que não publica digest, essa é a única
+	// conferência de conteúdo que existe.
+	origem, dest := t.TempDir(), t.TempDir()
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	file, err := w.CreateHeader(&zip.FileHeader{Name: "agente", Method: zip.Store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write([]byte("conteudo intacto")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Sem compressão, trocar um byte do conteúdo deixa o CRC declarado no lugar
+	// e o dado diferente — que é como um artefato chega truncado ou adulterado.
+	bruto := buf.Bytes()
+	i := bytes.Index(bruto, []byte("conteudo intacto"))
+	if i < 0 {
+		t.Fatal("não achei o conteúdo no zip montado")
+	}
+	bruto[i] = 'C'
+	art := artefatoEmDisco(t, origem, bruto, formatZip)
+
+	if err := extractArtifact(context.Background(), art, dest, ""); !errors.Is(err, ErrBadArchive) {
+		t.Fatalf("esperava recusa do artefato, veio %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "agente")); !errors.Is(err, os.ErrNotExist) {
+		t.Error("a entrada corrompida ficou no disco")
+	}
+}
+
 func TestOTarGzDoAgenteEExtraido(t *testing.T) {
 	origem, dest := t.TempDir(), t.TempDir()
 	art := tarGzDeTeste(t, origem, []entradaTar{

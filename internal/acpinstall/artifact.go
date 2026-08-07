@@ -220,9 +220,13 @@ func fetchArtifact(ctx context.Context, client Doer, archiveURL, want, dest stri
 // transporte. Embrulhá-lo como falha de rede diria a quem clicou em cancelar
 // que a rede caiu, e apagaria o `context.Canceled` de que o instalador precisa
 // para tratar cancelamento como decisão, e não como defeito.
+//
+// Só o cancelamento passa. Prazo esgotado é falha de download, e a mesma
+// conclusão vale aqui e no marco de desfecho: quem não clicou em nada precisa
+// saber que a rede não deu conta, e não ouvir que alguém cancelou.
 func downloadError(ctx context.Context, err error) error {
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return ctxErr
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return ctx.Err()
 	}
 	if errors.Is(err, ErrArtifactTooLarge) || errors.Is(err, ErrDownload) {
 		return err
