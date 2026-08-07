@@ -366,9 +366,9 @@ O app passa a oferecer a instalação, com uma confirmação que não é a de se
 Quando o registro não publica digest, o app calcula o `sha256` do que baixou e o
 grava no `installed.json`, marcado como **observado**, e não como conferido. Isso
 não protege a primeira instalação — nada protege, é essa a natureza do problema —
-mas passa a proteger todas as vezes seguintes: reinstalar ou atualizar a mesma
-versão e encontrar um artefato diferente é sinal de que algo mudou onde não
-deveria, e o app recusa dizendo isso. É a mesma confiança na primeira vez que o
+mas passa a proteger todas as vezes seguintes: baixar de novo a mesma versão e
+encontrar um artefato diferente é sinal de que algo mudou onde não deveria, e o
+app recusa dizendo isso. É a mesma confiança na primeira vez que o
 SSH aplica à chave de host: aceita o que aparece na estreia e passa a estranhar
 a troca.
 
@@ -904,8 +904,8 @@ O caminho do D4 para quem só tem binário e não publica `sha256`: a confirmaç
 reforçada, com a frase que nomeia o que o app não consegue atestar e a ação
 afirmativa fora do botão padrão; o `sha256` observado gravado no
 `installed.json`; a marca de instalação não verificada que continua no item
-depois de instalado; e a recusa de reinstalar ou atualizar a mesma versão quando
-o artefato mudou. O site e o repositório do agente, com o detectar e testar que
+depois de instalado; e a recusa de baixar de novo a mesma versão quando o
+artefato mudou. O site e o repositório do agente, com o detectar e testar que
 já existe, continuam oferecidos para quem prefere o caminho de fora.
 
 O Cursor é o caso principal, e é o que precisa ficar bom.
@@ -978,8 +978,9 @@ um provider que sobe; sem `uv`, o requisito é dito com o mesmo tratamento do D7
 - **O índice não é assinado.** TLS cobre o transporte e o `sha256` cobre o
   artefato, mas nenhum dos dois cobre um índice adulterado na origem: ele traria
   URL e digest coerentes entre si. O que existe de mitigação é a curadoria por PR
-  do registro e o fato de o app executar apenas o que ele mesmo baixou e conferiu
-  contra o digest daquele índice. Se o registro passar a assinar o documento, o
+  do registro e o fato de o app executar apenas o que ele mesmo baixou — e, onde
+  o índice publica digest, conferido contra ele; onde não publica, a mitigação é
+  só a primeira. Se o registro passar a assinar o documento, o
   app adota a verificação — e vale acompanhar, porque hoje essa é a maior aposta
   de confiança do desenho.
 - **Oito agentes só têm binário sem digest, e o Cursor é um deles** (D4). O app
