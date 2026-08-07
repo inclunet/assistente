@@ -107,17 +107,17 @@ func placeRawBinary(art artifact, dest, rawName string) error {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return fmt.Errorf("não foi possível preparar %s: %w", filepath.Dir(target), err)
+		return fmt.Errorf("não foi possível preparar %s: %w", shownPath(filepath.Dir(target)), causeOf(err))
 	}
 	if err := os.Rename(art.Path, target); err != nil {
-		return fmt.Errorf("não foi possível pôr o executável em %s: %w", target, err)
+		return fmt.Errorf("não foi possível pôr o executável em %s: %w", shownPath(target), causeOf(err))
 	}
 	if err := os.Chmod(target, 0o755); err != nil {
 		// Sem o bit de execução o arquivo não é o agente, é um arquivo com o
 		// nome dele. Deixá-lo ali daria uma instalação que parece pronta e não
 		// sobe, então ele sai junto com o erro.
 		_ = os.Remove(target)
-		return fmt.Errorf("não foi possível dar permissão de execução a %s: %w", target, err)
+		return fmt.Errorf("não foi possível dar permissão de execução a %s: %w", shownPath(target), causeOf(err))
 	}
 	return nil
 }
@@ -261,10 +261,10 @@ func extractTar(ctx context.Context, art artifact, dest string, budget int64) er
 // aquilo era para ser executável.
 func writeEntry(ctx context.Context, target string, src io.Reader, mode fs.FileMode, budget int64) (int64, error) {
 	if budget <= 0 {
-		return 0, fmt.Errorf("%w: %s", ErrArchiveTooBig, filepath.Base(target))
+		return 0, fmt.Errorf("%w: %s", ErrArchiveTooBig, shownPath(filepath.Base(target)))
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return 0, fmt.Errorf("não foi possível preparar %s: %w", filepath.Dir(target), err)
+		return 0, fmt.Errorf("não foi possível preparar %s: %w", shownPath(filepath.Dir(target)), causeOf(err))
 	}
 	perm := fs.FileMode(0o644)
 	if mode&0o111 != 0 {
@@ -272,7 +272,7 @@ func writeEntry(ctx context.Context, target string, src io.Reader, mode fs.FileM
 	}
 	file, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 	if err != nil {
-		return 0, fmt.Errorf("não foi possível criar %s: %w", target, err)
+		return 0, fmt.Errorf("não foi possível criar %s: %w", shownPath(target), causeOf(err))
 	}
 	written, err := io.Copy(file, io.LimitReader(watchful{ctx: ctx, src: src}, budget+1))
 	if closeErr := file.Close(); err == nil {
@@ -285,15 +285,48 @@ func writeEntry(ctx context.Context, target string, src io.Reader, mode fs.FileM
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return written, ctxErr
 		}
-		return written, fmt.Errorf("não foi possível gravar %s: %w", target, err)
+		return written, fmt.Errorf("não foi possível gravar %s: %w", shownPath(target), causeOf(err))
 	}
 	if written > budget {
 		// O arquivo parcial não fica: ele não é o que o archive trazia, e
 		// deixá-lo faria a limpeza da instalação ter de adivinhar o que apagar.
 		_ = os.Remove(target)
-		return written, fmt.Errorf("%w: %s", ErrArchiveTooBig, filepath.Base(target))
+		return written, fmt.Errorf("%w: %s", ErrArchiveTooBig, shownPath(filepath.Base(target)))
 	}
 	return written, nil
+}
+
+// shownPath é o caminho como ele pode aparecer numa mensagem.
+//
+// Metade dele é escolha do app e a outra metade vem de dentro do artefato, que
+// é o dado mais externo deste caminho. Uma entrada com caractere de controle ou
+// com marca de direção faria a frase do erro dizer na tela — e no leitor de
+// telas — coisa diferente do que o app escreveu (D9). Uma mensagem de falha é
+// justamente onde ninguém pode ser enganado.
+func shownPath(path string) string {
+	return acp.SanitizeLabel(path)
+}
+
+// causeOf tira do erro do sistema de arquivos a parte que interessa, deixando
+// para trás o caminho que ele repete.
+//
+// Sanear só o que o app interpola não bastaria: `os.OpenFile` devolve um
+// `*os.PathError`, e o texto dele traz o caminho cru de novo — com o nome que
+// veio de dentro do artefato, inteiro, logo depois da versão saneada. O que
+// sobra aqui é o motivo, que é o que a mensagem precisa dizer.
+//
+// A cadeia que importa continua de pé: `errors.Is(err, os.ErrNotExist)` e as
+// irmãs dela respondem pelo erro de sistema que fica.
+func causeOf(err error) error {
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) {
+		return pathErr.Err
+	}
+	var linkErr *os.LinkError
+	if errors.As(err, &linkErr) {
+		return linkErr.Err
+	}
+	return err
 }
 
 // watchful é a leitura que para quando o contexto acaba.

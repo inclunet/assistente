@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -215,6 +216,47 @@ func TestOArquivoQueSePropoeAEncherODiscoERecusado(t *testing.T) {
 	err := extractWithBudget(context.Background(), art, dest, "", 1024)
 	if !errors.Is(err, ErrArchiveTooBig) {
 		t.Fatalf("esperava recusa por tamanho, veio %v", err)
+	}
+}
+
+func TestONomeDaEntradaNaoEscreveNaMensagemDeErro(t *testing.T) {
+	// O nome vem de dentro do artefato, e a mensagem vai para a tela e para o
+	// leitor de telas. Uma quebra de linha ou uma marca de direção no nome
+	// escreveria ali uma frase que o app não escreveu.
+	origem, dest := t.TempDir(), t.TempDir()
+	// A marca de direção vale nos três sistemas como nome de arquivo, o que
+	// deixa o teste medindo o saneamento, e não o que cada um aceita gravar.
+	art := tarGzDeTeste(t, origem, []entradaTar{
+		{nome: "pacote/agente\u202Eexe", conteudo: "carga além do teto"},
+	})
+
+	err := extractWithBudget(context.Background(), art, dest, "", 4)
+	if !errors.Is(err, ErrArchiveTooBig) {
+		t.Fatalf("esperava recusa por tamanho, veio %v", err)
+	}
+	if strings.ContainsRune(err.Error(), '\u202E') {
+		t.Errorf("a mensagem carregou a marca de direção do nome da entrada: %q", err.Error())
+	}
+}
+
+func TestOErroDoSistemaNaoRepeteONomeCruDaEntrada(t *testing.T) {
+	// `os.OpenFile` devolve um `*os.PathError`, e o texto dele traz o caminho
+	// de novo — cru, logo depois da versão saneada. Sanear só o que o app
+	// interpola deixaria o nome passar pela porta de trás.
+	dest := t.TempDir()
+	// Um diretório onde o teste manda criar um arquivo: o sistema recusa, e é
+	// a recusa dele que se quer ver na mensagem.
+	alvo := filepath.Join(dest, "agente\u202Eexe")
+	if err := os.MkdirAll(alvo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := writeEntry(context.Background(), alvo, strings.NewReader("carga"), 0o644, 1024)
+	if err == nil {
+		t.Fatal("esperava falha ao gravar por cima de um diretório")
+	}
+	if strings.ContainsRune(err.Error(), '\u202E') {
+		t.Errorf("a mensagem carregou o caminho cru do erro do sistema: %q", err.Error())
 	}
 }
 
