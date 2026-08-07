@@ -6,8 +6,9 @@
 
 O app passa a descobrir agentes ACP pelo **registro oficial do protocolo** — o
 mesmo índice que está por trás do botão "Install" do Zed e das IDEs da
-JetBrains — e a instalá-los, quando a integridade do artefato pode ser
-verificada, em um diretório do próprio app.
+JetBrains — e a instalá-los em um diretório do próprio app, conferindo a
+integridade do artefato onde há como conferir e dizendo com todas as letras onde
+não há (D4).
 
 Hoje cada agente novo custa um pedaço de código de detecção escrito à mão:
 caminhos, nomes de binário, prefixos do npm, layout de instalação por sistema
@@ -128,9 +129,10 @@ publicam digest para **todos** os seus alvos (`amp-acp`, `goose`, `harn`,
 publicam para **nenhum** (`cortex-code`, `corust-agent`, `crow-cli`, `cursor`,
 `devin`, `junie`, `stakpak`, `vtcode`). Não existe agente pela metade.
 
-Isso muda a natureza da regra de integridade (D4): ela não recusa um alvo aqui e
-ali, ela reparte o catálogo em dois conjuntos estáveis. E o conjunto sem digest
-inclui o **Cursor**, que é o agente principal que o app suporta.
+Isso muda a natureza da regra de integridade (D4): ela não separa um alvo aqui e
+ali, ela reparte o catálogo em dois conjuntos estáveis — o que o app instala
+conferindo o artefato e o que ele instala perguntando antes. E o segundo inclui
+o **Cursor**, que é o agente principal que o app suporta.
 
 A cobertura de plataforma também não é uniforme, ao contrário do que se poderia
 supor: só 7 dos 17 agentes com binário cobrem os seis alvos. Oito cobrem cinco e
@@ -296,46 +298,97 @@ Quem não quiser instalar por aqui continua podendo apontar comando e argumentos
 à mão no formulário de hoje. O catálogo acrescenta um caminho; não fecha
 nenhum.
 
-### D4. Sem `sha256`, sem instalação automática — e o Cursor é a primeira baixa
+### D4. A integridade decide o quanto o app afirma, e não se ele instala
 
-O app **só instala automaticamente** um agente cujo alvo da plataforma publica
-`sha256`, e confere o digest do arquivo baixado antes de extrair. Divergência
-apaga o download e falha com mensagem que nomeia o que não bateu.
+O `sha256` do registro é a única coisa que liga o arquivo que chegou ao que foi
+curado. TLS não substitui isso: ele autentica o transporte até o host que serve
+o artefato, e não diz nada sobre o artefato. Onde o digest existe, ele é
+obrigatório: o app confere o arquivo baixado antes de qualquer coisa sair dele —
+antes de extrair, quando é archive, e antes de pôr no destino, quando é binário
+cru. Divergência apaga o download e falha com mensagem que nomeia o que não
+bateu.
 
-TLS não substitui isso. TLS autentica o transporte até o host que serve o
-artefato; ele não diz nada sobre o artefato ser o que o registro curou. O digest
-é publicado pelo autor do agente e revisado no repositório do registro, e é a
-única coisa que liga o arquivo que chegou ao que foi conferido. Sem ele, o app
-estaria gravando no disco de alguém um executável de procedência que ele não
-sabe atestar — e o app é justamente quem vai spawnar esse processo, com acesso
-ao diretório de trabalho da pessoa. É o pior lugar possível para relaxar.
+O que esta decisão define é o que acontece **onde ele não existe**.
 
-**A consequência é dura e fica escrita: o Cursor não é instalável
-automaticamente hoje.** Ele é o agente principal que o app suporta, tem o
-desenho inteiro do AEP-0084 em volta dele, e nenhum dos seis alvos dele traz
-digest. O mesmo vale para `devin`, `junie`, `cortex-code`, `stakpak`,
-`corust-agent`, `crow-cli` e `vtcode` — oito agentes, entre eles quase todos os
-proprietários grandes.
+#### A regra do digest é dos binários, e só deles
 
-O que a tela faz com eles, e o que ela não faz:
+Ela não vale para `npx` e `uvx`, e nunca valeu: quem verifica o pacote é o
+gerenciador. O npm guarda um campo `integrity` por tarball nos metadados do
+registro npm — uma string SRI, que traz o algoritmo junto do valor (`sha512-…`,
+hoje) e por isso pode mudar de algoritmo sem mudar de campo — e confere o
+tarball baixado contra ele antes de extrair coisa alguma no prefixo:
+o que não bate morre no cache, e nada daquele pacote chega ao diretório do
+agente nem é executado.
 
-- **Eles continuam no catálogo.** Esconder o Cursor da lista de agentes ACP
-  porque a regra do app o exclui seria mentir sobre o que existe, e sumir com o
-  agente mais usado do projeto.
-- **O estado é próprio e explicado**: "instalação manual — este agente não
-  publica verificação de integridade". Não é "erro", não é "indisponível", e não
-  é um botão desabilitado sem motivo. A frase diz o que falta e de quem depende.
-- **O caminho manual é oferecido ali**: o site e o repositório do agente, que o
-  registro publica, mais o botão de detectar e testar que a Fase 3 do AEP-0084
-  já entregou. Para quem já instalou o Cursor, esse caminho funciona hoje e
-  continua funcionando.
-- **Não existe um "instalar mesmo assim".** Uma caixa de "aceito o risco" apenas
-  transfere para a pessoa uma decisão que ela não tem como avaliar: ninguém
-  consegue julgar a procedência de um `.zip` de 80 MB olhando para um diálogo.
+O `uv` faz o equivalente com os hashes do índice Simple do PyPI. Onde o índice
+não publica hashes — o caso de um índice alternativo —, não há o que conferir: a
+confiança volta a ser no índice e no transporte, e não numa verificação de
+integridade feita pelo `uv`.
 
-Nada disso é permanente. No dia em que o Cursor publicar digest, ele passa a ser
-instalável sem uma linha de código nova — a regra é sobre o dado, não sobre o
-agente.
+Exigir um segundo digest, publicado noutro lugar, seria pedir garantia que já
+está sendo dada — e é por isso que a Fase 3 instala pacote npm sem que o
+registro ACP publique digest algum, e isso não é exceção a nada.
+
+Dito de outro modo: dos 38 agentes, a regra abaixo alcança apenas os que só têm
+distribuição binária.
+
+#### Binário sem digest: o app pergunta, e diz exatamente o que não sabe
+
+**Versão anterior desta decisão recusava instalar, e estava errada.** O
+argumento era que uma caixa de "aceito o risco" transfere para a pessoa uma
+decisão que ela não tem como avaliar. A frase é verdadeira e a conclusão não
+segue dela, porque compara com a alternativa errada. Recusar não deixava a
+pessoa sem o agente: ela ia **instalar à mão pelo site** — o mesmo binário, do
+mesmo host, com o mesmo risco, só que sem as guardas que o app aplicaria, sem
+registro do que ficou no disco e com mais trabalho. A regra empurrava para o
+caminho pior e cobrava esforço por isso. E a primeira vítima era o Cursor, o
+agente principal do projeto, junto de `devin`, `junie`, `cortex-code`,
+`stakpak`, `corust-agent`, `crow-cli` e `vtcode`.
+
+O app passa a oferecer a instalação, com uma confirmação que não é a de sempre:
+
+- **O diálogo diz o que o app não consegue atestar**, em uma frase que nomeia a
+  ausência — "este agente não publica verificação de integridade: o aplicativo
+  não tem como conferir que o arquivo baixado é o que o registro curou" —, além
+  de tudo o que o D3 já manda mostrar. Nada de ícone de alerta como único sinal.
+- **A ação afirmativa não é o botão padrão do diálogo.** O Enter ativa o botão
+  que estiver com o foco, como em qualquer diálogo; o que esta regra decide é
+  onde o foco começa, e ele começa em cancelar. Escape fecha sem instalar.
+  Instalar exige mover o foco até o outro botão — e é esse movimento que separa
+  ler do reflexo de confirmar.
+- **Não existe interruptor global.** Nem "não perguntar de novo", nem preferência
+  em Configurações que desligue a pergunta. Cada agente não verificado pergunta,
+  toda vez que for instalado. Uma decisão que vale para um artefato não vale para
+  outro, e um interruptor transformaria em política o que precisa ser escolha.
+- **A marca não some depois de instalado**: o item diz que aquela instalação não
+  foi verificada, e continua dizendo. O `installed.json` (D5) guarda isso.
+
+#### O digest observado na primeira instalação protege as próximas
+
+Quando o registro não publica digest, o app calcula o `sha256` do que baixou e o
+grava no `installed.json`, marcado como **observado**, e não como conferido. Isso
+não protege a primeira instalação — nada protege, é essa a natureza do problema —
+mas passa a proteger todas as vezes seguintes: baixar de novo a mesma versão e
+encontrar um artefato diferente é sinal de que algo mudou onde não deveria, e o
+app recusa dizendo isso. É a mesma confiança na primeira vez que o
+SSH aplica à chave de host: aceita o que aparece na estreia e passa a estranhar
+a troca.
+
+O que continua valendo integralmente é o D10: **atualização nunca troca uma
+instalação verificada por uma não verificada**. Um agente que publicava digest e
+parou de publicar não é atualizado, e a tela explica — aí a troca seria
+regressão silenciosa, e não escolha.
+
+#### O caminho manual continua ali
+
+O site e o repositório do agente, que o registro publica, mais o botão de
+detectar e testar da Fase 3 do AEP-0084. Quem já instalou o Cursor à mão não
+precisa reinstalar por aqui, e quem prefere baixar do site do fornecedor
+continua podendo.
+
+Nada disso é permanente do lado bom também: no dia em que o Cursor publicar
+digest, ele deixa de perguntar e passa a ser conferido, sem uma linha de código
+nova. A regra é sobre o dado, não sobre o agente.
 
 ### D5. A instalação mora no diretório de dados do app
 
@@ -357,10 +410,26 @@ A versão entra no caminho porque ela permite baixar a nova ao lado da que está
 em uso (D10) e porque remover passa a ser apagar um diretório.
 
 Cada agente instalado ganha um `installed.json` ao lado, com o que o app fez:
-identificador, versão, tipo de distribuição, alvo de plataforma, digest
-conferido, comando e argumentos resolvidos, e a data. Sem esse registro, o app
-teria que reconstruir por adivinhação, a cada abertura, o que ele mesmo
-escreveu.
+identificador, versão, tipo de distribuição, o alvo instalado, comando e
+argumentos resolvidos, a data e — na distribuição binária — o digest com a sua
+procedência. Sem esse registro, o app teria que reconstruir por adivinhação, a
+cada abertura, o que ele mesmo escreveu.
+
+O que o `target` guarda depende da distribuição: o pacote com a versão, em npm e
+uv, e o alvo de plataforma, em binário. É uma chave só porque a pergunta que ela
+responde é uma só — o que exatamente foi instalado aqui —, e quem a lê sabe de
+qual distribuição se trata pela chave ao lado.
+
+O digest entra ali com a sua procedência dita, e em dois campos separados:
+`sha256`, com o valor, e `sha256_origin`, com a origem dele — `verified`,
+quando o registro ACP publicou um digest e o arquivo bateu com ele, ou
+`observed`, quando o app calculou o digest do que baixou por não haver com o que
+comparar (D4). Duas chaves, e não uma com significado dependente do contexto:
+quem lê o arquivo depois — a tela, a atualização, o suporte a quem relata
+problema — precisa saber se aquele número atesta o artefato ou apenas permite
+perceber que ele mudou.
+Instalação por npm ou uv não tem nenhum dos dois: a verificação foi do
+gerenciador e não é o app quem a registra.
 
 Remover é apagar o diretório do agente. Provider que apontava para lá fica com
 um comando que não existe, e o health do AEP-0084 D12 já sabe dizer isso — não
@@ -477,9 +546,12 @@ agente valem inteiras aqui.
   como imagem inerte, nunca como SVG embutido no DOM — SVG inline executa
   script. Um ícone de 16x16 não vale abrir esse caminho.
 - **Nada vindo do JSON vira linha de comando por si.** O `cmd` e os `args` só
-  são usados depois de o artefato ter sido baixado, verificado contra o digest e
-  extraído; o caminho resolvido é obrigatoriamente **dentro** do diretório do
-  agente. Um `cmd` apontando para fora dele é recusado.
+  são usados depois de o artefato ter sido baixado, conferido contra o digest
+  quando o registro publica um, e extraído; o caminho resolvido é
+  obrigatoriamente **dentro** do diretório do agente. Um `cmd` apontando para
+  fora dele é recusado. Onde não há digest publicado, o que muda é só a
+  conferência — a guarda de caminho e a confirmação reforçada do D4 continuam
+  valendo, e é o que sobra para segurar o que se executa.
 - **A extração tem guarda de caminho.** `.zip` e `.tar.*` podem trazer entradas
   com `..` ou caminho absoluto, e escrever fora do destino é a forma mais antiga
   de transformar um download em execução de código. Entrada suspeita aborta a
@@ -831,17 +903,25 @@ entrada `../` aborta a instalação e limpa o destino; no Windows, o alvo cujo
 `cmd` não é spawnável é resolvido para o executável correspondente ou falha
 dizendo o que tentou.
 
-### Fase 5 — Os agentes sem digest, ditos com todas as letras
+### Fase 5 — Os agentes sem digest, com a pergunta que eles exigem
 
-O estado próprio no catálogo (D4): a frase que explica por que não há instalação
-automática, o site e o repositório do agente vindos do registro, e o caminho de
-detectar e testar que já existe. O Cursor é o caso principal, e é o que precisa
-ficar bom.
+O caminho do D4 para quem só tem binário e não publica `sha256`: a confirmação
+reforçada, com a frase que nomeia o que o app não consegue atestar e a ação
+afirmativa fora do botão padrão; o `sha256` observado gravado no
+`installed.json`; a marca de instalação não verificada que continua no item
+depois de instalado; e a recusa de baixar de novo a mesma versão quando o
+artefato mudou. O site e o repositório do agente, com o detectar e testar que
+já existe, continuam oferecidos para quem prefere o caminho de fora.
 
-**Aceite:** o Cursor aparece no catálogo, com a razão da instalação manual em
-texto lido por leitor de telas; o caminho manual leva ao formulário que detecta
-e testa a instalação existente; nada na tela sugere que o agente está quebrado
-ou indisponível.
+O Cursor é o caso principal, e é o que precisa ficar bom.
+
+**Aceite:** instalar o Cursor pelo catálogo é possível e passa por uma
+confirmação que diz, em texto lido por leitor de telas, que não há como conferir
+a integridade do arquivo; com o foco onde o diálogo o deixa, Enter cancela e
+Escape fecha, e instalar exige mover o foco até o botão afirmativo; depois de
+instalado, o item continua dizendo que aquela instalação não foi verificada;
+baixar de novo a mesma versão com artefato diferente é recusado com o motivo;
+não há em lugar nenhum uma preferência que desligue a pergunta.
 
 ### Fase 6 — O catálogo substitui os presets escritos à mão
 
@@ -903,19 +983,30 @@ um provider que sobe; sem `uv`, o requisito é dito com o mesmo tratamento do D7
 - **O índice não é assinado.** TLS cobre o transporte e o `sha256` cobre o
   artefato, mas nenhum dos dois cobre um índice adulterado na origem: ele traria
   URL e digest coerentes entre si. O que existe de mitigação é a curadoria por PR
-  do registro e o fato de o app executar apenas o que ele mesmo baixou e conferiu
-  contra o digest daquele índice. Se o registro passar a assinar o documento, o
+  do registro e o fato de o app executar apenas o que ele mesmo baixou — e, onde
+  o índice publica digest, conferido contra ele; onde não publica, a mitigação é
+  só a primeira. Se o registro passar a assinar o documento, o
   app adota a verificação — e vale acompanhar, porque hoje essa é a maior aposta
   de confiança do desenho.
-- **O Cursor fica fora da instalação automática** (D4). É consequência aceita, e
-  a Fase 5 existe para que ela não vire uma tela quebrada. O incômodo é real:
-  o agente mais usado do projeto é o que menos se beneficia deste AEP.
+- **Oito agentes só têm binário sem digest, e o Cursor é um deles** (D4). O app
+  instala mediante confirmação reforçada, o que significa que existe um caminho
+  em que ele grava e executa um artefato cuja procedência não sabe atestar. É
+  risco aceito com os olhos abertos: a alternativa era empurrar a mesma
+  instalação para fora do app, onde nem as guardas de extração nem o registro do
+  que ficou no disco existiriam. O que o desenho não pode perder nunca é a
+  distinção entre conferido e observado, na tela e no `installed.json` — o dia em
+  que as duas coisas parecerem iguais, esta decisão vira só uma permissão.
+- **A confirmação pode virar hábito.** Quem instala vários agentes não
+  verificados aprende a passar pelo diálogo sem ler, e é por isso que não há
+  interruptor global: sem "não perguntar de novo", o custo de cada instalação
+  continua sendo pago uma vez por artefato. Se o hábito ainda assim se formar, é
+  sinal de que o texto está longo demais, e não de que a pergunta sobra.
 - **A política de digest pode mudar de lado.** Hoje 9 agentes publicam para todos
   os alvos e 8 para nenhum; nada impede que um deixe de publicar. O app confere o
-  índice de agora, então um agente pode sair do conjunto instalável entre duas
-  aberturas da tela. A atualização recusa a troca (D10), mas a instalação nova
-  simplesmente deixa de ser oferecida, e a tela precisa explicar isso em vez de
-  parecer que algo quebrou.
+  índice de agora, então um agente pode passar de conferido a apenas observado
+  entre duas aberturas da tela. A atualização recusa a troca (D10) e a instalação
+  nova passa a perguntar, e a tela precisa dizer que a diferença veio do registro
+  em vez de parecer que algo quebrou.
 - **O `cmd` do registro nem sempre é spawnável** (D8). A resolução tem quatro
   degraus e ainda pode falhar num agente que ninguém do projeto testou. Por isso
   a instalação só termina depois do `initialize`: o desfecho ruim é "não deu para
@@ -958,8 +1049,11 @@ um provider que sobe; sem `uv`, o requisito é dito com o mesmo tratamento do D7
   cache e explica quando o catálogo não pôde ser carregado.
 - Nenhuma instalação começa sem um pedido explícito, e o diálogo mostra agente,
   versão, origem e o que será verificado antes de qualquer download.
-- Nenhum binário é instalado sem `sha256` conferido; o agente sem digest aparece
-  no catálogo com o caminho manual, e não some nem vira erro.
+- Binário cujo alvo publica `sha256` só é instalado com o digest conferido.
+- Binário sem `sha256` publicado só é instalado depois de uma confirmação que
+  nomeia o que não pode ser atestado, sem interruptor que a desligue, e a
+  instalação resultante continua marcada como não verificada na tela e no
+  `installed.json`.
 - Tudo o que o app instala fica em `~/.assistente/agents/`, sem alterar PATH nem
   `node_modules` global, e pode ser removido pela tela.
 - Agente distribuído por npm é instalado uma vez em prefixo do app; nenhum turno
@@ -970,8 +1064,8 @@ um provider que sobe; sem `uv`, o requisito é dito com o mesmo tratamento do D7
 - Falta de Node ou de `uv` é dita em texto, com o botão indisponível e o motivo
   visível; o app não instala runtime.
 - Todo texto vindo do registro é saneado antes de virar tela ou anúncio, e nada
-  dele é executado sem passar por artefato verificado dentro do diretório do
-  app.
+  dele vira comando por si: o que se executa é sempre um arquivo dentro do
+  diretório do app, vindo do artefato que ele mesmo instalou.
 - Progresso, conclusão e erro de instalação são anunciados em marcos e existem em
   texto na tela; erro nomeia a etapa e a ação.
 - Versão nova é avisada e nunca aplicada sozinha; atualizar durante uma conversa
