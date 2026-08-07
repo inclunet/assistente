@@ -847,6 +847,11 @@ func TestPlanDeAgenteSemDistribuicaoNpmExplicaEmTexto(t *testing.T) {
 	if !strings.Contains(plano.Reason, "npm") {
 		t.Errorf("motivo = %q, queria que ele dissesse que a distribuição não é npm", plano.Reason)
 	}
+	// E o plano não diz que a distribuição é npm: ele se contradiria, com a
+	// distribuição afirmando uma coisa e o motivo, logo abaixo, a contrária.
+	if plano.Distribution != "" {
+		t.Errorf("distribuição = %q, queria vazia num agente que não publica por npm", plano.Distribution)
+	}
 
 	if _, err := c.instalador.Install(context.Background(), "opencode"); !errors.Is(err, ErrNotNPM) {
 		t.Errorf("erro = %v, queria a recusa da distribuição", err)

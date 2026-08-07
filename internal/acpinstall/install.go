@@ -175,12 +175,21 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 
 // unavailablePlan é o item que o app não sabe instalar, com o motivo dito em
 // texto em vez de um botão cinza sem explicação (D7).
+//
+// A distribuição só é declarada quando o agente de fato publica por npm. Boa
+// parte dos itens indisponíveis chega aqui justamente por não publicar, e dizer
+// `npm` neles daria um plano que se contradiz: a distribuição afirmando uma
+// coisa e o motivo, logo abaixo, dizendo a contrária.
 func (i *Installer) unavailablePlan(agent acpregistry.Agent, err error) Plan {
+	distribution := ""
+	if agent.Distribution.NPX != nil {
+		distribution = DistributionNPM
+	}
 	return Plan{
 		AgentID:      agent.ID,
 		Name:         agent.Name,
 		Version:      agent.Version,
-		Distribution: DistributionNPM,
+		Distribution: distribution,
 		Runtime:      runtimeStatus(i.runtime()),
 		Reason:       acp.SanitizeLabel(err.Error()),
 	}
