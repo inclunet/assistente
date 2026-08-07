@@ -12,6 +12,7 @@ import (
 	"sort"
 	"sync"
 	"time"
+	"unicode"
 
 	"assistente/internal/acp"
 	"assistente/internal/acpregistry"
@@ -738,6 +739,16 @@ func safePathSegment(segment string) bool {
 	}
 	if segment != filepath.Base(segment) || segment != filepath.Clean(segment) {
 		return false
+	}
+	// Espaço e caractere de controle não entram: o Windows come o espaço do fim
+	// do nome de diretório, e daí o caminho que o app grava no `installed.json`
+	// deixa de ser o que existe no disco. E um identificador com quebra de linha
+	// no meio é ilegível justamente onde ele mais precisa ser lido — na mensagem
+	// que explica por que a instalação não deu certo.
+	for _, r := range segment {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			return false
+		}
 	}
 	return !containsAny(segment, `/\:*?"<>|`) && segment[0] != '.'
 }

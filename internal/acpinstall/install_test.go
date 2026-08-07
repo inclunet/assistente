@@ -993,3 +993,19 @@ func TestInstallRecusaIdentificadorQueSaiDoDiretorioDeDados(t *testing.T) {
 		t.Fatal("aceitou um identificador que sai do diretório de dados")
 	}
 }
+
+func TestInstallRecusaIdentificadorComEspacoOuQuebraDeLinha(t *testing.T) {
+	// O Windows come o espaço do fim do nome de diretório, e daí o caminho que o
+	// app grava deixa de ser o que existe no disco. E um identificador com quebra
+	// de linha é ilegível justamente onde ele mais precisa ser lido: na mensagem
+	// que explica por que a instalação não deu certo.
+	for _, id := range []string{"codex acp", "codex-acp ", "codex\tacp", "codex\nacp"} {
+		agente := agenteCodex()
+		agente.ID = id
+		c := montar(t, opcoes{agentes: []acpregistry.Agent{agente}})
+
+		if _, err := c.instalador.Install(context.Background(), id); err == nil {
+			t.Errorf("aceitou o identificador %q como nome de diretório", id)
+		}
+	}
+}
