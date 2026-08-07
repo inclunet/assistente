@@ -311,10 +311,11 @@ O que esta decisão define é o que acontece **onde ele não existe**.
 #### A regra do digest é dos binários, e só deles
 
 Ela não vale para `npx` e `uvx`, e nunca valeu: quem verifica o pacote é o
-gerenciador. O npm guarda um campo `integrity` (SHA-512) por tarball nos
-metadados do registro npm e confere o tarball baixado contra ele antes de
-extrair coisa alguma no prefixo: o que não bate morre no cache, e nada daquele
-pacote chega ao diretório do agente nem é executado.
+gerenciador. O npm guarda um campo `integrity` por tarball nos metadados do
+registro npm — uma string SRI, que hoje traz SHA-512 mas não fixa o algoritmo —
+e confere o tarball baixado contra ele antes de extrair coisa alguma no prefixo:
+o que não bate morre no cache, e nada daquele pacote chega ao diretório do
+agente nem é executado.
 
 O `uv` faz o equivalente com os hashes do índice Simple do PyPI. Onde o índice
 não publica hashes — o caso de um índice alternativo —, não há o que conferir: a
