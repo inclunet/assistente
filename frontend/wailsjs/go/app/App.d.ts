@@ -206,6 +206,8 @@ export function ExportWorkspace():Promise<string>;
 
 export function GenerateAndSaveMessageAudio(arg1:string,arg2:string):Promise<speech.AudioResult>;
 
+export function GetACPCatalog():Promise<app.ACPCatalog>;
+
 export function GetActiveProfile():Promise<profiles.Profile>;
 
 export function GetActiveProfileAndSlug():Promise<profiles.ActiveProfile>;
@@ -459,6 +461,8 @@ export function ReadMCPResource(arg1:string,arg2:string):Promise<string>;
 export function RebuildSearchIndex():Promise<void>;
 
 export function ReconnectMCPServer(arg1:string):Promise<void>;
+
+export function RefreshACPCatalog():Promise<app.ACPCatalog>;
 
 export function RefreshAuth(arg1:app.RefreshRequest):Promise<app.AuthUser>;
 

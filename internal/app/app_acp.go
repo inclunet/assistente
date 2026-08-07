@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"assistente/internal/acp"
+	"assistente/internal/acpregistry"
 	"assistente/internal/acptrust"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
@@ -58,6 +59,14 @@ func (a *App) initACP() {
 		ClientVersion:     AppVersion,
 	})
 	handler.owner = a.acpMgr.TurnOwnerOf
+
+	// O catálogo do registro nasce junto, e também sem tocar na rede: o serviço
+	// só lê o cache do disco na primeira consulta, e quem consulta é a tela de
+	// provedores (AEP-0086 D2). Montá-lo aqui é o que faz a tela abrir sem
+	// esperar por nada.
+	if a.acpRegistry == nil {
+		a.acpRegistry = acpregistry.New(acpregistry.Config{})
+	}
 }
 
 // questionnaireRouter é por onde qualquer diálogo do backend chega a quem

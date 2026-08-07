@@ -19,6 +19,7 @@ import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { ProviderForm, ProviderFormData } from '../components/settings/ProviderForm';
+import { ACPAgentCatalog } from '../components/settings/ACPAgentCatalog';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -69,6 +70,10 @@ export default function ProvidersPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ProviderFormData | undefined>(undefined);
   const [focusedRow, setFocusedRow] = useState<ProviderRow | null>(null);
+  // O catálogo do registro do ACP (AEP-0086 Fase 2) mora aqui porque é daqui que
+  // sai um provedor de agente: consultar o que existe e apontar o comando à mão
+  // são o mesmo assunto enquanto instalar ainda não é uma opção.
+  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
 
   const loadProviders = async () => {
     setLoading(true);
@@ -349,6 +354,11 @@ export default function ProvidersPage() {
                 variant: 'primary',
               },
               {
+                key: 'acpCatalog',
+                label: t('acpCatalog.open'),
+                onClick: () => setIsCatalogOpen(true),
+              },
+              {
                 key: 'edit',
                 label: t('providers.actions.edit', 'Editar'),
                 onClick: () => focusedRow && handleEditProvider(focusedRow),
@@ -398,6 +408,20 @@ export default function ProvidersPage() {
                 onCancel={handleCancelEdit}
               />
             </div>
+          </Modal>
+
+          {/*
+            O catálogo fica em `role="application"` (o padrão do `Modal`) e não em
+            modo de leitura: a lista responde a setas, e em modo de leitura o
+            leitor de telas ficaria com elas antes do componente.
+          */}
+          <Modal
+            isOpen={isCatalogOpen}
+            onClose={() => setIsCatalogOpen(false)}
+            title={t('acpCatalog.title')}
+            size="lg"
+          >
+            <ACPAgentCatalog />
           </Modal>
         </>
       )}
