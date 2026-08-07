@@ -77,6 +77,29 @@ func TestSemInitACPOCatalogoMontaOServicoQueFaltava(t *testing.T) {
 	}
 }
 
+func TestPlanoQueNaoOfereceNadaAindaTrazAListaDeArgumentos(t *testing.T) {
+	// O DTO promete `run_args` sempre presente para a tela não ter de distinguir
+	// "sem argumentos" de "campo ausente". O plano que não oferece nada é
+	// justamente onde o literal zerado mandaria `null`.
+	a := &App{}
+	// O Once é consumido aqui para o instalador de mentira não ser trocado pelo
+	// de verdade, que consultaria o registro pela rede.
+	a.acpCatalogOnce.Do(func() {
+		a.acpCatalogSvc = &acpCatalog{installer: acpinstall.New(acpinstall.Config{})}
+	})
+
+	plano, err := a.acpInstallPlan(context.Background(), "nao-esta-no-catalogo")
+	if err != nil {
+		t.Fatalf("o plano falhou em vez de explicar: %v", err)
+	}
+	if plano.RunArgs == nil {
+		t.Error("run_args veio nulo, e a tela teria de distinguir null de lista vazia")
+	}
+	if plano.Reason == "" {
+		t.Error("plano indisponível sem motivo em texto (D7)")
+	}
+}
+
 func TestProgressoSemEmissorNaoQuebra(t *testing.T) {
 	// A instalação pode acontecer antes de a janela existir; falhar aqui faria a
 	// instalação inteira falhar por causa de um anúncio.

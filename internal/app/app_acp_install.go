@@ -213,9 +213,17 @@ func (a *App) emitACPInstallProgress(progress acpinstall.Progress) {
 func (a *App) ACPAgentInstallPlan(agentID string) (ACPInstallPlan, error) {
 	ctx, err := a.requireAuthenticatedContext()
 	if err != nil {
-		return ACPInstallPlan{}, err
+		return emptyInstallPlan(), err
 	}
 	return a.acpInstallPlan(ctx, agentID)
+}
+
+// emptyInstallPlan é o plano que não oferece nada, com as listas que o DTO
+// promete sempre presentes. Pelo literal zerado, `run_args` sairia como `null`, e
+// a tela teria de distinguir "sem argumentos" de "campo ausente" — que é
+// justamente o que o contrato existe para evitar.
+func emptyInstallPlan() ACPInstallPlan {
+	return ACPInstallPlan{RunArgs: []string{}}
 }
 
 // ACPAgentInstallPlanForKind é o plano do agente que corresponde a um tipo de
@@ -229,11 +237,11 @@ func (a *App) ACPAgentInstallPlan(agentID string) (ACPInstallPlan, error) {
 func (a *App) ACPAgentInstallPlanForKind(kind string) (ACPInstallPlan, error) {
 	ctx, err := a.requireAuthenticatedContext()
 	if err != nil {
-		return ACPInstallPlan{}, err
+		return emptyInstallPlan(), err
 	}
 	agentID := acpinstall.RegistryIDForKind(kind)
 	if agentID == "" {
-		return ACPInstallPlan{}, nil
+		return emptyInstallPlan(), nil
 	}
 	return a.acpInstallPlan(ctx, agentID)
 }
@@ -248,11 +256,11 @@ func (a *App) acpInstallPlan(ctx context.Context, agentID string) (ACPInstallPla
 	installer := a.acpCatalogServices().installer
 	plan, err := installer.Plan(ctx, agentID)
 	if err != nil {
-		return ACPInstallPlan{
-			AgentID: agentID,
-			Runtime: runtimeStatusDTO(acp.FindNodeRuntime()),
-			Reason:  acp.SanitizeLabel(err.Error()),
-		}, nil
+		unavailable := emptyInstallPlan()
+		unavailable.AgentID = agentID
+		unavailable.Runtime = runtimeStatusDTO(acp.FindNodeRuntime())
+		unavailable.Reason = acp.SanitizeLabel(err.Error())
+		return unavailable, nil
 	}
 	return installPlanDTO(plan, installer.Installing(agentID)), nil
 }
