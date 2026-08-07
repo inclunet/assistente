@@ -317,9 +317,10 @@ extrair coisa alguma no prefixo: o que não bate morre no cache, e nada daquele
 pacote chega ao diretório do agente nem é executado.
 
 O `uv` faz o equivalente com os hashes que o índice Python publica, e o PyPI os
-publica. Num índice alternativo que não publique, não há o que conferir — a
-confiança volta a ser no índice e no transporte, e não numa verificação de
+publica. Num índice alternativo que não publique hashes, não há o que conferir —
+a confiança volta a ser no índice e no transporte, e não numa verificação de
 integridade feita pelo `uv`.
+
 Exigir um segundo digest, publicado noutro lugar, seria pedir garantia que já
 está sendo dada — e é por isso que a Fase 3 instala pacote npm sem que o
 registro ACP publique digest algum, e isso não é exceção a nada.
@@ -346,8 +347,9 @@ O app passa a oferecer a instalação, com uma confirmação que não é a de se
   ausência — "este agente não publica verificação de integridade: o aplicativo
   não tem como conferir que o arquivo baixado é o que o registro curou" —, além
   de tudo o que o D3 já manda mostrar. Nada de ícone de alerta como único sinal.
-- **A ação afirmativa não é o botão padrão do diálogo.** Fechar, cancelar ou
-  confirmar por reflexo não instala.
+- **A ação afirmativa não é o botão padrão do diálogo.** O foco inicial e o
+  Enter caem em cancelar, e o Escape fecha sem instalar. Instalar exige chegar
+  até o outro botão — que é o tempo que separa ler do reflexo de confirmar.
 - **Não existe interruptor global.** Nem "não perguntar de novo", nem preferência
   em Configurações que desligue a pergunta. Cada agente não verificado pergunta,
   toda vez que for instalado. Uma decisão que vale para um artefato não vale para
@@ -362,8 +364,9 @@ grava no `installed.json`, marcado como **observado**, e não como conferido. Is
 não protege a primeira instalação — nada protege, é essa a natureza do problema —
 mas passa a proteger todas as vezes seguintes: reinstalar ou atualizar a mesma
 versão e encontrar um artefato diferente é sinal de que algo mudou onde não
-deveria, e o app recusa dizendo isso. É a mesma lógica de confiança na primeira
-vez que o SSH usa para chave de host.
+deveria, e o app recusa dizendo isso. É a mesma confiança na primeira vez que o
+SSH aplica à chave de host: aceita o que aparece na estreia e passa a estranhar
+a troca.
 
 O que continua valendo integralmente é o D10: **atualização nunca troca uma
 instalação verificada por uma não verificada**. Um agente que publicava digest e
@@ -898,8 +901,9 @@ O Cursor é o caso principal, e é o que precisa ficar bom.
 
 **Aceite:** instalar o Cursor pelo catálogo é possível e passa por uma
 confirmação que diz, em texto lido por leitor de telas, que não há como conferir
-a integridade do arquivo; fechar ou confirmar por reflexo não instala; depois de
-instalado, o item continua dizendo que aquela instalação não foi verificada;
+a integridade do arquivo; nem o Enter nem o Escape instalam, porque o botão que
+recebe o foco inicial é o de cancelar; depois de instalado, o item continua
+dizendo que aquela instalação não foi verificada;
 baixar de novo a mesma versão com artefato diferente é recusado com o motivo;
 não há em lugar nenhum uma preferência que desligue a pergunta.
 
