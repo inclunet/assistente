@@ -34,6 +34,15 @@ const installedFileName = "installed.json"
 // alguém foi olhar outra pasta.
 const rootSubdir = "agents"
 
+// artifactTimeout é o prazo do download de um artefato.
+//
+// O padrão do cliente da casa são 30 segundos, que servem para uma chamada de
+// API e cortariam pela metade o download de um agente: o teto de artefato deste
+// pacote é de 512 MB, e há conexão doméstica onde isso leva a tarde inteira. O
+// prazo daqui é folgado a ponto de só alcançar um download que travou —
+// interromper o que está andando é decisão de quem clica em cancelar (D13).
+const artifactTimeout = 2 * time.Hour
+
 // Config monta o instalador.
 type Config struct {
 	// Root é onde as instalações moram. Vazio usa `~/.assistente/agents` (D5).
@@ -42,8 +51,10 @@ type Config struct {
 	// Source é o catálogo do registro.
 	Source CatalogSource
 
-	// HTTP baixa os artefatos binários. Vazio usa o cliente compartilhado do
-	// app, que é quem sabe de timeout, proxy e política de rede (D9).
+	// HTTP baixa os artefatos binários. Vazio monta o cliente da casa
+	// (`internal/tools/http`) com o prazo deste pacote; quem quiser o do app,
+	// com o wiring de credencial e de política de rede que ele carrega, injeta
+	// o dele aqui.
 	HTTP Doer
 
 	// NPM executa o npm. Vazio usa o npm da instalação de Node encontrada na
@@ -111,10 +122,7 @@ func New(cfg Config) *Installer {
 	}
 	client := cfg.HTTP
 	if client == nil {
-		// Sem timeout de cliente: o teto de um artefato é o do contexto de quem
-		// pediu, e um prazo fixo cortaria download honesto de centenas de
-		// megabytes em conexão lenta. Quem cancela é a pessoa, pelo botão (D13).
-		client = httpclient.New(&httpclient.Config{}, map[string]string{})
+		client = httpclient.New(&httpclient.Config{Timeout: artifactTimeout}, map[string]string{})
 	}
 	return &Installer{
 		root:      root,
