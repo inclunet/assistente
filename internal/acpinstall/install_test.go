@@ -514,6 +514,27 @@ func TestInstallCanceladoNaoDeixaResiduo(t *testing.T) {
 	}
 }
 
+func TestInstallQueEstouraOPrazoFalhaEmVezDeDizerQueFoiCancelada(t *testing.T) {
+	// Cancelar é decisão de quem clicou. Prazo estourado não é decisão de
+	// ninguém, e anunciá-lo como cancelamento diria "nada ficou no disco, você
+	// pediu" para quem não pediu nada — sem nomear a etapa que travou.
+	comecou := make(chan struct{})
+	c := montar(t, opcoes{npm: &npmFalso{pacote: codexPacote, binario: codexBinario, bloqueia: comecou}})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if _, err := c.instalador.Install(ctx, codexID); err == nil {
+		t.Fatal("a instalação que estourou o prazo terminou bem")
+	}
+
+	if etapa := c.marcos.ultimo().Stage; etapa != StageFailed {
+		t.Errorf("último marco = %q, queria a falha: ninguém pediu para parar", etapa)
+	}
+	if passo := c.marcos.ultimo().Step; passo == "" {
+		t.Error("a falha não nomeou a etapa, que é o que a torna acionável (D13)")
+	}
+}
+
 func TestInstallComHandshakeQueFalhaNaoDeixaInstalacao(t *testing.T) {
 	// Instalação que produz um comando que não fala ACP não é instalação
 	// bem-sucedida (D8), e o desfecho ruim é "não deu para instalar" em vez de

@@ -242,7 +242,10 @@ func (i *Installer) Install(ctx context.Context, agentID string) (Installation, 
 		// vale para a que falhou: um diretório com metade de um pacote seria
 		// lido como instalação na próxima abertura.
 		i.discard(ctx, dir)
-		i.emit(ctx, failureProgress(agent, ctx.Err() != nil, err))
+		// Só o cancelamento é cancelamento. Contexto encerrado por prazo é falha,
+		// e anunciá-lo como decisão de quem clicou esconderia o que aconteceu de
+		// quem não clicou em nada.
+		i.emit(ctx, failureProgress(agent, errors.Is(ctx.Err(), context.Canceled), err))
 		return Installation{}, err
 	}
 	i.emit(ctx, Progress{AgentID: agent.ID, Agent: agent.Name, Stage: StageDone})
