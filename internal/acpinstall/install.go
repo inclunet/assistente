@@ -18,6 +18,7 @@ import (
 	"assistente/internal/acpregistry"
 	"assistente/internal/configdir"
 	"assistente/internal/logging"
+	httpclient "assistente/internal/tools/http"
 )
 
 const component = "acpinstall"
@@ -40,6 +41,10 @@ type Config struct {
 
 	// Source é o catálogo do registro.
 	Source CatalogSource
+
+	// HTTP baixa os artefatos binários. Vazio usa o cliente compartilhado do
+	// app, que é quem sabe de timeout, proxy e política de rede (D9).
+	HTTP Doer
 
 	// NPM executa o npm. Vazio usa o npm da instalação de Node encontrada na
 	// máquina, procurada no momento do uso.
@@ -69,6 +74,7 @@ type Config struct {
 type Installer struct {
 	root      string
 	source    CatalogSource
+	http      Doer
 	npm       NPM
 	runtime   func() acp.NodeRuntime
 	handshake Handshake
@@ -103,9 +109,17 @@ func New(cfg Config) *Installer {
 	if handshake == nil {
 		handshake = HandshakeUnsupported
 	}
+	client := cfg.HTTP
+	if client == nil {
+		// Sem timeout de cliente: o teto de um artefato é o do contexto de quem
+		// pediu, e um prazo fixo cortaria download honesto de centenas de
+		// megabytes em conexão lenta. Quem cancela é a pessoa, pelo botão (D13).
+		client = httpclient.New(&httpclient.Config{}, map[string]string{})
+	}
 	return &Installer{
 		root:      root,
 		source:    cfg.Source,
+		http:      client,
 		npm:       npm,
 		runtime:   lookup,
 		handshake: handshake,
@@ -128,6 +142,15 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	// Uma procura só para o plano inteiro: a linha de comando que ele mostra tem
+	// de ser a do Node que ele diz ter encontrado, e não a de uma segunda
+	// procura feita alguns microssegundos depois. Ela também é o que decide o
+	// caminho, e decidir com um Node e mostrar outro seria mentir na tela.
+	runtime := i.runtime()
+	if i.distributionFor(agent, runtime) == DistributionBinary {
+		return i.binaryPlan(agent, sanitizeVersion(agent.Version)), nil
+	}
+
 	spec, _, version, err := pinnedSpec(agent)
 	if err != nil {
 		// Agente do catálogo que esta fase não sabe instalar não é erro da tela:
@@ -136,10 +159,6 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 	}
 
 	dir := i.agentVersionDir(agent.ID, version)
-	// Uma procura só para o plano inteiro: a linha de comando que ele mostra tem
-	// de ser a do Node que ele diz ter encontrado, e não a de uma segunda
-	// procura feita alguns microssegundos depois.
-	runtime := i.runtime()
 	plan := Plan{
 		AgentID:      agent.ID,
 		Name:         agent.Name,
@@ -148,7 +167,7 @@ func (i *Installer) Plan(ctx context.Context, agentID string) (Plan, error) {
 		Origin:       spec,
 		Dir:          dir,
 		RunArgs:      slices.Clone(agent.Distribution.NPX.Args),
-		Runtime:      runtimeStatus(runtime),
+		Runtime:      requiredRuntime(runtime),
 	}
 	if installed, ok := i.installationAt(dir); ok {
 		plan.Installed = &installed
@@ -210,8 +229,12 @@ func (i *Installer) unavailablePlan(agent acpregistry.Agent, err error) Plan {
 		Name:         agent.Name,
 		Version:      agent.Version,
 		Distribution: distribution,
-		Runtime:      runtimeStatus(i.runtime()),
-		Reason:       acp.SanitizeLabel(err.Error()),
+		// Aqui o runtime não é pré-requisito de nada: a recusa é da
+		// distribuição, e marcar o Node como exigido faria a tela dizer
+		// "instale o Node" no lugar do motivo pelo qual o app não sabe instalar
+		// este agente.
+		Runtime: runtimeStatus(i.runtime()),
+		Reason:  acp.SanitizeLabel(err.Error()),
 	}
 }
 
@@ -224,22 +247,40 @@ func (i *Installer) unavailablePlan(agent acpregistry.Agent, err error) Plan {
 // devolve o motivo em texto, e um texto não diz a quem chamou *qual* recusa
 // aconteceu. Repetir as perguntas é o que faz `errors.Is` valer para quem
 // programa contra este pacote.
-func (i *Installer) Install(ctx context.Context, agentID string) (Installation, error) {
+// `confirmed` é o plano que quem chamou mostrou e teve aceito. O zero valor
+// aceita o que o app escolher agora.
+func (i *Installer) Install(ctx context.Context, agentID string, confirmed Confirmed) (Installation, error) {
 	agent, err := i.agent(ctx, agentID)
 	if err != nil {
 		return Installation{}, err
 	}
+	runtime := i.runtime()
+	if i.distributionFor(agent, runtime) == DistributionBinary {
+		return i.installFromBinary(ctx, agent, confirmed)
+	}
+	return i.installFromNPM(ctx, agent, runtime, confirmed)
+}
+
+// installFromNPM instala o agente que é distribuído como pacote.
+func (i *Installer) installFromNPM(
+	ctx context.Context,
+	agent acpregistry.Agent,
+	runtime acp.NodeRuntime,
+	confirmed Confirmed,
+) (Installation, error) {
 	spec, name, version, err := pinnedSpec(agent)
 	if err != nil {
+		return Installation{}, err
+	}
+	if err := confirmed.check(Confirmed{Distribution: DistributionNPM, Origin: spec}); err != nil {
 		return Installation{}, err
 	}
 	dir := i.agentVersionDir(agent.ID, version)
 	if dir == "" {
 		return Installation{}, failf(StepPrepare,
 			"não foi possível montar o diretório de instalação do agente %s versão %s",
-			acp.SanitizeLabel(agentID), acp.SanitizeLabel(version))
+			acp.SanitizeLabel(agent.ID), acp.SanitizeLabel(version))
 	}
-	runtime := i.runtime()
 	if !runtime.Found {
 		return Installation{}, failf(StepRuntime, "%w; procurei em: %s", ErrRuntimeMissing, describePaths(runtime.Searched))
 	}
@@ -249,14 +290,31 @@ func (i *Installer) Install(ctx context.Context, agentID string) (Installation, 
 	if existing, ok := i.installationAt(dir); ok {
 		return Installation{}, failf(StepPrepare, "%w: %s %s", ErrAlreadyInstalled, agent.Name, existing.Version)
 	}
+	return i.run(ctx, agent, dir, func(ctx context.Context) (Installation, error) {
+		return i.install(ctx, agent, spec, name, version, dir, runtime)
+	})
+}
 
-	ctx, done, err := i.begin(ctx, agentID)
+// run é o ciclo de vida comum às duas distribuições: uma instalação por agente
+// de cada vez, limpeza do que ficou pela metade e o marco de desfecho.
+//
+// Ele existe uma vez só porque as regras são as mesmas independentemente de o
+// que chegou do outro lado ter vindo do npm ou de um archive — e porque duas
+// cópias do mesmo cuidado viram, com o tempo, duas políticas de limpeza
+// diferentes.
+func (i *Installer) run(
+	ctx context.Context,
+	agent acpregistry.Agent,
+	dir string,
+	install func(context.Context) (Installation, error),
+) (Installation, error) {
+	ctx, done, err := i.begin(ctx, agent.ID)
 	if err != nil {
 		return Installation{}, err
 	}
 	defer done()
 
-	installation, err := i.install(ctx, agent, spec, name, version, dir, runtime)
+	installation, err := install(ctx)
 	if err != nil {
 		// Instalação interrompida não deixa meio agente no disco (D13). O mesmo
 		// vale para a que falhou: um diretório com metade de um pacote seria

@@ -197,6 +197,7 @@ type opcoes struct {
 	runtime   func() acp.NodeRuntime
 	npm       *npmFalso
 	handshake error
+	http      Doer
 }
 
 func montar(t *testing.T, opts opcoes) *cenario {
@@ -210,10 +211,17 @@ func montar(t *testing.T, opts opcoes) *cenario {
 	if opts.npm == nil {
 		opts.npm = &npmFalso{pacote: codexPacote, binario: codexBinario}
 	}
+	if opts.http == nil {
+		// Cenário que não configurou download não sai para a rede: o padrão do
+		// instalador é o cliente de verdade, e um teste distraído bateria numa
+		// URL de mentira em vez de falhar dizendo o que faltou.
+		opts.http = clienteSemRede{}
+	}
 	c := &cenario{npm: opts.npm, marcos: &marcos{}, root: t.TempDir()}
 	c.instalador = New(Config{
 		Root:    c.root,
 		Source:  catalogoFalso{agentes: opts.agentes, motivo: opts.motivo},
+		HTTP:    opts.http,
 		NPM:     opts.npm,
 		Runtime: opts.runtime,
 		Handshake: func(_ context.Context, command string, args []string) error {
@@ -229,7 +237,7 @@ func montar(t *testing.T, opts opcoes) *cenario {
 func TestInstallResolveOParNodeMaisPontoDeEntradaEGravaORegistro(t *testing.T) {
 	c := montar(t, opcoes{})
 
-	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	instalacao, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if err != nil {
 		t.Fatalf("não instalou o agente do catálogo: %v", err)
 	}
@@ -282,7 +290,7 @@ func TestInstallIgnoraOAtalhoDeLoteQueONpmLiga(t *testing.T) {
 	// do manifesto, e o atalho existir do lado não muda isso.
 	c := montar(t, opcoes{npm: &npmFalso{pacote: codexPacote, binario: codexBinario, comShim: true}})
 
-	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	instalacao, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if err != nil {
 		t.Fatalf("não instalou o agente do catálogo: %v", err)
 	}
@@ -313,7 +321,7 @@ func TestInstallSoTerminaBemDepoisDoHandshake(t *testing.T) {
 	// uma instalação que falhou.
 	c := montar(t, opcoes{})
 
-	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	instalacao, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if err != nil {
 		t.Fatalf("não instalou: %v", err)
 	}
@@ -331,7 +339,7 @@ func TestInstallAnunciaOsMarcosNaOrdem(t *testing.T) {
 	// pronto.
 	c := montar(t, opcoes{})
 
-	if _, err := c.instalador.Install(context.Background(), codexID); err != nil {
+	if _, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM}); err != nil {
 		t.Fatalf("não instalou: %v", err)
 	}
 
@@ -363,7 +371,7 @@ func TestPlanSemNodeNaoOferecInstalacaoEDizOMotivo(t *testing.T) {
 		t.Error("não disse onde procurou o Node")
 	}
 
-	_, err = c.instalador.Install(context.Background(), codexID)
+	_, err = c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if !errors.Is(err, ErrRuntimeMissing) {
 		t.Errorf("erro = %v, queria a falta do runtime", err)
 	}
@@ -433,7 +441,7 @@ func TestInstallUsaAVersaoFixadaPeloRegistro(t *testing.T) {
 	// faz a instalação ser reproduzível.
 	c := montar(t, opcoes{})
 
-	if _, err := c.instalador.Install(context.Background(), codexID); err != nil {
+	if _, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM}); err != nil {
 		t.Fatalf("não instalou: %v", err)
 	}
 	specs := c.npm.especificacoes()
@@ -448,7 +456,7 @@ func TestInstallRecusaPacoteSemVersaoFixada(t *testing.T) {
 	agente.Version = ""
 	c := montar(t, opcoes{agentes: []acpregistry.Agent{agente}})
 
-	_, err := c.instalador.Install(context.Background(), codexID)
+	_, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if !errors.Is(err, ErrUnpinnedVersion) {
 		t.Errorf("erro = %v, queria a recusa da versão não fixada", err)
 	}
@@ -464,7 +472,7 @@ func TestInstallUsaAVersaoDoItemQuandoOPacoteNaoAPina(t *testing.T) {
 	agente.Distribution.NPX.Package = codexPacote
 	c := montar(t, opcoes{agentes: []acpregistry.Agent{agente}})
 
-	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	instalacao, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if err != nil {
 		t.Fatalf("não instalou: %v", err)
 	}
@@ -481,7 +489,7 @@ func TestInstallCanceladoNaoDeixaResiduo(t *testing.T) {
 
 	pronto := make(chan error, 1)
 	go func() {
-		_, err := c.instalador.Install(context.Background(), codexID)
+		_, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 		pronto <- err
 	}()
 
@@ -546,7 +554,7 @@ func TestInstallQueEstouraOPrazoFalhaEmVezDeDizerQueFoiCancelada(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	if _, err := c.instalador.Install(ctx, codexID); err == nil {
+	if _, err := c.instalador.Install(ctx, codexID, Confirmed{Distribution: DistributionNPM}); err == nil {
 		t.Fatal("a instalação que estourou o prazo terminou bem")
 	}
 
@@ -564,7 +572,7 @@ func TestInstallComHandshakeQueFalhaNaoDeixaInstalacao(t *testing.T) {
 	// "provider salvo que falha na primeira conversa".
 	c := montar(t, opcoes{handshake: errors.New("o agente não respondeu ao initialize")})
 
-	_, err := c.instalador.Install(context.Background(), codexID)
+	_, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if err == nil {
 		t.Fatal("declarou concluída uma instalação cujo agente não subiu")
 	}
@@ -589,7 +597,7 @@ func TestInstallRepassaOErroDoNpm(t *testing.T) {
 		erro:    errors.New("EBADENGINE required: { node: '>=22' }"),
 	}})
 
-	_, err := c.instalador.Install(context.Background(), codexID)
+	_, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if err == nil {
 		t.Fatal("a instalação passou com o npm falhando")
 	}
@@ -611,7 +619,7 @@ func TestInstallComPontoDeEntradaNaoResolvidoFalhaEmVezDeAdivinhar(t *testing.T)
 		manifesto: `{"name":"` + codexPacote + `","version":"` + codexVersao + `"}`,
 	}})
 
-	_, err := c.instalador.Install(context.Background(), codexID)
+	_, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if err == nil {
 		t.Fatal("aceitou um pacote sem `bin`")
 	}
@@ -628,10 +636,10 @@ func TestInstallRecusaSegundaInstalacaoDoMesmoAgente(t *testing.T) {
 	comecou := make(chan struct{})
 	c := montar(t, opcoes{npm: &npmFalso{pacote: codexPacote, binario: codexBinario, bloqueia: comecou}})
 
-	go func() { _, _ = c.instalador.Install(context.Background(), codexID) }()
+	go func() { _, _ = c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM}) }()
 	<-comecou
 
-	_, err := c.instalador.Install(context.Background(), codexID)
+	_, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if !errors.Is(err, ErrInstalling) {
 		t.Errorf("erro = %v, queria a recusa da instalação concorrente", err)
 	}
@@ -640,11 +648,11 @@ func TestInstallRecusaSegundaInstalacaoDoMesmoAgente(t *testing.T) {
 
 func TestInstallRecusaAgenteJaInstalado(t *testing.T) {
 	c := montar(t, opcoes{})
-	if _, err := c.instalador.Install(context.Background(), codexID); err != nil {
+	if _, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM}); err != nil {
 		t.Fatalf("não instalou: %v", err)
 	}
 
-	_, err := c.instalador.Install(context.Background(), codexID)
+	_, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if !errors.Is(err, ErrAlreadyInstalled) {
 		t.Errorf("erro = %v, queria a recusa de reinstalar por cima", err)
 	}
@@ -663,7 +671,7 @@ func TestRemoveApagaODiretorioEDeixaOComandoInexistente(t *testing.T) {
 	// lá fica com um comando que não existe, e o health do AEP-0084 D12 já sabe
 	// dizer isso — não há estado novo a inventar.
 	c := montar(t, opcoes{})
-	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	instalacao, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if err != nil {
 		t.Fatalf("não instalou: %v", err)
 	}
@@ -704,7 +712,7 @@ func TestListSoContaOQueTemRegistroLegivel(t *testing.T) {
 	// Diretório sem `installed.json` legível é resíduo, e tratá-lo como
 	// instalação faria a tela oferecer usar um agente que não existe.
 	c := montar(t, opcoes{})
-	if _, err := c.instalador.Install(context.Background(), codexID); err != nil {
+	if _, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM}); err != nil {
 		t.Fatalf("não instalou: %v", err)
 	}
 	if err := os.MkdirAll(filepath.Join(c.root, "residuo", "9.9.9", "node_modules"), 0o755); err != nil {
@@ -738,7 +746,7 @@ func TestRegistroGrandeDemaisNaoVaiInteiroParaAMemoria(t *testing.T) {
 	// de tamanho absurdo seria lido inteiro só por alguém ter aberto a tela que
 	// lista o que está instalado.
 	c := montar(t, opcoes{})
-	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	instalacao, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if err != nil {
 		t.Fatalf("não instalou: %v", err)
 	}
@@ -795,7 +803,7 @@ func TestRegistroQueDescreveOutraInstalacaoNaoContaComoInstalado(t *testing.T) {
 	// que está no disco, e a comparação que decide se há atualização (D10)
 	// passaria a comparar o número errado.
 	c := montar(t, opcoes{})
-	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	instalacao, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if err != nil {
 		t.Fatalf("não instalou: %v", err)
 	}
@@ -814,7 +822,7 @@ func TestRegistroQueApontaParaForaDaInstalacaoNaoContaComoInstalado(t *testing.T
 	// arquivo bastaria para o app subir outra coisa achando que subiu o agente
 	// que instalou — e a tela ainda ofereceria "usar o comando instalado" (D9).
 	c := montar(t, opcoes{})
-	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	instalacao, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if err != nil {
 		t.Fatalf("não instalou: %v", err)
 	}
@@ -835,7 +843,7 @@ func TestComDuasVersoesNoDiscoValeAInstaladaPorUltimo(t *testing.T) {
 	// alfabética, a `10.0.0` viria antes da `2.0.0` — e a tela mostraria a
 	// instalação errada.
 	c := montar(t, opcoes{})
-	antiga, err := c.instalador.Install(context.Background(), codexID)
+	antiga, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if err != nil {
 		t.Fatalf("não instalou: %v", err)
 	}
@@ -885,7 +893,7 @@ func TestRegistroQueSaiDaInstalacaoPorUmLinkNaoContaComoInstalado(t *testing.T) 
 	// guarda, o destino não. Quem escreveu o registro adulterado também pode ter
 	// posto o link ali, e o que se executa é o destino.
 	c := montar(t, opcoes{})
-	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	instalacao, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM})
 	if err != nil {
 		t.Fatalf("não instalou: %v", err)
 	}
@@ -910,7 +918,7 @@ func TestRegistroDaInstalacaoQueOAppFezContinuaValendo(t *testing.T) {
 	// A guarda não pode recusar o caso normal: o `node` mora fora do diretório da
 	// instalação, e é o ponto de entrada que fica dentro dele.
 	c := montar(t, opcoes{})
-	if _, err := c.instalador.Install(context.Background(), codexID); err != nil {
+	if _, err := c.instalador.Install(context.Background(), codexID, Confirmed{Distribution: DistributionNPM}); err != nil {
 		t.Fatalf("não instalou: %v", err)
 	}
 
@@ -923,26 +931,24 @@ func TestRegistroDaInstalacaoQueOAppFezContinuaValendo(t *testing.T) {
 	}
 }
 
-func TestPlanDeAgenteSemDistribuicaoNpmExplicaEmTexto(t *testing.T) {
+func TestPlanDeAgenteComDistribuicaoQueOAppNaoSabeInstalarExplicaEmTexto(t *testing.T) {
 	// O catálogo mostra tudo o que o registro tem (D1); o que muda é o que o app
-	// diz que consegue fazer com cada linha nesta máquina.
+	// diz que consegue fazer com cada linha nesta máquina. `uvx` é a Fase 9.
 	agente := acpregistry.Agent{
-		ID:   "opencode",
-		Name: "opencode",
+		ID:   "goose",
+		Name: "goose",
 		Distribution: acpregistry.Distribution{
-			Binary: map[string]acpregistry.BinaryTarget{
-				"windows-x86_64": {Archive: "https://exemplo.invalid/o.zip", Cmd: "./opencode.exe"},
-			},
+			UVX: &acpregistry.PackageDistribution{Package: "goose-acp==1.0.0"},
 		},
 	}
 	c := montar(t, opcoes{agentes: []acpregistry.Agent{agente}})
 
-	plano, err := c.instalador.Plan(context.Background(), "opencode")
+	plano, err := c.instalador.Plan(context.Background(), "goose")
 	if err != nil {
 		t.Fatalf("o plano falhou em vez de explicar: %v", err)
 	}
 	if plano.CanInstall {
-		t.Error("ofereceu instalação por npm de um agente que só tem binário")
+		t.Error("ofereceu instalação de uma distribuição que o app não sabe instalar")
 	}
 	if !strings.Contains(plano.Reason, "npm") {
 		t.Errorf("motivo = %q, queria que ele dissesse que a distribuição não é npm", plano.Reason)
@@ -953,7 +959,7 @@ func TestPlanDeAgenteSemDistribuicaoNpmExplicaEmTexto(t *testing.T) {
 		t.Errorf("distribuição = %q, queria vazia num agente que não publica por npm", plano.Distribution)
 	}
 
-	if _, err := c.instalador.Install(context.Background(), "opencode"); !errors.Is(err, ErrNotNPM) {
+	if _, err := c.instalador.Install(context.Background(), "goose", Confirmed{}); !errors.Is(err, ErrNotNPM) {
 		t.Errorf("erro = %v, queria a recusa da distribuição", err)
 	}
 }
@@ -989,7 +995,7 @@ func TestInstallRecusaIdentificadorQueSaiDoDiretorioDeDados(t *testing.T) {
 	agente.ID = ".." + string(os.PathSeparator) + "fora"
 	c := montar(t, opcoes{agentes: []acpregistry.Agent{agente}})
 
-	if _, err := c.instalador.Install(context.Background(), agente.ID); err == nil {
+	if _, err := c.instalador.Install(context.Background(), agente.ID, Confirmed{}); err == nil {
 		t.Fatal("aceitou um identificador que sai do diretório de dados")
 	}
 }
@@ -1004,7 +1010,7 @@ func TestInstallRecusaIdentificadorComEspacoOuQuebraDeLinha(t *testing.T) {
 		agente.ID = id
 		c := montar(t, opcoes{agentes: []acpregistry.Agent{agente}})
 
-		if _, err := c.instalador.Install(context.Background(), id); err == nil {
+		if _, err := c.instalador.Install(context.Background(), id, Confirmed{}); err == nil {
 			t.Errorf("aceitou o identificador %q como nome de diretório", id)
 		}
 	}

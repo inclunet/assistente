@@ -24,6 +24,13 @@ type entradaZip struct {
 
 func zipDeTeste(t *testing.T, dir string, entradas []entradaZip) artifact {
 	t.Helper()
+	return artefatoEmDisco(t, dir, zipDeTesteBytes(t, entradas), formatZip)
+}
+
+// zipDeTesteBytes é o mesmo zip antes de tocar o disco, para o teste que o serve
+// como corpo de download em vez de abri-lo de um arquivo.
+func zipDeTesteBytes(t *testing.T, entradas []entradaZip) []byte {
+	t.Helper()
 	var buf bytes.Buffer
 	w := zip.NewWriter(&buf)
 	for _, entrada := range entradas {
@@ -42,7 +49,7 @@ func zipDeTeste(t *testing.T, dir string, entradas []entradaZip) artifact {
 	if err := w.Close(); err != nil {
 		t.Fatalf("erro ao fechar o zip: %v", err)
 	}
-	return artefatoEmDisco(t, dir, buf.Bytes(), formatZip)
+	return buf.Bytes()
 }
 
 // entradaTar é uma entrada a montar no `.tar.gz` de teste.
