@@ -380,6 +380,36 @@ func TestOComandoDoRegistroQueSobeComoProcessoEOQueVaiParaOProvider(t *testing.T
 	}
 }
 
+func TestOBinarioSemBitDeExecucaoRecebeOBitEmVezDeFalharNoSpawn(t *testing.T) {
+	// Zip montado no Windows não guarda modo POSIX, e o executável sai da
+	// extração sem o bit. Aceitá-lo assim empurraria a falha para o handshake,
+	// longe de onde ela é explicável; recusá-lo desistiria de um agente que só
+	// precisa de um chmod no que o próprio app acabou de escrever.
+	if runtime.GOOS == "windows" {
+		t.Skip("no Windows o bit de execução não existe")
+	}
+	dir := t.TempDir()
+	alvo := filepath.Join(dir, "agente")
+	if err := os.WriteFile(alvo, []byte("binário de mentira"), 0o644); err != nil {
+		t.Fatalf("erro ao escrever o executável: %v", err)
+	}
+
+	comando, _, err := resolveBinaryCommand(dir, acpregistry.BinaryTarget{Cmd: "./agente"}, acp.NodeRuntime{})
+	if err != nil {
+		t.Fatalf("não resolveu o comando sem bit de execução: %v", err)
+	}
+	if comando != alvo {
+		t.Errorf("comando = %q, queria %q", comando, alvo)
+	}
+	info, err := os.Stat(alvo)
+	if err != nil {
+		t.Fatalf("erro ao conferir o executável: %v", err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Errorf("modo = %v, queria o bit de execução ligado", info.Mode().Perm())
+	}
+}
+
 func TestOPontoDeEntradaDeScriptSobePeloNode(t *testing.T) {
 	// O que o Node executa não é executável: passá-lo direto ao sistema não
 	// criaria processo nenhum. O par `node` + arquivo é o mesmo que a instalação

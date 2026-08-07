@@ -141,7 +141,7 @@ func resolveBinaryCommand(dir string, target acpregistry.BinaryTarget, node acp.
 	// sistema aceitaria executar o `.js` direto — o que só funciona se ele
 	// tiver shebang, e deixaria o desfecho dependendo do sistema em que o app
 	// está rodando.
-	if isExecutableFile(candidate) && isScript(candidate) {
+	if isRegularFile(candidate) && isScript(candidate) {
 		if !node.Found {
 			return "", nil, failf(StepResolve,
 				"%w: %s precisa do %s, que não foi encontrado nesta máquina",
@@ -151,7 +151,7 @@ func resolveBinaryCommand(dir string, target acpregistry.BinaryTarget, node acp.
 	}
 
 	// 2. O que o registro mandou executar, quando ele sobe como processo.
-	if isExecutableFile(candidate) && acp.Spawnable(candidate) {
+	if runnable(candidate) && acp.Spawnable(candidate) {
 		return candidate, args, nil
 	}
 
@@ -161,7 +161,7 @@ func resolveBinaryCommand(dir string, target acpregistry.BinaryTarget, node acp.
 	if runtime.GOOS == "windows" {
 		for _, alternative := range windowsAlternatives(candidate) {
 			tried = append(tried, alternative)
-			if isExecutableFile(alternative) && acp.Spawnable(alternative) {
+			if runnable(alternative) && acp.Spawnable(alternative) {
 				return alternative, args, nil
 			}
 		}
@@ -181,9 +181,29 @@ func windowsAlternatives(candidate string) []string {
 	return out
 }
 
-func isExecutableFile(path string) bool {
+func isRegularFile(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular()
+}
+
+// runnable diz se este arquivo pode ser o comando do provider.
+//
+// Fora do Windows não basta existir: sem o bit de execução o processo não sobe,
+// e aceitar o arquivo aqui empurraria a falha para o handshake — longe do lugar
+// onde ela é explicável. Quando o bit falta, o app o liga: quem publicou o
+// archive é que esqueceu de marcá-lo (zip montado no Windows não guarda modo
+// POSIX), e o arquivo é o que o registro nomeou como comando, dentro de um
+// diretório que este app acabou de criar. Chmod que não passa não vira erro:
+// o próximo ramo tenta, e a falha final diz o que foi procurado.
+func runnable(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	if runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0 {
+		return true
+	}
+	return os.Chmod(path, info.Mode().Perm()|0o111) == nil
 }
 
 func isScript(path string) bool {
