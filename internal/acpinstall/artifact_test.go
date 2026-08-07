@@ -185,6 +185,25 @@ func TestRespostaQueNaoE200NaoViraArtefato(t *testing.T) {
 	}
 }
 
+func TestCancelarODownloadECancelamentoENaoFalhaDeRede(t *testing.T) {
+	// Quem cancela derruba a requisição, e o que volta do cliente HTTP é um
+	// erro de transporte. Chamá-lo de falha de rede diria a quem clicou em
+	// cancelar que a conexão caiu, e o instalador precisa do `context.Canceled`
+	// para tratar cancelamento como decisão.
+	dest := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cliente := &clienteFalso{err: errors.New("connection reset by peer")}
+
+	_, err := fetchArtifact(ctx, cliente, "https://exemplo.test/agente.zip", "", dest)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("esperava cancelamento, veio %v", err)
+	}
+	if errors.Is(err, ErrDownload) {
+		t.Errorf("o cancelamento foi contado como falha de download: %v", err)
+	}
+}
+
 func TestDownloadQueNaoParaDeChegarERecusadoPeloTeto(t *testing.T) {
 	dest := t.TempDir()
 

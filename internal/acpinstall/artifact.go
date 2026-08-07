@@ -194,7 +194,7 @@ func fetchArtifact(ctx context.Context, client Doer, archiveURL, want, dest stri
 
 	resp, err := client.Do(ctx, req)
 	if err != nil {
-		return artifact{}, fmt.Errorf("%w: %v", ErrDownload, err)
+		return artifact{}, downloadError(ctx, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
@@ -205,13 +205,29 @@ func fetchArtifact(ctx context.Context, client Doer, archiveURL, want, dest stri
 
 	art, err := storeArtifact(resp.Body, dest, format, maxArtifactBytes)
 	if err != nil {
-		return artifact{}, err
+		return artifact{}, downloadError(ctx, err)
 	}
 	if want != "" && art.SHA256 != want {
 		_ = os.Remove(art.Path)
 		return artifact{}, fmt.Errorf("%w: esperava %s e chegou %s", ErrDigestMismatch, want, art.SHA256)
 	}
 	return art, nil
+}
+
+// downloadError distingue o download que falhou do download que foi cancelado.
+//
+// Quem cancela derruba a requisição, e o que volta do cliente HTTP é um erro de
+// transporte. Embrulhá-lo como falha de rede diria a quem clicou em cancelar
+// que a rede caiu, e apagaria o `context.Canceled` de que o instalador precisa
+// para tratar cancelamento como decisão, e não como defeito.
+func downloadError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if errors.Is(err, ErrArtifactTooLarge) || errors.Is(err, ErrDownload) {
+		return err
+	}
+	return fmt.Errorf("%w: %v", ErrDownload, err)
 }
 
 // storeArtifact grava o corpo em disco calculando o digest, recusando o que
@@ -239,7 +255,9 @@ func storeArtifact(body io.Reader, dest string, format archiveFormat, limit int6
 	}
 	if written > limit {
 		_ = os.Remove(name)
-		return artifact{}, fmt.Errorf("%w: %d bytes", ErrArtifactTooLarge, limit)
+		// O teto, e não o tamanho: a transferência para no limite mais um byte,
+		// então o quanto o artefato tem de verdade não é sabido aqui.
+		return artifact{}, fmt.Errorf("%w: o teto é de %d bytes", ErrArtifactTooLarge, limit)
 	}
 
 	return artifact{
