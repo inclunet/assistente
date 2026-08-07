@@ -353,11 +353,11 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 				traceID, msg.Channel, maskIdentifier(msg.From.ID))
 			if g.emitEvent != nil {
 				g.emitEvent("messaging:contact_authorized", map[string]any{
-					"channel":     msg.Channel,
-					"from":        msg.From.DisplayName,
-					"fromId":      msg.From.ID,
-					"username":    msg.From.Username,
-					"messageId":   msg.ID,
+					"channel":   msg.Channel,
+					"from":      msg.From.DisplayName,
+					"fromId":    msg.From.ID,
+					"username":  msg.From.Username,
+					"messageId": msg.ID,
 				})
 			}
 			if messenger, ok := g.GetMessenger(msg.Channel); ok {
