@@ -295,21 +295,31 @@ func binFromManifest(raw json.RawMessage, name string) (string, error) {
 		return "", errors.New("o manifesto não declara `bin`, e é dele que sai o ponto de entrada")
 	}
 
+	// O caminho sai daqui já aparado. Espaço em volta do valor vem de manifesto
+	// escrito à mão, e levá-lo adiante trocaria "o `bin` está vazio" por um
+	// "arquivo não existe" alguns passos depois, apontando para um caminho que
+	// parece certo na mensagem.
 	var single string
 	if err := json.Unmarshal(raw, &single); err == nil {
-		if strings.TrimSpace(single) == "" {
+		single = strings.TrimSpace(single)
+		if single == "" {
 			return "", errors.New("o `bin` do manifesto está vazio")
 		}
 		return single, nil
 	}
 
-	var entries map[string]string
-	if err := json.Unmarshal(raw, &entries); err != nil {
+	var declared map[string]string
+	if err := json.Unmarshal(raw, &declared); err != nil {
 		return "", errors.New("o `bin` do manifesto não é texto nem mapa")
 	}
-	names := make([]string, 0, len(entries))
-	for key, value := range entries {
-		if strings.TrimSpace(value) != "" {
+	// Entrada em branco é o mesmo que entrada ausente, e some antes da escolha:
+	// mantê-la deixaria uma entrada preferida vazia vencer uma válida, e o
+	// pacote com dois `bin` viraria um ponto de entrada em branco.
+	entries := make(map[string]string, len(declared))
+	names := make([]string, 0, len(declared))
+	for key, value := range declared {
+		if value = strings.TrimSpace(value); value != "" {
+			entries[key] = value
 			names = append(names, key)
 		}
 	}
@@ -320,8 +330,8 @@ func binFromManifest(raw json.RawMessage, name string) (string, error) {
 	if i := strings.LastIndex(name, "/"); i >= 0 {
 		preferred = name[i+1:]
 	}
-	if _, ok := entries[preferred]; ok {
-		return entries[preferred], nil
+	if entry, ok := entries[preferred]; ok {
+		return entry, nil
 	}
 	slices.Sort(names)
 	return entries[names[0]], nil

@@ -45,6 +45,38 @@ func TestProgressoDaInstalacaoVaiParaATelaComOAgenteQueOMotivou(t *testing.T) {
 	}
 }
 
+func TestOInstaladorUsaOMesmoRegistroQueATelaDoCatalogo(t *testing.T) {
+	// Com dois serviços, o "atualizar catálogo" da tela traria a versão nova
+	// para a lista e deixaria o instalador planejando com o índice velho que ele
+	// guarda em memória — dois números para o mesmo agente, na mesma tela.
+	a := &App{}
+	a.initACP()
+
+	catalogo := a.acpCatalogServices()
+
+	if a.acpRegistry == nil {
+		t.Fatal("o initACP não deixou serviço do registro nenhum")
+	}
+	if catalogo.registry != a.acpRegistry {
+		t.Error("o catálogo montou um segundo serviço do registro em vez de usar o do app")
+	}
+}
+
+func TestSemInitACPOCatalogoMontaOServicoQueFaltava(t *testing.T) {
+	// A instalação não depende de a inicialização do ACP ter acontecido: quem
+	// chegar primeiro monta o serviço, e quem vier depois acha o mesmo.
+	a := &App{}
+
+	catalogo := a.acpCatalogServices()
+
+	if catalogo.registry == nil {
+		t.Fatal("não montou serviço do registro nenhum")
+	}
+	if a.acpRegistry != catalogo.registry {
+		t.Error("o serviço montado aqui não ficou no app, e a tela do catálogo montaria outro")
+	}
+}
+
 func TestProgressoSemEmissorNaoQuebra(t *testing.T) {
 	// A instalação pode acontecer antes de a janela existir; falhar aqui faria a
 	// instalação inteira falhar por causa de um anúncio.

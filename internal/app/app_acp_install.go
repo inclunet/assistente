@@ -132,14 +132,21 @@ type acpCatalog struct {
 // acpCatalogServices monta as peças na primeira chamada.
 //
 // Preguiçoso de propósito: montá-las no startup faria toda abertura do app
-// tocar o disco do cache por causa de uma tela que talvez ninguém abra.
+// tocar o disco do cache por causa de uma tela que talvez ninguém abra. O
+// instalador, porém, não monta serviço do registro próprio: ele usa o mesmo que
+// a tela do catálogo consulta (`a.acpRegistry`, nascido no initACP). Com dois, o
+// "atualizar catálogo" da tela traria a versão nova para a lista e deixaria o
+// instalador planejando com o índice velho que ele guarda em memória — dois
+// números diferentes para o mesmo agente, na mesma tela.
 func (a *App) acpCatalogServices() *acpCatalog {
 	a.acpCatalogOnce.Do(func() {
-		registry := acpregistry.New(acpregistry.Config{})
+		if a.acpRegistry == nil {
+			a.acpRegistry = acpregistry.New(acpregistry.Config{})
+		}
 		a.acpCatalogSvc = &acpCatalog{
-			registry: registry,
+			registry: a.acpRegistry,
 			installer: acpinstall.New(acpinstall.Config{
-				Source:     registry,
+				Source:     a.acpRegistry,
 				Handshake:  a.acpInstallHandshake,
 				OnProgress: a.emitACPInstallProgress,
 			}),

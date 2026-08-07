@@ -83,6 +83,40 @@ func TestNPMEntryPointPrefereOBinComONomeDoPacote(t *testing.T) {
 	}
 }
 
+func TestNPMEntryPointIgnoraOBinPreferidoQueEstaEmBranco(t *testing.T) {
+	// A entrada com o nome do pacote ganha por ser a convenção do npm, mas
+	// ganhar em branco não é ganhar: o pacote tem outro executável declarado, e
+	// o desfecho tem de ser ele, e não um ponto de entrada vazio.
+	prefixo := t.TempDir()
+	pacoteFalso(t, prefixo, "agente",
+		`{"name":"agente","bin":{"agente":"   ","auxiliar":"tools/aux.js"}}`,
+		"tools/aux.js")
+
+	pkg, err := NPMEntryPoint(prefixo, "agente")
+	if err != nil {
+		t.Fatalf("não resolveu o ponto de entrada tendo uma entrada válida: %v", err)
+	}
+	if filepath.Base(pkg.EntryPoint) != "aux.js" {
+		t.Errorf("ponto de entrada = %q, queria a entrada que não está em branco", pkg.EntryPoint)
+	}
+}
+
+func TestNPMEntryPointAparaOsEspacosDoBinDeclarado(t *testing.T) {
+	// Manifesto escrito à mão traz espaço em volta do valor. Levá-lo adiante
+	// trocaria "o `bin` está vazio" por um "arquivo não existe" alguns passos
+	// depois, apontando para um caminho que parece certo na mensagem.
+	prefixo := t.TempDir()
+	pacoteFalso(t, prefixo, "agente", `{"name":"agente","bin":"  cli.js  "}`, "cli.js")
+
+	pkg, err := NPMEntryPoint(prefixo, "agente")
+	if err != nil {
+		t.Fatalf("recusou um `bin` que só tinha espaço em volta: %v", err)
+	}
+	if filepath.Base(pkg.EntryPoint) != "cli.js" {
+		t.Errorf("ponto de entrada = %q, queria o cli.js sem os espaços", pkg.EntryPoint)
+	}
+}
+
 func TestNPMEntryPointRecusaBinQueSaiDaInstalacao(t *testing.T) {
 	// Nada vindo do manifesto vira caminho de execução fora do diretório do
 	// agente (AEP-0086 D9): um `bin` apontando para fora é o pacote pedindo que
