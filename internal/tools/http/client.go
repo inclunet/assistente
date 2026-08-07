@@ -403,6 +403,38 @@ func (c *Client) applyAuth(ctx context.Context, req *http.Request) {
 	}
 }
 
+// ErrServerStatus é o 5xx que sobreviveu aos retries. Ele existe para quem
+// chama poder distinguir "o servidor respondeu com erro" de "não deu para falar
+// com o servidor": as duas coisas chegam aqui como erro, e quem vai explicar
+// isso a alguém precisa saber qual das duas foi.
+var ErrServerStatus = errors.New("server error")
+
+// ServerStatusError carrega o status junto do erro. Ele existe para o status
+// chegar a quem chama como número, e não como pedaço de mensagem: mensagem é
+// texto para gente ler, e reconstruir dado a partir dela faz uma mudança de
+// redação virar bug silencioso.
+type ServerStatusError struct {
+	StatusCode int
+}
+
+func (e *ServerStatusError) Error() string {
+	return fmt.Sprintf("%s: %d", ErrServerStatus.Error(), e.StatusCode)
+}
+
+// Unwrap mantém ErrServerStatus no caminho do errors.Is, para quem só precisa
+// saber que foi 5xx não ter de conhecer o tipo.
+func (e *ServerStatusError) Unwrap() error { return ErrServerStatus }
+
+// ServerStatusOf devolve o status do 5xx que sobreviveu aos retries, ou 0 quando
+// o erro é outro.
+func ServerStatusOf(err error) int {
+	var statusErr *ServerStatusError
+	if !errors.As(err, &statusErr) {
+		return 0
+	}
+	return statusErr.StatusCode
+}
+
 // doWithRetry executa requisição com lógica de retry
 func (c *Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
 	var lastErr error
@@ -436,7 +468,7 @@ func (c *Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Resp
 
 		// Status 5xx, pode tentar retry
 		_ = resp.Body.Close()
-		lastErr = fmt.Errorf("server error: %d", resp.StatusCode)
+		lastErr = &ServerStatusError{StatusCode: resp.StatusCode}
 	}
 
 	return nil, lastErr

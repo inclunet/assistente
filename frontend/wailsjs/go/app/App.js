@@ -366,6 +366,10 @@ export function GenerateAndSaveMessageAudio(arg1, arg2) {
   return window['go']['app']['App']['GenerateAndSaveMessageAudio'](arg1, arg2);
 }
 
+export function GetACPCatalog() {
+  return window['go']['app']['App']['GetACPCatalog']();
+}
+
 export function GetActiveProfile() {
   return window['go']['app']['App']['GetActiveProfile']();
 }
@@ -872,6 +876,10 @@ export function RebuildSearchIndex() {
 
 export function ReconnectMCPServer(arg1) {
   return window['go']['app']['App']['ReconnectMCPServer'](arg1);
+}
+
+export function RefreshACPCatalog() {
+  return window['go']['app']['App']['RefreshACPCatalog']();
 }
 
 export function RefreshAuth(arg1) {
