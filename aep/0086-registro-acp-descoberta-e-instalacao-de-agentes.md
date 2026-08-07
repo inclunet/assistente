@@ -312,8 +312,9 @@ O que esta decisão define é o que acontece **onde ele não existe**.
 
 Ela não vale para `npx` e `uvx`, e nunca valeu: quem verifica o pacote é o
 gerenciador. O npm guarda um campo `integrity` por tarball nos metadados do
-registro npm — uma string SRI, que hoje traz SHA-512 mas não fixa o algoritmo —
-e confere o tarball baixado contra ele antes de extrair coisa alguma no prefixo:
+registro npm — uma string SRI, que traz o algoritmo junto do valor (`sha512-…`,
+hoje) e por isso pode mudar de algoritmo sem mudar de campo — e confere o
+tarball baixado contra ele antes de extrair coisa alguma no prefixo:
 o que não bate morre no cache, e nada daquele pacote chega ao diretório do
 agente nem é executado.
 
@@ -406,8 +407,9 @@ em uso (D10) e porque remover passa a ser apagar um diretório.
 
 Cada agente instalado ganha um `installed.json` ao lado, com o que o app fez:
 identificador, versão, tipo de distribuição, o alvo instalado, comando e
-argumentos resolvidos, e a data. Sem esse registro, o app teria que reconstruir
-por adivinhação, a cada abertura, o que ele mesmo escreveu.
+argumentos resolvidos, a data e — na distribuição binária — o digest com a sua
+procedência. Sem esse registro, o app teria que reconstruir por adivinhação, a
+cada abertura, o que ele mesmo escreveu.
 
 O que o `target` guarda depende da distribuição: o pacote com a versão, em npm e
 uv, e o alvo de plataforma, em binário. É uma chave só porque a pergunta que ela
