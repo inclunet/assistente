@@ -359,6 +359,12 @@ func (i *Installer) Remove(ctx context.Context, agentID string) error {
 }
 
 // Installed devolve a instalação do agente, quando há uma.
+//
+// Mais de uma versão pode morar sob `<id>/`: é isso que permite baixar a nova ao
+// lado da que está em uso (D10). A escolhida é a instalada por último, e não a
+// primeira que o diretório listar — a listagem é alfabética, e por ela a `10.0.0`
+// viria antes da `2.0.0`. Empate de carimbo fica com a primeira, que é estável
+// porque `os.ReadDir` devolve ordenado por nome.
 func (i *Installer) Installed(agentID string) (Installation, bool) {
 	dir, err := i.agentDir(agentID)
 	if err != nil {
@@ -368,15 +374,21 @@ func (i *Installer) Installed(agentID string) (Installation, bool) {
 	if err != nil {
 		return Installation{}, false
 	}
+	var newest Installation
+	found := false
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		if installation, ok := i.installationAt(filepath.Join(dir, entry.Name())); ok {
-			return installation, true
+		installation, ok := i.installationAt(filepath.Join(dir, entry.Name()))
+		if !ok {
+			continue
+		}
+		if !found || installation.InstalledAt.After(newest.InstalledAt) {
+			newest, found = installation, true
 		}
 	}
-	return Installation{}, false
+	return newest, found
 }
 
 // List devolve o que o app instalou, ordenado por identificador para a tela ter

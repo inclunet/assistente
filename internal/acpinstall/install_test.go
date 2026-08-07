@@ -729,6 +729,57 @@ func TestRegistroQueApontaParaForaDaInstalacaoNaoContaComoInstalado(t *testing.T
 	}
 }
 
+func TestComDuasVersoesNoDiscoValeAInstaladaPorUltimo(t *testing.T) {
+	// Duas versões podem morar lado a lado: é isso que permite baixar a nova sem
+	// derrubar a que está em uso (D10). Pela ordem do diretório, que é
+	// alfabética, a `10.0.0` viria antes da `2.0.0` — e a tela mostraria a
+	// instalação errada.
+	c := montar(t, opcoes{})
+	antiga, err := c.instalador.Install(context.Background(), codexID)
+	if err != nil {
+		t.Fatalf("não instalou: %v", err)
+	}
+	// A versão nova tem número menor em ordem alfabética justamente para o teste
+	// não passar por acidente.
+	nova := versaoNoDisco(t, c.root, codexID, "10.0.0", antiga.InstalledAt.Add(time.Hour))
+
+	instalada, ok := c.instalador.Installed(codexID)
+	if !ok {
+		t.Fatal("não achou instalação nenhuma")
+	}
+	if instalada.Version != nova {
+		t.Errorf("versão = %q, queria a instalada por último (%q)", instalada.Version, nova)
+	}
+}
+
+// versaoNoDisco monta uma instalação já pronta em `<root>/<id>/<versão>`, como a
+// que sobra de uma atualização feita antes. Devolve a versão criada.
+func versaoNoDisco(t *testing.T, root, agentID, version string, quando time.Time) string {
+	t.Helper()
+	dir := filepath.Join(root, agentID, version)
+	entrada := filepath.Join(dir, "node_modules", "agente", "index.js")
+	if err := os.MkdirAll(filepath.Dir(entrada), 0o755); err != nil {
+		t.Fatalf("não deu para montar a versão %s: %v", version, err)
+	}
+	if err := os.WriteFile(entrada, []byte("//"), 0o644); err != nil {
+		t.Fatalf("não deu para gravar o ponto de entrada: %v", err)
+	}
+	registro := Installation{
+		Schema:       installationSchema,
+		AgentID:      agentID,
+		Name:         "Codex",
+		Version:      version,
+		Distribution: DistributionNPM,
+		Command:      runtimeComNode().Node,
+		Args:         []string{entrada},
+		InstalledAt:  quando,
+	}
+	if err := writeInstallation(dir, registro); err != nil {
+		t.Fatalf("não deu para gravar o registro da versão %s: %v", version, err)
+	}
+	return version
+}
+
 func TestRegistroQueSaiDaInstalacaoPorUmLinkNaoContaComoInstalado(t *testing.T) {
 	// Caminho de dentro do diretório que leva para fora dele: o texto passa na
 	// guarda, o destino não. Quem escreveu o registro adulterado também pode ter
