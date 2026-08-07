@@ -408,13 +408,6 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
                   {t('providerForm.agent.catalog.installBtnHelp')}
                 </p>
               </div>
-              {busy && (
-                <div className="agent-install__action">
-                  <Button type="button" variant="outline" onClick={handleCancel}>
-                    {t('providerForm.agent.catalog.cancelBtn')}
-                  </Button>
-                </div>
-              )}
             </div>
           ) : (
             <div className="agent-install__blocked">
@@ -423,6 +416,19 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
                   ? t('providerForm.agent.catalog.unavailable', { reason: plan.reason })
                   : t('providerForm.agent.catalog.unavailableUnknown')}
               </p>
+            </div>
+          )}
+          {/*
+            O cancelar acompanha a instalação, e não o ramo em que a tela caiu:
+            o plano pode passar a dizer "indisponível" — Node que sumiu do PATH,
+            catálogo que parou de responder — enquanto o npm continua escrevendo
+            no disco, e o botão sumiria com algo ainda por cancelar.
+          */}
+          {busy && (
+            <div className="agent-install__action">
+              <Button type="button" variant="outline" onClick={handleCancel}>
+                {t('providerForm.agent.catalog.cancelBtn')}
+              </Button>
             </div>
           )}
         </>

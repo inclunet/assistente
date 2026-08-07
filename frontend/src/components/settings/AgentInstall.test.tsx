@@ -357,6 +357,23 @@ describe('AgentInstall — instalando', () => {
     expect(await screen.findByRole('button', { name: /usar o comando instalado/i })).toBeInTheDocument();
   });
 
+  it('o cancelar acompanha a instalação, e não o estado do plano', async () => {
+    // O plano pode passar a dizer "indisponível" — Node que sumiu do PATH,
+    // catálogo que parou de responder — com o npm ainda escrevendo no disco. Sem
+    // o botão, sobraria uma instalação em voo e nenhuma forma de pará-la.
+    planMock.mockResolvedValue({
+      ...planoInstalavel,
+      can_install: false,
+      installing: true,
+      reason: 'o catálogo parou de responder',
+    });
+
+    render(<Host />);
+
+    expect(await screen.findByText(/o catálogo parou de responder/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /cancelar instalação/i })).toBeInTheDocument();
+  });
+
   it('trocar de agente não leva junto a frase do anterior', async () => {
     // Estado é do agente que estava na tela. Depois da troca, a frase do
     // progresso descreveria o agente antigo — e num leitor de telas ela é a
