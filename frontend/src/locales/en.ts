@@ -1783,6 +1783,98 @@ const en = {
       },
     },
 
+    acpCatalog: {
+      open: 'ACP agent catalog',
+      title: 'ACP agent catalog',
+      intro:
+        'Agents published in the official ACP registry. This screen shows what exists; installing from here is not possible yet.',
+      listLabel: 'Agents from the ACP registry',
+      navHelp: 'Use the up and down arrows to move through the agents; Home and End jump to the first and the last.',
+      loading: 'Loading the agent catalog...',
+      count: 'Showing {{shown}} of {{total}} agents.',
+      manualPath:
+        'Without the catalog you can still add an agent by hand: create an agent provider and fill in its command and arguments.',
+      actions: {
+        refresh: 'Refresh catalog',
+        refreshing: 'Refreshing...',
+      },
+      search: {
+        label: 'Search agent',
+        placeholder: 'Name, identifier, author or license',
+        noMatch: 'No agent matches "{{term}}".',
+        results: '{{total}} agents found.',
+      },
+      status: {
+        collected: 'Catalog collected {{when}}.',
+        stale: 'The local copy is old and may not reflect the registry.',
+        notUpdated: 'It could not be refreshed right now: {{reason}}',
+        empty: 'The catalog is empty.',
+        emptyReason: 'The catalog is empty: {{reason}}',
+      },
+      reason: {
+        badStatus: 'the registry answered with an error.',
+        badStatusDetail: 'the registry answered with an error ({{detail}}).',
+        unreachable: 'the registry could not be reached.',
+        unreachableDetail: 'the registry could not be reached ({{detail}}).',
+        timeout: 'the registry did not answer in time.',
+        canceled: 'the request was interrupted.',
+        malformedIndex: 'the registry answered something this app could not read.',
+        unsupportedVersion:
+          'the registry changed its format in a way this version of the app does not understand. Update the app.',
+        unknown: 'the registry could not be queried.',
+      },
+      item: {
+        version: 'version {{version}}',
+        nameVersion: '{{name}}, version {{version}}',
+        state: 'On this machine:',
+        distributions: 'Distributed as {{list}}',
+        authors: 'By {{list}}',
+        license: '{{license}} license',
+        distributionsTerm: 'Distribution',
+        integrityTerm: 'Integrity',
+        authorsTerm: 'Authors',
+        licenseTerm: 'License',
+        websiteTerm: 'Website',
+        repositoryTerm: 'Repository',
+      },
+      state: {
+        installed: 'found on this machine.',
+        installedVersion: 'found on this machine, version {{version}}.',
+        notInstalled: 'not found on this machine.',
+        noDetection:
+          'this app does not know how to look for this agent on the machine; if you already have it, point to its command by hand in the provider.',
+        detectionFailed: 'the search for this agent failed.',
+        requirementMissing: '{{runtime}} was not found on this machine, and this agent needs it.',
+        noPlatformTarget: 'no build is published for this platform.',
+        unknown: 'unrecognized state ({{state}}).',
+      },
+      runtime: {
+        none: 'No runtime required: the agent ships as a binary.',
+        found: 'Requires {{runtime}}, which was found on this machine.',
+        foundAt: 'Requires {{runtime}}, found at {{path}}.',
+        missing: 'Requires {{runtime}}, which was not found on this machine.',
+        name: {
+          node: 'Node.js',
+          uv: 'uv',
+        },
+      },
+      distribution: {
+        binary: 'binary',
+        npx: 'npm package (npx)',
+        uvx: 'Python package (uvx)',
+      },
+      integrity: {
+        digest:
+          'The registry publishes the checksum of the file for this platform, so the download can be verified.',
+        noDigest:
+          'The registry publishes no checksum for this platform, so there is no way to verify the downloaded file.',
+        noPlatformTarget: 'The registry publishes no file for this platform.',
+      },
+      error: {
+        loadFailed: 'The agent catalog could not be loaded.',
+      },
+    },
+
     providers: {
       pageTitle: 'LLM Providers',
       search: 'Search providers...',

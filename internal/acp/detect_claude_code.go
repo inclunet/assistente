@@ -189,7 +189,7 @@ func nvmPrefixes(p probe, searched *searchLog, appdata string) []string {
 			names = append(names, entry.Name())
 		}
 	}
-	slices.SortFunc(names, func(a, b string) int { return nvmVersionOrder(b) - nvmVersionOrder(a) })
+	sortVersionNamesDesc(names)
 
 	dirs := make([]string, 0, len(names))
 	for _, name := range names {

@@ -10,6 +10,7 @@ import (
 
 	"assistente/controllers"
 	"assistente/internal/acp"
+	"assistente/internal/acpregistry"
 	"assistente/internal/acptrust"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
@@ -83,6 +84,7 @@ type App struct {
 	mcpMgr            *mcpmgr.Manager             // Gerenciador de servidores MCP
 	acpMgr            *acp.Manager                // Processos e sessões dos agentes ACP (AEP-0084)
 	acpTrust          *acptrust.Store             // Permissões que o perfil concedeu ao agente para sempre (AEP-0084 D9)
+	acpRegistry       *acpregistry.Service        // Catálogo de agentes do registro oficial do ACP (AEP-0086 D2)
 	skillMgr          *skills.Manager             // Gerenciador de skills
 	responseNotifier  *messaging.ResponseNotifier // Notificador de respostas para mensageiros
 	msgGateway        *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
