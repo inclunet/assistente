@@ -119,7 +119,7 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
     expect(requestOpen).not.toHaveBeenCalled();
   });
 
-  it('com nenhum modal aberto, Ctrl+T cria aba e Ctrl+W fecha aba', () => {
+  it('com nenhum modal aberto, Ctrl+T cria aba e Ctrl+W fecha aba', async () => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     dispatchKey({ ctrlKey: true, key: 't' });
@@ -127,6 +127,11 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
 
     expect(addTab).toHaveBeenCalledTimes(1);
     expect(removeTab).toHaveBeenCalledTimes(1);
+    // Fechar a aba restaura o foco depois da promessa e de um quadro, e aqui o
+    // `requestAnimationFrame` é o do jsdom. Sem esperar por isso, o teste
+    // termina com trabalho agendado, e a chamada cai num teste adiante — o do
+    // Ctrl+número, que afirma justamente que o foco não foi restaurado.
+    await vi.waitFor(() => expect(restoreDefaultFocus).toHaveBeenCalled());
   });
 
   it('com um modal aberto (ex.: painel de atalhos), Ctrl+T e Ctrl+W não agem na UI de fundo', () => {
