@@ -673,6 +673,79 @@ func TestListSoContaOQueTemRegistroLegivel(t *testing.T) {
 	}
 }
 
+// regravarRegistro reescreve o `installed.json` de uma instalação depois de
+// mexer nele. É como o arquivo é adulterado no disco de quem usa o app: ele fica
+// no home, e nada impede que tenha sido copiado, editado à mão ou deixado por um
+// layout antigo.
+func regravarRegistro(t *testing.T, dir string, mexer func(*Installation)) {
+	t.Helper()
+	registro, err := readInstallation(dir)
+	if err != nil {
+		t.Fatalf("não deu para ler o registro em %s: %v", dir, err)
+	}
+	mexer(&registro)
+	if err := writeInstallation(dir, registro); err != nil {
+		t.Fatalf("não deu para regravar o registro: %v", err)
+	}
+}
+
+func TestRegistroQueDescreveOutraInstalacaoNaoContaComoInstalado(t *testing.T) {
+	// O caminho é `<id>/<versão>` (D5), e o registro tem de falar do diretório em
+	// que está. Um que veio de outro lugar diria à tela uma versão que não é a
+	// que está no disco, e a comparação que decide se há atualização (D10)
+	// passaria a comparar o número errado.
+	c := montar(t, opcoes{})
+	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	if err != nil {
+		t.Fatalf("não instalou: %v", err)
+	}
+	regravarRegistro(t, instalacao.Dir, func(r *Installation) { r.Version = "0.0.1" })
+
+	if _, ok := c.instalador.Installed(codexID); ok {
+		t.Error("aceitou um registro que descreve outra versão")
+	}
+	if lista := c.instalador.List(); len(lista) != 0 {
+		t.Errorf("lista = %+v, queria vazia", lista)
+	}
+}
+
+func TestRegistroQueApontaParaForaDaInstalacaoNaoContaComoInstalado(t *testing.T) {
+	// Se o registro pudesse apontar para qualquer executável da máquina, trocar o
+	// arquivo bastaria para o app subir outra coisa achando que subiu o agente
+	// que instalou — e a tela ainda ofereceria "usar o comando instalado" (D9).
+	c := montar(t, opcoes{})
+	instalacao, err := c.instalador.Install(context.Background(), codexID)
+	if err != nil {
+		t.Fatalf("não instalou: %v", err)
+	}
+	fora := filepath.Join(t.TempDir(), "outra-coisa.js")
+	if err := os.WriteFile(fora, []byte("//"), 0o644); err != nil {
+		t.Fatalf("não deu para gravar o arquivo de fora: %v", err)
+	}
+	regravarRegistro(t, instalacao.Dir, func(r *Installation) { r.Args = []string{fora} })
+
+	if _, ok := c.instalador.Installed(codexID); ok {
+		t.Error("aceitou um registro que executa algo de fora da instalação")
+	}
+}
+
+func TestRegistroDaInstalacaoQueOAppFezContinuaValendo(t *testing.T) {
+	// A guarda não pode recusar o caso normal: o `node` mora fora do diretório da
+	// instalação, e é o ponto de entrada que fica dentro dele.
+	c := montar(t, opcoes{})
+	if _, err := c.instalador.Install(context.Background(), codexID); err != nil {
+		t.Fatalf("não instalou: %v", err)
+	}
+
+	instalada, ok := c.instalador.Installed(codexID)
+	if !ok {
+		t.Fatal("recusou a instalação que o próprio app acabou de fazer")
+	}
+	if instalada.Version != codexVersao {
+		t.Errorf("versão = %q, queria a instalada", instalada.Version)
+	}
+}
+
 func TestPlanDeAgenteSemDistribuicaoNpmExplicaEmTexto(t *testing.T) {
 	// O catálogo mostra tudo o que o registro tem (D1); o que muda é o que o app
 	// diz que consegue fazer com cada linha nesta máquina.

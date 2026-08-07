@@ -450,7 +450,13 @@ func (i *Installer) agentVersionDir(agentID, version string) string {
 	return filepath.Join(dir, version)
 }
 
-// installationAt lê o `installed.json` de um diretório de versão.
+// installationAt lê o `installed.json` de um diretório de versão e confere que
+// ele descreve aquele diretório.
+//
+// O arquivo é dado externo. Ele vive no disco de quem usa o app, e nada impede
+// que tenha sido copiado de outra máquina, editado à mão ou deixado para trás
+// por um layout antigo. Aceitá-lo por ser JSON legível faria a tela oferecer
+// "usar o comando instalado" para um comando que este app não instalou.
 func (i *Installer) installationAt(dir string) (Installation, bool) {
 	if dir == "" {
 		return Installation{}, false
@@ -459,7 +465,39 @@ func (i *Installer) installationAt(dir string) (Installation, bool) {
 	if err != nil {
 		return Installation{}, false
 	}
+	// O registro tem de falar do diretório em que está, que é `<id>/<versão>`
+	// (D5). Divergência é registro de outro lugar, e ela desalinharia a
+	// comparação que decide se existe versão nova a oferecer (D10).
+	if installation.AgentID != filepath.Base(filepath.Dir(dir)) || installation.Version != filepath.Base(dir) {
+		logging.Warnf(context.Background(), component,
+			"o registro em %s descreve %s@%s e foi ignorado", dir, installation.AgentID, installation.Version)
+		return Installation{}, false
+	}
+	// E tem de executar algo que esta instalação trouxe. A conferência é sobre o
+	// conjunto, e não sobre o comando: no npm quem mora aqui dentro é o ponto de
+	// entrada, enquanto o `node` é da máquina e fica fora.
+	if !runsFromDir(dir, installation) {
+		logging.Warnf(context.Background(), component,
+			"o registro em %s não aponta para nada instalado ali e foi ignorado", dir)
+		return Installation{}, false
+	}
 	return installation, true
+}
+
+// runsFromDir diz se o comando registrado executa algo de dentro do diretório da
+// instalação. É a guarda de caminho do D9 aplicada na leitura: sem ela, um
+// `installed.json` trocado apontaria o provider para qualquer executável da
+// máquina, e o app o subiria achando que subiu o agente que instalou.
+func runsFromDir(dir string, installation Installation) bool {
+	for _, part := range append([]string{installation.Command}, installation.Args...) {
+		if !filepath.IsAbs(part) || !acp.WithinDir(dir, part) {
+			continue
+		}
+		if info, err := os.Stat(part); err == nil && info.Mode().IsRegular() {
+			return true
+		}
+	}
+	return false
 }
 
 // discard apaga o diretório de uma instalação que não terminou.

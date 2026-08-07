@@ -229,7 +229,7 @@ func NPMEntryPoint(prefix, name string) (NPMPackage, error) {
 		return NPMPackage{}, fmt.Errorf("%w: prefixo %q ilegível: %v", ErrNPMEntryPoint, prefix, err)
 	}
 	dir := filepath.Join(root, "node_modules", filepath.FromSlash(name))
-	if !withinDir(root, dir) {
+	if !WithinDir(root, dir) {
 		// Nome de pacote com `..` não chega aqui pelo catálogo, que o recusa na
 		// fronteira; a guarda vale para quem chamar de outro lugar.
 		return NPMPackage{}, fmt.Errorf("%w: o nome %q sai do prefixo da instalação", ErrNPMEntryPoint, name)
@@ -254,7 +254,7 @@ func NPMEntryPoint(prefix, name string) (NPMPackage, error) {
 		return NPMPackage{}, fmt.Errorf("%w: %s: %v", ErrNPMEntryPoint, manifestPath, err)
 	}
 	entry := filepath.Join(dir, filepath.FromSlash(relative))
-	if !withinDir(root, entry) {
+	if !WithinDir(root, entry) {
 		return NPMPackage{}, fmt.Errorf("%w: o `bin` de %s aponta para fora da instalação", ErrNPMEntryPoint, manifestPath)
 	}
 	// O caminho textual estar dentro do prefixo não basta: um link dentro da
@@ -272,7 +272,7 @@ func NPMEntryPoint(prefix, name string) (NPMPackage, error) {
 	if resolved, err := filepath.EvalSymlinks(root); err == nil {
 		realRoot = resolved
 	}
-	if !withinDir(realRoot, real) {
+	if !WithinDir(realRoot, real) {
 		return NPMPackage{}, fmt.Errorf("%w: o `bin` de %s aponta para fora da instalação", ErrNPMEntryPoint, manifestPath)
 	}
 	if ok, err := isRegularFile(real); err != nil || !ok {
@@ -337,9 +337,13 @@ func binFromManifest(raw json.RawMessage, name string) (string, error) {
 	return entries[names[0]], nil
 }
 
-// withinDir diz se path está dentro de root. É a guarda de caminho do D9, e ela
+// WithinDir diz se path está dentro de root. É a guarda de caminho do D9, e ela
 // compara texto já limpo em vez de confiar em quem montou o caminho.
-func withinDir(root, path string) bool {
+//
+// Exportada porque a guarda é uma só e vale em mais de um lugar: quem instala
+// pelo catálogo também precisa saber se o que vai executar veio de dentro da
+// instalação. Duas implementações da mesma regra divergiriam com o tempo.
+func WithinDir(root, path string) bool {
 	root = filepath.Clean(root)
 	path = filepath.Clean(path)
 	if path == root {

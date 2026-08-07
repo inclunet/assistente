@@ -337,6 +337,26 @@ describe('AgentInstall — instalando', () => {
     expect(await screen.findByRole('button', { name: /usar o comando instalado/i })).toBeInTheDocument();
   });
 
+  it('solta a tela quando o plano diz que a instalação adotada já acabou', async () => {
+    // O marco de desfecho pode não chegar: a instalação adotada pode ter
+    // terminado entre o plano que a encontrou e o registro do ouvinte. O plano
+    // seguinte é a outra resposta possível, e sem ele a tela ficaria ocupada
+    // para sempre — o botão de cancelar oferecendo cancelar o que não existe.
+    planMock.mockResolvedValue({ ...planoInstalavel, installing: true });
+    const user = userEvent.setup();
+
+    render(<Host />);
+    expect(await screen.findByRole('button', { name: /cancelar instalação/i })).toBeInTheDocument();
+
+    planMock.mockResolvedValue({ ...planoInstalavel, can_install: false, installed: instalacao });
+    await user.click(screen.getByRole('button', { name: /cancelar instalação/i }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /cancelar instalação/i })).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByRole('button', { name: /usar o comando instalado/i })).toBeInTheDocument();
+  });
+
   it('marco de outro agente não descreve este', async () => {
     // Duas instalações podem estar em voo: um progresso sem dono descreveria na
     // tela do Codex o que está acontecendo com outro agente.

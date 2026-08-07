@@ -156,8 +156,13 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
       // pode ter fechado e reaberto o formulário no meio dela. Quem a começou de
       // outra montagem não tem promessa para esperar aqui, então quem a encerra
       // é o marco de desfecho — e é por isso que ela fica marcada.
-      adotadaRef.current = !!result?.installing;
-      if (result?.installing) setBusy(true);
+      const emVoo = !!result?.installing;
+      // O marco também pode não chegar: a instalação adotada pode ter terminado
+      // entre o plano e o registro do ouvinte. O plano seguinte é a outra
+      // resposta possível, e ele solta a tela do mesmo jeito.
+      if (adotadaRef.current && !emVoo) setBusy(false);
+      adotadaRef.current = emVoo;
+      if (emVoo) setBusy(true);
     } catch (error: unknown) {
       if (obsoleto()) return;
       setPlanned(null);
@@ -249,6 +254,11 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
       const message = errorText(error, t('providerForm.agent.catalog.cancelFailed'));
       setStatus(message);
       announce(message, 'assertive');
+    } finally {
+      // Cancelar o que já terminou não é erro — a instalação pode ter acabado
+      // entre o render e o clique —, mas deixaria a tela oferecendo cancelar de
+      // novo. O plano diz o que de fato está em voo.
+      if (mountedRef.current) void loadPlan(agentKind);
     }
   };
 
@@ -451,7 +461,11 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
           <Button type="button" variant="outline" onClick={() => setConfirming(false)}>
             {t('providerForm.agent.catalog.confirm.cancelBtn')}
           </Button>
-          <Button type="button" variant="primary" onClick={handleInstall}>
+          {/*
+            Confirmar duas vezes é um clique repetido, e não dois pedidos: o
+            diálogo fecha no primeiro, mas o segundo pode chegar antes disso.
+          */}
+          <Button type="button" variant="primary" onClick={handleInstall} disabled={busy}>
             {t('providerForm.agent.catalog.confirm.confirmBtn')}
           </Button>
         </div>
