@@ -78,8 +78,10 @@ type ACPInstallPlan struct {
 	InstallCommand string `json:"install_command,omitempty"`
 
 	// RunArgs são os argumentos que o registro manda passar ao agente depois do
-	// ponto de entrada.
-	RunArgs []string `json:"run_args,omitempty"`
+	// ponto de entrada. Sem `omitempty`: a lista vazia é resposta, e o DTO a
+	// preenche justamente para a tela não ter de distinguir "sem argumentos" de
+	// "campo ausente".
+	RunArgs []string `json:"run_args"`
 
 	// Runtime é o pré-requisito nesta máquina.
 	Runtime ACPRuntimeStatus `json:"runtime"`

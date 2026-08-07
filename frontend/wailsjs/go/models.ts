@@ -223,7 +223,7 @@ export namespace app {
 	    origin: string;
 	    dir: string;
 	    install_command?: string;
-	    run_args?: string[];
+	    run_args: string[];
 	    runtime: ACPRuntimeStatus;
 	    can_install: boolean;
 	    reason?: string;
