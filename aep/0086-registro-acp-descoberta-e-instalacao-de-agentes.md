@@ -315,7 +315,8 @@ gerenciador. O npm guarda um `integrity` (SHA-512) por tarball nos metadados do
 registro npm e confere o tarball baixado contra ele antes de extrair coisa
 alguma no prefixo — o que não bate morre no cache, e nada daquele pacote chega
 ao diretório do agente nem é executado; o `uv` faz o equivalente com os hashes
-do índice Python.
+que o índice Python publica, que é o caso do PyPI — em índice alternativo que
+não os publique, a garantia é a do índice, e não a do gerenciador.
 Exigir um segundo digest, publicado noutro lugar, seria pedir garantia que já
 está sendo dada — e é por isso que a Fase 3 instala pacote npm sem que o
 registro ACP publique digest algum, e isso não é exceção a nada.
