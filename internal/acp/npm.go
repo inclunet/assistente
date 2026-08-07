@@ -228,11 +228,17 @@ func NPMEntryPoint(prefix, name string) (NPMPackage, error) {
 	if err != nil {
 		return NPMPackage{}, fmt.Errorf("%w: prefixo %q ilegível: %v", ErrNPMEntryPoint, prefix, err)
 	}
-	dir := filepath.Join(root, "node_modules", filepath.FromSlash(name))
-	if !WithinDir(root, dir) {
-		// Nome de pacote com `..` não chega aqui pelo catálogo, que o recusa na
-		// fronteira; a guarda vale para quem chamar de outro lugar.
-		return NPMPackage{}, fmt.Errorf("%w: o nome %q sai do prefixo da instalação", ErrNPMEntryPoint, name)
+	// A conferência é contra `node_modules`, e não contra o prefixo: um nome como
+	// `..` colapsa para o prefixo sem sair dele, e passaria por uma guarda mais
+	// larga para ir ler um manifesto que não é o de um pacote instalado — e a
+	// resolução do `bin` passaria a ser relativa a um diretório qualquer.
+	// Pelo catálogo isso não chega aqui, que recusa o nome na fronteira; a
+	// guarda vale para quem chamar de outro lugar, porque esta função é
+	// exportada.
+	modules := filepath.Join(root, "node_modules")
+	dir := filepath.Join(modules, filepath.FromSlash(name))
+	if dir == modules || !WithinDir(modules, dir) {
+		return NPMPackage{}, fmt.Errorf("%w: o nome %q não é o de um pacote instalado no prefixo", ErrNPMEntryPoint, name)
 	}
 
 	manifestPath := filepath.Join(dir, "package.json")

@@ -117,6 +117,27 @@ func TestNPMEntryPointAparaOsEspacosDoBinDeclarado(t *testing.T) {
 	}
 }
 
+func TestNPMEntryPointRecusaNomeQueNaoEDeUmPacoteInstalado(t *testing.T) {
+	// `..` colapsa para o próprio prefixo e `.` para o `node_modules`: nenhum
+	// dos dois sai dali, e por isso uma guarda contra o prefixo os deixaria
+	// passar — para ler um manifesto que não é o de um pacote instalado, e
+	// resolver o `bin` a partir de um diretório qualquer.
+	prefixo := t.TempDir()
+	manifesto := `{"name":"nao-e-pacote","bin":"cli.js"}`
+	if err := os.WriteFile(filepath.Join(prefixo, "package.json"), []byte(manifesto), 0o644); err != nil {
+		t.Fatalf("não deu para gravar o manifesto de fora: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(prefixo, "node_modules"), 0o755); err != nil {
+		t.Fatalf("não deu para criar o node_modules: %v", err)
+	}
+
+	for _, nome := range []string{"..", ".", "../..", "../outro"} {
+		if _, err := NPMEntryPoint(prefixo, nome); err == nil {
+			t.Errorf("aceitou %q como nome de pacote instalado", nome)
+		}
+	}
+}
+
 func TestNPMEntryPointRecusaBinQueSaiDaInstalacao(t *testing.T) {
 	// Nada vindo do manifesto vira caminho de execução fora do diretório do
 	// agente (AEP-0086 D9): um `bin` apontando para fora é o pacote pedindo que
