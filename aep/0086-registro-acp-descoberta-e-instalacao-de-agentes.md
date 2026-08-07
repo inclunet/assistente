@@ -335,8 +335,8 @@ distribuição binária.
 **Versão anterior desta decisão recusava instalar, e estava errada.** O
 argumento era que uma caixa de "aceito o risco" transfere para a pessoa uma
 decisão que ela não tem como avaliar. A frase é verdadeira e a conclusão não
-segue dela, porque compara com a alternativa errada. A alternativa real nunca foi
-não instalar: era **instalar à mão pelo site do agente** — o mesmo binário, do
+segue dela, porque compara com a alternativa errada. Recusar não deixava a
+pessoa sem o agente: ela ia **instalar à mão pelo site** — o mesmo binário, do
 mesmo host, com o mesmo risco, só que sem as guardas que o app aplicaria, sem
 registro do que ficou no disco e com mais trabalho. A regra empurrava para o
 caminho pior e cobrava esforço por isso. E a primeira vítima era o Cursor, o
@@ -419,7 +419,7 @@ responde é uma só — o que exatamente foi instalado aqui —, e quem a lê sa
 qual distribuição se trata pela chave ao lado.
 
 O digest entra ali com a sua procedência dita, e em dois campos separados:
-`sha256`, com o valor, e `sha256_origin`, com de onde ele veio — `verified`,
+`sha256`, com o valor, e `sha256_origin`, com a origem dele — `verified`,
 quando o registro ACP publicou um digest e o arquivo bateu com ele, ou
 `observed`, quando o app calculou o digest do que baixou por não haver com o que
 comparar (D4). Duas chaves, e não uma com significado dependente do contexto:
@@ -544,9 +544,12 @@ agente valem inteiras aqui.
   como imagem inerte, nunca como SVG embutido no DOM — SVG inline executa
   script. Um ícone de 16x16 não vale abrir esse caminho.
 - **Nada vindo do JSON vira linha de comando por si.** O `cmd` e os `args` só
-  são usados depois de o artefato ter sido baixado, verificado contra o digest e
-  extraído; o caminho resolvido é obrigatoriamente **dentro** do diretório do
-  agente. Um `cmd` apontando para fora dele é recusado.
+  são usados depois de o artefato ter sido baixado, conferido contra o digest
+  quando o registro publica um, e extraído; o caminho resolvido é
+  obrigatoriamente **dentro** do diretório do agente. Um `cmd` apontando para
+  fora dele é recusado. Onde não há digest publicado, o que muda é só a
+  conferência — a guarda de caminho e a confirmação reforçada do D4 continuam
+  valendo, e é o que sobra para segurar o que se executa.
 - **A extração tem guarda de caminho.** `.zip` e `.tar.*` podem trazer entradas
   com `..` ou caminho absoluto, e escrever fora do destino é a forma mais antiga
   de transformar um download em execução de código. Entrada suspeita aborta a
@@ -1059,8 +1062,8 @@ um provider que sobe; sem `uv`, o requisito é dito com o mesmo tratamento do D7
 - Falta de Node ou de `uv` é dita em texto, com o botão indisponível e o motivo
   visível; o app não instala runtime.
 - Todo texto vindo do registro é saneado antes de virar tela ou anúncio, e nada
-  dele é executado sem passar por artefato verificado dentro do diretório do
-  app.
+  dele vira comando por si: o que se executa é sempre um arquivo dentro do
+  diretório do app, vindo do artefato que ele mesmo instalou.
 - Progresso, conclusão e erro de instalação são anunciados em marcos e existem em
   texto na tela; erro nomeia a etapa e a ação.
 - Versão nova é avisada e nunca aplicada sozinha; atualizar durante uma conversa
