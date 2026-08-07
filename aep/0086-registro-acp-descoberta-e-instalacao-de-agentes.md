@@ -404,17 +404,23 @@ A versão entra no caminho porque ela permite baixar a nova ao lado da que está
 em uso (D10) e porque remover passa a ser apagar um diretório.
 
 Cada agente instalado ganha um `installed.json` ao lado, com o que o app fez:
-identificador, versão, tipo de distribuição, alvo de plataforma, comando e
+identificador, versão, tipo de distribuição, o alvo instalado, comando e
 argumentos resolvidos, e a data. Sem esse registro, o app teria que reconstruir
 por adivinhação, a cada abertura, o que ele mesmo escreveu.
 
-O digest entra ali com a sua procedência dita, e em dois campos separados: o
-valor do `sha256` e de onde ele veio — `conferido`, quando o registro ACP
-publicou um digest e o arquivo bateu com ele, ou `observado`, quando o app
-calculou o digest do que baixou por não haver com o que comparar (D4). Duas
-chaves, e não uma com significado dependente do contexto: quem lê o arquivo
-depois — a tela, a atualização, o suporte a quem relata problema — precisa saber
-se aquele número atesta o artefato ou apenas permite perceber que ele mudou.
+O que o `target` guarda depende da distribuição: o pacote com a versão, em npm e
+uv, e o alvo de plataforma, em binário. É uma chave só porque a pergunta que ela
+responde é uma só — o que exatamente foi instalado aqui —, e quem a lê sabe de
+qual distribuição se trata pela chave ao lado.
+
+O digest entra ali com a sua procedência dita, e em dois campos separados:
+`sha256`, com o valor, e `sha256_origin`, com de onde ele veio — `verified`,
+quando o registro ACP publicou um digest e o arquivo bateu com ele, ou
+`observed`, quando o app calculou o digest do que baixou por não haver com o que
+comparar (D4). Duas chaves, e não uma com significado dependente do contexto:
+quem lê o arquivo depois — a tela, a atualização, o suporte a quem relata
+problema — precisa saber se aquele número atesta o artefato ou apenas permite
+perceber que ele mudou.
 Instalação por npm ou uv não tem nenhum dos dois: a verificação foi do
 gerenciador e não é o app quem a registra.
 
