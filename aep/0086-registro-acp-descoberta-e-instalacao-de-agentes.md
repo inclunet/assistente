@@ -312,8 +312,10 @@ O que esta decisão define é o que acontece **onde ele não existe**.
 
 Ela não vale para `npx` e `uvx`, e nunca valeu: quem verifica o pacote é o
 gerenciador. O npm guarda um `integrity` (SHA-512) por tarball nos metadados do
-registro npm e recusa o download que não bater com ele, antes de qualquer
-arquivo ser gravado; o `uv` faz o equivalente com os hashes do índice Python.
+registro npm e confere o tarball baixado contra ele antes de extrair coisa
+alguma no prefixo — o que não bate morre no cache, e nada daquele pacote chega
+ao diretório do agente nem é executado; o `uv` faz o equivalente com os hashes
+do índice Python.
 Exigir um segundo digest, publicado noutro lugar, seria pedir garantia que já
 está sendo dada — e é por isso que a Fase 3 instala pacote npm sem digest do
 registro sem que isso seja exceção a nada.
