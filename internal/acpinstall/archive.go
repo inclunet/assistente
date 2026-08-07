@@ -213,7 +213,7 @@ func extractZip(ctx context.Context, archivePath, dest string, budget int64) err
 				return err
 			}
 			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
+				return fmt.Errorf("não foi possível preparar %s: %w", shownPath(target), causeOf(err))
 			}
 			continue
 		case !mode.IsRegular():
@@ -291,7 +291,7 @@ func extractTar(ctx context.Context, art artifact, dest string, budget int64) er
 				return err
 			}
 			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
+				return fmt.Errorf("não foi possível preparar %s: %w", shownPath(target), causeOf(err))
 			}
 		case tar.TypeReg:
 			target, err := resolveFileEntry(dest, header.Name)
