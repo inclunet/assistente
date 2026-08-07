@@ -357,6 +357,24 @@ describe('AgentInstall — instalando', () => {
     expect(await screen.findByRole('button', { name: /usar o comando instalado/i })).toBeInTheDocument();
   });
 
+  it('trocar de agente não leva junto a frase do anterior', async () => {
+    // Estado é do agente que estava na tela. Depois da troca, a frase do
+    // progresso descreveria o agente antigo — e num leitor de telas ela é a
+    // única pista de qual agente está sendo instalado.
+    planMock.mockResolvedValue(planoInstalavel);
+    const { rerender } = render(<Host />);
+    await screen.findByRole('button', { name: /instalar pelo catálogo/i });
+
+    await act(async () => {
+      emitirProgresso({ agent_id: 'codex-acp', agent: 'Codex', stage: 'installing' });
+    });
+    expect(await screen.findByText(/baixando/i)).toBeInTheDocument();
+
+    rerender(<Host agentKind="claude-code" />);
+
+    await waitFor(() => expect(screen.queryByText(/baixando/i)).not.toBeInTheDocument());
+  });
+
   it('marco de outro agente não descreve este', async () => {
     // Duas instalações podem estar em voo: um progresso sem dono descreveria na
     // tela do Codex o que está acontecendo com outro agente.

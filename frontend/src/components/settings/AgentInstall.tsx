@@ -173,6 +173,15 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
   }, []);
 
   useEffect(() => {
+    // O que está na tela é do agente que estava nela: a frase do progresso, o
+    // diálogo aberto e o botão ocupado passariam a descrever o agente antigo
+    // depois da troca. A instalação em voo não é interrompida por isso — ela é
+    // do backend —, e o plano do agente novo diz se há alguma dele.
+    setStatus('');
+    setConfirming(false);
+    setRemoving(false);
+    setBusy(false);
+    adotadaRef.current = false;
     void loadPlan(agentKind);
   }, [agentKind, loadPlan]);
 
