@@ -85,6 +85,7 @@ function emitirProgresso(progresso: Progresso) {
 
 const nodeEncontrado = {
   name: 'Node.js',
+  required: true,
   found: true,
   path: 'C:\\Program Files\\nodejs\\node.exe',
   version: '22.14.0',
@@ -230,6 +231,7 @@ describe('AgentInstall — sem o runtime', () => {
       install_command: '',
       runtime: {
         name: 'Node.js',
+        required: true,
         found: false,
         searched: ['C:\\Program Files\\nodejs', 'C:\\Users\\ana\\AppData\\Roaming\\nvm'],
       },
@@ -268,6 +270,88 @@ describe('AgentInstall — sem o runtime', () => {
   });
 });
 
+describe('AgentInstall — artefato binário', () => {
+  // O agente distribuído como binário não usa Node para nada, e sete dos que
+  // publicam digest não têm alternativa npm: bloquear o download por falta de
+  // um runtime que aquele caminho não usa deixaria justamente esses de fora.
+  const planoBinario = {
+    agent_id: 'opencode',
+    name: 'opencode',
+    version: '0.4.2',
+    distribution: 'binary',
+    origin: 'https://github.com/sst/opencode/releases/download/v0.4.2/opencode-windows-x64.zip',
+    target: 'windows-x86_64',
+    sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    dir: 'C:\\Users\\ana\\.assistente\\agents\\opencode\\0.4.2',
+    install_command: '',
+    run_args: [],
+    runtime: { name: 'Node.js', required: false, found: false, searched: [] },
+    can_install: true,
+    installing: false,
+  };
+
+  it('oferece a instalação numa máquina sem Node e não fala em pacote npm', async () => {
+    planMock.mockResolvedValue(planoBinario);
+
+    render(<Host agentKind="opencode" />);
+
+    const botao = await screen.findByRole('button', { name: /instalar pelo catálogo/i });
+    expect(screen.queryByText(/exige o node\.js/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/programa pronto para o seu sistema/i)).toBeInTheDocument();
+    // A descrição do botão é o que um leitor de telas lê antes do clique: ela
+    // não pode prometer um pacote npm que não será baixado.
+    expect(botao).toHaveAccessibleDescription(/conferindo o código de verificação/i);
+  });
+
+  it('manda o que foi confirmado junto do pedido de instalação', async () => {
+    // O plano pode deixar de valer entre o diálogo e o clique, e é o backend
+    // que recusa. Ele só consegue fazer isso se souber o que foi confirmado.
+    planMock.mockResolvedValue(planoBinario);
+    installMock.mockResolvedValue({ command: 'C:\\agents\\opencode.exe', args: [] });
+    const user = userEvent.setup();
+
+    render(<Host agentKind="opencode" />);
+    await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+    await user.click(await screen.findByRole('button', { name: /baixar e instalar/i }));
+
+    await waitFor(() =>
+      expect(installMock).toHaveBeenCalledWith('opencode', {
+        distribution: 'binary',
+        origin: planoBinario.origin,
+        sha256: planoBinario.sha256,
+      }),
+    );
+  });
+
+  it('a confirmação diz qual arquivo vem e com que código ele será conferido', async () => {
+    // D3 continua valendo, com o que muda entre as distribuições: aqui não se
+    // executa comando nenhum para instalar, e o que responde "o que vai
+    // acontecer" é o arquivo, o alvo da plataforma e o digest.
+    planMock.mockResolvedValue(planoBinario);
+    const user = userEvent.setup();
+
+    render(<Host agentKind="opencode" />);
+    await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+
+    const dialogo = await screen.findByRole('dialog');
+    expect(dialogo).toHaveTextContent(/código de verificação publicado pelo registro/i);
+    expect(dialogo).toHaveTextContent(planoBinario.origin);
+    expect(dialogo).toHaveTextContent(planoBinario.target);
+    expect(dialogo).toHaveTextContent(planoBinario.sha256);
+    expect(dialogo).not.toHaveTextContent(/comando que será executado/i);
+  });
+
+  it('não tem violação na confirmação do artefato', async () => {
+    planMock.mockResolvedValue(planoBinario);
+    const user = userEvent.setup();
+
+    render(<Host agentKind="opencode" />);
+    await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+
+    expect(await axe(screen.getByRole('dialog'))).toHaveNoViolations();
+  });
+});
+
 describe('AgentInstall — instalando', () => {
   it('anuncia os marcos, mostra o estado em texto e preenche o comando resolvido', async () => {
     // O critério de aceitação do AEP: instalar pelo catálogo produz um provider
@@ -280,7 +364,13 @@ describe('AgentInstall — instalando', () => {
     await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
     await user.click(await screen.findByRole('button', { name: /baixar e instalar/i }));
 
-    await waitFor(() => expect(installMock).toHaveBeenCalledWith('codex-acp'));
+    await waitFor(() =>
+      expect(installMock).toHaveBeenCalledWith('codex-acp', {
+        distribution: 'npm',
+        origin: planoInstalavel.origin,
+        sha256: '',
+      }),
+    );
 
     emitirProgresso({ agent_id: 'codex-acp', agent: 'Codex', stage: 'installing' });
     expect(screen.getByText(/baixando e instalando codex/i)).toBeInTheDocument();
@@ -555,7 +645,7 @@ describe('AgentInstall — acessibilidade', () => {
     planMock.mockResolvedValue({
       ...planoInstalavel,
       install_command: '',
-      runtime: { name: 'Node.js', found: false, searched: ['C:\\Program Files\\nodejs'] },
+      runtime: { name: 'Node.js', required: true, found: false, searched: ['C:\\Program Files\\nodejs'] },
       can_install: false,
       reason: 'o Node.js não foi encontrado nesta máquina',
     });

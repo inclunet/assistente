@@ -227,7 +227,14 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
     outcomeRef.current = false;
     setStatus(t('providerForm.agent.catalog.stage.started', { agent: plan?.name || '' }));
     try {
-      const installation = await InstallACPAgent(agentID);
+      // O que o diálogo mostrou viaja junto: o que seria instalado depende da
+      // máquina e do catálogo, e os dois mudam entre mostrar e clicar. O
+      // backend recusa em vez de baixar algo que ninguém viu (D3).
+      const installation = await InstallACPAgent(agentID, {
+        distribution: plan?.distribution || '',
+        origin: plan?.origin || '',
+        sha256: plan?.sha256 || '',
+      });
       if (!mountedRef.current) return;
       // O comando resolvido vai para os campos: instalar pelo catálogo termina
       // com um provedor pronto para salvar, e não com um caminho para copiar.
@@ -309,7 +316,11 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
 
   const installed = plan.installed;
   const runtime = plan.runtime;
-  const runtimeMissing = !runtime?.found;
+  // Falta de runtime só bloqueia quem depende dele. Artefato binário sobe sem
+  // Node, e negar o download por um pré-requisito que aquele caminho não usa
+  // deixaria de fora justamente os agentes que não têm alternativa npm.
+  const runtimeMissing = !!runtime?.required && !runtime.found;
+  const binary = plan.distribution === 'binary';
 
   return (
     <div className="agent-install" role="group" aria-labelledby={titleId}>
@@ -371,7 +382,12 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
           */}
           {!!plan.name && (
             <p className="agent-install__intro">
-              {t('providerForm.agent.catalog.intro', { agent: plan.name, version: plan.version })}
+              {t(
+                binary
+                  ? 'providerForm.agent.catalog.introBinary'
+                  : 'providerForm.agent.catalog.intro',
+                { agent: plan.name, version: plan.version },
+              )}
             </p>
           )}
 
@@ -405,7 +421,11 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
                   {t('providerForm.agent.catalog.installBtn')}
                 </Button>
                 <p id={installHelpId} className="agent-install__action-help">
-                  {t('providerForm.agent.catalog.installBtnHelp')}
+                  {t(
+                    binary
+                      ? 'providerForm.agent.catalog.installBtnHelpBinary'
+                      : 'providerForm.agent.catalog.installBtnHelp',
+                  )}
                 </p>
               </div>
             </div>
@@ -458,7 +478,9 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
         ariaDescribedBy={confirmId}
       >
         <p id={confirmId} className="agent-install__confirm-intro">
-          {t('providerForm.agent.catalog.confirm.intro')}
+          {binary
+            ? t('providerForm.agent.catalog.confirm.introBinary')
+            : t('providerForm.agent.catalog.confirm.intro')}
         </p>
         <dl className="agent-install__details">
           <dt>{t('providerForm.agent.catalog.confirm.agent')}</dt>
@@ -469,8 +491,25 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
           <dd className="agent-install__details-code">{plan.origin}</dd>
           <dt>{t('providerForm.agent.catalog.confirm.dir')}</dt>
           <dd className="agent-install__details-code">{plan.dir}</dd>
-          <dt>{t('providerForm.agent.catalog.confirm.command')}</dt>
-          <dd className="agent-install__details-code">{plan.install_command}</dd>
+          {/*
+            O que é baixado depende da distribuição, e o diálogo diz o que de
+            fato vai acontecer (D3): o pacote é instalado por uma linha de
+            comando, enquanto o artefato binário é um arquivo por plataforma
+            cujo digest será conferido contra o que chegar.
+          */}
+          {binary ? (
+            <>
+              <dt>{t('providerForm.agent.catalog.confirm.target')}</dt>
+              <dd className="agent-install__details-code">{plan.target}</dd>
+              <dt>{t('providerForm.agent.catalog.confirm.digest')}</dt>
+              <dd className="agent-install__details-code">{plan.sha256}</dd>
+            </>
+          ) : (
+            <>
+              <dt>{t('providerForm.agent.catalog.confirm.command')}</dt>
+              <dd className="agent-install__details-code">{plan.install_command}</dd>
+            </>
+          )}
         </dl>
         <div className="agent-install__confirm-actions">
           <Button type="button" variant="outline" onClick={() => setConfirming(false)}>

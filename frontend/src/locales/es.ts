@@ -1780,9 +1780,13 @@ const es = {
           title: 'Instalar desde el catálogo de agentes',
           intro:
             'El catálogo del protocolo publica {{agent}} como paquete npm. La aplicación instala la versión {{version}} en una carpeta propia y completa el comando por ti.',
+          introBinary:
+            'El catálogo del protocolo publica {{agent}} como programa listo para tu sistema. La aplicación instala la versión {{version}} en una carpeta propia y completa el comando por ti.',
           installBtn: 'Instalar desde el catálogo',
           installBtnHelp:
             'Muestra lo que se va a descargar, instala el paquete publicado en el catálogo y completa el comando y los argumentos de arriba con lo que instaló.',
+          installBtnHelpBinary:
+            'Muestra lo que se va a descargar, descarga el programa publicado en el catálogo comprobando su código de verificación y completa el comando y los argumentos de arriba con lo que se instaló.',
           cancelBtn: 'Cancelar instalación',
           cancelFailed: 'No se pudo cancelar la instalación.',
           installed: 'Instalado por la aplicación: {{agent}} versión {{version}}.',
@@ -1816,6 +1820,8 @@ const es = {
             runtime: 'al buscar el runtime en esta máquina',
             prepare: 'al preparar la carpeta de destino',
             install: 'al descargar el paquete con npm',
+            download: 'al descargar el archivo del agente',
+            extract: 'al abrir el archivo descargado',
             resolve: 'al averiguar el comando del agente instalado',
             verify: 'al comprobar si el agente responde al protocolo',
             record: 'al guardar el registro de la instalación',
@@ -1824,11 +1830,15 @@ const es = {
             title: '¿Instalar {{agent}} desde el catálogo?',
             intro:
               'La aplicación va a descargar el paquete y ejecutar el comando de abajo. No se descarga nada antes de que confirmes.',
+            introBinary:
+              'La aplicación va a descargar el archivo de abajo y comprobar que coincide con el código de verificación publicado por el registro. No se descarga nada antes de que confirmes.',
             agent: 'Agente',
             version: 'Versión',
             origin: 'Origen',
             dir: 'Carpeta de destino',
             command: 'Comando que se va a ejecutar',
+            target: 'Versión para tu sistema',
+            digest: 'Código de verificación (SHA-256)',
             confirmBtn: 'Descargar e instalar',
             cancelBtn: 'Cancelar',
           },
