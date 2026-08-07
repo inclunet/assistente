@@ -316,9 +316,9 @@ metadados do registro npm e confere o tarball baixado contra ele antes de
 extrair coisa alguma no prefixo: o que não bate morre no cache, e nada daquele
 pacote chega ao diretório do agente nem é executado.
 
-O `uv` faz o equivalente com os hashes que o índice Python publica, e o PyPI os
-publica. Num índice alternativo que não publique hashes, não há o que conferir —
-a confiança volta a ser no índice e no transporte, e não numa verificação de
+O `uv` faz o equivalente com os hashes do índice Simple do PyPI. Onde o índice
+não publica hashes — o caso de um índice alternativo —, não há o que conferir: a
+confiança volta a ser no índice e no transporte, e não numa verificação de
 integridade feita pelo `uv`.
 
 Exigir um segundo digest, publicado noutro lugar, seria pedir garantia que já
