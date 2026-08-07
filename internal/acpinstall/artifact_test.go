@@ -20,10 +20,15 @@ type clienteFalso struct {
 	corpo  []byte
 	err    error
 	pedido *http.Request
+
+	// chamadas conta os pedidos, para o teste poder provar que uma recusa
+	// aconteceu antes de qualquer byte sair da rede.
+	chamadas int
 }
 
 func (c *clienteFalso) Do(_ context.Context, req *http.Request) (*http.Response, error) {
 	c.pedido = req
+	c.chamadas++
 	if c.err != nil {
 		return nil, c.err
 	}

@@ -67,6 +67,18 @@
   margin: 0;
 }
 
+/*
+  A ausência de verificação é dita por escrito, aqui e no diálogo; a faixa é só
+  reforço visual, pelo mesmo desenho do bloco de indisponibilidade acima.
+*/
+.agent-install__unverified {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-warning-dim);
+}
+
 .agent-install__status {
   margin: 0;
   color: var(--text-secondary);

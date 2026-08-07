@@ -1792,6 +1792,8 @@ const ptBR = {
           cancelFailed: 'Não foi possível cancelar a instalação.',
           installed: 'Instalado pelo aplicativo: {{agent}} versão {{version}}.',
           installedDir: 'Pasta da instalação: {{dir}}',
+          installedUnverified:
+            'Esta instalação não foi verificada: o agente não publica código de verificação, e o aplicativo não teve como conferir que o arquivo baixado é o que o registro publicou.',
           useBtn: 'Usar o comando instalado',
           useAnnounce: 'Comando preenchido com o do agente instalado: {{command}}.',
           removeBtn: 'Remover agente instalado',
@@ -1833,6 +1835,8 @@ const ptBR = {
               'O aplicativo vai baixar o pacote e executar o comando abaixo. Nada é baixado antes de você confirmar.',
             introBinary:
               'O aplicativo vai baixar o arquivo abaixo e conferir se ele confere com o código de verificação publicado pelo registro. Nada é baixado antes de você confirmar.',
+            introUnverified:
+              'O aplicativo vai baixar o arquivo abaixo. Nada é baixado antes de você confirmar.',
             agent: 'Agente',
             version: 'Versão',
             origin: 'Origem',
@@ -1840,7 +1844,11 @@ const ptBR = {
             command: 'Comando que será executado',
             target: 'Versão para o seu sistema',
             digest: 'Código de verificação (SHA-256)',
+            digestMissing: 'Não publicado pelo registro',
+            unverified:
+              'Este agente não publica verificação de integridade: o aplicativo não tem como conferir que o arquivo baixado é o que o registro publicou. Você pode instalar assim mesmo, ou baixar o agente pelo site do fornecedor e apontar o comando aqui.',
             confirmBtn: 'Baixar e instalar',
+            confirmUnverifiedBtn: 'Baixar mesmo sem verificação',
             cancelBtn: 'Cancelar',
           },
           removeConfirm: {

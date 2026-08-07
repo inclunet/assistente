@@ -1792,6 +1792,8 @@ const en = {
           cancelFailed: 'Could not cancel the installation.',
           installed: 'Installed by the application: {{agent}} version {{version}}.',
           installedDir: 'Installation folder: {{dir}}',
+          installedUnverified:
+            'This installation was not verified: the agent publishes no verification code, so the application had no way to check that the downloaded file is the one the registry published.',
           useBtn: 'Use the installed command',
           useAnnounce: 'Command filled in with the installed agent: {{command}}.',
           removeBtn: 'Remove installed agent',
@@ -1833,6 +1835,8 @@ const en = {
               'The application will download the package and run the command below. Nothing is downloaded before you confirm.',
             introBinary:
               'The application will download the file below and check it against the verification code published by the registry. Nothing is downloaded before you confirm.',
+            introUnverified:
+              'The application will download the file below. Nothing is downloaded before you confirm.',
             agent: 'Agent',
             version: 'Version',
             origin: 'Origin',
@@ -1840,7 +1844,11 @@ const en = {
             command: 'Command that will be run',
             target: 'Build for your system',
             digest: 'Verification code (SHA-256)',
+            digestMissing: 'Not published by the registry',
+            unverified:
+              'This agent publishes no integrity verification: the application has no way to check that the downloaded file is the one the registry published. You can install it anyway, or download the agent from the vendor site and point the command here.',
             confirmBtn: 'Download and install',
+            confirmUnverifiedBtn: 'Download without verification',
             cancelBtn: 'Cancel',
           },
           removeConfirm: {
