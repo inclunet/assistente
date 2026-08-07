@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 )
@@ -349,13 +350,27 @@ func binFromManifest(raw json.RawMessage, name string) (string, error) {
 // Exportada porque a guarda é uma só e vale em mais de um lugar: quem instala
 // pelo catálogo também precisa saber se o que vai executar veio de dentro da
 // instalação. Duas implementações da mesma regra divergiriam com o tempo.
+//
+// No Windows a caixa não distingue caminho: `C:\Users` e `c:\users` são o mesmo
+// diretório para o sistema, e compará-los como texto exato recusaria instalação
+// legítima — a resolução de link devolve o caminho com a caixa do disco, que não
+// é necessariamente a que o app montou. É a mesma conclusão a que a validação de
+// caminho do sistema de arquivos já tinha chegado.
 func WithinDir(root, path string) bool {
-	root = filepath.Clean(root)
-	path = filepath.Clean(path)
+	root = normalizeForComparison(root)
+	path = normalizeForComparison(path)
 	if path == root {
 		return true
 	}
 	return strings.HasPrefix(path, root+string(os.PathSeparator))
+}
+
+func normalizeForComparison(p string) string {
+	clean := filepath.Clean(p)
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(clean)
+	}
+	return clean
 }
 
 // readFileAtMost lê o arquivo recusando o que passar do teto. O byte de folga

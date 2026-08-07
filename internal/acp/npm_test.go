@@ -117,6 +117,17 @@ func TestNPMEntryPointAparaOsEspacosDoBinDeclarado(t *testing.T) {
 	}
 }
 
+func TestWithinDirSegueACaixaDoSistema(t *testing.T) {
+	// No Windows a caixa não distingue caminho, e a resolução de link devolve o
+	// caminho com a caixa do disco, que não é necessariamente a que o app
+	// montou: comparar como texto exato recusaria instalação legítima. Onde a
+	// caixa distingue, dois nomes diferentes são dois diretórios.
+	dentro := WithinDir(filepath.Join("C:", "Users", "Ana"), filepath.Join("c:", "users", "ana", "app"))
+	if quer := filepath.Separator == '\\'; dentro != quer {
+		t.Errorf("dentro = %v, queria %v neste sistema", dentro, quer)
+	}
+}
+
 func TestNPMEntryPointRecusaNomeQueNaoEDeUmPacoteInstalado(t *testing.T) {
 	// `..` colapsa para o próprio prefixo e `.` para o `node_modules`: nenhum
 	// dos dois sai dali, e por isso uma guarda contra o prefixo os deixaria
