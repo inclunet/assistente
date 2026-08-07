@@ -83,47 +83,19 @@ func findNodeRuntime(p probe) NodeRuntime {
 
 // nodeExecutable acha o `node` que o app consegue spawnar.
 //
-// O PATH vem primeiro porque é onde o instalador oficial põe o executável nos
-// três sistemas, e é o mesmo `node` que a pessoa vê no terminal dela. Os
-// prefixos conhecidos existem porque o app herda o ambiente de quem o abriu, e
-// não o do shell de login: aberto pelo lançador do sistema, ele não vê o que o
-// `.profile` ou o nvm acrescentaram.
+// É a mesma procura que a tela do catálogo faz por `DetectRuntime`, e de
+// propósito: com duas, a tela diria "Node encontrado" e o instalador diria o
+// contrário na mesma máquina — e a divergência já existia, porque só uma delas
+// conhecia o nvm de Unix. O que sobra aqui é o que só esta fase precisa: o
+// `npm-cli.js` ao lado, o comando do npm e a versão lida do layout do nvm.
 func nodeExecutable(p probe, searched *searchLog) string {
-	if found, err := p.lookPath("node"); err == nil && spawnable(p.goos, found) {
-		return found
+	if node, ok := nodeOnPath(p, searched); ok {
+		return node
 	}
-	if p.goos == "windows" {
-		// Os mesmos prefixos onde o npm global mora: quem instalou pacote
-		// global tem o `node.exe` ao lado, e é ele o dono daqueles pacotes.
-		for _, prefix := range npmGlobalPrefixes(p, searched) {
-			candidate := filepath.Join(prefix, "node.exe")
-			if exists(p, searched, candidate) {
-				return candidate
-			}
-		}
-		return ""
-	}
-	for _, candidate := range unixNodePaths(p) {
-		searched.add(candidate)
-		if exists(p, searched, candidate) {
-			return candidate
-		}
+	if node, ok := nodeInKnownPrefixes(p, searched); ok {
+		return node
 	}
 	return ""
-}
-
-// unixNodePaths são os diretórios de binário que não estão no PATH de um app
-// aberto pelo lançador do sistema. É a mesma lacuna que `cursorInLocalBin`
-// cobre, e pelo mesmo motivo.
-func unixNodePaths(p probe) []string {
-	paths := []string{
-		filepath.Join("/usr", "local", "bin", "node"),
-		filepath.Join("/opt", "homebrew", "bin", "node"),
-	}
-	if home := strings.TrimSpace(p.getenv("HOME")); home != "" {
-		paths = append(paths, filepath.Join(home, ".local", "bin", "node"))
-	}
-	return paths
 }
 
 // nodeVersionFromPath lê a versão no nome do diretório versionado, que é o

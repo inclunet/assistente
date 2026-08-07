@@ -347,6 +347,33 @@ func TestFindNodeRuntimeUnixUsaOPathEAchaONpmDoPrefixo(t *testing.T) {
 	}
 }
 
+func TestFindNodeRuntimeAchaONodeDoNvmDeUnix(t *testing.T) {
+	// O app aberto pelo lançador do sistema não vê o que o `.profile` acrescentou,
+	// e quem usa nvm tem só isso. A procura da tela do catálogo já ia até ali, e
+	// esta não ia: na mesma máquina, a tela dizia que havia Node e a instalação
+	// dizia que não.
+	home := filepath.Join("/home", "alguem")
+	versao := filepath.Join(home, ".nvm", "versions", "node", "v24.4.1")
+	node := filepath.Join(versao, "bin", "node")
+	machine := fakeMachine{
+		goos:  "linux",
+		env:   map[string]string{"HOME": home},
+		files: []string{node, filepath.Join(versao, "lib", "node_modules", "npm", "bin", "npm-cli.js")},
+		dirs: map[string][]string{
+			filepath.Join(home, ".nvm", "versions", "node"): {"v24.4.1"},
+		},
+	}
+
+	runtime := findNodeRuntime(machine.probe())
+
+	if !runtime.Found || runtime.Node != node {
+		t.Fatalf("não achou o node do nvm: %+v", runtime)
+	}
+	if _, _, ok := runtime.NPMCommand(); !ok {
+		t.Error("não montou o comando do npm que fica no prefixo do nvm")
+	}
+}
+
 func TestFindNodeRuntimeLeAVersaoDoDiretorioDoNvm(t *testing.T) {
 	// A versão do runtime é exibida quando o caminho a revela (D7). Descobri-la
 	// de outro jeito exigiria executar o `node`, e a procura não executa nada.
