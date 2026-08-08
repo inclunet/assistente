@@ -1,4 +1,4 @@
-﻿package acpinstall
+package acpinstall
 
 import (
 	"context"
