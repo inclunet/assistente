@@ -162,14 +162,16 @@ jobs:
         run: xvfb-run wails generate module
 
       - name: Avisar se os bindings versionados estão defasados
+        # `core.fileMode=false` porque o bit de execução muda conforme o sistema
+        # de quem gerou o arquivo, e permissão não é defasagem de tipo.
         run: |
           set -euo pipefail
-          if git diff --quiet -- frontend/wailsjs; then
+          if git -c core.fileMode=false diff --quiet -- frontend/wailsjs; then
             echo "Bindings versionados em dia com o gerador."
             exit 0
           fi
           echo "::warning::Os bindings versionados divergem do gerador. Rode 'wails generate module' e commite o resultado."
-          git diff --stat -- frontend/wailsjs
+          git -c core.fileMode=false diff --stat -- frontend/wailsjs
 
       - name: Instalar dependências do frontend
         working-directory: frontend
