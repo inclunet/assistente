@@ -87,6 +87,7 @@ export namespace app {
 	    id: string;
 	    name?: string;
 	    description?: string;
+	    command?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ACPLoginMethod(source);
@@ -97,6 +98,7 @@ export namespace app {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.description = source["description"];
+	        this.command = source["command"];
 	    }
 	}
 	export class ACPAgentHealth {
@@ -104,6 +106,7 @@ export namespace app {
 	    agent_name?: string;
 	    agent_version?: string;
 	    login_methods?: ACPLoginMethod[];
+	    login_command?: string;
 	    work_dir?: string;
 	    latency_ms: number;
 	    error?: string;
@@ -118,6 +121,7 @@ export namespace app {
 	        this.agent_name = source["agent_name"];
 	        this.agent_version = source["agent_version"];
 	        this.login_methods = this.convertValues(source["login_methods"], ACPLoginMethod);
+	        this.login_command = source["login_command"];
 	        this.work_dir = source["work_dir"];
 	        this.latency_ms = source["latency_ms"];
 	        this.error = source["error"];

@@ -376,9 +376,27 @@ export const AgentProviderFields = ({
     return health ? healthAnnouncement(t, health) : '';
   })();
   const resultState = health?.state === 'online' ? 'ok' : 'missing';
-  // Quem sabe o comando de login é a procura, que sabe de que agente se trata;
-  // derivar do que está na tela é o recurso de quando ela não falou.
-  const loginCommand = setup?.login_command || agentLoginCommand(command, args);
+  // O que o agente escreveu sobre o login, com o nome do método na frente para
+  // separar um do outro quando há mais de um. Nem todo agente publica comando,
+  // e vários explicam em texto — o `opencode auth login` chega assim.
+  const loginNotes = (health?.login_methods ?? [])
+    .filter((method) => method.description)
+    .map((method) => ({
+      id: method.id,
+      text: method.name ? `${method.name}: ${method.description}` : (method.description as string),
+    }));
+  // A ordem é do mais informado para o mais adivinhado: primeiro o que o
+  // próprio agente publicou no handshake, que é quem sabe como se autentica
+  // nele; depois o que a procura conhece daquele agente; e o palpite por
+  // último, que só acerta em quem sobe o ACP por subcomando.
+  //
+  // O palpite sai de cena quando o agente explicou o login em texto: ali as
+  // duas instruções apareceriam juntas, e a que tem cara de comando pronto —
+  // um `opencode login` que não existe — é justamente a errada.
+  const loginCommand =
+    health?.login_command ||
+    setup?.login_command ||
+    (loginNotes.length > 0 ? '' : agentLoginCommand(command, args));
 
   return (
     <div className="agent-fields">
@@ -474,13 +492,24 @@ export const AgentProviderFields = ({
       {health?.state === 'unauthenticated' && (
         <div className="agent-fields__login">
           {/*
-            A detecção vem primeiro quando ela sabe o comando: no Claude Code o
-            que sobe o ACP é um adaptador npm sem login nenhum, e derivar dali
-            mandaria a pessoa a um comando que não existe. Quando ninguém sabe
-            dizer o comando, a tela pede a procura em vez de chutar um: comando
-            errado aqui é a pessoa indo ao terminal para ver um "not found".
+            O agente vem primeiro quando ele informa o comando, porque quem o
+            escreveu sabe como se autentica nele — e o palpite do app erra
+            justamente em quem não sobe o ACP por subcomando. Depois vem a
+            procura: no Claude Code o que sobe o ACP é um adaptador npm sem
+            login nenhum, e derivar dali mandaria a pessoa a um comando que não
+            existe. Quando ninguém sabe dizer o comando, a tela pede a procura
+            em vez de chutar um: comando errado aqui é a pessoa indo ao terminal
+            para ver um "not found".
           */}
-          <p>{loginCommand ? t('providerForm.agent.test.loginHelp') : t('providerForm.agent.test.loginUnknown')}</p>
+          <p>
+            {health.login_command
+              ? t('providerForm.agent.test.loginFromAgent')
+              : loginCommand
+                ? t('providerForm.agent.test.loginHelp')
+                : loginNotes.length > 0
+                  ? t('providerForm.agent.test.loginDescribed')
+                  : t('providerForm.agent.test.loginUnknown')}
+          </p>
           {!!loginCommand && <code className="agent-fields__login-command">{loginCommand}</code>}
           {!!health.login_methods?.length && (
             <p className="agent-fields__login-methods">
@@ -488,6 +517,19 @@ export const AgentProviderFields = ({
                 methods: health.login_methods.map((method) => method.name || method.id).join(', '),
               })}
             </p>
+          )}
+          {/*
+            O que o agente escreveu sobre o login, palavra por palavra. Vale
+            para quem explica o comando em texto em vez de publicá-lo, que é a
+            maioria: resumir isso em um rótulo jogaria fora a única instrução
+            que existe.
+          */}
+          {loginNotes.length > 0 && (
+            <ul className="agent-fields__login-notes">
+              {loginNotes.map((note) => (
+                <li key={note.id}>{note.text}</li>
+              ))}
+            </ul>
           )}
         </div>
       )}

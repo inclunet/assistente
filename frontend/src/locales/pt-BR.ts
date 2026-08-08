@@ -1783,6 +1783,10 @@ const ptBR = {
           offline: 'Não foi possível falar com o agente. Confira o comando e a instalação.',
           offlineDetail: 'Não foi possível falar com o agente. Confira o comando e a instalação. Detalhes: {{detail}}',
           loginHelp: 'Abra um terminal e rode o comando abaixo; depois volte aqui e teste de novo.',
+          loginFromAgent:
+            'O próprio agente informou como autenticar. Abra um terminal, rode o comando abaixo e teste de novo.',
+          loginDescribed:
+            'O agente explicou como autenticar. Siga a instrução abaixo num terminal e teste de novo.',
           loginUnknown:
             'Não dá para saber daqui qual comando autentica este agente. Use "Detectar e preencher comando" e teste de novo.',
           loginMethods: 'Autenticação pedida pelo agente: {{methods}}.',

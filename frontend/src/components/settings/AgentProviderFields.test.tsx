@@ -659,6 +659,63 @@ describe('AgentProviderFields — teste do agente', () => {
     );
   });
 
+  it('o comando que o próprio agente informou prevalece sobre o palpite da tela', async () => {
+    // O agente sobe com `--acp` e o palpite da tela produziria
+    // `copilot --acp login`, que não existe. Ele publica o comando certo no
+    // handshake, e é esse que a pessoa tem de ver.
+    detectMock.mockResolvedValue({ detectable: false, found: false, searched: [] });
+    testMock.mockResolvedValue({
+      state: 'unauthenticated',
+      agent_name: 'GitHub Copilot CLI',
+      login_command: 'copilot login',
+      login_methods: [
+        { id: 'copilot-login', name: 'Entrar no Copilot', command: 'copilot login' },
+      ],
+    });
+    const user = userEvent.setup();
+
+    render(<Host initialCommand="copilot" autoFill={false} agentId="github-copilot-cli" />);
+    await user.type(screen.getByLabelText(/argumentos/i), '--acp');
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+
+    expect(await screen.findByText(/o próprio agente informou como autenticar/i)).toBeInTheDocument();
+    expect(screen.getByText('copilot login')).toBeInTheDocument();
+    expect(screen.queryByText(/--acp login/)).not.toBeInTheDocument();
+  });
+
+  it('o que o agente escreveu sobre o login aparece como ele escreveu', async () => {
+    // O OpenCode não publica comando: ele explica em texto que o login é
+    // `opencode auth login`. Resumir isso num rótulo jogaria fora a única
+    // instrução que existe.
+    detectMock.mockResolvedValue({ detectable: false, found: false, searched: [] });
+    testMock.mockResolvedValue({
+      state: 'unauthenticated',
+      agent_name: 'OpenCode',
+      login_methods: [
+        {
+          id: 'opencode-login',
+          name: 'Entrar no OpenCode',
+          description: 'Rode `opencode auth login` no terminal',
+        },
+      ],
+    });
+    const user = userEvent.setup();
+
+    render(<Host initialCommand="opencode" autoFill={false} agentId="opencode" />);
+    await user.type(screen.getByLabelText(/argumentos/i), 'acp');
+    await user.click(screen.getByRole('button', { name: /testar agente/i }));
+
+    expect(await screen.findByText(/instalado, mas não está autenticado/i)).toBeInTheDocument();
+    expect(screen.getByText(/o agente explicou como autenticar/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/entrar no opencode: rode `opencode auth login` no terminal/i),
+    ).toBeInTheDocument();
+    // O palpite da tela seria `opencode login`, que não existe. Mostrá-lo ao
+    // lado da instrução do agente daria duas ordens contraditórias, e a que
+    // tem cara de comando pronto é a errada.
+    expect(screen.queryByText('opencode login')).not.toBeInTheDocument();
+  });
+
   it('agente cujo login é outro programa mostra o comando que a detecção deu', async () => {
     // No Claude Code o que sobe o ACP é um adaptador npm, que não tem login
     // nenhum: quem autentica é o CLI `claude`. Derivar o login do comando
