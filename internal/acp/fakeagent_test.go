@@ -36,6 +36,14 @@ const (
 	// scriptLegado é o agente anterior ao configOptions: desconhece
 	// session/set_config_option e só entende os seletores de antes.
 	scriptLegado = "legado"
+	// scriptLoginPeloMeta é o agente que publica o comando de login no `_meta`
+	// do método de autenticação, com programa e argumentos — o jeito do GitHub
+	// Copilot CLI (AEP-0084, Fase 10).
+	scriptLoginPeloMeta = "login-meta"
+	// scriptLoginPeloTerminal é o agente que usa a variante de terminal do
+	// protocolo: ele dá os argumentos e o programa é ele mesmo, como o
+	// `opencode auth login`.
+	scriptLoginPeloTerminal = "login-terminal"
 	// scriptSoLegado é o agente que anuncia os modelos apenas no formato de
 	// antes — `models`, sem configOptions nenhum —, como o GitHub Copilot CLI
 	// (AEP-0084, Fase 10). O scriptLegado não serve para isso: ele recusa o
@@ -211,9 +219,7 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 				"promptCapabilities":  map[string]any{"image": true, "audio": false, "embeddedContext": false},
 				"sessionCapabilities": map[string]any{"close": map[string]any{}},
 			},
-			"authMethods": []any{
-				map[string]any{"id": "login_falso", "name": "Entrar", "description": "rode o login no terminal"},
-			},
+			"authMethods": a.authMethods(),
 		})
 
 	case "session/new":
@@ -398,6 +404,48 @@ func (a *fakeAgent) newSessionID() string {
 // startModel é o modelo em que uma sessão nasce. No roteiro de descoberta cada
 // sessão nasce num modelo diferente: é o que permite distinguir a lista que veio
 // do agente agora da que estava guardada.
+// authMethods é o que o agente conta sobre o próprio login. O padrão é o agente
+// que descreve em texto e não diz o comando — o caso do Cursor. Os roteiros de
+// login cobrem os dois jeitos de dizer que existem no mundo: pelo `_meta`, com
+// programa e argumentos prontos, e pela variante de terminal, que dá só os
+// argumentos porque o programa é o próprio agente.
+func (a *fakeAgent) authMethods() []any {
+	switch a.script {
+	case scriptLoginPeloMeta:
+		return []any{
+			map[string]any{
+				"id":          "login_falso",
+				"name":        "Entrar",
+				"description": "rode o login no terminal",
+				"_meta": map[string]any{
+					"terminal-auth": map[string]any{
+						"command": "copilot",
+						// O escape ANSI está aqui de propósito: linha de
+						// comando que se pinta diferente do que se copia é o
+						// que o saneamento existe para impedir.
+						"args":  []any{"\x1b[31mlogin", "", "--device \tcode"},
+						"label": "Entrar no Copilot",
+					},
+				},
+			},
+		}
+	case scriptLoginPeloTerminal:
+		return []any{
+			map[string]any{
+				"type":        "terminal",
+				"id":          "login_falso",
+				"name":        "Entrar",
+				"description": "Run `opencode auth login` in the terminal",
+				"args":        []any{"auth", "login"},
+			},
+		}
+	default:
+		return []any{
+			map[string]any{"id": "login_falso", "name": "Entrar", "description": "rode o login no terminal"},
+		}
+	}
+}
+
 func (a *fakeAgent) startModel(sid string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()

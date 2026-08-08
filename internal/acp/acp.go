@@ -218,6 +218,90 @@ type AuthMethod struct {
 	Name        string
 	Description string
 	Kind        AuthKind
+
+	// Login é o comando de autenticação que o agente informou, quando ele
+	// informa (AEP-0084 Fase 10). Vazio é o agente que não disse nada, e aí
+	// quem tem de saber o comando é o app.
+	Login LoginHint
+}
+
+// LoginHint é o comando de login descrito pelo próprio agente. Ele existe
+// porque o palpite do app — trocar o argumento que sobe o ACP por `login` —
+// acerta no Cursor por coincidência de forma e erra em quem não tem essa forma:
+// o login do OpenCode é `opencode auth login`, e o de um agente que sobe com
+// `--acp` não é `<agente> --acp login`.
+//
+// Nada daqui é executado pelo app. É texto vindo do agente (AEP-0084 D11), e
+// serve para ser mostrado a quem vai rodá-lo no terminal.
+type LoginHint struct {
+	// Command é o programa a rodar. Vazio com Args preenchido quer dizer o
+	// próprio comando do agente com outros argumentos, que é como a variante
+	// de terminal do protocolo descreve o login dela.
+	Command string
+	Args    []string
+
+	// Label é o rótulo que o agente deu à ação, quando deu.
+	Label string
+}
+
+// Known diz se o agente informou alguma coisa sobre como autenticar.
+func (h LoginHint) Known() bool {
+	return h.Command != "" || len(h.Args) > 0
+}
+
+// CommandLine monta a linha para a pessoa copiar no terminal. Quando o hint
+// traz o programa, é ele e mais nada: o agente descreveu a linha inteira.
+//
+// Sem programa, o hint descreve argumentos do binário do agente, e aí o app
+// precisa saber qual é esse binário. Ele sabe quando o que está configurado é o
+// executável do agente com um subcomando; não sabe quando é um interpretador
+// rodando um script — `node ...\index.js acp` —, porque ali o agente é o par, e
+// nem o executável sozinho nem o par inteiro com os argumentos de login no fim
+// dão a linha certa. Nesse caso não se monta nada, e o que fica na tela é a
+// descrição que o próprio agente escreveu.
+//
+// Argumento com espaço vai entre aspas, porque quem copia isto está no
+// caminho do Windows com `C:\Program Files\...` mais vezes do que gostaria —
+// a não ser que ele já traga aspas, e aí quem citou foi o agente: acrescentar
+// as nossas por cima faria `""C:\Program Files\x""`, que não roda em lugar
+// nenhum. O jeito de escapar aspas muda de shell para shell, e esta linha é
+// para ser lida e copiada, não executada pelo app; então ela sai como o agente
+// escreveu.
+func (h LoginHint) CommandLine(agentCommand string, agentArgs []string) string {
+	// Sem nada informado não há linha: devolver o comando do agente sozinho
+	// seria o app inventando uma instrução e assinando-a como do agente.
+	if !h.Known() {
+		return ""
+	}
+	program := h.Command
+	if program == "" {
+		if !spawnsDirectly(agentArgs) {
+			return ""
+		}
+		program = strings.TrimSpace(agentCommand)
+	}
+	if program == "" {
+		return ""
+	}
+	parts := append([]string{program}, h.Args...)
+	for i, part := range parts {
+		if strings.ContainsAny(part, " \t") && !strings.Contains(part, `"`) {
+			parts[i] = `"` + part + `"`
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// spawnsDirectly diz se o comando configurado é o próprio executável do agente.
+// O sinal é o separador de caminho nos argumentos: `acp` é subcomando de um
+// CLI, `C:\npm\...\index.js` é o agente sendo carregado por outro programa.
+func spawnsDirectly(agentArgs []string) bool {
+	for _, arg := range agentArgs {
+		if strings.ContainsAny(arg, `/\`) {
+			return false
+		}
+	}
+	return true
 }
 
 // AuthKind diz quem conduz a autenticação, o que muda a instrução dada à
@@ -230,6 +314,22 @@ const (
 	AuthKindEnvVar   AuthKind = "env_var"
 	AuthKindTerminal AuthKind = "terminal"
 )
+
+// LoginCommandFrom escolhe, entre os métodos anunciados, a linha de login que a
+// tela destaca. Fica a primeira que dá para montar: a ordem é do agente, e ele
+// lista o método principal antes dos alternativos.
+//
+// Vazio é o agente que não informou nada, ou informou de um jeito que não se
+// completa com o comando configurado — e aí quem precisa saber o comando é o
+// app, pelo que ele conhece daquele agente ou, em último caso, pelo palpite.
+func LoginCommandFrom(methods []AuthMethod, agentCommand string, agentArgs []string) string {
+	for _, method := range methods {
+		if line := method.Login.CommandLine(agentCommand, agentArgs); line != "" {
+			return line
+		}
+	}
+	return ""
+}
 
 // Content é um bloco da mensagem enviada ao agente.
 type Content struct {

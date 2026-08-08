@@ -97,6 +97,20 @@ func SanitizeContent(s string) string {
 	return strings.TrimSpace(out.String())
 }
 
+// SanitizeCommandPart prepara um pedaço de linha de comando vindo do agente —
+// o programa ou um argumento dele. Não serve o saneamento de rótulo aqui:
+// rótulo é para ler, e por isso ele resume; um comando é para copiar, e um
+// comando resumido é pior do que comando nenhum, porque a pessoa cola no
+// terminal uma linha que parece inteira e termina em `C:\Program Files\…`.
+//
+// Daqui sai o texto sem o que engana o olho e em linha única: todo espaço em
+// branco vira um espaço só. A quebra e a tabulação são o motivo — coladas no
+// terminal, partiriam a linha em duas, e a segunda metade rodaria sozinha —, e
+// o espaço repetido vai junto porque não separa nada no shell.
+func SanitizeCommandPart(s string) string {
+	return strings.Join(strings.Fields(SanitizeContent(s)), " ")
+}
+
 // withinBudget corta o texto antes de qualquer trabalho sobre ele, em fronteira
 // de runa para não partir um caractere ao meio.
 func withinBudget(s string, budget int) string {

@@ -38,6 +38,7 @@ func authMethodFrom(method sdk.AuthMethod) (AuthMethod, bool) {
 			Name:        method.Agent.Name,
 			Description: derefString(method.Agent.Description),
 			Kind:        AuthKindAgent,
+			Login:       loginHintFrom(method.Agent.Meta, nil),
 		}, true
 	case method.EnvVar != nil:
 		return AuthMethod{
@@ -52,9 +53,68 @@ func authMethodFrom(method sdk.AuthMethod) (AuthMethod, bool) {
 			Name:        method.Terminal.Name,
 			Description: derefString(method.Terminal.Description),
 			Kind:        AuthKindTerminal,
+			// A variante de terminal descreve o login como argumentos do
+			// próprio agente. O `_meta` tem precedência sobre eles: quem
+			// escreve os dois está dizendo que a linha completa é a de lá.
+			Login: loginHintFrom(method.Terminal.Meta, method.Terminal.Args),
 		}, true
 	}
 	return AuthMethod{}, false
+}
+
+// metaTerminalAuth é a chave sob a qual um agente publica o comando que
+// autentica. Ela não é do padrão — é extensão, e por isso mora no `_meta` —,
+// mas é o que o GitHub Copilot CLI usa, e ler o que o agente diz é sempre
+// melhor do que adivinhar (AEP-0084 Fase 10).
+const metaTerminalAuth = "terminal-auth"
+
+// loginHintFrom lê o comando de login que o agente publicou. Tudo o que sai
+// daqui é texto do agente e passa pelo saneamento (D11), porque vai para a
+// tela: sequência de escape numa linha de comando é como se pinta na tela uma
+// coisa diferente da que se copia. O rótulo é saneado como rótulo; o programa e
+// os argumentos, como pedaços de comando, que não se resumem.
+func loginHintFrom(meta map[string]any, fallbackArgs []string) LoginHint {
+	hint := LoginHint{Args: sanitizedArgs(fallbackArgs)}
+
+	entry, ok := meta[metaTerminalAuth].(map[string]any)
+	if !ok {
+		return hint
+	}
+	if command, ok := entry["command"].(string); ok {
+		hint.Command = SanitizeCommandPart(command)
+	}
+	if label, ok := entry["label"].(string); ok {
+		hint.Label = SanitizeLabel(label)
+	}
+	// Argumentos só são substituídos quando o `_meta` traz a lista: uma lista
+	// vazia lá é o agente dizendo que o comando não leva argumento, e mantê-los
+	// misturaria duas descrições diferentes do mesmo login.
+	if args, ok := entry["args"].([]any); ok {
+		hint.Args = sanitizedArgs(stringsOf(args))
+	}
+	return hint
+}
+
+func stringsOf(values []any) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if text, ok := value.(string); ok {
+			out = append(out, text)
+		}
+	}
+	return out
+}
+
+// sanitizedArgs limpa cada argumento e descarta os que ficaram vazios: um `""`
+// no meio da linha é argumento que a pessoa passaria ao agente sem querer.
+func sanitizedArgs(args []string) []string {
+	var out []string
+	for _, arg := range args {
+		if clean := SanitizeCommandPart(arg); clean != "" {
+			out = append(out, clean)
+		}
+	}
+	return out
 }
 
 func derefString(value *string) string {
