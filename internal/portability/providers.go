@@ -193,16 +193,20 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 		if normalized.ACPCommand == "" {
 			return ProviderExport{}, fmt.Errorf("provider %q em formato acp sem acpCommand não pode ser importado", normalized.ID)
 		}
-		// Arquivo escrito antes da emenda do D11 nomeia o agente no tipo. Ele
-		// entra pelo vocabulário de hoje: tipo único, agente no campo próprio.
-		// Importar como estava criaria, do lado de fora da migração, o provedor
-		// com tipo que o app não oferece mais.
-		if agentID, legado := acpregistry.LegacyProviderTypeAgentID(normalized.Type); legado {
-			normalized.Type = acpProviderType
-			if normalized.ACPAgentID == "" {
-				normalized.ACPAgentID = agentID
-			}
+		// O provedor entra pelo vocabulário de hoje: quem sobe agente é do tipo
+		// único, seja qual for o nome que o arquivo deu a ele. Isso vale para o
+		// arquivo escrito antes da emenda do D11, que nomeia o agente no tipo,
+		// e igualmente para o que traz qualquer outro nome — importar como está
+		// criaria, do lado de fora da migração, provedor com tipo que o app não
+		// oferece mais para agente.
+		//
+		// Do nome antigo se aproveita qual agente ele dizia ser, quando o
+		// arquivo não trouxe isso no campo próprio.
+		if agentID, legado := acpregistry.LegacyProviderTypeAgentID(normalized.Type); legado &&
+			normalized.ACPAgentID == "" {
+			normalized.ACPAgentID = agentID
 		}
+		normalized.Type = acpProviderType
 		return normalized, nil
 	}
 	// Configuração de agente fora do formato acp não teria leitor: nenhum

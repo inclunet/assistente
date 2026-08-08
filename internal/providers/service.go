@@ -253,18 +253,22 @@ func normalizeProviderACP(p *llm.ProviderConfig) {
 	p.CredentialPattern = ""
 	p.AuthMode = llm.AuthModeNone
 
-	// Agente gravado com o vocabulário anterior ao D11 — quando cada um tinha
-	// seu tipo — chega aqui como o de hoje: tipo único, agente no campo
-	// próprio. A migração v12 converte o banco no boot, mas ela pode ter sido
-	// adiada, e um banco pode ter chegado por cópia de arquivo. Normalizar na
-	// leitura faz o resto do app nunca precisar conhecer os nomes antigos, que
-	// é o que o D11 promete.
-	if agentID, legado := acpregistry.LegacyProviderTypeAgentID(string(p.Type)); legado {
-		p.Type = llm.ProviderACP
-		if strings.TrimSpace(p.ACPAgentID) == "" {
-			p.ACPAgentID = agentID
-		}
+	// Quem manda no tipo é o formato: se o provedor sobe um agente, ele é do
+	// tipo único, seja qual for o nome com que chegou aqui. O D11 vale para
+	// todos, e não só para os dois tipos que ele aposentou — provedor gravado
+	// como `custom` com formato acp, ou importado assim, também é agente, e
+	// deixá-lo passar reintroduziria pela porta dos fundos o que a decisão
+	// tirou pela frente.
+	//
+	// Dos nomes antigos ainda se aproveita uma coisa: eles diziam qual agente
+	// era. A migração v12 converte o banco no boot, mas pode ter sido adiada,
+	// e um banco pode ter chegado por cópia de arquivo. Normalizar na leitura
+	// faz o resto do app nunca precisar conhecer aqueles nomes.
+	if agentID, legado := acpregistry.LegacyProviderTypeAgentID(string(p.Type)); legado &&
+		strings.TrimSpace(p.ACPAgentID) == "" {
+		p.ACPAgentID = agentID
 	}
+	p.Type = llm.ProviderACP
 }
 
 // copyStringMap devolve uma cópia rasa, ou nil quando não há nada. Guardar o

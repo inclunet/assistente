@@ -137,6 +137,29 @@ func TestOAgenteJaConvertidoNaoTemOAgenteTrocadoPeloTipoAntigo(t *testing.T) {
 	}
 }
 
+func TestQualquerNomeDeTipoNumAgenteVemParaOTipoUnico(t *testing.T) {
+	// O D11 vale para todos, e não só para os dois nomes que ele aposentou.
+	// Quem sobe agente é do tipo único, e um provedor gravado como `custom`
+	// com formato acp reintroduziria pela porta dos fundos o que a decisão
+	// tirou pela frente. Sem `id` do registro ele fica: agente apontado à mão
+	// é caminho válido, e inventar um seria pior do que não ter nenhum.
+	p := &llm.ProviderConfig{
+		ID:         "meu-agente",
+		Name:       "Agente da casa",
+		Type:       llm.ProviderCustom,
+		APIFormat:  llm.APIFormatACP,
+		ACPCommand: "meu-agente",
+	}
+	normalizeProviderRuntimeDefaults(p)
+
+	if p.Type != llm.ProviderACP {
+		t.Errorf("tipo = %q, queria acp", p.Type)
+	}
+	if p.ACPAgentID != "" {
+		t.Errorf("ganhou agente do registro sem ninguém ter escolhido um: %q", p.ACPAgentID)
+	}
+}
+
 func TestOProvedorHTTPChamadoDeCursorContinuaSendoOQueEra(t *testing.T) {
 	// A tradução só vale para agente: `cursor` também é nome que alguém pode ter
 	// dado a um provedor HTTP, e convertê-lo inventaria configuração de agente.

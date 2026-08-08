@@ -297,6 +297,51 @@ func TestImportacaoTrazOProvedorDeTipoAntigoParaOTipoUnico(t *testing.T) {
 	}
 }
 
+// Não é só o vocabulário aposentado que entra pelo tipo único: um arquivo pode
+// nomear o agente de qualquer coisa, e importar aquilo como está gravaria, do
+// lado de fora da migração, tipo que o app não oferece mais para agente.
+func TestOAgenteImportadoComQualquerTipoEntraComOTipoUnico(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			Providers: []ProviderExport{{
+				ID:         "agente-da-casa",
+				Name:       "Agente da casa",
+				Type:       "custom",
+				APIFormat:  "acp",
+				ACPCommand: "meu-agente",
+			}},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	if _, err := ImportConversationsWithContext(portabilityTestCtx(), string(raw), nil, ""); err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+
+	imported, err := database.GetLLMProviderWithContext(portabilityTestCtx(), "agente-da-casa")
+	if err != nil {
+		t.Fatalf("GetLLMProvider() error = %v", err)
+	}
+	if imported.Type != string(llm.ProviderACP) {
+		t.Errorf("tipo = %q, queria %q", imported.Type, llm.ProviderACP)
+	}
+	// Agente apontado à mão é caminho válido: sem `id` no arquivo, ele fica
+	// sem nenhum, e não com um inventado a partir do tipo.
+	if imported.ACPAgentID != "" {
+		t.Errorf("agente = %q, queria nenhum", imported.ACPAgentID)
+	}
+	if imported.ACPCommand != "meu-agente" {
+		t.Errorf("comando = %q, queria intacto", imported.ACPCommand)
+	}
+}
+
 // O tipo antigo só diz qual agente é quando o provedor é um agente. Chamar de
 // "cursor" um provedor HTTP é escolha de quem o cadastrou, e converter aquilo
 // em agente do registro seria inventar configuração que ninguém pediu.
