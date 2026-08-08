@@ -281,7 +281,7 @@ func (a *App) ACPAgentInstallPlanForKind(kind string) (ACPInstallPlan, error) {
 	if err != nil {
 		return emptyInstallPlan(), err
 	}
-	agentID := acpinstall.RegistryIDForKind(kind)
+	agentID := acpregistry.IDForKind(kind)
 	if agentID == "" {
 		return emptyInstallPlan(), nil
 	}

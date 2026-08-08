@@ -8,6 +8,7 @@ import (
 
 	"assistente/internal/acp"
 	"assistente/internal/acpinstall"
+	"assistente/internal/acpregistry"
 )
 
 func TestProgressoDaInstalacaoVaiParaATelaComOAgenteQueOMotivou(t *testing.T) {
@@ -184,13 +185,13 @@ func TestTipoDeProviderSemCorrespondenteNoCatalogo(t *testing.T) {
 	// O mapeamento entre tipo de provider do app e `id` do registro existe
 	// escrito num lugar só (D11), e tipo sem correspondente não é erro:
 	// configurar comando e argumentos à mão continua sendo caminho válido.
-	if id := acpinstall.RegistryIDForKind("claude-code"); id != "claude-acp" {
+	if id := acpregistry.IDForKind("claude-code"); id != "claude-acp" {
 		t.Errorf("claude-code virou %q, queria claude-acp", id)
 	}
-	if id := acpinstall.RegistryIDForKind("cursor"); id != "cursor" {
+	if id := acpregistry.IDForKind("cursor"); id != "cursor" {
 		t.Errorf("cursor virou %q, queria cursor", id)
 	}
-	if id := acpinstall.RegistryIDForKind("openai"); id != "" {
+	if id := acpregistry.IDForKind("openai"); id != "" {
 		t.Errorf("um provedor HTTP virou o agente %q", id)
 	}
 }
