@@ -173,159 +173,6 @@ export namespace app {
 	        this.work_dir = source["work_dir"];
 	    }
 	}
-	export class ACPInstallConfirmation {
-	    distribution?: string;
-	    origin?: string;
-	    sha256?: string;
-	    accept_unverified?: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPInstallConfirmation(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.distribution = source["distribution"];
-	        this.origin = source["origin"];
-	        this.sha256 = source["sha256"];
-	        this.accept_unverified = source["accept_unverified"];
-	    }
-	}
-	export class ACPRuntimeStatus {
-	    name: string;
-	    required: boolean;
-	    found: boolean;
-	    path?: string;
-	    version?: string;
-	    searched?: string[];
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPRuntimeStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.required = source["required"];
-	        this.found = source["found"];
-	        this.path = source["path"];
-	        this.version = source["version"];
-	        this.searched = source["searched"];
-	    }
-	}
-	export class ACPInstallation {
-	    agent_id: string;
-	    name: string;
-	    version: string;
-	    distribution: string;
-	    target: string;
-	    command: string;
-	    args: string[];
-	    dir: string;
-	    sha256?: string;
-	    sha256_origin?: string;
-	    installed_at: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPInstallation(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.agent_id = source["agent_id"];
-	        this.name = source["name"];
-	        this.version = source["version"];
-	        this.distribution = source["distribution"];
-	        this.target = source["target"];
-	        this.sha256 = source["sha256"];
-	        this.sha256_origin = source["sha256_origin"];
-	        this.command = source["command"];
-	        this.args = source["args"];
-	        this.dir = source["dir"];
-	        this.installed_at = source["installed_at"];
-	    }
-	}
-	export class ACPInstallPlan {
-	    agent_id: string;
-	    name: string;
-	    version: string;
-	    distribution: string;
-	    origin: string;
-	    target?: string;
-	    sha256?: string;
-	    unverified?: boolean;
-	    dir: string;
-	    install_command?: string;
-	    run_args: string[];
-	    runtime: ACPRuntimeStatus;
-	    can_install: boolean;
-	    reason?: string;
-	    installed?: ACPInstallation;
-	    installing: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPInstallPlan(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.agent_id = source["agent_id"];
-	        this.name = source["name"];
-	        this.version = source["version"];
-	        this.distribution = source["distribution"];
-	        this.origin = source["origin"];
-	        this.target = source["target"];
-	        this.sha256 = source["sha256"];
-	        this.unverified = source["unverified"];
-	        this.dir = source["dir"];
-	        this.install_command = source["install_command"];
-	        this.run_args = source["run_args"];
-	        this.runtime = this.convertValues(source["runtime"], ACPRuntimeStatus);
-	        this.can_install = source["can_install"];
-	        this.reason = source["reason"];
-	        this.installed = this.convertValues(source["installed"], ACPInstallation);
-	        this.installing = source["installing"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class ACPInstallProgress {
-	    agent_id: string;
-	    agent?: string;
-	    stage: string;
-	    step?: string;
-	    reason?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ACPInstallProgress(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.agent_id = source["agent_id"];
-	        this.agent = source["agent"];
-	        this.stage = source["stage"];
-	        this.step = source["step"];
-	        this.reason = source["reason"];
-	    }
-	}
-	
 	export class ACPCatalogAgent {
 	    id: string;
 	    name: string;
@@ -415,6 +262,141 @@ export namespace app {
 		}
 	}
 	
+	export class ACPInstallConfirmation {
+	    distribution?: string;
+	    origin?: string;
+	    sha256?: string;
+	    accept_unverified?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPInstallConfirmation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.distribution = source["distribution"];
+	        this.origin = source["origin"];
+	        this.sha256 = source["sha256"];
+	        this.accept_unverified = source["accept_unverified"];
+	    }
+	}
+	export class ACPInstallation {
+	    agent_id: string;
+	    name: string;
+	    version: string;
+	    distribution: string;
+	    target: string;
+	    command: string;
+	    args: string[];
+	    dir: string;
+	    sha256?: string;
+	    sha256_origin?: string;
+	    installed_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPInstallation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agent_id = source["agent_id"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.distribution = source["distribution"];
+	        this.target = source["target"];
+	        this.command = source["command"];
+	        this.args = source["args"];
+	        this.dir = source["dir"];
+	        this.sha256 = source["sha256"];
+	        this.sha256_origin = source["sha256_origin"];
+	        this.installed_at = source["installed_at"];
+	    }
+	}
+	export class ACPRuntimeStatus {
+	    name: string;
+	    required: boolean;
+	    found: boolean;
+	    path?: string;
+	    version?: string;
+	    searched?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPRuntimeStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.required = source["required"];
+	        this.found = source["found"];
+	        this.path = source["path"];
+	        this.version = source["version"];
+	        this.searched = source["searched"];
+	    }
+	}
+	export class ACPInstallPlan {
+	    agent_id: string;
+	    name: string;
+	    version: string;
+	    distribution: string;
+	    origin: string;
+	    target?: string;
+	    sha256?: string;
+	    unverified?: boolean;
+	    dir: string;
+	    install_command?: string;
+	    run_args: string[];
+	    runtime: ACPRuntimeStatus;
+	    can_install: boolean;
+	    reason?: string;
+	    installed?: ACPInstallation;
+	    installing: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ACPInstallPlan(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agent_id = source["agent_id"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.distribution = source["distribution"];
+	        this.origin = source["origin"];
+	        this.target = source["target"];
+	        this.sha256 = source["sha256"];
+	        this.unverified = source["unverified"];
+	        this.dir = source["dir"];
+	        this.install_command = source["install_command"];
+	        this.run_args = source["run_args"];
+	        this.runtime = this.convertValues(source["runtime"], ACPRuntimeStatus);
+	        this.can_install = source["can_install"];
+	        this.reason = source["reason"];
+	        this.installed = this.convertValues(source["installed"], ACPInstallation);
+	        this.installing = source["installing"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
 	export class AgentCommand {
 	    name: string;
 	    description?: string;
@@ -502,28 +484,6 @@ export namespace app {
 	        this.grantedAt = source["grantedAt"];
 	    }
 	}
-	export class AgentWorkDir {
-	    conversationId: string;
-	    available: boolean;
-	    dir: string;
-	    workspaceDir: string;
-	    pinned: boolean;
-	    sessionDir?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new AgentWorkDir(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.conversationId = source["conversationId"];
-	        this.available = source["available"];
-	        this.dir = source["dir"];
-	        this.workspaceDir = source["workspaceDir"];
-	        this.pinned = source["pinned"];
-	        this.sessionDir = source["sessionDir"];
-	    }
-	}
 	export class AgentSessionCommands {
 	    conversationId: string;
 	    commands: AgentCommand[];
@@ -589,6 +549,28 @@ export namespace app {
 		    }
 		    return a;
 		}
+	}
+	export class AgentWorkDir {
+	    conversationId: string;
+	    available: boolean;
+	    dir: string;
+	    workspaceDir: string;
+	    pinned: boolean;
+	    sessionDir?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentWorkDir(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.available = source["available"];
+	        this.dir = source["dir"];
+	        this.workspaceDir = source["workspaceDir"];
+	        this.pinned = source["pinned"];
+	        this.sessionDir = source["sessionDir"];
+	    }
 	}
 	export class AuthStatus {
 	    vaultConfigured: boolean;
@@ -2161,6 +2143,7 @@ export namespace database {
 	    kind?: string;
 	    parentConversationId?: string;
 	    latestStatus?: string;
+	    agentWorkDir?: string;
 	    summary?: string;
 	    summary_up_to_message_id?: string;
 	    summarizing_in_progress?: boolean;
@@ -2183,6 +2166,7 @@ export namespace database {
 	        this.kind = source["kind"];
 	        this.parentConversationId = source["parentConversationId"];
 	        this.latestStatus = source["latestStatus"];
+	        this.agentWorkDir = source["agentWorkDir"];
 	        this.summary = source["summary"];
 	        this.summary_up_to_message_id = source["summary_up_to_message_id"];
 	        this.summarizing_in_progress = source["summarizing_in_progress"];
@@ -3611,6 +3595,7 @@ export namespace llm {
 		    return a;
 		}
 	}
+	
 	export class ToolDefinition {
 	    type: string;
 	    function: FunctionDefinition;
