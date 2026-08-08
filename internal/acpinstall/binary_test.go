@@ -357,6 +357,36 @@ func TestAMemoriaIlegivelNaoTravaAInstalacao(t *testing.T) {
 	}
 }
 
+func TestAMemoriaGrandeDemaisERecusadaPeloNomeDela(t *testing.T) {
+	// A recusa por tamanho vai para o log de quem precisa achar o arquivo, e o
+	// teto vale para mais de um arquivo do pacote: dizer só o teto deixaria a
+	// mensagem apontando para o registro de instalação, que não é este.
+	c := montar(t, opcoes{
+		agentes: []acpregistry.Agent{agenteOpencode(t, "")},
+		runtime: runtimeSemNode,
+		http:    &clienteFalso{corpo: pacoteDoOpencode(t)},
+	})
+	if err := os.MkdirAll(c.root, 0o755); err != nil {
+		t.Fatalf("erro ao preparar a raiz: %v", err)
+	}
+	caminho := filepath.Join(c.root, knownFileName)
+	if err := os.WriteFile(caminho, make([]byte, maxKnownBytes+1), 0o644); err != nil {
+		t.Fatalf("erro ao escrever a memória grande demais: %v", err)
+	}
+
+	_, err := c.instalador.readKnown()
+	if err == nil {
+		t.Fatal("a memória acima do teto foi lida como se coubesse")
+	}
+	if !strings.Contains(err.Error(), "memória de artefatos") {
+		t.Errorf("a recusa não nomeia o arquivo recusado: %v", err)
+	}
+	// E ela não trava a instalação, pelo mesmo motivo da memória ilegível.
+	if _, err := instalarSemDigest(t, c); err != nil {
+		t.Fatalf("a instalação falhou por causa da memória grande demais: %v", err)
+	}
+}
+
 func TestInstalarOArtefatoBaixaConfereAbreEGravaORegistro(t *testing.T) {
 	pacote := pacoteDoOpencode(t)
 	digest := digestDe(pacote)

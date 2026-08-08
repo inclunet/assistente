@@ -109,7 +109,7 @@ func (i *Installer) readKnown() (knownArtifacts, error) {
 	if path == "" {
 		return knownArtifacts{}, nil
 	}
-	data, err := readAtMost(path, maxKnownBytes)
+	data, err := readAtMost(path, maxKnownBytes, "a memória de artefatos")
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return knownArtifacts{}, nil
