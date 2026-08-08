@@ -167,7 +167,7 @@ func (c *client) NewSession(ctx context.Context, cwd string) (Session, error) {
 // duplicar isso deixaria a segunda sem o tratamento das opções que a primeira
 // recebe.
 func (c *conn) openSession(ctx context.Context, dir string) (*session, error) {
-	resp, err := sdk.SendRequest[sdk.NewSessionResponse](c.rpc, ctx, sdk.AgentMethodSessionNew, sdk.NewSessionRequest{
+	resp, err := sdk.SendRequest[newSessionResponse](c.rpc, ctx, sdk.AgentMethodSessionNew, sdk.NewSessionRequest{
 		Cwd:        dir,
 		McpServers: []sdk.McpServer{},
 	})
@@ -178,8 +178,23 @@ func (c *conn) openSession(ctx context.Context, dir string) (*session, error) {
 		return nil, errors.New("agente ACP devolveu sessão sem identificador")
 	}
 
-	options := withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes)
+	options := withModelOption(withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes), resp.Models)
 	return c.registerSession(string(resp.SessionId), dir, options), nil
+}
+
+// As respostas de abertura e retomada de sessão passam pelo tipo do SDK com um
+// campo a mais: `models`, o formato anterior ao configOptions, que o SDK não
+// tipa. Embutir o tipo dele mantém tudo o que ele já sabe ler e acrescenta só o
+// que falta — copiar a estrutura inteira aqui a deixaria envelhecer sozinha a
+// cada versão do SDK.
+type newSessionResponse struct {
+	sdk.NewSessionResponse
+	Models *legacyModelState `json:"models,omitempty"`
+}
+
+type loadSessionResponse struct {
+	sdk.LoadSessionResponse
+	Models *legacyModelState `json:"models,omitempty"`
 }
 
 func (c *client) LoadSession(ctx context.Context, sessionID, cwd string) (Session, error) {
@@ -203,7 +218,7 @@ func (c *client) LoadSession(ctx context.Context, sessionID, cwd string) (Sessio
 	// e uma sessão desconhecida faria o transporte descartá-las.
 	sess := cn.registerSession(sessionID, dir, nil)
 
-	resp, err := sdk.SendRequest[sdk.LoadSessionResponse](cn.rpc, ctx, sdk.AgentMethodSessionLoad, sdk.LoadSessionRequest{
+	resp, err := sdk.SendRequest[loadSessionResponse](cn.rpc, ctx, sdk.AgentMethodSessionLoad, sdk.LoadSessionRequest{
 		SessionId:  sdk.SessionId(sessionID),
 		Cwd:        dir,
 		McpServers: []sdk.McpServer{},
@@ -213,7 +228,7 @@ func (c *client) LoadSession(ctx context.Context, sessionID, cwd string) (Sessio
 		return nil, wrapCallError("retomar sessão no agente ACP", err)
 	}
 
-	sess.setConfigOptions(withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes))
+	sess.setConfigOptions(withModelOption(withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes), resp.Models))
 	return sess, nil
 }
 

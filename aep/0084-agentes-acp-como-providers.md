@@ -1101,65 +1101,73 @@ Decisões que a fase fixou:
   assunto, não com o perfil; guardar um padrão no perfil criaria uma segunda
   fonte de verdade para algo que a pessoa troca no meio do caminho.
 
-### Fase 9 — OpenCode
+### Fase 9 — Os modelos que só vêm no formato anterior (feita)
 
-> **A ser reescrita.** O AEP-0086 adota o registro oficial do protocolo como
-> catálogo e caminho de instalação, e o OpenCode é um dos agentes que ele
-> instala com verificação de digest. Esta fase será refeita em cima do que o
-> registro resolve, em vez de acrescentar mais uma detecção escrita à mão.
+> **Reescrita.** Esta fase era "OpenCode", e o que ela tinha de trabalho era
+> ensinar o app a encontrar e instalar mais um agente. O AEP-0086 passou a
+> resolver isso para os 38 do registro de uma vez, e o OpenCode é um deles. O
+> que sobrou dela e não sobrou de lá é o que está escrito abaixo, junto com o
+> que era da Fase 10 pelo mesmo assunto: o app não sabia ler os modelos que um
+> agente anuncia pelo formato anterior ao `configOptions`, e isso não é sobre
+> agente nenhum em particular.
 
-Terceiro agente, e o primeiro que responde **só no formato novo**. Ele é a prova
-de que o `configOptions` é o caminho principal e o legado é mesmo alternativa —
-até aqui os dois vinham sempre juntos, do mesmo Cursor, e nada obrigava o app a
-funcionar com um só. Também é o primeiro cujo binário não é o par node+js: o
-pacote npm instala um executável nativo, o que exercita a detecção fora do
-layout que o Cursor impôs a ela.
+O D6 decidiu, lá atrás, que os modelos vêm do `configOptions` e caem para
+`models.availableModels[]` quando o agente não oferece o primeiro. A metade da
+frente foi escrita; a de trás, não — e ninguém sentiu falta, porque o Cursor
+manda os dois formatos no mesmo payload e a leitura de um bastava.
 
-Entram na fase o tipo de agente `opencode` na detecção, com o layout de
-instalação do npm e o executável nativo por plataforma; o template com o
-subcomando `acp`; o comando de login vindo do agente; e a validação de um turno
-de ponta a ponta.
+O GitHub Copilot CLI é o agente que cobra a dívida: o `session/new` dele
+responde **só** `models`, sem `configOptions` nenhum. O efeito era pior do que
+uma lista vazia — a tela diria que o agente não deixa escolher modelo, o que é
+mentira, e a troca nunca chegaria ao `session/set_model`. O seletor anterior
+está escrito e funciona desde o começo, mas ele é escolhido pela categoria da
+opção, e sem opção não há categoria.
+
+O que a fase entrega é só a leitura, porque só ela faltava: o campo `models` das
+respostas de `session/new` e `session/load` passa a ser lido pela saída de baixo
+nível do D2 — o SDK não o tipa, e é para campo assim que ela existe —, e vira
+uma opção de categoria `model`, do mesmo jeito que os modos anteriores já
+viravam. A partir daí o resto do caminho já existia.
 
 Decisões que a fase toma:
 
-- **O app deixa de inventar o comando de login quando o agente o descreve.**
-  Hoje a tela monta `<comando> <argumentos sem "acp"> login`, que acerta no
-  Cursor por coincidência de forma e erraria aqui: o login do OpenCode é
-  `opencode auth login`, e não `opencode login`. Ele diz isso na descrição do
-  método `opencode-login`, em texto. Mostrar o que o agente disse é melhor do
-  que mostrar o palpite do app, e a ordem passa a ser essa — o que o agente
-  descreve primeiro, o palpite só para quem não descreve nada. A descrição é
-  texto do agente e passa pelo saneamento de rótulo (D11) antes de chegar à tela.
-- **Sem categoria de modo, o seletor de modo não aparece** — e isso já é a regra
-  da Fase 4, que só mostra o que há para escolher. Vale registrar porque é a
-  primeira vez que ela vale de verdade: o Cursor sempre ofereceu modo, e um
-  agente que não oferece nenhum é o caso que a regra existia para atender sem
-  ninguém ter visto acontecer.
-- **A continuidade da Fase 6 vale sem ressalva.** Ele anuncia `loadSession` e
-  `resume`, então reabrir uma conversa retoma a sessão pelo caminho normal, e o
-  aviso de memória perdida fica onde deve: só quando a retomada falha.
+- **A resposta do SDK é embutida, e não copiada.** O tipo que lê a sessão
+  embute o do SDK e acrescenta um campo. Copiar a estrutura inteira para
+  acrescentar uma linha a deixaria envelhecer sozinha a cada versão do SDK, e
+  campo que o SDK tipar amanhã chegaria sem ninguém precisar copiá-lo de novo.
+- **Modelo sem identificador não vira escolha.** O identificador é o que a
+  troca manda de volta ao agente; uma linha na lista sem ele só serviria para a
+  pessoa tentar. Lista inteira sem identificador nenhum não vira seletor: um
+  seletor vazio diz que a escolha existe e não deixa escolher.
+- **O que veio pelo formato anterior sobrevive ao conjunto seguinte.** Ele chega
+  uma vez, na abertura da sessão, e o conjunto que o agente manda depois fala só
+  do que ele guarda em `configOptions`. Isso já valia para o modo, pela mesma
+  razão, e passa a valer para os dois: sem isso, trocar de modo faria o seletor
+  de modelo sumir da tela no meio da conversa.
 
-**Aceite:** dá para criar um provedor OpenCode pela tela sem digitar caminho na
-mão; a lista de modelos aparece com os nomes que ele dá; uma conversa vai de
-ponta a ponta com texto segmentado, ferramentas e permissão acessível; e o estado
-sem login mostra `opencode auth login`, que é o comando que o próprio agente
-informa.
+**Aceite:** um agente que anuncia modelos só pelo formato anterior tem lista de
+modelos na tela, com os nomes que ele deu; escolher um chega a ele por
+`session/set_model` e vale para o turno seguinte; reabrir a conversa devolve a
+lista, e não uma tela sem escolha; e nada disso muda para quem já mandava
+`configOptions`.
 
-### Fase 10 — GitHub Copilot CLI
+### Fase 10 — O login que o agente informa
 
 > **A ser reescrita.** Pelo mesmo motivo da Fase 9: o AEP-0086 instala o
 > `github-copilot-cli` a partir do registro, com a versão que ele fixa, e a
-> detecção própria deste agente deixa de ser necessária.
+> detecção própria deste agente deixa de ser necessária. A leitura dos modelos
+> anteriores, que era daqui, foi para a Fase 9, onde ela é o assunto inteiro. O
+> que sobra para esta fase é o comando de login: o app ainda o adivinha, e os
+> dois agentes que motivaram estas fases são justamente aqueles em que o
+> palpite erra.
 
-Quarto agente, e o que põe à prova duas coisas que até aqui só existiam no
-papel: o agente que sobe por **flag**, e o agente que fala **só o formato legado**
-de modelos. Ele também é o único que informa o login de forma estruturada, o que
-transforma a decisão da Fase 9 em algo melhor do que ler uma frase.
+Quarto agente, e o que põe à prova o agente que sobe por **flag**. Ele também é
+o único que informa o login de forma estruturada, o que é melhor do que ler uma
+frase — e é por ele que esta fase passou a ser sobre login.
 
 Entram na fase o tipo de agente `copilot` na detecção, com o executável nativo
-por plataforma que o npm instala; o template com a flag `--acp`; o login vindo
-de `_meta`; e a leitura do formato legado de modelos, que é o que falta para a
-conversa funcionar.
+por plataforma que o npm instala; o template com a flag `--acp`; e o login vindo
+de `_meta`.
 
 Decisões que a fase toma:
 
@@ -1176,23 +1184,11 @@ Decisões que a fase toma:
   `copilot-login` traz `command`, `args` e `label` prontos, e o palpite do app
   erraria feio aqui — trocar `acp` por `login` num agente que sobe com `--acp`
   produziria `copilot --acp login`. A ordem fica: o que o agente informa em
-  `_meta`, depois o que ele descreve em texto (Fase 9), e só então o comando que
-  o app monta. Comando e argumentos vindos do agente são texto não confiável
-  (D11): eles são **mostrados** para a pessoa copiar, e não executados pelo app.
-- **A lista de modelos no formato legado ainda não existe no código, e é o que
-  esta fase precisa entregar.** O D6 decidiu a alternativa, e nenhum agente até
-  hoje a exigiu — o Cursor manda os dois formatos, e a leitura só do
-  `configOptions` bastou. Na prática o `session/new` do Copilot não produz opção
-  nenhuma: o campo `models` sequer é tipado pelo SDK, e o único formato legado
-  que o app converte é o de **modos**. O efeito seria a tela dizer que o agente
-  não deixa escolher modelo, que é mentira, e a troca nunca chegar ao
-  `session/set_model` — o seletor anterior existe e funciona, mas ele é escolhido
-  pela categoria da opção, e sem opção não há categoria. O que falta é ler o
-  `models` cru da resposta de `session/new` e `session/load` — pela saída de
-  baixo nível do D2, já que o SDK não o tipa — e convertê-lo numa opção de
-  categoria `model`, do mesmo jeito que os modos legados já são convertidos. Só
-  a leitura falta: o `session/set_model` já está escrito como alternativa, e ele
-  passa a ser alcançável assim que a opção existir.
+  `_meta`, depois o que ele descreve em texto — o login do OpenCode é
+  `opencode auth login`, e ele diz isso na descrição do método `opencode-login`
+  —, e só então o comando que o app monta. Comando e argumentos vindos do agente
+  são texto não confiável (D11): eles são **mostrados** para a pessoa copiar, e
+  não executados pelo app.
 - **A continuidade pode ficar degradada, e isso fica declarado.** Ele anuncia
   `loadSession: true` e, ao mesmo tempo, capacidades de sessão sem `resume` — as
   duas declarações discordam. O app segue a que já seguia e trata a falha como a
@@ -1200,10 +1196,9 @@ Decisões que a fase toma:
   única vez que a memória se perdeu. Escolher pela outra declaração e nem tentar
   seria jogar fora a retomada de um agente que talvez a suporte.
 
-**Aceite:** um provedor Copilot criado pela tela conversa de ponta a ponta; a
-lista de modelos aparece com os nomes do formato legado e a troca chega ao agente
-por `session/set_model`; o estado sem login mostra o comando que o próprio agente
-informou; e reabrir uma conversa ou retoma a sessão, ou conta uma vez que a
+**Aceite:** um provedor Copilot criado pela tela conversa de ponta a ponta; o
+estado sem login mostra o comando que o próprio agente informou, e não o que o
+app adivinhou; e reabrir uma conversa ou retoma a sessão, ou conta uma vez que a
 memória se perdeu.
 
 ## Riscos

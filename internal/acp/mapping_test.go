@@ -478,3 +478,77 @@ func TestModoLegadoNaoDuplicaOFormatoEstavel(t *testing.T) {
 		t.Errorf("sem modos, nada a acrescentar: %+v", got)
 	}
 }
+
+func TestModeloLegadoNaoDuplicaOFormatoEstavel(t *testing.T) {
+	estado := &legacyModelState{
+		CurrentModelID:  "auto",
+		AvailableModels: []legacyModel{{ModelID: "auto", Name: "Auto"}},
+	}
+
+	semModelo := withModelOption([]ConfigOption{{ID: "mode", Category: "mode"}}, estado)
+	if len(semModelo) != 2 || semModelo[1].Category != CategoryModel {
+		t.Fatalf("modelo legado deveria ter sido acrescentado: %+v", semModelo)
+	}
+	if semModelo[1].CurrentValue != "auto" {
+		t.Errorf("modelo corrente = %q, queria auto", semModelo[1].CurrentValue)
+	}
+
+	comModelo := withModelOption([]ConfigOption{{ID: "model", Category: CategoryModel}}, estado)
+	if len(comModelo) != 1 {
+		t.Fatalf("modelo não deveria ser duplicado: %+v", comModelo)
+	}
+
+	if got := withModelOption(nil, nil); got != nil {
+		t.Errorf("sem modelos, nada a acrescentar: %+v", got)
+	}
+
+	// Lista só de linhas sem identificador não vira seletor: ele diria que a
+	// escolha existe e não deixaria escolher nada.
+	vazio := &legacyModelState{AvailableModels: []legacyModel{{Name: "sem id"}}}
+	if got := withModelOption(nil, vazio); got != nil {
+		t.Errorf("modelo sem identificador não deveria virar opção: %+v", got)
+	}
+
+	// O identificador é o que volta ao agente na troca, e o corrente é o que a
+	// tela compara com a lista. Guardar um com espaço e o outro sem faria a
+	// tela não achar o modelo em uso.
+	comEspaco := withModelOption(nil, &legacyModelState{
+		CurrentModelID:  " auto\t",
+		AvailableModels: []legacyModel{{ModelID: " auto ", Name: "Auto"}},
+	})
+	if len(comEspaco) != 1 || comEspaco[0].CurrentValue != "auto" {
+		t.Fatalf("corrente não veio aparado: %+v", comEspaco)
+	}
+	if comEspaco[0].Values[0].Value != "auto" {
+		t.Errorf("identificador não veio aparado: %q", comEspaco[0].Values[0].Value)
+	}
+}
+
+// O agente que anuncia modelo ou modo pelo formato de antes só o faz na
+// abertura da sessão. O conjunto que ele manda depois fala do que ele guarda em
+// configOptions, e sem preservar o que a sessão já sabia o seletor sumiria da
+// tela no meio da conversa.
+func TestOQueVeioPeloFormatoAnteriorSobreviveAoConjuntoSeguinte(t *testing.T) {
+	conhecido := []ConfigOption{
+		{ID: "model", Category: CategoryModel, CurrentValue: "auto"},
+		{ID: "mode", Category: modeCategory, CurrentValue: "agent"},
+	}
+
+	soOutraCoisa := withKnownLegacy([]ConfigOption{{ID: "verbosidade", Category: "outra"}}, conhecido)
+	if len(soOutraCoisa) != 3 {
+		t.Fatalf("modelo e modo deveriam ter sobrevivido: %+v", soOutraCoisa)
+	}
+
+	// O que o conjunto novo traz é o que vale: preservar aqui devolveria o
+	// valor antigo por cima de uma troca que acabou de acontecer.
+	trocouModelo := withKnownLegacy([]ConfigOption{{ID: "model", Category: CategoryModel, CurrentValue: "claude"}}, conhecido)
+	if got := findOption(trocouModelo, CategoryModel); got == nil || got.CurrentValue != "claude" {
+		t.Fatalf("o modelo novo deveria ter prevalecido: %+v", trocouModelo)
+	}
+
+	// Conjunto vazio é o agente que não mandou nada, e não o agente que
+	// esvaziou as opções: quem chama trata isso guardando o que já tinha.
+	if got := withKnownLegacy(nil, conhecido); got != nil {
+		t.Errorf("sem conjunto novo, nada a preservar: %+v", got)
+	}
+}
