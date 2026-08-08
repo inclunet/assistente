@@ -168,7 +168,7 @@ func (i *Installer) writeKnown(known knownArtifacts) error {
 // sequência não ajuda ninguém a decidir. Ela nomeia o agente e a versão, e diz
 // o caminho que continua aberto — baixar do site do fornecedor e apontar o
 // comando aqui. Os digests vão para o log, que é onde conferi-los é possível.
-func (i *Installer) checkKnownArtifact(ctx context.Context, agentID, name, version, digest string) error {
+func (i *Installer) checkKnownArtifact(ctx context.Context, agentID, version, digest string) error {
 	remembered := i.knownDigest(agentID, version)
 	if remembered == "" || remembered == digest {
 		return nil
@@ -176,5 +176,5 @@ func (i *Installer) checkKnownArtifact(ctx context.Context, agentID, name, versi
 	logging.Warnf(ctx, component,
 		"o artefato de %s %s mudou: esperava %s e chegou %s", agentID, version, remembered, digest)
 	return failf(StepDownload, "%w: %s %s. Se a mudança for esperada, baixe o agente pelo site do fornecedor e aponte o comando à mão",
-		ErrArtifactChanged, acp.SanitizeLabel(name), acp.SanitizeLabel(version))
+		ErrArtifactChanged, acp.SanitizeLabel(agentID), acp.SanitizeLabel(version))
 }

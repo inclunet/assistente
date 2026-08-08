@@ -66,7 +66,7 @@ func (i *Installer) installBinary(
 	// de que se desconfia não deve ter nada saindo de dentro dele, pelo mesmo
 	// motivo que o digest publicado é conferido antes da extração (D4).
 	if target.SHA256 == "" {
-		if err := i.checkKnownArtifact(ctx, agent.ID, agent.Name, version, art.SHA256); err != nil {
+		if err := i.checkKnownArtifact(ctx, agent.ID, version, art.SHA256); err != nil {
 			return Installation{}, err
 		}
 	}
