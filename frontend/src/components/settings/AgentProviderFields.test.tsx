@@ -168,6 +168,32 @@ const HostQueTrocaDeAgente = () => {
   );
 };
 
+/**
+ * Hospeda os campos de um agente que pode deixar de ser escolhido: é o
+ * caminho de quem escolheu um agente e voltou atrás antes de a procura dele
+ * responder.
+ */
+const HostQuePodeDesescolherOAgente = () => {
+  const [agentId, setAgentId] = useState('cursor');
+  const [command, setCommand] = useState('');
+  const [args, setArgs] = useState<string[]>([]);
+  return (
+    <div>
+      <button type="button" onClick={() => { setAgentId(''); setCommand(''); setArgs([]); }}>
+        desescolher agente
+      </button>
+      <AgentProviderFields
+        agentId={agentId}
+        command={command}
+        args={args}
+        onCommandChange={setCommand}
+        onArgsChange={setArgs}
+        autoFill
+      />
+    </div>
+  );
+};
+
 /** Detecção que só responde quando o teste quiser. */
 function deteccaoControlada() {
   let responder: (setup: unknown) => void = () => {};
@@ -479,6 +505,28 @@ describe('AgentProviderFields — agente ausente', () => {
     expect(screen.queryByRole('button', { name: /detectar e preencher comando/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/instale o cli do agente/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/agente não encontrado nesta máquina/i)).not.toBeInTheDocument();
+  });
+
+  it('desescolher o agente durante a procura não deixa a tela procurando para sempre', async () => {
+    // A procura em voo é aposentada pela troca, e quem a aposenta tem de
+    // apagar o que ela escreveu na tela: o "procurando agente" é dela, e a
+    // resposta que o desligaria nunca mais vai ser considerada.
+    const responder = deteccaoControlada();
+    const user = userEvent.setup();
+
+    render(<HostQuePodeDesescolherOAgente />);
+    // O texto aparece no botão e no estado, e é o segundo que importa aqui: o
+    // botão some junto com o agente, e o estado é o que ficaria na tela.
+    await waitFor(() => expect(screen.getAllByText(/procurando o agente/i).length).toBeGreaterThan(0));
+
+    await user.click(screen.getByRole('button', { name: /desescolher agente/i }));
+
+    await waitFor(() => expect(screen.queryAllByText(/procurando o agente/i)).toHaveLength(0));
+
+    // E a resposta atrasada continua sem valer: ela fala de uma pergunta que
+    // ninguém faz mais.
+    responder(cursorFound);
+    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(''));
   });
 
   it('agente que o app não sabe procurar diz isso, em vez de oferecer o botão', async () => {

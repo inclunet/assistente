@@ -204,7 +204,14 @@ export const AgentProviderFields = ({
     if (!kind) {
       // Sem agente escolhido não há o que procurar, e uma chamada com nome
       // vazio só voltaria dizendo que o app não sabe procurar "".
+      //
+      // A procura que estava em voo já foi aposentada pela sequência acima, e
+      // o `finally` dela não vai mais mexer em nada. Quem desliga a luz que
+      // ela acendeu é esta chamada — sem isso a tela fica dizendo "procurando
+      // agente" para sempre, sobre uma procura que ninguém mais espera.
       setDetected(null);
+      setDetectError('');
+      setDetecting(false);
       return;
     }
     setDetecting(true);

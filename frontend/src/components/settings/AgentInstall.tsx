@@ -155,8 +155,12 @@ export const AgentInstall = ({ agentId, onResolved }: AgentInstallProps) => {
     const seq = ++planSeq.current;
     const obsoleto = () => seq !== planSeq.current || !mountedRef.current;
     if (!kind) {
+      // O plano que estava em voo já foi aposentado pela sequência acima, e o
+      // `finally` dele não vai mais mexer em nada — inclusive não vai desligar
+      // o carregamento que ele acendeu. Quem desliga é esta chamada.
       setPlanned(null);
       setPlanError('');
+      setLoading(false);
       return;
     }
     setLoading(true);
