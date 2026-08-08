@@ -58,6 +58,16 @@ type Confirmed struct {
 
 	// SHA256 é o digest publicado que a tela mostrou.
 	SHA256 string
+
+	// AcceptUnverified é a resposta à pergunta que o artefato sem digest
+	// publicado exige (D4).
+	//
+	// É o único campo cujo zero valor recusa em vez de aceitar, e a exceção é o
+	// ponto: os outros descrevem o que estava à vista, e omiti-los quer dizer
+	// "não confiro isso". Este descreve uma pergunta feita, e omiti-lo quer
+	// dizer que ela não foi feita. Um padrão permissivo aqui seria o
+	// interruptor global que o D4 proíbe, escrito na assinatura da função.
+	AcceptUnverified bool
 }
 
 // check confere o que foi confirmado contra o que será feito agora.
@@ -214,11 +224,11 @@ var (
 	// outra coisa.
 	ErrPlanChanged = errors.New("o que seria instalado mudou desde a confirmação; confira de novo antes de baixar")
 
-	// ErrNoDigest é o alvo que existe para esta plataforma mas não publica
-	// `sha256`. Oito dos 17 agentes com binário estão neste conjunto, e o
-	// Cursor é um deles: não é caso raro, é metade do catálogo. Instalá-los
-	// exige a confirmação reforçada do D4, que é a fase seguinte.
-	ErrNoDigest = errors.New("o registro não publica o digest deste artefato, e esta versão do app só instala o que consegue conferir")
+	// ErrUnverifiedNotAccepted é o artefato sem digest publicado pedido sem a
+	// confirmação reforçada que ele exige (D4). Oito dos 17 agentes com binário
+	// estão neste conjunto, e o Cursor é um deles: não é caso raro, é metade do
+	// catálogo — daí o caminho existir, e daí a pergunta ser obrigatória.
+	ErrUnverifiedNotAccepted = errors.New("este agente não publica verificação de integridade, e instalá-lo exige a confirmação de quem vai usá-lo")
 
 	// ErrCommandNotResolved é o artefato aberto de que não saiu um comando que
 	// este app consiga executar (D8). O `.cmd` do Cursor no Windows é o caso
@@ -332,8 +342,18 @@ type Plan struct {
 	Target string `json:"target,omitempty"`
 
 	// SHA256 é o digest publicado para o alvo. Vazio quer dizer que o registro
-	// não publica um, e nesta fase isso é o que impede a instalação (D4).
+	// não publica um.
 	SHA256 string `json:"sha256,omitempty"`
+
+	// Unverified diz que instalar isto é baixar um arquivo que o app não tem
+	// como conferir (D4).
+	//
+	// É campo próprio, e não a ausência do `sha256`, porque quem lê o plano
+	// precisa da afirmação e não da dedução: a tela tem de mostrar uma frase
+	// que nomeia a ausência, e "o campo veio vazio" é fácil demais de esquecer
+	// de perguntar. A instalação exige a resposta a essa pergunta, e ela é
+	// pedida a cada vez — não há interruptor que a desligue.
+	Unverified bool `json:"unverified,omitempty"`
 
 	// Dir é onde a instalação vai morar (D5). Fica à vista porque o app está
 	// escrevendo no disco de alguém.

@@ -140,10 +140,12 @@ func TestSemAlvoParaEstaPlataformaOPlanoDizIsso(t *testing.T) {
 	}
 }
 
-func TestSemDigestPublicadoEstaFaseNaoInstala(t *testing.T) {
+func TestSemDigestPublicadoOPlanoOfereceInstalarEAvisaOQueNaoDaParaConferir(t *testing.T) {
 	// Metade dos agentes com binário não publica `sha256`, e o Cursor é um
-	// deles. Instalá-los exige a confirmação reforçada do D4, que é a fase
-	// seguinte: oferecer o botão aqui atalharia justamente essa pergunta.
+	// deles. Recusar não deixaria ninguém sem o agente: deixaria a pessoa
+	// baixando o mesmo arquivo do mesmo host pelo site, sem guarda nenhuma. O
+	// que a falta de digest muda é o quanto o app afirma, e não se ele instala
+	// (D4) — daí o plano oferecer, marcado.
 	agente := agenteOpencode(t, "")
 	c := montar(t, opcoes{agentes: []acpregistry.Agent{agente}})
 
@@ -151,14 +153,72 @@ func TestSemDigestPublicadoEstaFaseNaoInstala(t *testing.T) {
 	if err != nil {
 		t.Fatalf("o plano falhou em vez de explicar: %v", err)
 	}
-	if plano.CanInstall {
-		t.Error("ofereceu instalação de um artefato que o app não consegue conferir")
+	if !plano.CanInstall {
+		t.Errorf("não ofereceu instalação: %q", plano.Reason)
 	}
-	if !strings.Contains(plano.Reason, "digest") {
-		t.Errorf("motivo = %q, queria que ele dissesse que falta o digest", plano.Reason)
+	if !plano.Unverified {
+		t.Error("o plano não marcou que o app não tem como conferir este artefato")
 	}
-	if _, err := c.instalador.Install(context.Background(), opencodeID, Confirmed{Distribution: DistributionBinary}); !errors.Is(err, ErrNoDigest) {
-		t.Errorf("erro = %v, queria a recusa por falta de digest", err)
+	if plano.SHA256 != "" {
+		t.Errorf("digest = %q, queria vazio: o registro não publica um", plano.SHA256)
+	}
+}
+
+func TestSemDigestPublicadoInstalarSemAConfirmacaoReforcadaERecusado(t *testing.T) {
+	// A pergunta do D4 não pode morar só na tela: uma regra de interface deixa
+	// de valer no primeiro chamador novo, e o consentimento é justamente o que
+	// separa instalar de baixar sozinho. Não há campo, preferência nem valor
+	// padrão que a dispense.
+	cliente := &clienteFalso{corpo: pacoteDoOpencode(t)}
+	c := montar(t, opcoes{
+		agentes: []acpregistry.Agent{agenteOpencode(t, "")},
+		runtime: runtimeSemNode,
+		http:    cliente,
+	})
+
+	_, err := c.instalador.Install(context.Background(), opencodeID, Confirmed{Distribution: DistributionBinary})
+	if !errors.Is(err, ErrUnverifiedNotAccepted) {
+		t.Fatalf("erro = %v, queria a recusa por falta da confirmação reforçada", err)
+	}
+	if cliente.chamadas != 0 {
+		t.Errorf("chamadas = %d, queria nenhuma: a recusa acontece antes de baixar", cliente.chamadas)
+	}
+}
+
+func TestComAConfirmacaoReforcadaOArtefatoSemDigestEInstaladoEODigestFicaComoObservado(t *testing.T) {
+	// O digest observado não protege esta instalação — nada protege, é essa a
+	// natureza do problema. Ele fica gravado, e marcado pelo que vale, para a
+	// tela continuar dizendo que aquela instalação não foi verificada e para a
+	// mudança do artefato ser percebida depois (D4).
+	pacote := pacoteDoOpencode(t)
+	c := montar(t, opcoes{
+		agentes: []acpregistry.Agent{agenteOpencode(t, "")},
+		runtime: runtimeSemNode,
+		http:    &clienteFalso{corpo: pacote},
+	})
+
+	instalacao, err := c.instalador.Install(context.Background(), opencodeID, Confirmed{
+		Distribution:     DistributionBinary,
+		AcceptUnverified: true,
+	})
+	if err != nil {
+		t.Fatalf("não instalou o agente sem digest com a confirmação dada: %v", err)
+	}
+	if instalacao.SHA256 != digestDe(pacote) {
+		t.Errorf("digest = %q, queria o do arquivo que chegou", instalacao.SHA256)
+	}
+	if instalacao.SHA256Origin != DigestObserved {
+		t.Errorf("origem do digest = %q, queria %q", instalacao.SHA256Origin, DigestObserved)
+	}
+
+	// E o registro relido diz o mesmo: é ele que a tela lê para continuar
+	// marcando a instalação como não verificada depois de pronta.
+	gravado, ok := c.instalador.Installed(opencodeID)
+	if !ok {
+		t.Fatal("a instalação não foi encontrada depois de gravada")
+	}
+	if gravado.SHA256Origin != DigestObserved {
+		t.Errorf("origem gravada = %q, queria %q", gravado.SHA256Origin, DigestObserved)
 	}
 }
 
@@ -343,10 +403,14 @@ func TestInstalarPorUmPlanoQueDeixouDeValerERecusado(t *testing.T) {
 }
 
 func TestSemNodeEComArtefatoQueNaoServeOMotivoContinuaSendoORuntime(t *testing.T) {
-	// Cair para o binário só ajuda quando ele é instalável. Com um artefato sem
-	// digest, desviar para lá trocaria "instale o Node" — que resolve — por
-	// "falta o digest", que não dá o que fazer a quem tem o caminho npm à mão.
-	agente := agenteOpencode(t, "")
+	// Cair para o binário só ajuda quando ele é instalável. Com um instalador
+	// do sistema, que o app não abre, desviar para lá trocaria "instale o
+	// Node" — que resolve — por "este formato não é instalável", que não dá o
+	// que fazer a quem tem o caminho npm à mão.
+	agente := agenteOpencode(t, strings.Repeat("a", 64))
+	alvo := agente.Distribution.Binary[PlatformTarget()]
+	alvo.Archive = "https://exemplo.test/opencode.msi"
+	agente.Distribution.Binary[PlatformTarget()] = alvo
 	agente.Distribution.NPX = &acpregistry.PackageDistribution{Package: "opencode-acp@" + opencodeVersao}
 	c := montar(t, opcoes{agentes: []acpregistry.Agent{agente}, runtime: runtimeSemNode})
 
@@ -359,6 +423,30 @@ func TestSemNodeEComArtefatoQueNaoServeOMotivoContinuaSendoORuntime(t *testing.T
 	}
 	if !strings.Contains(plano.Reason, "Node") {
 		t.Errorf("motivo = %q, queria que ele nomeasse o Node que falta", plano.Reason)
+	}
+}
+
+func TestSemNodeOBinarioSemDigestPassaASerOCaminho(t *testing.T) {
+	// É o caso que a Fase 5 abre, e ele é o do Cursor: máquina sem Node, agente
+	// que publica os dois caminhos e não publica digest. Antes o plano parava em
+	// "instale o Node" para usar um npm de que o artefato não precisa; agora ele
+	// oferece o artefato, marcado como o que o app não consegue conferir (D4).
+	agente := agenteOpencode(t, "")
+	agente.Distribution.NPX = &acpregistry.PackageDistribution{Package: "opencode-acp@" + opencodeVersao}
+	c := montar(t, opcoes{agentes: []acpregistry.Agent{agente}, runtime: runtimeSemNode})
+
+	plano, err := c.instalador.Plan(context.Background(), opencodeID)
+	if err != nil {
+		t.Fatalf("o plano falhou: %v", err)
+	}
+	if plano.Distribution != DistributionBinary {
+		t.Errorf("distribuição = %q, queria o artefato binário", plano.Distribution)
+	}
+	if !plano.CanInstall || !plano.Unverified {
+		t.Errorf("plano = %+v, queria oferecer instalação marcada como não verificável", plano)
+	}
+	if plano.Runtime.Required {
+		t.Error("exigiu o Node para instalar um artefato que não o usa")
 	}
 }
 

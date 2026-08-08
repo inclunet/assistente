@@ -82,8 +82,13 @@ func (i *Installer) installBinary(
 		Version:      version,
 		Distribution: DistributionBinary,
 		Target:       platform,
-		SHA256:       art.SHA256,
-		SHA256Origin: DigestVerified,
+		SHA256: art.SHA256,
+		// O digest é sempre gravado; o que muda é o que ele vale. Conferido, ele
+		// liga o arquivo ao que o registro curou. Observado, ele não atesta
+		// procedência nenhuma — é só o que chegou —, e é por isso que a origem
+		// vai junto: sem ela, a próxima leitura não teria como distinguir os
+		// dois, e a tela diria "verificado" sobre o que ninguém verificou (D4).
+		SHA256Origin: digestOrigin(target.SHA256),
 		Command:      command,
 		Args:         args,
 		InstalledAt:  i.now().UTC(),
@@ -94,6 +99,14 @@ func (i *Installer) installBinary(
 	}
 	logging.Infof(ctx, component, "agente %s instalado em %s a partir do alvo %s", agent.ID, dir, platform)
 	return installation, nil
+}
+
+// digestOrigin diz o que o digest gravado vale, pelo que o registro publicou.
+func digestOrigin(published string) string {
+	if published == "" {
+		return DigestObserved
+	}
+	return DigestVerified
 }
 
 // rawBinaryName é o nome que o executável recebe quando o artefato vem sem
@@ -239,6 +252,7 @@ func (i *Installer) binaryPlan(agent acpregistry.Agent, version string) Plan {
 	plan.Target = platform
 	plan.Origin = target.Archive
 	plan.SHA256 = target.SHA256
+	plan.Unverified = target.SHA256 == ""
 	plan.RunArgs = slices.Clone(target.Args)
 	plan.Dir = i.agentVersionDir(agent.ID, version)
 
@@ -256,12 +270,6 @@ func (i *Installer) binaryPlan(agent acpregistry.Agent, version string) Plan {
 		plan.Reason = "não foi possível descobrir o diretório de dados do app para instalar o agente"
 	case plan.Installed != nil:
 		plan.Reason = ErrAlreadyInstalled.Error()
-	case target.SHA256 == "":
-		// Esta fase instala o que se pode conferir. Quem não publica digest tem
-		// caminho próprio, com a confirmação reforçada que ele exige (D4), e
-		// oferecer o botão aqui atalharia justamente a pergunta que separa os
-		// dois conjuntos.
-		plan.Reason = ErrNoDigest.Error()
 	default:
 		if _, err := formatOf(target.Archive); err != nil {
 			plan.Reason = acp.SanitizeLabel(err.Error())
@@ -305,10 +313,14 @@ func (i *Installer) distributionFor(agent acpregistry.Agent, node acp.NodeRuntim
 }
 
 // binaryInstallable diz se o artefato desta plataforma é instalável agora: alvo
-// publicado, digest para conferir (D4) e um formato que o app sabe abrir.
+// publicado e um formato que o app sabe abrir.
+//
+// A falta de digest não entra aqui. Ela decide o quanto o app afirma sobre o
+// que instalou, e não se ele instala (D4): o que ela acrescenta é uma pergunta,
+// feita antes de baixar.
 func binaryInstallable(agent acpregistry.Agent) bool {
 	target, _, err := binaryTarget(agent)
-	if err != nil || target.SHA256 == "" {
+	if err != nil {
 		return false
 	}
 	_, err = formatOf(target.Archive)
@@ -336,8 +348,11 @@ func (i *Installer) installFromBinary(ctx context.Context, agent acpregistry.Age
 	}); err != nil {
 		return Installation{}, err
 	}
-	if target.SHA256 == "" {
-		return Installation{}, failf(StepCatalog, "%w: %s", ErrNoDigest, acp.SanitizeLabel(agent.ID))
+	// A pergunta do artefato sem digest é refeita aqui, e não só na tela: o
+	// consentimento é o que separa instalar de baixar sozinho, e uma regra que
+	// mora só na interface deixa de valer no primeiro chamador novo (D4).
+	if target.SHA256 == "" && !confirmed.AcceptUnverified {
+		return Installation{}, failf(StepCatalog, "%w: %s", ErrUnverifiedNotAccepted, acp.SanitizeLabel(agent.ID))
 	}
 	if _, err := formatOf(target.Archive); err != nil {
 		return Installation{}, failf(StepCatalog, "%w", err)

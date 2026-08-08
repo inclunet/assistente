@@ -171,6 +171,7 @@ export namespace app {
 	    distribution?: string;
 	    origin?: string;
 	    sha256?: string;
+	    accept_unverified?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ACPInstallConfirmation(source);
@@ -181,6 +182,7 @@ export namespace app {
 	        this.distribution = source["distribution"];
 	        this.origin = source["origin"];
 	        this.sha256 = source["sha256"];
+	        this.accept_unverified = source["accept_unverified"];
 	    }
 	}
 	export class ACPRuntimeStatus {
@@ -245,6 +247,7 @@ export namespace app {
 	    origin: string;
 	    target?: string;
 	    sha256?: string;
+	    unverified?: boolean;
 	    dir: string;
 	    install_command?: string;
 	    run_args: string[];
@@ -267,6 +270,7 @@ export namespace app {
 	        this.origin = source["origin"];
 	        this.target = source["target"];
 	        this.sha256 = source["sha256"];
+	        this.unverified = source["unverified"];
 	        this.dir = source["dir"];
 	        this.install_command = source["install_command"];
 	        this.run_args = source["run_args"];

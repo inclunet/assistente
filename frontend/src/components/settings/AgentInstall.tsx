@@ -100,6 +100,7 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
   const installHelpId = `${idBase}-install-help`;
   const removeHelpId = `${idBase}-remove-help`;
   const confirmId = `${idBase}-confirm`;
+  const unverifiedId = `${idBase}-unverified`;
 
   // O plano guarda de qual tipo de provedor ele fala, pelo mesmo motivo que a
   // detecção ao lado: trocar o tipo não desmonta este bloco, e o plano anterior
@@ -229,7 +230,17 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
     [],
   );
 
-  const handleInstall = async () => {
+  /**
+   * Instala o agente do plano em vista.
+   *
+   * `acceptUnverified` é a resposta à pergunta do artefato sem digest (D4), e
+   * ela chega como argumento em vez de ser deduzida do plano de propósito: o
+   * plano diz que o app não consegue conferir o arquivo, e isso não é a mesma
+   * coisa que alguém ter lido a frase e aceitado. Só o botão afirmativo do
+   * diálogo que mostrou a frase concede — outro caminho que chame esta função
+   * não concede nada, e o backend recusa.
+   */
+  const handleInstall = async (acceptUnverified = false) => {
     const agentID = plan?.agent_id;
     if (!agentID) return;
     const kind = agentKind;
@@ -245,6 +256,10 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
         distribution: plan?.distribution || '',
         origin: plan?.origin || '',
         sha256: plan?.sha256 || '',
+        // A resposta à pergunta do artefato sem digest viaja com o pedido, e o
+        // backend recusa sem ela: a decisão é por instalação, e não uma
+        // preferência que fique ligada em algum lugar (D4).
+        accept_unverified: acceptUnverified,
       });
       if (!doAgente(kind)) return;
       // O comando resolvido vai para os campos: instalar pelo catálogo termina
@@ -334,6 +349,14 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
   // deixaria de fora justamente os agentes que não têm alternativa npm.
   const runtimeMissing = !!runtime?.required && !runtime.found;
   const binary = plan.distribution === 'binary';
+  // Metade dos agentes com binário não publica digest, e o Cursor é um deles.
+  // Instalar continua sendo possível — recusar mandaria a pessoa baixar o mesmo
+  // arquivo pelo site, sem guarda nenhuma —, com uma confirmação que nomeia o
+  // que o app não consegue atestar (D4).
+  const unverified = !!plan.unverified;
+  // O que ficou no disco também não foi conferido, e a marca não some depois de
+  // instalado: quem abrir esta tela amanhã precisa saber o que aquele agente é.
+  const installedUnverified = installed?.sha256_origin === 'observed';
 
   return (
     <div className="agent-install" role="group" aria-labelledby={titleId}>
@@ -352,6 +375,11 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
           <p className="agent-install__path">
             {t('providerForm.agent.catalog.installedDir', { dir: installed.dir })}
           </p>
+          {installedUnverified && (
+            <p className="agent-install__unverified">
+              {t('providerForm.agent.catalog.installedUnverified')}
+            </p>
+          )}
           <div className="agent-install__actions">
             <div className="agent-install__action">
               <Button
@@ -488,13 +516,47 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
         onClose={() => setConfirming(false)}
         title={t('providerForm.agent.catalog.confirm.title', { agent: plan.name })}
         size="md"
-        ariaDescribedBy={confirmId}
+        /*
+          A descrição do diálogo inclui o aviso quando ele existe. Um leitor de
+          telas lê o que está apontado aqui ao abrir, e deixar de fora a frase
+          que nomeia a ausência de verificação a transformaria em texto que só
+          quem varre a tela encontra.
+        */
+        ariaDescribedBy={unverified ? `${confirmId} ${unverifiedId}` : confirmId}
+        /*
+          O foco começa em cancelar quando não há como conferir o artefato
+          (D4). O Enter continua ativando o botão focado, como em qualquer
+          diálogo; o que muda é onde ele começa, e instalar passa a exigir mover
+          o foco até o outro botão — é esse movimento que separa ler do reflexo
+          de confirmar. O seletor é explícito para a regra não depender da ordem
+          em que os botões estão no DOM.
+        */
+        initialFocusSelector={unverified ? '[data-confirm-cancel]' : undefined}
       >
+        {/*
+          A abertura descreve o que vai acontecer, e o artefato sem digest tem a
+          sua: a do binário promete conferir o arquivo contra o código publicado
+          pelo registro, e repeti-la aqui diria o contrário do aviso logo abaixo.
+        */}
         <p id={confirmId} className="agent-install__confirm-intro">
-          {binary
-            ? t('providerForm.agent.catalog.confirm.introBinary')
-            : t('providerForm.agent.catalog.confirm.intro')}
+          {t(
+            unverified
+              ? 'providerForm.agent.catalog.confirm.introUnverified'
+              : binary
+                ? 'providerForm.agent.catalog.confirm.introBinary'
+                : 'providerForm.agent.catalog.confirm.intro',
+          )}
         </p>
+        {/*
+          A frase nomeia a ausência, e é texto: ícone de alerta como único sinal
+          não chega a quem não vê a tela, e "não verificado" sem dizer o que isso
+          significa não é informação (D4).
+        */}
+        {unverified && (
+          <p id={unverifiedId} className="agent-install__unverified">
+            {t('providerForm.agent.catalog.confirm.unverified')}
+          </p>
+        )}
         <dl className="agent-install__details">
           <dt>{t('providerForm.agent.catalog.confirm.agent')}</dt>
           <dd>{plan.name}</dd>
@@ -515,7 +577,11 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
               <dt>{t('providerForm.agent.catalog.confirm.target')}</dt>
               <dd className="agent-install__details-code">{plan.target}</dd>
               <dt>{t('providerForm.agent.catalog.confirm.digest')}</dt>
-              <dd className="agent-install__details-code">{plan.sha256}</dd>
+              <dd className={unverified ? undefined : 'agent-install__details-code'}>
+                {unverified
+                  ? t('providerForm.agent.catalog.confirm.digestMissing')
+                  : plan.sha256}
+              </dd>
             </>
           ) : (
             <>
@@ -525,15 +591,34 @@ export const AgentInstall = ({ agentKind, onResolved }: AgentInstallProps) => {
           )}
         </dl>
         <div className="agent-install__confirm-actions">
-          <Button type="button" variant="outline" onClick={() => setConfirming(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            data-confirm-cancel=""
+            onClick={() => setConfirming(false)}
+          >
             {t('providerForm.agent.catalog.confirm.cancelBtn')}
           </Button>
           {/*
             Confirmar duas vezes é um clique repetido, e não dois pedidos: o
             diálogo fecha no primeiro, mas o segundo pode chegar antes disso.
+
+            O rótulo do artefato sem digest diz o que está sendo aceito, e não
+            "confirmar": num leitor de telas o nome do botão é o que se ouve
+            antes de acioná-lo, e ele é a última chance de a frase acima não ter
+            passado batida.
           */}
-          <Button type="button" variant="primary" onClick={handleInstall} disabled={busy}>
-            {t('providerForm.agent.catalog.confirm.confirmBtn')}
+          <Button
+            type="button"
+            variant="primary"
+            onClick={() => void handleInstall(unverified)}
+            disabled={busy}
+          >
+            {t(
+              unverified
+                ? 'providerForm.agent.catalog.confirm.confirmUnverifiedBtn'
+                : 'providerForm.agent.catalog.confirm.confirmBtn',
+            )}
           </Button>
         </div>
       </Modal>

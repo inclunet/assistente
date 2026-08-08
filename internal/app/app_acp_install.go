@@ -54,8 +54,10 @@ type ACPInstallation struct {
 	Dir          string   `json:"dir"`
 
 	// SHA256 e SHA256Origin são o digest do artefato instalado e o que ele
-	// vale: `verified` foi conferido contra o que o registro publicou. Pacote
-	// npm não tem nenhum dos dois — quem confere ali é o próprio npm.
+	// vale: `verified` foi conferido contra o que o registro publicou;
+	// `observed` é só o que chegou, e a tela continua dizendo isso depois de
+	// instalado (D4). Pacote npm não tem nenhum dos dois — quem confere ali é o
+	// próprio npm.
 	SHA256       string `json:"sha256,omitempty"`
 	SHA256Origin string `json:"sha256_origin,omitempty"`
 
@@ -89,6 +91,11 @@ type ACPInstallPlan struct {
 
 	// SHA256 é o digest publicado que será conferido contra o download.
 	SHA256 string `json:"sha256,omitempty"`
+
+	// Unverified diz que este artefato não publica digest, e que instalar é
+	// baixar um arquivo que o app não tem como conferir. A tela nomeia essa
+	// ausência em texto e pede uma confirmação própria por causa dele (D4).
+	Unverified bool `json:"unverified,omitempty"`
 
 	// Dir é onde a instalação vai morar. Fica à vista porque o app está
 	// escrevendo no disco de alguém.
@@ -128,6 +135,12 @@ type ACPInstallConfirmation struct {
 	Distribution string `json:"distribution,omitempty"`
 	Origin       string `json:"origin,omitempty"`
 	SHA256       string `json:"sha256,omitempty"`
+
+	// AcceptUnverified é a resposta ao diálogo do artefato sem digest (D4).
+	// Falso recusa a instalação desse tipo de artefato em vez de deixá-la
+	// passar: a pergunta é feita a cada instalação, e não existe preferência
+	// que a desligue.
+	AcceptUnverified bool `json:"accept_unverified,omitempty"`
 }
 
 // ACPInstallProgress é um marco da instalação (D13). Marcos, e não bytes:
@@ -310,9 +323,10 @@ func (a *App) InstallACPAgent(agentID string, confirmed ACPInstallConfirmation) 
 		return ACPInstallation{}, err
 	}
 	installation, err := a.acpCatalogServices().installer.Install(ctx, agentID, acpinstall.Confirmed{
-		Distribution: confirmed.Distribution,
-		Origin:       confirmed.Origin,
-		SHA256:       confirmed.SHA256,
+		Distribution:     confirmed.Distribution,
+		Origin:           confirmed.Origin,
+		SHA256:           confirmed.SHA256,
+		AcceptUnverified: confirmed.AcceptUnverified,
 	})
 	if err != nil {
 		return ACPInstallation{}, err
@@ -370,6 +384,7 @@ func installPlanDTO(plan acpinstall.Plan, installing bool) ACPInstallPlan {
 		Origin:         plan.Origin,
 		Target:         plan.Target,
 		SHA256:         plan.SHA256,
+		Unverified:     plan.Unverified,
 		Dir:            plan.Dir,
 		InstallCommand: plan.InstallCommand,
 		RunArgs:        plan.RunArgs,

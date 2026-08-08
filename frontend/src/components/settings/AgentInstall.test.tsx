@@ -319,6 +319,7 @@ describe('AgentInstall — artefato binário', () => {
         distribution: 'binary',
         origin: planoBinario.origin,
         sha256: planoBinario.sha256,
+        accept_unverified: false,
       }),
     );
   });
@@ -350,6 +351,184 @@ describe('AgentInstall — artefato binário', () => {
 
     expect(await axe(screen.getByRole('dialog'))).toHaveNoViolations();
   });
+
+  describe('sem código de verificação publicado', () => {
+    // Metade dos agentes com binário não publica digest, e o Cursor é um deles.
+    const planoSemDigest = {
+      ...planoBinario,
+      agent_id: 'cursor',
+      name: 'Cursor',
+      origin: 'https://downloads.cursor.com/cursor-agent-windows-x64.zip',
+      sha256: '',
+      unverified: true,
+    };
+
+    it('a confirmação nomeia em texto o que o aplicativo não consegue conferir', async () => {
+      // D4: a ausência é dita por escrito, e não por um ícone de alerta que não
+      // chega a quem não vê a tela. E o campo do digest não fica em branco: em
+      // branco ele parece campo que não carregou.
+      planMock.mockResolvedValue(planoSemDigest);
+      const user = userEvent.setup();
+
+      render(<Host agentKind="cursor" />);
+      await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+
+      const dialogo = await screen.findByRole('dialog');
+      expect(dialogo).toHaveTextContent(/não publica verificação de integridade/i);
+      expect(dialogo).toHaveTextContent(/não tem como conferir que o arquivo baixado/i);
+      expect(dialogo).toHaveTextContent(/não publicado pelo registro/i);
+      // E a abertura não promete a conferência que não vai acontecer: ela é a
+      // frase do artefato com digest, e aqui diria o contrário do aviso.
+      expect(dialogo).not.toHaveTextContent(/conferir se ele confere com o código de verificação/i);
+    });
+
+    it('o aviso entra na descrição do diálogo, e não só no corpo dele', async () => {
+      // É o que um leitor de telas lê ao abrir. Fora da descrição, a frase que
+      // nomeia a ausência vira texto que só quem varre a tela encontra (D4).
+      planMock.mockResolvedValue(planoSemDigest);
+      const user = userEvent.setup();
+
+      render(<Host agentKind="cursor" />);
+      await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+
+      const dialogo = await screen.findByRole('dialog');
+      expect(dialogo).toHaveAccessibleDescription(/não publica verificação de integridade/i);
+    });
+
+    it('o foco começa em cancelar, e instalar exige mover o foco até o outro botão', async () => {
+      // O Enter ativa o botão focado, como em qualquer diálogo. O que esta regra
+      // decide é onde o foco começa — e é o movimento até o botão afirmativo que
+      // separa ler do reflexo de confirmar (D4).
+      //
+      // O `offsetParent` é encenado porque o jsdom não faz layout: sem ele o
+      // modal considera invisível todo botão do diálogo e o foco inicial cai no
+      // container, que é o que aconteceria em qualquer teste de foco daqui.
+      const descritor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent');
+      Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+        configurable: true,
+        get() {
+          return document.body;
+        },
+      });
+      try {
+        planMock.mockResolvedValue(planoSemDigest);
+        const user = userEvent.setup();
+
+        render(<Host agentKind="cursor" />);
+        await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+        await screen.findByRole('dialog');
+
+        const cancelar = screen.getByRole('button', { name: /^cancelar$/i });
+        await waitFor(() => expect(cancelar).toHaveFocus());
+
+        await user.keyboard('{Enter}');
+        expect(installMock).not.toHaveBeenCalled();
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      } finally {
+        if (descritor) {
+          Object.defineProperty(HTMLElement.prototype, 'offsetParent', descritor);
+        } else {
+          delete (HTMLElement.prototype as { offsetParent?: unknown }).offsetParent;
+        }
+      }
+    });
+
+    it('o botão afirmativo diz o que está sendo aceito, e não "confirmar"', async () => {
+      // Num leitor de telas o nome do botão é o que se ouve antes de acioná-lo:
+      // é a última chance de a frase acima não ter passado batida.
+      planMock.mockResolvedValue(planoSemDigest);
+      const user = userEvent.setup();
+
+      render(<Host agentKind="cursor" />);
+      await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+
+      await screen.findByRole('dialog');
+      expect(screen.getByRole('button', { name: /baixar mesmo sem verificação/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^baixar e instalar$/i })).not.toBeInTheDocument();
+    });
+
+    it('a resposta à pergunta viaja com o pedido, e não fica ligada em lugar nenhum', async () => {
+      // O backend recusa sem ela. A decisão é por instalação: não há preferência
+      // que a desligue, e por isso ela não sai de um estado guardado.
+      planMock.mockResolvedValue(planoSemDigest);
+      installMock.mockResolvedValue({ command: 'C:\\agents\\cursor-agent.exe', args: [] });
+      const user = userEvent.setup();
+
+      render(<Host agentKind="cursor" />);
+      await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+      await user.click(await screen.findByRole('button', { name: /baixar mesmo sem verificação/i }));
+
+      await waitFor(() =>
+        expect(installMock).toHaveBeenCalledWith('cursor', {
+          distribution: 'binary',
+          origin: planoSemDigest.origin,
+          sha256: '',
+          accept_unverified: true,
+        }),
+      );
+    });
+
+    it('depois de instalado o item continua dizendo que aquilo não foi verificado', async () => {
+      // A marca não some (D4): quem abrir esta tela amanhã precisa saber o que
+      // aquele agente é, e não só que ele está instalado.
+      planMock.mockResolvedValue({
+        ...planoSemDigest,
+        can_install: false,
+        installed: {
+          agent_id: 'cursor',
+          name: 'Cursor',
+          version: '0.4.2',
+          distribution: 'binary',
+          target: 'windows-x86_64',
+          sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          sha256_origin: 'observed',
+          command: 'C:\\agents\\cursor-agent.exe',
+          args: [],
+          dir: 'C:\\Users\\ana\\.assistente\\agents\\cursor\\0.4.2',
+          installed_at: '2026-08-07T12:00:00Z',
+        },
+      });
+
+      render(<Host agentKind="cursor" />);
+
+      expect(await screen.findByText(/esta instalação não foi verificada/i)).toBeInTheDocument();
+    });
+
+    it('a instalação conferida não ganha a marca de não verificada', async () => {
+      planMock.mockResolvedValue({
+        ...planoBinario,
+        can_install: false,
+        installed: {
+          agent_id: 'opencode',
+          name: 'opencode',
+          version: '0.4.2',
+          distribution: 'binary',
+          target: 'windows-x86_64',
+          sha256: planoBinario.sha256,
+          sha256_origin: 'verified',
+          command: 'C:\\agents\\opencode.exe',
+          args: [],
+          dir: 'C:\\Users\\ana\\.assistente\\agents\\opencode\\0.4.2',
+          installed_at: '2026-08-07T12:00:00Z',
+        },
+      });
+
+      render(<Host agentKind="opencode" />);
+
+      await screen.findByRole('button', { name: /usar o comando instalado/i });
+      expect(screen.queryByText(/não foi verificada/i)).not.toBeInTheDocument();
+    });
+
+    it('não tem violação na confirmação reforçada', async () => {
+      planMock.mockResolvedValue(planoSemDigest);
+      const user = userEvent.setup();
+
+      render(<Host agentKind="cursor" />);
+      await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
+
+      expect(await axe(screen.getByRole('dialog'))).toHaveNoViolations();
+    });
+  });
 });
 
 describe('AgentInstall — instalando', () => {
@@ -369,6 +548,7 @@ describe('AgentInstall — instalando', () => {
         distribution: 'npm',
         origin: planoInstalavel.origin,
         sha256: '',
+        accept_unverified: false,
       }),
     );
 
