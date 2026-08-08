@@ -508,6 +508,20 @@ func TestModeloLegadoNaoDuplicaOFormatoEstavel(t *testing.T) {
 	if got := withModelOption(nil, vazio); got != nil {
 		t.Errorf("modelo sem identificador não deveria virar opção: %+v", got)
 	}
+
+	// O identificador é o que volta ao agente na troca, e o corrente é o que a
+	// tela compara com a lista. Guardar um com espaço e o outro sem faria a
+	// tela não achar o modelo em uso.
+	comEspaco := withModelOption(nil, &legacyModelState{
+		CurrentModelID:  " auto\t",
+		AvailableModels: []legacyModel{{ModelID: " auto ", Name: "Auto"}},
+	})
+	if len(comEspaco) != 1 || comEspaco[0].CurrentValue != "auto" {
+		t.Fatalf("corrente não veio aparado: %+v", comEspaco)
+	}
+	if comEspaco[0].Values[0].Value != "auto" {
+		t.Errorf("identificador não veio aparado: %q", comEspaco[0].Values[0].Value)
+	}
 }
 
 // O agente que anuncia modelo ou modo pelo formato de antes só o faz na

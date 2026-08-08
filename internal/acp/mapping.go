@@ -301,15 +301,21 @@ type legacyModel struct {
 // serviria para a pessoa tentar.
 func modelOptionFrom(state *legacyModelState) ConfigOption {
 	option := ConfigOption{
-		ID:           "model",
-		Category:     CategoryModel,
-		CurrentValue: state.CurrentModelID,
+		ID:       "model",
+		Category: CategoryModel,
+		// Os identificadores vão aparados dos dois lados, e o corrente pelo
+		// mesmo critério dos oferecidos: é ele que a tela compara com a lista
+		// para marcar o escolhido, e é o valor da lista que volta ao agente na
+		// troca. Guardar um com espaço e o outro sem faria a tela não achar o
+		// modelo em uso e a troca mandar de volta um espaço que ninguém pediu.
+		CurrentValue: strings.TrimSpace(state.CurrentModelID),
 	}
 	for _, model := range state.AvailableModels {
-		if strings.TrimSpace(model.ModelID) == "" {
+		id := strings.TrimSpace(model.ModelID)
+		if id == "" {
 			continue
 		}
-		option.Values = append(option.Values, ConfigValue{Value: model.ModelID, Name: model.Name})
+		option.Values = append(option.Values, ConfigValue{Value: id, Name: model.Name})
 	}
 	return option
 }

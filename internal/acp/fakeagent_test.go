@@ -726,7 +726,10 @@ func fakeModelOption(current string) map[string]any {
 // propósito — é o que prova que ela não vira uma escolha impossível na tela.
 func fakeLegacyModels(current string) map[string]any {
 	models := []any{
-		map[string]any{"modelId": "modelo-a", "name": "Modelo A"},
+		// O espaço em volta do primeiro está aqui de propósito: ele é o mesmo
+		// modelo, e guardá-lo com o espaço faria a troca mandar de volta um
+		// identificador que o agente não reconhece.
+		map[string]any{"modelId": " modelo-a ", "name": "Modelo A"},
 		map[string]any{"modelId": "modelo-b", "name": "Modelo B"},
 		map[string]any{"modelId": "   ", "name": "Modelo sem identificador"},
 	}
