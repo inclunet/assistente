@@ -27,39 +27,6 @@ func TestPlatformForTraduzOAlvoDoRegistro(t *testing.T) {
 	}
 }
 
-func TestDetectableKindMapeiaSoOsAgentesQueADeteccaoConhece(t *testing.T) {
-	// O mapeamento é curto por decisão (D1/D11): nenhum agente novo ganha
-	// detecção própria, e é isso que faz a tela dizer "o app não sabe procurar"
-	// em vez de "não encontrado" para os outros.
-	if kind, ok := DetectableKind("cursor"); !ok || kind != acp.AgentKindCursor {
-		t.Errorf("cursor = (%q, %v), quer o tipo do Cursor", kind, ok)
-	}
-	if kind, ok := DetectableKind("claude-acp"); !ok || kind != acp.AgentKindClaudeCode {
-		t.Errorf("claude-acp = (%q, %v), quer o tipo do Claude Code", kind, ok)
-	}
-	// O `id` do registro e o tipo de provider do app são vocabulários
-	// diferentes: `claude-code` é tipo de provider, e não linha do índice.
-	if _, ok := DetectableKind("claude-code"); ok {
-		t.Error("o tipo de provider do app foi aceito como id do registro")
-	}
-	if _, ok := DetectableKind("codex-acp"); ok {
-		t.Error("agente sem detecção escrita à mão apareceu como detectável")
-	}
-}
-
-func TestDetectableKindsNaoRepeteEEstavel(t *testing.T) {
-	kinds := DetectableKinds()
-	if len(kinds) != 2 {
-		t.Fatalf("tipos detectáveis = %v, quer dois", kinds)
-	}
-	if !slices.IsSorted(kinds) {
-		t.Errorf("tipos detectáveis fora de ordem: %v", kinds)
-	}
-	if slices.Equal(kinds, DetectableKinds()) == false {
-		t.Error("a lista mudou entre duas chamadas")
-	}
-}
-
 // agenteBinario monta um agente distribuído como binário nos alvos pedidos, com
 // digest onde o teste pedir.
 func agenteBinario(alvos map[string]string) Agent {

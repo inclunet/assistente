@@ -2,7 +2,6 @@ package acpregistry
 
 import (
 	"runtime"
-	"slices"
 
 	"assistente/internal/acp"
 )
@@ -38,43 +37,6 @@ const (
 	// o D4 deixa fora da instalação automática, e o Cursor está nele.
 	IntegrityNoDigest Integrity = "no_digest"
 )
-
-// detectableKinds é o mapeamento entre o tipo de agente que a detecção escrita à
-// mão conhece e o `id` do agente no registro (AEP-0086 D11).
-//
-// Ele existe escrito num lugar só, e este é o lugar: os dois conjuntos de
-// identificadores foram escolhidos em momentos diferentes, e espalhar a
-// tradução por `switch` faria cada consumidor ter a própria versão dela.
-//
-// A lista é curta por decisão, e não por falta de trabalho: nenhum agente novo
-// ganha detecção própria a partir do registro (D1). Para os outros agentes do
-// catálogo o app não sabe procurar, e é isso que a tela diz — em vez de
-// alegar que procurou e não achou.
-var detectableKinds = map[string]acp.AgentKind{
-	"cursor":     acp.AgentKindCursor,
-	"claude-acp": acp.AgentKindClaudeCode,
-}
-
-// DetectableKind devolve o tipo de agente que a detecção sabe procurar para
-// aquele `id` do registro. O `false` quer dizer que este app não tem detecção
-// para o agente — o que é diferente de ter procurado e não encontrado.
-func DetectableKind(id string) (acp.AgentKind, bool) {
-	kind, ok := detectableKinds[id]
-	return kind, ok
-}
-
-// DetectableKinds são os tipos que a detecção conhece, sem repetição. Quem monta
-// o catálogo procura uma vez por tipo, e não uma vez por linha: a procura vai ao
-// sistema de arquivos, e repeti-la por agente custaria 38 varreduras para
-// responder sobre 2.
-func DetectableKinds() []acp.AgentKind {
-	kinds := make([]acp.AgentKind, 0, len(detectableKinds))
-	for _, kind := range detectableKinds {
-		kinds = append(kinds, kind)
-	}
-	slices.Sort(kinds)
-	return kinds
-}
 
 // Platform é o alvo desta máquina no vocabulário do registro
 // (`windows-x86_64`, `darwin-aarch64` e companhia).
