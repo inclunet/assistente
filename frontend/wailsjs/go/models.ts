@@ -143,6 +143,7 @@ export namespace app {
 	}
 	export class ACPAgentSetup {
 	    found: boolean;
+	    detectable: boolean;
 	    command: string;
 	    args: string[];
 	    version?: string;
@@ -158,6 +159,7 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.found = source["found"];
+	        this.detectable = source["detectable"];
 	        this.command = source["command"];
 	        this.args = source["args"];
 	        this.version = source["version"];
@@ -1755,6 +1757,7 @@ export namespace controllers {
 	    api_format?: string;
 	    acp_command?: string;
 	    acp_args?: string[];
+	    acp_agent_id?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CreateLLMProviderRequest(source);
@@ -1771,6 +1774,7 @@ export namespace controllers {
 	        this.api_format = source["api_format"];
 	        this.acp_command = source["acp_command"];
 	        this.acp_args = source["acp_args"];
+	        this.acp_agent_id = source["acp_agent_id"];
 	    }
 	}
 	export class CredentialInput {
@@ -1989,6 +1993,7 @@ export namespace controllers {
 	    api_format?: string;
 	    acp_command?: string;
 	    acp_args?: string[];
+	    acp_agent_id?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new UpdateLLMProviderRequest(source);
@@ -2004,6 +2009,7 @@ export namespace controllers {
 	        this.api_format = source["api_format"];
 	        this.acp_command = source["acp_command"];
 	        this.acp_args = source["acp_args"];
+	        this.acp_agent_id = source["acp_agent_id"];
 	    }
 	}
 
@@ -3681,6 +3687,7 @@ export namespace llm {
 	    acp_command?: string;
 	    acp_args?: string[];
 	    acp_env?: Record<string, string>;
+	    acp_agent_id?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProviderConfig(source);
@@ -3703,6 +3710,7 @@ export namespace llm {
 	        this.acp_command = source["acp_command"];
 	        this.acp_args = source["acp_args"];
 	        this.acp_env = source["acp_env"];
+	        this.acp_agent_id = source["acp_agent_id"];
 	    }
 	}
 	

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"assistente/internal/acp"
+	"assistente/internal/acpregistry"
 )
 
 // ACPAgentSetup é o que a tela de provedores precisa para configurar um agente
@@ -16,6 +17,13 @@ type ACPAgentSetup struct {
 	// Found diz se há agente instalado. Falso não é erro: é o estado que a tela
 	// precisa explicar, com o que fazer para resolver (AEP-0084 Fase 3).
 	Found bool `json:"found"`
+
+	// Detectable diz se este app sabe procurar o agente no disco. Ele existe
+	// porque o catálogo tem 38 agentes e a detecção escrita à mão cobre dois
+	// (AEP-0086 D1): sem separar as duas coisas, a tela diria "não encontrado"
+	// sobre uma procura que não aconteceu, e mandaria instalar o que talvez já
+	// esteja instalado. Falso não é erro nem defeito — é o caso comum.
+	Detectable bool `json:"detectable"`
 
 	// Command e Args sobem o agente em modo ACP, já no formato que o provider
 	// guarda.
@@ -134,39 +142,52 @@ func (a *App) TestACPAgent(command string, args []string) (ACPAgentHealth, error
 }
 
 // DetectACPAgent procura na máquina o agente de código pedido e devolve, junto,
-// o diretório sobre o qual ele vai agir.
+// o diretório sobre o qual ele vai agir. O agente é nomeado pelo `id` do
+// registro ACP (AEP-0086 D11).
+//
+// Não saber procurar aquele agente é resposta, e não erro: são 38 no catálogo e
+// dois com detecção escrita à mão (D1), então a pergunta é feita para todos e a
+// maioria das respostas é "o app não olha aqui". Devolvê-la como erro faria a
+// tela tratar o caso comum como anomalia.
 //
 // Exige sessão como o resto da API de provedores: a tela que chama só existe
 // depois do login, e um sondador de sistema de arquivos aberto antes disso é
 // superfície que não precisa existir.
-func (a *App) DetectACPAgent(kind string) (ACPAgentSetup, error) {
+func (a *App) DetectACPAgent(agentID string) (ACPAgentSetup, error) {
 	if _, err := a.requireAuthenticatedContext(); err != nil {
 		return ACPAgentSetup{}, err
 	}
 
-	install, err := acp.DetectAgent(acp.AgentKind(kind))
+	setup := ACPAgentSetup{Args: []string{}}
+	// O diretório não depende de procura nenhuma: ele é o workspace ativo do
+	// app, e é sobre ele que o agente vai agir seja qual for o caminho pelo qual
+	// o comando chegou aos campos. Falha aqui também não invalida a detecção:
+	// sem diretório a tela deixa de mostrar um dado, e o resto continua valendo.
+	if dir, err := a.acpWorkDir(); err == nil {
+		setup.WorkDir = dir
+	}
+
+	kind, detectable := acpregistry.DetectableKind(agentID)
+	if !detectable {
+		return setup, nil
+	}
+
+	install, err := acp.DetectAgent(kind)
 	if err != nil {
 		return ACPAgentSetup{}, err
 	}
 
-	setup := ACPAgentSetup{
-		Found:        install.Found,
-		Command:      install.Command,
-		Args:         install.Args,
-		Version:      install.Version,
-		Source:       install.Source,
-		Searched:     install.Searched,
-		LoginCommand: install.LoginCommand,
-	}
-	if setup.Args == nil {
+	setup.Detectable = true
+	setup.Found = install.Found
+	setup.Command = install.Command
+	setup.Version = install.Version
+	setup.Source = install.Source
+	setup.Searched = install.Searched
+	setup.LoginCommand = install.LoginCommand
+	if install.Args != nil {
 		// Lista sempre presente: `null` faria a tela distinguir "sem
 		// argumentos" de "campo ausente" antes de preencher o formulário.
-		setup.Args = []string{}
-	}
-	// Falha aqui não invalida a detecção: sem diretório a tela deixa de mostrar
-	// um dado, mas o comando encontrado continua valendo.
-	if dir, err := a.acpWorkDir(); err == nil {
-		setup.WorkDir = dir
+		setup.Args = install.Args
 	}
 	return setup, nil
 }

@@ -126,12 +126,6 @@ type ACPInstallPlan struct {
 	// Installing diz que há instalação em voo deste agente, para a tela saber
 	// que o botão de cancelar tem o que cancelar.
 	Installing bool `json:"installing"`
-
-	// Detectable diz se este app sabe procurar o agente no disco (D1). Ele vem
-	// junto do plano para a tela não oferecer um "detectar instalação" que só
-	// teria como responder que não sabe procurar — a pergunta é feita para todo
-	// agente, e para 36 dos 38 a resposta já é conhecida antes de perguntar.
-	Detectable bool `json:"detectable"`
 }
 
 // ACPInstallConfirmation é o plano que a tela mostrou e teve aceito (D3). Ela
@@ -281,7 +275,6 @@ func emptyInstallPlan() ACPInstallPlan {
 // nenhum (D2). O desfecho é um plano que não oferece instalação, com o motivo em
 // texto, que é o que o D7 pede para qualquer indisponibilidade.
 func (a *App) acpInstallPlan(ctx context.Context, agentID string) (ACPInstallPlan, error) {
-	_, detectable := acpregistry.DetectableKind(agentID)
 	installer := a.acpCatalogServices().installer
 	plan, err := installer.Plan(ctx, agentID)
 	if err != nil {
@@ -289,12 +282,9 @@ func (a *App) acpInstallPlan(ctx context.Context, agentID string) (ACPInstallPla
 		unavailable.AgentID = agentID
 		unavailable.Runtime = runtimeStatusDTO(acp.FindNodeRuntime())
 		unavailable.Reason = acp.SanitizeLabel(err.Error())
-		unavailable.Detectable = detectable
 		return unavailable, nil
 	}
-	dto := installPlanDTO(plan, installer.Installing(agentID))
-	dto.Detectable = detectable
-	return dto, nil
+	return installPlanDTO(plan, installer.Installing(agentID)), nil
 }
 
 // InstallACPAgent instala o agente do catálogo e só volta com sucesso depois de

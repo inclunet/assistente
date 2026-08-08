@@ -8,7 +8,6 @@ import (
 
 	"assistente/internal/acp"
 	"assistente/internal/acpinstall"
-	"assistente/internal/acpregistry"
 )
 
 func TestProgressoDaInstalacaoVaiParaATelaComOAgenteQueOMotivou(t *testing.T) {
@@ -178,17 +177,5 @@ func TestRuntimeAusenteChegaATelaComOndeSeProcurou(t *testing.T) {
 	}
 	if len(dto.Searched) == 0 {
 		t.Error("não disse onde procurou")
-	}
-}
-
-func TestOPlanoDizSeOAppSabeProcurarOAgente(t *testing.T) {
-	// A tela precisa saber disso antes de oferecer o botão de detectar: para 36
-	// dos 38 agentes a resposta é conhecida de antemão, e um botão que só sabe
-	// dizer "não sei procurar" é um convite a um clique inútil (D1).
-	if _, ok := acpregistry.DetectableKind("cursor"); !ok {
-		t.Error("o app deixou de saber procurar o Cursor")
-	}
-	if _, ok := acpregistry.DetectableKind("gemini-cli"); ok {
-		t.Error("prometeu procurar um agente para o qual não há detecção escrita à mão")
 	}
 }
