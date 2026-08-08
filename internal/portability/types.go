@@ -90,6 +90,11 @@ type ProviderExport struct {
 	// que `MCPServerExport.Env`: variável de ambiente de processo é onde token
 	// costuma parar, e arquivo de export viaja entre máquinas.
 	ACPEnv map[string]string `json:"acpEnv,omitempty"`
+	// ACPAgentID diz qual agente do registro é o provider (AEP-0086 D11). Ele
+	// viaja porque é a única coisa no arquivo que o liga ao catálogo: sem ele,
+	// um provider importado num computador onde o agente não está instalado
+	// não teria como oferecer instalar.
+	ACPAgentID string `json:"acpAgentId,omitempty"`
 }
 
 type MCPServerExport struct {

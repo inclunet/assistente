@@ -38,6 +38,7 @@ func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
 		CreatedAt:         provider.CreatedAt,
 		ACPCommand:        provider.ACPCommand,
 		ACPArgs:           args,
+		ACPAgentID:        provider.ACPAgentID,
 	}, nil
 }
 
@@ -131,6 +132,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 			ACPCommand:        provider.ACPCommand,
 			ACPArgs:           acpArgs,
 			ACPEnv:            acpEnv,
+			ACPAgentID:        provider.ACPAgentID,
 			CreatedAt:         createdAt,
 			UpdatedAt:         updatedAt,
 		}
@@ -152,6 +154,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	existing.ACPCommand = provider.ACPCommand
 	existing.ACPArgs = acpArgs
 	existing.ACPEnv = acpEnv
+	existing.ACPAgentID = provider.ACPAgentID
 	existing.CreatedAt = createdAt
 	existing.UpdatedAt = updatedAt
 	return tx.Save(existing).Error
@@ -168,6 +171,7 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 	normalized.DefaultModel = strings.TrimSpace(provider.DefaultModel)
 	normalized.CredentialPattern = strings.TrimSpace(provider.CredentialPattern)
 	normalized.ACPCommand = strings.TrimSpace(provider.ACPCommand)
+	normalized.ACPAgentID = strings.TrimSpace(provider.ACPAgentID)
 
 	if normalized.ID == "" {
 		return ProviderExport{}, fmt.Errorf("provider sem id não pode ser importado")
@@ -189,7 +193,8 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 	// Configuração de agente fora do formato acp não teria leitor: nenhum
 	// caminho HTTP sobe processo. Recusar avisa quem montou o arquivo; guardar
 	// em silêncio deixaria a pessoa achando que configurou alguma coisa.
-	if normalized.ACPCommand != "" || len(normalized.ACPArgs) > 0 || len(normalized.ACPEnv) > 0 {
+	if normalized.ACPCommand != "" || len(normalized.ACPArgs) > 0 || len(normalized.ACPEnv) > 0 ||
+		normalized.ACPAgentID != "" {
 		return ProviderExport{}, fmt.Errorf("provider %q traz configuração de agente mas apiFormat é %q; use %q", normalized.ID, normalized.APIFormat, acpAPIFormat)
 	}
 	if normalized.BaseURL == "" {

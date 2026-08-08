@@ -31,6 +31,9 @@ type CreateLLMProviderRequest struct {
 	// precisa dela usa a importação de configuração, que já a aceita.
 	ACPCommand string   `json:"acp_command,omitempty"`
 	ACPArgs    []string `json:"acp_args,omitempty"`
+	// ACPAgentID é o agente do registro que a tela escolheu no catálogo
+	// (AEP-0086 D11). Vazio é agente apontado à mão, que segue valendo.
+	ACPAgentID string `json:"acp_agent_id,omitempty"`
 }
 
 // TestLLMProviderRequest é o payload para testar um provedor LLM.
@@ -56,6 +59,9 @@ type UpdateLLMProviderRequest struct {
 	// todos os argumentos do agente —, e "vazio é não mexer" tornaria isso
 	// impossível.
 	ACPArgs *[]string `json:"acp_args,omitempty"`
+	// ACPAgentID troca qual agente do registro este provedor é. Vazio é "não
+	// mexer", como os demais.
+	ACPAgentID string `json:"acp_agent_id,omitempty"`
 }
 
 // LLMControllerConfig agrupa as dependências do LLMController.
@@ -174,6 +180,7 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 		"auth_mode":             string(p.EffectiveAuthMode()),
 		"acp_command":           p.ACPCommand,
 		"acp_args":              acpArgs,
+		"acp_agent_id":          p.ACPAgentID,
 	}
 }
 
@@ -188,6 +195,7 @@ func (c *LLMController) CreateLLMProvider(ctx context.Context, req CreateLLMProv
 		DefaultModel: req.DefaultModel,
 		ACPCommand:   req.ACPCommand,
 		ACPArgs:      req.ACPArgs,
+		ACPAgentID:   req.ACPAgentID,
 	})
 	if err != nil {
 		return nil, err
@@ -205,6 +213,7 @@ func (c *LLMController) UpdateLLMProvider(ctx context.Context, id string, req Up
 		DefaultModel: req.DefaultModel,
 		ACPCommand:   req.ACPCommand,
 		ACPArgs:      req.ACPArgs,
+		ACPAgentID:   req.ACPAgentID,
 	})
 	if err != nil {
 		return nil, err

@@ -2,7 +2,6 @@ package providers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 
@@ -12,36 +11,19 @@ import (
 	"assistente/internal/logging"
 )
 
-// ErrAgentNotFound diz que o agente de código do template não está instalado
-// nesta máquina. É estado de instalação, não de configuração: quem chamou
-// precisa distinguir isso de "tipo inválido" para dar a instrução certa —
-// instalar o CLI resolve, mudar o formulário não (AEP-0084 Fase 3).
-var ErrAgentNotFound = errors.New("agente de código não encontrado nesta máquina")
-
 // BuiltinTemplate retorna um ProviderConfig pré-configurado para um tipo conhecido.
 // providerType deve ser um dos: "openai", "claude", "google", "openrouter", "mistral",
 // "groq", "together", "fireworks", "perplexity", "deepseek", "grok", "ollama",
-// "localai", "llamacpp", "cursor", "claude-code".
+// "localai", "llamacpp".
 // Retorna (nil, ErrUnknownProviderType) se o tipo não for reconhecido.
 //
-// Os templates de agente de código ("cursor" e "claude-code") são os únicos que
-// consultam a máquina: o que endereça um agente é o comando dele, e o comando
-// depende de onde o CLI foi instalado (AEP-0084 D15). Sem instalação eles
-// devolvem ErrAgentNotFound.
+// Agente de código não tem template aqui, e é de propósito (AEP-0086 D11). Um
+// template descreve um serviço que existe no mesmo lugar para todo mundo; um
+// agente é um processo que mora onde a máquina o instalou, e qual agente subir
+// é escolha de quem configura, feita no catálogo. Enumerá-los aqui seria
+// reconstruir a lista escrita à mão que esta fase apagou.
 func BuiltinTemplate(providerType string) (*llm.ProviderConfig, error) {
 	switch providerType {
-	case "cursor":
-		install, err := detectedAgent(acp.AgentKindCursor)
-		if err != nil {
-			return nil, err
-		}
-		return CursorTemplate(install), nil
-	case "claude-code":
-		install, err := detectedAgent(acp.AgentKindClaudeCode)
-		if err != nil {
-			return nil, err
-		}
-		return ClaudeCodeTemplate(install), nil
 	case "openai":
 		return &llm.ProviderConfig{
 			ID:                "openai-default",
@@ -203,45 +185,20 @@ func BuiltinTemplate(providerType string) (*llm.ProviderConfig, error) {
 	}
 }
 
-// detectedAgent procura o agente na máquina e trata os dois desfechos que o
-// template não sabe resolver sozinho: a procura que não pôde ser feita e a
-// máquina sem o agente instalado.
-func detectedAgent(kind acp.AgentKind) (acp.Install, error) {
-	install, err := acp.DetectAgent(kind)
-	if err != nil {
-		return acp.Install{}, err
-	}
-	if !install.Found {
-		return acp.Install{}, fmt.Errorf("%s: %w", kind, ErrAgentNotFound)
-	}
-	return install, nil
-}
-
-// CursorTemplate monta o provider do Cursor a partir de uma instalação já
-// encontrada. Fica separado da detecção para poder ser testado sem depender de
-// o CLI estar instalado em quem roda o teste.
-func CursorTemplate(install acp.Install) *llm.ProviderConfig {
-	return agentTemplate("cursor-agent", "Cursor (agente de código)", llm.ProviderCursor, install)
-}
-
-// ClaudeCodeTemplate monta o provider do Claude Code (AEP-0084 Fase 7). O
-// comando aqui é o do adaptador npm, e não o do CLI do agente — a Anthropic não
-// adotou o protocolo —, mas para o provider isso é indiferente: o que ele guarda
-// é o que sobe alguém que fala ACP.
-func ClaudeCodeTemplate(install acp.Install) *llm.ProviderConfig {
-	return agentTemplate("claude-code-agent", "Claude Code (agente de código)", llm.ProviderClaudeCode, install)
-}
-
-// agentTemplate é o provider de um agente de código já encontrado na máquina.
+// AgentProvider monta o provedor de um agente de código.
+//
+// Ele é o mesmo para os 38 agentes do catálogo: o que muda entre eles é o
+// identificador, o nome e o comando, e nada disso é código (AEP-0086 D11).
 //
 // Nada de URL, credencial ou modelo: um agente não tem endereço, o login é
 // feito fora do app (AEP-0084 D12) e a lista de modelos vem da sessão dele.
-func agentTemplate(id, name string, kind llm.ProviderType, install acp.Install) *llm.ProviderConfig {
+func AgentProvider(id, name, agentID string, install acp.Install) *llm.ProviderConfig {
 	return &llm.ProviderConfig{
-		ID:        id,
-		Name:      name,
-		Type:      kind,
-		APIFormat: llm.APIFormatACP,
+		ID:         id,
+		Name:       name,
+		Type:       llm.ProviderACP,
+		APIFormat:  llm.APIFormatACP,
+		ACPAgentID: agentID,
 		// Um turno de agente de código roda ferramentas e edita arquivos: ele
 		// demora mais que uma resposta de LLM, e o teto dos provedores locais é
 		// o que mais se aproxima disso.
@@ -257,17 +214,13 @@ func agentTemplate(id, name string, kind llm.ProviderType, install acp.Install) 
 // CreateFromTemplate cria um provedor a partir de um template builtin, registra-o no
 // registry, salva a credencial (se apiKey fornecida) e persiste no store.
 // É equivalente ao antigo CreateDefaultLLMProvider no app layer.
+//
+// Só provedor HTTP passa por aqui: agente de código não tem template, e quem
+// cria um é o formulário, com o agente escolhido no catálogo (AEP-0086 D11).
 func (s *Service) CreateFromTemplate(ctx context.Context, providerType, apiKey string) error {
 	p, err := BuiltinTemplate(providerType)
 	if err != nil {
 		return err
-	}
-
-	// Recusar em vez de ignorar: quem informou uma chave espera que ela
-	// autentique alguma coisa, e num agente de código o login é feito no CLI
-	// dele, fora do app (AEP-0084 D12).
-	if p.IsACP() && apiKey != "" {
-		return fmt.Errorf("provedor acp não guarda credencial no app; autentique o agente pelo CLI dele")
 	}
 
 	if err := s.registry.Register(p); err != nil {

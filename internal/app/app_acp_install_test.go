@@ -181,17 +181,14 @@ func TestRuntimeAusenteChegaATelaComOndeSeProcurou(t *testing.T) {
 	}
 }
 
-func TestTipoDeProviderSemCorrespondenteNoCatalogo(t *testing.T) {
-	// O mapeamento entre tipo de provider do app e `id` do registro existe
-	// escrito num lugar só (D11), e tipo sem correspondente não é erro:
-	// configurar comando e argumentos à mão continua sendo caminho válido.
-	if id := acpregistry.IDForKind("claude-code"); id != "claude-acp" {
-		t.Errorf("claude-code virou %q, queria claude-acp", id)
+func TestOPlanoDizSeOAppSabeProcurarOAgente(t *testing.T) {
+	// A tela precisa saber disso antes de oferecer o botão de detectar: para 36
+	// dos 38 agentes a resposta é conhecida de antemão, e um botão que só sabe
+	// dizer "não sei procurar" é um convite a um clique inútil (D1).
+	if _, ok := acpregistry.DetectableKind("cursor"); !ok {
+		t.Error("o app deixou de saber procurar o Cursor")
 	}
-	if id := acpregistry.IDForKind("cursor"); id != "cursor" {
-		t.Errorf("cursor virou %q, queria cursor", id)
-	}
-	if id := acpregistry.IDForKind("openai"); id != "" {
-		t.Errorf("um provedor HTTP virou o agente %q", id)
+	if _, ok := acpregistry.DetectableKind("gemini-cli"); ok {
+		t.Error("prometeu procurar um agente para o qual não há detecção escrita à mão")
 	}
 }

@@ -15,7 +15,10 @@ import (
 	"strings"
 )
 
-// AgentKind identifica o agente de código procurado na máquina.
+// AgentKind identifica o agente de código procurado na máquina. Os valores são
+// os `id` do registro ACP, e não um vocabulário próprio: ter dois nomes para o
+// mesmo agente obrigava a traduzir entre eles em toda fronteira, e a tradução é
+// o tipo de coisa que só uma das pontas lembra de atualizar (AEP-0086 D11).
 type AgentKind string
 
 const (
@@ -28,8 +31,19 @@ const (
 	// detecção da do Cursor: a Anthropic não adotou o protocolo, e quem traduz é
 	// um pacote npm construído sobre o Claude Agent SDK (AEP-0084 Fase 7). O que
 	// se procura é o ponto de entrada desse pacote, e não um executável de marca.
-	AgentKindClaudeCode AgentKind = "claude-code"
+	//
+	// O nome vem do registro, onde o agente é `claude-acp` — o pacote é que se
+	// chama `claude-code-acp`.
+	AgentKindClaudeCode AgentKind = "claude-acp"
 )
+
+// ErrNoDetector é o agente que este app não sabe procurar no disco.
+//
+// Ele não é defeito nem engano de quem chamou: o catálogo tem 38 agentes e o
+// app tem detector para dois (AEP-0086 D1), então perguntar pelos outros é o
+// caso comum. O que ele separa é "não sei procurar" de "procurei e não achei" —
+// a segunda frase mandaria instalar algo que talvez já esteja instalado.
+var ErrNoDetector = errors.New("este app não sabe procurar este agente no disco")
 
 // acpSubcommand é o argumento que põe o CLI do Cursor em modo ACP. O adaptador
 // do Claude Code não tem equivalente: ele sobe em ACP sem subcomando nenhum, e
@@ -102,7 +116,7 @@ func detectAgent(kind AgentKind, p probe) (Install, error) {
 	default:
 		// O nome vem da chamada da UI e pode chegar de qualquer lugar: sai
 		// citado e achatado, como todo texto de fora (AEP-0084 D11).
-		return Install{}, fmt.Errorf("agente de código desconhecido: %q", singleLine(string(kind)))
+		return Install{}, fmt.Errorf("%w: %q", ErrNoDetector, singleLine(string(kind)))
 	}
 	if !install.Found && len(install.Failures) > 0 {
 		return install, fmt.Errorf("a procura pelo agente não pôde ser concluída: %s",
