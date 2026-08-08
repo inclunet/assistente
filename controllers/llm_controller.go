@@ -59,9 +59,11 @@ type UpdateLLMProviderRequest struct {
 	// todos os argumentos do agente —, e "vazio é não mexer" tornaria isso
 	// impossível.
 	ACPArgs *[]string `json:"acp_args,omitempty"`
-	// ACPAgentID troca qual agente do registro este provedor é. Vazio é "não
-	// mexer", como os demais.
-	ACPAgentID string `json:"acp_agent_id,omitempty"`
+	// ACPAgentID troca qual agente do registro este provedor é. É ponteiro
+	// pela razão do ACPArgs: vazio aqui é edição de verdade, porque agente
+	// apontado à mão é caminho válido (AEP-0086 D3) e é para onde volta quem
+	// precisa desvincular o provedor do catálogo. Nulo é "não mexer".
+	ACPAgentID *string `json:"acp_agent_id,omitempty"`
 }
 
 // LLMControllerConfig agrupa as dependências do LLMController.

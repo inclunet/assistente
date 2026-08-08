@@ -405,10 +405,13 @@ type UpdateRequest struct {
 	// e "vazio é não mexer" tornaria isso impossível.
 	ACPArgs *[]string
 	ACPEnv  *map[string]string
-	// ACPAgentID segue a convenção dos demais: vazio é "não mexer". Trocar o
-	// agente de um provedor é edição legítima — quem instalou o Gemini CLI no
-	// lugar do Cursor mantém o provedor e troca o que ele sobe.
-	ACPAgentID string
+	// ACPAgentID é ponteiro pela mesma razão que ACPArgs e ACPEnv: aqui o
+	// vazio é escolha legítima. Trocar o agente de um provedor é edição
+	// comum — quem instalou o Gemini CLI no lugar do Cursor mantém o provedor
+	// e troca o que ele sobe —, mas desvinculá-lo do catálogo mantendo o
+	// comando também é, e é o único jeito de consertar um provedor cujo `id`
+	// o registro aposentou. Nulo é "não mexer".
+	ACPAgentID *string
 }
 
 // UpdateResult contém os dados após atualização.
@@ -470,8 +473,11 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	if acpCommand != "" {
 		updated.ACPCommand = acpCommand
 	}
-	acpAgentID := strings.TrimSpace(req.ACPAgentID)
-	if acpAgentID != "" {
+	// Nulo é "não mexer"; presente, mesmo vazio, é edição — e o vazio
+	// desvincula o provedor do catálogo sem tirar dele o comando.
+	acpAgentID := ""
+	if req.ACPAgentID != nil {
+		acpAgentID = strings.TrimSpace(*req.ACPAgentID)
 		updated.ACPAgentID = acpAgentID
 	}
 	if req.ACPArgs != nil {

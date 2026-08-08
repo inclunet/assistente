@@ -429,7 +429,7 @@ func migrateAgentProvidersToSingleType(database *gorm.DB) error {
 	for tipo, agentID := range agentTypeToRegistryID {
 		res := database.Exec(
 			`UPDATE llm_providers SET type = ?, acp_agent_id = ? WHERE type = ? AND api_format = ?`,
-			string(providerTypeACP), agentID, tipo, apiFormatACP,
+			providerTypeACP, agentID, tipo, apiFormatACP,
 		)
 		if res.Error != nil {
 			return errors.Join(
