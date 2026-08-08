@@ -46,6 +46,8 @@ interface Provider {
    */
   acp_command?: string;
   acp_args?: string[];
+  /** Qual agente do registro é o provedor (AEP-0086 D11). */
+  acp_agent_id?: string;
 }
 
 interface ProviderRow extends Provider {
@@ -154,6 +156,7 @@ export default function ProvidersPage() {
       api_format: (provider as Provider).api_format || '',
       acp_command: provider.acp_command || '',
       acp_args: provider.acp_args || [],
+      acp_agent_id: provider.acp_agent_id || '',
     });
     setIsEditing(true);
   }, []);
@@ -196,6 +199,9 @@ export default function ProvidersPage() {
         // modo que não o do original.
         acp_command: provider.acp_command || undefined,
         acp_args: provider.acp_args || undefined,
+        // Sem o id do agente a cópia perderia de qual linha do registro ela
+        // veio, e a tela de provedor não teria o que oferecer de catálogo.
+        acp_agent_id: provider.acp_agent_id || undefined,
       });
       addToast(t('providers.toast.duplicated'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('providers.toast.duplicated'));

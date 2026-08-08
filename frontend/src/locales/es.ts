@@ -1750,7 +1750,17 @@ const es = {
         found: 'Agente encontrado en {{source}}.',
         foundVersion: 'Agente encontrado en {{source}} (versión {{version}}).',
         notFound: 'Agente no encontrado en esta máquina.',
+        typeLabel: 'Agente de código (ACP)',
+        noDetection: 'Esta aplicación no sabe buscar este agente en el disco. Instálalo desde el catálogo o escribe el comando manualmente.',
         detectFailed: 'No se pudo buscar el agente en esta máquina.',
+        picker: {
+          chosenTerm: 'Agente:',
+          none: 'Ningún agente elegido.',
+          pickBtn: 'Elegir agente en el catálogo',
+          changeBtn: 'Cambiar de agente',
+          help: 'Abre el catálogo del registro del ACP para elegir qué agente usará este proveedor. Cambiar de agente borra el comando y los argumentos.',
+          modalTitle: 'Elegir el agente del proveedor',
+        },
         installHelp: 'Instala el CLI del agente y haz clic en "Detectar y completar comando". Si ya está instalado en una ruta no estándar, escribe el comando manualmente en el campo de arriba.',
         searchedIn: 'Buscamos en el PATH y en: {{places}}.',
         workDir: 'Directorio de trabajo',
@@ -1867,10 +1877,14 @@ const es = {
       open: 'Catálogo de agentes ACP',
       title: 'Catálogo de agentes ACP',
       intro:
-        'Agentes publicados en el registro oficial del ACP. Esta pantalla muestra lo que existe; instalar desde aquí todavía no es posible.',
+        'Agentes publicados en el registro oficial del ACP. Esta pantalla muestra lo que existe y lo que ya está en esta máquina.',
+      introSelect:
+        'Elige el agente que usará este proveedor. Si todavía no está instalado, el formulario del proveedor ofrece instalarlo.',
       listLabel: 'Agentes del registro del ACP',
       navHelp:
         'Usa las flechas arriba y abajo para recorrer los agentes; Inicio y Fin van al primero y al último.',
+      navHelpSelect:
+        'Usa las flechas arriba y abajo para recorrer los agentes; Inicio y Fin van al primero y al último; Intro elige el agente enfocado.',
       loading: 'Cargando el catálogo de agentes...',
       count: 'Mostrando {{shown}} de {{total}} agentes.',
       manualPath:

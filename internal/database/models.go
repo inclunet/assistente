@@ -85,6 +85,11 @@ type LLMProvider struct {
 	ACPCommand string `gorm:"type:text"`
 	ACPArgs    string `gorm:"type:text"` // array JSON
 	ACPEnv     string `gorm:"type:text"` // objeto JSON
+	// ACPAgentID é o `id` da linha do registro ACP, quando o agente veio do
+	// catálogo (AEP-0086 D11). Fica ao lado do comando porque é da mesma
+	// natureza que ele — diz qual agente é, e não que marca de provedor é —, e
+	// vazio quer dizer agente configurado à mão, que é caminho válido.
+	ACPAgentID string `gorm:"type:text"`
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }

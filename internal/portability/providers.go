@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/acpregistry"
 	"assistente/internal/database"
 
 	"gorm.io/gorm"
@@ -18,6 +19,10 @@ import (
 // `llm` aqui fecha um ciclo: o teste de `llm` usa `mcp`, e `mcp` usa este
 // pacote. A cópia é travada por teste, que compara as duas constantes.
 const acpAPIFormat = "acp"
+
+// acpProviderType repete `llm.ProviderACP` pelo mesmo motivo, e é travado pelo
+// mesmo teste.
+const acpProviderType = "acp"
 
 func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
 	args, err := decodeStringSlice(provider.ACPArgs)
@@ -38,6 +43,7 @@ func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
 		CreatedAt:         provider.CreatedAt,
 		ACPCommand:        provider.ACPCommand,
 		ACPArgs:           args,
+		ACPAgentID:        provider.ACPAgentID,
 	}, nil
 }
 
@@ -131,6 +137,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 			ACPCommand:        provider.ACPCommand,
 			ACPArgs:           acpArgs,
 			ACPEnv:            acpEnv,
+			ACPAgentID:        provider.ACPAgentID,
 			CreatedAt:         createdAt,
 			UpdatedAt:         updatedAt,
 		}
@@ -152,6 +159,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	existing.ACPCommand = provider.ACPCommand
 	existing.ACPArgs = acpArgs
 	existing.ACPEnv = acpEnv
+	existing.ACPAgentID = provider.ACPAgentID
 	existing.CreatedAt = createdAt
 	existing.UpdatedAt = updatedAt
 	return tx.Save(existing).Error
@@ -168,6 +176,7 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 	normalized.DefaultModel = strings.TrimSpace(provider.DefaultModel)
 	normalized.CredentialPattern = strings.TrimSpace(provider.CredentialPattern)
 	normalized.ACPCommand = strings.TrimSpace(provider.ACPCommand)
+	normalized.ACPAgentID = strings.TrimSpace(provider.ACPAgentID)
 
 	if normalized.ID == "" {
 		return ProviderExport{}, fmt.Errorf("provider sem id não pode ser importado")
@@ -184,12 +193,27 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 		if normalized.ACPCommand == "" {
 			return ProviderExport{}, fmt.Errorf("provider %q em formato acp sem acpCommand não pode ser importado", normalized.ID)
 		}
+		// O provedor entra pelo vocabulário de hoje: quem sobe agente é do tipo
+		// único, seja qual for o nome que o arquivo deu a ele. Isso vale para o
+		// arquivo escrito antes da emenda do D11, que nomeia o agente no tipo,
+		// e igualmente para o que traz qualquer outro nome — importar como está
+		// criaria, do lado de fora da migração, provedor com tipo que o app não
+		// oferece mais para agente.
+		//
+		// Do nome antigo se aproveita qual agente ele dizia ser, quando o
+		// arquivo não trouxe isso no campo próprio.
+		if agentID, legado := acpregistry.LegacyProviderTypeAgentID(normalized.Type); legado &&
+			normalized.ACPAgentID == "" {
+			normalized.ACPAgentID = agentID
+		}
+		normalized.Type = acpProviderType
 		return normalized, nil
 	}
 	// Configuração de agente fora do formato acp não teria leitor: nenhum
 	// caminho HTTP sobe processo. Recusar avisa quem montou o arquivo; guardar
 	// em silêncio deixaria a pessoa achando que configurou alguma coisa.
-	if normalized.ACPCommand != "" || len(normalized.ACPArgs) > 0 || len(normalized.ACPEnv) > 0 {
+	if normalized.ACPCommand != "" || len(normalized.ACPArgs) > 0 || len(normalized.ACPEnv) > 0 ||
+		normalized.ACPAgentID != "" {
 		return ProviderExport{}, fmt.Errorf("provider %q traz configuração de agente mas apiFormat é %q; use %q", normalized.ID, normalized.APIFormat, acpAPIFormat)
 	}
 	if normalized.BaseURL == "" {

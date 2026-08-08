@@ -387,6 +387,74 @@ func normalizeACPSessionUserID(database *gorm.DB) error {
 	return nil
 }
 
+// agentTypeToRegistryID é a tradução, para a migração v12, dos tipos de
+// provedor que existiram enquanto cada agente tinha o seu (AEP-0086 D11,
+// emenda).
+//
+// Ela está escrita aqui, e não vem de `llm.LegacyAgentRegistryID` — que traduz
+// o mesmo para o provedor que chega por importação —, pela razão que vale para
+// todas as migrações: uma migração descreve o banco no momento em que rodou. Se
+// o domínio mudar de ideia sobre esses nomes, esta continua tendo de escrever o
+// que escreveu na época, ou bancos convertidos e por converter deixariam de
+// concordar.
+var agentTypeToRegistryID = map[string]string{
+	"cursor":      "cursor",
+	"claude-code": "claude-acp",
+}
+
+// migrateAgentProvidersToSingleType converte os provedores de agente gravados
+// com tipo próprio para o tipo único `acp` com o `id` do registro à parte.
+//
+// O comando não é tocado: ele é a escolha de quem configurou o provedor, e a
+// Fase 3 do AEP-0084 já decidiu que nem a detecção o sobrescreve. O que muda é
+// o rótulo e o campo novo — o agente continua subindo exatamente igual.
+//
+// A conversão olha o `api_format`, e não só o tipo, porque o tipo sozinho é
+// ambíguo por herança: um provedor HTTP chamado `cursor` por alguém que digitou
+// aquilo à mão não é agente, e trocar o tipo dele o quebraria.
+//
+// Roda depois do AutoMigrate porque depende da coluna `acp_agent_id` já existir,
+// e falhar aqui adia em vez de abortar: o provedor continua subindo o mesmo
+// comando com o tipo antigo, e a conversão é retentada no próximo boot.
+func migrateAgentProvidersToSingleType(database *gorm.DB) error {
+	if database == nil || !database.Migrator().HasTable("llm_providers") {
+		return nil
+	}
+	if !database.Migrator().HasColumn(&LLMProvider{}, "acp_agent_id") {
+		return errors.Join(
+			fmt.Errorf("a coluna acp_agent_id ainda não existe em llm_providers"),
+			errMigrationDeferred,
+		)
+	}
+	for tipo, agentID := range agentTypeToRegistryID {
+		res := database.Exec(
+			`UPDATE llm_providers SET type = ?, acp_agent_id = ? WHERE type = ? AND api_format = ?`,
+			providerTypeACP, agentID, tipo, apiFormatACP,
+		)
+		if res.Error != nil {
+			return errors.Join(
+				fmt.Errorf("converter os provedores do agente %s: %w", tipo, res.Error),
+				errMigrationDeferred,
+			)
+		}
+		if res.RowsAffected > 0 {
+			logging.Infof(context.Background(), "database.schema-migrations",
+				"[Database] llm_providers: %d provedores do agente %s passaram a ser do tipo acp", res.RowsAffected, tipo)
+		}
+	}
+	return nil
+}
+
+// Os dois valores que a migração escreve. Estão aqui como literais em vez de
+// virem de `internal/llm` porque migração descreve o banco no momento em que
+// rodou: se o domínio renomear o tipo depois, esta migração continua tendo que
+// escrever o que escreveu na época, ou bancos convertidos e por converter
+// deixariam de concordar.
+const (
+	providerTypeACP = "acp"
+	apiFormatACP    = "acp"
+)
+
 // dropACPSessionPromptPrefixHash solta a coluna que guardava o resumo do
 // prefixo de perfil que a sessão do agente já tinha ouvido. Ela existia para
 // não repetir persona e skills a cada turno; agora nada do app vai ao agente

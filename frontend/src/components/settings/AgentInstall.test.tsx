@@ -50,7 +50,7 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 }));
 
 vi.mock('@wailsjs/go/app/App', () => ({
-  ACPAgentInstallPlanForKind: planMock,
+  ACPAgentInstallPlan: planMock,
   InstallACPAgent: installMock,
   CancelACPAgentInstall: cancelMock,
   RemoveACPAgent: removeMock,
@@ -120,7 +120,7 @@ const instalacao = {
 };
 
 /** Hospeda o bloco com o mesmo estado que o formulário do provedor dá a ele. */
-const Host = ({ agentKind = 'codex' }: { agentKind?: string }) => {
+const Host = ({ agentId = 'codex-acp' }: { agentId?: string }) => {
   const [command, setCommand] = useState('');
   const [args, setArgs] = useState<string[]>([]);
   return (
@@ -128,7 +128,7 @@ const Host = ({ agentKind = 'codex' }: { agentKind?: string }) => {
       <span data-testid="comando">{command}</span>
       <span data-testid="argumentos">{args.join('\u0000')}</span>
       <AgentInstall
-        agentKind={agentKind}
+        agentId={agentId}
         onResolved={(novoComando, novosArgumentos) => {
           setCommand(novoComando);
           setArgs(novosArgumentos);
@@ -199,12 +199,12 @@ describe('AgentInstall — antes de baixar', () => {
     expect(botao).toHaveAccessibleDescription(/mostra o que será baixado/i);
   });
 
-  it('tipo de provedor que o catálogo não publica não ganha oferta nenhuma', async () => {
+  it('agente que o catálogo não publica não ganha oferta nenhuma', async () => {
     // O backend devolve plano vazio: configurar comando à mão continua valendo,
     // e um botão que só sabe falhar seria pior do que não haver botão.
     planMock.mockResolvedValue({});
 
-    render(<Host agentKind="algum-agente-proprio" />);
+    render(<Host agentId="algum-agente-proprio" />);
 
     await waitFor(() => expect(planMock).toHaveBeenCalledWith('algum-agente-proprio'));
     expect(screen.queryByRole('button', { name: /instalar pelo catálogo/i })).not.toBeInTheDocument();
@@ -293,7 +293,7 @@ describe('AgentInstall — artefato binário', () => {
   it('oferece a instalação numa máquina sem Node e não fala em pacote npm', async () => {
     planMock.mockResolvedValue(planoBinario);
 
-    render(<Host agentKind="opencode" />);
+    render(<Host agentId="opencode" />);
 
     const botao = await screen.findByRole('button', { name: /instalar pelo catálogo/i });
     expect(screen.queryByText(/exige o node\.js/i)).not.toBeInTheDocument();
@@ -310,7 +310,7 @@ describe('AgentInstall — artefato binário', () => {
     installMock.mockResolvedValue({ command: 'C:\\agents\\opencode.exe', args: [] });
     const user = userEvent.setup();
 
-    render(<Host agentKind="opencode" />);
+    render(<Host agentId="opencode" />);
     await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
     await user.click(await screen.findByRole('button', { name: /baixar e instalar/i }));
 
@@ -331,7 +331,7 @@ describe('AgentInstall — artefato binário', () => {
     planMock.mockResolvedValue(planoBinario);
     const user = userEvent.setup();
 
-    render(<Host agentKind="opencode" />);
+    render(<Host agentId="opencode" />);
     await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
     const dialogo = await screen.findByRole('dialog');
@@ -346,7 +346,7 @@ describe('AgentInstall — artefato binário', () => {
     planMock.mockResolvedValue(planoBinario);
     const user = userEvent.setup();
 
-    render(<Host agentKind="opencode" />);
+    render(<Host agentId="opencode" />);
     await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
     expect(await axe(screen.getByRole('dialog'))).toHaveNoViolations();
@@ -370,7 +370,7 @@ describe('AgentInstall — artefato binário', () => {
       planMock.mockResolvedValue(planoSemDigest);
       const user = userEvent.setup();
 
-      render(<Host agentKind="cursor" />);
+      render(<Host agentId="cursor" />);
       await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
       const dialogo = await screen.findByRole('dialog');
@@ -388,7 +388,7 @@ describe('AgentInstall — artefato binário', () => {
       planMock.mockResolvedValue(planoSemDigest);
       const user = userEvent.setup();
 
-      render(<Host agentKind="cursor" />);
+      render(<Host agentId="cursor" />);
       await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
       const dialogo = await screen.findByRole('dialog');
@@ -414,7 +414,7 @@ describe('AgentInstall — artefato binário', () => {
         planMock.mockResolvedValue(planoSemDigest);
         const user = userEvent.setup();
 
-        render(<Host agentKind="cursor" />);
+        render(<Host agentId="cursor" />);
         await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
         await screen.findByRole('dialog');
 
@@ -439,7 +439,7 @@ describe('AgentInstall — artefato binário', () => {
       planMock.mockResolvedValue(planoSemDigest);
       const user = userEvent.setup();
 
-      render(<Host agentKind="cursor" />);
+      render(<Host agentId="cursor" />);
       await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
       await screen.findByRole('dialog');
@@ -454,7 +454,7 @@ describe('AgentInstall — artefato binário', () => {
       installMock.mockResolvedValue({ command: 'C:\\agents\\cursor-agent.exe', args: [] });
       const user = userEvent.setup();
 
-      render(<Host agentKind="cursor" />);
+      render(<Host agentId="cursor" />);
       await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
       await user.click(await screen.findByRole('button', { name: /baixar mesmo sem verificação/i }));
 
@@ -489,7 +489,7 @@ describe('AgentInstall — artefato binário', () => {
         },
       });
 
-      render(<Host agentKind="cursor" />);
+      render(<Host agentId="cursor" />);
 
       expect(await screen.findByText(/esta instalação não foi verificada/i)).toBeInTheDocument();
     });
@@ -513,7 +513,7 @@ describe('AgentInstall — artefato binário', () => {
         },
       });
 
-      render(<Host agentKind="opencode" />);
+      render(<Host agentId="opencode" />);
 
       await screen.findByRole('button', { name: /usar o comando instalado/i });
       expect(screen.queryByText(/não foi verificada/i)).not.toBeInTheDocument();
@@ -523,7 +523,7 @@ describe('AgentInstall — artefato binário', () => {
       planMock.mockResolvedValue(planoSemDigest);
       const user = userEvent.setup();
 
-      render(<Host agentKind="cursor" />);
+      render(<Host agentId="cursor" />);
       await user.click(await screen.findByRole('button', { name: /instalar pelo catálogo/i }));
 
       expect(await axe(screen.getByRole('dialog'))).toHaveNoViolations();
@@ -657,7 +657,7 @@ describe('AgentInstall — instalando', () => {
     });
     expect(await screen.findByText(/baixando/i)).toBeInTheDocument();
 
-    rerender(<Host agentKind="claude-code" />);
+    rerender(<Host agentId="claude-acp" />);
 
     await waitFor(() => expect(screen.queryByText(/baixando/i)).not.toBeInTheDocument());
   });
@@ -665,7 +665,7 @@ describe('AgentInstall — instalando', () => {
   it('trocar de agente com instalação em voo não aplica o comando dela', async () => {
     // A instalação é do backend e sobrevive à troca. Se ela terminar depois, o
     // comando do agente antigo cairia nos campos do provedor novo — e o
-    // formulário salvaria um executável que não é o do tipo escolhido.
+    // formulário salvaria um executável que não é o do agente escolhido.
     planMock.mockResolvedValue(planoInstalavel);
     const { concluir } = instalacaoControlada();
     const user = userEvent.setup();
@@ -675,9 +675,9 @@ describe('AgentInstall — instalando', () => {
     await user.click(await screen.findByRole('button', { name: /baixar e instalar/i }));
     await waitFor(() => expect(installMock).toHaveBeenCalled());
 
-    planMock.mockResolvedValue({ ...planoInstalavel, agent_id: 'claude-code', name: 'Claude Code' });
-    rerender(<Host agentKind="claude-code" />);
-    await waitFor(() => expect(planMock).toHaveBeenLastCalledWith('claude-code'));
+    planMock.mockResolvedValue({ ...planoInstalavel, agent_id: 'claude-acp', name: 'Claude Code' });
+    rerender(<Host agentId="claude-acp" />);
+    await waitFor(() => expect(planMock).toHaveBeenLastCalledWith('claude-acp'));
 
     await act(async () => {
       concluir(instalacao);
@@ -699,9 +699,9 @@ describe('AgentInstall — instalando', () => {
     await user.click(await screen.findByRole('button', { name: /baixar e instalar/i }));
     await waitFor(() => expect(installMock).toHaveBeenCalled());
 
-    planMock.mockResolvedValue({ ...planoInstalavel, agent_id: 'claude-code', name: 'Claude Code' });
-    rerender(<Host agentKind="claude-code" />);
-    await waitFor(() => expect(planMock).toHaveBeenLastCalledWith('claude-code'));
+    planMock.mockResolvedValue({ ...planoInstalavel, agent_id: 'claude-acp', name: 'Claude Code' });
+    rerender(<Host agentId="claude-acp" />);
+    await waitFor(() => expect(planMock).toHaveBeenLastCalledWith('claude-acp'));
     announceMock.mockClear();
 
     await act(async () => {
@@ -710,9 +710,9 @@ describe('AgentInstall — instalando', () => {
 
     expect(screen.queryByText(/a instalação falhou/i)).not.toBeInTheDocument();
     expect(announceMock).not.toHaveBeenCalled();
-    // O plano do agente novo continua sendo o último: um pedido pelo tipo
-    // antigo devolveria a este bloco a oferta do agente que saiu da tela.
-    expect(planMock).toHaveBeenLastCalledWith('claude-code');
+    // O plano do agente novo continua sendo o último: um pedido pelo agente
+    // antigo devolveria a este bloco a oferta do que saiu da tela.
+    expect(planMock).toHaveBeenLastCalledWith('claude-acp');
   });
 
   it('marco de outro agente não descreve este', async () => {

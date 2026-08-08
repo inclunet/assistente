@@ -6,10 +6,6 @@ export function ACPAgentInstallPlan(arg1) {
   return window['go']['app']['App']['ACPAgentInstallPlan'](arg1);
 }
 
-export function ACPAgentInstallPlanForKind(arg1) {
-  return window['go']['app']['App']['ACPAgentInstallPlanForKind'](arg1);
-}
-
 export function AddChildMessage(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['app']['App']['AddChildMessage'](arg1, arg2, arg3, arg4, arg5);
 }

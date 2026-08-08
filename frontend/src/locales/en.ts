@@ -1751,7 +1751,17 @@ const en = {
         found: 'Agent found at {{source}}.',
         foundVersion: 'Agent found at {{source}} (version {{version}}).',
         notFound: 'Agent not found on this machine.',
+        typeLabel: 'Code agent (ACP)',
+        noDetection: 'This app does not know how to look for this agent on disk. Install it from the catalog or type the command manually.',
         detectFailed: 'Could not search for the agent on this machine.',
+        picker: {
+          chosenTerm: 'Agent:',
+          none: 'No agent chosen yet.',
+          pickBtn: 'Choose an agent from the catalog',
+          changeBtn: 'Change agent',
+          help: 'Opens the ACP registry catalog to choose which agent this provider will use. Changing the agent clears the command and the arguments.',
+          modalTitle: 'Choose the provider agent',
+        },
         installHelp: 'Install the agent CLI and click "Detect and fill in command". If it is already installed in a non-standard path, type the command manually in the field above.',
         searchedIn: 'We looked in PATH and in: {{places}}.',
         workDir: 'Working directory',
@@ -1868,9 +1878,13 @@ const en = {
       open: 'ACP agent catalog',
       title: 'ACP agent catalog',
       intro:
-        'Agents published in the official ACP registry. This screen shows what exists; installing from here is not possible yet.',
+        'Agents published in the official ACP registry. This screen shows what exists and what is already on this machine.',
+      introSelect:
+        'Choose the agent this provider will use. If it is not installed yet, the provider form offers to install it.',
       listLabel: 'Agents from the ACP registry',
       navHelp: 'Use the up and down arrows to move through the agents; Home and End jump to the first and the last.',
+      navHelpSelect:
+        'Use the up and down arrows to move through the agents; Home and End jump to the first and the last; Enter picks the focused agent.',
       loading: 'Loading the agent catalog...',
       count: 'Showing {{shown}} of {{total}} agents.',
       manualPath:

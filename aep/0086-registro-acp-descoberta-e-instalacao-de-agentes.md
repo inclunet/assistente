@@ -576,25 +576,89 @@ do D3, e ainda por uma a mais: a versão que a pessoa autenticou é aquela.
   mantém o que está instalado e explica; aceitar a troca seria transformar o
   aviso de atualização num caminho para contornar o D4.
 
-### D11. Os presets escritos à mão saem, sem quebrar provider salvo
+### D11. Os presets escritos à mão saem, e nenhum agente tem tipo próprio
 
-`cursor` e `claude-code` continuam existindo como tipos de provider — eles estão
-gravados no banco de quem já configurou, e renomear tipo de provider é migração
-de banco por causa de cosmética. O que muda é de onde vem a lista de opções.
+Todo agente ACP é o mesmo tipo de provedor: `acp`. Não existe tipo `cursor`, nem
+tipo `claude-code`, nem tipo para agente nenhum que venha depois. Qual agente é
+aquele provedor fica num campo próprio, `acp_agent_id`, que guarda o `id` da
+linha do registro.
 
-O mapeamento entre tipo de provider do app e `id` do registro é explícito e
-curto: `cursor` → `cursor`, `claude-code` → `claude-acp`. Ele existe porque os
-dois conjuntos de identificadores foram escolhidos em momentos diferentes, e
-existe **escrito num lugar só** — não espalhado por `switch`.
+> **Emenda.** A primeira versão deste D11 mantinha `cursor` e `claude-code` como
+> tipos de provider, com um mapeamento entre eles e os `id` do registro escrito
+> num lugar só. A decisão foi revista antes da Fase 6 ser implementada, e o
+> texto acima é o que vale. O que segue registra por quê, porque o desenho
+> anterior parecia o mais conservador dos dois e não era.
 
-Agente do catálogo que não tem tipo próprio no app entra como agente genérico,
-com nome e identificador vindos do registro. É o que faz "suportar ACP" deixar
-de ser "suportar dois agentes": um provedor de Gemini CLI ou de Kimi passa a ser
-criável sem código novo.
+#### Por que o `id` do registro não pode morar no tipo do provedor
 
-Provider já salvo **não é tocado**. O comando dele é a escolha de quem o
+O campo `type` do `ProviderConfig` é rótulo de marca, e o próprio código diz
+isso: quem decide comportamento é o `api_format`. É ele que escolhe o cliente em
+`NewChatProvider`, e é o `IsACP()` derivado dele que separa health, listagem de
+modelos, turno de agente, TTS e sumarização. As poucas decisões que olham o
+`type` são periféricas e todas de provedor HTTP local.
+
+Guardar ali o `id` do catálogo funcionaria — não há enum no banco nem validação
+que recuse —, e é exatamente isso que faria dele uma gambiarra: funcionaria por
+omissão de validação, e não por desenho. Três razões, em ordem de peso:
+
+- **O `id` do registro é dado externo.** O D9 trata o catálogo como documento de
+  terceiro, saneado na fronteira. Promover um valor desse documento a vocabulário
+  interno inverte a decisão: se o registro renomear um `id`, o provedor gravado
+  no banco de alguém passa a apontar para um agente que não existe, e o app não
+  tem como distinguir renomeação de remoção.
+- **Seriam duas perguntas num campo só.** "Que família de provedor é este" e
+  "qual agente do catálogo é este" têm ciclos de vida diferentes: a primeira muda
+  quando o app muda, a segunda quando o registro muda.
+- **O campo já tem vizinhos certos.** `acp_command`, `acp_args` e `acp_env` já
+  dizem qual agente subir e como. O `id` é da mesma natureza que eles, e não da
+  natureza do rótulo de marca.
+
+#### Nenhum agente é especial
+
+`cursor` e `claude-code` deixam de existir como tipos, e os provedores já
+gravados com eles são convertidos por migração versionada para `acp` mais o
+`acp_agent_id` correspondente. É migração de dado, e não de cosmética: manter
+dois vocabulários faria o app ter um caminho para os dois agentes que ele
+conheceu primeiro e outro para todos os demais — que é a assimetria que esta
+fase existe para apagar.
+
+O comando do provedor continua **não sendo tocado**: ele é a escolha de quem o
 configurou, e a Fase 3 do AEP-0084 já decidiu que nem a detecção automática o
-sobrescreve.
+sobrescreve. A migração acrescenta o `acp_agent_id` e troca o rótulo; o que faz
+o agente subir fica como está.
+
+Com o `id` no provedor, some também a tradução entre os dois vocabulários. Os
+detectores de instalação alheia passam a ser indexados pelo `id` do registro, e
+o formulário deixa de perguntar o plano de instalação "pelo tipo" para perguntar
+pelo agente que ele tem em mãos.
+
+Some do app, mas não do mundo: provedor com o vocabulário antigo continua
+chegando de fora depois da migração. Um arquivo de exportação escrito antes
+desta emenda nomeia o agente no tipo, e um banco pode chegar por cópia de
+arquivo. Por isso a tradução dos tipos aposentados para o `id` do registro
+sobrevive em um lugar só, e é aplicada em duas fronteiras: na importação, que
+grava o provedor já com o vocabulário de hoje, e na leitura do provedor, que
+normaliza o que estiver gravado. As duas usam a mesma função; a migração v12
+tem os literais dela por escrito, como toda migração, porque descreve o banco no
+momento em que rodou. O resto do app nunca vê os nomes antigos — que é o que
+esta decisão promete.
+
+#### Detector é detalhe, e não exceção
+
+Cursor e Claude Code continuam sendo os dois agentes que o app sabe procurar no
+disco (D1), e isso não os torna especiais no modelo: eles têm o mesmo tipo, o
+mesmo formulário e o mesmo caminho de instalação que os outros 36. A diferença
+aparece só na resposta de uma pergunta que é feita para todos — "o app sabe
+procurar este agente?" —, e para os demais a resposta é a que a tela já sabe
+dizer, em vez de alegar que procurou e não achou.
+
+#### O que a tela passa a oferecer
+
+O seletor de tipo de provedor ganha **uma** entrada de agente de código, e não
+uma por agente: os 38 do catálogo não cabem numa lista ao lado de OpenAI e
+Ollama, e a lista deles já existe, com busca e estado por máquina, no catálogo.
+Escolher "agente de código" leva ao catálogo, e o agente escolhido é o que fica
+no `acp_agent_id`.
 
 ### D12. O caminho normal é a autenticação do próprio agente; passar credencial do cofre é opção explícita, por provedor
 
@@ -925,14 +989,19 @@ não há em lugar nenhum uma preferência que desligue a pergunta.
 
 ### Fase 6 — O catálogo substitui os presets escritos à mão
 
-`providers.ts` e `defaults.go` param de carregar a lista de agentes (D11);
-mapeamento explícito de `cursor` e `claude-code` para os ids do registro; agente
-genérico para o resto do catálogo. `detect.go` e `detect_claude_code.go` ficam
-com o papel de reconhecer instalação alheia (D1).
+`providers.ts` e `defaults.go` param de carregar a lista de agentes (D11). Todo
+agente ACP passa a ser o tipo `acp`, com o `id` do registro no `acp_agent_id`, e
+os provedores já gravados como `cursor` e `claude-code` são convertidos por
+migração versionada. `detect.go` e `detect_claude_code.go` ficam com o papel de
+reconhecer instalação alheia (D1), indexados pelo `id` do registro. A importação
+e a leitura de provedor normalizam o vocabulário antigo pela mesma tradução, para
+provedor que chega de fora do banco migrado entrar pelo modelo de hoje.
 
 **Aceite:** dá para criar e usar um provider de um agente que não é `cursor` nem
-`claude-code` — Gemini CLI serve de caso — sem código novo por agente; todo
-provider já salvo continua funcionando, sem migração de banco.
+`claude-code` — Gemini CLI serve de caso — sem código novo por agente; provider
+já salvo continua subindo o mesmo comando depois da migração; provider importado
+de arquivo antigo entra como `acp` com o agente no campo próprio, e nenhum
+caminho do app pergunta qual agente é para decidir o que fazer.
 
 ### Fase 7 — Aviso de versão nova e atualização pedida
 

@@ -27,18 +27,15 @@ const (
 	ProviderLlamaCPP   ProviderType = "llamacpp"
 	ProviderCustom     ProviderType = "custom"
 
-	// ProviderCursor é o CLI do Cursor rodando como agente de código local
-	// (AEP-0084). Como os demais, é só o rótulo da marca: quem define o
-	// comportamento é o APIFormat, que aqui é sempre acp.
-	ProviderCursor ProviderType = "cursor"
-
-	// ProviderClaudeCode é o Claude Code como agente de código local
-	// (AEP-0084 Fase 7). Ele fala ACP por um adaptador npm, e não nativamente;
-	// para o barramento isso não muda nada, que é justamente o ponto — o
-	// contrato do app é com o protocolo, não com o Cursor.
+	// ProviderACP é o tipo de todo agente de código local, sem exceção
+	// (AEP-0086 D11). Não existe tipo por agente: qual deles é aquele provedor
+	// está no ACPAgentID, e o que ele executa está no ACPCommand.
 	//
-	// Não se confunde com ProviderClaude, que é a API da Anthropic por HTTP.
-	ProviderClaudeCode ProviderType = "claude-code"
+	// Ter um tipo só é o que faz o app tratar 38 agentes do mesmo jeito. Os
+	// dois que ele conhece desde o AEP-0084 — Cursor e Claude Code — não são
+	// exceção nenhuma aqui: a única coisa que os distingue é o app saber
+	// procurá-los no disco, e isso é resposta de uma pergunta feita para todos.
+	ProviderACP ProviderType = "acp"
 )
 
 // AuthMode descreve o tratamento de autenticação para o provedor.
@@ -152,6 +149,15 @@ type ProviderConfig struct {
 	ACPCommand string            `json:"acp_command,omitempty"`
 	ACPArgs    []string          `json:"acp_args,omitempty"`
 	ACPEnv     map[string]string `json:"acp_env,omitempty"`
+
+	// ACPAgentID diz qual agente do registro é este provedor (AEP-0086 D11).
+	//
+	// Ele fica aqui, e não no Type, porque o Type é rótulo de marca e este é o
+	// identificador de uma linha de um documento de terceiro: se o registro
+	// renomear um agente, o que envelhece é um campo de dado, e não o
+	// vocabulário do app. Vazio é agente configurado à mão — caminho que o D3
+	// mantém aberto —, e nesse caso o app não tem o que oferecer de catálogo.
+	ACPAgentID string `json:"acp_agent_id,omitempty"`
 }
 
 // IsACP diz se o provedor é um agente ACP local, e não um serviço HTTP. É a

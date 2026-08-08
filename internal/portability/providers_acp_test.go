@@ -18,6 +18,9 @@ func TestFormatoACPLocalAcompanhaODominio(t *testing.T) {
 	if acpAPIFormat != string(llm.APIFormatACP) {
 		t.Fatalf("acpAPIFormat = %q, mas o domínio usa %q", acpAPIFormat, llm.APIFormatACP)
 	}
+	if acpProviderType != string(llm.ProviderACP) {
+		t.Fatalf("acpProviderType = %q, mas o domínio usa %q", acpProviderType, llm.ProviderACP)
+	}
 }
 
 // O agente atravessa o arquivo inteiro: comando e argumentos são o que
@@ -232,6 +235,190 @@ func TestExportacaoLevaOAgenteMasNaoOAmbiente(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "segredo") {
 		t.Errorf("o segredo do ambiente vazou para o JSON: %s", raw)
+	}
+}
+
+// Arquivo escrito antes da emenda do D11 nomeia o agente no tipo do provedor.
+// Ele entra pelo vocabulário de hoje — tipo único e agente no campo próprio —
+// porque um provedor com tipo que o app não oferece mais não teria como ser
+// editado na tela: o seletor não teria a opção dele, e a primeira troca de tipo
+// apagaria o comando.
+func TestImportacaoTrazOProvedorDeTipoAntigoParaOTipoUnico(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	casos := []struct {
+		tipo    string
+		agente  string
+		provID  string
+		comando string
+	}{
+		{tipo: "cursor", agente: "cursor", provID: "cursor-1", comando: "cursor-agent"},
+		{tipo: "claude-code", agente: "claude-acp", provID: "claude-1", comando: "node"},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.tipo, func(t *testing.T) {
+			file := &ExportFile{
+				Version:    ExportVersion,
+				ExportedAt: time.Now().UTC(),
+				Resources: ExportResources{
+					Providers: []ProviderExport{{
+						ID:         caso.provID,
+						Name:       caso.tipo,
+						Type:       caso.tipo,
+						APIFormat:  "acp",
+						ACPCommand: caso.comando,
+					}},
+				},
+			}
+			raw, err := json.Marshal(file)
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+
+			if _, err := ImportConversationsWithContext(portabilityTestCtx(), string(raw), nil, ""); err != nil {
+				t.Fatalf("ImportConversations() error = %v", err)
+			}
+
+			imported, err := database.GetLLMProviderWithContext(portabilityTestCtx(), caso.provID)
+			if err != nil {
+				t.Fatalf("GetLLMProvider() error = %v", err)
+			}
+			if imported.Type != string(llm.ProviderACP) {
+				t.Errorf("tipo = %q, queria %q", imported.Type, llm.ProviderACP)
+			}
+			if imported.ACPAgentID != caso.agente {
+				t.Errorf("agente = %q, queria %q", imported.ACPAgentID, caso.agente)
+			}
+			if imported.ACPCommand != caso.comando {
+				t.Errorf("comando = %q, queria %q", imported.ACPCommand, caso.comando)
+			}
+		})
+	}
+}
+
+// Não é só o vocabulário aposentado que entra pelo tipo único: um arquivo pode
+// nomear o agente de qualquer coisa, e importar aquilo como está gravaria, do
+// lado de fora da migração, tipo que o app não oferece mais para agente.
+func TestOAgenteImportadoComQualquerTipoEntraComOTipoUnico(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			Providers: []ProviderExport{{
+				ID:         "agente-da-casa",
+				Name:       "Agente da casa",
+				Type:       "custom",
+				APIFormat:  "acp",
+				ACPCommand: "meu-agente",
+			}},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	if _, err := ImportConversationsWithContext(portabilityTestCtx(), string(raw), nil, ""); err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+
+	imported, err := database.GetLLMProviderWithContext(portabilityTestCtx(), "agente-da-casa")
+	if err != nil {
+		t.Fatalf("GetLLMProvider() error = %v", err)
+	}
+	if imported.Type != string(llm.ProviderACP) {
+		t.Errorf("tipo = %q, queria %q", imported.Type, llm.ProviderACP)
+	}
+	// Agente apontado à mão é caminho válido: sem `id` no arquivo, ele fica
+	// sem nenhum, e não com um inventado a partir do tipo.
+	if imported.ACPAgentID != "" {
+		t.Errorf("agente = %q, queria nenhum", imported.ACPAgentID)
+	}
+	if imported.ACPCommand != "meu-agente" {
+		t.Errorf("comando = %q, queria intacto", imported.ACPCommand)
+	}
+}
+
+// O tipo antigo só diz qual agente é quando o provedor é um agente. Chamar de
+// "cursor" um provedor HTTP é escolha de quem o cadastrou, e converter aquilo
+// em agente do registro seria inventar configuração que ninguém pediu.
+func TestOProvedorHTTPChamadoDeCursorNaoViraAgenteNaImportacao(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			Providers: []ProviderExport{{
+				ID:        "http-cursor",
+				Name:      "Cursor pela API",
+				Type:      "cursor",
+				APIFormat: "openai",
+				BaseURL:   "https://api.exemplo/v1",
+			}},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	if _, err := ImportConversationsWithContext(portabilityTestCtx(), string(raw), nil, ""); err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+
+	imported, err := database.GetLLMProviderWithContext(portabilityTestCtx(), "http-cursor")
+	if err != nil {
+		t.Fatalf("GetLLMProvider() error = %v", err)
+	}
+	if imported.Type != "cursor" {
+		t.Errorf("tipo = %q, queria o que estava no arquivo", imported.Type)
+	}
+	if imported.ACPAgentID != "" {
+		t.Errorf("ganhou agente do registro sem ser um agente: %q", imported.ACPAgentID)
+	}
+}
+
+// O arquivo que já traz o agente no campo próprio manda nele: o tipo antigo é
+// palpite sobre qual agente é, e o campo é a resposta.
+func TestOAgenteDoArquivoPrevaleceSobreOTipoAntigo(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: time.Now().UTC(),
+		Resources: ExportResources{
+			Providers: []ProviderExport{{
+				ID:         "misto",
+				Name:       "Agente",
+				Type:       "cursor",
+				APIFormat:  "acp",
+				ACPCommand: "gemini",
+				ACPAgentID: "gemini-cli",
+			}},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	if _, err := ImportConversationsWithContext(portabilityTestCtx(), string(raw), nil, ""); err != nil {
+		t.Fatalf("ImportConversations() error = %v", err)
+	}
+
+	imported, err := database.GetLLMProviderWithContext(portabilityTestCtx(), "misto")
+	if err != nil {
+		t.Fatalf("GetLLMProvider() error = %v", err)
+	}
+	if imported.ACPAgentID != "gemini-cli" {
+		t.Errorf("agente = %q, queria o do arquivo", imported.ACPAgentID)
+	}
+	if imported.Type != string(llm.ProviderACP) {
+		t.Errorf("tipo = %q, queria %q", imported.Type, llm.ProviderACP)
 	}
 }
 

@@ -268,27 +268,7 @@ func emptyInstallPlan() ACPInstallPlan {
 	return ACPInstallPlan{RunArgs: []string{}}
 }
 
-// ACPAgentInstallPlanForKind é o plano do agente que corresponde a um tipo de
-// provider do app (`cursor`, `claude-code`).
-//
-// Existe porque o formulário do provedor sabe o tipo que está configurando, e
-// não o identificador do registro — os dois conjuntos de identificadores foram
-// escolhidos em momentos diferentes, e o mapeamento entre eles vive num lugar só
-// (D11). Tipo sem correspondente no catálogo devolve um plano vazio, e não erro:
-// configurar comando e argumentos à mão continua sendo caminho válido.
-func (a *App) ACPAgentInstallPlanForKind(kind string) (ACPInstallPlan, error) {
-	ctx, err := a.requireAuthenticatedContext()
-	if err != nil {
-		return emptyInstallPlan(), err
-	}
-	agentID := acpregistry.IDForKind(kind)
-	if agentID == "" {
-		return emptyInstallPlan(), nil
-	}
-	return a.acpInstallPlan(ctx, agentID)
-}
-
-// acpInstallPlan é o plano em si, igual para as duas portas de entrada.
+// acpInstallPlan é o plano em si.
 //
 // Agente que não está no catálogo servido não é erro de tela: o catálogo é dado
 // externo e pode não ter carregado — a primeira execução offline não tem catálogo

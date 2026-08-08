@@ -123,6 +123,56 @@ func TestEdicaoConsegueLimparOsArgumentosDoAgente(t *testing.T) {
 	}
 }
 
+// Desvincular o provedor do catálogo é edição legítima, e é o único jeito de
+// consertar um provedor cujo `id` o registro aposentou sem apagá-lo e refazer
+// o comando à mão. O agente apontado à mão é caminho válido (AEP-0086 D3), e
+// com "vazio é não mexer" não haveria como voltar para ele.
+func TestEdicaoConsegueDesvincularOAgenteDoCatalogo(t *testing.T) {
+	svc, _ := acpService(t)
+	ctx := context.Background()
+	if _, err := svc.Create(ctx, CreateRequest{
+		ID: "cursor", Name: "Cursor", APIFormat: string(llm.APIFormatACP),
+		ACPCommand: "cursor-agent", ACPAgentID: "cursor",
+	}); err != nil {
+		t.Fatalf("Create falhou: %v", err)
+	}
+
+	semAgente := ""
+	res, err := svc.Update(ctx, "cursor", UpdateRequest{ACPAgentID: &semAgente})
+	if err != nil {
+		t.Fatalf("Update falhou: %v", err)
+	}
+	if res.Provider.ACPAgentID != "" {
+		t.Errorf("agente = %q, esperado nenhum", res.Provider.ACPAgentID)
+	}
+	// O comando é o que faz o agente subir, e desvincular do catálogo não é
+	// pedido para deixar o provedor sem nada para executar.
+	if res.Provider.ACPCommand != "cursor-agent" {
+		t.Errorf("comando = %q, esperado intacto", res.Provider.ACPCommand)
+	}
+}
+
+// Não mandar o campo continua sendo não mexer: uma edição que só troca o nome
+// não pode desvincular o provedor do catálogo por omissão.
+func TestEdicaoSemFalarDoAgenteNaoOTira(t *testing.T) {
+	svc, _ := acpService(t)
+	ctx := context.Background()
+	if _, err := svc.Create(ctx, CreateRequest{
+		ID: "cursor", Name: "Cursor", APIFormat: string(llm.APIFormatACP),
+		ACPCommand: "cursor-agent", ACPAgentID: "cursor",
+	}); err != nil {
+		t.Fatalf("Create falhou: %v", err)
+	}
+
+	res, err := svc.Update(ctx, "cursor", UpdateRequest{Name: "Cursor do trabalho"})
+	if err != nil {
+		t.Fatalf("Update falhou: %v", err)
+	}
+	if res.Provider.ACPAgentID != "cursor" {
+		t.Errorf("agente = %q, esperado intacto", res.Provider.ACPAgentID)
+	}
+}
+
 // Configuração de agente num provedor HTTP é recusada antes de qualquer
 // efeito colateral: a validação do registro só roda depois de a credencial ir
 // para o cofre, e um provedor que nem chegou a existir não pode deixar segredo

@@ -26,8 +26,6 @@ import {ports} from '../models';
 
 export function ACPAgentInstallPlan(arg1:string):Promise<app.ACPInstallPlan>;
 
-export function ACPAgentInstallPlanForKind(arg1:string):Promise<app.ACPInstallPlan>;
-
 export function AddChildMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<database.ChatMessage>;
 
 export function AddMessage(arg1:string,arg2:string,arg3:string):Promise<database.ChatMessage>;

@@ -77,9 +77,10 @@ func providerDeAgente() *llm.ProviderConfig {
 	return &llm.ProviderConfig{
 		ID:         "cursor-1",
 		Name:       "Cursor local",
-		Type:       llm.ProviderCursor,
+		Type:       llm.ProviderACP,
 		APIFormat:  llm.APIFormatACP,
 		AuthMode:   llm.AuthModeNone,
+		ACPAgentID: "cursor",
 		ACPCommand: "cursor-agent",
 		ACPArgs:    []string{"acp"},
 	}

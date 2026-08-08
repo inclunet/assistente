@@ -1,10 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { EyeOutlined, EyeInvisibleOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go/app/App';
 import { Input, Select, Button, FormField } from '../';
 import { AGENT_API_FORMAT, PROVIDER_CONFIG } from '../../config/providers';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import type { CatalogAgent } from './ACPAgentCatalog';
+import { AgentPicker } from './AgentPicker';
 import { AgentProviderFields } from './AgentProviderFields';
 export { PROVIDER_CONFIG } from '../../config/providers';
 import './ProviderForm.css';
@@ -28,6 +31,12 @@ export interface ProviderFormData {
   /** Comando e argumentos do agente de código, quando o formato é acp. */
   acp_command?: string;
   acp_args?: string[];
+  /**
+   * Qual agente do registro ACP é este provedor (AEP-0086 D11). Vazio é agente
+   * apontado à mão: os campos de comando continuam valendo, e o que depende de
+   * saber qual agente é não tem o que oferecer.
+   */
+  acp_agent_id?: string;
 }
 
 export interface ProviderFormProps {
@@ -40,10 +49,11 @@ export interface ProviderFormProps {
 // ProviderPreset type is used internally via PROVIDER_CONFIG
 
 // Generate provider types for dropdown
-const PROVIDER_TYPES = Object.entries(PROVIDER_CONFIG).map(([key, config]) => ({
-  value: key,
-  label: config.label,
-}));
+const providerTypes = (t: TFunction) =>
+  Object.entries(PROVIDER_CONFIG).map(([key, config]) => ({
+    value: key,
+    label: config.labelKey ? t(config.labelKey, config.label) : config.label,
+  }));
 
 // Só formatos HTTP: `acp` não entra porque não é uma escolha de protocolo que
 // alguém faça para um endereço. Um agente é agente por ser um agente, e a
@@ -65,8 +75,10 @@ const isAgentForm = (data: Pick<ProviderFormData, 'type' | 'api_format'>): boole
   (data.api_format || PROVIDER_CONFIG[data.type]?.apiFormat || '') === AGENT_API_FORMAT;
 
 export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
+  // i18n.language garante recomputo ao trocar de idioma
+  const tiposDeProvedor = useMemo(() => providerTypes(t), [t, i18n.language]);
   const [formData, setFormData] = useState<ProviderFormData>({
     name: '',
     type: 'openai',
@@ -106,6 +118,30 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
 
   const handleAgentArgsChange = useCallback((args: string[]) => {
     setFormData((prev) => ({ ...prev, acp_args: args }));
+  }, []);
+
+  /**
+   * Troca o agente do provedor. Comando e argumentos vão junto: eles descrevem
+   * como subir o agente anterior, e mantê-los faria o provedor dizer que é um
+   * agente enquanto executa outro. Quem escolhe o mesmo agente de novo não perde
+   * o que estava configurado — não houve troca nenhuma.
+   *
+   * O nome também acompanha, enquanto ninguém o tiver escrito: o formulário
+   * abre vazio, e obrigar a digitar "Gemini CLI" logo depois de escolher Gemini
+   * CLI numa lista é trabalho que a tela já tem como poupar.
+   */
+  const handleAgentPick = useCallback((agent: CatalogAgent) => {
+    setFormData((prev) => {
+      if (prev.acp_agent_id === agent.id) return prev;
+      return {
+        ...prev,
+        acp_agent_id: agent.id,
+        acp_command: '',
+        acp_args: [],
+        name: prev.name.trim() === '' ? agent.name : prev.name,
+      };
+    });
+    setErrors({});
   }, []);
 
   const loadModels = useCallback(async (overrideData?: Partial<ProviderFormData>) => {
@@ -191,6 +227,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         api_format: provider.api_format ?? provConfig.apiFormat ?? '',
         acp_command: provider.acp_command || '',
         acp_args: provider.acp_args || [],
+        acp_agent_id: provider.acp_agent_id || '',
       });
       setApiTested(false);
       setShowApiKeyField(false);
@@ -209,6 +246,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         api_format: config.apiFormat || '',
         acp_command: '',
         acp_args: [],
+        acp_agent_id: '',
       });
       setApiTested(false);
       setShowApiKeyField(true);
@@ -264,6 +302,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       api_key: apiKeyChangedInThisSession ? prev.api_key : '',
       acp_command: provider.acp_command || '',
       acp_args: provider.acp_args || [],
+      acp_agent_id: provider.acp_agent_id || '',
     }));
     setErrors({});
     setApiTested(false);
@@ -311,6 +350,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       api_key: nextIsAgent ? '' : prev.api_key,
       acp_command: '',
       acp_args: [],
+      acp_agent_id: '',
     }));
     // Erros descrevem a forma anterior do formulário; a validação do submit
     // recalcula o que ainda valer.
@@ -470,6 +510,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
   const saveAgentProvider = async () => {
     const command = (formData.acp_command || '').trim();
     const args = formData.acp_args || [];
+    const agentId = (formData.acp_agent_id || '').trim();
     if (formData.id) {
       await withTimeout(
         UpdateLLMProvider(formData.id, {
@@ -478,6 +519,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           api_format: AGENT_API_FORMAT,
           acp_command: command,
           acp_args: args,
+          acp_agent_id: agentId,
         }),
         15000,
         'UpdateLLMProvider'
@@ -486,13 +528,17 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     }
     await withTimeout(
       CreateLLMProvider({
-        id: `${formData.type}-${Date.now()}`,
+        // O identificador começa pelo agente quando há um: um provedor chamado
+        // `acp-...` não diria qual agente é, e quem olha a lista de provedores
+        // ou um log precisa disso.
+        id: `${agentId || formData.type}-${Date.now()}`,
         name: formData.name,
         type: formData.type,
         base_url: '',
         api_format: AGENT_API_FORMAT,
         acp_command: command,
         acp_args: args,
+        acp_agent_id: agentId,
       }),
       15000,
       'CreateLLMProvider'
@@ -590,7 +636,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
 
       <FormField label={t('providerForm.providerType')} required>
         <Select
-          options={PROVIDER_TYPES}
+          options={tiposDeProvedor}
           value={formData.type}
           onChange={(e) => handleTypeChange(e.target.value)}
           fullWidth
@@ -598,21 +644,27 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       </FormField>
 
       {isAgent ? (
-        <AgentProviderFields
-          agentKind={formData.type}
-          command={formData.acp_command || ''}
-          args={formData.acp_args || []}
-          onCommandChange={handleAgentCommandChange}
-          onArgsChange={handleAgentArgsChange}
-          commandError={errors.acp_command}
-          // Na edição o comando salvo é a escolha de quem configurou e não se
-          // toca — mas se o tipo foi trocado à mão, não há nada salvo para o
-          // novo agente, e deixar o campo vazio faria a pessoa procurar o
-          // caminho na mão sem motivo. Voltar ao tipo salvo cai no primeiro
-          // caso: o comando restaurado é o que vale, e a detecção só informa o
-          // que existe na máquina.
-          autoFill={!formData.id || formData.type !== provider?.type}
-        />
+        <>
+          <AgentPicker
+            agentId={formData.acp_agent_id || ''}
+            onPick={handleAgentPick}
+          />
+          <AgentProviderFields
+            agentId={formData.acp_agent_id || ''}
+            command={formData.acp_command || ''}
+            args={formData.acp_args || []}
+            onCommandChange={handleAgentCommandChange}
+            onArgsChange={handleAgentArgsChange}
+            commandError={errors.acp_command}
+            // Na edição o comando salvo é a escolha de quem configurou e não se
+            // toca — mas se o agente foi trocado, não há nada salvo para o novo,
+            // e deixar o campo vazio faria a pessoa procurar o caminho na mão
+            // sem motivo. Voltar ao agente salvo cai no primeiro caso: o comando
+            // restaurado é o que vale, e a detecção só informa o que existe na
+            // máquina.
+            autoFill={!formData.id || (formData.acp_agent_id || '') !== (provider?.acp_agent_id || '')}
+          />
+        </>
       ) : (
         <>
       <FormField

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"assistente/internal/acp"
+	"assistente/internal/acpregistry"
 	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
@@ -187,6 +188,9 @@ type CreateRequest struct {
 	ACPCommand string
 	ACPArgs    []string
 	ACPEnv     map[string]string
+	// ACPAgentID diz qual agente do registro é este provedor (AEP-0086 D11).
+	// Vazio é agente configurado à mão, que continua sendo caminho válido.
+	ACPAgentID string
 }
 
 // CreateResult contém os dados retornados após criar um provedor.
@@ -248,6 +252,23 @@ func normalizeProviderACP(p *llm.ProviderConfig) {
 	p.BaseURL = ""
 	p.CredentialPattern = ""
 	p.AuthMode = llm.AuthModeNone
+
+	// Quem manda no tipo é o formato: se o provedor sobe um agente, ele é do
+	// tipo único, seja qual for o nome com que chegou aqui. O D11 vale para
+	// todos, e não só para os dois tipos que ele aposentou — provedor gravado
+	// como `custom` com formato acp, ou importado assim, também é agente, e
+	// deixá-lo passar reintroduziria pela porta dos fundos o que a decisão
+	// tirou pela frente.
+	//
+	// Dos nomes antigos ainda se aproveita uma coisa: eles diziam qual agente
+	// era. A migração v12 converte o banco no boot, mas pode ter sido adiada,
+	// e um banco pode ter chegado por cópia de arquivo. Normalizar na leitura
+	// faz o resto do app nunca precisar conhecer aqueles nomes.
+	if agentID, legado := acpregistry.LegacyProviderTypeAgentID(string(p.Type)); legado &&
+		strings.TrimSpace(p.ACPAgentID) == "" {
+		p.ACPAgentID = agentID
+	}
+	p.Type = llm.ProviderACP
 }
 
 // copyStringMap devolve uma cópia rasa, ou nil quando não há nada. Guardar o
@@ -301,7 +322,8 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		// Recusar aqui, e não lá na frente: a validação do registro só roda
 		// depois de a credencial já ter ido para o cofre, e um provedor que
 		// nem chegou a existir não pode deixar segredo para trás.
-		if strings.TrimSpace(req.ACPCommand) != "" || len(req.ACPArgs) > 0 || len(req.ACPEnv) > 0 {
+		if strings.TrimSpace(req.ACPCommand) != "" || len(req.ACPArgs) > 0 || len(req.ACPEnv) > 0 ||
+			strings.TrimSpace(req.ACPAgentID) != "" {
 			return nil, fmt.Errorf("configuração de agente exige api_format %q", llm.APIFormatACP)
 		}
 	}
@@ -344,6 +366,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		ACPCommand:        req.ACPCommand,
 		ACPArgs:           append([]string(nil), req.ACPArgs...),
 		ACPEnv:            copyStringMap(req.ACPEnv),
+		ACPAgentID:        strings.TrimSpace(req.ACPAgentID),
 	}
 	normalizeProviderRuntimeDefaults(provider)
 
@@ -386,6 +409,13 @@ type UpdateRequest struct {
 	// e "vazio é não mexer" tornaria isso impossível.
 	ACPArgs *[]string
 	ACPEnv  *map[string]string
+	// ACPAgentID é ponteiro pela mesma razão que ACPArgs e ACPEnv: aqui o
+	// vazio é escolha legítima. Trocar o agente de um provedor é edição
+	// comum — quem instalou o Gemini CLI no lugar do Cursor mantém o provedor
+	// e troca o que ele sobe —, mas desvinculá-lo do catálogo mantendo o
+	// comando também é, e é o único jeito de consertar um provedor cujo `id`
+	// o registro aposentou. Nulo é "não mexer".
+	ACPAgentID *string
 }
 
 // UpdateResult contém os dados após atualização.
@@ -416,6 +446,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		ACPCommand:        existing.ACPCommand,
 		ACPArgs:           append([]string(nil), existing.ACPArgs...),
 		ACPEnv:            copyStringMap(existing.ACPEnv),
+		ACPAgentID:        existing.ACPAgentID,
 	}
 
 	if req.Name != "" {
@@ -446,6 +477,13 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	if acpCommand != "" {
 		updated.ACPCommand = acpCommand
 	}
+	// Nulo é "não mexer"; presente, mesmo vazio, é edição — e o vazio
+	// desvincula o provedor do catálogo sem tirar dele o comando.
+	acpAgentID := ""
+	if req.ACPAgentID != nil {
+		acpAgentID = strings.TrimSpace(*req.ACPAgentID)
+		updated.ACPAgentID = acpAgentID
+	}
 	if req.ACPArgs != nil {
 		updated.ACPArgs = append([]string(nil), (*req.ACPArgs)...)
 	}
@@ -453,7 +491,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		updated.ACPEnv = copyStringMap(*req.ACPEnv)
 	}
 	if !updated.IsACP() {
-		if acpCommand != "" || req.ACPArgs != nil || req.ACPEnv != nil {
+		if acpCommand != "" || req.ACPArgs != nil || req.ACPEnv != nil || acpAgentID != "" {
 			return nil, fmt.Errorf("provider '%s' não é acp: para configurar um agente, mude o api_format para %q", id, llm.APIFormatACP)
 		}
 		// Deixar de ser agente é largar o comando junto. Guardá-lo escondido
@@ -464,6 +502,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		updated.ACPCommand = ""
 		updated.ACPArgs = nil
 		updated.ACPEnv = nil
+		updated.ACPAgentID = ""
 		if existing.IsACP() {
 			// O `none` era decisão de quando não havia para onde mandar
 			// credencial. Mantê-lo faria o provedor HTTP chamar a API sem a

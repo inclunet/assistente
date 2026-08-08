@@ -189,6 +189,14 @@ var schemaMigrations = []migration{
 		Phase: phasePostAutoMigrate,
 		Run:   dropACPSessionPromptPrefixHash,
 	},
+	{
+		Version: 12,
+		Name:    "acp_providers_single_type",
+		// PÓS: a conversão grava na coluna acp_agent_id, que é o AutoMigrate
+		// quem acrescenta.
+		Phase: phasePostAutoMigrate,
+		Run:   migrateAgentProvidersToSingleType,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

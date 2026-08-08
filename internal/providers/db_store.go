@@ -129,6 +129,7 @@ func toDBModel(p *llm.ProviderConfig) *database.LLMProvider {
 		ACPCommand:        p.ACPCommand,
 		ACPArgs:           encodeACPList(p.ACPArgs),
 		ACPEnv:            encodeACPMap(p.ACPEnv),
+		ACPAgentID:        p.ACPAgentID,
 	}
 }
 
@@ -156,6 +157,7 @@ func fromDBModel(dbP *database.LLMProvider) (*llm.ProviderConfig, error) {
 		ACPCommand:        dbP.ACPCommand,
 		ACPArgs:           args,
 		ACPEnv:            env,
+		ACPAgentID:        dbP.ACPAgentID,
 	}
 	normalizeProviderRuntimeDefaults(p)
 	return p, nil

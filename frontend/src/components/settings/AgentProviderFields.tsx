@@ -74,8 +74,13 @@ export const agentLoginCommand = (command: string, args: string[]): string => {
 };
 
 export interface AgentProviderFieldsProps {
-  /** Tipo do agente procurado na máquina (ex.: `cursor`). */
-  agentKind: string;
+  /**
+   * O agente deste provedor, nomeado pelo `id` do registro ACP (ex.: `cursor`,
+   * `claude-acp`). Vazio é agente apontado à mão, sem linha no catálogo: os
+   * campos de comando continuam valendo, e o que depende de saber qual agente é
+   * — procurar no disco, instalar pelo catálogo — não tem o que oferecer.
+   */
+  agentId: string;
   command: string;
   args: string[];
   onCommandChange: (command: string) => void;
@@ -98,7 +103,7 @@ export interface AgentProviderFieldsProps {
  * esconderia o alcance do que a pessoa está autorizando.
  */
 export const AgentProviderFields = ({
-  agentKind,
+  agentId,
   command,
   args,
   onCommandChange,
@@ -117,7 +122,7 @@ export const AgentProviderFields = ({
   // deles é o comando de login, que mandaria rodar o login do Claude Code para
   // autenticar o Cursor.
   const [detected, setDetected] = useState<{ kind: string; result: AgentSetup } | null>(null);
-  const setup = detected?.kind === agentKind ? detected.result : null;
+  const setup = detected?.kind === agentId ? detected.result : null;
   const [detecting, setDetecting] = useState(false);
   const [detectError, setDetectError] = useState('');
   const [testing, setTesting] = useState(false);
@@ -194,8 +199,21 @@ export const AgentProviderFields = ({
     useRef<(options: { applyCommand: 'always' | 'ifEmpty' | 'never'; announceFound: boolean }) => Promise<void>>();
   detectRef.current = async ({ applyCommand, announceFound }) => {
     const seq = ++searchSeq.current;
-    const kind = agentKind;
+    const kind = agentId;
     const obsoleta = () => seq !== searchSeq.current || !mountedRef.current;
+    if (!kind) {
+      // Sem agente escolhido não há o que procurar, e uma chamada com nome
+      // vazio só voltaria dizendo que o app não sabe procurar "".
+      //
+      // A procura que estava em voo já foi aposentada pela sequência acima, e
+      // o `finally` dela não vai mais mexer em nada. Quem desliga a luz que
+      // ela acendeu é esta chamada — sem isso a tela fica dizendo "procurando
+      // agente" para sempre, sobre uma procura que ninguém mais espera.
+      setDetected(null);
+      setDetectError('');
+      setDetecting(false);
+      return;
+    }
     setDetecting(true);
     setDetectError('');
     try {
@@ -231,7 +249,11 @@ export const AgentProviderFields = ({
       // um provedor que já tem comando, a procura é informativa: o comando salvo
       // é a escolha de quem configurou, e o alarme não descreveria problema
       // nenhum. O texto continua na tela nos dois casos.
-      if (preencheComando) {
+      //
+      // O app não saber procurar aquele agente não entra aqui: não há o que
+      // resolver, e alarmar sobre isso a cada agente do catálogo faria o
+      // anúncio deixar de significar alguma coisa.
+      if (preencheComando && result?.detectable) {
         announce(t('providerForm.agent.announce.notFound'), 'assertive');
       }
     } catch (error: unknown) {
@@ -257,7 +279,7 @@ export const AgentProviderFields = ({
       applyCommand: autoFill ? 'ifEmpty' : 'never',
       announceFound: false,
     });
-  }, [agentKind, autoFill]);
+  }, [agentId, autoFill]);
 
   const handleRedetect = () => {
     // Clique explícito aplica o que achou: é justamente para isso que alguém
@@ -311,10 +333,26 @@ export const AgentProviderFields = ({
     }
   };
 
+  // Procurar é coisa de agente que o app sabe procurar. Para os outros a tela
+  // diz isso, em vez de oferecer um botão cuja única resposta possível já é
+  // conhecida — e em vez de chamar de "não encontrado" uma procura que nunca
+  // aconteceu (AEP-0086 D1).
+  //
+  // Sem resposta ainda, o botão fica: some só quem já se soube que o app não
+  // procura. Enquanto a primeira procura corre ele é o rótulo "procurando", e
+  // se ela falhar ele é a única forma de tentar de novo sem sair da tela — foi
+  // por escondê-lo nesse caso que a falha virava beco sem saída.
+  //
+  // Sem agente escolhido não há nem pergunta: é o estado de quem acabou de
+  // escolher o tipo e ainda não abriu o catálogo, e ali um botão de procurar
+  // procuraria o quê.
+  const detectable = agentId !== '' && (setup ? setup.detectable : true);
+
   const status = (() => {
     if (detecting) return t('providerForm.agent.detecting');
     if (detectError) return detectError;
     if (!setup) return '';
+    if (!setup.detectable) return t('providerForm.agent.noDetection');
     if (setup.found) {
       return setup.version
         ? t('providerForm.agent.foundVersion', { source: setup.source, version: setup.version })
@@ -323,7 +361,10 @@ export const AgentProviderFields = ({
     return t('providerForm.agent.notFound');
   })();
 
-  const notFound = !!setup && !setup.found && !detecting;
+  // "Não encontrado" é uma resposta, e só existe depois de haver uma: sem ela,
+  // o bloco que manda instalar o CLI apareceria no instante entre escolher o
+  // agente e a procura começar, dizendo que faltou o que ninguém procurou.
+  const notFound = !!setup?.detectable && !setup.found && !detecting;
 
   // O resultado só vale para a configuração que foi testada.
   const current = tested?.signature === configSignature(command, args) ? tested : null;
@@ -378,20 +419,22 @@ export const AgentProviderFields = ({
         isso clicando descobre depois de perder o que havia digitado.
       */}
       <div className="agent-fields__actions">
-        <div className="agent-fields__action">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={handleRedetect}
-            disabled={detecting}
-            aria-describedby={detectHelpId}
-          >
-            {detecting ? t('providerForm.agent.detecting') : t('providerForm.agent.detectBtn')}
-          </Button>
-          <p id={detectHelpId} className="agent-fields__action-help">
-            {t('providerForm.agent.detectBtnHelp')}
-          </p>
-        </div>
+        {detectable && (
+          <div className="agent-fields__action">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleRedetect}
+              disabled={detecting}
+              aria-describedby={detectHelpId}
+            >
+              {detecting ? t('providerForm.agent.detecting') : t('providerForm.agent.detectBtn')}
+            </Button>
+            <p id={detectHelpId} className="agent-fields__action-help">
+              {t('providerForm.agent.detectBtnHelp')}
+            </p>
+          </div>
+        )}
         <div className="agent-fields__action">
           <Button
             type="button"
@@ -467,7 +510,7 @@ export const AgentProviderFields = ({
         mostra e se desfaz — e isso vale mesmo quando o agente está na máquina.
       */}
       <AgentInstall
-        agentKind={agentKind}
+        agentId={agentId}
         onResolved={(installedCommand, installedArgs) => {
           onCommandChange(installedCommand);
           onArgsChange(installedArgs);
