@@ -94,6 +94,12 @@ type Installer struct {
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
+
+	// knownMu serializa a escrita da memória de artefatos, que é um arquivo só
+	// para todos os agentes: a guarda acima é por agente, e dois agentes
+	// instalando ao mesmo tempo perderiam uma entrada na corrida entre ler e
+	// gravar.
+	knownMu sync.Mutex
 }
 
 // New monta o instalador.

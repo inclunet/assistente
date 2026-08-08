@@ -222,6 +222,141 @@ func TestComAConfirmacaoReforcadaOArtefatoSemDigestEInstaladoEODigestFicaComoObs
 	}
 }
 
+// instalarSemDigest baixa o que o cliente estiver servindo, com a confirmação
+// reforçada dada.
+func instalarSemDigest(t *testing.T, c *cenario) (Installation, error) {
+	t.Helper()
+	return c.instalador.Install(context.Background(), opencodeID, Confirmed{
+		Distribution:     DistributionBinary,
+		AcceptUnverified: true,
+	})
+}
+
+func TestAMesmaVersaoQueVoltaComOutroArquivoERecusada(t *testing.T) {
+	// É a confiança que o SSH aplica à chave de host: aceita o que aparece na
+	// estreia e passa a estranhar a troca. Não protege a primeira instalação —
+	// nada protege —, e passa a proteger todas as seguintes (D4).
+	cliente := &clienteFalso{corpo: pacoteDoOpencode(t)}
+	c := montar(t, opcoes{
+		agentes: []acpregistry.Agent{agenteOpencode(t, "")},
+		runtime: runtimeSemNode,
+		http:    cliente,
+	})
+
+	if _, err := instalarSemDigest(t, c); err != nil {
+		t.Fatalf("a primeira instalação falhou: %v", err)
+	}
+	if err := c.instalador.Remove(context.Background(), opencodeID); err != nil {
+		t.Fatalf("erro ao remover o agente: %v", err)
+	}
+
+	// O mesmo agente, a mesma versão, outro arquivo.
+	cliente.corpo = zipDeTesteBytes(t, []entradaZip{
+		{nome: nomeExecutavel(opencodeID), conteudo: "outro binário", modo: 0o755},
+	})
+	_, err := instalarSemDigest(t, c)
+	if !errors.Is(err, ErrArtifactChanged) {
+		t.Fatalf("erro = %v, queria a recusa do artefato que mudou", err)
+	}
+	// E a recusa não deixa resíduo: o diretório da versão seria lido como
+	// instalação na abertura seguinte.
+	dir := filepath.Join(c.root, opencodeID, opencodeVersao)
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("sobrou %s depois da recusa (err = %v)", dir, err)
+	}
+}
+
+func TestAMesmaVersaoComOMesmoArquivoContinuaInstalavel(t *testing.T) {
+	// A memória serve para estranhar a troca, e não para impedir reinstalar o
+	// que já se tinha: quem removeu por espaço em disco volta a instalar.
+	pacote := pacoteDoOpencode(t)
+	c := montar(t, opcoes{
+		agentes: []acpregistry.Agent{agenteOpencode(t, "")},
+		runtime: runtimeSemNode,
+		http:    &clienteFalso{corpo: pacote},
+	})
+
+	if _, err := instalarSemDigest(t, c); err != nil {
+		t.Fatalf("a primeira instalação falhou: %v", err)
+	}
+	if err := c.instalador.Remove(context.Background(), opencodeID); err != nil {
+		t.Fatalf("erro ao remover o agente: %v", err)
+	}
+	if _, err := instalarSemDigest(t, c); err != nil {
+		t.Fatalf("a reinstalação do mesmo arquivo falhou: %v", err)
+	}
+}
+
+func TestAMemoriaDoArtefatoSobreviveARemocaoDoAgente(t *testing.T) {
+	// Ela mora na raiz, e não dentro do diretório do agente: remover libera
+	// disco, e esquecer junto faria a instalação seguinte ser de novo uma
+	// estreia — que é justamente quando não há o que conferir.
+	c := montar(t, opcoes{
+		agentes: []acpregistry.Agent{agenteOpencode(t, "")},
+		runtime: runtimeSemNode,
+		http:    &clienteFalso{corpo: pacoteDoOpencode(t)},
+	})
+
+	if _, err := instalarSemDigest(t, c); err != nil {
+		t.Fatalf("a instalação falhou: %v", err)
+	}
+	if err := c.instalador.Remove(context.Background(), opencodeID); err != nil {
+		t.Fatalf("erro ao remover o agente: %v", err)
+	}
+
+	if c.instalador.knownDigest(opencodeID, opencodeVersao) == "" {
+		t.Error("a memória do artefato foi embora junto com o agente")
+	}
+}
+
+func TestOArtefatoComDigestPublicadoNaoEntraNaMemoria(t *testing.T) {
+	// O publicado já ancora a versão por conta própria, e lembrar dele faria o
+	// app recusar a republicação que o registro anuncia — que é exatamente o
+	// caso em que ele deveria confiar.
+	pacote := pacoteDoOpencode(t)
+	c := montar(t, opcoes{
+		agentes: []acpregistry.Agent{agenteOpencode(t, digestDe(pacote))},
+		runtime: runtimeSemNode,
+		http:    &clienteFalso{corpo: pacote},
+	})
+
+	if _, err := c.instalador.Install(context.Background(), opencodeID, Confirmed{
+		Distribution: DistributionBinary,
+	}); err != nil {
+		t.Fatalf("a instalação falhou: %v", err)
+	}
+
+	if got := c.instalador.knownDigest(opencodeID, opencodeVersao); got != "" {
+		t.Errorf("memória = %q, queria vazia para artefato conferido", got)
+	}
+}
+
+func TestAMemoriaIlegivelNaoTravaAInstalacao(t *testing.T) {
+	// Quem consegue corromper o arquivo consegue trocar o executável instalado
+	// ao lado dele: travar toda instalação por causa disso custaria caro sem
+	// fechar porta nenhuma. O aviso fica no log.
+	c := montar(t, opcoes{
+		agentes: []acpregistry.Agent{agenteOpencode(t, "")},
+		runtime: runtimeSemNode,
+		http:    &clienteFalso{corpo: pacoteDoOpencode(t)},
+	})
+	if err := os.MkdirAll(c.root, 0o755); err != nil {
+		t.Fatalf("erro ao preparar a raiz: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(c.root, knownFileName), []byte("{isso não é json"), 0o644); err != nil {
+		t.Fatalf("erro ao escrever a memória corrompida: %v", err)
+	}
+
+	if _, err := instalarSemDigest(t, c); err != nil {
+		t.Fatalf("a instalação falhou por causa da memória ilegível: %v", err)
+	}
+	// E a memória volta a valer: o arquivo corrompido é substituído pelo que
+	// esta instalação observou.
+	if c.instalador.knownDigest(opencodeID, opencodeVersao) == "" {
+		t.Error("a memória não foi refeita depois de encontrada corrompida")
+	}
+}
+
 func TestInstalarOArtefatoBaixaConfereAbreEGravaORegistro(t *testing.T) {
 	pacote := pacoteDoOpencode(t)
 	digest := digestDe(pacote)
