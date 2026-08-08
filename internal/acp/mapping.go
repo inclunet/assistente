@@ -271,35 +271,86 @@ func withModeOption(options []ConfigOption, state *sdk.SessionModeState) []Confi
 	if state == nil {
 		return options
 	}
-	if hasMode(options) {
+	if hasCategory(options, modeCategory) {
 		return options
 	}
 	return append(options, modeOptionFrom(state))
 }
 
-// withKnownMode preserva o modo que a sessão já conhecia quando o agente manda
-// o conjunto de opções sem ele. Acontece com quem anuncia o modo pelo formato
-// legado: o conjunto novo fala só de modelo, e sem isso o seletor de modo
-// desapareceria no meio da conversa.
-func withKnownMode(fresh, known []ConfigOption) []ConfigOption {
-	if len(fresh) == 0 || hasMode(fresh) {
+// legacyModelState é o formato anterior ao configOptions para dizer quais
+// modelos o agente tem e qual está valendo. O SDK não o tipa — ele é anterior
+// ao padrão e tende a sair —, e é por isso que a estrutura mora aqui, do lado
+// de dentro do transporte, onde a saída de baixo nível existe justamente para
+// os campos que o SDK não acompanha (AEP-0084 D2).
+type legacyModelState struct {
+	AvailableModels []legacyModel `json:"availableModels"`
+	CurrentModelID  string        `json:"currentModelId"`
+}
+
+type legacyModel struct {
+	ModelID string `json:"modelId"`
+	Name    string `json:"name"`
+}
+
+// modelOptionFrom converte o formato legado de modelos numa ConfigOption, pelo
+// mesmo desenho do modo: o app tem um caminho só, e quem escolhe modelo procura
+// pela categoria sem saber por qual dos dois formatos ela chegou.
+//
+// Um modelo sem identificador é descartado: o identificador é o que a troca
+// manda de volta ao agente, e uma linha na lista que não dá para escolher só
+// serviria para a pessoa tentar.
+func modelOptionFrom(state *legacyModelState) ConfigOption {
+	option := ConfigOption{
+		ID:           "model",
+		Category:     CategoryModel,
+		CurrentValue: state.CurrentModelID,
+	}
+	for _, model := range state.AvailableModels {
+		if strings.TrimSpace(model.ModelID) == "" {
+			continue
+		}
+		option.Values = append(option.Values, ConfigValue{Value: model.ModelID, Name: model.Name})
+	}
+	return option
+}
+
+// withModelOption acrescenta os modelos legados só quando o agente não mandou a
+// mesma informação no formato estável. Sem modelo nenhum na lista não há opção:
+// um seletor vazio diria que a escolha existe e não deixaria escolher.
+func withModelOption(options []ConfigOption, state *legacyModelState) []ConfigOption {
+	if state == nil || hasCategory(options, CategoryModel) {
+		return options
+	}
+	option := modelOptionFrom(state)
+	if len(option.Values) == 0 {
+		return options
+	}
+	return append(options, option)
+}
+
+// withKnownLegacy preserva o que a sessão já conhecia e o conjunto novo não
+// trouxe. Acontece com quem anuncia modo ou modelo pelo formato legado: aquilo
+// chega uma vez, na abertura da sessão, e o conjunto que o agente manda depois
+// fala só do que ele guarda em configOptions. Sem isto, o seletor sumiria da
+// tela no meio da conversa por causa de uma troca na outra categoria.
+func withKnownLegacy(fresh, known []ConfigOption) []ConfigOption {
+	if len(fresh) == 0 {
 		return fresh
 	}
-	for _, option := range known {
-		if option.Category == modeCategory {
-			return append(fresh, option)
+	for _, category := range []string{modeCategory, CategoryModel} {
+		if hasCategory(fresh, category) {
+			continue
+		}
+		if option, ok := OptionByCategory(known, category); ok {
+			fresh = append(fresh, option)
 		}
 	}
 	return fresh
 }
 
-func hasMode(options []ConfigOption) bool {
-	for _, option := range options {
-		if option.Category == modeCategory {
-			return true
-		}
-	}
-	return false
+func hasCategory(options []ConfigOption, category string) bool {
+	_, ok := OptionByCategory(options, category)
+	return ok
 }
 
 func permissionOptionsFrom(options []sdk.PermissionOption) []PermissionOption {

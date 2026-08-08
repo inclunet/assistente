@@ -1217,6 +1217,26 @@ func TestRetomarSessaoUsaOIdentificadorExistente(t *testing.T) {
 	}
 }
 
+// Reabrir uma conversa tem de devolver os modelos do mesmo jeito que abrir uma
+// nova. Ler o formato de antes só na abertura deixaria o seletor sumir de toda
+// conversa retomada, que é a maioria delas.
+func TestSessaoRetomadaTambemLeOsModelosDoFormatoAnterior(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptSoLegado, nil)
+
+	sess, err := client.LoadSession(ctx, fakeSessionID, t.TempDir())
+	if err != nil {
+		t.Fatalf("retomar sessão: %v", err)
+	}
+	option := findOption(sess.ConfigOptions(), CategoryModel)
+	if option == nil {
+		t.Fatalf("nenhuma opção de modelo: %+v", sess.ConfigOptions())
+	}
+	if option.CurrentValue != "modelo-b" {
+		t.Errorf("modelo corrente = %q, queria modelo-b", option.CurrentValue)
+	}
+}
+
 func TestChamadaCruaAlcancaMetodosNaoTipados(t *testing.T) {
 	ctx := testContext(t)
 	client := newTestClient(t, scriptTurn, nil)

@@ -148,7 +148,7 @@ func (s *session) setConfigOptions(options []ConfigOption) {
 func (s *session) mergeConfigOptions(fresh []ConfigOption) ([]ConfigOption, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	merged := withKnownMode(fresh, s.options)
+	merged := withKnownLegacy(fresh, s.options)
 	if len(merged) == 0 {
 		return copyOptions(s.options), false
 	}

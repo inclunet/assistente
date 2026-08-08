@@ -36,6 +36,11 @@ const (
 	// scriptLegado é o agente anterior ao configOptions: desconhece
 	// session/set_config_option e só entende os seletores de antes.
 	scriptLegado = "legado"
+	// scriptSoLegado é o agente que anuncia os modelos apenas no formato de
+	// antes — `models`, sem configOptions nenhum —, como o GitHub Copilot CLI
+	// (AEP-0084, Fase 10). O scriptLegado não serve para isso: ele recusa o
+	// seletor novo, mas ainda anuncia as opções pelo formato de hoje.
+	scriptSoLegado = "so-legado"
 	// scriptModelo responde ao turno dizendo em que modelo ele está, que é como
 	// o teste confere que a troca valeu para o turno seguinte.
 	scriptModelo        = "modelo"
@@ -213,6 +218,13 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 
 	case "session/new":
 		sid := a.newSessionID()
+		if a.script == scriptSoLegado {
+			a.reply(*msg.ID, map[string]any{
+				"sessionId": sid,
+				"models":    fakeLegacyModels(a.startModel(sid)),
+			})
+			return
+		}
 		option := fakeModelOption(a.startModel(sid))
 		if a.script == scriptDescoberta {
 			// O nome carrega a escrituração do agente: quantas sessões ele
@@ -258,7 +270,7 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 	case legacySetModelMethod:
 		// Só o agente legado conhece o seletor de antes; nos outros ele cai no
 		// método desconhecido, como num agente que já migrou.
-		if a.script != scriptLegado {
+		if a.script != scriptLegado && a.script != scriptSoLegado {
 			a.replyError(*msg.ID, -32601, "método desconhecido: "+msg.Method)
 			return
 		}
@@ -293,10 +305,14 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 		a.reply(*msg.ID, nil)
 
 	case "session/load":
+		if a.script == scriptSoLegado {
+			a.reply(*msg.ID, map[string]any{"models": fakeLegacyModels("modelo-b")})
+			return
+		}
 		a.reply(*msg.ID, map[string]any{"configOptions": []any{fakeModelOption("modelo-b")}})
 
 	case "session/set_config_option":
-		if a.script == scriptLegado {
+		if a.script == scriptLegado || a.script == scriptSoLegado {
 			// Agente anterior ao formato estável: só conhece os seletores de
 			// antes, e é este erro que o app usa para tentar o outro caminho.
 			a.replyError(*msg.ID, -32601, "método desconhecido: "+msg.Method)
@@ -527,7 +543,7 @@ func (a *fakeAgent) runTurn(msg rpcMessage) {
 			"configOptions": []any{fakeModelOption("modelo-b")},
 		})
 
-	case scriptModelo, scriptLegado:
+	case scriptModelo, scriptLegado, scriptSoLegado:
 		// O turno diz em que modelo o agente está. É o que prova que a troca
 		// pedida pelo app valeu para o turno seguinte, e não só para a tela.
 		a.chunkOf(params.SessionId, "agent_message_chunk", "modelo="+a.currentModel(params.SessionId))
@@ -703,6 +719,21 @@ func fakeModelOption(current string) map[string]any {
 		"currentValue": current,
 		"options":      values,
 	}
+}
+
+// fakeLegacyModels é o formato de antes do configOptions: uma lista de modelos
+// com `modelId` e o corrente à parte. A linha sem identificador está aqui de
+// propósito — é o que prova que ela não vira uma escolha impossível na tela.
+func fakeLegacyModels(current string) map[string]any {
+	models := []any{
+		map[string]any{"modelId": "modelo-a", "name": "Modelo A"},
+		map[string]any{"modelId": "modelo-b", "name": "Modelo B"},
+		map[string]any{"modelId": "   ", "name": "Modelo sem identificador"},
+	}
+	if current != "modelo-a" && current != "modelo-b" {
+		models = append(models, map[string]any{"modelId": current, "name": current})
+	}
+	return map[string]any{"availableModels": models, "currentModelId": current}
 }
 
 func mustRaw(value any) json.RawMessage {
