@@ -115,6 +115,70 @@ jobs:
           export DISPLAY=:99.0
           go test -race -short ./...
 
+  bindings:
+    # Os tipos de `frontend/wailsjs/` são gerados a partir das assinaturas dos
+    # métodos do App e ficam versionados no repositório. Isso abre uma fresta: o
+    # `tsc` do job frontend lê o arquivo que está no git, nunca o que o gerador
+    # produziria, e um tipo escrito à mão ali deixa o CI verde enquanto o
+    # `wails build` de quem for compilar falha — foi o que aconteceu com o
+    # payload de um evento, que o gerador não escreve porque ele não aparece em
+    # assinatura de método nenhuma.
+    #
+    # Aqui os bindings são gerados do zero e o frontend é conferido contra eles.
+    # O veredito é do TypeScript, e não da igualdade byte a byte do arquivo:
+    # ordem e formatação mudam entre versões do gerador, e reprovar por isso
+    # seria barulho. Defasagem sem quebra vira aviso.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Dependências de sistema do Wails
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-3-dev xvfb
+          sudo apt-get install -y libwebkit2gtk-4.1-dev || sudo apt-get install -y libwebkit2gtk-4.0-dev
+
+      - name: Instalar o Wails CLI
+        # A versão vem do go.mod: um CLI mais novo que a biblioteca gera um
+        # arquivo que não é o que a aplicação compila.
+        run: |
+          set -euo pipefail
+          VERSAO=$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)
+          echo "Wails do go.mod: ${VERSAO}"
+          go install "github.com/wailsapp/wails/v2/cmd/wails@${VERSAO}"
+
+      - name: Gerar os bindings
+        run: xvfb-run wails generate module
+
+      - name: Avisar se os bindings versionados estão defasados
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- frontend/wailsjs; then
+            echo "Bindings versionados em dia com o gerador."
+            exit 0
+          fi
+          echo "::warning::Os bindings versionados divergem do gerador. Rode 'wails generate module' e commite o resultado."
+          git diff --stat -- frontend/wailsjs
+
+      - name: Instalar dependências do frontend
+        working-directory: frontend
+        run: npm ci
+
+      - name: TypeScript sobre os bindings recém-gerados
+        working-directory: frontend
+        run: npx tsc --noEmit
+
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 15
