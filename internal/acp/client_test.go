@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	sdk "github.com/coder/acp-go-sdk"
 )
@@ -1293,6 +1294,38 @@ func TestSemAgenteQueInformeOLoginNaoSeInventaLinhaNenhuma(t *testing.T) {
 	// Hint sem programa e sem agente não tem o que montar.
 	if got := (LoginHint{Args: []string{"login"}}).CommandLine("   ", nil); got != "" {
 		t.Errorf("linha montada sem programa: %q", got)
+	}
+}
+
+// Quem já veio citado do agente sai como veio: aspas por cima das dele fariam
+// `""C:\Program Files\cli.exe""`, que nenhum terminal aceita.
+func TestOArgumentoQueJaChegaCitadoNaoGanhaOutrasAspas(t *testing.T) {
+	hint := LoginHint{
+		Command: "cli",
+		Args:    []string{`--config "C:\Program Files\cli\conf.json"`, "login"},
+	}
+	quero := `cli --config "C:\Program Files\cli\conf.json" login`
+	if got := hint.CommandLine("", nil); got != quero {
+		t.Errorf("linha de login = %q", got)
+	}
+}
+
+// O comando é para copiar, não para ler: cortá-lo no tamanho de um rótulo
+// devolveria uma linha que parece inteira, termina em reticências e não roda.
+func TestOCaminhoLongoNoComandoDeLoginChegaInteiro(t *testing.T) {
+	longo := `C:\Program Files\` + strings.Repeat("subpasta-de-nome-longo\\", 20) + "cli.exe"
+	meta := map[string]any{
+		metaTerminalAuth: map[string]any{
+			"command": longo,
+			"args":    []any{"auth", "login"},
+		},
+	}
+	hint := loginHintFrom(meta, nil)
+	if hint.Command != longo {
+		t.Errorf("comando de %d runas virou %q", utf8.RuneCountInString(longo), hint.Command)
+	}
+	if got := hint.CommandLine("", nil); !strings.HasSuffix(got, " auth login") {
+		t.Errorf("linha de login = %q", got)
 	}
 }
 

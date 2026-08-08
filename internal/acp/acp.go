@@ -261,7 +261,12 @@ func (h LoginHint) Known() bool {
 // descrição que o próprio agente escreveu.
 //
 // Argumento com espaço vai entre aspas, porque quem copia isto está no
-// caminho do Windows com `C:\Program Files\...` mais vezes do que gostaria.
+// caminho do Windows com `C:\Program Files\...` mais vezes do que gostaria —
+// a não ser que ele já traga aspas, e aí quem citou foi o agente: acrescentar
+// as nossas por cima faria `""C:\Program Files\x""`, que não roda em lugar
+// nenhum. O jeito de escapar aspas muda de shell para shell, e esta linha é
+// para ser lida e copiada, não executada pelo app; então ela sai como o agente
+// escreveu.
 func (h LoginHint) CommandLine(agentCommand string, agentArgs []string) string {
 	// Sem nada informado não há linha: devolver o comando do agente sozinho
 	// seria o app inventando uma instrução e assinando-a como do agente.
@@ -280,7 +285,7 @@ func (h LoginHint) CommandLine(agentCommand string, agentArgs []string) string {
 	}
 	parts := append([]string{program}, h.Args...)
 	for i, part := range parts {
-		if strings.ContainsAny(part, " \t") {
+		if strings.ContainsAny(part, " \t") && !strings.Contains(part, `"`) {
 			parts[i] = `"` + part + `"`
 		}
 	}

@@ -69,9 +69,10 @@ func authMethodFrom(method sdk.AuthMethod) (AuthMethod, bool) {
 const metaTerminalAuth = "terminal-auth"
 
 // loginHintFrom lê o comando de login que o agente publicou. Tudo o que sai
-// daqui é texto do agente, e passa pelo saneamento de rótulo (D11) porque vai
-// para a tela: sequência de escape numa linha de comando é como se pinta na
-// tela uma coisa diferente da que se copia.
+// daqui é texto do agente e passa pelo saneamento (D11), porque vai para a
+// tela: sequência de escape numa linha de comando é como se pinta na tela uma
+// coisa diferente da que se copia. O rótulo é saneado como rótulo; o programa e
+// os argumentos, como pedaços de comando, que não se resumem.
 func loginHintFrom(meta map[string]any, fallbackArgs []string) LoginHint {
 	hint := LoginHint{Args: sanitizedArgs(fallbackArgs)}
 
@@ -80,7 +81,7 @@ func loginHintFrom(meta map[string]any, fallbackArgs []string) LoginHint {
 		return hint
 	}
 	if command, ok := entry["command"].(string); ok {
-		hint.Command = SanitizeLabel(command)
+		hint.Command = SanitizeCommandPart(command)
 	}
 	if label, ok := entry["label"].(string); ok {
 		hint.Label = SanitizeLabel(label)
@@ -109,7 +110,7 @@ func stringsOf(values []any) []string {
 func sanitizedArgs(args []string) []string {
 	var out []string
 	for _, arg := range args {
-		if clean := SanitizeLabel(arg); clean != "" {
+		if clean := SanitizeCommandPart(arg); clean != "" {
 			out = append(out, clean)
 		}
 	}
