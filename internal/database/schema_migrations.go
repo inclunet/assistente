@@ -387,14 +387,16 @@ func normalizeACPSessionUserID(database *gorm.DB) error {
 	return nil
 }
 
-// agentTypeToRegistryID é a tradução usada uma única vez, na migração v12, dos
-// tipos de provedor que existiram enquanto cada agente tinha o seu (AEP-0086
-// D11, emenda).
+// agentTypeToRegistryID é a tradução, para a migração v12, dos tipos de
+// provedor que existiram enquanto cada agente tinha o seu (AEP-0086 D11,
+// emenda).
 //
-// Ela mora aqui, e não num pacote de domínio, porque é o que ela é: memória de
-// um vocabulário que o app não fala mais. Depois de convertidos os provedores,
-// nada no código volta a perguntar isso — quem quiser saber qual agente é um
-// provedor lê o `acp_agent_id` dele.
+// Ela está escrita aqui, e não vem de `llm.LegacyAgentRegistryID` — que traduz
+// o mesmo para o provedor que chega por importação —, pela razão que vale para
+// todas as migrações: uma migração descreve o banco no momento em que rodou. Se
+// o domínio mudar de ideia sobre esses nomes, esta continua tendo de escrever o
+// que escreveu na época, ou bancos convertidos e por converter deixariam de
+// concordar.
 var agentTypeToRegistryID = map[string]string{
 	"cursor":      "cursor",
 	"claude-code": "claude-acp",

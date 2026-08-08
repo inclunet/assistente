@@ -632,6 +632,17 @@ detectores de instalação alheia passam a ser indexados pelo `id` do registro, 
 o formulário deixa de perguntar o plano de instalação "pelo tipo" para perguntar
 pelo agente que ele tem em mãos.
 
+Some do app, mas não do mundo: provedor com o vocabulário antigo continua
+chegando de fora depois da migração. Um arquivo de exportação escrito antes
+desta emenda nomeia o agente no tipo, e um banco pode chegar por cópia de
+arquivo. Por isso a tradução dos tipos aposentados para o `id` do registro
+sobrevive em um lugar só, e é aplicada em duas fronteiras: na importação, que
+grava o provedor já com o vocabulário de hoje, e na leitura do provedor, que
+normaliza o que estiver gravado. As duas usam a mesma função; a migração v12
+tem os literais dela por escrito, como toda migração, porque descreve o banco no
+momento em que rodou. O resto do app nunca vê os nomes antigos — que é o que
+esta decisão promete.
+
 #### Detector é detalhe, e não exceção
 
 Cursor e Claude Code continuam sendo os dois agentes que o app sabe procurar no
@@ -982,12 +993,15 @@ não há em lugar nenhum uma preferência que desligue a pergunta.
 agente ACP passa a ser o tipo `acp`, com o `id` do registro no `acp_agent_id`, e
 os provedores já gravados como `cursor` e `claude-code` são convertidos por
 migração versionada. `detect.go` e `detect_claude_code.go` ficam com o papel de
-reconhecer instalação alheia (D1), indexados pelo `id` do registro.
+reconhecer instalação alheia (D1), indexados pelo `id` do registro. A importação
+e a leitura de provedor normalizam o vocabulário antigo pela mesma tradução, para
+provedor que chega de fora do banco migrado entrar pelo modelo de hoje.
 
 **Aceite:** dá para criar e usar um provider de um agente que não é `cursor` nem
 `claude-code` — Gemini CLI serve de caso — sem código novo por agente; provider
-já salvo continua subindo o mesmo comando depois da migração, e nenhum caminho
-do app pergunta qual agente é para decidir o que fazer.
+já salvo continua subindo o mesmo comando depois da migração; provider importado
+de arquivo antigo entra como `acp` com o agente no campo próprio, e nenhum
+caminho do app pergunta qual agente é para decidir o que fazer.
 
 ### Fase 7 — Aviso de versão nova e atualização pedida
 

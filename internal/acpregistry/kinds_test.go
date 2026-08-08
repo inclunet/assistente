@@ -53,6 +53,23 @@ func TestADeteccaoUsaOsNomesDoRegistroENaoUmVocabularioProprio(t *testing.T) {
 	}
 }
 
+func TestOTipoDeProviderAntigoAindaDizQualAgenteEra(t *testing.T) {
+	// A tradução é de mão única e serve a quem chega de fora com o vocabulário
+	// antigo — arquivo de exportação escrito antes da emenda do D11.
+	if id, ok := LegacyProviderTypeAgentID("claude-code"); !ok || id != string(acp.AgentKindClaudeCode) {
+		t.Errorf("claude-code = (%q, %v), quer o id do Claude Code no registro", id, ok)
+	}
+	if id, ok := LegacyProviderTypeAgentID(" cursor "); !ok || id != string(acp.AgentKindCursor) {
+		t.Errorf("cursor = (%q, %v), quer o id do Cursor", id, ok)
+	}
+	if _, ok := LegacyProviderTypeAgentID("openai"); ok {
+		t.Error("um tipo que nunca foi de agente foi traduzido como se fosse")
+	}
+	if _, ok := LegacyProviderTypeAgentID("acp"); ok {
+		t.Error("o tipo de hoje foi tratado como vocabulário antigo")
+	}
+}
+
 // DetectableKinds devolve uma cópia: quem monta o catálogo itera sobre ela, e
 // uma fatia compartilhada deixaria um chamador reordenar a lista de todos.
 func TestDetectableKindsNaoEntregaAListaDeDentro(t *testing.T) {

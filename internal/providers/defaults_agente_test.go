@@ -88,6 +88,78 @@ func TestOAgenteLocalNaoSeConfundeComOProvedorHTTPDaMesmaMarca(t *testing.T) {
 	}
 }
 
+func TestOAgenteGravadoComOTipoAntigoEhLidoComOVocabularioDeHoje(t *testing.T) {
+	// A migração v12 converte o banco no boot, mas ela pode ser adiada, e um
+	// banco pode chegar por cópia de arquivo. Normalizar na leitura é o que faz
+	// o resto do app — e a tela — nunca ver os nomes que o D11 aposentou.
+	casos := []struct {
+		tipo   string
+		agente string
+	}{
+		{tipo: "cursor", agente: "cursor"},
+		{tipo: "claude-code", agente: "claude-acp"},
+	}
+
+	for _, caso := range casos {
+		p := &llm.ProviderConfig{
+			ID:         caso.tipo + "-1",
+			Name:       caso.tipo,
+			Type:       llm.ProviderType(caso.tipo),
+			APIFormat:  llm.APIFormatACP,
+			ACPCommand: "algum-comando",
+		}
+		normalizeProviderRuntimeDefaults(p)
+
+		if p.Type != llm.ProviderACP {
+			t.Errorf("%s: tipo = %q, queria acp", caso.tipo, p.Type)
+		}
+		if p.ACPAgentID != caso.agente {
+			t.Errorf("%s: agente = %q, queria %q", caso.tipo, p.ACPAgentID, caso.agente)
+		}
+	}
+}
+
+func TestOAgenteJaConvertidoNaoTemOAgenteTrocadoPeloTipoAntigo(t *testing.T) {
+	// O campo é a resposta; o tipo antigo era palpite. Um provedor que já diz
+	// qual agente é não pode perdê-lo para a compatibilidade.
+	p := &llm.ProviderConfig{
+		ID:         "misto",
+		Name:       "Agente",
+		Type:       llm.ProviderType("cursor"),
+		APIFormat:  llm.APIFormatACP,
+		ACPCommand: "gemini",
+		ACPAgentID: "gemini-cli",
+	}
+	normalizeProviderRuntimeDefaults(p)
+
+	if p.ACPAgentID != "gemini-cli" {
+		t.Errorf("agente = %q, queria o que estava gravado", p.ACPAgentID)
+	}
+}
+
+func TestOProvedorHTTPChamadoDeCursorContinuaSendoOQueEra(t *testing.T) {
+	// A tradução só vale para agente: `cursor` também é nome que alguém pode ter
+	// dado a um provedor HTTP, e convertê-lo inventaria configuração de agente.
+	p := &llm.ProviderConfig{
+		ID:        "http-cursor",
+		Name:      "Cursor pela API",
+		Type:      llm.ProviderType("cursor"),
+		APIFormat: llm.APIFormatOpenAI,
+		BaseURL:   "https://api.exemplo/v1",
+	}
+	normalizeProviderRuntimeDefaults(p)
+
+	if p.Type != llm.ProviderType("cursor") {
+		t.Errorf("tipo = %q, queria o que estava gravado", p.Type)
+	}
+	if p.ACPAgentID != "" {
+		t.Errorf("ganhou agente do registro sem ser um agente: %q", p.ACPAgentID)
+	}
+	if p.BaseURL == "" {
+		t.Error("perdeu o endereço, que é o que endereça um provedor HTTP")
+	}
+}
+
 func TestNenhumAgenteTemTemplateEscritoAMao(t *testing.T) {
 	// Enquanto Cursor e Claude Code tinham template aqui, acrescentar um agente
 	// era acrescentar código, que é o que a Fase 6 do AEP-0086 apagou. Qual

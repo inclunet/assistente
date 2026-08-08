@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"assistente/internal/acp"
+	"assistente/internal/acpregistry"
 	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
@@ -251,6 +252,19 @@ func normalizeProviderACP(p *llm.ProviderConfig) {
 	p.BaseURL = ""
 	p.CredentialPattern = ""
 	p.AuthMode = llm.AuthModeNone
+
+	// Agente gravado com o vocabulário anterior ao D11 — quando cada um tinha
+	// seu tipo — chega aqui como o de hoje: tipo único, agente no campo
+	// próprio. A migração v12 converte o banco no boot, mas ela pode ter sido
+	// adiada, e um banco pode ter chegado por cópia de arquivo. Normalizar na
+	// leitura faz o resto do app nunca precisar conhecer os nomes antigos, que
+	// é o que o D11 promete.
+	if agentID, legado := acpregistry.LegacyProviderTypeAgentID(string(p.Type)); legado {
+		p.Type = llm.ProviderACP
+		if strings.TrimSpace(p.ACPAgentID) == "" {
+			p.ACPAgentID = agentID
+		}
+	}
 }
 
 // copyStringMap devolve uma cópia rasa, ou nil quando não há nada. Guardar o

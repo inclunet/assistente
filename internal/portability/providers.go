@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/acpregistry"
 	"assistente/internal/database"
 
 	"gorm.io/gorm"
@@ -18,6 +19,10 @@ import (
 // `llm` aqui fecha um ciclo: o teste de `llm` usa `mcp`, e `mcp` usa este
 // pacote. A cópia é travada por teste, que compara as duas constantes.
 const acpAPIFormat = "acp"
+
+// acpProviderType repete `llm.ProviderACP` pelo mesmo motivo, e é travado pelo
+// mesmo teste.
+const acpProviderType = "acp"
 
 func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
 	args, err := decodeStringSlice(provider.ACPArgs)
@@ -187,6 +192,16 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 		// passa a ser obrigatório.
 		if normalized.ACPCommand == "" {
 			return ProviderExport{}, fmt.Errorf("provider %q em formato acp sem acpCommand não pode ser importado", normalized.ID)
+		}
+		// Arquivo escrito antes da emenda do D11 nomeia o agente no tipo. Ele
+		// entra pelo vocabulário de hoje: tipo único, agente no campo próprio.
+		// Importar como estava criaria, do lado de fora da migração, o provedor
+		// com tipo que o app não oferece mais.
+		if agentID, legado := acpregistry.LegacyProviderTypeAgentID(normalized.Type); legado {
+			normalized.Type = acpProviderType
+			if normalized.ACPAgentID == "" {
+				normalized.ACPAgentID = agentID
+			}
 		}
 		return normalized, nil
 	}

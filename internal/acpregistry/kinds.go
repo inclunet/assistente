@@ -2,6 +2,7 @@ package acpregistry
 
 import (
 	"slices"
+	"strings"
 
 	"assistente/internal/acp"
 )
@@ -31,6 +32,29 @@ func DetectableKind(id string) (acp.AgentKind, bool) {
 		return kind, true
 	}
 	return "", false
+}
+
+// legacyProviderTypes traduz os tipos de provedor que existiram enquanto cada
+// agente tinha o seu para o `id` da linha do registro (AEP-0086 D11, emenda).
+//
+// Ela ainda é necessária porque provedor com o vocabulário antigo continua
+// chegando de fora: o banco de quem já tinha um é convertido na migração v12,
+// mas um arquivo de exportação escrito antes da emenda pode ser importado
+// depois, e nele o agente está nomeado no tipo.
+var legacyProviderTypes = map[string]string{
+	"cursor":      string(acp.AgentKindCursor),
+	"claude-code": string(acp.AgentKindClaudeCode),
+}
+
+// LegacyProviderTypeAgentID devolve o `id` do registro que um tipo de provedor
+// antigo nomeava. O `false` diz que aquele tipo nunca foi de agente.
+//
+// Quem chama precisa ter verificado antes que o provedor é um agente: `cursor`
+// também é nome que alguém pode ter dado a um provedor HTTP, e converter aquilo
+// em agente do registro inventaria configuração que ninguém pediu.
+func LegacyProviderTypeAgentID(providerType string) (string, bool) {
+	id, ok := legacyProviderTypes[strings.TrimSpace(providerType)]
+	return id, ok
 }
 
 // DetectableKinds são os agentes que a detecção conhece, em ordem estável. Quem
