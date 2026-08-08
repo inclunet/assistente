@@ -366,7 +366,7 @@ func (i *Installer) installFromBinary(ctx context.Context, agent acpregistry.Age
 	// consentimento é o que separa instalar de baixar sozinho, e uma regra que
 	// mora só na interface deixa de valer no primeiro chamador novo (D4).
 	if target.SHA256 == "" && !confirmed.AcceptUnverified {
-		return Installation{}, failf(StepCatalog, "%w: %s", ErrUnverifiedNotAccepted, acp.SanitizeLabel(agent.Name))
+		return Installation{}, failf(StepCatalog, "%w: %s", ErrUnverifiedNotAccepted, acp.SanitizeLabel(agent.ID))
 	}
 	if _, err := formatOf(target.Archive); err != nil {
 		return Installation{}, failf(StepCatalog, "%w", err)
